@@ -3,6 +3,7 @@
 import { initPlasmicLoader } from "@plasmicapp/loader-nextjs";
 import jmespath from "jmespath";
 import _ from "lodash";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 
 
 export const PLASMIC = initPlasmicLoader({
@@ -57,9 +58,54 @@ const addStHq = (itemMap, cusMap, data, itemKey, dateKey, cusKey, hqKey) => {
   return {...data, ...sthq}
 }
 
+// Global state management (similar to _app.jsx but accessible via $$)
+let globalStateStore = {};
+const globalStateListeners = new Set();
+
+const notifyListeners = () => {
+  globalStateListeners.forEach(listener => listener(globalStateStore));
+};
+
+const setGlobalState = (stateName, data) => {
+  if (typeof stateName === 'string') {
+    globalStateStore = {
+      ...globalStateStore,
+      [stateName]: data
+    };
+  } else if (typeof stateName === 'object' && stateName !== null) {
+    globalStateStore = {
+      ...globalStateStore,
+      ...stateName
+    };
+  }
+  notifyListeners();
+  
+  // Update window.state reference
+  if (typeof window !== 'undefined') {
+    window.state = globalStateStore;
+  }
+  
+  return globalStateStore;
+};
+
+const getGlobalState = (stateName) => {
+  if (stateName) {
+    return globalStateStore[stateName];
+  }
+  return globalStateStore;
+};
+
 if (typeof window !== 'undefined') {
   window.jmespath = jmespath;
   window._ = _;
+  window.useState = useState;
+  window.useEffect = useEffect;
+  window.useCallback = useCallback;
+  window.useMemo = useMemo;
+  window.useRef = useRef;
+  window.setGlobalState = setGlobalState;
+  window.getGlobalState = getGlobalState;
+  window.state = globalStateStore;
 }
 
 PLASMIC.registerFunction(jmespath.search, {
@@ -85,4 +131,71 @@ PLASMIC.registerFunction(addStHq, {
     { name: "hqKey", type: "string", description: "Key to access HQ in customer team" },
   ],
   returnType: "object",
+});
+
+PLASMIC.registerFunction(useState, {
+  name: "useState",
+  description: "React useState hook (only works in React component context)",
+  parameters: [
+    { name: "initialValue", type: "any", description: "Initial state value" },
+  ],
+  returnType: "array",
+});
+
+PLASMIC.registerFunction(useEffect, {
+  name: "useEffect",
+  description: "React useEffect hook (only works in React component context)",
+  parameters: [
+    { name: "effect", type: "function", description: "Effect function to run" },
+    { name: "deps", type: "array", description: "Dependency array", optional: true },
+  ],
+  returnType: "void",
+});
+
+PLASMIC.registerFunction(useCallback, {
+  name: "useCallback",
+  description: "React useCallback hook (only works in React component context)",
+  parameters: [
+    { name: "callback", type: "function", description: "Callback function to memoize" },
+    { name: "deps", type: "array", description: "Dependency array" },
+  ],
+  returnType: "function",
+});
+
+PLASMIC.registerFunction(useMemo, {
+  name: "useMemo",
+  description: "React useMemo hook (only works in React component context)",
+  parameters: [
+    { name: "factory", type: "function", description: "Factory function that returns memoized value" },
+    { name: "deps", type: "array", description: "Dependency array" },
+  ],
+  returnType: "any",
+});
+
+PLASMIC.registerFunction(useRef, {
+  name: "useRef",
+  description: "React useRef hook (only works in React component context)",
+  parameters: [
+    { name: "initialValue", type: "any", description: "Initial ref value", optional: true },
+  ],
+  returnType: "object",
+});
+
+PLASMIC.registerFunction(setGlobalState, {
+  name: "setGlobalState",
+  description: "Set global state accessible via getGlobalState",
+  parameters: [
+    { name: "stateName", type: "string", description: "State key name or object to merge" },
+    { name: "data", type: "any", description: "Data to store", optional: true },
+  ],
+  returnType: "object",
+});
+
+PLASMIC.registerFunction(getGlobalState, {
+  name: "getGlobalState",
+  description: "Get global state by key",
+  parameters: [
+    { name: "stateName", type: "string", description: "State key name (optional - returns all if omitted)", optional: true },
+  ],
+  returnType: "any",
 });
