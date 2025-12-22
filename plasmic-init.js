@@ -1,5 +1,3 @@
-"use client";
-
 import { initPlasmicLoader } from "@plasmicapp/loader-nextjs";
 import jmespath from "jmespath";
 import _ from "lodash";
