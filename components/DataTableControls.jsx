@@ -145,7 +145,7 @@ function SingleSelectField({ columns, selectedField, onSelectionChange, formatFi
             {isEmpty(filteredColumns) ? (
               <div className="px-3 py-4 text-center text-sm text-gray-500">
                 <i className="pi pi-search text-gray-400 mb-1"></i>
-                <p>No fields match "{searchTerm}"</p>
+                <p>No fields match &quot;{searchTerm}&quot;</p>
               </div>
             ) : (
               filteredColumns.map(col => {
@@ -321,7 +321,7 @@ function FieldPicker({ columns, selectedFields, onSelectionChange, formatFieldNa
             {isEmpty(filteredColumns) ? (
               <div className="px-3 py-4 text-center text-sm text-gray-500">
                 <i className="pi pi-search text-gray-400 mb-1"></i>
-                <p>No fields match "{searchTerm}"</p>
+                <p>No fields match &quot;{searchTerm}&quot;</p>
               </div>
             ) : (
               filteredColumns.map(col => {
