@@ -1,7 +1,11 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { DataTable } from 'primereact/datatable';
+import { Column } from 'primereact/column';
+import { InputText } from 'primereact/inputtext';
+import { Calendar } from 'primereact/calendar';
+import { Paginator } from 'primereact/paginator';
 import * as XLSX from 'xlsx';
 import {
   isNil,
@@ -52,9 +56,12 @@ const DATE_PATTERNS = [
  */
 function isDateLike(value) {
   if (isNil(value)) return false;
+  // Explicitly reject 0, empty strings, and small numbers
   if (value === 0 || value === '0' || value === '') return false;
   if (isDate(value)) return true;
   if (isNumber(value)) {
+    // Check if it's a reasonable timestamp (must be > 1 year in milliseconds to avoid small numbers)
+    // Minimum: Jan 1, 1980 (315532800000) to avoid false positives with small numbers
     const minTimestamp = 315532800000; // 1980-01-01
     const maxTimestamp = 4102444800000; // 2100-01-01
     if (value >= minTimestamp && value <= maxTimestamp) {
@@ -66,13 +73,17 @@ function isDateLike(value) {
   if (isString(value)) {
     const trimmed = trim(value);
     if (trimmed === '') return false;
+    // Reject pure numbers (could be IDs, quantities, etc.)
     if (/^-?\d+$/.test(trimmed)) return false;
+    // Check against known patterns
     if (DATE_PATTERNS.some(pattern => pattern.test(trimmed))) {
       const parsed = new Date(trimmed);
       return !isNaN(parsed.getTime());
     }
+    // Try parsing as date string (but be strict)
     const parsed = new Date(trimmed);
     if (!isNaN(parsed.getTime())) {
+      // Make sure it's not just a number or simple numeric string
       return !/^-?\d+\.?\d*$/.test(trimmed);
     }
   }
@@ -84,9 +95,10 @@ function isDateLike(value) {
  */
 function parseToDate(value) {
   if (isNil(value)) return null;
-  if (value === '' || value === 0 || value === '0') return null;
+  if (value === '' || value === 0 || value === '0') return null; // Empty or zero values
   if (isDate(value)) return value;
   if (isNumber(value)) {
+    // Reject timestamps that would result in epoch (1970) or invalid dates
     if (value <= 0) return null;
     const date = new Date(value);
     return isNaN(date.getTime()) ? null : date;
@@ -116,18 +128,25 @@ function formatDateValue(value) {
 
 /**
  * Parse numeric filter expression
+ * Supports: <10, >10, <=10, >=10, =10, 10 <> 20 (range)
+ * Also handles spaces: < 10, > 10, <= 10, >= 10, = 10, 10 <> 20
+ * Supports +/- signs: < -10, < - 10, < +10, < + 10
  */
 function parseNumericFilter(filterValue) {
   if (isNil(filterValue) || filterValue === '') return null;
-
+  
   const str = trim(String(filterValue));
+  
+  // Number pattern that allows optional +/- with space: -10, - 10, +10, + 10, 10
   const numPattern = '([+-]?\\s*\\d+\\.?\\d*)';
-
+  
+  // Helper to parse number with potential space after +/-
   const parseNum = (numStr) => {
     const cleaned = numStr.replace(/\s+/g, '');
     return toNumber(cleaned);
   };
-
+  
+  // Range: "10 <> 20" or "10<>20" or "-10 <> 20" or "- 10 <> - 20"
   const rangeRegex = new RegExp(`^${numPattern}\\s*<>\\s*${numPattern}$`);
   const rangeMatch = str.match(rangeRegex);
   if (rangeMatch) {
@@ -137,42 +156,48 @@ function parseNumericFilter(filterValue) {
       return { type: 'range', min: Math.min(min, max), max: Math.max(min, max) };
     }
   }
-
+  
+  // Less than or equal: "<=10" or "<= 10" or "<= -10" or "<= - 10"
   const lteRegex = new RegExp(`^<=\\s*${numPattern}$`);
   const lteMatch = str.match(lteRegex);
   if (lteMatch) {
     const num = parseNum(lteMatch[1]);
     if (!_isNaN(num)) return { type: 'lte', value: num };
   }
-
+  
+  // Greater than or equal: ">=10" or ">= 10" or ">= -10"
   const gteRegex = new RegExp(`^>=\\s*${numPattern}$`);
   const gteMatch = str.match(gteRegex);
   if (gteMatch) {
     const num = parseNum(gteMatch[1]);
     if (!_isNaN(num)) return { type: 'gte', value: num };
   }
-
+  
+  // Less than: "<10" or "< 10" or "< -10" or "< - 10"
   const ltRegex = new RegExp(`^<\\s*${numPattern}$`);
   const ltMatch = str.match(ltRegex);
   if (ltMatch) {
     const num = parseNum(ltMatch[1]);
     if (!_isNaN(num)) return { type: 'lt', value: num };
   }
-
+  
+  // Greater than: ">10" or "> 10" or "> -10"
   const gtRegex = new RegExp(`^>\\s*${numPattern}$`);
   const gtMatch = str.match(gtRegex);
   if (gtMatch) {
     const num = parseNum(gtMatch[1]);
     if (!_isNaN(num)) return { type: 'gt', value: num };
   }
-
+  
+  // Equals: "=10" or "= 10" or "= -10" or "= - 10"
   const eqRegex = new RegExp(`^=\\s*${numPattern}$`);
   const eqMatch = str.match(eqRegex);
   if (eqMatch) {
     const num = parseNum(eqMatch[1]);
     if (!_isNaN(num)) return { type: 'eq', value: num };
   }
-
+  
+  // Plain number (treat as contains/text search for partial match)
   const plainNumRegex = new RegExp(`^${numPattern}$`);
   const plainMatch = str.match(plainNumRegex);
   if (plainMatch) {
@@ -181,7 +206,8 @@ function parseNumericFilter(filterValue) {
       return { type: 'contains', value: str.replace(/\s+/g, '') };
     }
   }
-
+  
+  // Not a valid numeric filter, treat as text
   return { type: 'text', value: str };
 }
 
@@ -190,9 +216,9 @@ function parseNumericFilter(filterValue) {
  */
 function applyNumericFilter(cellValue, parsedFilter) {
   if (!parsedFilter) return true;
-
+  
   const numCell = isNumber(cellValue) ? cellValue : toNumber(cellValue);
-
+  
   switch (parsedFilter.type) {
     case 'lt':
       return !_isNaN(numCell) && numCell < parsedFilter.value;
@@ -207,9 +233,11 @@ function applyNumericFilter(cellValue, parsedFilter) {
     case 'range':
       return !_isNaN(numCell) && numCell >= parsedFilter.min && numCell <= parsedFilter.max;
     case 'contains':
+      // For plain numbers, do a string contains search
       return includes(String(cellValue ?? ''), parsedFilter.value);
     case 'text':
     default:
+      // Fallback to text search
       return includes(toLower(String(cellValue ?? '')), toLower(parsedFilter.value));
   }
 }
@@ -219,13 +247,15 @@ function applyNumericFilter(cellValue, parsedFilter) {
  */
 function applyDateFilter(cellValue, dateRange) {
   if (!dateRange || (!dateRange[0] && !dateRange[1])) return true;
-
+  
   const cellDate = parseToDate(cellValue);
   if (!cellDate) return false;
-
+  
   const [startDate, endDate] = dateRange;
+  
+  // Normalize to start/end of day for comparison
   const cellTime = cellDate.getTime();
-
+  
   if (startDate && endDate) {
     const startTime = new Date(startDate).setHours(0, 0, 0, 0);
     const endTime = new Date(endDate).setHours(23, 59, 59, 999);
@@ -237,12 +267,12 @@ function applyDateFilter(cellValue, dateRange) {
     const endTime = new Date(endDate).setHours(23, 59, 59, 999);
     return cellTime <= endTime;
   }
-
+  
   return true;
 }
 
-const CustomTriStateCheckbox = React.memo(({ value, onChange }) => {
-  const handleClick = React.useCallback(() => {
+function CustomTriStateCheckbox({ value, onChange }) {
+  const handleClick = () => {
     if (value === null) {
       onChange(true);
     } else if (value === true) {
@@ -250,7 +280,7 @@ const CustomTriStateCheckbox = React.memo(({ value, onChange }) => {
     } else {
       onChange(null);
     }
-  }, [value, onChange]);
+  };
 
   return (
     <div
@@ -273,235 +303,57 @@ const CustomTriStateCheckbox = React.memo(({ value, onChange }) => {
       )}
     </div>
   );
-});
-CustomTriStateCheckbox.displayName = 'CustomTriStateCheckbox';
+}
 
-const MultiselectFilter = React.memo(({ value, options, onChange, placeholder = "Select...", fieldName }) => {
+function MultiselectFilter({ value, options, onChange, placeholder = "Select...", fieldName }) {
   const [searchTerm, setSearchTerm] = React.useState('');
   const [isOpen, setIsOpen] = React.useState(false);
-  const [dropdownPosition, setDropdownPosition] = React.useState(null);
   const containerRef = React.useRef(null);
-  const buttonRef = React.useRef(null);
-  const dropdownRef = React.useRef(null);
   const selectedValues = value || [];
-  const [mounted, setMounted] = React.useState(false);
 
-  React.useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  const calculatePosition = React.useCallback(() => {
-    if (!buttonRef.current) return;
-
-    const buttonRect = buttonRef.current.getBoundingClientRect();
-    const viewportHeight = window.innerHeight;
-    const dropdownHeight = 250; // Approximate dropdown height
-    const spaceBelow = viewportHeight - buttonRect.bottom;
-    const spaceAbove = buttonRect.top;
-    const openAbove = spaceBelow < dropdownHeight && spaceAbove > spaceBelow;
-
-    return {
-      top: openAbove ? buttonRect.top - dropdownHeight - 4 : buttonRect.bottom + 4,
-      left: buttonRect.left,
-      openAbove
-    };
-  }, []);
-
-  const handleToggle = React.useCallback(() => {
-    if (!isOpen && buttonRef.current) {
-      // Calculate position before opening
-      const position = calculatePosition();
-      if (position) {
-        setDropdownPosition(position);
-      }
-    }
-    setIsOpen(!isOpen);
-    if (isOpen) {
-      // Clear position when closing
-      setDropdownPosition(null);
-    }
-  }, [isOpen, calculatePosition]);
-
+  // Close dropdown when clicking outside
   React.useEffect(() => {
     const handleClickOutside = (event) => {
-      if (
-        containerRef.current &&
-        !containerRef.current.contains(event.target) &&
-        dropdownRef.current &&
-        !dropdownRef.current.contains(event.target)
-      ) {
+      if (containerRef.current && !containerRef.current.contains(event.target)) {
         setIsOpen(false);
       }
     };
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [isOpen]);
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
-  // Update position on scroll/resize when open
-  React.useEffect(() => {
-    if (isOpen && buttonRef.current && mounted) {
-      const updatePosition = () => {
-        const position = calculatePosition();
-        if (position) {
-          setDropdownPosition(position);
-        }
-      };
-
-      const handleScroll = () => {
-        updatePosition();
-      };
-
-      const handleResize = () => {
-        updatePosition();
-      };
-
-      window.addEventListener('scroll', handleScroll, true);
-      window.addEventListener('resize', handleResize);
-
-      return () => {
-        window.removeEventListener('scroll', handleScroll, true);
-        window.removeEventListener('resize', handleResize);
-      };
-    }
-  }, [isOpen, mounted, calculatePosition]);
-
-  // Optimize filter with early return and memoization
   const filteredOptions = React.useMemo(() => {
     if (!searchTerm) return options;
     const term = toLower(searchTerm);
-    // Use for loop for better performance on large lists
-    const result = [];
-    for (let i = 0; i < options.length; i++) {
-      const opt = options[i];
-      if (includes(toLower(String(opt.label)), term)) {
-        result.push(opt);
-      }
-    }
-    return result;
+    return filter(options, opt => includes(toLower(String(opt.label)), term));
   }, [options, searchTerm]);
 
-  const toggleValue = React.useCallback((val) => {
+  const toggleValue = (val) => {
     if (includes(selectedValues, val)) {
       onChange(filter(selectedValues, v => v !== val));
     } else {
       onChange([...selectedValues, val]);
     }
-  }, [selectedValues, onChange]);
+  };
 
-  const clearAll = React.useCallback(() => {
+  const clearAll = () => {
     onChange([]);
     setSearchTerm('');
-  }, [onChange]);
+  };
 
-  const selectAll = React.useCallback(() => {
+  const selectAll = () => {
     onChange(options.map(o => o.value));
-  }, [options, onChange]);
-
-  const dropdownContent = isOpen && mounted && dropdownPosition ? (
-    <div
-      ref={dropdownRef}
-      className="fixed w-56 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden"
-      style={{
-        minWidth: '200px',
-        zIndex: 99999,
-        top: `${dropdownPosition.top}px`,
-        left: `${dropdownPosition.left}px`
-      }}
-    >
-      <div className="p-2 border-b border-gray-100">
-        <div className="relative">
-          <i className="pi pi-search absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-[10px]"></i>
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search..."
-            className="w-full pl-7 pr-7 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            autoFocus
-            onClick={(e) => e.stopPropagation()}
-          />
-          {searchTerm && (
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); setSearchTerm(''); }}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-            >
-              <i className="pi pi-times text-[10px]"></i>
-            </button>
-          )}
-        </div>
-      </div>
-
-      <div className="px-2 py-1 border-b border-gray-100 flex gap-2 text-[10px]">
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); selectAll(); }}
-          className="text-blue-600 hover:text-blue-800 transition-colors"
-        >
-          All
-        </button>
-        <span className="text-gray-300">|</span>
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); clearAll(); }}
-          className="text-gray-500 hover:text-red-600 transition-colors"
-        >
-          Clear
-        </button>
-        {!isEmpty(selectedValues) && (
-          <>
-            <span className="text-gray-300">|</span>
-            <span className="text-gray-500">{selectedValues.length} selected</span>
-          </>
-        )}
-      </div>
-
-      <div className="max-h-40 overflow-y-auto">
-        {isEmpty(filteredOptions) ? (
-          <div className="px-3 py-3 text-center text-xs text-gray-500">
-            No matches
-          </div>
-        ) : (
-          filteredOptions.map(opt => {
-            const isSelected = includes(selectedValues, opt.value);
-            return (
-              <label
-                key={opt.value}
-                className={`flex items-center gap-2 px-2 py-1.5 cursor-pointer transition-colors text-xs ${isSelected ? 'bg-blue-50 hover:bg-blue-100' : 'hover:bg-gray-50'
-                  }`}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <input
-                  type="checkbox"
-                  checked={isSelected}
-                  onChange={() => toggleValue(opt.value)}
-                  className="w-3.5 h-3.5 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                />
-                <span className={`truncate ${isSelected ? 'text-blue-900 font-medium' : 'text-gray-700'}`}>
-                  {opt.label}
-                </span>
-              </label>
-            );
-          })
-        )}
-      </div>
-
-      <div className="px-3 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-500">
-        Total {fieldName || 'fields'}: {options.length}
-      </div>
-    </div>
-  ) : null;
+  };
 
   return (
     <div ref={containerRef} className="relative multiselect-filter-container">
+      {/* Trigger Button */}
       <button
-        ref={buttonRef}
         type="button"
-        onClick={handleToggle}
-        className={`w-full flex items-center justify-between px-2 py-1.5 text-xs border rounded bg-white hover:border-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${isEmpty(selectedValues) ? 'border-gray-300 text-gray-500' : 'border-blue-400 text-blue-700 bg-blue-50'
-          }`}
+        onClick={() => setIsOpen(!isOpen)}
+        className={`w-full flex items-center justify-between px-2 py-1.5 text-xs border rounded bg-white hover:border-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
+          isEmpty(selectedValues) ? 'border-gray-300 text-gray-500' : 'border-blue-400 text-blue-700 bg-blue-50'
+        }`}
       >
         <span className="truncate">
           {isEmpty(selectedValues) ? placeholder : `${selectedValues.length} Filter${selectedValues.length !== 1 ? 's' : ''}`}
@@ -509,574 +361,142 @@ const MultiselectFilter = React.memo(({ value, options, onChange, placeholder = 
         <i className={`pi ${isOpen ? 'pi-chevron-up' : 'pi-chevron-down'} text-[10px] ml-1 flex-shrink-0`}></i>
       </button>
 
-      {mounted && createPortal(dropdownContent, document.body)}
+      {/* Dropdown */}
+      {isOpen && (
+        <div className="absolute z-[9999] w-56 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden" style={{ minWidth: '200px' }}>
+          {/* Search Input */}
+          <div className="p-2 border-b border-gray-100">
+            <div className="relative">
+              <i className="pi pi-search absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-[10px]"></i>
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search..."
+                className="w-full pl-7 pr-7 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                autoFocus
+                onClick={(e) => e.stopPropagation()}
+              />
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setSearchTerm(''); }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  <i className="pi pi-times text-[10px]"></i>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Quick Actions */}
+          <div className="px-2 py-1 border-b border-gray-100 flex gap-2 text-[10px]">
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); selectAll(); }}
+              className="text-blue-600 hover:text-blue-800 transition-colors"
+            >
+              All
+            </button>
+            <span className="text-gray-300">|</span>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); clearAll(); }}
+              className="text-gray-500 hover:text-red-600 transition-colors"
+            >
+              Clear
+            </button>
+            {!isEmpty(selectedValues) && (
+              <>
+                <span className="text-gray-300">|</span>
+                <span className="text-gray-500">{selectedValues.length} selected</span>
+              </>
+            )}
+          </div>
+
+          {/* Options List */}
+          <div className="max-h-40 overflow-y-auto">
+            {isEmpty(filteredOptions) ? (
+              <div className="px-3 py-3 text-center text-xs text-gray-500">
+                No matches
+              </div>
+            ) : (
+              filteredOptions.map(opt => {
+                const isSelected = includes(selectedValues, opt.value);
+                return (
+                  <label
+                    key={opt.value}
+                    className={`flex items-center gap-2 px-2 py-1.5 cursor-pointer transition-colors text-xs ${
+                      isSelected ? 'bg-blue-50 hover:bg-blue-100' : 'hover:bg-gray-50'
+                    }`}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleValue(opt.value)}
+                      className="w-3.5 h-3.5 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                    />
+                    <span className={`truncate ${isSelected ? 'text-blue-900 font-medium' : 'text-gray-700'}`}>
+                      {opt.label}
+                    </span>
+                  </label>
+                );
+              })
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="px-3 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-500">
+            Total {fieldName || 'fields'}: {options.length}
+          </div>
+        </div>
+      )}
     </div>
   );
-});
-MultiselectFilter.displayName = 'MultiselectFilter';
+}
 
-const DateRangeFilter = React.memo(({ value, onChange }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const [dropdownPosition, setDropdownPosition] = useState(null);
-  const containerRef = useRef(null);
-  const buttonRef = useRef(null);
-  const dropdownRef = useRef(null);
-  const [startDate, setStartDate] = useState(value?.[0] || '');
-  const [endDate, setEndDate] = useState(value?.[1] || '');
-  const [mounted, setMounted] = useState(false);
+function DateRangeFilter({ value, onChange }) {
+  const handleChange = (e) => {
+    onChange(e.value);
+  };
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    if (value) {
-      setStartDate(value[0] || '');
-      setEndDate(value[1] || '');
-    }
-  }, [value]);
-
-  const calculatePosition = React.useCallback(() => {
-    if (!buttonRef.current) return;
-
-    const buttonRect = buttonRef.current.getBoundingClientRect();
-    const viewportHeight = window.innerHeight;
-    const dropdownHeight = 220; // Approximate dropdown height
-    const spaceBelow = viewportHeight - buttonRect.bottom;
-    const spaceAbove = buttonRect.top;
-    const openAbove = spaceBelow < dropdownHeight && spaceAbove > spaceBelow;
-
-    return {
-      top: openAbove ? buttonRect.top - dropdownHeight - 4 : buttonRect.bottom + 4,
-      left: buttonRect.left,
-      openAbove
-    };
-  }, []);
-
-  const handleToggle = React.useCallback(() => {
-    if (!isOpen && buttonRef.current) {
-      // Calculate position before opening
-      const position = calculatePosition();
-      if (position) {
-        setDropdownPosition(position);
-      }
-    }
-    setIsOpen(!isOpen);
-    if (isOpen) {
-      // Clear position when closing
-      setDropdownPosition(null);
-    }
-  }, [isOpen, calculatePosition]);
-
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (
-        containerRef.current &&
-        !containerRef.current.contains(event.target) &&
-        dropdownRef.current &&
-        !dropdownRef.current.contains(event.target)
-      ) {
-        setIsOpen(false);
-      }
-    };
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [isOpen]);
-
-  // Update position on scroll/resize when open
-  useEffect(() => {
-    if (isOpen && buttonRef.current && mounted) {
-      const updatePosition = () => {
-        const position = calculatePosition();
-        if (position) {
-          setDropdownPosition(position);
-        }
-      };
-
-      const handleScroll = () => {
-        updatePosition();
-      };
-
-      const handleResize = () => {
-        updatePosition();
-      };
-
-      window.addEventListener('scroll', handleScroll, true);
-      window.addEventListener('resize', handleResize);
-
-      return () => {
-        window.removeEventListener('scroll', handleScroll, true);
-        window.removeEventListener('resize', handleResize);
-      };
-    }
-  }, [isOpen, mounted, calculatePosition]);
-
-  const handleApply = React.useCallback(() => {
-    const start = startDate ? new Date(startDate) : null;
-    const end = endDate ? new Date(endDate) : null;
-    onChange(start && end ? [start, end] : start ? [start, null] : end ? [null, end] : null);
-    setIsOpen(false);
-  }, [startDate, endDate, onChange]);
-
-  const handleClear = React.useCallback(() => {
-    setStartDate('');
-    setEndDate('');
+  const handleClear = () => {
     onChange(null);
-    setIsOpen(false);
-  }, [onChange]);
+  };
 
   const hasValue = value && (value[0] || value[1]);
 
-  const dropdownContent = isOpen && mounted && dropdownPosition ? (
-    <div
-      ref={dropdownRef}
-      className="fixed w-64 bg-white border border-gray-200 rounded-lg shadow-lg p-3"
-      style={{
-        zIndex: 99999,
-        top: `${dropdownPosition.top}px`,
-        left: `${dropdownPosition.left}px`
-      }}
-    >
-      <div className="space-y-2">
-        <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Start Date</label>
-          <input
-            type="date"
-            value={startDate ? new Date(startDate).toISOString().split('T')[0] : ''}
-            onChange={(e) => setStartDate(e.target.value)}
-            className="w-full px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">End Date</label>
-          <input
-            type="date"
-            value={endDate ? new Date(endDate).toISOString().split('T')[0] : ''}
-            onChange={(e) => setEndDate(e.target.value)}
-            className="w-full px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-          />
-        </div>
-        <div className="flex gap-2 pt-2 border-t">
-          <button
-            type="button"
-            onClick={handleApply}
-            className="flex-1 px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
-          >
-            Apply
-          </button>
-          <button
-            type="button"
-            onClick={handleClear}
-            className="px-3 py-1.5 text-xs bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition-colors"
-          >
-            Clear
-          </button>
-        </div>
-      </div>
-    </div>
-  ) : null;
-
   return (
-    <div ref={containerRef} className="relative date-range-filter">
-      <button
-        ref={buttonRef}
-        type="button"
-        onClick={handleToggle}
-        className={`w-full flex items-center justify-between px-2 py-1.5 text-xs border rounded bg-white hover:border-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${hasValue ? 'border-blue-400 text-blue-700 bg-blue-50' : 'border-gray-300 text-gray-500'
-          }`}
-      >
-        <span className="truncate">
-          {hasValue
-            ? (value[0] && value[1]
-              ? `${formatDateValue(value[0])} - ${formatDateValue(value[1])}`
-              : value[0]
-                ? `From ${formatDateValue(value[0])}`
-                : `Until ${formatDateValue(value[1])}`)
-            : 'Date range'}
-        </span>
-        <i className={`pi ${isOpen ? 'pi-chevron-up' : 'pi-chevron-down'} text-[10px] ml-1 flex-shrink-0`}></i>
-      </button>
-
-      {mounted && createPortal(dropdownContent, document.body)}
+    <div className="date-range-filter flex items-center gap-1">
+      <Calendar
+        value={value}
+        onChange={handleChange}
+        selectionMode="range"
+        readOnlyInput
+        placeholder="Date range"
+        showIcon
+        iconPos="left"
+        dateFormat="M d, yy"
+        className="p-column-filter date-range-calendar"
+        inputClassName="text-xs"
+        showButtonBar
+        numberOfMonths={1}
+        style={{ width: '100%' }}
+      />
+      {hasValue && (
+        <button
+          type="button"
+          onClick={handleClear}
+          className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
+          title="Clear filter"
+        >
+          <i className="pi pi-times text-xs" />
+        </button>
+      )}
     </div>
   );
-});
-DateRangeFilter.displayName = 'DateRangeFilter';
-
-// Custom Pagination Component
-const CustomPaginator = React.memo(({ first, rows, totalRecords, rowsPerPageOptions, onPageChange, isGrouped = false }) => {
-  const totalPages = Math.ceil(totalRecords / rows);
-  const currentPage = Math.floor(first / rows) + 1;
-  const startRecord = totalRecords === 0 ? 0 : first + 1;
-  const endRecord = Math.min(first + rows, totalRecords);
-  const recordLabel = isGrouped ? 'group' : 'row';
-  const recordLabelPlural = isGrouped ? 'groups' : 'rows';
-
-  const goToFirstPage = () => {
-    if (currentPage > 1) {
-      onPageChange({ first: 0, rows });
-    }
-  };
-
-  const goToPreviousPage = () => {
-    if (currentPage > 1) {
-      onPageChange({ first: first - rows, rows });
-    }
-  };
-
-  const goToNextPage = () => {
-    if (currentPage < totalPages) {
-      onPageChange({ first: first + rows, rows });
-    }
-  };
-
-  const goToLastPage = () => {
-    if (currentPage < totalPages) {
-      onPageChange({ first: (totalPages - 1) * rows, rows });
-    }
-  };
-
-  const changeRowsPerPage = (e) => {
-    const newRows = parseInt(e.target.value, 10);
-    onPageChange({ first: 0, rows: newRows });
-  };
-
-  const goToPage = (page) => {
-    if (page >= 1 && page <= totalPages) {
-      onPageChange({ first: (page - 1) * rows, rows });
-    }
-  };
-
-  // Calculate page numbers to show
-  const getPageNumbers = () => {
-    const pages = [];
-    const maxVisible = 5;
-
-    if (totalPages <= maxVisible) {
-      for (let i = 1; i <= totalPages; i++) {
-        pages.push(i);
-      }
-    } else {
-      if (currentPage <= 3) {
-        for (let i = 1; i <= 4; i++) {
-          pages.push(i);
-        }
-        pages.push('...');
-        pages.push(totalPages);
-      } else if (currentPage >= totalPages - 2) {
-        pages.push(1);
-        pages.push('...');
-        for (let i = totalPages - 3; i <= totalPages; i++) {
-          pages.push(i);
-        }
-      } else {
-        pages.push(1);
-        pages.push('...');
-        for (let i = currentPage - 1; i <= currentPage + 1; i++) {
-          pages.push(i);
-        }
-        pages.push('...');
-        pages.push(totalPages);
-      }
-    }
-
-    return pages;
-  };
-
-  return (
-    <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-4 py-3 bg-white border-t border-gray-200">
-      <div className="flex items-center gap-2 text-sm text-gray-600">
-        <span>{isGrouped ? 'Groups' : 'Rows'} per page:</span>
-        <select
-          value={rows}
-          onChange={changeRowsPerPage}
-          className="px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-        >
-          {rowsPerPageOptions.map(option => (
-            <option key={option} value={option}>{option}</option>
-          ))}
-        </select>
-        <span className="text-gray-500">
-          {startRecord}-{endRecord} of {totalRecords} {totalRecords === 1 ? recordLabel : recordLabelPlural}
-        </span>
-      </div>
-
-      <div className="flex items-center gap-1">
-        <button
-          type="button"
-          onClick={goToFirstPage}
-          disabled={currentPage === 1}
-          className="p-2 text-gray-600 hover:text-gray-900 disabled:text-gray-300 disabled:cursor-not-allowed transition-colors"
-          title="First Page"
-        >
-          <i className="pi pi-angle-double-left text-sm"></i>
-        </button>
-        <button
-          type="button"
-          onClick={goToPreviousPage}
-          disabled={currentPage === 1}
-          className="p-2 text-gray-600 hover:text-gray-900 disabled:text-gray-300 disabled:cursor-not-allowed transition-colors"
-          title="Previous Page"
-        >
-          <i className="pi pi-angle-left text-sm"></i>
-        </button>
-
-        <div className="flex items-center gap-1">
-          {getPageNumbers().map((page, index) => (
-            page === '...' ? (
-              <span key={`ellipsis-${index}`} className="px-2 text-gray-400">...</span>
-            ) : (
-              <button
-                key={page}
-                type="button"
-                onClick={() => goToPage(page)}
-                className={`px-3 py-1 text-sm rounded transition-colors ${currentPage === page
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-              >
-                {page}
-              </button>
-            )
-          ))}
-        </div>
-
-        <button
-          type="button"
-          onClick={goToNextPage}
-          disabled={currentPage === totalPages || totalPages === 0}
-          className="p-2 text-gray-600 hover:text-gray-900 disabled:text-gray-300 disabled:cursor-not-allowed transition-colors"
-          title="Next Page"
-        >
-          <i className="pi pi-angle-right text-sm"></i>
-        </button>
-        <button
-          type="button"
-          onClick={goToLastPage}
-          disabled={currentPage === totalPages || totalPages === 0}
-          className="p-2 text-gray-600 hover:text-gray-900 disabled:text-gray-300 disabled:cursor-not-allowed transition-colors"
-          title="Last Page"
-        >
-          <i className="pi pi-angle-double-right text-sm"></i>
-        </button>
-      </div>
-    </div>
-  );
-});
-CustomPaginator.displayName = 'CustomPaginator';
-
-// Memoized table row component to prevent unnecessary re-renders
-const TableRow = React.memo(({
-  item,
-  rowIndex,
-  frozenCols,
-  regularCols,
-  columnTypes,
-  calculateColumnWidths,
-  renderCell,
-  renderFooterCell,
-  isFooter = false,
-  isMobile = false,
-  groupByField = null,
-  innerGroupByField = null
-}) => {
-  const { row, index, isGroupHeader, isGroupRow, isGroupFooter, isInnerGroupHeader, isInnerGroupRow, groupValue, groupRows, innerGroupValue, innerGroupRows, outerGroupValue, isInnerExpanded, isExpanded } = item;
-  const isEven = rowIndex % 2 === 0;
-
-  // Helper function to check if a column should be hidden when grouped
-  const shouldHideColumn = (col) => {
-    if (!isGroupHeader && !isInnerGroupHeader && !isGroupFooter) {
-      return false; // Don't hide for regular rows
-    }
-
-    const colType = get(columnTypes, col);
-    const isBoolean = get(colType, 'isBoolean', false);
-    const isDate = get(colType, 'isDate', false);
-    const isString = !get(colType, 'isNumeric', false) && !isDate && !isBoolean;
-
-    // Hide string, boolean, and date columns except grouping columns
-    if ((isBoolean || isString || isDate) && col !== groupByField && col !== innerGroupByField) {
-      return true;
-    }
-
-    return false;
-  };
-
-  // Helper function to check if a column should be hidden in footer when grouped
-  const shouldHideFooterColumn = (col) => {
-    if (!groupByField && !innerGroupByField) {
-      return false; // Don't hide if not grouped
-    }
-
-    const colType = get(columnTypes, col);
-    const isBoolean = get(colType, 'isBoolean', false);
-    const isDate = get(colType, 'isDate', false);
-    const isString = !get(colType, 'isNumeric', false) && !isDate && !isBoolean;
-
-    // Hide string, boolean, and date columns except grouping columns
-    if ((isBoolean || isString || isDate) && col !== groupByField && col !== innerGroupByField) {
-      return true;
-    }
-
-    return false;
-  };
-
-  if (isFooter) {
-    const visibleFrozenCols = frozenCols.filter(col => !shouldHideFooterColumn(col));
-    const visibleRegularCols = regularCols.filter(col => !shouldHideFooterColumn(col));
-
-    return (
-      <tr className="bg-gray-100 font-semibold">
-        {visibleFrozenCols.map((col, colIndex) => {
-          const colWidth = get(calculateColumnWidths, col, 120);
-          const minColWidth = Math.max(colWidth, 150);
-          const isFirstColumn = colIndex === 0;
-
-          // Calculate cumulative left position based on previous visible frozen columns' widths
-          let leftPosition = 0;
-          for (let i = 0; i < colIndex; i++) {
-            const prevCol = visibleFrozenCols[i];
-            const prevColWidth = get(calculateColumnWidths, prevCol, 120);
-            const prevMinColWidth = Math.max(prevColWidth, 150);
-            leftPosition += prevMinColWidth;
-          }
-
-          // Remove right border for frozen columns except the last one to prevent gaps (only on desktop)
-          const isLastFrozen = colIndex === visibleFrozenCols.length - 1;
-          const borderClass = isMobile
-            ? 'border border-gray-200'
-            : (isLastFrozen
-              ? 'border border-gray-200'
-              : 'border-t border-b border-l border-gray-200');
-
-          return (
-            <td
-              key={`footer-frozen-${col}`}
-              className={`${borderClass} px-3 py-2 text-xs sm:text-sm bg-gray-100`}
-              style={{
-                minWidth: `${minColWidth}px`,
-                width: `${minColWidth}px`,
-                maxWidth: `${minColWidth}px`,
-                ...(isMobile ? {} : {
-                  position: 'sticky',
-                  left: `${leftPosition}px`,
-                  zIndex: 20,
-                }),
-                backgroundColor: '#f3f4f6'
-              }}
-            >
-              {renderFooterCell(col, isFirstColumn)}
-            </td>
-          );
-        })}
-        {visibleRegularCols.map((col) => {
-          const colWidth = get(calculateColumnWidths, col, 120);
-
-          return (
-            <td
-              key={`footer-${col}`}
-              className="border border-gray-200 px-3 py-2 text-xs sm:text-sm bg-gray-100"
-              style={{
-                minWidth: `${colWidth}px`,
-                width: `${colWidth}px`,
-                maxWidth: `${get(calculateColumnWidths, col, 400)}px`
-              }}
-            >
-              {renderFooterCell(col)}
-            </td>
-          );
-        })}
-      </tr>
-    );
-  }
-
-  return (
-    <tr
-      key={`row-${index}-${isGroupFooter ? 'footer' : ''}`}
-      className={`${isEven ? 'bg-white' : 'bg-gray-50'} ${isGroupHeader ? 'bg-gray-100' : ''} ${isInnerGroupHeader ? 'bg-gray-75' : ''} ${isGroupFooter ? 'bg-gray-50 font-medium' : ''} hover:bg-blue-50 transition-colors`}
-    >
-      {frozenCols.filter(col => !shouldHideColumn(col)).map((col, colIndex) => {
-        const colType = get(columnTypes, col);
-        const colWidth = get(calculateColumnWidths, col, 120);
-        const minColWidth = Math.max(colWidth, 150);
-
-        // Calculate cumulative left position based on previous visible frozen columns' widths
-        let leftPosition = 0;
-        const visibleFrozenCols = frozenCols.filter(c => !shouldHideColumn(c));
-        for (let i = 0; i < colIndex; i++) {
-          const prevCol = visibleFrozenCols[i];
-          const prevColWidth = get(calculateColumnWidths, prevCol, 120);
-          const prevMinColWidth = Math.max(prevColWidth, 150);
-          leftPosition += prevMinColWidth;
-        }
-
-        // Remove right border for frozen columns except the last one to prevent gaps (only on desktop)
-        const isLastFrozen = colIndex === visibleFrozenCols.length - 1;
-        const borderClass = isMobile
-          ? 'border border-gray-200'
-          : (isLastFrozen
-            ? 'border border-gray-200'
-            : 'border-t border-b border-l border-gray-200');
-
-        return (
-          <td
-            key={`frozen-${col}`}
-            className={`${borderClass} px-3 py-2 text-xs sm:text-sm`}
-            style={{
-              minWidth: `${minColWidth}px`,
-              width: `${minColWidth}px`,
-              maxWidth: `${minColWidth}px`,
-              ...(isMobile ? {} : {
-                position: 'sticky',
-                left: `${leftPosition}px`,
-                zIndex: 15,
-              }),
-              backgroundColor: isGroupHeader ? '#f3f4f6' : isInnerGroupHeader ? '#f7f8f9' : isGroupFooter ? '#f9fafb' : (isEven ? '#ffffff' : '#f9fafb')
-            }}
-          >
-            {renderCell(row, col, isGroupHeader, isGroupFooter, groupValue, groupRows, isInnerGroupHeader, innerGroupValue, innerGroupRows, outerGroupValue, isInnerExpanded, isExpanded)}
-          </td>
-        );
-      })}
-      {regularCols.filter(col => !shouldHideColumn(col)).map((col) => {
-        const colType = get(columnTypes, col);
-        const colWidth = get(calculateColumnWidths, col, 120);
-
-        return (
-          <td
-            key={col}
-            className="border border-gray-200 px-3 py-2 text-xs sm:text-sm"
-            style={{
-              minWidth: `${colWidth}px`,
-              width: `${colWidth}px`,
-              maxWidth: `${get(calculateColumnWidths, col, 400)}px`
-            }}
-          >
-            {renderCell(row, col, isGroupHeader, isGroupFooter, groupValue, groupRows, isInnerGroupHeader, innerGroupValue, innerGroupRows, outerGroupValue, isInnerExpanded, isExpanded)}
-          </td>
-        );
-      })}
-    </tr>
-  );
-}, (prevProps, nextProps) => {
-  // Custom comparison function for better memoization
-  if (prevProps.item.index !== nextProps.item.index) return false;
-  if (prevProps.item.isGroupHeader !== nextProps.item.isGroupHeader) return false;
-  if (prevProps.item.isGroupFooter !== nextProps.item.isGroupFooter) return false;
-  if (prevProps.item.isExpanded !== nextProps.item.isExpanded) return false;
-  if (prevProps.rowIndex !== nextProps.rowIndex) return false;
-  if (prevProps.isFooter !== nextProps.isFooter) return false;
-  if (prevProps.isMobile !== nextProps.isMobile) return false;
-  // Compare row data shallowly
-  if (prevProps.item.row !== nextProps.item.row) {
-    // Only re-render if row reference changed (should be stable)
-    return false;
-  }
-  return true;
-});
-TableRow.displayName = 'TableRow';
+}
 
 export default function DataTableComponent({
   data,
@@ -1087,33 +507,15 @@ export default function DataTableComponent({
   enableSort = true,
   enableFilter = true,
   enableSummation = true,
-  textFilterColumns = [],
+  textFilterColumns = [], // Fields that should use text search box instead of multiselect
   redFields = [],
   greenFields = [],
-  groupByField = null,
-  innerGroupByField = null,
-  enableInnerGroupFooter = true,
 }) {
   const [first, setFirst] = useState(0);
   const [rows, setRows] = useState(defaultRows);
   const [filters, setFilters] = useState({});
   const [scrollHeightValue, setScrollHeightValue] = useState('600px');
   const [multiSortMeta, setMultiSortMeta] = useState([]);
-  const [expandedGroupValues, setExpandedGroupValues] = useState(new Set());
-  const tableRef = useRef(null);
-  const [tableScrollLeft, setTableScrollLeft] = useState(0);
-  const [isMobile, setIsMobile] = useState(false);
-
-  // Detect mobile screen size
-  useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768); // Mobile breakpoint
-    };
-
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
 
   useEffect(() => {
     setRows(defaultRows);
@@ -1151,73 +553,39 @@ export default function DataTableComponent({
 
   const columns = useMemo(() => {
     if (isEmpty(safeData)) return [];
-    const allKeys = uniq(flatMap(safeData, (item) =>
+    const allKeys = uniq(flatMap(safeData, (item) => 
       item && typeof item === 'object' ? keys(item) : []
     ));
     return allKeys;
   }, [safeData]);
 
-  const orderedColumns = useMemo(() => {
-    if (isEmpty(columns)) return [];
-
-    const ordered = [];
-    const remaining = [...columns];
-
-    if (groupByField && includes(remaining, groupByField)) {
-      ordered.push(groupByField);
-      remaining.splice(remaining.indexOf(groupByField), 1);
-    }
-
-    if (innerGroupByField && includes(remaining, innerGroupByField)) {
-      ordered.push(innerGroupByField);
-      remaining.splice(remaining.indexOf(innerGroupByField), 1);
-    }
-
-    ordered.push(...remaining);
-
-    return ordered;
-  }, [columns, groupByField, innerGroupByField]);
-
-  const frozenCols = useMemo(() => {
-    const frozen = [];
-    if (groupByField && includes(orderedColumns, groupByField)) {
-      frozen.push(groupByField);
-    }
-    if (innerGroupByField && includes(orderedColumns, innerGroupByField)) {
-      frozen.push(innerGroupByField);
-    }
-    return frozen;
-  }, [orderedColumns, groupByField, innerGroupByField]);
-
-  const regularCols = useMemo(() => {
-    return orderedColumns.filter(col => !includes(frozenCols, col));
-  }, [orderedColumns, frozenCols]);
+  const frozenCols = useMemo(
+    () => isEmpty(columns) ? [] : [head(columns)],
+    [columns]
+  );
+  
+  const regularCols = useMemo(
+    () => tail(columns),
+    [columns]
+  );
 
   const isNumericValue = useCallback((value) => {
     if (isNil(value)) return false;
     return isNumber(value) || (!_isNaN(parseFloat(value)) && _isFinite(value));
   }, []);
 
-  // Memoize header names to prevent recalculation
-  const headerNames = useMemo(() => {
-    const names = {};
-    columns.forEach((col) => {
-      names[col] = startCase(col.split('__').join(' ').split('_').join(' '));
-    });
-    return names;
-  }, [columns]);
-
   const formatHeaderName = useCallback((key) => {
-    return headerNames[key] || startCase(key.split('__').join(' ').split('_').join(' '));
-  }, [headerNames]);
+    return startCase(key.split('__').join(' ').split('_').join(' '));
+  }, []);
 
   const formatCellValue = useCallback((value, colType) => {
     if (isNil(value)) return '';
-
+    
+    // Format dates
     if (colType?.isDate) {
       return formatDateValue(value);
     }
-
+    
     if (isNumber(value)) {
       return value % 1 === 0
         ? value.toLocaleString('en-US')
@@ -1236,7 +604,7 @@ export default function DataTableComponent({
       let numericCount = 0;
       let dateCount = 0;
       let booleanCount = 0;
-      let binaryCount = 0;
+      let binaryCount = 0; // Count of 0/1 values
       let nonNullCount = 0;
 
       sampleData.forEach((row) => {
@@ -1244,12 +612,15 @@ export default function DataTableComponent({
         if (!isNil(value)) {
           nonNullCount++;
           if (isBoolean(value)) booleanCount++;
+          // Check for binary 0/1 values (number or string)
           else if (value === 0 || value === 1 || value === '0' || value === '1') {
             binaryCount++;
           }
+          // Check for date (before numeric to avoid timestamp confusion)
           else if (isDateLike(value)) {
             dateCount++;
           }
+          // Check for numeric
           else if (isNumericValue(value)) {
             numericCount++;
           }
@@ -1257,26 +628,32 @@ export default function DataTableComponent({
       });
 
       const isTrueBooleanColumn = nonNullCount > 0 && booleanCount > nonNullCount * 0.7;
+      // Infer boolean from 0/1 if all non-null values are binary
       const isBinaryBooleanColumn = nonNullCount > 0 && binaryCount === nonNullCount && binaryCount >= 1;
       const isBooleanColumn = isTrueBooleanColumn || isBinaryBooleanColumn;
-
+      
+      // Date detection: at least 70% should be date-like
       const isDateColumn = !isBooleanColumn && nonNullCount > 0 && dateCount > nonNullCount * 0.7;
+      
+      // Numeric detection: at least 80% should be numeric (excluding dates and booleans)
       const isNumericColumn = !isBooleanColumn && !isDateColumn && nonNullCount > 0 && numericCount > nonNullCount * 0.8;
 
-      types[col] = {
+      types[col] = { 
         isBoolean: isBooleanColumn,
         isBinaryBoolean: isBinaryBooleanColumn,
-        isNumeric: isNumericColumn,
-        isDate: isDateColumn
+        isNumeric: isNumericColumn, 
+        isDate: isDateColumn 
       };
     });
 
     return types;
   }, [safeData, columns, isNumericValue]);
 
+  // Compute which columns should use multiselect (all string columns by default, minus textFilterColumns)
   const multiselectColumns = useMemo(() => {
     if (isEmpty(columns) || isEmpty(columnTypes)) return [];
 
+    // Get all string columns (non-numeric, non-boolean, non-date)
     const stringColumns = columns.filter((col) => {
       const colType = get(columnTypes, col);
       return !get(colType, 'isBoolean') &&
@@ -1284,27 +661,20 @@ export default function DataTableComponent({
         !get(colType, 'isNumeric');
     });
 
+    // Remove textFilterColumns from string columns to get multiselect columns
     const textFilterSet = new Set(textFilterColumns);
     const multiselectCols = stringColumns.filter(col => !textFilterSet.has(col));
 
     return multiselectCols;
   }, [columns, columnTypes, textFilterColumns]);
 
-  // Optimize optionColumnValues with Set for uniqueness and direct array building
+  // Compute unique values for multiselect columns
   const optionColumnValues = useMemo(() => {
     const values = {};
     if (isEmpty(safeData) || isEmpty(multiselectColumns)) return values;
 
     multiselectColumns.forEach((col) => {
-      const uniqueSet = new Set();
-      // Use for loop for better performance
-      for (let i = 0; i < safeData.length; i++) {
-        const val = get(safeData[i], col);
-        if (!isNil(val)) {
-          uniqueSet.add(val);
-        }
-      }
-      const uniqueVals = Array.from(uniqueSet);
+      const uniqueVals = compact(uniq(safeData.map((row) => get(row, col))));
       values[col] = orderBy(uniqueVals).map((val) => ({
         label: String(val),
         value: val,
@@ -1333,10 +703,12 @@ export default function DataTableComponent({
             newFilters[col] = { value: null, matchMode: 'contains' };
           }
         } else {
+          // Update matchMode if column type changed
           const colType = get(columnTypes, col);
           const isMultiselectColumn = includes(multiselectColumns, col);
           const currentFilter = newFilters[col];
 
+          // Update matchMode if needed, but preserve the value
           if (isMultiselectColumn && currentFilter.matchMode !== 'in') {
             newFilters[col] = { ...currentFilter, matchMode: 'in' };
           } else if (get(colType, 'isBoolean') && currentFilter.matchMode !== 'equals') {
@@ -1362,7 +734,7 @@ export default function DataTableComponent({
     const sampleData = take(safeData, 100);
 
     columns.forEach((col) => {
-      const headerLength = (headerNames[col] || formatHeaderName(col)).length;
+      const headerLength = formatHeaderName(col).length;
       const cellLengths = [];
       const colType = get(columnTypes, col, { isBoolean: false, isNumeric: false, isDate: false });
 
@@ -1401,155 +773,80 @@ export default function DataTableComponent({
       const sortPadding = enableSort ? 30 : 0;
       const finalWidth = baseWidth + sortPadding;
 
-      // Frozen columns (groupByField and innerGroupByField) need minimum width of 150
-      const isFrozen = (col === groupByField || col === innerGroupByField);
-      const minWidth = isFrozen ? 150 : (isBooleanColumn ? 100 : isDateColumn ? 180 : isNumericColumn ? 130 : 140);
+      const minWidth = isBooleanColumn ? 100 : isDateColumn ? 180 : isNumericColumn ? 130 : 140;
       const maxWidth = isBooleanColumn ? 180 : isDateColumn ? 280 : isNumericColumn ? 250 : 400;
 
       widths[col] = clamp(finalWidth, minWidth, maxWidth);
     });
 
     return widths;
-  }, [safeData, columns, enableSort, formatHeaderName, formatCellValue, columnTypes, groupByField, innerGroupByField, headerNames]);
+  }, [safeData, columns, enableSort, formatHeaderName, formatCellValue, columnTypes]);
 
-  // Optimize filteredData with early returns and cached lookups
   const filteredData = useMemo(() => {
-    if (!Array.isArray(safeData) || isEmpty(safeData)) return [];
-    if (isEmpty(filters) || !enableFilter) return safeData;
+    if (isEmpty(safeData)) return [];
 
-    // Pre-compute active filters for performance
-    const activeFilters = [];
-    for (const col of columns) {
-      const filterObj = get(filters, col);
-      if (filterObj && !isNil(filterObj.value) && filterObj.value !== '') {
-        if (isArray(filterObj.value) && isEmpty(filterObj.value)) continue;
-        activeFilters.push({ col, filterObj, colType: get(columnTypes, col), isMultiselect: includes(multiselectColumns, col) });
-      }
-    }
+    return filter(safeData, (row) => {
+      if (!row || typeof row !== 'object') return false;
 
-    // Early return if no active filters
-    if (activeFilters.length === 0) return safeData;
+      return every(columns, (col) => {
+        const filterObj = get(filters, col);
+        if (!filterObj || isNil(filterObj.value) || filterObj.value === '') return true;
+        
+        // Handle empty arrays for multiselect
+        if (isArray(filterObj.value) && isEmpty(filterObj.value)) return true;
 
-    console.log('[DEBUG filteredData] Starting filter:', {
-      safeDataLength: safeData.length,
-      activeFiltersCount: activeFilters.length,
-      activeFilters: activeFilters.map(f => ({ col: f.col, matchMode: f.filterObj.matchMode }))
-    });
-
-    // Use for loop for better performance
-    const filtered = [];
-    for (let i = 0; i < safeData.length; i++) {
-      const row = safeData[i];
-      if (!row || typeof row !== 'object') continue;
-
-      let matches = true;
-      // Check each filter with early exit
-      for (let j = 0; j < activeFilters.length; j++) {
-        const { col, filterObj, colType, isMultiselect } = activeFilters[j];
         const cellValue = get(row, col);
         const filterValue = filterObj.value;
+        const colType = get(columnTypes, col);
+        const isMultiselectColumn = includes(multiselectColumns, col);
 
-        if (isMultiselect && isArray(filterValue)) {
-          if (!some(filterValue, (v) => v === cellValue || String(v) === String(cellValue))) {
-            matches = false;
-            break;
-          }
-        } else if (get(colType, 'isBoolean')) {
+        // Multiselect filter (multiselect columns)
+        if (isMultiselectColumn && isArray(filterValue)) {
+          return some(filterValue, (v) => v === cellValue || String(v) === String(cellValue));
+        }
+
+        // Boolean filter (handles true/false and 1/0)
+        if (get(colType, 'isBoolean')) {
           const cellIsTruthy = cellValue === true || cellValue === 1 || cellValue === '1';
           const cellIsFalsy = cellValue === false || cellValue === 0 || cellValue === '0';
-
-          if (filterValue === true && !cellIsTruthy) {
-            matches = false;
-            break;
-          } else if (filterValue === false && !cellIsFalsy) {
-            matches = false;
-            break;
+          
+          if (filterValue === true) {
+            return cellIsTruthy;
+          } else if (filterValue === false) {
+            return cellIsFalsy;
           }
-        } else if (get(colType, 'isDate')) {
-          if (!applyDateFilter(cellValue, filterValue)) {
-            matches = false;
-            break;
-          }
-        } else if (get(colType, 'isNumeric')) {
-          const parsedFilter = parseNumericFilter(filterValue);
-          if (!applyNumericFilter(cellValue, parsedFilter)) {
-            matches = false;
-            break;
-          }
-        } else {
-          const strCell = toLower(String(cellValue ?? ''));
-          const strFilter = toLower(String(filterValue));
-          if (!includes(strCell, strFilter)) {
-            matches = false;
-            break;
-          }
+          return true;
         }
-      }
 
-      if (matches) {
-        filtered.push(row);
-      }
-    }
+        // Date range filter
+        if (get(colType, 'isDate')) {
+          return applyDateFilter(cellValue, filterValue);
+        }
 
-    console.log('[DEBUG filteredData] Filter complete:', {
-      inputRows: safeData.length,
-      filteredRows: filtered.length,
-      removedRows: safeData.length - filtered.length
+        // Numeric filter with operators
+        if (get(colType, 'isNumeric')) {
+          const parsedFilter = parseNumericFilter(filterValue);
+          return applyNumericFilter(cellValue, parsedFilter);
+        }
+
+        // Text filter (default)
+        const strCell = toLower(String(cellValue ?? ''));
+        const strFilter = toLower(String(filterValue));
+        return includes(strCell, strFilter);
+      });
     });
-
-    return filtered;
-  }, [safeData, filters, columns, columnTypes, multiselectColumns, enableFilter]);
+  }, [safeData, filters, columns, columnTypes, multiselectColumns]);
 
   const sortedData = useMemo(() => {
-    if (!Array.isArray(filteredData) || isEmpty(filteredData)) {
-      return [];
+    if (isEmpty(filteredData) || isEmpty(multiSortMeta)) {
+      return filteredData;
     }
 
-    let dataToSort = [...filteredData];
-    let sortFields = [];
-    let sortOrders = [];
-
-    if (groupByField && includes(columns, groupByField)) {
-      sortFields.push(groupByField);
-      sortOrders.push('asc');
-    }
-
-    if (innerGroupByField && includes(columns, innerGroupByField)) {
-      sortFields.push(innerGroupByField);
-      sortOrders.push('asc');
-    }
-
-    if (!isEmpty(multiSortMeta)) {
-      const userFields = multiSortMeta.map(s => s.field);
-      const userOrders = multiSortMeta.map(s => s.order === 1 ? 'asc' : 'desc');
-
-      userFields.forEach((field, index) => {
-        if (field !== groupByField && field !== innerGroupByField) {
-          sortFields.push(field);
-          sortOrders.push(userOrders[index]);
-        }
-      });
-    }
-
-    if (!isEmpty(sortFields)) {
-      const sorted = orderBy(dataToSort, sortFields, sortOrders);
-      const result = Array.isArray(sorted) ? sorted : [];
-      console.log('[DEBUG sortedData] Sorting complete:', {
-        inputRows: filteredData.length,
-        sortedRows: result.length,
-        sortFields,
-        sortOrders
-      });
-      return result;
-    }
-
-    const result = Array.isArray(dataToSort) ? dataToSort : [];
-    console.log('[DEBUG sortedData] No sorting applied:', {
-      inputRows: filteredData.length,
-      outputRows: result.length
-    });
-    return result;
-  }, [filteredData, multiSortMeta, groupByField, innerGroupByField, columns]);
+    const fields = multiSortMeta.map(s => s.field);
+    const orders = multiSortMeta.map(s => s.order === 1 ? 'asc' : 'desc');
+    
+    return orderBy(filteredData, fields, orders);
+  }, [filteredData, multiSortMeta]);
 
   const calculateSums = useMemo(() => {
     const sums = {};
@@ -1557,13 +854,14 @@ export default function DataTableComponent({
 
     columns.forEach((col) => {
       const colType = get(columnTypes, col);
+      // Skip date columns for summation
       if (get(colType, 'isDate')) return;
-
+      
       const values = filter(
         filteredData.map((row) => get(row, col)),
         (val) => !isNil(val)
       );
-
+      
       if (!isEmpty(values) && isNumericValue(head(values))) {
         sums[col] = sumBy(values, (val) => {
           const numVal = isNumber(val) ? val : toNumber(val);
@@ -1574,340 +872,101 @@ export default function DataTableComponent({
     return sums;
   }, [filteredData, columns, isNumericValue, columnTypes]);
 
-  const emptyGroupByFieldRows = useMemo(() => {
-    const emptyRows = new Set();
-    if (!groupByField || isEmpty(sortedData)) {
-      return emptyRows;
-    }
-
-    if (sortedData.length > 0) {
-      const firstRowGroupValue = String(get(sortedData[0], groupByField) ?? '');
-      if (firstRowGroupValue !== '') {
-        emptyRows.add(0);
-      }
-    }
-
-    for (let i = 1; i < sortedData.length; i++) {
-      const currentRow = sortedData[i];
-      const prevRow = sortedData[i - 1];
-      const currentGroupValue = String(get(currentRow, groupByField) ?? '');
-      const prevGroupValue = String(get(prevRow, groupByField) ?? '');
-
-      if (currentGroupValue !== '') {
-        if (currentGroupValue === prevGroupValue) {
-          emptyRows.add(i);
-        } else {
-          emptyRows.add(i);
-        }
-      }
-    }
-    return emptyRows;
-  }, [sortedData, groupByField]);
-
-  const indentedRows = useMemo(() => {
-    const indented = new Set();
-    if (!innerGroupByField || !groupByField || isEmpty(sortedData)) {
-      return indented;
-    }
-
-    for (let i = 1; i < sortedData.length; i++) {
-      const currentRow = sortedData[i];
-      const prevRow = sortedData[i - 1];
-      const currentGroupValue = String(get(currentRow, groupByField) ?? '');
-      const prevGroupValue = String(get(prevRow, groupByField) ?? '');
-
-      if (currentGroupValue === prevGroupValue && currentGroupValue !== '') {
-        indented.add(i);
-      }
-    }
-    return indented;
-  }, [sortedData, innerGroupByField, groupByField]);
-
   const paginatedData = useMemo(() => {
-    if (!Array.isArray(sortedData)) {
-      return [];
-    }
     return sortedData.slice(first, first + rows);
   }, [sortedData, first, rows]);
 
-  const isGroupExpanded = useCallback((groupValue) => {
-    if (!groupByField || expandedGroupValues.size === 0) return false;
-    return expandedGroupValues.has(String(groupValue));
-  }, [groupByField, expandedGroupValues]);
-
-  const toggleGroup = useCallback((rowData) => {
-    if (!groupByField) return;
-
-    const groupValue = get(rowData, groupByField);
-    const groupValueStr = String(groupValue);
-
-    setExpandedGroupValues(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(groupValueStr)) {
-        // Collapse: remove from set
-        newSet.delete(groupValueStr);
-      } else {
-        // Expand: add to set
-        newSet.add(groupValueStr);
+  const footerTemplate = (column, isFirstColumn = false) => {
+    if (!enableSummation) return null;
+    
+    const colType = get(columnTypes, column);
+    
+    // No summation for date columns
+    if (get(colType, 'isDate')) {
+      return isFirstColumn ? (
+        <div className="text-left">
+          <strong>Total</strong>
+        </div>
+      ) : null;
+    }
+    
+    const sum = get(calculateSums, column);
+    const hasSum = !isNil(sum) && !get(colType, 'isBoolean');
+    
+    // Determine color based on field lists
+    const isRedField = includes(redFields, column);
+    const isGreenField = includes(greenFields, column);
+    const colorClass = isRedField ? 'text-red-600' : isGreenField ? 'text-green-600' : '';
+    
+    if (isFirstColumn) {
+      if (hasSum) {
+        const formattedSum = sum % 1 === 0
+          ? sum.toLocaleString('en-US')
+          : sum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        return (
+          <div className="text-left">
+            <strong className={colorClass}>Total: {formattedSum}</strong>
+          </div>
+        );
       }
-      return newSet;
-    });
-  }, [groupByField]);
-
-
-  const getGroupRows = useCallback((groupValue) => {
-    if (!groupByField) return [];
-    const groupValueStr = String(groupValue);
-    const rows = sortedData.filter(row => String(get(row, groupByField)) === groupValueStr);
-    console.log('[DEBUG getGroupRows]', {
-      groupValue,
-      groupValueStr,
-      sortedDataLength: sortedData.length,
-      filteredRowsCount: rows.length,
-      rows: rows.map((r, idx) => ({ index: sortedData.indexOf(r), rowData: r }))
-    });
-    return rows;
-  }, [sortedData, groupByField]);
-
-  // Get inner group rows (rows grouped by innerGroupByField within an outer group)
-  const getInnerGroupRows = useCallback((outerGroupValue, innerGroupValue) => {
-    if (!innerGroupByField || !groupByField) return [];
-    const outerGroupValueStr = String(outerGroupValue);
-    const innerGroupValueStr = String(innerGroupValue);
-    const rows = sortedData.filter(row =>
-      String(get(row, groupByField)) === outerGroupValueStr &&
-      String(get(row, innerGroupByField)) === innerGroupValueStr
+      return (
+        <div className="text-left">
+          <strong>Total</strong>
+        </div>
+      );
+    }
+    
+    if (get(colType, 'isBoolean')) return null;
+    if (isNil(sum)) return null;
+    
+    const formattedSum = sum % 1 === 0
+      ? sum.toLocaleString('en-US')
+      : sum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return (
+      <div className="text-right">
+        <strong className={colorClass}>{formattedSum}</strong>
+      </div>
     );
-    return rows;
-  }, [sortedData, groupByField, innerGroupByField]);
+  };
 
-  // Get all inner groups within an outer group
-  const getInnerGroups = useCallback((outerGroupValue) => {
-    if (!innerGroupByField || !groupByField) return [];
-    const outerGroupValueStr = String(outerGroupValue);
-    const outerGroupRows = sortedData.filter(row => String(get(row, groupByField)) === outerGroupValueStr);
+  // Helper to normalize boolean values (handles true/false and 1/0)
+  const isTruthyBoolean = useCallback((value) => {
+    return value === true || value === 1 || value === '1';
+  }, []);
 
-    const innerGroupsMap = new Map();
-    outerGroupRows.forEach((row) => {
-      const innerGroupValue = get(row, innerGroupByField);
-      const innerGroupValueStr = String(innerGroupValue ?? '');
+  const booleanBodyTemplate = useCallback((rowData, column) => {
+    const value = get(rowData, column);
+    const isTruthy = isTruthyBoolean(value);
 
-      if (!innerGroupsMap.has(innerGroupValueStr)) {
-        innerGroupsMap.set(innerGroupValueStr, {
-          innerGroupValue,
-          innerGroupValueStr,
-          rows: []
-        });
-      }
-      innerGroupsMap.get(innerGroupValueStr).rows.push(row);
-    });
+    return (
+      <div className="flex items-center justify-center">
+        {isTruthy ? (
+          <i className="pi pi-check-circle text-green-600 text-lg" title="Yes" />
+        ) : (
+          <i className="pi pi-times-circle text-red-500 text-lg" title="No" />
+        )}
+      </div>
+    );
+  }, [isTruthyBoolean]);
 
-    return Array.from(innerGroupsMap.values());
-  }, [sortedData, groupByField, innerGroupByField]);
+  const dateBodyTemplate = useCallback((rowData, column) => {
+    const value = get(rowData, column);
+    const formatted = formatDateValue(value);
 
-  // Get list of unique groups for pagination
-  const groupList = useMemo(() => {
-    if (!groupByField || isEmpty(sortedData)) {
-      return [];
-    }
+    return (
+      <div className="text-xs sm:text-sm truncate text-left" title={formatted}>
+        {formatted}
+      </div>
+    );
+  }, []);
 
-    const groups = [];
-    const processedGroups = new Set();
-
-    console.log('[DEBUG groupList] Building group list from sortedData:', {
-      sortedDataLength: sortedData.length,
-      groupByField
-    });
-
-    for (let i = 0; i < sortedData.length; i++) {
-      const row = sortedData[i];
-      const groupValue = get(row, groupByField);
-      const groupValueStr = String(groupValue);
-
-      if (groupValueStr !== '' && !processedGroups.has(groupValueStr)) {
-        processedGroups.add(groupValueStr);
-        const groupRows = getGroupRows(groupValue);
-        const firstRow = row;
-
-        console.log('[DEBUG groupList] Adding group:', {
-          groupValue,
-          groupValueStr,
-          firstRowIndex: i,
-          groupRowsCount: groupRows.length,
-          firstRowInGroupRows: groupRows.includes(firstRow)
-        });
-
-        groups.push({
-          groupValue,
-          groupValueStr,
-          firstRow,
-          groupRows,
-          firstRowIndex: i
-        });
-      }
-    }
-
-    console.log('[DEBUG groupList] Final groups:', {
-      totalGroups: groups.length,
-      groupsSummary: groups.map(g => ({
-        groupValue: g.groupValueStr,
-        rowsCount: g.groupRows.length
-      }))
-    });
-
-    return groups;
-  }, [sortedData, groupByField, getGroupRows]);
-
-  // Flatten grouped data for display (only for groups on current page)
-  const groupedData = useMemo(() => {
-    if (!groupByField || isEmpty(sortedData)) {
-      return sortedData.map((row, index) => ({ row, index, isGroupHeader: false }));
-    }
-
-    const result = [];
-
-    // Get groups for current page
-    const startGroupIndex = first;
-    const endGroupIndex = Math.min(first + rows, groupList.length);
-    const currentPageGroups = groupList.slice(startGroupIndex, endGroupIndex);
-
-    currentPageGroups.forEach((group) => {
-      const { firstRow, groupRows, groupValue, firstRowIndex } = group;
-      const isExpanded = isGroupExpanded(groupValue);
-
-      // Add group header
-      result.push({
-        row: firstRow,
-        index: firstRowIndex,
-        isGroupHeader: true,
-        groupValue,
-        groupRows,
-        isExpanded
-      });
-
-      // If expanded, add rows in the group
-      if (isExpanded) {
-        console.log('[DEBUG groupedData] Group expanded:', {
-          groupValue,
-          groupRowsCount: groupRows.length,
-          firstRowIndex,
-          groupRows: groupRows.map((r, idx) => ({
-            index: sortedData.indexOf(r),
-            isFirstRow: r === firstRow
-          }))
-        });
-
-        // If inner grouping is enabled, group by inner field and show as aggregated line items
-        if (innerGroupByField) {
-          const innerGroups = getInnerGroups(groupValue);
-
-          innerGroups.forEach((innerGroup) => {
-            const { innerGroupValue, rows: innerGroupRows } = innerGroup;
-
-            // Add inner group as a single aggregated line item
-            const firstInnerRow = innerGroupRows[0];
-            const firstInnerRowIndex = sortedData.indexOf(firstInnerRow);
-            if (firstInnerRowIndex !== -1) {
-              result.push({
-                row: firstInnerRow,
-                index: firstInnerRowIndex,
-                isGroupHeader: false,
-                isInnerGroupHeader: true,
-                innerGroupValue,
-                innerGroupRows,
-                outerGroupValue: groupValue,
-                isInnerExpanded: false // Always show as aggregated, not expandable
-              });
-            }
-          });
-        } else {
-          // No inner grouping - add all rows directly
-          groupRows.forEach((groupRow) => {
-            const rowIndex = sortedData.indexOf(groupRow);
-            if (rowIndex !== -1) {
-              result.push({
-                row: groupRow,
-                index: rowIndex,
-                isGroupHeader: false,
-                isGroupRow: true
-              });
-            } else {
-              console.warn('[DEBUG groupedData] Row not found in sortedData:', groupRow);
-            }
-          });
-        }
-
-        // Add group footer row only if inner group footer is enabled or there's no inner grouping
-        if (!innerGroupByField || enableInnerGroupFooter) {
-          result.push({
-            row: firstRow,
-            index: firstRowIndex,
-            isGroupHeader: false,
-            isGroupFooter: true,
-            groupValue,
-            groupRows
-          });
-        }
-      }
-    });
-
-    // Add ungrouped rows (rows with empty group value) - show on first page only
-    if (first === 0) {
-      sortedData.forEach((row, index) => {
-        const groupValue = get(row, groupByField);
-        const groupValueStr = String(groupValue);
-        if (groupValueStr === '') {
-          result.push({
-            row,
-            index,
-            isGroupHeader: false
-          });
-        }
-      });
-    }
-
-    return result;
-  }, [sortedData, groupByField, innerGroupByField, isGroupExpanded, getGroupRows, getInnerGroups, groupList, first, rows, enableInnerGroupFooter]);
-
-  const displayData = useMemo(() => {
-    if (groupByField) {
-      // groupedData already contains only groups for current page
-      return groupedData;
-    }
-    return paginatedData.map((row, index) => ({ row, index: first + index, isGroupHeader: false }));
-  }, [groupByField, groupedData, paginatedData, first, rows]);
-
-  // Debounced filter update for text/numeric inputs
-  const debouncedFilterUpdate = useMemo(
-    () => debounce((col, value) => {
-      setFilters(prev => ({
-        ...prev,
-        [col]: { ...get(prev, col), value }
-      }));
-      setFirst(0);
-    }, 300),
-    []
-  );
-
-  // Cleanup debounced function on unmount
-  useEffect(() => {
-    return () => {
-      debouncedFilterUpdate.cancel();
-    };
-  }, [debouncedFilterUpdate]);
-
-  const updateFilter = useCallback((col, value, immediate = false) => {
-    if (immediate) {
-      debouncedFilterUpdate.cancel();
-      setFilters(prev => ({
-        ...prev,
-        [col]: { ...get(prev, col), value }
-      }));
-      setFirst(0);
-    } else {
-      debouncedFilterUpdate(col, value);
-    }
-  }, [debouncedFilterUpdate]);
+  const updateFilter = useCallback((col, value) => {
+    setFilters(prev => ({
+      ...prev,
+      [col]: { ...get(prev, col), value }
+    }));
+    setFirst(0);
+  }, []);
 
   const clearFilter = useCallback((col) => {
     updateFilter(col, null);
@@ -1932,21 +991,25 @@ export default function DataTableComponent({
     setFirst(0);
   }, [columns, columnTypes, multiselectColumns]);
 
+  // Format filter value for display in chip
   const formatFilterValue = useCallback((col, filterValue, colType) => {
     if (isNil(filterValue) || filterValue === '') return null;
 
     const isMultiselectColumn = includes(multiselectColumns, col);
 
+    // Multiselect filter - show comma-separated values
     if (isMultiselectColumn && isArray(filterValue) && !isEmpty(filterValue)) {
       return filterValue.map(v => String(v)).join(', ');
     }
 
+    // Boolean filter
     if (get(colType, 'isBoolean')) {
       if (filterValue === true) return 'Yes';
       if (filterValue === false) return 'No';
       return null;
     }
 
+    // Date range filter
     if (get(colType, 'isDate') && isArray(filterValue)) {
       const [startDate, endDate] = filterValue;
       if (startDate && endDate) {
@@ -1961,6 +1024,7 @@ export default function DataTableComponent({
       return null;
     }
 
+    // Numeric and text filters - show as is
     if (isString(filterValue) || isNumber(filterValue)) {
       return String(filterValue);
     }
@@ -1968,13 +1032,15 @@ export default function DataTableComponent({
     return null;
   }, [multiselectColumns]);
 
+  // Get active filters for display
   const activeFilters = useMemo(() => {
     if (!enableFilter || isEmpty(filters)) return [];
-
+    
     const active = [];
     columns.forEach((col) => {
       const filterObj = get(filters, col);
       if (filterObj && !isNil(filterObj.value) && filterObj.value !== '') {
+        // Handle empty arrays for multiselect
         if (isArray(filterObj.value) && isEmpty(filterObj.value)) {
           return;
         }
@@ -1993,390 +1059,138 @@ export default function DataTableComponent({
     return active;
   }, [filters, columns, enableFilter, columnTypes, formatFilterValue, multiselectColumns]);
 
-  const handleSort = useCallback((column) => {
-    if (!enableSort) return;
-
-    setMultiSortMeta(prev => {
-      const existing = prev.find(s => s.field === column);
-      if (existing) {
-        if (existing.order === 1) {
-          // Change to descending
-          return prev.map(s => s.field === column ? { ...s, order: -1 } : s);
-        } else {
-          // Remove sort
-          return prev.filter(s => s.field !== column);
-        }
-      } else {
-        // Add ascending sort
-        return [...prev, { field: column, order: 1 }];
-      }
-    });
-    setFirst(0);
-  }, [enableSort]);
-
-  // Memoize sort icons to prevent recreation on every render
-  const sortIcons = useMemo(() => {
-    const icons = {};
-    columns.forEach((col) => {
-      const sortMeta = multiSortMeta.find(s => s.field === col);
-      if (!sortMeta) {
-        icons[col] = <i className="pi pi-sort text-gray-400 text-xs"></i>;
-      } else if (sortMeta.order === 1) {
-        icons[col] = <i className="pi pi-sort-up text-blue-600 text-xs"></i>;
-      } else {
-        icons[col] = <i className="pi pi-sort-down text-blue-600 text-xs"></i>;
-      }
-    });
-    return icons;
-  }, [multiSortMeta, columns]);
-
-  const getSortIcon = useCallback((column) => {
-    return sortIcons[column] || <i className="pi pi-sort text-gray-400 text-xs"></i>;
-  }, [sortIcons]);
-
-  // Memoize filter elements to prevent recreation
-  const filterElements = useMemo(() => {
-    const elements = {};
-    if (!enableFilter) return elements;
-
-    columns.forEach((col) => {
-      const colType = get(columnTypes, col);
-      const isMultiselectColumn = includes(multiselectColumns, col);
+  const textFilterElement = useCallback((col) => {
+    const TextFilter = (options) => {
       const filterState = get(filters, col);
-      const filterValue = get(filterState, 'value', null);
+      const value = isNil(get(filterState, 'value')) ? '' : filterState.value;
+      return (
+        <InputText
+          value={value}
+          onChange={(e) => updateFilter(col, e.target.value || null)}
+          placeholder="Search..."
+          className="p-column-filter"
+          style={{ width: '100%' }}
+        />
+      );
+    };
+    TextFilter.displayName = 'TextFilter';
+    return TextFilter;
+  }, [filters, updateFilter]);
 
-      if (isMultiselectColumn) {
-        elements[col] = (
-          <MultiselectFilter
-            key={`filter-${col}`}
-            value={filterValue}
-            options={get(optionColumnValues, col, [])}
-            onChange={(newValue) => updateFilter(col, newValue, true)}
-            placeholder="Select..."
-            fieldName={headerNames[col] || formatHeaderName(col)}
+  const numericFilterElement = useCallback((col) => {
+    const NumericFilter = (options) => {
+      const filterState = get(filters, col);
+      const value = isNil(get(filterState, 'value')) ? '' : filterState.value;
+      return (
+        <InputText
+          value={value}
+          onChange={(e) => updateFilter(col, e.target.value || null)}
+          placeholder="<, >, <=, >=, =, <>"
+          className="p-column-filter"
+          style={{ width: '100%' }}
+          title="Numeric filters: <10, >10, <=10, >=10, =10, 10<>20 (range)"
+        />
+      );
+    };
+    NumericFilter.displayName = 'NumericFilter';
+    return NumericFilter;
+  }, [filters, updateFilter]);
+
+  const dateFilterElement = useCallback((col) => {
+    const DateFilter = (options) => {
+      const filterState = get(filters, col);
+      const value = get(filterState, 'value', null);
+      return (
+        <DateRangeFilter
+          value={value}
+          onChange={(newValue) => updateFilter(col, newValue)}
+        />
+      );
+    };
+    DateFilter.displayName = 'DateFilter';
+    return DateFilter;
+  }, [filters, updateFilter]);
+
+  const booleanFilterElement = useCallback((col) => {
+    const BooleanFilter = () => {
+      const filterState = get(filters, col);
+      const value = get(filterState, 'value', null);
+      return (
+        <div className="flex items-center justify-center p-column-filter-checkbox-wrapper">
+          <CustomTriStateCheckbox
+            value={value}
+            onChange={(newValue) => updateFilter(col, newValue)}
           />
-        );
-      } else if (get(colType, 'isBoolean')) {
-        elements[col] = (
-          <div key={`filter-${col}`} className="flex items-center justify-center">
-            <CustomTriStateCheckbox
-              value={filterValue}
-              onChange={(newValue) => updateFilter(col, newValue, true)}
-            />
-          </div>
-        );
-      } else if (get(colType, 'isDate')) {
-        elements[col] = (
-          <DateRangeFilter
-            key={`filter-${col}`}
-            value={filterValue}
-            onChange={(newValue) => updateFilter(col, newValue, true)}
-          />
-        );
-      } else if (get(colType, 'isNumeric')) {
-        elements[col] = (
-          <input
-            key={`filter-${col}`}
-            type="text"
-            value={filterValue || ''}
-            onChange={(e) => updateFilter(col, e.target.value || null, false)}
-            onBlur={(e) => {
-              debouncedFilterUpdate.cancel();
-              updateFilter(col, e.target.value || null, true);
-            }}
-            placeholder="<, >, <=, >=, =, <>"
-            className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            title="Numeric filters: <10, >10, <=10, >=10, =10, 10<>20 (range)"
-          />
-        );
-      } else {
-        elements[col] = (
-          <input
-            key={`filter-${col}`}
-            type="text"
-            value={filterValue || ''}
-            onChange={(e) => updateFilter(col, e.target.value || null, false)}
-            onBlur={(e) => {
-              debouncedFilterUpdate.cancel();
-              updateFilter(col, e.target.value || null, true);
-            }}
-            placeholder="Search..."
-            className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-          />
-        );
-      }
-    });
-    return elements;
-  }, [enableFilter, columns, columnTypes, multiselectColumns, filters, optionColumnValues, formatHeaderName, updateFilter, debouncedFilterUpdate]);
+        </div>
+      );
+    };
+    BooleanFilter.displayName = 'BooleanFilter';
+    return BooleanFilter;
+  }, [filters, updateFilter]);
+
+  const multiselectFilterElement = useCallback((col) => {
+    const MultiselectFilterElement = (options) => {
+      const filterState = get(filters, col);
+      const value = get(filterState, 'value', null);
+      const columnOptions = get(optionColumnValues, col, []);
+      
+      return (
+        <MultiselectFilter
+          value={value}
+          options={columnOptions}
+          onChange={(newValue) => updateFilter(col, newValue)}
+          placeholder="Select..."
+          fieldName={formatHeaderName(col)}
+        />
+      );
+    };
+    MultiselectFilterElement.displayName = 'MultiselectFilterElement';
+    return MultiselectFilterElement;
+  }, [filters, updateFilter, optionColumnValues, formatHeaderName]);
 
   const getFilterElement = useCallback((col) => {
-    return filterElements[col] || null;
-  }, [filterElements]);
+    const colType = get(columnTypes, col);
+    const isMultiselectColumn = includes(multiselectColumns, col);
 
-  const isTruthyBoolean = useCallback((value) => {
-    return value === true || value === 1 || value === '1';
-  }, []);
+    // Multiselect columns get multiselect filter (takes priority)
+    if (isMultiselectColumn) {
+      return multiselectFilterElement(col);
+    }
+    if (get(colType, 'isBoolean')) {
+      return booleanFilterElement(col);
+    }
+    if (get(colType, 'isDate')) {
+      return dateFilterElement(col);
+    }
+    if (get(colType, 'isNumeric')) {
+      return numericFilterElement(col);
+    }
+    return textFilterElement(col);
+  }, [columnTypes, multiselectColumns, booleanFilterElement, dateFilterElement, numericFilterElement, textFilterElement, multiselectFilterElement]);
 
-  const renderCell = useCallback((rowData, col, isGroupHeader = false, isGroupFooter = false, groupValue = null, groupRows = null, isInnerGroupHeader = false, innerGroupValue = null, innerGroupRows = null, outerGroupValue = null, isInnerExpanded = false, itemIsExpanded = null) => {
+  const getBodyTemplate = useCallback((col) => {
     const colType = get(columnTypes, col);
     const isBooleanCol = get(colType, 'isBoolean', false);
     const isDateCol = get(colType, 'isDate', false);
     const isNumericCol = get(colType, 'isNumeric', false);
-    const isRed = includes(redFields, col);
-    const isGreen = includes(greenFields, col);
-    const colorClass = isRed ? 'text-red-600' : isGreen ? 'text-green-600' : '';
-
-    // Optimize lookup - try to find index more efficiently
-    let originalIndex = -1;
-    // For grouped data, index is passed, for regular data use findIndex as fallback
-    if (isGroupHeader || isGroupFooter) {
-      // Index should be passed from parent, but fallback to findIndex
-      originalIndex = sortedData.findIndex((r) => r === rowData);
-    } else {
-      originalIndex = sortedData.findIndex((r) => r === rowData);
-    }
-    const shouldEmptyGroupByField = originalIndex !== -1 && emptyGroupByFieldRows.has(originalIndex);
-    const isIndented = originalIndex !== -1 && indentedRows.has(originalIndex);
-
-    // Handle group footer rows
-    if (isGroupFooter) {
-      if (col === groupByField || col === innerGroupByField) {
-        return <div></div>;
-      }
-
-      if (groupRows && !isEmpty(groupRows)) {
-        const values = filter(
-          groupRows.map((row) => get(row, col)),
-          (val) => !isNil(val)
-        );
-
-        if (!isEmpty(values) && get(colType, 'isNumeric') && !get(colType, 'isDate')) {
-          const sum = sumBy(values, (val) => {
-            const numVal = isNumber(val) ? val : toNumber(val);
-            return _isNaN(numVal) ? 0 : numVal;
-          });
-          return (
-            <div className={`font-medium ${isNumericCol ? 'text-right' : 'text-left'} ${colorClass}`}>
-              {formatCellValue(sum, colType)}
-            </div>
-          );
-        }
-      }
-
-      return <div></div>;
-    }
-
-    if (col === groupByField && shouldEmptyGroupByField && !isGroupHeader) {
-      return <div></div>;
-    }
-
-    if (isGroupHeader) {
-      if (col === groupByField) {
-        const groupValue = get(rowData, groupByField);
-        const groupValueFormatted = formatCellValue(groupValue, colType);
-        // Use the stored isExpanded value if available, otherwise calculate it
-        const expanded = itemIsExpanded !== null ? itemIsExpanded : isGroupExpanded(groupValue);
-
-        return (
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => toggleGroup(rowData)}
-              className="p-1 hover:bg-gray-200 rounded transition-colors"
-            >
-              <i className={`pi ${expanded ? 'pi-chevron-down' : 'pi-chevron-right'} text-xs`}></i>
-            </button>
-            <span className="font-semibold text-gray-900">
-              {groupValueFormatted}
-            </span>
-          </div>
-        );
-      }
-
-      if (col === innerGroupByField) {
-        const groupValue = get(rowData, groupByField);
-        const groupRows = getGroupRows(groupValue);
-        const groupCount = groupRows.length;
-
-        return (
-          <div className="text-gray-600">
-            ({groupCount} {groupCount === 1 ? 'row' : 'rows'})
-          </div>
-        );
-      }
-
-      // Hide string and boolean columns (except grouping columns) when grouped
-      if (get(colType, 'isBoolean') || (!get(colType, 'isNumeric') && !get(colType, 'isDate'))) {
-        // Only show if it's the grouping column
-        if (col !== groupByField && col !== innerGroupByField) {
-          return <div></div>;
-        }
-      }
-
-      // Calculate aggregated values for collapsed groups
-      const groupValue = get(rowData, groupByField);
-      const groupRows = getGroupRows(groupValue);
-      const isExpanded = isGroupExpanded(groupValue);
-
-      if (!isExpanded) {
-        const values = filter(
-          groupRows.map((row) => get(row, col)),
-          (val) => !isNil(val)
-        );
-
-        if (!isEmpty(values) && get(colType, 'isNumeric') && !get(colType, 'isDate')) {
-          const sum = sumBy(values, (val) => {
-            const numVal = isNumber(val) ? val : toNumber(val);
-            return _isNaN(numVal) ? 0 : numVal;
-          });
-          return (
-            <div className={`font-medium ${isNumericCol ? 'text-right' : 'text-left'} ${colorClass}`}>
-              {formatCellValue(sum, colType)}
-            </div>
-          );
-        }
-      }
-
-      return <div></div>;
-    }
-
-    // Handle inner group headers - show as aggregated line items
-    if (isInnerGroupHeader) {
-      if (col === innerGroupByField) {
-        const innerGroupValueFormatted = formatCellValue(innerGroupValue, colType);
-        const innerGroupCount = innerGroupRows ? innerGroupRows.length : 0;
-
-        return (
-          <div>
-            <div className="font-medium text-gray-800">
-              {innerGroupValueFormatted}
-            </div>
-            <div className="text-gray-600 text-sm">
-              ({innerGroupCount} {innerGroupCount === 1 ? 'row' : 'rows'})
-            </div>
-          </div>
-        );
-      }
-
-      if (col === groupByField) {
-        return <div></div>;
-      }
-
-      // Hide string and boolean columns (except grouping columns) when grouped
-      if (get(colType, 'isBoolean') || (!get(colType, 'isNumeric') && !get(colType, 'isDate'))) {
-        // Only show if it's the grouping column
-        if (col !== groupByField && col !== innerGroupByField) {
-          return <div></div>;
-        }
-      }
-
-      // Calculate and show aggregated values for inner groups
-      if (innerGroupRows && !isEmpty(innerGroupRows)) {
-        const values = filter(
-          innerGroupRows.map((row) => get(row, col)),
-          (val) => !isNil(val)
-        );
-
-        if (!isEmpty(values) && get(colType, 'isNumeric') && !get(colType, 'isDate')) {
-          const sum = sumBy(values, (val) => {
-            const numVal = isNumber(val) ? val : toNumber(val);
-            return _isNaN(numVal) ? 0 : numVal;
-          });
-          return (
-            <div className={`font-medium ${isNumericCol ? 'text-right' : 'text-left'} ${colorClass}`}>
-              {formatCellValue(sum, colType)}
-            </div>
-          );
-        }
-      }
-
-      return <div></div>;
-    }
-
-    const value = get(rowData, col);
 
     if (isBooleanCol) {
-      const isTruthy = isTruthyBoolean(value);
-      return (
-        <div className="flex items-center justify-center">
-          {isTruthy ? (
-            <i className="pi pi-check-circle text-green-600 text-lg" title="Yes" />
-          ) : (
-            <i className="pi pi-times-circle text-red-500 text-lg" title="No" />
-          )}
-        </div>
-      );
+      return (rowData) => booleanBodyTemplate(rowData, col);
     }
-
     if (isDateCol) {
-      const formatted = formatDateValue(value);
-      return (
-        <div className={`text-xs sm:text-sm truncate text-left ${colorClass}`} title={formatted}>
-          {formatted}
-        </div>
-      );
+      return (rowData) => dateBodyTemplate(rowData, col);
     }
-
-    return (
+    const DefaultBodyTemplate = (rowData) => (
       <div
-        className={`text-xs sm:text-sm truncate ${isNumericCol ? 'text-right' : 'text-left'} ${colorClass}`}
-        title={formatCellValue(value, colType)}
+        className={`text-xs sm:text-sm truncate ${isNumericCol ? 'text-right' : 'text-left'}`}
+        title={formatCellValue(get(rowData, col), colType)}
       >
-        {formatCellValue(value, colType)}
+        {formatCellValue(get(rowData, col), colType)}
       </div>
     );
-  }, [columnTypes, formatCellValue, groupByField, innerGroupByField, sortedData, emptyGroupByFieldRows, indentedRows, redFields, greenFields, isTruthyBoolean, isGroupExpanded, getGroupRows, toggleGroup]);
-
-  const renderFooterCell = useCallback((col, isFirstColumn = false) => {
-    if (!enableSummation) return null;
-
-    const colType = get(columnTypes, col);
-
-    if (get(colType, 'isDate')) {
-      return isFirstColumn ? (
-        <div className="text-left">
-          <strong>Total</strong>
-        </div>
-      ) : null;
-    }
-
-    const sum = get(calculateSums, col);
-    const hasSum = !isNil(sum) && !get(colType, 'isBoolean');
-
-    const isRedField = includes(redFields, col);
-    const isGreenField = includes(greenFields, col);
-    const colorClass = isRedField ? 'text-red-600' : isGreenField ? 'text-green-600' : '';
-
-    if (isFirstColumn) {
-      if (hasSum) {
-        const formattedSum = sum % 1 === 0
-          ? sum.toLocaleString('en-US')
-          : sum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        return (
-          <div className="text-left">
-            <strong className={colorClass}>Total: {formattedSum}</strong>
-          </div>
-        );
-      }
-      return (
-        <div className="text-left">
-          <strong>Total</strong>
-        </div>
-      );
-    }
-
-    if (get(colType, 'isBoolean')) return null;
-    if (isNil(sum)) return null;
-
-    const formattedSum = sum % 1 === 0
-      ? sum.toLocaleString('en-US')
-      : sum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    return (
-      <div className="text-right">
-        <strong className={colorClass}>{formattedSum}</strong>
-      </div>
-    );
-  }, [enableSummation, columnTypes, calculateSums, redFields, greenFields]);
+    DefaultBodyTemplate.displayName = 'DefaultBodyTemplate';
+    return DefaultBodyTemplate;
+  }, [columnTypes, booleanBodyTemplate, dateBodyTemplate, formatCellValue]);
 
   const onPageChange = (event) => {
     setFirst(event.first);
@@ -2384,41 +1198,39 @@ export default function DataTableComponent({
   };
 
   const exportToXLSX = useCallback(() => {
+    // Prepare data for export - use sortedData (filtered and sorted)
     const exportData = sortedData.map((row) => {
       const exportRow = {};
       columns.forEach((col) => {
         const value = get(row, col);
         const colType = get(columnTypes, col);
 
-        const headerName = headerNames[col] || formatHeaderName(col);
+        // Format the value for export
         if (isNil(value)) {
-          exportRow[headerName] = '';
+          exportRow[formatHeaderName(col)] = '';
         } else if (get(colType, 'isBoolean')) {
-          exportRow[headerName] = isTruthyBoolean(value) ? 'Yes' : 'No';
+          exportRow[formatHeaderName(col)] = isTruthyBoolean(value) ? 'Yes' : 'No';
         } else if (get(colType, 'isDate')) {
-          exportRow[headerName] = formatDateValue(value);
+          exportRow[formatHeaderName(col)] = formatDateValue(value);
         } else {
-          exportRow[headerName] = formatCellValue(value, colType);
+          exportRow[formatHeaderName(col)] = formatCellValue(value, colType);
         }
       });
       return exportRow;
     });
 
+    // Create workbook and worksheet
     const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
 
+    // Generate filename with current date
     const dateStr = new Date().toISOString().split('T')[0];
     const filename = `export_${dateStr}.xlsx`;
 
+    // Write file
     XLSX.writeFile(wb, filename);
-  }, [sortedData, columns, columnTypes, headerNames, formatHeaderName, formatCellValue, isTruthyBoolean]);
-
-  const handleTableScroll = useCallback((e) => {
-    if (tableRef.current) {
-      setTableScrollLeft(e.target.scrollLeft);
-    }
-  }, []);
+  }, [sortedData, columns, columnTypes, formatHeaderName, formatCellValue, isTruthyBoolean]);
 
   if (isEmpty(safeData)) {
     return (
@@ -2455,6 +1267,7 @@ export default function DataTableComponent({
         </div>
       )}
 
+      {/* Export button */}
       <div className="mb-4 flex items-center justify-end">
         <button
           onClick={exportToXLSX}
@@ -2467,6 +1280,7 @@ export default function DataTableComponent({
         </button>
       </div>
 
+      {/* Filter Chips */}
       {enableFilter && !isEmpty(activeFilters) && (
         <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
           <div className="flex items-center gap-2 flex-wrap">
@@ -2477,7 +1291,7 @@ export default function DataTableComponent({
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-100 text-blue-800 rounded-full text-xs font-medium"
               >
                 <span>
-                  {headerNames[column] || formatHeaderName(column)}: {formattedValue}
+                  {formatHeaderName(column)}: {formattedValue}
                 </span>
                 <button
                   onClick={() => clearFilter(column)}
@@ -2502,215 +1316,86 @@ export default function DataTableComponent({
         </div>
       )}
 
-      <div className="border border-gray-200 rounded-lg overflow-hidden w-full">
-        <div
-          className="overflow-auto"
-          style={{ maxHeight: scrollable ? scrollHeightValue : 'none' }}
-          onScroll={handleTableScroll}
-          ref={tableRef}
+      <div className="border border-gray-200 rounded-lg overflow-hidden w-full responsive-table-container">
+        <DataTable
+          value={paginatedData}
+          scrollable={scrollable}
+          scrollHeight={scrollHeightValue}
+          sortMode={enableSort ? "multiple" : undefined}
+          removableSort={enableSort}
+          multiSortMeta={multiSortMeta}
+          onSort={(e) => {
+            setMultiSortMeta(e.multiSortMeta || []);
+            setFirst(0);
+          }}
+          showGridlines
+          stripedRows
+          className="p-datatable-sm w-full"
+          style={{ minWidth: '100%' }}
+          filterDisplay={enableFilter ? "row" : undefined}
         >
-          <table
-            key={`table-${groupByField || 'none'}-${innerGroupByField || 'none'}`}
-            className="w-full border-collapse"
-          >
-            <thead className="bg-gray-50" style={{ position: 'sticky', top: '0px', zIndex: 25 }}>
-              <tr>
-                {frozenCols.filter(col => {
-                  // Hide string, boolean, and date columns when grouped, except grouping columns
-                  if (groupByField || innerGroupByField) {
-                    const colType = get(columnTypes, col);
-                    const isBoolean = get(colType, 'isBoolean', false);
-                    const isDate = get(colType, 'isDate', false);
-                    const isString = !get(colType, 'isNumeric', false) && !isDate && !isBoolean;
-                    if ((isBoolean || isString || isDate) && col !== groupByField && col !== innerGroupByField) {
-                      return false;
-                    }
-                  }
-                  return true;
-                }).map((col, index) => {
-                  const colType = get(columnTypes, col);
-                  const isNumericCol = get(colType, 'isNumeric', false);
-                  const isFirstColumn = index === 0;
-                  const colWidth = get(calculateColumnWidths, col, 120);
-                  const minColWidth = Math.max(colWidth, 150);
+          {frozenCols.map((col, index) => {
+            const colType = get(columnTypes, col);
+            const isNumericCol = get(colType, 'isNumeric', false);
+            const isFirstColumn = index === 0;
+            return (
+              <Column
+                key={`frozen-${col}`}
+                field={col}
+                header={formatHeaderName(col)}
+                sortable={enableSort}
+                frozen
+                style={{
+                  minWidth: `${get(calculateColumnWidths, col, 120)}px`,
+                  width: `${get(calculateColumnWidths, col, 120)}px`,
+                  maxWidth: `${get(calculateColumnWidths, col, 200)}px`
+                }}
+                filter={enableFilter}
+                filterElement={enableFilter ? getFilterElement(col) : undefined}
+                showFilterMenu={false}
+                showClearButton={false}
+                footer={footerTemplate(col, isFirstColumn)}
+                body={getBodyTemplate(col)}
+                align={isNumericCol ? 'right' : 'left'}
+              />
+            );
+          })}
 
-                  // Calculate cumulative left position based on previous visible frozen columns' widths
-                  const visibleFrozenCols = frozenCols.filter(c => {
-                    if (groupByField || innerGroupByField) {
-                      const cType = get(columnTypes, c);
-                      const isBoolean = get(cType, 'isBoolean', false);
-                      const isDate = get(cType, 'isDate', false);
-                      const isString = !get(cType, 'isNumeric', false) && !isDate && !isBoolean;
-                      if ((isBoolean || isString || isDate) && c !== groupByField && c !== innerGroupByField) {
-                        return false;
-                      }
-                    }
-                    return true;
-                  });
-                  let leftPosition = 0;
-                  for (let i = 0; i < index; i++) {
-                    const prevCol = visibleFrozenCols[i];
-                    const prevColWidth = get(calculateColumnWidths, prevCol, 120);
-                    const prevMinColWidth = Math.max(prevColWidth, 150);
-                    leftPosition += prevMinColWidth;
-                  }
-
-                  // Remove right border for frozen columns except the last one to prevent gaps
-                  const isLastFrozen = index === visibleFrozenCols.length - 1;
-                  const borderClass = isLastFrozen
-                    ? 'border border-gray-200'
-                    : 'border-t border-b border-l border-gray-200';
-
-                  return (
-                    <th
-                      key={`frozen-${col}`}
-                      className={`${isMobile ? 'border border-gray-200' : borderClass} px-3 py-2 text-left font-semibold text-xs sm:text-sm text-gray-700 bg-gray-50`}
-                      style={{
-                        minWidth: `${minColWidth}px`,
-                        width: `${minColWidth}px`,
-                        maxWidth: `${minColWidth}px`,
-                        ...(isMobile ? {} : {
-                          position: 'sticky',
-                          top: '0px',
-                          left: `${leftPosition}px`,
-                          zIndex: 30,
-                        }),
-                        backgroundColor: '#f9fafb'
-                      }}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span>{headerNames[col]}</span>
-                        {enableSort && (
-                          <button
-                            type="button"
-                            onClick={() => handleSort(col)}
-                            className="p-1 hover:bg-gray-200 rounded transition-colors"
-                            title="Sort"
-                          >
-                            {getSortIcon(col)}
-                          </button>
-                        )}
-                      </div>
-                      {enableFilter && (
-                        <div className="mt-2">
-                          {getFilterElement(col)}
-                        </div>
-                      )}
-                    </th>
-                  );
-                })}
-                {regularCols.filter(col => {
-                  // Hide string, boolean, and date columns when grouped, except grouping columns
-                  if (groupByField || innerGroupByField) {
-                    const colType = get(columnTypes, col);
-                    const isBoolean = get(colType, 'isBoolean', false);
-                    const isDate = get(colType, 'isDate', false);
-                    const isString = !get(colType, 'isNumeric', false) && !isDate && !isBoolean;
-                    if ((isBoolean || isString || isDate) && col !== groupByField && col !== innerGroupByField) {
-                      return false;
-                    }
-                  }
-                  return true;
-                }).map((col) => {
-                  const colType = get(columnTypes, col);
-                  const isNumericCol = get(colType, 'isNumeric', false);
-                  const colWidth = get(calculateColumnWidths, col, 120);
-
-                  return (
-                    <th
-                      key={col}
-                      className="border border-gray-200 px-3 py-2 text-left font-semibold text-xs sm:text-sm text-gray-700 bg-gray-50"
-                      style={{
-                        minWidth: `${colWidth}px`,
-                        width: `${colWidth}px`,
-                        maxWidth: `${get(calculateColumnWidths, col, 400)}px`
-                      }}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span>{headerNames[col]}</span>
-                        {enableSort && (
-                          <button
-                            type="button"
-                            onClick={() => handleSort(col)}
-                            className="p-1 hover:bg-gray-200 rounded transition-colors"
-                            title="Sort"
-                          >
-                            {getSortIcon(col)}
-                          </button>
-                        )}
-                      </div>
-                      {enableFilter && (
-                        <div className="mt-2">
-                          {getFilterElement(col)}
-                        </div>
-                      )}
-                    </th>
-                  );
-                })}
-              </tr>
-            </thead>
-            <tbody>
-              {displayData.map((item, rowIndex) => {
-                // Generate unique key based on row type and index
-                let keySuffix = '';
-                if (item.isGroupHeader) {
-                  keySuffix = 'header';
-                } else if (item.isGroupFooter) {
-                  keySuffix = 'footer';
-                } else if (item.isGroupRow) {
-                  keySuffix = 'grouprow';
-                } else {
-                  keySuffix = 'regular';
-                }
-                const uniqueKey = `row-${item.index}-${keySuffix}-${rowIndex}`;
-
-                return (
-                  <TableRow
-                    key={uniqueKey}
-                    item={item}
-                    rowIndex={rowIndex}
-                    frozenCols={frozenCols}
-                    regularCols={regularCols}
-                    columnTypes={columnTypes}
-                    calculateColumnWidths={calculateColumnWidths}
-                    renderCell={renderCell}
-                    renderFooterCell={renderFooterCell}
-                    isMobile={isMobile}
-                    groupByField={groupByField}
-                    innerGroupByField={innerGroupByField}
-                  />
-                );
-              })}
-              {enableSummation && (
-                <TableRow
-                  key="footer-row"
-                  item={{ index: -1 }}
-                  rowIndex={-1}
-                  frozenCols={frozenCols}
-                  regularCols={regularCols}
-                  columnTypes={columnTypes}
-                  calculateColumnWidths={calculateColumnWidths}
-                  renderCell={renderCell}
-                  renderFooterCell={renderFooterCell}
-                  isFooter={true}
-                  isMobile={isMobile}
-                  groupByField={groupByField}
-                  innerGroupByField={innerGroupByField}
-                />
-              )}
-            </tbody>
-          </table>
-        </div>
+          {regularCols.map((col) => {
+            const colType = get(columnTypes, col);
+            const isNumericCol = get(colType, 'isNumeric', false);
+            return (
+              <Column
+                key={col}
+                field={col}
+                header={formatHeaderName(col)}
+                sortable={enableSort}
+                style={{
+                  minWidth: `${get(calculateColumnWidths, col, 120)}px`,
+                  width: `${get(calculateColumnWidths, col, 120)}px`,
+                  maxWidth: `${get(calculateColumnWidths, col, 400)}px`
+                }}
+                filter={enableFilter}
+                filterElement={enableFilter ? getFilterElement(col) : undefined}
+                showFilterMenu={false}
+                showClearButton={false}
+                footer={footerTemplate(col)}
+                body={getBodyTemplate(col)}
+                align={isNumericCol ? 'right' : 'left'}
+              />
+            );
+          })}
+        </DataTable>
       </div>
 
       <div className="mt-4">
-        <CustomPaginator
+        <Paginator
           first={first}
           rows={rows}
-          totalRecords={groupByField ? groupList.length : sortedData.length}
-          isGrouped={!!groupByField}
+          totalRecords={sortedData.length}
           rowsPerPageOptions={rowsPerPageOptions}
           onPageChange={onPageChange}
+          template="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink RowsPerPageDropdown"
         />
       </div>
     </div>

@@ -262,19 +262,6 @@ PLASMIC.registerComponent(DataTable, {
       description: "Fields to display in green color",
       defaultValue: [],
     },
-    groupByField: {
-      type: "string",
-      description: "Field name to group rows by (optional)",
-    },
-    innerGroupByField: {
-      type: "string",
-      description: "Field name for inner grouping (optional)",
-    },
-    enableInnerGroupFooter: {
-      type: "boolean",
-      description: "Show footer for inner groups",
-      defaultValue: true,
-    },
   },
 });
 
@@ -325,19 +312,6 @@ PLASMIC.registerComponent(DataTableControls, {
       description: "Green colored fields",
       defaultValue: [],
     },
-    groupByField: {
-      type: "string",
-      description: "Group by field (optional)",
-    },
-    innerGroupByField: {
-      type: "string",
-      description: "Inner group by field (optional)",
-    },
-    enableInnerGroupFooter: {
-      type: "boolean",
-      description: "Enable inner group footer",
-      defaultValue: true,
-    },
     onSortChange: {
       type: "eventHandler",
       argTypes: [{ name: "enabled", type: "boolean" }],
@@ -365,18 +339,6 @@ PLASMIC.registerComponent(DataTableControls, {
     onGreenFieldsChange: {
       type: "eventHandler",
       argTypes: [{ name: "fields", type: "array" }],
-    },
-    onGroupByFieldChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "field", type: "string" }],
-    },
-    onInnerGroupByFieldChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "field", type: "string" }],
-    },
-    onInnerGroupFooterChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "enabled", type: "boolean" }],
     },
   },
 });
