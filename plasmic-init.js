@@ -4,6 +4,8 @@ import { initPlasmicLoader } from "@plasmicapp/loader-nextjs";
 import jmespath from "jmespath";
 import _ from "lodash";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import DataTable from "./components/DataTable";
+import DataTableControls from "./components/DataTableControls";
 
 
 export const PLASMIC = initPlasmicLoader({
@@ -198,4 +200,185 @@ PLASMIC.registerFunction(getGlobalState, {
     { name: "stateName", type: "string", description: "State key name (optional - returns all if omitted)", optional: true },
   ],
   returnType: "any",
+});
+
+// Register DataTable Component
+PLASMIC.registerComponent(DataTable, {
+  name: "DataTable",
+  description: "Advanced data table with sorting, filtering, grouping, and pagination",
+  isDefaultExport: true,
+  importPath: "./components/DataTable",
+  props: {
+    data: {
+      type: "array",
+      description: "Array of objects to display in the table",
+      defaultValue: [],
+    },
+    rowsPerPageOptions: {
+      type: "array",
+      description: "Available rows per page options",
+      defaultValue: [10, 25, 50, 100],
+    },
+    defaultRows: {
+      type: "number",
+      description: "Default number of rows per page",
+      defaultValue: 10,
+    },
+    scrollable: {
+      type: "boolean",
+      description: "Enable scrolling",
+      defaultValue: true,
+    },
+    scrollHeight: {
+      type: "string",
+      description: "Height for scrollable area (e.g., '600px')",
+      defaultValue: "600px",
+    },
+    enableSort: {
+      type: "boolean",
+      description: "Enable column sorting",
+      defaultValue: true,
+    },
+    enableFilter: {
+      type: "boolean",
+      description: "Enable column filtering",
+      defaultValue: true,
+    },
+    enableSummation: {
+      type: "boolean",
+      description: "Enable summary row with totals",
+      defaultValue: true,
+    },
+    textFilterColumns: {
+      type: "array",
+      description: "Columns to use text filter instead of multiselect",
+      defaultValue: [],
+    },
+    redFields: {
+      type: "array",
+      description: "Fields to display in red color",
+      defaultValue: [],
+    },
+    greenFields: {
+      type: "array",
+      description: "Fields to display in green color",
+      defaultValue: [],
+    },
+    groupByField: {
+      type: "string",
+      description: "Field name to group rows by (optional)",
+    },
+    innerGroupByField: {
+      type: "string",
+      description: "Field name for inner grouping (optional)",
+    },
+    enableInnerGroupFooter: {
+      type: "boolean",
+      description: "Show footer for inner groups",
+      defaultValue: true,
+    },
+  },
+});
+
+// Register DataTableControls Component
+PLASMIC.registerComponent(DataTableControls, {
+  name: "DataTableControls",
+  description: "Control panel for DataTable configuration",
+  isDefaultExport: true,
+  importPath: "./components/DataTableControls",
+  props: {
+    enableSort: {
+      type: "boolean",
+      description: "Enable sorting",
+      defaultValue: true,
+    },
+    enableFilter: {
+      type: "boolean",
+      description: "Enable filtering",
+      defaultValue: true,
+    },
+    enableSummation: {
+      type: "boolean",
+      description: "Enable summation",
+      defaultValue: true,
+    },
+    rowsPerPageOptions: {
+      type: "array",
+      description: "Rows per page options",
+      defaultValue: [10, 25, 50, 100],
+    },
+    columns: {
+      type: "array",
+      description: "Available columns",
+      defaultValue: [],
+    },
+    textFilterColumns: {
+      type: "array",
+      description: "Text filter columns",
+      defaultValue: [],
+    },
+    redFields: {
+      type: "array",
+      description: "Red colored fields",
+      defaultValue: [],
+    },
+    greenFields: {
+      type: "array",
+      description: "Green colored fields",
+      defaultValue: [],
+    },
+    groupByField: {
+      type: "string",
+      description: "Group by field (optional)",
+    },
+    innerGroupByField: {
+      type: "string",
+      description: "Inner group by field (optional)",
+    },
+    enableInnerGroupFooter: {
+      type: "boolean",
+      description: "Enable inner group footer",
+      defaultValue: true,
+    },
+    onSortChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "enabled", type: "boolean" }],
+    },
+    onFilterChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "enabled", type: "boolean" }],
+    },
+    onSummationChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "enabled", type: "boolean" }],
+    },
+    onRowsPerPageOptionsChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "options", type: "array" }],
+    },
+    onTextFilterColumnsChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "columns", type: "array" }],
+    },
+    onRedFieldsChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "fields", type: "array" }],
+    },
+    onGreenFieldsChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "fields", type: "array" }],
+    },
+    onGroupByFieldChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "field", type: "string" }],
+    },
+    onInnerGroupByFieldChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "field", type: "string" }],
+    },
+    onInnerGroupFooterChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "enabled", type: "boolean" }],
+    },
+  },
 });

@@ -1,4 +1,5 @@
-// import '../styles/globals.css';
+import '../globals.css';
+import 'primeicons/primeicons.css';
 import { DataProvider } from '@plasmicapp/host';
 import { useEffect, useState, useCallback } from 'react';
 import localforage from 'localforage';
