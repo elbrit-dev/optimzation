@@ -161,36 +161,7 @@ const a = {
 
   localforage: localforage,
   
-  // Lodash utility functions
-  map: _.map,
-  filter: _.filter,
-  find: _.find,
-  groupBy: _.groupBy,
-  sortBy: _.sortBy,
-  orderBy: _.orderBy,
-  uniq: _.uniq,
-  uniqBy: _.uniqBy,
-  sum: _.sum,
-  sumBy: _.sumBy,
-  get: _.get,
-  set: _.set,
-  omit: _.omit,
-  pick: _.pick,
-  merge: _.merge,
-  cloneDeep: _.cloneDeep,
-  intersection: _.intersection,
-  union: _.union,
-  difference: _.difference,
-  chunk: _.chunk,
-  flatten: _.flatten,
-  flattenDeep: _.flattenDeep,
-  keyBy: _.keyBy,
-  mapValues: _.mapValues,
-  reduce: _.reduce,
-  isEmpty: _.isEmpty,
-  isEqual: _.isEqual,
-  debounce: _.debounce,
-  throttle: _.throttle,
+  _: _,
 };
 
 if (typeof window !== 'undefined') {
