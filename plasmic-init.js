@@ -118,6 +118,56 @@ PLASMIC.registerFunction(jmespath.search, {
   returnType: "any",
 });
 
+// Register lodash as a global object
+PLASMIC.registerGlobalContext(_, {
+  name: "_",
+  description: "Lodash utility library",
+  props: {},
+  providesData: true,
+  globalActions: {
+    map: {
+      parameters: [
+        { name: "collection", type: "any" },
+        { name: "iteratee", type: "function" },
+      ],
+    },
+    filter: {
+      parameters: [
+        { name: "collection", type: "any" },
+        { name: "predicate", type: "function" },
+      ],
+    },
+    find: {
+      parameters: [
+        { name: "collection", type: "any" },
+        { name: "predicate", type: "function" },
+      ],
+    },
+    groupBy: {
+      parameters: [
+        { name: "collection", type: "any" },
+        { name: "iteratee", type: "function" },
+      ],
+    },
+    sortBy: {
+      parameters: [
+        { name: "collection", type: "any" },
+        { name: "iteratees", type: "any" },
+      ],
+    },
+    uniq: {
+      parameters: [
+        { name: "array", type: "array" },
+      ],
+    },
+    intersection: {
+      parameters: [
+        { name: "arrays", type: "array" },
+      ],
+    },
+  },
+});
+
 PLASMIC.registerFunction(addStHq, {
   name: "addStHq",
   description: "Add sales team and HQ information to data based on item and customer mappings",
