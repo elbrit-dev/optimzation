@@ -351,15 +351,6 @@ PLASMIC.registerComponent(FirebaseUIComponent, {
   isDefaultExport: true,
   importPath: "./components/FirebaseUIComponent",
   props: {
-    children: {
-      type: "slot",
-      defaultValue: [
-        {
-          type: "text",
-          value: "Sign In",
-        },
-      ],
-    },
     onSuccess: {
       type: "eventHandler",
       argTypes: [{ name: "data", type: "object" }],
@@ -367,10 +358,6 @@ PLASMIC.registerComponent(FirebaseUIComponent, {
     onError: {
       type: "eventHandler",
       argTypes: [{ name: "error", type: "object" }],
-    },
-    onClick: {
-      type: "eventHandler",
-      argTypes: [{ name: "event", type: "object" }],
     },
   },
 });

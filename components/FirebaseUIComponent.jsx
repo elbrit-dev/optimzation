@@ -6,24 +6,18 @@ import dynamic from 'next/dynamic';
 import { useRouter } from 'next/router';
 
 // Dynamically import FirebaseUI to avoid SSR issues
-const FirebaseUIComponent = ({ onSuccess, onError, onClick, children, className }) => {
+const FirebaseUIComponent = ({ onSuccess, onError, className }) => {
   const uiRef = useRef(null);
   const containerRef = useRef(null);
   const [isClient, setIsClient] = useState(false);
-  const [isStarted, setIsStarted] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
     setIsClient(true);
   }, []);
 
-  const handleStartLogin = (e) => {
-    if (onClick) onClick(e);
-    setIsStarted(true);
-  };
-
   useEffect(() => {
-    if (!isClient || !isStarted) return;
+    if (!isClient) return;
 
     const initializeFirebaseUI = async () => {
       const auth = app.auth(); // using compat auth
@@ -82,22 +76,14 @@ const FirebaseUIComponent = ({ onSuccess, onError, onClick, children, className 
     };
 
     initializeFirebaseUI();
-  }, [isClient, isStarted, onSuccess, onError]);
+  }, [isClient, onSuccess, onError]);
 
   if (!isClient) {
     return null;
   }
 
   return (
-    <div className={className}>
-      {!isStarted ? (
-        <div onClick={handleStartLogin} style={{ cursor: 'pointer' }}>
-          {children || <button style={{ padding: '10px 20px', borderRadius: '5px', cursor: 'pointer' }}>Sign In</button>}
-        </div>
-      ) : (
-        <div ref={containerRef}></div>
-      )}
-    </div>
+    <div className={className} ref={containerRef}></div>
   );
 };
 
@@ -105,4 +91,3 @@ export default dynamic(() => Promise.resolve(FirebaseUIComponent), {
   ssr: false,
   loading: () => <div>Loading authentication...</div>
 });
-
