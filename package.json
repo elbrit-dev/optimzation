@@ -11,6 +11,8 @@
   "dependencies": {
     "@plasmicapp/loader-nextjs": "^1.0.445",
     "@tailwindcss/postcss": "^4.1.18",
+    "firebase": "^10.14.1",
+    "firebaseui": "^6.1.0",
     "jmespath": "^0.16.0",
     "localforage": "^1.10.0",
     "lodash": "^4.17.21",

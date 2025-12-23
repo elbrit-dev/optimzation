@@ -1,5 +1,6 @@
 import '../styles/globals.css';
 import 'primeicons/primeicons.css';
+import '../firebase'; // Initialize Firebase
 import { DataProvider } from '@plasmicapp/host';
 import { useEffect, useState, useCallback } from 'react';
 import localforage from 'localforage';

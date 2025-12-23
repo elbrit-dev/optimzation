@@ -4,6 +4,7 @@ import _ from "lodash";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import DataTable from "./components/DataTable";
 import DataTableControls from "./components/DataTableControls";
+import FirebaseUIComponent from "./components/FirebaseUIComponent";
 
 
 export const PLASMIC = initPlasmicLoader({
@@ -339,6 +340,37 @@ PLASMIC.registerComponent(DataTableControls, {
     onGreenFieldsChange: {
       type: "eventHandler",
       argTypes: [{ name: "fields", type: "array" }],
+    },
+  },
+});
+
+// Register FirebaseUIComponent
+PLASMIC.registerComponent(FirebaseUIComponent, {
+  name: "FirebaseUIComponent",
+  description: "Native Firebase Authentication UI (Microsoft & Phone)",
+  isDefaultExport: true,
+  importPath: "./components/FirebaseUIComponent",
+  props: {
+    children: {
+      type: "slot",
+      defaultValue: [
+        {
+          type: "text",
+          value: "Sign In",
+        },
+      ],
+    },
+    onSuccess: {
+      type: "eventHandler",
+      argTypes: [{ name: "data", type: "object" }],
+    },
+    onError: {
+      type: "eventHandler",
+      argTypes: [{ name: "error", type: "object" }],
+    },
+    onClick: {
+      type: "eventHandler",
+      argTypes: [{ name: "event", type: "object" }],
     },
   },
 });
