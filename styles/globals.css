@@ -644,11 +644,8 @@ body {
 
 /* Responsive table container */
 .responsive-table-container {
-    max-height: 400px;
     width: 100%;
-    overflow-x: auto;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
+    overflow: hidden; /* Only clip border radius, let PrimeReact handle scrolling */
     position: relative;
 }
 
@@ -656,17 +653,6 @@ body {
     max-height: inherit;
 }
 
-@media (min-width: 640px) {
-    .responsive-table-container {
-        max-height: 500px;
-    }
-}
-
-@media (min-width: 1024px) {
-    .responsive-table-container {
-        max-height: 600px;
-    }
-}
 
 /* Table wrappers */
 .p-datatable-wrapper,
@@ -723,23 +709,6 @@ body {
         -webkit-tap-highlight-color: rgba(59, 130, 246, 0.1);
     }
 
-    .responsive-table-container {
-        scrollbar-width: thin;
-    }
-    
-    .responsive-table-container::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-    }
-    
-    .responsive-table-container::-webkit-scrollbar-thumb {
-        background: rgba(0, 0, 0, 0.2);
-        border-radius: 4px;
-    }
-    
-    .responsive-table-container::-webkit-scrollbar-track {
-        background: rgba(0, 0, 0, 0.05);
-    }
 }
 
 /* Date Range Filter Styles */
