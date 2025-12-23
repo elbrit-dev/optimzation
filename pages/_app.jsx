@@ -3,6 +3,7 @@ import 'primeicons/primeicons.css';
 import { DataProvider } from '@plasmicapp/host';
 import { useEffect, useState, useCallback } from 'react';
 import localforage from 'localforage';
+import _ from 'lodash';
 
 
 const flatten = (renameMapOrData, maybeData, options = {}) => {
@@ -159,6 +160,8 @@ const a = {
   },
 
   localforage: localforage,
+  
+  _: _,
 };
 
 if (typeof window !== 'undefined') {
