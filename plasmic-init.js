@@ -263,6 +263,9 @@ PLASMIC.registerComponent(DataTable, {
       description: "Fields to display in green color",
       defaultValue: [],
     },
+    className: {
+      type: "string",
+    },
   },
 });
 
@@ -313,6 +316,9 @@ PLASMIC.registerComponent(DataTableControls, {
       description: "Green colored fields",
       defaultValue: [],
     },
+    className: {
+      type: "string",
+    },
     onSortChange: {
       type: "eventHandler",
       argTypes: [{ name: "enabled", type: "boolean" }],
@@ -351,6 +357,9 @@ PLASMIC.registerComponent(FirebaseUIComponent, {
   isDefaultExport: true,
   importPath: "./components/FirebaseUIComponent",
   props: {
+    className: {
+      type: "string",
+    },
     onSuccess: {
       type: "eventHandler",
       argTypes: [{ name: "data", type: "object" }],
