@@ -263,6 +263,11 @@ PLASMIC.registerComponent(DataTable, {
       description: "Fields to display in green color",
       defaultValue: [],
     },
+    showControls: {
+      type: "boolean",
+      description: "Show table configuration controls",
+      defaultValue: false,
+    },
     className: {
       type: "string",
     },

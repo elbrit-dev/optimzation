@@ -6,6 +6,7 @@ import { Column } from 'primereact/column';
 import { InputText } from 'primereact/inputtext';
 import { Calendar } from 'primereact/calendar';
 import { Paginator } from 'primereact/paginator';
+import DataTableControls from './DataTableControls';
 import * as XLSX from 'xlsx';
 import {
   isNil,
@@ -511,12 +512,33 @@ export default function DataTableComponent({
   redFields = [],
   greenFields = [],
   className = '',
+  showControls = false,
 }) {
   const [first, setFirst] = useState(0);
   const [rows, setRows] = useState(defaultRows);
   const [filters, setFilters] = useState({});
   const [scrollHeightValue, setScrollHeightValue] = useState('600px');
   const [multiSortMeta, setMultiSortMeta] = useState([]);
+
+  // Internal state for features when showControls is enabled
+  const [internalEnableSort, setInternalEnableSort] = useState(enableSort);
+  const [internalEnableFilter, setInternalEnableFilter] = useState(enableFilter);
+  const [internalEnableSummation, setInternalEnableSummation] = useState(enableSummation);
+  const [internalRowsPerPageOptions, setInternalRowsPerPageOptions] = useState(rowsPerPageOptions);
+  const [internalTextFilterColumns, setInternalTextFilterColumns] = useState(textFilterColumns);
+  const [internalRedFields, setInternalRedFields] = useState(redFields);
+  const [internalGreenFields, setInternalGreenFields] = useState(greenFields);
+
+  // Sync internal state with props
+  useEffect(() => {
+    setInternalEnableSort(enableSort);
+    setInternalEnableFilter(enableFilter);
+    setInternalEnableSummation(enableSummation);
+    setInternalRowsPerPageOptions(rowsPerPageOptions);
+    setInternalTextFilterColumns(textFilterColumns);
+    setInternalRedFields(redFields);
+    setInternalGreenFields(greenFields);
+  }, [enableSort, enableFilter, enableSummation, rowsPerPageOptions, textFilterColumns, redFields, greenFields]);
 
   useEffect(() => {
     setRows(defaultRows);
@@ -663,11 +685,11 @@ export default function DataTableComponent({
     });
 
     // Remove textFilterColumns from string columns to get multiselect columns
-    const textFilterSet = new Set(textFilterColumns);
+    const textFilterSet = new Set(internalTextFilterColumns);
     const multiselectCols = stringColumns.filter(col => !textFilterSet.has(col));
 
     return multiselectCols;
-  }, [columns, columnTypes, textFilterColumns]);
+  }, [columns, columnTypes, internalTextFilterColumns]);
 
   // Compute unique values for multiselect columns
   const optionColumnValues = useMemo(() => {
@@ -686,7 +708,7 @@ export default function DataTableComponent({
   }, [safeData, multiselectColumns]);
 
   useEffect(() => {
-    if (enableFilter && !isEmpty(columns)) {
+    if (internalEnableFilter && !isEmpty(columns)) {
       setFilters(prev => {
         const newFilters = { ...prev };
 
@@ -725,10 +747,10 @@ export default function DataTableComponent({
 
         return newFilters;
       });
-    } else if (!enableFilter) {
+    } else if (!internalEnableFilter) {
       setFilters({});
     }
-  }, [columns, enableFilter, columnTypes, multiselectColumns, textFilterColumns]);
+  }, [columns, internalEnableFilter, columnTypes, multiselectColumns, internalTextFilterColumns]);
 
   const calculateColumnWidths = useMemo(() => {
     const widths = {};
@@ -773,7 +795,7 @@ export default function DataTableComponent({
         baseWidth = Math.max(contentWidth * 9, headerWidth);
       }
 
-      const sortPadding = enableSort ? 30 : 0;
+      const sortPadding = internalEnableSort ? 30 : 0;
       const finalWidth = baseWidth + sortPadding;
 
       const minWidth = isBooleanColumn ? 100 : isDateColumn ? 180 : isNumericColumn ? 130 : 140;
@@ -783,7 +805,7 @@ export default function DataTableComponent({
     });
 
     return widths;
-  }, [safeData, columns, enableSort, formatHeaderName, formatCellValue, columnTypes]);
+  }, [safeData, columns, internalEnableSort, formatHeaderName, formatCellValue, columnTypes]);
 
   const filteredData = useMemo(() => {
     if (isEmpty(safeData)) return [];
@@ -880,7 +902,7 @@ export default function DataTableComponent({
   }, [sortedData, first, rows]);
 
   const footerTemplate = (column, isFirstColumn = false) => {
-    if (!enableSummation) return null;
+    if (!internalEnableSummation) return null;
     
     const colType = get(columnTypes, column);
     
@@ -897,8 +919,8 @@ export default function DataTableComponent({
     const hasSum = !isNil(sum) && !get(colType, 'isBoolean');
     
     // Determine color based on field lists
-    const isRedField = includes(redFields, column);
-    const isGreenField = includes(greenFields, column);
+    const isRedField = includes(internalRedFields, column);
+    const isGreenField = includes(internalGreenFields, column);
     const colorClass = isRedField ? 'text-red-600' : isGreenField ? 'text-green-600' : '';
     
     if (isFirstColumn) {
@@ -1037,7 +1059,7 @@ export default function DataTableComponent({
 
   // Get active filters for display
   const activeFilters = useMemo(() => {
-    if (!enableFilter || isEmpty(filters)) return [];
+    if (!internalEnableFilter || isEmpty(filters)) return [];
     
     const active = [];
     columns.forEach((col) => {
@@ -1060,7 +1082,7 @@ export default function DataTableComponent({
       }
     });
     return active;
-  }, [filters, columns, enableFilter, columnTypes, formatFilterValue]);
+  }, [filters, columns, internalEnableFilter, columnTypes, formatFilterValue]);
 
   const textFilterElement = useCallback((col) => {
     const TextFilter = (options) => {
@@ -1251,21 +1273,41 @@ export default function DataTableComponent({
 
   return (
     <div className={`w-full ${className}`}>
-      {(!enableSort || !enableFilter || !enableSummation) && (
+      {showControls && (
+        <DataTableControls
+          enableSort={internalEnableSort}
+          enableFilter={internalEnableFilter}
+          enableSummation={internalEnableSummation}
+          rowsPerPageOptions={internalRowsPerPageOptions}
+          columns={columns}
+          textFilterColumns={internalTextFilterColumns}
+          redFields={internalRedFields}
+          greenFields={internalGreenFields}
+          onSortChange={setInternalEnableSort}
+          onFilterChange={setInternalEnableFilter}
+          onSummationChange={setInternalEnableSummation}
+          onRowsPerPageOptionsChange={setInternalRowsPerPageOptions}
+          onTextFilterColumnsChange={setInternalTextFilterColumns}
+          onRedFieldsChange={setInternalRedFields}
+          onGreenFieldsChange={setInternalGreenFields}
+        />
+      )}
+
+      {(!internalEnableSort || !internalEnableFilter || !internalEnableSummation) && (
         <div className="mb-3 flex flex-wrap gap-2 text-xs">
-          {!enableSort && (
+          {!internalEnableSort && (
             <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded-md">
               <i className="pi pi-info-circle mr-1"></i>
               Sorting disabled
             </span>
           )}
-          {!enableFilter && (
+          {!internalEnableFilter && (
             <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded-md">
               <i className="pi pi-info-circle mr-1"></i>
               Filtering disabled
             </span>
           )}
-          {!enableSummation && (
+          {!internalEnableSummation && (
             <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded-md">
               <i className="pi pi-info-circle mr-1"></i>
               Summation disabled
@@ -1288,7 +1330,7 @@ export default function DataTableComponent({
       </div>
 
       {/* Filter Chips */}
-      {enableFilter && !isEmpty(activeFilters) && (
+      {internalEnableFilter && !isEmpty(activeFilters) && (
         <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs font-medium text-gray-600 mr-1">Active Filters:</span>
@@ -1328,8 +1370,8 @@ export default function DataTableComponent({
           value={paginatedData}
           scrollable={scrollable}
           scrollHeight={scrollHeightValue}
-          sortMode={enableSort ? "multiple" : undefined}
-          removableSort={enableSort}
+          sortMode={internalEnableSort ? "multiple" : undefined}
+          removableSort={internalEnableSort}
           multiSortMeta={multiSortMeta}
           onSort={(e) => {
             setMultiSortMeta(e.multiSortMeta || []);
@@ -1339,7 +1381,7 @@ export default function DataTableComponent({
           stripedRows
           className="p-datatable-sm w-full"
           style={{ minWidth: '100%' }}
-          filterDisplay={enableFilter ? "row" : undefined}
+          filterDisplay={internalEnableFilter ? "row" : undefined}
         >
           {frozenCols.map((col, index) => {
             const colType = get(columnTypes, col);
@@ -1350,15 +1392,15 @@ export default function DataTableComponent({
                 key={`frozen-${col}`}
                 field={col}
                 header={formatHeaderName(col)}
-                sortable={enableSort}
+                sortable={internalEnableSort}
                 frozen
                 style={{
                   minWidth: `${get(calculateColumnWidths, col, 120)}px`,
                   width: `${get(calculateColumnWidths, col, 120)}px`,
                   maxWidth: `${get(calculateColumnWidths, col, 200)}px`
                 }}
-                filter={enableFilter}
-                filterElement={enableFilter ? getFilterElement(col) : undefined}
+                filter={internalEnableFilter}
+                filterElement={internalEnableFilter ? getFilterElement(col) : undefined}
                 showFilterMenu={false}
                 showClearButton={false}
                 footer={footerTemplate(col, isFirstColumn)}
@@ -1376,14 +1418,14 @@ export default function DataTableComponent({
                 key={col}
                 field={col}
                 header={formatHeaderName(col)}
-                sortable={enableSort}
+                sortable={internalEnableSort}
                 style={{
                   minWidth: `${get(calculateColumnWidths, col, 120)}px`,
                   width: `${get(calculateColumnWidths, col, 120)}px`,
                   maxWidth: `${get(calculateColumnWidths, col, 400)}px`
                 }}
-                filter={enableFilter}
-                filterElement={enableFilter ? getFilterElement(col) : undefined}
+                filter={internalEnableFilter}
+                filterElement={internalEnableFilter ? getFilterElement(col) : undefined}
                 showFilterMenu={false}
                 showClearButton={false}
                 footer={footerTemplate(col)}
@@ -1400,7 +1442,7 @@ export default function DataTableComponent({
           first={first}
           rows={rows}
           totalRecords={sortedData.length}
-          rowsPerPageOptions={rowsPerPageOptions}
+          rowsPerPageOptions={internalRowsPerPageOptions}
           onPageChange={onPageChange}
           template="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink RowsPerPageDropdown"
         />
