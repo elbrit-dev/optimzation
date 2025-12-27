@@ -3,7 +3,6 @@ import jmespath from "jmespath";
 import _ from "lodash";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import DataTable from "./components/DataTable";
-import DataTableControls from "./components/DataTableControls";
 import FirebaseUIComponent from "./components/FirebaseUIComponent";
 
 
@@ -209,148 +208,105 @@ PLASMIC.registerComponent(DataTable, {
   importPath: "./components/DataTable",
   props: {
     data: {
-      type: "array",
-      description: "Array of objects to display in the table",
-      defaultValue: [],
-    },
-    rowsPerPageOptions: {
-      type: "array",
-      description: "Available rows per page options",
-      defaultValue: [10, 25, 50, 100],
-    },
-    defaultRows: {
-      type: "number",
-      description: "Default number of rows per page",
-      defaultValue: 10,
-    },
-    scrollable: {
-      type: "boolean",
-      description: "Enable scrolling",
-      defaultValue: true,
-    },
-    scrollHeight: {
-      type: "string",
-      description: "Height for scrollable area (e.g., '600px')",
-      defaultValue: "600px",
-    },
-    enableSort: {
-      type: "boolean",
-      description: "Enable column sorting",
-      defaultValue: true,
-    },
-    enableFilter: {
-      type: "boolean",
-      description: "Enable column filtering",
-      defaultValue: true,
-    },
-    enableSummation: {
-      type: "boolean",
-      description: "Enable summary row with totals",
-      defaultValue: true,
-    },
-    textFilterColumns: {
-      type: "array",
-      description: "Columns to use text filter instead of multiselect",
-      defaultValue: [],
-    },
-    redFields: {
-      type: "array",
-      description: "Fields to display in red color",
-      defaultValue: [],
-    },
-    greenFields: {
-      type: "array",
-      description: "Fields to display in green color",
+      type: "object",
+      description: "The array of data to display in the table",
       defaultValue: [],
     },
     showControls: {
       type: "boolean",
-      description: "Show table configuration controls",
-      defaultValue: false,
-    },
-    className: {
-      type: "string",
-    },
-  },
-});
-
-// Register DataTableControls Component
-PLASMIC.registerComponent(DataTableControls, {
-  name: "DataTableControls",
-  description: "Control panel for DataTable configuration",
-  isDefaultExport: true,
-  importPath: "./components/DataTableControls",
-  props: {
-    enableSort: {
-      type: "boolean",
-      description: "Enable sorting",
-      defaultValue: true,
-    },
-    enableFilter: {
-      type: "boolean",
-      description: "Enable filtering",
-      defaultValue: true,
-    },
-    enableSummation: {
-      type: "boolean",
-      description: "Enable summation",
+      description: "Toggle the visibility of the table controls (sort, filter, etc.)",
       defaultValue: true,
     },
     rowsPerPageOptions: {
-      type: "array",
-      description: "Rows per page options",
+      type: "object",
       defaultValue: [10, 25, 50, 100],
     },
-    columns: {
-      type: "array",
-      description: "Available columns",
-      defaultValue: [],
+    defaultRows: {
+      type: "number",
+      defaultValue: 10,
+    },
+    scrollable: {
+      type: "boolean",
+      defaultValue: true,
+    },
+    scrollHeight: {
+      type: "string",
+      defaultValue: "600px",
+    },
+    enableSort: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Show/hide sorting controls within the header",
+    },
+    enableFilter: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Show/hide filtering controls within the header",
+    },
+    enableSummation: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Show/hide summation controls within the header",
     },
     textFilterColumns: {
-      type: "array",
-      description: "Text filter columns",
+      type: "object",
+      description: "Array of fields to use text search instead of multi-select",
+      defaultValue: [],
+    },
+    visibleColumns: {
+      type: "object",
+      description: "Array of fields to display (empty = all)",
       defaultValue: [],
     },
     redFields: {
-      type: "array",
-      description: "Red colored fields",
+      type: "object",
       defaultValue: [],
     },
     greenFields: {
-      type: "array",
-      description: "Green colored fields",
+      type: "object",
       defaultValue: [],
     },
-    className: {
+    outerGroupField: {
       type: "string",
+      description: "Field to group by (e.g. team name)",
     },
-    onSortChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "enabled", type: "boolean" }],
+    innerGroupField: {
+      type: "string",
+      description: "Field to sub-group/aggregate by",
     },
-    onFilterChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "enabled", type: "boolean" }],
+    enableCellEdit: {
+      type: "boolean",
+      defaultValue: false,
     },
-    onSummationChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "enabled", type: "boolean" }],
+    nonEditableColumns: {
+      type: "object",
+      defaultValue: [],
     },
-    onRowsPerPageOptionsChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "options", type: "array" }],
+    enableTargetData: {
+      type: "boolean",
+      defaultValue: false,
+      description: "Enable target vs actual comparison",
     },
-    onTextFilterColumnsChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "columns", type: "array" }],
+    targetData: {
+      type: "object",
+      description: "The array of target data to compare against",
+      defaultValue: [],
     },
-    onRedFieldsChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "fields", type: "array" }],
+    targetOuterGroupField: {
+      type: "string",
+      description: "The field in target data that corresponds to the outer group",
     },
-    onGreenFieldsChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "fields", type: "array" }],
+    targetInnerGroupField: {
+      type: "string",
+      description: "The field in target data that corresponds to the inner group",
+    },
+    targetValueField: {
+      type: "string",
+      description: "The field in target data that contains the target value",
+    },
+    actualValueField: {
+      type: "string",
+      description: "The field in the main data that contains the actual value",
     },
   },
 });
