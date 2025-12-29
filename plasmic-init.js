@@ -212,6 +212,9 @@ PLASMIC.registerComponent(DataTable, {
       description: "The array of data to display in the table",
       defaultValue: [],
     },
+    className: {
+      type: "string",
+    },
     showControls: {
       type: "boolean",
       description: "Toggle the visibility of the table controls (sort, filter, etc.)",
