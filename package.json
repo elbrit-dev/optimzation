@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "copy-shared": "npx degit elbrit-dev/playground/src/share share --force && npx degit elbrit-dev/playground/src/components components --force"
   },
   "dependencies": {
     "@plasmicapp/loader-nextjs": "^1.0.445",
