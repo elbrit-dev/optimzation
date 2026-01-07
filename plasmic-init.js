@@ -203,22 +203,25 @@ PLASMIC.registerFunction(getGlobalState, {
 // Register DataTable Component
 PLASMIC.registerComponent(DataTable, {
   name: "DataTable",
-  description: "Advanced data table with sorting, filtering, grouping, and pagination",
-  isDefaultExport: true,
-  importPath: "./components/DataTable",
   props: {
     data: {
       type: "object",
       description: "The array of data to display in the table",
       defaultValue: [],
     },
-    className: {
-      type: "string",
-    },
     showControls: {
       type: "boolean",
       description: "Toggle the visibility of the table controls (sort, filter, etc.)",
-      defaultValue: true,
+      defaultValue: false,
+    },
+    dataSource: {
+      type: "string",
+      description: "The data source ID or 'offline' for local data",
+      defaultValue: "offline",
+    },
+    queryKey: {
+      type: "string",
+      description: "The specific key within the data source results to display",
     },
     rowsPerPageOptions: {
       type: "object",
@@ -311,9 +314,28 @@ PLASMIC.registerComponent(DataTable, {
       type: "string",
       description: "The field in the main data that contains the actual value",
     },
+    enableFullscreenDialog: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Enable/disable fullscreen dialog feature",
+    },
+    drawerTabs: {
+      type: "object",
+      description: "Array of tab configurations for the detail drawer (name, outerGroup, innerGroup)",
+      defaultValue: [],
+    },
+    controlsPanelSize: {
+      type: "number",
+      description: "The percentage width of the controls sidebar (0-100)",
+      defaultValue: 20,
+    },
+    onSave: {
+      type: "eventHandler",
+      argTypes: [],
+    },
   },
-});
-
+  importPath: "./components/DataTable",
+})
 // Register FirebaseUIComponent
 PLASMIC.registerComponent(FirebaseUIComponent, {
   name: "FirebaseUIComponent",
