@@ -5,7 +5,16 @@ import { DataProvider } from '@plasmicapp/host';
 import { useEffect, useState, useCallback } from 'react';
 import localforage from 'localforage';
 import _ from 'lodash';
+import "primereact/resources/themes/lara-light-cyan/theme.css";
+import "primereact/resources/primereact.min.css";
+import "antd/dist/antd.css";
 
+// GraphQL Playground styles
+import '@graphiql/plugin-explorer/style.css';
+import '@graphiql/react/style.css';
+import 'graphiql/graphiql.css';
+import 'graphiql/style.css';
+import "@/app/graphql-playground/styles/graphql-playground.css";
 
 const flatten = (renameMapOrData, maybeData, options = {}) => {
   const flat = (obj, prefix = '', res = {}) => {
