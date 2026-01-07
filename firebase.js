@@ -12,7 +12,7 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase
-const app = firebase.initializeApp(firebaseConfig);
+const app = firebase.apps.length > 0 ? firebase.app() : firebase.initializeApp(firebaseConfig);
 
 // ✅ Force Firestore to use 'elbrit' database (not default)
 const db = firebase.firestore(app);
