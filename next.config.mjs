@@ -7,6 +7,18 @@ const __dirname = path.dirname(__filename);
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  transpilePackages: [
+    'antd',
+    '@ant-design/icons',
+    '@ant-design/icons-svg',
+    'rc-pagination',
+    'rc-picker',
+    'rc-util',
+    'rc-tree',
+    'rc-table',
+    '@rc-component/util',
+    '@rc-component/mutate-observer'
+  ],
   eslint: {
     ignoreDuringBuilds: true,
   },

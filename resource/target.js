@@ -553,7 +553,7 @@ const Target=[
         "salesteam__name": "Vasco Karnataka",
         "hq__name": "HQ-Goa",
         "value": 50000
-    },
+  },
     {
         "salesteam__name": "Vasco Karnataka",
         "hq__name": "HQ-Mangalore",
@@ -724,4 +724,7 @@ const Target=[
         "hq__name": "HQ-Coimbatore",
         "value": 2500000
     }
-]
+];
+
+export default Target;
+

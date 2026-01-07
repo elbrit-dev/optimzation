@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
+    "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@/app/*": ["share/*"],
+      "@/components/*": ["share/components/*"],
+      "@/lib/firebase": ["firebase.js"]
     }
   }
 }

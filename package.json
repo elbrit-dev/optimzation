@@ -7,14 +7,18 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "copy-shared": "npx degit elbrit-dev/playground/src/share share --force && npx degit elbrit-dev/playground/src/components components --force"
+    "copy-shared": "npx degit elbrit-dev/playground/share share --force && npx degit elbrit-dev/playground/components components --force"
   },
   "dependencies": {
     "@plasmicapp/loader-nextjs": "^1.0.445",
     "@tailwindcss/postcss": "^4.1.18",
+    "antd": "^6.1.4",
+    "dayjs": "^1.11.19",
     "firebase": "^10.14.1",
     "firebaseui": "^6.1.0",
     "jmespath": "^0.16.0",
+    "jsonata": "^2.1.0",
+    "jsonc-parser": "^3.3.1",
     "localforage": "^1.10.0",
     "lodash": "^4.17.21",
     "next": "14.2.29",
