@@ -20,6 +20,7 @@
     "embla-carousel-react": "^8.6.0",
     "embla-carousel-wheel-gestures": "^8.1.0",
     "firebase": "^12.7.0",
+    "firebaseui": "^6.1.0",
     "flat": "^6.0.1",
     "framer-motion": "^12.23.26",
     "graphiql": "^5.2.2",
@@ -27,6 +28,7 @@
     "jmespath": "^0.16.0",
     "jsonata": "^2.1.0",
     "jsonc-parser": "^3.3.1",
+    "localforage": "^1.10.0",
     "lodash": "^4.17.21",
     "next": "16.0.10",
     "primeicons": "^7.0.0",
@@ -38,6 +40,7 @@
     "zustand": "^5.0.9"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.18",
     "autoprefixer": "^10.4.23",
     "eslint": "^8",
     "eslint-config-next": "14.2.29",
