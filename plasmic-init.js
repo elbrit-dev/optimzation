@@ -265,6 +265,11 @@ PLASMIC.registerComponent(DataTable, {
       defaultValue: true,
       description: "Show/hide summation controls within the header",
     },
+    enablePagination: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Show/hide pagination controls",
+    },
     textFilterColumns: {
       type: "object",
       description: "Array of fields to use text search instead of multi-select",
