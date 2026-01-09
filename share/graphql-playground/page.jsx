@@ -23,6 +23,7 @@ import {
   createHistoryPlugin,
   GraphiQLWrapper,
   DataTransformerTab,
+  GlobalFunctionsTab,
   TabChangeDetector,
   ActiveTabTracker,
   GraphiQLStateSync
@@ -56,7 +57,8 @@ function GraphQLPlayground() {
 
   const tabOptions = useMemo(() => [
     { name: 'Data Source', value: 0 },
-    { name: 'Data Transformer', value: 1, disabled: !hasSuccessfulQuery }
+    { name: 'Data Transformer', value: 1, disabled: !hasSuccessfulQuery },
+    { name: 'Global Function', value: 2 }
   ], [hasSuccessfulQuery]);
 
   // Update ref when tab changes
@@ -332,6 +334,9 @@ function GraphQLPlayground() {
                 </div>
               </div>
             )}
+          </TabPanel>
+          <TabPanel>
+            <GlobalFunctionsTab />
           </TabPanel>
         </TabView>
       </div>

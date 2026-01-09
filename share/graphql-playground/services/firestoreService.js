@@ -59,6 +59,8 @@ export const firestoreService = {
           index: doc.data().index || '',
           clientSave: doc.data().clientSave || false,
           variables: doc.data().variables || '',
+          month: doc.data().month || false,
+          monthIndex: doc.data().monthIndex || '',
           bodyUpdatedAt: doc.data().bodyUpdatedAt || null,
           variablesUpdatedAt: doc.data().variablesUpdatedAt || null,
           transformerCodeUpdatedAt: doc.data().transformerCodeUpdatedAt || null,
@@ -69,6 +71,30 @@ export const firestoreService = {
     // Sort by name
     queries.sort((a, b) => a.name.localeCompare(b.name));
     return queries;
+  },
+
+  /**
+   * Save global functions
+   * @param {string} functions - The functions code as a string
+   * @returns {Promise<void>}
+   */
+  async saveGlobalFunctions(functions) {
+    const docRef = doc(db, COLLECTION_NAME, '#__GLOBAL__#');
+    await setDoc(docRef, { functions: functions || '' }, { merge: true });
+  },
+
+  /**
+   * Load global functions
+   * @returns {Promise<string>} The functions code as a string, or empty string if not found
+   */
+  async loadGlobalFunctions() {
+    const docRef = doc(db, COLLECTION_NAME, '#__GLOBAL__#');
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      return data.functions || '';
+    }
+    return '';
   },
 };
 

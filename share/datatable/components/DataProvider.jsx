@@ -6,12 +6,103 @@ import { Button } from 'primereact/button';
 import { startCase } from 'lodash';
 import { DatePicker } from 'antd';
 import dayjs from 'dayjs';
-import { parse as parseJsonc, stripComments } from 'jsonc-parser';
 import { firestoreService } from '@/app/graphql-playground/services/firestoreService';
-import { getInitialEndpoint } from '@/app/graphql-playground/constants';
-import { createExecutionContext, executePipeline } from '@/app/graphql-playground/utils/query-pipeline';
+import { getInitialEndpoint, getEndpointConfigFromUrlKey } from '@/app/graphql-playground/constants';
+import { createExecutionContext, executePipeline, fetchGraphQLRequest } from '@/app/graphql-playground/utils/query-pipeline';
+import { extractDataFromResponse } from '@/app/graphql-playground/utils/data-extractor';
+import { indexedDBService } from '@/app/datatable/utils/indexedDBService';
+import { parseGraphQLVariables } from '@/app/graphql-playground/utils/variableParser';
+import { extractValueFromGraphQLResponse } from '@/app/graphql-playground/utils/queryExtractor';
+import { extractYearMonthFromDate } from '@/app/datatable/utils/dateUtils';
+
+/**
+ * Utility function to extract full date/timestamp from index query response
+ * Uses the unified extractValueFromGraphQLResponse utility
+ * @param {string} indexQuery - The index GraphQL query string
+ * @param {Object} jsonResponse - The JSON response from the index query
+ * @returns {string|null} The extracted full date/timestamp string or null if not found
+ */
+function extractFullDateFromIndexResponse(indexQuery, jsonResponse) {
+  return extractValueFromGraphQLResponse(indexQuery, jsonResponse);
+}
+
+/**
+ * Utility function to execute monthIndex query and extract YYYY-MM from the single date field
+ * @param {string} monthIndexQuery - The monthIndex GraphQL query string
+ * @param {Object} queryDoc - The query document containing urlKey and variables
+ * @returns {Promise<string|null>} The extracted YYYY-MM string or null if not found
+ */
+async function executeMonthIndexQueryAndExtractYearMonth(monthIndexQuery, queryDoc) {
+  if (!monthIndexQuery || !monthIndexQuery.trim()) {
+    return null;
+  }
+
+  try {
+    // Get endpoint/auth from query's urlKey, fallback to default
+    const { endpointUrl, authToken } = getEndpointAndAuth(queryDoc);
+
+    if (!endpointUrl) {
+      console.warn('No endpoint available for monthIndex query execution');
+      return null;
+    }
+
+    // Parse variables if provided
+    const parsedVariables = parseGraphQLVariables(queryDoc.variables || '');
+
+    // Execute the monthIndex query
+    const response = await fetchGraphQLRequest(monthIndexQuery, parsedVariables, {
+      endpointUrl,
+      authToken
+    });
+
+    // Parse JSON response
+    const jsonResponse = await response.json();
+    
+    if (jsonResponse.errors) {
+      console.error('GraphQL errors for monthIndex query:', jsonResponse.errors);
+      return null;
+    }
+
+    // Extract the date value using the unified utility
+    const dateValue = extractValueFromGraphQLResponse(monthIndexQuery, jsonResponse);
+
+    if (!dateValue) {
+      return null;
+    }
+
+    // Extract YYYY-MM from the date value using dayjs utility
+    return extractYearMonthFromDate(dateValue);
+  } catch (error) {
+    console.error('Error executing monthIndex query:', error);
+    return null;
+  }
+}
 
 const { RangePicker } = DatePicker;
+
+/**
+ * Helper function to get endpoint URL and auth token from query document
+ * @param {Object} queryDoc - Query document with optional urlKey
+ * @returns {Object} Object with endpointUrl and authToken, or null values if not available
+ */
+function getEndpointAndAuth(queryDoc) {
+  let endpointUrl, authToken;
+  
+  if (queryDoc?.urlKey) {
+    const config = getEndpointConfigFromUrlKey(queryDoc.urlKey);
+    endpointUrl = config.endpointUrl;
+    authToken = config.authToken;
+  }
+  
+  // Fallback to default endpoint if urlKey didn't provide one
+  if (!endpointUrl) {
+    const defaultEndpoint = getInitialEndpoint();
+    endpointUrl = defaultEndpoint?.code;
+    authToken = null; // Will use DEFAULT_AUTH_TOKEN
+  }
+  
+  return { endpointUrl, authToken };
+}
 
 // Custom hook for localStorage with proper JSON serialization for string/null values
 function useLocalStorageString(key, defaultValue) {
@@ -85,6 +176,7 @@ export default function DataProvider({
   const queryVariablesRef = useRef({}); // Ref to track variables immediately (for synchronous access)
   const executingQueryIdRef = useRef(null); // Track which query is currently executing to prevent duplicates
   const executionContextRef = useRef(null); // Persist execution context across runs for caching
+  const pipelineExecutionInFlightRef = useRef(new Set()); // Track pipeline executions in flight to prevent concurrent execution
 
   // Load saved queries on mount
   useEffect(() => {
@@ -93,6 +185,9 @@ export default function DataProvider({
       try {
         const queries = await firestoreService.getAllQueries();
         setSavedQueries(queries);
+
+        // Execute index queries and store results in IndexedDB
+        await executeAndStoreIndexQueries(queries);
       } catch (error) {
         console.error('Error loading saved queries:', error);
         if (onError) {
@@ -109,6 +204,244 @@ export default function DataProvider({
     };
     loadSavedQueries();
   }, [onError]);
+
+  // Execute index queries and store results in IndexedDB
+  const executeAndStoreIndexQueries = async (queries) => {
+    if (!queries || queries.length === 0) {
+      return;
+    }
+
+    // Create a map of queryId -> query object for quick lookup
+    const queryMap = new Map();
+    queries.forEach(query => {
+      if (query.id) {
+        queryMap.set(query.id, query);
+      }
+    });
+
+    // Register callback for all queries with clientSave === true
+    queries.forEach(query => {
+      if (query.id && query.index && query.index.trim() && query.clientSave === true) {
+        // Store the query object in closure for use in callback
+        const queryDoc = query;
+        indexedDBService.setOnChangeCallback(query.id, async (queryId, oldResult, newResult, updatedAt, queryDocFromSave) => {
+          // Use queryDocFromSave if provided, otherwise fallback to stored queryDoc
+          const queryDocToUse = queryDocFromSave || queryMap.get(queryId) || queryDoc;
+          
+          // Only proceed if clientSave is true
+          if (!queryDocToUse || queryDocToUse.clientSave !== true) {
+            console.log(`Skipping pipeline execution for ${queryId}: clientSave is not true`);
+            return;
+          }
+          
+          console.log('Query index result changed:', {
+            queryId,
+            oldResult,
+            newResult,
+            updatedAt: new Date(updatedAt).toISOString(),
+            queryDoc: queryDocToUse
+          });
+
+          // Execute pipeline in background for both month == false and month == true queries
+          if (queryDocToUse && (queryDocToUse.month === false || (queryDocToUse.month === true && queryDocToUse.monthIndex && queryDocToUse.monthIndex.trim()))) {
+            // Guard: Check if pipeline execution is already in flight for this queryId (before scheduling)
+            if (pipelineExecutionInFlightRef.current.has(queryId)) {
+              console.log(`Pipeline execution already in flight for ${queryId}, skipping callback`);
+              return;
+            }
+
+            // Mark as in flight immediately (before scheduling)
+            pipelineExecutionInFlightRef.current.add(queryId);
+
+            // Execute pipeline in background
+            const executePipelineAsync = async () => {
+              try {
+                // For month == true, extract YYYY-MM from monthIndex query first
+                let yearMonthPrefix = null;
+                if (queryDocToUse.month === true && queryDocToUse.monthIndex && queryDocToUse.monthIndex.trim()) {
+                  const yearMonth = await executeMonthIndexQueryAndExtractYearMonth(
+                    queryDocToUse.monthIndex,
+                    queryDocToUse
+                  );
+                  
+                  if (yearMonth) {
+                    yearMonthPrefix = yearMonth;
+                    console.log(`Extracted YYYY-MM from monthIndex query for ${queryId}: ${yearMonthPrefix}`);
+                  } else {
+                    console.warn(`Could not extract YYYY-MM for ${queryId}, skipping pipeline execution`);
+                    pipelineExecutionInFlightRef.current.delete(queryId);
+                    return;
+                  }
+                }
+
+                // Create/get the query database (creates it if doesn't exist)
+                console.log(`Creating database for queryId: ${queryId}`);
+                const queryDb = await indexedDBService.getQueryDatabase(queryId, queryDocToUse);
+                console.log(`Database created/opened for queryId: ${queryId}`, queryDb);
+
+                // Create execution context
+                const context = createExecutionContext();
+                
+                // Get endpoint/auth from query's urlKey, fallback to default (same as index query)
+                const { endpointUrl, authToken } = getEndpointAndAuth(queryDocToUse);
+
+                if (!endpointUrl) {
+                  console.warn(`No endpoint available for pipeline execution for ${queryId}`);
+                  pipelineExecutionInFlightRef.current.delete(queryId);
+                  return;
+                }
+
+                // Execute pipeline
+                const pipelineResult = await executePipeline(queryId, context, {
+                  endpointUrl,
+                  authToken,
+                  // Don't pass monthRange for month == false queries
+                  // For month == true, we'll organize by YYYY-MM prefix instead
+                });
+
+                // Ensure stores exist for each key in the pipeline result
+                if (pipelineResult && typeof pipelineResult === 'object') {
+                  await indexedDBService.ensureStoresForPipelineResult(queryId, pipelineResult, yearMonthPrefix, queryDocToUse);
+                  // Store pipeline result entries in IndexedDB tables
+                  await indexedDBService.savePipelineResultEntries(queryId, pipelineResult, yearMonthPrefix, queryDocToUse);
+                  console.log(`Pipeline executed for ${queryId}${yearMonthPrefix ? ` with prefix ${yearMonthPrefix}` : ''}, stores ensured and entries saved for keys:`, Object.keys(pipelineResult));
+                  
+                  // Reconstruct and print the pipeline result from IndexedDB
+                  const reconstructed = await indexedDBService.reconstructPipelineResult(queryId, null, yearMonthPrefix);
+                  console.log(`Reconstructed pipeline result for ${queryId}${yearMonthPrefix ? ` with prefix ${yearMonthPrefix}` : ''}:`, reconstructed);
+                }
+              } catch (error) {
+                console.error(`Error executing pipeline for ${queryId}:`, error);
+                // Don't throw - this is background execution
+              } finally {
+                // Remove from in flight set
+                pipelineExecutionInFlightRef.current.delete(queryId);
+              }
+            };
+
+            // Use requestIdleCallback if available, otherwise fallback to setTimeout
+            if (typeof requestIdleCallback !== 'undefined') {
+              requestIdleCallback(executePipelineAsync, { timeout: 5000 });
+            } else {
+              setTimeout(executePipelineAsync, 0);
+            }
+          }
+        });
+      }
+    });
+
+    // Execute index queries for each query that has an index field and clientSave === true
+    const indexQueryPromises = queries
+      .filter(query => query.index && query.index.trim() && query.clientSave === true)
+      .map(async (query) => {
+        // Use the query object from getAllQueries (already has all needed data including month)
+        const queryDoc = query;
+        try {
+          // Get endpoint/auth from query's urlKey, fallback to default
+          const { endpointUrl, authToken } = getEndpointAndAuth(queryDoc);
+
+          if (!endpointUrl) {
+            console.warn(`No endpoint available for query ${query.id}, skipping index query execution`);
+            // Store null result (pass queryDoc if available)
+            await indexedDBService.saveQueryIndexResult(query.id, null, queryDoc);
+            return;
+          }
+
+          // Parse variables if provided
+          const parsedVariables = parseGraphQLVariables(query.variables || '');
+
+          // Execute the index query
+          let response;
+          try {
+            response = await fetchGraphQLRequest(query.index, parsedVariables, {
+              endpointUrl,
+              authToken
+            });
+          } catch (fetchError) {
+            // Handle network errors, HTTP errors (500, etc.)
+            console.error(`Failed to fetch index query for ${query.id}:`, fetchError.message || fetchError);
+            // Store null result on error (pass queryDoc if available)
+            await indexedDBService.saveQueryIndexResult(query.id, null, queryDoc);
+            return;
+          }
+
+          // Parse JSON response
+          let jsonResponse;
+          try {
+            jsonResponse = await response.json();
+          } catch (parseError) {
+            console.error(`Failed to parse response for index query ${query.id}:`, parseError);
+            // Store null result on error (pass queryDoc if available)
+            await indexedDBService.saveQueryIndexResult(query.id, null, queryDoc);
+            return;
+          }
+          
+          if (jsonResponse.errors) {
+            console.error(`GraphQL errors for index query ${query.id}:`, jsonResponse.errors);
+            // Store null result on error (pass queryDoc if available)
+            await indexedDBService.saveQueryIndexResult(query.id, null, queryDoc);
+            return;
+          }
+
+          // Extract full date/timestamp from index query response using the same mechanism
+          // This works for both month == true and month == false queries
+          const fullDate = extractFullDateFromIndexResponse(query.index, jsonResponse);
+          
+          // Handle two paths for saving:
+          // 1. month == false: save full date string directly
+          // 2. month == true: extract YYYY-MM from monthIndex query and save as { "YYYY-MM": "full date string" }
+          let resultToSave = null;
+          
+          if (query.month === true && query.monthIndex && query.monthIndex.trim()) {
+            // Extract YYYY-MM from monthIndex query
+            const yearMonth = await executeMonthIndexQueryAndExtractYearMonth(
+              query.monthIndex,
+              queryDoc
+            );
+            
+            if (yearMonth && fullDate) {
+              // Save as { "YYYY-MM": "full date string" }
+              resultToSave = {
+                [yearMonth]: fullDate
+              };
+              console.log(`Saved index result for ${query.id} as { "${yearMonth}": "${fullDate}" }`);
+            } else {
+              if (!yearMonth) {
+                console.warn(`Could not extract YYYY-MM for ${query.id}`);
+              }
+              if (!fullDate) {
+                console.warn(`Could not extract full date from index query for ${query.id}`);
+              }
+              // If we can't extract either, save null (fallback)
+              resultToSave = null;
+            }
+          } else {
+            // month == false: save full date string directly
+            if (fullDate) {
+              resultToSave = fullDate;
+              console.log(`Saved index result for ${query.id} as: ${fullDate}`);
+            } else {
+              console.warn(`Could not extract full date from index query for ${query.id}`);
+              resultToSave = null;
+            }
+          }
+
+          // Store result in IndexedDB (will only save if changed, pass queryDoc)
+          await indexedDBService.saveQueryIndexResult(query.id, resultToSave, queryDoc);
+        } catch (error) {
+          console.error(`Error executing index query for ${query.id}:`, error);
+          // Store null result on error (use the query object from getAllQueries)
+          try {
+            await indexedDBService.saveQueryIndexResult(query.id, null, queryDoc);
+          } catch (saveError) {
+            console.error(`Error saving null result for ${query.id}:`, saveError);
+          }
+        }
+      });
+
+    // Execute all index queries (can run in parallel)
+    await Promise.all(indexQueryPromises);
+  };
 
   // Initialize execution context on mount
   useEffect(() => {
@@ -165,51 +498,15 @@ export default function DataProvider({
             setHasMonthSupport(month === true);
             
             // Parse and set query variables (excluding startDate and endDate)
-            // Use jsonc-parser (same as GraphiQL) to handle JSON with comments and lenient syntax
-            let parsedVariables = {};
-            if (rawVariables && rawVariables.trim()) {
-              try {
-                // Use jsonc-parser to parse (handles comments, trailing commas, etc. like GraphiQL)
-                parsedVariables = parseJsonc(rawVariables);
-                // Remove startDate and endDate
-                const { startDate, endDate, ...filteredVariables } = parsedVariables;
-                // Update both state and ref immediately
-                setQueryVariables(filteredVariables);
-                queryVariablesRef.current = filteredVariables;
-                // Notify parent that variables changed
-                if (onVariablesChange) {
-                  onVariablesChange(filteredVariables);
-                }
-              } catch (e) {
-                // If jsonc-parser fails, try to strip comments and parse again
-                try {
-                  const stripped = stripComments(rawVariables);
-                  parsedVariables = JSON.parse(stripped);
-                  // Remove startDate and endDate
-                  const { startDate, endDate, ...filteredVariables } = parsedVariables;
-                  // Update both state and ref immediately
-                  setQueryVariables(filteredVariables);
-                  queryVariablesRef.current = filteredVariables;
-                  // Notify parent that variables changed
-                  if (onVariablesChange) {
-                    onVariablesChange(filteredVariables);
-                  }
-                } catch (fallbackError) {
-                  console.error('Failed to parse variables:', fallbackError);
-                  // Set empty variables but log the issue
-                  setQueryVariables({});
-                  queryVariablesRef.current = {};
-                  if (onVariablesChange) {
-                    onVariablesChange({});
-                  }
-                }
-              }
-            } else {
-              setQueryVariables({});
-              queryVariablesRef.current = {};
-              if (onVariablesChange) {
-                onVariablesChange({});
-              }
+            const parsedVariables = parseGraphQLVariables(rawVariables || '');
+            // Remove startDate and endDate
+            const { startDate, endDate, ...filteredVariables } = parsedVariables;
+            // Update both state and ref immediately
+            setQueryVariables(filteredVariables);
+            queryVariablesRef.current = filteredVariables;
+            // Notify parent that variables changed
+            if (onVariablesChange) {
+              onVariablesChange(filteredVariables);
             }
             
             // Load initial month range from monthDate

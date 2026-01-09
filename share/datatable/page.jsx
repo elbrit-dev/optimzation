@@ -243,6 +243,7 @@ function DataTablePage() {
   const [enableFilter, setEnableFilter] = useLocalStorageBoolean('datatable-enableFilter', true);
   const [enableSummation, setEnableSummation] = useLocalStorageBoolean('datatable-enableSummation', true);
   const [enableCellEdit, setEnableCellEdit] = useLocalStorageBoolean('datatable-enableCellEdit', false);
+  const [enableDivideBy1Lakh, setEnableDivideBy1Lakh] = useLocalStorageBoolean('datatable-enableDivideBy1Lakh', false);
   const [rowsPerPageOptionsRaw, setRowsPerPageOptionsRaw] = useLocalStorageArray('datatable-rowsPerPageOptions', [5, 10, 25, 50, 100, 200]);
   const [defaultRowsRaw, setDefaultRowsRaw] = useLocalStorageNumber('datatable-defaultRows', 10);
   const [textFilterColumnsRaw, setTextFilterColumnsRaw] = useLocalStorageArray('datatable-textFilterColumns', []);
@@ -452,6 +453,7 @@ function DataTablePage() {
       if (savedSettings.enableFilter !== undefined) setEnableFilter(savedSettings.enableFilter);
       if (savedSettings.enableSummation !== undefined) setEnableSummation(savedSettings.enableSummation);
       if (savedSettings.enableCellEdit !== undefined) setEnableCellEdit(savedSettings.enableCellEdit);
+      if (savedSettings.enableDivideBy1Lakh !== undefined) setEnableDivideBy1Lakh(savedSettings.enableDivideBy1Lakh);
       if (savedSettings.rowsPerPageOptions) setRowsPerPageOptions(savedSettings.rowsPerPageOptions);
       if (savedSettings.defaultRows !== undefined) setDefaultRows(savedSettings.defaultRows);
       if (savedSettings.textFilterColumns) setTextFilterColumns(savedSettings.textFilterColumns);
@@ -499,6 +501,7 @@ function DataTablePage() {
       enableFilter,
       enableSummation,
       enableCellEdit,
+      enableDivideBy1Lakh,
       rowsPerPageOptions,
       defaultRows,
       textFilterColumns,
@@ -985,6 +988,7 @@ function DataTablePage() {
                       enableSort={enableSort}
                       enableFilter={enableFilter}
                       enableSummation={enableSummation}
+                      enableDivideBy1Lakh={enableDivideBy1Lakh}
                       textFilterColumns={textFilterColumns}
                       visibleColumns={visibleColumns}
                       onVisibleColumnsChange={setVisibleColumns}
@@ -1015,6 +1019,7 @@ function DataTablePage() {
                   enableFilter={enableFilter}
                   enableSummation={enableSummation}
                   enableCellEdit={enableCellEdit}
+                  enableDivideBy1Lakh={enableDivideBy1Lakh}
                   rowsPerPageOptions={rowsPerPageOptions}
                   defaultRows={defaultRows}
                   columns={columns}
@@ -1039,6 +1044,7 @@ function DataTablePage() {
                   onFilterChange={setEnableFilter}
                   onSummationChange={setEnableSummation}
                   onCellEditChange={setEnableCellEdit}
+                  onDivideBy1LakhChange={setEnableDivideBy1Lakh}
                   onRowsPerPageOptionsChange={setRowsPerPageOptions}
                   onDefaultRowsChange={setDefaultRows}
                   onTextFilterColumnsChange={setTextFilterColumns}
@@ -1114,6 +1120,7 @@ function DataTablePage() {
                           enableSort={enableSort}
                           enableFilter={enableFilter}
                           enableSummation={enableSummation}
+                          enableDivideBy1Lakh={enableDivideBy1Lakh}
                           textFilterColumns={textFilterColumns}
                           visibleColumns={visibleColumns}
                           onVisibleColumnsChange={setVisibleColumns}

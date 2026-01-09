@@ -4,6 +4,8 @@ import _ from "lodash";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import DataTable from "./components/DataTable";
 import FirebaseUIComponent from "./components/FirebaseUIComponent";
+import TableDataProvider from "./components/TableDataProvider";
+
 
 
 export const PLASMIC = initPlasmicLoader({
@@ -209,6 +211,15 @@ PLASMIC.registerComponent(DataTable, {
       description: "The array of data to display in the table",
       defaultValue: [],
     },
+    queryVariables: {
+      type: "object",
+      description: "Base variables for the query (provided by DataProvider)",
+      defaultValue: {},
+    },
+    onVariableOverridesChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "overrides", type: "object" }],
+    },
     showControls: {
       type: "boolean",
       description: "Toggle the visibility of the table controls (sort, filter, etc.)",
@@ -335,7 +346,8 @@ PLASMIC.registerComponent(DataTable, {
     },
   },
   importPath: "./components/DataTable",
-})
+});
+
 // Register FirebaseUIComponent
 PLASMIC.registerComponent(FirebaseUIComponent, {
   name: "FirebaseUIComponent",
@@ -355,4 +367,54 @@ PLASMIC.registerComponent(FirebaseUIComponent, {
       argTypes: [{ name: "error", type: "object" }],
     },
   },
+});
+PLASMIC.registerComponent(TableDataProvider, {
+  name: "TableDataProvider",
+  props: {
+    dataSource: {
+      type: "string",
+      description: "The data source ID or 'offline' for local data",
+      defaultValue: "offline",
+    },
+    queryKey: {
+      type: "string",
+      description: "The specific key within the data source results to display",
+    },
+    variableOverrides: {
+      type: "object",
+      description: "Overrides for query variables (as an object)",
+      defaultValue: {},
+    },
+    // Individual Variable Props
+    First: {
+      type: "number",
+      description: "Default value for 'First' variable",
+    },
+    Operator: {
+      type: "string",
+      description: "Default value for 'Operator' variable",
+    },
+    Status: {
+      type: "object",
+      description: "Default values for 'Status' variable (Array of strings)",
+    },
+    Customer: {
+      type: "object",
+      description: "Default values for 'Customer' variable (Array of strings)",
+    },
+    showSelectors: {
+      type: "boolean",
+      description: "Show/hide data source and query selectors",
+      defaultValue: true,
+    },
+    onDataChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "notification", type: "object" }],
+    },
+    onTableDataChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "data", type: "object" }],
+    },
+  },
+  importPath: "./components/TableDataProvider",
 });

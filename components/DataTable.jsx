@@ -7,8 +7,8 @@ import { Sidebar } from 'primereact/sidebar';
 import { TabView, TabPanel } from 'primereact/tabview';
 import DataTableComponent from '../share/datatable/components/DataTable';
 import DataTableControls from '../share/datatable/components/DataTableControls';
-import DataProvider from '../share/datatable/components/DataProvider';
 import data from '../resource/data';
+
 import Target from '../resource/target';
 import { uniq, flatMap, keys, isEmpty, startCase, filter as lodashFilter, get, isNil, debounce } from 'lodash';
 import { saveSettingsForDataSource, loadSettingsForDataSource } from '../share/datatable/utils/settingsService';
@@ -244,19 +244,32 @@ const DataTableWrapper = (props) => {
     drawerTabs: propDrawerTabs,
     controlsPanelSize: propControlsPanelSize = 20,
     onSave,
+    queryVariables: propQueryVariables,
+    onVariableOverridesChange,
   } = props;
 
-  // Sync all settings props to localStorage BEFORE component render
-  // This ensures that when the key changes and DataProvider/Wrappers remount, they see the new values
-  if (typeof window !== 'undefined') {
+  // Sync all settings props to localStorage in a useEffect to avoid render-phase side effects
+  // We exclude dataSource and queryKey here as they are managed by TableDataProvider
+  const settingsString = JSON.stringify({
+    propEnableSort, propEnableFilter, propEnableSummation, propEnableCellEdit,
+    propRowsPerPageOptions, propDefaultRows, propTextFilterColumns, propVisibleColumns,
+    propRedFields, propGreenFields, propOuterGroupField, propInnerGroupField,
+    propNonEditableColumns, propEnableTargetData, propTargetOuterGroupField,
+    propTargetInnerGroupField, propTargetValueField, propActualValueField, propDrawerTabs
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
     const syncToStore = (key, value) => {
       if (value !== undefined && value !== null) {
-        window.localStorage.setItem(key, JSON.stringify(value));
+        const stringified = JSON.stringify(value);
+        if (window.localStorage.getItem(key) !== stringified) {
+          window.localStorage.setItem(key, stringified);
+        }
       }
     };
 
-    syncToStore('datatable-dataSource', propDataSource);
-    syncToStore('datatable-selectedQueryKey', propQueryKey);
     syncToStore('datatable-enableSort', propEnableSort);
     syncToStore('datatable-enableFilter', propEnableFilter);
     syncToStore('datatable-enableSummation', propEnableSummation);
@@ -276,12 +289,31 @@ const DataTableWrapper = (props) => {
     syncToStore('datatable-targetValueField', propTargetValueField);
     syncToStore('datatable-actualValueField', propActualValueField);
     syncToStore('datatable-drawerTabs', propDrawerTabs);
-  }
+  }, [settingsString]);
 
   const toast = useRef(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [tableData, setTableData] = useState(props.data || data);
-  const [currentDataSource, setCurrentDataSource] = useState(null);
+
+  // Sync tableData with props.data using stringified check to prevent loops
+  const stringifiedData = JSON.stringify(props.data);
+  useEffect(() => {
+    if (props.data !== undefined) {
+      setTableData(props.data);
+      if (props.data && Array.isArray(props.data)) {
+        originalTableDataRef.current = props.data;
+      }
+    }
+  }, [stringifiedData]);
+
+  const [currentDataSource, setCurrentDataSource] = useState(props.dataSource || null);
+
+  // Sync currentDataSource with props.dataSource
+  useEffect(() => {
+    if (props.dataSource !== undefined) {
+      setCurrentDataSource(props.dataSource);
+    }
+  }, [props.dataSource]);
 
   const [enableSortState, setEnableSort] = useLocalStorageBoolean('datatable-enableSort', true);
   const [enableFilterState, setEnableFilter] = useLocalStorageBoolean('datatable-enableFilter', true);
@@ -302,8 +334,25 @@ const DataTableWrapper = (props) => {
   const [targetValueFieldRawState, setTargetValueFieldRaw] = useLocalStorageString('datatable-targetValueField', null);
   const [actualValueFieldRawState, setActualValueFieldRaw] = useLocalStorageString('datatable-actualValueField', null);
   
-  const [queryVariables, setQueryVariables] = useState({});
+  const [queryVariables, setQueryVariables] = useState(propQueryVariables || {});
+
+  // Sync queryVariables with props.queryVariables using stringified check
+  const stringifiedVariables = JSON.stringify(propQueryVariables);
+  useEffect(() => {
+    if (propQueryVariables !== undefined) {
+      setQueryVariables(propQueryVariables);
+    }
+  }, [stringifiedVariables]);
+
   const [variableOverrides, setVariableOverrides] = useState({});
+
+  const handleVariableOverridesChangeInternal = (newOverrides) => {
+    setVariableOverrides(newOverrides);
+    if (onVariableOverridesChange) {
+      onVariableOverridesChange(newOverrides);
+    }
+  };
+
 
   // Drawer state
   const [drawerVisible, setDrawerVisible] = useState(false);
@@ -385,22 +434,10 @@ const DataTableWrapper = (props) => {
     };
   }, [drawerVisible]);
 
-  // Clean up localStorage and set loading false
+  // Set loading false on mount
   useEffect(() => {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      requestAnimationFrame(() => setIsLoading(false));
-    } else {
-      setIsLoading(false);
-    }
+    setIsLoading(false);
   }, []);
-
-  const handleDataChange = (notification) => {
-    if (toast.current) toast.current.show(notification);
-  };
-
-  const handleError = (notification) => {
-    if (toast.current) toast.current.show(notification);
-  };
 
   const handleTableDataChange = (newTableData) => {
     setTableData(newTableData);
@@ -551,165 +588,145 @@ const DataTableWrapper = (props) => {
     <div className={`flex flex-col h-full ${className}`}>
       <Toast ref={toast} />
       
-      <DataProvider
-        key={`${propDataSource}-${propQueryKey}`}
-        dataSourceProp={propDataSource}
-        queryKeyProp={propQueryKey}
-        offlineData={props.data || data}
-        onDataChange={handleDataChange}
-        onError={handleError}
-        onTableDataChange={handleTableDataChange}
-        onDataSourceChange={handleDataSourceChange}
-        onVariablesChange={setQueryVariables}
-        variableOverrides={variableOverrides}
-        renderHeaderControls={(selectorsJSX) => showControls ? (
-          <div className="px-4 py-3 border-b border-gray-200 bg-white">
-            <div className="flex items-end gap-3 flex-wrap">
-              {selectorsJSX}
-            </div>
-          </div>
-        ) : null}
-      >
-        <div className="flex-1 min-h-0">
-          {showControls ? (
-            <Splitter style={{ height: '100%' }} layout="horizontal">
-              <SplitterPanel className="flex flex-col min-w-0" size={100 - propControlsPanelSize}>
-                <div className="flex-1 p-4 overflow-auto">
-                  {tableData === null ? (
-                    <div className="flex flex-col items-center justify-center h-full text-center">
-                      <i className="pi pi-table text-6xl text-gray-200 mb-4"></i>
-                      <h3 className="text-lg font-medium text-gray-700">No Data</h3>
-                      <p className="text-sm text-gray-500">Select a source to begin</p>
-                    </div>
-                  ) : (
-                    <DataTableComponent
-                      data={tableData}
-                      rowsPerPageOptions={rowsPerPageOptions}
-                      defaultRows={defaultRows}
-                      scrollable={false}
-                      enableSort={enableSort}
-                      enableFilter={enableFilter}
-                      enableSummation={enableSummation}
-                      textFilterColumns={textFilterColumns}
-                      visibleColumns={visibleColumns}
-                      onVisibleColumnsChange={setVisibleColumnsRaw}
-                      redFields={redFields}
-                      greenFields={greenFields}
-                      outerGroupField={outerGroupField}
-                      innerGroupField={innerGroupField}
-                      enableCellEdit={enableCellEdit}
-                      nonEditableColumns={nonEditableColumns}
-                      onCellEditComplete={handleCellEditComplete}
-                      onOuterGroupClick={handleOuterGroupClick}
-                      onInnerGroupClick={handleInnerGroupClick}
-                      targetData={enableTargetData ? Target : null}
-                      targetOuterGroupField={enableTargetData ? targetOuterGroupField : null}
-                      targetInnerGroupField={enableTargetData ? targetInnerGroupField : null}
-                      targetValueField={enableTargetData ? targetValueField : null}
-                      actualValueField={enableTargetData ? actualValueField : null}
-                      appHeaderOffset={appHeaderOffset}
-                      stickyHeaderZIndex={appHeaderZIndex + 1}
-                      tableName="main"
-                    />
-                  )}
-                </div>
-              </SplitterPanel>
+      <div className="flex-1 min-h-0">
+        {showControls ? (
+          <Splitter style={{ height: '100%' }} layout="horizontal">
+            <SplitterPanel className="flex flex-col min-w-0" size={100 - propControlsPanelSize}>
+              <div className="flex-1 p-4 overflow-auto">
+                {tableData === null ? (
+                  <div className="flex flex-col items-center justify-center h-full text-center">
+                    <i className="pi pi-table text-6xl text-gray-200 mb-4"></i>
+                    <h3 className="text-lg font-medium text-gray-700">No Data</h3>
+                    <p className="text-sm text-gray-500">Select a source to begin</p>
+                  </div>
+                ) : (
+                  <DataTableComponent
+                    data={tableData}
+                    rowsPerPageOptions={rowsPerPageOptions}
+                    defaultRows={defaultRows}
+                    scrollable={false}
+                    enableSort={enableSort}
+                    enableFilter={enableFilter}
+                    enableSummation={enableSummation}
+                    textFilterColumns={textFilterColumns}
+                    visibleColumns={visibleColumns}
+                    onVisibleColumnsChange={setVisibleColumnsRaw}
+                    redFields={redFields}
+                    greenFields={greenFields}
+                    outerGroupField={outerGroupField}
+                    innerGroupField={innerGroupField}
+                    enableCellEdit={enableCellEdit}
+                    nonEditableColumns={nonEditableColumns}
+                    onCellEditComplete={handleCellEditComplete}
+                    onOuterGroupClick={handleOuterGroupClick}
+                    onInnerGroupClick={handleInnerGroupClick}
+                    targetData={enableTargetData ? Target : null}
+                    targetOuterGroupField={enableTargetData ? targetOuterGroupField : null}
+                    targetInnerGroupField={enableTargetData ? targetInnerGroupField : null}
+                    targetValueField={enableTargetData ? targetValueField : null}
+                    actualValueField={enableTargetData ? actualValueField : null}
+                    appHeaderOffset={appHeaderOffset}
+                    stickyHeaderZIndex={appHeaderZIndex + 1}
+                    tableName="main"
+                  />
+                )}
+              </div>
+            </SplitterPanel>
 
-              <SplitterPanel className="flex flex-col min-w-0 border-l border-gray-200" size={propControlsPanelSize}>
-                <DataTableControls
-                  enableSort={enableSort}
-                  enableFilter={enableFilter}
-                  enableSummation={enableSummation}
-                  enableCellEdit={enableCellEdit}
-                  rowsPerPageOptions={rowsPerPageOptions}
-                  defaultRows={defaultRows}
-                  columns={columns}
-                  textFilterColumns={textFilterColumns}
-                  visibleColumns={visibleColumns}
-                  redFields={redFields}
-                  greenFields={greenFields}
-                  outerGroupField={outerGroupField}
-                  innerGroupField={innerGroupField}
-                  nonEditableColumns={nonEditableColumns}
-                  enableTargetData={enableTargetData}
-                  targetColumns={targetColumns}
-                  targetOuterGroupField={targetOuterGroupField}
-                  targetInnerGroupField={targetInnerGroupField}
-                  targetValueField={targetValueField}
-                  actualValueField={actualValueField}
-                  dataSource={currentDataSource}
-                  queryVariables={queryVariables}
-                  variableOverrides={variableOverrides}
-                  onVariableOverrideChange={setVariableOverrides}
-                  onSortChange={setEnableSort}
-                  onFilterChange={setEnableFilter}
-                  onSummationChange={setEnableSummation}
-                  onCellEditChange={setEnableCellEdit}
-                  onRowsPerPageOptionsChange={setRowsPerPageOptionsRaw}
-                  onDefaultRowsChange={setDefaultRowsRaw}
-                  onTextFilterColumnsChange={setTextFilterColumnsRaw}
-                  onVisibleColumnsChange={setVisibleColumnsRaw}
-                  onRedFieldsChange={setRedFieldsRaw}
-                  onGreenFieldsChange={setGreenFieldsRaw}
-                  onOuterGroupFieldChange={setOuterGroupFieldRaw}
-                  onInnerGroupFieldChange={setInnerGroupFieldRaw}
-                  onNonEditableColumnsChange={setNonEditableColumnsRaw}
-                  onEnableTargetDataChange={setEnableTargetDataRaw}
-                  onTargetOuterGroupFieldChange={setTargetOuterGroupFieldRaw}
-                  onTargetInnerGroupFieldChange={setTargetInnerGroupFieldRaw}
-                  onTargetValueFieldChange={setTargetValueFieldRaw}
-                  onActualValueFieldChange={setActualValueFieldRaw}
-                  onSaveSettings={handleSaveSettings}
-                  drawerTabs={drawerTabs}
-                  onDrawerTabsChange={setDrawerTabs}
-                  onAddDrawerTab={handleAddDrawerTab}
-                  onRemoveDrawerTab={handleRemoveDrawerTab}
-                  onUpdateDrawerTab={handleUpdateDrawerTab}
-                />
-              </SplitterPanel>
-            </Splitter>
-          ) : (
-            <div className="flex-1 p-4 overflow-auto h-full">
-              {tableData === null ? (
-                <div className="flex flex-col items-center justify-center h-full text-center">
-                  <i className="pi pi-table text-6xl text-gray-200 mb-4"></i>
-                  <h3 className="text-lg font-medium text-gray-700">No Data</h3>
-                </div>
-              ) : (
-                <DataTableComponent
-                  data={tableData}
-                  rowsPerPageOptions={rowsPerPageOptions}
-                  defaultRows={defaultRows}
-                  scrollable={false}
-                  enableSort={enableSort}
-                  enableFilter={enableFilter}
-                  enableSummation={enableSummation}
-                  textFilterColumns={textFilterColumns}
-                  visibleColumns={visibleColumns}
-                  onVisibleColumnsChange={setVisibleColumnsRaw}
-                  redFields={redFields}
-                  greenFields={greenFields}
-                  outerGroupField={outerGroupField}
-                  innerGroupField={innerGroupField}
-                  enableCellEdit={enableCellEdit}
-                  nonEditableColumns={nonEditableColumns}
-                  onCellEditComplete={handleCellEditComplete}
-                  onOuterGroupClick={handleOuterGroupClick}
-                  onInnerGroupClick={handleInnerGroupClick}
-                  targetData={enableTargetData ? Target : null}
-                  targetOuterGroupField={enableTargetData ? targetOuterGroupField : null}
-                  targetInnerGroupField={enableTargetData ? targetInnerGroupField : null}
-                  targetValueField={enableTargetData ? targetValueField : null}
-                  actualValueField={enableTargetData ? actualValueField : null}
-                  appHeaderOffset={appHeaderOffset}
-                  stickyHeaderZIndex={appHeaderZIndex + 1}
-                  tableName="main"
-                />
-              )}
-            </div>
-          )}
-        </div>
-      </DataProvider>
+            <SplitterPanel className="flex flex-col min-w-0 border-l border-gray-200" size={propControlsPanelSize}>
+              <DataTableControls
+                enableSort={enableSort}
+                enableFilter={enableFilter}
+                enableSummation={enableSummation}
+                enableCellEdit={enableCellEdit}
+                rowsPerPageOptions={rowsPerPageOptions}
+                defaultRows={defaultRows}
+                columns={columns}
+                textFilterColumns={textFilterColumns}
+                visibleColumns={visibleColumns}
+                redFields={redFields}
+                greenFields={greenFields}
+                outerGroupField={outerGroupField}
+                innerGroupField={innerGroupField}
+                nonEditableColumns={nonEditableColumns}
+                enableTargetData={enableTargetData}
+                targetColumns={targetColumns}
+                targetOuterGroupField={targetOuterGroupField}
+                targetInnerGroupField={targetInnerGroupField}
+                targetValueField={targetValueField}
+                actualValueField={actualValueField}
+                dataSource={currentDataSource}
+                queryVariables={queryVariables}
+                variableOverrides={variableOverrides}
+                onVariableOverrideChange={handleVariableOverridesChangeInternal}
+                onSortChange={setEnableSort}
+                onFilterChange={setEnableFilter}
+                onSummationChange={setEnableSummation}
+                onCellEditChange={setEnableCellEdit}
+                onRowsPerPageOptionsChange={setRowsPerPageOptionsRaw}
+                onDefaultRowsChange={setDefaultRowsRaw}
+                onTextFilterColumnsChange={setTextFilterColumnsRaw}
+                onVisibleColumnsChange={setVisibleColumnsRaw}
+                onRedFieldsChange={setRedFieldsRaw}
+                onGreenFieldsChange={setGreenFieldsRaw}
+                onOuterGroupFieldChange={setOuterGroupFieldRaw}
+                onInnerGroupFieldChange={setInnerGroupFieldRaw}
+                onNonEditableColumnsChange={setNonEditableColumnsRaw}
+                onEnableTargetDataChange={setEnableTargetDataRaw}
+                onTargetOuterGroupFieldChange={setTargetOuterGroupFieldRaw}
+                onTargetInnerGroupFieldChange={setTargetInnerGroupFieldRaw}
+                onTargetValueFieldChange={setTargetValueFieldRaw}
+                onActualValueFieldChange={setActualValueFieldRaw}
+                onSaveSettings={handleSaveSettings}
+                drawerTabs={drawerTabs}
+                onDrawerTabsChange={setDrawerTabs}
+                onAddDrawerTab={handleAddDrawerTab}
+                onRemoveDrawerTab={handleRemoveDrawerTab}
+                onUpdateDrawerTab={handleUpdateDrawerTab}
+              />
+            </SplitterPanel>
+          </Splitter>
+        ) : (
+          <div className="flex-1 p-4 overflow-auto h-full">
+            {tableData === null ? (
+              <div className="flex flex-col items-center justify-center h-full text-center">
+                <i className="pi pi-table text-6xl text-gray-200 mb-4"></i>
+                <h3 className="text-lg font-medium text-gray-700">No Data</h3>
+              </div>
+            ) : (
+              <DataTableComponent
+                data={tableData}
+                rowsPerPageOptions={rowsPerPageOptions}
+                defaultRows={defaultRows}
+                scrollable={false}
+                enableSort={enableSort}
+                enableFilter={enableFilter}
+                enableSummation={enableSummation}
+                textFilterColumns={textFilterColumns}
+                visibleColumns={visibleColumns}
+                onVisibleColumnsChange={setVisibleColumnsRaw}
+                redFields={redFields}
+                greenFields={greenFields}
+                outerGroupField={outerGroupField}
+                innerGroupField={innerGroupField}
+                enableCellEdit={enableCellEdit}
+                nonEditableColumns={nonEditableColumns}
+                onCellEditComplete={handleCellEditComplete}
+                onOuterGroupClick={handleOuterGroupClick}
+                onInnerGroupClick={handleInnerGroupClick}
+                targetData={enableTargetData ? Target : null}
+                targetOuterGroupField={enableTargetData ? targetOuterGroupField : null}
+                targetInnerGroupField={enableTargetData ? targetInnerGroupField : null}
+                targetValueField={enableTargetData ? targetValueField : null}
+                actualValueField={enableTargetData ? actualValueField : null}
+                appHeaderOffset={appHeaderOffset}
+                stickyHeaderZIndex={appHeaderZIndex + 1}
+                tableName="main"
+              />
+            )}
+          </div>
+        )}
+      </div>
 
       <Sidebar
         position="bottom"

@@ -936,6 +936,7 @@ export default function DataTableComponent({
   enableSort = true,
   enableFilter = true,
   enableSummation = true,
+  enableDivideBy1Lakh = false, // Divide all numeric values by 100,000 (1 Lakh)
   textFilterColumns = [], // Fields that should use text search box instead of multiselect
   visibleColumns = [], // Fields that should be visible (empty array means show all)
   onVisibleColumnsChange, // Callback for when visible columns change
@@ -1393,12 +1394,14 @@ export default function DataTableComponent({
     }
 
     if (isNumber(value)) {
-      return value % 1 === 0
-        ? value.toLocaleString('en-US')
-        : value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      // Apply division by 1 Lakh if enabled
+      const displayValue = enableDivideBy1Lakh ? value / 100000 : value;
+      return displayValue % 1 === 0
+        ? displayValue.toLocaleString('en-US')
+        : displayValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
     return String(value);
-  }, []);
+  }, [enableDivideBy1Lakh]);
 
   // Compute which columns should use multiselect (all string columns by default, minus textFilterColumns)
   const multiselectColumns = useMemo(() => {
@@ -2009,9 +2012,11 @@ export default function DataTableComponent({
 
     if (isFirstColumn) {
       if (hasSum) {
-        const formattedSum = sum % 1 === 0
-          ? sum.toLocaleString('en-US')
-          : sum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        // Apply division by 1 Lakh if enabled
+        const displaySum = enableDivideBy1Lakh ? sum / 100000 : sum;
+        const formattedSum = displaySum % 1 === 0
+          ? displaySum.toLocaleString('en-US')
+          : displaySum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         return (
           <div className="text-left">
             <strong className={colorClass}>Total: {formattedSum}</strong>
@@ -2028,9 +2033,11 @@ export default function DataTableComponent({
     if (get(colType, 'isBoolean')) return null;
     if (isNil(sum)) return null;
 
-    const formattedSum = sum % 1 === 0
-      ? sum.toLocaleString('en-US')
-      : sum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    // Apply division by 1 Lakh if enabled
+    const displaySum = enableDivideBy1Lakh ? sum / 100000 : sum;
+    const formattedSum = displaySum % 1 === 0
+      ? displaySum.toLocaleString('en-US')
+      : displaySum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     return (
       <div className="text-right">
         <strong className={colorClass}>{formattedSum}</strong>
@@ -2232,34 +2239,84 @@ export default function DataTableComponent({
     return active;
   }, [filters, columns, enableFilter, columnTypes, formatFilterValue, multiselectColumns, isTargetDataActive]);
 
+  // Debounce for typing-based filters (text/numeric)
+  const DEBOUNCE_MS = 3000;
+  const debouncedMapRef = useRef(new Map());
+
+  const cancelDebounced = useCallback((col) => {
+    const fn = debouncedMapRef.current.get(col);
+    if (fn && fn.cancel) fn.cancel();
+  }, []);
+
+  const debouncedUpdateFilter = useCallback(
+    (col, value) => {
+      let fn = debouncedMapRef.current.get(col);
+      if (!fn) {
+        fn = debounce((val) => {
+          updateFilter(col, val);
+        }, DEBOUNCE_MS);
+        debouncedMapRef.current.set(col, fn);
+      }
+      fn(value);
+    },
+    [updateFilter]
+  );
+
+  useEffect(() => {
+    return () => {
+      debouncedMapRef.current.forEach((fn) => fn?.cancel?.());
+      debouncedMapRef.current.clear();
+    };
+  }, []);
+
   const textFilterElement = useCallback((col) => (options) => {
     const filterState = get(filters, col);
     const value = isNil(get(filterState, 'value')) ? '' : filterState.value;
     return (
       <InputText
-        value={value}
-        onChange={(e) => updateFilter(col, e.target.value || null)}
+        defaultValue={value}
+        onChange={(e) => debouncedUpdateFilter(col, e.target.value === '' ? null : e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            cancelDebounced(col);
+            updateFilter(col, e.currentTarget.value === '' ? null : e.currentTarget.value);
+          }
+        }}
+        onBlur={(e) => {
+          cancelDebounced(col);
+          updateFilter(col, e.currentTarget.value === '' ? null : e.currentTarget.value);
+        }}
         placeholder="Search..."
         className="p-column-filter"
         style={{ width: '100%' }}
       />
     );
-  }, [filters, updateFilter]);
+  }, [filters, updateFilter, debouncedUpdateFilter, cancelDebounced]);
 
   const numericFilterElement = useCallback((col) => (options) => {
     const filterState = get(filters, col);
     const value = isNil(get(filterState, 'value')) ? '' : filterState.value;
     return (
       <InputText
-        value={value}
-        onChange={(e) => updateFilter(col, e.target.value || null)}
+        defaultValue={value}
+        onChange={(e) => debouncedUpdateFilter(col, e.target.value === '' ? null : e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            cancelDebounced(col);
+            updateFilter(col, e.currentTarget.value === '' ? null : e.currentTarget.value);
+          }
+        }}
+        onBlur={(e) => {
+          cancelDebounced(col);
+          updateFilter(col, e.currentTarget.value === '' ? null : e.currentTarget.value);
+        }}
         placeholder="<, >, <=, >=, =, <>"
         className="p-column-filter"
         style={{ width: '100%' }}
         title="Numeric filters: <10, >10, <=10, >=10, =10, 10<>20 (range)"
       />
     );
-  }, [filters, updateFilter]);
+  }, [filters, updateFilter, debouncedUpdateFilter, cancelDebounced]);
 
   const dateFilterElement = useCallback((col) => (options) => {
     const filterState = get(filters, col);
@@ -2344,7 +2401,7 @@ export default function DataTableComponent({
           targetValue = targetLookup.get(lookupKey);
         }
 
-        // Calculate percentage
+        // Calculate percentage (using raw values for calculation)
         let percentage = null;
         if (!isNil(targetValue) && !isNil(actualNum) && !_isNaN(targetValue) && !_isNaN(actualNum) && _isFinite(targetValue) && _isFinite(actualNum) && targetValue !== 0) {
           percentage = (actualNum / targetValue) * 100;
@@ -2352,9 +2409,11 @@ export default function DataTableComponent({
 
         const formatNum = (num) => {
           if (isNil(num) || _isNaN(num) || !_isFinite(num)) return '-';
-          return num % 1 === 0
-            ? num.toLocaleString('en-US')
-            : num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          // Apply division by 1 Lakh if enabled
+          const displayNum = enableDivideBy1Lakh ? num / 100000 : num;
+          return displayNum % 1 === 0
+            ? displayNum.toLocaleString('en-US')
+            : displayNum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         };
 
         const formatPercentage = (pct) => {
@@ -2446,7 +2505,7 @@ export default function DataTableComponent({
         {formatCellValue(get(rowData, col), colType)}
       </div>
     );
-  }, [columnTypes, outerGroupField, innerGroupField, onOuterGroupClick, onInnerGroupClick, booleanBodyTemplate, dateBodyTemplate, formatCellValue, isTargetDataActive, targetLookup, actualValueField, TARGET_PERCENTAGE_COL, TARGET_TARGET_COL, TARGET_ACTUAL_COL, getColumnColorClass]);
+  }, [columnTypes, outerGroupField, innerGroupField, onOuterGroupClick, onInnerGroupClick, booleanBodyTemplate, dateBodyTemplate, formatCellValue, isTargetDataActive, targetLookup, actualValueField, TARGET_PERCENTAGE_COL, TARGET_TARGET_COL, TARGET_ACTUAL_COL, getColumnColorClass, enableDivideBy1Lakh]);
 
   // Header template function to apply column colors
   const getHeaderTemplate = useCallback((col) => {
@@ -2565,6 +2624,41 @@ export default function DataTableComponent({
     return outerGroupField && rowData.__isGroupRow__ && rowData.__groupRows__ && rowData.__groupRows__.length > 0;
   }, [outerGroupField]);
 
+  // Nested (expanded) tables: keep independent filter state and debounce timers per group
+  const [nestedFiltersMap, setNestedFiltersMap] = useState({});
+  const nestedDebouncedMapRef = useRef(new Map());
+
+  const updateNestedFilter = useCallback((groupKey, col, value) => {
+    setNestedFiltersMap(prev => {
+      const current = get(prev, groupKey) || {};
+      return {
+        ...prev,
+        [groupKey]: {
+          ...current,
+          [col]: { ...get(current, col), value }
+        }
+      };
+    });
+  }, []);
+
+  const nestedCancelDebounced = useCallback((groupKey, col) => {
+    const key = `${groupKey}::${col}`;
+    const fn = nestedDebouncedMapRef.current.get(key);
+    if (fn && fn.cancel) fn.cancel();
+  }, []);
+
+  const nestedDebouncedUpdateFilter = useCallback((groupKey, col, value) => {
+    const key = `${groupKey}::${col}`;
+    let fn = nestedDebouncedMapRef.current.get(key);
+    if (!fn) {
+      fn = debounce((val) => {
+        updateNestedFilter(groupKey, col, val);
+      }, DEBOUNCE_MS);
+      nestedDebouncedMapRef.current.set(key, fn);
+    }
+    fn(value);
+  }, [updateNestedFilter]);
+
   // Row expansion template - shows nested table with same headers
   const rowExpansionTemplate = useCallback((rowData) => {
     if (!rowData.__groupRows__ || isEmpty(rowData.__groupRows__)) {
@@ -2588,6 +2682,166 @@ export default function DataTableComponent({
       }
     }
 
+    const groupKey = rowData.__groupKey__;
+    const nestedFilters = get(nestedFiltersMap, groupKey) || {};
+
+    // Build multiselect options for nested data per column
+    const getNestedColumnOptions = (col) => {
+      const rawVals = nestedData.map(r => get(r, col));
+      const uniqueVals = uniq(rawVals);
+      const hasNull = some(uniqueVals, v => isNil(v));
+      const nonNull = uniqueVals.filter(v => !isNil(v));
+      const sortedNonNull = orderBy(nonNull);
+      const options = [];
+      if (hasNull) options.push({ label: '(null)', value: null });
+      options.push(...sortedNonNull.map(v => ({ label: String(v), value: v })));
+      return options;
+    };
+
+    // Apply nested filters (independent) using same logic as main table
+    const nestedFilteredData = filter(nestedData, (row) => {
+      if (!row || typeof row !== 'object') return false;
+
+      const regularColumnsPass = every(nestedColumns, (col) => {
+        const filterObj = get(nestedFilters, col);
+        if (!filterObj || isNil(filterObj.value) || filterObj.value === '') return true;
+        if (isArray(filterObj.value) && isEmpty(filterObj.value)) return true;
+
+        const isTargetCol = col === TARGET_PERCENTAGE_COL || col === TARGET_TARGET_COL || col === TARGET_ACTUAL_COL;
+        const cellValue = isTargetCol ? getTargetColumnValue(row, col) : get(row, col);
+        const filterValue = filterObj.value;
+        const colType = get(columnTypes, col);
+        const isMultiselectColumn = includes(multiselectColumns, col);
+
+        if (isMultiselectColumn && isArray(filterValue)) {
+          return some(filterValue, (v) => {
+            if (isNil(v) && isNil(cellValue)) return true;
+            if (isNil(v) || isNil(cellValue)) return false;
+            return v === cellValue || String(v) === String(cellValue);
+          });
+        }
+
+        if (!isTargetCol && get(colType, 'isBoolean')) {
+          const cellIsTruthy = cellValue === true || cellValue === 1 || cellValue === '1';
+          const cellIsFalsy = cellValue === false || cellValue === 0 || cellValue === '0';
+          if (filterValue === true) return cellIsTruthy;
+          if (filterValue === false) return cellIsFalsy;
+          return true;
+        }
+
+        if (!isTargetCol && get(colType, 'isDate')) {
+          return applyDateFilter(cellValue, filterValue);
+        }
+
+        // Treat target columns as numeric filters, same as main
+        if (isTargetCol || get(colType, 'isNumeric')) {
+          const parsedFilter = parseNumericFilter(filterValue);
+          return applyNumericFilter(cellValue, parsedFilter);
+        }
+
+        const strCell = toLower(String(cellValue ?? ''));
+        const strFilter = toLower(String(filterValue));
+        return includes(strCell, strFilter);
+      });
+
+      if (!regularColumnsPass) return false;
+      return true;
+    });
+
+    // Nested filter elements with same UX (debounce, inputs) but independent state
+    const getNestedFilterElement = (col) => {
+      const colType = get(columnTypes, col);
+      const isMultiselectColumn = includes(multiselectColumns, col);
+      const isTargetCol = col === TARGET_PERCENTAGE_COL || col === TARGET_TARGET_COL || col === TARGET_ACTUAL_COL;
+
+      if (isMultiselectColumn) {
+        const filterState = get(nestedFilters, col);
+        const value = get(filterState, 'value', null);
+        const columnOptions = getNestedColumnOptions(col);
+        return () => (
+          <MultiselectFilter
+            value={value}
+            options={columnOptions}
+            onChange={(newValue) => updateNestedFilter(groupKey, col, newValue)}
+            placeholder="Select..."
+            fieldName={formatHeaderName(col)}
+          />
+        );
+      }
+
+      if (get(colType, 'isBoolean')) {
+        const filterState = get(nestedFilters, col);
+        const value = get(filterState, 'value', null);
+        return () => (
+          <div className="flex items-center justify-center p-column-filter-checkbox-wrapper">
+            <CustomTriStateCheckbox
+              value={value}
+              onChange={(newValue) => updateNestedFilter(groupKey, col, newValue)}
+            />
+          </div>
+        );
+      }
+
+      if (get(colType, 'isDate')) {
+        const filterState = get(nestedFilters, col);
+        const value = get(filterState, 'value', null);
+        return () => (
+          <DateRangeFilter
+            value={value}
+            onChange={(newValue) => updateNestedFilter(groupKey, col, newValue)}
+          />
+        );
+      }
+
+      if (isTargetCol || get(colType, 'isNumeric')) {
+        const filterState = get(nestedFilters, col);
+        const value = isNil(get(filterState, 'value')) ? '' : filterState.value;
+        return () => (
+          <InputText
+            defaultValue={value}
+            onChange={(e) => nestedDebouncedUpdateFilter(groupKey, col, e.target.value === '' ? null : e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                nestedCancelDebounced(groupKey, col);
+                updateNestedFilter(groupKey, col, e.currentTarget.value === '' ? null : e.currentTarget.value);
+              }
+            }}
+            onBlur={(e) => {
+              nestedCancelDebounced(groupKey, col);
+              updateNestedFilter(groupKey, col, e.currentTarget.value === '' ? null : e.currentTarget.value);
+            }}
+            placeholder="<, >, <=, >=, =, <>"
+            className="p-column-filter"
+            style={{ width: '100%' }}
+            title="Numeric filters: <10, >10, <=10, >=10, =10, 10<>20 (range)"
+          />
+        );
+      }
+
+      // Default text
+      const filterState = get(nestedFilters, col);
+      const value = isNil(get(filterState, 'value')) ? '' : filterState.value;
+      return () => (
+        <InputText
+          defaultValue={value}
+          onChange={(e) => nestedDebouncedUpdateFilter(groupKey, col, e.target.value === '' ? null : e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              nestedCancelDebounced(groupKey, col);
+              updateNestedFilter(groupKey, col, e.currentTarget.value === '' ? null : e.currentTarget.value);
+            }
+          }}
+          onBlur={(e) => {
+            nestedCancelDebounced(groupKey, col);
+            updateNestedFilter(groupKey, col, e.currentTarget.value === '' ? null : e.currentTarget.value);
+          }}
+          placeholder="Search..."
+          className="p-column-filter"
+          style={{ width: '100%' }}
+        />
+      );
+    };
+
     return (
       <div className="p-3 bg-gray-50">
         <div className="text-xs font-semibold text-gray-700 mb-2">
@@ -2597,7 +2851,10 @@ export default function DataTableComponent({
         </div>
         <div className="border border-gray-200 rounded-lg overflow-hidden">
           <DataTable
-            value={nestedData}
+            value={nestedFilteredData}
+            sortMode={enableSort ? 'multiple' : undefined}
+            removableSort={enableSort}
+            filterDisplay={enableFilter ? 'row' : undefined}
             showGridlines
             stripedRows
             className="p-datatable-sm"
@@ -2611,6 +2868,11 @@ export default function DataTableComponent({
                   key={col}
                   field={col}
                   header={getHeaderTemplate(col) || formatHeaderName(col)}
+                  sortable={enableSort}
+                  filter={enableFilter}
+                  filterElement={enableFilter ? getNestedFilterElement(col) : undefined}
+                  showFilterMenu={false}
+                  showClearButton={false}
                   body={getBodyTemplate(col)}
                   align={isNumericCol ? 'right' : 'left'}
                   style={{
@@ -2624,7 +2886,7 @@ export default function DataTableComponent({
         </div>
       </div>
     );
-  }, [outerGroupField, innerGroupField, orderedColumns, columnTypes, formatHeaderName, getBodyTemplate, calculateColumnWidths, getHeaderTemplate]);
+  }, [outerGroupField, innerGroupField, orderedColumns, columnTypes, formatHeaderName, getBodyTemplate, calculateColumnWidths, getHeaderTemplate, multiselectColumns, nestedFiltersMap, updateNestedFilter, nestedDebouncedUpdateFilter, nestedCancelDebounced]);
 
   const onPageChange = (event) => {
     setFirst(event.first);
@@ -3405,7 +3667,19 @@ export default function DataTableComponent({
         } else if (get(colType, 'isDate')) {
           exportRow[formatHeaderName(col)] = formatDateValue(value);
         } else {
-          exportRow[formatHeaderName(col)] = formatCellValue(value, colType);
+          // For numeric columns, ensure we write real numbers (not formatted strings)
+          if (get(colType, 'isNumeric')) {
+            const numeric =
+              typeof value === 'number'
+                ? value
+                : parseFloat(String(value).replace(/,/g, ''));
+            exportRow[formatHeaderName(col)] = Number.isFinite(numeric)
+              ? numeric
+              : String(value);
+          } else {
+            // Non-numeric columns: keep as plain string
+            exportRow[formatHeaderName(col)] = String(value);
+          }
         }
       });
       return exportRow;

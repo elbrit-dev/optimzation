@@ -397,7 +397,6 @@ function FieldPicker({ columns, selectedFields, onSelectionChange, formatFieldNa
         filterDelay={300}
         selectedItemsLabel={selectedItemsLabel}
         itemTemplate={itemTemplate}
-        panelHeaderTemplate={panelHeaderTemplate}
         panelFooterTemplate={panelFooterTemplate}
         className="w-full"
         panelClassName="custom-multiselect-panel"
@@ -440,6 +439,7 @@ export default function DataTableControls({
   enableFilter,
   enableSummation,
   enableCellEdit = false,
+  enableDivideBy1Lakh = false,
   rowsPerPageOptions,
   defaultRows,
   columns = [],
@@ -464,6 +464,7 @@ export default function DataTableControls({
   onFilterChange,
   onSummationChange,
   onCellEditChange,
+  onDivideBy1LakhChange,
   onRowsPerPageOptionsChange,
   onDefaultRowsChange,
   onTextFilterColumnsChange,
@@ -806,6 +807,12 @@ export default function DataTableControls({
                     checked={enableSummation}
                     onChange={onSummationChange}
                     label="Summation"
+                    icon="pi pi-calculator"
+                  />
+                  <ToggleSwitch
+                    checked={enableDivideBy1Lakh}
+                    onChange={onDivideBy1LakhChange}
+                    label="Divide by 1Lakh"
                     icon="pi pi-calculator"
                   />
                   {onCellEditChange && (
