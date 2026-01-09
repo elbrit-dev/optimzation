@@ -7,7 +7,7 @@ import localforage from 'localforage';
 import _ from 'lodash';
 import "primereact/resources/themes/lara-light-cyan/theme.css";
 import "primereact/resources/primereact.min.css";
-import "antd/dist/antd.css";
+// import "antd/dist/antd.css";
 
 // GraphQL Playground styles
 import '@graphiql/plugin-explorer/style.css';
