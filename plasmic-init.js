@@ -5,6 +5,8 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import DataTable from "./components/DataTable";
 import FirebaseUIComponent from "./components/FirebaseUIComponent";
 import TableDataProvider from "./components/TableDataProvider";
+import PlasmicNavigation from "./components/PlasmicNavigation";
+
 
 
 
@@ -351,6 +353,35 @@ PLASMIC.registerComponent(DataTable, {
     },
   },
   importPath: "./components/DataTable",
+});
+
+PLASMIC.registerComponent(PlasmicNavigation, {
+  name: "Navigation",
+  props: {
+    items: {
+      type: "object",
+      description: "JSON array of items. Use icon names (e.g., 'ChatIconActive') or image paths (e.g., '/logo.jpeg')",
+    },
+    defaultIndex: {
+      type: "number",
+      defaultValue: 0,
+      description: "Fallback index if no URL path matches",
+    },
+    enableSwipe: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Enable swipe gestures on mobile to switch between pages",
+    },
+    className: "string",
+    children: {
+      type: "slot",
+      defaultValue: {
+        type: "text",
+        value: "Drop page content here",
+      },
+    },
+  },
+  importPath: "./components/PlasmicNavigation",
 });
 
 // Register FirebaseUIComponent
