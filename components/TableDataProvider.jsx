@@ -13,24 +13,34 @@ const TableDataProvider = (props) => {
     queryKey,
     onDataChange,
     onTableDataChange,
+    onRawDataChange,
     onVariablesChange,
     onDataSourceChange,
     variableOverrides,
     showSelectors = true,
     hideDataSourceAndQueryKey,
+    // Auth control props
+    isAdminMode = false,
+    salesTeamColumn = null,
+    salesTeamValues = [],
+    hqColumn = null,
+    hqValues = [],
     ...otherProps // Collect all other individual props to use as variables
   } = props;
 
   const [currentTableData, setCurrentTableData] = useState(null);
+  const [currentRawData, setCurrentRawData] = useState(null);
   const [currentVariables, setCurrentVariables] = useState({});
 
   // Stable callback wrappers to prevent infinite loops in the shared DataProvider
   const onTableDataChangeRef = useRef(onTableDataChange);
+  const onRawDataChangeRef = useRef(onRawDataChange);
   const onDataChangeRef = useRef(onDataChange);
   const onVariablesChangeRef = useRef(onVariablesChange);
   const onDataSourceChangeRef = useRef(onDataSourceChange);
 
   useEffect(() => { onTableDataChangeRef.current = onTableDataChange; }, [onTableDataChange]);
+  useEffect(() => { onRawDataChangeRef.current = onRawDataChange; }, [onRawDataChange]);
   useEffect(() => { onDataChangeRef.current = onDataChange; }, [onDataChange]);
   useEffect(() => { onVariablesChangeRef.current = onVariablesChange; }, [onVariablesChange]);
   useEffect(() => { onDataSourceChangeRef.current = onDataSourceChange; }, [onDataSourceChange]);
@@ -38,6 +48,11 @@ const TableDataProvider = (props) => {
   const stableOnTableDataChange = useCallback((data) => {
     setCurrentTableData(data);
     onTableDataChangeRef.current?.(data);
+  }, []);
+
+  const stableOnRawDataChange = useCallback((data) => {
+    setCurrentRawData(data);
+    onRawDataChangeRef.current?.(data);
   }, []);
 
   const stableOnDataChange = useCallback((notif) => {
@@ -71,7 +86,7 @@ const TableDataProvider = (props) => {
   const lastPropsRef = useRef({ dataSource, queryKey });
   const isInitialMount = useRef(true);
 
-  // Sync props to localStorage and manage re-mount key only on genuine prop changes
+  // Sync props to internal state and manage re-mount key only on genuine prop changes
   useEffect(() => {
     // Skip the initial mount to prevent automatic execution on load
     if (isInitialMount.current) {
@@ -81,23 +96,10 @@ const TableDataProvider = (props) => {
 
     // Only proceed if dataSource or queryKey has actually changed from what we last handled
     if (dataSource !== lastPropsRef.current.dataSource || queryKey !== lastPropsRef.current.queryKey) {
-      if (typeof window !== 'undefined') {
-        const syncToStore = (key, value) => {
-          if (value !== undefined && value !== null) {
-            const stringified = JSON.stringify(value);
-            if (window.localStorage.getItem(key) !== stringified) {
-              window.localStorage.setItem(key, stringified);
-            }
-          }
-        };
-
-        syncToStore('datatable-dataSource', dataSource || 'offline');
-        syncToStore('datatable-selectedQueryKey', queryKey);
-        
-        // Update the key to force a re-mount of the DataProvider only when these specific props change
-        setInstanceKey(`${dataSource || 'offline'}-${queryKey || 'default'}-${Date.now()}`);
-        lastPropsRef.current = { dataSource, queryKey };
-      }
+      // Update the key to force a re-mount of the DataProvider only when these specific props change
+      // We removed the global localStorage sync to prevent interference between different pages/instances
+      setInstanceKey(`${dataSource || 'offline'}-${queryKey || 'default'}-${Date.now()}`);
+      lastPropsRef.current = { dataSource, queryKey };
     }
   }, [dataSource, queryKey]);
 
@@ -105,11 +107,19 @@ const TableDataProvider = (props) => {
     <DataProvider
       key={instanceKey}
       offlineData={data}
+      dataSource={dataSource}
+      selectedQueryKey={queryKey}
       onDataChange={stableOnDataChange}
       onTableDataChange={stableOnTableDataChange}
+      onRawDataChange={stableOnRawDataChange}
       onVariablesChange={stableOnVariablesChange}
       onDataSourceChange={stableOnDataSourceChange}
       variableOverrides={stableOverrides}
+      isAdminMode={isAdminMode}
+      salesTeamColumn={salesTeamColumn}
+      salesTeamValues={salesTeamValues}
+      hqColumn={hqColumn}
+      hqValues={hqValues}
       hideDataSourceAndQueryKey={hideDataSourceAndQueryKey !== undefined ? hideDataSourceAndQueryKey : !showSelectors}
       renderHeaderControls={(selectorsJSX) => showSelectors ? (
         <div className="px-4 py-3 border-b border-gray-200 bg-white">
@@ -120,11 +130,13 @@ const TableDataProvider = (props) => {
       ) : null}
     >
       <PlasmicDataProvider name="tableData" data={currentTableData}>
-        <PlasmicDataProvider name="queryVariables" data={currentVariables}>
-          {children}
-          <div style={{ height: 'auto' }}>
-            {dataSlot}
-          </div>
+        <PlasmicDataProvider name="rawTableData" data={currentRawData}>
+          <PlasmicDataProvider name="queryVariables" data={currentVariables}>
+            {children}
+            <div style={{ height: 'auto' }}>
+              {dataSlot}
+            </div>
+          </PlasmicDataProvider>
         </PlasmicDataProvider>
       </PlasmicDataProvider>
     </DataProvider>

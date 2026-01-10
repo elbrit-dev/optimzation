@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Dropdown } from 'primereact/dropdown';
+import { MultiSelect } from 'primereact/multiselect';
 import { Button } from 'primereact/button';
-import { startCase } from 'lodash';
+import { startCase, isNil, isEmpty, uniq, filter as lodashFilter } from 'lodash';
 import { DatePicker } from 'antd';
 import dayjs from 'dayjs';
 import { firestoreService } from '@/app/graphql-playground/services/firestoreService';
@@ -105,69 +106,31 @@ function getEndpointAndAuth(queryDoc) {
   return { endpointUrl, authToken };
 }
 
-// Custom hook for localStorage with proper JSON serialization for string/null values
-function useLocalStorageString(key, defaultValue) {
-  const [value, setValue] = useState(() => {
-    if (typeof window === 'undefined') return defaultValue;
-    try {
-      const item = window.localStorage.getItem(key);
-      if (item === null || item === undefined) return defaultValue;
-      const parsed = JSON.parse(item);
-      return (typeof parsed === 'string' || parsed === null) ? parsed : defaultValue;
-    } catch (error) {
-      try {
-        window.localStorage.removeItem(key);
-      } catch { }
-      return defaultValue;
-    }
-  });
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    try {
-      const item = window.localStorage.getItem(key);
-      if (item !== null && item !== undefined) {
-        const parsed = JSON.parse(item);
-        if (typeof parsed === 'string' || parsed === null) {
-          setValue(parsed);
-        }
-      }
-    } catch (error) {
-      // Ignore errors during sync
-    }
-  }, [key]);
-
-  const setStoredValue = (newValue) => {
-    try {
-      if (typeof newValue === 'string' || newValue === null) {
-        const serialized = JSON.stringify(newValue);
-        if (typeof window !== 'undefined') {
-          window.localStorage.setItem(key, serialized);
-        }
-        setValue(newValue);
-      }
-    } catch (error) {
-      console.error(`Error setting localStorage key "${key}":`, error);
-    }
-  };
-
-  return [value, setStoredValue];
-}
 
 export default function DataProvider({ 
   offlineData, 
   onDataChange, 
   onError,
   onTableDataChange,
+  onRawDataChange, // New callback to pass raw/original data for Auth Control
   renderHeaderControls,
   onDataSourceChange,
   variableOverrides = {},
   onVariablesChange,
   hideDataSourceAndQueryKey = true,
+  // Auth control props
+  isAdminMode = false,
+  salesTeamColumn = null,
+  salesTeamValues = [],
+  hqColumn = null,
+  hqValues = [],
+  // Data source and query key props
+  dataSource: dataSourceProp = 'offline',
+  selectedQueryKey: selectedQueryKeyProp = null,
   children 
 }) {
-  const [dataSource, setDataSource] = useLocalStorageString('datatable-dataSource', 'offline');
-  const [selectedQueryKey, setSelectedQueryKey] = useLocalStorageString('datatable-selectedQueryKey', null);
+  const [dataSource, setDataSource] = useState(dataSourceProp);
+  const [selectedQueryKey, setSelectedQueryKey] = useState(selectedQueryKeyProp);
   const [savedQueries, setSavedQueries] = useState([]);
   const [loadingQueries, setLoadingQueries] = useState(false);
   const [executingQuery, setExecutingQuery] = useState(false);
@@ -177,6 +140,7 @@ export default function DataProvider({
   const [queryVariables, setQueryVariables] = useState({}); // Variables from the saved query
   const [currentQueryDoc, setCurrentQueryDoc] = useState(null); // Current query document
   const [lastUpdatedAt, setLastUpdatedAt] = useState(null); // Last updated timestamp string from IndexedDB
+  const [selectedTeams, setSelectedTeams] = useState([]); // Selected teams for Search Teams filter
   const queryVariablesRef = useRef({}); // Ref to track variables immediately (for synchronous access)
   const executingQueryIdRef = useRef(null); // Track which query is currently executing to prevent duplicates
   const executionContextRef = useRef(null); // Persist execution context across runs for caching
@@ -484,6 +448,7 @@ export default function DataProvider({
       setQueryVariables({});
       setCurrentQueryDoc(null);
       setOfflineDataExecuted(false); // Reset offline execution state
+      setSelectedTeams([]); // Reset Search Teams selection
       // Reset execution context when switching to offline
       executionContextRef.current = createExecutionContext();
       // Notify parent that variables changed
@@ -501,6 +466,8 @@ export default function DataProvider({
         });
       }
     } else if (dataSource && dataSource !== 'offline') {
+      // Reset Search Teams selection when switching data sources
+      setSelectedTeams([]);
       // Load query metadata and auto-execute
       const loadQueryMetadata = async () => {
         try {
@@ -691,7 +658,6 @@ export default function DataProvider({
     }
   }, [processedData, availableQueryKeys, selectedQueryKey, dataSource, setSelectedQueryKey]);
 
-
   // Execute query using the unified pipeline
   const runQuery = useCallback(async (queryId, skipMonthDateLoad = false) => {
     // Hard guard: prevent execution if already executing any query
@@ -763,7 +729,7 @@ export default function DataProvider({
   const [offlineDataExecuted, setOfflineDataExecuted] = useState(false);
 
   // Determine which data to use (from executed queries or executed offline)
-  const tableData = useMemo(() => {
+  const rawTableData = useMemo(() => {
     // If offline mode and executed, show offline data
     if (dataSource === 'offline' && offlineDataExecuted) {
       return offlineData || [];
@@ -776,7 +742,169 @@ export default function DataProvider({
     return null;
   }, [dataSource, processedData, selectedQueryKey, offlineData, offlineDataExecuted]);
 
-  // Notify parent when table data changes
+  // Apply auth filtering to raw data
+  const authFilteredData = useMemo(() => {
+    if (!rawTableData || !Array.isArray(rawTableData) || isEmpty(rawTableData)) {
+      return rawTableData;
+    }
+
+    // If Admin mode is ON, return data as-is
+    if (isAdminMode) {
+      return rawTableData;
+    }
+
+    let filteredData = [...rawTableData];
+
+    // Step 1: Filter by salesTeam
+    if (salesTeamColumn && salesTeamValues && salesTeamValues.length > 0) {
+      filteredData = filteredData.filter(row => {
+        if (!row || typeof row !== 'object') return false;
+        const rowValue = getDataValue(row, salesTeamColumn);
+        // Handle null/undefined comparison - convert to string for comparison
+        if (isNil(rowValue)) {
+          return salesTeamValues.some(val => val === null || val === undefined || val === '');
+        }
+        return salesTeamValues.some(val => String(val) === String(rowValue));
+      });
+    }
+
+    // Step 2: Filter by hq (only if salesTeamValues count == 1)
+    if (salesTeamValues && salesTeamValues.length === 1 && hqColumn && hqValues && hqValues.length > 0) {
+      filteredData = filteredData.filter(row => {
+        if (!row || typeof row !== 'object') return false;
+        const rowValue = getDataValue(row, hqColumn);
+        // Handle null/undefined comparison - convert to string for comparison
+        if (isNil(rowValue)) {
+          return hqValues.some(val => val === null || val === undefined || val === '');
+        }
+        return hqValues.some(val => String(val) === String(rowValue));
+      });
+    }
+
+    return filteredData;
+  }, [rawTableData, isAdminMode, salesTeamColumn, salesTeamValues, hqColumn, hqValues]);
+
+  // Extract available team values from auth-filtered data for Search Teams selector
+  const availableTeamValues = useMemo(() => {
+    if (!authFilteredData || !Array.isArray(authFilteredData) || isEmpty(authFilteredData)) {
+      return [];
+    }
+
+    const teamOptions = [];
+
+    // Extract Sales Team values if column is set
+    if (salesTeamColumn && !isAdminMode) {
+      const salesTeamValuesSet = new Set();
+      authFilteredData.forEach(row => {
+        if (row && typeof row === 'object') {
+          const value = getDataValue(row, salesTeamColumn);
+          if (!isNil(value) && value !== '') {
+            salesTeamValuesSet.add(String(value));
+          }
+        }
+      });
+
+      const salesTeamValuesArray = Array.from(salesTeamValuesSet).sort();
+      // Only show Sales Team values if count > 1
+      if (salesTeamValuesArray.length > 1) {
+        salesTeamValuesArray.forEach(val => {
+          teamOptions.push({
+            label: `Sales Team: ${val}`,
+            value: val,
+            type: 'salesTeam'
+          });
+        });
+      }
+    }
+
+    // Extract HQ values if column is set
+    if (hqColumn && !isAdminMode) {
+      const hqValuesSet = new Set();
+      authFilteredData.forEach(row => {
+        if (row && typeof row === 'object') {
+          const value = getDataValue(row, hqColumn);
+          if (!isNil(value) && value !== '') {
+            hqValuesSet.add(String(value));
+          }
+        }
+      });
+
+      const hqValuesArray = Array.from(hqValuesSet).sort();
+      // Only show HQ values if count > 1
+      if (hqValuesArray.length > 1) {
+        hqValuesArray.forEach(val => {
+          teamOptions.push({
+            label: `HQ: ${val}`,
+            value: val,
+            type: 'hq'
+          });
+        });
+      }
+    }
+
+    return teamOptions;
+  }, [authFilteredData, salesTeamColumn, hqColumn, isAdminMode]);
+
+  // Reset selectedTeams when auth filters change significantly (to avoid stale selections)
+  useEffect(() => {
+    // Only reset if we have selectedTeams and the available options have changed
+    if (selectedTeams && selectedTeams.length > 0 && availableTeamValues.length > 0) {
+      const availableValues = new Set(availableTeamValues.map(opt => opt.value));
+      const hasInvalidSelection = selectedTeams.some(team => !availableValues.has(team));
+      if (hasInvalidSelection) {
+        // Filter out invalid selections, keep only valid ones
+        const validTeams = selectedTeams.filter(team => availableValues.has(team));
+        setSelectedTeams(validTeams);
+      }
+    } else if (selectedTeams && selectedTeams.length > 0 && availableTeamValues.length === 0) {
+      // Clear selections if no teams available
+      setSelectedTeams([]);
+    }
+  }, [availableTeamValues, salesTeamColumn, hqColumn, isAdminMode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Apply Search Teams filter to auth-filtered data
+  const tableData = useMemo(() => {
+    if (!authFilteredData || !Array.isArray(authFilteredData) || isEmpty(authFilteredData)) {
+      return authFilteredData;
+    }
+
+    // If no teams selected, return auth-filtered data as-is
+    if (!selectedTeams || selectedTeams.length === 0) {
+      return authFilteredData;
+    }
+
+    // Filter by selected teams (match either Sales Team or HQ column)
+    return authFilteredData.filter(row => {
+      if (!row || typeof row !== 'object') return false;
+      
+      // Check Sales Team column
+      if (salesTeamColumn) {
+        const salesTeamValue = getDataValue(row, salesTeamColumn);
+        if (!isNil(salesTeamValue) && selectedTeams.some(team => String(team) === String(salesTeamValue))) {
+          return true;
+        }
+      }
+      
+      // Check HQ column
+      if (hqColumn) {
+        const hqValue = getDataValue(row, hqColumn);
+        if (!isNil(hqValue) && selectedTeams.some(team => String(team) === String(hqValue))) {
+          return true;
+        }
+      }
+      
+      return false;
+    });
+  }, [authFilteredData, selectedTeams, salesTeamColumn, hqColumn]);
+
+  // Notify parent when raw data changes (for Auth Control in DataTableControls)
+  useEffect(() => {
+    if (onRawDataChange) {
+      onRawDataChange(rawTableData);
+    }
+  }, [rawTableData, onRawDataChange]);
+
+  // Notify parent when filtered table data changes (for DataTable)
   useEffect(() => {
     if (onTableDataChange) {
       onTableDataChange(tableData);
@@ -821,6 +949,9 @@ export default function DataProvider({
                   className="w-full"
                   loading={loadingQueries}
                   disabled={executingQuery}
+                  style={{
+                    height: '3rem',
+                  }}
                 />
               </div>
             )}
@@ -843,6 +974,9 @@ export default function DataProvider({
                   placeholder="Select Query Key"
                   className="w-full"
                   disabled={executingQuery || !processedData}
+                  style={{
+                    height: '3rem',
+                  }}
                 />
               </div>
             )}
@@ -875,7 +1009,39 @@ export default function DataProvider({
                   style={{
                     width: '100%',
                     fontSize: '0.875rem',
-                    height: '2.5rem',
+                    height: '3rem',
+                  }}
+                />
+              </div>
+            )}
+
+            {/* Search Teams Multi-Selector - Show when there are available team values */}
+            {!isAdminMode && availableTeamValues.length > 0 && (
+              <div className="w-64">
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Search Teams
+                </label>
+                <MultiSelect
+                  value={selectedTeams}
+                  onChange={(e) => setSelectedTeams(e.value || [])}
+                  options={availableTeamValues}
+                  optionLabel="label"
+                  optionValue="value"
+                  filter
+                  filterPlaceholder="Search teams..."
+                  filterDelay={300}
+                  className="w-full"
+                  panelClassName="custom-multiselect-panel"
+                  display="chip"
+                  showClear
+                  resetFilterOnHide
+                  emptyFilterMessage="No teams match your search"
+                  emptyMessage="No teams available"
+                  placeholder="Select teams..."
+                  disabled={executingQuery}
+                  style={{
+                    fontSize: '0.875rem',
+                    height: '3rem',
                   }}
                 />
               </div>

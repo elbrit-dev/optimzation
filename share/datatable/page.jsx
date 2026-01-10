@@ -237,7 +237,8 @@ function useLocalStorageNumber(key, defaultValue) {
 function DataTablePage() {
   const toast = useRef(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [tableData, setTableData] = useState(data);
+  const [tableData, setTableData] = useState(data); // Filtered data for DataTable
+  const [rawTableData, setRawTableData] = useState(data); // Full/original data for Auth Control in DataTableControls
   const [currentDataSource, setCurrentDataSource] = useState(null);
   const [enableSort, setEnableSort] = useLocalStorageBoolean('datatable-enableSort', true);
   const [enableFilter, setEnableFilter] = useLocalStorageBoolean('datatable-enableFilter', true);
@@ -431,9 +432,15 @@ function DataTablePage() {
     }
   }, []);
 
+  // Handle raw/original data changes from DataProvider (for Auth Control)
+  const handleRawDataChange = useCallback((newRawData) => {
+    setRawTableData(newRawData);
+  }, []);
+
+  // Handle filtered table data changes from DataProvider (for DataTable)
   const handleTableDataChange = useCallback((newTableData) => {
     setTableData(newTableData);
-    // Store original unfiltered data reference
+    // Store filtered data reference for drawer functionality (drawer uses visible filtered data)
     if (newTableData && Array.isArray(newTableData)) {
       originalTableDataRef.current = newTableData;
     }
@@ -862,56 +869,14 @@ function DataTablePage() {
   }, [salesTeamValues.length, hqColumn]); // Only depend on actual values, not setters
 
 
-  // Extract column names from data
+  // Extract column names from raw data (columns should be based on full data structure)
   const columns = useMemo(() => {
-    const dataToUse = tableData;
+    const dataToUse = rawTableData || tableData; // Use raw data if available, fallback to filtered
     if (!Array.isArray(dataToUse) || isEmpty(dataToUse)) return [];
     return uniq(flatMap(dataToUse, (item) =>
       item && typeof item === 'object' ? getDataKeys(item) : []
     ));
-  }, [tableData]);
-
-  // Sequential filtering: first by salesTeam, then by hq (when Admin mode is OFF)
-  const filteredTableData = useMemo(() => {
-    if (!Array.isArray(tableData) || isEmpty(tableData)) {
-      return tableData;
-    }
-
-    // If Admin mode is ON, return data as-is
-    if (isAdminMode) {
-      return tableData;
-    }
-
-    let filteredData = [...tableData];
-
-    // Step 1: Filter by salesTeam
-    if (salesTeamColumn && salesTeamValues && salesTeamValues.length > 0) {
-      filteredData = filteredData.filter(row => {
-        if (!row || typeof row !== 'object') return false;
-        const rowValue = getDataValue(row, salesTeamColumn);
-        // Handle null/undefined comparison - convert to string for comparison
-        if (isNil(rowValue)) {
-          return salesTeamValues.some(val => val === null || val === undefined || val === '');
-        }
-        return salesTeamValues.some(val => String(val) === String(rowValue));
-      });
-    }
-
-    // Step 2: Filter by hq (only if salesTeamValues count == 1)
-    if (salesTeamValues && salesTeamValues.length === 1 && hqColumn && hqValues && hqValues.length > 0) {
-      filteredData = filteredData.filter(row => {
-        if (!row || typeof row !== 'object') return false;
-        const rowValue = getDataValue(row, hqColumn);
-        // Handle null/undefined comparison - convert to string for comparison
-        if (isNil(rowValue)) {
-          return hqValues.some(val => val === null || val === undefined || val === '');
-        }
-        return hqValues.some(val => String(val) === String(rowValue));
-      });
-    }
-
-    return filteredData;
-  }, [tableData, isAdminMode, salesTeamColumn, salesTeamValues, hqColumn, hqValues]);
+  }, [rawTableData, tableData]);
 
   // Format field name for display
   const formatFieldName = (key) => {
@@ -933,7 +898,7 @@ function DataTablePage() {
 
   // Handle outer group click
   const handleOuterGroupClick = (rowData, column, value) => {
-    // Get original unfiltered data
+    // Get filtered data that's currently visible (drawer uses visible filtered data)
     const originalData = originalTableDataRef.current || tableData;
     if (!Array.isArray(originalData) || isEmpty(originalData)) {
       return;
@@ -990,7 +955,7 @@ function DataTablePage() {
 
   // Handle inner group click
   const handleInnerGroupClick = (rowData, column, value) => {
-    // Get original unfiltered data
+    // Get filtered data that's currently visible (drawer uses visible filtered data)
     const originalData = originalTableDataRef.current || tableData;
     if (!Array.isArray(originalData) || isEmpty(originalData)) {
       return;
@@ -1045,11 +1010,17 @@ function DataTablePage() {
             offlineData={data}
             onDataChange={handleDataChange}
             onError={handleError}
+            onRawDataChange={handleRawDataChange}
             onTableDataChange={handleTableDataChange}
             onDataSourceChange={handleDataSourceChange}
             onVariablesChange={handleVariablesChange}
             variableOverrides={variableOverrides}
             hideDataSourceAndQueryKey={false}
+            isAdminMode={isAdminMode}
+            salesTeamColumn={salesTeamColumn}
+            salesTeamValues={salesTeamValues}
+            hqColumn={hqColumn}
+            hqValues={hqValues}
             renderHeaderControls={(selectorsJSX) => (
               <div className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 border-b border-gray-200 shrink-0 bg-white">
                 <div className="flex items-end gap-3 flex-wrap">
@@ -1076,7 +1047,7 @@ function DataTablePage() {
                     </div>
                   ) : (
                     <DataTableComponent
-                      data={filteredTableData}
+                      data={tableData}
                       rowsPerPageOptions={rowsPerPageOptions}
                       defaultRows={defaultRows}
                       scrollable={false}
@@ -1152,7 +1123,7 @@ function DataTablePage() {
                   salesTeamValues={salesTeamValues}
                   hqColumn={hqColumn}
                   hqValues={hqValues}
-                  tableData={tableData}
+                  tableData={rawTableData}
                   onAdminModeChange={setIsAdminMode}
                   onSalesTeamColumnChange={setSalesTeamColumn}
                   onSalesTeamValuesChange={setSalesTeamValues}
