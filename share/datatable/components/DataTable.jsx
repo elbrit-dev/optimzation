@@ -16,7 +16,6 @@ import {
   isNumber,
   isFinite as _isFinite,
   isEmpty,
-  keys,
   uniq,
   flatMap,
   startCase,
@@ -44,6 +43,7 @@ import {
   values,
 } from 'lodash';
 import { useStickyElements } from '../hooks/useStickyElements';
+import { getDataKeys, getDataValue } from '../utils/dataAccessUtils';
 
 // Date format patterns for detection
 const DATE_PATTERNS = [
@@ -922,11 +922,6 @@ function DateRangeFilter({ value, onChange }) {
   );
 }
 
-// Special column names for target data columns
-const TARGET_PERCENTAGE_COL = '__target_percentage__';
-const TARGET_TARGET_COL = '__target_target__';
-const TARGET_ACTUAL_COL = '__target_actual__';
-
 export default function DataTableComponent({
   data,
   rowsPerPageOptions = [10, 25, 50, 100],
@@ -950,11 +945,7 @@ export default function DataTableComponent({
   onCellEditComplete, // Callback when cell edit is complete: (e) => void, where e = { rowData, newValue, field, originalEvent, oldValue }
   isCellEditable, // Function to determine if a cell is editable: (rowData, field) => boolean
   nonEditableColumns = [], // Array of column names that should not be editable
-  targetData = null, // Target data array for comparison
-  targetOuterGroupField = null, // Field in target data that maps to outerGroupField
-  targetInnerGroupField = null, // Field in target data that maps to innerGroupField
-  targetValueField = null, // Field in target data that contains the target value
-  actualValueField = null, // Field in data that contains the actual value to compare
+  percentageColumns = [], // Array of { columnName: string, targetField: string, valueField: string, beforeColumn?: string | null }
   enableFullscreenDialog = true, // Enable/disable fullscreen dialog feature
   // Sticky header/footer control props (page-level control)
   stickyHeaderOffset = 0, // Additional offset for sticky header
@@ -1034,7 +1025,7 @@ export default function DataTableComponent({
   const columns = useMemo(() => {
     if (isEmpty(safeData)) return [];
     const allKeys = uniq(flatMap(safeData, (item) =>
-      item && typeof item === 'object' ? keys(item) : []
+      item && typeof item === 'object' ? getDataKeys(item) : []
     ));
     return allKeys;
   }, [safeData]);
@@ -1061,7 +1052,7 @@ export default function DataTableComponent({
 
       // First pass: collect raw counts
       sampleData.forEach((row) => {
-        const value = get(row, col);
+        const value = getDataValue(row, col);
         totalCount++;
         if (!isNil(value)) {
           nonNullCount++;
@@ -1106,7 +1097,7 @@ export default function DataTableComponent({
       if (!isBooleanColumn && binaryCount > 0) {
         // Check if binary values could be dates (though 0/1 are unlikely to be dates)
         sampleData.forEach((row) => {
-          const value = get(row, col);
+          const value = getDataValue(row, col);
           if (!isNil(value) && (value === 0 || value === 1 || value === '0' || value === '1')) {
             if (isDateLike(value)) {
               dateCountWithBinary++;
@@ -1213,68 +1204,57 @@ export default function DataTableComponent({
     return types;
   }, [safeData, columns, isNumericValue]);
 
+  // Helper function to get percentage value for a percentage column
+  const getPercentageColumnValue = useCallback((rowData, columnName) => {
+    // Find the percentage column configuration
+    const config = percentageColumns.find(pc => pc.columnName === columnName);
+    if (!config || !config.targetField || !config.valueField) return null;
 
-  // Create target lookup map when target data is enabled
-  const targetLookup = useMemo(() => {
-    if (!targetData || !Array.isArray(targetData) || isEmpty(targetData)) return new Map();
-    if (!targetOuterGroupField || !targetInnerGroupField || !targetValueField) return new Map();
+    // Get target and value from row data
+    const targetValue = getDataValue(rowData, config.targetField);
+    const actualValue = getDataValue(rowData, config.valueField);
+    
+    // Convert to numbers
+    const targetNum = isNumber(targetValue) ? targetValue : (isNil(targetValue) ? null : toNumber(targetValue));
+    const actualNum = isNumber(actualValue) ? actualValue : (isNil(actualValue) ? null : toNumber(actualValue));
 
-    const lookup = new Map();
-    targetData.forEach((targetRow) => {
-      const outerKey = get(targetRow, targetOuterGroupField);
-      const innerKey = get(targetRow, targetInnerGroupField);
-      const targetValue = get(targetRow, targetValueField);
-
-      if (!isNil(outerKey) && !isNil(innerKey) && !isNil(targetValue)) {
-        const key = `${String(outerKey)}__${String(innerKey)}`;
-        const numValue = isNumber(targetValue) ? targetValue : toNumber(targetValue);
-        if (!_isNaN(numValue) && _isFinite(numValue)) {
-          lookup.set(key, numValue);
-        }
-      }
-    });
-
-    return lookup;
-  }, [targetData, targetOuterGroupField, targetInnerGroupField, targetValueField]);
-
-  // Check if target data merging should be active
-  const isTargetDataActive = useMemo(() => {
-    return outerGroupField && innerGroupField && targetData && targetOuterGroupField && targetInnerGroupField && targetValueField && actualValueField && targetLookup.size > 0;
-  }, [outerGroupField, innerGroupField, targetData, targetOuterGroupField, targetInnerGroupField, targetValueField, actualValueField, targetLookup]);
-
-  // Helper function to get computed value for target columns
-  const getTargetColumnValue = useCallback((rowData, col) => {
-    if (col === TARGET_PERCENTAGE_COL || col === TARGET_TARGET_COL || col === TARGET_ACTUAL_COL) {
-      // Get actual value from rowData
-      const actualValue = get(rowData, actualValueField);
-      const actualNum = isNumber(actualValue) ? actualValue : (isNil(actualValue) ? null : toNumber(actualValue));
-
-      // Get target value from lookup
-      const outerKey = get(rowData, outerGroupField);
-      const innerKey = get(rowData, innerGroupField);
-      let targetValue = null;
-      if (!isNil(outerKey) && !isNil(innerKey)) {
-        const lookupKey = `${String(outerKey)}__${String(innerKey)}`;
-        targetValue = targetLookup.get(lookupKey);
-      }
-
-      // Calculate percentage
-      let percentage = null;
-      if (!isNil(targetValue) && !isNil(actualNum) && !_isNaN(targetValue) && !_isNaN(actualNum) && _isFinite(targetValue) && _isFinite(actualNum) && targetValue !== 0) {
-        percentage = (actualNum / targetValue) * 100;
-      }
-
-      if (col === TARGET_PERCENTAGE_COL) {
-        return percentage;
-      } else if (col === TARGET_TARGET_COL) {
-        return targetValue;
-      } else if (col === TARGET_ACTUAL_COL) {
-        return actualNum;
-      }
+    // Calculate percentage
+    if (!isNil(targetNum) && !isNil(actualNum) && !_isNaN(targetNum) && !_isNaN(actualNum) && _isFinite(targetNum) && _isFinite(actualNum) && targetNum !== 0) {
+      return (actualNum / targetNum) * 100;
     }
+    
     return null;
-  }, [targetLookup, outerGroupField, innerGroupField, actualValueField]);
+  }, [percentageColumns]);
 
+  // Check if any percentage columns are configured (only count columns with valid names)
+  const hasPercentageColumns = useMemo(() => {
+    if (isEmpty(percentageColumns) || !isArray(percentageColumns)) {
+      return false;
+    }
+    // Only consider it active if at least one percentage column has a valid columnName
+    const hasValidColumnName = percentageColumns.some(pc => pc.columnName && pc.columnName.trim() !== '');
+    return hasValidColumnName;
+  }, [percentageColumns]);
+
+  // Helper function to check if a column is a percentage column
+  const isPercentageColumn = useCallback((columnName) => {
+    return hasPercentageColumns && percentageColumns.some(pc => pc.columnName === columnName);
+  }, [hasPercentageColumns, percentageColumns]);
+
+  // Get all percentage column names
+  const percentageColumnNames = useMemo(() => {
+    const result = hasPercentageColumns ? percentageColumns.map(pc => pc.columnName).filter(Boolean) : [];
+    return result;
+  }, [hasPercentageColumns, percentageColumns]);
+
+  /**
+   * Computes the ordered array of columns to display in the table.
+   * Handles percentage column positioning based on the beforeColumn field:
+   * - If beforeColumn is specified and exists, inserts the percentage column before that column
+   * - If beforeColumn is outerGroupField, inserts the percentage column right after outerGroupField (outerGroupField must stay first)
+   * - If beforeColumn is not specified or invalid, uses default positioning (after outerGroupField if exists, otherwise at beginning)
+   * - Percentage columns are excluded from filteredColumns and inserted at their specified positions
+   */
   const orderedColumns = useMemo(() => {
     if (isEmpty(columns)) return [];
 
@@ -1314,50 +1294,141 @@ export default function DataTableComponent({
       });
     }
 
-    // When target data is active, exclude actualValueField from regular columns (it will be shown in target columns)
-    if (isTargetDataActive) {
-      filteredColumns = filteredColumns.filter(col => col !== actualValueField);
+    // Get percentage column names and configurations
+    const percentageColumnNamesLocal = hasPercentageColumns 
+      ? percentageColumns.map(pc => pc.columnName).filter(Boolean)
+      : [];
+
+    // Start with filtered columns, excluding percentage columns themselves (they'll be inserted later)
+    const nonPercentageColumns = filteredColumns.filter(
+      col => !includes(percentageColumnNamesLocal, col)
+    );
+
+    // Build ordered array step by step
+    const ordered = [];
+    
+    // Step 1: Add outerGroupField first if it exists (outerGroupField must always be first)
+    if (outerGroupField && includes(filteredColumns, outerGroupField)) {
+      ordered.push(outerGroupField);
     }
 
-    // Reorder: outerGroupField first, then target columns (if active), then rest (innerGroupField is excluded)
-    if (outerGroupField) {
-      const otherColumns = filteredColumns.filter(
-        col => col !== outerGroupField
-      );
-      const ordered = [];
-      if (outerGroupField && includes(filteredColumns, outerGroupField)) {
-        ordered.push(outerGroupField);
+    // Step 2: Create a working array starting with non-percentage columns (excluding outerGroupField)
+    const nonPercentageExcludingOuter = nonPercentageColumns.filter(col => col !== outerGroupField);
+    let workingArray = [...nonPercentageExcludingOuter];
+    
+    // Step 3: Process percentage columns with beforeColumn specified
+    // Insert them at the specified positions in the order they appear in percentageColumns array
+    const percentageColumnsWithBeforeColumn = hasPercentageColumns
+      ? percentageColumns.filter(pc => pc.columnName && pc.beforeColumn && pc.beforeColumn !== pc.columnName)
+      : [];
+    
+    // Track which percentage columns have been inserted via beforeColumn
+    const insertedPercentageColumns = new Set();
+    
+    // Process each percentage column with beforeColumn
+    percentageColumnsWithBeforeColumn.forEach(pc => {
+      const beforeCol = pc.beforeColumn;
+      const pctColName = pc.columnName;
+      
+      // Special case: if beforeColumn is outerGroupField, we'll insert right after outerGroupField
+      // Skip here, handle separately
+      if (beforeCol === outerGroupField) {
+        return;
       }
-
-      // Add target data columns first among numeric columns if active
-      if (isTargetDataActive) {
-        ordered.push(TARGET_PERCENTAGE_COL, TARGET_TARGET_COL, TARGET_ACTUAL_COL);
+      
+      // Skip if beforeColumn doesn't exist in filteredColumns
+      if (!includes(filteredColumns, beforeCol)) {
+        return;
       }
+      
+      // Find the index of beforeColumn in workingArray
+      const beforeIndex = workingArray.indexOf(beforeCol);
+      
+      if (beforeIndex !== -1) {
+        // Insert the percentage column before the specified column
+        workingArray.splice(beforeIndex, 0, pctColName);
+        insertedPercentageColumns.add(pctColName);
+      }
+    });
 
-      return [...ordered, ...otherColumns];
+    // Step 4: Handle percentage columns that want to be before outerGroupField
+    // These should go right after outerGroupField (since outerGroupField must stay first)
+    const percentageColumnsBeforeOuterGroup = percentageColumnsWithBeforeColumn.filter(
+      pc => pc.beforeColumn === outerGroupField && outerGroupField && includes(filteredColumns, outerGroupField)
+    );
+    
+    const pctColsAfterOuter = percentageColumnsBeforeOuterGroup
+      .map(pc => pc.columnName)
+      .filter(name => name && !insertedPercentageColumns.has(name));
+    
+    // Insert percentage columns that should be after outerGroupField (before outerGroupField case)
+    // Do this before adding workingArray so they appear right after outerGroupField
+    if (pctColsAfterOuter.length > 0 && outerGroupField && includes(filteredColumns, outerGroupField)) {
+      // Insert right after outerGroupField (index 0, so at index 1)
+      ordered.push(...pctColsAfterOuter);
+      pctColsAfterOuter.forEach(col => insertedPercentageColumns.add(col));
+    }
+    
+    // Step 4b: Add working array to ordered (includes percentage columns with beforeColumn at their positions)
+    ordered.push(...workingArray);
+
+    // Step 5: Process remaining percentage columns (without beforeColumn or with invalid beforeColumn)
+    // These go after outerGroupField if it exists, otherwise at the beginning
+    if (hasPercentageColumns) {
+      const remainingPercentageColumns = percentageColumns
+        .filter(pc => pc.columnName && !insertedPercentageColumns.has(pc.columnName))
+        .map(pc => pc.columnName);
+      
+      if (remainingPercentageColumns.length > 0) {
+        if (outerGroupField && includes(filteredColumns, outerGroupField)) {
+          // Find position after outerGroupField and any percentage columns already inserted after it
+          // Count how many percentage columns are already right after outerGroupField
+          let insertIndex = 1 + pctColsAfterOuter.length;
+          ordered.splice(insertIndex, 0, ...remainingPercentageColumns);
+        } else {
+          // No outerGroupField, add remaining percentage columns at the beginning
+          ordered.unshift(...remainingPercentageColumns);
+        }
+      }
     }
 
-    return filteredColumns;
-  }, [columns, visibleColumns, outerGroupField, innerGroupField, columnTypes, isTargetDataActive, actualValueField]);
+    // Remove any duplicates that might have been introduced (shouldn't happen, but safety check)
+    const finalResult = [];
+    const seen = new Set();
+    ordered.forEach(col => {
+      if (!seen.has(col)) {
+        seen.add(col);
+        finalResult.push(col);
+      }
+    });
+
+    return finalResult;
+  }, [columns, visibleColumns, outerGroupField, innerGroupField, columnTypes, hasPercentageColumns, percentageColumns]);
 
   const frozenCols = useMemo(
-    () => isEmpty(orderedColumns) ? [] : [head(orderedColumns)],
+    () => {
+      const result = isEmpty(orderedColumns) ? [] : [head(orderedColumns)];
+      return result;
+    },
     [orderedColumns]
   );
 
   const regularCols = useMemo(
-    () => tail(orderedColumns),
+    () => {
+      const result = tail(orderedColumns);
+      return result;
+    },
     [orderedColumns]
   );
 
   const formatHeaderName = useCallback((key) => {
-    if (key === TARGET_PERCENTAGE_COL) return 'Percentage';
-    if (key === TARGET_TARGET_COL) return 'Target';
-    if (key === TARGET_ACTUAL_COL) {
-      return actualValueField ? startCase(actualValueField.split('__').join(' ').split('_').join(' ')) : 'Actual';
+    // Check if it's a percentage column
+    const percentageConfig = percentageColumns.find(pc => pc.columnName === key);
+    if (percentageConfig) {
+      return percentageConfig.columnName;
     }
     return startCase(key.split('__').join(' ').split('_').join(' '));
-  }, [actualValueField, TARGET_PERCENTAGE_COL, TARGET_TARGET_COL, TARGET_ACTUAL_COL]);
+  }, [percentageColumns]);
 
   // Compute available columns for visibility selector based on mode
   const availableColumnsForVisibility = useMemo(() => {
@@ -1444,7 +1515,7 @@ export default function DataTableComponent({
           // Handle empty arrays for multiselect
           if (isArray(filterObj.value) && isEmpty(filterObj.value)) return true;
 
-          const cellValue = get(row, filterCol);
+          const cellValue = getDataValue(row, filterCol);
           const filterValue = filterObj.value;
           const colType = get(columnTypes, filterCol);
           const isMultiselectColumn = includes(multiselectColumns, filterCol);
@@ -1491,20 +1562,19 @@ export default function DataTableComponent({
 
         if (!regularColumnsPass) return false;
 
-        // Check target columns if active (excluding current column)
-        if (isTargetDataActive && col !== TARGET_PERCENTAGE_COL && col !== TARGET_TARGET_COL && col !== TARGET_ACTUAL_COL) {
-          const targetColumns = [TARGET_PERCENTAGE_COL, TARGET_TARGET_COL, TARGET_ACTUAL_COL];
-          return every(targetColumns, (targetCol) => {
+        // Check percentage columns if active (excluding current column)
+        if (hasPercentageColumns && !isPercentageColumn(col)) {
+          return every(percentageColumnNames, (targetCol) => {
             const filterObj = get(filters, targetCol);
             if (!filterObj || isNil(filterObj.value) || filterObj.value === '') return true;
 
             // Handle empty arrays for multiselect
             if (isArray(filterObj.value) && isEmpty(filterObj.value)) return true;
 
-            const cellValue = getTargetColumnValue(row, targetCol);
+            const cellValue = getPercentageColumnValue(row, targetCol);
             const filterValue = filterObj.value;
 
-            // Use numeric filter for target columns
+            // Use numeric filter for percentage columns
             const parsedFilter = parseNumericFilter(filterValue);
             return applyNumericFilter(cellValue, parsedFilter);
           });
@@ -1514,7 +1584,7 @@ export default function DataTableComponent({
       });
 
       // Get unique values from the filtered data for this column
-      const uniqueVals = uniq(filteredForColumn.map((row) => get(row, col)));
+      const uniqueVals = uniq(filteredForColumn.map((row) => getDataValue(row, col)));
       // Include null values explicitly - don't use compact
       const hasNull = some(uniqueVals, val => isNil(val));
       const nonNullVals = filter(uniqueVals, val => !isNil(val));
@@ -1533,7 +1603,7 @@ export default function DataTableComponent({
     });
 
     return values;
-  }, [safeData, multiselectColumns, filters, columns, columnTypes, isTargetDataActive, getTargetColumnValue]);
+  }, [safeData, multiselectColumns, filters, columns, columnTypes, hasPercentageColumns, percentageColumnNames, isPercentageColumn, getPercentageColumnValue]);
 
   useEffect(() => {
     if (!enableFilter) {
@@ -1567,8 +1637,8 @@ export default function DataTableComponent({
       }
     });
 
-    if (isTargetDataActive) {
-      [TARGET_PERCENTAGE_COL, TARGET_TARGET_COL, TARGET_ACTUAL_COL].forEach((col) => {
+    if (hasPercentageColumns) {
+      percentageColumnNames.forEach((col) => {
         if (!newFilters[col]) {
           newFilters[col] = { value: null, matchMode: 'contains' };
           changed = true;
@@ -1584,7 +1654,8 @@ export default function DataTableComponent({
     enableFilter,
     columnTypes,
     multiselectColumns,
-    isTargetDataActive
+    hasPercentageColumns,
+    percentageColumnNames
   ]);
 
   const calculateColumnWidths = useMemo(() => {
@@ -1599,7 +1670,7 @@ export default function DataTableComponent({
       const colType = get(columnTypes, col, { isBoolean: false, isNumeric: false, isDate: false });
 
       sampleData.forEach((row) => {
-        const value = get(row, col);
+        const value = getDataValue(row, col);
         if (!isNil(value)) {
           cellLengths.push(formatCellValue(value, colType).length);
         }
@@ -1642,11 +1713,11 @@ export default function DataTableComponent({
     return widths;
   }, [safeData, columns, enableSort, formatHeaderName, formatCellValue, columnTypes]);
 
-  // Custom sort function for target columns
-  const getTargetColumnSortFunction = useCallback((col) => {
+  // Custom sort function for percentage columns
+  const getPercentageColumnSortFunction = useCallback((col) => {
     return (rowData1, rowData2) => {
-      const val1 = getTargetColumnValue(rowData1, col);
-      const val2 = getTargetColumnValue(rowData2, col);
+      const val1 = getPercentageColumnValue(rowData1, col);
+      const val2 = getPercentageColumnValue(rowData2, col);
 
       // Handle null/undefined values
       if (isNil(val1) && isNil(val2)) return 0;
@@ -1663,12 +1734,12 @@ export default function DataTableComponent({
 
       return num1 - num2;
     };
-  }, [getTargetColumnValue]);
+  }, [getPercentageColumnValue]);
 
   const filteredData = useMemo(() => {
     if (isEmpty(safeData)) return [];
 
-    return filter(safeData, (row) => {
+    const filtered = filter(safeData, (row) => {
       if (!row || typeof row !== 'object') return false;
 
       // Check regular columns
@@ -1679,7 +1750,7 @@ export default function DataTableComponent({
         // Handle empty arrays for multiselect
         if (isArray(filterObj.value) && isEmpty(filterObj.value)) return true;
 
-        const cellValue = get(row, col);
+        const cellValue = getDataValue(row, col);
         const filterValue = filterObj.value;
         const colType = get(columnTypes, col);
         const isMultiselectColumn = includes(multiselectColumns, col);
@@ -1726,20 +1797,19 @@ export default function DataTableComponent({
 
       if (!regularColumnsPass) return false;
 
-      // Check target columns if active
-      if (isTargetDataActive) {
-        const targetColumns = [TARGET_PERCENTAGE_COL, TARGET_TARGET_COL, TARGET_ACTUAL_COL];
-        return every(targetColumns, (col) => {
+      // Check percentage columns if active
+      if (hasPercentageColumns) {
+        return every(percentageColumnNames, (col) => {
           const filterObj = get(filters, col);
           if (!filterObj || isNil(filterObj.value) || filterObj.value === '') return true;
 
           // Handle empty arrays for multiselect
           if (isArray(filterObj.value) && isEmpty(filterObj.value)) return true;
 
-          const cellValue = getTargetColumnValue(row, col);
+          const cellValue = getPercentageColumnValue(row, col);
           const filterValue = filterObj.value;
 
-          // Use numeric filter for target columns
+          // Use numeric filter for percentage columns
           const parsedFilter = parseNumericFilter(filterValue);
           return applyNumericFilter(cellValue, parsedFilter);
         });
@@ -1747,7 +1817,8 @@ export default function DataTableComponent({
 
       return true;
     });
-  }, [safeData, filters, columns, columnTypes, multiselectColumns, isTargetDataActive, getTargetColumnValue]);
+    return filtered;
+  }, [safeData, filters, columns, columnTypes, multiselectColumns, hasPercentageColumns, percentageColumnNames, getPercentageColumnValue]);
 
   // Restore horizontal scroll position after filters change
   useEffect(() => {
@@ -1797,10 +1868,35 @@ export default function DataTableComponent({
   const groupedData = useMemo(() => {
     if (!outerGroupField || isEmpty(filteredData)) {
       // When outerGroupField is removed, ensure we return a clean array without group rows
+      // Also convert Map instances to plain objects for PrimeReact compatibility
       if (!outerGroupField && isArray(filteredData)) {
-        return filteredData.filter(row => !row?.__isGroupRow__);
+        const filtered = filteredData
+          .filter(row => !row?.__isGroupRow__)
+          .map(row => {
+            // Convert Map instances to plain objects for PrimeReact compatibility
+            if (row instanceof Map) {
+              const plainObj = {};
+              row.forEach((value, key) => {
+                plainObj[key] = value;
+              });
+              return plainObj;
+            }
+            return row;
+          });
+        return filtered;
       }
-      return isArray(filteredData) ? filteredData : [];
+      const result = isArray(filteredData) ? filteredData.map(row => {
+        // Convert Map instances to plain objects for PrimeReact compatibility
+        if (row instanceof Map) {
+          const plainObj = {};
+          row.forEach((value, key) => {
+            plainObj[key] = value;
+          });
+          return plainObj;
+        }
+        return row;
+      }) : [];
+      return result;
     }
 
     // Group by outerGroupField
@@ -1809,7 +1905,7 @@ export default function DataTableComponent({
       // Skip group rows
       if (row.__isGroupRow__) return;
 
-      const groupKey = get(row, outerGroupField);
+      const groupKey = getDataValue(row, outerGroupField);
       const key = isNil(groupKey) ? '__null__' : String(groupKey);
       if (!groups[key]) {
         groups[key] = [];
@@ -1818,14 +1914,14 @@ export default function DataTableComponent({
     });
 
     // Transform groups into expandable rows
-    return Object.entries(groups).map(([groupKey, rows]) => {
+    const groupedResult = Object.entries(groups).map(([groupKey, rows]) => {
       let innerData = rows;
 
       // If innerGroupField is set, aggregate within each group
       if (innerGroupField && !isEmpty(rows)) {
         const innerGroups = {};
         rows.forEach((row) => {
-          const innerKey = get(row, innerGroupField);
+          const innerKey = getDataValue(row, innerGroupField);
           const key = isNil(innerKey) ? '__null__' : String(innerKey);
           if (!innerGroups[key]) {
             innerGroups[key] = [];
@@ -1855,7 +1951,7 @@ export default function DataTableComponent({
             // For numeric columns, sum them
             else if (get(colType, 'isNumeric')) {
               const sum = sumBy(innerRows, (row) => {
-                const val = get(row, col);
+                const val = getDataValue(row, col);
                 if (isNil(val)) return 0;
                 const numVal = isNumber(val) ? val : toNumber(val);
                 return _isNaN(numVal) ? 0 : numVal;
@@ -1864,10 +1960,33 @@ export default function DataTableComponent({
             }
             // For other columns, take the first non-null value or first value
             else {
-              const firstNonNull = innerRows.find(row => !isNil(get(row, col)));
-              aggregated[col] = firstNonNull ? get(firstNonNull, col) : get(firstRow, col);
+              const firstNonNull = innerRows.find(row => !isNil(getDataValue(row, col)));
+              aggregated[col] = firstNonNull ? getDataValue(firstNonNull, col) : getDataValue(firstRow, col);
             }
           });
+
+          // Add percentage column values to aggregated row
+          if (hasPercentageColumns) {
+            percentageColumns.forEach(pc => {
+              if (pc.columnName && pc.targetField && pc.valueField) {
+                // Normalize percentage calculation: sum target and value, then recalculate
+                const sumTarget = sumBy(innerRows, (row) => {
+                  const val = getDataValue(row, pc.targetField);
+                  if (isNil(val)) return 0;
+                  const numVal = isNumber(val) ? val : toNumber(val);
+                  return _isNaN(numVal) ? 0 : numVal;
+                });
+                const sumValue = sumBy(innerRows, (row) => {
+                  const val = getDataValue(row, pc.valueField);
+                  if (isNil(val)) return 0;
+                  const numVal = isNumber(val) ? val : toNumber(val);
+                  return _isNaN(numVal) ? 0 : numVal;
+                });
+                // Recalculate percentage from aggregated values
+                aggregated[pc.columnName] = sumTarget !== 0 ? (sumValue / sumTarget) * 100 : null;
+              }
+            });
+          }
 
           return aggregated;
         }).filter(Boolean);
@@ -1895,7 +2014,7 @@ export default function DataTableComponent({
         // For numeric columns, sum them across all inner data
         else if (get(colType, 'isNumeric')) {
           const sum = sumBy(innerData, (row) => {
-            const val = get(row, col);
+            const val = getDataValue(row, col);
             if (isNil(val)) return 0;
             const numVal = isNumber(val) ? val : toNumber(val);
             return _isNaN(numVal) ? 0 : numVal;
@@ -1904,10 +2023,34 @@ export default function DataTableComponent({
         }
         // For other columns, take the first non-null value or first value
         else {
-          const firstNonNull = innerData.find(row => !isNil(get(row, col)));
-          summaryRow[col] = firstNonNull ? get(firstNonNull, col) : get(firstItem, col);
+          const firstNonNull = innerData.find(row => !isNil(getDataValue(row, col)));
+          summaryRow[col] = firstNonNull ? getDataValue(firstNonNull, col) : getDataValue(firstItem, col);
         }
       });
+
+      // Add percentage column values to summary row
+      if (hasPercentageColumns) {
+        percentageColumns.forEach(pc => {
+          if (pc.columnName && pc.targetField && pc.valueField) {
+            // Normalize percentage calculation: sum target and value from original rows, then recalculate
+            // Use the original rows, not innerData (which may already be aggregated)
+            const sumTarget = sumBy(rows, (row) => {
+              const val = getDataValue(row, pc.targetField);
+              if (isNil(val)) return 0;
+              const numVal = isNumber(val) ? val : toNumber(val);
+              return _isNaN(numVal) ? 0 : numVal;
+            });
+            const sumValue = sumBy(rows, (row) => {
+              const val = getDataValue(row, pc.valueField);
+              if (isNil(val)) return 0;
+              const numVal = isNumber(val) ? val : toNumber(val);
+              return _isNaN(numVal) ? 0 : numVal;
+            });
+            // Recalculate percentage from aggregated values
+            summaryRow[pc.columnName] = sumTarget !== 0 ? (sumValue / sumTarget) * 100 : null;
+          }
+        });
+      }
 
       // Use groupKey as the unique identifier (it's already a string from the grouping)
       summaryRow.__groupKey__ = groupKey;
@@ -1916,7 +2059,8 @@ export default function DataTableComponent({
 
       return summaryRow;
     }).filter(Boolean); // Filter out any null values
-  }, [filteredData, outerGroupField, innerGroupField, columns, columnTypes]);
+    return groupedResult;
+  }, [filteredData, outerGroupField, innerGroupField, columns, columnTypes, hasPercentageColumns, percentageColumns]);
 
   // Use grouped data if outerGroupField is set, otherwise use filteredData
   const dataForSorting = useMemo(() => {
@@ -1934,19 +2078,19 @@ export default function DataTableComponent({
       return dataForSorting;
     }
 
-    // Map sort fields to either field names or custom sort functions for target columns
+    // Map sort fields to either field names or custom sort functions for percentage columns
     const fields = multiSortMeta.map(s => {
       const field = s.field;
-      // If it's a target column, use a custom sort function
-      if (field === TARGET_PERCENTAGE_COL || field === TARGET_TARGET_COL || field === TARGET_ACTUAL_COL) {
-        return (rowData) => getTargetColumnValue(rowData, field);
+      // If it's a percentage column, use a custom sort function
+      if (isPercentageColumn(field)) {
+        return (rowData) => getPercentageColumnValue(rowData, field);
       }
       return field;
     });
     const orders = multiSortMeta.map(s => s.order === 1 ? 'asc' : 'desc');
 
     return orderBy(dataForSorting, fields, orders);
-  }, [dataForSorting, multiSortMeta, getTargetColumnValue]);
+  }, [dataForSorting, multiSortMeta, isPercentageColumn, getPercentageColumnValue]);
 
 
   const calculateSums = useMemo(() => {
@@ -1960,7 +2104,7 @@ export default function DataTableComponent({
       if (get(colType, 'isDate')) return;
 
       const values = filter(
-        dataForSums.map((row) => get(row, col)),
+        dataForSums.map((row) => getDataValue(row, col)),
         (val) => !isNil(val)
       );
 
@@ -1975,15 +2119,15 @@ export default function DataTableComponent({
   }, [filteredData, columns, isNumericValue, columnTypes]);
 
   const paginatedData = useMemo(() => {
-    if (!isArray(sortedData)) return [];
-    return sortedData.slice(first, first + rows);
+    const result = !isArray(sortedData) ? [] : sortedData.slice(first, first + rows);
+    return result;
   }, [sortedData, first, rows]);
 
   const footerTemplate = (column, isFirstColumn = false) => {
     if (!enableSummation) return null;
 
-    // Target columns don't show summation
-    if (column === TARGET_PERCENTAGE_COL || column === TARGET_TARGET_COL || column === TARGET_ACTUAL_COL) {
+    // Percentage columns don't show summation
+    if (isPercentageColumn(column)) {
       return isFirstColumn ? (
         <div className="text-left">
           <strong>Total</strong>
@@ -2058,7 +2202,7 @@ export default function DataTableComponent({
   }, [redFields, greenFields]);
 
   const booleanBodyTemplate = useCallback((rowData, column, colorClass = '') => {
-    const value = get(rowData, column);
+    const value = getDataValue(rowData, column);
     const isTruthy = isTruthyBoolean(value);
 
     return (
@@ -2073,7 +2217,7 @@ export default function DataTableComponent({
   }, [isTruthyBoolean]);
 
   const dateBodyTemplate = useCallback((rowData, column, colorClass = '') => {
-    const value = get(rowData, column);
+    const value = getDataValue(rowData, column);
     const formatted = formatDateValue(value);
 
     return (
@@ -2134,17 +2278,16 @@ export default function DataTableComponent({
       }
     });
 
-    // Also clear target columns if active
-    if (isTargetDataActive) {
-      const targetColumns = [TARGET_PERCENTAGE_COL, TARGET_TARGET_COL, TARGET_ACTUAL_COL];
-      targetColumns.forEach((col) => {
+    // Also clear percentage columns if active
+    if (hasPercentageColumns) {
+      percentageColumnNames.forEach((col) => {
         clearedFilters[col] = { value: null, matchMode: 'contains' };
       });
     }
 
     setFilters(clearedFilters);
     setFirst(0);
-  }, [columns, columnTypes, multiselectColumns, isTargetDataActive]);
+  }, [columns, columnTypes, multiselectColumns, hasPercentageColumns, percentageColumnNames]);
 
   // Format filter value for display in chip
   const formatFilterValue = useCallback((col, filterValue, colType) => {
@@ -2212,17 +2355,16 @@ export default function DataTableComponent({
       }
     });
 
-    // Also check target columns if active
-    if (isTargetDataActive) {
-      const targetColumns = [TARGET_PERCENTAGE_COL, TARGET_TARGET_COL, TARGET_ACTUAL_COL];
-      targetColumns.forEach((col) => {
+    // Also check percentage columns if active
+    if (hasPercentageColumns) {
+      percentageColumnNames.forEach((col) => {
         const filterObj = get(filters, col);
         if (filterObj && !isNil(filterObj.value) && filterObj.value !== '') {
           // Handle empty arrays for multiselect
           if (isArray(filterObj.value) && isEmpty(filterObj.value)) {
             return;
           }
-          // Target columns are numeric, so format as string
+          // Percentage columns are numeric, so format as string
           const formattedValue = formatFilterValue(col, filterObj.value, { isNumeric: true });
           if (formattedValue !== null) {
             active.push({
@@ -2237,7 +2379,7 @@ export default function DataTableComponent({
     }
 
     return active;
-  }, [filters, columns, enableFilter, columnTypes, formatFilterValue, multiselectColumns, isTargetDataActive]);
+  }, [filters, columns, enableFilter, columnTypes, formatFilterValue, multiselectColumns, hasPercentageColumns, percentageColumnNames]);
 
   // Debounce for typing-based filters (text/numeric)
   const DEBOUNCE_MS = 3000;
@@ -2359,8 +2501,8 @@ export default function DataTableComponent({
   }, [filters, updateFilter, optionColumnValues, formatHeaderName]);
 
   const getFilterElement = useCallback((col) => {
-    // Target columns always use numeric filter
-    if (col === TARGET_PERCENTAGE_COL || col === TARGET_TARGET_COL || col === TARGET_ACTUAL_COL) {
+    // Percentage columns always use numeric filter
+    if (isPercentageColumn(col)) {
       return numericFilterElement(col);
     }
 
@@ -2381,66 +2523,26 @@ export default function DataTableComponent({
       return numericFilterElement(col);
     }
     return textFilterElement(col);
-  }, [columnTypes, multiselectColumns, booleanFilterElement, dateFilterElement, numericFilterElement, textFilterElement, multiselectFilterElement]);
+  }, [columnTypes, multiselectColumns, booleanFilterElement, dateFilterElement, numericFilterElement, textFilterElement, multiselectFilterElement, isPercentageColumn]);
 
   const getBodyTemplate = useCallback((col) => {
-    // Handle target data columns
-    if (col === TARGET_PERCENTAGE_COL || col === TARGET_TARGET_COL || col === TARGET_ACTUAL_COL) {
+    // Handle percentage columns
+    if (isPercentageColumn(col)) {
       const colorClass = getColumnColorClass(col);
       return (rowData) => {
-        // Get actual value from rowData
-        const actualValue = get(rowData, actualValueField);
-        const actualNum = isNumber(actualValue) ? actualValue : (isNil(actualValue) ? null : toNumber(actualValue));
-
-        // Get target value from lookup
-        const outerKey = get(rowData, outerGroupField);
-        const innerKey = get(rowData, innerGroupField);
-        let targetValue = null;
-        if (!isNil(outerKey) && !isNil(innerKey)) {
-          const lookupKey = `${String(outerKey)}__${String(innerKey)}`;
-          targetValue = targetLookup.get(lookupKey);
-        }
-
-        // Calculate percentage (using raw values for calculation)
-        let percentage = null;
-        if (!isNil(targetValue) && !isNil(actualNum) && !_isNaN(targetValue) && !_isNaN(actualNum) && _isFinite(targetValue) && _isFinite(actualNum) && targetValue !== 0) {
-          percentage = (actualNum / targetValue) * 100;
-        }
-
-        const formatNum = (num) => {
-          if (isNil(num) || _isNaN(num) || !_isFinite(num)) return '-';
-          // Apply division by 1 Lakh if enabled
-          const displayNum = enableDivideBy1Lakh ? num / 100000 : num;
-          return displayNum % 1 === 0
-            ? displayNum.toLocaleString('en-US')
-            : displayNum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        };
+        // Get percentage value using the helper function
+        const percentage = getPercentageColumnValue(rowData, col);
 
         const formatPercentage = (pct) => {
           if (isNil(pct) || _isNaN(pct) || !_isFinite(pct)) return '-';
           return `${pct.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
         };
 
-        if (col === TARGET_PERCENTAGE_COL) {
-          return (
-            <div className={`text-xs sm:text-sm text-right ${colorClass}`}>
-              <div className={`font-semibold ${colorClass || 'text-blue-700'}`}>{formatPercentage(percentage)}</div>
-            </div>
-          );
-        } else if (col === TARGET_TARGET_COL) {
-          return (
-            <div className={`text-xs sm:text-sm text-right ${colorClass}`}>
-              <div className={colorClass}>{formatNum(targetValue)}</div>
-            </div>
-          );
-        } else if (col === TARGET_ACTUAL_COL) {
-          return (
-            <div className={`text-xs sm:text-sm text-right ${colorClass}`}>
-              <div className={colorClass}>{formatNum(actualNum)}</div>
-            </div>
-          );
-        }
-        return null;
+        return (
+          <div className={`text-xs sm:text-sm text-right ${colorClass}`}>
+            <div className={`font-semibold ${colorClass || 'text-blue-700'}`}>{formatPercentage(percentage)}</div>
+          </div>
+        );
       };
     }
 
@@ -2455,7 +2557,7 @@ export default function DataTableComponent({
     // Handle clickable group columns
     if (isOuterGroupCol && onOuterGroupClick) {
       return (rowData) => {
-        const value = get(rowData, col);
+        const value = getDataValue(rowData, col);
         const cellValue = formatCellValue(value, colType);
         return (
           <div
@@ -2474,7 +2576,7 @@ export default function DataTableComponent({
 
     if (isInnerGroupCol && onInnerGroupClick) {
       return (rowData) => {
-        const value = get(rowData, col);
+        const value = getDataValue(rowData, col);
         const cellValue = formatCellValue(value, colType);
         return (
           <div
@@ -2500,12 +2602,12 @@ export default function DataTableComponent({
     return (rowData) => (
       <div
         className={`text-xs sm:text-sm truncate ${isNumericCol ? 'text-right' : 'text-left'} ${colorClass}`}
-        title={formatCellValue(get(rowData, col), colType)}
+        title={formatCellValue(getDataValue(rowData, col), colType)}
       >
-        {formatCellValue(get(rowData, col), colType)}
+        {formatCellValue(getDataValue(rowData, col), colType)}
       </div>
     );
-  }, [columnTypes, outerGroupField, innerGroupField, onOuterGroupClick, onInnerGroupClick, booleanBodyTemplate, dateBodyTemplate, formatCellValue, isTargetDataActive, targetLookup, actualValueField, TARGET_PERCENTAGE_COL, TARGET_TARGET_COL, TARGET_ACTUAL_COL, getColumnColorClass, enableDivideBy1Lakh]);
+  }, [columnTypes, outerGroupField, innerGroupField, onOuterGroupClick, onInnerGroupClick, booleanBodyTemplate, dateBodyTemplate, formatCellValue, isPercentageColumn, getPercentageColumnValue, getColumnColorClass]);
 
   // Header template function to apply column colors
   const getHeaderTemplate = useCallback((col) => {
@@ -2585,7 +2687,7 @@ export default function DataTableComponent({
   // Handle cell edit complete
   const handleCellEditComplete = useCallback((e) => {
     const { rowData, newValue, field, originalEvent: event } = e;
-    const oldValue = get(rowData, field);
+    const oldValue = getDataValue(rowData, field);
 
     // Store old value before update
     const colType = get(columnTypes, field);
@@ -2707,8 +2809,8 @@ export default function DataTableComponent({
         if (!filterObj || isNil(filterObj.value) || filterObj.value === '') return true;
         if (isArray(filterObj.value) && isEmpty(filterObj.value)) return true;
 
-        const isTargetCol = col === TARGET_PERCENTAGE_COL || col === TARGET_TARGET_COL || col === TARGET_ACTUAL_COL;
-        const cellValue = isTargetCol ? getTargetColumnValue(row, col) : get(row, col);
+        const isPctCol = isPercentageColumn(col);
+        const cellValue = isPctCol ? getPercentageColumnValue(row, col) : getDataValue(row, col);
         const filterValue = filterObj.value;
         const colType = get(columnTypes, col);
         const isMultiselectColumn = includes(multiselectColumns, col);
@@ -2721,7 +2823,7 @@ export default function DataTableComponent({
           });
         }
 
-        if (!isTargetCol && get(colType, 'isBoolean')) {
+        if (!isPctCol && get(colType, 'isBoolean')) {
           const cellIsTruthy = cellValue === true || cellValue === 1 || cellValue === '1';
           const cellIsFalsy = cellValue === false || cellValue === 0 || cellValue === '0';
           if (filterValue === true) return cellIsTruthy;
@@ -2729,12 +2831,12 @@ export default function DataTableComponent({
           return true;
         }
 
-        if (!isTargetCol && get(colType, 'isDate')) {
+        if (!isPctCol && get(colType, 'isDate')) {
           return applyDateFilter(cellValue, filterValue);
         }
 
-        // Treat target columns as numeric filters, same as main
-        if (isTargetCol || get(colType, 'isNumeric')) {
+        // Treat percentage columns as numeric filters, same as main
+        if (isPctCol || get(colType, 'isNumeric')) {
           const parsedFilter = parseNumericFilter(filterValue);
           return applyNumericFilter(cellValue, parsedFilter);
         }
@@ -2752,7 +2854,7 @@ export default function DataTableComponent({
     const getNestedFilterElement = (col) => {
       const colType = get(columnTypes, col);
       const isMultiselectColumn = includes(multiselectColumns, col);
-      const isTargetCol = col === TARGET_PERCENTAGE_COL || col === TARGET_TARGET_COL || col === TARGET_ACTUAL_COL;
+      const isPctCol = isPercentageColumn(col);
 
       if (isMultiselectColumn) {
         const filterState = get(nestedFilters, col);
@@ -2793,7 +2895,7 @@ export default function DataTableComponent({
         );
       }
 
-      if (isTargetCol || get(colType, 'isNumeric')) {
+      if (isPctCol || get(colType, 'isNumeric')) {
         const filterState = get(nestedFilters, col);
         const value = isNil(get(filterState, 'value')) ? '' : filterState.value;
         return () => (
@@ -3514,9 +3616,9 @@ export default function DataTableComponent({
           />
         )}
         {frozenCols.map((col, index) => {
-          const isTargetCol = col === TARGET_PERCENTAGE_COL || col === TARGET_TARGET_COL || col === TARGET_ACTUAL_COL;
+          const isPctCol = isPercentageColumn(col);
           const colType = get(columnTypes, col);
-          const isNumericCol = isTargetCol || get(colType, 'isNumeric', false);
+          const isNumericCol = isPctCol || get(colType, 'isNumeric', false);
           const isFirstColumn = index === 0;
           return (
             <Column
@@ -3524,12 +3626,12 @@ export default function DataTableComponent({
               field={col}
               header={getHeaderTemplate(col) || formatHeaderName(col)}
               sortable={enableSort}
-              sortFunction={isTargetCol ? getTargetColumnSortFunction(col) : undefined}
+              sortFunction={isPctCol ? getPercentageColumnSortFunction(col) : undefined}
               frozen={freezeFirstColumn}
               style={{
-                minWidth: isTargetCol ? '130px' : `${get(calculateColumnWidths, col, 120)}px`,
-                width: isTargetCol ? '130px' : `${get(calculateColumnWidths, col, 120)}px`,
-                maxWidth: isTargetCol ? '150px' : `${get(calculateColumnWidths, col, 200)}px`
+                minWidth: isPctCol ? '130px' : `${get(calculateColumnWidths, col, 120)}px`,
+                width: isPctCol ? '130px' : `${get(calculateColumnWidths, col, 120)}px`,
+                maxWidth: isPctCol ? '150px' : `${get(calculateColumnWidths, col, 200)}px`
               }}
               filter={enableFilter}
               filterElement={enableFilter ? getFilterElement(col) : undefined}
@@ -3544,21 +3646,21 @@ export default function DataTableComponent({
           );
         })}
 
-        {regularCols.map((col) => {
-          const isTargetCol = col === TARGET_PERCENTAGE_COL || col === TARGET_TARGET_COL || col === TARGET_ACTUAL_COL;
+        {regularCols.map((col, index) => {
+          const isPctCol = isPercentageColumn(col);
           const colType = get(columnTypes, col);
-          const isNumericCol = isTargetCol || get(colType, 'isNumeric', false);
+          const isNumericCol = isPctCol || get(colType, 'isNumeric', false);
           return (
             <Column
               key={col}
               field={col}
               header={getHeaderTemplate(col) || formatHeaderName(col)}
               sortable={enableSort}
-              sortFunction={isTargetCol ? getTargetColumnSortFunction(col) : undefined}
+              sortFunction={isPctCol ? getPercentageColumnSortFunction(col) : undefined}
               style={{
-                minWidth: isTargetCol ? '130px' : `${get(calculateColumnWidths, col, 120)}px`,
-                width: isTargetCol ? '130px' : `${get(calculateColumnWidths, col, 120)}px`,
-                maxWidth: isTargetCol ? '150px' : `${get(calculateColumnWidths, col, 400)}px`
+                minWidth: isPctCol ? '130px' : `${get(calculateColumnWidths, col, 120)}px`,
+                width: isPctCol ? '130px' : `${get(calculateColumnWidths, col, 120)}px`,
+                maxWidth: isPctCol ? '150px' : `${get(calculateColumnWidths, col, 400)}px`
               }}
               filter={enableFilter}
               filterElement={enableFilter ? getFilterElement(col) : undefined}
@@ -3650,13 +3752,13 @@ export default function DataTableComponent({
     // Prepare data for export - use original data (unfiltered, ungrouped, unsorted)
     // Get all columns from the original data
     const allColumns = isEmpty(safeData) ? [] : uniq(flatMap(safeData, (item) =>
-      item && typeof item === 'object' ? keys(item) : []
+      item && typeof item === 'object' ? getDataKeys(item) : []
     ));
 
     const exportData = safeData.map((row) => {
       const exportRow = {};
       allColumns.forEach((col) => {
-        const value = get(row, col);
+        const value = getDataValue(row, col);
         const colType = get(columnTypes, col);
 
         // Format the value for export

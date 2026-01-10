@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { explorerPlugin } from '@graphiql/plugin-explorer';
 import '@graphiql/plugin-explorer/style.css';
@@ -57,32 +57,14 @@ function GraphQLPlayground() {
 
   const tabOptions = useMemo(() => [
     { name: 'Data Source', value: 0 },
-    { name: 'Data Transformer', value: 1, disabled: !hasSuccessfulQuery },
+    { name: 'Data Transformer', value: 1 },
     { name: 'Global Function', value: 2 }
-  ], [hasSuccessfulQuery]);
+  ], []);
 
   // Update ref when tab changes
   useEffect(() => {
     currentTabIndexRef.current = activeTabIndex;
   }, [activeTabIndex]);
-
-  // Add tooltip to disabled Data Transformer button
-  useEffect(() => {
-    const addTooltip = () => {
-      const disabledButton = document.querySelector('.graphiql-tab-triggers .p-selectbutton .p-button.p-disabled');
-      if (disabledButton && !hasSuccessfulQuery) {
-        disabledButton.setAttribute('title', 'Run query to unlock Data Transformer');
-      }
-    };
-
-    // Try immediately
-    addTooltip();
-
-    // Also try after a short delay to ensure DOM is ready
-    const timeout = setTimeout(addTooltip, 100);
-
-    return () => clearTimeout(timeout);
-  }, [hasSuccessfulQuery, activeMainTab]);
 
   // Callback to update active tab index from ActiveTabTracker
   const handleTabIndexChange = useCallback((tabIndex) => {
@@ -324,16 +306,7 @@ function GraphQLPlayground() {
             </div>
           </TabPanel>
           <TabPanel>
-            {hasSuccessfulQuery ? (
-              <DataTransformerTab responseData={transformedData} activeTabIndex={activeTabIndex} />
-            ) : (
-              <div className="flex items-center justify-center h-full bg-gray-50">
-                <div className="text-center p-8">
-                  <i className="pi pi-info-circle text-4xl text-gray-400 mb-4"></i>
-                  <p className="text-gray-600 font-medium">Run query to unlock Data Transformer</p>
-                </div>
-              </div>
-            )}
+            <DataTransformerTab responseData={transformedData} activeTabIndex={activeTabIndex} />
           </TabPanel>
           <TabPanel>
             <GlobalFunctionsTab />

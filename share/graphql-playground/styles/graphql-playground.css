@@ -47,7 +47,7 @@
 }
 
 .graphiql-token-input {
-  width: 300px;
+  width: 100px;
   flex-shrink: 0;
   position: relative;
 }

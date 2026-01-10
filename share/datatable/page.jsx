@@ -9,9 +9,9 @@ import DataTableComponent from './components/DataTable';
 import DataTableControls from './components/DataTableControls';
 import DataProvider from './components/DataProvider';
 import data from '@/resource/data';
-import Target from '@/resource/target';
-import { uniq, flatMap, keys, isEmpty, startCase, filter as lodashFilter, get, isNil, debounce } from 'lodash';
+import { uniq, flatMap, isEmpty, startCase, filter as lodashFilter, get, isNil, debounce } from 'lodash';
 import { saveSettingsForDataSource, loadSettingsForDataSource } from './utils/settingsService';
+import { getDataKeys } from './utils/dataAccessUtils';
 import ProtectedRoute from '@/components/ProtectedRoute';
 
 // Custom hook for localStorage with proper JSON serialization for booleans
@@ -253,11 +253,7 @@ function DataTablePage() {
   const [outerGroupFieldRaw, setOuterGroupFieldRaw] = useLocalStorageString('datatable-outerGroupField', null);
   const [innerGroupFieldRaw, setInnerGroupFieldRaw] = useLocalStorageString('datatable-innerGroupField', null);
   const [nonEditableColumnsRaw, setNonEditableColumnsRaw] = useLocalStorageArray('datatable-nonEditableColumns', []);
-  const [enableTargetDataRaw, setEnableTargetDataRaw] = useLocalStorageBoolean('datatable-enableTargetData', false);
-  const [targetOuterGroupFieldRaw, setTargetOuterGroupFieldRaw] = useLocalStorageString('datatable-targetOuterGroupField', null);
-  const [targetInnerGroupFieldRaw, setTargetInnerGroupFieldRaw] = useLocalStorageString('datatable-targetInnerGroupField', null);
-  const [targetValueFieldRaw, setTargetValueFieldRaw] = useLocalStorageString('datatable-targetValueField', null);
-  const [actualValueFieldRaw, setActualValueFieldRaw] = useLocalStorageString('datatable-actualValueField', null);
+  const [percentageColumns, setPercentageColumns] = useLocalStorageArray('datatable-percentageColumns', []);
   const [queryVariables, setQueryVariables] = useState({});
   const [variableOverrides, setVariableOverrides] = useState({});
 
@@ -463,11 +459,7 @@ function DataTablePage() {
       if (savedSettings.outerGroupField !== undefined) setOuterGroupField(savedSettings.outerGroupField);
       if (savedSettings.innerGroupField !== undefined) setInnerGroupField(savedSettings.innerGroupField);
       if (savedSettings.nonEditableColumns) setNonEditableColumns(savedSettings.nonEditableColumns);
-      if (savedSettings.enableTargetData !== undefined) setEnableTargetDataRaw(savedSettings.enableTargetData);
-      if (savedSettings.targetOuterGroupField !== undefined) setTargetOuterGroupFieldRaw(savedSettings.targetOuterGroupField);
-      if (savedSettings.targetInnerGroupField !== undefined) setTargetInnerGroupFieldRaw(savedSettings.targetInnerGroupField);
-      if (savedSettings.targetValueField !== undefined) setTargetValueFieldRaw(savedSettings.targetValueField);
-      if (savedSettings.actualValueField !== undefined) setActualValueFieldRaw(savedSettings.actualValueField);
+      if (savedSettings.percentageColumns) setPercentageColumns(savedSettings.percentageColumns);
       // Migrate old drawer settings if present
       if (savedSettings.drawerTabs !== undefined) {
         setDrawerTabs(savedSettings.drawerTabs);
@@ -511,11 +503,7 @@ function DataTablePage() {
       outerGroupField,
       innerGroupField,
       nonEditableColumns,
-      enableTargetData: enableTargetDataRaw,
-      targetOuterGroupField: targetOuterGroupFieldRaw,
-      targetInnerGroupField: targetInnerGroupFieldRaw,
-      targetValueField: targetValueFieldRaw,
-      actualValueField: actualValueFieldRaw,
+      percentageColumns,
       drawerTabs,
     };
 
@@ -807,17 +795,10 @@ function DataTablePage() {
     const dataToUse = tableData;
     if (!Array.isArray(dataToUse) || isEmpty(dataToUse)) return [];
     return uniq(flatMap(dataToUse, (item) =>
-      item && typeof item === 'object' ? keys(item) : []
+      item && typeof item === 'object' ? getDataKeys(item) : []
     ));
   }, [tableData]);
 
-  // Extract column names from target data
-  const targetColumns = useMemo(() => {
-    if (!Array.isArray(Target) || isEmpty(Target)) return [];
-    return uniq(flatMap(Target, (item) =>
-      item && typeof item === 'object' ? keys(item) : []
-    ));
-  }, []);
 
   // Format field name for display
   const formatFieldName = (key) => {
@@ -1001,11 +982,7 @@ function DataTablePage() {
                       onCellEditComplete={handleCellEditComplete}
                       onOuterGroupClick={handleOuterGroupClick}
                       onInnerGroupClick={handleInnerGroupClick}
-                      targetData={enableTargetDataRaw ? Target : null}
-                      targetOuterGroupField={enableTargetDataRaw ? targetOuterGroupFieldRaw : null}
-                      targetInnerGroupField={enableTargetDataRaw ? targetInnerGroupFieldRaw : null}
-                      targetValueField={enableTargetDataRaw ? targetValueFieldRaw : null}
-                      actualValueField={enableTargetDataRaw ? actualValueFieldRaw : null}
+                      percentageColumns={percentageColumns}
                       appHeaderOffset={appHeaderOffset}
                       stickyHeaderZIndex={mainStickyHeaderZIndex}
                       tableName="main"
@@ -1030,12 +1007,7 @@ function DataTablePage() {
                   outerGroupField={outerGroupField}
                   innerGroupField={innerGroupField}
                   nonEditableColumns={nonEditableColumns}
-                  enableTargetData={enableTargetDataRaw}
-                  targetColumns={targetColumns}
-                  targetOuterGroupField={targetOuterGroupFieldRaw}
-                  targetInnerGroupField={targetInnerGroupFieldRaw}
-                  targetValueField={targetValueFieldRaw}
-                  actualValueField={actualValueFieldRaw}
+                  percentageColumns={percentageColumns}
                   dataSource={currentDataSource}
                   queryVariables={queryVariables}
                   variableOverrides={variableOverrides}
@@ -1054,17 +1026,7 @@ function DataTablePage() {
                   onOuterGroupFieldChange={setOuterGroupField}
                   onInnerGroupFieldChange={setInnerGroupField}
                   onNonEditableColumnsChange={setNonEditableColumns}
-                  onEnableTargetDataChange={setEnableTargetDataRaw}
-                  onTargetOuterGroupFieldChange={(value) => {
-                    setTargetOuterGroupFieldRaw(value);
-                    // Clear target inner group field when target outer group field is cleared
-                    if (!value) {
-                      setTargetInnerGroupFieldRaw(null);
-                    }
-                  }}
-                  onTargetInnerGroupFieldChange={setTargetInnerGroupFieldRaw}
-                  onTargetValueFieldChange={setTargetValueFieldRaw}
-                  onActualValueFieldChange={setActualValueFieldRaw}
+                  onPercentageColumnsChange={setPercentageColumns}
                   onSaveSettings={handleSaveSettings}
                   drawerTabs={drawerTabs || []}
                   onDrawerTabsChange={setDrawerTabs}
@@ -1130,11 +1092,7 @@ function DataTablePage() {
                           innerGroupField={tab.innerGroup}
                           enableCellEdit={false}
                           nonEditableColumns={nonEditableColumns}
-                          targetData={null}
-                          targetOuterGroupField={null}
-                          targetInnerGroupField={null}
-                          targetValueField={null}
-                          actualValueField={null}
+                          percentageColumns={[]}
                           appHeaderOffset={sidebarHeaderOffset}
                           stickyHeaderZIndex={sidebarStickyHeaderZIndex}
                           shouldShowHeader={shouldShowSidebarHeader}

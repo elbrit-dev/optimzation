@@ -450,12 +450,7 @@ export default function DataTableControls({
   outerGroupField = null,
   innerGroupField = null,
   nonEditableColumns = [],
-  enableTargetData = false,
-  targetColumns = [],
-  targetOuterGroupField = null,
-  targetInnerGroupField = null,
-  targetValueField = null,
-  actualValueField = null,
+  percentageColumns = [],
   dataSource = null,
   queryVariables = {},
   variableOverrides = {},
@@ -474,11 +469,7 @@ export default function DataTableControls({
   onOuterGroupFieldChange,
   onInnerGroupFieldChange,
   onNonEditableColumnsChange,
-  onEnableTargetDataChange,
-  onTargetOuterGroupFieldChange,
-  onTargetInnerGroupFieldChange,
-  onTargetValueFieldChange,
-  onActualValueFieldChange,
+  onPercentageColumnsChange,
   onSaveSettings,
   drawerTabs = [],
   onDrawerTabsChange,
@@ -1056,92 +1047,113 @@ export default function DataTableControls({
                 </AccordionTab>
               )}
 
-              {/* TARGET DATA */}
-              {outerGroupField && innerGroupField && !isEmpty(targetColumns) && (
+              {/* PERCENTAGE COLUMNS */}
+              {!isEmpty(columns) && (
                 <AccordionTab header={
                   <div className="flex align-items-center gap-2">
-                    <i className="pi pi-bullseye"></i>
-                    <span>Target Data</span>
+                    <i className="pi pi-percentage"></i>
+                    <span>Percentage Columns</span>
                   </div>
                 }>
                   <div className="m-0">
-                    <div className="flex align-items-center justify-content-between p-3 border-bottom-1 surface-border mb-3">
-                      <div className="flex align-items-center gap-2">
-                        <i className={`pi pi-bullseye ${enableTargetData ? 'text-blue-600' : 'text-gray-600'}`}></i>
-                        <span className="font-medium">Enable Target Data</span>
-                      </div>
-                      <div className="relative">
-                        <input
-                          type="checkbox"
-                          checked={enableTargetData}
-                          onChange={(e) => onEnableTargetDataChange && onEnableTargetDataChange(e.target.checked)}
-                          className="sr-only"
-                        />
-                        <div
-                          className={`w-11 h-6 rounded-full transition-colors duration-200 cursor-pointer ${enableTargetData ? 'bg-blue-600' : 'bg-gray-300'}`}
-                          onClick={() => onEnableTargetDataChange && onEnableTargetDataChange(!enableTargetData)}
-                        >
-                          <div
-                            className={`w-5 h-5 bg-white rounded-full shadow-sm transform transition-transform duration-200 ${enableTargetData ? 'translate-x-5' : 'translate-x-0.5'}`}
-                            style={{ marginTop: '2px' }}
-                          ></div>
-                        </div>
-                      </div>
-                    </div>
-                    {enableTargetData && (
-                      <div className="space-y-3">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Target Outer Group Field
-                          </label>
-                          <SingleFieldSelector
-                            columns={targetColumns}
-                            selectedField={targetOuterGroupField}
-                            onSelectionChange={onTargetOuterGroupFieldChange}
-                            formatFieldName={formatFieldName}
-                            placeholder="Map to Outer Group..."
-                          />
-                        </div>
-                        {targetOuterGroupField && (
+                    <div className="space-y-4">
+                      {Array.isArray(percentageColumns) && percentageColumns.map((pc, index) => (
+                        <div key={index} className="p-3 border border-gray-200 rounded-lg space-y-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="block text-sm font-medium text-gray-700">
+                              Percentage Column {index + 1}
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const newColumns = percentageColumns.filter((_, i) => i !== index);
+                                onPercentageColumnsChange && onPercentageColumnsChange(newColumns);
+                              }}
+                              className="text-red-600 hover:text-red-800 text-sm"
+                            >
+                              <i className="pi pi-times"></i> Remove
+                            </button>
+                          </div>
                           <div>
                             <label className="block text-sm font-medium text-gray-700 mb-2">
-                              Target Inner Group Field
+                              Column Name
                             </label>
-                            <SingleFieldSelector
-                              columns={targetColumns}
-                              selectedField={targetInnerGroupField}
-                              onSelectionChange={onTargetInnerGroupFieldChange}
-                              formatFieldName={formatFieldName}
-                              placeholder="Map to Inner Group..."
+                            <InputText
+                              value={pc.columnName || ''}
+                              onChange={(e) => {
+                                const newColumns = [...percentageColumns];
+                                newColumns[index] = { ...pc, columnName: e.target.value };
+                                onPercentageColumnsChange && onPercentageColumnsChange(newColumns);
+                              }}
+                              placeholder="Enter column name..."
+                              className="w-full"
                             />
                           </div>
-                        )}
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Target Value Field
-                          </label>
-                          <SingleFieldSelector
-                            columns={targetColumns}
-                            selectedField={targetValueField}
-                            onSelectionChange={onTargetValueFieldChange}
-                            formatFieldName={formatFieldName}
-                            placeholder="Select target value field..."
-                          />
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Target Field
+                            </label>
+                            <SingleFieldSelector
+                              columns={columns}
+                              selectedField={pc.targetField}
+                              onSelectionChange={(value) => {
+                                const newColumns = [...percentageColumns];
+                                newColumns[index] = { ...pc, targetField: value };
+                                onPercentageColumnsChange && onPercentageColumnsChange(newColumns);
+                              }}
+                              formatFieldName={formatFieldName}
+                              placeholder="Select target field..."
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Value Field
+                            </label>
+                            <SingleFieldSelector
+                              columns={columns}
+                              selectedField={pc.valueField}
+                              onSelectionChange={(value) => {
+                                const newColumns = [...percentageColumns];
+                                newColumns[index] = { ...pc, valueField: value };
+                                onPercentageColumnsChange && onPercentageColumnsChange(newColumns);
+                              }}
+                              formatFieldName={formatFieldName}
+                              placeholder="Select value field..."
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Position Before Column
+                            </label>
+                            <p className="text-xs text-gray-500 mb-2">
+                              Select a column before which this percentage column should appear. If not specified, default positioning is used.
+                            </p>
+                            <SingleFieldSelector
+                              columns={columns.filter(col => col !== pc.columnName)}
+                              selectedField={pc.beforeColumn}
+                              onSelectionChange={(value) => {
+                                const newColumns = [...percentageColumns];
+                                newColumns[index] = { ...pc, beforeColumn: value };
+                                onPercentageColumnsChange && onPercentageColumnsChange(newColumns);
+                              }}
+                              formatFieldName={formatFieldName}
+                              placeholder="Select column to position before (optional)..."
+                            />
+                          </div>
                         </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Actual Value Field
-                          </label>
-                          <SingleFieldSelector
-                            columns={columns}
-                            selectedField={actualValueField}
-                            onSelectionChange={onActualValueFieldChange}
-                            formatFieldName={formatFieldName}
-                            placeholder="Select actual value field..."
-                          />
-                        </div>
-                      </div>
-                    )}
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const newColumns = [...(percentageColumns || []), { columnName: '', targetField: null, valueField: null, beforeColumn: null }];
+                          onPercentageColumnsChange && onPercentageColumnsChange(newColumns);
+                        }}
+                        className="w-full py-2 px-4 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 flex items-center justify-center gap-2"
+                      >
+                        <i className="pi pi-plus"></i>
+                        Add Percentage Column
+                      </button>
+                    </div>
                   </div>
                 </AccordionTab>
               )}

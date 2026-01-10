@@ -40,8 +40,8 @@ export function GlobalFunctionsTab() {
     loadFunctions();
   }, []);
 
-  // Handle export button click
-  const handleExport = useCallback(async () => {
+  // Handle save button click
+  const handleSave = useCallback(async () => {
     if (isSaving) {
       return;
     }
@@ -55,18 +55,18 @@ export function GlobalFunctionsTab() {
         toast.current.show({
           severity: 'success',
           summary: 'Success',
-          detail: 'Global functions exported successfully',
+          detail: 'Global functions saved successfully',
           life: 3000
         });
       }
     } catch (error) {
-      console.error('Failed to export global functions:', error);
+      console.error('Failed to save global functions:', error);
       setHasError(true);
       if (toast.current) {
         toast.current.show({
           severity: 'error',
           summary: 'Error',
-          detail: 'Failed to export global functions',
+          detail: 'Failed to save global functions',
           life: 3000
         });
       }
@@ -85,8 +85,8 @@ export function GlobalFunctionsTab() {
             Global Function:
           </label>
           <Button
-            icon={isSaving ? "pi pi-spin pi-spinner" : "pi pi-upload"}
-            label="Export"
+            icon={isSaving ? "pi pi-spin pi-spinner" : "pi pi-save"}
+            label="Save"
             className={
               isSaving
                 ? "p-button-secondary"
@@ -94,13 +94,13 @@ export function GlobalFunctionsTab() {
                   ? "p-button-danger"
                   : "p-button-primary"
             }
-            onClick={handleExport}
+            onClick={handleSave}
             title={
               isSaving
-                ? "Exporting..."
+                ? "Saving..."
                 : hasError
-                  ? "Previous export had an error - Click to export again"
-                  : "Export global functions"
+                  ? "Previous save had an error - Click to save again"
+                  : "Save global functions"
             }
             loading={isSaving}
             disabled={isLoading}

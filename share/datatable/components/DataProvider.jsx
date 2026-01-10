@@ -14,6 +14,7 @@ import { indexedDBService } from '@/app/datatable/utils/indexedDBService';
 import { parseGraphQLVariables } from '@/app/graphql-playground/utils/variableParser';
 import { extractValueFromGraphQLResponse } from '@/app/graphql-playground/utils/queryExtractor';
 import { extractYearMonthFromDate } from '@/app/datatable/utils/dateUtils';
+import { getDataKeys, getDataValue } from '../utils/dataAccessUtils';
 
 /**
  * Utility function to extract full date/timestamp from index query response
@@ -304,7 +305,7 @@ export default function DataProvider({
                   await indexedDBService.ensureStoresForPipelineResult(queryId, pipelineResult, yearMonthPrefix, queryDocToUse);
                   // Store pipeline result entries in IndexedDB tables
                   await indexedDBService.savePipelineResultEntries(queryId, pipelineResult, yearMonthPrefix, queryDocToUse);
-                  console.log(`Pipeline executed for ${queryId}${yearMonthPrefix ? ` with prefix ${yearMonthPrefix}` : ''}, stores ensured and entries saved for keys:`, Object.keys(pipelineResult));
+                  console.log(`Pipeline executed for ${queryId}${yearMonthPrefix ? ` with prefix ${yearMonthPrefix}` : ''}, stores ensured and entries saved for keys:`, getDataKeys(pipelineResult));
                   
                   // Reconstruct and print the pipeline result from IndexedDB
                   const reconstructed = await indexedDBService.reconstructPipelineResult(queryId, null, yearMonthPrefix);
@@ -581,10 +582,10 @@ export default function DataProvider({
   // Get available query keys from processedData
   const availableQueryKeys = useMemo(() => {
     if (!processedData || !dataSource) return [];
-    return Object.keys(processedData).filter(key => 
-      processedData[key] && 
-      processedData[key].length > 0
-    );
+    return getDataKeys(processedData).filter(key => {
+      const value = getDataValue(processedData, key);
+      return value && value.length > 0;
+    });
   }, [processedData, dataSource]);
 
   // Reset selectedQueryKey if it's not in available keys or if processedData changes
@@ -681,7 +682,7 @@ export default function DataProvider({
     }
     // If query mode and executed, show processed data
     if (dataSource && dataSource !== 'offline' && processedData && selectedQueryKey) {
-      return processedData[selectedQueryKey] || [];
+      return getDataValue(processedData, selectedQueryKey) || [];
     }
     // Return null to indicate no data available (will show placeholder)
     return null;

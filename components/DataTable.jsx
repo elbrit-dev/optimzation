@@ -214,32 +214,6 @@ function useLocalStorageNumber(key, defaultValue) {
 }
 
 const DataTableWrapper = (props) => {
-  const ToggleSwitch = ({ checked, onChange, label, icon, isLast = false }) => (
-    <div className={`flex items-center justify-between p-3 ${!isLast ? 'border-b border-gray-100' : ''}`}>
-      <div className="flex items-center gap-2">
-        <i className={`${icon} ${checked ? 'text-blue-600' : 'text-gray-600'}`}></i>
-        <span className="font-medium text-sm">{label}</span>
-      </div>
-      <div className="relative">
-        <input
-          type="checkbox"
-          checked={checked}
-          onChange={(e) => onChange(e.target.checked)}
-          className="sr-only"
-        />
-        <div
-          className={`w-11 h-6 rounded-full transition-colors duration-200 cursor-pointer ${checked ? 'bg-blue-600' : 'bg-gray-300'}`}
-          onClick={() => onChange(!checked)}
-        >
-          <div
-            className={`w-5 h-5 bg-white rounded-full shadow-sm transform transition-transform duration-200 ${checked ? 'translate-x-5' : 'translate-x-0.5'}`}
-            style={{ marginTop: '2px' }}
-          ></div>
-        </div>
-      </div>
-    </div>
-  );
-
   const {
     className,
     showControls = true,
@@ -258,7 +232,6 @@ const DataTableWrapper = (props) => {
     outerGroupField: propOuterGroupField,
     innerGroupField: propInnerGroupField,
     nonEditableColumns: propNonEditableColumns,
-    enablePagination: propEnablePagination,
     enableTargetData: propEnableTargetData,
     targetOuterGroupField: propTargetOuterGroupField,
     targetInnerGroupField: propTargetInnerGroupField,
@@ -279,7 +252,6 @@ const DataTableWrapper = (props) => {
   // We exclude dataSource and queryKey here as they are managed by TableDataProvider
   const settingsString = JSON.stringify({
     propEnableSort, propEnableFilter, propEnableSummation, propEnableCellEdit,
-    propEnablePagination,
     propRowsPerPageOptions, propDefaultRows, propTextFilterColumns, propVisibleColumns,
     propRedFields, propGreenFields, propOuterGroupField, propInnerGroupField,
     propNonEditableColumns, propEnableTargetData, propTargetOuterGroupField,
@@ -302,7 +274,6 @@ const DataTableWrapper = (props) => {
     syncToStore('datatable-enableFilter', propEnableFilter);
     syncToStore('datatable-enableSummation', propEnableSummation);
     syncToStore('datatable-enableCellEdit', propEnableCellEdit);
-    syncToStore('datatable-enablePagination', propEnablePagination);
     syncToStore('datatable-rowsPerPageOptions', propRowsPerPageOptions);
     syncToStore('datatable-defaultRows', propDefaultRows);
     syncToStore('datatable-textFilterColumns', propTextFilterColumns);
@@ -347,7 +318,6 @@ const DataTableWrapper = (props) => {
   const [enableSortState, setEnableSort] = useLocalStorageBoolean('datatable-enableSort', true);
   const [enableFilterState, setEnableFilter] = useLocalStorageBoolean('datatable-enableFilter', true);
   const [enableSummationState, setEnableSummation] = useLocalStorageBoolean('datatable-enableSummation', true);
-  const [enablePaginationState, setEnablePagination] = useLocalStorageBoolean('datatable-enablePagination', true);
   const [enableCellEditState, setEnableCellEdit] = useLocalStorageBoolean('datatable-enableCellEdit', false);
   const [rowsPerPageOptionsRawState, setRowsPerPageOptionsRaw] = useLocalStorageArray('datatable-rowsPerPageOptions', [5, 10, 25, 50, 100, 200]);
   const [defaultRowsRawState, setDefaultRowsRaw] = useLocalStorageNumber('datatable-defaultRows', 10);
@@ -401,7 +371,6 @@ const DataTableWrapper = (props) => {
   const enableSort = propEnableSort !== undefined ? propEnableSort : enableSortState;
   const enableFilter = propEnableFilter !== undefined ? propEnableFilter : enableFilterState;
   const enableSummation = propEnableSummation !== undefined ? propEnableSummation : enableSummationState;
-  const enablePagination = propEnablePagination !== undefined ? propEnablePagination : enablePaginationState;
   const enableCellEdit = propEnableCellEdit !== undefined ? propEnableCellEdit : enableCellEditState;
   const rowsPerPageOptions = propRowsPerPageOptions !== undefined ? propRowsPerPageOptions : rowsPerPageOptionsRawState;
   const defaultRows = propDefaultRows !== undefined ? propDefaultRows : defaultRowsRawState;
@@ -486,7 +455,6 @@ const DataTableWrapper = (props) => {
       if (savedSettings.enableSort !== undefined) setEnableSort(savedSettings.enableSort);
       if (savedSettings.enableFilter !== undefined) setEnableFilter(savedSettings.enableFilter);
       if (savedSettings.enableSummation !== undefined) setEnableSummation(savedSettings.enableSummation);
-      if (savedSettings.enablePagination !== undefined) setEnablePagination(savedSettings.enablePagination);
       if (savedSettings.enableCellEdit !== undefined) setEnableCellEdit(savedSettings.enableCellEdit);
       if (savedSettings.rowsPerPageOptions) setRowsPerPageOptionsRaw(savedSettings.rowsPerPageOptions);
       if (savedSettings.defaultRows !== undefined) setDefaultRowsRaw(savedSettings.defaultRows);
@@ -513,7 +481,7 @@ const DataTableWrapper = (props) => {
     }
 
     const settings = {
-      enableSort, enableFilter, enableSummation, enablePagination, enableCellEdit,
+      enableSort, enableFilter, enableSummation, enableCellEdit,
       rowsPerPageOptions, defaultRows, textFilterColumns, visibleColumns,
       redFields, greenFields, outerGroupField, innerGroupField,
       nonEditableColumns, enableTargetData, targetOuterGroupField,
@@ -620,15 +588,6 @@ const DataTableWrapper = (props) => {
     <div className={`flex flex-col h-full ${className}`}>
       <Toast ref={toast} />
       
-      <style dangerouslySetInnerHTML={{
-        __html: `
-          ${!enablePagination ? `
-            .p-paginator { display: none !important; }
-            .p-datatable-footer { border-top: none !important; }
-          ` : ''}
-        `
-      }} />
-
       <div className="flex-1 min-h-0">
         {showControls ? (
           <Splitter style={{ height: '100%' }} layout="horizontal">
@@ -641,59 +600,40 @@ const DataTableWrapper = (props) => {
                     <p className="text-sm text-gray-500">Select a source to begin</p>
                   </div>
                 ) : (
-                  <>
-                    {!enablePagination && (
-                      <div className="mb-3 flex flex-wrap gap-2 text-xs">
-                        <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded-md">
-                          <i className="pi pi-info-circle mr-1"></i>
-                          Pagination disabled
-                        </span>
-                      </div>
-                    )}
-                    <DataTableComponent
-                      data={tableData}
-                      rowsPerPageOptions={rowsPerPageOptions}
-                      defaultRows={enablePagination ? defaultRows : 1000000}
-                      scrollable={false}
-                      enableSort={enableSort}
-                      enableFilter={enableFilter}
-                      enableSummation={enableSummation}
-                      textFilterColumns={textFilterColumns}
-                      visibleColumns={visibleColumns}
-                      onVisibleColumnsChange={setVisibleColumnsRaw}
-                      redFields={redFields}
-                      greenFields={greenFields}
-                      outerGroupField={outerGroupField}
-                      innerGroupField={innerGroupField}
-                      enableCellEdit={enableCellEdit}
-                      nonEditableColumns={nonEditableColumns}
-                      onCellEditComplete={handleCellEditComplete}
-                      onOuterGroupClick={handleOuterGroupClick}
-                      onInnerGroupClick={handleInnerGroupClick}
-                      targetData={enableTargetData ? Target : null}
-                      targetOuterGroupField={enableTargetData ? targetOuterGroupField : null}
-                      targetInnerGroupField={enableTargetData ? targetInnerGroupField : null}
-                      targetValueField={enableTargetData ? targetValueField : null}
-                      actualValueField={enableTargetData ? actualValueField : null}
-                      appHeaderOffset={appHeaderOffset}
-                      stickyHeaderZIndex={appHeaderZIndex + 1}
-                      tableName="main"
-                    />
-                  </>
+                  <DataTableComponent
+                    data={tableData}
+                    rowsPerPageOptions={rowsPerPageOptions}
+                    defaultRows={defaultRows}
+                    scrollable={false}
+                    enableSort={enableSort}
+                    enableFilter={enableFilter}
+                    enableSummation={enableSummation}
+                    textFilterColumns={textFilterColumns}
+                    visibleColumns={visibleColumns}
+                    onVisibleColumnsChange={setVisibleColumnsRaw}
+                    redFields={redFields}
+                    greenFields={greenFields}
+                    outerGroupField={outerGroupField}
+                    innerGroupField={innerGroupField}
+                    enableCellEdit={enableCellEdit}
+                    nonEditableColumns={nonEditableColumns}
+                    onCellEditComplete={handleCellEditComplete}
+                    onOuterGroupClick={handleOuterGroupClick}
+                    onInnerGroupClick={handleInnerGroupClick}
+                    targetData={enableTargetData ? Target : null}
+                    targetOuterGroupField={enableTargetData ? targetOuterGroupField : null}
+                    targetInnerGroupField={enableTargetData ? targetInnerGroupField : null}
+                    targetValueField={enableTargetData ? targetValueField : null}
+                    actualValueField={enableTargetData ? actualValueField : null}
+                    appHeaderOffset={appHeaderOffset}
+                    stickyHeaderZIndex={appHeaderZIndex + 1}
+                    tableName="main"
+                  />
                 )}
               </div>
             </SplitterPanel>
 
             <SplitterPanel className="flex flex-col min-w-0 border-l border-gray-200" size={propControlsPanelSize}>
-              <div className="bg-gray-50 border-b border-gray-200 p-2">
-                <ToggleSwitch
-                  checked={enablePagination}
-                  onChange={setEnablePagination}
-                  label="Pagination"
-                  icon="pi pi-list"
-                  isLast={true}
-                />
-              </div>
               <DataTableControls
                 enableSort={enableSort}
                 enableFilter={enableFilter}
@@ -754,45 +694,35 @@ const DataTableWrapper = (props) => {
                 <h3 className="text-lg font-medium text-gray-700">No Data</h3>
               </div>
             ) : (
-              <>
-                {!enablePagination && (
-                  <div className="mb-3 flex flex-wrap gap-2 text-xs">
-                    <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded-md">
-                      <i className="pi pi-info-circle mr-1"></i>
-                      Pagination disabled
-                    </span>
-                  </div>
-                )}
-                <DataTableComponent
-                  data={tableData}
-                  rowsPerPageOptions={rowsPerPageOptions}
-                  defaultRows={enablePagination ? defaultRows : 1000000}
-                  scrollable={false}
-                  enableSort={enableSort}
-                  enableFilter={enableFilter}
-                  enableSummation={enableSummation}
-                  textFilterColumns={textFilterColumns}
-                  visibleColumns={visibleColumns}
-                  onVisibleColumnsChange={setVisibleColumnsRaw}
-                  redFields={redFields}
-                  greenFields={greenFields}
-                  outerGroupField={outerGroupField}
-                  innerGroupField={innerGroupField}
-                  enableCellEdit={enableCellEdit}
-                  nonEditableColumns={nonEditableColumns}
-                  onCellEditComplete={handleCellEditComplete}
-                  onOuterGroupClick={handleOuterGroupClick}
-                  onInnerGroupClick={handleInnerGroupClick}
-                  targetData={enableTargetData ? Target : null}
-                  targetOuterGroupField={enableTargetData ? targetOuterGroupField : null}
-                  targetInnerGroupField={enableTargetData ? targetInnerGroupField : null}
-                  targetValueField={enableTargetData ? targetValueField : null}
-                  actualValueField={enableTargetData ? actualValueField : null}
-                  appHeaderOffset={appHeaderOffset}
-                  stickyHeaderZIndex={appHeaderZIndex + 1}
-                  tableName="main"
-                />
-              </>
+              <DataTableComponent
+                data={tableData}
+                rowsPerPageOptions={rowsPerPageOptions}
+                defaultRows={defaultRows}
+                scrollable={false}
+                enableSort={enableSort}
+                enableFilter={enableFilter}
+                enableSummation={enableSummation}
+                textFilterColumns={textFilterColumns}
+                visibleColumns={visibleColumns}
+                onVisibleColumnsChange={setVisibleColumnsRaw}
+                redFields={redFields}
+                greenFields={greenFields}
+                outerGroupField={outerGroupField}
+                innerGroupField={innerGroupField}
+                enableCellEdit={enableCellEdit}
+                nonEditableColumns={nonEditableColumns}
+                onCellEditComplete={handleCellEditComplete}
+                onOuterGroupClick={handleOuterGroupClick}
+                onInnerGroupClick={handleInnerGroupClick}
+                targetData={enableTargetData ? Target : null}
+                targetOuterGroupField={enableTargetData ? targetOuterGroupField : null}
+                targetInnerGroupField={enableTargetData ? targetInnerGroupField : null}
+                targetValueField={enableTargetData ? targetValueField : null}
+                actualValueField={enableTargetData ? actualValueField : null}
+                appHeaderOffset={appHeaderOffset}
+                stickyHeaderZIndex={appHeaderZIndex + 1}
+                tableName="main"
+              />
             )}
           </div>
         )}
@@ -818,36 +748,26 @@ const DataTableWrapper = (props) => {
               <TabPanel key={tab.id} header={tab.name || `Tab ${drawerTabs.indexOf(tab) + 1}`}>
                 <div className="overflow-auto py-4">
                   {drawerData.length > 0 ? (
-                    <>
-                      {!enablePagination && (
-                        <div className="mb-3 flex flex-wrap gap-2 text-xs">
-                          <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded-md">
-                            <i className="pi pi-info-circle mr-1"></i>
-                            Pagination disabled
-                          </span>
-                        </div>
-                      )}
-                      <DataTableComponent
-                        data={drawerData}
-                        rowsPerPageOptions={rowsPerPageOptions}
-                        defaultRows={enablePagination ? defaultRows : 1000000}
-                        scrollable={false}
-                        enableSort={enableSort}
-                        enableFilter={enableFilter}
-                        enableSummation={enableSummation}
-                        textFilterColumns={textFilterColumns}
-                        visibleColumns={visibleColumns}
-                        onVisibleColumnsChange={setVisibleColumnsRaw}
-                        redFields={redFields}
-                        greenFields={greenFields}
-                        outerGroupField={tab.outerGroup}
-                        innerGroupField={tab.innerGroup}
-                        enableCellEdit={false}
-                        appHeaderOffset={sidebarHeaderOffset}
-                        stickyHeaderZIndex={sidebarZIndex + 1}
-                        tableName="sidebar"
-                      />
-                    </>
+                    <DataTableComponent
+                      data={drawerData}
+                      rowsPerPageOptions={rowsPerPageOptions}
+                      defaultRows={defaultRows}
+                      scrollable={false}
+                      enableSort={enableSort}
+                      enableFilter={enableFilter}
+                      enableSummation={enableSummation}
+                      textFilterColumns={textFilterColumns}
+                      visibleColumns={visibleColumns}
+                      onVisibleColumnsChange={setVisibleColumnsRaw}
+                      redFields={redFields}
+                      greenFields={greenFields}
+                      outerGroupField={tab.outerGroup}
+                      innerGroupField={tab.innerGroup}
+                      enableCellEdit={false}
+                      appHeaderOffset={sidebarHeaderOffset}
+                      stickyHeaderZIndex={sidebarZIndex + 1}
+                      tableName="sidebar"
+                    />
                   ) : (
                     <p className="text-center text-gray-500">No data available</p>
                   )}

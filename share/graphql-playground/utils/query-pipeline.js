@@ -229,7 +229,7 @@ export function applyMonthRangeToVariables(monthRange) {
  * @param {string} transformerCode - JavaScript transformer code
  * @param {Object} rawData - Raw extracted data from GraphQL query
  * @param {Function} queryFunction - Function to execute nested queries
- * @returns {Promise<Object>} Transformed data
+ * @returns {Promise<Object|Map>} Transformed data (preserves type returned by transformer - Object or Map)
  */
 export async function executeTransformer(transformerCode, rawData, queryFunction) {
     if (!transformerCode || transformerCode.trim() === "") {
@@ -314,12 +314,26 @@ export async function executeTransformer(transformerCode, rawData, queryFunction
 
     // If result is valid, use it
     if (evalResult !== null && evalResult !== undefined) {
-        // Ensure result is in the correct format (object with queryKeys)
-        if (typeof evalResult === "object" && !Array.isArray(evalResult)) {
-            const outputKeys = Object.keys(evalResult).filter((key) => evalResult[key] && evalResult[key].length > 0);
-            return evalResult;
+        // Ensure result is in the correct format (object or Map with queryKeys)
+        // Check for both Object and Map types
+        const isObject = typeof evalResult === "object" && !Array.isArray(evalResult) && !(evalResult instanceof Map);
+        const isMap = evalResult instanceof Map;
+        
+        if (isObject || isMap) {
+            // For validation, get keys appropriately
+            let outputKeys;
+            if (isMap) {
+                outputKeys = Array.from(evalResult.keys()).filter((key) => {
+                    const value = evalResult.get(key);
+                    return value && value.length > 0;
+                });
+            } else {
+                outputKeys = Object.keys(evalResult).filter((key) => evalResult[key] && evalResult[key].length > 0);
+            }
+            
+            return evalResult; // Return as-is, preserving Map or Object type
         } else {
-            console.warn("Transformer result is not an object, returning original data");
+            console.warn("Transformer result is not an object or Map, returning original data");
             return rawData;
         }
     }
@@ -332,12 +346,22 @@ export async function executeTransformer(transformerCode, rawData, queryFunction
 
 /**
  * Cleans processed data by removing __index__ keys
- * @param {Object} data - Data to clean
- * @returns {Object} Cleaned data
+ * @param {Object|Map} data - Data to clean (can be Object or Map)
+ * @returns {Object|Map} Cleaned data, preserving original type
  */
 export function cleanProcessedData(data) {
     if (!data) return null;
 
+    // Preserve Map type if input is Map
+    if (data instanceof Map) {
+        const cleaned = new Map();
+        for (const [key, value] of data.entries()) {
+            cleaned.set(key, removeIndexKeys(value));
+        }
+        return cleaned;
+    }
+
+    // Handle Object type
     const cleaned = {};
     for (const [key, value] of Object.entries(data)) {
         cleaned[key] = removeIndexKeys(value);
@@ -354,7 +378,7 @@ export function cleanProcessedData(data) {
  * @param {string} options.endpointUrl - GraphQL endpoint URL (optional)
  * @param {string} options.authToken - Authorization token (optional)
  * @param {Array} options.monthRange - Month range for date filtering (optional)
- * @returns {Promise<Object>} Final transformed data
+ * @returns {Promise<Object|Map>} Final transformed data (preserves type from transformer - Object or Map)
  */
 export async function executePipeline(queryId, context, options = {}) {
     const { endpointUrl, authToken, monthRange, variableOverrides: externalOverrides = {} } = options;

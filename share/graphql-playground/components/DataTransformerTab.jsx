@@ -5,10 +5,69 @@ import Editor from '@monaco-editor/react';
 import { Button } from 'primereact/button';
 import { TabPanel, TabView } from 'primereact/tabview';
 import { Splitter, SplitterPanel } from 'primereact/splitter';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { useTableDialogStore } from '../stores/useTableDialogStore';
 import { createExecutionContext, executePipeline, executeTransformer } from '../utils/query-pipeline';
+
+/**
+ * Utility functions to work with both Object and Map for processedData
+ * These functions provide a unified interface for accessing data regardless of structure
+ */
+
+/**
+ * Get keys from either Object or Map
+ * @param {Object|Map} data - Data structure (Object or Map)
+ * @returns {Array<string>} Array of keys
+ */
+function getDataKeys(data) {
+  if (!data) {
+    return [];
+  }
+  let result;
+  if (data instanceof Map) {
+    result = Array.from(data.keys());
+  } else {
+    result = Object.keys(data);
+  }
+  return result;
+}
+
+/**
+ * Get value from either Object or Map
+ * @param {Object|Map} data - Data structure (Object or Map)
+ * @param {string} key - Key to retrieve
+ * @returns {*} Value associated with the key, or undefined if not found
+ */
+function getDataValue(data, key) {
+  if (!data || !key) return undefined;
+  if (data instanceof Map) {
+    return data.get(key);
+  }
+  return data[key];
+}
+
+/**
+ * Memoized DataTable wrapper component that only re-renders when data changes
+ * This prevents expensive re-renders when parent re-renders for unrelated reasons
+ */
+const MemoizedDataTable = memo(({ data, enableFullscreenDialog }) => {
+  return (
+    <>
+      <DataTableComponent
+        data={data}
+        enableFullscreenDialog={enableFullscreenDialog}
+      />
+    </>
+  );
+}, (prevProps, nextProps) => {
+  // Custom comparison function: only re-render if data reference changed
+  // Since we're using useMemo for data extraction, references will be stable
+  // unless the actual data changed
+  return prevProps.data === nextProps.data && prevProps.enableFullscreenDialog === nextProps.enableFullscreenDialog;
+});
+
+MemoizedDataTable.displayName = 'MemoizedDataTable';
 
 export function DataTransformerTab({ responseData, activeTabIndex = 0 }) {
   const { activeTab, setActiveTab, processedData, setProcessedData, reset } = useTableDialogStore();
@@ -21,7 +80,8 @@ export function DataTransformerTab({ responseData, activeTabIndex = 0 }) {
 
   // Get transformer code from current GraphiQL tab's data
   const currentTabInfo = useMemo(() => {
-    return tabData[activeGraphiQLTabIndex] || { hasSuccessfulQuery: false, transformedData: null, transformerCode: '' };
+    const result = tabData[activeGraphiQLTabIndex] || { hasSuccessfulQuery: false, transformedData: null, transformerCode: '' };
+    return result;
   }, [tabData, activeGraphiQLTabIndex]);
 
   const transformerCode = currentTabInfo.transformerCode || '';
@@ -45,7 +105,7 @@ export function DataTransformerTab({ responseData, activeTabIndex = 0 }) {
       // Initialize processedData with raw data (transformer will update it if present)
       const allKeys = Object.keys(responseData);
       const queryKeys = allKeys.filter(key => isValidDataValue(responseData[key]));
-      
+
       // Warn about ignored non-array keys
       const ignoredKeys = allKeys.filter(key => {
         const value = responseData[key];
@@ -54,7 +114,7 @@ export function DataTransformerTab({ responseData, activeTabIndex = 0 }) {
       if (ignoredKeys.length > 0) {
         console.warn(`The following keys are being ignored (only arrays are supported): ${ignoredKeys.join(', ')}`);
       }
-      
+
       if (queryKeys.length > 0) {
         setProcessedData(responseData);
       } else {
@@ -68,21 +128,40 @@ export function DataTransformerTab({ responseData, activeTabIndex = 0 }) {
 
   // Compute queryKeys from processedData
   const queryKeys = useMemo(() => {
-    if (!processedData) return [];
-    const allKeys = Object.keys(processedData);
-    const validKeys = allKeys.filter(key => isValidDataValue(processedData[key]));
-    
+    if (!processedData) {
+      return [];
+    }
+    const allKeys = getDataKeys(processedData);
+    const validKeys = allKeys.filter(key => {
+      const value = getDataValue(processedData, key);
+      return isValidDataValue(value);
+    });
+
     // Warn about ignored non-array keys
     const ignoredKeys = allKeys.filter(key => {
-      const value = processedData[key];
+      const value = getDataValue(processedData, key);
       return value && typeof value === 'object' && !Array.isArray(value);
     });
     if (ignoredKeys.length > 0) {
       console.warn(`The following keys are being ignored (only arrays are supported): ${ignoredKeys.join(', ')}`);
     }
-    
+
     return validKeys;
   }, [processedData, isValidDataValue]);
+
+  // Memoize data extraction for each queryKey to prevent unnecessary re-renders
+  // This ensures stable references that won't trigger re-renders unless data actually changes
+  const memoizedDataByKey = useMemo(() => {
+    if (!processedData && !rawResponseData) return {};
+    if (queryKeys.length === 0) return {};
+
+    const dataMap = {};
+    queryKeys.forEach((queryKey) => {
+      const data = processedData ? getDataValue(processedData, queryKey) : rawResponseData[queryKey];
+      dataMap[queryKey] = data;
+    });
+    return dataMap;
+  }, [processedData, rawResponseData, queryKeys]); // queryKeys is already memoized, so this is safe
 
   // Reset when component unmounts or data is cleared
   useEffect(() => {
@@ -174,36 +253,21 @@ export function DataTransformerTab({ responseData, activeTabIndex = 0 }) {
     applyTransformer();
   }, [applyTransformer]);
 
-  // Early returns after all hooks
-  if (!rawResponseData) {
-    return (
-      <div className="flex items-center justify-center h-full bg-gray-50">
-        <div className="text-center p-8">
-          <i className="pi pi-info-circle text-4xl text-gray-400 mb-4"></i>
-          <p className="text-gray-600 font-medium">Run query to unlock Data Transformer</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (queryKeys.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-full bg-gray-50">
-        <div className="text-center p-8">
-          <i className="pi pi-info-circle text-4xl text-gray-400 mb-4"></i>
-          <p className="text-gray-600 font-medium">Run query to unlock Data Transformer</p>
-        </div>
-      </div>
-    );
-  }
-
+  // Always show splitter layout, conditionally render table or message
   return (
     <div className="h-full overflow-hidden">
       <Splitter style={{ height: '100%' }} layout="horizontal">
-        {/* Left side: Table/TabView*/}
+        {/* Left side: Table/TabView or Message*/}
         <SplitterPanel className="flex flex-col min-w-0" size={70} minSize={30}>
           <div className="h-full flex flex-col overflow-hidden min-h-0">
-            {queryKeys.length > 1 ? (
+            {!rawResponseData || queryKeys.length === 0 ? (
+              <div className="flex items-center justify-center h-full bg-gray-50">
+                <div className="text-center p-8">
+                  <i className="pi pi-info-circle text-4xl text-gray-400 mb-4"></i>
+                  <p className="text-gray-600 font-medium">Run query to unlock Data Transformer</p>
+                </div>
+              </div>
+            ) : queryKeys.length > 1 ? (
               <TabView
                 activeIndex={activeTab}
                 onTabChange={(e) => {
@@ -212,21 +276,24 @@ export function DataTransformerTab({ responseData, activeTabIndex = 0 }) {
                 className="data-transformer-tabview"
                 style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}
               >
-                {queryKeys.map((queryKey) => (
-                  <TabPanel key={queryKey} header={queryKey}>
-                    <div className="h-full overflow-auto" style={{ height: '100%', overflow: 'auto', flex: 1, minHeight: 0, padding: '0.5rem' }}>
-                      <DataTableComponent
-                        data={processedData ? processedData[queryKey] : rawResponseData[queryKey]}
-                        enableFullscreenDialog={false}
-                      />
-                    </div>
-                  </TabPanel>
-                ))}
+                {queryKeys.map((queryKey) => {
+                  const tableData = memoizedDataByKey[queryKey] ?? (processedData ? getDataValue(processedData, queryKey) : rawResponseData?.[queryKey]);
+                  return (
+                    <TabPanel key={queryKey} header={queryKey}>
+                      <div className="h-full overflow-auto" style={{ height: '100%', overflow: 'auto', flex: 1, minHeight: 0, padding: '0.5rem' }}>
+                        <MemoizedDataTable
+                          data={tableData}
+                          enableFullscreenDialog={false}
+                        />
+                      </div>
+                    </TabPanel>
+                  );
+                })}
               </TabView>
             ) : (
               <div className="h-full overflow-auto" style={{ height: '100%', overflow: 'auto', flex: 1, minHeight: 0, padding: '0.5rem' }}>
-                <DataTableComponent
-                  data={processedData ? processedData[queryKeys[0]] : rawResponseData[queryKeys[0]]}
+                <MemoizedDataTable
+                  data={memoizedDataByKey[queryKeys[0]] ?? (processedData ? getDataValue(processedData, queryKeys[0]) : rawResponseData?.[queryKeys[0]])}
                   enableFullscreenDialog={false}
                 />
               </div>
@@ -262,7 +329,7 @@ export function DataTransformerTab({ responseData, activeTabIndex = 0 }) {
                         : "Apply transformer function"
                   }
                   loading={isRunning}
-                  disabled={!transformerCode || transformerCode.trim() === ''}
+                  disabled={!transformerCode || transformerCode.trim() === '' || !rawResponseData || !currentTabInfo.hasSuccessfulQuery}
                   style={{
                     minWidth: '100px',
                     padding: '0.5rem 1rem',
@@ -276,7 +343,9 @@ export function DataTransformerTab({ responseData, activeTabIndex = 0 }) {
                   height="100%"
                   language="javascript"
                   value={transformerCode}
-                  onChange={(value) => setTransformerCode(value || '')}
+                  onChange={(value) => {
+                    setTransformerCode(value || '');
+                  }}
                   theme="vs-light"
                   options={{
                     minimap: { enabled: false },

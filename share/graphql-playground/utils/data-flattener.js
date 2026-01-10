@@ -42,8 +42,8 @@ export function flattenResponse(nodes) {
 
 /**
  * Remove __index__ keys from processed data
- * @param {any} data - Data to clean (can be object, array, or primitive)
- * @returns {any} Data with __index__ keys removed
+ * @param {any} data - Data to clean (can be object, array, Map, or primitive)
+ * @returns {any} Data with __index__ keys removed, preserving original type (Map or Object)
  */
 export function removeIndexKeys(data) {
   if (data === null || data === undefined) {
@@ -52,6 +52,17 @@ export function removeIndexKeys(data) {
 
   if (Array.isArray(data)) {
     return data.map(item => removeIndexKeys(item));
+  }
+
+  // Handle Map before general object check
+  if (data instanceof Map) {
+    const cleaned = new Map();
+    for (const [key, value] of data.entries()) {
+      if (key !== '__index__') {
+        cleaned.set(key, removeIndexKeys(value));
+      }
+    }
+    return cleaned;
   }
 
   if (typeof data === 'object') {

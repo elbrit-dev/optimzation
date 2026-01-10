@@ -49,7 +49,7 @@ export const SaveControls = React.forwardRef((props, ref) => {
   const [monthIndexQueryError, setMonthIndexQueryError] = React.useState(null);
   const [isValidating, setIsValidating] = React.useState(false);
   const [validationResults, setValidationResults] = React.useState({ index: null, monthIndex: null });
-  
+
   // Ref to store latest validation state for DialogMessage component
   const validationStateRef = React.useRef({
     isValidating: false,
@@ -57,7 +57,7 @@ export const SaveControls = React.forwardRef((props, ref) => {
     indexQueryError: null,
     monthIndexQueryError: null
   });
-  
+
   // Keep ref updated with current state
   React.useEffect(() => {
     validationStateRef.current = {
@@ -446,10 +446,10 @@ export const SaveControls = React.forwardRef((props, ref) => {
   // Helper function to collect all variables used in a field/selection
   const collectVariablesInField = (field) => {
     const variables = new Set();
-    
+
     const visitNode = (node) => {
       if (!node) return;
-      
+
       // Check arguments for variables
       if (node.arguments && Array.isArray(node.arguments)) {
         for (const arg of node.arguments) {
@@ -482,7 +482,7 @@ export const SaveControls = React.forwardRef((props, ref) => {
           }
         }
       }
-      
+
       // Recursively visit selection sets
       if (node.selectionSet && node.selectionSet.selections) {
         for (const selection of node.selectionSet.selections) {
@@ -490,7 +490,7 @@ export const SaveControls = React.forwardRef((props, ref) => {
         }
       }
     };
-    
+
     visitNode(field);
     return Array.from(variables);
   };
@@ -498,20 +498,20 @@ export const SaveControls = React.forwardRef((props, ref) => {
   // Helper function to strip unwanted selections from a query based on selected path
   const stripUnwantedSelections = (queryString, selectedPath) => {
     if (!queryString || !queryString.trim() || !selectedPath) return '';
-    
+
     try {
       const ast = parse(queryString);
       const operation = ast.definitions.find(
         def => def.kind === 'OperationDefinition'
       );
-      
+
       if (!operation || !operation.selectionSet) {
         return queryString; // Return original if we can't parse
       }
-      
+
       const pathParts = selectedPath.split('.');
       const topLevelKey = pathParts[0];
-      
+
       // Find the top-level field that matches the selected path
       // Check both alias and name to handle aliased fields
       const matchingField = operation.selectionSet.selections.find(selection => {
@@ -520,30 +520,30 @@ export const SaveControls = React.forwardRef((props, ref) => {
         const fieldName = selection.name.value;
         return aliasName === topLevelKey || fieldName === topLevelKey;
       });
-      
+
       if (!matchingField || matchingField.kind !== 'Field') {
         return queryString; // Return original if we can't find matching field
       }
-      
+
       // Recursively strip selections to keep only the selected path
       const stripField = (field, remainingPath) => {
         if (!field || field.kind !== 'Field') return field;
-        
+
         // If no more path parts, this is the leaf - keep the field but remove selection set
         if (remainingPath.length === 0) {
           // Return field without selectionSet
           const { selectionSet, ...fieldWithoutSelectionSet } = field;
           return fieldWithoutSelectionSet;
         }
-        
+
         // If field has no selection set, nothing to strip
         if (!field.selectionSet || !field.selectionSet.selections) {
           return field;
         }
-        
+
         const nextPathPart = remainingPath[0];
         const restPath = remainingPath.slice(1);
-        
+
         // Find the matching child field (check both alias and name)
         const matchingChild = field.selectionSet.selections.find(selection => {
           if (selection.kind !== 'Field') return false;
@@ -551,39 +551,39 @@ export const SaveControls = React.forwardRef((props, ref) => {
           const fieldName = selection.name.value;
           return aliasName === nextPathPart || fieldName === nextPathPart;
         });
-        
+
         if (!matchingChild) {
           // No matching child found, remove all selections
           const { selectionSet, ...fieldWithoutSelectionSet } = field;
           return fieldWithoutSelectionSet;
         }
-        
+
         // Recursively strip the matching child
         const strippedChild = stripField(matchingChild, restPath);
-        
+
         // Return field with only the stripped child, preserving all other properties
         return {
           ...field,
-                selectionSet: {
-                  kind: 'SelectionSet',
+          selectionSet: {
+            kind: 'SelectionSet',
             selections: [strippedChild]
           }
         };
       };
-      
+
       // Strip the matching field
       const strippedField = stripField(matchingField, pathParts.slice(1));
-      
+
       // Collect all variables used in the stripped field
       const usedVariables = collectVariablesInField(strippedField);
-      
+
       // Filter variable definitions to only include those that are used
       const variableDefinitions = operation.variableDefinitions
-        ? operation.variableDefinitions.filter(vdef => 
-            usedVariables.includes(vdef.variable.name.value)
-          )
+        ? operation.variableDefinitions.filter(vdef =>
+          usedVariables.includes(vdef.variable.name.value)
+        )
         : [];
-      
+
       // Create new operation, only including variableDefinitions if there are used variables
       const newOperation = {
         kind: operation.kind,
@@ -604,7 +604,7 @@ export const SaveControls = React.forwardRef((props, ref) => {
 
       // Print the new query
       return print(newDocument);
-      } catch (error) {
+    } catch (error) {
       console.error('Error stripping selections:', error);
       return queryString; // Return original on error
     }
@@ -652,7 +652,7 @@ export const SaveControls = React.forwardRef((props, ref) => {
     const buildSelectedQuery = () => {
       // Only build query if clientSave is enabled and selectedKeys exists
       if (!clientSave || !selectedKeys || !queryString) return '';
-      
+
       // Use the simpler approach: strip unwanted selections from the original query
       return stripUnwantedSelections(queryString, selectedKeys);
     };
@@ -675,7 +675,7 @@ export const SaveControls = React.forwardRef((props, ref) => {
             endpointUrl = config.endpointUrl;
             authToken = config.authToken;
           }
-          
+
           if (!endpointUrl) {
             const defaultEndpoint = getInitialEndpoint();
             endpointUrl = defaultEndpoint?.code;
@@ -683,9 +683,9 @@ export const SaveControls = React.forwardRef((props, ref) => {
           }
 
           if (!endpointUrl) {
-            return { 
-              valid: false, 
-              query, 
+            return {
+              valid: false,
+              query,
               errors: ['No endpoint available for validation'],
               errorMessage: 'No endpoint available to validate query'
             };
@@ -721,9 +721,9 @@ export const SaveControls = React.forwardRef((props, ref) => {
                 // GraphQL returned errors even though HTTP status is 200
                 const errorMessages = responseBody.errors.map(e => e.message || JSON.stringify(e));
                 const errorMessage = errorMessages.join('; ');
-                return { 
-                  valid: false, 
-                  query, 
+                return {
+                  valid: false,
+                  query,
                   errors: errorMessages,
                   errorMessage: errorMessage
                 };
@@ -731,7 +731,7 @@ export const SaveControls = React.forwardRef((props, ref) => {
             } catch {
               // If we can't parse JSON, assume it's valid
             }
-            
+
             // Query executed successfully
             return { valid: true, query, errors: [], errorMessage: null };
           } else {
@@ -746,9 +746,9 @@ export const SaveControls = React.forwardRef((props, ref) => {
                   if (Array.isArray(errorJson.errors) && errorJson.errors.length > 0) {
                     const errorMessages = errorJson.errors.map(e => e.message || JSON.stringify(e));
                     errorMessage = errorMessages.join('; ');
-                    return { 
-                      valid: false, 
-                      query, 
+                    return {
+                      valid: false,
+                      query,
                       errors: errorMessages,
                       errorMessage: errorMessage
                     };
@@ -766,19 +766,19 @@ export const SaveControls = React.forwardRef((props, ref) => {
             } catch {
               // Use status text if we can't read body
             }
-            
-            return { 
-              valid: false, 
-              query, 
+
+            return {
+              valid: false,
+              query,
               errors: [errorMessage],
               errorMessage: errorMessage
             };
           }
         } catch (execError) {
           // Execution failed (network error, etc.)
-          return { 
-            valid: false, 
-            query, 
+          return {
+            valid: false,
+            query,
             errors: [execError.message || 'Failed to execute query'],
             errorMessage: execError.message || 'Failed to execute query'
           };
@@ -786,17 +786,17 @@ export const SaveControls = React.forwardRef((props, ref) => {
       } catch (parseError) {
         // Parse error - try to fix
         console.warn(`${queryName} query has parsing errors, attempting to fix:`, parseError);
-        
+
         // Try to fix by re-generating from the original query
         if (originalQueryString && selectedPath) {
           try {
             const fixedQuery = stripUnwantedSelections(originalQueryString, selectedPath);
-            
+
             // Validate the fixed query by parsing
             try {
               parse(fixedQuery);
               console.log(`${queryName} query fixed successfully, validating execution...`);
-              
+
               // Now execute the fixed query to validate
               try {
                 let endpointUrl, authToken;
@@ -805,7 +805,7 @@ export const SaveControls = React.forwardRef((props, ref) => {
                   endpointUrl = config.endpointUrl;
                   authToken = config.authToken;
                 }
-                
+
                 if (!endpointUrl) {
                   const defaultEndpoint = getInitialEndpoint();
                   endpointUrl = defaultEndpoint?.code;
@@ -821,7 +821,7 @@ export const SaveControls = React.forwardRef((props, ref) => {
                       try {
                         const stripped = stripComments(variablesString);
                         parsedVariables = JSON.parse(stripped);
-                      } catch {}
+                      } catch { }
                     }
                   }
 
@@ -838,9 +838,9 @@ export const SaveControls = React.forwardRef((props, ref) => {
                         // GraphQL returned errors even though HTTP status is 200
                         const errorMessages = responseBody.errors.map(e => e.message || JSON.stringify(e));
                         const errorMessage = errorMessages.join('; ');
-                        return { 
-                          valid: false, 
-                          query: fixedQuery, 
+                        return {
+                          valid: false,
+                          query: fixedQuery,
                           errors: errorMessages,
                           errorMessage: errorMessage,
                           wasFixed: true
@@ -849,7 +849,7 @@ export const SaveControls = React.forwardRef((props, ref) => {
                     } catch {
                       // If we can't parse JSON, assume it's valid
                     }
-                    
+
                     return { valid: true, query: fixedQuery, errors: [], errorMessage: null, wasFixed: true };
                   } else {
                     // Fixed query still fails execution
@@ -863,9 +863,9 @@ export const SaveControls = React.forwardRef((props, ref) => {
                           if (Array.isArray(errorJson.errors) && errorJson.errors.length > 0) {
                             const errorMessages = errorJson.errors.map(e => e.message || JSON.stringify(e));
                             errorMessage = errorMessages.join('; ');
-                            return { 
-                              valid: false, 
-                              query: fixedQuery, 
+                            return {
+                              valid: false,
+                              query: fixedQuery,
                               errors: errorMessages,
                               errorMessage: errorMessage,
                               wasFixed: true
@@ -881,11 +881,11 @@ export const SaveControls = React.forwardRef((props, ref) => {
                           errorMessage = errorBody.substring(0, 200);
                         }
                       }
-                    } catch {}
-                    
-                    return { 
-                      valid: false, 
-                      query: fixedQuery, 
+                    } catch { }
+
+                    return {
+                      valid: false,
+                      query: fixedQuery,
                       errors: [errorMessage],
                       errorMessage: errorMessage,
                       wasFixed: true
@@ -893,9 +893,9 @@ export const SaveControls = React.forwardRef((props, ref) => {
                   }
                 }
               } catch (execError) {
-                return { 
-                  valid: false, 
-                  query: fixedQuery, 
+                return {
+                  valid: false,
+                  query: fixedQuery,
                   errors: [execError.message || 'Failed to execute fixed query'],
                   errorMessage: execError.message || 'Failed to execute fixed query',
                   wasFixed: true
@@ -903,28 +903,28 @@ export const SaveControls = React.forwardRef((props, ref) => {
               }
             } catch (fixedParseError) {
               // Fixed query still has parse errors - can't fix
-              return { 
-                valid: false, 
-                query: '', 
+              return {
+                valid: false,
+                query: '',
                 errors: [parseError.message],
                 errorMessage: `Query has syntax errors and could not be fixed: ${parseError.message}`
               };
             }
           } catch (fixError) {
             console.error(`Error attempting to fix ${queryName} query:`, fixError);
-            return { 
-              valid: false, 
-              query: '', 
+            return {
+              valid: false,
+              query: '',
               errors: [parseError.message, fixError.message],
               errorMessage: `Could not fix query: ${parseError.message}`
             };
           }
         }
-        
+
         // If we can't fix it, return the error
-        return { 
-          valid: false, 
-          query: '', 
+        return {
+          valid: false,
+          query: '',
           errors: [parseError.message],
           errorMessage: `Query has syntax errors: ${parseError.message}`
         };
@@ -937,7 +937,7 @@ export const SaveControls = React.forwardRef((props, ref) => {
     const buildMonthIndexQuery = () => {
       // Only build query if clientSave is enabled and monthIndexKeys exists
       if (!clientSave || !monthIndexKeys || !queryString) return '';
-      
+
       // Use the simpler approach: strip unwanted selections from the original query
       return stripUnwantedSelections(queryString, monthIndexKeys);
     };
@@ -972,16 +972,16 @@ export const SaveControls = React.forwardRef((props, ref) => {
     const performValidation = async () => {
       try {
         let indexValidation, monthIndexValidation;
-        
+
         // Validate index query if it exists
         if (selectedQuery) {
           indexValidation = await validateAndRectifyQuery(
-            selectedQuery, 
-            'Index', 
-            queryString, 
+            selectedQuery,
+            'Index',
+            queryString,
             selectedKeys
           );
-          
+
           if (!indexValidation.valid) {
             const errorMsg = indexValidation.errorMessage || (indexValidation.errors && indexValidation.errors.length > 0 ? indexValidation.errors.join('; ') : 'Validation failed');
             console.error('Index query validation failed:', errorMsg, indexValidation);
@@ -1000,12 +1000,12 @@ export const SaveControls = React.forwardRef((props, ref) => {
         // Validate month index query if it exists
         if (monthIndexQuery) {
           monthIndexValidation = await validateAndRectifyQuery(
-            monthIndexQuery, 
-            'Month Index', 
-            queryString, 
+            monthIndexQuery,
+            'Month Index',
+            queryString,
             monthIndexKeys
           );
-          
+
           if (!monthIndexValidation.valid) {
             const errorMsg = monthIndexValidation.errorMessage || (monthIndexValidation.errors && monthIndexValidation.errors.length > 0 ? monthIndexValidation.errors.join('; ') : 'Validation failed');
             console.error('Month index query validation failed:', errorMsg, monthIndexValidation);
@@ -1033,16 +1033,16 @@ export const SaveControls = React.forwardRef((props, ref) => {
           if (monthIndexValidation.wasFixed) {
             warnings.push('Month index query was automatically fixed');
           }
-          
+
           if (warnings.length > 0) {
             console.warn('Query validation warnings:', warnings.join('; '));
           }
         }
       } catch (validationError) {
         console.error('Error during validation:', validationError);
-        setValidationResults({ 
-          index: { valid: false, errorMessage: 'Validation error occurred' }, 
-          monthIndex: { valid: false, errorMessage: 'Validation error occurred' } 
+        setValidationResults({
+          index: { valid: false, errorMessage: 'Validation error occurred' },
+          monthIndex: { valid: false, errorMessage: 'Validation error occurred' }
         });
       } finally {
         setIsValidating(false);
@@ -1056,7 +1056,7 @@ export const SaveControls = React.forwardRef((props, ref) => {
     const DialogMessage = () => {
       // Use state from parent component directly - force re-render on changes
       const [, forceUpdate] = React.useReducer(x => x + 1, 0);
-      
+
       React.useEffect(() => {
         // Force re-render when validation state changes
         const interval = setInterval(() => {
@@ -1064,7 +1064,7 @@ export const SaveControls = React.forwardRef((props, ref) => {
         }, 100);
         return () => clearInterval(interval);
       }, []);
-      
+
       // Read current state values from ref (always up-to-date)
       const currentValidating = validationStateRef.current.isValidating;
       const currentResults = validationStateRef.current.validationResults;
@@ -1081,16 +1081,16 @@ export const SaveControls = React.forwardRef((props, ref) => {
               </div>
             </div>
           )}
-          {!currentValidating && (currentResults.index || currentResults.monthIndex) && 
-           ((currentResults.index && currentResults.index.valid === false) || 
-            (currentResults.monthIndex && currentResults.monthIndex.valid === false)) && (
-            <div className="bg-red-50 border border-red-200 rounded p-3 mb-2">
-              <p className="text-sm font-semibold text-red-800 mb-1">Validation Failed</p>
-              <p className="text-xs text-red-700">
-                Please fix the errors below before saving.
-              </p>
-            </div>
-          )}
+          {!currentValidating && (currentResults.index || currentResults.monthIndex) &&
+            ((currentResults.index && currentResults.index.valid === false) ||
+              (currentResults.monthIndex && currentResults.monthIndex.valid === false)) && (
+              <div className="bg-red-50 border border-red-200 rounded p-3 mb-2">
+                <p className="text-sm font-semibold text-red-800 mb-1">Validation Failed</p>
+                <p className="text-xs text-red-700">
+                  Please fix the errors below before saving.
+                </p>
+              </div>
+            )}
           <div>
             <p className="font-semibold text-sm mb-1">Query Name:</p>
             <p className="text-sm text-gray-700 font-mono">{operationName}</p>
@@ -1102,6 +1102,45 @@ export const SaveControls = React.forwardRef((props, ref) => {
           <div>
             <p className="font-semibold text-sm mb-1">Type:</p>
             <p className="text-sm text-gray-700">{clientSave ? 'Client' : 'Live'}</p>
+          </div>
+          <div>
+            <p className="font-semibold text-sm mb-1">Variables:</p>
+            <div style={{
+              padding: '0.75rem',
+              borderRadius: '0.375rem',
+              border: '1px solid #d1d5db',
+              backgroundColor: '#f9fafb',
+              maxHeight: '200px',
+              overflow: 'auto'
+            }}>
+              {(() => {
+                try {
+                  if (!variablesString || !variablesString.trim()) {
+                    return <p className="text-sm text-gray-500 font-mono">No variables</p>;
+                  }
+                  // Try to parse and format the variables
+                  let parsedVariables = {};
+                  try {
+                    parsedVariables = parseJsonc(variablesString);
+                  } catch (e) {
+                    try {
+                      const stripped = stripComments(variablesString);
+                      parsedVariables = JSON.parse(stripped);
+                    } catch {
+                      return <p className="text-sm text-red-600 font-mono">Invalid JSON</p>;
+                    }
+                  }
+                  const formattedJson = JSON.stringify(parsedVariables, null, 2);
+                  return (
+                    <pre className="text-xs text-gray-700 font-mono" style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                      {formattedJson}
+                    </pre>
+                  );
+                } catch (error) {
+                  return <p className="text-sm text-red-600 font-mono">Error parsing variables</p>;
+                }
+              })()}
+            </div>
           </div>
           {clientSave && (
             <div>
@@ -1172,25 +1211,25 @@ export const SaveControls = React.forwardRef((props, ref) => {
       const currentState = validationStateRef.current;
       if (currentState.isValidating) return false;
       if (currentState.validationResults.index === null && currentState.validationResults.monthIndex === null) return false; // Validation not started
-      
+
       // If query exists, it must be valid. If it doesn't exist, it's valid (not required)
       const indexValid = !selectedQuery || (currentState.validationResults.index && currentState.validationResults.index.valid !== false);
       const monthIndexValid = !monthIndexQuery || (currentState.validationResults.monthIndex && currentState.validationResults.monthIndex.valid !== false);
-      
+
       return indexValid && monthIndexValid;
     };
 
     // Create a wrapper component that updates button state reactively
     const DialogWrapper = () => {
       const [, forceUpdate] = React.useReducer(x => x + 1, 0);
-      
+
       React.useEffect(() => {
         const interval = setInterval(() => {
           forceUpdate();
         }, 100);
         return () => clearInterval(interval);
       }, []);
-      
+
       const currentState = validationStateRef.current;
       const canSave = (() => {
         if (currentState.isValidating) return false;
@@ -1199,7 +1238,7 @@ export const SaveControls = React.forwardRef((props, ref) => {
         const monthIndexValid = !monthIndexQuery || (currentState.validationResults.monthIndex && currentState.validationResults.monthIndex.valid !== false);
         return indexValid && monthIndexValid;
       })();
-      
+
       // Update the dialog button state by manipulating DOM directly
       React.useEffect(() => {
         const acceptButton = document.querySelector('.p-confirm-dialog-accept');
@@ -1219,7 +1258,7 @@ export const SaveControls = React.forwardRef((props, ref) => {
           }
         }
       }, [canSave, currentState.isValidating]);
-      
+
       return <DialogMessage />;
     };
 
@@ -1233,7 +1272,7 @@ export const SaveControls = React.forwardRef((props, ref) => {
       accept: async () => {
         // Read latest state from ref
         const currentState = validationStateRef.current;
-        
+
         // Prevent saving if validation is still running
         if (currentState.isValidating) {
           return;
@@ -1253,19 +1292,19 @@ export const SaveControls = React.forwardRef((props, ref) => {
           setIsValidating(true);
           setIndexQueryError(null);
           setMonthIndexQueryError(null);
-          
+
           try {
             let indexValidation, monthIndexValidation;
-            
+
             // Re-validate index query if it exists
             if (selectedQuery) {
               indexValidation = await validateAndRectifyQuery(
-                selectedQuery, 
-                'Index', 
-                queryString, 
+                selectedQuery,
+                'Index',
+                queryString,
                 selectedKeys
               );
-              
+
               if (!indexValidation.valid) {
                 const errorMsg = indexValidation.errorMessage || indexValidation.errors.join('; ');
                 setIndexQueryError(errorMsg);
@@ -1280,12 +1319,12 @@ export const SaveControls = React.forwardRef((props, ref) => {
             // Re-validate month index query if it exists
             if (monthIndexQuery) {
               monthIndexValidation = await validateAndRectifyQuery(
-                monthIndexQuery, 
-                'Month Index', 
-                queryString, 
+                monthIndexQuery,
+                'Month Index',
+                queryString,
                 monthIndexKeys
               );
-              
+
               if (!monthIndexValidation.valid) {
                 const errorMsg = monthIndexValidation.errorMessage || monthIndexValidation.errors.join('; ');
                 setMonthIndexQueryError(errorMsg);
@@ -1298,15 +1337,15 @@ export const SaveControls = React.forwardRef((props, ref) => {
             }
 
             setValidationResults({ index: indexValidation, monthIndex: monthIndexValidation });
-            
+
             // Store re-validation results for use in save
             finalIndexValidation = indexValidation;
             finalMonthIndexValidation = monthIndexValidation;
-            
+
             // Check again after re-validation
             const newIndexValid = !selectedQuery || (indexValidation && indexValidation.valid !== false);
             const newMonthIndexValid = !monthIndexQuery || (monthIndexValidation && monthIndexValidation.valid !== false);
-            
+
             if (!newIndexValid || !newMonthIndexValid) {
               // Still invalid, don't save
               setIsValidating(false);
@@ -1319,13 +1358,13 @@ export const SaveControls = React.forwardRef((props, ref) => {
           } finally {
             setIsValidating(false);
           }
-          
+
           // If we get here, validation passed on re-run, continue with save
         }
 
         try {
           const queryToSave = queryString;
-          
+
           // Ensure variables are saved as valid JSON string
           // Use jsonc-parser (same as GraphiQL) to handle JSON with comments and lenient syntax
           let validVariablesString = '';
@@ -1348,17 +1387,17 @@ export const SaveControls = React.forwardRef((props, ref) => {
               }
             }
           }
-          
+
           // Use validated and rectified queries
           // If query exists, use validated version. If it doesn't exist, use empty string
           // Use finalIndexValidation and finalMonthIndexValidation which contain either state values or re-validation results
-          const validatedIndexQuery = selectedQuery 
+          const validatedIndexQuery = selectedQuery
             ? (finalIndexValidation?.valid ? finalIndexValidation.query : '')
             : '';
           const validatedMonthIndexQuery = monthIndexQuery
             ? (finalMonthIndexValidation?.valid ? finalMonthIndexValidation.query : '')
             : '';
-          
+
           // Show user-friendly message if queries had to be fixed
           if (finalIndexValidation?.wasFixed || finalMonthIndexValidation?.wasFixed) {
             const fixedMessages = [];
@@ -1368,7 +1407,7 @@ export const SaveControls = React.forwardRef((props, ref) => {
             if (finalMonthIndexValidation?.wasFixed) {
               fixedMessages.push('Month index query was automatically fixed');
             }
-            
+
             console.log('Queries fixed before saving:', fixedMessages.join(', '));
           }
 
@@ -1394,38 +1433,38 @@ export const SaveControls = React.forwardRef((props, ref) => {
           // Get appropriate user identifier based on auth method
           const getUserIdentifier = (authUser) => {
             if (!authUser) return null;
-            
+
             // Check provider data to determine auth method
             const providerData = authUser.providerData || [];
-            
+
             // Check if Microsoft/OAuth provider
-            const oauthProvider = providerData.find(provider => 
-              provider.providerId === 'microsoft.com' || 
+            const oauthProvider = providerData.find(provider =>
+              provider.providerId === 'microsoft.com' ||
               provider.providerId.includes('microsoft')
             );
             if (oauthProvider && authUser.email) {
               return authUser.email; // Microsoft email
             }
-            
+
             // Check if phone provider
-            const phoneProvider = providerData.find(provider => 
+            const phoneProvider = providerData.find(provider =>
               provider.providerId === 'phone'
             );
             if (phoneProvider && authUser.phoneNumber) {
               return authUser.phoneNumber; // Phone number
             }
-            
+
             // Email/Password auth - use email
             if (authUser.email) {
               return authUser.email;
             }
-            
+
             // Fallback to UID if nothing else is available
             return authUser.uid;
           };
 
           const lastUpdatedBy = getUserIdentifier(user);
-          
+
           const saveData = {
             body: queryToSave || '',
             urlKey: urlKey || '',
