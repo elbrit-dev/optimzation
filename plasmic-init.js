@@ -475,11 +475,38 @@ PLASMIC.registerComponent(TableDataProvider, {
       type: "boolean",
       description: "Explicitly hide the data source and query key dropdowns even if selectors are shown",
     },
+    isAdminMode: {
+      type: "boolean",
+      description: "Enable admin mode to bypass data filtering",
+      defaultValue: false,
+    },
+    salesTeamColumn: {
+      type: "string",
+      description: "Column name for Sales Team filtering",
+    },
+    salesTeamValues: {
+      type: "object",
+      description: "Array of allowed Sales Team values",
+      defaultValue: [],
+    },
+    hqColumn: {
+      type: "string",
+      description: "Column name for HQ filtering",
+    },
+    hqValues: {
+      type: "object",
+      description: "Array of allowed HQ values",
+      defaultValue: [],
+    },
     onDataChange: {
       type: "eventHandler",
       argTypes: [{ name: "notification", type: "object" }],
     },
     onTableDataChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "data", type: "object" }],
+    },
+    onRawDataChange: {
       type: "eventHandler",
       argTypes: [{ name: "data", type: "object" }],
     },
