@@ -163,6 +163,7 @@ export default function DataProvider({
   onDataSourceChange,
   variableOverrides = {},
   onVariablesChange,
+  hideDataSourceAndQueryKey = true,
   children 
 }) {
   const [dataSource, setDataSource] = useLocalStorageString('datatable-dataSource', 'offline');
@@ -174,12 +175,20 @@ export default function DataProvider({
   const [monthRange, setMonthRange] = useState(null); // Array of [startMonth, endMonth] or null
   const [hasMonthSupport, setHasMonthSupport] = useState(false); // Whether the current query supports month filtering
   const [queryVariables, setQueryVariables] = useState({}); // Variables from the saved query
+  const [currentQueryDoc, setCurrentQueryDoc] = useState(null); // Current query document
+  const [lastUpdatedAt, setLastUpdatedAt] = useState(null); // Last updated timestamp string from IndexedDB
   const queryVariablesRef = useRef({}); // Ref to track variables immediately (for synchronous access)
   const executingQueryIdRef = useRef(null); // Track which query is currently executing to prevent duplicates
   const executionContextRef = useRef(null); // Persist execution context across runs for caching
   const pipelineExecutionInFlightRef = useRef(new Set()); // Track pipeline executions in flight to prevent concurrent execution
 
-  // Load saved queries on mount
+  // Store onError in ref to avoid dependency issues (only runs once on mount)
+  const onErrorRef = useRef(onError);
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
+
+  // Load saved queries on mount - only run once, use ref for onError
   useEffect(() => {
     const loadSavedQueries = async () => {
       setLoadingQueries(true);
@@ -191,8 +200,8 @@ export default function DataProvider({
         await executeAndStoreIndexQueries(queries);
       } catch (error) {
         console.error('Error loading saved queries:', error);
-        if (onError) {
-          onError({
+        if (onErrorRef.current) {
+          onErrorRef.current({
             severity: 'error',
             summary: 'Error',
             detail: 'Failed to load saved queries',
@@ -204,7 +213,8 @@ export default function DataProvider({
       }
     };
     loadSavedQueries();
-  }, [onError]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount
 
   // Execute index queries and store results in IndexedDB
   const executeAndStoreIndexQueries = async (queries) => {
@@ -472,6 +482,7 @@ export default function DataProvider({
       setMonthRange(null);
       setHasMonthSupport(false);
       setQueryVariables({});
+      setCurrentQueryDoc(null);
       setOfflineDataExecuted(false); // Reset offline execution state
       // Reset execution context when switching to offline
       executionContextRef.current = createExecutionContext();
@@ -495,6 +506,7 @@ export default function DataProvider({
         try {
           const queryDoc = await firestoreService.loadQuery(dataSource);
           if (queryDoc) {
+            setCurrentQueryDoc(queryDoc);
             const { month, monthDate, variables: rawVariables } = queryDoc;
             setHasMonthSupport(month === true);
             
@@ -543,6 +555,7 @@ export default function DataProvider({
           }
         } catch (error) {
           console.error('Error loading query metadata:', error);
+          setCurrentQueryDoc(null);
         }
       };
       loadQueryMetadata();
@@ -578,6 +591,81 @@ export default function DataProvider({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monthRange]); // Only depend on monthRange
+
+  // Format date to "10 Jan 2026 4:03:33 PM" format
+  const formatLastUpdatedDate = (dateString) => {
+    if (!dateString) return null;
+    
+    try {
+      // Try to parse the date string with dayjs
+      const parsedDate = dayjs(dateString);
+      
+      // Check if the date is valid
+      if (!parsedDate.isValid()) {
+        return dateString; // Return original if can't parse
+      }
+      
+      // Format to "10 Jan 2026 4:03:33 PM" (MMM already returns capitalized month by default)
+      return parsedDate.format('D MMM YYYY h:mm:ss A');
+    } catch (error) {
+      console.error('Error formatting date:', error);
+      return dateString; // Return original on error
+    }
+  };
+
+  // Fetch and display last updated timestamp from IndexedDB
+  useEffect(() => {
+    const fetchLastUpdatedAt = async () => {
+      // If offline mode or no dataSource, clear the last updated field
+      if (!dataSource || dataSource === 'offline') {
+        setLastUpdatedAt(null);
+        return;
+      }
+
+      try {
+        // Get the index result from IndexedDB
+        const indexResult = await indexedDBService.getQueryIndexResult(dataSource);
+        
+        if (!indexResult || !indexResult.result) {
+          setLastUpdatedAt(null);
+          return;
+        }
+
+        const result = indexResult.result;
+
+        // Check if the query has month support
+        if (currentQueryDoc && currentQueryDoc.month === true) {
+          // For month == true, result is an object like {"2025-11": "13:14:03.540037"}
+          // Extract YYYY-MM from monthRange
+          if (monthRange && Array.isArray(monthRange) && monthRange.length > 0 && monthRange[0]) {
+            const yearMonthKey = dayjs(monthRange[0]).format('YYYY-MM');
+            // Look up the value for this month key
+            if (result && typeof result === 'object' && !Array.isArray(result)) {
+              const monthValue = result[yearMonthKey];
+              setLastUpdatedAt(monthValue || null);
+            } else {
+              setLastUpdatedAt(null);
+            }
+          } else {
+            // No month range selected, show null
+            setLastUpdatedAt(null);
+          }
+        } else {
+          // For month == false, result is a string directly
+          if (typeof result === 'string') {
+            setLastUpdatedAt(result);
+          } else {
+            setLastUpdatedAt(null);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching last updated timestamp:', error);
+        setLastUpdatedAt(null);
+      }
+    };
+
+    fetchLastUpdatedAt();
+  }, [dataSource, monthRange, currentQueryDoc]);
 
   // Get available query keys from processedData
   const availableQueryKeys = useMemo(() => {
@@ -695,94 +783,121 @@ export default function DataProvider({
     }
   }, [tableData, onTableDataChange]);
 
+  // Sync function that retriggers query execution
+  const handleSync = useCallback(async () => {
+    if (!dataSource || dataSource === 'offline') return;
+    
+    // For month-supported queries, require monthRange
+    if (hasMonthSupport && (!monthRange || !Array.isArray(monthRange) || monthRange.length !== 2)) {
+      return; // Don't execute if month range is required but not set
+    }
+    
+    // Execute query with current settings
+    await runQuery(dataSource, true);
+  }, [dataSource, hasMonthSupport, monthRange, runQuery]);
+
   // Render selectors JSX
   const selectorsJSX = (
     <>
-      <div className="flex items-center justify-between w-full gap-3">
-        <div className="flex items-end gap-3">
-          {/* Data Source Selector */}
-          <div className="w-48">
-            <label className="block text-xs font-medium text-gray-700 mb-1">
-              Data Source
-            </label>
-            <Dropdown
-              value={dataSource}
-              onChange={(e) => setDataSource(e.value)}
-              options={[
-                { label: 'Offline', value: 'offline' },
-                ...savedQueries.map(q => ({ label: q.name, value: q.id }))
-              ]}
-              optionLabel="label"
-              optionValue="value"
-              placeholder="Select a data source"
-              className="w-full"
-              loading={loadingQueries}
-              disabled={executingQuery}
-            />
-          </div>
+      <div className="flex flex-col w-full gap-3">
+        <div className="flex items-center justify-between w-full gap-3">
+          <div className="flex items-end gap-3">
+            {/* Data Source Selector - Only show if hideDataSourceAndQueryKey is false */}
+            {!hideDataSourceAndQueryKey && (
+              <div className="w-48">
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Data Source
+                </label>
+                <Dropdown
+                  value={dataSource}
+                  onChange={(e) => setDataSource(e.value)}
+                  options={[
+                    { label: 'Offline', value: 'offline' },
+                    ...savedQueries.map(q => ({ label: q.name, value: q.id }))
+                  ]}
+                  optionLabel="label"
+                  optionValue="value"
+                  placeholder="Select a data source"
+                  className="w-full"
+                  loading={loadingQueries}
+                  disabled={executingQuery}
+                />
+              </div>
+            )}
 
-          {/* Query Key Selector - Only show when using saved query */}
-          {dataSource && availableQueryKeys.length > 0 && (
-            <div className="w-48">
-              <label className="block text-xs font-medium text-gray-700 mb-1">
-                Query Key
-              </label>
-              <Dropdown
-                value={selectedQueryKey}
-                onChange={(e) => setSelectedQueryKey(e.value)}
-                options={availableQueryKeys.map(key => ({ 
-                  label: startCase(key.split('__').join(' ').split('_').join(' ')), 
-                  value: key 
-                }))}
-                optionLabel="label"
-                optionValue="value"
-                placeholder="Select Query Key"
-                className="w-full"
-                disabled={executingQuery || !processedData}
-              />
-            </div>
-          )}
+            {/* Query Key Selector - Only show when using saved query and hideDataSourceAndQueryKey is false */}
+            {!hideDataSourceAndQueryKey && dataSource && availableQueryKeys.length > 0 && (
+              <div className="w-48">
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Query Key
+                </label>
+                <Dropdown
+                  value={selectedQueryKey}
+                  onChange={(e) => setSelectedQueryKey(e.value)}
+                  options={availableQueryKeys.map(key => ({ 
+                    label: startCase(key.split('__').join(' ').split('_').join(' ')), 
+                    value: key 
+                  }))}
+                  optionLabel="label"
+                  optionValue="value"
+                  placeholder="Select Query Key"
+                  className="w-full"
+                  disabled={executingQuery || !processedData}
+                />
+              </div>
+            )}
 
-          {/* Month Range Picker - Only show when using saved query that supports month filtering */}
-          {dataSource && hasMonthSupport && (
-            <div className="w-64">
-              <label className="block text-xs font-medium text-gray-700 mb-1">
-                Month Range
-              </label>
-              <RangePicker
-                picker="month"
-                value={
-                  monthRange && Array.isArray(monthRange) && monthRange.length === 2
-                    ? [dayjs(monthRange[0]), dayjs(monthRange[1])]
-                    : null
-                }
-                onChange={(dates) => {
-                  if (dates && dates[0] && dates[1]) {
-                    // Convert dayjs to Date objects
-                    setMonthRange([dates[0].toDate(), dates[1].toDate()]);
-                  } else {
-                    setMonthRange(null);
+            {/* Month Range Picker - Only show when using saved query that supports month filtering */}
+            {dataSource && hasMonthSupport && (
+              <div className="w-64">
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Month Range
+                </label>
+                <RangePicker
+                  picker="month"
+                  value={
+                    monthRange && Array.isArray(monthRange) && monthRange.length === 2
+                      ? [dayjs(monthRange[0]), dayjs(monthRange[1])]
+                      : null
                   }
-                }}
-                placeholder={['Start month', 'End month']}
-                format="MM/YY"
-                disabled={executingQuery}
-                className="w-full"
-                style={{
-                  width: '100%',
-                  fontSize: '0.875rem',
-                  height: '2.5rem',
-                }}
-              />
-            </div>
-          )}
+                  onChange={(dates) => {
+                    if (dates && dates[0] && dates[1]) {
+                      // Convert dayjs to Date objects
+                      setMonthRange([dates[0].toDate(), dates[1].toDate()]);
+                    } else {
+                      setMonthRange(null);
+                    }
+                  }}
+                  placeholder={['Start month', 'End month']}
+                  format="MM/YY"
+                  disabled={executingQuery}
+                  className="w-full"
+                  style={{
+                    width: '100%',
+                    fontSize: '0.875rem',
+                    height: '2.5rem',
+                  }}
+                />
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Loading indicator when executing - vertically centered and at the right */}
-        {executingQuery && dataSource && dataSource !== 'offline' && (
-          <div className="flex items-center gap-2 text-sm text-gray-500 shrink-0">
-            <i className="pi pi-spin pi-spinner text-blue-600"></i>
-            <span>Executing...</span>
+        {/* Last Updated at with Sync button - Show when using saved query, in a new row below Data Source */}
+        {dataSource && dataSource !== 'offline' && (
+          <div className="flex items-center gap-3 text-sm text-gray-700">
+            {/* Sync Button - to the left of Last updated at */}
+            <Button
+              label={executingQuery ? 'Syncing...' : 'Sync'}
+              icon={executingQuery ? 'pi pi-spin pi-spinner' : 'pi pi-refresh'}
+              onClick={handleSync}
+              disabled={executingQuery || (hasMonthSupport && (!monthRange || !Array.isArray(monthRange) || monthRange.length !== 2))}
+              className="p-button-sm p-button-outlined"
+              style={{ fontSize: '0.875rem', height: '2rem' }}
+            />
+            <span>
+              Last updated at: {lastUpdatedAt ? formatLastUpdatedDate(lastUpdatedAt) : <span className="text-gray-400">N/A</span>}
+            </span>
           </div>
         )}
       </div>

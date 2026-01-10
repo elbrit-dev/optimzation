@@ -6,7 +6,8 @@ import { Chip } from 'primereact/chip';
 import { InputText } from 'primereact/inputtext';
 import { Dropdown } from 'primereact/dropdown';
 import { MultiSelect } from 'primereact/multiselect';
-import { isEmpty, includes, filter, startCase, toLower, isArray } from 'lodash';
+import { isEmpty, includes, filter, startCase, toLower, isArray, uniq } from 'lodash';
+import { getDataValue } from '../utils/dataAccessUtils';
 
 function SingleFieldSelector({ columns, selectedField, onSelectionChange, formatFieldName, placeholder, label }) {
   const containerRef = React.useRef(null);
@@ -476,6 +477,18 @@ export default function DataTableControls({
   onAddDrawerTab,
   onRemoveDrawerTab,
   onUpdateDrawerTab,
+  // Auth Control props
+  isAdminMode = false,
+  salesTeamColumn = null,
+  salesTeamValues = [],
+  hqColumn = null,
+  hqValues = [],
+  tableData = [],
+  onAdminModeChange,
+  onSalesTeamColumnChange,
+  onSalesTeamValuesChange,
+  onHqColumnChange,
+  onHqValuesChange,
 }) {
   const [customOptions, setCustomOptions] = useState(
     Array.isArray(rowsPerPageOptions) ? rowsPerPageOptions.join(', ') : ''
@@ -677,6 +690,52 @@ export default function DataTableControls({
     }
   }, [pendingVariableOverrides, variableOverrides, getVariableType, formatFieldName, handleVariableChange]);
 
+  // Extract unique values from a column in tableData
+  const getUniqueValuesFromColumn = React.useCallback((columnName, dataToFilter = null) => {
+    if (!columnName || !Array.isArray(tableData) || isEmpty(tableData)) {
+      return [];
+    }
+    
+    // Use provided data or tableData
+    const dataSource = dataToFilter || tableData;
+    
+    const values = dataSource
+      .map(row => {
+        if (!row || typeof row !== 'object') return null;
+        return getDataValue(row, columnName);
+      })
+      .filter(val => val !== null && val !== undefined && val !== '');
+    
+    // Get unique values and sort them
+    const uniqueValues = uniq(values.map(val => String(val)));
+    return uniqueValues.sort();
+  }, [tableData]);
+
+  // Get unique salesTeam values
+  const salesTeamUniqueValues = React.useMemo(() => {
+    return getUniqueValuesFromColumn(salesTeamColumn);
+  }, [salesTeamColumn, tableData, getUniqueValuesFromColumn]);
+
+  // Get unique hq values (from data filtered by salesTeam first)
+  const hqUniqueValues = React.useMemo(() => {
+    if (!salesTeamColumn || !hqColumn || !Array.isArray(tableData) || isEmpty(tableData)) {
+      return [];
+    }
+    
+    // First filter by salesTeam if salesTeamValues has exactly 1 value
+    let filteredData = tableData;
+    if (salesTeamValues && salesTeamValues.length === 1) {
+      const selectedSalesTeamValue = salesTeamValues[0];
+      filteredData = tableData.filter(row => {
+        if (!row || typeof row !== 'object') return false;
+        const rowValue = getDataValue(row, salesTeamColumn);
+        return String(rowValue) === String(selectedSalesTeamValue);
+      });
+    }
+    
+    return getUniqueValuesFromColumn(hqColumn, filteredData);
+  }, [salesTeamColumn, hqColumn, salesTeamValues, tableData, getUniqueValuesFromColumn]);
+
   const ToggleSwitch = ({ checked, onChange, label, icon, isLast = false }) => (
     <div className={`flex items-center justify-between p-3 ${!isLast ? 'border-bottom-1 surface-border' : ''}`}>
       <div className="flex align-items-center gap-2">
@@ -740,6 +799,143 @@ export default function DataTableControls({
         </div>
       )}
 
+      {/* Auth Control Section */}
+      <div className="border-b border-gray-200 bg-white hidden @3xs:block">
+        <div className="px-2 @3xs:px-4 py-2 @3xs:py-3 bg-gray-50 border-b border-gray-200">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <i className="pi pi-lock text-base @3xs:text-lg text-primary"></i>
+              <span className="font-semibold text-sm @3xs:text-base text-primary">Auth Control</span>
+            </div>
+          </div>
+        </div>
+        <div className="p-2 @3xs:p-4">
+          <div className="space-y-2 @3xs:space-y-4">
+            {/* Admin Mode Toggle */}
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-gray-700">Admin Mode</span>
+              <div className="relative">
+                <input
+                  type="checkbox"
+                  checked={isAdminMode === true}
+                  onChange={(e) => onAdminModeChange && onAdminModeChange(e.target.checked)}
+                  className="sr-only"
+                />
+                <div
+                  className={`w-11 h-6 rounded-full transition-colors duration-200 cursor-pointer ${isAdminMode ? 'bg-blue-600' : 'bg-gray-300'}`}
+                  onClick={() => onAdminModeChange && onAdminModeChange(!isAdminMode)}
+                >
+                  <div
+                    className={`w-5 h-5 bg-white rounded-full shadow-sm transform transition-transform duration-200 ${isAdminMode ? 'translate-x-5' : 'translate-x-0.5'}`}
+                    style={{ marginTop: '2px' }}
+                  ></div>
+                </div>
+              </div>
+            </div>
+
+            {/* Sales Team Controls - Only show when Admin mode is OFF */}
+            {!isAdminMode && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Sales Team Column
+                  </label>
+                  <p className="text-xs text-gray-500 mb-2">
+                    Select the column that contains sales team data
+                  </p>
+                  <SingleFieldSelector
+                    columns={columns}
+                    selectedField={salesTeamColumn}
+                    onSelectionChange={onSalesTeamColumnChange}
+                    formatFieldName={formatFieldName}
+                    placeholder="Select sales team column..."
+                  />
+                </div>
+
+                {salesTeamColumn && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Sales Team Values
+                    </label>
+                    <p className="text-xs text-gray-500 mb-2">
+                      Select one or more sales team values to filter by
+                    </p>
+                    <MultiSelect
+                      value={salesTeamValues}
+                      onChange={(e) => onSalesTeamValuesChange && onSalesTeamValuesChange(e.value || [])}
+                      options={salesTeamUniqueValues.map(val => ({ label: String(val), value: String(val) }))}
+                      optionLabel="label"
+                      optionValue="value"
+                      filter
+                      filterPlaceholder="Search values..."
+                      filterDelay={300}
+                      className="w-full"
+                      panelClassName="custom-multiselect-panel"
+                      display="chip"
+                      showClear
+                      resetFilterOnHide
+                      emptyFilterMessage="No values match your search"
+                      emptyMessage="No values available"
+                      placeholder="Select sales team values..."
+                    />
+                  </div>
+                )}
+
+                {/* HQ Controls - Only show when Admin mode is OFF and salesTeamValues has exactly 1 value */}
+                {!isAdminMode && salesTeamValues && salesTeamValues.length === 1 && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        HQ Column
+                      </label>
+                      <p className="text-xs text-gray-500 mb-2">
+                        Select the column that contains HQ data
+                      </p>
+                      <SingleFieldSelector
+                        columns={columns}
+                        selectedField={hqColumn}
+                        onSelectionChange={onHqColumnChange}
+                        formatFieldName={formatFieldName}
+                        placeholder="Select HQ column..."
+                      />
+                    </div>
+
+                    {hqColumn && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          HQ Values
+                        </label>
+                        <p className="text-xs text-gray-500 mb-2">
+                          Select one or more HQ values to filter by
+                        </p>
+                        <MultiSelect
+                          value={hqValues}
+                          onChange={(e) => onHqValuesChange && onHqValuesChange(e.value || [])}
+                          options={hqUniqueValues.map(val => ({ label: String(val), value: String(val) }))}
+                          optionLabel="label"
+                          optionValue="value"
+                          filter
+                          filterPlaceholder="Search values..."
+                          filterDelay={300}
+                          className="w-full"
+                          panelClassName="custom-multiselect-panel"
+                          display="chip"
+                          showClear
+                          resetFilterOnHide
+                          emptyFilterMessage="No values match your search"
+                          emptyMessage="No values available"
+                          placeholder="Select HQ values..."
+                        />
+                      </div>
+                    )}
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* Icon-only mode when very small - show icons only */}
       <div className="@3xs:hidden flex flex-col items-center py-2 gap-2">
         {Object.keys(filteredVariables).length > 0 && (
@@ -747,6 +943,9 @@ export default function DataTableControls({
             <i className="pi pi-code text-xl text-primary"></i>
           </div>
         )}
+        <div className="p-2 text-center" title="Auth Control">
+          <i className="pi pi-lock text-xl text-primary"></i>
+        </div>
         <div className="p-2 text-center" title="Table Settings">
           <i className="pi pi-table text-xl text-primary"></i>
         </div>

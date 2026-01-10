@@ -267,10 +267,15 @@ PLASMIC.registerComponent(DataTable, {
       defaultValue: true,
       description: "Show/hide summation controls within the header",
     },
-    enablePagination: {
+    enableDivideBy1Lakh: {
       type: "boolean",
-      defaultValue: true,
-      description: "Show/hide pagination controls",
+      defaultValue: false,
+      description: "Toggle dividing numerical values by 1,00,000 (1 Lakh)",
+    },
+    percentageColumns: {
+      type: "object",
+      description: "Configuration for percentage-based columns",
+      defaultValue: [],
     },
     textFilterColumns: {
       type: "object",
@@ -304,6 +309,29 @@ PLASMIC.registerComponent(DataTable, {
     },
     nonEditableColumns: {
       type: "object",
+      defaultValue: [],
+    },
+    isAdminMode: {
+      type: "boolean",
+      description: "Enable admin mode to bypass data filtering",
+      defaultValue: false,
+    },
+    salesTeamColumn: {
+      type: "string",
+      description: "Column name for Sales Team filtering",
+    },
+    salesTeamValues: {
+      type: "object",
+      description: "Array of allowed Sales Team values",
+      defaultValue: [],
+    },
+    hqColumn: {
+      type: "string",
+      description: "Column name for HQ filtering",
+    },
+    hqValues: {
+      type: "object",
+      description: "Array of allowed HQ values",
       defaultValue: [],
     },
     enableTargetData: {
@@ -443,6 +471,10 @@ PLASMIC.registerComponent(TableDataProvider, {
       description: "Show/hide data source and query selectors",
       defaultValue: true,
     },
+    hideDataSourceAndQueryKey: {
+      type: "boolean",
+      description: "Explicitly hide the data source and query key dropdowns even if selectors are shown",
+    },
     onDataChange: {
       type: "eventHandler",
       argTypes: [{ name: "notification", type: "object" }],
@@ -451,6 +483,11 @@ PLASMIC.registerComponent(TableDataProvider, {
       type: "eventHandler",
       argTypes: [{ name: "data", type: "object" }],
     },
+    dataSlot: {
+      type: "slot",
+      description: "Slot to add custom UI components that can access the table data",
+    },
   },
+  providesData: true,
   importPath: "./components/TableDataProvider",
 });

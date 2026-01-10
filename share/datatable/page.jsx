@@ -11,7 +11,7 @@ import DataProvider from './components/DataProvider';
 import data from '@/resource/data';
 import { uniq, flatMap, isEmpty, startCase, filter as lodashFilter, get, isNil, debounce } from 'lodash';
 import { saveSettingsForDataSource, loadSettingsForDataSource } from './utils/settingsService';
-import { getDataKeys } from './utils/dataAccessUtils';
+import { getDataKeys, getDataValue } from './utils/dataAccessUtils';
 import ProtectedRoute from '@/components/ProtectedRoute';
 
 // Custom hook for localStorage with proper JSON serialization for booleans
@@ -47,7 +47,7 @@ function useLocalStorageBoolean(key, defaultValue) {
     }
   }, [key]);
 
-  const setStoredValue = (newValue) => {
+  const setStoredValue = useCallback((newValue) => {
     try {
       if (typeof newValue === 'boolean') {
         const serialized = JSON.stringify(newValue);
@@ -59,7 +59,7 @@ function useLocalStorageBoolean(key, defaultValue) {
     } catch (error) {
       console.error(`Error setting localStorage key "${key}":`, error);
     }
-  };
+  }, [key]);
 
   return [value, setStoredValue];
 }
@@ -98,7 +98,7 @@ function useLocalStorageArray(key, defaultValue) {
     }
   }, [key]);
 
-  const setStoredValue = (newValue) => {
+  const setStoredValue = useCallback((newValue) => {
     try {
       // Handle functional updates (setState(prev => ...))
       if (typeof newValue === 'function') {
@@ -123,7 +123,7 @@ function useLocalStorageArray(key, defaultValue) {
     } catch (error) {
       console.error(`Error setting localStorage key "${key}":`, error);
     }
-  };
+  }, [key]);
 
   return [value, setStoredValue];
 }
@@ -163,7 +163,7 @@ function useLocalStorageString(key, defaultValue) {
     }
   }, [key]);
 
-  const setStoredValue = (newValue) => {
+  const setStoredValue = useCallback((newValue) => {
     try {
       // Accept string or null values
       if (typeof newValue === 'string' || newValue === null) {
@@ -176,7 +176,7 @@ function useLocalStorageString(key, defaultValue) {
     } catch (error) {
       console.error(`Error setting localStorage key "${key}":`, error);
     }
-  };
+  }, [key]);
 
   return [value, setStoredValue];
 }
@@ -256,6 +256,12 @@ function DataTablePage() {
   const [percentageColumns, setPercentageColumns] = useLocalStorageArray('datatable-percentageColumns', []);
   const [queryVariables, setQueryVariables] = useState({});
   const [variableOverrides, setVariableOverrides] = useState({});
+  // Auth Control settings
+  const [isAdminMode, setIsAdminMode] = useLocalStorageBoolean('datatable-isAdminMode', false);
+  const [salesTeamColumn, setSalesTeamColumn] = useLocalStorageString('datatable-salesTeamColumn', null);
+  const [salesTeamValues, setSalesTeamValues] = useLocalStorageArray('datatable-salesTeamValues', []);
+  const [hqColumn, setHqColumn] = useLocalStorageString('datatable-hqColumn', null);
+  const [hqValues, setHqValues] = useLocalStorageArray('datatable-hqValues', []);
 
   // Sticky header offset - calculate from app-header-container
   const [appHeaderOffset, setAppHeaderOffset] = useState(0);
@@ -412,26 +418,26 @@ function DataTablePage() {
   const originalTableDataRef = useRef(null);
 
 
-  // Handle data changes from DataProvider
-  const handleDataChange = (notification) => {
+  // Handle data changes from DataProvider - memoized to prevent infinite loops
+  const handleDataChange = useCallback((notification) => {
     if (toast.current) {
       toast.current.show(notification);
     }
-  };
+  }, []);
 
-  const handleError = (notification) => {
+  const handleError = useCallback((notification) => {
     if (toast.current) {
       toast.current.show(notification);
     }
-  };
+  }, []);
 
-  const handleTableDataChange = (newTableData) => {
+  const handleTableDataChange = useCallback((newTableData) => {
     setTableData(newTableData);
     // Store original unfiltered data reference
     if (newTableData && Array.isArray(newTableData)) {
       originalTableDataRef.current = newTableData;
     }
-  };
+  }, []);
 
   // Handle data source changes - load saved settings
   const handleDataSourceChange = useCallback((dataSource) => {
@@ -464,6 +470,12 @@ function DataTablePage() {
       if (savedSettings.drawerTabs !== undefined) {
         setDrawerTabs(savedSettings.drawerTabs);
       }
+      // Load Auth Control settings
+      if (savedSettings.isAdminMode !== undefined) setIsAdminMode(savedSettings.isAdminMode);
+      if (savedSettings.salesTeamColumn !== undefined) setSalesTeamColumn(savedSettings.salesTeamColumn);
+      if (savedSettings.salesTeamValues !== undefined) setSalesTeamValues(savedSettings.salesTeamValues);
+      if (savedSettings.hqColumn !== undefined) setHqColumn(savedSettings.hqColumn);
+      if (savedSettings.hqValues !== undefined) setHqValues(savedSettings.hqValues);
     }
   }, []); // setState functions are stable, no need to include them
 
@@ -505,6 +517,11 @@ function DataTablePage() {
       nonEditableColumns,
       percentageColumns,
       drawerTabs,
+      isAdminMode,
+      salesTeamColumn,
+      salesTeamValues,
+      hqColumn,
+      hqValues,
     };
 
     try {
@@ -789,6 +806,61 @@ function DataTablePage() {
   const innerGroupField = innerGroupFieldRaw;
   const setInnerGroupField = setInnerGroupFieldRaw;
 
+  // Clear salesTeamValues, hqColumn, and hqValues when salesTeamColumn changes
+  // Use refs to avoid including lengths in dependencies (which change when we clear values)
+  const salesTeamColumnPrevRef = useRef(salesTeamColumn);
+  const hqColumnPrevRef = useRef(hqColumn);
+  
+  useEffect(() => {
+    // Only act when salesTeamColumn actually changes (not just on every render)
+    const salesTeamColumnChanged = salesTeamColumnPrevRef.current !== salesTeamColumn;
+    salesTeamColumnPrevRef.current = salesTeamColumn;
+    
+    if (salesTeamColumnChanged && !salesTeamColumn) {
+      setSalesTeamValues([]);
+      // Clear hq-related values when salesTeamColumn is cleared
+      if (hqColumn) {
+        setHqColumn(null);
+      }
+      if (hqValues.length > 0) {
+        setHqValues([]);
+      }
+    }
+    
+    // Update refs
+    hqColumnPrevRef.current = hqColumn;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [salesTeamColumn, hqColumn]); // Only depend on the actual values, not lengths or setters
+
+  // Clear hqValues when hqColumn changes
+  useEffect(() => {
+    if (!hqColumn && hqValues.length > 0) {
+      setHqValues([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hqColumn]); // Only depend on hqColumn, not setHqValues or hqValues.length
+
+  // Clear hqValues and hqColumn when salesTeamValues count is not 1
+  // Use ref to track previous length to avoid loop
+  const salesTeamValuesLengthPrevRef = useRef(salesTeamValues.length);
+  
+  useEffect(() => {
+    const lengthChanged = salesTeamValuesLengthPrevRef.current !== salesTeamValues.length;
+    salesTeamValuesLengthPrevRef.current = salesTeamValues.length;
+    
+    // Only act if length changed and is not 1
+    if (lengthChanged && salesTeamValues.length !== 1) {
+      if (hqValues.length > 0) {
+        setHqValues([]);
+      }
+      // Also clear hqColumn when salesTeamValues count is not 1
+      if (hqColumn) {
+        setHqColumn(null);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [salesTeamValues.length, hqColumn]); // Only depend on actual values, not setters
+
 
   // Extract column names from data
   const columns = useMemo(() => {
@@ -799,6 +871,47 @@ function DataTablePage() {
     ));
   }, [tableData]);
 
+  // Sequential filtering: first by salesTeam, then by hq (when Admin mode is OFF)
+  const filteredTableData = useMemo(() => {
+    if (!Array.isArray(tableData) || isEmpty(tableData)) {
+      return tableData;
+    }
+
+    // If Admin mode is ON, return data as-is
+    if (isAdminMode) {
+      return tableData;
+    }
+
+    let filteredData = [...tableData];
+
+    // Step 1: Filter by salesTeam
+    if (salesTeamColumn && salesTeamValues && salesTeamValues.length > 0) {
+      filteredData = filteredData.filter(row => {
+        if (!row || typeof row !== 'object') return false;
+        const rowValue = getDataValue(row, salesTeamColumn);
+        // Handle null/undefined comparison - convert to string for comparison
+        if (isNil(rowValue)) {
+          return salesTeamValues.some(val => val === null || val === undefined || val === '');
+        }
+        return salesTeamValues.some(val => String(val) === String(rowValue));
+      });
+    }
+
+    // Step 2: Filter by hq (only if salesTeamValues count == 1)
+    if (salesTeamValues && salesTeamValues.length === 1 && hqColumn && hqValues && hqValues.length > 0) {
+      filteredData = filteredData.filter(row => {
+        if (!row || typeof row !== 'object') return false;
+        const rowValue = getDataValue(row, hqColumn);
+        // Handle null/undefined comparison - convert to string for comparison
+        if (isNil(rowValue)) {
+          return hqValues.some(val => val === null || val === undefined || val === '');
+        }
+        return hqValues.some(val => String(val) === String(rowValue));
+      });
+    }
+
+    return filteredData;
+  }, [tableData, isAdminMode, salesTeamColumn, salesTeamValues, hqColumn, hqValues]);
 
   // Format field name for display
   const formatFieldName = (key) => {
@@ -936,6 +1049,7 @@ function DataTablePage() {
             onDataSourceChange={handleDataSourceChange}
             onVariablesChange={handleVariablesChange}
             variableOverrides={variableOverrides}
+            hideDataSourceAndQueryKey={false}
             renderHeaderControls={(selectorsJSX) => (
               <div className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 border-b border-gray-200 shrink-0 bg-white">
                 <div className="flex items-end gap-3 flex-wrap">
@@ -962,7 +1076,7 @@ function DataTablePage() {
                     </div>
                   ) : (
                     <DataTableComponent
-                      data={tableData}
+                      data={filteredTableData}
                       rowsPerPageOptions={rowsPerPageOptions}
                       defaultRows={defaultRows}
                       scrollable={false}
@@ -1033,6 +1147,17 @@ function DataTablePage() {
                   onAddDrawerTab={handleAddDrawerTab}
                   onRemoveDrawerTab={handleRemoveDrawerTab}
                   onUpdateDrawerTab={handleUpdateDrawerTab}
+                  isAdminMode={isAdminMode}
+                  salesTeamColumn={salesTeamColumn}
+                  salesTeamValues={salesTeamValues}
+                  hqColumn={hqColumn}
+                  hqValues={hqValues}
+                  tableData={tableData}
+                  onAdminModeChange={setIsAdminMode}
+                  onSalesTeamColumnChange={setSalesTeamColumn}
+                  onSalesTeamValuesChange={setSalesTeamValues}
+                  onHqColumnChange={setHqColumn}
+                  onHqValuesChange={setHqValues}
                 />
               </SplitterPanel>
               </Splitter>
@@ -1092,7 +1217,7 @@ function DataTablePage() {
                           innerGroupField={tab.innerGroup}
                           enableCellEdit={false}
                           nonEditableColumns={nonEditableColumns}
-                          percentageColumns={[]}
+                          percentageColumns={percentageColumns}
                           appHeaderOffset={sidebarHeaderOffset}
                           stickyHeaderZIndex={sidebarStickyHeaderZIndex}
                           shouldShowHeader={shouldShowSidebarHeader}

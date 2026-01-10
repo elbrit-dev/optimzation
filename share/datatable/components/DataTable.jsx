@@ -3749,16 +3749,95 @@ export default function DataTableComponent({
   };
 
   const exportToXLSX = useCallback(() => {
-    // Prepare data for export - use original data (unfiltered, ungrouped, unsorted)
-    // Get all columns from the original data
-    const allColumns = isEmpty(safeData) ? [] : uniq(flatMap(safeData, (item) =>
-      item && typeof item === 'object' ? getDataKeys(item) : []
-    ));
+    let dataToExport;
+    let allColumns;
 
-    const exportData = safeData.map((row) => {
+    if (outerGroupField && !isEmpty(groupedData)) {
+      // Grouped mode: extract inner rows from each group
+      const flattenedInnerRows = [];
+      
+      groupedData.forEach((groupRow) => {
+        if (groupRow.__isGroupRow__ && groupRow.__groupRows__) {
+          const groupKey = groupRow.__groupKey__ || getDataValue(groupRow, outerGroupField);
+          
+          groupRow.__groupRows__.forEach((innerRow) => {
+            // Ensure outerGroupField value is set (should already be in aggregated rows, but ensure it)
+            const rowWithGroup = { ...innerRow };
+            if (!rowWithGroup.hasOwnProperty(outerGroupField)) {
+              rowWithGroup[outerGroupField] = groupKey === '__null__' ? null : groupKey;
+            }
+            flattenedInnerRows.push(rowWithGroup);
+          });
+        }
+      });
+      
+      dataToExport = flattenedInnerRows;
+      
+      // Collect all columns from flattened data
+      const allDataColumns = isEmpty(dataToExport) ? [] : uniq(flatMap(dataToExport, (item) =>
+        item && typeof item === 'object' ? getDataKeys(item) : []
+      ));
+      
+      // In grouped mode, filter to only include numeric columns (plus group fields and percentage columns)
+      allColumns = allDataColumns.filter((col) => {
+        // Always include outerGroupField
+        if (col === outerGroupField) return true;
+        
+        // Always include innerGroupField if set
+        if (innerGroupField && col === innerGroupField) return true;
+        
+        // Always include percentage columns (they're numeric)
+        if (isPercentageColumn(col)) return true;
+        
+        // Include numeric columns
+        const colType = get(columnTypes, col);
+        return get(colType, 'isNumeric', false);
+      });
+    } else {
+      // Normal mode: use safeData and compute percentage columns
+      dataToExport = safeData.map((row) => {
+        const rowWithPercentages = { ...row };
+        
+        // Compute percentage columns if configured
+        if (hasPercentageColumns && percentageColumns) {
+          percentageColumns.forEach(pc => {
+            if (pc.columnName && pc.targetField && pc.valueField) {
+              // Compute percentage value for this row
+              const percentageValue = getPercentageColumnValue(row, pc.columnName);
+              rowWithPercentages[pc.columnName] = percentageValue;
+            }
+          });
+        }
+        
+        return rowWithPercentages;
+      });
+      
+      // Collect columns from data plus percentage columns
+      const dataColumns = isEmpty(dataToExport) ? [] : uniq(flatMap(dataToExport, (item) =>
+        item && typeof item === 'object' ? getDataKeys(item) : []
+      ));
+      
+      // Add percentage columns explicitly (in case they're null/undefined and don't appear as keys)
+      const percentageColNames = hasPercentageColumns && percentageColumns 
+        ? percentageColumns.map(pc => pc.columnName).filter(Boolean)
+        : [];
+      
+      allColumns = uniq([...dataColumns, ...percentageColNames]);
+    }
+
+    // Format and export data (same logic for both modes)
+    const exportData = dataToExport.map((row) => {
       const exportRow = {};
       allColumns.forEach((col) => {
-        const value = getDataValue(row, col);
+        // For percentage columns, the value might already be computed (grouped mode) or we need to compute it (normal mode)
+        // But since we computed it in normal mode above, we can just get it from the row
+        let value = getDataValue(row, col);
+        
+        // If value is still null/undefined and it's a percentage column, try computing it
+        if (isNil(value) && isPercentageColumn(col)) {
+          value = getPercentageColumnValue(row, col);
+        }
+        
         const colType = get(columnTypes, col);
 
         // Format the value for export
@@ -3769,15 +3848,14 @@ export default function DataTableComponent({
         } else if (get(colType, 'isDate')) {
           exportRow[formatHeaderName(col)] = formatDateValue(value);
         } else {
-          // For numeric columns, ensure we write real numbers (not formatted strings)
-          if (get(colType, 'isNumeric')) {
-            const numeric =
-              typeof value === 'number'
-                ? value
-                : parseFloat(String(value).replace(/,/g, ''));
-            exportRow[formatHeaderName(col)] = Number.isFinite(numeric)
-              ? numeric
-              : String(value);
+          // Check if it's a percentage column or numeric value
+          const isPctCol = isPercentageColumn(col);
+          const isNumeric = isPctCol || get(colType, 'isNumeric') || (typeof value === 'number' && Number.isFinite(value));
+          
+          if (isNumeric) {
+            // For numeric columns (including percentage columns), ensure we write real numbers
+            const numeric = typeof value === 'number' ? value : parseFloat(String(value).replace(/,/g, ''));
+            exportRow[formatHeaderName(col)] = Number.isFinite(numeric) ? numeric : String(value);
           } else {
             // Non-numeric columns: keep as plain string
             exportRow[formatHeaderName(col)] = String(value);
@@ -3798,7 +3876,7 @@ export default function DataTableComponent({
 
     // Write file
     XLSX.writeFile(wb, filename);
-  }, [safeData, columnTypes, formatHeaderName, formatCellValue, isTruthyBoolean]);
+  }, [safeData, columnTypes, formatHeaderName, isTruthyBoolean, outerGroupField, groupedData, isPercentageColumn, hasPercentageColumns, percentageColumns, getPercentageColumnValue]);
 
   if (isEmpty(safeData)) {
     return (

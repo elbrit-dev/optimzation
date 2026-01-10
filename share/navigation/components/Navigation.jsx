@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { useRouter, usePathname } from 'next/navigation';
-import Image from 'next/image';
 import { useSwipeNavigation } from '@/hooks/useSwipeNavigation';
 import ChatIconActive from '@/components/icons/ChatIconActive';
 import ChatIconInactive from '@/components/icons/ChatIconInactive';
@@ -13,6 +12,7 @@ import PlannerIconActive from '@/components/icons/PlannerIconActive';
 import PlannerIconInactive from '@/components/icons/PlannerIconInactive';
 import ProductIconActive from '@/components/icons/ProductIconActive';
 import ProductIconInactive from '@/components/icons/ProductIconInactive';
+import HomeIcon from '@/components/icons/HomeIcon';
 
 // Default navigation items
 const DEFAULT_NAVIGATION_ITEMS = [
@@ -37,8 +37,8 @@ const DEFAULT_NAVIGATION_ITEMS = [
     mobileFullscreen: false,
     mobileOnly: true,
     isDefault: true,
-    iconActive: <Image src="/logo.jpeg" width={56} height={56} alt="Home" />,
-    iconInactive: <Image src="/logo.jpeg" width={52} height={52} alt="Home" />,
+    iconActive: <HomeIcon width={56} height={56} />,
+    iconInactive: <HomeIcon width={52} height={52} />,
   },
   {
     label: 'Products',
