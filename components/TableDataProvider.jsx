@@ -72,12 +72,18 @@ const TableDataProvider = (props) => {
   useEffect(() => { onSelectedQueryKeyChangeRef.current = onSelectedQueryKeyChange; }, [onSelectedQueryKeyChange]);
 
   const stableOnTableDataChange = useCallback((data) => {
-    setCurrentTableData(data);
+    setCurrentTableData(prev => {
+      if (JSON.stringify(prev) === JSON.stringify(data)) return prev;
+      return data;
+    });
     onTableDataChangeRef.current?.(data);
   }, []);
 
   const stableOnRawDataChange = useCallback((data) => {
-    setCurrentRawData(data);
+    setCurrentRawData(prev => {
+      if (JSON.stringify(prev) === JSON.stringify(data)) return prev;
+      return data;
+    });
     onRawDataChangeRef.current?.(data);
   }, []);
 
@@ -86,7 +92,10 @@ const TableDataProvider = (props) => {
   }, []);
 
   const stableOnVariablesChange = useCallback((vars) => {
-    setCurrentVariables(vars);
+    setCurrentVariables(prev => {
+      if (JSON.stringify(prev) === JSON.stringify(vars)) return prev;
+      return vars;
+    });
     onVariablesChangeRef.current?.(vars);
   }, []);
 
@@ -96,27 +105,42 @@ const TableDataProvider = (props) => {
 
   // New stable callbacks for internal state
   const stableOnSavedQueriesChange = useCallback((queries) => {
-    setSavedQueries(queries);
+    setSavedQueries(prev => {
+      if (JSON.stringify(prev) === JSON.stringify(queries)) return prev;
+      return queries;
+    });
     onSavedQueriesChangeRef.current?.(queries);
   }, []);
 
   const stableOnLoadingQueriesChange = useCallback((loading) => {
-    setLoadingQueries(loading);
+    setLoadingQueries(prev => {
+      if (prev === loading) return prev;
+      return loading;
+    });
     onLoadingQueriesChangeRef.current?.(loading);
   }, []);
 
   const stableOnExecutingQueryChange = useCallback((executing) => {
-    setExecutingQuery(executing);
+    setExecutingQuery(prev => {
+      if (prev === executing) return prev;
+      return executing;
+    });
     onExecutingQueryChangeRef.current?.(executing);
   }, []);
 
   const stableOnAvailableQueryKeysChange = useCallback((keys) => {
-    setAvailableQueryKeys(keys);
+    setAvailableQueryKeys(prev => {
+      if (JSON.stringify(prev) === JSON.stringify(keys)) return prev;
+      return keys;
+    });
     onAvailableQueryKeysChangeRef.current?.(keys);
   }, []);
 
   const stableOnSelectedQueryKeyChange = useCallback((key) => {
-    setSelectedQueryKey(key);
+    setSelectedQueryKey(prev => {
+      if (prev === key) return prev;
+      return key;
+    });
     onSelectedQueryKeyChangeRef.current?.(key);
   }, []);
 
@@ -127,11 +151,10 @@ const TableDataProvider = (props) => {
       ...otherProps,
       ...(variableOverrides || {})
     };
-  }, [JSON.stringify(otherProps), JSON.stringify(variableOverrides)]);
+  }, [JSON.stringify(variableOverrides)]); 
 
   // Stabilize merged variables to prevent infinite fetch loops
-  const stringifiedOverrides = JSON.stringify(mergedVariables);
-  const stableOverrides = useMemo(() => JSON.parse(stringifiedOverrides), [stringifiedOverrides]);
+  const stableOverrides = useMemo(() => mergedVariables, [JSON.stringify(mergedVariables)]);
 
   // Use state for the re-mount key and refs for change detection
   const [instanceKey, setInstanceKey] = useState(`initial-${dataSource || 'offline'}-${queryKey || 'default'}`);
