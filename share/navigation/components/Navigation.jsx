@@ -130,6 +130,9 @@ const Navigation = ({ items, defaultIndex = 0 }) => {
   };
 
   const handleItemClick = (index) => {
+    const item = navigationItems[index];
+    // Don't navigate if item is disabled
+    if (item?.isDisabled) return;
     navigateToIndex(index);
   };
 
@@ -160,16 +163,20 @@ const Navigation = ({ items, defaultIndex = 0 }) => {
             {navigationItems.map((item, index) => {
               // Skip mobileOnly items in desktop sidebar
               if (item.mobileOnly) return null;
+              const isDisabled = item.isDisabled === true;
               return (
                 <motion.button
                   key={item.path || item.route || index}
                   onClick={() => handleItemClick(index)}
-                  className={`w-full text-left px-4 py-3 rounded-lg mb-1 transition-colors ${activeIndex === index
+                  disabled={isDisabled}
+                  className={`w-full text-left px-4 py-3 rounded-lg mb-1 transition-colors ${isDisabled
+                    ? 'opacity-50 cursor-not-allowed text-gray-400'
+                    : activeIndex === index
                     ? 'bg-blue-50 text-blue-700 font-medium'
                     : 'text-gray-700 hover:bg-gray-100'
                     }`}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
+                  whileHover={isDisabled ? {} : { scale: 1.02 }}
+                  whileTap={isDisabled ? {} : { scale: 0.98 }}
                 >
                   <div className="flex items-center gap-3">
                     {item.iconActive && activeIndex === index && (
@@ -198,15 +205,20 @@ const Navigation = ({ items, defaultIndex = 0 }) => {
           className="bg-white border-t border-gray-200 shadow-lg safe-area-bottom flex-shrink-0 z-10 fixed bottom-0 left-0 right-0"
         >
           <div className="flex justify-around items-center h-16 px-2 relative">
-            {navigationItems.map((item, index) => (
+            {navigationItems.map((item, index) => {
+              const isDisabled = item.isDisabled === true;
+              return (
               <motion.button
                 key={item.path || item.route || index}
                 onClick={() => handleItemClick(index)}
-                className={`relative flex flex-col items-center justify-center flex-1 h-full rounded-lg transition-colors ${activeIndex === index
+                disabled={isDisabled}
+                className={`relative flex flex-col items-center justify-center flex-1 h-full rounded-lg transition-colors ${isDisabled
+                  ? 'opacity-50 cursor-not-allowed text-gray-400'
+                  : activeIndex === index
                   ? 'text-blue-600'
                   : 'text-gray-500'
                   }`}
-                whileTap={{ scale: 0.9 }}
+                whileTap={isDisabled ? {} : { scale: 0.9 }}
               >
                 {item.iconActive && activeIndex === index && (
                   <motion.div
@@ -243,7 +255,8 @@ const Navigation = ({ items, defaultIndex = 0 }) => {
                 )}
                 <span className="text-xs font-medium">{item.label}</span>
               </motion.button>
-            ))}
+            );
+            })}
             {/* Active indicator */}
             <motion.div
               className="absolute bottom-0 h-1 bg-blue-600 rounded-t-full"

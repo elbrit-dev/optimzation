@@ -14,6 +14,7 @@ import PlannerIconActive from '../share/components/icons/PlannerIconActive';
 import PlannerIconInactive from '../share/components/icons/PlannerIconInactive';
 import ProductIconActive from '../share/components/icons/ProductIconActive';
 import ProductIconInactive from '../share/components/icons/ProductIconInactive';
+import HomeIcon from '../share/components/icons/HomeIcon';
 
 const ICON_REGISTRY = {
   ChatIconActive,
@@ -24,6 +25,7 @@ const ICON_REGISTRY = {
   PlannerIconInactive,
   ProductIconActive,
   ProductIconInactive,
+  HomeIcon,
 };
 
 /**
@@ -53,7 +55,8 @@ const transformItem = (item) => {
     }
 
     const IconComp = ICON_REGISTRY[iconValue];
-    return IconComp ? <IconComp width={24} height={24} /> : iconValue;
+    const size = isLogo ? (isActive ? 56 : 52) : 24;
+    return IconComp ? <IconComp width={size} height={size} /> : iconValue;
   };
 
   const isLogo = item.mobileOnly && item.isDefault;
@@ -73,7 +76,7 @@ const transformItem = (item) => {
  * that acts as a Layout Shell with a children slot.
  */
 export default function PlasmicNavigation(props) {
-  const { children, items, enableSwipe = true, className, ...rest } = props;
+  const { children, items, enableSwipe = true, hideNavigation = false, isDisabled = false, className, ...rest } = props;
   
   // Transform string icon names into JSX elements
   const transformedItems = React.useMemo(() => {
@@ -91,7 +94,11 @@ export default function PlasmicNavigation(props) {
       className={`flex bg-gray-50 overflow-hidden relative ${className || ''}`}
     >
       {/* The Navigation bars (Sidebar/Bottom Bar) */}
-      <Navigation {...rest} items={transformedItems} />
+      {!hideNavigation && (
+        <div className={isDisabled ? 'opacity-50 pointer-events-none' : ''}>
+          <Navigation {...rest} items={transformedItems} />
+        </div>
+      )}
       
       {/* The Content Area (The Slot) */}
       <div 

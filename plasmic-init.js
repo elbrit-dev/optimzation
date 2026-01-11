@@ -388,7 +388,44 @@ PLASMIC.registerComponent(PlasmicNavigation, {
   props: {
     items: {
       type: "object",
-      description: "JSON array of items. Use icon names (e.g., 'ChatIconActive') or image paths (e.g., '/logo.jpeg')",
+      description: "JSON array of items. Use icon names (e.g., 'ChatIconActive') or image paths (e.g., '/logo.jpeg'). Each item can have 'isDisabled: true' to disable it specifically.",
+      defaultValue: [
+        {
+          label: 'Planner',
+          path: '/planner',
+          mobileFullscreen: true,
+          iconActive: 'PlannerIconActive',
+          iconInactive: 'PlannerIconInactive',
+          isDisabled: true,
+        },
+        {
+          label: 'Doctor',
+          path: '/doctor',
+          iconActive: 'DoctorIconActive',
+          iconInactive: 'DoctorIconInactive',
+          isDisabled: true,
+        },
+        {
+          path: '/',
+          mobileOnly: true,
+          isDefault: true,
+          iconActive: 'HomeIcon',
+          iconInactive: 'HomeIcon',
+        },
+        {
+          label: 'Product',
+          path: '/product',
+          iconActive: 'ProductIconActive',
+          iconInactive: 'ProductIconInactive',
+        },
+        {
+          label: 'Desk',
+          path: '/desk',
+          mobileFullscreen: true,
+          iconActive: 'ChatIconActive',
+          iconInactive: 'ChatIconInactive',
+        },
+      ],
     },
     defaultIndex: {
       type: "number",
@@ -399,6 +436,16 @@ PLASMIC.registerComponent(PlasmicNavigation, {
       type: "boolean",
       defaultValue: true,
       description: "Enable swipe gestures on mobile to switch between pages",
+    },
+    hideNavigation: {
+      type: "boolean",
+      defaultValue: false,
+      description: "Completely hide the navigation bars (sidebar and bottom bar)",
+    },
+    isDisabled: {
+      type: "boolean",
+      defaultValue: false,
+      description: "Disable all navigation items (grey out and non-interactive)",
     },
     className: "string",
     children: {
