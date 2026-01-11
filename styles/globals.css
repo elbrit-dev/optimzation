@@ -72,22 +72,6 @@
     --color-foreground: var(--foreground);
     --font-sans: var(--font-geist-sans);
     --font-mono: var(--font-geist-mono);
-    --color-primary: #3b82f6;
-    --color-primary-dark: #2563eb;
-    --color-surface-border: #e5e7eb;
-}
-
-/* Custom utility for PrimeFlex compatibility */
-.text-primary {
-    color: var(--color-primary);
-}
-
-.surface-border {
-    border-color: var(--color-surface-border);
-}
-
-.border-bottom-1 {
-    border-bottom-width: 1px;
 }
 
 html {
@@ -936,6 +920,64 @@ body {
 
 .p-datepicker table td.p-datepicker-other-month > span.p-highlight {
     background: #93c5fd;
+}
+
+/* Month Range Picker Styles */
+.month-range-picker {
+    width: 100%;
+}
+
+.month-range-picker-overlay {
+    min-width: 280px;
+    max-width: 100%;
+}
+
+.month-range-picker-content {
+    padding: 0.5rem;
+}
+
+.month-range-picker-content .month-button {
+    font-size: 0.875rem;
+    transition: all 0.2s ease;
+}
+
+.month-range-picker-content .month-button:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Responsive design for month range picker */
+@media (max-width: 640px) {
+    .month-range-picker-overlay {
+        min-width: 260px;
+        max-width: calc(100vw - 2rem);
+    }
+    
+    .month-range-picker-content {
+        padding: 0.375rem;
+    }
+    
+    .month-range-picker-content .month-button {
+        font-size: 0.75rem;
+        padding: 0.5rem 0.375rem;
+        min-width: 50px;
+    }
+    
+    .month-range-picker-content .grid {
+        gap: 0.375rem;
+    }
+}
+
+@media (min-width: 641px) and (max-width: 1024px) {
+    .month-range-picker-overlay {
+        min-width: 300px;
+    }
+}
+
+@media (min-width: 1025px) {
+    .month-range-picker-overlay {
+        min-width: 320px;
+    }
 }
 
 /* Custom Multiselect Filter Styles */

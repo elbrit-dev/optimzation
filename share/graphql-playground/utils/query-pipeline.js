@@ -466,15 +466,16 @@ export async function executePipeline(queryId, context, options = {}) {
         }
 
         // Execute GraphQL query
-        const rawData = await executeGraphQLQuery(queryDoc, {
+        let rawData = await executeGraphQLQuery(queryDoc, {
             endpointUrl: finalEndpointUrl,
             authToken: finalAuthToken,
             variableOverrides,
         });
 
         if (!rawData) {
-            console.error(`No data returned from GraphQL query: ${queryId}`);
-            throw new Error("No data returned from GraphQL query");
+            console.warn(`No data returned from GraphQL query: ${queryId}`);
+            // Return empty object to allow pipeline to continue gracefully
+            rawData = {};
         }
 
         // Create query function for transformer (reuses the pipeline)

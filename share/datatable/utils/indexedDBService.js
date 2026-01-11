@@ -56,16 +56,47 @@ class IndexedDBService {
 
         // Create new database for this queryId
         const dbName = `elbrit-${queryId}-db`;
+        
+        // Check if database already exists using native IndexedDB API to detect existing stores
+        let existingStores = {};
+        try {
+            const dbExists = await new Promise((resolve, reject) => {
+                const request = indexedDB.open(dbName);
+                request.onsuccess = () => {
+                    const db = request.result;
+                    if (db.objectStoreNames && db.objectStoreNames.length > 0) {
+                        // Database exists with stores - include them in schema
+                        for (let i = 0; i < db.objectStoreNames.length; i++) {
+                            const storeName = db.objectStoreNames[i];
+                            existingStores[storeName] = "++id, index"; // Use same structure as we use for new stores
+                        }
+                    }
+                    db.close();
+                    resolve(existingStores);
+                };
+                request.onerror = () => {
+                    // Database doesn't exist or can't be opened - will create new one
+                    resolve({}); // Return empty stores - will create new database
+                };
+                request.onblocked = () => {
+                    // Database is blocked - try again later or use empty stores
+                    resolve({});
+                };
+            });
+        } catch (error) {
+            // Error checking - will create new database
+        }
+        
         const queryDb = new Dexie(dbName);
 
-        // Define schema (version 1) with empty stores initially
-        // Stores will be created dynamically based on pipeline result keys
-        queryDb.version(1).stores({});
+        // Define schema with existing stores (or empty if new database)
+        // Stores will be created dynamically based on pipeline result keys for new ones
+        queryDb.version(1).stores(existingStores);
 
-        // Open the database to actually create it
+        // Open the database
         try {
             await queryDb.open();
-            console.log(`Created database: ${dbName}`);
+            console.log(`Opened database: ${dbName} with stores:`, Object.keys(existingStores));
         } catch (error) {
             console.error(`Error opening database ${dbName}:`, error);
             throw error;
@@ -483,10 +514,44 @@ class IndexedDBService {
     }
 
     /**
+     * Check which month prefixes have cached data for a query
+     * @param {string} queryId - The query identifier
+     * @param {Array<string>} monthPrefixes - Array of YYYY-MM prefixes to check
+     * @returns {Promise<Array<string>>} Array of month prefixes that have cached data
+     */
+    async getCachedMonthPrefixes(queryId, monthPrefixes) {
+        if (!queryId || !monthPrefixes || !Array.isArray(monthPrefixes) || monthPrefixes.length === 0) {
+            return [];
+        }
+
+        try {
+            const queryDb = await this.getQueryDatabase(queryId);
+            const existingStores = queryDb.tables.map((table) => table.name);
+            const cachedPrefixes = [];
+
+            // Check each month prefix to see if it has any stores
+            for (const prefix of monthPrefixes) {
+                // Check if there are any stores that start with this prefix
+                const hasStores = existingStores.some(storeName => 
+                    storeName.startsWith(`${prefix}_`)
+                );
+                if (hasStores) {
+                    cachedPrefixes.push(prefix);
+                }
+            }
+
+            return cachedPrefixes;
+        } catch (error) {
+            console.error(`Error checking cached month prefixes for queryId ${queryId}:`, error);
+            return [];
+        }
+    }
+
+    /**
      * Reconstruct pipeline result object structure from stored entries
      * @param {string} queryId - The query identifier
      * @param {Array<string>} keys - Optional array of keys to reconstruct. If not provided, reconstructs all keys
-     * @param {string|null} yearMonthPrefix - Optional YYYY-MM prefix for month == true queries (e.g., "2026-01")
+     * @param {string|Array<string>|null} yearMonthPrefix - Optional YYYY-MM prefix(es) for month == true queries (e.g., "2026-01" or ["2026-01", "2026-02"])
      * @returns {Promise<Object>} Reconstructed pipeline result object: { key1: [obj1, obj2, ...], key2: [obj3, ...] }
      */
     async reconstructPipelineResult(queryId, keys = null, yearMonthPrefix = null) {
@@ -498,14 +563,23 @@ class IndexedDBService {
             const queryDb = await this.getQueryDatabase(queryId);
             const reconstructed = {};
 
+            // Check if yearMonthPrefix is an array (multi-month range)
+            const isMultiMonth = Array.isArray(yearMonthPrefix) && yearMonthPrefix.length > 0;
+            const isSingleMonth = !isMultiMonth && yearMonthPrefix && typeof yearMonthPrefix === 'string';
+
             // Get list of keys to reconstruct
             let keysToReconstruct = keys;
             if (!keysToReconstruct) {
                 // Reconstruct all stores in the database
                 keysToReconstruct = queryDb.tables.map((table) => table.name);
                 
-                // If yearMonthPrefix is provided, filter to only stores with that prefix
-                if (yearMonthPrefix) {
+                // If yearMonthPrefix is provided, filter to only stores with that prefix(es)
+                if (isMultiMonth) {
+                    // Filter to stores that start with any of the prefixes
+                    keysToReconstruct = keysToReconstruct.filter(storeName => 
+                        yearMonthPrefix.some(prefix => storeName.startsWith(`${prefix}_`))
+                    );
+                } else if (isSingleMonth) {
                     keysToReconstruct = keysToReconstruct.filter(storeName => 
                         storeName.startsWith(`${yearMonthPrefix}_`)
                     );
@@ -520,20 +594,62 @@ class IndexedDBService {
             // Get existing stores
             const existingStores = queryDb.tables.map((table) => table.name);
 
-            // Reconstruct each key
-            for (const storeName of keysToReconstruct) {
-                if (!existingStores.includes(storeName)) {
-                    continue;
+            if (isMultiMonth) {
+                // Multi-month reconstruction: merge data from multiple months
+                // First, collect all stores grouped by their base key (without prefix)
+                const storesByKey = new Map();
+
+                for (const storeName of keysToReconstruct) {
+                    if (!existingStores.includes(storeName)) {
+                        continue;
+                    }
+
+                    // Extract the base key by removing the prefix
+                    for (const prefix of yearMonthPrefix) {
+                        if (storeName.startsWith(`${prefix}_`)) {
+                            const baseKey = storeName.substring(prefix.length + 1);
+                            if (!storesByKey.has(baseKey)) {
+                                storesByKey.set(baseKey, []);
+                            }
+                            storesByKey.get(baseKey).push(storeName);
+                            break; // Only match once
+                        }
+                    }
                 }
 
-                // Load entries for this store (already sorted by index)
-                const dataArray = await this.loadPipelineResultEntries(queryId, storeName);
-                if (dataArray.length > 0) {
-                    // For month == true, remove the prefix from the key in the reconstructed object
-                    const key = yearMonthPrefix && storeName.startsWith(`${yearMonthPrefix}_`)
-                        ? storeName.substring(yearMonthPrefix.length + 1)
-                        : storeName;
-                    reconstructed[key] = dataArray;
+                // Load and merge data for each key
+                for (const [baseKey, storeNames] of storesByKey.entries()) {
+                    const mergedArray = [];
+                    // Process stores in prefix order (chronological order)
+                    for (const prefix of yearMonthPrefix) {
+                        const storeName = `${prefix}_${baseKey}`;
+                        if (storeNames.includes(storeName)) {
+                            const dataArray = await this.loadPipelineResultEntries(queryId, storeName);
+                            if (dataArray && dataArray.length > 0) {
+                                mergedArray.push(...dataArray);
+                            }
+                        }
+                    }
+                    if (mergedArray.length > 0) {
+                        reconstructed[baseKey] = mergedArray;
+                    }
+                }
+            } else {
+                // Single month or no month prefix: original logic
+                for (const storeName of keysToReconstruct) {
+                    if (!existingStores.includes(storeName)) {
+                        continue;
+                    }
+
+                    // Load entries for this store (already sorted by index)
+                    const dataArray = await this.loadPipelineResultEntries(queryId, storeName);
+                    if (dataArray.length > 0) {
+                        // For month == true, remove the prefix from the key in the reconstructed object
+                        const key = isSingleMonth && storeName.startsWith(`${yearMonthPrefix}_`)
+                            ? storeName.substring(yearMonthPrefix.length + 1)
+                            : storeName;
+                        reconstructed[key] = dataArray;
+                    }
                 }
             }
 

@@ -16,6 +16,12 @@ const TableDataProvider = (props) => {
     onRawDataChange,
     onVariablesChange,
     onDataSourceChange,
+    // New callbacks for internal state
+    onSavedQueriesChange,
+    onLoadingQueriesChange,
+    onExecutingQueryChange,
+    onAvailableQueryKeysChange,
+    onSelectedQueryKeyChange,
     variableOverrides,
     showSelectors = true,
     hideDataSourceAndQueryKey,
@@ -31,6 +37,13 @@ const TableDataProvider = (props) => {
   const [currentTableData, setCurrentTableData] = useState(null);
   const [currentRawData, setCurrentRawData] = useState(null);
   const [currentVariables, setCurrentVariables] = useState({});
+  
+  // New internal state to expose to Plasmic
+  const [savedQueries, setSavedQueries] = useState([]);
+  const [loadingQueries, setLoadingQueries] = useState(false);
+  const [executingQuery, setExecutingQuery] = useState(false);
+  const [availableQueryKeys, setAvailableQueryKeys] = useState([]);
+  const [selectedQueryKey, setSelectedQueryKey] = useState(queryKey);
 
   // Stable callback wrappers to prevent infinite loops in the shared DataProvider
   const onTableDataChangeRef = useRef(onTableDataChange);
@@ -38,12 +51,25 @@ const TableDataProvider = (props) => {
   const onDataChangeRef = useRef(onDataChange);
   const onVariablesChangeRef = useRef(onVariablesChange);
   const onDataSourceChangeRef = useRef(onDataSourceChange);
+  
+  // New refs for internal state callbacks
+  const onSavedQueriesChangeRef = useRef(onSavedQueriesChange);
+  const onLoadingQueriesChangeRef = useRef(onLoadingQueriesChange);
+  const onExecutingQueryChangeRef = useRef(onExecutingQueryChange);
+  const onAvailableQueryKeysChangeRef = useRef(onAvailableQueryKeysChange);
+  const onSelectedQueryKeyChangeRef = useRef(onSelectedQueryKeyChange);
 
   useEffect(() => { onTableDataChangeRef.current = onTableDataChange; }, [onTableDataChange]);
   useEffect(() => { onRawDataChangeRef.current = onRawDataChange; }, [onRawDataChange]);
   useEffect(() => { onDataChangeRef.current = onDataChange; }, [onDataChange]);
   useEffect(() => { onVariablesChangeRef.current = onVariablesChange; }, [onVariablesChange]);
   useEffect(() => { onDataSourceChangeRef.current = onDataSourceChange; }, [onDataSourceChange]);
+  
+  useEffect(() => { onSavedQueriesChangeRef.current = onSavedQueriesChange; }, [onSavedQueriesChange]);
+  useEffect(() => { onLoadingQueriesChangeRef.current = onLoadingQueriesChange; }, [onLoadingQueriesChange]);
+  useEffect(() => { onExecutingQueryChangeRef.current = onExecutingQueryChange; }, [onExecutingQueryChange]);
+  useEffect(() => { onAvailableQueryKeysChangeRef.current = onAvailableQueryKeysChange; }, [onAvailableQueryKeysChange]);
+  useEffect(() => { onSelectedQueryKeyChangeRef.current = onSelectedQueryKeyChange; }, [onSelectedQueryKeyChange]);
 
   const stableOnTableDataChange = useCallback((data) => {
     setCurrentTableData(data);
@@ -66,6 +92,32 @@ const TableDataProvider = (props) => {
 
   const stableOnDataSourceChange = useCallback((ds) => {
     onDataSourceChangeRef.current?.(ds);
+  }, []);
+
+  // New stable callbacks for internal state
+  const stableOnSavedQueriesChange = useCallback((queries) => {
+    setSavedQueries(queries);
+    onSavedQueriesChangeRef.current?.(queries);
+  }, []);
+
+  const stableOnLoadingQueriesChange = useCallback((loading) => {
+    setLoadingQueries(loading);
+    onLoadingQueriesChangeRef.current?.(loading);
+  }, []);
+
+  const stableOnExecutingQueryChange = useCallback((executing) => {
+    setExecutingQuery(executing);
+    onExecutingQueryChangeRef.current?.(executing);
+  }, []);
+
+  const stableOnAvailableQueryKeysChange = useCallback((keys) => {
+    setAvailableQueryKeys(keys);
+    onAvailableQueryKeysChangeRef.current?.(keys);
+  }, []);
+
+  const stableOnSelectedQueryKeyChange = useCallback((key) => {
+    setSelectedQueryKey(key);
+    onSelectedQueryKeyChangeRef.current?.(key);
   }, []);
 
   // Merge individual props with the variableOverrides object
@@ -114,6 +166,11 @@ const TableDataProvider = (props) => {
       onRawDataChange={stableOnRawDataChange}
       onVariablesChange={stableOnVariablesChange}
       onDataSourceChange={stableOnDataSourceChange}
+      onSavedQueriesChange={stableOnSavedQueriesChange}
+      onLoadingQueriesChange={stableOnLoadingQueriesChange}
+      onExecutingQueryChange={stableOnExecutingQueryChange}
+      onAvailableQueryKeysChange={stableOnAvailableQueryKeysChange}
+      onSelectedQueryKeyChange={stableOnSelectedQueryKeyChange}
       variableOverrides={stableOverrides}
       isAdminMode={isAdminMode}
       salesTeamColumn={salesTeamColumn}
@@ -132,10 +189,20 @@ const TableDataProvider = (props) => {
       <PlasmicDataProvider name="tableData" data={currentTableData}>
         <PlasmicDataProvider name="rawTableData" data={currentRawData}>
           <PlasmicDataProvider name="queryVariables" data={currentVariables}>
-            {children}
-            <div style={{ height: 'auto' }}>
-              {dataSlot}
-            </div>
+            <PlasmicDataProvider name="savedQueries" data={savedQueries}>
+              <PlasmicDataProvider name="loadingQueries" data={loadingQueries}>
+                <PlasmicDataProvider name="executingQuery" data={executingQuery}>
+                  <PlasmicDataProvider name="availableQueryKeys" data={availableQueryKeys}>
+                    <PlasmicDataProvider name="selectedQueryKey" data={selectedQueryKey}>
+                      {children}
+                      <div style={{ height: 'auto' }}>
+                        {dataSlot}
+                      </div>
+                    </PlasmicDataProvider>
+                  </PlasmicDataProvider>
+                </PlasmicDataProvider>
+              </PlasmicDataProvider>
+            </PlasmicDataProvider>
           </PlasmicDataProvider>
         </PlasmicDataProvider>
       </PlasmicDataProvider>

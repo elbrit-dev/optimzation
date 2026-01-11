@@ -5,6 +5,7 @@ import { Toast } from 'primereact/toast';
 import { Splitter, SplitterPanel } from 'primereact/splitter';
 import { Sidebar } from 'primereact/sidebar';
 import { TabView, TabPanel } from 'primereact/tabview';
+import { Dropdown } from 'primereact/dropdown';
 import DataTableComponent from './components/DataTable';
 import DataTableControls from './components/DataTableControls';
 import DataProvider from './components/DataProvider';
@@ -240,6 +241,14 @@ function DataTablePage() {
   const [tableData, setTableData] = useState(data); // Filtered data for DataTable
   const [rawTableData, setRawTableData] = useState(data); // Full/original data for Auth Control in DataTableControls
   const [currentDataSource, setCurrentDataSource] = useState(null);
+  // State for Data Source and Query Key selectors (controlled by page)
+  const [dataSource, setDataSource] = useState('offline');
+  const [selectedQueryKey, setSelectedQueryKey] = useState(null);
+  // State exposed from DataProvider for selectors
+  const [savedQueries, setSavedQueries] = useState([]);
+  const [loadingQueries, setLoadingQueries] = useState(false);
+  const [executingQuery, setExecutingQuery] = useState(false);
+  const [availableQueryKeys, setAvailableQueryKeys] = useState([]);
   const [enableSort, setEnableSort] = useLocalStorageBoolean('datatable-enableSort', true);
   const [enableFilter, setEnableFilter] = useLocalStorageBoolean('datatable-enableFilter', true);
   const [enableSummation, setEnableSummation] = useLocalStorageBoolean('datatable-enableSummation', true);
@@ -447,8 +456,9 @@ function DataTablePage() {
   }, []);
 
   // Handle data source changes - load saved settings
-  const handleDataSourceChange = useCallback((dataSource) => {
-    setCurrentDataSource(dataSource);
+  const handleDataSourceChange = useCallback((newDataSource) => {
+    setCurrentDataSource(newDataSource);
+    setDataSource(newDataSource);
 
     if (!dataSource) {
       return;
@@ -1015,7 +1025,13 @@ function DataTablePage() {
             onDataSourceChange={handleDataSourceChange}
             onVariablesChange={handleVariablesChange}
             variableOverrides={variableOverrides}
-            hideDataSourceAndQueryKey={false}
+            dataSource={dataSource}
+            selectedQueryKey={selectedQueryKey}
+            onSavedQueriesChange={setSavedQueries}
+            onLoadingQueriesChange={setLoadingQueries}
+            onExecutingQueryChange={setExecutingQuery}
+            onAvailableQueryKeysChange={setAvailableQueryKeys}
+            onSelectedQueryKeyChange={setSelectedQueryKey}
             isAdminMode={isAdminMode}
             salesTeamColumn={salesTeamColumn}
             salesTeamValues={salesTeamValues}
@@ -1023,8 +1039,61 @@ function DataTablePage() {
             hqValues={hqValues}
             renderHeaderControls={(selectorsJSX) => (
               <div className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 border-b border-gray-200 shrink-0 bg-white">
-                <div className="flex items-end gap-3 flex-wrap">
+                <div className="flex justify-between items-start gap-3 flex-wrap">
+                  {/* Left: selectorsJSX from DataProvider */}
                   {selectorsJSX}
+
+                  {/* Right: Data Source and Query Key Selectors */}
+                  <div className="flex items-end gap-3">
+                    {/* Data Source Selector */}
+                    <div className="w-48">
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        Data Source
+                      </label>
+                      <Dropdown
+                        value={dataSource}
+                        onChange={(e) => setDataSource(e.value)}
+                        options={[
+                          { label: 'Offline', value: 'offline' },
+                          ...savedQueries.map(q => ({ label: q.name, value: q.id }))
+                        ]}
+                        optionLabel="label"
+                        optionValue="value"
+                        placeholder="Select a data source"
+                        className="w-full"
+                        loading={loadingQueries}
+                        disabled={executingQuery}
+                        style={{
+                          height: '3rem',
+                        }}
+                      />
+                    </div>
+
+                    {/* Query Key Selector */}
+                    {dataSource && dataSource !== 'offline' && availableQueryKeys.length > 0 && (
+                      <div className="w-48">
+                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                          Query Key
+                        </label>
+                        <Dropdown
+                          value={selectedQueryKey}
+                          onChange={(e) => setSelectedQueryKey(e.value)}
+                          options={availableQueryKeys.map(key => ({ 
+                            label: startCase(key.split('__').join(' ').split('_').join(' ')), 
+                            value: key 
+                          }))}
+                          optionLabel="label"
+                          optionValue="value"
+                          placeholder="Select Query Key"
+                          className="w-full"
+                          disabled={executingQuery}
+                          style={{
+                            height: '3rem',
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             )}

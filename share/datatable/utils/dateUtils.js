@@ -72,3 +72,45 @@ export function formatYearMonth(date) {
     }
 }
 
+/**
+ * Generate array of YYYY-MM strings for a month range
+ * @param {Date|dayjs.Dayjs|string} startDate - Start date of the range
+ * @param {Date|dayjs.Dayjs|string} endDate - End date of the range
+ * @returns {Array<string>} Array of YYYY-MM strings in chronological order
+ */
+export function generateMonthRangeArray(startDate, endDate) {
+    if (!startDate || !endDate) {
+        return [];
+    }
+
+    try {
+        const start = dayjs(startDate);
+        const end = dayjs(endDate);
+
+        if (!start.isValid() || !end.isValid()) {
+            return [];
+        }
+
+        // Normalize to start of month
+        const startMonth = start.startOf('month');
+        const endMonth = end.startOf('month');
+
+        if (startMonth.isAfter(endMonth)) {
+            return [];
+        }
+
+        const months = [];
+        let current = startMonth;
+
+        while (!current.isAfter(endMonth)) {
+            months.push(current.format('YYYY-MM'));
+            current = current.add(1, 'month');
+        }
+
+        return months;
+    } catch (error) {
+        console.error('Error generating month range array:', error);
+        return [];
+    }
+}
+

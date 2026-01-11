@@ -5,8 +5,8 @@ import { Dropdown } from 'primereact/dropdown';
 import { MultiSelect } from 'primereact/multiselect';
 import { Button } from 'primereact/button';
 import { startCase, isNil, isEmpty, uniq, filter as lodashFilter } from 'lodash';
-import { DatePicker } from 'antd';
 import dayjs from 'dayjs';
+import MonthRangePicker from '@/components/MonthRangePicker';
 import { firestoreService } from '@/app/graphql-playground/services/firestoreService';
 import { getInitialEndpoint, getEndpointConfigFromUrlKey } from '@/app/graphql-playground/constants';
 import { createExecutionContext, executePipeline, fetchGraphQLRequest } from '@/app/graphql-playground/utils/query-pipeline';
@@ -14,7 +14,7 @@ import { extractDataFromResponse } from '@/app/graphql-playground/utils/data-ext
 import { indexedDBService } from '@/app/datatable/utils/indexedDBService';
 import { parseGraphQLVariables } from '@/app/graphql-playground/utils/variableParser';
 import { extractValueFromGraphQLResponse } from '@/app/graphql-playground/utils/queryExtractor';
-import { extractYearMonthFromDate } from '@/app/datatable/utils/dateUtils';
+import { extractYearMonthFromDate, generateMonthRangeArray } from '@/app/datatable/utils/dateUtils';
 import { getDataKeys, getDataValue } from '../utils/dataAccessUtils';
 
 /**
@@ -59,7 +59,7 @@ async function executeMonthIndexQueryAndExtractYearMonth(monthIndexQuery, queryD
 
     // Parse JSON response
     const jsonResponse = await response.json();
-    
+
     if (jsonResponse.errors) {
       console.error('GraphQL errors for monthIndex query:', jsonResponse.errors);
       return null;
@@ -80,7 +80,6 @@ async function executeMonthIndexQueryAndExtractYearMonth(monthIndexQuery, queryD
   }
 }
 
-const { RangePicker } = DatePicker;
 
 /**
  * Helper function to get endpoint URL and auth token from query document
@@ -89,27 +88,27 @@ const { RangePicker } = DatePicker;
  */
 function getEndpointAndAuth(queryDoc) {
   let endpointUrl, authToken;
-  
+
   if (queryDoc?.urlKey) {
     const config = getEndpointConfigFromUrlKey(queryDoc.urlKey);
     endpointUrl = config.endpointUrl;
     authToken = config.authToken;
   }
-  
+
   // Fallback to default endpoint if urlKey didn't provide one
   if (!endpointUrl) {
     const defaultEndpoint = getInitialEndpoint();
     endpointUrl = defaultEndpoint?.code;
     authToken = null; // Will use DEFAULT_AUTH_TOKEN
   }
-  
+
   return { endpointUrl, authToken };
 }
 
 
-export default function DataProvider({ 
-  offlineData, 
-  onDataChange, 
+export default function DataProvider({
+  offlineData,
+  onDataChange,
   onError,
   onTableDataChange,
   onRawDataChange, // New callback to pass raw/original data for Auth Control
@@ -117,7 +116,12 @@ export default function DataProvider({
   onDataSourceChange,
   variableOverrides = {},
   onVariablesChange,
-  hideDataSourceAndQueryKey = true,
+  // Callbacks to expose state for selectors in parent
+  onSavedQueriesChange,
+  onLoadingQueriesChange,
+  onExecutingQueryChange,
+  onAvailableQueryKeysChange,
+  onSelectedQueryKeyChange,
   // Auth control props
   isAdminMode = false,
   salesTeamColumn = null,
@@ -127,10 +131,19 @@ export default function DataProvider({
   // Data source and query key props
   dataSource: dataSourceProp = 'offline',
   selectedQueryKey: selectedQueryKeyProp = null,
-  children 
+  children
 }) {
   const [dataSource, setDataSource] = useState(dataSourceProp);
   const [selectedQueryKey, setSelectedQueryKey] = useState(selectedQueryKeyProp);
+
+  // Sync props with state when props change (for controlled component)
+  useEffect(() => {
+    setDataSource(dataSourceProp);
+  }, [dataSourceProp]);
+
+  useEffect(() => {
+    setSelectedQueryKey(selectedQueryKeyProp);
+  }, [selectedQueryKeyProp]);
   const [savedQueries, setSavedQueries] = useState([]);
   const [loadingQueries, setLoadingQueries] = useState(false);
   const [executingQuery, setExecutingQuery] = useState(false);
@@ -140,11 +153,13 @@ export default function DataProvider({
   const [queryVariables, setQueryVariables] = useState({}); // Variables from the saved query
   const [currentQueryDoc, setCurrentQueryDoc] = useState(null); // Current query document
   const [lastUpdatedAt, setLastUpdatedAt] = useState(null); // Last updated timestamp string from IndexedDB
-  const [selectedTeams, setSelectedTeams] = useState([]); // Selected teams for Search Teams filter
+  const [selectedSalesTeams, setSelectedSalesTeams] = useState([]); // Selected Sales Teams for filter
+  const [selectedHqTeams, setSelectedHqTeams] = useState([]); // Selected HQ Teams for filter
   const queryVariablesRef = useRef({}); // Ref to track variables immediately (for synchronous access)
   const executingQueryIdRef = useRef(null); // Track which query is currently executing to prevent duplicates
   const executionContextRef = useRef(null); // Persist execution context across runs for caching
   const pipelineExecutionInFlightRef = useRef(new Set()); // Track pipeline executions in flight to prevent concurrent execution
+  const isInitialLoadRef = useRef(false); // Track if we're in initial load phase to prevent monthRange effect from triggering
 
   // Store onError in ref to avoid dependency issues (only runs once on mount)
   const onErrorRef = useRef(onError);
@@ -202,13 +217,13 @@ export default function DataProvider({
         indexedDBService.setOnChangeCallback(query.id, async (queryId, oldResult, newResult, updatedAt, queryDocFromSave) => {
           // Use queryDocFromSave if provided, otherwise fallback to stored queryDoc
           const queryDocToUse = queryDocFromSave || queryMap.get(queryId) || queryDoc;
-          
+
           // Only proceed if clientSave is true
           if (!queryDocToUse || queryDocToUse.clientSave !== true) {
             console.log(`Skipping pipeline execution for ${queryId}: clientSave is not true`);
             return;
           }
-          
+
           console.log('Query index result changed:', {
             queryId,
             oldResult,
@@ -238,7 +253,7 @@ export default function DataProvider({
                     queryDocToUse.monthIndex,
                     queryDocToUse
                   );
-                  
+
                   if (yearMonth) {
                     yearMonthPrefix = yearMonth;
                     console.log(`Extracted YYYY-MM from monthIndex query for ${queryId}: ${yearMonthPrefix}`);
@@ -256,7 +271,7 @@ export default function DataProvider({
 
                 // Create execution context
                 const context = createExecutionContext();
-                
+
                 // Get endpoint/auth from query's urlKey, fallback to default (same as index query)
                 const { endpointUrl, authToken } = getEndpointAndAuth(queryDocToUse);
 
@@ -266,12 +281,22 @@ export default function DataProvider({
                   return;
                 }
 
+                // Execute pipeline with monthRange if month == true
+                let monthRangeForPipeline = undefined;
+                if (queryDocToUse.month === true && yearMonthPrefix) {
+                  // Parse YYYY-MM to create month range (first day to last day of month)
+                  const [year, month] = yearMonthPrefix.split('-').map(Number);
+                  const startDate = new Date(year, month - 1, 1);
+                  const lastDay = new Date(year, month, 0).getDate();
+                  const endDate = new Date(year, month - 1, lastDay);
+                  monthRangeForPipeline = [startDate, endDate];
+                }
+
                 // Execute pipeline
                 const pipelineResult = await executePipeline(queryId, context, {
                   endpointUrl,
                   authToken,
-                  // Don't pass monthRange for month == false queries
-                  // For month == true, we'll organize by YYYY-MM prefix instead
+                  monthRange: monthRangeForPipeline,
                 });
 
                 // Ensure stores exist for each key in the pipeline result
@@ -280,7 +305,7 @@ export default function DataProvider({
                   // Store pipeline result entries in IndexedDB tables
                   await indexedDBService.savePipelineResultEntries(queryId, pipelineResult, yearMonthPrefix, queryDocToUse);
                   console.log(`Pipeline executed for ${queryId}${yearMonthPrefix ? ` with prefix ${yearMonthPrefix}` : ''}, stores ensured and entries saved for keys:`, getDataKeys(pipelineResult));
-                  
+
                   // Reconstruct and print the pipeline result from IndexedDB
                   const reconstructed = await indexedDBService.reconstructPipelineResult(queryId, null, yearMonthPrefix);
                   console.log(`Reconstructed pipeline result for ${queryId}${yearMonthPrefix ? ` with prefix ${yearMonthPrefix}` : ''}:`, reconstructed);
@@ -350,7 +375,7 @@ export default function DataProvider({
             await indexedDBService.saveQueryIndexResult(query.id, null, queryDoc);
             return;
           }
-          
+
           if (jsonResponse.errors) {
             console.error(`GraphQL errors for index query ${query.id}:`, jsonResponse.errors);
             // Store null result on error (pass queryDoc if available)
@@ -361,19 +386,19 @@ export default function DataProvider({
           // Extract full date/timestamp from index query response using the same mechanism
           // This works for both month == true and month == false queries
           const fullDate = extractFullDateFromIndexResponse(query.index, jsonResponse);
-          
+
           // Handle two paths for saving:
           // 1. month == false: save full date string directly
           // 2. month == true: extract YYYY-MM from monthIndex query and save as { "YYYY-MM": "full date string" }
           let resultToSave = null;
-          
+
           if (query.month === true && query.monthIndex && query.monthIndex.trim()) {
             // Extract YYYY-MM from monthIndex query
             const yearMonth = await executeMonthIndexQueryAndExtractYearMonth(
               query.monthIndex,
               queryDoc
             );
-            
+
             if (yearMonth && fullDate) {
               // Save as { "YYYY-MM": "full date string" }
               resultToSave = {
@@ -437,6 +462,31 @@ export default function DataProvider({
     }
   }, [dataSource, onDataSourceChange]);
 
+  // Expose state values to parent for selectors
+  useEffect(() => {
+    if (onSavedQueriesChange) {
+      onSavedQueriesChange(savedQueries);
+    }
+  }, [savedQueries, onSavedQueriesChange]);
+
+  useEffect(() => {
+    if (onLoadingQueriesChange) {
+      onLoadingQueriesChange(loadingQueries);
+    }
+  }, [loadingQueries, onLoadingQueriesChange]);
+
+  useEffect(() => {
+    if (onExecutingQueryChange) {
+      onExecutingQueryChange(executingQuery);
+    }
+  }, [executingQuery, onExecutingQueryChange]);
+
+  useEffect(() => {
+    if (onSelectedQueryKeyChange) {
+      onSelectedQueryKeyChange(selectedQueryKey);
+    }
+  }, [selectedQueryKey, onSelectedQueryKeyChange]);
+
   // Handle data source changes - auto-execute when user changes data source or on initial load
   useEffect(() => {
     if (dataSource === 'offline') {
@@ -448,7 +498,8 @@ export default function DataProvider({
       setQueryVariables({});
       setCurrentQueryDoc(null);
       setOfflineDataExecuted(false); // Reset offline execution state
-      setSelectedTeams([]); // Reset Search Teams selection
+      setSelectedSalesTeams([]); // Reset Sales Teams selection
+      setSelectedHqTeams([]); // Reset HQ Teams selection
       // Reset execution context when switching to offline
       executionContextRef.current = createExecutionContext();
       // Notify parent that variables changed
@@ -467,7 +518,10 @@ export default function DataProvider({
       }
     } else if (dataSource && dataSource !== 'offline') {
       // Reset Search Teams selection when switching data sources
-      setSelectedTeams([]);
+      setSelectedSalesTeams([]);
+      setSelectedHqTeams([]);
+      // Mark initial load as in progress
+      isInitialLoadRef.current = true;
       // Load query metadata and auto-execute
       const loadQueryMetadata = async () => {
         try {
@@ -476,7 +530,7 @@ export default function DataProvider({
             setCurrentQueryDoc(queryDoc);
             const { month, monthDate, variables: rawVariables } = queryDoc;
             setHasMonthSupport(month === true);
-            
+
             // Parse and set query variables (excluding startDate and endDate)
             const parsedVariables = parseGraphQLVariables(rawVariables || '');
             // Remove startDate and endDate
@@ -488,8 +542,8 @@ export default function DataProvider({
             if (onVariablesChange) {
               onVariablesChange(filteredVariables);
             }
-            
-            // Load initial month range from monthDate
+
+            // Load initial month range from monthDate (calculate but don't set yet)
             let initialMonthRange = null;
             if (month === true && monthDate) {
               try {
@@ -501,28 +555,40 @@ export default function DataProvider({
                   const lastDay = new Date(year, monthIndex + 1, 0).getDate();
                   const endOfMonth = new Date(year, monthIndex, lastDay);
                   initialMonthRange = [startOfMonth, endOfMonth];
-                  setMonthRange(initialMonthRange);
-                } else {
-                  setMonthRange(null);
                 }
               } catch (error) {
                 console.error('Error parsing monthDate:', error);
-                setMonthRange(null);
               }
-            } else if (month !== true) {
-              setMonthRange(null);
             }
 
             // Auto-execute query after loading metadata (including initial load)
             // For month-supported queries, only execute if monthRange is set
             // Variables are already set in queryVariablesRef.current, so we can execute immediately
             if (month !== true || initialMonthRange) {
-              runQuery(dataSource, true);
+              // Use shared helper function to check IndexedDB first, then API if not found
+              await checkIndexedDBAndLoadData(dataSource, queryDoc, initialMonthRange);
+
+              // Now set monthRange AFTER IndexedDB check completes (prevents race condition with monthRange effect)
+              if (month === true) {
+                setMonthRange(initialMonthRange);
+              } else {
+                setMonthRange(null);
+              }
+
+              // Clear initial load flag after processing completes
+              isInitialLoadRef.current = false;
+            } else {
+              // Month query without initialMonthRange - set monthRange to null
+              setMonthRange(null);
+              // Clear initial load flag
+              isInitialLoadRef.current = false;
             }
           }
         } catch (error) {
           console.error('Error loading query metadata:', error);
           setCurrentQueryDoc(null);
+          // Clear initial load flag on error
+          isInitialLoadRef.current = false;
         }
       };
       loadQueryMetadata();
@@ -533,10 +599,10 @@ export default function DataProvider({
   // Auto-execute when variableOverrides change (user applied variables)
   useEffect(() => {
     if (!dataSource || dataSource === 'offline') return; // Skip for offline
-    
+
     // Only execute if there are actual variable overrides
     const hasOverrides = Object.keys(variableOverrides).length > 0;
-    
+
     if (hasOverrides) {
       // For month-supported queries, require monthRange
       if (hasMonthSupport && (!monthRange || !Array.isArray(monthRange) || monthRange.length !== 2)) {
@@ -547,31 +613,211 @@ export default function DataProvider({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [variableOverrides]); // Only depend on variableOverrides
 
+  // Helper function to check IndexedDB and load data if available, otherwise call runQuery
+  // Use a ref to store runQuery to avoid dependency order issues
+  const runQueryRef = useRef(null);
+
+  // Helper function to fetch and cache all months in a range in background
+  const fetchAndCacheMonthsInRange = useCallback(async (queryId, queryDoc, monthRangeValue) => {
+    if (!queryId || !queryDoc || !monthRangeValue || !Array.isArray(monthRangeValue) || monthRangeValue.length !== 2) {
+      return;
+    }
+
+    const [startDate, endDate] = monthRangeValue;
+    
+    // Generate array of month prefixes for the range
+    const monthPrefixes = generateMonthRangeArray(startDate, endDate);
+    
+    if (monthPrefixes.length === 0) {
+      return;
+    }
+
+    // Execute in background without blocking UI
+    const fetchAndCacheAllMonthsAsync = async () => {
+      try {
+        const { endpointUrl, authToken } = getEndpointAndAuth(queryDoc);
+        
+        if (!endpointUrl) {
+          console.warn(`No endpoint available for fetching months in range for ${queryId}`);
+          return;
+        }
+
+        // Create execution context for background fetching
+        const context = createExecutionContext();
+
+        // Fetch and cache each month in the range (cache ALL months, even if already cached)
+        for (const prefix of monthPrefixes) {
+          try {
+            // Parse YYYY-MM to create month range (first day to last day of month)
+            const [year, month] = prefix.split('-').map(Number);
+            const monthStartDate = new Date(year, month - 1, 1);
+            const lastDay = new Date(year, month, 0).getDate();
+            const monthEndDate = new Date(year, month - 1, lastDay);
+            const monthRange = [monthStartDate, monthEndDate];
+
+            // Execute pipeline for this month
+            const pipelineResult = await executePipeline(queryId, context, {
+              endpointUrl,
+              authToken,
+              monthRange,
+            });
+
+            if (pipelineResult && typeof pipelineResult === 'object') {
+              // Ensure stores exist
+              await indexedDBService.ensureStoresForPipelineResult(queryId, pipelineResult, prefix, queryDoc);
+              
+              // Cache the result
+              await indexedDBService.savePipelineResultEntries(queryId, pipelineResult, prefix, queryDoc);
+              console.log(`Cached month ${prefix} for ${queryId}`);
+            }
+          } catch (error) {
+            console.error(`Error fetching and caching month ${prefix} for ${queryId}:`, error);
+            // Continue with other months even if one fails
+          }
+        }
+      } catch (error) {
+        console.error(`Error in background fetch for months in range for ${queryId}:`, error);
+      }
+    };
+
+    // Use requestIdleCallback if available, otherwise setTimeout
+    if (typeof requestIdleCallback !== 'undefined') {
+      requestIdleCallback(fetchAndCacheAllMonthsAsync, { timeout: 5000 });
+    } else {
+      setTimeout(fetchAndCacheAllMonthsAsync, 0);
+    }
+  }, []);
+
+  const checkIndexedDBAndLoadData = useCallback(async (queryId, queryDoc, monthRangeValue) => {
+    if (!queryDoc || queryDoc.clientSave !== true) {
+      // No IndexedDB support, go directly to API
+      if (runQueryRef.current) {
+        await runQueryRef.current(queryId, true);
+      }
+      return;
+    }
+
+    try {
+      // For month == true queries, handle multi-month range
+      if (queryDoc.month === true && monthRangeValue && Array.isArray(monthRangeValue) && monthRangeValue.length === 2) {
+        const [startDate, endDate] = monthRangeValue;
+        
+        // Generate array of month prefixes for the range
+        const monthPrefixes = generateMonthRangeArray(startDate, endDate);
+        
+        if (monthPrefixes.length > 0) {
+          // Check which months are cached
+          const cachedPrefixes = await indexedDBService.getCachedMonthPrefixes(queryId, monthPrefixes);
+          
+          if (cachedPrefixes.length === monthPrefixes.length) {
+            // All months cached: reconstruct from all
+            const reconstructed = await indexedDBService.reconstructPipelineResult(queryId, null, monthPrefixes);
+            
+            if (reconstructed && typeof reconstructed === 'object' && Object.keys(reconstructed).length > 0) {
+              setProcessedData(reconstructed);
+              
+              if (onDataChange) {
+                onDataChange({
+                  severity: 'success',
+                  summary: 'Success',
+                  detail: 'Data loaded from cache',
+                  life: 3000
+                });
+              }
+              return; // Successfully loaded from IndexedDB
+            }
+          } else if (cachedPrefixes.length > 0) {
+            // Some months cached: reconstruct from cached months immediately
+            const reconstructed = await indexedDBService.reconstructPipelineResult(queryId, null, cachedPrefixes);
+            
+            if (reconstructed && typeof reconstructed === 'object' && Object.keys(reconstructed).length > 0) {
+              setProcessedData(reconstructed);
+              
+              if (onDataChange) {
+                onDataChange({
+                  severity: 'success',
+                  summary: 'Success',
+                  detail: `Data loaded from cache (${cachedPrefixes.length}/${monthPrefixes.length} months)`,
+                  life: 3000
+                });
+              }
+              
+              // Cache all months in range in background (even if some already cached)
+              fetchAndCacheMonthsInRange(queryId, queryDoc, monthRangeValue);
+              
+              return; // Successfully loaded from cache, don't call API
+            }
+          }
+          
+          // If not all months cached and no cached data available, fall through to API fetch
+        }
+      } else {
+        // Single month or month == false: use original logic
+        const yearMonthPrefix = (queryDoc.month === true && monthRangeValue && monthRangeValue[0])
+          ? dayjs(monthRangeValue[0]).format('YYYY-MM')
+          : null;
+
+        // Try to reconstruct from IndexedDB
+        const reconstructed = await indexedDBService.reconstructPipelineResult(queryId, null, yearMonthPrefix);
+
+        // Check if we got data (reconstructed format matches processedData format)
+        if (reconstructed && typeof reconstructed === 'object' && Object.keys(reconstructed).length > 0) {
+          // Load from IndexedDB - format is already correct, no transformation needed
+          setProcessedData(reconstructed);
+
+          if (onDataChange) {
+            onDataChange({
+              severity: 'success',
+              summary: 'Success',
+              detail: 'Data loaded from cache',
+              life: 3000
+            });
+          }
+          return; // Successfully loaded from IndexedDB, don't call API
+        }
+      }
+    } catch (error) {
+      // If IndexedDB loading fails, fall through to normal query execution
+      console.error('Error loading from IndexedDB:', error);
+    }
+
+    // IndexedDB check failed or no data found, call API
+    if (runQueryRef.current) {
+      await runQueryRef.current(queryId, true);
+    }
+  }, [onDataChange, fetchAndCacheMonthsInRange]);
+
   // Auto-execute when monthRange changes (user changed month range)
   useEffect(() => {
     if (!dataSource || dataSource === 'offline') return; // Skip for offline
     if (!hasMonthSupport) return; // Only for month-supported queries
-    
+
+    // Skip if this is during initial load (prevent race condition with IndexedDB check)
+    if (isInitialLoadRef.current) {
+      return;
+    }
+
     // Only execute if monthRange is set
-    if (monthRange && Array.isArray(monthRange) && monthRange.length === 2) {
-      runQuery(dataSource, true);
+    if (monthRange && Array.isArray(monthRange) && monthRange.length === 2 && currentQueryDoc) {
+      // Check IndexedDB first, then API if not found
+      checkIndexedDBAndLoadData(dataSource, currentQueryDoc, monthRange);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [monthRange]); // Only depend on monthRange
+  }, [monthRange, checkIndexedDBAndLoadData]); // Include checkIndexedDBAndLoadData in deps
 
   // Format date to "10 Jan 2026 4:03:33 PM" format
   const formatLastUpdatedDate = (dateString) => {
     if (!dateString) return null;
-    
+
     try {
       // Try to parse the date string with dayjs
       const parsedDate = dayjs(dateString);
-      
+
       // Check if the date is valid
       if (!parsedDate.isValid()) {
         return dateString; // Return original if can't parse
       }
-      
+
       // Format to "10 Jan 2026 4:03:33 PM" (MMM already returns capitalized month by default)
       return parsedDate.format('D MMM YYYY h:mm:ss A');
     } catch (error) {
@@ -592,7 +838,7 @@ export default function DataProvider({
       try {
         // Get the index result from IndexedDB
         const indexResult = await indexedDBService.getQueryIndexResult(dataSource);
-        
+
         if (!indexResult || !indexResult.result) {
           setLastUpdatedAt(null);
           return;
@@ -658,8 +904,17 @@ export default function DataProvider({
     }
   }, [processedData, availableQueryKeys, selectedQueryKey, dataSource, setSelectedQueryKey]);
 
+  // Expose availableQueryKeys to parent (after it's defined)
+  useEffect(() => {
+    if (onAvailableQueryKeysChange) {
+      onAvailableQueryKeysChange(availableQueryKeys);
+    }
+  }, [availableQueryKeys, onAvailableQueryKeysChange]);
+
   // Execute query using the unified pipeline
   const runQuery = useCallback(async (queryId, skipMonthDateLoad = false) => {
+    // Update ref so checkIndexedDBAndLoadData can use it
+    runQueryRef.current = runQuery;
     // Hard guard: prevent execution if already executing any query
     if (executingQuery) {
       return;
@@ -677,11 +932,11 @@ export default function DataProvider({
 
     executingQueryIdRef.current = queryId;
     setExecutingQuery(true);
-    
+
     // Use ref for immediate access (avoids stale closure issues)
     // Merge queryVariables with variableOverrides (variableOverrides take precedence for user overrides)
     const mergedVariables = { ...queryVariablesRef.current, ...variableOverrides };
-    
+
     try {
       // Get endpoint URL and auth token
       const endpoint = getInitialEndpoint();
@@ -705,6 +960,92 @@ export default function DataProvider({
           life: 3000
         });
       }
+
+      // Cache API result to IndexedDB in background (non-blocking)
+      if (currentQueryDoc && currentQueryDoc.clientSave === true && finalData && typeof finalData === 'object') {
+        const cacheApiResultAsync = async () => {
+          try {
+            // For month == true queries with monthRange, cache all months in the range
+            if (currentQueryDoc.month === true && monthRange && Array.isArray(monthRange) && monthRange.length === 2) {
+              const [startDate, endDate] = monthRange;
+              
+              // Generate array of month prefixes for the range
+              const monthPrefixes = generateMonthRangeArray(startDate, endDate);
+              
+              if (monthPrefixes.length > 0) {
+                // Get endpoint and auth
+                const { endpointUrl, authToken } = getEndpointAndAuth(currentQueryDoc);
+                
+                if (endpointUrl) {
+                  // Create execution context for caching
+                  const context = createExecutionContext();
+                  
+                  // Cache each month separately
+                  for (const prefix of monthPrefixes) {
+                    try {
+                      // Parse YYYY-MM to create month range (first day to last day of month)
+                      const [year, month] = prefix.split('-').map(Number);
+                      const monthStartDate = new Date(year, month - 1, 1);
+                      const lastDay = new Date(year, month, 0).getDate();
+                      const monthEndDate = new Date(year, month - 1, lastDay);
+                      const monthRangeForCache = [monthStartDate, monthEndDate];
+
+                      // Execute pipeline for this month
+                      const monthData = await executePipeline(queryId, context, {
+                        endpointUrl,
+                        authToken,
+                        monthRange: monthRangeForCache,
+                      });
+
+                      if (monthData && typeof monthData === 'object') {
+                        // Ensure stores exist
+                        await indexedDBService.ensureStoresForPipelineResult(queryId, monthData, prefix, currentQueryDoc);
+                        
+                        // Cache the result
+                        await indexedDBService.savePipelineResultEntries(queryId, monthData, prefix, currentQueryDoc);
+                        console.log(`Cached month ${prefix} for ${queryId}`);
+                      }
+                    } catch (error) {
+                      console.error(`Error caching month ${prefix} for ${queryId}:`, error);
+                      // Continue with other months even if one fails
+                    }
+                  }
+                }
+              }
+            } else {
+              // Single month or month == false: use original logic
+              let yearMonthPrefix = null;
+              if (currentQueryDoc.month === true && monthRange && Array.isArray(monthRange) && monthRange.length > 0 && monthRange[0]) {
+                yearMonthPrefix = dayjs(monthRange[0]).format('YYYY-MM');
+                console.log(`Caching API result for ${queryId} with yearMonthPrefix: ${yearMonthPrefix}`);
+              } else {
+                console.log(`Caching API result for ${queryId} (month == false, no prefix)`);
+              }
+
+              // Get/create the query database
+              const queryDb = await indexedDBService.getQueryDatabase(queryId, currentQueryDoc);
+              console.log(`Database ready for caching queryId: ${queryId}`);
+
+              // Ensure stores exist for each key in the pipeline result
+              await indexedDBService.ensureStoresForPipelineResult(queryId, finalData, yearMonthPrefix, currentQueryDoc);
+
+              // Store pipeline result entries in IndexedDB tables
+              await indexedDBService.savePipelineResultEntries(queryId, finalData, yearMonthPrefix, currentQueryDoc);
+              console.log(`API result cached for ${queryId}${yearMonthPrefix ? ` with prefix ${yearMonthPrefix}` : ''}, stores ensured and entries saved for keys:`, getDataKeys(finalData));
+            }
+          } catch (error) {
+            console.error(`Error caching API result for ${queryId}:`, error);
+            // Don't throw - this is background execution, shouldn't affect main flow
+          }
+        };
+
+        // Execute caching in background using requestIdleCallback or setTimeout
+        if (typeof requestIdleCallback !== 'undefined') {
+          requestIdleCallback(cacheApiResultAsync, { timeout: 5000 });
+        } else {
+          setTimeout(cacheApiResultAsync, 0);
+        }
+      }
     } catch (error) {
       console.error(`Query execution failed: ${queryId}`, error);
       if (onError) {
@@ -723,7 +1064,12 @@ export default function DataProvider({
       }
       setExecutingQuery(false);
     }
-  }, [onDataChange, onError, monthRange, executingQuery, variableOverrides, queryVariables]);
+  }, [onDataChange, onError, monthRange, executingQuery, variableOverrides, queryVariables, currentQueryDoc]);
+
+  // Update runQuery ref whenever runQuery changes
+  useEffect(() => {
+    runQueryRef.current = runQuery;
+  }, [runQuery]);
 
   // Track if offline data has been "executed" (shown)
   const [offlineDataExecuted, setOfflineDataExecuted] = useState(false);
@@ -784,118 +1130,114 @@ export default function DataProvider({
     return filteredData;
   }, [rawTableData, isAdminMode, salesTeamColumn, salesTeamValues, hqColumn, hqValues]);
 
-  // Extract available team values from auth-filtered data for Search Teams selector
-  const availableTeamValues = useMemo(() => {
+  // Extract available Sales Team values from auth-filtered data
+  const availableSalesTeamValues = useMemo(() => {
     if (!authFilteredData || !Array.isArray(authFilteredData) || isEmpty(authFilteredData)) {
       return [];
     }
 
-    const teamOptions = [];
-
-    // Extract Sales Team values if column is set
-    if (salesTeamColumn && !isAdminMode) {
-      const salesTeamValuesSet = new Set();
-      authFilteredData.forEach(row => {
-        if (row && typeof row === 'object') {
-          const value = getDataValue(row, salesTeamColumn);
-          if (!isNil(value) && value !== '') {
-            salesTeamValuesSet.add(String(value));
-          }
-        }
-      });
-
-      const salesTeamValuesArray = Array.from(salesTeamValuesSet).sort();
-      // Only show Sales Team values if count > 1
-      if (salesTeamValuesArray.length > 1) {
-        salesTeamValuesArray.forEach(val => {
-          teamOptions.push({
-            label: `Sales Team: ${val}`,
-            value: val,
-            type: 'salesTeam'
-          });
-        });
-      }
+    if (!salesTeamColumn) {
+      return [];
     }
 
-    // Extract HQ values if column is set
-    if (hqColumn && !isAdminMode) {
-      const hqValuesSet = new Set();
-      authFilteredData.forEach(row => {
-        if (row && typeof row === 'object') {
-          const value = getDataValue(row, hqColumn);
-          if (!isNil(value) && value !== '') {
-            hqValuesSet.add(String(value));
-          }
+    const salesTeamValuesSet = new Set();
+    authFilteredData.forEach(row => {
+      if (row && typeof row === 'object') {
+        const value = getDataValue(row, salesTeamColumn);
+        if (!isNil(value) && value !== '') {
+          salesTeamValuesSet.add(String(value));
         }
-      });
-
-      const hqValuesArray = Array.from(hqValuesSet).sort();
-      // Only show HQ values if count > 1
-      if (hqValuesArray.length > 1) {
-        hqValuesArray.forEach(val => {
-          teamOptions.push({
-            label: `HQ: ${val}`,
-            value: val,
-            type: 'hq'
-          });
-        });
       }
+    });
+
+    return Array.from(salesTeamValuesSet).sort();
+  }, [authFilteredData, salesTeamColumn]);
+
+  // Extract available HQ values from auth-filtered data
+  const availableHqValues = useMemo(() => {
+    if (!authFilteredData || !Array.isArray(authFilteredData) || isEmpty(authFilteredData)) {
+      return [];
     }
 
-    return teamOptions;
-  }, [authFilteredData, salesTeamColumn, hqColumn, isAdminMode]);
+    if (!hqColumn) {
+      return [];
+    }
 
-  // Reset selectedTeams when auth filters change significantly (to avoid stale selections)
+    const hqValuesSet = new Set();
+    authFilteredData.forEach(row => {
+      if (row && typeof row === 'object') {
+        const value = getDataValue(row, hqColumn);
+        if (!isNil(value) && value !== '') {
+          hqValuesSet.add(String(value));
+        }
+      }
+    });
+
+    return Array.from(hqValuesSet).sort();
+  }, [authFilteredData, hqColumn]);
+
+  // Reset selectedSalesTeams when auth filters change significantly (to avoid stale selections)
   useEffect(() => {
-    // Only reset if we have selectedTeams and the available options have changed
-    if (selectedTeams && selectedTeams.length > 0 && availableTeamValues.length > 0) {
-      const availableValues = new Set(availableTeamValues.map(opt => opt.value));
-      const hasInvalidSelection = selectedTeams.some(team => !availableValues.has(team));
+    if (selectedSalesTeams && selectedSalesTeams.length > 0 && availableSalesTeamValues.length > 0) {
+      const availableValues = new Set(availableSalesTeamValues);
+      const hasInvalidSelection = selectedSalesTeams.some(team => !availableValues.has(team));
       if (hasInvalidSelection) {
-        // Filter out invalid selections, keep only valid ones
-        const validTeams = selectedTeams.filter(team => availableValues.has(team));
-        setSelectedTeams(validTeams);
+        const validTeams = selectedSalesTeams.filter(team => availableValues.has(team));
+        setSelectedSalesTeams(validTeams);
       }
-    } else if (selectedTeams && selectedTeams.length > 0 && availableTeamValues.length === 0) {
-      // Clear selections if no teams available
-      setSelectedTeams([]);
+    } else if (selectedSalesTeams && selectedSalesTeams.length > 0 && availableSalesTeamValues.length === 0) {
+      setSelectedSalesTeams([]);
     }
-  }, [availableTeamValues, salesTeamColumn, hqColumn, isAdminMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [availableSalesTeamValues, salesTeamColumn]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Apply Search Teams filter to auth-filtered data
+  // Reset selectedHqTeams when auth filters change significantly (to avoid stale selections)
+  useEffect(() => {
+    if (selectedHqTeams && selectedHqTeams.length > 0 && availableHqValues.length > 0) {
+      const availableValues = new Set(availableHqValues);
+      const hasInvalidSelection = selectedHqTeams.some(team => !availableValues.has(team));
+      if (hasInvalidSelection) {
+        const validTeams = selectedHqTeams.filter(team => availableValues.has(team));
+        setSelectedHqTeams(validTeams);
+      }
+    } else if (selectedHqTeams && selectedHqTeams.length > 0 && availableHqValues.length === 0) {
+      setSelectedHqTeams([]);
+    }
+  }, [availableHqValues, hqColumn]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Apply Sales Team and HQ filters to auth-filtered data
   const tableData = useMemo(() => {
     if (!authFilteredData || !Array.isArray(authFilteredData) || isEmpty(authFilteredData)) {
       return authFilteredData;
     }
 
-    // If no teams selected, return auth-filtered data as-is
-    if (!selectedTeams || selectedTeams.length === 0) {
-      return authFilteredData;
+    let filteredData = [...authFilteredData];
+
+    // Filter by selected Sales Teams
+    if (selectedSalesTeams && selectedSalesTeams.length > 0 && salesTeamColumn) {
+      filteredData = filteredData.filter(row => {
+        if (!row || typeof row !== 'object') return false;
+        const salesTeamValue = getDataValue(row, salesTeamColumn);
+        if (isNil(salesTeamValue)) {
+          return selectedSalesTeams.some(team => team === null || team === undefined || team === '');
+        }
+        return selectedSalesTeams.some(team => String(team) === String(salesTeamValue));
+      });
     }
 
-    // Filter by selected teams (match either Sales Team or HQ column)
-    return authFilteredData.filter(row => {
-      if (!row || typeof row !== 'object') return false;
-      
-      // Check Sales Team column
-      if (salesTeamColumn) {
-        const salesTeamValue = getDataValue(row, salesTeamColumn);
-        if (!isNil(salesTeamValue) && selectedTeams.some(team => String(team) === String(salesTeamValue))) {
-          return true;
-        }
-      }
-      
-      // Check HQ column
-      if (hqColumn) {
+    // Filter by selected HQ Teams
+    if (selectedHqTeams && selectedHqTeams.length > 0 && hqColumn) {
+      filteredData = filteredData.filter(row => {
+        if (!row || typeof row !== 'object') return false;
         const hqValue = getDataValue(row, hqColumn);
-        if (!isNil(hqValue) && selectedTeams.some(team => String(team) === String(hqValue))) {
-          return true;
+        if (isNil(hqValue)) {
+          return selectedHqTeams.some(team => team === null || team === undefined || team === '');
         }
-      }
-      
-      return false;
-    });
-  }, [authFilteredData, selectedTeams, salesTeamColumn, hqColumn]);
+        return selectedHqTeams.some(team => String(team) === String(hqValue));
+      });
+    }
+
+    return filteredData;
+  }, [authFilteredData, selectedSalesTeams, selectedHqTeams, salesTeamColumn, hqColumn]);
 
   // Notify parent when raw data changes (for Auth Control in DataTableControls)
   useEffect(() => {
@@ -914,90 +1256,38 @@ export default function DataProvider({
   // Sync function that retriggers query execution
   const handleSync = useCallback(async () => {
     if (!dataSource || dataSource === 'offline') return;
-    
+
     // For month-supported queries, require monthRange
     if (hasMonthSupport && (!monthRange || !Array.isArray(monthRange) || monthRange.length !== 2)) {
       return; // Don't execute if month range is required but not set
     }
-    
-    // Execute query with current settings
-    await runQuery(dataSource, true);
-  }, [dataSource, hasMonthSupport, monthRange, runQuery]);
+
+    // Check IndexedDB first, then API if needed (same logic as initial load)
+    if (currentQueryDoc) {
+      await checkIndexedDBAndLoadData(dataSource, currentQueryDoc, monthRange);
+    } else {
+      // Fallback to direct API call if no queryDoc available
+      await runQuery(dataSource, true);
+    }
+  }, [dataSource, hasMonthSupport, monthRange, currentQueryDoc, checkIndexedDBAndLoadData, runQuery]);
 
   // Render selectors JSX
   const selectorsJSX = (
     <>
-      <div className="flex flex-col w-full gap-3">
+      <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between w-full gap-3">
           <div className="flex items-end gap-3">
-            {/* Data Source Selector - Only show if hideDataSourceAndQueryKey is false */}
-            {!hideDataSourceAndQueryKey && (
-              <div className="w-48">
-                <label className="block text-xs font-medium text-gray-700 mb-1">
-                  Data Source
-                </label>
-                <Dropdown
-                  value={dataSource}
-                  onChange={(e) => setDataSource(e.value)}
-                  options={[
-                    { label: 'Offline', value: 'offline' },
-                    ...savedQueries.map(q => ({ label: q.name, value: q.id }))
-                  ]}
-                  optionLabel="label"
-                  optionValue="value"
-                  placeholder="Select a data source"
-                  className="w-full"
-                  loading={loadingQueries}
-                  disabled={executingQuery}
-                  style={{
-                    height: '3rem',
-                  }}
-                />
-              </div>
-            )}
-
-            {/* Query Key Selector - Only show when using saved query and hideDataSourceAndQueryKey is false */}
-            {!hideDataSourceAndQueryKey && dataSource && availableQueryKeys.length > 0 && (
-              <div className="w-48">
-                <label className="block text-xs font-medium text-gray-700 mb-1">
-                  Query Key
-                </label>
-                <Dropdown
-                  value={selectedQueryKey}
-                  onChange={(e) => setSelectedQueryKey(e.value)}
-                  options={availableQueryKeys.map(key => ({ 
-                    label: startCase(key.split('__').join(' ').split('_').join(' ')), 
-                    value: key 
-                  }))}
-                  optionLabel="label"
-                  optionValue="value"
-                  placeholder="Select Query Key"
-                  className="w-full"
-                  disabled={executingQuery || !processedData}
-                  style={{
-                    height: '3rem',
-                  }}
-                />
-              </div>
-            )}
-
             {/* Month Range Picker - Only show when using saved query that supports month filtering */}
             {dataSource && hasMonthSupport && (
               <div className="w-64">
                 <label className="block text-xs font-medium text-gray-700 mb-1">
                   Month Range
                 </label>
-                <RangePicker
-                  picker="month"
-                  value={
-                    monthRange && Array.isArray(monthRange) && monthRange.length === 2
-                      ? [dayjs(monthRange[0]), dayjs(monthRange[1])]
-                      : null
-                  }
+                <MonthRangePicker
+                  value={monthRange}
                   onChange={(dates) => {
                     if (dates && dates[0] && dates[1]) {
-                      // Convert dayjs to Date objects
-                      setMonthRange([dates[0].toDate(), dates[1].toDate()]);
+                      setMonthRange([dates[0], dates[1]]);
                     } else {
                       setMonthRange(null);
                     }
@@ -1015,29 +1305,61 @@ export default function DataProvider({
               </div>
             )}
 
-            {/* Search Teams Multi-Selector - Show when there are available team values */}
-            {!isAdminMode && availableTeamValues.length > 0 && (
-              <div className="w-64">
+            {/* Sales Team Multi-Selector */}
+            {salesTeamColumn && availableSalesTeamValues.length > 0 && (
+              <div className="w-48">
                 <label className="block text-xs font-medium text-gray-700 mb-1">
-                  Search Teams
+                  Sales Team
                 </label>
                 <MultiSelect
-                  value={selectedTeams}
-                  onChange={(e) => setSelectedTeams(e.value || [])}
-                  options={availableTeamValues}
-                  optionLabel="label"
-                  optionValue="value"
+                  value={selectedSalesTeams}
+                  onChange={(e) => setSelectedSalesTeams(e.value || [])}
+                  options={availableSalesTeamValues}
+                  optionLabel={(option) => String(option)}
+                  optionValue={(option) => option}
                   filter
-                  filterPlaceholder="Search teams..."
+                  filterPlaceholder="Search sales teams..."
                   filterDelay={300}
                   className="w-full"
                   panelClassName="custom-multiselect-panel"
                   display="chip"
                   showClear
                   resetFilterOnHide
-                  emptyFilterMessage="No teams match your search"
-                  emptyMessage="No teams available"
-                  placeholder="Select teams..."
+                  emptyFilterMessage="No sales teams match your search"
+                  emptyMessage="No sales teams available"
+                  placeholder="Select sales teams..."
+                  disabled={executingQuery}
+                  style={{
+                    fontSize: '0.875rem',
+                    height: '3rem',
+                  }}
+                />
+              </div>
+            )}
+
+            {/* HQ Multi-Selector */}
+            {hqColumn && availableHqValues.length > 0 && (
+              <div className="w-48">
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  HQ
+                </label>
+                <MultiSelect
+                  value={selectedHqTeams}
+                  onChange={(e) => setSelectedHqTeams(e.value || [])}
+                  options={availableHqValues}
+                  optionLabel={(option) => String(option)}
+                  optionValue={(option) => option}
+                  filter
+                  filterPlaceholder="Search HQ..."
+                  filterDelay={300}
+                  className="w-full"
+                  panelClassName="custom-multiselect-panel"
+                  display="chip"
+                  showClear
+                  resetFilterOnHide
+                  emptyFilterMessage="No HQ match your search"
+                  emptyMessage="No HQ available"
+                  placeholder="Select HQ..."
                   disabled={executingQuery}
                   style={{
                     fontSize: '0.875rem',
@@ -1074,7 +1396,7 @@ export default function DataProvider({
     <>
       {/* Render header controls if render prop provided */}
       {renderHeaderControls && renderHeaderControls(selectorsJSX)}
-      
+
       {/* Render children */}
       {children}
     </>

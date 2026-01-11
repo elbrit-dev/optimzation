@@ -58,7 +58,14 @@ const DEFAULT_NAVIGATION_ITEMS = [
   },
 ];
 
-const Navigation = ({ items, defaultIndex = 0 }) => {
+const Navigation = ({ 
+  items, 
+  defaultIndex = 0,
+  desktopWidth = '16rem', // Default: w-64
+  desktopHeight = 'auto', // Default: auto (flex-1)
+  mobileWidth = '100%', // Default: full width
+  mobileHeight = '4rem' // Default: h-16
+}) => {
   // Use provided items or default items
   const navigationItems = items || DEFAULT_NAVIGATION_ITEMS;
 
@@ -157,7 +164,11 @@ const Navigation = ({ items, defaultIndex = 0 }) => {
           initial={{ x: -100, opacity: 0 }}
           animate={{ x: 0, opacity: 1 }}
           transition={{ duration: 0.3 }}
-          className="w-64 bg-white border-r border-gray-200 flex flex-col shadow-sm"
+          className="bg-white border-r border-gray-200 flex flex-col shadow-sm"
+          style={{
+            width: desktopWidth,
+            height: desktopHeight === 'auto' ? 'auto' : desktopHeight,
+          }}
         >
           <nav className="flex-1 overflow-y-auto p-2">
             {navigationItems.map((item, index) => {
@@ -203,8 +214,12 @@ const Navigation = ({ items, defaultIndex = 0 }) => {
           initial={false}
           animate={{ y: 0, opacity: 1 }}
           className="bg-white border-t border-gray-200 shadow-lg safe-area-bottom flex-shrink-0 z-10 fixed bottom-0 left-0 right-0"
+          style={{
+            width: mobileWidth,
+            height: mobileHeight,
+          }}
         >
-          <div className="flex justify-around items-center h-16 px-2 relative">
+          <div className="flex justify-around items-center px-2 relative" style={{ height: mobileHeight }}>
             {navigationItems.map((item, index) => {
               const isDisabled = item.isDisabled === true;
               return (

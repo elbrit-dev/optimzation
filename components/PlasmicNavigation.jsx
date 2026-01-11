@@ -76,7 +76,19 @@ const transformItem = (item) => {
  * that acts as a Layout Shell with a children slot.
  */
 export default function PlasmicNavigation(props) {
-  const { children, items, enableSwipe = true, hideNavigation = false, isDisabled = false, className, ...rest } = props;
+  const { 
+    children, 
+    items, 
+    enableSwipe = true, 
+    hideNavigation = false, 
+    isDisabled = false, 
+    className, 
+    desktopWidth,
+    desktopHeight,
+    mobileWidth,
+    mobileHeight,
+    ...rest 
+  } = props;
   
   // Transform string icon names into JSX elements
   const transformedItems = React.useMemo(() => {
@@ -86,8 +98,8 @@ export default function PlasmicNavigation(props) {
     return undefined;
   }, [items]);
 
-  // Get swipe handlers for the content area
-  const swipeHandlers = useSwipeNavigation();
+  // Get swipe handlers for the content area, passing the items to the hook
+  const swipeHandlers = useSwipeNavigation(transformedItems);
 
   return (
     <div 
@@ -96,7 +108,14 @@ export default function PlasmicNavigation(props) {
       {/* The Navigation bars (Sidebar/Bottom Bar) */}
       {!hideNavigation && (
         <div className={isDisabled ? 'opacity-50 pointer-events-none' : ''}>
-          <Navigation {...rest} items={transformedItems} />
+          <Navigation 
+            {...rest} 
+            items={transformedItems} 
+            desktopWidth={desktopWidth}
+            desktopHeight={desktopHeight}
+            mobileWidth={mobileWidth}
+            mobileHeight={mobileHeight}
+          />
         </div>
       )}
       
