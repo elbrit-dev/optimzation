@@ -1,10 +1,12 @@
-import { initPlasmicLoader } from "@plasmicapp/loader-nextjs";
+import { initPlasmicLoader, DataProvider as PlasmicDataProvider } from "@plasmicapp/loader-nextjs";
 import jmespath from "jmespath";
 import _ from "lodash";
+import jmespath_plus from '@metrichor/jmespath-plus';
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import DataTable from "./components/DataTable";
 import FirebaseUIComponent from "./components/FirebaseUIComponent";
 import TableDataProvider from "./components/TableDataProvider";
+import jsonata from 'jsonata';
 import PlasmicNavigation from "./components/PlasmicNavigation";
 
 
@@ -112,6 +114,31 @@ if (typeof window !== 'undefined') {
   window.state = globalStateStore;
 }
 
+// Helper component to provide global utilities
+export const GlobalUtils = ({ children }) => {
+  return (
+    <PlasmicDataProvider name="utils" data={{ _, jmespath, jmespath_plus, jsonata }}>
+      {children}
+    </PlasmicDataProvider>
+  );
+};
+
+PLASMIC.registerGlobalContext(GlobalUtils, {
+  name: "GlobalUtils",
+  props: {},
+  providesData: true,
+  importPath: "./plasmic-init",
+});
+
+PLASMIC.registerFunction(jmespath_plus.search, {
+  name: "jmespath_plus",
+  params: [
+    { name: "data", type: "object" },
+    { name: "expression", type: "string" }
+  ],
+  description: "Execute a JMESPath Plus expression on data"
+});
+
 PLASMIC.registerFunction(jmespath.search, {
   name: "jmespath",
   description: "Run a JMESPath expression on JSON data",
@@ -122,6 +149,13 @@ PLASMIC.registerFunction(jmespath.search, {
   returnType: "any",
 });
 
+PLASMIC.registerFunction(jsonata, {
+  name: "jsonata",
+  params: [
+    { name: "expression", type: "string" }
+  ],
+  description: "Create a JSONata expression"
+});
 PLASMIC.registerFunction(addStHq, {
   name: "addStHq",
   description: "Add sales team and HQ information to data based on item and customer mappings",
