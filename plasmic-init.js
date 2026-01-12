@@ -360,7 +360,10 @@ PLASMIC.registerComponent(DataTable, {
     drawerTabs: {
       type: "object",
       description: "Array of tab configurations for the detail drawer (name, outerGroup, innerGroup)",
-      defaultValue: [],
+      defaultValue: [
+        { id: "customer", name: "Customer", outerGroup: "customer_name", innerGroup: "item_name" },
+        { id: "invoice", name: "Invoice", outerGroup: "invoice", innerGroup: "item_name" },
+      ],
     },
     controlsPanelSize: {
       type: "number",
