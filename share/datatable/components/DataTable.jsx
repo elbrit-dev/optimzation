@@ -951,6 +951,7 @@ export default function DataTableComponent({
   stickyHeaderOffset = 0, // Additional offset for sticky header
   stickyHeaderZIndex = 1000, // Z-index for sticky header
   appHeaderOffset = null, // App header height (null = auto-calculate)
+  appFooterOffset = null, // App footer height (null = auto-calculate)
   shouldShowHeader = null, // Custom function to determine header visibility: ({ tableElement, thead, containerRect, headerRect, scrollY, viewportHeight, totalHeaderOffset }) => boolean
   shouldShowFooter = null, // Custom function to determine footer visibility: ({ tableElement, tfoot, containerRect, footerRect, scrollY, viewportHeight }) => boolean
   calculateHeaderPosition = null, // Custom function to calculate header position: ({ containerRect, tableElement, thead, headerRect, totalHeaderOffset }) => { width, left, top } | null
@@ -3126,6 +3127,7 @@ export default function DataTableComponent({
     const originalHeaderRef = useRef(null);
     const originalFooterRef = useRef(null);
     const [calculatedAppHeaderOffset, setCalculatedAppHeaderOffset] = useState(0);
+    const [calculatedAppFooterOffset, setCalculatedAppFooterOffset] = useState(0);
     const [calculatedScrollHeight, setCalculatedScrollHeight] = useState(scrollHeight === "flex" ? undefined : scrollHeight);
 
     // Calculate scrollHeight dynamically when "flex" is used
@@ -3212,6 +3214,46 @@ export default function DataTableComponent({
       }
     }, [appHeaderOffset]);
 
+    // Calculate app footer offset dynamically if not provided
+    useEffect(() => {
+      if (appFooterOffset !== null) {
+        // Use provided offset
+        setCalculatedAppFooterOffset(appFooterOffset);
+      } else {
+        // Calculate dynamically by finding the app footer
+        const calculateAppFooterHeight = () => {
+          // Try multiple selectors to find the app footer
+          const footerSelectors = [
+            '.app-footer-container',
+            '.app-footer',
+            '[class*="app-footer"]',
+            'footer',
+          ];
+          
+          for (const selector of footerSelectors) {
+            const footerElement = document.querySelector(selector);
+            if (footerElement) {
+              const height = footerElement.getBoundingClientRect().height;
+              setCalculatedAppFooterOffset(height);
+              return;
+            }
+          }
+          
+          setCalculatedAppFooterOffset(0);
+        };
+
+        // Calculate on mount and resize
+        calculateAppFooterHeight();
+        const handleResize = debounce(calculateAppFooterHeight, 100);
+        window.addEventListener('resize', handleResize);
+        
+        return () => {
+          window.removeEventListener('resize', handleResize);
+          handleResize.cancel();
+        };
+      }
+    }, [appFooterOffset]);
+
     // Use sticky elements hook for visibility and position
     // Page-level control via props passed from DataTableComponent
     // Disable sticky header for dialog views
@@ -3232,6 +3274,7 @@ export default function DataTableComponent({
       stickyHeaderRef,
       stickyFooterRef,
       appHeaderOffset: calculatedAppHeaderOffset,
+      appFooterOffset: calculatedAppFooterOffset,
       stickyHeaderOffset,
       stickyHeaderZIndex,
       // Page-level control functions

@@ -1,11 +1,6 @@
 import Dexie from "dexie";
 import { isYearMonthFormat, hasYearMonthPrefix } from "./dateUtils";
 
-// Utility function to yield control to browser event loop
-function yieldToEventLoop() {
-    return new Promise(resolve => setTimeout(resolve, 0));
-}
-
 // Initialize client index database
 const clientIndexDb = new Dexie("elbrit-client-index-db");
 
@@ -15,9 +10,9 @@ clientIndexDb.version(1).stores({
 });
 
 /**
- * Service for managing query index results in IndexedDB
+ * Service for managing query index results and pipeline results in IndexedDB (Worker context)
  */
-class IndexedDBService {
+export class IndexedDBServiceWorker {
     constructor() {
         this.callbacks = new Map(); // Map<queryId, callback>
         this.queryDatabases = new Map(); // Map<queryId, Dexie instance> - cache for query databases
@@ -413,13 +408,6 @@ class IndexedDBService {
     }
 
     /**
-     * Save pipeline result entries to IndexedDB tables
-     * Stores each object from pipeline result arrays as individual entries
-     * @param {string} queryId - The query identifier
-     * @param {Object} pipelineResult - The pipeline result object with keys as store names and arrays as values
-     * @returns {Promise<void>}
-     */
-    /**
      * Save pipeline result entries to IndexedDB stores
      * @param {string} queryId - The query identifier
      * @param {Object} pipelineResult - The pipeline result object with keys as store names
@@ -490,33 +478,25 @@ class IndexedDBService {
      * Load pipeline result entries from a specific table/key
      * @param {string} queryId - The query identifier
      * @param {string} key - The store/key name
-     * @param {Dexie} queryDb - Optional database instance to avoid re-opening
-     * @param {Array<string>} existingStores - Optional list of existing stores to avoid re-mapping
      * @returns {Promise<Array>} Array of objects sorted by index field
      */
-    async loadPipelineResultEntries(queryId, key, queryDb = null, existingStores = null) {
+    async loadPipelineResultEntries(queryId, key) {
         if (!queryId || !key) {
             return [];
         }
 
         try {
-            // Use provided database instance or get a new one
-            const db = queryDb || await this.getQueryDatabase(queryId);
+            const queryDb = await this.getQueryDatabase(queryId);
 
-            // Use provided store list or get it
-            let stores = existingStores;
-            if (!stores) {
-                stores = db.tables.map((table) => table.name);
-            }
-            
             // Check if store exists
-            if (!stores.includes(key)) {
+            const existingStores = queryDb.tables.map((table) => table.name);
+            if (!existingStores.includes(key)) {
                 console.warn(`Store "${key}" does not exist for queryId ${queryId}`);
                 return [];
             }
 
-            // Load all entries and sort by index (IndexedDB handles empty stores efficiently)
-            const entries = await db.table(key).orderBy("index").toArray();
+            // Load all entries and sort by index
+            const entries = await queryDb.table(key).orderBy("index").toArray();
 
             // Extract data field from each entry (objects are already deserialized by Dexie)
             return entries.map((entry) => entry.data);
@@ -637,9 +617,7 @@ class IndexedDBService {
                     for (const prefix of yearMonthPrefix) {
                         const storeName = `${prefix}_${baseKey}`;
                         if (storeNames.includes(storeName)) {
-                            // Yield control to browser between store loads to prevent UI blocking
-                            await yieldToEventLoop();
-                            const dataArray = await this.loadPipelineResultEntries(queryId, storeName, queryDb, existingStores);
+                            const dataArray = await this.loadPipelineResultEntries(queryId, storeName);
                             if (dataArray && dataArray.length > 0) {
                                 mergedArray.push(...dataArray);
                             }
@@ -656,10 +634,8 @@ class IndexedDBService {
                         continue;
                     }
 
-                    // Yield control to browser between store loads to prevent UI blocking
-                    await yieldToEventLoop();
                     // Load entries for this store (already sorted by index)
-                    const dataArray = await this.loadPipelineResultEntries(queryId, storeName, queryDb, existingStores);
+                    const dataArray = await this.loadPipelineResultEntries(queryId, storeName);
                     if (dataArray.length > 0) {
                         // For month == true, remove the prefix from the key in the reconstructed object
                         const key = isSingleMonth && storeName.startsWith(`${yearMonthPrefix}_`)
@@ -672,11 +648,9 @@ class IndexedDBService {
 
             return reconstructed;
         } catch (error) {
-            console.error(`Error reconstructing pipeline result for queryId ${queryId}:`, error);
+            console.error(`Error reconstructing pipeline result for ${queryId}:`, error);
             return {};
         }
     }
 }
 
-// Export singleton instance
-export const indexedDBService = new IndexedDBService();

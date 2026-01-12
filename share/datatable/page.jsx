@@ -6,6 +6,7 @@ import { Splitter, SplitterPanel } from 'primereact/splitter';
 import { Sidebar } from 'primereact/sidebar';
 import { TabView, TabPanel } from 'primereact/tabview';
 import { Dropdown } from 'primereact/dropdown';
+import { SelectButton } from 'primereact/selectbutton';
 import DataTableComponent from './components/DataTable';
 import DataTableControls from './components/DataTableControls';
 import DataProvider from './components/DataProvider';
@@ -242,12 +243,13 @@ function DataTablePage() {
   const [rawTableData, setRawTableData] = useState(data); // Full/original data for Auth Control in DataTableControls
   const [currentDataSource, setCurrentDataSource] = useState(null);
   // State for Data Source and Query Key selectors (controlled by page)
-  const [dataSource, setDataSource] = useState('offline');
-  const [selectedQueryKey, setSelectedQueryKey] = useState(null);
+  const [dataSource, setDataSource] = useState('Primary');
+  const [selectedQueryKey, setSelectedQueryKey] = useState('primary');
   // State exposed from DataProvider for selectors
   const [savedQueries, setSavedQueries] = useState([]);
   const [loadingQueries, setLoadingQueries] = useState(false);
   const [executingQuery, setExecutingQuery] = useState(false);
+  const [isLoadingData, setIsLoadingData] = useState(false);
   const [availableQueryKeys, setAvailableQueryKeys] = useState([]);
   const [enableSort, setEnableSort] = useLocalStorageBoolean('datatable-enableSort', true);
   const [enableFilter, setEnableFilter] = useLocalStorageBoolean('datatable-enableFilter', true);
@@ -297,6 +299,31 @@ function DataTablePage() {
     // Calculate on mount and resize
     calculateAppHeaderHeight();
     const handleResize = debounce(calculateAppHeaderHeight, 100);
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      handleResize.cancel();
+    };
+  }, []);
+
+  // Sticky footer offset - 0 by default, 10vh on mobile
+  const [appFooterOffset, setAppFooterOffset] = useState(0);
+
+  // Mobile detection
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Calculate app footer offset: 0 by default, 10vh on mobile
+  useEffect(() => {
+    const calculateAppFooterHeight = () => {
+      const mobile = window.innerWidth < 640; // Common mobile breakpoint
+      setIsMobile(mobile);
+      setAppFooterOffset(mobile ? window.innerHeight * 0.1 : 0); // 10vh on mobile, 0 otherwise
+    };
+
+    // Calculate on mount and resize
+    calculateAppFooterHeight();
+    const handleResize = debounce(calculateAppFooterHeight, 100);
     window.addEventListener('resize', handleResize);
 
     return () => {
@@ -1030,6 +1057,7 @@ function DataTablePage() {
             onSavedQueriesChange={setSavedQueries}
             onLoadingQueriesChange={setLoadingQueries}
             onExecutingQueryChange={setExecutingQuery}
+            onLoadingDataChange={setIsLoadingData}
             onAvailableQueryKeysChange={setAvailableQueryKeys}
             onSelectedQueryKeyChange={setSelectedQueryKey}
             isAdminMode={isAdminMode}
@@ -1102,7 +1130,14 @@ function DataTablePage() {
               <Splitter style={{ height: '100%' }} layout="horizontal" className="h-full">
                 <SplitterPanel className="flex flex-col min-w-0 h-full" size={80} minSize={30}>
                 <div className="flex flex-col min-w-0 h-full p-3 sm:p-4 md:p-6">
-                  {tableData === null ? (
+                  {isLoadingData ? (
+                    <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center">
+                      <div className="mb-4">
+                        <div className="inline-block animate-spin rounded-full h-8 w-8 border-2 border-gray-200 border-t-blue-600"></div>
+                      </div>
+                      <p className="text-sm text-gray-500">Loading data...</p>
+                    </div>
+                  ) : tableData === null ? (
                     <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center">
                       <div className="mb-4">
                         <i className="pi pi-table text-6xl text-gray-300"></i>
@@ -1138,6 +1173,7 @@ function DataTablePage() {
                       onInnerGroupClick={handleInnerGroupClick}
                       percentageColumns={percentageColumns}
                       appHeaderOffset={appHeaderOffset}
+                      appFooterOffset={appFooterOffset}
                       stickyHeaderZIndex={mainStickyHeaderZIndex}
                       tableName="main"
                     />
@@ -1259,6 +1295,7 @@ function DataTablePage() {
                           nonEditableColumns={nonEditableColumns}
                           percentageColumns={percentageColumns}
                           appHeaderOffset={sidebarHeaderOffset}
+                          appFooterOffset={appFooterOffset}
                           stickyHeaderZIndex={sidebarStickyHeaderZIndex}
                           shouldShowHeader={shouldShowSidebarHeader}
                           calculateHeaderPosition={calculateSidebarHeaderPosition}

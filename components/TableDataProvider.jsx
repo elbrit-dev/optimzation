@@ -4,6 +4,8 @@ import React, { useEffect, useRef, useCallback, useMemo, useState } from 'react'
 import DataProvider from '../share/datatable/components/DataProvider';
 import data from '../resource/data';
 import { DataProvider as PlasmicDataProvider } from "@plasmicapp/loader-nextjs";
+import { Dropdown } from 'primereact/dropdown';
+import { startCase } from 'lodash';
 
 const TableDataProvider = (props) => {
   const {
@@ -12,6 +14,7 @@ const TableDataProvider = (props) => {
     dataSource,
     queryKey,
     onDataChange,
+    onError,
     onTableDataChange,
     onRawDataChange,
     onVariablesChange,
@@ -22,6 +25,7 @@ const TableDataProvider = (props) => {
     onExecutingQueryChange,
     onAvailableQueryKeysChange,
     onSelectedQueryKeyChange,
+    onLoadingDataChange,
     variableOverrides,
     showSelectors = true,
     hideDataSourceAndQueryKey,
@@ -44,11 +48,13 @@ const TableDataProvider = (props) => {
   const [executingQuery, setExecutingQuery] = useState(false);
   const [availableQueryKeys, setAvailableQueryKeys] = useState([]);
   const [selectedQueryKey, setSelectedQueryKey] = useState(queryKey);
+  const [loadingData, setLoadingData] = useState(false);
 
   // Stable callback wrappers to prevent infinite loops in the shared DataProvider
   const onTableDataChangeRef = useRef(onTableDataChange);
   const onRawDataChangeRef = useRef(onRawDataChange);
   const onDataChangeRef = useRef(onDataChange);
+  const onErrorRef = useRef(onError);
   const onVariablesChangeRef = useRef(onVariablesChange);
   const onDataSourceChangeRef = useRef(onDataSourceChange);
   
@@ -58,10 +64,12 @@ const TableDataProvider = (props) => {
   const onExecutingQueryChangeRef = useRef(onExecutingQueryChange);
   const onAvailableQueryKeysChangeRef = useRef(onAvailableQueryKeysChange);
   const onSelectedQueryKeyChangeRef = useRef(onSelectedQueryKeyChange);
+  const onLoadingDataChangeRef = useRef(onLoadingDataChange);
 
   useEffect(() => { onTableDataChangeRef.current = onTableDataChange; }, [onTableDataChange]);
   useEffect(() => { onRawDataChangeRef.current = onRawDataChange; }, [onRawDataChange]);
   useEffect(() => { onDataChangeRef.current = onDataChange; }, [onDataChange]);
+  useEffect(() => { onErrorRef.current = onError; }, [onError]);
   useEffect(() => { onVariablesChangeRef.current = onVariablesChange; }, [onVariablesChange]);
   useEffect(() => { onDataSourceChangeRef.current = onDataSourceChange; }, [onDataSourceChange]);
   
@@ -70,6 +78,7 @@ const TableDataProvider = (props) => {
   useEffect(() => { onExecutingQueryChangeRef.current = onExecutingQueryChange; }, [onExecutingQueryChange]);
   useEffect(() => { onAvailableQueryKeysChangeRef.current = onAvailableQueryKeysChange; }, [onAvailableQueryKeysChange]);
   useEffect(() => { onSelectedQueryKeyChangeRef.current = onSelectedQueryKeyChange; }, [onSelectedQueryKeyChange]);
+  useEffect(() => { onLoadingDataChangeRef.current = onLoadingDataChange; }, [onLoadingDataChange]);
 
   const stableOnTableDataChange = useCallback((data) => {
     setCurrentTableData(prev => {
@@ -89,6 +98,10 @@ const TableDataProvider = (props) => {
 
   const stableOnDataChange = useCallback((notif) => {
     onDataChangeRef.current?.(notif);
+  }, []);
+
+  const stableOnError = useCallback((err) => {
+    onErrorRef.current?.(err);
   }, []);
 
   const stableOnVariablesChange = useCallback((vars) => {
@@ -144,6 +157,14 @@ const TableDataProvider = (props) => {
     onSelectedQueryKeyChangeRef.current?.(key);
   }, []);
 
+  const stableOnLoadingDataChange = useCallback((loading) => {
+    setLoadingData(prev => {
+      if (prev === loading) return prev;
+      return loading;
+    });
+    onLoadingDataChangeRef.current?.(loading);
+  }, []);
+
   // Merge individual props with the variableOverrides object
   // Individual props (like 'First' or 'Operator') take precedence
   const mergedVariables = useMemo(() => {
@@ -155,6 +176,29 @@ const TableDataProvider = (props) => {
 
   // Stabilize merged variables to prevent infinite fetch loops
   const stableOverrides = useMemo(() => mergedVariables, [JSON.stringify(mergedVariables)]);
+
+  const consolidatedData = useMemo(() => ({
+    tableData: currentTableData,
+    rawTableData: currentRawData,
+    queryVariables: currentVariables,
+    savedQueries,
+    loadingQueries,
+    executingQuery,
+    availableQueryKeys,
+    selectedQueryKey,
+    loadingData,
+    dataSource,
+    isAdminMode,
+    salesTeamColumn,
+    salesTeamValues,
+    hqColumn,
+    hqValues
+  }), [
+    currentTableData, currentRawData, currentVariables, savedQueries,
+    loadingQueries, executingQuery, availableQueryKeys, selectedQueryKey,
+    loadingData, dataSource, isAdminMode, salesTeamColumn, salesTeamValues,
+    hqColumn, hqValues
+  ]);
 
   // Use state for the re-mount key and refs for change detection
   const [instanceKey, setInstanceKey] = useState(`initial-${dataSource || 'offline'}-${queryKey || 'default'}`);
@@ -185,6 +229,7 @@ const TableDataProvider = (props) => {
       dataSource={dataSource}
       selectedQueryKey={queryKey}
       onDataChange={stableOnDataChange}
+      onError={stableOnError}
       onTableDataChange={stableOnTableDataChange}
       onRawDataChange={stableOnRawDataChange}
       onVariablesChange={stableOnVariablesChange}
@@ -194,6 +239,7 @@ const TableDataProvider = (props) => {
       onExecutingQueryChange={stableOnExecutingQueryChange}
       onAvailableQueryKeysChange={stableOnAvailableQueryKeysChange}
       onSelectedQueryKeyChange={stableOnSelectedQueryKeyChange}
+      onLoadingDataChange={stableOnLoadingDataChange}
       variableOverrides={stableOverrides}
       isAdminMode={isAdminMode}
       salesTeamColumn={salesTeamColumn}
@@ -203,31 +249,72 @@ const TableDataProvider = (props) => {
       hideDataSourceAndQueryKey={hideDataSourceAndQueryKey !== undefined ? hideDataSourceAndQueryKey : !showSelectors}
       renderHeaderControls={(selectorsJSX) => showSelectors ? (
         <div className="px-4 py-3 border-b border-gray-200 bg-white">
-          <div className="flex items-end gap-3 flex-wrap">
+          <div className="flex justify-between items-start gap-3 flex-wrap">
+            {/* Left: selectorsJSX from DataProvider (Month, Sales Team, HQ, Sync) */}
             {selectorsJSX}
+
+            {/* Right: Data Source and Query Key Selectors (if not hidden) */}
+            {!hideDataSourceAndQueryKey && (
+              <div className="flex items-end gap-3">
+                {/* Data Source Selector */}
+                <div className="w-48">
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Data Source
+                  </label>
+                  <Dropdown
+                    value={dataSource}
+                    onChange={(e) => stableOnDataSourceChange(e.value)}
+                    options={[
+                      { label: 'Offline', value: 'offline' },
+                      ...savedQueries.map(q => ({ label: q.name, value: q.id }))
+                    ]}
+                    optionLabel="label"
+                    optionValue="value"
+                    placeholder="Select a data source"
+                    className="w-full"
+                    loading={loadingQueries}
+                    disabled={executingQuery}
+                    style={{
+                      height: '3rem',
+                    }}
+                  />
+                </div>
+
+                {/* Query Key Selector */}
+                {dataSource && dataSource !== 'offline' && availableQueryKeys.length > 0 && (
+                  <div className="w-48">
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Query Key
+                    </label>
+                    <Dropdown
+                      value={selectedQueryKey}
+                      onChange={(e) => stableOnSelectedQueryKeyChange(e.value)}
+                      options={availableQueryKeys.map(key => ({ 
+                        label: startCase(key.split('__').join(' ').split('_').join(' ')), 
+                        value: key 
+                      }))}
+                      optionLabel="label"
+                      optionValue="value"
+                      placeholder="Select Query Key"
+                      className="w-full"
+                      disabled={executingQuery}
+                      style={{
+                        height: '3rem',
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       ) : null}
     >
-      <PlasmicDataProvider name="tableData" data={currentTableData}>
-        <PlasmicDataProvider name="rawTableData" data={currentRawData}>
-          <PlasmicDataProvider name="queryVariables" data={currentVariables}>
-            <PlasmicDataProvider name="savedQueries" data={savedQueries}>
-              <PlasmicDataProvider name="loadingQueries" data={loadingQueries}>
-                <PlasmicDataProvider name="executingQuery" data={executingQuery}>
-                  <PlasmicDataProvider name="availableQueryKeys" data={availableQueryKeys}>
-                    <PlasmicDataProvider name="selectedQueryKey" data={selectedQueryKey}>
-                      {children}
-                      <div style={{ height: 'auto' }}>
-                        {dataSlot}
-                      </div>
-                    </PlasmicDataProvider>
-                  </PlasmicDataProvider>
-                </PlasmicDataProvider>
-              </PlasmicDataProvider>
-            </PlasmicDataProvider>
-          </PlasmicDataProvider>
-        </PlasmicDataProvider>
+      <PlasmicDataProvider name="data" data={consolidatedData}>
+        {children}
+        <div style={{ height: 'auto' }}>
+          {dataSlot}
+        </div>
       </PlasmicDataProvider>
     </DataProvider>
   );

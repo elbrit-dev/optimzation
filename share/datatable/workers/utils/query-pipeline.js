@@ -2,33 +2,39 @@ import * as jmespath from "jmespath";
 import jsonata from "jsonata";
 import _ from "lodash";
 import { parse as parseJsonc, stripComments } from "jsonc-parser";
-import { firestoreService } from "../services/firestoreService";
 import { extractDataFromResponse } from "./data-extractor";
 import { removeIndexKeys } from "./data-flattener";
-import { DEFAULT_AUTH_TOKEN, getInitialEndpoint, getEndpointConfigFromUrlKey } from "../constants";
+
+const DEFAULT_AUTH_TOKEN = '';
+
+// These will be set from the worker main file
+let endpointConfigGetter = null;
 
 /**
- * Simple hash function for data structures (for logging/comparison)
- * Creates a deterministic hash from object/array structure
+ * Set endpoint config getter
  */
-function hashData(data) {
-    if (data === null || data === undefined) return 'null';
-    if (typeof data !== 'object') return String(data);
-    
-    try {
-        // Create a normalized representation: keys sorted, arrays as arrays, objects as objects
-        const normalized = JSON.stringify(data, Object.keys(data || {}).sort());
-        // Simple hash: sum of char codes (not cryptographically secure, but fast and deterministic)
-        let hash = 0;
-        for (let i = 0; i < normalized.length; i++) {
-            const char = normalized.charCodeAt(i);
-            hash = ((hash << 5) - hash) + char;
-            hash = hash & hash; // Convert to 32bit integer
-        }
-        return Math.abs(hash).toString(36);
-    } catch (e) {
-        return 'error';
+export function setEndpointConfigGetter(getter) {
+    endpointConfigGetter = getter;
+}
+
+/**
+ * Get endpoint config from urlKey
+ */
+function getEndpointConfigFromUrlKey(urlKey) {
+    if (endpointConfigGetter && urlKey) {
+        return endpointConfigGetter(urlKey);
     }
+    return { endpointUrl: null, authToken: null };
+}
+
+/**
+ * Get initial endpoint
+ */
+function getInitialEndpoint() {
+    if (endpointConfigGetter) {
+        return endpointConfigGetter(null);
+    }
+    return null;
 }
 
 /**
@@ -48,7 +54,6 @@ export function createExecutionContext(options = {}) {
 
 /**
  * Core function to execute a GraphQL HTTP request
- * Shared between pipeline and Playground
  * @param {string} query - GraphQL query string
  * @param {Object} variables - GraphQL variables object
  * @param {Object} options - Execution options
@@ -74,7 +79,6 @@ export async function fetchGraphQLRequest(query, variables = {}, options = {}) {
         query,
         variables,
     };
-    const startTime = performance.now();
 
     let response;
     try {
@@ -101,7 +105,6 @@ export async function fetchGraphQLRequest(query, variables = {}, options = {}) {
         let errorMessage = `GraphQL request failed: ${response.status} ${response.statusText}`;
 
         // Try to extract error details from response body
-        // Clone the response before reading to avoid "already read" errors
         try {
             const responseClone = response.clone();
             const errorBody = await responseClone.text();
@@ -141,7 +144,7 @@ export async function fetchGraphQLRequest(query, variables = {}, options = {}) {
 
 /**
  * Pure function to execute a GraphQL query and extract data
- * @param {Object} queryDoc - Query document from Firestore
+ * @param {Object} queryDoc - Query document
  * @param {Object} options - Execution options
  * @param {string} options.endpointUrl - GraphQL endpoint URL
  * @param {string} options.authToken - Authorization token
@@ -186,7 +189,6 @@ export async function executeGraphQLQuery(queryDoc, options = {}) {
         throw error;
     }
 
-    const parseStartTime = performance.now();
     let jsonResponse;
     try {
         jsonResponse = await response.json();
@@ -200,7 +202,6 @@ export async function executeGraphQLQuery(queryDoc, options = {}) {
             throw new Error(`Failed to parse GraphQL response: ${parseError.message}`);
         }
     }
-    const parseDuration = ((performance.now() - parseStartTime) / 1000).toFixed(3);
 
     if (jsonResponse.errors) {
         console.error("GraphQL errors:", jsonResponse.errors);
@@ -267,38 +268,10 @@ export async function executeTransformer(transformerCode, rawData, queryFunction
         return acc;
     }, {});
 
-    // Load global functions and create elbrit object
-    let elbrit = {};
-    let objectUrl = null;
-    try {
-        const globalFunctionsCode = await firestoreService.loadGlobalFunctions();
-        if (globalFunctionsCode && globalFunctionsCode.trim()) {
-            const blob = new Blob([globalFunctionsCode], { type: "text/javascript" });
-            objectUrl = URL.createObjectURL(blob);
-
-            elbrit = await import(
-                /* webpackIgnore: true */
-                objectUrl
-            );
-        }
-    } catch (error) {
-        console.warn("Failed to load global functions, continuing without elbrit:", error);
-        elbrit = {};
-        if (objectUrl) {
-            URL.revokeObjectURL(objectUrl);
-            objectUrl = null;
-        }
-    }
-
-    const cleanup = () => {
-        if (objectUrl) {
-            URL.revokeObjectURL(objectUrl);
-            objectUrl = null;
-        }
-    };
+    // Global functions will be passed separately in worker context
+    const elbrit = {};
 
     // Wrap transformer code to ensure it always returns a value
-    // If transformer doesn't explicitly return, we'll detect and return data
     const transformerWrapper = `
     (async () => {
       ${transformerCode || ""}
@@ -323,17 +296,12 @@ export async function executeTransformer(transformerCode, rawData, queryFunction
     // Always use raw data as source, not processed data
     const dataCopy = rawData ? JSON.parse(JSON.stringify(rawData)) : {};
 
-    console.log("elbrit", elbrit);
-    const transformStartTime = performance.now();
     let evalResult;
     try {
         evalResult = await fn(jmespath, jsonata, _, dataCopy, queryFunction, elbrit);
     } catch (error) {
         console.error("Transformer execution failed:", error);
-        cleanup();
         throw error;
-    } finally {
-        cleanup();
     }
 
     // If result is valid, use it
@@ -393,145 +361,4 @@ export function cleanProcessedData(data) {
     return cleaned;
 }
 
-/**
- * Unified query execution pipeline
- * Handles query loading, GraphQL execution, and transformer application
- * @param {string} queryId - Query ID from Firestore
- * @param {Object} context - Execution context (from createExecutionContext)
- * @param {Object} options - Execution options
- * @param {string} options.endpointUrl - GraphQL endpoint URL (optional)
- * @param {string} options.authToken - Authorization token (optional)
- * @param {Array} options.monthRange - Month range for date filtering (optional)
- * @returns {Promise<Object|Map>} Final transformed data (preserves type from transformer - Object or Map)
- */
-export async function executePipeline(queryId, context, options = {}) {
-    const { endpointUrl, authToken, monthRange, variableOverrides: externalOverrides = {} } = options;
-    const depth = context.dependencyStack.length;
-    const indent = "  ".repeat(depth);
-    const chain = context.dependencyStack.length > 0 ? `${context.dependencyStack.join(" → ")} → ${queryId}` : queryId;
 
-    const pipelineStartTime = performance.now();
-
-    // Guardrail: Check for circular dependencies
-    if (context.dependencyStack.includes(queryId)) {
-        const cycle = [...context.dependencyStack, queryId].join(" → ");
-        console.error(`Circular dependency detected: ${cycle}`);
-        throw new Error(
-            `Circular dependency detected: ${cycle}\n` + `Query "${queryId}" is already in the dependency chain.`,
-        );
-    }
-
-    // Guardrail: Check maximum depth
-    if (context.dependencyStack.length >= context.maxDepth) {
-        const chain = context.dependencyStack.join(" → ");
-        console.error(`Max depth exceeded: ${chain} → ${queryId}`);
-        throw new Error(
-            `Maximum dependency depth (${context.maxDepth}) exceeded.\n` + `Dependency chain: ${chain} → ${queryId}`,
-        );
-    }
-
-    // Guardrail: Check if already in flight (prevent concurrent execution)
-    if (context.inFlight.has(queryId)) {
-        console.error(`Query already in flight: ${queryId}`);
-        throw new Error(
-            `Query "${queryId}" is already being executed. ` +
-                `This may indicate a concurrent execution issue or circular dependency.`,
-        );
-    }
-
-    // Mark as in-flight
-    context.inFlight.add(queryId);
-    context.dependencyStack.push(queryId);
-
-    try {
-        // Load query document from Firestore
-        const queryDoc = await firestoreService.loadQuery(queryId);
-
-        if (!queryDoc) {
-            console.error(`Query not found: ${queryId}`);
-            throw new Error(`Query "${queryId}" not found`);
-        }
-
-        // Get endpoint and token from urlKey if available, otherwise use provided options
-        let finalEndpointUrl = endpointUrl;
-        let finalAuthToken = authToken;
-
-        if (queryDoc.urlKey) {
-            const urlKeyConfig = getEndpointConfigFromUrlKey(queryDoc.urlKey);
-            if (urlKeyConfig.endpointUrl) {
-                finalEndpointUrl = urlKeyConfig.endpointUrl;
-                finalAuthToken = urlKeyConfig.authToken;
-            }
-        }
-
-        // Fallback to provided options or defaults if urlKey didn't provide endpoint
-        if (!finalEndpointUrl) {
-            finalEndpointUrl = endpointUrl || getInitialEndpoint()?.code;
-            finalAuthToken = authToken || DEFAULT_AUTH_TOKEN;
-            if (!finalEndpointUrl) {
-                console.error("No endpoint URL available");
-                throw new Error("GraphQL endpoint URL is not set");
-            }
-        }
-
-        const { transformerCode, body, variables } = queryDoc;
-        const hasTransformer = transformerCode && transformerCode.trim();
-
-        // Prepare variable overrides for month range if needed
-        let variableOverrides = {};
-        if (monthRange) {
-            const monthOverrides = applyMonthRangeToVariables(monthRange);
-            variableOverrides = { ...monthOverrides };
-        }
-
-        // Merge external variable overrides (from Variables section)
-        if (Object.keys(externalOverrides).length > 0) {
-            variableOverrides = { ...variableOverrides, ...externalOverrides };
-        }
-
-        // Execute GraphQL query
-        let rawData = await executeGraphQLQuery(queryDoc, {
-            endpointUrl: finalEndpointUrl,
-            authToken: finalAuthToken,
-            variableOverrides,
-        });
-
-        if (!rawData) {
-            console.warn(`No data returned from GraphQL query: ${queryId}`);
-            // Return empty object to allow pipeline to continue gracefully
-            rawData = {};
-        }
-
-        // Create query function for transformer (reuses the pipeline)
-        const queryFunction = async (nestedQueryId) => {
-            if (!nestedQueryId || !nestedQueryId.trim()) {
-                throw new Error("Query key is required");
-            }
-            // Reuse the same execution context and options (nested queries will get their own urlKey from their queryDoc)
-            return executePipeline(nestedQueryId, context, {
-                endpointUrl: finalEndpointUrl,
-                authToken: finalAuthToken,
-            });
-        };
-
-        // Apply transformer if present
-        let transformedData;
-        if (hasTransformer) {
-            transformedData = await executeTransformer(transformerCode, rawData, queryFunction);
-        } else {
-            transformedData = rawData;
-        }
-
-        // Clean processed data (remove __index__ keys)
-        const cleanedData = cleanProcessedData(transformedData);
-
-        return cleanedData;
-    } catch (error) {
-        console.error(`Pipeline failed: ${queryId}`, error);
-        throw error;
-    } finally {
-        // Remove from in-flight and dependency stack
-        context.inFlight.delete(queryId);
-        context.dependencyStack.pop();
-    }
-}

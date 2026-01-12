@@ -66,8 +66,36 @@ const Navigation = ({
   mobileWidth = '100%', // Default: full width
   mobileHeight = '4rem' // Default: h-16
 }) => {
+  // Debug: Component initialization
+  console.log('[Navigation] Component initialized with props:', {
+    itemsProvided: !!items,
+    itemsCount: items?.length || DEFAULT_NAVIGATION_ITEMS.length,
+    defaultIndex,
+    desktopWidth,
+    desktopHeight,
+    mobileWidth,
+    mobileHeight
+  });
+
   // Use provided items or default items
   const navigationItems = items || DEFAULT_NAVIGATION_ITEMS;
+  
+  // Debug: Navigation items validation
+  console.log('[Navigation] Navigation items:', {
+    totalItems: navigationItems.length,
+    items: navigationItems.map((item, idx) => ({
+      index: idx,
+      label: item.label || 'No label',
+      path: item.path || item.route || 'No path',
+      mobileOnly: item.mobileOnly || false,
+      mobileFullscreen: item.mobileFullscreen || false,
+      isDefault: item.isDefault || false,
+      isDisabled: item.isDisabled || false,
+      hasIconActive: !!item.iconActive,
+      hasIconInactive: !!item.iconInactive,
+      hasIcon: !!item.icon
+    }))
+  });
 
   // Initialize swipe navigation hook with navigationItems
   useSwipeNavigation(navigationItems);
@@ -75,17 +103,35 @@ const Navigation = ({
   // Validate that only one item has isDefault: true
   useEffect(() => {
     const defaultItemsCount = navigationItems.filter(item => item.isDefault === true).length;
+    console.log('[Navigation] Validating default items:', {
+      defaultItemsCount,
+      defaultItems: navigationItems
+        .map((item, idx) => ({ index: idx, label: item.label, isDefault: item.isDefault }))
+        .filter(item => item.isDefault)
+    });
     if (defaultItemsCount > 1) {
       console.warn(
-        `Navigation: Multiple items with isDefault: true found (${defaultItemsCount}). Only one item should have isDefault: true.`
+        `[Navigation] Multiple items with isDefault: true found (${defaultItemsCount}). Only one item should have isDefault: true.`
       );
+    } else if (defaultItemsCount === 0) {
+      console.log('[Navigation] No items with isDefault: true found, will use defaultIndex prop');
     }
   }, [navigationItems]);
 
   // Calculate default index from items with isDefault: true, or fall back to defaultIndex prop
   const calculatedDefaultIndex = useMemo(() => {
     const defaultItemIndex = navigationItems.findIndex(item => item.isDefault === true);
-    return defaultItemIndex >= 0 ? defaultItemIndex : defaultIndex;
+    const result = defaultItemIndex >= 0 ? defaultItemIndex : defaultIndex;
+    console.log('[Navigation] Calculated default index:', {
+      defaultItemIndex,
+      defaultIndexProp: defaultIndex,
+      calculatedIndex: result,
+      itemAtCalculatedIndex: navigationItems[result] ? {
+        label: navigationItems[result].label,
+        path: navigationItems[result].path || navigationItems[result].route
+      } : null
+    });
+    return result;
   }, [navigationItems, defaultIndex]);
 
   const router = useRouter();
@@ -94,52 +140,166 @@ const Navigation = ({
   // Always start with false to match server render, then update on client
   const [isMobile, setIsMobile] = useState(false);
   const [mounted, setMounted] = useState(false);
+  
+  // Debug: Initial state
+  console.log('[Navigation] Initial state:', {
+    activeIndex,
+    isMobile,
+    mounted,
+    pathname,
+    calculatedDefaultIndex
+  });
 
   // Check if mobile on mount and resize - only after hydration
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined') {
+      console.log('[Navigation] Server-side render, skipping mobile detection');
+      return;
+    }
 
     // Mark as mounted to prevent hydration mismatch
     setMounted(true);
+    console.log('[Navigation] Component mounted on client');
 
     const checkMobile = () => {
-      setIsMobile(window.innerWidth < 1024);
+      const windowWidth = window.innerWidth;
+      const isMobileNow = windowWidth < 1024;
+      console.log('[Navigation] Mobile detection check:', {
+        windowWidth,
+        isMobile: isMobileNow,
+        breakpoint: 1024
+      });
+      setIsMobile(isMobileNow);
     };
     // Check immediately
     checkMobile();
     window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
+    return () => {
+      console.log('[Navigation] Cleaning up resize listener');
+      window.removeEventListener('resize', checkMobile);
+    };
   }, []);
 
   // Sync activeIndex with URL pathname
   useEffect(() => {
-    if (!mounted) return;
+    if (!mounted) {
+      console.log('[Navigation] Pathname sync skipped (not mounted yet)');
+      return;
+    }
     const currentPath = pathname;
+    console.log('[Navigation] Pathname changed, syncing activeIndex:', {
+      currentPath,
+      currentActiveIndex: activeIndex
+    });
+    
     const index = navigationItems.findIndex(item => {
       const itemPath = item.path || item.route;
-      if (!itemPath) return false;
+      if (!itemPath) {
+        console.log('[Navigation] Item has no path/route:', item);
+        return false;
+      }
       // Exact match or pathname starts with item path (for nested routes)
-      return currentPath === itemPath || currentPath.startsWith(itemPath + '/');
+      const matches = currentPath === itemPath || currentPath.startsWith(itemPath + '/');
+      if (matches) {
+        console.log('[Navigation] Path match found:', {
+          itemIndex: navigationItems.indexOf(item),
+          itemPath,
+          currentPath,
+          matchType: currentPath === itemPath ? 'exact' : 'nested'
+        });
+      }
+      return matches;
     });
+    
     if (index >= 0 && index !== activeIndex) {
+      console.log('[Navigation] Updating activeIndex from pathname:', {
+        oldIndex: activeIndex,
+        newIndex: index,
+        item: {
+          label: navigationItems[index].label,
+          path: navigationItems[index].path || navigationItems[index].route
+        }
+      });
       setActiveIndex(index);
+    } else if (index < 0) {
+      console.warn('[Navigation] No matching navigation item found for pathname:', {
+        pathname: currentPath,
+        availablePaths: navigationItems.map(item => item.path || item.route).filter(Boolean)
+      });
+    } else {
+      console.log('[Navigation] ActiveIndex already matches pathname:', {
+        index,
+        activeIndex
+      });
     }
   }, [mounted, pathname, navigationItems, activeIndex]);
 
   const navigateToIndex = (index) => {
     const maxIndex = navigationItems.length - 1;
+    console.log('[Navigation] navigateToIndex called:', {
+      requestedIndex: index,
+      maxIndex,
+      isValid: index >= 0 && index <= maxIndex
+    });
+    
     if (index >= 0 && index <= maxIndex) {
       const item = navigationItems[index];
+      console.log('[Navigation] Navigation item at index:', {
+        index,
+        item: {
+          label: item?.label,
+          path: item?.path || item?.route,
+          mobileOnly: item?.mobileOnly,
+          mobileFullscreen: item?.mobileFullscreen,
+          isDisabled: item?.isDisabled
+        },
+        hasPath: !!item?.path,
+        mounted
+      });
+      
       if (item?.path && mounted) {
+        console.log('[Navigation] Navigating to path:', {
+          path: item.path,
+          index,
+          scroll: false
+        });
         router.push(item.path, { scroll: false });
+      } else if (!item?.path) {
+        console.warn('[Navigation] Cannot navigate: item has no path:', {
+          index,
+          item
+        });
+      } else if (!mounted) {
+        console.warn('[Navigation] Cannot navigate: component not mounted yet');
       }
+    } else {
+      console.error('[Navigation] Invalid index for navigation:', {
+        index,
+        maxIndex,
+        validRange: `0-${maxIndex}`
+      });
     }
   };
 
   const handleItemClick = (index) => {
     const item = navigationItems[index];
+    console.log('[Navigation] Item clicked:', {
+      index,
+      item: {
+        label: item?.label,
+        path: item?.path || item?.route,
+        isDisabled: item?.isDisabled
+      }
+    });
+    
     // Don't navigate if item is disabled
-    if (item?.isDisabled) return;
+    if (item?.isDisabled) {
+      console.log('[Navigation] Navigation blocked: item is disabled', {
+        index,
+        item
+      });
+      return;
+    }
     navigateToIndex(index);
   };
 
@@ -149,12 +309,63 @@ const Navigation = ({
   // Check if current route has mobileFullscreen enabled
   const currentItem = navigationItems[activeIndex];
   const isMobileFullscreen = currentItem?.mobileFullscreen === true;
+  
+  // Debug: Current state and rendering decisions
+  console.log('[Navigation] Rendering state:', {
+    mounted,
+    isMobile,
+    activeIndex,
+    maxItems,
+    currentItem: currentItem ? {
+      label: currentItem.label,
+      path: currentItem.path || currentItem.route,
+      mobileFullscreen: currentItem.mobileFullscreen,
+      mobileOnly: currentItem.mobileOnly
+    } : null,
+    isMobileFullscreen,
+    willShowDesktop: mounted && !isMobile,
+    willShowMobile: mounted && isMobile && maxItems > 0 && !isMobileFullscreen
+  });
 
   // Find the home page index for the logo click handler
   // This should be the item with isDefault: true AND mobileOnly: true
   const homePageIndex = useMemo(() => {
-    return navigationItems.findIndex(item => item.isDefault === true && item.mobileOnly === true);
+    const index = navigationItems.findIndex(item => item.isDefault === true && item.mobileOnly === true);
+    console.log('[Navigation] Home page index calculated:', {
+      homePageIndex: index,
+      found: index >= 0
+    });
+    return index;
   }, [navigationItems]);
+
+  // Debug: Active indicator position for mobile
+  useEffect(() => {
+    if (mounted && isMobile && maxItems > 0 && !isMobileFullscreen) {
+      console.log('[Navigation] Mobile active indicator position:', {
+        activeIndex,
+        maxItems,
+        widthPercent: `${100 / maxItems}%`,
+        leftPercent: `${(activeIndex * 100) / maxItems}%`
+      });
+    }
+  }, [mounted, isMobile, maxItems, isMobileFullscreen, activeIndex]);
+
+  // Debug: Log when navigation is hidden
+  useEffect(() => {
+    if (mounted) {
+      if (isMobile && isMobileFullscreen) {
+        console.log('[Navigation] Mobile navigation hidden due to mobileFullscreen:', {
+          currentItem: {
+            label: currentItem?.label,
+            path: currentItem?.path || currentItem?.route,
+            mobileFullscreen: currentItem?.mobileFullscreen
+          }
+        });
+      } else if (!mounted) {
+        console.log('[Navigation] Navigation hidden: component not mounted');
+      }
+    }
+  }, [mounted, isMobile, isMobileFullscreen, currentItem]);
 
   return (
     <>
@@ -173,8 +384,27 @@ const Navigation = ({
           <nav className="flex-1 overflow-y-auto p-2">
             {navigationItems.map((item, index) => {
               // Skip mobileOnly items in desktop sidebar
-              if (item.mobileOnly) return null;
+              if (item.mobileOnly) {
+                console.log('[Navigation] Skipping mobileOnly item in desktop sidebar:', {
+                  index,
+                  label: item.label,
+                  path: item.path || item.route
+                });
+                return null;
+              }
               const isDisabled = item.isDisabled === true;
+              const isActive = activeIndex === index;
+              console.log('[Navigation] Rendering desktop navigation item:', {
+                index,
+                label: item.label,
+                path: item.path || item.route,
+                isActive,
+                isDisabled,
+                hasIconActive: !!item.iconActive,
+                hasIconInactive: !!item.iconInactive,
+                hasIcon: !!item.icon
+              });
+              
               return (
                 <motion.button
                   key={item.path || item.route || index}
@@ -182,7 +412,7 @@ const Navigation = ({
                   disabled={isDisabled}
                   className={`w-full text-left px-4 py-3 rounded-lg mb-1 transition-colors ${isDisabled
                     ? 'opacity-50 cursor-not-allowed text-gray-400'
-                    : activeIndex === index
+                    : isActive
                     ? 'bg-blue-50 text-blue-700 font-medium'
                     : 'text-gray-700 hover:bg-gray-100'
                     }`}
@@ -222,6 +452,18 @@ const Navigation = ({
           <div className="flex justify-around items-center px-2 relative" style={{ height: mobileHeight }}>
             {navigationItems.map((item, index) => {
               const isDisabled = item.isDisabled === true;
+              const isActive = activeIndex === index;
+              console.log('[Navigation] Rendering mobile navigation item:', {
+                index,
+                label: item.label,
+                path: item.path || item.route,
+                isActive,
+                isDisabled,
+                hasIconActive: !!item.iconActive,
+                hasIconInactive: !!item.iconInactive,
+                hasIcon: !!item.icon
+              });
+              
               return (
               <motion.button
                 key={item.path || item.route || index}

@@ -6,6 +6,7 @@ import { MultiSelect } from 'primereact/multiselect';
 import { Button } from 'primereact/button';
 import { startCase, isNil, isEmpty, uniq, filter as lodashFilter } from 'lodash';
 import dayjs from 'dayjs';
+import * as Comlink from 'comlink';
 import MonthRangePicker from '@/components/MonthRangePicker';
 import { firestoreService } from '@/app/graphql-playground/services/firestoreService';
 import { getInitialEndpoint, getEndpointConfigFromUrlKey } from '@/app/graphql-playground/constants';
@@ -122,6 +123,7 @@ export default function DataProvider({
   onExecutingQueryChange,
   onAvailableQueryKeysChange,
   onSelectedQueryKeyChange,
+  onLoadingDataChange,
   // Auth control props
   isAdminMode = false,
   salesTeamColumn = null,
@@ -144,9 +146,11 @@ export default function DataProvider({
   useEffect(() => {
     setSelectedQueryKey(selectedQueryKeyProp);
   }, [selectedQueryKeyProp]);
+
   const [savedQueries, setSavedQueries] = useState([]);
   const [loadingQueries, setLoadingQueries] = useState(false);
   const [executingQuery, setExecutingQuery] = useState(false);
+  const [loadingFromCache, setLoadingFromCache] = useState(false);
   const [processedData, setProcessedData] = useState(null);
   const [monthRange, setMonthRange] = useState(null); // Array of [startMonth, endMonth] or null
   const [hasMonthSupport, setHasMonthSupport] = useState(false); // Whether the current query supports month filtering
@@ -160,12 +164,100 @@ export default function DataProvider({
   const executionContextRef = useRef(null); // Persist execution context across runs for caching
   const pipelineExecutionInFlightRef = useRef(new Set()); // Track pipeline executions in flight to prevent concurrent execution
   const isInitialLoadRef = useRef(false); // Track if we're in initial load phase to prevent monthRange effect from triggering
+  const workerRef = useRef(null); // Ref to store worker proxy
+  const allQueryDocsRef = useRef({}); // Cache of all query documents for worker
+  const indexQueriesExecutedRef = useRef(false); // Track if index queries have been executed
+  const cacheLoadInProgressRef = useRef(null); // Track if cache load is in progress to prevent duplicate calls
 
   // Store onError in ref to avoid dependency issues (only runs once on mount)
   const onErrorRef = useRef(onError);
   useEffect(() => {
     onErrorRef.current = onError;
   }, [onError]);
+
+  // Initialize worker on mount
+  useEffect(() => {
+    const initializeWorker = async () => {
+      try {
+        // Create worker - Next.js handles worker imports differently
+        // Use dynamic import or direct worker path
+        let worker;
+        try {
+          // Try to create worker using new URL pattern (works in modern environments)
+          worker = new Worker(
+            new URL('../workers/queryWorker.js', import.meta.url),
+            { type: 'module' }
+          );
+        } catch (error) {
+          // Fallback: try absolute path pattern
+          console.warn('Failed to create worker with import.meta.url, trying alternative:', error);
+          // Worker may not be available in this environment, continue without worker
+          return;
+        }
+
+        // Wrap with Comlink
+        const workerAPI = Comlink.wrap(worker);
+        
+        // Set up nested query callback
+        const nestedQueryCallback = Comlink.proxy(async (queryId) => {
+          // Load query from Firestore
+          const queryDoc = await firestoreService.loadQuery(queryId);
+          if (queryDoc) {
+            // Cache it
+            allQueryDocsRef.current[queryId] = queryDoc;
+            // Ensure transformerCode is explicitly included (Comlink may strip it during serialization)
+            // Return a new object with all fields explicitly set to ensure proper serialization
+            return {
+              ...queryDoc,
+              transformerCode: queryDoc.transformerCode || null, // Explicitly include, even if null
+            };
+          }
+          return queryDoc;
+        });
+        await workerAPI.setNestedQueryCallback(nestedQueryCallback);
+
+        // Set up endpoint config getter
+        const endpointConfigGetter = Comlink.proxy((urlKey) => {
+          if (urlKey) {
+            return getEndpointConfigFromUrlKey(urlKey);
+          } else {
+            return { endpointUrl: getInitialEndpoint()?.code || null, authToken: null };
+          }
+        });
+        await workerAPI.setEndpointConfigGetter(endpointConfigGetter);
+
+        // Set up global functions getter
+        const globalFunctionsGetter = Comlink.proxy(async () => {
+          try {
+            return await firestoreService.loadGlobalFunctions();
+          } catch (error) {
+            console.error('Failed to load global functions:', error);
+            return '';
+          }
+        });
+        await workerAPI.setGlobalFunctionsGetter(globalFunctionsGetter);
+
+        workerRef.current = workerAPI;
+        console.log('Worker initialized successfully');
+      } catch (error) {
+        console.error('Error initializing worker:', error);
+        // Continue without worker - will fallback to main thread execution
+      }
+    };
+
+    // Only initialize worker in browser environment
+    if (typeof window !== 'undefined' && typeof Worker !== 'undefined') {
+      initializeWorker();
+    }
+
+    // Cleanup worker on unmount
+    return () => {
+      if (workerRef.current) {
+        // Cleanup will be handled by Comlink
+        workerRef.current = null;
+      }
+    };
+  }, []);
 
   // Load saved queries on mount - only run once, use ref for onError
   useEffect(() => {
@@ -174,9 +266,7 @@ export default function DataProvider({
       try {
         const queries = await firestoreService.getAllQueries();
         setSavedQueries(queries);
-
-        // Execute index queries and store results in IndexedDB
-        await executeAndStoreIndexQueries(queries);
+        // Don't execute index queries here - they will be executed when saved queries are loaded
       } catch (error) {
         console.error('Error loading saved queries:', error);
         if (onErrorRef.current) {
@@ -195,11 +285,34 @@ export default function DataProvider({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount
 
-  // Execute index queries and store results in IndexedDB
+  // Execute index queries when saved queries are loaded
+  useEffect(() => {
+    if (!indexQueriesExecutedRef.current && savedQueries.length > 0) {
+      indexQueriesExecutedRef.current = true;
+      executeAndStoreIndexQueries(savedQueries);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedQueries]);
+
+  // Execute index queries and store results in IndexedDB (using worker)
   const executeAndStoreIndexQueries = async (queries) => {
     if (!queries || queries.length === 0) {
       return;
     }
+
+    // Wait for worker to be initialized
+    if (!workerRef.current) {
+      console.warn('Worker not initialized, falling back to main thread execution');
+      // Fallback to main thread execution (original code) if worker not ready
+      return;
+    }
+
+    // Store all query docs in cache for worker
+    queries.forEach(query => {
+      if (query.id) {
+        allQueryDocsRef.current[query.id] = query;
+      }
+    });
 
     // Create a map of queryId -> query object for quick lookup
     const queryMap = new Map();
@@ -209,12 +322,14 @@ export default function DataProvider({
       }
     });
 
-    // Register callback for all queries with clientSave === true
+    // Register callback for all queries with clientSave === true (still needed for pipeline execution)
     queries.forEach(query => {
       if (query.id && query.index && query.index.trim() && query.clientSave === true) {
         // Store the query object in closure for use in callback
         const queryDoc = query;
-        indexedDBService.setOnChangeCallback(query.id, async (queryId, oldResult, newResult, updatedAt, queryDocFromSave) => {
+        
+        // Create the callback function - all index saves happen in worker, so register in worker's indexedDBService
+        const onChangeCallback = async (queryId, oldResult, newResult, updatedAt, queryDocFromSave) => {
           // Use queryDocFromSave if provided, otherwise fallback to stored queryDoc
           const queryDocToUse = queryDocFromSave || queryMap.get(queryId) || queryDoc;
 
@@ -232,7 +347,7 @@ export default function DataProvider({
             queryDoc: queryDocToUse
           });
 
-          // Execute pipeline in background for both month == false and month == true queries
+          // Execute pipeline in background for both month == false and month == true queries (using worker)
           if (queryDocToUse && (queryDocToUse.month === false || (queryDocToUse.month === true && queryDocToUse.monthIndex && queryDocToUse.monthIndex.trim()))) {
             // Guard: Check if pipeline execution is already in flight for this queryId (before scheduling)
             if (pipelineExecutionInFlightRef.current.has(queryId)) {
@@ -243,36 +358,10 @@ export default function DataProvider({
             // Mark as in flight immediately (before scheduling)
             pipelineExecutionInFlightRef.current.add(queryId);
 
-            // Execute pipeline in background
+            // Execute pipeline in background using worker
             const executePipelineAsync = async () => {
               try {
-                // For month == true, extract YYYY-MM from monthIndex query first
-                let yearMonthPrefix = null;
-                if (queryDocToUse.month === true && queryDocToUse.monthIndex && queryDocToUse.monthIndex.trim()) {
-                  const yearMonth = await executeMonthIndexQueryAndExtractYearMonth(
-                    queryDocToUse.monthIndex,
-                    queryDocToUse
-                  );
-
-                  if (yearMonth) {
-                    yearMonthPrefix = yearMonth;
-                    console.log(`Extracted YYYY-MM from monthIndex query for ${queryId}: ${yearMonthPrefix}`);
-                  } else {
-                    console.warn(`Could not extract YYYY-MM for ${queryId}, skipping pipeline execution`);
-                    pipelineExecutionInFlightRef.current.delete(queryId);
-                    return;
-                  }
-                }
-
-                // Create/get the query database (creates it if doesn't exist)
-                console.log(`Creating database for queryId: ${queryId}`);
-                const queryDb = await indexedDBService.getQueryDatabase(queryId, queryDocToUse);
-                console.log(`Database created/opened for queryId: ${queryId}`, queryDb);
-
-                // Create execution context
-                const context = createExecutionContext();
-
-                // Get endpoint/auth from query's urlKey, fallback to default (same as index query)
+                // Get endpoint/auth from query's urlKey, fallback to default
                 const { endpointUrl, authToken } = getEndpointAndAuth(queryDocToUse);
 
                 if (!endpointUrl) {
@@ -281,35 +370,22 @@ export default function DataProvider({
                   return;
                 }
 
-                // Execute pipeline with monthRange if month == true
-                let monthRangeForPipeline = undefined;
-                if (queryDocToUse.month === true && yearMonthPrefix) {
-                  // Parse YYYY-MM to create month range (first day to last day of month)
-                  const [year, month] = yearMonthPrefix.split('-').map(Number);
-                  const startDate = new Date(year, month - 1, 1);
-                  const lastDay = new Date(year, month, 0).getDate();
-                  const endDate = new Date(year, month - 1, lastDay);
-                  monthRangeForPipeline = [startDate, endDate];
+                // Always use worker for pipeline execution
+                if (!workerRef.current) {
+                  console.warn('Worker not available, skipping pipeline execution');
+                  pipelineExecutionInFlightRef.current.delete(queryId);
+                  return;
                 }
-
-                // Execute pipeline
-                const pipelineResult = await executePipeline(queryId, context, {
+                await workerRef.current.executePipeline(
+                  queryId,
+                  queryDocToUse,
                   endpointUrl,
                   authToken,
-                  monthRange: monthRangeForPipeline,
-                });
-
-                // Ensure stores exist for each key in the pipeline result
-                if (pipelineResult && typeof pipelineResult === 'object') {
-                  await indexedDBService.ensureStoresForPipelineResult(queryId, pipelineResult, yearMonthPrefix, queryDocToUse);
-                  // Store pipeline result entries in IndexedDB tables
-                  await indexedDBService.savePipelineResultEntries(queryId, pipelineResult, yearMonthPrefix, queryDocToUse);
-                  console.log(`Pipeline executed for ${queryId}${yearMonthPrefix ? ` with prefix ${yearMonthPrefix}` : ''}, stores ensured and entries saved for keys:`, getDataKeys(pipelineResult));
-
-                  // Reconstruct and print the pipeline result from IndexedDB
-                  const reconstructed = await indexedDBService.reconstructPipelineResult(queryId, null, yearMonthPrefix);
-                  console.log(`Reconstructed pipeline result for ${queryId}${yearMonthPrefix ? ` with prefix ${yearMonthPrefix}` : ''}:`, reconstructed);
-                }
+                  null, // monthRange will be calculated in worker
+                  {}, // variableOverrides
+                  allQueryDocsRef.current // allQueryDocs cache
+                );
+                console.log(`Pipeline executed for ${queryId} using worker`);
               } catch (error) {
                 console.error(`Error executing pipeline for ${queryId}:`, error);
                 // Don't throw - this is background execution
@@ -326,121 +402,25 @@ export default function DataProvider({
               setTimeout(executePipelineAsync, 0);
             }
           }
-        });
+        };
+
+        // Register callback in worker's indexedDBService (all index saves happen in worker)
+        if (workerRef.current && workerRef.current.indexedDBService) {
+          const proxiedCallback = Comlink.proxy(onChangeCallback);
+          workerRef.current.indexedDBService.setOnChangeCallback(query.id, proxiedCallback).catch((error) => {
+            console.error(`Failed to register callback in worker for ${query.id}:`, error);
+          });
+        }
       }
     });
 
-    // Execute index queries for each query that has an index field and clientSave === true
-    const indexQueryPromises = queries
-      .filter(query => query.index && query.index.trim() && query.clientSave === true)
-      .map(async (query) => {
-        // Use the query object from getAllQueries (already has all needed data including month)
-        const queryDoc = query;
-        try {
-          // Get endpoint/auth from query's urlKey, fallback to default
-          const { endpointUrl, authToken } = getEndpointAndAuth(queryDoc);
-
-          if (!endpointUrl) {
-            console.warn(`No endpoint available for query ${query.id}, skipping index query execution`);
-            // Store null result (pass queryDoc if available)
-            await indexedDBService.saveQueryIndexResult(query.id, null, queryDoc);
-            return;
-          }
-
-          // Parse variables if provided
-          const parsedVariables = parseGraphQLVariables(query.variables || '');
-
-          // Execute the index query
-          let response;
-          try {
-            response = await fetchGraphQLRequest(query.index, parsedVariables, {
-              endpointUrl,
-              authToken
-            });
-          } catch (fetchError) {
-            // Handle network errors, HTTP errors (500, etc.)
-            console.error(`Failed to fetch index query for ${query.id}:`, fetchError.message || fetchError);
-            // Store null result on error (pass queryDoc if available)
-            await indexedDBService.saveQueryIndexResult(query.id, null, queryDoc);
-            return;
-          }
-
-          // Parse JSON response
-          let jsonResponse;
-          try {
-            jsonResponse = await response.json();
-          } catch (parseError) {
-            console.error(`Failed to parse response for index query ${query.id}:`, parseError);
-            // Store null result on error (pass queryDoc if available)
-            await indexedDBService.saveQueryIndexResult(query.id, null, queryDoc);
-            return;
-          }
-
-          if (jsonResponse.errors) {
-            console.error(`GraphQL errors for index query ${query.id}:`, jsonResponse.errors);
-            // Store null result on error (pass queryDoc if available)
-            await indexedDBService.saveQueryIndexResult(query.id, null, queryDoc);
-            return;
-          }
-
-          // Extract full date/timestamp from index query response using the same mechanism
-          // This works for both month == true and month == false queries
-          const fullDate = extractFullDateFromIndexResponse(query.index, jsonResponse);
-
-          // Handle two paths for saving:
-          // 1. month == false: save full date string directly
-          // 2. month == true: extract YYYY-MM from monthIndex query and save as { "YYYY-MM": "full date string" }
-          let resultToSave = null;
-
-          if (query.month === true && query.monthIndex && query.monthIndex.trim()) {
-            // Extract YYYY-MM from monthIndex query
-            const yearMonth = await executeMonthIndexQueryAndExtractYearMonth(
-              query.monthIndex,
-              queryDoc
-            );
-
-            if (yearMonth && fullDate) {
-              // Save as { "YYYY-MM": "full date string" }
-              resultToSave = {
-                [yearMonth]: fullDate
-              };
-              console.log(`Saved index result for ${query.id} as { "${yearMonth}": "${fullDate}" }`);
-            } else {
-              if (!yearMonth) {
-                console.warn(`Could not extract YYYY-MM for ${query.id}`);
-              }
-              if (!fullDate) {
-                console.warn(`Could not extract full date from index query for ${query.id}`);
-              }
-              // If we can't extract either, save null (fallback)
-              resultToSave = null;
-            }
-          } else {
-            // month == false: save full date string directly
-            if (fullDate) {
-              resultToSave = fullDate;
-              console.log(`Saved index result for ${query.id} as: ${fullDate}`);
-            } else {
-              console.warn(`Could not extract full date from index query for ${query.id}`);
-              resultToSave = null;
-            }
-          }
-
-          // Store result in IndexedDB (will only save if changed, pass queryDoc)
-          await indexedDBService.saveQueryIndexResult(query.id, resultToSave, queryDoc);
-        } catch (error) {
-          console.error(`Error executing index query for ${query.id}:`, error);
-          // Store null result on error (use the query object from getAllQueries)
-          try {
-            await indexedDBService.saveQueryIndexResult(query.id, null, queryDoc);
-          } catch (saveError) {
-            console.error(`Error saving null result for ${query.id}:`, saveError);
-          }
-        }
-      });
-
-    // Execute all index queries (can run in parallel)
-    await Promise.all(indexQueryPromises);
+    // Execute index queries using worker (endpoint config getter already set during initialization)
+    try {
+      await workerRef.current.executeAndCacheIndexQueries(queries);
+    } catch (error) {
+      console.error('Error executing index queries in worker:', error);
+      // Fallback to main thread execution if worker fails
+    }
   };
 
   // Initialize execution context on mount
@@ -480,6 +460,14 @@ export default function DataProvider({
       onExecutingQueryChange(executingQuery);
     }
   }, [executingQuery, onExecutingQueryChange]);
+
+  // Combine executingQuery and loadingFromCache to track overall data loading
+  const isLoadingData = executingQuery || loadingFromCache;
+  useEffect(() => {
+    if (onLoadingDataChange) {
+      onLoadingDataChange(isLoadingData);
+    }
+  }, [isLoadingData, onLoadingDataChange]);
 
   useEffect(() => {
     if (onSelectedQueryKeyChange) {
@@ -562,27 +550,22 @@ export default function DataProvider({
             }
 
             // Auto-execute query after loading metadata (including initial load)
+            // Set monthRange first, then load data (combined to avoid duplicate calls)
             // For month-supported queries, only execute if monthRange is set
             // Variables are already set in queryVariablesRef.current, so we can execute immediately
+            if (month === true) {
+              setMonthRange(initialMonthRange);
+            } else {
+              setMonthRange(null);
+            }
+
             if (month !== true || initialMonthRange) {
               // Use shared helper function to check IndexedDB first, then API if not found
               await checkIndexedDBAndLoadData(dataSource, queryDoc, initialMonthRange);
-
-              // Now set monthRange AFTER IndexedDB check completes (prevents race condition with monthRange effect)
-              if (month === true) {
-                setMonthRange(initialMonthRange);
-              } else {
-                setMonthRange(null);
-              }
-
-              // Clear initial load flag after processing completes
-              isInitialLoadRef.current = false;
-            } else {
-              // Month query without initialMonthRange - set monthRange to null
-              setMonthRange(null);
-              // Clear initial load flag
-              isInitialLoadRef.current = false;
             }
+
+            // Clear initial load flag after processing completes
+            isInitialLoadRef.current = false;
           }
         } catch (error) {
           console.error('Error loading query metadata:', error);
@@ -617,7 +600,7 @@ export default function DataProvider({
   // Use a ref to store runQuery to avoid dependency order issues
   const runQueryRef = useRef(null);
 
-  // Helper function to fetch and cache all months in a range in background
+  // Helper function to fetch and cache all months in a range in background (using worker)
   const fetchAndCacheMonthsInRange = useCallback(async (queryId, queryDoc, monthRangeValue) => {
     if (!queryId || !queryDoc || !monthRangeValue || !Array.isArray(monthRangeValue) || monthRangeValue.length !== 2) {
       return;
@@ -642,10 +625,7 @@ export default function DataProvider({
           return;
         }
 
-        // Create execution context for background fetching
-        const context = createExecutionContext();
-
-        // Fetch and cache each month in the range (cache ALL months, even if already cached)
+        // Fetch and cache each month in the range using worker
         for (const prefix of monthPrefixes) {
           try {
             // Parse YYYY-MM to create month range (first day to last day of month)
@@ -655,21 +635,21 @@ export default function DataProvider({
             const monthEndDate = new Date(year, month - 1, lastDay);
             const monthRange = [monthStartDate, monthEndDate];
 
-            // Execute pipeline for this month
-            const pipelineResult = await executePipeline(queryId, context, {
+            // Always use worker for pipeline execution
+            if (!workerRef.current) {
+              console.warn('Worker not available for background caching');
+              continue;
+            }
+            await workerRef.current.executePipeline(
+              queryId,
+              queryDoc,
               endpointUrl,
               authToken,
               monthRange,
-            });
-
-            if (pipelineResult && typeof pipelineResult === 'object') {
-              // Ensure stores exist
-              await indexedDBService.ensureStoresForPipelineResult(queryId, pipelineResult, prefix, queryDoc);
-              
-              // Cache the result
-              await indexedDBService.savePipelineResultEntries(queryId, pipelineResult, prefix, queryDoc);
-              console.log(`Cached month ${prefix} for ${queryId}`);
-            }
+              {},
+              allQueryDocsRef.current
+            );
+            console.log(`Cached month ${prefix} for ${queryId} using worker`);
           } catch (error) {
             console.error(`Error fetching and caching month ${prefix} for ${queryId}:`, error);
             // Continue with other months even if one fails
@@ -689,8 +669,19 @@ export default function DataProvider({
   }, []);
 
   const checkIndexedDBAndLoadData = useCallback(async (queryId, queryDoc, monthRangeValue) => {
+    // Prevent duplicate concurrent calls
+    const cacheLoadKey = `${queryId}_${monthRangeValue?.[0]?.getTime()}_${monthRangeValue?.[1]?.getTime()}`;
+    if (cacheLoadInProgressRef.current === cacheLoadKey) {
+      // Already loading this exact query/monthRange, skip duplicate call
+      return;
+    }
+    cacheLoadInProgressRef.current = cacheLoadKey;
+    setLoadingFromCache(true);
+
     if (!queryDoc || queryDoc.clientSave !== true) {
       // No IndexedDB support, go directly to API
+      cacheLoadInProgressRef.current = null;
+      setLoadingFromCache(false);
       if (runQueryRef.current) {
         await runQueryRef.current(queryId, true);
       }
@@ -724,6 +715,8 @@ export default function DataProvider({
                   life: 3000
                 });
               }
+              cacheLoadInProgressRef.current = null;
+              setLoadingFromCache(false);
               return; // Successfully loaded from IndexedDB
             }
           } else if (cachedPrefixes.length > 0) {
@@ -745,6 +738,8 @@ export default function DataProvider({
               // Cache all months in range in background (even if some already cached)
               fetchAndCacheMonthsInRange(queryId, queryDoc, monthRangeValue);
               
+              cacheLoadInProgressRef.current = null;
+              setLoadingFromCache(false);
               return; // Successfully loaded from cache, don't call API
             }
           }
@@ -773,15 +768,21 @@ export default function DataProvider({
               life: 3000
             });
           }
+          cacheLoadInProgressRef.current = null;
+          setLoadingFromCache(false);
           return; // Successfully loaded from IndexedDB, don't call API
         }
       }
     } catch (error) {
       // If IndexedDB loading fails, fall through to normal query execution
       console.error('Error loading from IndexedDB:', error);
+      cacheLoadInProgressRef.current = null;
+      setLoadingFromCache(false);
     }
 
     // IndexedDB check failed or no data found, call API
+    cacheLoadInProgressRef.current = null;
+    setLoadingFromCache(false);
     if (runQueryRef.current) {
       await runQueryRef.current(queryId, true);
     }
@@ -804,6 +805,7 @@ export default function DataProvider({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monthRange, checkIndexedDBAndLoadData]); // Include checkIndexedDBAndLoadData in deps
+
 
   // Format date to "10 Jan 2026 4:03:33 PM" format
   const formatLastUpdatedDate = (dateString) => {
@@ -911,7 +913,7 @@ export default function DataProvider({
     }
   }, [availableQueryKeys, onAvailableQueryKeysChange]);
 
-  // Execute query using the unified pipeline
+  // Execute query using the unified pipeline (using worker)
   const runQuery = useCallback(async (queryId, skipMonthDateLoad = false) => {
     // Update ref so checkIndexedDBAndLoadData can use it
     runQueryRef.current = runQuery;
@@ -938,16 +940,69 @@ export default function DataProvider({
     const mergedVariables = { ...queryVariablesRef.current, ...variableOverrides };
 
     try {
-      // Get endpoint URL and auth token
-      const endpoint = getInitialEndpoint();
-      const endpointUrl = endpoint?.code;
+      // Load query doc if not already loaded
+      let queryDocToUse = currentQueryDoc;
+      if (!queryDocToUse) {
+        queryDocToUse = await firestoreService.loadQuery(queryId);
+        if (queryDocToUse) {
+          allQueryDocsRef.current[queryId] = queryDocToUse;
+        }
+      }
 
-      // Execute pipeline using persisted execution context (enables caching)
-      const finalData = await executePipeline(queryId, executionContextRef.current, {
-        endpointUrl,
-        monthRange: monthRange && Array.isArray(monthRange) && monthRange.length === 2 ? monthRange : undefined,
-        variableOverrides: mergedVariables,
-      });
+      if (!queryDocToUse) {
+        throw new Error(`Query "${queryId}" not found`);
+      }
+
+      // Get endpoint URL and auth token
+      const { endpointUrl, authToken } = getEndpointAndAuth(queryDocToUse);
+      const finalEndpointUrl = endpointUrl || getInitialEndpoint()?.code || null;
+      const finalAuthToken = authToken || null;
+
+      if (!finalEndpointUrl) {
+        throw new Error('GraphQL endpoint URL is not set');
+      }
+
+      // Always use worker for pipeline execution
+      if (!workerRef.current) {
+        throw new Error('Worker is not available. Please ensure worker is initialized.');
+      }
+      const finalData = await workerRef.current.executePipeline(
+        queryId,
+        queryDocToUse,
+        finalEndpointUrl,
+        finalAuthToken,
+        monthRange && Array.isArray(monthRange) && monthRange.length === 2 ? monthRange : undefined,
+        mergedVariables,
+        allQueryDocsRef.current
+      );
+
+      // Cache in background if clientSave is true (using worker)
+      if (queryDocToUse && queryDocToUse.clientSave === true && finalData && typeof finalData === 'object') {
+        const cacheApiResultAsync = async () => {
+          try {
+            if (workerRef.current) {
+              // Use worker for caching
+              await workerRef.current.executePipeline(
+                queryId,
+                queryDocToUse,
+                finalEndpointUrl,
+                finalAuthToken,
+                monthRange && Array.isArray(monthRange) && monthRange.length === 2 ? monthRange : undefined,
+                mergedVariables,
+                allQueryDocsRef.current
+              );
+            }
+          } catch (error) {
+            console.error(`Error caching API result for ${queryId}:`, error);
+          }
+        };
+
+        if (typeof requestIdleCallback !== 'undefined') {
+          requestIdleCallback(cacheApiResultAsync, { timeout: 5000 });
+        } else {
+          setTimeout(cacheApiResultAsync, 0);
+        }
+      }
 
       // Store final processed data
       setProcessedData(finalData);
@@ -959,92 +1014,6 @@ export default function DataProvider({
           detail: 'Query executed successfully',
           life: 3000
         });
-      }
-
-      // Cache API result to IndexedDB in background (non-blocking)
-      if (currentQueryDoc && currentQueryDoc.clientSave === true && finalData && typeof finalData === 'object') {
-        const cacheApiResultAsync = async () => {
-          try {
-            // For month == true queries with monthRange, cache all months in the range
-            if (currentQueryDoc.month === true && monthRange && Array.isArray(monthRange) && monthRange.length === 2) {
-              const [startDate, endDate] = monthRange;
-              
-              // Generate array of month prefixes for the range
-              const monthPrefixes = generateMonthRangeArray(startDate, endDate);
-              
-              if (monthPrefixes.length > 0) {
-                // Get endpoint and auth
-                const { endpointUrl, authToken } = getEndpointAndAuth(currentQueryDoc);
-                
-                if (endpointUrl) {
-                  // Create execution context for caching
-                  const context = createExecutionContext();
-                  
-                  // Cache each month separately
-                  for (const prefix of monthPrefixes) {
-                    try {
-                      // Parse YYYY-MM to create month range (first day to last day of month)
-                      const [year, month] = prefix.split('-').map(Number);
-                      const monthStartDate = new Date(year, month - 1, 1);
-                      const lastDay = new Date(year, month, 0).getDate();
-                      const monthEndDate = new Date(year, month - 1, lastDay);
-                      const monthRangeForCache = [monthStartDate, monthEndDate];
-
-                      // Execute pipeline for this month
-                      const monthData = await executePipeline(queryId, context, {
-                        endpointUrl,
-                        authToken,
-                        monthRange: monthRangeForCache,
-                      });
-
-                      if (monthData && typeof monthData === 'object') {
-                        // Ensure stores exist
-                        await indexedDBService.ensureStoresForPipelineResult(queryId, monthData, prefix, currentQueryDoc);
-                        
-                        // Cache the result
-                        await indexedDBService.savePipelineResultEntries(queryId, monthData, prefix, currentQueryDoc);
-                        console.log(`Cached month ${prefix} for ${queryId}`);
-                      }
-                    } catch (error) {
-                      console.error(`Error caching month ${prefix} for ${queryId}:`, error);
-                      // Continue with other months even if one fails
-                    }
-                  }
-                }
-              }
-            } else {
-              // Single month or month == false: use original logic
-              let yearMonthPrefix = null;
-              if (currentQueryDoc.month === true && monthRange && Array.isArray(monthRange) && monthRange.length > 0 && monthRange[0]) {
-                yearMonthPrefix = dayjs(monthRange[0]).format('YYYY-MM');
-                console.log(`Caching API result for ${queryId} with yearMonthPrefix: ${yearMonthPrefix}`);
-              } else {
-                console.log(`Caching API result for ${queryId} (month == false, no prefix)`);
-              }
-
-              // Get/create the query database
-              const queryDb = await indexedDBService.getQueryDatabase(queryId, currentQueryDoc);
-              console.log(`Database ready for caching queryId: ${queryId}`);
-
-              // Ensure stores exist for each key in the pipeline result
-              await indexedDBService.ensureStoresForPipelineResult(queryId, finalData, yearMonthPrefix, currentQueryDoc);
-
-              // Store pipeline result entries in IndexedDB tables
-              await indexedDBService.savePipelineResultEntries(queryId, finalData, yearMonthPrefix, currentQueryDoc);
-              console.log(`API result cached for ${queryId}${yearMonthPrefix ? ` with prefix ${yearMonthPrefix}` : ''}, stores ensured and entries saved for keys:`, getDataKeys(finalData));
-            }
-          } catch (error) {
-            console.error(`Error caching API result for ${queryId}:`, error);
-            // Don't throw - this is background execution, shouldn't affect main flow
-          }
-        };
-
-        // Execute caching in background using requestIdleCallback or setTimeout
-        if (typeof requestIdleCallback !== 'undefined') {
-          requestIdleCallback(cacheApiResultAsync, { timeout: 5000 });
-        } else {
-          setTimeout(cacheApiResultAsync, 0);
-        }
       }
     } catch (error) {
       console.error(`Query execution failed: ${queryId}`, error);
@@ -1373,18 +1342,18 @@ export default function DataProvider({
 
         {/* Last Updated at with Sync button - Show when using saved query, in a new row below Data Source */}
         {dataSource && dataSource !== 'offline' && (
-          <div className="flex items-center gap-3 text-sm text-gray-700">
+          <div className="flex items-center gap-2 sm:gap-3 text-xs sm:text-sm text-gray-700">
             {/* Sync Button - to the left of Last updated at */}
             <Button
               label={executingQuery ? 'Syncing...' : 'Sync'}
               icon={executingQuery ? 'pi pi-spin pi-spinner' : 'pi pi-refresh'}
               onClick={handleSync}
               disabled={executingQuery || (hasMonthSupport && (!monthRange || !Array.isArray(monthRange) || monthRange.length !== 2))}
-              className="p-button-sm p-button-outlined"
+              className="p-button-sm p-button-outlined flex-shrink-0"
               style={{ fontSize: '0.875rem', height: '2rem' }}
             />
-            <span>
-              Last updated at: {lastUpdatedAt ? formatLastUpdatedDate(lastUpdatedAt) : <span className="text-gray-400">N/A</span>}
+            <span className="whitespace-nowrap">
+              Last updated: {lastUpdatedAt ? formatLastUpdatedDate(lastUpdatedAt) : <span className="text-gray-400">N/A</span>}
             </span>
           </div>
         )}

@@ -61,6 +61,7 @@ export const firestoreService = {
           variables: doc.data().variables || '',
           month: doc.data().month || false,
           monthIndex: doc.data().monthIndex || '',
+          transformerCode: doc.data().transformerCode || '', // Include transformerCode
           bodyUpdatedAt: doc.data().bodyUpdatedAt || null,
           variablesUpdatedAt: doc.data().variablesUpdatedAt || null,
           transformerCodeUpdatedAt: doc.data().transformerCodeUpdatedAt || null,

@@ -21,6 +21,7 @@ import { debounce } from 'lodash';
  * @param {React.RefObject} options.stickyHeaderRef - Ref to the sticky header element
  * @param {React.RefObject} options.stickyFooterRef - Ref to the sticky footer element
  * @param {number} options.appHeaderOffset - App header height (always required)
+ * @param {number} options.appFooterOffset - App footer height (default: 0)
  * @param {number} options.stickyHeaderOffset - Additional offset for sticky header (default: 0)
  * 
  * @param {Function|null} options.shouldShowHeader - Custom function to determine header visibility
@@ -50,6 +51,7 @@ export function useStickyElements({
   stickyHeaderRef,
   stickyFooterRef,
   appHeaderOffset, // Required, always provided
+  appFooterOffset = 0, // App footer height
   stickyHeaderOffset = 0,
   
   // Custom visibility functions
@@ -116,10 +118,10 @@ export function useStickyElements({
     top: totalHeaderOffset
   });
 
-  const defaultCalculateFooterPosition = ({ containerRect }) => ({
+  const defaultCalculateFooterPosition = ({ containerRect }, appFooterOffset = 0) => ({
     width: containerRect.width,
     left: containerRect.left,
-    bottom: 0
+    bottom: appFooterOffset
   });
 
   // Visibility detection logic
@@ -298,7 +300,7 @@ export function useStickyElements({
 
         const position = calculateFooterPosition
           ? calculateFooterPosition(context)
-          : defaultCalculateFooterPosition({ containerRect });
+          : defaultCalculateFooterPosition({ containerRect }, appFooterOffset);
 
         if (position) {
           setFooterPosition(position);
@@ -327,6 +329,7 @@ export function useStickyElements({
     showStickyHeader,
     showStickyFooter,
     totalHeaderOffset,
+    appFooterOffset,
     calculateHeaderPosition,
     calculateFooterPosition,
   ]);
