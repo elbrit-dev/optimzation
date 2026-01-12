@@ -227,6 +227,15 @@ PLASMIC.registerComponent(DataTable, {
       description: "Toggle the visibility of the table controls (sort, filter, etc.)",
       defaultValue: false,
     },
+    dataSource: {
+      type: "string",
+      description: "The data source ID or 'offline' for local data",
+      defaultValue: "offline",
+    },
+    queryKey: {
+      type: "string",
+      description: "The specific key within the data source results to display",
+    },
     rowsPerPageOptions: {
       type: "object",
       defaultValue: [10, 25, 50, 100],
@@ -318,6 +327,29 @@ PLASMIC.registerComponent(DataTable, {
     },
     nonEditableColumns: {
       type: "object",
+      defaultValue: [],
+    },
+    isAdminMode: {
+      type: "boolean",
+      description: "Enable admin mode to bypass data filtering",
+      defaultValue: false,
+    },
+    salesTeamColumn: {
+      type: "string",
+      description: "Column name for Sales Team filtering",
+    },
+    salesTeamValues: {
+      type: "object",
+      description: "Array of allowed Sales Team values",
+      defaultValue: [],
+    },
+    hqColumn: {
+      type: "string",
+      description: "Column name for HQ filtering",
+    },
+    hqValues: {
+      type: "object",
+      description: "Array of allowed HQ values",
       defaultValue: [],
     },
     enableFullscreenDialog: {
