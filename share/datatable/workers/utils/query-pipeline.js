@@ -1,5 +1,7 @@
 import * as jmespath from "jmespath";
 import jsonata from "jsonata";
+import jmespath_plus from '@metrichor/jmespath-plus'
+
 import _ from "lodash";
 import { parse as parseJsonc, stripComments } from "jsonc-parser";
 import { extractDataFromResponse } from "./data-extractor";
@@ -46,7 +48,7 @@ function getInitialEndpoint() {
 export function createExecutionContext(options = {}) {
     const { maxDepth = 10 } = options;
     return {
-        inFlight: new Set(), // Prevents concurrent execution: queryId -> true
+        inFlight: new Map(), // Prevents concurrent execution: queryId -> { endpointUrl }
         dependencyStack: [], // Detects circular dependencies: [queryId, ...]
         maxDepth,
     };
@@ -246,6 +248,7 @@ export function applyMonthRangeToVariables(monthRange) {
     const lastDay = new Date(endYear, endMonthIndex + 1, 0).getDate();
     const endDate = `${endYear}-${String(endMonthIndex + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
 
+
     return { startDate, endDate };
 }
 
@@ -282,6 +285,7 @@ export async function executeTransformer(transformerCode, rawData, queryFunction
     const fn = new Function(
         "jmespath",
         "jsonata",
+        "jmespath_plus",
         "_",
         "data",
         "query",
@@ -298,7 +302,7 @@ export async function executeTransformer(transformerCode, rawData, queryFunction
 
     let evalResult;
     try {
-        evalResult = await fn(jmespath, jsonata, _, dataCopy, queryFunction, elbrit);
+        evalResult = await fn(jmespath, jsonata, jmespath_plus, _, dataCopy, queryFunction, elbrit);
     } catch (error) {
         console.error("Transformer execution failed:", error);
         throw error;

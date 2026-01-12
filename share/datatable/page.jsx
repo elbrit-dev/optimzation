@@ -12,229 +12,9 @@ import DataTableControls from './components/DataTableControls';
 import DataProvider from './components/DataProvider';
 import data from '@/resource/data';
 import { uniq, flatMap, isEmpty, startCase, filter as lodashFilter, get, isNil, debounce } from 'lodash';
-import { saveSettingsForDataSource, loadSettingsForDataSource } from './utils/settingsService';
 import { getDataKeys, getDataValue } from './utils/dataAccessUtils';
 import ProtectedRoute from '@/components/ProtectedRoute';
 
-// Custom hook for localStorage with proper JSON serialization for booleans
-function useLocalStorageBoolean(key, defaultValue) {
-  const [value, setValue] = useState(() => {
-    if (typeof window === 'undefined') return defaultValue;
-    try {
-      const item = window.localStorage.getItem(key);
-      if (item === null || item === undefined) return defaultValue;
-      const parsed = JSON.parse(item);
-      return typeof parsed === 'boolean' ? parsed : defaultValue;
-    } catch (error) {
-      try {
-        window.localStorage.removeItem(key);
-      } catch { }
-      return defaultValue;
-    }
-  });
-
-  // Sync with localStorage on mount
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    try {
-      const item = window.localStorage.getItem(key);
-      if (item !== null && item !== undefined) {
-        const parsed = JSON.parse(item);
-        if (typeof parsed === 'boolean') {
-          setValue(parsed);
-        }
-      }
-    } catch (error) {
-      // Ignore errors during sync
-    }
-  }, [key]);
-
-  const setStoredValue = useCallback((newValue) => {
-    try {
-      if (typeof newValue === 'boolean') {
-        const serialized = JSON.stringify(newValue);
-        if (typeof window !== 'undefined') {
-          window.localStorage.setItem(key, serialized);
-        }
-        setValue(newValue);
-      }
-    } catch (error) {
-      console.error(`Error setting localStorage key "${key}":`, error);
-    }
-  }, [key]);
-
-  return [value, setStoredValue];
-}
-
-// Custom hook for localStorage with proper JSON serialization for arrays
-function useLocalStorageArray(key, defaultValue) {
-  const [value, setValue] = useState(() => {
-    if (typeof window === 'undefined') return defaultValue;
-    try {
-      const item = window.localStorage.getItem(key);
-      if (item === null || item === undefined) return defaultValue;
-      const parsed = JSON.parse(item);
-      return Array.isArray(parsed) ? parsed : defaultValue;
-    } catch (error) {
-      // If parsing fails, try to clean up invalid data
-      try {
-        window.localStorage.removeItem(key);
-      } catch { }
-      return defaultValue;
-    }
-  });
-
-  // Sync with localStorage on mount
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    try {
-      const item = window.localStorage.getItem(key);
-      if (item !== null && item !== undefined) {
-        const parsed = JSON.parse(item);
-        if (Array.isArray(parsed)) {
-          setValue(parsed);
-        }
-      }
-    } catch (error) {
-      // Ignore errors during sync
-    }
-  }, [key]);
-
-  const setStoredValue = useCallback((newValue) => {
-    try {
-      // Handle functional updates (setState(prev => ...))
-      if (typeof newValue === 'function') {
-        setValue(prev => {
-          const updated = newValue(prev);
-          if (Array.isArray(updated)) {
-            const serialized = JSON.stringify(updated);
-            if (typeof window !== 'undefined') {
-              window.localStorage.setItem(key, serialized);
-            }
-            return updated;
-          }
-          return prev;
-        });
-      } else if (Array.isArray(newValue)) {
-        const serialized = JSON.stringify(newValue);
-        if (typeof window !== 'undefined') {
-          window.localStorage.setItem(key, serialized);
-        }
-        setValue(newValue);
-      }
-    } catch (error) {
-      console.error(`Error setting localStorage key "${key}":`, error);
-    }
-  }, [key]);
-
-  return [value, setStoredValue];
-}
-
-// Custom hook for localStorage with proper JSON serialization for string/null values
-function useLocalStorageString(key, defaultValue) {
-  const [value, setValue] = useState(() => {
-    if (typeof window === 'undefined') return defaultValue;
-    try {
-      const item = window.localStorage.getItem(key);
-      if (item === null || item === undefined) return defaultValue;
-      const parsed = JSON.parse(item);
-      // Accept string or null values
-      return (typeof parsed === 'string' || parsed === null) ? parsed : defaultValue;
-    } catch (error) {
-      // If parsing fails, try to clean up invalid data
-      try {
-        window.localStorage.removeItem(key);
-      } catch { }
-      return defaultValue;
-    }
-  });
-
-  // Sync with localStorage on mount
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    try {
-      const item = window.localStorage.getItem(key);
-      if (item !== null && item !== undefined) {
-        const parsed = JSON.parse(item);
-        if (typeof parsed === 'string' || parsed === null) {
-          setValue(parsed);
-        }
-      }
-    } catch (error) {
-      // Ignore errors during sync
-    }
-  }, [key]);
-
-  const setStoredValue = useCallback((newValue) => {
-    try {
-      // Accept string or null values
-      if (typeof newValue === 'string' || newValue === null) {
-        const serialized = JSON.stringify(newValue);
-        if (typeof window !== 'undefined') {
-          window.localStorage.setItem(key, serialized);
-        }
-        setValue(newValue);
-      }
-    } catch (error) {
-      console.error(`Error setting localStorage key "${key}":`, error);
-    }
-  }, [key]);
-
-  return [value, setStoredValue];
-}
-
-// Custom hook for localStorage with proper JSON serialization for numbers
-function useLocalStorageNumber(key, defaultValue) {
-  const [value, setValue] = useState(() => {
-    if (typeof window === 'undefined') return defaultValue;
-    try {
-      const item = window.localStorage.getItem(key);
-      if (item === null || item === undefined) return defaultValue;
-      const parsed = JSON.parse(item);
-      // Accept number values
-      return (typeof parsed === 'number' && !isNaN(parsed) && parsed > 0) ? parsed : defaultValue;
-    } catch (error) {
-      // If parsing fails, try to clean up invalid data
-      try {
-        window.localStorage.removeItem(key);
-      } catch { }
-      return defaultValue;
-    }
-  });
-
-  // Sync with localStorage on mount
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    try {
-      const item = window.localStorage.getItem(key);
-      if (item !== null && item !== undefined) {
-        const parsed = JSON.parse(item);
-        if (typeof parsed === 'number' && !isNaN(parsed) && parsed > 0) {
-          setValue(parsed);
-        }
-      }
-    } catch (error) {
-      // Ignore errors during sync
-    }
-  }, [key]);
-
-  const setStoredValue = (newValue) => {
-    try {
-      // Accept number values
-      if (typeof newValue === 'number' && !isNaN(newValue) && newValue > 0) {
-        const serialized = JSON.stringify(newValue);
-        if (typeof window !== 'undefined') {
-          window.localStorage.setItem(key, serialized);
-        }
-        setValue(newValue);
-      }
-    } catch (error) {
-      console.error(`Error setting localStorage key "${key}":`, error);
-    }
-  };
-
-  return [value, setStoredValue];
-}
 
 function DataTablePage() {
   const toast = useRef(null);
@@ -251,29 +31,29 @@ function DataTablePage() {
   const [executingQuery, setExecutingQuery] = useState(false);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [availableQueryKeys, setAvailableQueryKeys] = useState([]);
-  const [enableSort, setEnableSort] = useLocalStorageBoolean('datatable-enableSort', true);
-  const [enableFilter, setEnableFilter] = useLocalStorageBoolean('datatable-enableFilter', true);
-  const [enableSummation, setEnableSummation] = useLocalStorageBoolean('datatable-enableSummation', true);
-  const [enableCellEdit, setEnableCellEdit] = useLocalStorageBoolean('datatable-enableCellEdit', false);
-  const [enableDivideBy1Lakh, setEnableDivideBy1Lakh] = useLocalStorageBoolean('datatable-enableDivideBy1Lakh', false);
-  const [rowsPerPageOptionsRaw, setRowsPerPageOptionsRaw] = useLocalStorageArray('datatable-rowsPerPageOptions', [5, 10, 25, 50, 100, 200]);
-  const [defaultRowsRaw, setDefaultRowsRaw] = useLocalStorageNumber('datatable-defaultRows', 10);
-  const [textFilterColumnsRaw, setTextFilterColumnsRaw] = useLocalStorageArray('datatable-textFilterColumns', []);
-  const [visibleColumnsRaw, setVisibleColumnsRaw] = useLocalStorageArray('datatable-visibleColumns', []);
-  const [redFieldsRaw, setRedFieldsRaw] = useLocalStorageArray('datatable-redFields', []);
-  const [greenFieldsRaw, setGreenFieldsRaw] = useLocalStorageArray('datatable-greenFields', []);
-  const [outerGroupFieldRaw, setOuterGroupFieldRaw] = useLocalStorageString('datatable-outerGroupField', null);
-  const [innerGroupFieldRaw, setInnerGroupFieldRaw] = useLocalStorageString('datatable-innerGroupField', null);
-  const [nonEditableColumnsRaw, setNonEditableColumnsRaw] = useLocalStorageArray('datatable-nonEditableColumns', []);
-  const [percentageColumns, setPercentageColumns] = useLocalStorageArray('datatable-percentageColumns', []);
+  const [enableSort, setEnableSort] = useState(true);
+  const [enableFilter, setEnableFilter] = useState(true);
+  const [enableSummation, setEnableSummation] = useState(true);
+  const [enableCellEdit, setEnableCellEdit] = useState(false);
+  const [enableDivideBy1Lakh, setEnableDivideBy1Lakh] = useState(false);
+  const [rowsPerPageOptionsRaw, setRowsPerPageOptionsRaw] = useState([5, 10, 25, 50, 100, 200]);
+  const [defaultRowsRaw, setDefaultRowsRaw] = useState(10);
+  const [textFilterColumnsRaw, setTextFilterColumnsRaw] = useState([]);
+  const [visibleColumnsRaw, setVisibleColumnsRaw] = useState([]);
+  const [redFieldsRaw, setRedFieldsRaw] = useState([]);
+  const [greenFieldsRaw, setGreenFieldsRaw] = useState([]);
+  const [outerGroupFieldRaw, setOuterGroupFieldRaw] = useState(null);
+  const [innerGroupFieldRaw, setInnerGroupFieldRaw] = useState(null);
+  const [nonEditableColumnsRaw, setNonEditableColumnsRaw] = useState([]);
+  const [percentageColumns, setPercentageColumns] = useState([]);
   const [queryVariables, setQueryVariables] = useState({});
   const [variableOverrides, setVariableOverrides] = useState({});
   // Auth Control settings
-  const [isAdminMode, setIsAdminMode] = useLocalStorageBoolean('datatable-isAdminMode', false);
-  const [salesTeamColumn, setSalesTeamColumn] = useLocalStorageString('datatable-salesTeamColumn', null);
-  const [salesTeamValues, setSalesTeamValues] = useLocalStorageArray('datatable-salesTeamValues', []);
-  const [hqColumn, setHqColumn] = useLocalStorageString('datatable-hqColumn', null);
-  const [hqValues, setHqValues] = useLocalStorageArray('datatable-hqValues', []);
+  const [isAdminMode, setIsAdminMode] = useState(false);
+  const [salesTeamColumn, setSalesTeamColumn] = useState(null);
+  const [salesTeamValues, setSalesTeamValues] = useState([]);
+  const [hqColumn, setHqColumn] = useState(null);
+  const [hqValues, setHqValues] = useState([]);
 
   // Sticky header offset - calculate from app-header-container
   const [appHeaderOffset, setAppHeaderOffset] = useState(0);
@@ -440,7 +220,7 @@ function DataTablePage() {
   const [drawerData, setDrawerData] = useState([]);
   
   // Drawer tabs state
-  const [drawerTabs, setDrawerTabs] = useLocalStorageArray('datatable-drawerTabs', [{ id: `tab-${Date.now()}`, name: '', outerGroup: null, innerGroup: null }]);
+  const [drawerTabs, setDrawerTabs] = useState([{ id: `tab-${Date.now()}`, name: '', outerGroup: null, innerGroup: null }]);
   const [activeDrawerTabIndex, setActiveDrawerTabIndex] = useState(0);
   const [clickedDrawerValues, setClickedDrawerValues] = useState({ outerValue: null, innerValue: null });
   
@@ -482,46 +262,11 @@ function DataTablePage() {
     }
   }, []);
 
-  // Handle data source changes - load saved settings
+  // Handle data source changes
   const handleDataSourceChange = useCallback((newDataSource) => {
     setCurrentDataSource(newDataSource);
     setDataSource(newDataSource);
-
-    if (!dataSource) {
-      return;
-    }
-
-    // Load saved settings for this data source
-    const savedSettings = loadSettingsForDataSource(dataSource);
-    if (savedSettings) {
-      // Apply saved settings
-      if (savedSettings.enableSort !== undefined) setEnableSort(savedSettings.enableSort);
-      if (savedSettings.enableFilter !== undefined) setEnableFilter(savedSettings.enableFilter);
-      if (savedSettings.enableSummation !== undefined) setEnableSummation(savedSettings.enableSummation);
-      if (savedSettings.enableCellEdit !== undefined) setEnableCellEdit(savedSettings.enableCellEdit);
-      if (savedSettings.enableDivideBy1Lakh !== undefined) setEnableDivideBy1Lakh(savedSettings.enableDivideBy1Lakh);
-      if (savedSettings.rowsPerPageOptions) setRowsPerPageOptions(savedSettings.rowsPerPageOptions);
-      if (savedSettings.defaultRows !== undefined) setDefaultRows(savedSettings.defaultRows);
-      if (savedSettings.textFilterColumns) setTextFilterColumns(savedSettings.textFilterColumns);
-      if (savedSettings.visibleColumns) setVisibleColumns(savedSettings.visibleColumns);
-      if (savedSettings.redFields) setRedFields(savedSettings.redFields);
-      if (savedSettings.greenFields) setGreenFields(savedSettings.greenFields);
-      if (savedSettings.outerGroupField !== undefined) setOuterGroupField(savedSettings.outerGroupField);
-      if (savedSettings.innerGroupField !== undefined) setInnerGroupField(savedSettings.innerGroupField);
-      if (savedSettings.nonEditableColumns) setNonEditableColumns(savedSettings.nonEditableColumns);
-      if (savedSettings.percentageColumns) setPercentageColumns(savedSettings.percentageColumns);
-      // Migrate old drawer settings if present
-      if (savedSettings.drawerTabs !== undefined) {
-        setDrawerTabs(savedSettings.drawerTabs);
-      }
-      // Load Auth Control settings
-      if (savedSettings.isAdminMode !== undefined) setIsAdminMode(savedSettings.isAdminMode);
-      if (savedSettings.salesTeamColumn !== undefined) setSalesTeamColumn(savedSettings.salesTeamColumn);
-      if (savedSettings.salesTeamValues !== undefined) setSalesTeamValues(savedSettings.salesTeamValues);
-      if (savedSettings.hqColumn !== undefined) setHqColumn(savedSettings.hqColumn);
-      if (savedSettings.hqValues !== undefined) setHqValues(savedSettings.hqValues);
-    }
-  }, []); // setState functions are stable, no need to include them
+  }, []);
 
   // Handle variables change from DataProvider
   const handleVariablesChange = useCallback((variables) => {
@@ -530,65 +275,6 @@ function DataTablePage() {
     setVariableOverrides({});
   }, []);
 
-  // Save current settings for the current data source
-  const handleSaveSettings = () => {
-    if (!currentDataSource) {
-      if (toast.current) {
-        toast.current.show({
-          severity: 'warn',
-          summary: 'Warning',
-          detail: 'Please select a data source first',
-          life: 3000
-        });
-      }
-      return;
-    }
-
-    const settings = {
-      enableSort,
-      enableFilter,
-      enableSummation,
-      enableCellEdit,
-      enableDivideBy1Lakh,
-      rowsPerPageOptions,
-      defaultRows,
-      textFilterColumns,
-      visibleColumns,
-      redFields,
-      greenFields,
-      outerGroupField,
-      innerGroupField,
-      nonEditableColumns,
-      percentageColumns,
-      drawerTabs,
-      isAdminMode,
-      salesTeamColumn,
-      salesTeamValues,
-      hqColumn,
-      hqValues,
-    };
-
-    try {
-      saveSettingsForDataSource(currentDataSource, settings);
-      if (toast.current) {
-        toast.current.show({
-          severity: 'success',
-          summary: 'Success',
-          detail: `Settings saved for ${currentDataSource === 'offline' ? 'Offline' : 'current query'}`,
-          life: 3000
-        });
-      }
-    } catch (error) {
-      if (toast.current) {
-        toast.current.show({
-          severity: 'error',
-          summary: 'Error',
-          detail: 'Failed to save settings',
-          life: 3000
-        });
-      }
-    }
-  };
 
   // Store original data reference on mount and when tableData changes
   useEffect(() => {
@@ -597,123 +283,9 @@ function DataTablePage() {
     }
   }, [tableData]);
 
-  // Mark as loaded after first render to allow localStorage values to initialize
+  // Mark as loaded after first render
   useEffect(() => {
-    // Check if we're in the browser and localStorage is available
-    if (typeof window !== 'undefined' && window.localStorage) {
-      // Clean up any corrupted data
-      try {
-        // Clean up boolean values that might be stored incorrectly
-        const booleanKeys = ['datatable-enableSort', 'datatable-enableFilter', 'datatable-enableSummation', 'datatable-enableCellEdit'];
-        booleanKeys.forEach(key => {
-          try {
-            const item = window.localStorage.getItem(key);
-            if (item) {
-              const parsed = JSON.parse(item);
-              // If it's not a boolean, remove it
-              if (typeof parsed !== 'boolean') {
-                window.localStorage.removeItem(key);
-              }
-            }
-          } catch (error) {
-            // If parsing fails, remove the corrupted item
-            window.localStorage.removeItem(key);
-          }
-        });
-
-        const arrayKeys = {
-          'datatable-rowsPerPageOptions': { defaultValue: [5, 10, 25, 50, 100, 200], isColumnList: false },
-          'datatable-textFilterColumns': { defaultValue: [], isColumnList: true },
-          'datatable-visibleColumns': { defaultValue: [], isColumnList: true },
-          'datatable-redFields': { defaultValue: [], isColumnList: true },
-          'datatable-greenFields': { defaultValue: [], isColumnList: true },
-          'datatable-nonEditableColumns': { defaultValue: [], isColumnList: true }
-        };
-
-        // Check each key and validate its content
-        Object.entries(arrayKeys).forEach(([key, config]) => {
-          try {
-            const item = window.localStorage.getItem(key);
-            if (item) {
-              const parsed = JSON.parse(item);
-
-              // If it's not an array, remove it
-              if (!Array.isArray(parsed)) {
-                window.localStorage.removeItem(key);
-                return;
-              }
-
-              // If rowsPerPageOptions contains non-numbers or column-like strings, reset it
-              if (key === 'datatable-rowsPerPageOptions') {
-                const hasInvalidValues = parsed.some(v =>
-                  typeof v !== 'number' ||
-                  (typeof v === 'string' && v.includes('__'))
-                );
-                if (hasInvalidValues) {
-                  window.localStorage.removeItem(key);
-                }
-              }
-
-              // If column lists contain numbers, reset them
-              if (config.isColumnList) {
-                const hasNumbers = parsed.some(v => typeof v === 'number');
-                if (hasNumbers) {
-                  window.localStorage.removeItem(key);
-                }
-              }
-            }
-          } catch (error) {
-            // If parsing fails, remove the corrupted item
-            window.localStorage.removeItem(key);
-          }
-        });
-
-        // Validate string/null keys (group fields)
-        const stringKeys = ['datatable-outerGroupField', 'datatable-innerGroupField'];
-        stringKeys.forEach(key => {
-          try {
-            const item = window.localStorage.getItem(key);
-            if (item) {
-              const parsed = JSON.parse(item);
-              // If it's not a string or null, remove it
-              if (typeof parsed !== 'string' && parsed !== null) {
-                window.localStorage.removeItem(key);
-              }
-            }
-          } catch (error) {
-            // If parsing fails, remove the corrupted item
-            window.localStorage.removeItem(key);
-          }
-        });
-
-        // Validate number keys (defaultRows)
-        const numberKeys = ['datatable-defaultRows'];
-        numberKeys.forEach(key => {
-          try {
-            const item = window.localStorage.getItem(key);
-            if (item) {
-              const parsed = JSON.parse(item);
-              // If it's not a number or is invalid, remove it
-              if (typeof parsed !== 'number' || isNaN(parsed) || parsed <= 0) {
-                window.localStorage.removeItem(key);
-              }
-            }
-          } catch (error) {
-            // If parsing fails, remove the corrupted item
-            window.localStorage.removeItem(key);
-          }
-        });
-      } catch (error) {
-        // Ignore cleanup errors
-      }
-
-      // Use requestAnimationFrame to ensure localStorage values are read after render      
-      requestAnimationFrame(() => {
-        setIsLoading(false);
-      });
-    } else {
-      setIsLoading(false);
-    }
+    setIsLoading(false);
   }, []);
 
   // Ensure rowsPerPageOptions is always an array
@@ -738,7 +310,7 @@ function DataTablePage() {
     return defaultRowsRaw;
   }, [defaultRowsRaw, rowsPerPageOptions]);
 
-  // Update defaultRows in localStorage if it's not in the available options
+  // Update defaultRows if it's not in the available options
   useEffect(() => {
     if (Array.isArray(rowsPerPageOptions) && rowsPerPageOptions.length > 0) {
       const currentDefault = defaultRowsRaw;
@@ -752,7 +324,7 @@ function DataTablePage() {
         }
       }
     }
-  }, [rowsPerPageOptions, defaultRowsRaw, setDefaultRowsRaw]);
+  }, [rowsPerPageOptions, defaultRowsRaw]);
 
   // Ensure textFilterColumns is always an array
   const textFilterColumns = useMemo(() => {
@@ -1066,15 +638,17 @@ function DataTablePage() {
             hqColumn={hqColumn}
             hqValues={hqValues}
             renderHeaderControls={(selectorsJSX) => (
-              <div className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 border-b border-gray-200 shrink-0 bg-white">
-                <div className="flex justify-between items-start gap-3 flex-wrap">
+              <div className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 border-b border-gray-200 shrink-0 bg-white min-w-0 overflow-x-hidden">
+                <div className="flex justify-between items-start gap-3 flex-wrap min-w-0">
                   {/* Left: selectorsJSX from DataProvider */}
-                  {selectorsJSX}
+                  <div className="flex-1 min-w-0">
+                    {selectorsJSX}
+                  </div>
 
                   {/* Right: Data Source and Query Key Selectors */}
-                  <div className="flex items-end gap-3">
+                  <div className="flex items-end gap-3 flex-wrap min-w-0">
                     {/* Data Source Selector */}
-                    <div className="w-48">
+                    <div className="w-full sm:w-48 min-w-0 flex-shrink-0">
                       <label className="block text-xs font-medium text-gray-700 mb-1">
                         Data Source
                       </label>
@@ -1099,7 +673,7 @@ function DataTablePage() {
 
                     {/* Query Key Selector */}
                     {dataSource && dataSource !== 'offline' && availableQueryKeys.length > 0 && (
-                      <div className="w-48">
+                      <div className="w-full sm:w-48 min-w-0 flex-shrink-0">
                         <label className="block text-xs font-medium text-gray-700 mb-1">
                           Query Key
                         </label>
@@ -1217,7 +791,6 @@ function DataTablePage() {
                   onInnerGroupFieldChange={setInnerGroupField}
                   onNonEditableColumnsChange={setNonEditableColumns}
                   onPercentageColumnsChange={setPercentageColumns}
-                  onSaveSettings={handleSaveSettings}
                   drawerTabs={drawerTabs || []}
                   onDrawerTabsChange={setDrawerTabs}
                   onAddDrawerTab={handleAddDrawerTab}

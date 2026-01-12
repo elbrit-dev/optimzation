@@ -4,23 +4,18 @@
  */
 
 import * as Comlink from 'comlink';
+import dayjs from 'dayjs';
 import * as jmespath from 'jmespath';
 import jsonata from 'jsonata';
 import _ from 'lodash';
-import { parse as parseJsonc, stripComments } from 'jsonc-parser';
-import { parse as parseGraphQL } from 'graphql';
-import Dexie from 'dexie';
-import dayjs from 'dayjs';
-import { flatten } from 'flat';
+import jmespath_plus from '@metrichor/jmespath-plus'
 
 // Import worker utilities (we'll create these)
-import { extractDataFromResponse } from './utils/data-extractor';
-import { removeIndexKeys } from './utils/data-flattener';
-import { extractValueFromGraphQLResponse } from './utils/queryExtractor';
-import { extractYearMonthFromDate, generateMonthRangeArray, isYearMonthFormat, hasYearMonthPrefix } from './utils/dateUtils';
-import { parseGraphQLVariables } from './utils/variableParser';
-import { createExecutionContext, fetchGraphQLRequest, executeGraphQLQuery, applyMonthRangeToVariables, cleanProcessedData } from './utils/query-pipeline';
+import { extractYearMonthFromDate, generateMonthRangeArray } from './utils/dateUtils';
 import { IndexedDBServiceWorker } from './utils/indexedDBServiceWorker';
+import { applyMonthRangeToVariables, cleanProcessedData, createExecutionContext, executeGraphQLQuery, fetchGraphQLRequest } from './utils/query-pipeline';
+import { extractValueFromGraphQLResponse } from './utils/queryExtractor';
+import { parseGraphQLVariables } from './utils/variableParser';
 
 // Constants (passed from main thread or defined here)
 const DEFAULT_AUTH_TOKEN = '';
@@ -110,8 +105,13 @@ async function requestNestedQuery(queryId) {
 
 /**
  * Execute index query and cache result to IndexedDB
+ * @param {string} queryId - Query ID
+ * @param {Object} queryDoc - Query document
+ * @param {string} endpointUrl - Endpoint URL
+ * @param {string} authToken - Auth token
+ * @param {Object} monthRangeVariables - Optional object with startDate/endDate for month filtering
  */
-async function executeIndexQuery(queryId, queryDoc, endpointUrl, authToken) {
+async function executeIndexQuery(queryId, queryDoc, endpointUrl, authToken, monthRangeVariables = null) {
     if (!queryId || !queryDoc || !queryDoc.index || !queryDoc.index.trim()) {
         console.warn(`Skipping index query for ${queryId}: no index query provided`);
         return null;
@@ -148,7 +148,12 @@ async function executeIndexQuery(queryId, queryDoc, endpointUrl, authToken) {
         }
 
         // Parse variables if provided
-        const parsedVariables = parseGraphQLVariables(queryDoc.variables || '');
+        let parsedVariables = parseGraphQLVariables(queryDoc.variables || '');
+        
+        // Merge monthRangeVariables if provided (takes precedence)
+        if (monthRangeVariables && typeof monthRangeVariables === 'object') {
+            parsedVariables = { ...parsedVariables, ...monthRangeVariables };
+        }
 
         // Execute the index query
         let response;
@@ -229,6 +234,139 @@ async function executeIndexQuery(queryId, queryDoc, endpointUrl, authToken) {
 }
 
 /**
+ * Calculate startDate and endDate for a given month (YYYY-MM format or Date objects)
+ * @param {string|Date} monthValue - Month value in YYYY-MM format or Date object
+ * @returns {Object|null} Object with startDate and endDate strings in YYYY-MM-DD format, or null if invalid
+ */
+function calculateMonthDateRange(monthValue) {
+    if (!monthValue) {
+        return null;
+    }
+
+    try {
+        let monthDate;
+        if (typeof monthValue === 'string') {
+            // Parse YYYY-MM format
+            const [year, month] = monthValue.split('-').map(Number);
+            if (isNaN(year) || isNaN(month) || month < 1 || month > 12) {
+                return null;
+            }
+            monthDate = dayjs(`${year}-${String(month).padStart(2, '0')}-01`);
+        } else if (monthValue instanceof Date) {
+            monthDate = dayjs(monthValue);
+        } else {
+            return null;
+        }
+
+        if (!monthDate.isValid()) {
+            return null;
+        }
+
+        // Get first day of month
+        const startDate = monthDate.startOf('month').format('YYYY-MM-DD');
+        // Get last day of month
+        const endDate = monthDate.endOf('month').format('YYYY-MM-DD');
+
+        return { startDate, endDate };
+    } catch (error) {
+        console.error('Error calculating month date range:', error);
+        return null;
+    }
+}
+
+/**
+ * Execute index query for a specific month with known yearMonth (for monthRange execution)
+ * This is a helper function that executes the index query with date variables and saves with a known yearMonth
+ * @param {string} queryId - Query ID
+ * @param {Object} queryDoc - Query document
+ * @param {string} endpointUrl - Endpoint URL
+ * @param {string} authToken - Auth token
+ * @param {Object} monthRangeVariables - Object with startDate/endDate for the month
+ * @param {string} yearMonth - Known YYYY-MM format (e.g., "2025-10")
+ * @returns {Promise<Object|null>} Result object with { yearMonth: fullDate } or null
+ */
+async function executeIndexQueryForSingleMonth(queryId, queryDoc, endpointUrl, authToken, monthRangeVariables, yearMonth) {
+    if (!queryId || !queryDoc || !queryDoc.index || !queryDoc.index.trim()) {
+        return null;
+    }
+
+    if (queryDoc.clientSave !== true) {
+        return null;
+    }
+
+    try {
+        // Get endpoint/auth
+        let finalEndpointUrl = endpointUrl;
+        let finalAuthToken = authToken;
+
+        if (queryDoc.urlKey) {
+            const config = await getEndpointConfigFromUrlKey(queryDoc.urlKey);
+            if (config.endpointUrl) {
+                finalEndpointUrl = config.endpointUrl;
+                finalAuthToken = config.authToken;
+            }
+        }
+
+        if (!finalEndpointUrl) {
+            const defaultEndpoint = await getInitialEndpoint();
+            finalEndpointUrl = defaultEndpoint?.endpointUrl || null;
+            finalAuthToken = defaultEndpoint?.authToken || null;
+        }
+
+        if (!finalEndpointUrl) {
+            return null;
+        }
+
+        // Parse variables and merge monthRangeVariables
+        let parsedVariables = parseGraphQLVariables(queryDoc.variables || '');
+        if (monthRangeVariables && typeof monthRangeVariables === 'object') {
+            parsedVariables = { ...parsedVariables, ...monthRangeVariables };
+        }
+
+        // Execute the index query
+        let response;
+        try {
+            response = await fetchGraphQLRequest(queryDoc.index, parsedVariables, {
+                endpointUrl: finalEndpointUrl,
+                authToken: finalAuthToken
+            });
+        } catch (fetchError) {
+            console.error(`Failed to fetch index query for ${queryId} (${yearMonth}):`, fetchError.message || fetchError);
+            return null;
+        }
+
+        // Parse JSON response
+        let jsonResponse;
+        try {
+            jsonResponse = await response.json();
+        } catch (parseError) {
+            console.error(`Failed to parse response for index query ${queryId} (${yearMonth}):`, parseError);
+            return null;
+        }
+
+        if (jsonResponse.errors) {
+            console.error(`GraphQL errors for index query ${queryId} (${yearMonth}):`, jsonResponse.errors);
+            return null;
+        }
+
+        // Extract full date/timestamp from index query response
+        const fullDate = extractValueFromGraphQLResponse(queryDoc.index, jsonResponse);
+
+        if (!fullDate) {
+            return null;
+        }
+
+        // Return result with known yearMonth
+        return {
+            [yearMonth]: fullDate
+        };
+    } catch (error) {
+        console.error(`Error executing index query for ${queryId} (${yearMonth}):`, error);
+        return null;
+    }
+}
+
+/**
  * Execute monthIndex query and extract YYYY-MM
  */
 async function executeMonthIndexQueryAndExtractYearMonth(monthIndexQuery, queryDoc, endpointUrl, authToken) {
@@ -299,6 +437,21 @@ async function executePipeline(queryId, queryDoc, endpointUrl, authToken, monthR
         throw new Error('queryId and queryDoc are required');
     }
 
+    // Reconstruct Date objects from serialized format (Comlink corrupts Date objects)
+    let monthRangeDates = undefined;
+    if (monthRange && Array.isArray(monthRange) && monthRange.length === 2) {
+        // Check if it's already Date objects (backward compatibility) or serialized format
+        if (monthRange[0] instanceof Date) {
+            monthRangeDates = monthRange;
+        } else if (monthRange[0] && typeof monthRange[0] === 'object' && 'year' in monthRange[0]) {
+            // Reconstruct from serialized format
+            monthRangeDates = [
+                new Date(monthRange[0].year, monthRange[0].month, monthRange[0].day),
+                new Date(monthRange[1].year, monthRange[1].month, monthRange[1].day)
+            ];
+        }
+    }
+
     if (queryDoc.clientSave !== true) {
         console.log(`Skipping pipeline execution for ${queryId}: clientSave is not true`);
         // Still execute pipeline but don't cache
@@ -329,9 +482,27 @@ async function executePipeline(queryId, queryDoc, endpointUrl, authToken, monthR
         throw new Error('GraphQL endpoint URL is not set');
     }
 
-    // For month == true, extract YYYY-MM from monthIndex query first
+    // For month == true, extract YYYY-MM from monthRange dates or monthIndex query
     let yearMonthPrefix = null;
-    if (queryDoc.month === true && queryDoc.monthIndex && queryDoc.monthIndex.trim()) {
+    
+    // First, try to extract YYYY-MM from monthRange if it represents a single month
+    if (queryDoc.month === true && monthRangeDates && Array.isArray(monthRangeDates) && monthRangeDates.length === 2) {
+        const startDate = monthRangeDates[0];
+        const endDate = monthRangeDates[1];
+        
+        // Check if the range represents a single month (start and end are in the same month)
+        const startYearMonth = extractYearMonthFromDate(startDate);
+        const endYearMonth = extractYearMonthFromDate(endDate);
+        
+        if (startYearMonth && endYearMonth && startYearMonth === endYearMonth) {
+            // Single month range - use the month from the range
+            yearMonthPrefix = startYearMonth;
+            console.log(`Extracted YYYY-MM from monthRange for ${queryId}: ${yearMonthPrefix}`);
+        }
+    }
+    
+    // If we don't have yearMonthPrefix from monthRange, try monthIndex query
+    if (!yearMonthPrefix && queryDoc.month === true && queryDoc.monthIndex && queryDoc.monthIndex.trim()) {
         const yearMonth = await executeMonthIndexQueryAndExtractYearMonth(
             queryDoc.monthIndex,
             queryDoc,
@@ -359,15 +530,15 @@ async function executePipeline(queryId, queryDoc, endpointUrl, authToken, monthR
         const lastDay = new Date(year, month, 0).getDate();
         const endDate = new Date(year, month - 1, lastDay);
         monthRangeForPipeline = [startDate, endDate];
-    } else if (monthRange && Array.isArray(monthRange) && monthRange.length === 2) {
-        monthRangeForPipeline = monthRange;
+    } else if (monthRangeDates && Array.isArray(monthRangeDates) && monthRangeDates.length === 2) {
+        monthRangeForPipeline = monthRangeDates;
     }
 
     // Execute pipeline using worker pipeline executor
     const pipelineResult = await executePipelineWorkerInternal(queryId, queryDoc, context, {
         endpointUrl: finalEndpointUrl,
         authToken: finalAuthToken,
-        monthRange: monthRangeForPipeline,
+        monthRange: monthRangeDates || monthRangeForPipeline,
         variableOverrides,
         allQueryDocs
     });
@@ -402,48 +573,48 @@ async function executePipelineWorkerInternal(queryId, queryDoc, context, options
 
     // Guardrail: Check if already in flight
     if (context.inFlight.has(queryId)) {
-        throw new Error(`Query "${queryId}" is already being executed.`);
+        const inFlightInfo = context.inFlight.get(queryId);
+        throw new Error(`Query "${queryId}" is already being executed.${inFlightInfo ? ` (endpoint: ${inFlightInfo.endpointUrl})` : ''}`);
     }
 
-    // Mark as in-flight
-    context.inFlight.add(queryId);
+    // Get endpoint and token before marking as in-flight
+    let finalEndpointUrl = endpointUrl;
+    let finalAuthToken = authToken;
+
+    if (queryDoc.urlKey) {
+        const urlKeyConfig = await getEndpointConfigFromUrlKey(queryDoc.urlKey);
+        if (urlKeyConfig.endpointUrl) {
+            finalEndpointUrl = urlKeyConfig.endpointUrl;
+            finalAuthToken = urlKeyConfig.authToken;
+        }
+    }
+
+    if (!finalEndpointUrl) {
+        const defaultEndpoint = await getInitialEndpoint();
+        finalEndpointUrl = endpointUrl || defaultEndpoint?.endpointUrl || null;
+        finalAuthToken = authToken || defaultEndpoint?.authToken || DEFAULT_AUTH_TOKEN;
+        if (!finalEndpointUrl) {
+            throw new Error("GraphQL endpoint URL is not set");
+        }
+    }
+
+    // Mark as in-flight with endpoint URL
+    context.inFlight.set(queryId, { endpointUrl: finalEndpointUrl });
     context.dependencyStack.push(queryId);
 
     try {
-        // Get endpoint and token
-        let finalEndpointUrl = endpointUrl;
-        let finalAuthToken = authToken;
-
-        if (queryDoc.urlKey) {
-            const urlKeyConfig = await getEndpointConfigFromUrlKey(queryDoc.urlKey);
-            if (urlKeyConfig.endpointUrl) {
-                finalEndpointUrl = urlKeyConfig.endpointUrl;
-                finalAuthToken = urlKeyConfig.authToken;
-            }
-        }
-
-        if (!finalEndpointUrl) {
-            const defaultEndpoint = await getInitialEndpoint();
-            finalEndpointUrl = endpointUrl || defaultEndpoint?.endpointUrl || null;
-            finalAuthToken = authToken || defaultEndpoint?.authToken || DEFAULT_AUTH_TOKEN;
-            if (!finalEndpointUrl) {
-                throw new Error("GraphQL endpoint URL is not set");
-            }
-        }
 
         const { transformerCode, body, variables } = queryDoc;
         const hasTransformer = transformerCode && transformerCode.trim();
 
-        // Prepare variable overrides for month range if needed
-        let variableOverrides = {};
+        // Merge variable overrides in priority order:
+        // 1. Base variables from queryDoc (parsed in executeGraphQLQuery)
+        // 2. External variable overrides (user-provided, can override base)
+        // 3. Month range derived startDate/endDate (takes priority over user overrides)
+        let variableOverrides = { ...externalOverrides };
         if (monthRange) {
             const monthOverrides = applyMonthRangeToVariables(monthRange);
-            variableOverrides = { ...monthOverrides };
-        }
-
-        // Merge external variable overrides
-        if (Object.keys(externalOverrides).length > 0) {
-            variableOverrides = { ...variableOverrides, ...externalOverrides };
+            variableOverrides = { ...variableOverrides, ...monthOverrides };
         }
 
         // Execute GraphQL query
@@ -510,7 +681,9 @@ async function executePipelineWorkerInternal(queryId, queryDoc, context, options
         throw error;
     } finally {
         // Remove from in-flight and dependency stack
-        context.inFlight.delete(queryId);
+        if (context.inFlight.has(queryId)) {
+            context.inFlight.delete(queryId);
+        }
         context.dependencyStack.pop();
     }
 }
@@ -578,6 +751,7 @@ async function executeTransformerWorker(transformerCode, rawData, queryFunction,
     const fn = new Function(
         "jmespath",
         "jsonata",
+        "jmespath_plus",
         "_",
         "data",
         "query",
@@ -593,7 +767,7 @@ async function executeTransformerWorker(transformerCode, rawData, queryFunction,
 
     let evalResult;
     try {
-        evalResult = await fn(jmespath, jsonata, _, dataCopy, queryFunction, elbrit);
+        evalResult = await fn(jmespath, jsonata, jmespath_plus, _, dataCopy, queryFunction, elbrit);
     } catch (error) {
         console.error("Transformer execution failed:", error);
         throw error;
@@ -615,6 +789,135 @@ async function executeTransformerWorker(transformerCode, rawData, queryFunction,
     // Fallback: if transformer didn't return anything
     console.warn("Transformer did not return a value, using original data");
     return rawData;
+}
+
+/**
+ * Execute index queries for each month in a monthRange
+ * @param {string} queryId - Query ID
+ * @param {Object} queryDoc - Query document
+ * @param {string} endpointUrl - Endpoint URL
+ * @param {string} authToken - Auth token
+ * @param {Array} monthRange - Array of [startDate, endDate] Date objects or serialized format
+ * @returns {Promise<void>}
+ */
+async function executeIndexQueryForMonthRange(queryId, queryDoc, endpointUrl, authToken, monthRange) {
+    if (!queryId || !queryDoc || !queryDoc.index || !queryDoc.index.trim()) {
+        console.warn(`Skipping index query for monthRange for ${queryId}: no index query provided`);
+        return;
+    }
+
+    if (queryDoc.clientSave !== true) {
+        console.log(`Skipping index query for monthRange for ${queryId}: clientSave is not true`);
+        return;
+    }
+
+    if (!monthRange || !Array.isArray(monthRange) || monthRange.length !== 2) {
+        console.warn(`Skipping index query for monthRange for ${queryId}: invalid monthRange`);
+        return;
+    }
+
+    try {
+        // Reconstruct Date objects from serialized format if needed (Comlink corrupts Date objects)
+        let monthRangeDates;
+        if (monthRange[0] instanceof Date) {
+            monthRangeDates = monthRange;
+        } else if (monthRange[0] && typeof monthRange[0] === 'object' && 'year' in monthRange[0]) {
+            monthRangeDates = [
+                new Date(monthRange[0].year, monthRange[0].month, monthRange[0].day),
+                new Date(monthRange[1].year, monthRange[1].month, monthRange[1].day)
+            ];
+        } else {
+            console.warn(`Skipping index query for monthRange for ${queryId}: invalid monthRange format`);
+            return;
+        }
+
+        // Generate month prefixes from the range
+        const monthPrefixes = generateMonthRangeArray(monthRangeDates[0], monthRangeDates[1]);
+        
+        if (monthPrefixes.length === 0) {
+            console.warn(`Skipping index query for monthRange for ${queryId}: no months in range`);
+            return;
+        }
+
+        // Get endpoint/auth
+        let finalEndpointUrl = endpointUrl;
+        let finalAuthToken = authToken;
+
+        if (queryDoc.urlKey) {
+            const config = await getEndpointConfigFromUrlKey(queryDoc.urlKey);
+            if (config.endpointUrl) {
+                finalEndpointUrl = config.endpointUrl;
+                finalAuthToken = config.authToken;
+            }
+        }
+
+        if (!finalEndpointUrl) {
+            const defaultEndpoint = await getInitialEndpoint();
+            finalEndpointUrl = defaultEndpoint?.endpointUrl || null;
+            finalAuthToken = defaultEndpoint?.authToken || null;
+        }
+
+        if (!finalEndpointUrl) {
+            console.warn(`No endpoint available for index query monthRange for ${queryId}`);
+            return;
+        }
+
+        // For month == true queries, we need to merge results
+        if (queryDoc.month === true) {
+            // Get existing result to merge with
+            const existingResult = await indexedDBService.getQueryIndexResult(queryId);
+            const existingResultData = existingResult?.result || null;
+            const mergedResult = existingResultData && typeof existingResultData === 'object' && !Array.isArray(existingResultData)
+                ? { ...existingResultData }
+                : {};
+
+            // Execute index query for each month
+            for (const monthPrefix of monthPrefixes) {
+                try {
+                    // Calculate startDate/endDate for this month
+                    const monthDateRange = calculateMonthDateRange(monthPrefix);
+                    if (!monthDateRange) {
+                        console.warn(`Could not calculate date range for month ${monthPrefix}`);
+                        continue;
+                    }
+
+                    // Execute index query for this month
+                    const monthResult = await executeIndexQueryForSingleMonth(
+                        queryId,
+                        queryDoc,
+                        finalEndpointUrl,
+                        finalAuthToken,
+                        monthDateRange,
+                        monthPrefix
+                    );
+
+                    if (monthResult && typeof monthResult === 'object') {
+                        // Merge into combined result
+                        Object.assign(mergedResult, monthResult);
+                    }
+                } catch (error) {
+                    console.error(`Error executing index query for month ${monthPrefix} for ${queryId}:`, error);
+                    // Continue with other months even if one fails
+                }
+            }
+
+            // Save merged result once for all months
+            if (Object.keys(mergedResult).length > 0) {
+                await indexedDBService.saveQueryIndexResult(queryId, mergedResult, queryDoc);
+                console.log(`Saved index results for ${queryId} for months: ${monthPrefixes.join(', ')}`);
+            }
+        } else {
+            // For month == false queries, execute index query with the full monthRange variables
+            // (This is less common, but handle it for completeness)
+            const startDate = dayjs(monthRangeDates[0]).startOf('month').format('YYYY-MM-DD');
+            const endDate = dayjs(monthRangeDates[1]).endOf('month').format('YYYY-MM-DD');
+            const monthRangeVariables = { startDate, endDate };
+            
+            await executeIndexQuery(queryId, queryDoc, finalEndpointUrl, finalAuthToken, monthRangeVariables);
+        }
+    } catch (error) {
+        console.error(`Error executing index queries for monthRange for ${queryId}:`, error);
+    }
 }
 
 /**
@@ -656,6 +959,7 @@ async function executeAndCacheIndexQueries(queries) {
 // Expose API via Comlink
 const workerAPI = {
     executeIndexQuery,
+    executeIndexQueryForMonthRange,
     executePipeline,
     executeAndCacheIndexQueries,
     setNestedQueryCallback,

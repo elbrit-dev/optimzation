@@ -959,16 +959,6 @@ export default function DataTableControls({
                 <i className="pi pi-table text-base @3xs:text-lg text-primary"></i>
                 <span className="font-semibold text-sm @3xs:text-base text-primary">Table Settings</span>
               </div>
-              {dataSource && onSaveSettings && (
-                <button
-                  onClick={onSaveSettings}
-                  className="flex items-center gap-1 @3xs:gap-2 px-2 @3xs:px-3 py-1.5 text-xs @3xs:text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors shrink-0"
-                  title="Save current settings for this data source"
-                >
-                  <i className="pi pi-save text-xs @3xs:text-sm"></i>
-                  <span className="hidden @[150px]:inline">Save</span>
-                </button>
-              )}
             </div>
           </div>
           <div className="flex-1 p-2 @3xs:p-4 hidden @3xs:block">

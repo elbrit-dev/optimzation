@@ -47,6 +47,9 @@ export class IndexedDBServiceWorker {
         // Return cached database if exists
         if (this.queryDatabases.has(queryId)) {
             const cachedDb = this.queryDatabases.get(queryId);
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/2135770c-01a3-4957-a1df-7b381363f2ec',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'indexedDBServiceWorker.js:48',message:'Using cached database',data:{queryId,isOpen:cachedDb.isOpen(),verno:cachedDb.verno,tablesCount:cachedDb.tables.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+            // #endregion
             // Ensure it's open
             if (!cachedDb.isOpen()) {
                 await cachedDb.open();
@@ -118,6 +121,9 @@ export class IndexedDBServiceWorker {
      * @returns {Promise<void>}
      */
     async ensureStoresForPipelineResult(queryId, pipelineResult, yearMonthPrefix = null, queryDoc = null) {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/2135770c-01a3-4957-a1df-7b381363f2ec',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'indexedDBServiceWorker.js:120',message:'ensureStoresForPipelineResult entry',data:{queryId,yearMonthPrefix,hasPipelineResult:!!pipelineResult,pipelineResultKeys:Object.keys(pipelineResult||{})},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,B,C'})}).catch(()=>{});
+        // #endregion
         if (!queryId || !pipelineResult || typeof pipelineResult !== "object") {
             return;
         }
@@ -141,6 +147,9 @@ export class IndexedDBServiceWorker {
         // Get current version and existing stores
         const currentVersion = queryDb.verno;
         const existingStores = queryDb.tables.map((table) => table.name);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/2135770c-01a3-4957-a1df-7b381363f2ec',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'indexedDBServiceWorker.js:144',message:'Before upgrade check',data:{currentVersion,existingStoresCount:existingStores.length,existingStores,storeKeys,yearMonthPrefix},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,C'})}).catch(()=>{});
+        // #endregion
 
         // For month == true, prefix store names with YYYY-MM
         const prefixedStoreKeys = yearMonthPrefix 
@@ -149,6 +158,9 @@ export class IndexedDBServiceWorker {
 
         // Find stores that need to be created
         const storesToCreate = prefixedStoreKeys.filter((prefixedKey) => !existingStores.includes(prefixedKey));
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/2135770c-01a3-4957-a1df-7b381363f2ec',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'indexedDBServiceWorker.js:152',message:'Stores to create',data:{storesToCreate,prefixedStoreKeys},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
 
         if (storesToCreate.length === 0) {
             // All stores already exist
@@ -161,15 +173,19 @@ export class IndexedDBServiceWorker {
         // Create new version with additional stores
         const newStores = {};
 
-        // Add existing stores (empty string means keep them)
+        // Add existing stores with their original schema (preserve primary key definition)
+        // We must use the same schema definition, not empty string, to avoid "changing primary key" error
         existingStores.forEach((storeName) => {
-            newStores[storeName] = "";
+            newStores[storeName] = "++id, index"; // Use same schema as new stores to preserve primary key
         });
 
         // Add new stores (use ++ for auto-increment primary key, or specify a key)
         storesToCreate.forEach((storeName) => {
             newStores[storeName] = "++id, index"; // Using auto-increment id as primary key, index as indexed field for sorting
         });
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/2135770c-01a3-4957-a1df-7b381363f2ec',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'indexedDBServiceWorker.js:172',message:'Before version upgrade',data:{currentVersion,newVersion:currentVersion+1,newStoresCount:Object.keys(newStores).length,newStoresKeys:Object.keys(newStores),existingStoresWithEmpty:existingStores.filter(s=>newStores[s]===""),newStoresWithSchema:storesToCreate},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B,D'})}).catch(()=>{});
+        // #endregion
 
         // Define new version with all stores
         queryDb.version(currentVersion + 1).stores(newStores);
@@ -178,7 +194,13 @@ export class IndexedDBServiceWorker {
         try {
             await queryDb.open();
             console.log(`Added stores to database Elbrit-${queryId}-DB:`, storesToCreate);
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/2135770c-01a3-4957-a1df-7b381363f2ec',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'indexedDBServiceWorker.js:180',message:'Database upgrade success',data:{queryId,yearMonthPrefix,storesToCreate},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+            // #endregion
         } catch (error) {
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/2135770c-01a3-4957-a1df-7b381363f2ec',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'indexedDBServiceWorker.js:182',message:'Database upgrade error',data:{queryId,yearMonthPrefix,errorName:error.name,errorMessage:error.message,currentVersion,newVersion:currentVersion+1,existingStores,storesToCreate,newStores},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B,C,D'})}).catch(()=>{});
+            // #endregion
             console.error(`Error updating database schema for ${queryId}:`, error);
             throw error;
         }

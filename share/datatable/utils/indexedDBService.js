@@ -114,6 +114,25 @@ class IndexedDBService {
     }
 
     /**
+     * Clear cached database instance for a queryId to force refresh
+     * Useful when worker has updated the database schema (added new stores)
+     * @param {string} queryId - The query identifier
+     */
+    async clearQueryDatabaseCache(queryId) {
+        if (this.queryDatabases.has(queryId)) {
+            const cachedDb = this.queryDatabases.get(queryId);
+            try {
+                if (cachedDb.isOpen()) {
+                    cachedDb.close();
+                }
+            } catch (error) {
+                console.warn(`Error closing cached database for ${queryId}:`, error);
+            }
+            this.queryDatabases.delete(queryId);
+        }
+    }
+
+    /**
      * Ensure stores exist for each key in the pipeline result
      * Creates stores dynamically if they don't exist
      * @param {string} queryId - The query identifier
@@ -166,9 +185,10 @@ class IndexedDBService {
         // Create new version with additional stores
         const newStores = {};
 
-        // Add existing stores (empty string means keep them)
+        // Add existing stores with their original schema (preserve primary key definition)
+        // We must use the same schema definition, not empty string, to avoid "changing primary key" error
         existingStores.forEach((storeName) => {
-            newStores[storeName] = "";
+            newStores[storeName] = "++id, index"; // Use same schema as new stores to preserve primary key
         });
 
         // Add new stores (use ++ for auto-increment primary key, or specify a key)

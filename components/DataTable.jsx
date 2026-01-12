@@ -10,7 +10,7 @@ import DataTableControls from '../share/datatable/components/DataTableControls';
 import data from '../resource/data';
 
 import { uniq, flatMap, keys, isEmpty, startCase, filter as lodashFilter, get, isNil, debounce } from 'lodash';
-import { saveSettingsForDataSource, loadSettingsForDataSource } from '../share/datatable/utils/settingsService';
+import { saveSettingsForDataSource, loadSettingsForDataSource } from '../lib/settingsService';
 import { useTableContext } from './TableContext';
 
 // Custom hook for localStorage with proper JSON serialization for booleans

@@ -161,8 +161,9 @@ export default function DataProvider({
   const [selectedHqTeams, setSelectedHqTeams] = useState([]); // Selected HQ Teams for filter
   const queryVariablesRef = useRef({}); // Ref to track variables immediately (for synchronous access)
   const executingQueryIdRef = useRef(null); // Track which query is currently executing to prevent duplicates
+  const executingQueriesRef = useRef(new Set()); // Track executing queries with queryId + variables key to prevent duplicates
   const executionContextRef = useRef(null); // Persist execution context across runs for caching
-  const pipelineExecutionInFlightRef = useRef(new Set()); // Track pipeline executions in flight to prevent concurrent execution
+  const pipelineExecutionInFlightRef = useRef(new Map()); // Track pipeline executions in flight to prevent concurrent execution: queryId -> { endpointUrl }
   const isInitialLoadRef = useRef(false); // Track if we're in initial load phase to prevent monthRange effect from triggering
   const workerRef = useRef(null); // Ref to store worker proxy
   const allQueryDocsRef = useRef({}); // Cache of all query documents for worker
@@ -349,31 +350,34 @@ export default function DataProvider({
 
           // Execute pipeline in background for both month == false and month == true queries (using worker)
           if (queryDocToUse && (queryDocToUse.month === false || (queryDocToUse.month === true && queryDocToUse.monthIndex && queryDocToUse.monthIndex.trim()))) {
-            // Guard: Check if pipeline execution is already in flight for this queryId (before scheduling)
-            if (pipelineExecutionInFlightRef.current.has(queryId)) {
-              console.log(`Pipeline execution already in flight for ${queryId}, skipping callback`);
+            // Get endpoint/auth from query's urlKey, fallback to default (before checking in-flight)
+            const { endpointUrl, authToken } = getEndpointAndAuth(queryDocToUse);
+
+            if (!endpointUrl) {
+              console.warn(`No endpoint available for pipeline execution for ${queryId}`);
               return;
             }
 
-            // Mark as in flight immediately (before scheduling)
-            pipelineExecutionInFlightRef.current.add(queryId);
+            // Guard: Check if pipeline execution is already in flight for this queryId (before scheduling)
+            if (pipelineExecutionInFlightRef.current.has(queryId)) {
+              const inFlightInfo = pipelineExecutionInFlightRef.current.get(queryId);
+              console.log(`Pipeline execution already in flight for ${queryId}${inFlightInfo ? ` (endpoint: ${inFlightInfo.endpointUrl})` : ''}, skipping callback`);
+              return;
+            }
+
+            // Mark as in flight immediately (before scheduling) with endpoint URL
+            pipelineExecutionInFlightRef.current.set(queryId, { endpointUrl });
 
             // Execute pipeline in background using worker
             const executePipelineAsync = async () => {
               try {
-                // Get endpoint/auth from query's urlKey, fallback to default
-                const { endpointUrl, authToken } = getEndpointAndAuth(queryDocToUse);
-
-                if (!endpointUrl) {
-                  console.warn(`No endpoint available for pipeline execution for ${queryId}`);
-                  pipelineExecutionInFlightRef.current.delete(queryId);
-                  return;
-                }
 
                 // Always use worker for pipeline execution
                 if (!workerRef.current) {
                   console.warn('Worker not available, skipping pipeline execution');
-                  pipelineExecutionInFlightRef.current.delete(queryId);
+                  if (pipelineExecutionInFlightRef.current.has(queryId)) {
+                    pipelineExecutionInFlightRef.current.delete(queryId);
+                  }
                   return;
                 }
                 await workerRef.current.executePipeline(
@@ -390,8 +394,10 @@ export default function DataProvider({
                 console.error(`Error executing pipeline for ${queryId}:`, error);
                 // Don't throw - this is background execution
               } finally {
-                // Remove from in flight set
-                pipelineExecutionInFlightRef.current.delete(queryId);
+                // Remove from in flight map
+                if (pipelineExecutionInFlightRef.current.has(queryId)) {
+                  pipelineExecutionInFlightRef.current.delete(queryId);
+                }
               }
             };
 
@@ -516,12 +522,27 @@ export default function DataProvider({
           const queryDoc = await firestoreService.loadQuery(dataSource);
           if (queryDoc) {
             setCurrentQueryDoc(queryDoc);
-            const { month, monthDate, variables: rawVariables } = queryDoc;
+            const { month, variables: rawVariables } = queryDoc;
             setHasMonthSupport(month === true);
 
-            // Parse and set query variables (excluding startDate and endDate)
+            // Parse query variables
             const parsedVariables = parseGraphQLVariables(rawVariables || '');
-            // Remove startDate and endDate
+            
+            // Load initial month range from variables (startDate and endDate)
+            let initialMonthRange = null;
+            if (month === true && parsedVariables.startDate && parsedVariables.endDate) {
+              try {
+                const startDate = new Date(parsedVariables.startDate);
+                const endDate = new Date(parsedVariables.endDate);
+                if (!isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
+                  initialMonthRange = [startDate, endDate];
+                }
+              } catch (error) {
+                console.error('Error parsing startDate/endDate from variables:', error);
+              }
+            }
+
+            // Remove startDate and endDate from variables (they're handled by monthRange state)
             const { startDate, endDate, ...filteredVariables } = parsedVariables;
             // Update both state and ref immediately
             setQueryVariables(filteredVariables);
@@ -531,33 +552,20 @@ export default function DataProvider({
               onVariablesChange(filteredVariables);
             }
 
-            // Load initial month range from monthDate (calculate but don't set yet)
-            let initialMonthRange = null;
-            if (month === true && monthDate) {
-              try {
-                const date = new Date(monthDate);
-                if (!isNaN(date.getTime())) {
-                  const year = date.getFullYear();
-                  const monthIndex = date.getMonth();
-                  const startOfMonth = new Date(year, monthIndex, 1);
-                  const lastDay = new Date(year, monthIndex + 1, 0).getDate();
-                  const endOfMonth = new Date(year, monthIndex, lastDay);
-                  initialMonthRange = [startOfMonth, endOfMonth];
-                }
-              } catch (error) {
-                console.error('Error parsing monthDate:', error);
-              }
-            }
-
             // Auto-execute query after loading metadata (including initial load)
             // Set monthRange first, then load data (combined to avoid duplicate calls)
             // For month-supported queries, only execute if monthRange is set
             // Variables are already set in queryVariablesRef.current, so we can execute immediately
+            // Update monthRange to reflect the new data source's query variables
             if (month === true) {
               setMonthRange(initialMonthRange);
             } else {
               setMonthRange(null);
             }
+
+            // Fetch last updated timestamp immediately after query doc is loaded
+            // This will show it as soon as possible if it exists in cache
+            await fetchLastUpdatedAt();
 
             if (month !== true || initialMonthRange) {
               // Use shared helper function to check IndexedDB first, then API if not found
@@ -600,6 +608,56 @@ export default function DataProvider({
   // Use a ref to store runQuery to avoid dependency order issues
   const runQueryRef = useRef(null);
 
+  // Helper function to fetch last updated timestamp from IndexedDB
+  const fetchLastUpdatedAt = useCallback(async () => {
+    // If offline mode or no dataSource, clear the last updated field
+    if (!dataSource || dataSource === 'offline') {
+      setLastUpdatedAt(null);
+      return;
+    }
+
+    try {
+      // Get the index result from IndexedDB
+      const indexResult = await indexedDBService.getQueryIndexResult(dataSource);
+
+      if (!indexResult || !indexResult.result) {
+        setLastUpdatedAt(null);
+        return;
+      }
+
+      const result = indexResult.result;
+
+      // Check if the query has month support
+      if (currentQueryDoc && currentQueryDoc.month === true) {
+        // For month == true, result is an object like {"2025-11": "13:14:03.540037"}
+        // Extract YYYY-MM from monthRange
+        if (monthRange && Array.isArray(monthRange) && monthRange.length > 0 && monthRange[0]) {
+          const yearMonthKey = dayjs(monthRange[0]).format('YYYY-MM');
+          // Look up the value for this month key
+          if (result && typeof result === 'object' && !Array.isArray(result)) {
+            const monthValue = result[yearMonthKey];
+            setLastUpdatedAt(monthValue || null);
+          } else {
+            setLastUpdatedAt(null);
+          }
+        } else {
+          // No month range selected, show null
+          setLastUpdatedAt(null);
+        }
+      } else {
+        // For month == false, result is a string directly
+        if (typeof result === 'string') {
+          setLastUpdatedAt(result);
+        } else {
+          setLastUpdatedAt(null);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching last updated timestamp:', error);
+      setLastUpdatedAt(null);
+    }
+  }, [dataSource, monthRange, currentQueryDoc]);
+
   // Helper function to fetch and cache all months in a range in background (using worker)
   const fetchAndCacheMonthsInRange = useCallback(async (queryId, queryDoc, monthRangeValue) => {
     if (!queryId || !queryDoc || !monthRangeValue || !Array.isArray(monthRangeValue) || monthRangeValue.length !== 2) {
@@ -633,7 +691,11 @@ export default function DataProvider({
             const monthStartDate = new Date(year, month - 1, 1);
             const lastDay = new Date(year, month, 0).getDate();
             const monthEndDate = new Date(year, month - 1, lastDay);
-            const monthRange = [monthStartDate, monthEndDate];
+            // Convert Date objects to serializable format for Comlink
+            const monthRangeSerialized = [
+              { year: monthStartDate.getFullYear(), month: monthStartDate.getMonth(), day: monthStartDate.getDate() },
+              { year: monthEndDate.getFullYear(), month: monthEndDate.getMonth(), day: monthEndDate.getDate() }
+            ];
 
             // Always use worker for pipeline execution
             if (!workerRef.current) {
@@ -645,7 +707,7 @@ export default function DataProvider({
               queryDoc,
               endpointUrl,
               authToken,
-              monthRange,
+              monthRangeSerialized,
               {},
               allQueryDocsRef.current
             );
@@ -707,6 +769,9 @@ export default function DataProvider({
             if (reconstructed && typeof reconstructed === 'object' && Object.keys(reconstructed).length > 0) {
               setProcessedData(reconstructed);
               
+              // Update last updated timestamp after loading from cache
+              await fetchLastUpdatedAt();
+              
               if (onDataChange) {
                 onDataChange({
                   severity: 'success',
@@ -725,6 +790,9 @@ export default function DataProvider({
             
             if (reconstructed && typeof reconstructed === 'object' && Object.keys(reconstructed).length > 0) {
               setProcessedData(reconstructed);
+              
+              // Update last updated timestamp after loading from cache
+              await fetchLastUpdatedAt();
               
               if (onDataChange) {
                 onDataChange({
@@ -760,6 +828,9 @@ export default function DataProvider({
           // Load from IndexedDB - format is already correct, no transformation needed
           setProcessedData(reconstructed);
 
+          // Update last updated timestamp after loading from cache
+          await fetchLastUpdatedAt();
+
           if (onDataChange) {
             onDataChange({
               severity: 'success',
@@ -786,7 +857,7 @@ export default function DataProvider({
     if (runQueryRef.current) {
       await runQueryRef.current(queryId, true);
     }
-  }, [onDataChange, fetchAndCacheMonthsInRange]);
+  }, [onDataChange, fetchAndCacheMonthsInRange, fetchLastUpdatedAt]);
 
   // Auto-execute when monthRange changes (user changed month range)
   useEffect(() => {
@@ -830,57 +901,8 @@ export default function DataProvider({
 
   // Fetch and display last updated timestamp from IndexedDB
   useEffect(() => {
-    const fetchLastUpdatedAt = async () => {
-      // If offline mode or no dataSource, clear the last updated field
-      if (!dataSource || dataSource === 'offline') {
-        setLastUpdatedAt(null);
-        return;
-      }
-
-      try {
-        // Get the index result from IndexedDB
-        const indexResult = await indexedDBService.getQueryIndexResult(dataSource);
-
-        if (!indexResult || !indexResult.result) {
-          setLastUpdatedAt(null);
-          return;
-        }
-
-        const result = indexResult.result;
-
-        // Check if the query has month support
-        if (currentQueryDoc && currentQueryDoc.month === true) {
-          // For month == true, result is an object like {"2025-11": "13:14:03.540037"}
-          // Extract YYYY-MM from monthRange
-          if (monthRange && Array.isArray(monthRange) && monthRange.length > 0 && monthRange[0]) {
-            const yearMonthKey = dayjs(monthRange[0]).format('YYYY-MM');
-            // Look up the value for this month key
-            if (result && typeof result === 'object' && !Array.isArray(result)) {
-              const monthValue = result[yearMonthKey];
-              setLastUpdatedAt(monthValue || null);
-            } else {
-              setLastUpdatedAt(null);
-            }
-          } else {
-            // No month range selected, show null
-            setLastUpdatedAt(null);
-          }
-        } else {
-          // For month == false, result is a string directly
-          if (typeof result === 'string') {
-            setLastUpdatedAt(result);
-          } else {
-            setLastUpdatedAt(null);
-          }
-        }
-      } catch (error) {
-        console.error('Error fetching last updated timestamp:', error);
-        setLastUpdatedAt(null);
-      }
-    };
-
     fetchLastUpdatedAt();
-  }, [dataSource, monthRange, currentQueryDoc]);
+  }, [fetchLastUpdatedAt]);
 
   // Get available query keys from processedData
   const availableQueryKeys = useMemo(() => {
@@ -913,6 +935,185 @@ export default function DataProvider({
     }
   }, [availableQueryKeys, onAvailableQueryKeysChange]);
 
+  // Helper function to create execution key from queryId, variables, and monthRange
+  const createExecutionKey = (queryId, variables, monthRange) => {
+    // Create a stable string representation of variables (sorted keys for consistency)
+    const variablesStr = variables && typeof variables === 'object' 
+      ? JSON.stringify(variables, Object.keys(variables).sort())
+      : '';
+    
+    // Create a stable string representation of monthRange
+    const monthRangeStr = monthRange && Array.isArray(monthRange) && monthRange.length === 2
+      ? `${monthRange[0].getTime()}_${monthRange[1].getTime()}`
+      : '';
+    
+    // Combine queryId, variables, and monthRange into a unique key
+    return `${queryId}__${variablesStr}__${monthRangeStr}`;
+  };
+
+  // Helper function to execute and cache month range per month (latest first)
+  const executeAndCacheMonthRange = useCallback(async (queryId, queryDoc, monthRangeValue, endpointUrl, authToken, mergedVariables) => {
+    if (!queryId || !queryDoc || !monthRangeValue || !Array.isArray(monthRangeValue) || monthRangeValue.length !== 2) {
+      throw new Error('Invalid parameters for executeAndCacheMonthRange');
+    }
+
+    const [startDate, endDate] = monthRangeValue;
+    
+    // Generate array of month prefixes for the range
+    const monthPrefixes = generateMonthRangeArray(startDate, endDate);
+    
+    if (monthPrefixes.length === 0) {
+      throw new Error('No months in range');
+    }
+
+    // Reverse order to start with latest month first
+    const reversedMonthPrefixes = [...monthPrefixes].reverse();
+
+    // Execute index queries for monthRange BEFORE executing pipelines
+    if (queryDoc.index && queryDoc.index.trim() && queryDoc.clientSave === true) {
+      try {
+        const monthRangeSerialized = [
+          { year: startDate.getFullYear(), month: startDate.getMonth(), day: startDate.getDate() },
+          { year: endDate.getFullYear(), month: endDate.getMonth(), day: endDate.getDate() }
+        ];
+        await workerRef.current.executeIndexQueryForMonthRange(
+          queryId,
+          queryDoc,
+          endpointUrl,
+          authToken,
+          monthRangeSerialized
+        );
+      } catch (indexError) {
+        console.error(`Error executing index queries for monthRange for ${queryId}:`, indexError);
+        // Continue with pipeline execution even if index queries fail
+      }
+    }
+
+    // Execute pipeline for each month in parallel (but start with latest first)
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/2135770c-01a3-4957-a1df-7b381363f2ec',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'DataProvider.jsx:978',message:'Starting parallel pipeline execution',data:{queryId,monthPrefixesCount:reversedMonthPrefixes.length,monthPrefixes:reversedMonthPrefixes},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
+    const pipelinePromises = reversedMonthPrefixes.map(async (prefix) => {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/2135770c-01a3-4957-a1df-7b381363f2ec',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'DataProvider.jsx:980',message:'Pipeline execution started for month',data:{queryId,prefix},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
+      try {
+        // Parse YYYY-MM to create month range (first day to last day of month)
+        const [year, month] = prefix.split('-').map(Number);
+        const monthStartDate = new Date(year, month - 1, 1);
+        const lastDay = new Date(year, month, 0).getDate();
+        const monthEndDate = new Date(year, month - 1, lastDay);
+        
+        // Convert Date objects to serializable format for Comlink
+        const monthRangeSerialized = [
+          { year: monthStartDate.getFullYear(), month: monthStartDate.getMonth(), day: monthStartDate.getDate() },
+          { year: monthEndDate.getFullYear(), month: monthEndDate.getMonth(), day: monthEndDate.getDate() }
+        ];
+
+        // Execute pipeline for this month (worker will save to cache with month prefix automatically)
+        await workerRef.current.executePipeline(
+          queryId,
+          queryDoc,
+          endpointUrl,
+          authToken,
+          monthRangeSerialized,
+          mergedVariables,
+          allQueryDocsRef.current
+        );
+        
+        console.log(`Executed and cached month ${prefix} for ${queryId}`);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/2135770c-01a3-4957-a1df-7b381363f2ec',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'DataProvider.jsx:1004',message:'Pipeline execution completed for month',data:{queryId,prefix},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
+      } catch (error) {
+        console.error(`Error executing pipeline for month ${prefix} for ${queryId}:`, error);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/2135770c-01a3-4957-a1df-7b381363f2ec',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'DataProvider.jsx:1006',message:'Pipeline execution failed for month',data:{queryId,prefix,errorName:error.name,errorMessage:error.message},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,B,C'})}).catch(()=>{});
+        // #endregion
+        // Continue with other months even if one fails
+        throw error; // Re-throw to be caught by Promise.allSettled
+      }
+    });
+
+    // Execute all months in parallel (using allSettled to continue even if some fail)
+    const results = await Promise.allSettled(pipelinePromises);
+    
+    // Check execution results
+    const successfulExecutions = results.filter(r => r.status === 'fulfilled').length;
+    const failedExecutions = results.filter(r => r.status === 'rejected');
+    
+    console.log(`Pipeline execution results for ${queryId}: ${successfulExecutions}/${monthPrefixes.length} succeeded`);
+    
+    if (successfulExecutions === 0) {
+      // All executions failed
+      const errors = failedExecutions.map(r => r.reason?.message || r.reason || 'Unknown error').filter(Boolean);
+      throw new Error(`All pipeline executions failed: ${errors.join('; ')}`);
+    }
+    
+    if (failedExecutions.length > 0) {
+      console.warn(`Some pipeline executions failed for ${queryId}:`, failedExecutions.map(r => r.reason?.message || r.reason));
+    }
+
+    // Wait for IndexedDB writes to be committed and database version updates to propagate
+    // The worker may have closed and reopened the database with a new version, so we need to wait
+    // for the version change to be visible to the main thread
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    // Clear the cached database instance to force a fresh connection that sees new stores
+    // The worker may have created new stores by upgrading the database version
+    await indexedDBService.clearQueryDatabaseCache(queryId);
+
+    // Verify that data was actually cached before trying to reconstruct
+    // With cache cleared, we should see new stores immediately, but add one retry for transaction commit timing
+    let cachedPrefixes = await indexedDBService.getCachedMonthPrefixes(queryId, monthPrefixes);
+    console.log(`Cached prefixes for ${queryId}:`, cachedPrefixes, 'Expected:', monthPrefixes);
+    
+    if (cachedPrefixes.length === 0) {
+      // Wait a bit more for transaction commits, then retry once
+      await new Promise(resolve => setTimeout(resolve, 100));
+      cachedPrefixes = await indexedDBService.getCachedMonthPrefixes(queryId, monthPrefixes);
+      console.log(`Cached prefixes (retry) for ${queryId}:`, cachedPrefixes, 'Expected:', monthPrefixes);
+    }
+    
+    if (cachedPrefixes.length === 0) {
+      // Final check: inspect database directly for diagnostic purposes
+      try {
+        const queryDb = await indexedDBService.getQueryDatabase(queryId);
+        const existingStores = queryDb.tables.map((table) => table.name);
+        const matchingStores = existingStores.filter(storeName => 
+          monthPrefixes.some(prefix => storeName.startsWith(`${prefix}_`))
+        );
+        
+        if (matchingStores.length === 0) {
+          throw new Error(`No data was cached for any month in range. Expected ${monthPrefixes.length} months (${monthPrefixes.join(', ')}), but none were found in cache after ${successfulExecutions} successful executions. Database has ${existingStores.length} stores total.`);
+        } else {
+          // Stores exist but getCachedMonthPrefixes didn't find them - use all prefixes
+          console.warn(`Stores exist (${matchingStores.length}) but getCachedMonthPrefixes didn't find them. Using all expected prefixes.`);
+          cachedPrefixes = monthPrefixes;
+        }
+      } catch (dbError) {
+        console.error(`Error checking database directly:`, dbError);
+        throw new Error(`No data was cached for any month in range. Expected ${monthPrefixes.length} months (${monthPrefixes.join(', ')}), but none were found in cache after ${successfulExecutions} successful executions. Error: ${dbError.message}`);
+      }
+    }
+
+    // Load from cache per month and combine
+    const reconstructed = await indexedDBService.reconstructPipelineResult(queryId, null, cachedPrefixes);
+    
+    if (!reconstructed || typeof reconstructed !== 'object' || Object.keys(reconstructed).length === 0) {
+      // Try reconstructing with all prefixes one more time after a short delay
+      console.warn(`First reconstruction attempt failed for ${queryId}, retrying...`);
+      await new Promise(resolve => setTimeout(resolve, 200));
+      const retryReconstructed = await indexedDBService.reconstructPipelineResult(queryId, null, monthPrefixes);
+      if (!retryReconstructed || typeof retryReconstructed !== 'object' || Object.keys(retryReconstructed).length === 0) {
+        throw new Error(`Failed to reconstruct data from cache after execution. Cached prefixes: ${cachedPrefixes.join(', ')}, Expected: ${monthPrefixes.join(', ')}. Successful executions: ${successfulExecutions}/${monthPrefixes.length}`);
+      }
+      return retryReconstructed;
+    }
+
+    return reconstructed;
+  }, []);
+
   // Execute query using the unified pipeline (using worker)
   const runQuery = useCallback(async (queryId, skipMonthDateLoad = false) => {
     // Update ref so checkIndexedDBAndLoadData can use it
@@ -922,8 +1123,22 @@ export default function DataProvider({
       return;
     }
 
-    // Prevent concurrent execution of the same query
-    if (executingQueryIdRef.current === queryId) {
+    // Use ref for immediate access (avoids stale closure issues)
+    // Merge queryVariables with variableOverrides (variableOverrides take precedence for user overrides)
+    let mergedVariables = { ...queryVariablesRef.current, ...variableOverrides };
+
+    // When custom monthRange is set, remove startDate/endDate from variables
+    // so that only the monthRange is used for API calls
+    if (monthRange && Array.isArray(monthRange) && monthRange.length === 2) {
+      const { startDate, endDate, ...variablesWithoutDates } = mergedVariables;
+      mergedVariables = variablesWithoutDates;
+    }
+
+    // Create execution key from queryId, variables, and monthRange
+    const executionKey = createExecutionKey(queryId, mergedVariables, monthRange);
+
+    // Prevent concurrent execution of the same query with same variables and monthRange
+    if (executingQueriesRef.current.has(executionKey)) {
       return;
     }
 
@@ -932,12 +1147,9 @@ export default function DataProvider({
       executionContextRef.current = createExecutionContext();
     }
 
-    executingQueryIdRef.current = queryId;
+    executingQueryIdRef.current = queryId; // Keep for backward compatibility
+    executingQueriesRef.current.add(executionKey);
     setExecutingQuery(true);
-
-    // Use ref for immediate access (avoids stale closure issues)
-    // Merge queryVariables with variableOverrides (variableOverrides take precedence for user overrides)
-    const mergedVariables = { ...queryVariablesRef.current, ...variableOverrides };
 
     try {
       // Load query doc if not already loaded
@@ -966,46 +1178,65 @@ export default function DataProvider({
       if (!workerRef.current) {
         throw new Error('Worker is not available. Please ensure worker is initialized.');
       }
-      const finalData = await workerRef.current.executePipeline(
-        queryId,
-        queryDocToUse,
-        finalEndpointUrl,
-        finalAuthToken,
-        monthRange && Array.isArray(monthRange) && monthRange.length === 2 ? monthRange : undefined,
-        mergedVariables,
-        allQueryDocsRef.current
-      );
+      // For month == true queries with monthRange, always execute per month
+      if (queryDocToUse.month === true && monthRange && Array.isArray(monthRange) && monthRange.length === 2) {
+        // Execute per month: execute → save to cache → load from cache → combine
+        const finalData = await executeAndCacheMonthRange(
+          queryId,
+          queryDocToUse,
+          monthRange,
+          finalEndpointUrl,
+          finalAuthToken,
+          mergedVariables
+        );
 
-      // Cache in background if clientSave is true (using worker)
-      if (queryDocToUse && queryDocToUse.clientSave === true && finalData && typeof finalData === 'object') {
-        const cacheApiResultAsync = async () => {
+        // Store final processed data
+        setProcessedData(finalData);
+        
+        // Update last updated timestamp after successful execution
+        await fetchLastUpdatedAt();
+      } else {
+        // For month == false queries or no monthRange, use original single execution
+        // Convert Date objects to serializable format for Comlink (Date objects get corrupted in transfer)
+        const monthRangeToPass = monthRange && Array.isArray(monthRange) && monthRange.length === 2 
+          ? [
+              { year: monthRange[0].getFullYear(), month: monthRange[0].getMonth(), day: monthRange[0].getDate() },
+              { year: monthRange[1].getFullYear(), month: monthRange[1].getMonth(), day: monthRange[1].getDate() }
+            ]
+          : undefined;
+        
+        // Execute index queries for monthRange BEFORE executing the pipeline
+        if (monthRangeToPass && queryDocToUse.index && queryDocToUse.index.trim() && queryDocToUse.clientSave === true) {
           try {
-            if (workerRef.current) {
-              // Use worker for caching
-              await workerRef.current.executePipeline(
-                queryId,
-                queryDocToUse,
-                finalEndpointUrl,
-                finalAuthToken,
-                monthRange && Array.isArray(monthRange) && monthRange.length === 2 ? monthRange : undefined,
-                mergedVariables,
-                allQueryDocsRef.current
-              );
-            }
-          } catch (error) {
-            console.error(`Error caching API result for ${queryId}:`, error);
+            await workerRef.current.executeIndexQueryForMonthRange(
+              queryId,
+              queryDocToUse,
+              finalEndpointUrl,
+              finalAuthToken,
+              monthRangeToPass
+            );
+          } catch (indexError) {
+            // Log error but don't block pipeline execution
+            console.error(`Error executing index queries for monthRange for ${queryId}:`, indexError);
           }
-        };
-
-        if (typeof requestIdleCallback !== 'undefined') {
-          requestIdleCallback(cacheApiResultAsync, { timeout: 5000 });
-        } else {
-          setTimeout(cacheApiResultAsync, 0);
         }
+        
+        const finalData = await workerRef.current.executePipeline(
+          queryId,
+          queryDocToUse,
+          finalEndpointUrl,
+          finalAuthToken,
+          monthRangeToPass,
+          mergedVariables,
+          allQueryDocsRef.current
+        );
+
+        // Store final processed data
+        setProcessedData(finalData);
       }
 
-      // Store final processed data
-      setProcessedData(finalData);
+      // Update last updated timestamp after successful execution
+      await fetchLastUpdatedAt();
 
       if (onDataChange) {
         onDataChange({
@@ -1027,9 +1258,16 @@ export default function DataProvider({
       }
       setProcessedData(null);
     } finally {
-      // Only clear if this is still the current executing query
+      // Remove from executing queries set
+      const executionKey = createExecutionKey(queryId, mergedVariables, monthRange);
+      executingQueriesRef.current.delete(executionKey);
+      
+      // Only clear executingQueryIdRef if no other executions are in flight for this queryId
       if (executingQueryIdRef.current === queryId) {
-        executingQueryIdRef.current = null;
+        const hasOtherExecutions = Array.from(executingQueriesRef.current).some(key => key.startsWith(`${queryId}__`));
+        if (!hasOtherExecutions) {
+          executingQueryIdRef.current = null;
+        }
       }
       setExecutingQuery(false);
     }
@@ -1243,16 +1481,17 @@ export default function DataProvider({
   // Render selectors JSX
   const selectorsJSX = (
     <>
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-between w-full gap-3">
-          <div className="flex items-end gap-3">
+      <div className="flex flex-col gap-3 w-full min-w-0">
+        <div className="flex items-center justify-between w-full gap-3 flex-wrap">
+          <div className="flex items-end gap-3 flex-wrap min-w-0 flex-1">
             {/* Month Range Picker - Only show when using saved query that supports month filtering */}
             {dataSource && hasMonthSupport && (
-              <div className="w-64">
+              <div className="w-full sm:w-64 min-w-0 flex-shrink-0">
                 <label className="block text-xs font-medium text-gray-700 mb-1">
                   Month Range
                 </label>
                 <MonthRangePicker
+                  key={dataSource} // Force re-render when data source changes
                   value={monthRange}
                   onChange={(dates) => {
                     if (dates && dates[0] && dates[1]) {
@@ -1276,7 +1515,7 @@ export default function DataProvider({
 
             {/* Sales Team Multi-Selector */}
             {salesTeamColumn && availableSalesTeamValues.length > 0 && (
-              <div className="w-48">
+              <div className="w-full sm:w-48 min-w-0 flex-shrink-0">
                 <label className="block text-xs font-medium text-gray-700 mb-1">
                   Sales Team
                 </label>
@@ -1308,7 +1547,7 @@ export default function DataProvider({
 
             {/* HQ Multi-Selector */}
             {hqColumn && availableHqValues.length > 0 && (
-              <div className="w-48">
+              <div className="w-full sm:w-48 min-w-0 flex-shrink-0">
                 <label className="block text-xs font-medium text-gray-700 mb-1">
                   HQ
                 </label>

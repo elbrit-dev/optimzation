@@ -97,7 +97,6 @@ export default function MonthRangePicker({
       // Auto-apply when end is selected
       const start = new Date(finalStart.year, finalStart.month, 1);
       const end = new Date(finalEnd.year, finalEnd.month + 1, 0); // Last day of end month
-      
       if (onChange) {
         onChange([start, end]);
       }

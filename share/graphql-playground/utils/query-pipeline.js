@@ -1,5 +1,6 @@
 import * as jmespath from "jmespath";
 import jsonata from "jsonata";
+import jmespath_plus from '@metrichor/jmespath-plus'
 import _ from "lodash";
 import { parse as parseJsonc, stripComments } from "jsonc-parser";
 import { firestoreService } from "../services/firestoreService";
@@ -40,7 +41,7 @@ function hashData(data) {
 export function createExecutionContext(options = {}) {
     const { maxDepth = 10 } = options;
     return {
-        inFlight: new Set(), // Prevents concurrent execution: queryId -> true
+        inFlight: new Map(), // Prevents concurrent execution: queryId -> { endpointUrl }
         dependencyStack: [], // Detects circular dependencies: [queryId, ...]
         maxDepth,
     };
@@ -245,6 +246,7 @@ export function applyMonthRangeToVariables(monthRange) {
     const lastDay = new Date(endYear, endMonthIndex + 1, 0).getDate();
     const endDate = `${endYear}-${String(endMonthIndex + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
 
+
     return { startDate, endDate };
 }
 
@@ -309,6 +311,7 @@ export async function executeTransformer(transformerCode, rawData, queryFunction
     const fn = new Function(
         "jmespath",
         "jsonata",
+        "jmespath_plus",
         "_",
         "data",
         "query",
@@ -327,7 +330,7 @@ export async function executeTransformer(transformerCode, rawData, queryFunction
     const transformStartTime = performance.now();
     let evalResult;
     try {
-        evalResult = await fn(jmespath, jsonata, _, dataCopy, queryFunction, elbrit);
+        evalResult = await fn(jmespath, jsonata, jmespath_plus, _, dataCopy, queryFunction, elbrit);
     } catch (error) {
         console.error("Transformer execution failed:", error);
         cleanup();
@@ -432,20 +435,23 @@ export async function executePipeline(queryId, context, options = {}) {
 
     // Guardrail: Check if already in flight (prevent concurrent execution)
     if (context.inFlight.has(queryId)) {
-        console.error(`Query already in flight: ${queryId}`);
+        const inFlightInfo = context.inFlight.get(queryId);
+        console.error(`Query already in flight: ${queryId}`, inFlightInfo ? `(endpoint: ${inFlightInfo.endpointUrl})` : '');
         throw new Error(
             `Query "${queryId}" is already being executed. ` +
                 `This may indicate a concurrent execution issue or circular dependency.`,
         );
     }
 
-    // Mark as in-flight
-    context.inFlight.add(queryId);
-    context.dependencyStack.push(queryId);
+    // Get endpoint and token from urlKey if available, otherwise use provided options
+    // We need to determine the endpoint before marking as in-flight
+    let queryDoc = null;
+    let finalEndpointUrl = endpointUrl;
+    let finalAuthToken = authToken;
 
     try {
         // Load query document from Firestore
-        const queryDoc = await firestoreService.loadQuery(queryId);
+        queryDoc = await firestoreService.loadQuery(queryId);
 
         if (!queryDoc) {
             console.error(`Query not found: ${queryId}`);
@@ -453,9 +459,6 @@ export async function executePipeline(queryId, context, options = {}) {
         }
 
         // Get endpoint and token from urlKey if available, otherwise use provided options
-        let finalEndpointUrl = endpointUrl;
-        let finalAuthToken = authToken;
-
         if (queryDoc.urlKey) {
             const urlKeyConfig = getEndpointConfigFromUrlKey(queryDoc.urlKey);
             if (urlKeyConfig.endpointUrl) {
@@ -474,19 +477,21 @@ export async function executePipeline(queryId, context, options = {}) {
             }
         }
 
+        // Mark as in-flight with endpoint URL
+        context.inFlight.set(queryId, { endpointUrl: finalEndpointUrl });
+        context.dependencyStack.push(queryId);
+
         const { transformerCode, body, variables } = queryDoc;
         const hasTransformer = transformerCode && transformerCode.trim();
 
-        // Prepare variable overrides for month range if needed
-        let variableOverrides = {};
+        // Merge variable overrides in priority order:
+        // 1. Base variables from queryDoc (parsed in executeGraphQLQuery)
+        // 2. External variable overrides (user-provided, can override base)
+        // 3. Month range derived startDate/endDate (takes priority over user overrides)
+        let variableOverrides = { ...externalOverrides };
         if (monthRange) {
             const monthOverrides = applyMonthRangeToVariables(monthRange);
-            variableOverrides = { ...monthOverrides };
-        }
-
-        // Merge external variable overrides (from Variables section)
-        if (Object.keys(externalOverrides).length > 0) {
-            variableOverrides = { ...variableOverrides, ...externalOverrides };
+            variableOverrides = { ...variableOverrides, ...monthOverrides };
         }
 
         // Execute GraphQL query
@@ -531,7 +536,9 @@ export async function executePipeline(queryId, context, options = {}) {
         throw error;
     } finally {
         // Remove from in-flight and dependency stack
-        context.inFlight.delete(queryId);
+        if (context.inFlight.has(queryId)) {
+            context.inFlight.delete(queryId);
+        }
         context.dependencyStack.pop();
     }
 }
