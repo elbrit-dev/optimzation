@@ -36,6 +36,8 @@ const TableDataProvider = (props) => {
     salesTeamValues = [],
     hqColumn = null,
     hqValues = [],
+    className,
+    style,
     ...otherProps // Collect all other individual props to use as variables
   } = props;
 
@@ -50,6 +52,7 @@ const TableDataProvider = (props) => {
   const [availableQueryKeys, setAvailableQueryKeys] = useState([]);
   const [selectedQueryKey, setSelectedQueryKey] = useState(queryKey);
   const [loadingData, setLoadingData] = useState(false);
+  const [variablesLoaded, setVariablesLoaded] = useState(false);
 
   // Stable callback wrappers to prevent infinite loops in the shared DataProvider
   const onTableDataChangeRef = useRef(onTableDataChange);
@@ -110,6 +113,7 @@ const TableDataProvider = (props) => {
       if (JSON.stringify(prev) === JSON.stringify(vars)) return prev;
       return vars;
     });
+    setVariablesLoaded(true);
     onVariablesChangeRef.current?.(vars);
   }, []);
 
@@ -166,17 +170,53 @@ const TableDataProvider = (props) => {
     onLoadingDataChangeRef.current?.(loading);
   }, []);
 
-  // Merge individual props with the variableOverrides object
-  // Individual props (like 'First' or 'Operator') take precedence
-  const mergedVariables = useMemo(() => {
-    return {
+  // Stabilize merged variables to prevent infinite fetch loops
+  // We only pass variables as "overrides" if they actually differ from the base variables
+  // reported by the core DataProvider. This allows the core to use its cache-first
+  // logic for the initial load if the props match the query defaults.
+  const stableOverrides = useMemo(() => {
+    const combined = {
       ...otherProps,
       ...(variableOverrides || {})
     };
-  }, [JSON.stringify(variableOverrides)]); 
+    
+    // If variables haven't been loaded from the query doc yet, we don't pass any
+    // overrides to allow the core DataProvider to check its cache first.
+    if (!variablesLoaded) {
+      return {};
+    }
 
-  // Stabilize merged variables to prevent infinite fetch loops
-  const stableOverrides = useMemo(() => mergedVariables, [JSON.stringify(mergedVariables)]);
+    // Filter out values that match currentVariables to avoid redundant triggers
+    const delta = {};
+    let hasActualOverride = false;
+    
+    Object.keys(combined).forEach(key => {
+      // Skip startDate/endDate and standard React/Plasmic props
+      if (['startDate', 'endDate', 'className', 'style'].includes(key)) return;
+
+      const value = combined[key];
+      const defaultValue = currentVariables[key];
+      
+      // Explicitly defined variable props in Plasmic
+      const isExplicitVariable = ['First', 'Operator', 'Status', 'Customer'].includes(key);
+
+      if (currentVariables.hasOwnProperty(key)) {
+        if (JSON.stringify(value) !== JSON.stringify(defaultValue)) {
+          delta[key] = value;
+          hasActualOverride = true;
+        }
+      } else if (isExplicitVariable && value !== undefined && value !== null) {
+        delta[key] = value;
+        hasActualOverride = true;
+      }
+    });
+    
+    if (hasActualOverride) {
+      console.log('TableDataProvider: Detected variable overrides:', delta);
+    }
+    
+    return hasActualOverride ? delta : {};
+  }, [variablesLoaded, JSON.stringify(otherProps), JSON.stringify(variableOverrides), JSON.stringify(currentVariables)]);
 
   const consolidatedData = useMemo(() => ({
     tableData: currentTableData,
@@ -201,31 +241,8 @@ const TableDataProvider = (props) => {
     hqColumn, hqValues
   ]);
 
-  // Use state for the re-mount key and refs for change detection
-  const [instanceKey, setInstanceKey] = useState(`initial-${dataSource || 'offline'}-${queryKey || 'default'}`);
-  const lastPropsRef = useRef({ dataSource, queryKey });
-  const isInitialMount = useRef(true);
-
-  // Sync props to internal state and manage re-mount key only on genuine prop changes
-  useEffect(() => {
-    // Skip the initial mount to prevent automatic execution on load
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
-      return;
-    }
-
-    // Only proceed if dataSource or queryKey has actually changed from what we last handled
-    if (dataSource !== lastPropsRef.current.dataSource || queryKey !== lastPropsRef.current.queryKey) {
-      // Update the key to force a re-mount of the DataProvider only when these specific props change
-      // We removed the global localStorage sync to prevent interference between different pages/instances
-      setInstanceKey(`${dataSource || 'offline'}-${queryKey || 'default'}-${Date.now()}`);
-      lastPropsRef.current = { dataSource, queryKey };
-    }
-  }, [dataSource, queryKey]);
-
   return (
     <DataProvider
-      key={instanceKey}
       offlineData={data}
       dataSource={dataSource}
       selectedQueryKey={queryKey}
