@@ -1,13 +1,16 @@
-import React, { createContext, useContext } from 'react';
+'use client';
+
+import { createContext, useContext } from 'react';
 
 const TableContext = createContext(null);
 
 export const TableProvider = ({ children, value }) => {
-  return <TableContext.Provider value={value}>{children}</TableContext.Provider>;
+  return (
+    <TableContext.Provider value={value}>
+      {children}
+    </TableContext.Provider>
+  );
 };
 
-export const useTableContext = () => {
-  const context = useContext(TableContext);
-  return context;
-};
+export const useTableContext = () => useContext(TableContext);
 

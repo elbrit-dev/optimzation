@@ -6,6 +6,7 @@ import data from '../resource/data';
 import { DataProvider as PlasmicDataProvider } from "@plasmicapp/loader-nextjs";
 import { Dropdown } from 'primereact/dropdown';
 import { startCase } from 'lodash';
+import { TableProvider } from './TableContext';
 
 const TableDataProvider = (props) => {
   const {
@@ -311,10 +312,12 @@ const TableDataProvider = (props) => {
       ) : null}
     >
       <PlasmicDataProvider name="data" data={consolidatedData}>
-        {children}
-        <div style={{ height: 'auto' }}>
-          {dataSlot}
-        </div>
+        <TableProvider value={consolidatedData}>
+          {children}
+          <div style={{ height: 'auto' }}>
+            {dataSlot}
+          </div>
+        </TableProvider>
       </PlasmicDataProvider>
     </DataProvider>
   );

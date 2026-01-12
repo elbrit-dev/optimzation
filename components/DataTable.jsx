@@ -11,6 +11,7 @@ import data from '../resource/data';
 
 import { uniq, flatMap, keys, isEmpty, startCase, filter as lodashFilter, get, isNil, debounce } from 'lodash';
 import { saveSettingsForDataSource, loadSettingsForDataSource } from '../share/datatable/utils/settingsService';
+import { useTableContext } from './TableContext';
 
 // Custom hook for localStorage with proper JSON serialization for booleans
 function useLocalStorageBoolean(key, defaultValue) {
@@ -213,11 +214,11 @@ function useLocalStorageNumber(key, defaultValue) {
 }
 
 const DataTableWrapper = (props) => {
+  const context = useTableContext();
+  
   const {
     className,
     showControls = true,
-    dataSource: propDataSource,
-    queryKey: propQueryKey,
     enableSort: propEnableSort,
     enableFilter: propEnableFilter,
     enableSummation: propEnableSummation,
@@ -233,18 +234,12 @@ const DataTableWrapper = (props) => {
     nonEditableColumns: propNonEditableColumns,
     enableDivideBy1Lakh: propEnableDivideBy1Lakh,
     percentageColumns: propPercentageColumns,
-    isAdminMode: propIsAdminMode,
-    salesTeamColumn: propSalesTeamColumn,
-    salesTeamValues: propSalesTeamValues,
-    hqColumn: propHqColumn,
-    hqValues: propHqValues,
     enableFullscreenDialog: propEnableFullscreenDialog,
     scrollable: propScrollable,
     scrollHeight: propScrollHeight,
     drawerTabs: propDrawerTabs,
     controlsPanelSize: propControlsPanelSize = 20,
     onSave,
-    queryVariables: propQueryVariables,
     onVariableOverridesChange,
     // Sticky header/footer props
     stickyHeaderOffset: propStickyHeaderOffset = 0,
@@ -253,6 +248,20 @@ const DataTableWrapper = (props) => {
     appFooterOffset: propAppFooterOffset,
     tableName: propTableName = 'main',
   } = props;
+
+  // Use props if provided, otherwise fallback to context from TableDataProvider
+  // We check for emptiness/defaults to allow "zero-config" inheritance in Plasmic
+  const propData = (props.data && Array.isArray(props.data) && props.data.length > 0) ? props.data : context?.tableData;
+  const propRawData = (props.rawTableData && Array.isArray(props.rawTableData) && props.rawTableData.length > 0) ? props.rawTableData : context?.rawTableData;
+  const propDataSource = (props.dataSource && props.dataSource !== 'offline') ? props.dataSource : context?.dataSource;
+  const propQueryVariables = (props.queryVariables && Object.keys(props.queryVariables).length > 0) ? props.queryVariables : context?.queryVariables;
+  
+  // For boolean/string auth props, we only fallback if explicitly undefined
+  const propIsAdminMode = props.isAdminMode !== undefined ? props.isAdminMode : context?.isAdminMode;
+  const propSalesTeamColumn = props.salesTeamColumn !== undefined ? props.salesTeamColumn : context?.salesTeamColumn;
+  const propSalesTeamValues = (props.salesTeamValues && props.salesTeamValues.length > 0) ? props.salesTeamValues : context?.salesTeamValues;
+  const propHqColumn = props.hqColumn !== undefined ? props.hqColumn : context?.hqColumn;
+  const propHqValues = (props.hqValues && props.hqValues.length > 0) ? props.hqValues : context?.hqValues;
 
   // Sync all settings props to localStorage in a useEffect to avoid render-phase side effects
   // We exclude dataSource and queryKey here as they are managed by TableDataProvider
@@ -302,27 +311,27 @@ const DataTableWrapper = (props) => {
 
   const toast = useRef(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [tableData, setTableData] = useState(props.data || data);
+  const [tableData, setTableData] = useState(propData || data);
 
-  // Sync tableData with props.data using stringified check to prevent loops
-  const stringifiedData = JSON.stringify(props.data);
+  // Sync tableData with propData using stringified check to prevent loops
+  const stringifiedData = JSON.stringify(propData);
   useEffect(() => {
-    if (props.data !== undefined) {
-      setTableData(props.data);
-      if (props.data && Array.isArray(props.data)) {
-        originalTableDataRef.current = props.data;
+    if (propData !== undefined) {
+      setTableData(propData);
+      if (propData && Array.isArray(propData)) {
+        originalTableDataRef.current = propData;
       }
     }
   }, [stringifiedData]);
 
-  const [currentDataSource, setCurrentDataSource] = useState(props.dataSource || null);
+  const [currentDataSource, setCurrentDataSource] = useState(propDataSource || null);
 
-  // Sync currentDataSource with props.dataSource
+  // Sync currentDataSource with propDataSource
   useEffect(() => {
-    if (props.dataSource !== undefined) {
-      setCurrentDataSource(props.dataSource);
+    if (propDataSource !== undefined) {
+      setCurrentDataSource(propDataSource);
     }
-  }, [props.dataSource]);
+  }, [propDataSource]);
 
   const [enableSortState, setEnableSort] = useLocalStorageBoolean('datatable-enableSort', true);
   const [enableFilterState, setEnableFilter] = useLocalStorageBoolean('datatable-enableFilter', true);
@@ -347,7 +356,7 @@ const DataTableWrapper = (props) => {
   
   const [queryVariables, setQueryVariables] = useState(propQueryVariables || {});
 
-  // Sync queryVariables with props.queryVariables using stringified check
+  // Sync queryVariables with propQueryVariables using stringified check
   const stringifiedVariables = JSON.stringify(propQueryVariables);
   useEffect(() => {
     if (propQueryVariables !== undefined) {
@@ -691,7 +700,7 @@ const DataTableWrapper = (props) => {
                 salesTeamValues={salesTeamValues}
                 hqColumn={hqColumn}
                 hqValues={hqValues}
-                tableData={tableData}
+                tableData={propRawData || tableData}
                 onAdminModeChange={setIsAdminMode}
                 onSalesTeamColumnChange={setSalesTeamColumnRaw}
                 onSalesTeamValuesChange={setSalesTeamValuesRaw}

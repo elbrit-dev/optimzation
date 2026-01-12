@@ -211,12 +211,10 @@ PLASMIC.registerComponent(DataTable, {
     data: {
       type: "object",
       description: "The array of data to display in the table",
-      defaultValue: [],
     },
     queryVariables: {
       type: "object",
       description: "Base variables for the query (provided by DataProvider)",
-      defaultValue: {},
     },
     onVariableOverridesChange: {
       type: "eventHandler",
@@ -230,7 +228,6 @@ PLASMIC.registerComponent(DataTable, {
     dataSource: {
       type: "string",
       description: "The data source ID or 'offline' for local data",
-      defaultValue: "offline",
     },
     queryKey: {
       type: "string",
@@ -360,10 +357,7 @@ PLASMIC.registerComponent(DataTable, {
     drawerTabs: {
       type: "object",
       description: "Array of tab configurations for the detail drawer (name, outerGroup, innerGroup)",
-      defaultValue: [
-        { id: "customer", name: "Customer", outerGroup: "customer_name", innerGroup: "item_name" },
-        { id: "invoice", name: "Invoice", outerGroup: "invoice", innerGroup: "item_name" },
-      ],
+      defaultValue: [],
     },
     controlsPanelSize: {
       type: "number",
@@ -566,6 +560,10 @@ PLASMIC.registerComponent(TableDataProvider, {
     onDataChange: {
       type: "eventHandler",
       argTypes: [{ name: "notification", type: "object" }],
+    },
+    onError: {
+      type: "eventHandler",
+      argTypes: [{ name: "error", type: "object" }],
     },
     onTableDataChange: {
       type: "eventHandler",
