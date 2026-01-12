@@ -189,6 +189,31 @@ const a = {
   localforage: localforage,
   
   _: _,
+  // ✅ Division function: divides value by divisor, multiplies by 100, formats to decimal places
+  // Usage: $ctx.fn.percentage(value, divisor, decimalPlaces)
+  // Example: $ctx.fn.percentage($props.incentive, $props.target, 1)
+  percentage: (value, divisor, decimalPlaces = 1) => {
+    if (value && divisor) {
+      const result = (value / divisor) * 100;
+      // Round to specified decimal places and return as number
+      const multiplier = Math.pow(10, decimalPlaces);
+      return Math.round(result * multiplier) / multiplier;
+    }
+    return 0;
+  },
+
+  // ✅ Normal division function: divides value by divisor, formats to decimal places (no 100 multiplication)
+  // Usage: $ctx.fn.divide(value, divisor, decimalPlaces)
+  // Example: $ctx.fn.divide(10, 3, 2) returns 3.33
+  divide: (value, divisor, decimalPlaces = 1) => {
+    if (value && divisor) {
+      const result = value / divisor;
+      // Round to specified decimal places and return as number
+      const multiplier = Math.pow(10, decimalPlaces);
+      return Math.round(result * multiplier) / multiplier;
+    }
+    return 0;
+  }
 };
 
 if (typeof window !== 'undefined') {
