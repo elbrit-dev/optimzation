@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useCallback, useMemo, useState } from 'react'
 import DataProvider from '../share/datatable/components/DataProvider';
 import data from '../resource/data';
 import { DataProvider as PlasmicDataProvider } from "@plasmicapp/loader-nextjs";
+import { TableProvider } from './TableContext';
 
 const TableDataProvider = (props) => {
   const {
@@ -209,18 +210,40 @@ const TableDataProvider = (props) => {
         </div>
       ) : null}
     >
-      <PlasmicDataProvider name="tableData" data={currentTableData}>
-        <PlasmicDataProvider name="rawTableData" data={currentRawData}>
-          <PlasmicDataProvider name="queryVariables" data={currentVariables}>
-            <PlasmicDataProvider name="savedQueries" data={savedQueries}>
-              <PlasmicDataProvider name="loadingQueries" data={loadingQueries}>
-                <PlasmicDataProvider name="executingQuery" data={executingQuery}>
-                  <PlasmicDataProvider name="availableQueryKeys" data={availableQueryKeys}>
-                    <PlasmicDataProvider name="selectedQueryKey" data={selectedQueryKey}>
-                      {children}
-                      <div style={{ height: 'auto' }}>
-                        {dataSlot}
-                      </div>
+      <TableProvider value={{
+        dataSource,
+        queryKey,
+        isAdminMode,
+        salesTeamColumn,
+        salesTeamValues,
+        hqColumn,
+        hqValues
+      }}>
+        <PlasmicDataProvider name="tableData" data={currentTableData}>
+          <PlasmicDataProvider name="rawTableData" data={currentRawData}>
+            <PlasmicDataProvider name="queryVariables" data={currentVariables}>
+              <PlasmicDataProvider name="savedQueries" data={savedQueries}>
+                <PlasmicDataProvider name="loadingQueries" data={loadingQueries}>
+                  <PlasmicDataProvider name="executingQuery" data={executingQuery}>
+                    <PlasmicDataProvider name="availableQueryKeys" data={availableQueryKeys}>
+                      <PlasmicDataProvider name="selectedQueryKey" data={selectedQueryKey}>
+                        <PlasmicDataProvider name="dataSource" data={dataSource}>
+                          <PlasmicDataProvider name="isAdminMode" data={isAdminMode}>
+                            <PlasmicDataProvider name="salesTeamColumn" data={salesTeamColumn}>
+                              <PlasmicDataProvider name="salesTeamValues" data={salesTeamValues}>
+                                <PlasmicDataProvider name="hqColumn" data={hqColumn}>
+                                  <PlasmicDataProvider name="hqValues" data={hqValues}>
+                                    {children}
+                                    <div style={{ height: 'auto' }}>
+                                      {dataSlot}
+                                    </div>
+                                  </PlasmicDataProvider>
+                                </PlasmicDataProvider>
+                              </PlasmicDataProvider>
+                            </PlasmicDataProvider>
+                          </PlasmicDataProvider>
+                        </PlasmicDataProvider>
+                      </PlasmicDataProvider>
                     </PlasmicDataProvider>
                   </PlasmicDataProvider>
                 </PlasmicDataProvider>
@@ -228,7 +251,7 @@ const TableDataProvider = (props) => {
             </PlasmicDataProvider>
           </PlasmicDataProvider>
         </PlasmicDataProvider>
-      </PlasmicDataProvider>
+      </TableProvider>
     </DataProvider>
   );
 };
