@@ -3,6 +3,7 @@ import 'primeicons/primeicons.css';
 import '../firebase'; // Initialize Firebase
 import { DataProvider } from '@plasmicapp/host';
 import { useEffect, useState, useCallback } from 'react';
+import Head from 'next/head';
 import localforage from 'localforage';
 import _ from 'lodash';
 import "primereact/resources/themes/lara-light-cyan/theme.css";
@@ -285,6 +286,20 @@ function MyApp({ Component, pageProps }) {
   };
 
   useEffect(() => {
+    // Service Worker Registration
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+      window.addEventListener('load', function() {
+        navigator.serviceWorker.register('/sw.js').then(
+          function(registration) {
+            console.log('Service Worker registration successful with scope: ', registration.scope);
+          },
+          function(err) {
+            console.log('Service Worker registration failed: ', err);
+          }
+        );
+      });
+    }
+
     const loadingScreen = document.getElementById('app-loading-screen');
     const loadingGif = document.querySelector('.loading-gif');
     
@@ -318,6 +333,21 @@ function MyApp({ Component, pageProps }) {
   return (
     <DataProvider name="fn" data={fnWithState}>
       <DataProvider name="state" data={globalState}>
+        <Head>
+          <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0" />
+          <meta name="theme-color" content="#ffffff" />
+          <meta name="apple-mobile-web-app-capable" content="yes" />
+          <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+          <meta name="apple-mobile-web-app-title" content="Elbrit One" />
+          <meta name="format-detection" content="telephone=no" />
+          <meta name="mobile-web-app-capable" content="yes" />
+          <meta name="msapplication-TileColor" content="#ffffff" />
+          <meta name="msapplication-tap-highlight" content="no" />
+          
+          <link rel="manifest" href="/manifest.webmanifest" />
+          <link rel="apple-touch-icon" href="/logo.svg" />
+          <link rel="shortcut icon" href="/favicon.ico" />
+        </Head>
         <Component {...pageProps} />
       </DataProvider>
     </DataProvider>
