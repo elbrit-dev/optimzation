@@ -625,6 +625,10 @@ PLASMIC.registerComponent(TableDataProvider, {
       type: "eventHandler",
       argTypes: [{ name: "loading", type: "boolean" }],
     },
+    onLastUpdatedAtChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "timestamp", type: "string" }],
+    },
     dataSlot: {
       type: "slot",
       description: "Slot to add custom UI components that can access the table data",
