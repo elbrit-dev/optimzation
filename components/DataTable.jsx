@@ -242,7 +242,7 @@ const DataTableWrapper = (props) => {
     onSave,
     onVariableOverridesChange,
     // Sticky header/footer props
-    stickyHeaderOffset: propStickyHeaderOffset = 0,
+    stickyHeaderOffset: propStickyHeaderOffset,
     stickyHeaderZIndex: propStickyHeaderZIndex = 1000,
     appHeaderOffset: propAppHeaderOffset,
     appFooterOffset: propAppFooterOffset,
@@ -386,6 +386,7 @@ const DataTableWrapper = (props) => {
   const [appHeaderZIndex, setAppHeaderZIndex] = useState(1000);
   const [sidebarHeaderOffset, setSidebarHeaderOffset] = useState(0);
   const [sidebarZIndex, setSidebarZIndex] = useState(1000);
+  const [vh10Offset, setVh10Offset] = useState(() => (typeof window !== 'undefined' ? window.innerHeight * 0.1 : 0));
 
   // Derived values that prefer props over localStorage state
   const enableSort = propEnableSort !== undefined ? propEnableSort : enableSortState;
@@ -409,7 +410,11 @@ const DataTableWrapper = (props) => {
   const hqColumn = propHqColumn !== undefined ? propHqColumn : hqColumnRawState;
   const hqValues = propHqValues !== undefined ? propHqValues : hqValuesRawState;
   const drawerTabs = (propDrawerTabs !== undefined && propDrawerTabs !== null && propDrawerTabs.length > 0) ? propDrawerTabs : drawerTabsRawState;
-  
+
+  const stickyHeaderOffset = propStickyHeaderOffset !== undefined ? propStickyHeaderOffset : 0;
+  const appHeaderOffsetValue = propAppHeaderOffset !== undefined ? propAppHeaderOffset : vh10Offset;
+  const appFooterOffsetValue = propAppFooterOffset !== undefined ? propAppFooterOffset : vh10Offset;
+
   const originalTableDataRef = useRef(null);
 
   // Calculate app header offset
@@ -422,6 +427,7 @@ const DataTableWrapper = (props) => {
         const computedStyle = window.getComputedStyle(headerElement);
         setAppHeaderZIndex(parseInt(computedStyle.zIndex) || 1000);
       }
+      setVh10Offset(window.innerHeight * 0.1);
     };
 
     calculateAppHeaderHeight();
@@ -642,9 +648,9 @@ const DataTableWrapper = (props) => {
                     onCellEditComplete={handleCellEditComplete}
                     onOuterGroupClick={handleOuterGroupClick}
                     onInnerGroupClick={handleInnerGroupClick}
-                    appHeaderOffset={propAppHeaderOffset !== undefined ? propAppHeaderOffset : appHeaderOffset}
-                    appFooterOffset={propAppFooterOffset}
-                    stickyHeaderOffset={propStickyHeaderOffset}
+                    appHeaderOffset={appHeaderOffsetValue}
+                    appFooterOffset={appFooterOffsetValue}
+                    stickyHeaderOffset={stickyHeaderOffset}
                     stickyHeaderZIndex={propStickyHeaderZIndex}
                     tableName={propTableName}
                   />
@@ -739,9 +745,9 @@ const DataTableWrapper = (props) => {
                 onCellEditComplete={handleCellEditComplete}
                 onOuterGroupClick={handleOuterGroupClick}
                 onInnerGroupClick={handleInnerGroupClick}
-                appHeaderOffset={propAppHeaderOffset !== undefined ? propAppHeaderOffset : appHeaderOffset}
-                appFooterOffset={propAppFooterOffset}
-                stickyHeaderOffset={propStickyHeaderOffset}
+                appHeaderOffset={appHeaderOffsetValue}
+                appFooterOffset={appFooterOffsetValue}
+                stickyHeaderOffset={stickyHeaderOffset}
                 stickyHeaderZIndex={propStickyHeaderZIndex}
                 tableName={propTableName}
               />
