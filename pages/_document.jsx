@@ -49,6 +49,49 @@ class MyDocument extends Document {
                   font-display: swap;
                   font-weight: 100 900;
                 }
+                /* Site-wide loading screen */
+                #app-loading-screen {
+                  position: fixed;
+                  top: 0;
+                  left: 0;
+                  right: 0;
+                  bottom: 0;
+                  width: 100%;
+                  height: 100%;
+                  height: 100dvh;
+                  background-color: #ffffff;
+                  display: flex;
+                  justify-content: center;
+                  align-items: center;
+                  z-index: 99999;
+                  transition: opacity 0.5s ease, visibility 0.5s ease;
+                  margin: 0;
+                  padding: 0;
+                }
+                #app-loading-screen.loading-hidden {
+                  opacity: 0;
+                  visibility: hidden;
+                  pointer-events: none;
+                }
+                .loading-container {
+                  display: flex;
+                  flex-direction: column;
+                  align-items: center;
+                  justify-content: center;
+                  width: 100%;
+                  height: 100%;
+                }
+                .loading-gif {
+                  width: 250px;
+                  max-width: 80%;
+                  height: auto;
+                }
+                /* Prevent scrolling while loading */
+                body:not(.loaded) {
+                  overflow: hidden;
+                  height: 100vh;
+                  height: 100dvh;
+                }
               `,
             }}
           />
@@ -93,6 +136,7 @@ class MyDocument extends Document {
                   const loader = document.getElementById('app-loading-screen');
                   if (loader) {
                     loader.classList.add('loading-hidden');
+                    document.body.classList.add('loaded');
                     // Completely remove from DOM after transition
                     setTimeout(() => {
                       loader.style.display = 'none';

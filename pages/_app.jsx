@@ -321,7 +321,8 @@ function MyApp({ Component, pageProps }) {
       
       function checkAndHideLoader() {
         if (animationCompleted && appReady) {
-          loadingScreen.classList.add('fade-out');
+          loadingScreen.classList.add('loading-hidden');
+          document.body.classList.add('loaded');
           setTimeout(() => {
             loadingScreen.remove();
           }, 500);
