@@ -1267,3 +1267,35 @@ body {
   width: 250px;
   height: auto;
 }
+
+/* Site-wide loading screen */
+#app-loading-screen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: #ffffff;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+    transition: opacity 0.5s ease, visibility 0.5s ease;
+  }
+  
+  #app-loading-screen.loading-hidden {
+    opacity: 0;
+    visibility: hidden;
+  }
+  
+  .loading-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  
+  .loading-gif {
+    width: auto;
+    height: auto;
+  }
+  
