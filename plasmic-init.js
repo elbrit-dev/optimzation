@@ -283,20 +283,6 @@ PLASMIC.registerComponent(DataTable, {
       type: "string",
       defaultValue: "600px",
     },
-    stickyHeaderOffset: {
-      type: "number",
-      defaultValue: 0,
-    },
-    stickyHeaderZIndex: {
-      type: "number",
-      defaultValue: 1000,
-    },
-    appHeaderOffset: {
-      type: "number",
-    },
-    appFooterOffset: {
-      type: "number",
-    },
     tableName: {
       type: "string",
       defaultValue: "table",
@@ -319,7 +305,7 @@ PLASMIC.registerComponent(DataTable, {
     enableDivideBy1Lakh: {
       type: "boolean",
       defaultValue: false,
-      description: "Toggle dividing numerical values by 1,00,000 (1 Lakh)",
+      description: "Toggle dividing numerical values by 1,0,00,000 (1 Lakh)",
     },
     percentageColumns: {
       type: "object",
