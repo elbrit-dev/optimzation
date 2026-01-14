@@ -144,7 +144,7 @@ export default function PlasmicNavigation(props) {
 
   return (
     <div 
-      className={`flex bg-gray-50 overflow-hidden relative min-h-screen ${className || ''}`}
+      className={`flex bg-gray-50 overflow-hidden relative h-full ${className || ''}`}
     >
       {/* The Navigation bars (Sidebar/Bottom Bar) */}
       {showNavigation && (
