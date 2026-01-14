@@ -213,6 +213,53 @@ function useLocalStorageNumber(key, defaultValue) {
   return [value, setStoredValue];
 }
 
+// Custom hook for localStorage with proper JSON serialization for objects
+function useLocalStorageObject(key, defaultValue) {
+  const [value, setValue] = useState(() => {
+    if (typeof window === 'undefined') return defaultValue;
+    try {
+      const item = window.localStorage.getItem(key);
+      if (item === null || item === undefined) return defaultValue;
+      const parsed = JSON.parse(item);
+      return (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) ? parsed : defaultValue;
+    } catch (error) {
+      try {
+        window.localStorage.removeItem(key);
+      } catch { }
+      return defaultValue;
+    }
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const item = window.localStorage.getItem(key);
+      if (item !== null && item !== undefined) {
+        const parsed = JSON.parse(item);
+        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+          setValue(parsed);
+        }
+      }
+    } catch (error) { }
+  }, [key]);
+
+  const setStoredValue = (newValue) => {
+    try {
+      if (typeof newValue === 'object' && newValue !== null && !Array.isArray(newValue)) {
+        const serialized = JSON.stringify(newValue);
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem(key, serialized);
+        }
+        setValue(newValue);
+      }
+    } catch (error) {
+      console.error(`Error setting localStorage key "${key}":`, error);
+    }
+  };
+
+  return [value, setStoredValue];
+}
+
 const DataTableWrapper = (props) => {
   const context = useTableContext();
   
@@ -235,6 +282,7 @@ const DataTableWrapper = (props) => {
     enableDivideBy1Lakh: propEnableDivideBy1Lakh,
     percentageColumns: propPercentageColumns,
     enableFullscreenDialog: propEnableFullscreenDialog,
+    columnTypes: propColumnTypes,
     scrollable: propScrollable = true,
     scrollHeight: propScrollHeight,
     drawerTabs: propDrawerTabs,
@@ -266,7 +314,7 @@ const DataTableWrapper = (props) => {
     propRedFields, propGreenFields, propOuterGroupField, propInnerGroupField,
     propNonEditableColumns,
     propEnableDivideBy1Lakh, propEnableFullscreenDialog, propPercentageColumns, propIsAdminMode, propSalesTeamColumn,
-    propSalesTeamValues, propHqColumn, propHqValues
+    propSalesTeamValues, propHqColumn, propHqValues, propColumnTypes
   });
 
   useEffect(() => {
@@ -303,6 +351,7 @@ const DataTableWrapper = (props) => {
     syncToStore('datatable-hqColumn', propHqColumn);
     syncToStore('datatable-hqValues', propHqValues);
     syncToStore('datatable-drawerTabs', propDrawerTabs);
+    syncToStore('datatable-columnTypes', propColumnTypes);
   }, [settingsString]);
 
   const toast = useRef(null);
@@ -350,6 +399,7 @@ const DataTableWrapper = (props) => {
   const [salesTeamValuesRawState, setSalesTeamValuesRaw] = useLocalStorageArray('datatable-salesTeamValues', []);
   const [hqColumnRawState, setHqColumnRaw] = useLocalStorageString('datatable-hqColumn', null);
   const [hqValuesRawState, setHqValuesRaw] = useLocalStorageArray('datatable-hqValues', []);
+  const [columnTypesRawState, setColumnTypesRaw] = useLocalStorageObject('datatable-columnTypes', {});
   
   const [queryVariables, setQueryVariables] = useState(propQueryVariables || {});
 
@@ -400,6 +450,7 @@ const DataTableWrapper = (props) => {
   const salesTeamValues = propSalesTeamValues !== undefined ? propSalesTeamValues : salesTeamValuesRawState;
   const hqColumn = propHqColumn !== undefined ? propHqColumn : hqColumnRawState;
   const hqValues = propHqValues !== undefined ? propHqValues : hqValuesRawState;
+  const columnTypes = propColumnTypes !== undefined ? propColumnTypes : (context?.columnTypes || columnTypesRawState || {});
   const drawerTabs = (propDrawerTabs !== undefined && propDrawerTabs !== null && propDrawerTabs.length > 0) ? propDrawerTabs : drawerTabsRawState;
 
   const originalTableDataRef = useRef(null);
@@ -592,6 +643,7 @@ const DataTableWrapper = (props) => {
                     onCellEditComplete={handleCellEditComplete}
                     onOuterGroupClick={handleOuterGroupClick}
                     onInnerGroupClick={handleInnerGroupClick}
+                    columnTypes={columnTypes}
                     tableName={propTableName}
                   />
                 )}
@@ -687,6 +739,7 @@ const DataTableWrapper = (props) => {
                 onCellEditComplete={handleCellEditComplete}
                 onOuterGroupClick={handleOuterGroupClick}
                 onInnerGroupClick={handleInnerGroupClick}
+                columnTypes={columnTypes}
                 tableName={propTableName}
               />
             )}
@@ -733,6 +786,7 @@ const DataTableWrapper = (props) => {
                       percentageColumns={percentageColumns}
                       enableDivideBy1Lakh={enableDivideBy1Lakh}
                       enableCellEdit={false}
+                      columnTypes={columnTypes}
                       tableName="sidebar"
                     />
                   ) : (

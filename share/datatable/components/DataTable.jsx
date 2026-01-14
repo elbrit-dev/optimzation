@@ -947,6 +947,7 @@ export default function DataTableComponent({
   percentageColumns = [], // Array of { columnName: string, targetField: string, valueField: string, beforeColumn?: string | null }
   enableFullscreenDialog = true, // Enable/disable fullscreen dialog feature
       tableName = 'table', // Table name for identification (e.g., 'main', 'dialog', 'sidebar')
+  columnTypes: columnTypesOverride = {}, // Object with column names as keys and type strings as values: {columnName: "date" | "number" | "boolean" | "string"}
 }) {
   const [first, setFirst] = useState(0);
   const [rows, setRows] = useState(defaultRows);
@@ -1025,9 +1026,33 @@ export default function DataTableComponent({
     return isNumber(value) || (!_isNaN(parseFloat(value)) && _isFinite(value));
   }, []);
 
+  // Helper function to convert string type to boolean flag format
+  const stringTypeToFlags = useCallback((typeString) => {
+    switch(typeString) {
+      case "boolean": 
+        return {isBoolean: true, isNumeric: false, isDate: false, isText: false, isBinaryBoolean: false};
+      case "date": 
+        return {isBoolean: false, isNumeric: false, isDate: true, isText: false};
+      case "number": 
+        return {isBoolean: false, isNumeric: true, isDate: false, isText: false};
+      case "string": 
+      default: 
+        return {isBoolean: false, isNumeric: false, isDate: false, isText: true};
+    }
+  }, []);
+
   const columnTypes = useMemo(() => {
-    const types = {};
-    if (isEmpty(safeData)) return types;
+    const detectedTypes = {}; // String-based types from detection
+    const diagnostics = {}; // Store diagnostics for each column
+    if (isEmpty(safeData)) {
+      // Merge with overrides and convert to boolean flags
+      const mergedTypes = { ...detectedTypes, ...columnTypesOverride };
+      const result = {};
+      Object.keys(mergedTypes).forEach(col => {
+        result[col] = stringTypeToFlags(mergedTypes[col]);
+      });
+      return result;
+    }
 
     const sampleData = take(safeData, 100);
 
@@ -1154,45 +1179,80 @@ export default function DataTableComponent({
         textReasons.push('MATCHED: none of the specific types matched');
       }
 
-      types[col] = {
-        isBoolean: isBooleanColumn,
-        isBinaryBoolean: isBinaryBooleanColumn,
-        isNumeric: isNumericColumn,
-        isDate: isDateColumn,
-        isText: isTextColumn,
-        // Diagnostic information
-        _diagnostics: {
-          totalCount,
-          nonNullCount,
-          sampleValues,
-          counts: {
-            boolean: booleanCount,
-            binary: binaryCount,
-            date: dateCount,
-            dateWithBinary: dateCountWithBinary,
-            numeric: numericCount,
-            numericWithBinary: numericCountWithBinary
-          },
-          percentages: {
-            boolean: nonNullCount > 0 ? (booleanCount / nonNullCount) * 100 : 0,
-            binary: nonNullCount > 0 ? (binaryCount / nonNullCount) * 100 : 0,
-            date: nonNullCount > 0 ? (dateCount / nonNullCount) * 100 : 0,
-            dateWithBinary: nonNullCount > 0 ? (dateCountWithBinary / nonNullCount) * 100 : 0,
-            numeric: nonNullCount > 0 ? (numericCount / nonNullCount) * 100 : 0,
-            numericWithBinary: nonNullCount > 0 ? (numericCountWithBinary / nonNullCount) * 100 : 0
-          },
-          reasons: {
-            boolean: booleanReasons,
-            date: dateReasons,
-            numeric: numericReasons,
-            text: textReasons
-          }
-        }
+      // Store detected type as string
+      let detectedTypeString = "string"; // default
+      if (isBooleanColumn) {
+        detectedTypeString = "boolean";
+      } else if (isDateColumn) {
+        detectedTypeString = "date";
+      } else if (isNumericColumn) {
+        detectedTypeString = "number";
+      }
+
+      detectedTypes[col] = detectedTypeString;
+
+      // Store diagnostics
+      diagnostics[col] = {
+        totalCount,
+        nonNullCount,
+        sampleValues,
+        counts: {
+          boolean: booleanCount,
+          binary: binaryCount,
+          date: dateCount,
+          dateWithBinary: dateCountWithBinary,
+          numeric: numericCount,
+          numericWithBinary: numericCountWithBinary
+        },
+        percentages: {
+          boolean: nonNullCount > 0 ? (booleanCount / nonNullCount) * 100 : 0,
+          binary: nonNullCount > 0 ? (binaryCount / nonNullCount) * 100 : 0,
+          date: nonNullCount > 0 ? (dateCount / nonNullCount) * 100 : 0,
+          dateWithBinary: nonNullCount > 0 ? (dateCountWithBinary / nonNullCount) * 100 : 0,
+          numeric: nonNullCount > 0 ? (numericCount / nonNullCount) * 100 : 0,
+          numericWithBinary: nonNullCount > 0 ? (numericCountWithBinary / nonNullCount) * 100 : 0
+        },
+        reasons: {
+          boolean: booleanReasons,
+          date: dateReasons,
+          numeric: numericReasons,
+          text: textReasons
+        },
+        isBinaryBoolean: isBinaryBooleanColumn
       };
     });
 
-    return types;
-  }, [safeData, columns, isNumericValue]);
+    // Merge detected types with prop overrides (overrides take precedence)
+    const mergedTypes = { ...detectedTypes, ...columnTypesOverride };
+
+    // Convert merged types to boolean flag format
+    const result = {};
+    Object.keys(mergedTypes).forEach(col => {
+      const typeString = mergedTypes[col];
+      const flags = stringTypeToFlags(typeString);
+      
+      // Preserve diagnostics and isBinaryBoolean for columns that weren't overridden
+      if (diagnostics[col] && !columnTypesOverride[col]) {
+        const colDiagnostics = diagnostics[col];
+        result[col] = {
+          ...flags,
+          isBinaryBoolean: colDiagnostics.isBinaryBoolean || false,
+          _diagnostics: {
+            totalCount: colDiagnostics.totalCount,
+            nonNullCount: colDiagnostics.nonNullCount,
+            sampleValues: colDiagnostics.sampleValues,
+            counts: colDiagnostics.counts,
+            percentages: colDiagnostics.percentages,
+            reasons: colDiagnostics.reasons
+          }
+        };
+      } else {
+        result[col] = flags;
+      }
+    });
+
+    return result;
+  }, [safeData, columns, isNumericValue, columnTypesOverride, stringTypeToFlags]);
 
   // Helper function to get percentage value for a percentage column
   const getPercentageColumnValue = useCallback((rowData, columnName) => {

@@ -41,6 +41,7 @@ const TableDataProvider = (props) => {
     salesTeamValues = [],
     hqColumn = null,
     hqValues = [],
+    columnTypes = { is_internal_customer: "number" },
     className,
     style,
     ...otherProps // Collect all other individual props to use as variables
@@ -369,12 +370,13 @@ const TableDataProvider = (props) => {
     salesTeamColumn,
     salesTeamValues,
     hqColumn,
-    hqValues
+    hqValues,
+    columnTypes
   }), [
     currentTableData, currentRawData, currentVariables, savedQueries,
     loadingQueries, executingQuery, availableQueryKeys, selectedQueryKey,
     loadingData, lastUpdatedAt, dataSource, isAdminMode, salesTeamColumn, salesTeamValues,
-    hqColumn, hqValues
+    hqColumn, hqValues, columnTypes
   ]);
 
   return (
@@ -401,6 +403,7 @@ const TableDataProvider = (props) => {
       salesTeamValues={salesTeamValues}
       hqColumn={hqColumn}
       hqValues={hqValues}
+      columnTypes={columnTypes}
       hideDataSourceAndQueryKey={hideDataSourceAndQueryKey !== undefined ? hideDataSourceAndQueryKey : !showSelectors}
       renderHeaderControls={(selectorsJSX) => showSelectors ? (
         <div className="px-4 py-3 border-b border-gray-200 bg-white">
