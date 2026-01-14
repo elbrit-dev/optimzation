@@ -82,9 +82,10 @@ class MyDocument extends Document {
                   height: 100%;
                 }
                 .loading-gif {
-                  width: 250px;
-                  max-width: 80%;
-                  height: auto;
+                  width: 100vw;
+                  height: 100vh;
+                  height: 100dvh;
+                  object-fit: cover;
                 }
                 /* Prevent scrolling while loading */
                 body:not(.loaded) {
@@ -103,20 +104,12 @@ class MyDocument extends Document {
             href="/elbrit one logo.gif"
           />
 
-          {/* Minimize layout shift */}
-          <meta name="theme-color" content="#ffffff" />
-
-          {/* PWA manifest and icons */}
-          <link rel="manifest" href="/manifest.webmanifest" />
+          {/* Static Application Metadata */}
           <meta name="application-name" content="Elbrit One" />
-          <meta name="apple-mobile-web-app-capable" content="yes" />
-          <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-          <link rel="apple-touch-icon" href="/logo.svg" />
           <link rel="icon" type="image/svg+xml" href="/logo.svg" />
-          <link rel="icon" type="image/x-icon" href="/favicon.ico" />
         </Head>
         <body>
-          {/* Loading screen with animated GIF */}
+          {/* Loading screen with animated GIF - removal and minimum display time handled in _app.jsx */}
           <div id="app-loading-screen">
             <div className="loading-container">
               <img 
@@ -128,24 +121,6 @@ class MyDocument extends Document {
           </div>
           <Main />
           <NextScript />
-          {/* Script to hide loading screen once app is ready */}
-          <script
-            dangerouslySetInnerHTML={{
-              __html: `
-                window.addEventListener('load', function() {
-                  const loader = document.getElementById('app-loading-screen');
-                  if (loader) {
-                    loader.classList.add('loading-hidden');
-                    document.body.classList.add('loaded');
-                    // Completely remove from DOM after transition
-                    setTimeout(() => {
-                      loader.style.display = 'none';
-                    }, 500);
-                  }
-                });
-              `,
-            }}
-          />
         </body>
       </Html>
     );
@@ -153,4 +128,3 @@ class MyDocument extends Document {
 }
 
 export default MyDocument;
-
