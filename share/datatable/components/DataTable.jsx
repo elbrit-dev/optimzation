@@ -42,7 +42,6 @@ import {
   isArray,
   values,
 } from 'lodash';
-import { useStickyElements } from '../hooks/useStickyElements';
 import { getDataKeys, getDataValue } from '../utils/dataAccessUtils';
 
 // Date format patterns for detection
@@ -947,17 +946,7 @@ export default function DataTableComponent({
   nonEditableColumns = [], // Array of column names that should not be editable
   percentageColumns = [], // Array of { columnName: string, targetField: string, valueField: string, beforeColumn?: string | null }
   enableFullscreenDialog = true, // Enable/disable fullscreen dialog feature
-  // Sticky header/footer control props (page-level control)
-  stickyHeaderOffset = 0, // Additional offset for sticky header
-  stickyHeaderZIndex = 1000, // Z-index for sticky header
-  appHeaderOffset = null, // App header height (null = auto-calculate)
-  appFooterOffset = null, // App footer height (null = auto-calculate)
-  shouldShowHeader = null, // Custom function to determine header visibility: ({ tableElement, thead, containerRect, headerRect, scrollY, viewportHeight, totalHeaderOffset }) => boolean
-  shouldShowFooter = null, // Custom function to determine footer visibility: ({ tableElement, tfoot, containerRect, footerRect, scrollY, viewportHeight }) => boolean
-  calculateHeaderPosition = null, // Custom function to calculate header position: ({ containerRect, tableElement, thead, headerRect, totalHeaderOffset }) => { width, left, top } | null
-  calculateFooterPosition = null, // Custom function to calculate footer position: ({ containerRect, tableElement, tfoot, footerRect }) => { width, left, bottom } | null
-  manualStickyControl = false, // If true, hook only provides state, page controls visibility via returned setters
-  tableName = 'table', // Table name used for sticky element IDs (e.g., 'main', 'dialog', 'sidebar')
+      tableName = 'table', // Table name for identification (e.g., 'main', 'dialog', 'sidebar')
 }) {
   const [first, setFirst] = useState(0);
   const [rows, setRows] = useState(defaultRows);
@@ -1705,10 +1694,7 @@ export default function DataTableComponent({
       const sortPadding = enableSort ? 30 : 0;
       const finalWidth = baseWidth + sortPadding;
 
-      const minWidth = isBooleanColumn ? 100 : isDateColumn ? 180 : isNumericColumn ? 130 : 140;
-      const maxWidth = isBooleanColumn ? 180 : isDateColumn ? 280 : isNumericColumn ? 250 : 400;
-
-      widths[col] = clamp(finalWidth, minWidth, maxWidth);
+      widths[col] = finalWidth;
     });
 
     return widths;
@@ -1846,19 +1832,6 @@ export default function DataTableComponent({
       
       if (scrollableContainer && scrollPositionRef.current > 0) {
         scrollableContainer.scrollLeft = scrollPositionRef.current;
-        
-        // Also sync with sticky header/footer if they exist
-        const context = isFullscreen && dialogRef.current 
-          ? (dialogRef.current.getElement() || document)
-          : document;
-        const stickyHeaderWrapper = context.querySelector('.sticky-header-wrapper');
-        if (stickyHeaderWrapper) {
-          stickyHeaderWrapper.scrollLeft = scrollPositionRef.current;
-        }
-        const stickyFooterWrapper = context.querySelector('.sticky-footer-wrapper');
-        if (stickyFooterWrapper) {
-          stickyFooterWrapper.scrollLeft = scrollPositionRef.current;
-        }
       }
     }, 50);
 
@@ -2954,6 +2927,8 @@ export default function DataTableComponent({
         </div>
         <div className="border border-gray-200 rounded-lg overflow-hidden">
           <DataTable
+            resizableColumns
+            columnResizeMode="expand"
             value={nestedFilteredData}
             sortMode={enableSort ? 'multiple' : undefined}
             removableSort={enableSort}
@@ -2979,7 +2954,6 @@ export default function DataTableComponent({
                   body={getBodyTemplate(col)}
                   align={isNumericCol ? 'right' : 'left'}
                   style={{
-                    minWidth: `${get(calculateColumnWidths, col, 120)}px`,
                     width: `${get(calculateColumnWidths, col, 120)}px`,
                   }}
                 />
@@ -3118,16 +3092,10 @@ export default function DataTableComponent({
     );
   };
 
-  // Reusable Table View Component with Sticky Header/Footer
+  // Reusable Table View Component with Scrollable Support
   const TableView = ({ scrollHeight, containerClassName = "", containerStyle = {}, tableName: viewTableName = tableName }) => {
     const tableContainerRef = useRef(null);
     const tableRef = useRef(null);
-    const stickyHeaderRef = useRef(null);
-    const stickyFooterRef = useRef(null);
-    const originalHeaderRef = useRef(null);
-    const originalFooterRef = useRef(null);
-    const [calculatedAppHeaderOffset, setCalculatedAppHeaderOffset] = useState(0);
-    const [calculatedAppFooterOffset, setCalculatedAppFooterOffset] = useState(0);
     const [calculatedScrollHeight, setCalculatedScrollHeight] = useState(scrollHeight === "flex" ? undefined : scrollHeight);
 
     // Calculate scrollHeight dynamically when "flex" is used
@@ -3155,454 +3123,7 @@ export default function DataTableComponent({
       } else {
         setCalculatedScrollHeight(scrollHeight);
       }
-    }, [scrollHeight, tableContainerRef]);
-
-    // Calculate app header offset dynamically if not provided
-    useEffect(() => {
-      if (appHeaderOffset !== null) {
-        // Use provided offset
-        setCalculatedAppHeaderOffset(appHeaderOffset);
-      } else {
-        // Calculate dynamically by finding the app header
-        const calculateAppHeaderHeight = () => {
-          // Try multiple selectors to find the app header
-          const headerSelectors = [
-            '.app-header-container',
-            '.app-header-menubar',
-            '[class*="app-header"]',
-            'header',
-            '.p-menubar'
-          ];
-          
-          for (const selector of headerSelectors) {
-            const headerElement = document.querySelector(selector);
-            if (headerElement) {
-              const height = headerElement.getBoundingClientRect().height;
-              setCalculatedAppHeaderOffset(height);
-              return;
-            }
-          }
-          
-          // Fallback: try to find any fixed/sticky header at the top
-          const allElements = document.querySelectorAll('*');
-          for (const el of allElements) {
-            const style = window.getComputedStyle(el);
-            const rect = el.getBoundingClientRect();
-            if (
-              (style.position === 'fixed' || style.position === 'sticky') &&
-              rect.top === 0 &&
-              rect.height > 0 &&
-              rect.height < 200 // Reasonable header height
-            ) {
-              setCalculatedAppHeaderOffset(rect.height);
-              return;
-            }
-          }
-          
-          setCalculatedAppHeaderOffset(0);
-        };
-
-        // Calculate on mount and resize
-        calculateAppHeaderHeight();
-        const handleResize = debounce(calculateAppHeaderHeight, 100);
-        window.addEventListener('resize', handleResize);
-        
-        return () => {
-          window.removeEventListener('resize', handleResize);
-          handleResize.cancel();
-        };
-      }
-    }, [appHeaderOffset]);
-
-    // Calculate app footer offset dynamically if not provided
-    useEffect(() => {
-      if (appFooterOffset !== null) {
-        // Use provided offset
-        setCalculatedAppFooterOffset(appFooterOffset);
-      } else {
-        // Calculate dynamically by finding the app footer
-        const calculateAppFooterHeight = () => {
-          // Try multiple selectors to find the app footer
-          const footerSelectors = [
-            '.app-footer-container',
-            '.app-footer',
-            '[class*="app-footer"]',
-            'footer',
-          ];
-          
-          for (const selector of footerSelectors) {
-            const footerElement = document.querySelector(selector);
-            if (footerElement) {
-              const height = footerElement.getBoundingClientRect().height;
-              setCalculatedAppFooterOffset(height);
-              return;
-            }
-          }
-          
-          setCalculatedAppFooterOffset(0);
-        };
-
-        // Calculate on mount and resize
-        calculateAppFooterHeight();
-        const handleResize = debounce(calculateAppFooterHeight, 100);
-        window.addEventListener('resize', handleResize);
-        
-        return () => {
-          window.removeEventListener('resize', handleResize);
-          handleResize.cancel();
-        };
-      }
-    }, [appFooterOffset]);
-
-    // Use sticky elements hook for visibility and position
-    // Page-level control via props passed from DataTableComponent
-    // Disable sticky header for dialog views
-    const dialogShouldShowHeader = viewTableName.includes('dialog') 
-      ? () => false 
-      : shouldShowHeader;
-    
-    const {
-      showStickyHeader,
-      showStickyFooter,
-      headerPosition,
-      footerPosition,
-      totalHeaderOffset,
-      stickyHeaderZIndex: stickyHeaderZIndexFromHook
-    } = useStickyElements({
-      tableContainerRef,
-      tableRef,
-      stickyHeaderRef,
-      stickyFooterRef,
-      appHeaderOffset: calculatedAppHeaderOffset,
-      appFooterOffset: calculatedAppFooterOffset,
-      stickyHeaderOffset,
-      stickyHeaderZIndex,
-      // Page-level control functions
-      shouldShowHeader: dialogShouldShowHeader,
-      shouldShowFooter,
-      calculateHeaderPosition,
-      calculateFooterPosition,
-      manualControl: manualStickyControl,
-      tableName: viewTableName,
-    });
-
-    // Find table elements and set up sticky header/footer
-    useEffect(() => {
-      if (!tableContainerRef.current || !tableRef.current) {
-        return;
-      }
-
-      const findTableElements = () => {
-        const tableElement = tableRef.current?.querySelector('table.p-datatable-table') || tableRef.current?.querySelector('table');
-        if (!tableElement) {
-          return null;
-        }
-
-        const thead = tableElement.querySelector('thead');
-        const tfoot = tableElement.querySelector('tfoot');
-        
-        return { tableElement, thead, tfoot };
-      };
-
-        // Wait for table to render
-        const initStickyElements = () => {
-          const elements = findTableElements();
-          if (!elements) {
-            return;
-          }
-
-          const { tableElement, thead, tfoot } = elements;
-          
-          if (thead) {
-            originalHeaderRef.current = thead;
-          }
-          if (tfoot) {
-            originalFooterRef.current = tfoot;
-          }
-
-          // Update sticky header/footer when table structure changes
-          const updateStickyElements = () => {
-            const currentElements = findTableElements();
-            if (!currentElements) {
-              return;
-            }
-
-            const { tableElement: currentTable, thead: currentThead, tfoot: currentTfoot } = currentElements;
-
-            // Update sticky header - always update if ref exists (container is always rendered now)
-            if (currentThead) {
-              if (!stickyHeaderRef.current) {
-                return;
-              }
-              
-              // Create wrapper for horizontal scrolling
-              let stickyWrapper = stickyHeaderRef.current.querySelector('.sticky-header-wrapper');
-              if (!stickyWrapper) {
-                stickyWrapper = document.createElement('div');
-                stickyWrapper.className = 'sticky-header-wrapper';
-                stickyWrapper.style.overflowX = 'auto';
-                stickyWrapper.style.overflowY = 'hidden';
-                stickyHeaderRef.current.appendChild(stickyWrapper);
-              }
-              
-              let stickyTable = stickyWrapper.querySelector('table');
-              if (!stickyTable) {
-                stickyTable = document.createElement('table');
-                stickyTable.className = currentTable.className;
-                stickyTable.style.width = '100%';
-                stickyTable.style.tableLayout = currentTable.style.tableLayout || 'auto';
-                stickyWrapper.appendChild(stickyTable);
-              }
-            
-              const existingThead = stickyTable.querySelector('thead');
-              if (existingThead) {
-                stickyTable.removeChild(existingThead);
-              }
-              // Clone only the header row (first row), exclude filter row (second row)
-              const stickyThead = document.createElement('thead');
-              const headerRow = currentThead.querySelector('tr:first-child');
-              if (headerRow) {
-                const clonedHeaderRow = headerRow.cloneNode(true);
-                // Remove sort icons and badges from cloned header
-                const sortIcons = clonedHeaderRow.querySelectorAll('.p-sortable-column-icon, .p-sortable-column-badge');
-                sortIcons.forEach(icon => icon.remove());
-                stickyThead.appendChild(clonedHeaderRow);
-              }
-              stickyTable.appendChild(stickyThead);
-              
-              // Copy column widths after a brief delay to ensure rendering
-              setTimeout(() => {
-                // Only sync widths from the first row (header row), not filter row
-                const originalHeaderRow = currentThead.querySelector('tr:first-child');
-                const stickyHeaderRow = stickyThead.querySelector('tr:first-child');
-                if (originalHeaderRow && stickyHeaderRow) {
-                  const originalCells = originalHeaderRow.querySelectorAll('th');
-                  const stickyCells = stickyHeaderRow.querySelectorAll('th');
-                  originalCells.forEach((cell, index) => {
-                    if (stickyCells[index]) {
-                      stickyCells[index].style.width = cell.offsetWidth + 'px';
-                      stickyCells[index].style.minWidth = cell.offsetWidth + 'px';
-                    }
-                  });
-                }
-              }, 50);
-            }
-
-            // Update sticky footer - always update if ref exists (container is always rendered now)
-            if (currentTfoot) {
-              if (!stickyFooterRef.current) {
-                return;
-              }
-              
-              // Create wrapper for horizontal scrolling
-              let stickyWrapper = stickyFooterRef.current.querySelector('.sticky-footer-wrapper');
-              if (!stickyWrapper) {
-                stickyWrapper = document.createElement('div');
-                stickyWrapper.className = 'sticky-footer-wrapper';
-                stickyWrapper.style.overflowX = 'auto';
-                stickyWrapper.style.overflowY = 'hidden';
-                stickyFooterRef.current.appendChild(stickyWrapper);
-              }
-              
-              let stickyTable = stickyWrapper.querySelector('table');
-              if (!stickyTable) {
-                stickyTable = document.createElement('table');
-                stickyTable.className = currentTable.className;
-                stickyTable.style.width = '100%';
-                stickyTable.style.tableLayout = currentTable.style.tableLayout || 'auto';
-                stickyWrapper.appendChild(stickyTable);
-              }
-              
-              const existingTfoot = stickyTable.querySelector('tfoot');
-              if (existingTfoot) {
-                stickyTable.removeChild(existingTfoot);
-              }
-              const stickyTfoot = currentTfoot.cloneNode(true);
-              stickyTable.appendChild(stickyTfoot);
-              
-              // Copy column widths after a brief delay to ensure rendering
-              setTimeout(() => {
-                const originalCells = currentTfoot.querySelectorAll('td, th');
-                const stickyCells = stickyTfoot.querySelectorAll('td, th');
-                originalCells.forEach((cell, index) => {
-                  if (stickyCells[index]) {
-                    stickyCells[index].style.width = cell.offsetWidth + 'px';
-                    stickyCells[index].style.minWidth = cell.offsetWidth + 'px';
-                  }
-                });
-              }, 50);
-            }
-        };
-
-        updateStickyElements();
-
-        // Use MutationObserver to watch for table changes
-        const observer = new MutationObserver(() => {
-          updateStickyElements();
-        });
-
-        if (tableElement) {
-          observer.observe(tableElement, { childList: true, subtree: true });
-        }
-
-        return () => {
-          observer.disconnect();
-        };
-      };
-
-      // Delay to ensure table is rendered
-      const timeoutId = setTimeout(initStickyElements, 100);
-      return () => {
-        clearTimeout(timeoutId);
-      };
-    }, [paginatedData, filters, multiSortMeta, expandedRows]);
-
-    // Sync column widths and positions on scroll/resize and when sticky elements become visible
-    useEffect(() => {
-      const syncWidthsAndPositions = () => {
-        if (!tableRef.current || !tableContainerRef.current) {
-          return;
-        }
-
-        const tableElement = tableRef.current.querySelector('table.p-datatable-table') || tableRef.current.querySelector('table');
-        if (!tableElement) {
-          return;
-        }
-
-        const containerRect = tableContainerRef.current.getBoundingClientRect();
-        const thead = tableElement.querySelector('thead');
-        const tfoot = tableElement.querySelector('tfoot');
-
-        // Sync sticky header - sync whenever visible AND ref exists
-        if (thead && stickyHeaderRef.current && showStickyHeader) {
-          const stickyWrapper = stickyHeaderRef.current.querySelector('.sticky-header-wrapper');
-          const stickyTable = stickyWrapper?.querySelector('table') || stickyHeaderRef.current.querySelector('table');
-          if (stickyTable) {
-            // Only sync widths from the first row (header row), not filter row
-            const originalHeaderRow = thead.querySelector('tr:first-child');
-            const stickyHeaderRow = stickyTable.querySelector('thead tr:first-child');
-            if (originalHeaderRow && stickyHeaderRow) {
-              const originalCells = originalHeaderRow.querySelectorAll('th');
-              const stickyCells = stickyHeaderRow.querySelectorAll('th');
-              originalCells.forEach((cell, index) => {
-                if (stickyCells[index]) {
-                  stickyCells[index].style.width = cell.offsetWidth + 'px';
-                  stickyCells[index].style.minWidth = cell.offsetWidth + 'px';
-                }
-              });
-            }
-            stickyTable.style.width = tableElement.offsetWidth + 'px';
-            if (stickyWrapper) {
-              stickyWrapper.style.width = containerRect.width + 'px';
-            }
-            // Position is now managed by the hook, but we still need to sync width/left for the container
-            stickyHeaderRef.current.style.width = headerPosition.width + 'px';
-            stickyHeaderRef.current.style.left = headerPosition.left + 'px';
-          }
-        }
-
-        // Sync sticky footer - sync whenever visible AND ref exists
-        if (tfoot && stickyFooterRef.current && showStickyFooter) {
-          const stickyWrapper = stickyFooterRef.current.querySelector('.sticky-footer-wrapper');
-          const stickyTable = stickyWrapper?.querySelector('table') || stickyFooterRef.current.querySelector('table');
-          if (stickyTable) {
-            const originalCells = tfoot.querySelectorAll('td, th');
-            const stickyCells = stickyTable.querySelectorAll('td, th');
-            originalCells.forEach((cell, index) => {
-              if (stickyCells[index]) {
-                stickyCells[index].style.width = cell.offsetWidth + 'px';
-                stickyCells[index].style.minWidth = cell.offsetWidth + 'px';
-              }
-            });
-            stickyTable.style.width = tableElement.offsetWidth + 'px';
-            if (stickyWrapper) {
-              stickyWrapper.style.width = containerRect.width + 'px';
-            }
-            // Position is now managed by the hook, but we still need to sync width/left for the container
-            stickyFooterRef.current.style.width = footerPosition.width + 'px';
-            stickyFooterRef.current.style.left = footerPosition.left + 'px';
-          }
-        }
-      };
-
-      // Immediate sync when sticky elements become visible
-      if (showStickyHeader || showStickyFooter) {
-        setTimeout(syncWidthsAndPositions, 10);
-      }
-
-      const debouncedSync = debounce(syncWidthsAndPositions, 50);
-      window.addEventListener('resize', debouncedSync);
-      window.addEventListener('scroll', debouncedSync, true);
-
-      return () => {
-        window.removeEventListener('resize', debouncedSync);
-        window.removeEventListener('scroll', debouncedSync, true);
-        debouncedSync.cancel();
-      };
-    }, [paginatedData, showStickyHeader, showStickyFooter, headerPosition, footerPosition]);
-
-    // Sync horizontal scroll position between table and sticky header/footer
-    useEffect(() => {
-      if (!tableRef.current) return;
-
-      const syncHorizontalScroll = () => {
-        // Find the scrollable container (PrimeReact uses .p-datatable-wrapper)
-        const scrollableContainer = tableRef.current?.querySelector('.p-datatable-wrapper') || 
-                                   tableRef.current?.querySelector('.p-datatable-scrollable-body') ||
-                                   tableContainerRef.current;
-        
-        if (!scrollableContainer) {
-          return;
-        }
-
-        const scrollLeft = scrollableContainer.scrollLeft || 0;
-
-        // Sync sticky header scroll
-        if (stickyHeaderRef.current && showStickyHeader) {
-          const stickyWrapper = stickyHeaderRef.current.querySelector('.sticky-header-wrapper');
-          if (stickyWrapper) {
-            stickyWrapper.scrollLeft = scrollLeft;
-          }
-        }
-
-        // Sync sticky footer scroll
-        if (stickyFooterRef.current && showStickyFooter) {
-          const stickyWrapper = stickyFooterRef.current.querySelector('.sticky-footer-wrapper');
-          if (stickyWrapper) {
-            stickyWrapper.scrollLeft = scrollLeft;
-          }
-        }
-      };
-
-      // Find scrollable container and set up listener
-      const findAndSetupScrollSync = () => {
-        const scrollableContainer = tableRef.current?.querySelector('.p-datatable-wrapper') || 
-                                   tableRef.current?.querySelector('.p-datatable-scrollable-body') ||
-                                   tableContainerRef.current;
-
-        if (scrollableContainer) {
-          scrollableContainer.addEventListener('scroll', syncHorizontalScroll, { passive: true });
-          
-          return () => {
-            scrollableContainer.removeEventListener('scroll', syncHorizontalScroll);
-          };
-        }
-        return () => {};
-      };
-
-      // Delay to ensure table is rendered
-      const timeoutId = setTimeout(findAndSetupScrollSync, 300);
-      
-      return () => {
-        clearTimeout(timeoutId);
-        const scrollableContainer = tableRef.current?.querySelector('.p-datatable-wrapper') || 
-                                   tableRef.current?.querySelector('.p-datatable-scrollable-body') ||
-                                   tableContainerRef.current;
-        if (scrollableContainer) {
-          scrollableContainer.removeEventListener('scroll', syncHorizontalScroll);
-        }
-      };
-    }, [showStickyHeader, showStickyFooter, paginatedData]);
+    }, [scrollHeight]);
 
     return (
       <div 
@@ -3610,30 +3131,13 @@ export default function DataTableComponent({
         className={`border border-gray-200 rounded-lg w-full responsive-table-container ${containerClassName}`} 
         style={{ position: 'relative', ...containerStyle }}
       >
-        {/* Sticky Header - Always render but hide when not needed */}
-        <div
-          ref={stickyHeaderRef}
-          className="sticky-table-header"
-          style={{
-            position: 'fixed',
-            top: `${headerPosition.top}px`,
-            left: `${headerPosition.left}px`,
-            width: `${headerPosition.width}px`,
-            zIndex: stickyHeaderZIndexFromHook,
-            backgroundColor: 'white',
-            borderBottom: '1px solid #e5e7eb',
-            boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-            overflow: 'hidden',
-            pointerEvents: 'auto',
-            display: showStickyHeader ? 'block' : 'none'
-          }}
-        />
-
         <div ref={tableRef}>
       <DataTable
+        resizableColumns
+        columnResizeMode="expand"
         value={isArray(paginatedData) ? paginatedData : []}
-        scrollable={scrollHeight === "flex" || calculatedScrollHeight ? true : scrollable}
-        scrollHeight={scrollHeight === "flex" && calculatedScrollHeight ? calculatedScrollHeight : (scrollable && scrollHeight ? scrollHeight : undefined)}
+        scrollable={scrollHeight ? true : scrollable}
+        scrollHeight={calculatedScrollHeight || scrollHeight}
         sortMode={enableSort ? "multiple" : undefined}
         removableSort={enableSort}
         multiSortMeta={multiSortMeta}
@@ -3672,9 +3176,7 @@ export default function DataTableComponent({
               sortFunction={isPctCol ? getPercentageColumnSortFunction(col) : undefined}
               frozen={freezeFirstColumn}
               style={{
-                minWidth: isPctCol ? '130px' : `${get(calculateColumnWidths, col, 120)}px`,
                 width: isPctCol ? '130px' : `${get(calculateColumnWidths, col, 120)}px`,
-                maxWidth: isPctCol ? '150px' : `${get(calculateColumnWidths, col, 200)}px`
               }}
               filter={enableFilter}
               filterElement={enableFilter ? getFilterElement(col) : undefined}
@@ -3701,9 +3203,7 @@ export default function DataTableComponent({
               sortable={enableSort}
               sortFunction={isPctCol ? getPercentageColumnSortFunction(col) : undefined}
               style={{
-                minWidth: isPctCol ? '130px' : `${get(calculateColumnWidths, col, 120)}px`,
                 width: isPctCol ? '130px' : `${get(calculateColumnWidths, col, 120)}px`,
-                maxWidth: isPctCol ? '150px' : `${get(calculateColumnWidths, col, 400)}px`
               }}
               filter={enableFilter}
               filterElement={enableFilter ? getFilterElement(col) : undefined}
@@ -3719,25 +3219,6 @@ export default function DataTableComponent({
         })}
       </DataTable>
         </div>
-
-        {/* Sticky Footer - Always render but hide when not needed */}
-        <div
-          ref={stickyFooterRef}
-          className="sticky-table-footer"
-          style={{
-            position: 'fixed',
-            bottom: `${footerPosition.bottom}px`,
-            left: `${footerPosition.left}px`,
-            width: `${footerPosition.width}px`,
-            zIndex: 1000,
-            backgroundColor: 'white',
-            borderTop: '1px solid #e5e7eb',
-            boxShadow: '0 -2px 4px rgba(0,0,0,0.1)',
-            overflow: 'hidden',
-            pointerEvents: 'auto',
-            display: showStickyFooter ? 'block' : 'none'
-          }}
-        />
     </div>
   );
   };
@@ -3937,7 +3418,7 @@ export default function DataTableComponent({
       <TableControls showFullscreenButton={true} enableFullscreenDialog={enableFullscreenDialog} />
       <FilterChips />
       <TableView 
-        scrollHeight={scrollable ? scrollHeightValue : undefined}
+        scrollHeight={scrollHeight || (scrollable ? scrollHeightValue : undefined)}
         tableName={tableName}
       />
       <PaginatorWrapper />

@@ -9,7 +9,7 @@ import DataTableComponent from '../share/datatable/components/DataTable';
 import DataTableControls from '../share/datatable/components/DataTableControls';
 import data from '../resource/data';
 
-import { uniq, flatMap, keys, isEmpty, startCase, filter as lodashFilter, get, isNil, debounce } from 'lodash';
+import { uniq, flatMap, keys, isEmpty, startCase, filter as lodashFilter, get, isNil } from 'lodash';
 import { saveSettingsForDataSource, loadSettingsForDataSource } from '../lib/settingsService';
 import { useTableContext } from './TableContext';
 
@@ -235,17 +235,12 @@ const DataTableWrapper = (props) => {
     enableDivideBy1Lakh: propEnableDivideBy1Lakh,
     percentageColumns: propPercentageColumns,
     enableFullscreenDialog: propEnableFullscreenDialog,
-    scrollable: propScrollable,
+    scrollable: propScrollable = true,
     scrollHeight: propScrollHeight,
     drawerTabs: propDrawerTabs,
     controlsPanelSize: propControlsPanelSize = 20,
     onSave,
     onVariableOverridesChange,
-    // Sticky header/footer props
-    stickyHeaderOffset: propStickyHeaderOffset = 0,
-    stickyHeaderZIndex: propStickyHeaderZIndex = 1000,
-    appHeaderOffset: propAppHeaderOffset,
-    appFooterOffset: propAppFooterOffset,
     tableName: propTableName = 'main',
   } = props;
 
@@ -270,7 +265,7 @@ const DataTableWrapper = (props) => {
     propRowsPerPageOptions, propDefaultRows, propTextFilterColumns, propVisibleColumns,
     propRedFields, propGreenFields, propOuterGroupField, propInnerGroupField,
     propNonEditableColumns,
-    propEnableDivideBy1Lakh, propPercentageColumns, propIsAdminMode, propSalesTeamColumn,
+    propEnableDivideBy1Lakh, propEnableFullscreenDialog, propPercentageColumns, propIsAdminMode, propSalesTeamColumn,
     propSalesTeamValues, propHqColumn, propHqValues
   });
 
@@ -300,6 +295,7 @@ const DataTableWrapper = (props) => {
     syncToStore('datatable-innerGroupField', propInnerGroupField);
     syncToStore('datatable-nonEditableColumns', propNonEditableColumns);
     syncToStore('datatable-enableDivideBy1Lakh', propEnableDivideBy1Lakh);
+    syncToStore('datatable-enableFullscreenDialog', propEnableFullscreenDialog);
     syncToStore('datatable-percentageColumns', propPercentageColumns);
     syncToStore('datatable-isAdminMode', propIsAdminMode);
     syncToStore('datatable-salesTeamColumn', propSalesTeamColumn);
@@ -347,6 +343,7 @@ const DataTableWrapper = (props) => {
   const [innerGroupFieldRawState, setInnerGroupFieldRaw] = useLocalStorageString('datatable-innerGroupField', null);
   const [nonEditableColumnsRawState, setNonEditableColumnsRaw] = useLocalStorageArray('datatable-nonEditableColumns', []);
   const [enableDivideBy1LakhState, setEnableDivideBy1Lakh] = useLocalStorageBoolean('datatable-enableDivideBy1Lakh', false);
+  const [enableFullscreenDialogState, setEnableFullscreenDialog] = useLocalStorageBoolean('datatable-enableFullscreenDialog', true);
   const [percentageColumnsRawState, setPercentageColumnsRaw] = useLocalStorageArray('datatable-percentageColumns', []);
   const [isAdminModeState, setIsAdminMode] = useLocalStorageBoolean('datatable-isAdminMode', false);
   const [salesTeamColumnRawState, setSalesTeamColumnRaw] = useLocalStorageString('datatable-salesTeamColumn', null);
@@ -381,12 +378,6 @@ const DataTableWrapper = (props) => {
   const [activeDrawerTabIndex, setActiveDrawerTabIndex] = useState(0);
   const [clickedDrawerValues, setClickedDrawerValues] = useState({ outerValue: null, innerValue: null });
 
-  // Header offset and z-index for sticky headers
-  const [appHeaderOffset, setAppHeaderOffset] = useState(0);
-  const [appHeaderZIndex, setAppHeaderZIndex] = useState(1000);
-  const [sidebarHeaderOffset, setSidebarHeaderOffset] = useState(0);
-  const [sidebarZIndex, setSidebarZIndex] = useState(1000);
-
   // Derived values that prefer props over localStorage state
   const enableSort = propEnableSort !== undefined ? propEnableSort : enableSortState;
   const enableFilter = propEnableFilter !== undefined ? propEnableFilter : enableFilterState;
@@ -402,6 +393,7 @@ const DataTableWrapper = (props) => {
   const innerGroupField = propInnerGroupField !== undefined ? propInnerGroupField : innerGroupFieldRawState;
   const nonEditableColumns = propNonEditableColumns !== undefined ? propNonEditableColumns : nonEditableColumnsRawState;
   const enableDivideBy1Lakh = propEnableDivideBy1Lakh !== undefined ? propEnableDivideBy1Lakh : enableDivideBy1LakhState;
+  const enableFullscreenDialog = propEnableFullscreenDialog !== undefined ? propEnableFullscreenDialog : enableFullscreenDialogState;
   const percentageColumns = propPercentageColumns !== undefined ? propPercentageColumns : percentageColumnsRawState;
   const isAdminMode = propIsAdminMode !== undefined ? propIsAdminMode : isAdminModeState;
   const salesTeamColumn = propSalesTeamColumn !== undefined ? propSalesTeamColumn : salesTeamColumnRawState;
@@ -409,52 +401,8 @@ const DataTableWrapper = (props) => {
   const hqColumn = propHqColumn !== undefined ? propHqColumn : hqColumnRawState;
   const hqValues = propHqValues !== undefined ? propHqValues : hqValuesRawState;
   const drawerTabs = (propDrawerTabs !== undefined && propDrawerTabs !== null && propDrawerTabs.length > 0) ? propDrawerTabs : drawerTabsRawState;
-  
+
   const originalTableDataRef = useRef(null);
-
-  // Calculate app header offset
-  useEffect(() => {
-    const calculateAppHeaderHeight = () => {
-      const headerElement = document.querySelector('.app-header-container');
-      if (headerElement) {
-        const height = headerElement.getBoundingClientRect().height;
-        setAppHeaderOffset(height);
-        const computedStyle = window.getComputedStyle(headerElement);
-        setAppHeaderZIndex(parseInt(computedStyle.zIndex) || 1000);
-      }
-    };
-
-    calculateAppHeaderHeight();
-    const handleResize = debounce(calculateAppHeaderHeight, 100);
-    window.addEventListener('resize', handleResize);
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      handleResize.cancel();
-    };
-  }, []);
-
-  // Calculate sidebar header offset
-  useEffect(() => {
-    if (!drawerVisible) return;
-    const calculateSidebarHeaderOffset = () => {
-      const sidebarHeaderElement = document.querySelector('.p-sidebar-header');
-      const sidebarElement = document.querySelector('.p-sidebar');
-      if (sidebarHeaderElement && sidebarElement) {
-        setSidebarHeaderOffset(sidebarHeaderElement.getBoundingClientRect().height);
-        const computedStyle = window.getComputedStyle(sidebarElement);
-        setSidebarZIndex(parseInt(computedStyle.zIndex) || 1000);
-      }
-    };
-
-    const timeoutId = setTimeout(calculateSidebarHeaderOffset, 100);
-    const handleResize = debounce(calculateSidebarHeaderOffset, 100);
-    window.addEventListener('resize', handleResize);
-    return () => {
-      clearTimeout(timeoutId);
-      window.removeEventListener('resize', handleResize);
-      handleResize.cancel();
-    };
-  }, [drawerVisible]);
 
   // Set loading false on mount
   useEffect(() => {
@@ -509,7 +457,7 @@ const DataTableWrapper = (props) => {
       rowsPerPageOptions, defaultRows, textFilterColumns, visibleColumns,
       redFields, greenFields, outerGroupField, innerGroupField,
       nonEditableColumns, drawerTabs,
-      enableDivideBy1Lakh, percentageColumns, isAdminMode, salesTeamColumn,
+      enableDivideBy1Lakh, enableFullscreenDialog, percentageColumns, isAdminMode, salesTeamColumn,
       salesTeamValues, hqColumn, hqValues
     };
 
@@ -624,7 +572,8 @@ const DataTableWrapper = (props) => {
                     data={tableData}
                     rowsPerPageOptions={rowsPerPageOptions}
                     defaultRows={defaultRows}
-                    scrollable={false}
+                    scrollable={propScrollable}
+                    scrollHeight={propScrollHeight}
                     enableSort={enableSort}
                     enableFilter={enableFilter}
                     enableSummation={enableSummation}
@@ -639,13 +588,10 @@ const DataTableWrapper = (props) => {
                     nonEditableColumns={nonEditableColumns}
                     percentageColumns={percentageColumns}
                     enableDivideBy1Lakh={enableDivideBy1Lakh}
+                    enableFullscreenDialog={enableFullscreenDialog}
                     onCellEditComplete={handleCellEditComplete}
                     onOuterGroupClick={handleOuterGroupClick}
                     onInnerGroupClick={handleInnerGroupClick}
-                    appHeaderOffset={propAppHeaderOffset !== undefined ? propAppHeaderOffset : appHeaderOffset}
-                    appFooterOffset={propAppFooterOffset}
-                    stickyHeaderOffset={propStickyHeaderOffset}
-                    stickyHeaderZIndex={propStickyHeaderZIndex}
                     tableName={propTableName}
                   />
                 )}
@@ -721,7 +667,8 @@ const DataTableWrapper = (props) => {
                 data={tableData}
                 rowsPerPageOptions={rowsPerPageOptions}
                 defaultRows={defaultRows}
-                scrollable={false}
+                scrollable={propScrollable}
+                scrollHeight={propScrollHeight}
                 enableSort={enableSort}
                 enableFilter={enableFilter}
                 enableSummation={enableSummation}
@@ -736,13 +683,10 @@ const DataTableWrapper = (props) => {
                 nonEditableColumns={nonEditableColumns}
                 percentageColumns={percentageColumns}
                 enableDivideBy1Lakh={enableDivideBy1Lakh}
+                enableFullscreenDialog={enableFullscreenDialog}
                 onCellEditComplete={handleCellEditComplete}
                 onOuterGroupClick={handleOuterGroupClick}
                 onInnerGroupClick={handleInnerGroupClick}
-                appHeaderOffset={propAppHeaderOffset !== undefined ? propAppHeaderOffset : appHeaderOffset}
-                appFooterOffset={propAppFooterOffset}
-                stickyHeaderOffset={propStickyHeaderOffset}
-                stickyHeaderZIndex={propStickyHeaderZIndex}
                 tableName={propTableName}
               />
             )}
@@ -774,7 +718,8 @@ const DataTableWrapper = (props) => {
                       data={drawerData}
                       rowsPerPageOptions={rowsPerPageOptions}
                       defaultRows={defaultRows}
-                      scrollable={false}
+                      scrollable={propScrollable}
+                      scrollHeight={propScrollHeight}
                       enableSort={enableSort}
                       enableFilter={enableFilter}
                       enableSummation={enableSummation}
@@ -788,8 +733,6 @@ const DataTableWrapper = (props) => {
                       percentageColumns={percentageColumns}
                       enableDivideBy1Lakh={enableDivideBy1Lakh}
                       enableCellEdit={false}
-                      appHeaderOffset={sidebarHeaderOffset}
-                      stickyHeaderZIndex={sidebarZIndex + 1}
                       tableName="sidebar"
                     />
                   ) : (

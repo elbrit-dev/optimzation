@@ -1,7 +1,8 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Image from 'next/image';
+import { usePathname } from 'next/navigation';
 import Navigation from '../share/navigation/components/Navigation';
 import { useSwipeNavigation } from '@/hooks/useSwipeNavigation';
 
@@ -83,20 +84,54 @@ export default function PlasmicNavigation(props) {
     hideNavigation = false, 
     isDisabled = false, 
     className, 
-    desktopWidth,
-    desktopHeight,
-    mobileWidth,
-    mobileHeight,
+    desktopWidth = '16rem',
+    desktopHeight = 'auto',
+    mobileWidth = '100%',
+    mobileHeight = '4rem',
     ...rest 
   } = props;
   
+  const pathname = usePathname();
+  const [isMobile, setIsMobile] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
   // Transform string icon names into JSX elements
-  const transformedItems = React.useMemo(() => {
+  const transformedItems = useMemo(() => {
     if (items && Array.isArray(items)) {
       return items.map(transformItem);
     }
     return undefined;
   }, [JSON.stringify(items)]);
+
+  // Sync isMobile and mounted state (matching Navigation.jsx logic)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
+    setMounted(true);
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 1024);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // Calculate active index and mobile fullscreen state
+  const { activeIndex, isMobileFullscreen } = useMemo(() => {
+    if (!transformedItems) return { activeIndex: null, isMobileFullscreen: false };
+    
+    const index = transformedItems.findIndex(item => {
+      const itemPath = item.path || item.route;
+      if (!itemPath) return false;
+      return pathname === itemPath || pathname.startsWith(itemPath + '/');
+    });
+    
+    const currentItem = index >= 0 ? transformedItems[index] : null;
+    return {
+      activeIndex: index >= 0 ? index : null,
+      isMobileFullscreen: currentItem?.mobileFullscreen === true
+    };
+  }, [pathname, transformedItems]);
 
   // Register the items for swipe navigation
   useSwipeNavigation(transformedItems);
@@ -104,12 +139,15 @@ export default function PlasmicNavigation(props) {
   // Get swipe handlers for the content area
   const swipeHandlers = useSwipeNavigation();
 
+  // Determine if navigation should be shown (matching Navigation.jsx logic)
+  const showNavigation = mounted && !hideNavigation && (!isMobile || !isMobileFullscreen);
+
   return (
     <div 
-      className={`flex bg-gray-50 overflow-hidden relative ${className || ''}`}
+      className={`flex bg-gray-50 overflow-hidden relative min-h-screen ${className || ''}`}
     >
       {/* The Navigation bars (Sidebar/Bottom Bar) */}
-      {!hideNavigation && (
+      {showNavigation && (
         <div className={isDisabled ? 'opacity-50 pointer-events-none' : ''}>
           <Navigation 
             {...rest} 
@@ -126,7 +164,12 @@ export default function PlasmicNavigation(props) {
       <div 
         className="flex-1 overflow-y-auto relative" 
         {...(enableSwipe ? (swipeHandlers || {}) : {})}
-        style={{ cursor: enableSwipe && typeof window !== 'undefined' && window.innerWidth < 1024 ? 'grab' : 'default' }}
+        style={{ 
+          cursor: enableSwipe && mounted && isMobile ? 'grab' : 'default',
+          paddingBottom: mounted && isMobile && showNavigation 
+            ? `calc(${mobileHeight} + env(safe-area-inset-bottom))` 
+            : 0
+        }}
       >
         {children}
       </div>

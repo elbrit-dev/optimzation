@@ -565,7 +565,8 @@ export default function DataProvider({
 
             // Fetch last updated timestamp immediately after query doc is loaded
             // This will show it as soon as possible if it exists in cache
-            await fetchLastUpdatedAt();
+            // Pass queryDoc and initialMonthRange directly to avoid race condition with state updates
+            await fetchLastUpdatedAt(queryDoc, initialMonthRange);
 
             if (month !== true || initialMonthRange) {
               // Use shared helper function to check IndexedDB first, then API if not found
@@ -609,7 +610,14 @@ export default function DataProvider({
   const runQueryRef = useRef(null);
 
   // Helper function to fetch last updated timestamp from IndexedDB
-  const fetchLastUpdatedAt = useCallback(async () => {
+  // @param {Object} queryDocOverride - Optional query document to use instead of currentQueryDoc (to avoid race conditions)
+  // @param {Array} monthRangeOverride - Optional month range to use instead of monthRange state (to avoid race conditions)
+  const fetchLastUpdatedAt = useCallback(async (queryDocOverride = null, monthRangeOverride = null) => {
+    // Use queryDocOverride if provided, otherwise fall back to currentQueryDoc
+    const queryDocToUse = queryDocOverride || currentQueryDoc;
+    // Use monthRangeOverride if provided, otherwise fall back to monthRange state
+    const monthRangeToUse = monthRangeOverride !== null ? monthRangeOverride : monthRange;
+    
     // If offline mode or no dataSource, clear the last updated field
     if (!dataSource || dataSource === 'offline') {
       setLastUpdatedAt(null);
@@ -627,12 +635,12 @@ export default function DataProvider({
 
       const result = indexResult.result;
 
-      // Check if the query has month support
-      if (currentQueryDoc && currentQueryDoc.month === true) {
+      // Check if the query has month support (use queryDocToUse instead of currentQueryDoc)
+      if (queryDocToUse && queryDocToUse.month === true) {
         // For month == true, result is an object like {"2025-11": "13:14:03.540037"}
-        // Extract YYYY-MM from monthRange
-        if (monthRange && Array.isArray(monthRange) && monthRange.length > 0 && monthRange[0]) {
-          const yearMonthKey = dayjs(monthRange[0]).format('YYYY-MM');
+        // Extract YYYY-MM from monthRangeToUse (which may be from override or state)
+        if (monthRangeToUse && Array.isArray(monthRangeToUse) && monthRangeToUse.length > 0 && monthRangeToUse[0]) {
+          const yearMonthKey = dayjs(monthRangeToUse[0]).format('YYYY-MM');
           // Look up the value for this month key
           if (result && typeof result === 'object' && !Array.isArray(result)) {
             const monthValue = result[yearMonthKey];
@@ -770,7 +778,7 @@ export default function DataProvider({
               setProcessedData(reconstructed);
               
               // Update last updated timestamp after loading from cache
-              await fetchLastUpdatedAt();
+              await fetchLastUpdatedAt(queryDoc, monthRangeValue);
               
               if (onDataChange) {
                 onDataChange({
@@ -792,7 +800,7 @@ export default function DataProvider({
               setProcessedData(reconstructed);
               
               // Update last updated timestamp after loading from cache
-              await fetchLastUpdatedAt();
+              await fetchLastUpdatedAt(queryDoc, monthRangeValue);
               
               if (onDataChange) {
                 onDataChange({
@@ -829,7 +837,7 @@ export default function DataProvider({
           setProcessedData(reconstructed);
 
           // Update last updated timestamp after loading from cache
-          await fetchLastUpdatedAt();
+          await fetchLastUpdatedAt(queryDoc, monthRangeValue);
 
           if (onDataChange) {
             onDataChange({
@@ -892,17 +900,22 @@ export default function DataProvider({
       }
 
       // Format to "10 Jan 2026 4:03:33 PM" (MMM already returns capitalized month by default)
-      return parsedDate.format('D MMM YYYY h:mm:ss A');
+      return parsedDate.format('D MMM YYYY h:mm A');
     } catch (error) {
       console.error('Error formatting date:', error);
       return dateString; // Return original on error
     }
   };
 
-  // Fetch and display last updated timestamp from IndexedDB
+  // Fetch and display last updated timestamp from IndexedDB when monthRange changes
+  // Only call if currentQueryDoc is available and matches current dataSource to avoid race conditions
+  // Note: We also call fetchLastUpdatedAt explicitly after loading query doc and after data loads,
+  // so this useEffect mainly handles monthRange changes
   useEffect(() => {
-    fetchLastUpdatedAt();
-  }, [fetchLastUpdatedAt]);
+    if (currentQueryDoc && dataSource && dataSource !== 'offline' && currentQueryDoc.id === dataSource && monthRange) {
+      fetchLastUpdatedAt();
+    }
+  }, [monthRange, currentQueryDoc, dataSource, fetchLastUpdatedAt]);
 
   // Get available query keys from processedData
   const availableQueryKeys = useMemo(() => {
@@ -990,13 +1003,7 @@ export default function DataProvider({
     }
 
     // Execute pipeline for each month in parallel (but start with latest first)
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/2135770c-01a3-4957-a1df-7b381363f2ec',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'DataProvider.jsx:978',message:'Starting parallel pipeline execution',data:{queryId,monthPrefixesCount:reversedMonthPrefixes.length,monthPrefixes:reversedMonthPrefixes},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     const pipelinePromises = reversedMonthPrefixes.map(async (prefix) => {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2135770c-01a3-4957-a1df-7b381363f2ec',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'DataProvider.jsx:980',message:'Pipeline execution started for month',data:{queryId,prefix},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
       try {
         // Parse YYYY-MM to create month range (first day to last day of month)
         const [year, month] = prefix.split('-').map(Number);
@@ -1022,14 +1029,8 @@ export default function DataProvider({
         );
         
         console.log(`Executed and cached month ${prefix} for ${queryId}`);
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/2135770c-01a3-4957-a1df-7b381363f2ec',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'DataProvider.jsx:1004',message:'Pipeline execution completed for month',data:{queryId,prefix},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-        // #endregion
       } catch (error) {
         console.error(`Error executing pipeline for month ${prefix} for ${queryId}:`, error);
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/2135770c-01a3-4957-a1df-7b381363f2ec',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'DataProvider.jsx:1006',message:'Pipeline execution failed for month',data:{queryId,prefix,errorName:error.name,errorMessage:error.message},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,B,C'})}).catch(()=>{});
-        // #endregion
         // Continue with other months even if one fails
         throw error; // Re-throw to be caught by Promise.allSettled
       }
@@ -1194,7 +1195,7 @@ export default function DataProvider({
         setProcessedData(finalData);
         
         // Update last updated timestamp after successful execution
-        await fetchLastUpdatedAt();
+        await fetchLastUpdatedAt(queryDocToUse, monthRange);
       } else {
         // For month == false queries or no monthRange, use original single execution
         // Convert Date objects to serializable format for Comlink (Date objects get corrupted in transfer)
@@ -1236,7 +1237,7 @@ export default function DataProvider({
       }
 
       // Update last updated timestamp after successful execution
-      await fetchLastUpdatedAt();
+      await fetchLastUpdatedAt(queryDocToUse, monthRange);
 
       if (onDataChange) {
         onDataChange({

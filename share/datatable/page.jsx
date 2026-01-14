@@ -55,167 +55,8 @@ function DataTablePage() {
   const [hqColumn, setHqColumn] = useState(null);
   const [hqValues, setHqValues] = useState([]);
 
-  // Sticky header offset - calculate from app-header-container
-  const [appHeaderOffset, setAppHeaderOffset] = useState(0);
-  const [appHeaderZIndex, setAppHeaderZIndex] = useState(1000);
-
-  // Calculate app header offset and z-index from app-header-container
-  useEffect(() => {
-    const calculateAppHeaderHeight = () => {
-      const headerElement = document.querySelector('.app-header-container');
-      if (headerElement) {
-        const height = headerElement.getBoundingClientRect().height;
-        setAppHeaderOffset(height);
-        // Get computed z-index
-        const computedStyle = window.getComputedStyle(headerElement);
-        const zIndex = parseInt(computedStyle.zIndex) || 1000;
-        setAppHeaderZIndex(zIndex);
-      } else {
-        setAppHeaderOffset(0);
-        setAppHeaderZIndex(1000);
-      }
-    };
-
-    // Calculate on mount and resize
-    calculateAppHeaderHeight();
-    const handleResize = debounce(calculateAppHeaderHeight, 100);
-    window.addEventListener('resize', handleResize);
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      handleResize.cancel();
-    };
-  }, []);
-
-  // Sticky footer offset - 0 by default, 10vh on mobile
-  const [appFooterOffset, setAppFooterOffset] = useState(0);
-
-  // Mobile detection
-  const [isMobile, setIsMobile] = useState(false);
-
-  // Calculate app footer offset: 0 by default, 10vh on mobile
-  useEffect(() => {
-    const calculateAppFooterHeight = () => {
-      const mobile = window.innerWidth < 640; // Common mobile breakpoint
-      setIsMobile(mobile);
-      setAppFooterOffset(mobile ? window.innerHeight * 0.1 : 0); // 10vh on mobile, 0 otherwise
-    };
-
-    // Calculate on mount and resize
-    calculateAppFooterHeight();
-    const handleResize = debounce(calculateAppFooterHeight, 100);
-    window.addEventListener('resize', handleResize);
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      handleResize.cancel();
-    };
-  }, []);
-
-  // Sticky header z-index for main table (app header z-index + 1)
-  const mainStickyHeaderZIndex = appHeaderZIndex + 1;
-
   // Drawer state
   const [drawerVisible, setDrawerVisible] = useState(false);
-
-  // Sidebar header offset - calculate from p-sidebar-header
-  const [sidebarHeaderOffset, setSidebarHeaderOffset] = useState(0);
-  const [sidebarZIndex, setSidebarZIndex] = useState(1000);
-
-  // Calculate sidebar header offset and z-index from p-sidebar-header (position + height)
-  useEffect(() => {
-    if (!drawerVisible) {
-      setSidebarHeaderOffset(0);
-      setSidebarZIndex(1000);
-      return;
-    }
-
-    const calculateSidebarHeaderOffset = () => {
-      const sidebarHeaderElement = document.querySelector('.p-sidebar-header');
-      const sidebarElement = document.querySelector('.p-sidebar');
-      if (sidebarHeaderElement && sidebarElement) {
-        const headerRect = sidebarHeaderElement.getBoundingClientRect();
-        // For sidebar, we just need the header height for the custom position function
-        // The custom function will calculate position relative to container
-        const offset = headerRect.height;
-        setSidebarHeaderOffset(offset);
-      } else {
-        setSidebarHeaderOffset(0);
-      }
-
-      // Get sidebar z-index
-      if (sidebarElement) {
-        const computedStyle = window.getComputedStyle(sidebarElement);
-        const zIndex = parseInt(computedStyle.zIndex) || 1000;
-        setSidebarZIndex(zIndex);
-      } else {
-        setSidebarZIndex(1000);
-      }
-    };
-
-    // Calculate when sidebar becomes visible and on resize
-    const timeoutId = setTimeout(calculateSidebarHeaderOffset, 100);
-    const handleResize = debounce(calculateSidebarHeaderOffset, 100);
-    window.addEventListener('resize', handleResize);
-
-    return () => {
-      clearTimeout(timeoutId);
-      window.removeEventListener('resize', handleResize);
-      handleResize.cancel();
-    };
-  }, [drawerVisible]);
-
-  // Sticky header z-index for sidebar table (sidebar z-index + 1)
-  const sidebarStickyHeaderZIndex = sidebarZIndex + 1;
-
-  // Custom visibility function for sidebar
-  const shouldShowSidebarHeader = ({ headerRect, containerRect, appHeaderOffset }) => {
-    // Get the sidebar header element to find sticky header position
-    const sidebarHeaderElement = document.querySelector('.p-sidebar-header');
-    if (!sidebarHeaderElement) {
-      // Fallback to default logic if sidebar header not found
-      const viewportTopWithOffset = appHeaderOffset || 0;
-      const condition1 = headerRect.bottom < (containerRect.top + viewportTopWithOffset);
-      const condition2 = headerRect.top < viewportTopWithOffset;
-      return condition1 || condition2;
-    }
-
-    const sidebarHeaderRect = sidebarHeaderElement.getBoundingClientRect();
-    // Sticky header is positioned at sidebar header bottom
-    const stickyHeaderPosition = sidebarHeaderRect.top + sidebarHeaderRect.height;
-
-    // Use the same logic pattern as default, but use stickyHeaderPosition instead of viewportTopWithOffset
-    // Default: condition1 = headerRect.bottom < (containerRect.top + viewportTopWithOffset)
-    // For sidebar with sticky at absolute position: condition1 = headerRect.bottom < stickyHeaderPosition
-    // Default: condition2 = headerRect.top < viewportTopWithOffset
-    // For sidebar with sticky at absolute position: condition2 = headerRect.top < stickyHeaderPosition
-    const condition1 = headerRect.bottom < stickyHeaderPosition;
-    const condition2 = headerRect.top < stickyHeaderPosition;
-    return condition1 || condition2;
-  };
-
-  // Custom header position calculation for sidebar
-  const calculateSidebarHeaderPosition = ({ containerRect, totalHeaderOffset }) => {
-    // For sidebar, position sticky header at sidebar header bottom
-    // Get the sidebar header element's position
-    const sidebarHeaderElement = document.querySelector('.p-sidebar-header');
-    if (sidebarHeaderElement) {
-      const headerRect = sidebarHeaderElement.getBoundingClientRect();
-      // Position at sidebar header bottom (top + height)
-      const topPosition = headerRect.top + headerRect.height;
-      return {
-        width: containerRect.width,
-        left: containerRect.left,
-        top: topPosition
-      };
-    }
-    // Fallback to default
-    return {
-      width: containerRect.width,
-      left: containerRect.left,
-      top: totalHeaderOffset
-    };
-  };
 
   const [drawerData, setDrawerData] = useState([]);
   
@@ -725,6 +566,7 @@ function DataTablePage() {
                     </div>
                   ) : (
                     <DataTableComponent
+                      scrollHeight={"60dvh"}
                       data={tableData}
                       rowsPerPageOptions={rowsPerPageOptions}
                       defaultRows={defaultRows}
@@ -746,9 +588,6 @@ function DataTablePage() {
                       onOuterGroupClick={handleOuterGroupClick}
                       onInnerGroupClick={handleInnerGroupClick}
                       percentageColumns={percentageColumns}
-                      appHeaderOffset={appHeaderOffset}
-                      appFooterOffset={appFooterOffset}
-                      stickyHeaderZIndex={mainStickyHeaderZIndex}
                       tableName="main"
                     />
                   )}
@@ -867,11 +706,6 @@ function DataTablePage() {
                           enableCellEdit={false}
                           nonEditableColumns={nonEditableColumns}
                           percentageColumns={percentageColumns}
-                          appHeaderOffset={sidebarHeaderOffset}
-                          appFooterOffset={appFooterOffset}
-                          stickyHeaderZIndex={sidebarStickyHeaderZIndex}
-                          shouldShowHeader={shouldShowSidebarHeader}
-                          calculateHeaderPosition={calculateSidebarHeaderPosition}
                           tableName="sidebar"
                         />
                       ) : (
