@@ -384,6 +384,11 @@ PLASMIC.registerComponent(DataTable, {
       description: "The percentage width of the controls sidebar (0-100)",
       defaultValue: 20,
     },
+    columnTypes: {
+      type: "object",
+      description: "Override column types (e.g., { fieldName: 'number' })",
+      defaultValue: { is_internal_customer: "number" },
+    },
     onSave: {
       type: "eventHandler",
       argTypes: [],
@@ -576,6 +581,11 @@ PLASMIC.registerComponent(TableDataProvider, {
       type: "object",
       description: "Array of allowed HQ values",
       defaultValue: [],
+    },
+    columnTypes: {
+      type: "object",
+      description: "Override column types (e.g., { fieldName: 'number' })",
+      defaultValue: { is_internal_customer: "number" },
     },
     onDataChange: {
       type: "eventHandler",
