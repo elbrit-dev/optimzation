@@ -450,7 +450,12 @@ const DataTableWrapper = (props) => {
   const salesTeamValues = propSalesTeamValues !== undefined ? propSalesTeamValues : salesTeamValuesRawState;
   const hqColumn = propHqColumn !== undefined ? propHqColumn : hqColumnRawState;
   const hqValues = propHqValues !== undefined ? propHqValues : hqValuesRawState;
-  const columnTypes = propColumnTypes !== undefined ? propColumnTypes : (context?.columnTypes || columnTypesRawState || {});
+  const columnTypes = useMemo(() => {
+    const contextTypes = context?.columnTypes || {};
+    const storedTypes = columnTypesRawState || {};
+    const manualTypes = propColumnTypes || {};
+    return { ...contextTypes, ...storedTypes, ...manualTypes };
+  }, [propColumnTypes, context?.columnTypes, columnTypesRawState]);
   const drawerTabs = (propDrawerTabs !== undefined && propDrawerTabs !== null && propDrawerTabs.length > 0) ? propDrawerTabs : drawerTabsRawState;
 
   const originalTableDataRef = useRef(null);
@@ -494,6 +499,7 @@ const DataTableWrapper = (props) => {
       if (savedSettings.hqColumn !== undefined) setHqColumnRaw(savedSettings.hqColumn);
       if (savedSettings.hqValues !== undefined) setHqValuesRaw(savedSettings.hqValues);
       if (savedSettings.drawerTabs !== undefined) setDrawerTabs(savedSettings.drawerTabs);
+      if (savedSettings.columnTypes !== undefined) setColumnTypesRaw(savedSettings.columnTypes);
     }
   }, []);
 
@@ -509,7 +515,7 @@ const DataTableWrapper = (props) => {
       redFields, greenFields, outerGroupField, innerGroupField,
       nonEditableColumns, drawerTabs,
       enableDivideBy1Lakh, enableFullscreenDialog, percentageColumns, isAdminMode, salesTeamColumn,
-      salesTeamValues, hqColumn, hqValues
+      salesTeamValues, hqColumn, hqValues, columnTypes
     };
 
     try {
