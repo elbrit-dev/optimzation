@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { OverlayPanel } from 'primereact/overlaypanel';
 import { Button } from 'primereact/button';
 import { InputText } from 'primereact/inputtext';
+import { Divider } from 'primereact/divider';
 
 const MONTHS = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -109,7 +110,7 @@ export default function MonthRangePicker({
 
   const handleToggle = (e) => {
     if (disabled) return;
-    
+
     if (isOpen) {
       overlayRef.current?.hide();
       setIsOpen(false);
@@ -121,10 +122,10 @@ export default function MonthRangePicker({
 
   const isMonthInRange = (monthIndex) => {
     if (!startMonth) return false;
-    
+
     const monthDate = new Date(currentYear, monthIndex);
     const startDate = new Date(startMonth.year, startMonth.month);
-    
+
     if (endMonth) {
       const endDate = new Date(endMonth.year, endMonth.month);
       return monthDate >= startDate && monthDate <= endDate;
@@ -132,7 +133,7 @@ export default function MonthRangePicker({
       // When only start is selected, highlight it only
       return false;
     }
-    
+
     return false;
   };
 
@@ -169,7 +170,7 @@ export default function MonthRangePicker({
             paddingRight: '2.5rem'
           }}
         />
-        <i 
+        <i
           className="pi pi-calendar absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
           style={{ fontSize: '0.875rem' }}
         />
@@ -183,7 +184,7 @@ export default function MonthRangePicker({
       >
         <div className="month-range-picker-content">
           {/* Year Navigation */}
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between">
             <Button
               icon="pi pi-chevron-left"
               className="p-button-text p-button-sm"
@@ -201,6 +202,8 @@ export default function MonthRangePicker({
             />
           </div>
 
+          <Divider />
+
           {/* Month Grid */}
           <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
             {MONTHS.map((month, index) => {
@@ -208,7 +211,7 @@ export default function MonthRangePicker({
               const isSelected = isMonthSelected(index);
               const isStart = startMonth && startMonth.year === currentYear && startMonth.month === index;
               const isEnd = endMonth && endMonth.year === currentYear && endMonth.month === index;
-              
+
               // Determine if this month is in the middle of a range (not start or end)
               const isInMiddle = inRange && !isStart && !isEnd;
 
@@ -221,9 +224,9 @@ export default function MonthRangePicker({
                   className={`
                     month-button
                     px-3 py-2 text-sm font-medium rounded-md transition-all
-                    ${isSelected 
-                      ? 'bg-blue-600 text-white font-semibold' 
-                      : inRange 
+                    ${isSelected
+                      ? 'bg-blue-600 text-white font-semibold'
+                      : inRange
                         ? isInMiddle
                           ? 'bg-blue-50 text-blue-600'
                           : 'bg-blue-100 text-blue-700'

@@ -496,6 +496,9 @@
   border: 1px solid #e5e7eb;
   overflow: hidden;
 }
+.graphiql-index-overlay .p-overlaypanel-content {
+  padding: 0;
+}
 
 .graphiql-index-overlay .p-tree {
   border: none;
@@ -623,20 +626,6 @@
 
 .p-tree .p-treenode {
   position: relative;
-}
-
-/* Checkbox outline styling */
-.p-checkbox {
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
-}
-
-.p-checkbox:not(.p-disabled):hover {
-  border-color: #9ca3af;
-}
-
-.p-checkbox.p-highlight {
-  border-color: #3b82f6;
 }
 
 /* Custom history plugin styles */

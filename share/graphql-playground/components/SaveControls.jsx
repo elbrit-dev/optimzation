@@ -12,6 +12,7 @@ import { useAppStore } from '../stores/useAppStore';
 import { extractOperationName } from '../utils/graphql-parser';
 import { findNodeByKey } from '../utils/query-matcher';
 import { firestoreService } from '../services/firestoreService';
+import { buildTreeFromProcessedData } from '../utils/data-tree-builder';
 import { parse as parseJsonc, stripComments } from 'jsonc-parser';
 import { fetchGraphQLRequest } from '../utils/query-pipeline';
 import { getEndpointConfigFromUrlKey, getInitialEndpoint } from '../constants';
@@ -19,32 +20,85 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Timestamp } from 'firebase/firestore';
 
 export const SaveControls = React.forwardRef((props, ref) => {
+  // Only get utility fields from useSaveControlsStore
   const {
-    clientSave,
-    setClientSave,
     treeNodes,
-    selectedKeys,
-    setSelectedKeys,
-    expandedKeys,
-    setExpandedKeys,
-    month,
-    setMonth,
-    monthIndexKeys,
-    setMonthIndexKeys,
-    monthIndexExpandedKeys,
-    setMonthIndexExpandedKeys,
+    setTreeNodes,
+    processedDataTreeNodes,
+    setProcessedDataTreeNodes,
     loadQueryData,
-    reset: resetSaveControls,
   } = useSaveControlsStore();
-  // Read GraphiQL state from Zustand store instead of useGraphiQL hooks
+
+  // Read GraphiQL state and tab data
   const { queryString, variablesString, activeTabIndex, queryEditor, variableEditor } = useAppStore((state) => state.graphiQLState);
-  const { tabData, setTabData, selectedEndpoint } = useAppStore();
-  const currentTabData = tabData[activeTabIndex] || { hasSuccessfulQuery: false, transformedData: null, transformerCode: '' };
+  const tabData = useAppStore((state) => state.tabData);
+  const { setTabData, selectedEndpoint, getTabData } = useAppStore();
+
+  // Get all tab-specific data from currentTabData (reactive to tabData changes)
+  const currentTabData = useMemo(() => {
+    return getTabData(activeTabIndex);
+  }, [tabData, activeTabIndex, getTabData]);
+
+  // Extract all fields from currentTabData
   const transformedData = currentTabData.transformedData;
   const transformerCode = currentTabData.transformerCode || '';
+  const processedData = currentTabData.processedData || null;
+  const clientSave = currentTabData.clientSave || false;
+  const selectedKeys = currentTabData.selectedKeys || null;
+  const expandedKeys = currentTabData.expandedKeys || {};
+  const month = currentTabData.month || null;
+  const monthIndexKeys = currentTabData.monthIndexKeys || null;
+  const monthIndexExpandedKeys = currentTabData.monthIndexExpandedKeys || {};
+  const searchFields = currentTabData.searchFields || {};
+  const sortFields = currentTabData.sortFields || {};
+  const searchFieldsExpandedKeys = currentTabData.searchFieldsExpandedKeys || {};
+  const sortFieldsExpandedKeys = currentTabData.sortFieldsExpandedKeys || {};
+
+  // Helper functions to update tab data
+  const setClientSave = useCallback((value) => {
+    setTabData(activeTabIndex, { clientSave: value });
+  }, [activeTabIndex, setTabData]);
+
+  const setSelectedKeys = useCallback((keys) => {
+    setTabData(activeTabIndex, { selectedKeys: keys });
+  }, [activeTabIndex, setTabData]);
+
+  const setExpandedKeys = useCallback((keys) => {
+    setTabData(activeTabIndex, { expandedKeys: keys });
+  }, [activeTabIndex, setTabData]);
+
+  const setMonth = useCallback((monthValue) => {
+    setTabData(activeTabIndex, { month: monthValue });
+  }, [activeTabIndex, setTabData]);
+
+  const setMonthIndexKeys = useCallback((keys) => {
+    setTabData(activeTabIndex, { monthIndexKeys: keys });
+  }, [activeTabIndex, setTabData]);
+
+  const setMonthIndexExpandedKeys = useCallback((keys) => {
+    setTabData(activeTabIndex, { monthIndexExpandedKeys: keys });
+  }, [activeTabIndex, setTabData]);
+
+  const setSearchFields = useCallback((fields) => {
+    setTabData(activeTabIndex, { searchFields: fields });
+  }, [activeTabIndex, setTabData]);
+
+  const setSortFields = useCallback((fields) => {
+    setTabData(activeTabIndex, { sortFields: fields });
+  }, [activeTabIndex, setTabData]);
+
+  const setSearchFieldsExpandedKeys = useCallback((keys) => {
+    setTabData(activeTabIndex, { searchFieldsExpandedKeys: keys });
+  }, [activeTabIndex, setTabData]);
+
+  const setSortFieldsExpandedKeys = useCallback((keys) => {
+    setTabData(activeTabIndex, { sortFieldsExpandedKeys: keys });
+  }, [activeTabIndex, setTabData]);
   const { user } = useAuth();
   const indexFieldOp = useRef(null);
   const monthIndexFieldOp = useRef(null);
+  const searchFieldsTreeOp = useRef(null);
+  const sortFieldsTreeOp = useRef(null);
   const [indexQueryError, setIndexQueryError] = React.useState(null);
   const [monthIndexQueryError, setMonthIndexQueryError] = React.useState(null);
   const [isValidating, setIsValidating] = React.useState(false);
@@ -73,10 +127,10 @@ export const SaveControls = React.forwardRef((props, ref) => {
     if (queryString) {
       loadQueryData(queryString, activeTabIndex).catch((error) => {
         console.error('Error loading query data:', error);
-        resetSaveControls();
+        // Don't reset on error - preserve existing state
       });
     }
-  }, [queryString, loadQueryData, resetSaveControls, activeTabIndex]);
+  }, [queryString, loadQueryData, activeTabIndex]);
 
   // Clear monthIndexKeys when month is cleared
   useEffect(() => {
@@ -442,6 +496,374 @@ export const SaveControls = React.forwardRef((props, ref) => {
     if (!topLevelNode) return [];
     return [topLevelNode];
   }, [selectedKeys, treeNodes]);
+
+  // Build tree nodes from processedData
+  const processedDataTreeNodesMemo = useMemo(() => {
+    if (!processedData) return [];
+    return buildTreeFromProcessedData(processedData);
+  }, [processedData]);
+
+  // Sync to store when tree nodes change
+  useEffect(() => {
+    setProcessedDataTreeNodes(processedDataTreeNodesMemo);
+  }, [processedDataTreeNodesMemo, setProcessedDataTreeNodes]);
+
+  // Helper to filter tree nodes to only 1 depth level (direct children only)
+  const filterTreeToSingleDepth = useCallback((nodes) => {
+    if (!Array.isArray(nodes)) return [];
+
+    return nodes.map(node => {
+      // Create a copy of the node, keeping only direct children (1 depth)
+      // Remove nested children but keep the direct children structure
+      const filteredNode = {
+        ...node,
+        children: node.children ? node.children.map(child => {
+          // For each direct child, remove its children (nested grandchildren)
+          const filteredChild = { ...child };
+          // Remove nested children but keep the node structure
+          if (filteredChild.children) {
+            delete filteredChild.children;
+            filteredChild.leaf = true; // Mark as leaf since we removed its children
+          }
+          return filteredChild;
+        }) : undefined,
+        leaf: false // Top-level nodes are not leaves (they have direct children)
+      };
+
+      return filteredNode;
+    });
+  }, []);
+
+  // Create filtered tree nodes for search/sort fields (only 1 depth level)
+  const searchFieldsTreeNodes = useMemo(() => {
+    return filterTreeToSingleDepth(processedDataTreeNodesMemo);
+  }, [processedDataTreeNodesMemo, filterTreeToSingleDepth]);
+
+  const sortFieldsTreeNodes = useMemo(() => {
+    return filterTreeToSingleDepth(processedDataTreeNodesMemo);
+  }, [processedDataTreeNodesMemo, filterTreeToSingleDepth]);
+
+  // Helper to collect all nested leaf node paths from a node (recursively)
+  const collectNestedPaths = useCallback((node, parentPath = '') => {
+    const paths = [];
+    // Use node.key if it's the starting node, otherwise build path from name
+    const currentPath = parentPath || (node.key || node.data?.name || '');
+    const nodeName = node.data?.name || node.key?.split('.').pop() || '';
+    const childPath = parentPath ? `${parentPath}.${nodeName}` : nodeName;
+
+    if (node.children && node.children.length > 0) {
+      // If node has children, recursively collect all descendant leaf node paths
+      node.children.forEach(child => {
+        paths.push(...collectNestedPaths(child, childPath));
+      });
+    } else {
+      // Leaf node - return its full path
+      return [childPath];
+    }
+
+    return paths;
+  }, []);
+
+  // Helper to collect only direct children (1 depth) of a node - treating them as leaves
+  const collectDirectChildren = useCallback((node, parentPath = '') => {
+    if (!node || !node.children || node.children.length === 0) {
+      return [];
+    }
+    // Only collect direct children, not nested children
+    const paths = [];
+    node.children.forEach(child => {
+      const nodeName = child.data?.name || child.key?.split('.').pop() || '';
+      const childPath = parentPath ? `${parentPath}.${nodeName}` : nodeName;
+      paths.push(childPath);
+    });
+
+    return paths;
+  }, []);
+
+  // Helper to convert object of field groups to checkbox selection object
+  // Input: {user: ["profile.name"], postingDetails: ["id"]}
+  // Output: Includes both selected leaf nodes AND parent nodes with partialChecked states
+  const fieldGroupsToSelectionKeys = useCallback((fieldGroups, treeNodesToUse = null) => {
+    if (!fieldGroups || typeof fieldGroups !== 'object') {
+      return {};
+    }
+    // Use provided tree nodes, or fall back to processedDataTreeNodesMemo
+    const treeNodes = treeNodesToUse || processedDataTreeNodesMemo;
+    const selectionKeys = {};
+
+    Object.keys(fieldGroups).forEach(topLevelKey => {
+      const nestedPaths = fieldGroups[topLevelKey];
+      if (Array.isArray(nestedPaths)) {
+        // Find top-level node to get all possible paths
+        const topLevelNode = findNodeByKey(treeNodes, topLevelKey);
+        if (topLevelNode) {
+          // Collect only direct children (1 depth) - treating them as leaves
+          const allPossiblePaths = collectDirectChildren(topLevelNode, topLevelKey);
+          const allPossibleNested = allPossiblePaths.map(path => {
+            const parts = path.split('.');
+            return parts.slice(1).join('.'); // Remove top-level key prefix
+          }).filter(p => p); // Remove empty strings
+
+          // Set state for top-level key based on selection
+          const selectedCount = nestedPaths.length;
+          const totalCount = allPossibleNested.length;
+
+          // Check if all selected paths exist in allPossibleNested
+          const allSelectedExist = nestedPaths.every(path => allPossibleNested.includes(path));
+          const allPossibleSelected = allPossibleNested.every(path => nestedPaths.includes(path));
+
+          if (selectedCount === totalCount && totalCount > 0 && allSelectedExist && allPossibleSelected) {
+            // All children selected
+            selectionKeys[topLevelKey] = {
+              checked: true,
+              partialChecked: false
+            };
+          } else if (selectedCount > 0) {
+            // Some (but not all) children selected
+            selectionKeys[topLevelKey] = {
+              checked: false,
+              partialChecked: true
+            };
+          }
+          // If selectedCount === 0, don't add to selectionKeys
+
+          // Set state for selected leaf nodes
+          nestedPaths.forEach(nestedPath => {
+            const fullPath = nestedPath
+              ? `${topLevelKey}.${nestedPath}`
+              : topLevelKey;
+            selectionKeys[fullPath] = {
+              checked: true,
+              partialChecked: false
+            };
+          });
+        }
+      }
+    });
+
+    return selectionKeys;
+  }, [processedDataTreeNodesMemo, collectDirectChildren]);
+
+  // Use in Tree components - pass filtered tree nodes for consistent comparison
+  const searchFieldsSelectionKeys = useMemo(() => fieldGroupsToSelectionKeys(searchFields, searchFieldsTreeNodes), [searchFields, fieldGroupsToSelectionKeys, searchFieldsTreeNodes]);
+  const sortFieldsSelectionKeys = useMemo(() => fieldGroupsToSelectionKeys(sortFields, sortFieldsTreeNodes), [sortFields, fieldGroupsToSelectionKeys, sortFieldsTreeNodes]);
+
+  // Handlers for searchFields
+  const handleSearchFieldsSelect = useCallback((e) => {
+    // e.value contains all selected keys in format: {key: {checked: true, partialChecked: false}}
+    // Convert to object: {topLevelKey: ["nested.path", ...], ...}
+    const selected = e.value || {};
+    const fieldGroups = {};
+
+    // First pass: process all checked items
+    Object.keys(selected).forEach(fullPath => {
+      // Check if this key is checked (PrimeReact checkbox format)
+      const selectionState = selected[fullPath];
+      const isChecked = selectionState && typeof selectionState === 'object' && selectionState.checked === true;
+
+      // Use full tree nodes to collect direct children (filtered tree has no children)
+      const node = findNodeByKey(processedDataTreeNodesMemo, fullPath);
+      if (!node) return;
+
+      // Split full path into top-level key and nested path
+      const parts = fullPath.split('.');
+      const topLevelKey = parts[0];
+      const nestedPath = parts.slice(1).join('.');
+
+      // Group by top-level key
+      if (!fieldGroups[topLevelKey]) {
+        fieldGroups[topLevelKey] = [];
+      }
+
+      if (isChecked) {
+        // If this is a top-level key (no nested path), collect all direct children (1 depth)
+        if (!nestedPath) {
+          // Top-level selection - get all direct children from this node (treat as leaves)
+          const nestedPaths = collectDirectChildren(node, topLevelKey);
+          nestedPaths.forEach(path => {
+            // Extract nested part (remove top-level key prefix)
+            const pathParts = path.split('.');
+            const nestedPart = pathParts.slice(1).join('.');
+            if (nestedPart && !fieldGroups[topLevelKey].includes(nestedPart)) {
+              fieldGroups[topLevelKey].push(nestedPart);
+            }
+          });
+        } else {
+          // Check if this is a direct child (only 1 level deep from top-level)
+          const pathDepth = nestedPath.split('.').length;
+          if (pathDepth === 1) {
+            // Direct child (1 depth) - treat as leaf and add it
+            if (!fieldGroups[topLevelKey].includes(nestedPath)) {
+              fieldGroups[topLevelKey].push(nestedPath);
+            }
+          }
+          // If pathDepth > 1, it's a nested child (deeper than 1 level) - ignore it
+        }
+      }
+      // Skip unchecked items in first pass - will handle in second pass
+    });
+
+    // Second pass: process unchecked items (only clear if no checked children exist)
+    Object.keys(selected).forEach(fullPath => {
+      const selectionState = selected[fullPath];
+      const isChecked = selectionState && typeof selectionState === 'object' && selectionState.checked === true;
+      
+      if (!isChecked) {
+        const node = findNodeByKey(processedDataTreeNodesMemo, fullPath);
+        if (!node) return;
+
+        const parts = fullPath.split('.');
+        const topLevelKey = parts[0];
+        const nestedPath = parts.slice(1).join('.');
+
+        // Group by top-level key if not exists
+        if (!fieldGroups[topLevelKey]) {
+          fieldGroups[topLevelKey] = [];
+        }
+
+        if (!nestedPath) {
+          // Top-level key unchecked - check if any checked children exist in this event
+          const hasCheckedChildren = Object.keys(selected).some(otherPath => {
+            if (otherPath === fullPath) return false;
+            const otherState = selected[otherPath];
+            const otherIsChecked = otherState && typeof otherState === 'object' && otherState.checked === true;
+            if (!otherIsChecked) return false;
+            // Check if otherPath is a child of this top-level key
+            return otherPath.startsWith(topLevelKey + '.') && otherPath.split('.').length === 2;
+          });
+          
+          // Only clear if no checked children are being processed in this event
+          if (!hasCheckedChildren) {
+            fieldGroups[topLevelKey] = [];
+          }
+        } else {
+          // Remove this specific nested path from the top-level key
+          if (fieldGroups[topLevelKey]) {
+            fieldGroups[topLevelKey] = fieldGroups[topLevelKey].filter(path => path !== nestedPath);
+            // If no nested paths left, remove the top-level key entry
+            if (fieldGroups[topLevelKey].length === 0) {
+              delete fieldGroups[topLevelKey];
+            }
+          }
+        }
+      }
+    });
+
+    setSearchFields(fieldGroups);
+    // Don't hide overlay - let user continue selecting
+  }, [processedDataTreeNodesMemo, setSearchFields, collectDirectChildren]);
+
+  const handleSearchFieldsToggle = useCallback((event) => {
+    setSearchFieldsExpandedKeys(event.value);
+  }, [setSearchFieldsExpandedKeys]);
+
+  // Handlers for sortFields
+  const handleSortFieldsSelect = useCallback((e) => {
+    // Same logic as handleSearchFieldsSelect
+    const selected = e.value || {};
+    const fieldGroups = {};
+
+    // First pass: process all checked items
+    Object.keys(selected).forEach(fullPath => {
+      // Check if this key is checked (PrimeReact checkbox format)
+      const selectionState = selected[fullPath];
+      const isChecked = selectionState && typeof selectionState === 'object' && selectionState.checked === true;
+
+      // Use full tree nodes to collect direct children (filtered tree has no children)
+      const node = findNodeByKey(processedDataTreeNodesMemo, fullPath);
+      if (!node) return;
+
+      // Split full path into top-level key and nested path
+      const parts = fullPath.split('.');
+      const topLevelKey = parts[0];
+      const nestedPath = parts.slice(1).join('.');
+
+      // Group by top-level key
+      if (!fieldGroups[topLevelKey]) {
+        fieldGroups[topLevelKey] = [];
+      }
+
+      if (isChecked) {
+        // If this is a top-level key (no nested path), collect all direct children (1 depth)
+        if (!nestedPath) {
+          // Top-level selection - get all direct children from this node (treat as leaves)
+          const nestedPaths = collectDirectChildren(node, topLevelKey);
+          nestedPaths.forEach(path => {
+            // Extract nested part (remove top-level key prefix)
+            const pathParts = path.split('.');
+            const nestedPart = pathParts.slice(1).join('.');
+            if (nestedPart && !fieldGroups[topLevelKey].includes(nestedPart)) {
+              fieldGroups[topLevelKey].push(nestedPart);
+            }
+          });
+        } else {
+          // Check if this is a direct child (only 1 level deep from top-level)
+          const pathDepth = nestedPath.split('.').length;
+          if (pathDepth === 1) {
+            // Direct child (1 depth) - treat as leaf and add it
+            if (!fieldGroups[topLevelKey].includes(nestedPath)) {
+              fieldGroups[topLevelKey].push(nestedPath);
+            }
+          }
+          // If pathDepth > 1, it's a nested child (deeper than 1 level) - ignore it
+        }
+      }
+      // Skip unchecked items in first pass - will handle in second pass
+    });
+
+    // Second pass: process unchecked items (only clear if no checked children exist)
+    Object.keys(selected).forEach(fullPath => {
+      const selectionState = selected[fullPath];
+      const isChecked = selectionState && typeof selectionState === 'object' && selectionState.checked === true;
+      
+      if (!isChecked) {
+        const node = findNodeByKey(processedDataTreeNodesMemo, fullPath);
+        if (!node) return;
+
+        const parts = fullPath.split('.');
+        const topLevelKey = parts[0];
+        const nestedPath = parts.slice(1).join('.');
+
+        // Group by top-level key if not exists
+        if (!fieldGroups[topLevelKey]) {
+          fieldGroups[topLevelKey] = [];
+        }
+
+        if (!nestedPath) {
+          // Top-level key unchecked - check if any checked children exist in this event
+          const hasCheckedChildren = Object.keys(selected).some(otherPath => {
+            if (otherPath === fullPath) return false;
+            const otherState = selected[otherPath];
+            const otherIsChecked = otherState && typeof otherState === 'object' && otherState.checked === true;
+            if (!otherIsChecked) return false;
+            // Check if otherPath is a child of this top-level key
+            return otherPath.startsWith(topLevelKey + '.') && otherPath.split('.').length === 2;
+          });
+          
+          // Only clear if no checked children are being processed in this event
+          if (!hasCheckedChildren) {
+            fieldGroups[topLevelKey] = [];
+          }
+        } else {
+          // Remove this specific nested path from the top-level key
+          if (fieldGroups[topLevelKey]) {
+            fieldGroups[topLevelKey] = fieldGroups[topLevelKey].filter(path => path !== nestedPath);
+            // If no nested paths left, remove the top-level key entry
+            if (fieldGroups[topLevelKey].length === 0) {
+              delete fieldGroups[topLevelKey];
+            }
+          }
+        }
+      }
+    });
+
+    setSortFields(fieldGroups);
+    // Don't hide overlay - let user continue selecting
+  }, [processedDataTreeNodesMemo, setSortFields, collectDirectChildren]);
+
+  const handleSortFieldsToggle = useCallback((event) => {
+    setSortFieldsExpandedKeys(event.value);
+  }, [setSortFieldsExpandedKeys]);
 
   // Helper function to collect all variables used in a field/selection
   const collectVariablesInField = (field) => {
@@ -1071,6 +1493,11 @@ export const SaveControls = React.forwardRef((props, ref) => {
       const currentIndexError = validationStateRef.current.indexQueryError;
       const currentMonthIndexError = validationStateRef.current.monthIndexQueryError;
 
+      // Read searchFields and sortFields directly from store to avoid stale closures
+      const currentTabData = getTabData(activeTabIndex);
+      const currentSearchFields = currentTabData?.searchFields || {};
+      const currentSortFields = currentTabData?.sortFields || {};
+
       return (
         <div className="space-y-3">
           {currentValidating && (
@@ -1202,6 +1629,72 @@ export const SaveControls = React.forwardRef((props, ref) => {
               )}
             </>
           )}
+          <div>
+            <p className="font-semibold text-sm mb-1">Search Fields:</p>
+            <div style={{
+              padding: '0.75rem',
+              borderRadius: '0.375rem',
+              border: '1px solid #d1d5db',
+              backgroundColor: '#f9fafb',
+              maxHeight: '200px',
+              overflow: 'auto'
+            }}>
+              {Object.keys(currentSearchFields).length > 0 ? (
+                <div className="space-y-2">
+                  {Object.entries(currentSearchFields).map(([topLevelKey, nestedPaths]) => {
+                    if (!Array.isArray(nestedPaths) || nestedPaths.length === 0) return null;
+                    return (
+                      <div key={topLevelKey} className="mb-2">
+                        <p className="text-xs font-semibold text-gray-600 mb-1">{topLevelKey}:</p>
+                        <ul className="list-disc list-inside space-y-1 ml-2">
+                          {nestedPaths.map((path, idx) => (
+                            <li key={idx} className="text-xs text-gray-700 font-mono">
+                              {path || '<all fields>'}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-xs text-gray-500 italic">No search fields selected</p>
+              )}
+            </div>
+          </div>
+          <div>
+            <p className="font-semibold text-sm mb-1">Sort Fields:</p>
+            <div style={{
+              padding: '0.75rem',
+              borderRadius: '0.375rem',
+              border: '1px solid #d1d5db',
+              backgroundColor: '#f9fafb',
+              maxHeight: '200px',
+              overflow: 'auto'
+            }}>
+              {Object.keys(currentSortFields).length > 0 ? (
+                <div className="space-y-2">
+                  {Object.entries(currentSortFields).map(([topLevelKey, nestedPaths]) => {
+                    if (!Array.isArray(nestedPaths) || nestedPaths.length === 0) return null;
+                    return (
+                      <div key={topLevelKey} className="mb-2">
+                        <p className="text-xs font-semibold text-gray-600 mb-1">{topLevelKey}:</p>
+                        <ul className="list-disc list-inside space-y-1 ml-2">
+                          {nestedPaths.map((path, idx) => (
+                            <li key={idx} className="text-xs text-gray-700 font-mono">
+                              {path || '<all fields>'}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-xs text-gray-500 italic">No sort fields selected</p>
+              )}
+            </div>
+          </div>
         </div>
       );
     };
@@ -1465,6 +1958,11 @@ export const SaveControls = React.forwardRef((props, ref) => {
 
           const lastUpdatedBy = getUserIdentifier(user);
 
+          // Read searchFields and sortFields fresh from currentTabData to avoid stale closures
+          const currentTabDataForSave = getTabData(activeTabIndex);
+          const currentSearchFields = currentTabDataForSave?.searchFields || {};
+          const currentSortFields = currentTabDataForSave?.sortFields || {};
+
           const saveData = {
             body: queryToSave || '',
             urlKey: urlKey || '',
@@ -1479,6 +1977,8 @@ export const SaveControls = React.forwardRef((props, ref) => {
             ...(transformerCode && transformerCode.trim() && {
               transformerCode: transformerCode,
             }),
+            searchFields: currentSearchFields,  // Object: {user: ["profile.name"], ...}
+            sortFields: currentSortFields,      // Object: {user: ["profile.name"], ...}
             // Timestamp tracking - only update if field changed, otherwise preserve existing timestamp
             bodyUpdatedAt: bodyChanged ? now : (existingData?.bodyUpdatedAt || null),
             variablesUpdatedAt: variablesChanged ? now : (existingData?.variablesUpdatedAt || null),
@@ -1719,6 +2219,140 @@ export const SaveControls = React.forwardRef((props, ref) => {
           </OverlayPanel>
         </div>
       )}
+
+      {/* Search Fields Selector - Always show regardless of clientSave */}
+      <div className={`graphiql-index-selector ${Object.keys(searchFields).length > 0 ? 'has-selection' : ''}`}>
+        <Button
+          type="button"
+          onClick={(e) => {
+            if (searchFieldsTreeOp.current) {
+              searchFieldsTreeOp.current.toggle(e);
+            }
+          }}
+          disabled={processedDataTreeNodesMemo.length === 0}
+          className="p-button-sm p-button-outlined"
+          title="Select search fields"
+          style={{
+            width: '100%',
+            justifyContent: 'space-between',
+            textAlign: 'left',
+            padding: '0.5rem 0.75rem'
+          }}
+        >
+          <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, minWidth: 0 }}>
+            <i className="pi pi-search" style={{ fontSize: '0.875rem', color: '#6b7280', flexShrink: 0 }}></i>
+            <span style={{
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              color: Object.keys(searchFields).length > 0 ? '#374151' : '#9ca3af',
+              fontWeight: Object.keys(searchFields).length > 0 ? '500' : '400'
+            }}>
+              {Object.keys(searchFields).length > 0
+                ? `${Object.values(searchFields).flat().length} search field(s) selected`
+                : 'Select search fields'}
+            </span>
+          </span>
+          <i className="pi pi-chevron-down" style={{ fontSize: '0.75rem', color: '#6b7280', marginLeft: '0.5rem', flexShrink: 0 }}></i>
+        </Button>
+        <OverlayPanel
+          ref={searchFieldsTreeOp}
+          dismissable
+          className="graphiql-index-overlay"
+          style={{ width: '420px' }}
+        >
+          {searchFieldsTreeNodes.length > 0 ? (
+            <Tree
+              value={searchFieldsTreeNodes}
+              selectionMode="checkbox"
+              selectionKeys={searchFieldsSelectionKeys}
+              onSelectionChange={handleSearchFieldsSelect}
+              expandedKeys={searchFieldsExpandedKeys}
+              onToggle={handleSearchFieldsToggle}
+              filter
+              filterMode="lenient"
+              filterBy="data.name"
+              filterPlaceholder="Search fields..."
+              className="w-full"
+            />
+          ) : (
+            <div className="px-4 py-6 text-sm text-gray-500 text-center bg-gray-50 rounded-lg">
+              <i className="pi pi-info-circle text-gray-400 mb-2" style={{ fontSize: '1.25rem' }}></i>
+              <p className="font-medium text-gray-600 mb-1">No processed data available</p>
+              <p className="text-xs text-gray-500">
+                Execute a query and apply transformer to see available fields.
+              </p>
+            </div>
+          )}
+        </OverlayPanel>
+      </div>
+
+      {/* Sort Fields Selector - Always show regardless of clientSave */}
+      <div className={`graphiql-index-selector ${Object.keys(sortFields).length > 0 ? 'has-selection' : ''}`}>
+        <Button
+          type="button"
+          onClick={(e) => {
+            if (sortFieldsTreeOp.current) {
+              sortFieldsTreeOp.current.toggle(e);
+            }
+          }}
+          disabled={processedDataTreeNodesMemo.length === 0}
+          className="p-button-sm p-button-outlined"
+          title="Select sort fields"
+          style={{
+            width: '100%',
+            justifyContent: 'space-between',
+            textAlign: 'left',
+            padding: '0.5rem 0.75rem'
+          }}
+        >
+          <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, minWidth: 0 }}>
+            <i className="pi pi-sort" style={{ fontSize: '0.875rem', color: '#6b7280', flexShrink: 0 }}></i>
+            <span style={{
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              color: Object.keys(sortFields).length > 0 ? '#374151' : '#9ca3af',
+              fontWeight: Object.keys(sortFields).length > 0 ? '500' : '400'
+            }}>
+              {Object.keys(sortFields).length > 0
+                ? `${Object.values(sortFields).flat().length} sort field(s) selected`
+                : 'Select sort fields'}
+            </span>
+          </span>
+          <i className="pi pi-chevron-down" style={{ fontSize: '0.75rem', color: '#6b7280', marginLeft: '0.5rem', flexShrink: 0 }}></i>
+        </Button>
+        <OverlayPanel
+          ref={sortFieldsTreeOp}
+          dismissable
+          className="graphiql-index-overlay"
+          style={{ width: '420px' }}
+        >
+          {sortFieldsTreeNodes.length > 0 ? (
+            <Tree
+              value={sortFieldsTreeNodes}
+              selectionMode="checkbox"
+              selectionKeys={sortFieldsSelectionKeys}
+              onSelectionChange={handleSortFieldsSelect}
+              expandedKeys={sortFieldsExpandedKeys}
+              onToggle={handleSortFieldsToggle}
+              filter
+              filterMode="lenient"
+              filterBy="data.name"
+              filterPlaceholder="Search fields..."
+              className="w-full"
+            />
+          ) : (
+            <div className="px-4 py-6 text-sm text-gray-500 text-center bg-gray-50 rounded-lg">
+              <i className="pi pi-info-circle text-gray-400 mb-2" style={{ fontSize: '1.25rem' }}></i>
+              <p className="font-medium text-gray-600 mb-1">No processed data available</p>
+              <p className="text-xs text-gray-500">
+                Execute a query and apply transformer to see available fields.
+              </p>
+            </div>
+          )}
+        </OverlayPanel>
+      </div>
 
       {/* Save Button */}
       <Button

@@ -70,21 +70,22 @@ const MemoizedDataTable = memo(({ data, enableFullscreenDialog }) => {
 MemoizedDataTable.displayName = 'MemoizedDataTable';
 
 export function DataTransformerTab({ responseData, activeTabIndex = 0 }) {
-  const { activeTab, setActiveTab, processedData, setProcessedData, reset } = useTableDialogStore();
-  const { endpointUrl, authToken, tabData, setTabData } = useAppStore();
+  const { activeTab, setActiveTab } = useTableDialogStore();
+  const { endpointUrl, authToken, tabData, setTabData, graphiQLState, getTabData } = useAppStore();
   const activeGraphiQLTabIndex = activeTabIndex;
   const [isRunning, setIsRunning] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [rawResponseData, setRawResponseData] = useState(null); // Store raw data before transformation
-  const lastAppliedDataRef = useRef(null); // Track last data we applied transformer to
+  const isExecuting = graphiQLState?.isExecuting || false;
 
-  // Get transformer code from current GraphiQL tab's data
+  // Get transformer code and processedData from current GraphiQL tab's data
   const currentTabInfo = useMemo(() => {
-    const result = tabData[activeGraphiQLTabIndex] || { hasSuccessfulQuery: false, transformedData: null, transformerCode: '' };
-    return result;
-  }, [tabData, activeGraphiQLTabIndex]);
+    return getTabData(activeGraphiQLTabIndex);
+  }, [tabData, activeGraphiQLTabIndex, getTabData]);
 
   const transformerCode = currentTabInfo.transformerCode || '';
+  const hasSuccessfulQuery = currentTabInfo.hasSuccessfulQuery;
+  const processedData = currentTabInfo.processedData || null;
 
   // Set transformer code for current GraphiQL tab
   const setTransformerCode = useCallback((code) => {
@@ -99,32 +100,15 @@ export function DataTransformerTab({ responseData, activeTabIndex = 0 }) {
   }, []);
 
   // Store raw data when responseData prop changes (from GraphiQL)
+  // Note: processedData is now set per-tab in page.jsx when query executes
+  // This effect only needs to store rawResponseData for transformer use
   useEffect(() => {
     if (responseData) {
       setRawResponseData(responseData);
-      // Initialize processedData with raw data (transformer will update it if present)
-      const allKeys = Object.keys(responseData);
-      const queryKeys = allKeys.filter(key => isValidDataValue(responseData[key]));
-
-      // Warn about ignored non-array keys
-      const ignoredKeys = allKeys.filter(key => {
-        const value = responseData[key];
-        return value && typeof value === 'object' && !Array.isArray(value);
-      });
-      if (ignoredKeys.length > 0) {
-        console.warn(`The following keys are being ignored (only arrays are supported): ${ignoredKeys.join(', ')}`);
-      }
-
-      if (queryKeys.length > 0) {
-        setProcessedData(responseData);
-      } else {
-        setProcessedData(null);
-      }
     } else {
       setRawResponseData(null);
-      setProcessedData(null);
     }
-  }, [responseData, setProcessedData, isValidDataValue]);
+  }, [responseData]);
 
   // Compute queryKeys from processedData
   const queryKeys = useMemo(() => {
@@ -163,15 +147,7 @@ export function DataTransformerTab({ responseData, activeTabIndex = 0 }) {
     return dataMap;
   }, [processedData, rawResponseData, queryKeys]); // queryKeys is already memoized, so this is safe
 
-  // Reset when component unmounts or data is cleared
-  useEffect(() => {
-    return () => {
-      reset();
-      setRawResponseData(null);
-      setIsRunning(false);
-      setHasError(false);
-    };
-  }, [reset]);
+  // Note: No longer resetting processedData on unmount - it persists globally across tabs
 
   // Apply transformer code explicitly
   const applyTransformer = useCallback(async () => {
@@ -212,44 +188,39 @@ export function DataTransformerTab({ responseData, activeTabIndex = 0 }) {
         queryFunction
       );
       console.debug("Output: ", transformedData);
-      // Update processed data
-      setProcessedData(transformedData);
+      // Update processed data per-tab
+      setTabData(activeGraphiQLTabIndex, { processedData: transformedData });
     } catch (error) {
       setHasError(true);
     } finally {
       setIsRunning(false);
     }
-  }, [transformerCode, isRunning, rawResponseData, endpointUrl, authToken, setProcessedData]);
+  }, [transformerCode, isRunning, rawResponseData, endpointUrl, authToken, activeGraphiQLTabIndex, setTabData]);
 
-  // Apply transformer automatically when component first renders with data and transformer code exists
+  // Auto-apply transformer once when conditions are first met (same as button enabled check)
+  const hasAutoAppliedRef = useRef(false);
   useEffect(() => {
-    if (!transformerCode || transformerCode.trim() === '' || !rawResponseData) {
+    // Only try once when conditions are first met
+    if (hasAutoAppliedRef.current) {
       return;
     }
 
-    // Only apply once when component first renders with data (not on subsequent data changes)
-    if (lastAppliedDataRef.current === rawResponseData) {
-      return;
-    }
+    // Same conditions as button enabled check (inverse of disabled)
+    const canApply = transformerCode &&
+      transformerCode.trim() !== '' &&
+      rawResponseData &&
+      hasSuccessfulQuery &&
+      !isRunning;
 
-    // Mark as applied and run transformer
-    lastAppliedDataRef.current = rawResponseData;
-    applyTransformer();
+    if (canApply) {
+      hasAutoAppliedRef.current = true;
+      applyTransformer();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only run once on mount
-
-  // Reset tracking when data changes (new query executed)
-  useEffect(() => {
-    if (rawResponseData && lastAppliedDataRef.current !== rawResponseData) {
-      // New data arrived - reset tracking so user can explicitly apply transformer if desired
-      lastAppliedDataRef.current = null;
-    }
-  }, [rawResponseData]);
+  }, [transformerCode, rawResponseData, hasSuccessfulQuery, isRunning]); // Watch conditions and apply once when first met (applyTransformer excluded - ref guard prevents re-execution)
 
   // Handle apply button click - always apply when button is clicked
   const handlePlayClick = useCallback(() => {
-    // Reset tracking so transformer can re-run
-    lastAppliedDataRef.current = null;
     applyTransformer();
   }, [applyTransformer]);
 
@@ -260,7 +231,14 @@ export function DataTransformerTab({ responseData, activeTabIndex = 0 }) {
         {/* Left side: Table/TabView or Message*/}
         <SplitterPanel className="flex flex-col min-w-0" size={70} minSize={30}>
           <div className="h-full flex flex-col overflow-hidden min-h-0">
-            {!rawResponseData || queryKeys.length === 0 ? (
+            {isExecuting ? (
+              <div className="flex items-center justify-center h-full bg-gray-50">
+                <div className="text-center p-8">
+                  <i className="pi pi-spin pi-spinner text-4xl text-gray-400 mb-4"></i>
+                  <p className="text-gray-600 font-medium">Executing query...</p>
+                </div>
+              </div>
+            ) : !rawResponseData || queryKeys.length === 0 ? (
               <div className="flex items-center justify-center h-full bg-gray-50">
                 <div className="text-center p-8">
                   <i className="pi pi-info-circle text-4xl text-gray-400 mb-4"></i>

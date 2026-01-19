@@ -27,7 +27,15 @@ export const firestoreService = {
   async loadQuery(operationName) {
     const docRef = doc(db, COLLECTION_NAME, operationName);
     const docSnap = await getDoc(docRef);
-    return docSnap.exists() ? docSnap.data() : null;
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      return {
+        ...data,
+        searchFields: data.searchFields || {},
+        sortFields: data.sortFields || {},
+      };
+    }
+    return null;
   },
 
   /**
@@ -62,6 +70,8 @@ export const firestoreService = {
           month: doc.data().month || false,
           monthIndex: doc.data().monthIndex || '',
           transformerCode: doc.data().transformerCode || '', // Include transformerCode
+          searchFields: doc.data().searchFields || {},
+          sortFields: doc.data().sortFields || {},
           bodyUpdatedAt: doc.data().bodyUpdatedAt || null,
           variablesUpdatedAt: doc.data().variablesUpdatedAt || null,
           transformerCodeUpdatedAt: doc.data().transformerCodeUpdatedAt || null,

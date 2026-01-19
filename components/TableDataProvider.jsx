@@ -42,6 +42,24 @@ const TableDataProvider = (props) => {
     hqColumn = null,
     hqValues = [],
     columnTypes = { is_internal_customer: "number" },
+    useOrchestrationLayer = false,
+    enableSort = true,
+    enableFilter = true,
+    enableSummation = true,
+    enableGrouping = true,
+    enableDivideBy1Lakh = false,
+    textFilterColumns = [],
+    visibleColumns = [],
+    redFields = [],
+    greenFields = [],
+    outerGroupField = null,
+    innerGroupField = null,
+    percentageColumns = [],
+    drawerTabs = [],
+    onVisibleColumnsChange: propOnVisibleColumnsChange,
+    onDrawerTabsChange: propOnDrawerTabsChange,
+    onColumnTypesChange: propOnColumnTypesChange,
+    onAdminModeChange: propOnAdminModeChange,
     className,
     style,
     ...otherProps // Collect all other individual props to use as variables
@@ -188,6 +206,10 @@ const TableDataProvider = (props) => {
   const onSelectedQueryKeyChangeRef = useRef(onSelectedQueryKeyChange);
   const onLoadingDataChangeRef = useRef(onLoadingDataChange);
   const onLastUpdatedAtChangeRef = useRef(onLastUpdatedAtChange);
+  const onVisibleColumnsChangeRef = useRef(propOnVisibleColumnsChange);
+  const onDrawerTabsChangeRef = useRef(propOnDrawerTabsChange);
+  const onColumnTypesChangeRef = useRef(propOnColumnTypesChange);
+  const onAdminModeChangeRef = useRef(propOnAdminModeChange);
 
   useEffect(() => { onTableDataChangeRef.current = onTableDataChange; }, [onTableDataChange]);
   useEffect(() => { onRawDataChangeRef.current = onRawDataChange; }, [onRawDataChange]);
@@ -203,6 +225,10 @@ const TableDataProvider = (props) => {
   useEffect(() => { onSelectedQueryKeyChangeRef.current = onSelectedQueryKeyChange; }, [onSelectedQueryKeyChange]);
   useEffect(() => { onLoadingDataChangeRef.current = onLoadingDataChange; }, [onLoadingDataChange]);
   useEffect(() => { onLastUpdatedAtChangeRef.current = onLastUpdatedAtChange; }, [onLastUpdatedAtChange]);
+  useEffect(() => { onVisibleColumnsChangeRef.current = propOnVisibleColumnsChange; }, [propOnVisibleColumnsChange]);
+  useEffect(() => { onDrawerTabsChangeRef.current = propOnDrawerTabsChange; }, [propOnDrawerTabsChange]);
+  useEffect(() => { onColumnTypesChangeRef.current = propOnColumnTypesChange; }, [propOnColumnTypesChange]);
+  useEffect(() => { onAdminModeChangeRef.current = propOnAdminModeChange; }, [propOnAdminModeChange]);
 
   const stableOnTableDataChange = useCallback((data) => {
     setCurrentTableData(prev => {
@@ -306,6 +332,22 @@ const TableDataProvider = (props) => {
     onLastUpdatedAtChangeRef.current?.(timestamp);
   }, [dataSource]);
 
+  const stableOnVisibleColumnsChange = useCallback((columns) => {
+    onVisibleColumnsChangeRef.current?.(columns);
+  }, []);
+
+  const stableOnDrawerTabsChange = useCallback((tabs) => {
+    onDrawerTabsChangeRef.current?.(tabs);
+  }, []);
+
+  const stableOnColumnTypesChange = useCallback((types) => {
+    onColumnTypesChangeRef.current?.(types);
+  }, []);
+
+  const stableOnAdminModeChange = useCallback((adminMode) => {
+    onAdminModeChangeRef.current?.(adminMode);
+  }, []);
+
   // Stabilize merged variables to prevent infinite fetch loops
   // We only pass variables as "overrides" if they actually differ from the base variables
   // reported by the core DataProvider. This allows the core to use its cache-first
@@ -371,12 +413,29 @@ const TableDataProvider = (props) => {
     salesTeamValues,
     hqColumn,
     hqValues,
-    columnTypes
+    columnTypes,
+    useOrchestrationLayer,
+    enableSort,
+    enableFilter,
+    enableSummation,
+    enableGrouping,
+    enableDivideBy1Lakh,
+    textFilterColumns,
+    visibleColumns,
+    redFields,
+    greenFields,
+    outerGroupField,
+    innerGroupField,
+    percentageColumns,
+    drawerTabs
   }), [
     currentTableData, currentRawData, currentVariables, savedQueries,
     loadingQueries, executingQuery, availableQueryKeys, selectedQueryKey,
     loadingData, lastUpdatedAt, dataSource, isAdminMode, salesTeamColumn, salesTeamValues,
-    hqColumn, hqValues, columnTypes
+    hqColumn, hqValues, columnTypes, useOrchestrationLayer,
+    enableSort, enableFilter, enableSummation, enableGrouping,
+    enableDivideBy1Lakh, textFilterColumns, visibleColumns, redFields, greenFields,
+    outerGroupField, innerGroupField, percentageColumns, drawerTabs
   ]);
 
   return (
@@ -384,6 +443,7 @@ const TableDataProvider = (props) => {
       offlineData={data}
       dataSource={dataSource}
       selectedQueryKey={queryKey}
+      useOrchestrationLayer={useOrchestrationLayer}
       onDataChange={stableOnDataChange}
       onError={stableOnError}
       onTableDataChange={stableOnTableDataChange}
@@ -397,6 +457,10 @@ const TableDataProvider = (props) => {
       onSelectedQueryKeyChange={stableOnSelectedQueryKeyChange}
       onLoadingDataChange={stableOnLoadingDataChange}
       onLastUpdatedAtChange={stableOnLastUpdatedAtChange}
+      onVisibleColumnsChange={stableOnVisibleColumnsChange}
+      onDrawerTabsChange={stableOnDrawerTabsChange}
+      onColumnTypesOverrideChange={stableOnColumnTypesChange}
+      onAdminModeChange={stableOnAdminModeChange}
       variableOverrides={stableOverrides}
       isAdminMode={isAdminMode}
       salesTeamColumn={salesTeamColumn}
@@ -404,6 +468,20 @@ const TableDataProvider = (props) => {
       hqColumn={hqColumn}
       hqValues={hqValues}
       columnTypes={columnTypes}
+      columnTypesOverride={columnTypes}
+      enableSort={enableSort}
+      enableFilter={enableFilter}
+      enableSummation={enableSummation}
+      enableGrouping={enableGrouping}
+      enableDivideBy1Lakh={enableDivideBy1Lakh}
+      textFilterColumns={textFilterColumns}
+      visibleColumns={visibleColumns}
+      redFields={redFields}
+      greenFields={greenFields}
+      outerGroupField={outerGroupField}
+      innerGroupField={innerGroupField}
+      percentageColumns={percentageColumns}
+      drawerTabs={drawerTabs}
       hideDataSourceAndQueryKey={hideDataSourceAndQueryKey !== undefined ? hideDataSourceAndQueryKey : !showSelectors}
       renderHeaderControls={(selectorsJSX) => showSelectors ? (
         <div className="px-4 py-3 border-b border-gray-200 bg-white">

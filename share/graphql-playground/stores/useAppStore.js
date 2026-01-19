@@ -36,8 +36,25 @@ export const useAppStore = create((set, get) => ({
   },
 
   // Query execution state per tab
-  // Map of tabIndex -> { hasSuccessfulQuery: boolean, transformedData: object, transformerCode: string }
-  tabData: {}, // { [tabIndex]: { hasSuccessfulQuery: boolean, transformedData: object | null, transformerCode: string } }
+  // Map of tabIndex -> { 
+  //   Query execution state:
+  //   hasSuccessfulQuery: boolean, 
+  //   transformedData: object | null, 
+  //   transformerCode: string,
+  //   processedData: object | null,  // Processed/transformed data for this tab
+  //   Save control fields:
+  //   clientSave: boolean,
+  //   selectedKeys: string | null,
+  //   expandedKeys: {},
+  //   month: Date | null,
+  //   monthIndexKeys: string | null,
+  //   monthIndexExpandedKeys: {},
+  //   searchFields: {},
+  //   sortFields: {},
+  //   searchFieldsExpandedKeys: {},
+  //   sortFieldsExpandedKeys: {},
+  // }
+  tabData: {}, // { [tabIndex]: { ... } }
   setTabData: (tabIndex, data) => 
     set((state) => ({
       tabData: {
@@ -50,7 +67,24 @@ export const useAppStore = create((set, get) => ({
     })),
   getTabData: (tabIndex) => {
     const state = get();
-    return state.tabData[tabIndex] || { hasSuccessfulQuery: false, transformedData: null, transformerCode: '' };
+    const defaultTabData = {
+      hasSuccessfulQuery: false,
+      transformedData: null,
+      transformerCode: '',
+      processedData: null,
+      // Default save control fields
+      clientSave: false,
+      selectedKeys: null,
+      expandedKeys: {},
+      month: null,
+      monthIndexKeys: null,
+      monthIndexExpandedKeys: {},
+      searchFields: {},
+      sortFields: {},
+      searchFieldsExpandedKeys: {},
+      sortFieldsExpandedKeys: {},
+    };
+    return state.tabData[tabIndex] || defaultTabData;
   },
 
   // GraphiQL editor state (synced from GraphiQL context)
@@ -60,6 +94,8 @@ export const useAppStore = create((set, get) => ({
     activeTabIndex: 0,
     queryEditor: null,
     variableEditor: null,
+    actions: null, // GraphiQL actions for programmatic execution
+    isExecuting: false, // Track if query is currently executing
   },
   setGraphiQLState: (state) => 
     set((currentState) => ({

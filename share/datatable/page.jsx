@@ -3,11 +3,11 @@
 import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { Toast } from 'primereact/toast';
 import { Splitter, SplitterPanel } from 'primereact/splitter';
-import { Sidebar } from 'primereact/sidebar';
-import { TabView, TabPanel } from 'primereact/tabview';
 import { Dropdown } from 'primereact/dropdown';
 import { SelectButton } from 'primereact/selectbutton';
+import { Button } from 'primereact/button';
 import DataTableComponent from './components/DataTable';
+import DataTableNew from './components/DataTableNew';
 import DataTableControls from './components/DataTableControls';
 import DataProvider from './components/DataProvider';
 import data from '@/resource/data';
@@ -19,12 +19,14 @@ import ProtectedRoute from '@/components/ProtectedRoute';
 function DataTablePage() {
   const toast = useRef(null);
   const [isLoading, setIsLoading] = useState(true);
+  // Feature flag state (defaults to true - New Layer enabled by default)
+  const [useOrchestrationLayer, setUseOrchestrationLayer] = useState(true);
   const [tableData, setTableData] = useState(data); // Filtered data for DataTable
   const [rawTableData, setRawTableData] = useState(data); // Full/original data for Auth Control in DataTableControls
   const [currentDataSource, setCurrentDataSource] = useState(null);
   // State for Data Source and Query Key selectors (controlled by page)
-  const [dataSource, setDataSource] = useState('Primary');
-  const [selectedQueryKey, setSelectedQueryKey] = useState('primary');
+  const [dataSource, setDataSource] = useState('claim');
+  const [selectedQueryKey, setSelectedQueryKey] = useState(null);
   // State exposed from DataProvider for selectors
   const [savedQueries, setSavedQueries] = useState([]);
   const [loadingQueries, setLoadingQueries] = useState(false);
@@ -48,6 +50,7 @@ function DataTablePage() {
   const [percentageColumns, setPercentageColumns] = useState([]);
   const [queryVariables, setQueryVariables] = useState({});
   const [variableOverrides, setVariableOverrides] = useState({});
+  const [columnTypesOverride, setColumnTypesOverride] = useState({});
   // Auth Control settings
   const [isAdminMode, setIsAdminMode] = useState(false);
   const [salesTeamColumn, setSalesTeamColumn] = useState(null);
@@ -55,16 +58,9 @@ function DataTablePage() {
   const [hqColumn, setHqColumn] = useState(null);
   const [hqValues, setHqValues] = useState([]);
 
-  // Drawer state
-  const [drawerVisible, setDrawerVisible] = useState(false);
-
-  const [drawerData, setDrawerData] = useState([]);
-  
-  // Drawer tabs state
+  // Drawer tabs state (still managed here for DataTableControls, but drawer rendering moved to DataProvider)
   const [drawerTabs, setDrawerTabs] = useState([{ id: `tab-${Date.now()}`, name: '', outerGroup: null, innerGroup: null }]);
-  const [activeDrawerTabIndex, setActiveDrawerTabIndex] = useState(0);
-  const [clickedDrawerValues, setClickedDrawerValues] = useState({ outerValue: null, innerValue: null });
-  
+
   // Ensure at least one tab exists
   useEffect(() => {
     if (!drawerTabs || drawerTabs.length === 0) {
@@ -101,6 +97,11 @@ function DataTablePage() {
     if (newTableData && Array.isArray(newTableData)) {
       originalTableDataRef.current = newTableData;
     }
+  }, []);
+
+  // Handle column types override changes
+  const handleColumnTypesOverrideChange = useCallback((overrides) => {
+    setColumnTypesOverride(overrides);
   }, []);
 
   // Handle data source changes
@@ -267,12 +268,12 @@ function DataTablePage() {
   // Use refs to avoid including lengths in dependencies (which change when we clear values)
   const salesTeamColumnPrevRef = useRef(salesTeamColumn);
   const hqColumnPrevRef = useRef(hqColumn);
-  
+
   useEffect(() => {
     // Only act when salesTeamColumn actually changes (not just on every render)
     const salesTeamColumnChanged = salesTeamColumnPrevRef.current !== salesTeamColumn;
     salesTeamColumnPrevRef.current = salesTeamColumn;
-    
+
     if (salesTeamColumnChanged && !salesTeamColumn) {
       setSalesTeamValues([]);
       // Clear hq-related values when salesTeamColumn is cleared
@@ -283,7 +284,7 @@ function DataTablePage() {
         setHqValues([]);
       }
     }
-    
+
     // Update refs
     hqColumnPrevRef.current = hqColumn;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -300,11 +301,11 @@ function DataTablePage() {
   // Clear hqValues and hqColumn when salesTeamValues count is not 1
   // Use ref to track previous length to avoid loop
   const salesTeamValuesLengthPrevRef = useRef(salesTeamValues.length);
-  
+
   useEffect(() => {
     const lengthChanged = salesTeamValuesLengthPrevRef.current !== salesTeamValues.length;
     salesTeamValuesLengthPrevRef.current = salesTeamValues.length;
-    
+
     // Only act if length changed and is not 1
     if (lengthChanged && salesTeamValues.length !== 1) {
       if (hqValues.length > 0) {
@@ -346,33 +347,19 @@ function DataTablePage() {
     });
   };
 
-  // Handle outer group click
-  const handleOuterGroupClick = (rowData, column, value) => {
-    // Get filtered data that's currently visible (drawer uses visible filtered data)
-    const originalData = originalTableDataRef.current || tableData;
-    if (!Array.isArray(originalData) || isEmpty(originalData)) {
-      return;
-    }
+  // Drawer handlers removed - now handled in DataProvider via context
+  // These are kept for backward compatibility when feature flag is off
+  const handleOuterGroupClick = useCallback((rowData, column, value) => {
+    // When orchestration layer is off, this will be handled by DataTableComponent
+    // When on, it's handled via context in DataTableNew
+  }, []);
 
-    // Store clicked values for header display
-    setClickedDrawerValues({ outerValue: value, innerValue: null });
-    setActiveDrawerTabIndex(0); // Always use first tab
+  const handleInnerGroupClick = useCallback((rowData, column, value) => {
+    // When orchestration layer is off, this will be handled by DataTableComponent
+    // When on, it's handled via context in DataTableNew
+  }, []);
 
-    // Filter rows where outerGroupField === clickedValue
-    const filteredData = lodashFilter(originalData, (row) => {
-      if (!row || typeof row !== 'object') return false;
-      const rowValue = get(row, outerGroupField);
-      // Handle null/undefined comparison
-      if (isNil(value) && isNil(rowValue)) return true;
-      if (isNil(value) || isNil(rowValue)) return false;
-      return String(rowValue) === String(value);
-    });
-
-    setDrawerData(filteredData);
-    setDrawerVisible(true);
-  };
-
-  // Tab management functions
+  // Tab management functions (still used by DataTableControls)
   const handleAddDrawerTab = useCallback(() => {
     const newTab = {
       id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -381,68 +368,22 @@ function DataTablePage() {
       innerGroup: null
     };
     setDrawerTabs(prev => [...(prev || []), newTab]);
-    setActiveDrawerTabIndex((drawerTabs || []).length);
-  }, [drawerTabs]);
+  }, []);
 
   const handleRemoveDrawerTab = useCallback((tabId) => {
-    if (!drawerTabs || drawerTabs.length <= 1) return; // Must have at least 1 tab
+    if (!drawerTabs || drawerTabs.length <= 1) return;
     const newTabs = drawerTabs.filter(tab => tab.id !== tabId);
     setDrawerTabs(newTabs);
-    // Adjust active index if needed
-    if (activeDrawerTabIndex >= newTabs.length) {
-      setActiveDrawerTabIndex(newTabs.length - 1);
-    }
-  }, [drawerTabs, activeDrawerTabIndex]);
+  }, [drawerTabs]);
 
   const handleUpdateDrawerTab = useCallback((tabId, updates) => {
     setDrawerTabs(prev => {
       if (!prev) return prev;
-      return prev.map(tab => 
+      return prev.map(tab =>
         tab.id === tabId ? { ...tab, ...updates } : tab
       );
     });
   }, []);
-
-  // Handle inner group click
-  const handleInnerGroupClick = (rowData, column, value) => {
-    // Get filtered data that's currently visible (drawer uses visible filtered data)
-    const originalData = originalTableDataRef.current || tableData;
-    if (!Array.isArray(originalData) || isEmpty(originalData)) {
-      return;
-    }
-
-    // Get outer group value from the row data
-    const outerValue = get(rowData, outerGroupField);
-
-    // Store clicked values for header display
-    setClickedDrawerValues({ outerValue, innerValue: value });
-    setActiveDrawerTabIndex(0); // Always use first tab
-
-    // Filter rows where outerGroupField === clickedOuterValue AND innerGroupField === clickedInnerValue
-    const filteredData = lodashFilter(originalData, (row) => {
-      if (!row || typeof row !== 'object') return false;
-      const rowOuterValue = get(row, outerGroupField);
-      const rowInnerValue = get(row, innerGroupField);
-
-      // Check outer group match
-      let outerMatch = false;
-      if (isNil(outerValue) && isNil(rowOuterValue)) {
-        outerMatch = true;
-      } else if (!isNil(outerValue) && !isNil(rowOuterValue)) {
-        outerMatch = String(rowOuterValue) === String(outerValue);
-      }
-
-      if (!outerMatch) return false;
-
-      // Check inner group match
-      if (isNil(value) && isNil(rowInnerValue)) return true;
-      if (isNil(value) || isNil(rowInnerValue)) return false;
-      return String(rowInnerValue) === String(value);
-    });
-
-    setDrawerData(filteredData);
-    setDrawerVisible(true);
-  };
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -457,6 +398,7 @@ function DataTablePage() {
           </div>
         ) : (
           <DataProvider
+            useOrchestrationLayer={useOrchestrationLayer}
             offlineData={data}
             onDataChange={handleDataChange}
             onError={handleError}
@@ -478,8 +420,34 @@ function DataTablePage() {
             salesTeamValues={salesTeamValues}
             hqColumn={hqColumn}
             hqValues={hqValues}
+            {...(useOrchestrationLayer && {
+              enableSort,
+              enableFilter,
+              enableSummation,
+              textFilterColumns,
+              visibleColumns,
+              onVisibleColumnsChange: setVisibleColumns,
+              percentageColumns,
+              outerGroupField,
+              innerGroupField,
+              redFields,
+              greenFields,
+              enableDivideBy1Lakh,
+              columnTypesOverride,
+              drawerTabs,
+              onDrawerTabsChange: setDrawerTabs,
+            })}
             renderHeaderControls={(selectorsJSX) => (
               <div className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 border-b border-gray-200 shrink-0 bg-white min-w-0 overflow-x-hidden">
+                {/* Feature Flag Toggle */}
+                <div className="mb-2">
+                  <Button
+                    label={useOrchestrationLayer ? 'Using New Layer (ON)' : 'Using Old Layer (OFF)'}
+                    onClick={() => setUseOrchestrationLayer(!useOrchestrationLayer)}
+                    className={`p-button-sm ${useOrchestrationLayer ? 'p-button-success' : 'p-button-secondary'}`}
+                    icon={useOrchestrationLayer ? 'pi pi-check-circle' : 'pi pi-times-circle'}
+                  />
+                </div>
                 <div className="flex justify-between items-start gap-3 flex-wrap min-w-0">
                   {/* Left: selectorsJSX from DataProvider */}
                   <div className="flex-1 min-w-0">
@@ -521,9 +489,9 @@ function DataTablePage() {
                         <Dropdown
                           value={selectedQueryKey}
                           onChange={(e) => setSelectedQueryKey(e.value)}
-                          options={availableQueryKeys.map(key => ({ 
-                            label: startCase(key.split('__').join(' ').split('_').join(' ')), 
-                            value: key 
+                          options={availableQueryKeys.map(key => ({
+                            label: startCase(key.split('__').join(' ').split('_').join(' ')),
+                            value: key
                           }))}
                           optionLabel="label"
                           optionValue="value"
@@ -544,191 +512,134 @@ function DataTablePage() {
             <div className="flex-1 min-h-0">
               <Splitter style={{ height: '100%' }} layout="horizontal" className="h-full">
                 <SplitterPanel className="flex flex-col min-w-0 h-full" size={80} minSize={30}>
-                <div className="flex flex-col min-w-0 h-full p-3 sm:p-4 md:p-6">
-                  {isLoadingData ? (
-                    <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center">
-                      <div className="mb-4">
-                        <div className="inline-block animate-spin rounded-full h-8 w-8 border-2 border-gray-200 border-t-blue-600"></div>
+                  <div className="flex flex-col min-w-0 h-full p-3 sm:p-4 md:p-6">
+                    {isLoadingData ? (
+                      <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center">
+                        <div className="mb-4">
+                          <div className="inline-block animate-spin rounded-full h-8 w-8 border-2 border-gray-200 border-t-blue-600"></div>
+                        </div>
+                        <p className="text-sm text-gray-500">Loading data...</p>
                       </div>
-                      <p className="text-sm text-gray-500">Loading data...</p>
-                    </div>
-                  ) : tableData === null ? (
-                    <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center">
-                      <div className="mb-4">
-                        <i className="pi pi-table text-6xl text-gray-300"></i>
+                    ) : tableData === null ? (
+                      <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center">
+                        <div className="mb-4">
+                          <i className="pi pi-table text-6xl text-gray-300"></i>
+                        </div>
+                        <h3 className="text-lg font-semibold text-gray-700 mb-2">
+                          No Data Available
+                        </h3>
+                        <p className="text-sm text-gray-500 max-w-md">
+                          Please select a query from the dropdown above and click <strong>Execute</strong> to see the table data.
+                        </p>
                       </div>
-                      <h3 className="text-lg font-semibold text-gray-700 mb-2">
-                        No Data Available
-                      </h3>
-                      <p className="text-sm text-gray-500 max-w-md">
-                        Please select a query from the dropdown above and click <strong>Execute</strong> to see the table data.
-                      </p>
-                    </div>
-                  ) : (
-                    <DataTableComponent
-                      scrollHeight={"60dvh"}
-                      data={tableData}
-                      rowsPerPageOptions={rowsPerPageOptions}
-                      defaultRows={defaultRows}
-                      scrollable={false}
-                      enableSort={enableSort}
-                      enableFilter={enableFilter}
-                      enableSummation={enableSummation}
-                      enableDivideBy1Lakh={enableDivideBy1Lakh}
-                      textFilterColumns={textFilterColumns}
-                      visibleColumns={visibleColumns}
-                      onVisibleColumnsChange={setVisibleColumns}
-                      redFields={redFields}
-                      greenFields={greenFields}
-                      outerGroupField={outerGroupField}
-                      innerGroupField={innerGroupField}
-                      enableCellEdit={enableCellEdit}
-                      nonEditableColumns={nonEditableColumns}
-                      onCellEditComplete={handleCellEditComplete}
-                      onOuterGroupClick={handleOuterGroupClick}
-                      onInnerGroupClick={handleInnerGroupClick}
-                      percentageColumns={percentageColumns}
-                      tableName="main"
-                    />
-                  )}
-                </div>
-              </SplitterPanel>
-              <SplitterPanel className="flex flex-col min-w-0 h-full border-l border-gray-200" size={20} minSize={2}>
-                <DataTableControls
-                  enableSort={enableSort}
-                  enableFilter={enableFilter}
-                  enableSummation={enableSummation}
-                  enableCellEdit={enableCellEdit}
-                  enableDivideBy1Lakh={enableDivideBy1Lakh}
-                  rowsPerPageOptions={rowsPerPageOptions}
-                  defaultRows={defaultRows}
-                  columns={columns}
-                  textFilterColumns={textFilterColumns}
-                  visibleColumns={visibleColumns}
-                  redFields={redFields}
-                  greenFields={greenFields}
-                  outerGroupField={outerGroupField}
-                  innerGroupField={innerGroupField}
-                  nonEditableColumns={nonEditableColumns}
-                  percentageColumns={percentageColumns}
-                  dataSource={currentDataSource}
-                  queryVariables={queryVariables}
-                  variableOverrides={variableOverrides}
-                  onVariableOverrideChange={setVariableOverrides}
-                  onSortChange={setEnableSort}
-                  onFilterChange={setEnableFilter}
-                  onSummationChange={setEnableSummation}
-                  onCellEditChange={setEnableCellEdit}
-                  onDivideBy1LakhChange={setEnableDivideBy1Lakh}
-                  onRowsPerPageOptionsChange={setRowsPerPageOptions}
-                  onDefaultRowsChange={setDefaultRows}
-                  onTextFilterColumnsChange={setTextFilterColumns}
-                  onVisibleColumnsChange={setVisibleColumns}
-                  onRedFieldsChange={setRedFields}
-                  onGreenFieldsChange={setGreenFields}
-                  onOuterGroupFieldChange={setOuterGroupField}
-                  onInnerGroupFieldChange={setInnerGroupField}
-                  onNonEditableColumnsChange={setNonEditableColumns}
-                  onPercentageColumnsChange={setPercentageColumns}
-                  drawerTabs={drawerTabs || []}
-                  onDrawerTabsChange={setDrawerTabs}
-                  onAddDrawerTab={handleAddDrawerTab}
-                  onRemoveDrawerTab={handleRemoveDrawerTab}
-                  onUpdateDrawerTab={handleUpdateDrawerTab}
-                  isAdminMode={isAdminMode}
-                  salesTeamColumn={salesTeamColumn}
-                  salesTeamValues={salesTeamValues}
-                  hqColumn={hqColumn}
-                  hqValues={hqValues}
-                  tableData={rawTableData}
-                  onAdminModeChange={setIsAdminMode}
-                  onSalesTeamColumnChange={setSalesTeamColumn}
-                  onSalesTeamValuesChange={setSalesTeamValues}
-                  onHqColumnChange={setHqColumn}
-                  onHqValuesChange={setHqValues}
-                />
-              </SplitterPanel>
+                    ) : useOrchestrationLayer ? (
+                      <DataTableNew
+                        scrollHeight="60dvh"
+                        rowsPerPageOptions={rowsPerPageOptions}
+                        defaultRows={defaultRows}
+                        scrollable={false}
+                        enableCellEdit={enableCellEdit}
+                        nonEditableColumns={nonEditableColumns}
+                        onCellEditComplete={handleCellEditComplete}
+                        onOuterGroupClick={handleOuterGroupClick}
+                        onInnerGroupClick={handleInnerGroupClick}
+                        tableName="main"
+                        useOrchestrationLayer={useOrchestrationLayer}
+                      />
+                    ) : (
+                      <DataTableComponent
+                        columnTypes={{ is_internal_customer: "number" }}
+                        scrollHeight="60dvh"
+                        data={tableData}
+                        rowsPerPageOptions={rowsPerPageOptions}
+                        defaultRows={defaultRows}
+                        scrollable={false}
+                        enableSort={enableSort}
+                        enableFilter={enableFilter}
+                        enableSummation={enableSummation}
+                        enableDivideBy1Lakh={enableDivideBy1Lakh}
+                        textFilterColumns={textFilterColumns}
+                        visibleColumns={visibleColumns}
+                        onVisibleColumnsChange={setVisibleColumns}
+                        redFields={redFields}
+                        greenFields={greenFields}
+                        outerGroupField={outerGroupField}
+                        innerGroupField={innerGroupField}
+                        enableCellEdit={enableCellEdit}
+                        nonEditableColumns={nonEditableColumns}
+                        onCellEditComplete={handleCellEditComplete}
+                        onOuterGroupClick={handleOuterGroupClick}
+                        onInnerGroupClick={handleInnerGroupClick}
+                        percentageColumns={percentageColumns}
+                        tableName="main"
+                        useOrchestrationLayer={useOrchestrationLayer}
+                      />
+                    )}
+                  </div>
+                </SplitterPanel>
+                <SplitterPanel className="flex flex-col min-w-0 h-full border-l border-gray-200" size={20} minSize={2}>
+                  <DataTableControls
+                    enableSort={enableSort}
+                    enableFilter={enableFilter}
+                    enableSummation={enableSummation}
+                    enableCellEdit={enableCellEdit}
+                    enableDivideBy1Lakh={enableDivideBy1Lakh}
+                    rowsPerPageOptions={rowsPerPageOptions}
+                    defaultRows={defaultRows}
+                    columns={columns}
+                    textFilterColumns={textFilterColumns}
+                    visibleColumns={visibleColumns}
+                    redFields={redFields}
+                    greenFields={greenFields}
+                    outerGroupField={outerGroupField}
+                    innerGroupField={innerGroupField}
+                    nonEditableColumns={nonEditableColumns}
+                    percentageColumns={percentageColumns}
+                    dataSource={currentDataSource}
+                    queryVariables={queryVariables}
+                    variableOverrides={variableOverrides}
+                    onVariableOverrideChange={setVariableOverrides}
+                    onSortChange={setEnableSort}
+                    onFilterChange={setEnableFilter}
+                    onSummationChange={setEnableSummation}
+                    onCellEditChange={setEnableCellEdit}
+                    onDivideBy1LakhChange={setEnableDivideBy1Lakh}
+                    onRowsPerPageOptionsChange={setRowsPerPageOptions}
+                    onDefaultRowsChange={setDefaultRows}
+                    onTextFilterColumnsChange={setTextFilterColumns}
+                    onVisibleColumnsChange={setVisibleColumns}
+                    onRedFieldsChange={setRedFields}
+                    onGreenFieldsChange={setGreenFields}
+                    onOuterGroupFieldChange={setOuterGroupField}
+                    onInnerGroupFieldChange={setInnerGroupField}
+                    onNonEditableColumnsChange={setNonEditableColumns}
+                    onPercentageColumnsChange={setPercentageColumns}
+                    drawerTabs={drawerTabs || []}
+                    onDrawerTabsChange={setDrawerTabs}
+                    onAddDrawerTab={handleAddDrawerTab}
+                    onRemoveDrawerTab={handleRemoveDrawerTab}
+                    onUpdateDrawerTab={handleUpdateDrawerTab}
+                    isAdminMode={isAdminMode}
+                    salesTeamColumn={salesTeamColumn}
+                    salesTeamValues={salesTeamValues}
+                    hqColumn={hqColumn}
+                    hqValues={hqValues}
+                    tableData={rawTableData}
+                    onAdminModeChange={setIsAdminMode}
+                    onSalesTeamColumnChange={setSalesTeamColumn}
+                    onSalesTeamValuesChange={setSalesTeamValues}
+                    onHqColumnChange={setHqColumn}
+                    onHqValuesChange={setHqValues}
+                    columnTypesOverride={columnTypesOverride}
+                    onColumnTypesOverrideChange={handleColumnTypesOverrideChange}
+                  />
+                </SplitterPanel>
               </Splitter>
             </div>
           </DataProvider>
         )}
       </main>
-
-      {/* Drawer Sidebar */}
-      <Sidebar
-        position="bottom"
-        blockScroll
-        visible={drawerVisible}
-        onHide={() => setDrawerVisible(false)}
-        style={{ height: '100vh' }}
-        className="p-sidebar-sm"
-        header={
-          <h2 className="text-lg font-semibold text-gray-800 m-0">
-            {clickedDrawerValues.innerValue 
-              ? `${clickedDrawerValues.outerValue} : ${clickedDrawerValues.innerValue}`
-              : clickedDrawerValues.outerValue || 'Drawer'}
-          </h2>
-        }
-      >
-        <div className="flex flex-col h-full">
-          {/* Drawer Body - TabView with DataTable */}
-          <div className="flex-1">
-            {drawerTabs && drawerTabs.length > 0 ? (
-              <TabView 
-                activeIndex={Math.min(activeDrawerTabIndex, Math.max(0, drawerTabs.length - 1))} 
-                onTabChange={(e) => setActiveDrawerTabIndex(e.index)}
-                className="h-full flex flex-col"
-              >
-                {drawerTabs.map((tab) => (
-                  <TabPanel 
-                    key={tab.id} 
-                    header={tab.name || `Tab ${drawerTabs.indexOf(tab) + 1}`}
-                    className="h-full flex flex-col"
-                  >
-                    <div className="flex-1 overflow-auto">
-                      {drawerData && drawerData.length > 0 ? (
-                        <DataTableComponent
-                          data={drawerData}
-                          rowsPerPageOptions={rowsPerPageOptions}
-                          defaultRows={defaultRows}
-                          scrollable={false}
-                          enableSort={enableSort}
-                          enableFilter={enableFilter}
-                          enableSummation={enableSummation}
-                          enableDivideBy1Lakh={enableDivideBy1Lakh}
-                          textFilterColumns={textFilterColumns}
-                          visibleColumns={visibleColumns}
-                          onVisibleColumnsChange={setVisibleColumns}
-                          redFields={redFields}
-                          greenFields={greenFields}
-                          outerGroupField={tab.outerGroup}
-                          innerGroupField={tab.innerGroup}
-                          enableCellEdit={false}
-                          nonEditableColumns={nonEditableColumns}
-                          percentageColumns={percentageColumns}
-                          tableName="sidebar"
-                        />
-                      ) : (
-                        <div className="flex flex-col items-center justify-center h-full text-center">
-                          <i className="pi pi-inbox text-4xl text-gray-400 mb-4"></i>
-                          <p className="text-gray-600 font-medium">No data available</p>
-                          <p className="text-sm text-gray-500 mt-1">No matching rows found</p>
-                        </div>
-                      )}
-                    </div>
-                  </TabPanel>
-                ))}
-              </TabView>
-            ) : (
-              <div className="flex flex-col items-center justify-center h-full text-center">
-                <i className="pi pi-inbox text-4xl text-gray-400 mb-4"></i>
-                <p className="text-gray-600 font-medium">No tabs configured</p>
-                <p className="text-sm text-gray-500 mt-1">Please configure drawer tabs in settings</p>
-              </div>
-            )}
-          </div>
-        </div>
-      </Sidebar>
+      {/* Drawer Sidebar removed - now rendered inside DataProvider when useOrchestrationLayer is true */}
     </div>
   );
 }

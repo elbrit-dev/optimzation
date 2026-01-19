@@ -29,3 +29,44 @@ export function getDataValue(data, key) {
   }
   return data[key];
 }
+
+/**
+ * Get nested value from row using top-level key and nested path
+ * @param {Object} row - Row object
+ * @param {string} topLevelKey - Top-level key (e.g., "user")
+ * @param {string} nestedPath - Nested path (e.g., "profile.name")
+ * @returns {*} Value at nested path or undefined
+ */
+export function getNestedValue(row, topLevelKey, nestedPath) {
+  if (!row || !topLevelKey) return undefined;
+  const topLevelValue = getDataValue(row, topLevelKey);
+  
+  // If top-level key exists and has a value, try nested access
+  if (topLevelValue != null && nestedPath) {
+    // Split nested path and traverse
+    const parts = nestedPath.split('.');
+    let current = topLevelValue;
+    for (const part of parts) {
+      if (current == null) {
+        break;
+      }
+      current = getDataValue(current, part);
+    }
+    // If we got a value, return it
+    if (current != null) {
+      return current;
+    }
+  }
+  
+  // Fallback: if top-level key doesn't exist or nested access failed,
+  // try accessing nestedPath directly on the row (for flat data structures)
+  if (nestedPath) {
+    const directValue = getDataValue(row, nestedPath);
+    if (directValue != null) {
+      return directValue;
+    }
+  }
+  
+  // If no nestedPath, return top-level value (or undefined if it doesn't exist)
+  return topLevelValue;
+}

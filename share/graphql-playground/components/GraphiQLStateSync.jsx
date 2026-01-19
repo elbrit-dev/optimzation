@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useGraphiQL } from '@graphiql/react';
+import { useGraphiQL, useGraphiQLActions } from '@graphiql/react';
 import { useAppStore } from '../stores/useAppStore';
 
 /**
@@ -12,16 +12,18 @@ export function GraphiQLStateSync() {
   const queryEditor = useGraphiQL((state) => state.queryEditor);
   const variableEditor = useGraphiQL((state) => state.variableEditor);
   const activeTabIndex = useGraphiQL((state) => state.activeTabIndex) ?? 0;
+  const actions = useGraphiQLActions();
   const setGraphiQLState = useAppStore((state) => state.setGraphiQLState);
 
-  // Sync editor refs immediately
+  // Sync editor refs and actions immediately
   useEffect(() => {
     setGraphiQLState({
       queryEditor,
       variableEditor,
       activeTabIndex,
+      actions, // Store actions so they can be accessed from outside GraphiQL context
     });
-  }, [queryEditor, variableEditor, activeTabIndex, setGraphiQLState]);
+  }, [queryEditor, variableEditor, activeTabIndex, actions, setGraphiQLState]);
 
   // Sync query string when it changes
   useEffect(() => {

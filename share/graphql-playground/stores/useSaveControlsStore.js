@@ -8,37 +8,17 @@ import { getEndpointFromUrlKey } from '../constants';
 
 /**
  * Save controls store
- * Manages: client save mode, tree nodes, selected keys, month selection
+ * Manages: tree nodes (utility/parsed data)
+ * Note: Save control fields (clientSave, selectedKeys, etc.) are now stored per-tab in useAppStore.tabData
  */
 export const useSaveControlsStore = create((set, get) => ({
-  // Client save toggle
-  clientSave: false,
-  setClientSave: (value) => set({ clientSave: value }),
-  toggleClientSave: () => set((state) => ({ clientSave: !state.clientSave })),
-
-  // Tree nodes
+  // Tree nodes (parsed from query string) - kept as global utility
   treeNodes: [],
   setTreeNodes: (nodes) => set({ treeNodes: nodes }),
 
-  // Selected keys
-  selectedKeys: null,
-  setSelectedKeys: (keys) => set({ selectedKeys: keys }),
-
-  // Expanded keys
-  expandedKeys: {},
-  setExpandedKeys: (keys) => set({ expandedKeys: keys }),
-
-  // Month selection
-  month: null,
-  setMonth: (month) => set({ month }),
-
-  // Month index keys
-  monthIndexKeys: null,
-  setMonthIndexKeys: (keys) => set({ monthIndexKeys: keys }),
-
-  // Month index expanded keys
-  monthIndexExpandedKeys: {},
-  setMonthIndexExpandedKeys: (keys) => set({ monthIndexExpandedKeys: keys }),
+  // Tree nodes from processedData - kept as global utility
+  processedDataTreeNodes: [],
+  setProcessedDataTreeNodes: (nodes) => set({ processedDataTreeNodes: nodes }),
 
   // Actions
   loadQueryData: async (queryString, activeTabIndex = 0) => {
@@ -103,53 +83,89 @@ export const useSaveControlsStore = create((set, get) => ({
             updates.monthIndexExpandedKeys = {};
           }
 
-          // Restore transformerCode if it exists
+          // Restore transformerCode
           if (data.transformerCode !== undefined) {
-            useAppStore.getState().setTabData(activeTabIndex, { transformerCode: data.transformerCode || '' });
-          } else {
-            useAppStore.getState().setTabData(activeTabIndex, { transformerCode: '' });
+            updates.transformerCode = data.transformerCode || '';
           }
 
-          set(updates);
+          // Restore searchFields if it exists
+          if (data.searchFields && typeof data.searchFields === 'object' && !Array.isArray(data.searchFields)) {
+            updates.searchFields = data.searchFields;
+            
+            // Compute expandedKeys for searchFields
+            const searchExpanded = {};
+            Object.keys(data.searchFields).forEach(topLevelKey => {
+              const nestedPaths = data.searchFields[topLevelKey];
+              if (Array.isArray(nestedPaths)) {
+                nestedPaths.forEach(nestedPath => {
+                  const fullPath = nestedPath ? `${topLevelKey}.${nestedPath}` : topLevelKey;
+                  const parts = fullPath.split('.');
+                  // Expand all parent paths
+                  for (let i = 1; i < parts.length; i++) {
+                    const keyToExpand = parts.slice(0, i).join('.');
+                    searchExpanded[keyToExpand] = true;
+                  }
+                });
+              }
+            });
+            updates.searchFieldsExpandedKeys = searchExpanded;
+          }
+
+          // Restore sortFields if it exists
+          if (data.sortFields && typeof data.sortFields === 'object' && !Array.isArray(data.sortFields)) {
+            updates.sortFields = data.sortFields;
+            
+            // Compute expandedKeys for sortFields
+            const sortExpanded = {};
+            Object.keys(data.sortFields).forEach(topLevelKey => {
+              const nestedPaths = data.sortFields[topLevelKey];
+              if (Array.isArray(nestedPaths)) {
+                nestedPaths.forEach(nestedPath => {
+                  const fullPath = nestedPath ? `${topLevelKey}.${nestedPath}` : topLevelKey;
+                  const parts = fullPath.split('.');
+                  // Expand all parent paths
+                  for (let i = 1; i < parts.length; i++) {
+                    const keyToExpand = parts.slice(0, i).join('.');
+                    sortExpanded[keyToExpand] = true;
+                  }
+                });
+              }
+            });
+            updates.sortFieldsExpandedKeys = sortExpanded;
+          }
+
+          // Set all updates for this tab (merge with existing tab data)
+          useAppStore.getState().setTabData(activeTabIndex, updates);
         } else {
-          // Reset if no data found
-          useAppStore.getState().setTabData(activeTabIndex, { transformerCode: '' });
-          set({
-            clientSave: false,
-            selectedKeys: null,
-            expandedKeys: {},
-            month: null,
-            monthIndexKeys: null,
-            monthIndexExpandedKeys: {},
-          });
+          // No data found - DON'T reset, just ensure transformerCode is set if not present
+          const currentTabData = useAppStore.getState().tabData[activeTabIndex];
+          if (!currentTabData?.transformerCode) {
+            useAppStore.getState().setTabData(activeTabIndex, { transformerCode: '' });
+          }
+          // Keep all other existing tab data (clientSave, selectedKeys, etc.) unchanged
         }
       } catch (error) {
         console.error('Error loading existing document:', error);
+        // Don't reset on error - preserve existing state
       }
-      } else {
-        // Reset if no operation name
+    } else {
+      // No operation name - DON'T reset, just ensure transformerCode is set if not present
+      const currentTabData = useAppStore.getState().tabData[activeTabIndex];
+      if (!currentTabData?.transformerCode) {
         useAppStore.getState().setTabData(activeTabIndex, { transformerCode: '' });
-      set({
-        clientSave: false,
-        selectedKeys: null,
-        expandedKeys: {},
-        month: null,
-        monthIndexKeys: null,
-        monthIndexExpandedKeys: {},
-      });
+      }
+      // Keep all other existing tab data unchanged
     }
   },
 
   reset: () => {
+    // Only reset utility fields - save control fields are now per-tab and persist
     set({
-      clientSave: false,
-      selectedKeys: null,
-      expandedKeys: {},
-      month: null,
-      monthIndexKeys: null,
-      monthIndexExpandedKeys: {},
       treeNodes: [],
+      processedDataTreeNodes: [],
     });
+    // Note: This reset no longer clears save control fields since they're per-tab
+    // Tab data persists even when this is called
   },
 }));
 

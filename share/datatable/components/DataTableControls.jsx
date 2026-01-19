@@ -489,6 +489,8 @@ export default function DataTableControls({
   onSalesTeamValuesChange,
   onHqColumnChange,
   onHqValuesChange,
+  columnTypesOverride = {},
+  onColumnTypesOverrideChange,
 }) {
   const [customOptions, setCustomOptions] = useState(
     Array.isArray(rowsPerPageOptions) ? rowsPerPageOptions.join(', ') : ''
@@ -541,6 +543,58 @@ export default function DataTableControls({
   const formatFieldName = React.useCallback((key) => {
     return startCase(key.split('__').join(' ').split('_').join(' '));
   }, []);
+
+  // Detect column types from tableData (simplified version)
+  const detectedColumnTypes = React.useMemo(() => {
+    if (!Array.isArray(tableData) || isEmpty(tableData) || isEmpty(columns)) {
+      return {};
+    }
+    
+    const types = {};
+    const sampleData = tableData.slice(0, 100);
+    
+    columns.forEach((col) => {
+      let numericCount = 0;
+      let dateCount = 0;
+      let booleanCount = 0;
+      let nonNullCount = 0;
+      
+      sampleData.forEach((row) => {
+        const value = getDataValue(row, col);
+        if (value !== null && value !== undefined) {
+          nonNullCount++;
+          if (typeof value === 'boolean') {
+            booleanCount++;
+          } else if (value === 0 || value === 1 || value === '0' || value === '1') {
+            // Could be boolean or number
+            if (typeof value === 'number' || !isNaN(Number(value))) {
+              numericCount++;
+            }
+          } else if (typeof value === 'number' || (!isNaN(Number(value)) && value !== '')) {
+            numericCount++;
+          } else if (value instanceof Date || (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value))) {
+            dateCount++;
+          }
+        }
+      });
+      
+      if (nonNullCount > 0) {
+        if (booleanCount > nonNullCount * 0.7) {
+          types[col] = 'boolean';
+        } else if (dateCount > nonNullCount * 0.7) {
+          types[col] = 'date';
+        } else if (numericCount > nonNullCount * 0.8) {
+          types[col] = 'number';
+        } else {
+          types[col] = 'string';
+        }
+      } else {
+        types[col] = 'string';
+      }
+    });
+    
+    return types;
+  }, [tableData, columns]);
 
   // Get variable type helper
   const getVariableType = React.useCallback((value) => {
@@ -833,104 +887,100 @@ export default function DataTableControls({
               </div>
             </div>
 
-            {/* Sales Team Controls - Only show when Admin mode is OFF */}
-            {!isAdminMode && (
-              <>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Sales Team Column
-                  </label>
-                  <p className="text-xs text-gray-500 mb-2">
-                    Select the column that contains sales team data
-                  </p>
-                  <SingleFieldSelector
-                    columns={columns}
-                    selectedField={salesTeamColumn}
-                    onSelectionChange={onSalesTeamColumnChange}
-                    formatFieldName={formatFieldName}
-                    placeholder="Select sales team column..."
-                  />
-                </div>
+            {/* Sales Team Column - Always visible */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Sales Team Column
+              </label>
+              <p className="text-xs text-gray-500 mb-2">
+                Select the column that contains sales team data
+              </p>
+              <SingleFieldSelector
+                columns={columns}
+                selectedField={salesTeamColumn}
+                onSelectionChange={onSalesTeamColumnChange}
+                formatFieldName={formatFieldName}
+                placeholder="Select sales team column..."
+              />
+            </div>
 
-                {salesTeamColumn && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Sales Team Values
-                    </label>
-                    <p className="text-xs text-gray-500 mb-2">
-                      Select one or more sales team values to filter by
-                    </p>
-                    <MultiSelect
-                      value={salesTeamValues}
-                      onChange={(e) => onSalesTeamValuesChange && onSalesTeamValuesChange(e.value || [])}
-                      options={salesTeamUniqueValues.map(val => ({ label: String(val), value: String(val) }))}
-                      optionLabel="label"
-                      optionValue="value"
-                      filter
-                      filterPlaceholder="Search values..."
-                      filterDelay={300}
-                      className="w-full"
-                      panelClassName="custom-multiselect-panel"
-                      display="chip"
-                      showClear
-                      resetFilterOnHide
-                      emptyFilterMessage="No values match your search"
-                      emptyMessage="No values available"
-                      placeholder="Select sales team values..."
-                    />
-                  </div>
-                )}
+            {/* Sales Team Values - Only show when Admin mode is OFF */}
+            {!isAdminMode && salesTeamColumn && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Sales Team Values
+                </label>
+                <p className="text-xs text-gray-500 mb-2">
+                  Select one or more sales team values to filter by
+                </p>
+                <MultiSelect
+                  value={salesTeamValues}
+                  onChange={(e) => onSalesTeamValuesChange && onSalesTeamValuesChange(e.value || [])}
+                  options={salesTeamUniqueValues.map(val => ({ label: String(val), value: String(val) }))}
+                  optionLabel="label"
+                  optionValue="value"
+                  filter
+                  filterPlaceholder="Search values..."
+                  filterDelay={300}
+                  className="w-full auth-control-multiselect"
+                  panelClassName="custom-multiselect-panel"
+                  display="chip"
+                  showClear
+                  resetFilterOnHide
+                  emptyFilterMessage="No values match your search"
+                  emptyMessage="No values available"
+                  placeholder="Select sales team values..."
+                />
+              </div>
+            )}
 
-                {/* HQ Controls - Only show when Admin mode is OFF and salesTeamValues has exactly 1 value */}
-                {!isAdminMode && salesTeamValues && salesTeamValues.length === 1 && (
-                  <>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        HQ Column
-                      </label>
-                      <p className="text-xs text-gray-500 mb-2">
-                        Select the column that contains HQ data
-                      </p>
-                      <SingleFieldSelector
-                        columns={columns}
-                        selectedField={hqColumn}
-                        onSelectionChange={onHqColumnChange}
-                        formatFieldName={formatFieldName}
-                        placeholder="Select HQ column..."
-                      />
-                    </div>
+            {/* HQ Column - Always visible when salesTeamColumn is selected */}
+            {salesTeamColumn && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  HQ Column
+                </label>
+                <p className="text-xs text-gray-500 mb-2">
+                  Select the column that contains HQ data
+                </p>
+                <SingleFieldSelector
+                  columns={columns}
+                  selectedField={hqColumn}
+                  onSelectionChange={onHqColumnChange}
+                  formatFieldName={formatFieldName}
+                  placeholder="Select HQ column..."
+                />
+              </div>
+            )}
 
-                    {hqColumn && (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          HQ Values
-                        </label>
-                        <p className="text-xs text-gray-500 mb-2">
-                          Select one or more HQ values to filter by
-                        </p>
-                        <MultiSelect
-                          value={hqValues}
-                          onChange={(e) => onHqValuesChange && onHqValuesChange(e.value || [])}
-                          options={hqUniqueValues.map(val => ({ label: String(val), value: String(val) }))}
-                          optionLabel="label"
-                          optionValue="value"
-                          filter
-                          filterPlaceholder="Search values..."
-                          filterDelay={300}
-                          className="w-full"
-                          panelClassName="custom-multiselect-panel"
-                          display="chip"
-                          showClear
-                          resetFilterOnHide
-                          emptyFilterMessage="No values match your search"
-                          emptyMessage="No values available"
-                          placeholder="Select HQ values..."
-                        />
-                      </div>
-                    )}
-                  </>
-                )}
-              </>
+            {/* HQ Values - Only show when Admin mode is OFF and hqColumn is selected */}
+            {!isAdminMode && hqColumn && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  HQ Values
+                </label>
+                <p className="text-xs text-gray-500 mb-2">
+                  Select one or more HQ values to filter by
+                </p>
+                <MultiSelect
+                  value={hqValues}
+                  onChange={(e) => onHqValuesChange && onHqValuesChange(e.value || [])}
+                  options={hqUniqueValues.map(val => ({ label: String(val), value: String(val) }))}
+                  optionLabel="label"
+                  optionValue="value"
+                  filter
+                  filterPlaceholder="Search values..."
+                  filterDelay={300}
+                  className="w-full auth-control-multiselect"
+                  panelClassName="custom-multiselect-panel"
+                  display="chip"
+                  showClear
+                  resetFilterOnHide
+                  emptyFilterMessage="No values match your search"
+                  emptyMessage="No values available"
+                  placeholder="Select HQ values..."
+                />
+              </div>
             )}
           </div>
         </div>
@@ -1439,6 +1489,114 @@ export default function DataTableControls({
                   </div>
                 </div>
               </AccordionTab>
+
+              {/* COLUMN TYPE OVERRIDES */}
+              {!isEmpty(columns) && (
+                <AccordionTab header={
+                  <div className="flex align-items-center gap-2">
+                    <i className="pi pi-tags"></i>
+                    <span>Column Type Overrides</span>
+                  </div>
+                }>
+                  <div className="m-0">
+                    <div className="mb-4">
+                      <p className="text-xs text-gray-500 mb-3">
+                        Override auto-detected column types. Select "Auto" to use detected type.
+                      </p>
+                      <div className="overflow-x-auto">
+                        <table className="w-full border-collapse">
+                          <thead>
+                            <tr className="border-b border-gray-200">
+                              <th className="text-left py-2 px-3 text-xs font-semibold text-gray-700">Column Name</th>
+                              <th className="text-left py-2 px-3 text-xs font-semibold text-gray-700">Column Type</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {columns.map((col) => {
+                              const detectedType = detectedColumnTypes[col] || 'string';
+                              const overrideType = columnTypesOverride[col];
+                              const isOverridden = !!overrideType;
+                              
+                              // Build dropdown options with icon for auto-detected type
+                              const dropdownOptions = ['string', 'number', 'date', 'boolean'].map(type => {
+                                const isAutoDetected = type === detectedType && !isOverridden;
+                                return {
+                                  label: isAutoDetected ? type : type,
+                                  value: isAutoDetected ? `${type} (auto)` : type,
+                                  isAuto: isAutoDetected
+                                };
+                              });
+                              
+                              // Current value: if overridden, show the override type, otherwise show detected type with auto marker
+                              const currentValue = isOverridden 
+                                ? overrideType 
+                                : `${detectedType} (auto)`;
+                              
+                              // Value template to show icon for auto-detected
+                              const valueTemplate = (option) => {
+                                if (!option) return null;
+                                const isAuto = option.isAuto || currentValue.endsWith(' (auto)');
+                                return (
+                                  <div className="flex items-center gap-1.5">
+                                    <span>{option.label || option}</span>
+                                    {isAuto && <i className="pi pi-microchip-ai text-xs text-gray-400"></i>}
+                                  </div>
+                                );
+                              };
+                              
+                              // Item template for dropdown items
+                              const itemTemplate = (option) => {
+                                return (
+                                  <div className="flex items-center gap-1.5">
+                                    <span>{option.label}</span>
+                                    {option.isAuto && <i className="pi pi-microchip-ai text-xs text-gray-400"></i>}
+                                  </div>
+                                );
+                              };
+                              
+                              return (
+                                <tr key={col} className="border-b border-gray-100 hover:bg-gray-50">
+                                  <td className="py-2 px-3 text-sm text-gray-800">
+                                    {formatFieldName(col)}
+                                  </td>
+                                  <td className="py-2 px-3">
+                                    <Dropdown
+                                      value={currentValue}
+                                      onChange={(e) => {
+                                        const newOverrides = { ...columnTypesOverride };
+                                        const selectedValue = e.value;
+                                        
+                                        // If selected value ends with " (auto)", it means auto-detected - remove override
+                                        if (selectedValue.endsWith(' (auto)')) {
+                                          delete newOverrides[col];
+                                        } else {
+                                          // Otherwise, it's an override
+                                          newOverrides[col] = selectedValue;
+                                        }
+                                        
+                                        if (onColumnTypesOverrideChange) {
+                                          onColumnTypesOverrideChange(newOverrides);
+                                        }
+                                      }}
+                                      options={dropdownOptions}
+                                      optionLabel="label"
+                                      optionValue="value"
+                                      valueTemplate={valueTemplate}
+                                      itemTemplate={itemTemplate}
+                                      className="flex-1 text-sm"
+                                      style={{ minWidth: '120px' }}
+                                    />
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                </AccordionTab>
+              )}
         </Accordion>
           </div>
         </>

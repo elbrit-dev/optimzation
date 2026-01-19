@@ -42,11 +42,13 @@ function GraphQLPlayground() {
     setSelectedEndpoint,
     setTabData,
   } = useAppStore();
+  
 
   const saveControlsRef = useRef(null);
   const currentTabIndexRef = useRef(0);
   const [activeTabIndex, setActiveTabIndex] = useState(0);
   const [activeMainTab, setActiveMainTab] = useState(0);
+  const previousMainTabRef = useRef(0);
 
   // Get tab data for current tab (reactive to store changes)
   // Subscribe to entire tabData object to avoid selector closure issues
@@ -72,6 +74,7 @@ function GraphQLPlayground() {
   }, []);
 
 
+
   // Endpoint options - UAT and ERP (using extracted constant)
   const endpointOptions = useMemo(() => getEndpointOptions(), []);
 
@@ -89,6 +92,13 @@ function GraphQLPlayground() {
   const explorer = useMemo(() => explorerPlugin(), []);
   const historyPlugin = useMemo(() => {
     return createHistoryPlugin();
+  }, []);
+
+  // Helper function to check if a value should be included (only arrays with length > 0)
+  const isValidDataValue = useCallback((value) => {
+    if (!value) return false;
+    if (Array.isArray(value)) return value.length > 0;
+    return false; // Only arrays are supported
   }, []);
 
   // Dynamic fetcher that uses the current endpoint URL
@@ -116,6 +126,9 @@ function GraphQLPlayground() {
           { endpointUrl, authToken }
         );
       } catch (fetchError) {
+        // Clear executing state on fetch error
+        useAppStore.getState().setGraphiQLState({ isExecuting: false });
+        
         // Handle network errors and HTTP errors gracefully
         // Return error response that GraphiQL can display
         const errorResponse = {
@@ -171,18 +184,44 @@ function GraphQLPlayground() {
             transformedData: transformedData,
           });
 
+          // ALSO set processedData per-tab with same validation logic
+          let processedDataValue = null;
+          if (transformedData) {
+            const allKeys = Object.keys(transformedData);
+            const queryKeys = allKeys.filter(key => isValidDataValue(transformedData[key]));
+
+            // Warn about ignored non-array keys
+            const ignoredKeys = allKeys.filter(key => {
+              const value = transformedData[key];
+              return value && typeof value === 'object' && !Array.isArray(value);
+            });
+            if (ignoredKeys.length > 0) {
+              console.warn(`The following keys are being ignored (only arrays are supported): ${ignoredKeys.join(', ')}`);
+            }
+
+            if (queryKeys.length > 0) {
+              processedDataValue = transformedData;
+            }
+          }
+
+          // Set processedData per-tab
+          setTabData(currentTabIndex, { processedData: processedDataValue });
         } else {
           // Query failed - reset tab data
           setTabData(currentTabIndex, {
             hasSuccessfulQuery: false,
             transformedData: null,
+            processedData: null,
           });
         }
       }
+      
+      // Clear executing state after query completes (success or error)
+      useAppStore.getState().setGraphiQLState({ isExecuting: false });
 
       return response;
     };
-  }, [endpointUrl, authToken, setTabData]);
+  }, [endpointUrl, authToken, setTabData, isValidDataValue]);
 
 
   return (
@@ -257,6 +296,25 @@ function GraphQLPlayground() {
           <SelectButton
             value={activeMainTab}
             onChange={(e) => {
+              // If switching to Data Transformer tab (index 1), trigger query execution first
+              if (e.value === 1 && activeMainTab !== 1) {
+                const graphiQLState = useAppStore.getState().graphiQLState;
+                const query = graphiQLState.queryString || '';
+                const actions = graphiQLState.actions;
+                
+                if (query && query.trim() && actions) {
+                  // Set loading state
+                  useAppStore.getState().setGraphiQLState({ isExecuting: true });
+                  
+                  // Try to execute using the stored actions
+                  if (actions.run) {
+                    actions.run();
+                  } else if (actions.execution?.run) {
+                    actions.execution.run();
+                  }
+                }
+              }
+              
               setActiveMainTab(e.value);
             }}
             options={tabOptions}
@@ -274,7 +332,9 @@ function GraphQLPlayground() {
         
         <TabView
           activeIndex={activeMainTab}
-          onTabChange={(e) => setActiveMainTab(e.index)}
+          onTabChange={(e) => {
+            setActiveMainTab(e.index);
+          }}
           className="graphiql-main-tabview"
           style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
         >

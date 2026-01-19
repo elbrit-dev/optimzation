@@ -12,6 +12,8 @@ import data from '../resource/data';
 import { uniq, flatMap, keys, isEmpty, startCase, filter as lodashFilter, get, isNil } from 'lodash';
 import { saveSettingsForDataSource, loadSettingsForDataSource } from '../lib/settingsService';
 import { useTableContext } from './TableContext';
+import { TableOperationsContext } from '../share/datatable/contexts/TableOperationsContext';
+import { useContext } from 'react';
 
 // Custom hook for localStorage with proper JSON serialization for booleans
 function useLocalStorageBoolean(key, defaultValue) {
@@ -262,6 +264,7 @@ function useLocalStorageObject(key, defaultValue) {
 
 const DataTableWrapper = (props) => {
   const context = useTableContext();
+  const orchestrationContext = useContext(TableOperationsContext);
   
   const {
     className,
@@ -287,34 +290,98 @@ const DataTableWrapper = (props) => {
     scrollHeight: propScrollHeight,
     drawerTabs: propDrawerTabs,
     controlsPanelSize: propControlsPanelSize = 20,
+    useOrchestrationLayer: propUseOrchestrationLayer,
+    enableGrouping: propEnableGrouping,
+    onVisibleColumnsChange: propOnVisibleColumnsChange,
+    onDrawerTabsChange: propOnDrawerTabsChange,
+    onColumnTypesChange: propOnColumnTypesChange,
+    onAdminModeChange: propOnAdminModeChange,
     onSave,
     onVariableOverridesChange,
     tableName: propTableName = 'main',
   } = props;
 
-  // Use props if provided, otherwise fallback to context from TableDataProvider
-  // We check for emptiness/defaults to allow "zero-config" inheritance in Plasmic
+  // 1. Hooks (State & LocalStorage)
+  const [enableSortState, setEnableSort] = useLocalStorageBoolean('datatable-enableSort', true);
+  const [enableFilterState, setEnableFilter] = useLocalStorageBoolean('datatable-enableFilter', true);
+  const [enableSummationState, setEnableSummation] = useLocalStorageBoolean('datatable-enableSummation', true);
+  const [enableCellEditState, setEnableCellEdit] = useLocalStorageBoolean('datatable-enableCellEdit', false);
+  const [rowsPerPageOptionsRawState, setRowsPerPageOptionsRaw] = useLocalStorageArray('datatable-rowsPerPageOptions', [5, 10, 25, 50, 100, 200]);
+  const [defaultRowsRawState, setDefaultRowsRaw] = useLocalStorageNumber('datatable-defaultRows', 10);
+  const [textFilterColumnsRawState, setTextFilterColumnsRaw] = useLocalStorageArray('datatable-textFilterColumns', []);
+  const [visibleColumnsRawState, setVisibleColumnsRaw] = useLocalStorageArray('datatable-visibleColumns', []);
+  const [redFieldsRawState, setRedFieldsRaw] = useLocalStorageArray('datatable-redFields', []);
+  const [greenFieldsRawState, setGreenFieldsRaw] = useLocalStorageArray('datatable-greenFields', []);
+  const [outerGroupFieldRawState, setOuterGroupFieldRaw] = useLocalStorageString('datatable-outerGroupField', null);
+  const [innerGroupFieldRawState, setInnerGroupFieldRaw] = useLocalStorageString('datatable-innerGroupField', null);
+  const [nonEditableColumnsRawState, setNonEditableColumnsRaw] = useLocalStorageArray('datatable-nonEditableColumns', []);
+  const [enableDivideBy1LakhState, setEnableDivideBy1Lakh] = useLocalStorageBoolean('datatable-enableDivideBy1Lakh', false);
+  const [enableFullscreenDialogState, setEnableFullscreenDialog] = useLocalStorageBoolean('datatable-enableFullscreenDialog', true);
+  const [percentageColumnsRawState, setPercentageColumnsRaw] = useLocalStorageArray('datatable-percentageColumns', []);
+  const [isAdminModeState, setIsAdminMode] = useLocalStorageBoolean('datatable-isAdminMode', false);
+  const [salesTeamColumnRawState, setSalesTeamColumnRaw] = useLocalStorageString('datatable-salesTeamColumn', null);
+  const [salesTeamValuesRawState, setSalesTeamValuesRaw] = useLocalStorageArray('datatable-salesTeamValues', []);
+  const [hqColumnRawState, setHqColumnRaw] = useLocalStorageString('datatable-hqColumn', null);
+  const [hqValuesRawState, setHqValuesRaw] = useLocalStorageArray('datatable-hqValues', []);
+  const [columnTypesRawState, setColumnTypesRaw] = useLocalStorageObject('datatable-columnTypes', {});
+  const [enableGroupingState, setEnableGrouping] = useLocalStorageBoolean('datatable-enableGrouping', true);
+  const [drawerTabsRawState, setDrawerTabs] = useLocalStorageArray('datatable-drawerTabs', [{ id: `tab-${Date.now()}`, name: '', outerGroup: null, innerGroup: null }]);
+
+  // 2. Base data/variables from props or context
   const propData = (props.data && Array.isArray(props.data) && props.data.length > 0) ? props.data : context?.tableData;
   const propRawData = (props.rawTableData && Array.isArray(props.rawTableData) && props.rawTableData.length > 0) ? props.rawTableData : context?.rawTableData;
   const propDataSource = (props.dataSource && props.dataSource !== 'offline') ? props.dataSource : context?.dataSource;
   const propQueryVariables = (props.queryVariables && Object.keys(props.queryVariables).length > 0) ? props.queryVariables : context?.queryVariables;
   
-  // For boolean/string auth props, we only fallback if explicitly undefined
   const propIsAdminMode = props.isAdminMode !== undefined ? props.isAdminMode : context?.isAdminMode;
   const propSalesTeamColumn = props.salesTeamColumn !== undefined ? props.salesTeamColumn : context?.salesTeamColumn;
   const propSalesTeamValues = (props.salesTeamValues && props.salesTeamValues.length > 0) ? props.salesTeamValues : context?.salesTeamValues;
-  const propHqColumn = props.hqColumn !== undefined ? props.hqColumn : context?.hqColumn;
+  const propHqColumn = props.hqColumn !== undefined ? propHqColumn : context?.hqColumn;
   const propHqValues = (props.hqValues && props.hqValues.length > 0) ? props.hqValues : context?.hqValues;
 
-  // Sync all settings props to localStorage in a useEffect to avoid render-phase side effects
-  // We exclude dataSource and queryKey here as they are managed by TableDataProvider
+  // 3. Derived values (moved up to avoid ReferenceError in useEffect)
+  const useOrchestrationLayer = propUseOrchestrationLayer !== undefined ? propUseOrchestrationLayer : (context?.useOrchestrationLayer || false);
+  const enableGrouping = propEnableGrouping !== undefined ? propEnableGrouping : (context?.enableGrouping || true);
+  const isAdminMode = propIsAdminMode !== undefined ? propIsAdminMode : isAdminModeState;
+
+  const enableSort = propEnableSort !== undefined ? propEnableSort : (context?.enableSort !== undefined ? context.enableSort : enableSortState);
+  const enableFilter = propEnableFilter !== undefined ? propEnableFilter : (context?.enableFilter !== undefined ? context.enableFilter : enableFilterState);
+  const enableSummation = propEnableSummation !== undefined ? propEnableSummation : (context?.enableSummation !== undefined ? context.enableSummation : enableSummationState);
+  const enableCellEdit = propEnableCellEdit !== undefined ? propEnableCellEdit : enableCellEditState;
+  const rowsPerPageOptions = propRowsPerPageOptions !== undefined ? propRowsPerPageOptions : rowsPerPageOptionsRawState;
+  const defaultRows = propDefaultRows !== undefined ? propDefaultRows : defaultRowsRawState;
+  const textFilterColumns = propTextFilterColumns !== undefined ? propTextFilterColumns : (context?.textFilterColumns !== undefined ? context.textFilterColumns : textFilterColumnsRawState);
+  const visibleColumns = propVisibleColumns !== undefined ? propVisibleColumns : (context?.visibleColumns !== undefined ? context.visibleColumns : visibleColumnsRawState);
+  const redFields = propRedFields !== undefined ? propRedFields : (context?.redFields !== undefined ? context.redFields : redFieldsRawState);
+  const greenFields = propGreenFields !== undefined ? propGreenFields : (context?.greenFields !== undefined ? context.greenFields : greenFieldsRawState);
+  const outerGroupField = propOuterGroupField !== undefined ? propOuterGroupField : (context?.outerGroupField !== undefined ? context.outerGroupField : outerGroupFieldRawState);
+  const innerGroupField = propInnerGroupField !== undefined ? propInnerGroupField : (context?.innerGroupField !== undefined ? context.innerGroupField : innerGroupFieldRawState);
+  const nonEditableColumns = propNonEditableColumns !== undefined ? propNonEditableColumns : nonEditableColumnsRawState;
+  const enableDivideBy1Lakh = propEnableDivideBy1Lakh !== undefined ? propEnableDivideBy1Lakh : (context?.enableDivideBy1Lakh !== undefined ? context.enableDivideBy1Lakh : enableDivideBy1LakhState);
+  const enableFullscreenDialog = propEnableFullscreenDialog !== undefined ? propEnableFullscreenDialog : enableFullscreenDialogState;
+  const percentageColumns = propPercentageColumns !== undefined ? propPercentageColumns : (context?.percentageColumns !== undefined ? context.percentageColumns : percentageColumnsRawState);
+  const salesTeamColumn = propSalesTeamColumn !== undefined ? propSalesTeamColumn : salesTeamColumnRawState;
+  const salesTeamValues = propSalesTeamValues !== undefined ? propSalesTeamValues : salesTeamValuesRawState;
+  const hqColumn = propHqColumn !== undefined ? propHqColumn : hqColumnRawState;
+  const hqValues = propHqValues !== undefined ? propHqValues : hqValuesRawState;
+  
+  const columnTypes = useMemo(() => {
+    const contextTypes = context?.columnTypes || {};
+    const storedTypes = columnTypesRawState || {};
+    const manualTypes = propColumnTypes || {};
+    return { ...contextTypes, ...storedTypes, ...manualTypes };
+  }, [propColumnTypes, context?.columnTypes, columnTypesRawState]);
+  
+  const drawerTabs = (propDrawerTabs !== undefined && propDrawerTabs !== null && propDrawerTabs.length > 0) ? propDrawerTabs : (context?.drawerTabs !== undefined && context.drawerTabs.length > 0 ? context.drawerTabs : drawerTabsRawState);
+
+  // 4. Sync settings to localStorage
   const settingsString = JSON.stringify({
     propEnableSort, propEnableFilter, propEnableSummation, propEnableCellEdit,
     propRowsPerPageOptions, propDefaultRows, propTextFilterColumns, propVisibleColumns,
     propRedFields, propGreenFields, propOuterGroupField, propInnerGroupField,
     propNonEditableColumns,
     propEnableDivideBy1Lakh, propEnableFullscreenDialog, propPercentageColumns, propIsAdminMode, propSalesTeamColumn,
-    propSalesTeamValues, propHqColumn, propHqValues, propColumnTypes
+    propSalesTeamValues, propHqColumn, propHqValues, propColumnTypes, useOrchestrationLayer, enableGrouping
   });
 
   useEffect(() => {
@@ -352,7 +419,9 @@ const DataTableWrapper = (props) => {
     syncToStore('datatable-hqValues', propHqValues);
     syncToStore('datatable-drawerTabs', propDrawerTabs);
     syncToStore('datatable-columnTypes', propColumnTypes);
-  }, [settingsString]);
+    syncToStore('datatable-useOrchestrationLayer', useOrchestrationLayer);
+    syncToStore('datatable-enableGrouping', enableGrouping);
+  }, [settingsString, useOrchestrationLayer, enableGrouping]);
 
   const toast = useRef(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -378,29 +447,6 @@ const DataTableWrapper = (props) => {
     }
   }, [propDataSource]);
 
-  const [enableSortState, setEnableSort] = useLocalStorageBoolean('datatable-enableSort', true);
-  const [enableFilterState, setEnableFilter] = useLocalStorageBoolean('datatable-enableFilter', true);
-  const [enableSummationState, setEnableSummation] = useLocalStorageBoolean('datatable-enableSummation', true);
-  const [enableCellEditState, setEnableCellEdit] = useLocalStorageBoolean('datatable-enableCellEdit', false);
-  const [rowsPerPageOptionsRawState, setRowsPerPageOptionsRaw] = useLocalStorageArray('datatable-rowsPerPageOptions', [5, 10, 25, 50, 100, 200]);
-  const [defaultRowsRawState, setDefaultRowsRaw] = useLocalStorageNumber('datatable-defaultRows', 10);
-  const [textFilterColumnsRawState, setTextFilterColumnsRaw] = useLocalStorageArray('datatable-textFilterColumns', []);
-  const [visibleColumnsRawState, setVisibleColumnsRaw] = useLocalStorageArray('datatable-visibleColumns', []);
-  const [redFieldsRawState, setRedFieldsRaw] = useLocalStorageArray('datatable-redFields', []);
-  const [greenFieldsRawState, setGreenFieldsRaw] = useLocalStorageArray('datatable-greenFields', []);
-  const [outerGroupFieldRawState, setOuterGroupFieldRaw] = useLocalStorageString('datatable-outerGroupField', null);
-  const [innerGroupFieldRawState, setInnerGroupFieldRaw] = useLocalStorageString('datatable-innerGroupField', null);
-  const [nonEditableColumnsRawState, setNonEditableColumnsRaw] = useLocalStorageArray('datatable-nonEditableColumns', []);
-  const [enableDivideBy1LakhState, setEnableDivideBy1Lakh] = useLocalStorageBoolean('datatable-enableDivideBy1Lakh', false);
-  const [enableFullscreenDialogState, setEnableFullscreenDialog] = useLocalStorageBoolean('datatable-enableFullscreenDialog', true);
-  const [percentageColumnsRawState, setPercentageColumnsRaw] = useLocalStorageArray('datatable-percentageColumns', []);
-  const [isAdminModeState, setIsAdminMode] = useLocalStorageBoolean('datatable-isAdminMode', false);
-  const [salesTeamColumnRawState, setSalesTeamColumnRaw] = useLocalStorageString('datatable-salesTeamColumn', null);
-  const [salesTeamValuesRawState, setSalesTeamValuesRaw] = useLocalStorageArray('datatable-salesTeamValues', []);
-  const [hqColumnRawState, setHqColumnRaw] = useLocalStorageString('datatable-hqColumn', null);
-  const [hqValuesRawState, setHqValuesRaw] = useLocalStorageArray('datatable-hqValues', []);
-  const [columnTypesRawState, setColumnTypesRaw] = useLocalStorageObject('datatable-columnTypes', {});
-  
   const [queryVariables, setQueryVariables] = useState(propQueryVariables || {});
 
   // Sync queryVariables with propQueryVariables using stringified check
@@ -413,6 +459,27 @@ const DataTableWrapper = (props) => {
 
   const [variableOverrides, setVariableOverrides] = useState({});
 
+  const handleVisibleColumnsChange = (newColumns) => {
+    setVisibleColumnsRaw(newColumns);
+    if (propOnVisibleColumnsChange) propOnVisibleColumnsChange(newColumns);
+    if (orchestrationContext?.updateVisibleColumns) orchestrationContext.updateVisibleColumns(newColumns);
+  };
+
+  const handleDrawerTabsChange = (newTabs) => {
+    setDrawerTabs(newTabs);
+    if (propOnDrawerTabsChange) propOnDrawerTabsChange(newTabs);
+  };
+
+  const handleColumnTypesChange = (newTypes) => {
+    setColumnTypesRaw(newTypes);
+    if (propOnColumnTypesChange) propOnColumnTypesChange(newTypes);
+  };
+
+  const handleAdminModeChange = (isAdmin) => {
+    setIsAdminMode(isAdmin);
+    if (propOnAdminModeChange) propOnAdminModeChange(isAdmin);
+  };
+
   const handleVariableOverridesChangeInternal = (newOverrides) => {
     setVariableOverrides(newOverrides);
     if (onVariableOverridesChange) {
@@ -424,39 +491,8 @@ const DataTableWrapper = (props) => {
   // Drawer state
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [drawerData, setDrawerData] = useState([]);
-  const [drawerTabsRawState, setDrawerTabs] = useLocalStorageArray('datatable-drawerTabs', [{ id: `tab-${Date.now()}`, name: '', outerGroup: null, innerGroup: null }]);
   const [activeDrawerTabIndex, setActiveDrawerTabIndex] = useState(0);
   const [clickedDrawerValues, setClickedDrawerValues] = useState({ outerValue: null, innerValue: null });
-
-  // Derived values that prefer props over localStorage state
-  const enableSort = propEnableSort !== undefined ? propEnableSort : enableSortState;
-  const enableFilter = propEnableFilter !== undefined ? propEnableFilter : enableFilterState;
-  const enableSummation = propEnableSummation !== undefined ? propEnableSummation : enableSummationState;
-  const enableCellEdit = propEnableCellEdit !== undefined ? propEnableCellEdit : enableCellEditState;
-  const rowsPerPageOptions = propRowsPerPageOptions !== undefined ? propRowsPerPageOptions : rowsPerPageOptionsRawState;
-  const defaultRows = propDefaultRows !== undefined ? propDefaultRows : defaultRowsRawState;
-  const textFilterColumns = propTextFilterColumns !== undefined ? propTextFilterColumns : textFilterColumnsRawState;
-  const visibleColumns = propVisibleColumns !== undefined ? propVisibleColumns : visibleColumnsRawState;
-  const redFields = propRedFields !== undefined ? propRedFields : redFieldsRawState;
-  const greenFields = propGreenFields !== undefined ? propGreenFields : greenFieldsRawState;
-  const outerGroupField = propOuterGroupField !== undefined ? propOuterGroupField : outerGroupFieldRawState;
-  const innerGroupField = propInnerGroupField !== undefined ? propInnerGroupField : innerGroupFieldRawState;
-  const nonEditableColumns = propNonEditableColumns !== undefined ? propNonEditableColumns : nonEditableColumnsRawState;
-  const enableDivideBy1Lakh = propEnableDivideBy1Lakh !== undefined ? propEnableDivideBy1Lakh : enableDivideBy1LakhState;
-  const enableFullscreenDialog = propEnableFullscreenDialog !== undefined ? propEnableFullscreenDialog : enableFullscreenDialogState;
-  const percentageColumns = propPercentageColumns !== undefined ? propPercentageColumns : percentageColumnsRawState;
-  const isAdminMode = propIsAdminMode !== undefined ? propIsAdminMode : isAdminModeState;
-  const salesTeamColumn = propSalesTeamColumn !== undefined ? propSalesTeamColumn : salesTeamColumnRawState;
-  const salesTeamValues = propSalesTeamValues !== undefined ? propSalesTeamValues : salesTeamValuesRawState;
-  const hqColumn = propHqColumn !== undefined ? propHqColumn : hqColumnRawState;
-  const hqValues = propHqValues !== undefined ? propHqValues : hqValuesRawState;
-  const columnTypes = useMemo(() => {
-    const contextTypes = context?.columnTypes || {};
-    const storedTypes = columnTypesRawState || {};
-    const manualTypes = propColumnTypes || {};
-    return { ...contextTypes, ...storedTypes, ...manualTypes };
-  }, [propColumnTypes, context?.columnTypes, columnTypesRawState]);
-  const drawerTabs = (propDrawerTabs !== undefined && propDrawerTabs !== null && propDrawerTabs.length > 0) ? propDrawerTabs : drawerTabsRawState;
 
   const originalTableDataRef = useRef(null);
 
@@ -510,12 +546,12 @@ const DataTableWrapper = (props) => {
     }
 
     const settings = {
-      enableSort, enableFilter, enableSummation, enableCellEdit,
+      enableSort, enableFilter, enableSummation, enableCellEdit, enableGrouping,
       rowsPerPageOptions, defaultRows, textFilterColumns, visibleColumns,
       redFields, greenFields, outerGroupField, innerGroupField,
       nonEditableColumns, drawerTabs,
       enableDivideBy1Lakh, enableFullscreenDialog, percentageColumns, isAdminMode, salesTeamColumn,
-      salesTeamValues, hqColumn, hqValues, columnTypes
+      salesTeamValues, hqColumn, hqValues, columnTypes, useOrchestrationLayer
     };
 
     try {
@@ -627,6 +663,7 @@ const DataTableWrapper = (props) => {
                 ) : (
                   <DataTableComponent
                     data={tableData}
+                    useOrchestrationLayer={useOrchestrationLayer}
                     rowsPerPageOptions={rowsPerPageOptions}
                     defaultRows={defaultRows}
                     scrollable={propScrollable}
@@ -636,7 +673,7 @@ const DataTableWrapper = (props) => {
                     enableSummation={enableSummation}
                     textFilterColumns={textFilterColumns}
                     visibleColumns={visibleColumns}
-                    onVisibleColumnsChange={setVisibleColumnsRaw}
+                    onVisibleColumnsChange={handleVisibleColumnsChange}
                     redFields={redFields}
                     greenFields={greenFields}
                     outerGroupField={outerGroupField}
@@ -686,7 +723,7 @@ const DataTableWrapper = (props) => {
                 onRowsPerPageOptionsChange={setRowsPerPageOptionsRaw}
                 onDefaultRowsChange={setDefaultRowsRaw}
                 onTextFilterColumnsChange={setTextFilterColumnsRaw}
-                onVisibleColumnsChange={setVisibleColumnsRaw}
+                onVisibleColumnsChange={handleVisibleColumnsChange}
                 onRedFieldsChange={setRedFieldsRaw}
                 onGreenFieldsChange={setGreenFieldsRaw}
                 onOuterGroupFieldChange={setOuterGroupFieldRaw}
@@ -695,7 +732,7 @@ const DataTableWrapper = (props) => {
                 onPercentageColumnsChange={setPercentageColumnsRaw}
                 onSaveSettings={handleSaveSettings}
                 drawerTabs={drawerTabs}
-                onDrawerTabsChange={setDrawerTabs}
+                onDrawerTabsChange={handleDrawerTabsChange}
                 onAddDrawerTab={handleAddDrawerTab}
                 onRemoveDrawerTab={handleRemoveDrawerTab}
                 onUpdateDrawerTab={handleUpdateDrawerTab}
@@ -705,11 +742,13 @@ const DataTableWrapper = (props) => {
                 hqColumn={hqColumn}
                 hqValues={hqValues}
                 tableData={propRawData || tableData}
-                onAdminModeChange={setIsAdminMode}
+                onAdminModeChange={handleAdminModeChange}
                 onSalesTeamColumnChange={setSalesTeamColumnRaw}
                 onSalesTeamValuesChange={setSalesTeamValuesRaw}
                 onHqColumnChange={setHqColumnRaw}
                 onHqValuesChange={setHqValuesRaw}
+                columnTypesOverride={columnTypes}
+                onColumnTypesOverrideChange={handleColumnTypesChange}
               />
             </SplitterPanel>
           </Splitter>
@@ -723,6 +762,7 @@ const DataTableWrapper = (props) => {
             ) : (
               <DataTableComponent
                 data={tableData}
+                useOrchestrationLayer={useOrchestrationLayer}
                 rowsPerPageOptions={rowsPerPageOptions}
                 defaultRows={defaultRows}
                 scrollable={propScrollable}
@@ -732,7 +772,7 @@ const DataTableWrapper = (props) => {
                 enableSummation={enableSummation}
                 textFilterColumns={textFilterColumns}
                 visibleColumns={visibleColumns}
-                onVisibleColumnsChange={setVisibleColumnsRaw}
+                onVisibleColumnsChange={handleVisibleColumnsChange}
                 redFields={redFields}
                 greenFields={greenFields}
                 outerGroupField={outerGroupField}
@@ -756,7 +796,7 @@ const DataTableWrapper = (props) => {
       <Sidebar
         position="bottom"
         blockScroll
-        visible={drawerVisible}
+        visible={!useOrchestrationLayer && drawerVisible}
         onHide={() => setDrawerVisible(false)}
         style={{ height: '100vh' }}
         header={
@@ -775,6 +815,7 @@ const DataTableWrapper = (props) => {
                   {drawerData.length > 0 ? (
                     <DataTableComponent
                       data={drawerData}
+                      useOrchestrationLayer={useOrchestrationLayer}
                       rowsPerPageOptions={rowsPerPageOptions}
                       defaultRows={defaultRows}
                       scrollable={propScrollable}
@@ -784,7 +825,7 @@ const DataTableWrapper = (props) => {
                       enableSummation={enableSummation}
                       textFilterColumns={textFilterColumns}
                       visibleColumns={visibleColumns}
-                      onVisibleColumnsChange={setVisibleColumnsRaw}
+                      onVisibleColumnsChange={handleVisibleColumnsChange}
                       redFields={redFields}
                       greenFields={greenFields}
                       outerGroupField={tab.outerGroup}
