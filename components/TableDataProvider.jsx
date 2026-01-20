@@ -8,7 +8,7 @@ import { Dropdown } from 'primereact/dropdown';
 import { Sidebar } from 'primereact/sidebar';
 import { TabView, TabPanel } from 'primereact/tabview';
 import DataTableComponent from '../share/datatable/components/DataTable';
-import { startCase, filter as lodashFilter, get, isNil } from 'lodash';
+import { startCase, filter as lodashFilter, get, isNil, flatMap } from 'lodash';
 import { TableProvider } from './TableContext';
 import { TableOperationsContext } from '../share/datatable/contexts/TableOperationsContext';
 import dayjs from 'dayjs';
@@ -353,11 +353,6 @@ const TableDataProvider = (props) => {
   const [drawerData, setDrawerData] = useState([]);
   const [activeDrawerTabIndex, setActiveDrawerTabIndex] = useState(0);
   const [clickedDrawerValues, setClickedDrawerValues] = useState({ outerValue: null, innerValue: null });
-
-  // Sync propDrawerVisible with state
-  useEffect(() => {
-    setDrawerVisible(propDrawerVisible);
-  }, [propDrawerVisible]);
 
   // New internal state to expose to Plasmic
   const [savedQueries, setSavedQueries] = useState([]);
@@ -733,25 +728,55 @@ const TableDataProvider = (props) => {
   }, []);
 
   const openDrawerWithData = useCallback((data, outerValue, innerValue) => {
-    setDrawerData(data || []);
+    let filteredData = data || [];
+
+    // Apply drawer-specific group filters for sales team and HQ (works like clicking a row)
+    // These are data filters, not auth filters, so we apply them regardless of admin mode
+    if (drawerSalesTeamColumn && drawerSalesTeamValues && drawerSalesTeamValues.length > 0) {
+      // Flatten values in case Plasmic passed nested arrays like [["Team A"]]
+      const filterTeams = lodashFilter(flatMap([drawerSalesTeamValues], v => v), v => !isNil(v)).map(v => String(v).trim().toLowerCase());
+      
+      filteredData = lodashFilter(filteredData, (row) => {
+        const rowValue = get(row, drawerSalesTeamColumn);
+        if (Array.isArray(rowValue)) {
+          return rowValue.some(rv => filterTeams.includes(String(rv).trim().toLowerCase()));
+        }
+        return !isNil(rowValue) && filterTeams.includes(String(rowValue).trim().toLowerCase());
+      });
+    }
+    if (drawerHqColumn && drawerHqValues && drawerHqValues.length > 0) {
+      // Flatten values
+      const filterHqs = lodashFilter(flatMap([drawerHqValues], v => v), v => !isNil(v)).map(v => String(v).trim().toLowerCase());
+
+      filteredData = lodashFilter(filteredData, (row) => {
+        const rowValue = get(row, drawerHqColumn);
+        if (Array.isArray(rowValue)) {
+          return rowValue.some(rv => filterHqs.includes(String(rv).trim().toLowerCase()));
+        }
+        return !isNil(rowValue) && filterHqs.includes(String(rowValue).trim().toLowerCase());
+      });
+    }
+
+    setDrawerData(filteredData);
     setClickedDrawerValues({ outerValue, innerValue });
     setActiveDrawerTabIndex(0);
     setDrawerVisible(true);
     propOnDrawerVisibleChange?.(true);
-  }, [propOnDrawerVisibleChange]);
+  }, [propOnDrawerVisibleChange, drawerSalesTeamColumn, JSON.stringify(drawerSalesTeamValues), drawerHqColumn, JSON.stringify(drawerHqValues)]);
 
   const openDrawerForOuterGroup = useCallback((value) => {
-    // We use currentTableData which is the filtered data from DataProvider
-    const dataToFilter = currentTableData || [];
+    // Use raw data so drawer can apply its own filters (sales team, HQ, etc.)
+    const dataToFilter = currentRawData || currentTableData || [];
     const filtered = lodashFilter(dataToFilter, (row) => {
       const rowValue = get(row, outerGroupField);
       return isNil(value) ? isNil(rowValue) : String(rowValue) === String(value);
     });
     openDrawerWithData(filtered, value, null);
-  }, [currentTableData, outerGroupField, openDrawerWithData]);
+  }, [currentRawData, currentTableData, outerGroupField, openDrawerWithData]);
 
   const openDrawerForInnerGroup = useCallback((outerValue, value) => {
-    const dataToFilter = currentTableData || [];
+    // Use raw data so drawer can apply its own filters (sales team, HQ, etc.)
+    const dataToFilter = currentRawData || currentTableData || [];
     const filtered = lodashFilter(dataToFilter, (row) => {
       const rowOuterValue = get(row, outerGroupField);
       const rowInnerValue = get(row, innerGroupField);
@@ -760,12 +785,26 @@ const TableDataProvider = (props) => {
       return isNil(value) ? isNil(rowInnerValue) : String(rowInnerValue) === String(value);
     });
     openDrawerWithData(filtered, outerValue, value);
-  }, [currentTableData, outerGroupField, innerGroupField, openDrawerWithData]);
+  }, [currentRawData, currentTableData, outerGroupField, innerGroupField, openDrawerWithData]);
 
   const closeDrawer = useCallback(() => {
     setDrawerVisible(false);
     propOnDrawerVisibleChange?.(false);
   }, [propOnDrawerVisibleChange]);
+
+  // Sync propDrawerVisible with state
+  useEffect(() => {
+    setDrawerVisible(propDrawerVisible);
+    
+    // If opened manually (e.g., via Plasmic prop), use raw data so drawer filters work correctly
+    if (propDrawerVisible) {
+      // Use raw data (not filtered table data) so that drawer-specific filters can be applied
+      const initialData = currentRawData || currentTableData || [];
+      if (initialData.length > 0) {
+        openDrawerWithData(initialData, null, null);
+      }
+    }
+  }, [propDrawerVisible, currentRawData, currentTableData, openDrawerWithData]);
 
   // Stabilize merged variables to prevent infinite fetch loops
   // We only pass variables as "overrides" if they actually differ from the base variables
@@ -1116,45 +1155,40 @@ const TableDataProvider = (props) => {
                   >
                     <div className="flex-1 overflow-auto">
                       {drawerData && drawerData.length > 0 ? (
-                        <TableOperationsContext.Provider value={{
-                          ...consolidatedData,
-                          paginatedData: drawerData,
-                          pagination: { first: 0, rows: drawerData.length },
-                          visibleColumns: [], // Show all in drawer
-                          enableFilter: enableFilter,
-                          enableSort: enableSort,
-                          enableSummation: enableSummation,
-                          outerGroupField: tab.outerGroup,
-                          innerGroupField: tab.innerGroup,
-                        }}>
+                        <DataProvider
+                          offlineData={drawerData}
+                          dataSource="offline"
+                          useOrchestrationLayer={true}
+                          isAdminMode={true}
+                          salesTeamColumn={null}
+                          salesTeamValues={[]}
+                          hqColumn={null}
+                          hqValues={[]}
+                          columnTypes={columnTypes || {}}
+                          columnTypesOverride={columnTypes || {}}
+                          enableSort={enableSort ?? true}
+                          enableFilter={enableFilter ?? true}
+                          enableSummation={enableSummation ?? true}
+                          enableGrouping={enableGrouping ?? false}
+                          enableDivideBy1Lakh={enableDivideBy1Lakh ?? false}
+                          textFilterColumns={textFilterColumns || []}
+                          visibleColumns={[]}
+                          redFields={redFields || []}
+                          greenFields={greenFields || []}
+                          outerGroupField={tab.outerGroup || null}
+                          innerGroupField={tab.innerGroup || null}
+                          percentageColumns={percentageColumns || []}
+                          hideDataSourceAndQueryKey={true}
+                        >
                           <DataTableComponent
-                            data={drawerData}
                             useOrchestrationLayer={true}
                             rowsPerPageOptions={[5, 10, 25, 50, 100, 200]}
                             defaultRows={10}
                             scrollable={false}
-                            enableSort={enableSort}
-                            enableFilter={enableFilter}
-                            enableSummation={enableSummation}
-                            textFilterColumns={textFilterColumns}
-                            visibleColumns={visibleColumns}
-                            onVisibleColumnsChange={stableOnVisibleColumnsChange}
-                            redFields={redFields}
-                            greenFields={greenFields}
-                            outerGroupField={tab.outerGroup}
-                            innerGroupField={tab.innerGroup}
-                            percentageColumns={percentageColumns}
-                            enableDivideBy1Lakh={enableDivideBy1Lakh}
                             enableCellEdit={false}
-                            columnTypes={columnTypes}
                             tableName="sidebar"
-                            isAdminMode={isAdminMode}
-                            salesTeamColumn={drawerSalesTeamColumn}
-                            salesTeamValues={drawerSalesTeamValues}
-                            hqColumn={drawerHqColumn}
-                            hqValues={drawerHqValues}
                           />
-                        </TableOperationsContext.Provider>
+                        </DataProvider>
                       ) : (
                         <div className="flex flex-col items-center justify-center h-full text-center">
                           <i className="pi pi-inbox text-4xl text-gray-400 mb-4"></i>
