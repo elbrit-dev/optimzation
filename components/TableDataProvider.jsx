@@ -201,18 +201,18 @@ const TableDataProvider = (props) => {
     hqValues = [],
     columnTypes = { is_internal_customer: "number" },
     useOrchestrationLayer = false,
-    enableSort = true,
-    enableFilter = true,
-    enableSummation = true,
-    enableGrouping = true,
-    enableDivideBy1Lakh = false,
-    textFilterColumns = [],
-    visibleColumns = [],
-    redFields = [],
-    greenFields = [],
+    enableSort: propEnableSort = null,
+    enableFilter: propEnableFilter = null,
+    enableSummation: propEnableSummation = null,
+    enableGrouping: propEnableGrouping = null,
+    enableDivideBy1Lakh: propEnableDivideBy1Lakh = null,
+    textFilterColumns: propTextFilterColumns = null,
+    visibleColumns: propVisibleColumns = null,
+    redFields: propRedFields = null,
+    greenFields: propGreenFields = null,
     outerGroupField: propOuterGroupField = null,
     innerGroupField: propInnerGroupField = null,
-    percentageColumns = [],
+    percentageColumns: propPercentageColumns = null,
     drawerTabs: propDrawerTabs = [],
     enableReport: propEnableReport = false,
     dateColumn: propDateColumn = null,
@@ -239,22 +239,84 @@ const TableDataProvider = (props) => {
   const propOnColumnTypesChange = onColumnTypesChange;
 
   // 1. Hooks (State & LocalStorage) for new features
+  const [enableSortState, setEnableSortState] = useLocalStorageBoolean('datatable-enableSort', true);
+  const [enableFilterState, setEnableFilterState] = useLocalStorageBoolean('datatable-enableFilter', true);
+  const [enableSummationState, setEnableSummationState] = useLocalStorageBoolean('datatable-enableSummation', true);
+  const [enableGroupingState, setEnableGroupingState] = useLocalStorageBoolean('datatable-enableGrouping', true);
+  const [enableDivideBy1LakhState, setEnableDivideBy1LakhState] = useLocalStorageBoolean('datatable-enableDivideBy1Lakh', false);
   const [outerGroupFieldRawState, setOuterGroupFieldRaw] = useLocalStorageString('datatable-outerGroupField', null);
   const [innerGroupFieldRawState, setInnerGroupFieldRaw] = useLocalStorageString('datatable-innerGroupField', null);
+  const [visibleColumnsRawState, setVisibleColumnsRaw] = useLocalStorageArray('datatable-visibleColumns', []);
+  const [percentageColumnsRawState, setPercentageColumnsRaw] = useLocalStorageArray('datatable-percentageColumns', []);
+  const [textFilterColumnsRawState, setTextFilterColumnsRaw] = useLocalStorageArray('datatable-textFilterColumns', []);
+  const [redFieldsRawState, setRedFieldsRaw] = useLocalStorageArray('datatable-redFields', []);
+  const [greenFieldsRawState, setGreenFieldsRaw] = useLocalStorageArray('datatable-greenFields', []);
   const [drawerTabsRawState, setDrawerTabs] = useLocalStorageArray('datatable-drawerTabs', [{ id: `tab-${Date.now()}`, name: '', outerGroup: null, innerGroup: null }]);
   const [enableReportState, setEnableReport] = useLocalStorageBoolean('datatable-enableReport', false);
   const [dateColumnRawState, setDateColumnRaw] = useLocalStorageString('datatable-dateColumn', null);
   const [breakdownTypeRawState, setBreakdownTypeRaw] = useLocalStorageString('datatable-breakdownType', 'month');
 
   // 2. Resolve final values (Prop > LocalStorage)
+  const enableSort = (propEnableSort !== null && propEnableSort !== undefined) ? propEnableSort : enableSortState;
+  const enableFilter = (propEnableFilter !== null && propEnableFilter !== undefined) ? propEnableFilter : enableFilterState;
+  const enableSummation = (propEnableSummation !== null && propEnableSummation !== undefined) ? propEnableSummation : enableSummationState;
+  const enableGrouping = (propEnableGrouping !== null && propEnableGrouping !== undefined) ? propEnableGrouping : enableGroupingState;
+  const enableDivideBy1Lakh = (propEnableDivideBy1Lakh !== null && propEnableDivideBy1Lakh !== undefined) ? propEnableDivideBy1Lakh : enableDivideBy1LakhState;
   const outerGroupField = propOuterGroupField !== null ? propOuterGroupField : outerGroupFieldRawState;
   const innerGroupField = propInnerGroupField !== null ? propInnerGroupField : innerGroupFieldRawState;
+  const visibleColumns = (propVisibleColumns !== null && propVisibleColumns !== undefined) ? propVisibleColumns : visibleColumnsRawState;
+  const percentageColumns = (propPercentageColumns !== null && propPercentageColumns !== undefined) ? propPercentageColumns : percentageColumnsRawState;
+  const textFilterColumns = (propTextFilterColumns !== null && propTextFilterColumns !== undefined) ? propTextFilterColumns : textFilterColumnsRawState;
+  const redFields = (propRedFields !== null && propRedFields !== undefined) ? propRedFields : redFieldsRawState;
+  const greenFields = (propGreenFields !== null && propGreenFields !== undefined) ? propGreenFields : greenFieldsRawState;
   const drawerTabs = (propDrawerTabs && propDrawerTabs.length > 0) ? propDrawerTabs : drawerTabsRawState;
   const enableReport = propEnableReport !== false ? propEnableReport : enableReportState;
   const dateColumn = propDateColumn !== null ? propDateColumn : dateColumnRawState;
   const breakdownType = propBreakdownType !== 'month' ? propBreakdownType : breakdownTypeRawState;
+  
+  // 3. Sync settings to localStorage
+  const settingsString = JSON.stringify({
+    enableSort: propEnableSort,
+    enableFilter: propEnableFilter,
+    enableSummation: propEnableSummation,
+    enableGrouping: propEnableGrouping,
+    enableDivideBy1Lakh: propEnableDivideBy1Lakh,
+    textFilterColumns: propTextFilterColumns,
+    visibleColumns: propVisibleColumns,
+    redFields: propRedFields,
+    greenFields: propGreenFields,
+    percentageColumns: propPercentageColumns,
+    outerGroupField: propOuterGroupField,
+    innerGroupField: propInnerGroupField,
+  });
 
-  // 3. Normalize string inputs to arrays for Sales Team and HQ
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const syncToStore = (key, value) => {
+      if (value !== undefined && value !== null) {
+        const stringified = JSON.stringify(value);
+        if (window.localStorage.getItem(key) !== stringified) {
+          window.localStorage.setItem(key, stringified);
+        }
+      }
+    };
+
+    syncToStore('datatable-enableSort', propEnableSort);
+    syncToStore('datatable-enableFilter', propEnableFilter);
+    syncToStore('datatable-enableSummation', propEnableSummation);
+    syncToStore('datatable-enableGrouping', propEnableGrouping);
+    syncToStore('datatable-enableDivideBy1Lakh', propEnableDivideBy1Lakh);
+    syncToStore('datatable-textFilterColumns', propTextFilterColumns);
+    syncToStore('datatable-visibleColumns', propVisibleColumns);
+    syncToStore('datatable-redFields', propRedFields);
+    syncToStore('datatable-greenFields', propGreenFields);
+    syncToStore('datatable-percentageColumns', propPercentageColumns);
+    syncToStore('datatable-outerGroupField', propOuterGroupField);
+    syncToStore('datatable-innerGroupField', propInnerGroupField);
+  }, [settingsString]);
+
+  // 4. Normalize string inputs to arrays for Sales Team and HQ
   const normalizedSalesTeamValues = useMemo(() => {
     if (typeof salesTeamValues === 'string') return salesTeamValues ? [salesTeamValues] : [];
     return Array.isArray(salesTeamValues) ? salesTeamValues : [];
@@ -591,6 +653,7 @@ const TableDataProvider = (props) => {
   }, [dataSource]);
 
   const stableOnVisibleColumnsChange = useCallback((columns) => {
+    setVisibleColumnsRaw(columns);
     onVisibleColumnsChangeRef.current?.(columns);
   }, []);
 
@@ -605,6 +668,26 @@ const TableDataProvider = (props) => {
 
   const stableOnAdminModeChange = useCallback((adminMode) => {
     onAdminModeChangeRef.current?.(adminMode);
+  }, []);
+
+  const stableOnEnableSortChange = useCallback((enabled) => {
+    setEnableSortState(enabled);
+  }, []);
+
+  const stableOnEnableFilterChange = useCallback((enabled) => {
+    setEnableFilterState(enabled);
+  }, []);
+
+  const stableOnEnableSummationChange = useCallback((enabled) => {
+    setEnableSummationState(enabled);
+  }, []);
+
+  const stableOnEnableGroupingChange = useCallback((enabled) => {
+    setEnableGroupingState(enabled);
+  }, []);
+
+  const stableOnEnableDivideBy1LakhChange = useCallback((enabled) => {
+    setEnableDivideBy1LakhState(enabled);
   }, []);
 
   const stableOnEnableReportChange = useCallback((enabled) => {
@@ -631,6 +714,22 @@ const TableDataProvider = (props) => {
   const stableOnInnerGroupFieldChange = useCallback((field) => {
     setInnerGroupFieldRaw(field);
     onInnerGroupFieldChangeRef.current?.(field);
+  }, []);
+
+  const stableOnTextFilterColumnsChange = useCallback((columns) => {
+    setTextFilterColumnsRaw(columns);
+  }, []);
+
+  const stableOnRedFieldsChange = useCallback((fields) => {
+    setRedFieldsRaw(fields);
+  }, []);
+
+  const stableOnGreenFieldsChange = useCallback((fields) => {
+    setGreenFieldsRaw(fields);
+  }, []);
+
+  const stableOnPercentageColumnsChange = useCallback((columns) => {
+    setPercentageColumnsRaw(columns);
   }, []);
 
   const openDrawerWithData = useCallback((data, outerValue, innerValue) => {
@@ -817,6 +916,15 @@ const TableDataProvider = (props) => {
       onBreakdownTypeChange={stableOnBreakdownTypeChange}
       onOuterGroupFieldChange={stableOnOuterGroupFieldChange}
       onInnerGroupFieldChange={stableOnInnerGroupFieldChange}
+      onTextFilterColumnsChange={stableOnTextFilterColumnsChange}
+      onRedFieldsChange={stableOnRedFieldsChange}
+      onGreenFieldsChange={stableOnGreenFieldsChange}
+      onPercentageColumnsChange={stableOnPercentageColumnsChange}
+      onEnableSortChange={stableOnEnableSortChange}
+      onEnableFilterChange={stableOnEnableFilterChange}
+      onEnableSummationChange={stableOnEnableSummationChange}
+      onEnableGroupingChange={stableOnEnableGroupingChange}
+      onEnableDivideBy1LakhChange={stableOnEnableDivideBy1LakhChange}
       variableOverrides={stableOverrides}
       isAdminMode={isAdminMode}
       salesTeamColumn={salesTeamColumn}

@@ -389,9 +389,40 @@ PLASMIC.registerComponent(DataTable, {
       description: "Array of tab configurations for the detail drawer (name, outerGroup, innerGroup)",
       defaultValue: [],
     },
+    enableReport: {
+      type: "boolean",
+      defaultValue: false,
+    },
+    dateColumn: {
+      type: "string",
+    },
+    breakdownType: {
+      type: "string",
+      defaultValue: "month",
+    },
     onDrawerTabsChange: {
       type: "eventHandler",
       argTypes: [{ name: "tabs", type: "object" }],
+    },
+    onEnableReportChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "enabled", type: "boolean" }],
+    },
+    onDateColumnChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "column", type: "string" }],
+    },
+    onBreakdownTypeChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "type", type: "string" }],
+    },
+    onOuterGroupFieldChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "field", type: "string" }],
+    },
+    onInnerGroupFieldChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "field", type: "string" }],
     },
     controlsPanelSize: {
       type: "number",
@@ -676,6 +707,39 @@ PLASMIC.registerComponent(TableDataProvider, {
       type: "object",
       defaultValue: [],
     },
+    drawerSalesTeamColumn: {
+      type: "string",
+      description: "Drawer-specific column name for Sales Team filtering",
+    },
+    drawerSalesTeamValues: {
+      type: "object",
+      description: "Drawer-specific array of allowed Sales Team values",
+      defaultValue: [],
+    },
+    drawerHqColumn: {
+      type: "string",
+      description: "Drawer-specific column name for HQ filtering",
+    },
+    drawerHqValues: {
+      type: "object",
+      description: "Drawer-specific array of allowed HQ values",
+      defaultValue: [],
+    },
+    drawerVisible: {
+      type: "boolean",
+      defaultValue: false,
+    },
+    enableReport: {
+      type: "boolean",
+      defaultValue: false,
+    },
+    dateColumn: {
+      type: "string",
+    },
+    breakdownType: {
+      type: "string",
+      defaultValue: "month",
+    },
     onDataChange: {
       type: "eventHandler",
       argTypes: [{ name: "notification", type: "object" }],
@@ -736,6 +800,10 @@ PLASMIC.registerComponent(TableDataProvider, {
       type: "eventHandler",
       argTypes: [{ name: "tabs", type: "object" }],
     },
+    onDrawerVisibleChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "visible", type: "boolean" }],
+    },
     onColumnTypesChange: {
       type: "eventHandler",
       argTypes: [{ name: "columnTypes", type: "object" }],
@@ -743,6 +811,26 @@ PLASMIC.registerComponent(TableDataProvider, {
     onAdminModeChange: {
       type: "eventHandler",
       argTypes: [{ name: "isAdminMode", type: "boolean" }],
+    },
+    onEnableReportChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "enabled", type: "boolean" }],
+    },
+    onDateColumnChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "column", type: "string" }],
+    },
+    onBreakdownTypeChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "type", type: "string" }],
+    },
+    onOuterGroupFieldChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "field", type: "string" }],
+    },
+    onInnerGroupFieldChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "field", type: "string" }],
     },
     dataSlot: {
       type: "slot",
