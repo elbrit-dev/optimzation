@@ -551,7 +551,7 @@ const TableDataProvider = (props) => {
               {/* Corrected Last Updated Display - Following DataProvider.jsx wording/style */}
               {dataSource && dataSource !== 'offline' && (
                 <div className="mt-2 text-xs text-gray-700">
-                  Last updated: {lastUpdatedAt ? formatLastUpdatedDate(lastUpdatedAt) : <span className="text-gray-400">N/A</span>}
+                  {/* Last updated: {lastUpdatedAt ? formatLastUpdatedDate(lastUpdatedAt) : <span className="text-gray-400">N/A</span>} */}
                 </div>
               )}
             </div>
