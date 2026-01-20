@@ -225,6 +225,12 @@ const TableDataProvider = (props) => {
     onBreakdownTypeChange: propOnBreakdownTypeChange,
     onOuterGroupFieldChange: propOnOuterGroupFieldChange,
     onInnerGroupFieldChange: propOnInnerGroupFieldChange,
+    drawerSalesTeamColumn: propDrawerSalesTeamColumn = null,
+    drawerSalesTeamValues: propDrawerSalesTeamValues = [],
+    drawerHqColumn: propDrawerHqColumn = null,
+    drawerHqValues: propDrawerHqValues = [],
+    drawerVisible: propDrawerVisible = false,
+    onDrawerVisibleChange: propOnDrawerVisibleChange,
     className,
     style,
     ...otherProps // Collect all other individual props to use as variables
@@ -248,15 +254,48 @@ const TableDataProvider = (props) => {
   const dateColumn = propDateColumn !== null ? propDateColumn : dateColumnRawState;
   const breakdownType = propBreakdownType !== 'month' ? propBreakdownType : breakdownTypeRawState;
 
+  // 3. Normalize string inputs to arrays for Sales Team and HQ
+  const normalizedSalesTeamValues = useMemo(() => {
+    if (typeof salesTeamValues === 'string') return salesTeamValues ? [salesTeamValues] : [];
+    return Array.isArray(salesTeamValues) ? salesTeamValues : [];
+  }, [salesTeamValues]);
+
+  const normalizedHqValues = useMemo(() => {
+    if (typeof hqValues === 'string') return hqValues ? [hqValues] : [];
+    return Array.isArray(hqValues) ? hqValues : [];
+  }, [hqValues]);
+
+  // Normalize Drawer-specific string inputs
+  const normalizedDrawerSalesTeamValues = useMemo(() => {
+    if (typeof propDrawerSalesTeamValues === 'string') return propDrawerSalesTeamValues ? [propDrawerSalesTeamValues] : [];
+    return Array.isArray(propDrawerSalesTeamValues) ? propDrawerSalesTeamValues : [];
+  }, [propDrawerSalesTeamValues]);
+
+  const normalizedDrawerHqValues = useMemo(() => {
+    if (typeof propDrawerHqValues === 'string') return propDrawerHqValues ? [propDrawerHqValues] : [];
+    return Array.isArray(propDrawerHqValues) ? propDrawerHqValues : [];
+  }, [propDrawerHqValues]);
+
+  // Determine final drawer filter values (Prop > Inherited from main)
+  const drawerSalesTeamColumn = propDrawerSalesTeamColumn || salesTeamColumn;
+  const drawerSalesTeamValues = normalizedDrawerSalesTeamValues.length > 0 ? normalizedDrawerSalesTeamValues : normalizedSalesTeamValues;
+  const drawerHqColumn = propDrawerHqColumn || hqColumn;
+  const drawerHqValues = normalizedDrawerHqValues.length > 0 ? normalizedDrawerHqValues : normalizedHqValues;
+
   const [currentTableData, setCurrentTableData] = useState(null);
   const [currentRawData, setCurrentRawData] = useState(null);
   const [currentVariables, setCurrentVariables] = useState({});
   
   // Drawer state
-  const [drawerVisible, setDrawerVisible] = useState(false);
+  const [drawerVisible, setDrawerVisible] = useState(propDrawerVisible);
   const [drawerData, setDrawerData] = useState([]);
   const [activeDrawerTabIndex, setActiveDrawerTabIndex] = useState(0);
   const [clickedDrawerValues, setClickedDrawerValues] = useState({ outerValue: null, innerValue: null });
+
+  // Sync propDrawerVisible with state
+  useEffect(() => {
+    setDrawerVisible(propDrawerVisible);
+  }, [propDrawerVisible]);
 
   // New internal state to expose to Plasmic
   const [savedQueries, setSavedQueries] = useState([]);
@@ -356,14 +395,34 @@ const TableDataProvider = (props) => {
           setMonthRange(initialMonthRange);
           
           // Immediate fetch with new metadata
-          fetchLastUpdatedFromDB(dataSource, queryDoc, initialMonthRange);
+          // Using the local queryDoc and initialMonthRange directly to avoid dependency on state/useCallback that might change
+          try {
+            const indexResult = await indexedDBService.getQueryIndexResult(dataSource);
+            if (indexResult && indexResult.result) {
+              const result = indexResult.result;
+              let rawTimestamp = null;
+              if (queryDoc.month === true && initialMonthRange && initialMonthRange[0]) {
+                const yearMonthKey = dayjs(initialMonthRange[0]).format('YYYY-MM');
+                if (result && typeof result === 'object' && !Array.isArray(result)) {
+                  rawTimestamp = result[yearMonthKey] || null;
+                }
+              } else {
+                rawTimestamp = typeof result === 'string' ? result : null;
+              }
+              if (rawTimestamp) {
+                setLastUpdatedAt(rawTimestamp);
+              }
+            }
+          } catch (e) {
+            console.error('Error fetching timestamp during metadata load:', e);
+          }
         }
       } catch (error) {
         console.error('Error loading metadata in wrapper:', error);
       }
     };
     loadMetadata();
-  }, [dataSource, fetchLastUpdatedFromDB]);
+  }, [dataSource]); // Only depend on dataSource to prevent infinite loops
 
   // Sync monthRange from variableOverrides if they change in Plasmic
   useEffect(() => {
@@ -579,7 +638,8 @@ const TableDataProvider = (props) => {
     setClickedDrawerValues({ outerValue, innerValue });
     setActiveDrawerTabIndex(0);
     setDrawerVisible(true);
-  }, []);
+    propOnDrawerVisibleChange?.(true);
+  }, [propOnDrawerVisibleChange]);
 
   const openDrawerForOuterGroup = useCallback((value) => {
     // We use currentTableData which is the filtered data from DataProvider
@@ -605,12 +665,16 @@ const TableDataProvider = (props) => {
 
   const closeDrawer = useCallback(() => {
     setDrawerVisible(false);
-  }, []);
+    propOnDrawerVisibleChange?.(false);
+  }, [propOnDrawerVisibleChange]);
 
   // Stabilize merged variables to prevent infinite fetch loops
   // We only pass variables as "overrides" if they actually differ from the base variables
   // reported by the core DataProvider. This allows the core to use its cache-first
   // logic for the initial load if the props match the query defaults.
+  // We use an empty object reference for "no overrides" to avoid triggering DataProvider
+  const NO_OVERRIDES = useMemo(() => ({}), []);
+
   const stableOverrides = useMemo(() => {
     const combined = {
       ...otherProps,
@@ -620,7 +684,7 @@ const TableDataProvider = (props) => {
     // If variables haven't been loaded from the query doc yet, we don't pass any
     // overrides to allow the core DataProvider to check its cache first.
     if (!variablesLoaded) {
-      return {};
+      return NO_OVERRIDES;
     }
 
     // Filter out values that match currentVariables to avoid redundant triggers
@@ -634,7 +698,9 @@ const TableDataProvider = (props) => {
         'outerGroupField', 'innerGroupField', 'drawerTabs',
         'enableReport', 'dateColumn', 'breakdownType',
         'onEnableReportChange', 'onDateColumnChange', 'onBreakdownTypeChange',
-        'onOuterGroupFieldChange', 'onInnerGroupFieldChange'
+        'onOuterGroupFieldChange', 'onInnerGroupFieldChange',
+        'drawerSalesTeamColumn', 'drawerSalesTeamValues', 'drawerHqColumn', 'drawerHqValues',
+        'drawerVisible', 'onDrawerVisibleChange'
       ].includes(key)) return;
 
       const value = combined[key];
@@ -656,10 +722,11 @@ const TableDataProvider = (props) => {
     
     if (hasActualOverride) {
       console.log('TableDataProvider: Detected variable overrides:', delta);
+      return delta;
     }
     
-    return hasActualOverride ? delta : {};
-  }, [variablesLoaded, JSON.stringify(otherProps), JSON.stringify(variableOverrides), JSON.stringify(currentVariables)]);
+    return NO_OVERRIDES;
+  }, [variablesLoaded, JSON.stringify(otherProps), JSON.stringify(variableOverrides), JSON.stringify(currentVariables), NO_OVERRIDES]);
 
   const consolidatedData = useMemo(() => ({
     tableData: currentTableData,
@@ -675,9 +742,9 @@ const TableDataProvider = (props) => {
     dataSource,
     isAdminMode,
     salesTeamColumn,
-    salesTeamValues,
+    salesTeamValues: normalizedSalesTeamValues,
     hqColumn,
-    hqValues,
+    hqValues: normalizedHqValues,
     columnTypes,
     useOrchestrationLayer,
     enableSort,
@@ -710,8 +777,8 @@ const TableDataProvider = (props) => {
   }), [
     currentTableData, currentRawData, currentVariables, savedQueries,
     loadingQueries, executingQuery, availableQueryKeys, selectedQueryKey,
-    loadingData, lastUpdatedAt, dataSource, isAdminMode, salesTeamColumn, salesTeamValues,
-    hqColumn, hqValues, columnTypes, useOrchestrationLayer,
+    loadingData, lastUpdatedAt, dataSource, isAdminMode, salesTeamColumn, normalizedSalesTeamValues,
+    hqColumn, normalizedHqValues, columnTypes, useOrchestrationLayer,
     enableSort, enableFilter, enableSummation, enableGrouping,
     enableDivideBy1Lakh, textFilterColumns, visibleColumns, redFields, greenFields,
     outerGroupField, innerGroupField, percentageColumns, drawerTabs,
@@ -753,9 +820,9 @@ const TableDataProvider = (props) => {
       variableOverrides={stableOverrides}
       isAdminMode={isAdminMode}
       salesTeamColumn={salesTeamColumn}
-      salesTeamValues={salesTeamValues}
+      salesTeamValues={normalizedSalesTeamValues}
       hqColumn={hqColumn}
-      hqValues={hqValues}
+      hqValues={normalizedHqValues}
       columnTypes={columnTypes}
       columnTypesOverride={columnTypes}
       enableSort={enableSort}
@@ -853,58 +920,48 @@ const TableDataProvider = (props) => {
               display: none !important;
             }
             
-            /* Hide the internal sidebar from DataProviderNew to avoid double sidebars */
-            body > .p-sidebar-bottom.p-sidebar-sm {
-              display: none !important;
-            }
-            
             /* Fix for Drawer scrolling issues */
-            .p-sidebar-bottom.custom-drawer {
+            .p-sidebar-bottom.p-sidebar-sm {
               height: 100dvh !important;
-              display: flex !important;
             }
             
-            .custom-drawer .p-sidebar-content {
+            .p-sidebar-bottom .p-sidebar-content {
               height: 100%;
               display: flex;
               flex-direction: column;
-              overflow: hidden !important;
+              overflow-y: auto !important; /* Changed from hidden to auto */
               padding: 0 !important;
             }
             
-            .custom-drawer .p-tabview {
+            .p-sidebar-bottom .p-tabview {
               display: flex;
               flex-direction: column;
               height: 100%;
-              min-height: 0;
             }
             
-            .custom-drawer .p-tabview-nav-container {
-              flex-shrink: 0;
-            }
-            
-            .custom-drawer .p-tabview-panels {
+            .p-sidebar-bottom .p-tabview-panels {
               flex: 1;
-              min-height: 0;
               display: flex;
               flex-direction: column;
               padding: 0 !important;
+              min-height: 0;
             }
             
-            .custom-drawer .p-tabview-panel {
+            .p-sidebar-bottom .p-tabview-panel {
               flex: 1;
               display: flex;
               flex-direction: column;
-              min-height: 0;
               height: 100%;
+              min-height: 0;
             }
             
-            .custom-drawer .overflow-auto {
+            /* Target both the manual overflow-auto div and PrimeReact's internal wrapper */
+            .p-sidebar-bottom .overflow-auto,
+            .p-sidebar-bottom .p-datatable-wrapper,
+            .p-sidebar-bottom .p-datatable-scrollable-body {
               flex: 1;
-              min-height: 0;
               overflow-y: auto !important;
               -webkit-overflow-scrolling: touch;
-              overscroll-behavior: contain;
             }
           `}} />
         </div>
@@ -925,8 +982,8 @@ const TableDataProvider = (props) => {
         blockScroll
         visible={drawerVisible}
         onHide={closeDrawer}
-        style={{ height: '100dvh' }}
-        className="custom-drawer"
+        style={{ height: '100vh' }}
+        className="p-sidebar-sm"
         header={
           <h2 className="text-lg font-semibold text-gray-800 m-0">
             {clickedDrawerValues.innerValue
@@ -967,8 +1024,7 @@ const TableDataProvider = (props) => {
                             useOrchestrationLayer={true}
                             rowsPerPageOptions={[5, 10, 25, 50, 100, 200]}
                             defaultRows={10}
-                            scrollable={true}
-                            scrollHeight="calc(100dvh - 180px)"
+                            scrollable={false}
                             enableSort={enableSort}
                             enableFilter={enableFilter}
                             enableSummation={enableSummation}
@@ -984,6 +1040,11 @@ const TableDataProvider = (props) => {
                             enableCellEdit={false}
                             columnTypes={columnTypes}
                             tableName="sidebar"
+                            isAdminMode={isAdminMode}
+                            salesTeamColumn={drawerSalesTeamColumn}
+                            salesTeamValues={drawerSalesTeamValues}
+                            hqColumn={drawerHqColumn}
+                            hqValues={drawerHqValues}
                           />
                         </TableOperationsContext.Provider>
                       ) : (
