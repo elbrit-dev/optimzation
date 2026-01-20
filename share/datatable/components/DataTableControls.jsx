@@ -8,6 +8,7 @@ import { Dropdown } from 'primereact/dropdown';
 import { MultiSelect } from 'primereact/multiselect';
 import { isEmpty, includes, filter, startCase, toLower, isArray, uniq } from 'lodash';
 import { getDataValue } from '../utils/dataAccessUtils';
+import { defaultDataTableConfig } from '../config/defaultConfig';
 
 function SingleFieldSelector({ columns, selectedField, onSelectionChange, formatFieldName, placeholder, label }) {
   const containerRef = React.useRef(null);
@@ -436,22 +437,23 @@ function FieldPicker({ columns, selectedFields, onSelectionChange, formatFieldNa
 }
 
 export default function DataTableControls({
-  enableSort,
-  enableFilter,
-  enableSummation,
-  enableCellEdit = false,
-  enableDivideBy1Lakh = false,
-  rowsPerPageOptions,
-  defaultRows,
+  enableSort = defaultDataTableConfig.enableSort,
+  enableFilter = defaultDataTableConfig.enableFilter,
+  enableSummation = defaultDataTableConfig.enableSummation,
+  enableCellEdit = defaultDataTableConfig.enableCellEdit,
+  enableDivideBy1Lakh = defaultDataTableConfig.enableDivideBy1Lakh,
+  rowsPerPageOptions = defaultDataTableConfig.rowsPerPageOptions,
+  defaultRows = defaultDataTableConfig.defaultRows,
+  tableHeight = defaultDataTableConfig.tableHeight,
   columns = [],
-  textFilterColumns = [],
-  visibleColumns = [],
-  redFields = [],
-  greenFields = [],
-  outerGroupField = null,
-  innerGroupField = null,
-  nonEditableColumns = [],
-  percentageColumns = [],
+  textFilterColumns = defaultDataTableConfig.textFilterColumns,
+  visibleColumns = defaultDataTableConfig.visibleColumns,
+  redFields = defaultDataTableConfig.redFields,
+  greenFields = defaultDataTableConfig.greenFields,
+  outerGroupField = defaultDataTableConfig.outerGroupField,
+  innerGroupField = defaultDataTableConfig.innerGroupField,
+  nonEditableColumns = defaultDataTableConfig.nonEditableColumns,
+  percentageColumns = defaultDataTableConfig.percentageColumns,
   dataSource = null,
   queryVariables = {},
   variableOverrides = {},
@@ -463,6 +465,7 @@ export default function DataTableControls({
   onDivideBy1LakhChange,
   onRowsPerPageOptionsChange,
   onDefaultRowsChange,
+  onTableHeightChange,
   onTextFilterColumnsChange,
   onVisibleColumnsChange,
   onRedFieldsChange,
@@ -472,25 +475,32 @@ export default function DataTableControls({
   onNonEditableColumnsChange,
   onPercentageColumnsChange,
   onSaveSettings,
-  drawerTabs = [],
+  drawerTabs = defaultDataTableConfig.drawerTabs,
   onDrawerTabsChange,
   onAddDrawerTab,
   onRemoveDrawerTab,
   onUpdateDrawerTab,
   // Auth Control props
-  isAdminMode = false,
-  salesTeamColumn = null,
-  salesTeamValues = [],
-  hqColumn = null,
-  hqValues = [],
+  isAdminMode = defaultDataTableConfig.isAdminMode,
+  salesTeamColumn = defaultDataTableConfig.salesTeamColumn,
+  salesTeamValues = defaultDataTableConfig.salesTeamValues,
+  hqColumn = defaultDataTableConfig.hqColumn,
+  hqValues = defaultDataTableConfig.hqValues,
   tableData = [],
   onAdminModeChange,
   onSalesTeamColumnChange,
   onSalesTeamValuesChange,
   onHqColumnChange,
   onHqValuesChange,
-  columnTypesOverride = {},
+  columnTypesOverride = defaultDataTableConfig.columnTypesOverride,
   onColumnTypesOverrideChange,
+  // Report settings
+  enableReport = defaultDataTableConfig.enableReport,
+  dateColumn = defaultDataTableConfig.dateColumn,
+  breakdownType = defaultDataTableConfig.breakdownType,
+  onEnableReportChange,
+  onDateColumnChange,
+  onBreakdownTypeChange,
 }) {
   const [customOptions, setCustomOptions] = useState(
     Array.isArray(rowsPerPageOptions) ? rowsPerPageOptions.join(', ') : ''
@@ -1045,15 +1055,41 @@ export default function DataTableControls({
                     label="Divide by 1Lakh"
                     icon="pi pi-calculator"
                   />
+                  {onEnableReportChange && (
+                    <ToggleSwitch
+                      checked={enableReport}
+                      onChange={onEnableReportChange}
+                      label="Enable Report"
+                      icon="pi pi-chart-bar"
+                    />
+                  )}
                   {onCellEditChange && (
                     <ToggleSwitch
                       checked={enableCellEdit}
                       onChange={onCellEditChange}
                       label="Cell Editing"
                       icon="pi pi-pencil"
-                      isLast={true}
                     />
                   )}
+                  <div className="mb-4 mt-4 pt-4 border-t border-gray-200">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Table Height
+                    </label>
+                    <input
+                      type="text"
+                      value={tableHeight || ''}
+                      onChange={(e) => {
+                        if (onTableHeightChange) {
+                          onTableHeightChange(e.target.value);
+                        }
+                      }}
+                      placeholder="60dvh"
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Table height (e.g., "60dvh", "500px", "flex")
+                    </p>
+                  </div>
                 </div>
               </AccordionTab>
 
@@ -1157,6 +1193,59 @@ export default function DataTableControls({
                           onSelectionChange={onInnerGroupFieldChange}
                           formatFieldName={formatFieldName}
                           placeholder="Select inner group field..."
+                        />
+                      </div>
+                    )}
+                  </div>
+                </AccordionTab>
+              )}
+
+              {/* REPORT SETTINGS */}
+              {enableReport && !isEmpty(columns) && (
+                <AccordionTab header={
+                  <div className="flex align-items-center gap-2">
+                    <i className="pi pi-chart-bar"></i>
+                    <span>Report Settings</span>
+                  </div>
+                }>
+                  <div className="m-0">
+                    <div className="mb-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Date Column
+                      </label>
+                      <p className="text-xs text-gray-500 mb-2">
+                        Select the column containing date values for time-based breakdown
+                      </p>
+                      <SingleFieldSelector
+                        columns={columns}
+                        selectedField={dateColumn}
+                        onSelectionChange={onDateColumnChange}
+                        formatFieldName={formatFieldName}
+                        placeholder="Select date column..."
+                      />
+                    </div>
+                    {dateColumn && (
+                      <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Breakdown By
+                        </label>
+                        <p className="text-xs text-gray-500 mb-2">
+                          Select how to break down data by time periods
+                        </p>
+                        <Dropdown
+                          value={breakdownType}
+                          onChange={(e) => onBreakdownTypeChange && onBreakdownTypeChange(e.value)}
+                          options={[
+                            { label: 'Day-wise', value: 'day' },
+                            { label: 'Week-wise', value: 'week' },
+                            { label: 'Month-wise', value: 'month' },
+                            { label: 'Quarter-wise', value: 'quarter' },
+                            { label: 'Year-wise', value: 'annual' }
+                          ]}
+                          optionLabel="label"
+                          optionValue="value"
+                          className="w-full"
+                          placeholder="Select breakdown type..."
                         />
                       </div>
                     )}

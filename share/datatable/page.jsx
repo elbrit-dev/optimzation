@@ -4,9 +4,6 @@ import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { Toast } from 'primereact/toast';
 import { Splitter, SplitterPanel } from 'primereact/splitter';
 import { Dropdown } from 'primereact/dropdown';
-import { SelectButton } from 'primereact/selectbutton';
-import { Button } from 'primereact/button';
-import DataTableComponent from './components/DataTable';
 import DataTableNew from './components/DataTableNew';
 import DataTableControls from './components/DataTableControls';
 import DataProvider from './components/DataProvider';
@@ -14,52 +11,56 @@ import data from '@/resource/data';
 import { uniq, flatMap, isEmpty, startCase, filter as lodashFilter, get, isNil, debounce } from 'lodash';
 import { getDataKeys, getDataValue } from './utils/dataAccessUtils';
 import ProtectedRoute from '@/components/ProtectedRoute';
+import { defaultDataTableConfig } from './config/defaultConfig';
 
 
 function DataTablePage() {
   const toast = useRef(null);
   const [isLoading, setIsLoading] = useState(true);
-  // Feature flag state (defaults to true - New Layer enabled by default)
-  const [useOrchestrationLayer, setUseOrchestrationLayer] = useState(true);
   const [tableData, setTableData] = useState(data); // Filtered data for DataTable
   const [rawTableData, setRawTableData] = useState(data); // Full/original data for Auth Control in DataTableControls
   const [currentDataSource, setCurrentDataSource] = useState(null);
   // State for Data Source and Query Key selectors (controlled by page)
-  const [dataSource, setDataSource] = useState('claim');
-  const [selectedQueryKey, setSelectedQueryKey] = useState(null);
+  const [dataSource, setDataSource] = useState(defaultDataTableConfig.dataSource);
+  const [selectedQueryKey, setSelectedQueryKey] = useState(defaultDataTableConfig.selectedQueryKey);
   // State exposed from DataProvider for selectors
   const [savedQueries, setSavedQueries] = useState([]);
   const [loadingQueries, setLoadingQueries] = useState(false);
   const [executingQuery, setExecutingQuery] = useState(false);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [availableQueryKeys, setAvailableQueryKeys] = useState([]);
-  const [enableSort, setEnableSort] = useState(true);
-  const [enableFilter, setEnableFilter] = useState(true);
-  const [enableSummation, setEnableSummation] = useState(true);
-  const [enableCellEdit, setEnableCellEdit] = useState(false);
-  const [enableDivideBy1Lakh, setEnableDivideBy1Lakh] = useState(false);
-  const [rowsPerPageOptionsRaw, setRowsPerPageOptionsRaw] = useState([5, 10, 25, 50, 100, 200]);
-  const [defaultRowsRaw, setDefaultRowsRaw] = useState(10);
-  const [textFilterColumnsRaw, setTextFilterColumnsRaw] = useState([]);
-  const [visibleColumnsRaw, setVisibleColumnsRaw] = useState([]);
-  const [redFieldsRaw, setRedFieldsRaw] = useState([]);
-  const [greenFieldsRaw, setGreenFieldsRaw] = useState([]);
-  const [outerGroupFieldRaw, setOuterGroupFieldRaw] = useState(null);
-  const [innerGroupFieldRaw, setInnerGroupFieldRaw] = useState(null);
-  const [nonEditableColumnsRaw, setNonEditableColumnsRaw] = useState([]);
-  const [percentageColumns, setPercentageColumns] = useState([]);
+  const [enableSort, setEnableSort] = useState(defaultDataTableConfig.enableSort);
+  const [enableFilter, setEnableFilter] = useState(defaultDataTableConfig.enableFilter);
+  const [enableSummation, setEnableSummation] = useState(defaultDataTableConfig.enableSummation);
+  const [enableCellEdit, setEnableCellEdit] = useState(defaultDataTableConfig.enableCellEdit);
+  const [enableDivideBy1Lakh, setEnableDivideBy1Lakh] = useState(defaultDataTableConfig.enableDivideBy1Lakh);
+  const [rowsPerPageOptionsRaw, setRowsPerPageOptionsRaw] = useState(defaultDataTableConfig.rowsPerPageOptions);
+  const [defaultRowsRaw, setDefaultRowsRaw] = useState(defaultDataTableConfig.defaultRows);
+  const [tableHeight, setTableHeight] = useState(defaultDataTableConfig.tableHeight);
+  const [textFilterColumnsRaw, setTextFilterColumnsRaw] = useState(defaultDataTableConfig.textFilterColumns);
+  const [visibleColumnsRaw, setVisibleColumnsRaw] = useState(defaultDataTableConfig.visibleColumns);
+  const [redFieldsRaw, setRedFieldsRaw] = useState(defaultDataTableConfig.redFields);
+  const [greenFieldsRaw, setGreenFieldsRaw] = useState(defaultDataTableConfig.greenFields);
+  const [outerGroupFieldRaw, setOuterGroupFieldRaw] = useState(defaultDataTableConfig.outerGroupField);
+  const [innerGroupFieldRaw, setInnerGroupFieldRaw] = useState(defaultDataTableConfig.innerGroupField);
+  const [nonEditableColumnsRaw, setNonEditableColumnsRaw] = useState(defaultDataTableConfig.nonEditableColumns);
+  const [percentageColumns, setPercentageColumns] = useState(defaultDataTableConfig.percentageColumns);
   const [queryVariables, setQueryVariables] = useState({});
   const [variableOverrides, setVariableOverrides] = useState({});
-  const [columnTypesOverride, setColumnTypesOverride] = useState({});
+  const [columnTypesOverride, setColumnTypesOverride] = useState(defaultDataTableConfig.columnTypesOverride);
   // Auth Control settings
-  const [isAdminMode, setIsAdminMode] = useState(false);
-  const [salesTeamColumn, setSalesTeamColumn] = useState(null);
-  const [salesTeamValues, setSalesTeamValues] = useState([]);
-  const [hqColumn, setHqColumn] = useState(null);
-  const [hqValues, setHqValues] = useState([]);
+  const [isAdminMode, setIsAdminMode] = useState(defaultDataTableConfig.isAdminMode);
+  const [salesTeamColumn, setSalesTeamColumn] = useState(defaultDataTableConfig.salesTeamColumn);
+  const [salesTeamValues, setSalesTeamValues] = useState(defaultDataTableConfig.salesTeamValues);
+  const [hqColumn, setHqColumn] = useState(defaultDataTableConfig.hqColumn);
+  const [hqValues, setHqValues] = useState(defaultDataTableConfig.hqValues);
+  // Report settings state
+  const [enableReport, setEnableReport] = useState(defaultDataTableConfig.enableReport);
+  const [dateColumn, setDateColumn] = useState(defaultDataTableConfig.dateColumn);
+  const [breakdownType, setBreakdownType] = useState(defaultDataTableConfig.breakdownType);
 
   // Drawer tabs state (still managed here for DataTableControls, but drawer rendering moved to DataProvider)
-  const [drawerTabs, setDrawerTabs] = useState([{ id: `tab-${Date.now()}`, name: '', outerGroup: null, innerGroup: null }]);
+  const [drawerTabs, setDrawerTabs] = useState(defaultDataTableConfig.drawerTabs.length > 0 ? defaultDataTableConfig.drawerTabs : [{ id: `tab-${Date.now()}`, name: '', outerGroup: null, innerGroup: null }]);
 
   // Ensure at least one tab exists
   useEffect(() => {
@@ -398,7 +399,7 @@ function DataTablePage() {
           </div>
         ) : (
           <DataProvider
-            useOrchestrationLayer={useOrchestrationLayer}
+            useOrchestrationLayer={true}
             offlineData={data}
             onDataChange={handleDataChange}
             onError={handleError}
@@ -420,34 +421,27 @@ function DataTablePage() {
             salesTeamValues={salesTeamValues}
             hqColumn={hqColumn}
             hqValues={hqValues}
-            {...(useOrchestrationLayer && {
-              enableSort,
-              enableFilter,
-              enableSummation,
-              textFilterColumns,
-              visibleColumns,
-              onVisibleColumnsChange: setVisibleColumns,
-              percentageColumns,
-              outerGroupField,
-              innerGroupField,
-              redFields,
-              greenFields,
-              enableDivideBy1Lakh,
-              columnTypesOverride,
-              drawerTabs,
-              onDrawerTabsChange: setDrawerTabs,
-            })}
+            enableSort={enableSort}
+            enableFilter={enableFilter}
+            enableSummation={enableSummation}
+            textFilterColumns={textFilterColumns}
+            visibleColumns={visibleColumns}
+            onVisibleColumnsChange={setVisibleColumns}
+            percentageColumns={percentageColumns}
+            outerGroupField={outerGroupField}
+            innerGroupField={innerGroupField}
+            redFields={redFields}
+            greenFields={greenFields}
+            enableDivideBy1Lakh={enableDivideBy1Lakh}
+            columnTypesOverride={columnTypesOverride}
+            drawerTabs={drawerTabs}
+            onDrawerTabsChange={setDrawerTabs}
+            enableReport={enableReport}
+            dateColumn={dateColumn}
+            breakdownType={breakdownType}
+            onBreakdownTypeChange={setBreakdownType}
             renderHeaderControls={(selectorsJSX) => (
               <div className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 border-b border-gray-200 shrink-0 bg-white min-w-0 overflow-x-hidden">
-                {/* Feature Flag Toggle */}
-                <div className="mb-2">
-                  <Button
-                    label={useOrchestrationLayer ? 'Using New Layer (ON)' : 'Using Old Layer (OFF)'}
-                    onClick={() => setUseOrchestrationLayer(!useOrchestrationLayer)}
-                    className={`p-button-sm ${useOrchestrationLayer ? 'p-button-success' : 'p-button-secondary'}`}
-                    icon={useOrchestrationLayer ? 'pi pi-check-circle' : 'pi pi-times-circle'}
-                  />
-                </div>
                 <div className="flex justify-between items-start gap-3 flex-wrap min-w-0">
                   {/* Left: selectorsJSX from DataProvider */}
                   <div className="flex-1 min-w-0">
@@ -532,47 +526,19 @@ function DataTablePage() {
                           Please select a query from the dropdown above and click <strong>Execute</strong> to see the table data.
                         </p>
                       </div>
-                    ) : useOrchestrationLayer ? (
-                      <DataTableNew
-                        scrollHeight="60dvh"
-                        rowsPerPageOptions={rowsPerPageOptions}
-                        defaultRows={defaultRows}
-                        scrollable={false}
-                        enableCellEdit={enableCellEdit}
-                        nonEditableColumns={nonEditableColumns}
-                        onCellEditComplete={handleCellEditComplete}
-                        onOuterGroupClick={handleOuterGroupClick}
-                        onInnerGroupClick={handleInnerGroupClick}
-                        tableName="main"
-                        useOrchestrationLayer={useOrchestrationLayer}
-                      />
                     ) : (
-                      <DataTableComponent
-                        columnTypes={{ is_internal_customer: "number" }}
-                        scrollHeight="60dvh"
-                        data={tableData}
+                      <DataTableNew
+                        scrollHeight={tableHeight}
                         rowsPerPageOptions={rowsPerPageOptions}
                         defaultRows={defaultRows}
                         scrollable={false}
-                        enableSort={enableSort}
-                        enableFilter={enableFilter}
-                        enableSummation={enableSummation}
-                        enableDivideBy1Lakh={enableDivideBy1Lakh}
-                        textFilterColumns={textFilterColumns}
-                        visibleColumns={visibleColumns}
-                        onVisibleColumnsChange={setVisibleColumns}
-                        redFields={redFields}
-                        greenFields={greenFields}
-                        outerGroupField={outerGroupField}
-                        innerGroupField={innerGroupField}
                         enableCellEdit={enableCellEdit}
                         nonEditableColumns={nonEditableColumns}
                         onCellEditComplete={handleCellEditComplete}
                         onOuterGroupClick={handleOuterGroupClick}
                         onInnerGroupClick={handleInnerGroupClick}
-                        percentageColumns={percentageColumns}
                         tableName="main"
-                        useOrchestrationLayer={useOrchestrationLayer}
+                        useOrchestrationLayer={true}
                       />
                     )}
                   </div>
@@ -606,6 +572,8 @@ function DataTablePage() {
                     onDivideBy1LakhChange={setEnableDivideBy1Lakh}
                     onRowsPerPageOptionsChange={setRowsPerPageOptions}
                     onDefaultRowsChange={setDefaultRows}
+                    tableHeight={tableHeight}
+                    onTableHeightChange={setTableHeight}
                     onTextFilterColumnsChange={setTextFilterColumns}
                     onVisibleColumnsChange={setVisibleColumns}
                     onRedFieldsChange={setRedFields}
@@ -632,6 +600,12 @@ function DataTablePage() {
                     onHqValuesChange={setHqValues}
                     columnTypesOverride={columnTypesOverride}
                     onColumnTypesOverrideChange={handleColumnTypesOverrideChange}
+                    enableReport={enableReport}
+                    dateColumn={dateColumn}
+                    breakdownType={breakdownType}
+                    onEnableReportChange={setEnableReport}
+                    onDateColumnChange={setDateColumn}
+                    onBreakdownTypeChange={setBreakdownType}
                   />
                 </SplitterPanel>
               </Splitter>
@@ -639,7 +613,7 @@ function DataTablePage() {
           </DataProvider>
         )}
       </main>
-      {/* Drawer Sidebar removed - now rendered inside DataProvider when useOrchestrationLayer is true */}
+      {/* Drawer Sidebar rendered inside DataProvider */}
     </div>
   );
 }

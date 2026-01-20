@@ -10,7 +10,7 @@ export default function NavigationLayout({ children }) {
 
   return (
     <ProtectedRoute>
-      <div className="h-dvh flex bg-gray-50 overflow-hidden">
+      <div className="h-dvh flex bg-gray-50 overflow-hidden overflow-x-hidden">
         <Navigation />
         <div className="flex-1 overflow-y-auto" {...(swipeHandlers || {})}>
           {children}

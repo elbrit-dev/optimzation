@@ -44,6 +44,9 @@ import {
 import { getDataKeys, getDataValue } from '../utils/dataAccessUtils';
 import { useTableOperations } from '../contexts/TableOperationsContext';
 import MultiselectFilter from './MultiselectFilter';
+import { ColumnGroup } from 'primereact/columngroup';
+import { Row } from 'primereact/row';
+import { getTimePeriodLabel } from '../report/utils/timeBreakdownUtils';
 
 // Date format patterns for detection
 const DATE_PATTERNS = [
@@ -747,6 +750,8 @@ export default function DataTableNew({
     removeDrawerTab,
     updateDrawerTab,
     setActiveDrawerTabIndex,
+    enableReport,
+    reportData,
   } = useTableOperations();
 
   const [first, setFirst] = useState(pagination.first);
@@ -1006,20 +1011,137 @@ export default function DataTableNew({
     return finalResult;
   }, [columns, visibleColumns, outerGroupField, innerGroupField, columnTypesFlags, hasPercentageColumns, percentageColumns]);
 
+  // Report mode: Pre-compute column structure (shared by header and columns)
+  const reportColumnsStructure = useMemo(() => {
+    if (!enableReport || !reportData || !reportData.timePeriods || !reportData.metrics) {
+      return null;
+    }
+
+    const { timePeriods, metrics, tableData } = reportData;
+    
+    // Pre-compute which columns have data (single pass through tableData)
+    const columnHasData = new Set();
+    if (tableData && tableData.length > 0) {
+      tableData.forEach(row => {
+        timePeriods.forEach(period => {
+          metrics.forEach(metric => {
+            const columnName = `${period}_${metric}`;
+            const value = row[columnName];
+            if (value !== null && value !== undefined) {
+              columnHasData.add(columnName);
+            }
+          });
+        });
+      });
+    }
+    
+    // Build columns with data
+    const columnsWithData = [];
+    timePeriods.forEach(period => {
+      metrics.forEach(metric => {
+        const columnName = `${period}_${metric}`;
+        if (columnHasData.has(columnName)) {
+          columnsWithData.push({ period, metric, columnName });
+        }
+      });
+    });
+    
+    // Group by metric for header colSpan calculation
+    const metricGroups = {};
+    columnsWithData.forEach(({ metric, period }) => {
+      if (!metricGroups[metric]) {
+        metricGroups[metric] = [];
+      }
+      metricGroups[metric].push(period);
+    });
+    
+    return {
+      columnsWithData,
+      metricGroups,
+      metricsWithData: Object.keys(metricGroups),
+      columnNames: columnsWithData.map(c => c.columnName)
+    };
+  }, [enableReport, reportData]);
+
+  // Report mode: Generate header groups and columns
+  const reportHeaderGroup = useMemo(() => {
+    if (!reportColumnsStructure || !reportData) {
+      return null;
+    }
+
+    const { breakdownType } = reportData;
+    const { metricGroups, metricsWithData, columnsWithData } = reportColumnsStructure;
+    const totalDataCols = columnsWithData.length;
+
+    return (
+      <ColumnGroup>
+        <Row>
+          <Column header="" rowSpan={3} style={{ width: '3rem' }} />
+          <Column header={formatHeaderName(outerGroupField)} rowSpan={3} />
+          {totalDataCols > 0 && (
+            <Column 
+              header="" 
+              colSpan={totalDataCols} 
+            />
+          )}
+        </Row>
+        <Row>
+          {metricsWithData.map(metric => {
+            const periodCount = metricGroups[metric].length;
+            return (
+              <Column key={metric} header={formatHeaderName(metric)} colSpan={periodCount} />
+            );
+          })}
+        </Row>
+        <Row>
+          {metricsWithData.map(metric => 
+            metricGroups[metric].map(period => (
+              <Column 
+                key={`${period}_${metric}`}
+                header={getTimePeriodLabel(period, breakdownType)}
+                sortable
+                field={`${period}_${metric}`}
+              />
+            ))
+          )}
+        </Row>
+      </ColumnGroup>
+    );
+  }, [reportColumnsStructure, reportData, outerGroupField, formatHeaderName]);
+
+  // Report mode: Generate report columns
+  const reportColumns = useMemo(() => {
+    if (!reportColumnsStructure) {
+      return [];
+    }
+
+    const cols = [outerGroupField];
+    cols.push(...reportColumnsStructure.columnNames);
+    return cols;
+  }, [reportColumnsStructure, outerGroupField]);
+
+  // Use report columns when in report mode, otherwise use orderedColumns
+  const displayColumns = useMemo(() => {
+    if (enableReport && reportColumns.length > 0) {
+      return reportColumns;
+    }
+    return orderedColumns;
+  }, [enableReport, reportColumns, orderedColumns]);
+
   const frozenCols = useMemo(
     () => {
-      const result = isEmpty(orderedColumns) ? [] : [head(orderedColumns)];
+      const result = isEmpty(displayColumns) ? [] : [head(displayColumns)];
       return result;
     },
-    [orderedColumns]
+    [displayColumns]
   );
 
   const regularCols = useMemo(
     () => {
-      const result = tail(orderedColumns);
+      const result = tail(displayColumns);
       return result;
     },
-    [orderedColumns]
+    [displayColumns]
   );
 
 
@@ -1744,8 +1866,13 @@ export default function DataTableNew({
 
   // Check if a row can be expanded
   const allowExpansion = useCallback((rowData) => {
+    if (enableReport && reportData && innerGroupField) {
+      const outerValue = getDataValue(rowData, outerGroupField);
+      const nestedRows = reportData.nestedTableData[outerValue];
+      return nestedRows && nestedRows.length > 0;
+    }
     return outerGroupField && rowData.__isGroupRow__ && rowData.__groupRows__ && rowData.__groupRows__.length > 0;
-  }, [outerGroupField]);
+  }, [outerGroupField, enableReport, reportData, innerGroupField]);
 
   // Nested (expanded) tables: keep independent filter state and debounce timers per group
   const [nestedFiltersMap, setNestedFiltersMap] = useState({});
@@ -2012,6 +2139,161 @@ export default function DataTableNew({
     );
   }, [outerGroupField, innerGroupField, orderedColumns, columnTypes, formatHeaderName, getBodyTemplate, calculateColumnWidths, getHeaderTemplate, multiselectColumns, nestedFiltersMap, updateNestedFilter, nestedDebouncedUpdateFilter, nestedCancelDebounced]);
 
+  // Pre-compute nested table column structures per outer group
+  const nestedTableColumnStructures = useMemo(() => {
+    if (!enableReport || !reportData || !reportData.nestedTableData) {
+      return {};
+    }
+
+    const { timePeriods, metrics } = reportData;
+    const structures = {};
+    
+    Object.entries(reportData.nestedTableData).forEach(([outerValue, nestedRows]) => {
+      if (!nestedRows || nestedRows.length === 0) {
+        structures[outerValue] = null;
+        return;
+      }
+      
+      // Pre-compute which columns have data for this outer group (single pass)
+      const columnHasData = new Set();
+      nestedRows.forEach(row => {
+        timePeriods.forEach(period => {
+          metrics.forEach(metric => {
+            const columnName = `${period}_${metric}`;
+            const value = row[columnName];
+            if (value !== null && value !== undefined) {
+              columnHasData.add(columnName);
+            }
+          });
+        });
+      });
+      
+      // Build columns with data
+      const columnsWithData = [];
+      timePeriods.forEach(period => {
+        metrics.forEach(metric => {
+          const columnName = `${period}_${metric}`;
+          if (columnHasData.has(columnName)) {
+            columnsWithData.push({ period, metric, columnName });
+          }
+        });
+      });
+      
+      // Group by metric for header colSpan calculation
+      const metricGroups = {};
+      columnsWithData.forEach(({ metric, period }) => {
+        if (!metricGroups[metric]) {
+          metricGroups[metric] = [];
+        }
+        metricGroups[metric].push(period);
+      });
+      
+      structures[outerValue] = {
+        columnsWithData,
+        metricGroups,
+        metricsWithData: Object.keys(metricGroups)
+      };
+    });
+    
+    return structures;
+  }, [enableReport, reportData]);
+
+  // Report mode: Row expansion template for inner group breakdown
+  const reportRowExpansionTemplate = useCallback((rowData) => {
+    if (!enableReport || !reportData || !innerGroupField) {
+      return null;
+    }
+
+    const outerValue = getDataValue(rowData, outerGroupField);
+    const nestedRows = reportData.nestedTableData[outerValue];
+    
+    if (!nestedRows || nestedRows.length === 0) {
+      return <div className="p-3">No inner group data available</div>;
+    }
+
+    // Get pre-computed structure for this outer group
+    const structure = nestedTableColumnStructures[outerValue];
+    if (!structure) {
+      return <div className="p-3">No inner group data available</div>;
+    }
+
+    const { breakdownType } = reportData;
+    const { columnsWithData, metricGroups, metricsWithData } = structure;
+    const totalDataCols = columnsWithData.length;
+
+    // Generate nested header group matching the filtered columns
+    const nestedHeaderGroup = (
+      <ColumnGroup>
+        <Row>
+          <Column header={formatHeaderName(innerGroupField)} rowSpan={3} />
+          {totalDataCols > 0 && (
+            <Column 
+              header="" 
+              colSpan={totalDataCols} 
+            />
+          )}
+        </Row>
+        <Row>
+          {metricsWithData.map(metric => {
+            const periodCount = metricGroups[metric].length;
+            return (
+              <Column key={metric} header={formatHeaderName(metric)} colSpan={periodCount} />
+            );
+          })}
+        </Row>
+        <Row>
+          {metricsWithData.map(metric => 
+            metricGroups[metric].map(period => (
+              <Column 
+                key={`${period}_${metric}`}
+                header={getTimePeriodLabel(period, breakdownType)}
+                sortable
+                field={`${period}_${metric}`}
+              />
+            ))
+          )}
+        </Row>
+      </ColumnGroup>
+    );
+
+    // Generate nested columns - only include columns with data
+    const nestedColumns = [
+      <Column key={innerGroupField} field={innerGroupField} header={formatHeaderName(innerGroupField)} />
+    ];
+
+    columnsWithData.forEach(({ columnName }) => {
+      nestedColumns.push(
+        <Column
+          key={columnName}
+          field={columnName}
+          body={(rowData, { field: colField }) => {
+            const value = getDataValue(rowData, colField);
+            if (value === undefined || value === null) return '-';
+            return value.toLocaleString('en-US');
+          }}
+          align="right"
+        />
+      );
+    });
+
+    return (
+      <div className="p-3">
+        <h5 className="mb-3 text-sm font-semibold">
+          {formatHeaderName(innerGroupField)} Breakdown for {getDataValue(rowData, outerGroupField)}
+        </h5>
+        <DataTable 
+          value={nestedRows} 
+          headerColumnGroup={nestedHeaderGroup}
+          tableStyle={{ minWidth: '50rem' }}
+          size="small"
+          dataKey="id"
+        >
+          {nestedColumns}
+        </DataTable>
+      </div>
+    );
+  }, [enableReport, reportData, nestedTableColumnStructures, outerGroupField, innerGroupField, formatHeaderName]);
+
   const onPageChange = (event) => {
     updatePagination(event.first, event.rows);
     setFirst(event.first);
@@ -2200,11 +2482,12 @@ export default function DataTableNew({
         filterDisplay={enableFilter ? "row" : undefined}
         expandedRows={expandedRows}
         onRowToggle={(e) => updateExpandedRows(e.data)}
-        rowExpansionTemplate={outerGroupField ? rowExpansionTemplate : undefined}
-        dataKey={outerGroupField ? "__groupKey__" : undefined}
+        rowExpansionTemplate={enableReport && innerGroupField ? reportRowExpansionTemplate : (outerGroupField ? rowExpansionTemplate : undefined)}
+        dataKey={enableReport ? "id" : (outerGroupField ? "__groupKey__" : undefined)}
+        headerColumnGroup={enableReport ? reportHeaderGroup : undefined}
         editMode={enableCellEdit ? "cell" : undefined}
       >
-        {outerGroupField && (
+        {(outerGroupField || (enableReport && innerGroupField)) && (
           <Column
             expander={allowExpansion}
             style={{ width: '3rem' }}
@@ -2215,6 +2498,9 @@ export default function DataTableNew({
           const colType = get(columnTypesFlags, col);
           const isNumericCol = isPctCol || get(colType, 'isNumeric', false);
           const isFirstColumn = index === 0;
+          // In report mode, time period columns are always numeric
+          const isReportCol = enableReport && reportData && reportData.metrics.some(m => col.includes(`_${m}`));
+          const isReportNumeric = isReportCol || isNumericCol;
           return (
             <Column
               key={`frozen-${col}`}
@@ -2226,15 +2512,19 @@ export default function DataTableNew({
               style={{
                 width: isPctCol ? '130px' : `${get(calculateColumnWidths, col, 120)}px`,
               }}
-              filter={enableFilter}
-              filterElement={enableFilter ? getFilterElement(col) : undefined}
+              filter={enableFilter && !isReportCol}
+              filterElement={enableFilter && !isReportCol ? getFilterElement(col) : undefined}
               showFilterMenu={false}
               showClearButton={false}
               footer={footerTemplate(col, isFirstColumn)}
-              body={getBodyTemplate(col)}
+              body={isReportCol ? (rowData) => {
+                const value = getDataValue(rowData, col);
+                if (value === undefined || value === null) return '-';
+                return value.toLocaleString('en-US');
+              } : getBodyTemplate(col)}
               editor={getCellEditor(col)}
               onCellEditComplete={enableCellEdit && getCellEditor(col) ? handleCellEditComplete : undefined}
-              align={isNumericCol ? 'right' : 'left'}
+              align={isReportNumeric ? 'right' : 'left'}
             />
           );
         })}
@@ -2243,6 +2533,9 @@ export default function DataTableNew({
           const isPctCol = isPercentageColumn(col);
           const colType = get(columnTypesFlags, col);
           const isNumericCol = isPctCol || get(colType, 'isNumeric', false);
+          // In report mode, time period columns are always numeric
+          const isReportCol = enableReport && reportData && reportData.metrics.some(m => col.includes(`_${m}`));
+          const isReportNumeric = isReportCol || isNumericCol;
           return (
             <Column
               key={col}
@@ -2253,15 +2546,19 @@ export default function DataTableNew({
               style={{
                 width: isPctCol ? '130px' : `${get(calculateColumnWidths, col, 120)}px`,
               }}
-              filter={enableFilter}
-              filterElement={enableFilter ? getFilterElement(col) : undefined}
+              filter={enableFilter && !isReportCol}
+              filterElement={enableFilter && !isReportCol ? getFilterElement(col) : undefined}
               showFilterMenu={false}
               showClearButton={false}
               footer={footerTemplate(col)}
-              body={getBodyTemplate(col)}
+              body={isReportCol ? (rowData) => {
+                const value = getDataValue(rowData, col);
+                if (value === undefined || value === null) return '-';
+                return value.toLocaleString('en-US');
+              } : getBodyTemplate(col)}
               editor={getCellEditor(col)}
               onCellEditComplete={enableCellEdit && getCellEditor(col) ? handleCellEditComplete : undefined}
-              align={isNumericCol ? 'right' : 'left'}
+              align={isReportNumeric ? 'right' : 'left'}
             />
           );
         })}

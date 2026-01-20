@@ -294,12 +294,14 @@ const DataTableWrapper = (props) => {
     enableGrouping: propEnableGrouping,
     onVisibleColumnsChange: propOnVisibleColumnsChange,
     onDrawerTabsChange: propOnDrawerTabsChange,
-    onColumnTypesChange: propOnColumnTypesChange,
+    onColumnTypesChange,
     onAdminModeChange: propOnAdminModeChange,
     onSave,
     onVariableOverridesChange,
     tableName: propTableName = 'main',
   } = props;
+
+  const propOnColumnTypesChange = onColumnTypesChange;
 
   // 1. Hooks (State & LocalStorage)
   const [enableSortState, setEnableSort] = useLocalStorageBoolean('datatable-enableSort', true);
@@ -336,7 +338,7 @@ const DataTableWrapper = (props) => {
   const propIsAdminMode = props.isAdminMode !== undefined ? props.isAdminMode : context?.isAdminMode;
   const propSalesTeamColumn = props.salesTeamColumn !== undefined ? props.salesTeamColumn : context?.salesTeamColumn;
   const propSalesTeamValues = (props.salesTeamValues && props.salesTeamValues.length > 0) ? props.salesTeamValues : context?.salesTeamValues;
-  const propHqColumn = props.hqColumn !== undefined ? propHqColumn : context?.hqColumn;
+  const propHqColumn = props.hqColumn !== undefined ? props.hqColumn : context?.hqColumn;
   const propHqValues = (props.hqValues && props.hqValues.length > 0) ? props.hqValues : context?.hqValues;
 
   // 3. Derived values (moved up to avoid ReferenceError in useEffect)

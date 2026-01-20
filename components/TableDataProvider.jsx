@@ -32,6 +32,7 @@ const TableDataProvider = (props) => {
     onSelectedQueryKeyChange,
     onLoadingDataChange,
     onLastUpdatedAtChange,
+    onColumnTypesChange,
     variableOverrides,
     showSelectors = true,
     hideDataSourceAndQueryKey,
@@ -58,12 +59,13 @@ const TableDataProvider = (props) => {
     drawerTabs = [],
     onVisibleColumnsChange: propOnVisibleColumnsChange,
     onDrawerTabsChange: propOnDrawerTabsChange,
-    onColumnTypesChange: propOnColumnTypesChange,
     onAdminModeChange: propOnAdminModeChange,
     className,
     style,
     ...otherProps // Collect all other individual props to use as variables
   } = props;
+
+  const propOnColumnTypesChange = onColumnTypesChange;
 
   const [currentTableData, setCurrentTableData] = useState(null);
   const [currentRawData, setCurrentRawData] = useState(null);

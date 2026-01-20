@@ -62,9 +62,10 @@ const Navigation = ({
   items,
   defaultIndex = 0,
   desktopWidth = '16rem', // Default: w-64
-  desktopHeight = 'auto', // Default: auto (flex-1)
+  desktopHeight = '93dvh', // Default: auto (flex-1)
   mobileWidth = '100%', // Default: full width
-  mobileHeight = '4rem' // Default: h-16
+  mobileHeight = '4rem', // Default: h-16
+  showCollapse = true // Default: true
 }) => {
   // Debug: Component initialization
   console.log('[Navigation] Component initialized with props:', {
@@ -140,6 +141,7 @@ const Navigation = ({
   // Always start with false to match server render, then update on client
   const [isMobile, setIsMobile] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(false);
 
   // Debug: Initial state
   console.log('[Navigation] Initial state:', {
@@ -374,67 +376,90 @@ const Navigation = ({
       {mounted && !isMobile && (
         <motion.aside
           initial={{ x: -100, opacity: 0 }}
-          animate={{ x: 0, opacity: 1 }}
+          animate={{ 
+            x: 0, 
+            opacity: 1,
+            width: isCollapsed ? '5rem' : desktopWidth
+          }}
           transition={{ duration: 0.3 }}
-          className="bg-white border-r border-gray-200 flex flex-col shadow-sm"
+          className="bg-white border-r border-gray-200 flex flex-col shadow-sm overflow-x-hidden"
           style={{
-            width: desktopWidth,
             height: desktopHeight === 'auto' ? 'auto' : desktopHeight,
           }}
         >
-          <nav className="flex-1 overflow-y-auto p-2">
-            {navigationItems.map((item, index) => {
-              // Skip mobileOnly items in desktop sidebar
-              if (item.mobileOnly) {
-                console.log('[Navigation] Skipping mobileOnly item in desktop sidebar:', {
+          <nav className={`flex-1 flex flex-col ${isCollapsed ? 'p-1' : 'p-2'}`}>
+            <div className={`flex-1 overflow-y-auto overflow-x-hidden ${isCollapsed ? 'flex flex-col items-center' : ''}`}>
+              {navigationItems.map((item, index) => {
+                // Skip mobileOnly items in desktop sidebar
+                if (item.mobileOnly) {
+                  console.log('[Navigation] Skipping mobileOnly item in desktop sidebar:', {
+                    index,
+                    label: item.label,
+                    path: item.path || item.route
+                  });
+                  return null;
+                }
+                const isDisabled = item.isDisabled === true;
+                const isActive = activeIndex === index;
+                console.log('[Navigation] Rendering desktop navigation item:', {
                   index,
                   label: item.label,
-                  path: item.path || item.route
+                  path: item.path || item.route,
+                  isActive,
+                  isDisabled,
+                  hasIconActive: !!item.iconActive,
+                  hasIconInactive: !!item.iconInactive,
+                  hasIcon: !!item.icon
                 });
-                return null;
-              }
-              const isDisabled = item.isDisabled === true;
-              const isActive = activeIndex === index;
-              console.log('[Navigation] Rendering desktop navigation item:', {
-                index,
-                label: item.label,
-                path: item.path || item.route,
-                isActive,
-                isDisabled,
-                hasIconActive: !!item.iconActive,
-                hasIconInactive: !!item.iconInactive,
-                hasIcon: !!item.icon
-              });
 
-              return (
-                <motion.button
-                  key={item.path || item.route || index}
-                  onClick={() => handleItemClick(index)}
-                  disabled={isDisabled}
-                  className={`w-full text-left px-4 py-3 rounded-lg mb-1 transition-colors ${isDisabled
-                    ? 'opacity-50 cursor-not-allowed text-gray-400'
-                    : isActive
-                      ? 'bg-blue-50 text-blue-700 font-medium'
-                      : 'text-gray-700 hover:bg-gray-100'
-                    }`}
-                  whileHover={isDisabled ? {} : { scale: 1.02 }}
-                  whileTap={isDisabled ? {} : { scale: 0.98 }}
-                >
-                  <div className="flex items-center gap-3">
-                    {item.iconActive && activeIndex === index && (
-                      <div className="text-xl">{item.iconActive}</div>
-                    )}
-                    {item.iconInactive && activeIndex !== index && (
-                      <div className="text-xl">{item.iconInactive}</div>
-                    )}
-                    {item.icon && !item.iconActive && !item.iconInactive && (
-                      <div className="text-xl">{item.icon}</div>
-                    )}
-                    <span className="text-sm">{item.label}</span>
-                  </div>
-                </motion.button>
-              );
-            })}
+                return (
+                  <motion.button
+                    key={item.path || item.route || index}
+                    onClick={() => handleItemClick(index)}
+                    disabled={isDisabled}
+                    className={`w-full ${isCollapsed ? 'flex justify-center px-1 py-2' : 'text-left px-4 py-3'} rounded-lg ${isCollapsed ? 'mb-0.5' : 'mb-1'} transition-colors ${isDisabled
+                      ? 'opacity-50 cursor-not-allowed text-gray-400'
+                      : isActive
+                        ? 'bg-blue-50 text-blue-700 font-medium'
+                        : 'text-gray-700 hover:bg-gray-100'
+                      }`}
+                    whileHover={isDisabled ? {} : { scale: 1.02 }}
+                    whileTap={isDisabled ? {} : { scale: 0.98 }}
+                  >
+                    <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'}`}>
+                      {item.iconActive && activeIndex === index && (
+                        <div className="text-xl">{item.iconActive}</div>
+                      )}
+                      {item.iconInactive && activeIndex !== index && (
+                        <div className="text-xl">{item.iconInactive}</div>
+                      )}
+                      {item.icon && !item.iconActive && !item.iconInactive && (
+                        <div className="text-xl">{item.icon}</div>
+                      )}
+                      {!isCollapsed && <span className="text-sm">{item.label}</span>}
+                    </div>
+                  </motion.button>
+                );
+              })}
+            </div>
+            {/* Collapse Button */}
+            {showCollapse && (
+              <motion.button
+                onClick={() => setIsCollapsed(!isCollapsed)}
+                className={`w-full ${isCollapsed ? 'px-1 py-2' : 'px-4 py-3'} rounded-lg ${isCollapsed ? 'mt-1' : 'mt-2'} text-gray-700 hover:bg-gray-100 transition-colors flex items-center ${isCollapsed ? 'justify-center' : 'justify-start gap-3'}`}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+              >
+                {isCollapsed ? (
+                  <i className="pi pi-chevron-right"></i>
+                ) : (
+                  <>
+                    <i className="pi pi-chevron-left"></i>
+                    <span className="text-sm">Collapse</span>
+                  </>
+                )}
+              </motion.button>
+            )}
           </nav>
         </motion.aside>
       )}

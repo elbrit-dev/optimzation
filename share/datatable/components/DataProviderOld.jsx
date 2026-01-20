@@ -758,6 +758,89 @@ export default function DataProviderOld({
       return;
     }
 
+    // Step 1: Check index query result to validate cache freshness
+    if (queryDoc.index && queryDoc.index.trim() && workerRef.current) {
+      try {
+        const { endpointUrl, authToken } = getEndpointAndAuth(queryDoc);
+        const finalEndpointUrl = endpointUrl || getInitialEndpoint()?.code || null;
+        const finalAuthToken = authToken || null;
+
+        if (finalEndpointUrl) {
+          // Get cached index result
+          const cachedIndexResult = await indexedDBService.getQueryIndexResult(queryId);
+          const cachedIndex = cachedIndexResult?.result || null;
+
+          // Execute index query to get current index
+          let currentIndex = null;
+          if (queryDoc.month === true && monthRangeValue && Array.isArray(monthRangeValue) && monthRangeValue.length === 2) {
+            // For month queries, execute index query for month range
+            const monthRangeSerialized = [
+              { year: monthRangeValue[0].getFullYear(), month: monthRangeValue[0].getMonth(), day: monthRangeValue[0].getDate() },
+              { year: monthRangeValue[1].getFullYear(), month: monthRangeValue[1].getMonth(), day: monthRangeValue[1].getDate() }
+            ];
+            await workerRef.current.executeIndexQueryForMonthRange(
+              queryId,
+              queryDoc,
+              finalEndpointUrl,
+              finalAuthToken,
+              monthRangeSerialized
+            );
+            // Get the updated index result after execution
+            const updatedIndexResult = await indexedDBService.getQueryIndexResult(queryId);
+            currentIndex = updatedIndexResult?.result || null;
+          } else {
+            // For non-month queries, extract startDate/endDate from variables if they exist
+            const parsedVariables = parseGraphQLVariables(queryDoc.variables || '');
+            const monthRangeVariables = (parsedVariables.startDate && parsedVariables.endDate)
+              ? { startDate: parsedVariables.startDate, endDate: parsedVariables.endDate }
+              : null;
+            
+            await workerRef.current.executeIndexQuery(
+              queryId,
+              queryDoc,
+              finalEndpointUrl,
+              finalAuthToken,
+              monthRangeVariables
+            );
+            // Get the updated index result after execution
+            const updatedIndexResult = await indexedDBService.getQueryIndexResult(queryId);
+            currentIndex = updatedIndexResult?.result || null;
+          }
+
+          // Compare cached index with current index
+          if (cachedIndex !== null && currentIndex !== null) {
+            const cachedIndexString = JSON.stringify(cachedIndex);
+            const currentIndexString = JSON.stringify(currentIndex);
+            
+            if (cachedIndexString !== currentIndexString) {
+              // Index has changed - cache is stale, skip cache and fetch live
+              console.log(`Index changed for ${queryId}, skipping cache and fetching live data`);
+              cacheLoadInProgressRef.current = null;
+              setLoadingFromCache(false);
+              if (runQueryRef.current) {
+                await runQueryRef.current(queryId, true);
+              }
+              return;
+            }
+            // Index is same - proceed to load from cache (continue below)
+          } else if (cachedIndex === null && currentIndex !== null) {
+            // No cached index but got current index - cache might be stale, fetch live to be safe
+            console.log(`No cached index for ${queryId}, fetching live data`);
+            cacheLoadInProgressRef.current = null;
+            setLoadingFromCache(false);
+            if (runQueryRef.current) {
+              await runQueryRef.current(queryId, true);
+            }
+            return;
+          }
+          // If both are null or comparison passed, proceed to load from cache
+        }
+      } catch (indexError) {
+        // If index check fails, log but continue to cache check (fallback behavior)
+        console.error(`Error checking index for ${queryId}:`, indexError);
+      }
+    }
+
     try {
       // For month == true queries, handle multi-month range
       if (queryDoc.month === true && monthRangeValue && Array.isArray(monthRangeValue) && monthRangeValue.length === 2) {
@@ -1206,19 +1289,35 @@ export default function DataProviderOld({
             ]
           : undefined;
         
-        // Execute index queries for monthRange BEFORE executing the pipeline
-        if (monthRangeToPass && queryDocToUse.index && queryDocToUse.index.trim() && queryDocToUse.clientSave === true) {
+        // Execute index queries BEFORE executing the pipeline
+        if (queryDocToUse.index && queryDocToUse.index.trim() && queryDocToUse.clientSave === true) {
           try {
-            await workerRef.current.executeIndexQueryForMonthRange(
-              queryId,
-              queryDocToUse,
-              finalEndpointUrl,
-              finalAuthToken,
-              monthRangeToPass
-            );
+            if (monthRangeToPass) {
+              // For monthRange, use executeIndexQueryForMonthRange
+              await workerRef.current.executeIndexQueryForMonthRange(
+                queryId,
+                queryDocToUse,
+                finalEndpointUrl,
+                finalAuthToken,
+                monthRangeToPass
+              );
+            } else {
+              // For non-month queries, extract startDate/endDate from variables if they exist
+              const monthRangeVariables = (mergedVariables.startDate && mergedVariables.endDate)
+                ? { startDate: mergedVariables.startDate, endDate: mergedVariables.endDate }
+                : null;
+              
+              await workerRef.current.executeIndexQuery(
+                queryId,
+                queryDocToUse,
+                finalEndpointUrl,
+                finalAuthToken,
+                monthRangeVariables
+              );
+            }
           } catch (indexError) {
             // Log error but don't block pipeline execution
-            console.error(`Error executing index queries for monthRange for ${queryId}:`, indexError);
+            console.error(`Error executing index queries for ${queryId}:`, indexError);
           }
         }
         

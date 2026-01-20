@@ -19,6 +19,7 @@ import { extractValueFromGraphQLResponse } from '@/app/graphql-playground/utils/
 import { extractYearMonthFromDate, generateMonthRangeArray } from '@/app/datatable/utils/dateUtils';
 import { getDataKeys, getDataValue, getNestedValue } from '../utils/dataAccessUtils';
 import { TableOperationsContext } from '../contexts/TableOperationsContext';
+import { transformToReportData } from '../utils/reportUtils';
 import { Sidebar } from 'primereact/sidebar';
 import { TabView, TabPanel } from 'primereact/tabview';
 import DataTableComponent from './DataTableOld';
@@ -623,6 +624,11 @@ export default function DataProviderNew({
   // Drawer props
   drawerTabs = [],
   onDrawerTabsChange,
+  // Report props
+  enableReport = false,
+  dateColumn = null,
+  breakdownType = 'month',
+  onBreakdownTypeChange,
   useOrchestrationLayer = false,
   children
 }) {
@@ -1269,6 +1275,89 @@ export default function DataProviderNew({
       return;
     }
 
+    // Step 1: Check index query result to validate cache freshness
+    if (queryDoc.index && queryDoc.index.trim() && workerRef.current) {
+      try {
+        const { endpointUrl, authToken } = getEndpointAndAuth(queryDoc);
+        const finalEndpointUrl = endpointUrl || getInitialEndpoint()?.code || null;
+        const finalAuthToken = authToken || null;
+
+        if (finalEndpointUrl) {
+          // Get cached index result
+          const cachedIndexResult = await indexedDBService.getQueryIndexResult(queryId);
+          const cachedIndex = cachedIndexResult?.result || null;
+
+          // Execute index query to get current index
+          let currentIndex = null;
+          if (queryDoc.month === true && monthRangeValue && Array.isArray(monthRangeValue) && monthRangeValue.length === 2) {
+            // For month queries, execute index query for month range
+            const monthRangeSerialized = [
+              { year: monthRangeValue[0].getFullYear(), month: monthRangeValue[0].getMonth(), day: monthRangeValue[0].getDate() },
+              { year: monthRangeValue[1].getFullYear(), month: monthRangeValue[1].getMonth(), day: monthRangeValue[1].getDate() }
+            ];
+            await workerRef.current.executeIndexQueryForMonthRange(
+              queryId,
+              queryDoc,
+              finalEndpointUrl,
+              finalAuthToken,
+              monthRangeSerialized
+            );
+            // Get the updated index result after execution
+            const updatedIndexResult = await indexedDBService.getQueryIndexResult(queryId);
+            currentIndex = updatedIndexResult?.result || null;
+          } else {
+            // For non-month queries, extract startDate/endDate from variables if they exist
+            const parsedVariables = parseGraphQLVariables(queryDoc.variables || '');
+            const monthRangeVariables = (parsedVariables.startDate && parsedVariables.endDate)
+              ? { startDate: parsedVariables.startDate, endDate: parsedVariables.endDate }
+              : null;
+            
+            await workerRef.current.executeIndexQuery(
+              queryId,
+              queryDoc,
+              finalEndpointUrl,
+              finalAuthToken,
+              monthRangeVariables
+            );
+            // Get the updated index result after execution
+            const updatedIndexResult = await indexedDBService.getQueryIndexResult(queryId);
+            currentIndex = updatedIndexResult?.result || null;
+          }
+
+          // Compare cached index with current index
+          if (cachedIndex !== null && currentIndex !== null) {
+            const cachedIndexString = JSON.stringify(cachedIndex);
+            const currentIndexString = JSON.stringify(currentIndex);
+            
+            if (cachedIndexString !== currentIndexString) {
+              // Index has changed - cache is stale, skip cache and fetch live
+              console.log(`Index changed for ${queryId}, skipping cache and fetching live data`);
+              cacheLoadInProgressRef.current = null;
+              setLoadingFromCache(false);
+              if (runQueryRef.current) {
+                await runQueryRef.current(queryId, true);
+              }
+              return;
+            }
+            // Index is same - proceed to load from cache (continue below)
+          } else if (cachedIndex === null && currentIndex !== null) {
+            // No cached index but got current index - cache might be stale, fetch live to be safe
+            console.log(`No cached index for ${queryId}, fetching live data`);
+            cacheLoadInProgressRef.current = null;
+            setLoadingFromCache(false);
+            if (runQueryRef.current) {
+              await runQueryRef.current(queryId, true);
+            }
+            return;
+          }
+          // If both are null or comparison passed, proceed to load from cache
+        }
+      } catch (indexError) {
+        // If index check fails, log but continue to cache check (fallback behavior)
+        console.error(`Error checking index for ${queryId}:`, indexError);
+      }
+    }
+
     try {
       // For month == true queries, handle multi-month range
       if (queryDoc.month === true && monthRangeValue && Array.isArray(monthRangeValue) && monthRangeValue.length === 2) {
@@ -1397,7 +1486,7 @@ export default function DataProviderNew({
   }, [monthRange, checkIndexedDBAndLoadData]); // Include checkIndexedDBAndLoadData in deps
 
 
-  // Format date to "10 Jan 2026 4:03:33 PM" format
+  // Format date to "10 Jan 26 11:05 AM" format
   const formatLastUpdatedDate = (dateString) => {
     if (!dateString) return null;
 
@@ -1410,8 +1499,8 @@ export default function DataProviderNew({
         return dateString; // Return original if can't parse
       }
 
-      // Format to "10 Jan 2026 4:03:33 PM" (MMM already returns capitalized month by default)
-      return parsedDate.format('D MMM YYYY h:mm A');
+      // Format to "10 Jan 26 11:05 AM" (MMM already returns capitalized month by default)
+      return parsedDate.format('D MMM YY h:mm A');
     } catch (error) {
       console.error('Error formatting date:', error);
       return dateString; // Return original on error
@@ -1446,7 +1535,10 @@ export default function DataProviderNew({
       queryKeySetForDataSourceRef.current = null;
       lastSetQueryKeyRef.current = null;
       // When dataSource changes to a new query, reset selectedQueryKey immediately
+      // But don't reset if we have a valid default from props that might still be valid
       if (dataSource && dataSource !== 'offline') {
+        // Only reset if we don't have a valid default selectedQueryKeyProp
+        // (We'll check if it's valid in the next effect when availableQueryKeys are known)
         setSelectedQueryKey(null);
       }
     }
@@ -1460,32 +1552,47 @@ export default function DataProviderNew({
 
     const firstAvailableKey = availableQueryKeys.length > 0 ? availableQueryKeys[0] : null;
 
-    // First time for this dataSource - set to first available key
-    if (queryKeySetForDataSourceRef.current !== dataSource && firstAvailableKey) {
-      // Only update if the value would actually change
-      if (lastSetQueryKeyRef.current !== firstAvailableKey) {
-        queryKeySetForDataSourceRef.current = dataSource;
-        lastSetQueryKeyRef.current = firstAvailableKey;
-        setSelectedQueryKey(firstAvailableKey);
+    // Check if the default/prop selectedQueryKey is valid and available
+    const defaultKeyIsValid = selectedQueryKeyProp && availableQueryKeys.includes(selectedQueryKeyProp);
+
+    // First time for this dataSource - prefer default key if valid, otherwise use first available key
+    if (queryKeySetForDataSourceRef.current !== dataSource) {
+      const keyToUse = defaultKeyIsValid ? selectedQueryKeyProp : firstAvailableKey;
+      
+      if (keyToUse) {
+        // Only update if the value would actually change
+        if (lastSetQueryKeyRef.current !== keyToUse) {
+          queryKeySetForDataSourceRef.current = dataSource;
+          lastSetQueryKeyRef.current = keyToUse;
+          setSelectedQueryKey(keyToUse);
+        }
       }
       return;
     }
 
     // Already set for this dataSource - only update if current key is invalid
-    if (queryKeySetForDataSourceRef.current === dataSource && firstAvailableKey) {
+    if (queryKeySetForDataSourceRef.current === dataSource) {
       setSelectedQueryKey(currentSelectedKey => {
-        // Only update if current key is invalid and different from what we'd set
+        // If current key is invalid, prefer default key if valid, otherwise use first available
         if (currentSelectedKey && !availableQueryKeys.includes(currentSelectedKey)) {
-          if (lastSetQueryKeyRef.current !== firstAvailableKey) {
-            lastSetQueryKeyRef.current = firstAvailableKey;
-            return firstAvailableKey;
+          const keyToUse = defaultKeyIsValid ? selectedQueryKeyProp : firstAvailableKey;
+          if (keyToUse && lastSetQueryKeyRef.current !== keyToUse) {
+            lastSetQueryKeyRef.current = keyToUse;
+            return keyToUse;
+          }
+        }
+        // If current key is null/empty and we have a valid default, use it
+        if (!currentSelectedKey && defaultKeyIsValid) {
+          if (lastSetQueryKeyRef.current !== selectedQueryKeyProp) {
+            lastSetQueryKeyRef.current = selectedQueryKeyProp;
+            return selectedQueryKeyProp;
           }
         }
         // No change needed
         return currentSelectedKey;
       });
     }
-  }, [processedData, availableQueryKeys, dataSource]);
+  }, [processedData, availableQueryKeys, dataSource, selectedQueryKeyProp]);
 
   // Expose availableQueryKeys to parent (after it's defined)
   useEffect(() => {
@@ -1800,19 +1907,35 @@ export default function DataProviderNew({
           ]
           : undefined;
 
-        // Execute index queries for monthRange BEFORE executing the pipeline
-        if (monthRangeToPass && queryDocToUse.index && queryDocToUse.index.trim() && queryDocToUse.clientSave === true) {
+        // Execute index queries BEFORE executing the pipeline
+        if (queryDocToUse.index && queryDocToUse.index.trim() && queryDocToUse.clientSave === true) {
           try {
-            await workerRef.current.executeIndexQueryForMonthRange(
-              queryId,
-              queryDocToUse,
-              finalEndpointUrl,
-              finalAuthToken,
-              monthRangeToPass
-            );
+            if (monthRangeToPass) {
+              // For monthRange, use executeIndexQueryForMonthRange
+              await workerRef.current.executeIndexQueryForMonthRange(
+                queryId,
+                queryDocToUse,
+                finalEndpointUrl,
+                finalAuthToken,
+                monthRangeToPass
+              );
+            } else {
+              // For non-month queries, extract startDate/endDate from variables if they exist
+              const monthRangeVariables = (mergedVariables.startDate && mergedVariables.endDate)
+                ? { startDate: mergedVariables.startDate, endDate: mergedVariables.endDate }
+                : null;
+              
+              await workerRef.current.executeIndexQuery(
+                queryId,
+                queryDocToUse,
+                finalEndpointUrl,
+                finalAuthToken,
+                monthRangeVariables
+              );
+            }
           } catch (indexError) {
             // Log error but don't block pipeline execution
-            console.error(`Error executing index queries for monthRange for ${queryId}:`, indexError);
+            console.error(`Error executing index queries for ${queryId}:`, indexError);
           }
         }
 
@@ -2624,8 +2747,30 @@ export default function DataProviderNew({
     });
   }, [searchSortSortedData, searchTerm, tableData, tableFilters, columns, columnTypes, multiselectColumns, hasPercentageColumns, percentageColumnNames, getPercentageColumnValue, enableFilter]);
 
+  // Report data computation (when enableReport is true)
+  const reportData = useMemo(() => {
+    if (!enableReport || !dateColumn || isEmpty(filteredData) || !outerGroupField) {
+      return null;
+    }
+    
+    return transformToReportData(
+      filteredData,
+      outerGroupField,
+      innerGroupField,
+      dateColumn,
+      breakdownType,
+      columnTypes
+    );
+  }, [enableReport, dateColumn, breakdownType, filteredData, outerGroupField, innerGroupField, columnTypes]);
+
   // Grouped data computation
   const groupedData = useMemo(() => {
+    // If report is enabled, use report data instead
+    if (enableReport && reportData && reportData.tableData) {
+      return reportData.tableData;
+    }
+    
+    // Otherwise use existing grouping logic
     if (!outerGroupField || isEmpty(filteredData)) {
       if (!outerGroupField && isArray(filteredData)) {
         return filteredData.filter(row => !row?.__isGroupRow__).map(row => {
@@ -2764,7 +2909,7 @@ export default function DataProviderNew({
       return summaryRow;
     }).filter(Boolean);
     return groupedResult;
-  }, [filteredData, outerGroupField, innerGroupField, columns, columnTypes, hasPercentageColumns, percentageColumns]);
+  }, [enableReport, reportData, filteredData, outerGroupField, innerGroupField, columns, columnTypes, hasPercentageColumns, percentageColumns]);
 
   // Sorted data computation
   const dataForSorting = useMemo(() => {
@@ -3192,6 +3337,8 @@ export default function DataProviderNew({
     redFields,
     greenFields,
     enableDivideBy1Lakh,
+    enableReport,
+    reportData,
     updateFilter,
     clearFilter,
     clearAllFilters,
@@ -3237,7 +3384,7 @@ export default function DataProviderNew({
     updateFilter, clearFilter, clearAllFilters, updateSort, updatePagination, updateExpandedRows,
     updateVisibleColumns, drawerVisible, drawerData, drawerTabs, activeDrawerTabIndex, clickedDrawerValues,
     openDrawerWithData, openDrawerForOuterGroup, openDrawerForInnerGroup, closeDrawer, addDrawerTab, removeDrawerTab, updateDrawerTab,
-    formatHeaderName, isTruthyBoolean, exportToXLSX, isNumericValue, currentQueryDoc, searchTerm, sortConfig
+    formatHeaderName, isTruthyBoolean, exportToXLSX, isNumericValue, currentQueryDoc, searchTerm, sortConfig, enableReport, reportData
   ]);
 
   // Render selectors JSX
@@ -3268,6 +3415,34 @@ export default function DataProviderNew({
                   className="w-full"
                   style={{
                     width: '100%',
+                    fontSize: '0.875rem',
+                    height: '3rem',
+                  }}
+                />
+              </div>
+            )}
+
+            {/* Breakdown By - Only show when report is enabled and date column is set */}
+            {enableReport && dateColumn && onBreakdownTypeChange && (
+              <div className="w-full sm:w-48 min-w-0 flex-shrink-0">
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Breakdown By
+                </label>
+                <Dropdown
+                  value={breakdownType}
+                  onChange={(e) => onBreakdownTypeChange(e.value)}
+                  options={[
+                    { label: 'Month-wise', value: 'month' },
+                    { label: 'Week-wise', value: 'week' },
+                    { label: 'Day-wise', value: 'day' },
+                    { label: 'Quarter-wise', value: 'quarter' },
+                    { label: 'Year-wise', value: 'annual' }
+                  ]}
+                  optionLabel="label"
+                  optionValue="value"
+                  className="w-full"
+                  disabled={executingQuery}
+                  style={{
                     fontSize: '0.875rem',
                     height: '3rem',
                   }}
@@ -3327,19 +3502,19 @@ export default function DataProviderNew({
 
         {/* Last Updated at with Sync button - Show when using saved query, in a new row below Data Source */}
         {dataSource && dataSource !== 'offline' && (
-          <div className="flex items-center gap-2 sm:gap-3 text-xs sm:text-sm text-gray-700">
-            {/* Sync Button - to the left of Last updated at */}
-            <Button
-              label={executingQuery ? 'Syncing...' : 'Sync'}
-              icon={executingQuery ? 'pi pi-spin pi-spinner' : 'pi pi-refresh'}
+          <div className="flex items-center gap-2 sm:gap-3">
+            <button
               onClick={handleSync}
               disabled={executingQuery || (hasMonthSupport && (!monthRange || !Array.isArray(monthRange) || monthRange.length !== 2))}
-              className="p-button-sm p-button-outlined flex-shrink-0"
-              style={{ fontSize: '0.875rem', height: '2rem' }}
-            />
-            <span className="whitespace-nowrap">
-              Last updated: {lastUpdatedAt ? formatLastUpdatedDate(lastUpdatedAt) : <span className="text-gray-400">N/A</span>}
-            </span>
+              className="flex items-center gap-2 px-3 py-2 text-xs sm:text-sm border border-gray-300 rounded-md bg-white hover:bg-gray-50 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed transition-colors flex-shrink-0"
+            >
+              <i className={`${executingQuery ? 'pi pi-spin pi-spinner' : 'pi pi-refresh'} text-blue-600`}></i>
+              <div className="flex flex-col items-start">
+                <span className="text-xs text-gray-500">
+                  {lastUpdatedAt ? formatLastUpdatedDate(lastUpdatedAt) : 'N/A'}
+                </span>
+              </div>
+            </button>
           </div>
         )}
       </div>
@@ -3357,8 +3532,25 @@ export default function DataProviderNew({
   const sortOverlayRef = useRef(null);
 
   // Combined Search and Sort Controls component - memoized to prevent focus loss
-  // Always show search and sort UI regardless of clientSave value or searchFields/sortFields existence
+  // Conditionally show search and sort UI based on searchFields/sortFields existence
   const SearchAndSortControls = useMemo(() => {
+    // Check if searchFields exist
+    const hasSearchFields = currentQueryDoc?.searchFields &&
+      typeof currentQueryDoc.searchFields === 'object' &&
+      !Array.isArray(currentQueryDoc.searchFields) &&
+      Object.keys(currentQueryDoc.searchFields).length > 0;
+
+    // Check if sortFields exist
+    const hasSortFields = currentQueryDoc?.sortFields &&
+      typeof currentQueryDoc.sortFields === 'object' &&
+      !Array.isArray(currentQueryDoc.sortFields) &&
+      Object.keys(currentQueryDoc.sortFields).length > 0;
+
+    // If neither searchFields nor sortFields exist, return null
+    if (!hasSearchFields && !hasSortFields) {
+      return null;
+    }
+
     // Search handlers
     const handleSearch = () => {
       const newSearchTerm = searchInputValue.trim();
@@ -3368,12 +3560,6 @@ export default function DataProviderNew({
     // Sort handlers and options
     let sortableFields = [];
     let combinedSortOptions = [];
-
-    // Populate sort options from sortFields if they exist
-    const hasSortFields = currentQueryDoc?.sortFields &&
-      typeof currentQueryDoc.sortFields === 'object' &&
-      !Array.isArray(currentQueryDoc.sortFields) &&
-      Object.keys(currentQueryDoc.sortFields).length > 0;
 
     if (hasSortFields && currentQueryDoc.sortFields) {
       // Get all sortable fields from sortFields
@@ -3461,58 +3647,64 @@ export default function DataProviderNew({
     return (
       <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
         <div className="flex items-center gap-3 flex-wrap">
-          {/* Search Section - Always show */}
-          <InputText
-            value={searchInputValue}
-            onChange={(e) => setSearchInputValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                handleSearch();
-              }
-            }}
-            placeholder="Search across all search fields..."
-            className="flex-1 min-w-50"
-            style={{ fontSize: '0.875rem' }}
-          />
-          <Button
-            icon="pi pi-search"
-            onClick={handleSearch}
-            className="p-button-sm p-button-outlined"
-            title="Search"
-          />
+          {/* Search Section - Only show if searchFields exist */}
+          {hasSearchFields && (
+            <>
+              <InputText
+                value={searchInputValue}
+                onChange={(e) => setSearchInputValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleSearch();
+                  }
+                }}
+                placeholder="Search across all search fields..."
+                className="flex-1 min-w-50"
+                style={{ fontSize: '0.875rem' }}
+              />
+              <Button
+                icon="pi pi-search"
+                onClick={handleSearch}
+                className="p-button-sm p-button-outlined"
+                title="Search"
+              />
+            </>
+          )}
 
-          {/* Sort Section - Always show */}
-          <>
-            <Button
-              icon={`pi ${getSortIcon()}`}
-              rounded
-              outlined
-              onClick={handleSortButtonClick}
-              aria-label="Sort"
-              className="p-button-sm"
-              style={{ fontSize: '0.875rem' }}
-            />
-            <OverlayPanel ref={sortOverlayRef} className="w-64">
-              <div className="flex flex-col gap-2">
-                <div
-                  className="p-2 cursor-pointer hover:bg-gray-100 rounded"
-                  onClick={() => handleSortOptionClick({ value: null })}
-                >
-                  <span>-- No Sort --</span>
-                </div>
-                {combinedSortOptions.map((option, index) => (
+          {/* Sort Section - Only show if sortFields exist */}
+          {hasSortFields && (
+            <>
+              <Button
+                icon={`pi ${getSortIcon()}`}
+                rounded
+                outlined
+                onClick={handleSortButtonClick}
+                aria-label="Sort"
+                className="p-button-sm"
+                style={{ fontSize: '0.875rem' }}
+              />
+              <OverlayPanel ref={sortOverlayRef} className="w-64">
+                <div className="flex flex-col gap-2">
                   <div
-                    key={index}
-                    className="p-2 cursor-pointer hover:bg-gray-100 rounded flex items-center gap-2"
-                    onClick={() => handleSortOptionClick(option)}
+                    className="p-2 cursor-pointer hover:bg-gray-100 rounded"
+                    onClick={() => handleSortOptionClick({ value: null })}
                   >
-                    <i className={`pi ${option.icon || ''}`}></i>
-                    <span>{option.label}</span>
+                    <span>-- No Sort --</span>
                   </div>
-                ))}
-              </div>
-            </OverlayPanel>
-          </>
+                  {combinedSortOptions.map((option, index) => (
+                    <div
+                      key={index}
+                      className="p-2 cursor-pointer hover:bg-gray-100 rounded flex items-center gap-2"
+                      onClick={() => handleSortOptionClick(option)}
+                    >
+                      <i className={`pi ${option.icon || ''}`}></i>
+                      <span>{option.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </OverlayPanel>
+            </>
+          )}
         </div>
       </div>
     );

@@ -112,18 +112,10 @@ async function requestNestedQuery(queryId) {
  * @param {Object} monthRangeVariables - Optional object with startDate/endDate for month filtering
  */
 async function executeIndexQuery(queryId, queryDoc, endpointUrl, authToken, monthRangeVariables = null) {
-    // For month == true, require monthIndex query instead of index query
-    if (queryDoc.month === true) {
-        if (!queryDoc.monthIndex || !queryDoc.monthIndex.trim()) {
-            console.warn(`Skipping index query for ${queryId}: month == true but no monthIndex query provided`);
-            return null;
-        }
-    } else {
-        // For month == false, require index query
-        if (!queryDoc.index || !queryDoc.index.trim()) {
-            console.warn(`Skipping index query for ${queryId}: no index query provided`);
-            return null;
-        }
+    // Always require index query for both month and non-month cases
+    if (!queryDoc.index || !queryDoc.index.trim()) {
+        console.warn(`Skipping index query for ${queryId}: no index query provided`);
+        return null;
     }
 
     if (queryDoc.clientSave !== true) {
@@ -156,85 +148,83 @@ async function executeIndexQuery(queryId, queryDoc, endpointUrl, authToken, mont
             return null;
         }
 
-        // Handle two paths for saving:
-        // 1. month == false: use index query, save full date string directly
-        // 2. month == true: use monthIndex query with date range, save as { "YYYY-MM": "full date string" }
+        // Parse variables if provided
+        let parsedVariables = parseGraphQLVariables(queryDoc.variables || '');
+        
+        // Merge monthRangeVariables if provided (takes precedence)
+        if (monthRangeVariables && typeof monthRangeVariables === 'object') {
+            parsedVariables = { ...parsedVariables, ...monthRangeVariables };
+        }
+
+        // Execute the index query
+        let response;
+        try {
+            response = await fetchGraphQLRequest(queryDoc.index, parsedVariables, {
+                endpointUrl: finalEndpointUrl,
+                authToken: finalAuthToken
+            });
+        } catch (fetchError) {
+            console.error(`Failed to fetch index query for ${queryId}:`, fetchError.message || fetchError);
+            await indexedDBService.saveQueryIndexResult(queryId, null, queryDoc);
+            return null;
+        }
+
+        // Parse JSON response
+        let jsonResponse;
+        try {
+            jsonResponse = await response.json();
+        } catch (parseError) {
+            console.error(`Failed to parse response for index query ${queryId}:`, parseError);
+            await indexedDBService.saveQueryIndexResult(queryId, null, queryDoc);
+            return null;
+        }
+
+        if (jsonResponse.errors) {
+            console.error(`GraphQL errors for index query ${queryId}:`, jsonResponse.errors);
+            await indexedDBService.saveQueryIndexResult(queryId, null, queryDoc);
+            return null;
+        }
+
+        // Extract full date/timestamp from index query response
+        const fullDate = extractValueFromGraphQLResponse(queryDoc.index, jsonResponse);
+
+        if (!fullDate) {
+            await indexedDBService.saveQueryIndexResult(queryId, null, queryDoc);
+            return null;
+        }
+
+        // Handle saving based on month flag:
+        // 1. month == false: save full date string directly
+        // 2. month == true: extract YYYY-MM from startDate (from monthRangeVariables or parsedVariables), save as { "YYYY-MM": "full date string" }
         let resultToSave = null;
 
-        if (queryDoc.month === true && queryDoc.monthIndex && queryDoc.monthIndex.trim()) {
-            // For month == true: execute monthIndex query with date range variables to get full date
-            const fullDate = await executeMonthIndexQueryWithDateRange(
-                queryDoc.monthIndex,
-                queryDoc,
-                finalEndpointUrl,
-                finalAuthToken,
-                monthRangeVariables
-            );
-
-            if (fullDate) {
-                // Extract YYYY-MM from the full date
-                const yearMonth = extractYearMonthFromDate(fullDate);
-
+        if (queryDoc.month === true) {
+            // For month queries, extract YYYY-MM from startDate
+            // Check monthRangeVariables first (if provided), then fall back to parsedVariables
+            const startDate = (monthRangeVariables && monthRangeVariables.startDate) 
+                ? monthRangeVariables.startDate 
+                : parsedVariables.startDate;
+            
+            if (startDate) {
+                const yearMonth = extractYearMonthFromDate(startDate);
+                
                 if (yearMonth) {
                     resultToSave = {
                         [yearMonth]: fullDate
                     };
                     console.log(`Saved index result for ${queryId} as { "${yearMonth}": "${fullDate}" }`);
                 } else {
-                    console.warn(`Could not extract YYYY-MM from monthIndex date for ${queryId}`);
+                    console.warn(`Could not extract YYYY-MM from startDate for ${queryId}:`, startDate);
                     resultToSave = null;
                 }
             } else {
+                console.warn(`Skipping index query for ${queryId}: month == true but startDate not provided in monthRangeVariables or query variables`);
                 resultToSave = null;
             }
         } else {
-            // month == false: use index query
-            // Parse variables if provided
-            let parsedVariables = parseGraphQLVariables(queryDoc.variables || '');
-            
-            // Merge monthRangeVariables if provided (takes precedence)
-            if (monthRangeVariables && typeof monthRangeVariables === 'object') {
-                parsedVariables = { ...parsedVariables, ...monthRangeVariables };
-            }
-
-            // Execute the index query
-            let response;
-            try {
-                response = await fetchGraphQLRequest(queryDoc.index, parsedVariables, {
-                    endpointUrl: finalEndpointUrl,
-                    authToken: finalAuthToken
-                });
-            } catch (fetchError) {
-                console.error(`Failed to fetch index query for ${queryId}:`, fetchError.message || fetchError);
-                await indexedDBService.saveQueryIndexResult(queryId, null, queryDoc);
-                return null;
-            }
-
-            // Parse JSON response
-            let jsonResponse;
-            try {
-                jsonResponse = await response.json();
-            } catch (parseError) {
-                console.error(`Failed to parse response for index query ${queryId}:`, parseError);
-                await indexedDBService.saveQueryIndexResult(queryId, null, queryDoc);
-                return null;
-            }
-
-            if (jsonResponse.errors) {
-                console.error(`GraphQL errors for index query ${queryId}:`, jsonResponse.errors);
-                await indexedDBService.saveQueryIndexResult(queryId, null, queryDoc);
-                return null;
-            }
-
-            // Extract full date/timestamp from index query response
-            const fullDate = extractValueFromGraphQLResponse(queryDoc.index, jsonResponse);
-
-            if (fullDate) {
-                resultToSave = fullDate;
-                console.log(`Saved index result for ${queryId} as: ${fullDate}`);
-            } else {
-                resultToSave = null;
-            }
+            // For non-month queries, save full date string directly
+            resultToSave = fullDate;
+            console.log(`Saved index result for ${queryId} as: ${fullDate}`);
         }
 
         // Store result in IndexedDB
@@ -294,7 +284,7 @@ function calculateMonthDateRange(monthValue) {
 
 /**
  * Execute index query for a specific month with known yearMonth (for monthRange execution)
- * This is a helper function that executes the monthIndex query (for month == true) or index query (for month == false) with date variables and saves with a known yearMonth
+ * This is a helper function that executes the index query with date variables and saves with a known yearMonth
  * @param {string} queryId - Query ID
  * @param {Object} queryDoc - Query document
  * @param {string} endpointUrl - Endpoint URL
@@ -304,18 +294,10 @@ function calculateMonthDateRange(monthValue) {
  * @returns {Promise<Object|null>} Result object with { yearMonth: fullDate } or null
  */
 async function executeIndexQueryForSingleMonth(queryId, queryDoc, endpointUrl, authToken, monthRangeVariables, yearMonth) {
-    // For month == true, require monthIndex query
-    if (queryDoc.month === true) {
-        if (!queryDoc.monthIndex || !queryDoc.monthIndex.trim()) {
-            console.warn(`Skipping index query for ${queryId} (${yearMonth}): month == true but no monthIndex query provided`);
-            return null;
-        }
-    } else {
-        // For month == false, require index query
-        if (!queryDoc.index || !queryDoc.index.trim()) {
-            console.warn(`Skipping index query for ${queryId} (${yearMonth}): no index query provided`);
-            return null;
-        }
+    // Always require index query for both month and non-month cases
+    if (!queryDoc.index || !queryDoc.index.trim()) {
+        console.warn(`Skipping index query for ${queryId} (${yearMonth}): no index query provided`);
+        return null;
     }
 
     if (queryDoc.clientSave !== true) {
@@ -345,60 +327,46 @@ async function executeIndexQueryForSingleMonth(queryId, queryDoc, endpointUrl, a
             return null;
         }
 
-        let fullDate = null;
-
-        if (queryDoc.month === true && queryDoc.monthIndex && queryDoc.monthIndex.trim()) {
-            // For month == true: execute monthIndex query with date range variables
-            fullDate = await executeMonthIndexQueryWithDateRange(
-                queryDoc.monthIndex,
-                queryDoc,
-                finalEndpointUrl,
-                finalAuthToken,
-                monthRangeVariables
-            );
-        } else {
-            // For month == false: execute index query
-            // Parse variables and merge monthRangeVariables
-            let parsedVariables = parseGraphQLVariables(queryDoc.variables || '');
-            if (monthRangeVariables && typeof monthRangeVariables === 'object') {
-                parsedVariables = { ...parsedVariables, ...monthRangeVariables };
-            }
-
-            // Execute the index query
-            let response;
-            try {
-                response = await fetchGraphQLRequest(queryDoc.index, parsedVariables, {
-                    endpointUrl: finalEndpointUrl,
-                    authToken: finalAuthToken
-                });
-            } catch (fetchError) {
-                console.error(`Failed to fetch index query for ${queryId} (${yearMonth}):`, fetchError.message || fetchError);
-                return null;
-            }
-
-            // Parse JSON response
-            let jsonResponse;
-            try {
-                jsonResponse = await response.json();
-            } catch (parseError) {
-                console.error(`Failed to parse response for index query ${queryId} (${yearMonth}):`, parseError);
-                return null;
-            }
-
-            if (jsonResponse.errors) {
-                console.error(`GraphQL errors for index query ${queryId} (${yearMonth}):`, jsonResponse.errors);
-                return null;
-            }
-
-            // Extract full date/timestamp from index query response
-            fullDate = extractValueFromGraphQLResponse(queryDoc.index, jsonResponse);
+        // Parse variables and merge monthRangeVariables
+        let parsedVariables = parseGraphQLVariables(queryDoc.variables || '');
+        if (monthRangeVariables && typeof monthRangeVariables === 'object') {
+            parsedVariables = { ...parsedVariables, ...monthRangeVariables };
         }
+
+        // Execute the index query
+        let response;
+        try {
+            response = await fetchGraphQLRequest(queryDoc.index, parsedVariables, {
+                endpointUrl: finalEndpointUrl,
+                authToken: finalAuthToken
+            });
+        } catch (fetchError) {
+            console.error(`Failed to fetch index query for ${queryId} (${yearMonth}):`, fetchError.message || fetchError);
+            return null;
+        }
+
+        // Parse JSON response
+        let jsonResponse;
+        try {
+            jsonResponse = await response.json();
+        } catch (parseError) {
+            console.error(`Failed to parse response for index query ${queryId} (${yearMonth}):`, parseError);
+            return null;
+        }
+
+        if (jsonResponse.errors) {
+            console.error(`GraphQL errors for index query ${queryId} (${yearMonth}):`, jsonResponse.errors);
+            return null;
+        }
+
+        // Extract full date/timestamp from index query response
+        const fullDate = extractValueFromGraphQLResponse(queryDoc.index, jsonResponse);
 
         if (!fullDate) {
             return null;
         }
 
-        // Return result with known yearMonth
+        // Return result with known yearMonth (already in YYYY-MM format)
         return {
             [yearMonth]: fullDate
         };
@@ -611,10 +579,10 @@ async function executePipeline(queryId, queryDoc, endpointUrl, authToken, monthR
         throw new Error('GraphQL endpoint URL is not set');
     }
 
-    // For month == true, extract YYYY-MM from monthRange dates or monthIndex query
+    // For month == true, extract YYYY-MM from monthRange dates
     let yearMonthPrefix = null;
     
-    // First, try to extract YYYY-MM from monthRange if it represents a single month
+    // Extract YYYY-MM from monthRange if it represents a single month
     if (queryDoc.month === true && monthRangeDates && Array.isArray(monthRangeDates) && monthRangeDates.length === 2) {
         const startDate = monthRangeDates[0];
         const endDate = monthRangeDates[1];
@@ -627,25 +595,10 @@ async function executePipeline(queryId, queryDoc, endpointUrl, authToken, monthR
             // Single month range - use the month from the range
             yearMonthPrefix = startYearMonth;
             console.log(`Extracted YYYY-MM from monthRange for ${queryId}: ${yearMonthPrefix}`);
-        }
-    }
-    
-    // If we don't have yearMonthPrefix from monthRange, try monthIndex query
-    if (!yearMonthPrefix && queryDoc.month === true && queryDoc.monthIndex && queryDoc.monthIndex.trim()) {
-        const yearMonth = await executeMonthIndexQueryAndExtractYearMonth(
-            queryDoc.monthIndex,
-            queryDoc,
-            finalEndpointUrl,
-            finalAuthToken
-        );
-
-        if (yearMonth) {
-            yearMonthPrefix = yearMonth;
-            console.log(`Extracted YYYY-MM from monthIndex query for ${queryId}: ${yearMonthPrefix}`);
         } else {
-            console.warn(`Could not extract YYYY-MM for ${queryId}`);
+            console.warn(`Could not extract YYYY-MM from monthRange for ${queryId}: range spans multiple months`);
             if (queryDoc.month === true) {
-                throw new Error(`Could not extract YYYY-MM for month query ${queryId}`);
+                throw new Error(`Could not extract YYYY-MM for month query ${queryId}: monthRange spans multiple months`);
             }
         }
     }
@@ -930,18 +883,10 @@ async function executeTransformerWorker(transformerCode, rawData, queryFunction,
  * @returns {Promise<void>}
  */
 async function executeIndexQueryForMonthRange(queryId, queryDoc, endpointUrl, authToken, monthRange) {
-    // For month == true, require monthIndex query
-    if (queryDoc.month === true) {
-        if (!queryDoc.monthIndex || !queryDoc.monthIndex.trim()) {
-            console.warn(`Skipping index query for monthRange for ${queryId}: month == true but no monthIndex query provided`);
-            return;
-        }
-    } else {
-        // For month == false, require index query
-        if (!queryDoc.index || !queryDoc.index.trim()) {
-            console.warn(`Skipping index query for monthRange for ${queryId}: no index query provided`);
-            return;
-        }
+    // Always require index query for both month and non-month cases
+    if (!queryDoc.index || !queryDoc.index.trim()) {
+        console.warn(`Skipping index query for monthRange for ${queryId}: no index query provided`);
+        return;
     }
 
     if (queryDoc.clientSave !== true) {
@@ -1067,19 +1012,15 @@ async function executeAndCacheIndexQueries(queries) {
         return;
     }
 
-    // Execute index queries for each query that has an index/monthIndex field and clientSave === true
-    // For month == true queries, require monthIndex; for month == false, require index
+    // Execute index queries for each query that has an index field and clientSave === true
+    // For both month == true and month == false queries, require index query
     // The executeIndexQuery function will use the endpoint config getter that was set during initialization
     const indexQueryPromises = queries
         .filter(query => {
             if (query.clientSave !== true) {
                 return false;
             }
-            // For month == true, require monthIndex
-            if (query.month === true) {
-                return query.monthIndex && query.monthIndex.trim();
-            }
-            // For month == false, require index
+            // For both month == true and month == false, require index query
             return query.index && query.index.trim();
         })
         .map(async (query) => {
