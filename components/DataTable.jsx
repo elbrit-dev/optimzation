@@ -289,6 +289,9 @@ const DataTableWrapper = (props) => {
     scrollable: propScrollable = true,
     scrollHeight: propScrollHeight,
     drawerTabs: propDrawerTabs,
+    enableReport: propEnableReport,
+    dateColumn: propDateColumn,
+    breakdownType: propBreakdownType,
     controlsPanelSize: propControlsPanelSize = 20,
     useOrchestrationLayer: propUseOrchestrationLayer,
     enableGrouping: propEnableGrouping,
@@ -296,6 +299,11 @@ const DataTableWrapper = (props) => {
     onDrawerTabsChange: propOnDrawerTabsChange,
     onColumnTypesChange,
     onAdminModeChange: propOnAdminModeChange,
+    onEnableReportChange: propOnEnableReportChange,
+    onDateColumnChange: propOnDateColumnChange,
+    onBreakdownTypeChange: propOnBreakdownTypeChange,
+    onOuterGroupFieldChange: propOnOuterGroupFieldChange,
+    onInnerGroupFieldChange: propOnInnerGroupFieldChange,
     onSave,
     onVariableOverridesChange,
     tableName: propTableName = 'main',
@@ -314,8 +322,6 @@ const DataTableWrapper = (props) => {
   const [visibleColumnsRawState, setVisibleColumnsRaw] = useLocalStorageArray('datatable-visibleColumns', []);
   const [redFieldsRawState, setRedFieldsRaw] = useLocalStorageArray('datatable-redFields', []);
   const [greenFieldsRawState, setGreenFieldsRaw] = useLocalStorageArray('datatable-greenFields', []);
-  const [outerGroupFieldRawState, setOuterGroupFieldRaw] = useLocalStorageString('datatable-outerGroupField', null);
-  const [innerGroupFieldRawState, setInnerGroupFieldRaw] = useLocalStorageString('datatable-innerGroupField', null);
   const [nonEditableColumnsRawState, setNonEditableColumnsRaw] = useLocalStorageArray('datatable-nonEditableColumns', []);
   const [enableDivideBy1LakhState, setEnableDivideBy1Lakh] = useLocalStorageBoolean('datatable-enableDivideBy1Lakh', false);
   const [enableFullscreenDialogState, setEnableFullscreenDialog] = useLocalStorageBoolean('datatable-enableFullscreenDialog', true);
@@ -327,7 +333,6 @@ const DataTableWrapper = (props) => {
   const [hqValuesRawState, setHqValuesRaw] = useLocalStorageArray('datatable-hqValues', []);
   const [columnTypesRawState, setColumnTypesRaw] = useLocalStorageObject('datatable-columnTypes', {});
   const [enableGroupingState, setEnableGrouping] = useLocalStorageBoolean('datatable-enableGrouping', true);
-  const [drawerTabsRawState, setDrawerTabs] = useLocalStorageArray('datatable-drawerTabs', [{ id: `tab-${Date.now()}`, name: '', outerGroup: null, innerGroup: null }]);
 
   // 2. Base data/variables from props or context
   const propData = (props.data && Array.isArray(props.data) && props.data.length > 0) ? props.data : context?.tableData;
@@ -356,8 +361,6 @@ const DataTableWrapper = (props) => {
   const visibleColumns = propVisibleColumns !== undefined ? propVisibleColumns : (context?.visibleColumns !== undefined ? context.visibleColumns : visibleColumnsRawState);
   const redFields = propRedFields !== undefined ? propRedFields : (context?.redFields !== undefined ? context.redFields : redFieldsRawState);
   const greenFields = propGreenFields !== undefined ? propGreenFields : (context?.greenFields !== undefined ? context.greenFields : greenFieldsRawState);
-  const outerGroupField = propOuterGroupField !== undefined ? propOuterGroupField : (context?.outerGroupField !== undefined ? context.outerGroupField : outerGroupFieldRawState);
-  const innerGroupField = propInnerGroupField !== undefined ? propInnerGroupField : (context?.innerGroupField !== undefined ? context.innerGroupField : innerGroupFieldRawState);
   const nonEditableColumns = propNonEditableColumns !== undefined ? propNonEditableColumns : nonEditableColumnsRawState;
   const enableDivideBy1Lakh = propEnableDivideBy1Lakh !== undefined ? propEnableDivideBy1Lakh : (context?.enableDivideBy1Lakh !== undefined ? context.enableDivideBy1Lakh : enableDivideBy1LakhState);
   const enableFullscreenDialog = propEnableFullscreenDialog !== undefined ? propEnableFullscreenDialog : enableFullscreenDialogState;
@@ -367,6 +370,14 @@ const DataTableWrapper = (props) => {
   const hqColumn = propHqColumn !== undefined ? propHqColumn : hqColumnRawState;
   const hqValues = propHqValues !== undefined ? propHqValues : hqValuesRawState;
   
+  // New derived values from context
+  const outerGroupField = propOuterGroupField !== undefined ? propOuterGroupField : context?.outerGroupField;
+  const innerGroupField = propInnerGroupField !== undefined ? propInnerGroupField : context?.innerGroupField;
+  const drawerTabs = (propDrawerTabs && propDrawerTabs.length > 0) ? propDrawerTabs : context?.drawerTabs;
+  const enableReport = propEnableReport !== undefined ? propEnableReport : context?.enableReport;
+  const dateColumn = propDateColumn !== null ? propDateColumn : context?.dateColumn;
+  const breakdownType = propBreakdownType !== undefined ? propBreakdownType : context?.breakdownType;
+
   const columnTypes = useMemo(() => {
     const contextTypes = context?.columnTypes || {};
     const storedTypes = columnTypesRawState || {};
@@ -374,13 +385,11 @@ const DataTableWrapper = (props) => {
     return { ...contextTypes, ...storedTypes, ...manualTypes };
   }, [propColumnTypes, context?.columnTypes, columnTypesRawState]);
   
-  const drawerTabs = (propDrawerTabs !== undefined && propDrawerTabs !== null && propDrawerTabs.length > 0) ? propDrawerTabs : (context?.drawerTabs !== undefined && context.drawerTabs.length > 0 ? context.drawerTabs : drawerTabsRawState);
-
   // 4. Sync settings to localStorage
   const settingsString = JSON.stringify({
     propEnableSort, propEnableFilter, propEnableSummation, propEnableCellEdit,
     propRowsPerPageOptions, propDefaultRows, propTextFilterColumns, propVisibleColumns,
-    propRedFields, propGreenFields, propOuterGroupField, propInnerGroupField,
+    propRedFields, propGreenFields,
     propNonEditableColumns,
     propEnableDivideBy1Lakh, propEnableFullscreenDialog, propPercentageColumns, propIsAdminMode, propSalesTeamColumn,
     propSalesTeamValues, propHqColumn, propHqValues, propColumnTypes, useOrchestrationLayer, enableGrouping
@@ -728,8 +737,14 @@ const DataTableWrapper = (props) => {
                 onVisibleColumnsChange={handleVisibleColumnsChange}
                 onRedFieldsChange={setRedFieldsRaw}
                 onGreenFieldsChange={setGreenFieldsRaw}
-                onOuterGroupFieldChange={setOuterGroupFieldRaw}
-                onInnerGroupFieldChange={setInnerGroupFieldRaw}
+                onOuterGroupFieldChange={(field) => {
+                  if (propOnOuterGroupFieldChange) propOnOuterGroupFieldChange(field);
+                  if (context?.onOuterGroupFieldChange) context.onOuterGroupFieldChange(field);
+                }}
+                onInnerGroupFieldChange={(field) => {
+                  if (propOnInnerGroupFieldChange) propOnInnerGroupFieldChange(field);
+                  if (context?.onInnerGroupFieldChange) context.onInnerGroupFieldChange(field);
+                }}
                 onNonEditableColumnsChange={setNonEditableColumnsRaw}
                 onPercentageColumnsChange={setPercentageColumnsRaw}
                 onSaveSettings={handleSaveSettings}
@@ -751,6 +766,21 @@ const DataTableWrapper = (props) => {
                 onHqValuesChange={setHqValuesRaw}
                 columnTypesOverride={columnTypes}
                 onColumnTypesOverrideChange={handleColumnTypesChange}
+                enableReport={enableReport}
+                dateColumn={dateColumn}
+                breakdownType={breakdownType}
+                onEnableReportChange={(val) => {
+                  if (propOnEnableReportChange) propOnEnableReportChange(val);
+                  if (context?.onEnableReportChange) context.onEnableReportChange(val);
+                }}
+                onDateColumnChange={(val) => {
+                  if (propOnDateColumnChange) propOnDateColumnChange(val);
+                  if (context?.onDateColumnChange) context.onDateColumnChange(val);
+                }}
+                onBreakdownTypeChange={(val) => {
+                  if (propOnBreakdownTypeChange) propOnBreakdownTypeChange(val);
+                  if (context?.onBreakdownTypeChange) context.onBreakdownTypeChange(val);
+                }}
               />
             </SplitterPanel>
           </Splitter>
@@ -794,59 +824,6 @@ const DataTableWrapper = (props) => {
           </div>
         )}
       </div>
-
-      <Sidebar
-        position="bottom"
-        blockScroll
-        visible={!useOrchestrationLayer && drawerVisible}
-        onHide={() => setDrawerVisible(false)}
-        style={{ height: '100vh' }}
-        header={
-          <h2 className="text-lg font-semibold m-0">
-            {clickedDrawerValues.innerValue 
-              ? `${clickedDrawerValues.outerValue} : ${clickedDrawerValues.innerValue}`
-              : clickedDrawerValues.outerValue || 'Details'}
-          </h2>
-        }
-      >
-        <div className="flex flex-col h-full">
-          <TabView activeIndex={activeDrawerTabIndex} onTabChange={(e) => setActiveDrawerTabIndex(e.index)}>
-            {drawerTabs.map((tab) => (
-              <TabPanel key={tab.id} header={tab.name || `Tab ${drawerTabs.indexOf(tab) + 1}`}>
-                <div className="overflow-auto py-4">
-                  {drawerData.length > 0 ? (
-                    <DataTableComponent
-                      data={drawerData}
-                      useOrchestrationLayer={useOrchestrationLayer}
-                      rowsPerPageOptions={rowsPerPageOptions}
-                      defaultRows={defaultRows}
-                      scrollable={propScrollable}
-                      scrollHeight={propScrollHeight}
-                      enableSort={enableSort}
-                      enableFilter={enableFilter}
-                      enableSummation={enableSummation}
-                      textFilterColumns={textFilterColumns}
-                      visibleColumns={visibleColumns}
-                      onVisibleColumnsChange={handleVisibleColumnsChange}
-                      redFields={redFields}
-                      greenFields={greenFields}
-                      outerGroupField={tab.outerGroup}
-                      innerGroupField={tab.innerGroup}
-                      percentageColumns={percentageColumns}
-                      enableDivideBy1Lakh={enableDivideBy1Lakh}
-                      enableCellEdit={false}
-                      columnTypes={columnTypes}
-                      tableName="sidebar"
-                    />
-                  ) : (
-                    <p className="text-center text-gray-500">No data available</p>
-                  )}
-                </div>
-              </TabPanel>
-            ))}
-          </TabView>
-        </div>
-      </Sidebar>
     </div>
   );
 };

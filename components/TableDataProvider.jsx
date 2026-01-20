@@ -5,12 +5,169 @@ import DataProvider from '../share/datatable/components/DataProvider';
 import data from '../resource/data';
 import { DataProvider as PlasmicDataProvider } from "@plasmicapp/loader-nextjs";
 import { Dropdown } from 'primereact/dropdown';
-import { startCase } from 'lodash';
+import { Sidebar } from 'primereact/sidebar';
+import { TabView, TabPanel } from 'primereact/tabview';
+import DataTableComponent from '../share/datatable/components/DataTable';
+import { startCase, filter as lodashFilter, get, isNil } from 'lodash';
 import { TableProvider } from './TableContext';
+import { TableOperationsContext } from '../share/datatable/contexts/TableOperationsContext';
 import dayjs from 'dayjs';
 import { firestoreService } from '../share/graphql-playground/services/firestoreService';
 import { indexedDBService } from '../share/datatable/utils/indexedDBService';
 import { parseGraphQLVariables } from '../share/graphql-playground/utils/variableParser';
+
+// Custom hook for localStorage with proper JSON serialization for booleans
+function useLocalStorageBoolean(key, defaultValue) {
+  const [value, setValue] = useState(() => {
+    if (typeof window === 'undefined') return defaultValue;
+    try {
+      const item = window.localStorage.getItem(key);
+      if (item === null || item === undefined) return defaultValue;
+      const parsed = JSON.parse(item);
+      return typeof parsed === 'boolean' ? parsed : defaultValue;
+    } catch (error) {
+      try {
+        window.localStorage.removeItem(key);
+      } catch { }
+      return defaultValue;
+    }
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const item = window.localStorage.getItem(key);
+      if (item !== null && item !== undefined) {
+        const parsed = JSON.parse(item);
+        if (typeof parsed === 'boolean') {
+          setValue(parsed);
+        }
+      }
+    } catch (error) { }
+  }, [key]);
+
+  const setStoredValue = (newValue) => {
+    try {
+      if (typeof newValue === 'boolean') {
+        const serialized = JSON.stringify(newValue);
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem(key, serialized);
+        }
+        setValue(newValue);
+      }
+    } catch (error) {
+      console.error(`Error setting localStorage key "${key}":`, error);
+    }
+  };
+
+  return [value, setStoredValue];
+}
+
+// Custom hook for localStorage with proper JSON serialization for arrays
+function useLocalStorageArray(key, defaultValue) {
+  const [value, setValue] = useState(() => {
+    if (typeof window === 'undefined') return defaultValue;
+    try {
+      const item = window.localStorage.getItem(key);
+      if (item === null || item === undefined) return defaultValue;
+      const parsed = JSON.parse(item);
+      return Array.isArray(parsed) ? parsed : defaultValue;
+    } catch (error) {
+      try {
+        window.localStorage.removeItem(key);
+      } catch { }
+      return defaultValue;
+    }
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const item = window.localStorage.getItem(key);
+      if (item !== null && item !== undefined) {
+        const parsed = JSON.parse(item);
+        if (Array.isArray(parsed)) {
+          setValue(parsed);
+        }
+      }
+    } catch (error) { }
+  }, [key]);
+
+  const setStoredValue = (newValue) => {
+    try {
+      if (typeof newValue === 'function') {
+        setValue(prev => {
+          const updated = newValue(prev);
+          if (Array.isArray(updated)) {
+            const serialized = JSON.stringify(updated);
+            if (typeof window !== 'undefined') {
+              window.localStorage.setItem(key, serialized);
+            }
+            return updated;
+          }
+          return prev;
+        });
+      } else if (Array.isArray(newValue)) {
+        const serialized = JSON.stringify(newValue);
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem(key, serialized);
+        }
+        setValue(newValue);
+      }
+    } catch (error) {
+      console.error(`Error setting localStorage key "${key}":`, error);
+    }
+  };
+
+  return [value, setStoredValue];
+}
+
+// Custom hook for localStorage with proper JSON serialization for string/null values
+function useLocalStorageString(key, defaultValue) {
+  const [value, setValue] = useState(() => {
+    if (typeof window === 'undefined') return defaultValue;
+    try {
+      const item = window.localStorage.getItem(key);
+      if (item === null || item === undefined) return defaultValue;
+      const parsed = JSON.parse(item);
+      return (typeof parsed === 'string' || parsed === null) ? parsed : defaultValue;
+    } catch (error) {
+      try {
+        window.localStorage.removeItem(key);
+      } catch { }
+      return defaultValue;
+    }
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const item = window.localStorage.getItem(key);
+      if (item !== null && item !== undefined) {
+        const parsed = JSON.parse(item);
+        if (typeof parsed === 'string' || parsed === null) {
+          setValue(parsed);
+        }
+      }
+    } catch (error) { }
+  }, [key]);
+
+  const setStoredValue = (newValue) => {
+    try {
+      if (typeof newValue === 'string' || newValue === null) {
+        const serialized = JSON.stringify(newValue);
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem(key, serialized);
+        }
+        setValue(newValue);
+      }
+    } catch (error) {
+      console.error(`Error setting localStorage key "${key}":`, error);
+    }
+  };
+
+  return [value, setStoredValue];
+}
 
 const TableDataProvider = (props) => {
   const {
@@ -53,13 +210,21 @@ const TableDataProvider = (props) => {
     visibleColumns = [],
     redFields = [],
     greenFields = [],
-    outerGroupField = null,
-    innerGroupField = null,
+    outerGroupField: propOuterGroupField = null,
+    innerGroupField: propInnerGroupField = null,
     percentageColumns = [],
-    drawerTabs = [],
+    drawerTabs: propDrawerTabs = [],
+    enableReport: propEnableReport = false,
+    dateColumn: propDateColumn = null,
+    breakdownType: propBreakdownType = 'month',
     onVisibleColumnsChange: propOnVisibleColumnsChange,
     onDrawerTabsChange: propOnDrawerTabsChange,
     onAdminModeChange: propOnAdminModeChange,
+    onEnableReportChange: propOnEnableReportChange,
+    onDateColumnChange: propOnDateColumnChange,
+    onBreakdownTypeChange: propOnBreakdownTypeChange,
+    onOuterGroupFieldChange: propOnOuterGroupFieldChange,
+    onInnerGroupFieldChange: propOnInnerGroupFieldChange,
     className,
     style,
     ...otherProps // Collect all other individual props to use as variables
@@ -67,10 +232,32 @@ const TableDataProvider = (props) => {
 
   const propOnColumnTypesChange = onColumnTypesChange;
 
+  // 1. Hooks (State & LocalStorage) for new features
+  const [outerGroupFieldRawState, setOuterGroupFieldRaw] = useLocalStorageString('datatable-outerGroupField', null);
+  const [innerGroupFieldRawState, setInnerGroupFieldRaw] = useLocalStorageString('datatable-innerGroupField', null);
+  const [drawerTabsRawState, setDrawerTabs] = useLocalStorageArray('datatable-drawerTabs', [{ id: `tab-${Date.now()}`, name: '', outerGroup: null, innerGroup: null }]);
+  const [enableReportState, setEnableReport] = useLocalStorageBoolean('datatable-enableReport', false);
+  const [dateColumnRawState, setDateColumnRaw] = useLocalStorageString('datatable-dateColumn', null);
+  const [breakdownTypeRawState, setBreakdownTypeRaw] = useLocalStorageString('datatable-breakdownType', 'month');
+
+  // 2. Resolve final values (Prop > LocalStorage)
+  const outerGroupField = propOuterGroupField !== null ? propOuterGroupField : outerGroupFieldRawState;
+  const innerGroupField = propInnerGroupField !== null ? propInnerGroupField : innerGroupFieldRawState;
+  const drawerTabs = (propDrawerTabs && propDrawerTabs.length > 0) ? propDrawerTabs : drawerTabsRawState;
+  const enableReport = propEnableReport !== false ? propEnableReport : enableReportState;
+  const dateColumn = propDateColumn !== null ? propDateColumn : dateColumnRawState;
+  const breakdownType = propBreakdownType !== 'month' ? propBreakdownType : breakdownTypeRawState;
+
   const [currentTableData, setCurrentTableData] = useState(null);
   const [currentRawData, setCurrentRawData] = useState(null);
   const [currentVariables, setCurrentVariables] = useState({});
   
+  // Drawer state
+  const [drawerVisible, setDrawerVisible] = useState(false);
+  const [drawerData, setDrawerData] = useState([]);
+  const [activeDrawerTabIndex, setActiveDrawerTabIndex] = useState(0);
+  const [clickedDrawerValues, setClickedDrawerValues] = useState({ outerValue: null, innerValue: null });
+
   // New internal state to expose to Plasmic
   const [savedQueries, setSavedQueries] = useState([]);
   const [loadingQueries, setLoadingQueries] = useState(false);
@@ -212,6 +399,11 @@ const TableDataProvider = (props) => {
   const onDrawerTabsChangeRef = useRef(propOnDrawerTabsChange);
   const onColumnTypesChangeRef = useRef(propOnColumnTypesChange);
   const onAdminModeChangeRef = useRef(propOnAdminModeChange);
+  const onEnableReportChangeRef = useRef(propOnEnableReportChange);
+  const onDateColumnChangeRef = useRef(propOnDateColumnChange);
+  const onBreakdownTypeChangeRef = useRef(propOnBreakdownTypeChange);
+  const onOuterGroupFieldChangeRef = useRef(propOnOuterGroupFieldChange);
+  const onInnerGroupFieldChangeRef = useRef(propOnInnerGroupFieldChange);
 
   useEffect(() => { onTableDataChangeRef.current = onTableDataChange; }, [onTableDataChange]);
   useEffect(() => { onRawDataChangeRef.current = onRawDataChange; }, [onRawDataChange]);
@@ -231,6 +423,11 @@ const TableDataProvider = (props) => {
   useEffect(() => { onDrawerTabsChangeRef.current = propOnDrawerTabsChange; }, [propOnDrawerTabsChange]);
   useEffect(() => { onColumnTypesChangeRef.current = propOnColumnTypesChange; }, [propOnColumnTypesChange]);
   useEffect(() => { onAdminModeChangeRef.current = propOnAdminModeChange; }, [propOnAdminModeChange]);
+  useEffect(() => { onEnableReportChangeRef.current = propOnEnableReportChange; }, [propOnEnableReportChange]);
+  useEffect(() => { onDateColumnChangeRef.current = propOnDateColumnChange; }, [propOnDateColumnChange]);
+  useEffect(() => { onBreakdownTypeChangeRef.current = propOnBreakdownTypeChange; }, [propOnBreakdownTypeChange]);
+  useEffect(() => { onOuterGroupFieldChangeRef.current = propOnOuterGroupFieldChange; }, [propOnOuterGroupFieldChange]);
+  useEffect(() => { onInnerGroupFieldChangeRef.current = propOnInnerGroupFieldChange; }, [propOnInnerGroupFieldChange]);
 
   const stableOnTableDataChange = useCallback((data) => {
     setCurrentTableData(prev => {
@@ -339,6 +536,7 @@ const TableDataProvider = (props) => {
   }, []);
 
   const stableOnDrawerTabsChange = useCallback((tabs) => {
+    setDrawerTabs(tabs);
     onDrawerTabsChangeRef.current?.(tabs);
   }, []);
 
@@ -348,6 +546,65 @@ const TableDataProvider = (props) => {
 
   const stableOnAdminModeChange = useCallback((adminMode) => {
     onAdminModeChangeRef.current?.(adminMode);
+  }, []);
+
+  const stableOnEnableReportChange = useCallback((enabled) => {
+    setEnableReport(enabled);
+    onEnableReportChangeRef.current?.(enabled);
+  }, []);
+
+  const stableOnDateColumnChange = useCallback((col) => {
+    setDateColumnRaw(col);
+    onDateColumnChangeRef.current?.(col);
+  }, []);
+
+  const stableOnBreakdownTypeChange = useCallback((type) => {
+    setBreakdownTypeRaw(type);
+    onBreakdownTypeChangeRef.current?.(type);
+  }, []);
+
+  const stableOnOuterGroupFieldChange = useCallback((field) => {
+    setOuterGroupFieldRaw(field);
+    if (!field) setInnerGroupFieldRaw(null);
+    onOuterGroupFieldChangeRef.current?.(field);
+  }, []);
+
+  const stableOnInnerGroupFieldChange = useCallback((field) => {
+    setInnerGroupFieldRaw(field);
+    onInnerGroupFieldChangeRef.current?.(field);
+  }, []);
+
+  const openDrawerWithData = useCallback((data, outerValue, innerValue) => {
+    setDrawerData(data || []);
+    setClickedDrawerValues({ outerValue, innerValue });
+    setActiveDrawerTabIndex(0);
+    setDrawerVisible(true);
+  }, []);
+
+  const openDrawerForOuterGroup = useCallback((value) => {
+    // We use currentTableData which is the filtered data from DataProvider
+    const dataToFilter = currentTableData || [];
+    const filtered = lodashFilter(dataToFilter, (row) => {
+      const rowValue = get(row, outerGroupField);
+      return isNil(value) ? isNil(rowValue) : String(rowValue) === String(value);
+    });
+    openDrawerWithData(filtered, value, null);
+  }, [currentTableData, outerGroupField, openDrawerWithData]);
+
+  const openDrawerForInnerGroup = useCallback((outerValue, value) => {
+    const dataToFilter = currentTableData || [];
+    const filtered = lodashFilter(dataToFilter, (row) => {
+      const rowOuterValue = get(row, outerGroupField);
+      const rowInnerValue = get(row, innerGroupField);
+      let outerMatch = isNil(outerValue) ? isNil(rowOuterValue) : String(rowOuterValue) === String(outerValue);
+      if (!outerMatch) return false;
+      return isNil(value) ? isNil(rowInnerValue) : String(rowInnerValue) === String(value);
+    });
+    openDrawerWithData(filtered, outerValue, value);
+  }, [currentTableData, outerGroupField, innerGroupField, openDrawerWithData]);
+
+  const closeDrawer = useCallback(() => {
+    setDrawerVisible(false);
   }, []);
 
   // Stabilize merged variables to prevent infinite fetch loops
@@ -371,8 +628,14 @@ const TableDataProvider = (props) => {
     let hasActualOverride = false;
     
     Object.keys(combined).forEach(key => {
-      // Skip startDate/endDate and standard React/Plasmic props
-      if (['startDate', 'endDate', 'className', 'style'].includes(key)) return;
+      // Skip standard React/Plasmic props and internal feature state
+      if ([
+        'startDate', 'endDate', 'className', 'style',
+        'outerGroupField', 'innerGroupField', 'drawerTabs',
+        'enableReport', 'dateColumn', 'breakdownType',
+        'onEnableReportChange', 'onDateColumnChange', 'onBreakdownTypeChange',
+        'onOuterGroupFieldChange', 'onInnerGroupFieldChange'
+      ].includes(key)) return;
 
       const value = combined[key];
       const defaultValue = currentVariables[key];
@@ -429,7 +692,21 @@ const TableDataProvider = (props) => {
     outerGroupField,
     innerGroupField,
     percentageColumns,
-    drawerTabs
+    drawerTabs,
+    enableReport,
+    dateColumn,
+    breakdownType,
+    onEnableReportChange: stableOnEnableReportChange,
+    onDateColumnChange: stableOnDateColumnChange,
+    onBreakdownTypeChange: stableOnBreakdownTypeChange,
+    onOuterGroupFieldChange: stableOnOuterGroupFieldChange,
+    onInnerGroupFieldChange: stableOnInnerGroupFieldChange,
+    // Drawer functions for DataTableComponent to use
+    openDrawerWithData,
+    openDrawerForOuterGroup,
+    openDrawerForInnerGroup,
+    closeDrawer,
+    setActiveDrawerTabIndex,
   }), [
     currentTableData, currentRawData, currentVariables, savedQueries,
     loadingQueries, executingQuery, availableQueryKeys, selectedQueryKey,
@@ -437,7 +714,12 @@ const TableDataProvider = (props) => {
     hqColumn, hqValues, columnTypes, useOrchestrationLayer,
     enableSort, enableFilter, enableSummation, enableGrouping,
     enableDivideBy1Lakh, textFilterColumns, visibleColumns, redFields, greenFields,
-    outerGroupField, innerGroupField, percentageColumns, drawerTabs
+    outerGroupField, innerGroupField, percentageColumns, drawerTabs,
+    enableReport, dateColumn, breakdownType,
+    stableOnEnableReportChange, stableOnDateColumnChange, stableOnBreakdownTypeChange,
+    stableOnOuterGroupFieldChange, stableOnInnerGroupFieldChange,
+    openDrawerWithData, openDrawerForOuterGroup, openDrawerForInnerGroup, closeDrawer,
+    setActiveDrawerTabIndex
   ]);
 
   return (
@@ -463,6 +745,11 @@ const TableDataProvider = (props) => {
       onDrawerTabsChange={stableOnDrawerTabsChange}
       onColumnTypesOverrideChange={stableOnColumnTypesChange}
       onAdminModeChange={stableOnAdminModeChange}
+      onEnableReportChange={stableOnEnableReportChange}
+      onDateColumnChange={stableOnDateColumnChange}
+      onBreakdownTypeChange={stableOnBreakdownTypeChange}
+      onOuterGroupFieldChange={stableOnOuterGroupFieldChange}
+      onInnerGroupFieldChange={stableOnInnerGroupFieldChange}
       variableOverrides={stableOverrides}
       isAdminMode={isAdminMode}
       salesTeamColumn={salesTeamColumn}
@@ -484,6 +771,9 @@ const TableDataProvider = (props) => {
       innerGroupField={innerGroupField}
       percentageColumns={percentageColumns}
       drawerTabs={drawerTabs}
+      enableReport={enableReport}
+      dateColumn={dateColumn}
+      breakdownType={breakdownType}
       hideDataSourceAndQueryKey={hideDataSourceAndQueryKey !== undefined ? hideDataSourceAndQueryKey : !showSelectors}
       renderHeaderControls={(selectorsJSX) => showSelectors ? (
         <div className="px-4 py-3 border-b border-gray-200 bg-white">
@@ -562,6 +852,60 @@ const TableDataProvider = (props) => {
             .wrapper-selectors-container .whitespace-nowrap:not(.p-button-label) {
               display: none !important;
             }
+            
+            /* Hide the internal sidebar from DataProviderNew to avoid double sidebars */
+            body > .p-sidebar-bottom.p-sidebar-sm {
+              display: none !important;
+            }
+            
+            /* Fix for Drawer scrolling issues */
+            .p-sidebar-bottom.custom-drawer {
+              height: 100dvh !important;
+              display: flex !important;
+            }
+            
+            .custom-drawer .p-sidebar-content {
+              height: 100%;
+              display: flex;
+              flex-direction: column;
+              overflow: hidden !important;
+              padding: 0 !important;
+            }
+            
+            .custom-drawer .p-tabview {
+              display: flex;
+              flex-direction: column;
+              height: 100%;
+              min-height: 0;
+            }
+            
+            .custom-drawer .p-tabview-nav-container {
+              flex-shrink: 0;
+            }
+            
+            .custom-drawer .p-tabview-panels {
+              flex: 1;
+              min-height: 0;
+              display: flex;
+              flex-direction: column;
+              padding: 0 !important;
+            }
+            
+            .custom-drawer .p-tabview-panel {
+              flex: 1;
+              display: flex;
+              flex-direction: column;
+              min-height: 0;
+              height: 100%;
+            }
+            
+            .custom-drawer .overflow-auto {
+              flex: 1;
+              min-height: 0;
+              overflow-y: auto !important;
+              -webkit-overflow-scrolling: touch;
+              overscroll-behavior: contain;
+            }
           `}} />
         </div>
       ) : null}
@@ -574,6 +918,95 @@ const TableDataProvider = (props) => {
           </div>
         </TableProvider>
       </PlasmicDataProvider>
+
+      {/* Drawer Sidebar - copied exactly from DataProviderNew.jsx structure */}
+      <Sidebar
+        position="bottom"
+        blockScroll
+        visible={drawerVisible}
+        onHide={closeDrawer}
+        style={{ height: '100dvh' }}
+        className="custom-drawer"
+        header={
+          <h2 className="text-lg font-semibold text-gray-800 m-0">
+            {clickedDrawerValues.innerValue
+              ? `${clickedDrawerValues.outerValue} : ${clickedDrawerValues.innerValue}`
+              : clickedDrawerValues.outerValue || 'Drawer'}
+          </h2>
+        }
+      >
+        <div className="flex flex-col h-full">
+          <div className="flex-1">
+            {drawerTabs && drawerTabs.length > 0 ? (
+              <TabView
+                activeIndex={Math.min(activeDrawerTabIndex, Math.max(0, drawerTabs.length - 1))}
+                onTabChange={(e) => setActiveDrawerTabIndex(e.index)}
+                className="h-full flex flex-col"
+              >
+                {drawerTabs.map((tab) => (
+                  <TabPanel
+                    key={tab.id}
+                    header={tab.name || `Tab ${drawerTabs.indexOf(tab) + 1}`}
+                    className="h-full flex flex-col"
+                  >
+                    <div className="flex-1 overflow-auto">
+                      {drawerData && drawerData.length > 0 ? (
+                        <TableOperationsContext.Provider value={{
+                          ...consolidatedData,
+                          paginatedData: drawerData,
+                          pagination: { first: 0, rows: drawerData.length },
+                          visibleColumns: [], // Show all in drawer
+                          enableFilter: enableFilter,
+                          enableSort: enableSort,
+                          enableSummation: enableSummation,
+                          outerGroupField: tab.outerGroup,
+                          innerGroupField: tab.innerGroup,
+                        }}>
+                          <DataTableComponent
+                            data={drawerData}
+                            useOrchestrationLayer={true}
+                            rowsPerPageOptions={[5, 10, 25, 50, 100, 200]}
+                            defaultRows={10}
+                            scrollable={true}
+                            scrollHeight="calc(100dvh - 180px)"
+                            enableSort={enableSort}
+                            enableFilter={enableFilter}
+                            enableSummation={enableSummation}
+                            textFilterColumns={textFilterColumns}
+                            visibleColumns={visibleColumns}
+                            onVisibleColumnsChange={stableOnVisibleColumnsChange}
+                            redFields={redFields}
+                            greenFields={greenFields}
+                            outerGroupField={tab.outerGroup}
+                            innerGroupField={tab.innerGroup}
+                            percentageColumns={percentageColumns}
+                            enableDivideBy1Lakh={enableDivideBy1Lakh}
+                            enableCellEdit={false}
+                            columnTypes={columnTypes}
+                            tableName="sidebar"
+                          />
+                        </TableOperationsContext.Provider>
+                      ) : (
+                        <div className="flex flex-col items-center justify-center h-full text-center">
+                          <i className="pi pi-inbox text-4xl text-gray-400 mb-4"></i>
+                          <p className="text-gray-600 font-medium">No data available</p>
+                          <p className="text-sm text-gray-500 mt-1">No matching rows found</p>
+                        </div>
+                      )}
+                    </div>
+                  </TabPanel>
+                ))}
+              </TabView>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full text-center">
+                <i className="pi pi-inbox text-4xl text-gray-400 mb-4"></i>
+                <p className="text-gray-600 font-medium">No tabs configured</p>
+                <p className="text-sm text-gray-500 mt-1">Please configure drawer tabs in settings</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </Sidebar>
     </DataProvider>
   );
 };
