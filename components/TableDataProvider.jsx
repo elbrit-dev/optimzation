@@ -1060,57 +1060,6 @@ const TableDataProvider = (props) => {
               )}
             </div>
           </div>
-          
-          {/* CSS to hide the internal/broken Last Updated text but keep the Sync button */}
-          <style dangerouslySetInnerHTML={{ __html: `
-            .wrapper-selectors-container .whitespace-nowrap:not(.p-button-label) {
-              display: none !important;
-            }
-            
-            /* Fix for Drawer scrolling issues */
-            .p-sidebar-bottom.p-sidebar-sm {
-              height: 100dvh !important;
-            }
-            
-            .p-sidebar-bottom .p-sidebar-content {
-              height: 100%;
-              display: flex;
-              flex-direction: column;
-              overflow-y: auto !important; /* Changed from hidden to auto */
-              padding: 0 !important;
-            }
-            
-            .p-sidebar-bottom .p-tabview {
-              display: flex;
-              flex-direction: column;
-              height: 100%;
-            }
-            
-            .p-sidebar-bottom .p-tabview-panels {
-              flex: 1;
-              display: flex;
-              flex-direction: column;
-              padding: 0 !important;
-              min-height: 0;
-            }
-            
-            .p-sidebar-bottom .p-tabview-panel {
-              flex: 1;
-              display: flex;
-              flex-direction: column;
-              height: 100%;
-              min-height: 0;
-            }
-            
-            /* Target both the manual overflow-auto div and PrimeReact's internal wrapper */
-            .p-sidebar-bottom .overflow-auto,
-            .p-sidebar-bottom .p-datatable-wrapper,
-            .p-sidebar-bottom .p-datatable-scrollable-body {
-              flex: 1;
-              overflow-y: auto !important;
-              -webkit-overflow-scrolling: touch;
-            }
-          `}} />
         </div>
       ) : null}
     >
@@ -1133,27 +1082,27 @@ const TableDataProvider = (props) => {
         className="p-sidebar-sm"
         header={
           <h2 className="text-lg font-semibold text-gray-800 m-0">
-            {(() => {
-              const salesTeam = drawerSalesTeamValues && drawerSalesTeamValues.length > 0 
-                ? drawerSalesTeamValues.join(', ') 
-                : null;
-              const hq = drawerHqValues && drawerHqValues.length > 0 
-                ? drawerHqValues.join(', ') 
-                : null;
-              
-              if (salesTeam && hq) {
-                return `${salesTeam} : ${hq}`;
-              } else if (salesTeam) {
-                return salesTeam;
-              } else if (hq) {
-                return hq;
-              } else if (clickedDrawerValues.innerValue) {
-                return `${clickedDrawerValues.outerValue} : ${clickedDrawerValues.innerValue}`;
-              } else if (clickedDrawerValues.outerValue) {
-                return clickedDrawerValues.outerValue;
-              }
-              return 'Drawer';
-            })()}
+              {(() => {
+                const salesTeam = drawerSalesTeamValues && drawerSalesTeamValues.length > 0 
+                  ? drawerSalesTeamValues.join(', ') 
+                  : null;
+                const hq = drawerHqValues && drawerHqValues.length > 0 
+                  ? drawerHqValues.join(', ') 
+                  : null;
+                
+                if (salesTeam && hq) {
+                  return `${salesTeam} : ${hq}`;
+                } else if (salesTeam) {
+                  return salesTeam;
+                } else if (hq) {
+                  return hq;
+                } else if (clickedDrawerValues.innerValue) {
+                  return `${clickedDrawerValues.outerValue} : ${clickedDrawerValues.innerValue}`;
+                } else if (clickedDrawerValues.outerValue) {
+                  return clickedDrawerValues.outerValue;
+                }
+                return 'Drawer';
+              })()}
           </h2>
         }
       >
@@ -1205,6 +1154,7 @@ const TableDataProvider = (props) => {
                             scrollable={false}
                             enableCellEdit={false}
                             tableName="sidebar"
+                            disableRowClick={true}
                           />
                         </DataProvider>
                       ) : (
