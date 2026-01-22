@@ -124,8 +124,6 @@ body {
 }
 
 .p-inputtext {
-    border: 1px solid #d1d5db;
-    border-radius: 6px;
     transition: all 0.2s ease;
     font-size: 0.875rem;
     padding: 0.5rem 0.75rem;
@@ -138,8 +136,6 @@ body {
 }
 
 .p-inputtext:focus {
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
     outline: none;
 }
 
@@ -529,7 +525,7 @@ body {
 }
 
 .p-paginator .p-dropdown {
-    border: 1px solid #d1d5db;
+    border: 0px;
     border-radius: 6px;
     height: 2.5rem;
     background: #ffffff;
@@ -572,6 +568,7 @@ body {
 
 .p-dropdown-panel .p-dropdown-items-wrapper {
     padding: 0.25rem 0;
+    max-height: 500px !important;
 }
 
 .p-dropdown-panel .p-dropdown-items {

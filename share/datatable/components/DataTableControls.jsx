@@ -501,6 +501,14 @@ export default function DataTableControls({
   onEnableReportChange,
   onDateColumnChange,
   onBreakdownTypeChange,
+  // Data Source and Query Key props
+  selectedQueryKey = null,
+  availableQueryKeys = [],
+  savedQueries = [],
+  loadingQueries = false,
+  executingQuery = false,
+  onDataSourceChange,
+  onSelectedQueryKeyChange,
 }) {
   const [customOptions, setCustomOptions] = useState(
     Array.isArray(rowsPerPageOptions) ? rowsPerPageOptions.join(', ') : ''
@@ -828,6 +836,73 @@ export default function DataTableControls({
 
   return (
     <div className="@container h-full flex flex-col bg-white border-l border-gray-200">
+      {/* Data Source and Query Key Section */}
+      {(onDataSourceChange || onSelectedQueryKeyChange) && (
+        <div className="border-b border-gray-200 bg-white hidden @3xs:block">
+          <div className="px-2 @3xs:px-4 py-2 @3xs:py-3 bg-gray-50 border-b border-gray-200">
+            <div className="flex items-center gap-2">
+              <i className="pi pi-database text-base @3xs:text-lg text-primary"></i>
+              <span className="font-semibold text-sm @3xs:text-base text-primary">Data Source</span>
+            </div>
+          </div>
+          <div className="p-2 @3xs:p-4">
+            <div className="space-y-2 @3xs:space-y-4">
+              {/* Data Source Selector */}
+              {onDataSourceChange && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Data Source
+                  </label>
+                  <Dropdown
+                    value={dataSource}
+                    onChange={(e) => onDataSourceChange(e.value)}
+                    options={[
+                      { label: 'Offline', value: 'offline' },
+                      { label: 'Test Data', value: 'test' },
+                      ...savedQueries.map(q => ({ label: q.name, value: q.id }))
+                    ]}
+                    optionLabel="label"
+                    optionValue="value"
+                    placeholder="Select a data source"
+                    className="w-full"
+                    loading={loadingQueries}
+                    disabled={executingQuery}
+                    style={{
+                      height: '2.5rem',
+                    }}
+                  />
+                </div>
+              )}
+
+              {/* Query Key Selector */}
+              {onSelectedQueryKeyChange && dataSource && dataSource !== 'offline' && dataSource !== 'test' && availableQueryKeys.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Query Key
+                  </label>
+                  <Dropdown
+                    value={selectedQueryKey}
+                    onChange={(e) => onSelectedQueryKeyChange(e.value)}
+                    options={availableQueryKeys.map(key => ({
+                      label: startCase(key.split('__').join(' ').split('_').join(' ')),
+                      value: key
+                    }))}
+                    optionLabel="label"
+                    optionValue="value"
+                    placeholder="Select Query Key"
+                    className="w-full"
+                    disabled={executingQuery}
+                    style={{
+                      height: '2.5rem',
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Variables Section */}
       {Object.keys(filteredVariables).length > 0 && (
         <div className="border-b border-gray-200 bg-white hidden @3xs:block">
@@ -1240,7 +1315,9 @@ export default function DataTableControls({
                             { label: 'Week-wise', value: 'week' },
                             { label: 'Month-wise', value: 'month' },
                             { label: 'Quarter-wise', value: 'quarter' },
-                            { label: 'Year-wise', value: 'annual' }
+                            { label: 'Year-wise', value: 'annual' },
+                            { label: 'Month on Month', value: 'month-on-month' },
+                            { label: 'Quarter on Quarter', value: 'quarter-on-quarter' }
                           ]}
                           optionLabel="label"
                           optionValue="value"

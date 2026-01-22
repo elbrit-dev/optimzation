@@ -8,6 +8,7 @@ import DataTableNew from './components/DataTableNew';
 import DataTableControls from './components/DataTableControls';
 import DataProvider from './components/DataProvider';
 import data from '@/resource/data';
+import testData from '@/resource/test';
 import { uniq, flatMap, isEmpty, startCase, filter as lodashFilter, get, isNil, debounce } from 'lodash';
 import { getDataKeys, getDataValue } from './utils/dataAccessUtils';
 import ProtectedRoute from '@/components/ProtectedRoute';
@@ -58,6 +59,7 @@ function DataTablePage() {
   const [enableReport, setEnableReport] = useState(defaultDataTableConfig.enableReport);
   const [dateColumn, setDateColumn] = useState(defaultDataTableConfig.dateColumn);
   const [breakdownType, setBreakdownType] = useState(defaultDataTableConfig.breakdownType);
+  const [enableBreakdown, setEnableBreakdown] = useState(false);
 
   // Drawer tabs state (still managed here for DataTableControls, but drawer rendering moved to DataProvider)
   const [drawerTabs, setDrawerTabs] = useState(defaultDataTableConfig.drawerTabs.length > 0 ? defaultDataTableConfig.drawerTabs : [{ id: `tab-${Date.now()}`, name: '', outerGroup: null, innerGroup: null }]);
@@ -68,6 +70,13 @@ function DataTablePage() {
       setDrawerTabs([{ id: `tab-${Date.now()}`, name: '', outerGroup: null, innerGroup: null }]);
     }
   }, [drawerTabs, setDrawerTabs]);
+
+  // Turn off enableBreakdown when enableReport is turned off
+  useEffect(() => {
+    if (!enableReport) {
+      setEnableBreakdown(false);
+    }
+  }, [enableReport]);
 
   // Store original unfiltered data reference
   const originalTableDataRef = useRef(null);
@@ -118,6 +127,14 @@ function DataTablePage() {
     setVariableOverrides({});
   }, []);
 
+
+  // Select the appropriate offline data based on dataSource
+  const offlineData = useMemo(() => {
+    if (dataSource === 'test') {
+      return testData;
+    }
+    return data;
+  }, [dataSource]);
 
   // Store original data reference on mount and when tableData changes
   useEffect(() => {
@@ -400,7 +417,7 @@ function DataTablePage() {
         ) : (
           <DataProvider
             useOrchestrationLayer={true}
-            offlineData={data}
+            offlineData={offlineData}
             onDataChange={handleDataChange}
             onError={handleError}
             onRawDataChange={handleRawDataChange}
@@ -440,68 +457,8 @@ function DataTablePage() {
             dateColumn={dateColumn}
             breakdownType={breakdownType}
             onBreakdownTypeChange={setBreakdownType}
-            renderHeaderControls={(selectorsJSX) => (
-              <div className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 border-b border-gray-200 shrink-0 bg-white min-w-0 overflow-x-hidden">
-                <div className="flex justify-between items-start gap-3 flex-wrap min-w-0">
-                  {/* Left: selectorsJSX from DataProvider */}
-                  <div className="flex-1 min-w-0">
-                    {selectorsJSX}
-                  </div>
-
-                  {/* Right: Data Source and Query Key Selectors */}
-                  <div className="flex items-end gap-3 flex-wrap min-w-0">
-                    {/* Data Source Selector */}
-                    <div className="w-full sm:w-48 min-w-0 flex-shrink-0">
-                      <label className="block text-xs font-medium text-gray-700 mb-1">
-                        Data Source
-                      </label>
-                      <Dropdown
-                        value={dataSource}
-                        onChange={(e) => setDataSource(e.value)}
-                        options={[
-                          { label: 'Offline', value: 'offline' },
-                          ...savedQueries.map(q => ({ label: q.name, value: q.id }))
-                        ]}
-                        optionLabel="label"
-                        optionValue="value"
-                        placeholder="Select a data source"
-                        className="w-full"
-                        loading={loadingQueries}
-                        disabled={executingQuery}
-                        style={{
-                          height: '3rem',
-                        }}
-                      />
-                    </div>
-
-                    {/* Query Key Selector */}
-                    {dataSource && dataSource !== 'offline' && availableQueryKeys.length > 0 && (
-                      <div className="w-full sm:w-48 min-w-0 flex-shrink-0">
-                        <label className="block text-xs font-medium text-gray-700 mb-1">
-                          Query Key
-                        </label>
-                        <Dropdown
-                          value={selectedQueryKey}
-                          onChange={(e) => setSelectedQueryKey(e.value)}
-                          options={availableQueryKeys.map(key => ({
-                            label: startCase(key.split('__').join(' ').split('_').join(' ')),
-                            value: key
-                          }))}
-                          optionLabel="label"
-                          optionValue="value"
-                          placeholder="Select Query Key"
-                          className="w-full"
-                          disabled={executingQuery}
-                          style={{
-                            height: '3rem',
-                          }}
-                        />
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
+            enableBreakdown={enableBreakdown}
+            onEnableBreakdownChange={setEnableBreakdown}
           >
             <div className="flex-1 min-h-0">
               <Splitter style={{ height: '100%' }} layout="horizontal" className="h-full">
@@ -606,6 +563,14 @@ function DataTablePage() {
                     onEnableReportChange={setEnableReport}
                     onDateColumnChange={setDateColumn}
                     onBreakdownTypeChange={setBreakdownType}
+                    dataSource={dataSource}
+                    selectedQueryKey={selectedQueryKey}
+                    availableQueryKeys={availableQueryKeys}
+                    savedQueries={savedQueries}
+                    loadingQueries={loadingQueries}
+                    executingQuery={executingQuery}
+                    onDataSourceChange={setDataSource}
+                    onSelectedQueryKeyChange={setSelectedQueryKey}
                   />
                 </SplitterPanel>
               </Splitter>

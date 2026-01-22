@@ -1,6 +1,6 @@
 'use client';
 
-import DataTableComponent from '@/app/datatable/components/DataTable';
+import DataTableComponent from '@/app/datatable/components/DataTableOld';
 import Editor from '@monaco-editor/react';
 import { Button } from 'primereact/button';
 import { TabPanel, TabView } from 'primereact/tabview';

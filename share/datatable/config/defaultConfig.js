@@ -16,7 +16,7 @@ export const defaultDataTableConfig = {
     // Pagination
     rowsPerPageOptions: [5, 10, 25, 50, 100, 200],
     defaultRows: 10,
-    tableHeight: "60dvh",
+    tableHeight: "90dvh",
 
     // Column configuration
     textFilterColumns: [],
@@ -29,7 +29,7 @@ export const defaultDataTableConfig = {
     greenFields: [],
 
     // Grouping
-    outerGroupField: 'sales_team',
+    outerGroupField: 'team',
     innerGroupField: 'hq',
 
     // Column types override
@@ -42,16 +42,17 @@ export const defaultDataTableConfig = {
     enableReport: true,
     breakdownType: "month",
     dateColumn: 'posting_date',
+    columnGroupBy: 'values',
 
     // Auth Control
     isAdminMode: false,
-    salesTeamColumn: null,
+    salesTeamColumn: 'team',
     salesTeamValues: [],
-    hqColumn: null,
+    hqColumn: 'hq',
     hqValues: [],
 
     // Data source
-    dataSource: "Primary",
+    dataSource: "test",
     selectedQueryKey: 'primary',
 };
 
@@ -121,6 +122,7 @@ export function extractStateFromConfig(config, setters = {}) {
         enableReport: config.enableReport ?? defaultDataTableConfig.enableReport,
         breakdownType: config.breakdownType ?? defaultDataTableConfig.breakdownType,
         dateColumn: config.dateColumn ?? defaultDataTableConfig.dateColumn,
+        columnGroupBy: config.columnGroupBy ?? defaultDataTableConfig.columnGroupBy,
 
         // Auth Control
         isAdminMode: config.isAdminMode ?? defaultDataTableConfig.isAdminMode,

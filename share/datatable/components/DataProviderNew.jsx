@@ -1,120 +1,54 @@
 'use client';
-
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Dropdown } from 'primereact/dropdown';
-import { Button } from 'primereact/button';
-import { InputText } from 'primereact/inputtext';
-import { OverlayPanel } from 'primereact/overlaypanel';
-import { filter as lodashFilter } from 'lodash';
-import dayjs from 'dayjs';
-import * as Comlink from 'comlink';
-import { DataProvider as PlasmicDataProvider } from "@plasmicapp/loader-nextjs";
-import MonthRangePicker from '@/components/MonthRangePicker';
-import { firestoreService } from '@/app/graphql-playground/services/firestoreService';
-import { getInitialEndpoint, getEndpointConfigFromUrlKey } from '@/app/graphql-playground/constants';
-import { createExecutionContext, executePipeline, fetchGraphQLRequest } from '@/app/graphql-playground/utils/query-pipeline';
-import { extractDataFromResponse } from '@/app/graphql-playground/utils/data-extractor';
+import { generateMonthRangeArray } from '@/app/datatable/utils/dateUtils';
 import { indexedDBService } from '@/app/datatable/utils/indexedDBService';
+import { getEndpointConfigFromUrlKey, getInitialEndpoint } from '@/app/graphql-playground/constants';
+import { firestoreService } from '@/app/graphql-playground/services/firestoreService';
+import { createExecutionContext } from '@/app/graphql-playground/utils/query-pipeline';
 import { parseGraphQLVariables } from '@/app/graphql-playground/utils/variableParser';
-import { extractValueFromGraphQLResponse } from '@/app/graphql-playground/utils/queryExtractor';
-import { extractYearMonthFromDate, generateMonthRangeArray } from '@/app/datatable/utils/dateUtils';
-import { getDataKeys, getDataValue, getNestedValue } from '../utils/dataAccessUtils';
-import { TableOperationsContext } from '../contexts/TableOperationsContext';
-import { transformToReportData } from '../utils/reportUtils';
-import { Sidebar } from 'primereact/sidebar';
-import { TabView, TabPanel } from 'primereact/tabview';
-import DataTableComponent from './DataTableOld';
-import MultiselectFilter from './MultiselectFilter';
-import * as XLSX from 'xlsx';
+import MonthRangePicker from '@/components/MonthRangePicker';
+import { DataProvider as PlasmicDataProvider } from "@plasmicapp/loader-nextjs";
+import { Switch } from 'antd';
+import * as Comlink from 'comlink';
+import dayjs from 'dayjs';
 import {
+  isFinite as _isFinite,
+  isNaN as _isNaN,
+  every,
+  filter,
+  flatMap,
+  get,
+  head,
+  includes,
+  isArray,
+  isBoolean,
+  isDate,
+  isEmpty,
   isNil,
   isNumber,
-  isFinite as _isFinite,
-  isEmpty,
-  uniq,
-  flatMap,
-  startCase,
-  take,
-  sumBy,
-  orderBy,
-  filter,
-  get,
-  toLower,
-  includes,
-  isBoolean,
   isString,
-  isDate,
-  head,
-  toNumber,
-  isNaN as _isNaN,
-  trim,
+  orderBy,
   some,
-  isArray,
-  every,
+  startCase,
+  sumBy,
+  take,
+  toLower,
+  toNumber,
+  trim,
+  uniq,
 } from 'lodash';
-
-/**
- * Utility function to extract full date/timestamp from index query response
- * Uses the unified extractValueFromGraphQLResponse utility
- * @param {string} indexQuery - The index GraphQL query string
- * @param {Object} jsonResponse - The JSON response from the index query
- * @returns {string|null} The extracted full date/timestamp string or null if not found
- */
-function extractFullDateFromIndexResponse(indexQuery, jsonResponse) {
-  return extractValueFromGraphQLResponse(indexQuery, jsonResponse);
-}
-
-/**
- * Utility function to execute monthIndex query and extract YYYY-MM from the single date field
- * @param {string} monthIndexQuery - The monthIndex GraphQL query string
- * @param {Object} queryDoc - The query document containing urlKey and variables
- * @returns {Promise<string|null>} The extracted YYYY-MM string or null if not found
- */
-async function executeMonthIndexQueryAndExtractYearMonth(monthIndexQuery, queryDoc) {
-  if (!monthIndexQuery || !monthIndexQuery.trim()) {
-    return null;
-  }
-
-  try {
-    // Get endpoint/auth from query's urlKey, fallback to default
-    const { endpointUrl, authToken } = getEndpointAndAuth(queryDoc);
-
-    if (!endpointUrl) {
-      console.warn('No endpoint available for monthIndex query execution');
-      return null;
-    }
-
-    // Parse variables if provided
-    const parsedVariables = parseGraphQLVariables(queryDoc.variables || '');
-
-    // Execute the monthIndex query
-    const response = await fetchGraphQLRequest(monthIndexQuery, parsedVariables, {
-      endpointUrl,
-      authToken
-    });
-
-    // Parse JSON response
-    const jsonResponse = await response.json();
-
-    if (jsonResponse.errors) {
-      console.error('GraphQL errors for monthIndex query:', jsonResponse.errors);
-      return null;
-    }
-
-    // Extract the date value using the unified utility
-    const dateValue = extractValueFromGraphQLResponse(monthIndexQuery, jsonResponse);
-
-    if (!dateValue) {
-      return null;
-    }
-
-    // Extract YYYY-MM from the date value using dayjs utility
-    return extractYearMonthFromDate(dateValue);
-  } catch (error) {
-    console.error('Error executing monthIndex query:', error);
-    return null;
-  }
-}
+import { Button } from 'primereact/button';
+import { Dropdown } from 'primereact/dropdown';
+import { InputText } from 'primereact/inputtext';
+import { OverlayPanel } from 'primereact/overlaypanel';
+import { Sidebar } from 'primereact/sidebar';
+import { TabPanel, TabView } from 'primereact/tabview';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import * as XLSX from 'xlsx';
+import { TableOperationsContext } from '../contexts/TableOperationsContext';
+import { getDataKeys, getDataValue, getNestedValue } from '../utils/dataAccessUtils';
+import { transformToReportData } from '../utils/reportUtils';
+import DataTableComponent from './DataTableOld';
+import MultiselectFilter from './MultiselectFilter';
 
 
 /**
@@ -587,7 +521,6 @@ export default function DataProviderNew({
   onError,
   onTableDataChange,
   onRawDataChange, // New callback to pass raw/original data for Auth Control
-  renderHeaderControls,
   onDataSourceChange,
   variableOverrides = {},
   onVariablesChange,
@@ -630,11 +563,9 @@ export default function DataProviderNew({
   dateColumn = null,
   breakdownType = 'month',
   onBreakdownTypeChange,
-  useOrchestrationLayer = false,
-  showSelectors = true,
-  hideDataSourceAndQueryKey = false,
-  children,
-  dataSlot
+  enableBreakdown = false,
+  onEnableBreakdownChange,
+  children
 }) {
   const [dataSource, setDataSource] = useState(dataSourceProp);
   const [selectedQueryKey, setSelectedQueryKey] = useState(selectedQueryKeyProp);
@@ -663,6 +594,7 @@ export default function DataProviderNew({
   const [searchTerm, setSearchTerm] = useState(''); // Global search input value (applied)
   const [searchInputValue, setSearchInputValue] = useState(''); // Local input value (not applied until Enter/button)
   const [sortConfig, setSortConfig] = useState(null); // {field: "topLevelKey.nestedPath", direction: "asc" | "desc"}
+  const [columnGroupBy, setColumnGroupBy] = useState('values'); // Column grouping mode: 'values' or dateColumn
   const queryVariablesRef = useRef({}); // Ref to track variables immediately (for synchronous access)
   const executingQueryIdRef = useRef(null); // Track which query is currently executing to prevent duplicates
   const executingQueriesRef = useRef(new Set()); // Track executing queries with queryId + variables key to prevent duplicates
@@ -676,6 +608,27 @@ export default function DataProviderNew({
   const previousDataSourceRef = useRef(dataSource); // Track previous dataSource to detect changes
   const queryKeySetForDataSourceRef = useRef(null); // Track which dataSource we've set queryKey for
   const lastSetQueryKeyRef = useRef(null); // Track the last queryKey we set to prevent unnecessary updates
+
+  // Mobile detection for responsive Switch sizing
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const checkMobile = () => {
+      const windowWidth = window.innerWidth;
+      const isMobileNow = windowWidth < 768;
+      setIsMobile(isMobileNow);
+    };
+
+    // Check immediately
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => {
+      window.removeEventListener('resize', checkMobile);
+    };
+  }, []);
 
   // Store onError in ref to avoid dependency issues (only runs once on mount)
   const onErrorRef = useRef(onError);
@@ -990,8 +943,8 @@ export default function DataProviderNew({
 
   // Handle data source changes - auto-execute when user changes data source or on initial load
   useEffect(() => {
-    if (dataSource === 'offline') {
-      // Switching to offline - reset query-related state
+    if (dataSource === 'offline' || dataSource === 'test') {
+      // Switching to offline or test - reset query-related state
       setProcessedData(null);
       setSelectedQueryKey(null);
       setMonthRange(null);
@@ -1013,11 +966,11 @@ export default function DataProviderNew({
         onDataChange({
           severity: 'success',
           summary: 'Success',
-          detail: 'Offline data loaded',
+          detail: dataSource === 'test' ? 'Test data loaded' : 'Offline data loaded',
           life: 3000
         });
       }
-    } else if (dataSource && dataSource !== 'offline') {
+    } else if (dataSource && dataSource !== 'offline' && dataSource !== 'test') {
       // Reset Search Teams selection when switching data sources
       setSelectedSalesTeams([]);
       setSelectedHqTeams([]);
@@ -1097,7 +1050,7 @@ export default function DataProviderNew({
 
   // Auto-execute when variableOverrides change (user applied variables)
   useEffect(() => {
-    if (!dataSource || dataSource === 'offline') return; // Skip for offline
+    if (!dataSource || dataSource === 'offline' || dataSource === 'test') return; // Skip for offline and test
 
     // Only execute if there are actual variable overrides
     const hasOverrides = Object.keys(variableOverrides).length > 0;
@@ -1116,7 +1069,7 @@ export default function DataProviderNew({
   // Runs regardless of whether searchFields or sortFields are defined
   useEffect(() => {
     // Only run for clientSave === false queries
-    if (!currentQueryDoc || currentQueryDoc.clientSave !== false || !dataSource || dataSource === 'offline') {
+    if (!currentQueryDoc || currentQueryDoc.clientSave !== false || !dataSource || dataSource === 'offline' || dataSource === 'test') {
       return;
     }
 
@@ -1140,7 +1093,7 @@ export default function DataProviderNew({
     const monthRangeToUse = monthRangeOverride !== null ? monthRangeOverride : monthRange;
 
     // If offline mode or no dataSource, clear the last updated field
-    if (!dataSource || dataSource === 'offline') {
+    if (!dataSource || dataSource === 'offline' || dataSource === 'test') {
       setLastUpdatedAt(null);
       return;
     }
@@ -1315,7 +1268,7 @@ export default function DataProviderNew({
             const monthRangeVariables = (parsedVariables.startDate && parsedVariables.endDate)
               ? { startDate: parsedVariables.startDate, endDate: parsedVariables.endDate }
               : null;
-            
+
             await workerRef.current.executeIndexQuery(
               queryId,
               queryDoc,
@@ -1332,7 +1285,7 @@ export default function DataProviderNew({
           if (cachedIndex !== null && currentIndex !== null) {
             const cachedIndexString = JSON.stringify(cachedIndex);
             const currentIndexString = JSON.stringify(currentIndex);
-            
+
             if (cachedIndexString !== currentIndexString) {
               // Index has changed - cache is stale, skip cache and fetch live
               console.log(`Index changed for ${queryId}, skipping cache and fetching live data`);
@@ -1473,7 +1426,7 @@ export default function DataProviderNew({
 
   // Auto-execute when monthRange changes (user changed month range)
   useEffect(() => {
-    if (!dataSource || dataSource === 'offline') return; // Skip for offline
+    if (!dataSource || dataSource === 'offline' || dataSource === 'test') return; // Skip for offline and test
     if (!hasMonthSupport) return; // Only for month-supported queries
 
     // Skip if this is during initial load (prevent race condition with IndexedDB check)
@@ -1516,7 +1469,7 @@ export default function DataProviderNew({
   // Note: We also call fetchLastUpdatedAt explicitly after loading query doc and after data loads,
   // so this useEffect mainly handles monthRange changes
   useEffect(() => {
-    if (currentQueryDoc && dataSource && dataSource !== 'offline' && currentQueryDoc.id === dataSource && monthRange) {
+    if (currentQueryDoc && dataSource && dataSource !== 'offline' && dataSource !== 'test' && currentQueryDoc.id === dataSource && monthRange) {
       fetchLastUpdatedAt();
     }
   }, [monthRange, currentQueryDoc, dataSource, fetchLastUpdatedAt]);
@@ -1540,7 +1493,7 @@ export default function DataProviderNew({
       lastSetQueryKeyRef.current = null;
       // When dataSource changes to a new query, reset selectedQueryKey immediately
       // But don't reset if we have a valid default from props that might still be valid
-      if (dataSource && dataSource !== 'offline') {
+      if (dataSource && dataSource !== 'offline' && dataSource !== 'test') {
         // Only reset if we don't have a valid default selectedQueryKeyProp
         // (We'll check if it's valid in the next effect when availableQueryKeys are known)
         setSelectedQueryKey(null);
@@ -1550,7 +1503,7 @@ export default function DataProviderNew({
 
   // Set selectedQueryKey when processedData/availableQueryKeys become available (only once per dataSource)
   useEffect(() => {
-    if (!dataSource || dataSource === 'offline' || !processedData) {
+    if (!dataSource || dataSource === 'offline' || dataSource === 'test' || !processedData) {
       return;
     }
 
@@ -1562,7 +1515,7 @@ export default function DataProviderNew({
     // First time for this dataSource - prefer default key if valid, otherwise use first available key
     if (queryKeySetForDataSourceRef.current !== dataSource) {
       const keyToUse = defaultKeyIsValid ? selectedQueryKeyProp : firstAvailableKey;
-      
+
       if (keyToUse) {
         // Only update if the value would actually change
         if (lastSetQueryKeyRef.current !== keyToUse) {
@@ -1877,10 +1830,7 @@ export default function DataProviderNew({
       const finalAuthToken = authToken || null;
 
       if (!finalEndpointUrl) {
-        const errorMsg = queryDocToUse?.urlKey 
-          ? `GraphQL endpoint URL is not set. Query "${queryId}" has urlKey "${queryDocToUse.urlKey}" but no matching endpoint configuration found. Please check your endpoint configuration or set NEXT_PUBLIC_GRAPHQL_ENDPOINT_UAT or NEXT_PUBLIC_GRAPHQL_ENDPOINT_ERP environment variables.`
-          : `GraphQL endpoint URL is not set. Query "${queryId}" has no urlKey and no default endpoint is configured. Please set NEXT_PUBLIC_GRAPHQL_ENDPOINT_UAT or NEXT_PUBLIC_GRAPHQL_ENDPOINT_ERP environment variables.`;
-        throw new Error(errorMsg);
+        throw new Error('GraphQL endpoint URL is not set');
       }
 
       // Always use worker for pipeline execution
@@ -1931,7 +1881,7 @@ export default function DataProviderNew({
               const monthRangeVariables = (mergedVariables.startDate && mergedVariables.endDate)
                 ? { startDate: mergedVariables.startDate, endDate: mergedVariables.endDate }
                 : null;
-              
+
               await workerRef.current.executeIndexQuery(
                 queryId,
                 queryDocToUse,
@@ -2008,12 +1958,12 @@ export default function DataProviderNew({
 
   // Determine which data to use (from executed queries or executed offline)
   const rawTableData = useMemo(() => {
-    // If offline mode and executed, show offline data
-    if (dataSource === 'offline' && offlineDataExecuted) {
+    // If offline or test mode and executed, show offline data
+    if ((dataSource === 'offline' || dataSource === 'test') && offlineDataExecuted) {
       return offlineData || [];
     }
     // If query mode and executed, show processed data
-    if (dataSource && dataSource !== 'offline' && processedData && selectedQueryKey) {
+    if (dataSource && dataSource !== 'offline' && dataSource !== 'test' && processedData && selectedQueryKey) {
       return getDataValue(processedData, selectedQueryKey) || [];
     }
     // Return null to indicate no data available (will show placeholder)
@@ -2173,7 +2123,7 @@ export default function DataProviderNew({
 
   // Debug: Print searchFields and sortFields for selected queryId
   useEffect(() => {
-    if (dataSource && dataSource !== 'offline' && currentQueryDoc) {
+    if (dataSource && dataSource !== 'offline' && dataSource !== 'test' && currentQueryDoc) {
       console.log(`[DataProvider] searchFields and sortFields for queryId: ${dataSource}`, {
         queryId: dataSource,
         clientSave: currentQueryDoc.clientSave,
@@ -2273,7 +2223,7 @@ export default function DataProviderNew({
     const searchFieldsObj = queryDoc.searchFields;
     const searchLower = searchTerm.toLowerCase().trim();
 
-    const filtered = tableData.filter((row, rowIndex) => {
+    const filtered = tableData.filter((row) => {
       return Object.keys(searchFieldsObj).some(topLevelKey => {
         const nestedPaths = searchFieldsObj[topLevelKey];
         if (!Array.isArray(nestedPaths) || nestedPaths.length === 0) return false;
@@ -2455,7 +2405,7 @@ export default function DataProviderNew({
 
   // Sync function that retriggers query execution
   const handleSync = useCallback(async () => {
-    if (!dataSource || dataSource === 'offline') return;
+    if (!dataSource || dataSource === 'offline' || dataSource === 'test') return;
 
     // For month-supported queries, require monthRange
     if (hasMonthSupport && (!monthRange || !Array.isArray(monthRange) || monthRange.length !== 2)) {
@@ -2759,7 +2709,7 @@ export default function DataProviderNew({
     if (!enableReport || !dateColumn || isEmpty(filteredData) || !outerGroupField) {
       return null;
     }
-    
+
     return transformToReportData(
       filteredData,
       outerGroupField,
@@ -2776,7 +2726,7 @@ export default function DataProviderNew({
     if (enableReport && reportData && reportData.tableData) {
       return reportData.tableData;
     }
-    
+
     // Otherwise use existing grouping logic
     if (!outerGroupField || isEmpty(filteredData)) {
       if (!outerGroupField && isArray(filteredData)) {
@@ -3346,6 +3296,7 @@ export default function DataProviderNew({
     enableDivideBy1Lakh,
     enableReport,
     reportData,
+    columnGroupBy,
     updateFilter,
     clearFilter,
     clearAllFilters,
@@ -3391,134 +3342,179 @@ export default function DataProviderNew({
     updateFilter, clearFilter, clearAllFilters, updateSort, updatePagination, updateExpandedRows,
     updateVisibleColumns, drawerVisible, drawerData, drawerTabs, activeDrawerTabIndex, clickedDrawerValues,
     openDrawerWithData, openDrawerForOuterGroup, openDrawerForInnerGroup, closeDrawer, addDrawerTab, removeDrawerTab, updateDrawerTab,
-    formatHeaderName, isTruthyBoolean, exportToXLSX, isNumericValue, currentQueryDoc, searchTerm, sortConfig, enableReport, reportData
+    formatHeaderName, isTruthyBoolean, exportToXLSX, isNumericValue, currentQueryDoc, searchTerm, sortConfig, enableReport, reportData, columnGroupBy
   ]);
 
-  // Render selectors JSX
+  // Conditional rendering helpers
+  const isValidMonthRange = monthRange && Array.isArray(monthRange) && monthRange.length === 2;
+  const showMonthRangePicker = dataSource && hasMonthSupport;
+  const showBreakdownToggle = enableReport && onEnableBreakdownChange;
+  const showBreakdownControls = enableReport && enableBreakdown && dateColumn && onBreakdownTypeChange;
+  const showSalesTeamSelector = salesTeamColumn && availableSalesTeamValues.length > 0;
+  const showHqSelector = hqColumn && availableHqValues.length > 0;
+  const showSyncButton = dataSource && dataSource !== 'offline' && dataSource !== 'test';
+  const isSyncDisabled = executingQuery || (hasMonthSupport && !isValidMonthRange);
+  const syncIconClass = executingQuery ? 'pi pi-spin pi-spinner' : 'pi pi-refresh';
+  const lastUpdatedText = lastUpdatedAt ? formatLastUpdatedDate(lastUpdatedAt) : 'N/A';
+
+  // Check if header should be shown (if any selectors are visible)
+  const hasHeaderContent = showMonthRangePicker || showBreakdownToggle || showBreakdownControls ||
+    showSalesTeamSelector || showHqSelector || showSyncButton;
+
+  // Render selectors JSX with enhanced responsive classes
   const selectorsJSX = (
     <>
-      <div className="flex flex-col gap-3 w-full min-w-0">
-        <div className="flex items-center justify-between w-full gap-3 flex-wrap">
-          <div className="flex items-end gap-3 flex-wrap min-w-0 flex-1">
-            {/* Month Range Picker - Only show when using saved query that supports month filtering */}
-            {dataSource && hasMonthSupport && (
-              <div className="w-full sm:w-64 min-w-0 flex-shrink-0">
-                <label className="block text-xs font-medium text-gray-700 mb-1">
-                  Month Range
-                </label>
-                <MonthRangePicker
-                  key={dataSource} // Force re-render when data source changes
-                  value={monthRange}
-                  onChange={(dates) => {
-                    if (dates && dates[0] && dates[1]) {
-                      setMonthRange([dates[0], dates[1]]);
-                    } else {
-                      setMonthRange(null);
-                    }
-                  }}
-                  placeholder={['Start month', 'End month']}
-                  format="MM/YY"
-                  disabled={executingQuery}
-                  className="w-full"
-                  style={{
-                    width: '100%',
-                    fontSize: '0.875rem',
-                    height: '3rem',
-                  }}
-                />
-              </div>
-            )}
+      <div className="flex flex-col gap-2 sm:gap-3 md:gap-4 w-full min-w-0">
+        <div className="flex flex-col sm:flex-row items-start sm:items-end justify-between w-full gap-2 sm:gap-3 md:gap-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-end gap-2 sm:gap-3 md:gap-4 flex-wrap min-w-0 flex-1 w-full sm:w-auto">
+            <div className='flex flex-col sm:flex-row gap-2 sm:gap-3 md:gap-4 w-full sm:w-auto'>
+              <div className='flex flex-wrap items-center gap-2 sm:gap-3 md:gap-4'>
+                {/* Breakdown Toggle - Only show when report is enabled */}
+                {showBreakdownToggle && (
+                  <div className="flex items-center gap-2">
+                    <label className="block text-xs sm:text-sm font-medium text-gray-700 whitespace-nowrap">
+                      Report
+                    </label>
+                    <Switch checked={enableBreakdown} onChange={onEnableBreakdownChange} size={isMobile ? 'small' : 'default'} />
+                  </div>
+                )}
 
-            {/* Breakdown By - Only show when report is enabled and date column is set */}
-            {enableReport && dateColumn && onBreakdownTypeChange && (
-              <div className="w-full sm:w-48 min-w-0 flex-shrink-0">
-                <label className="block text-xs font-medium text-gray-700 mb-1">
-                  Breakdown By
-                </label>
-                <Dropdown
-                  value={breakdownType}
-                  onChange={(e) => onBreakdownTypeChange(e.value)}
-                  options={[
-                    { label: 'Month-wise', value: 'month' },
-                    { label: 'Week-wise', value: 'week' },
-                    { label: 'Day-wise', value: 'day' },
-                    { label: 'Quarter-wise', value: 'quarter' },
-                    { label: 'Year-wise', value: 'annual' }
-                  ]}
-                  optionLabel="label"
-                  optionValue="value"
-                  className="w-full"
-                  disabled={executingQuery}
-                  style={{
-                    fontSize: '0.875rem',
-                    height: '3rem',
-                  }}
-                />
-              </div>
-            )}
+                {/* Breakdown By - Only show when report is enabled, breakdown toggle is on, and date column is set */}
+                {showBreakdownControls && (
+                  <div className="w-full sm:w-auto min-w-[120px]">
+                    <Dropdown
+                      value={breakdownType}
+                      onChange={(e) => onBreakdownTypeChange(e.value)}
+                      options={[
+                        { label: 'Month-wise', value: 'month' },
+                        { label: 'Week-wise', value: 'week' },
+                        { label: 'Day-wise', value: 'day' },
+                        { label: 'Quarter-wise', value: 'quarter' },
+                        { label: 'Year-wise', value: 'annual' }
+                      ]}
+                      optionLabel="label"
+                      optionValue="value"
+                      className="w-full items-center"
+                      disabled={executingQuery}
+                      style={{
+                        fontSize: '0.875rem',
+                        height: '2rem',
+                      }}
+                    />
+                  </div>
+                )}
 
-            {/* Sales Team Multi-Selector */}
-            {salesTeamColumn && availableSalesTeamValues.length > 0 && (
-              <div className="w-full sm:w-48 min-w-0 flex-shrink-0">
-                <label className="block text-xs font-medium text-gray-700 mb-1">
-                  Sales Team
-                </label>
-                <MultiselectFilter
-                  value={selectedSalesTeams}
-                  options={availableSalesTeamValues.map(val => ({
-                    label: String(val),
-                    value: val
-                  }))}
-                  onChange={(values) => setSelectedSalesTeams(values || [])}
-                  placeholder="Select sales teams..."
-                  fieldName="sales teams"
-                  itemLabel="Sales Team"
-                  style={{
-                    fontSize: '0.875rem',
-                    height: '3rem',
-                  }}
-                />
+                {/* Column Group By - Only show when report is enabled and date column is set */}
+                {showBreakdownControls && (
+                  <div className="w-full sm:w-auto min-w-[120px]">
+                    <Dropdown
+                      value={columnGroupBy}
+                      onChange={(e) => setColumnGroupBy(e.value)}
+                      options={[
+                        { label: 'Values', value: 'values' },
+                        { label: startCase(dateColumn.split('__').join(' ').split('_').join(' ')), value: dateColumn }
+                      ]}
+                      optionLabel="label"
+                      optionValue="value"
+                      className="w-full items-center"
+                      disabled={executingQuery}
+                      style={{
+                        fontSize: '0.875rem',
+                        height: '2rem',
+                      }}
+                    />
+                  </div>
+                )}
               </div>
-            )}
 
-            {/* HQ Multi-Selector */}
-            {hqColumn && availableHqValues.length > 0 && (
-              <div className="w-full sm:w-48 min-w-0 flex-shrink-0">
-                <label className="block text-xs font-medium text-gray-700 mb-1">
-                  HQ
-                </label>
-                <MultiselectFilter
-                  value={selectedHqTeams}
-                  options={availableHqValues.map(val => ({
-                    label: String(val),
-                    value: val
-                  }))}
-                  onChange={(values) => setSelectedHqTeams(values || [])}
-                  placeholder="Select HQ..."
-                  fieldName="HQ"
-                  itemLabel="HQ"
-                  style={{
-                    fontSize: '0.875rem',
-                    height: '3rem',
-                  }}
-                />
-              </div>
-            )}
+              {/* Month Range Picker - Only show when using saved query that supports month filtering */}
+              {showMonthRangePicker && (
+                <div className="w-full sm:w-64 md:w-72 lg:w-80 min-w-0 shrink-0">
+                  <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
+                    Month Range
+                  </label>
+                  <MonthRangePicker
+                    key={dataSource} // Force re-render when data source changes
+                    value={monthRange}
+                    onChange={(dates) => {
+                      if (dates && dates[0] && dates[1]) {
+                        setMonthRange([dates[0], dates[1]]);
+                      } else {
+                        setMonthRange(null);
+                      }
+                    }}
+                    placeholder={['Start month', 'End month']}
+                    format="MM/YY"
+                    disabled={executingQuery}
+                    className="w-full"
+                    style={{
+                      width: '100%',
+                      fontSize: '0.875rem',
+                      height: '2rem',
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className='w-full sm:w-auto flex flex-col sm:flex-row items-end gap-2 sm:gap-3 md:gap-4 flex-1 sm:flex-initial'>
+              {/* Sales Team Multi-Selector */}
+              {showSalesTeamSelector && (
+                <div className="w-full sm:w-48 md:w-56 lg:w-64 min-w-0">
+                  <MultiselectFilter
+                    value={selectedSalesTeams}
+                    options={availableSalesTeamValues.map(val => ({
+                      label: String(val),
+                      value: val
+                    }))}
+                    onChange={(values) => setSelectedSalesTeams(values || [])}
+                    placeholder="Select sales teams..."
+                    fieldName="sales teams"
+                    itemLabel="Sales Team"
+                    style={{
+                      fontSize: '0.875rem',
+                      height: '2rem',
+                    }}
+                  />
+                </div>
+              )}
+
+              {/* HQ Multi-Selector */}
+              {showHqSelector && (
+                <div className="w-full sm:w-48 md:w-56 lg:w-64 min-w-0">
+                  <MultiselectFilter
+                    value={selectedHqTeams}
+                    options={availableHqValues.map(val => ({
+                      label: String(val),
+                      value: val
+                    }))}
+                    onChange={(values) => setSelectedHqTeams(values || [])}
+                    placeholder="Select HQ..."
+                    fieldName="HQ"
+                    itemLabel="HQ"
+                    style={{
+                      fontSize: '0.875rem',
+                      height: '2rem',
+                    }}
+                  />
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
         {/* Last Updated at with Sync button - Show when using saved query, in a new row below Data Source */}
-        {dataSource && dataSource !== 'offline' && (
-          <div className="flex items-center gap-2 sm:gap-3">
+        {showSyncButton && (
+          <div className="flex items-center gap-2 sm:gap-3 md:gap-4">
             <button
               onClick={handleSync}
-              disabled={executingQuery || (hasMonthSupport && (!monthRange || !Array.isArray(monthRange) || monthRange.length !== 2))}
-              className="flex items-center gap-2 px-3 py-2 text-xs sm:text-sm border border-gray-300 rounded-md bg-white hover:bg-gray-50 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed transition-colors flex-shrink-0"
+              disabled={isSyncDisabled}
+              className="flex items-center gap-2 px-2 sm:px-3 md:px-4 py-1.5 sm:py-2 text-xs sm:text-sm border border-gray-300 rounded-md bg-white hover:bg-gray-50 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed transition-colors shrink-0"
             >
-              <i className={`${executingQuery ? 'pi pi-spin pi-spinner' : 'pi pi-refresh'} text-blue-600`}></i>
+              <i className={`${syncIconClass} text-blue-600`}></i>
               <div className="flex flex-col items-start">
-                <span className="text-xs text-gray-500">
-                  {lastUpdatedAt ? formatLastUpdatedDate(lastUpdatedAt) : 'N/A'}
+                <span className="text-xs sm:text-sm text-gray-500">
+                  {lastUpdatedText}
                 </span>
               </div>
             </button>
@@ -3597,19 +3593,10 @@ export default function DataProviderNew({
       });
     }
 
-    // Current sort value for dropdown
-    const selectedSortValue = sortConfig ? {
-      field: sortConfig.field,
-      direction: sortConfig.direction
-    } : null;
-
-    const handleClearSort = () => {
-      setSortConfig(null);
-    };
 
     // Determine sort icon based on column type and direction
     const getSortIcon = () => {
-      if (!sortConfig || !sortConfig.field) {
+      if (!sortConfig?.field) {
         return 'pi-sort-alt'; // Default icon when no sort
       }
 
@@ -3624,9 +3611,8 @@ export default function DataProviderNew({
 
       if (isNumeric) {
         return isAsc ? 'pi-sort-numeric-down' : 'pi-sort-numeric-down-alt';
-      } else {
-        return isAsc ? 'pi-sort-alpha-down' : 'pi-sort-alpha-down-alt';
       }
+      return isAsc ? 'pi-sort-alpha-down' : 'pi-sort-alpha-down-alt';
     };
 
     const handleSortButtonClick = (event) => {
@@ -3641,14 +3627,11 @@ export default function DataProviderNew({
         handleSearch();
       }
 
-      if (option.value && option.value !== null) {
-        setSortConfig(option.value);
-      } else {
-        setSortConfig(null);
-      }
-      if (sortOverlayRef.current) {
-        sortOverlayRef.current.hide();
-      }
+      // Set sort config based on option value
+      setSortConfig(option.value ?? null);
+
+      // Hide overlay panel
+      sortOverlayRef.current?.hide();
     };
 
     return (
@@ -3717,20 +3700,45 @@ export default function DataProviderNew({
     );
   }, [currentQueryDoc, searchInputValue, searchTerm, sortConfig, columnTypes, setSearchInputValue, setSearchTerm, setSortConfig]);
 
+  // Drawer sidebar helpers
+  const hasDrawerTabs = drawerTabs && drawerTabs.length > 0;
+  const hasDrawerData = drawerData && drawerData.length > 0;
+  const drawerHeaderTitle = clickedDrawerValues.innerValue
+    ? `${clickedDrawerValues.outerValue} : ${clickedDrawerValues.innerValue}`
+    : clickedDrawerValues.outerValue || 'Drawer';
+  const drawerActiveIndex = hasDrawerTabs
+    ? Math.min(activeDrawerTabIndex, Math.max(0, drawerTabs.length - 1))
+    : 0;
+
+  // Empty state component for drawer
+  const DrawerEmptyState = ({ icon, title, subtitle }) => (
+    <div className="flex flex-col items-center justify-center h-full text-center">
+      <i className={`pi ${icon} text-4xl text-gray-400 mb-4`}></i>
+      <p className="text-gray-600 font-medium">{title}</p>
+      <p className="text-sm text-gray-500 mt-1">{subtitle}</p>
+    </div>
+  );
+
   return (
     <>
       <TableOperationsContext.Provider value={contextValue}>
-        {/* Render header controls if render prop provided */}
-        {renderHeaderControls && renderHeaderControls(selectorsJSX)}
+        {/* Header Controls - Responsive container */}
+        {hasHeaderContent && (
+          <div className="px-2 sm:px-3 md:px-4 lg:px-6 xl:px-8 py-2 sm:py-3 md:py-4 border-b border-gray-200 shrink-0 bg-white min-w-0 overflow-x-auto">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-3 md:gap-4 min-w-0 w-full">
+              <div className="flex-1 min-w-0 w-full">
+                {selectorsJSX}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Search and Sort Controls */}
         {SearchAndSortControls}
 
-        {/* Expose contextValue to Plasmic data system and render children */}
+        {/* Render children */}
         <PlasmicDataProvider name="data" data={contextValue}>
-          <div style={{ height: 'auto' }}>
-            {children}
-          </div>
+          {children}
         </PlasmicDataProvider>
       </TableOperationsContext.Provider>
 
@@ -3744,28 +3752,26 @@ export default function DataProviderNew({
         className="p-sidebar-sm"
         header={
           <h2 className="text-lg font-semibold text-gray-800 m-0">
-            {clickedDrawerValues.innerValue
-              ? `${clickedDrawerValues.outerValue} : ${clickedDrawerValues.innerValue}`
-              : clickedDrawerValues.outerValue || 'Drawer'}
+            {drawerHeaderTitle}
           </h2>
         }
       >
         <div className="flex flex-col h-full">
           <div className="flex-1">
-            {drawerTabs && drawerTabs.length > 0 ? (
+            {hasDrawerTabs ? (
               <TabView
-                activeIndex={Math.min(activeDrawerTabIndex, Math.max(0, drawerTabs.length - 1))}
+                activeIndex={drawerActiveIndex}
                 onTabChange={(e) => setActiveDrawerTabIndex(e.index)}
                 className="h-full flex flex-col"
               >
-                {drawerTabs.map((tab) => (
+                {drawerTabs.map((tab, index) => (
                   <TabPanel
                     key={tab.id}
-                    header={tab.name || `Tab ${drawerTabs.indexOf(tab) + 1}`}
+                    header={tab.name || `Tab ${index + 1}`}
                     className="h-full flex flex-col"
                   >
                     <div className="flex-1 overflow-auto">
-                      {drawerData && drawerData.length > 0 ? (
+                      {hasDrawerData ? (
                         <DataTableComponent
                           data={drawerData}
                           rowsPerPageOptions={[5, 10, 25, 50, 100, 200]}
@@ -3785,25 +3791,26 @@ export default function DataProviderNew({
                           enableCellEdit={false}
                           nonEditableColumns={[]}
                           percentageColumns={percentageColumns}
+                          columnTypes={columnTypes}
                           tableName="sidebar"
                         />
                       ) : (
-                        <div className="flex flex-col items-center justify-center h-full text-center">
-                          <i className="pi pi-inbox text-4xl text-gray-400 mb-4"></i>
-                          <p className="text-gray-600 font-medium">No data available</p>
-                          <p className="text-sm text-gray-500 mt-1">No matching rows found</p>
-                        </div>
+                        <DrawerEmptyState
+                          icon="pi-inbox"
+                          title="No data available"
+                          subtitle="No matching rows found"
+                        />
                       )}
                     </div>
                   </TabPanel>
                 ))}
               </TabView>
             ) : (
-              <div className="flex flex-col items-center justify-center h-full text-center">
-                <i className="pi pi-inbox text-4xl text-gray-400 mb-4"></i>
-                <p className="text-gray-600 font-medium">No tabs configured</p>
-                <p className="text-sm text-gray-500 mt-1">Please configure drawer tabs in settings</p>
-              </div>
+              <DrawerEmptyState
+                icon="pi-inbox"
+                title="No tabs configured"
+                subtitle="Please configure drawer tabs in settings"
+              />
             )}
           </div>
         </div>

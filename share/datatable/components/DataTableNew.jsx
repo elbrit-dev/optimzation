@@ -752,6 +752,7 @@ export default function DataTableNew({
     setActiveDrawerTabIndex,
     enableReport,
     reportData,
+    columnGroupBy,
   } = useTableOperations();
 
   const [first, setFirst] = useState(pagination.first);
@@ -1017,7 +1018,7 @@ export default function DataTableNew({
       return null;
     }
 
-    const { timePeriods, metrics, tableData } = reportData;
+    const { timePeriods, metrics, tableData, dateColumn } = reportData;
     
     // Pre-compute which columns have data (single pass through tableData)
     const columnHasData = new Set();
@@ -1035,18 +1036,34 @@ export default function DataTableNew({
       });
     }
     
-    // Build columns with data
-    const columnsWithData = [];
-    timePeriods.forEach(period => {
-      metrics.forEach(metric => {
-        const columnName = `${period}_${metric}`;
-        if (columnHasData.has(columnName)) {
-          columnsWithData.push({ period, metric, columnName });
-        }
-      });
-    });
+    // Determine order based on columnGroupBy mode
+    const isMergedMode = columnGroupBy === 'values';
     
-    // Group by metric for header colSpan calculation
+    // Build columns with data - order depends on mode
+    const columnsWithData = [];
+    if (isMergedMode) {
+      // Merged mode: metrics first, then time periods
+      metrics.forEach(metric => {
+        timePeriods.forEach(period => {
+          const columnName = `${period}_${metric}`;
+          if (columnHasData.has(columnName)) {
+            columnsWithData.push({ period, metric, columnName });
+          }
+        });
+      });
+    } else {
+      // Sub-columns mode: time periods first, then metrics
+      timePeriods.forEach(period => {
+        metrics.forEach(metric => {
+          const columnName = `${period}_${metric}`;
+          if (columnHasData.has(columnName)) {
+            columnsWithData.push({ period, metric, columnName });
+          }
+        });
+      });
+    }
+    
+    // Group by metric for header colSpan calculation (merged mode)
     const metricGroups = {};
     columnsWithData.forEach(({ metric, period }) => {
       if (!metricGroups[metric]) {
@@ -1055,13 +1072,37 @@ export default function DataTableNew({
       metricGroups[metric].push(period);
     });
     
+    // Group by period for header colSpan calculation (sub-columns mode)
+    const periodGroups = {};
+    columnsWithData.forEach(({ period, metric }) => {
+      if (!periodGroups[period]) {
+        periodGroups[period] = [];
+      }
+      periodGroups[period].push(metric);
+    });
+    
     return {
       columnsWithData,
       metricGroups,
+      periodGroups,
       metricsWithData: Object.keys(metricGroups),
-      columnNames: columnsWithData.map(c => c.columnName)
+      timePeriodsWithData: Object.keys(periodGroups).sort(),
+      columnNames: columnsWithData.map(c => c.columnName),
+      isMergedMode
     };
-  }, [enableReport, reportData]);
+  }, [enableReport, reportData, columnGroupBy]);
+
+  // Helper function to get metric label - capitalize and format field names
+  const getMetricLabel = (metricKey) => {
+    // Convert snake_case or camelCase to Title Case
+    return metricKey
+      .replace(/_/g, ' ')
+      .replace(/([A-Z])/g, ' $1')
+      .split(' ')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join(' ')
+      .trim();
+  };
 
   // Report mode: Generate header groups and columns
   const reportHeaderGroup = useMemo(() => {
@@ -1070,43 +1111,86 @@ export default function DataTableNew({
     }
 
     const { breakdownType } = reportData;
-    const { metricGroups, metricsWithData, columnsWithData } = reportColumnsStructure;
+    const { metricGroups, periodGroups, metricsWithData, timePeriodsWithData, columnsWithData, isMergedMode } = reportColumnsStructure;
     const totalDataCols = columnsWithData.length;
 
-    return (
-      <ColumnGroup>
-        <Row>
-          <Column header="" rowSpan={3} style={{ width: '3rem' }} />
-          <Column header={formatHeaderName(outerGroupField)} rowSpan={3} />
-          {totalDataCols > 0 && (
-            <Column 
-              header="" 
-              colSpan={totalDataCols} 
-            />
-          )}
-        </Row>
-        <Row>
-          {metricsWithData.map(metric => {
-            const periodCount = metricGroups[metric].length;
-            return (
-              <Column key={metric} header={formatHeaderName(metric)} colSpan={periodCount} />
-            );
-          })}
-        </Row>
-        <Row>
-          {metricsWithData.map(metric => 
-            metricGroups[metric].map(period => (
+    if (isMergedMode) {
+      // Merged mode: metrics first, then time periods
+      return (
+        <ColumnGroup>
+          <Row>
+            <Column header="" rowSpan={3} style={{ width: '3rem' }} />
+            <Column header={formatHeaderName(outerGroupField)} rowSpan={3} />
+            {totalDataCols > 0 && (
               <Column 
-                key={`${period}_${metric}`}
-                header={getTimePeriodLabel(period, breakdownType)}
-                sortable
-                field={`${period}_${metric}`}
+                header="" 
+                colSpan={totalDataCols} 
               />
-            ))
-          )}
-        </Row>
-      </ColumnGroup>
-    );
+            )}
+          </Row>
+          <Row>
+            {metricsWithData.map(metric => {
+              const periodCount = metricGroups[metric].length;
+              return (
+                <Column key={metric} header={getMetricLabel(metric)} colSpan={periodCount} />
+              );
+            })}
+          </Row>
+          <Row>
+            {metricsWithData.map(metric => 
+              metricGroups[metric].map(period => (
+                <Column 
+                  key={`${period}_${metric}`}
+                  header={getTimePeriodLabel(period, breakdownType)}
+                  sortable
+                  field={`${period}_${metric}`}
+                />
+              ))
+            )}
+          </Row>
+        </ColumnGroup>
+      );
+    } else {
+      // Sub-columns mode: time periods first, then metrics
+      return (
+        <ColumnGroup>
+          <Row>
+            <Column header="" rowSpan={3} style={{ width: '3rem' }} />
+            <Column header={formatHeaderName(outerGroupField)} rowSpan={3} />
+            {totalDataCols > 0 && (
+              <Column 
+                header="" 
+                colSpan={totalDataCols} 
+              />
+            )}
+          </Row>
+          <Row>
+            {timePeriodsWithData.map(period => {
+              const metricCount = periodGroups[period].length;
+              return (
+                <Column 
+                  key={period} 
+                  header={getTimePeriodLabel(period, breakdownType)} 
+                  colSpan={metricCount} 
+                />
+              );
+            })}
+          </Row>
+          <Row>
+            {timePeriodsWithData.map(period => 
+              periodGroups[period].map(metric => (
+                <Column 
+                  key={`${period}_${metric}`}
+                  header={getMetricLabel(metric)}
+                  sortable
+                  field={`${period}_${metric}`}
+                />
+              ))
+            )}
+          </Row>
+        </ColumnGroup>
+      );
+    }
   }, [reportColumnsStructure, reportData, outerGroupField, formatHeaderName]);
 
   // Report mode: Generate report columns
@@ -2147,6 +2231,7 @@ export default function DataTableNew({
 
     const { timePeriods, metrics } = reportData;
     const structures = {};
+    const isMergedMode = columnGroupBy === 'values';
     
     Object.entries(reportData.nestedTableData).forEach(([outerValue, nestedRows]) => {
       if (!nestedRows || nestedRows.length === 0) {
@@ -2168,18 +2253,31 @@ export default function DataTableNew({
         });
       });
       
-      // Build columns with data
+      // Build columns with data - order depends on mode
       const columnsWithData = [];
-      timePeriods.forEach(period => {
+      if (isMergedMode) {
+        // Merged mode: metrics first, then time periods
         metrics.forEach(metric => {
-          const columnName = `${period}_${metric}`;
-          if (columnHasData.has(columnName)) {
-            columnsWithData.push({ period, metric, columnName });
-          }
+          timePeriods.forEach(period => {
+            const columnName = `${period}_${metric}`;
+            if (columnHasData.has(columnName)) {
+              columnsWithData.push({ period, metric, columnName });
+            }
+          });
         });
-      });
+      } else {
+        // Sub-columns mode: time periods first, then metrics
+        timePeriods.forEach(period => {
+          metrics.forEach(metric => {
+            const columnName = `${period}_${metric}`;
+            if (columnHasData.has(columnName)) {
+              columnsWithData.push({ period, metric, columnName });
+            }
+          });
+        });
+      }
       
-      // Group by metric for header colSpan calculation
+      // Group by metric for header colSpan calculation (merged mode)
       const metricGroups = {};
       columnsWithData.forEach(({ metric, period }) => {
         if (!metricGroups[metric]) {
@@ -2188,15 +2286,28 @@ export default function DataTableNew({
         metricGroups[metric].push(period);
       });
       
+      // Group by period for header colSpan calculation (sub-columns mode)
+      const periodGroups = {};
+      columnsWithData.forEach(({ period, metric }) => {
+        if (!periodGroups[period]) {
+          periodGroups[period] = [];
+        }
+        periodGroups[period].push(metric);
+      });
+      
       structures[outerValue] = {
         columnsWithData,
         metricGroups,
-        metricsWithData: Object.keys(metricGroups)
+        periodGroups,
+        metricsWithData: Object.keys(metricGroups),
+        timePeriodsWithData: Object.keys(periodGroups).sort(),
+        columnNames: columnsWithData.map(c => c.columnName),
+        isMergedMode
       };
     });
     
     return structures;
-  }, [enableReport, reportData]);
+  }, [enableReport, reportData, columnGroupBy]);
 
   // Report mode: Row expansion template for inner group breakdown
   const reportRowExpansionTemplate = useCallback((rowData) => {
@@ -2218,11 +2329,12 @@ export default function DataTableNew({
     }
 
     const { breakdownType } = reportData;
-    const { columnsWithData, metricGroups, metricsWithData } = structure;
+    const { columnsWithData, metricGroups, periodGroups, metricsWithData, timePeriodsWithData, isMergedMode } = structure;
     const totalDataCols = columnsWithData.length;
 
-    // Generate nested header group matching the filtered columns
-    const nestedHeaderGroup = (
+    // Generate nested header group matching the filtered columns and mode
+    const nestedHeaderGroup = isMergedMode ? (
+      // Merged mode: metrics first, then time periods
       <ColumnGroup>
         <Row>
           <Column header={formatHeaderName(innerGroupField)} rowSpan={3} />
@@ -2237,7 +2349,7 @@ export default function DataTableNew({
           {metricsWithData.map(metric => {
             const periodCount = metricGroups[metric].length;
             return (
-              <Column key={metric} header={formatHeaderName(metric)} colSpan={periodCount} />
+              <Column key={metric} header={getMetricLabel(metric)} colSpan={periodCount} />
             );
           })}
         </Row>
@@ -2247,6 +2359,43 @@ export default function DataTableNew({
               <Column 
                 key={`${period}_${metric}`}
                 header={getTimePeriodLabel(period, breakdownType)}
+                sortable
+                field={`${period}_${metric}`}
+              />
+            ))
+          )}
+        </Row>
+      </ColumnGroup>
+    ) : (
+      // Sub-columns mode: time periods first, then metrics
+      <ColumnGroup>
+        <Row>
+          <Column header={formatHeaderName(innerGroupField)} rowSpan={3} />
+          {totalDataCols > 0 && (
+            <Column 
+              header="" 
+              colSpan={totalDataCols} 
+            />
+          )}
+        </Row>
+        <Row>
+          {timePeriodsWithData.map(period => {
+            const metricCount = periodGroups[period].length;
+            return (
+              <Column 
+                key={period} 
+                header={getTimePeriodLabel(period, breakdownType)} 
+                colSpan={metricCount} 
+              />
+            );
+          })}
+        </Row>
+        <Row>
+          {timePeriodsWithData.map(period => 
+            periodGroups[period].map(metric => (
+              <Column 
+                key={`${period}_${metric}`}
+                header={getMetricLabel(metric)}
                 sortable
                 field={`${period}_${metric}`}
               />
@@ -2292,7 +2441,7 @@ export default function DataTableNew({
         </DataTable>
       </div>
     );
-  }, [enableReport, reportData, nestedTableColumnStructures, outerGroupField, innerGroupField, formatHeaderName]);
+  }, [enableReport, reportData, nestedTableColumnStructures, outerGroupField, innerGroupField, formatHeaderName, getMetricLabel]);
 
   const onPageChange = (event) => {
     updatePagination(event.first, event.rows);

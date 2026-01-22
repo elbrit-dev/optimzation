@@ -1,4 +1,4 @@
-import { getTimePeriodKey, getTimePeriodLabel, getTimePeriods } from '../report/utils/timeBreakdownUtils';
+import { getTimePeriodKey, getTimePeriodLabel, getTimePeriods, groupDataByTimePeriod, transformToTableData, transformToNestedTableData } from '../report/utils/timeBreakdownUtils';
 import { getDataValue } from './dataAccessUtils';
 import { sumBy, isNil, isNumber, toNumber, isNaN as _isNaN, isEmpty } from 'lodash';
 import dayjs from 'dayjs';
@@ -108,112 +108,48 @@ export function transformToReportData(data, outerGroupField, innerGroupField, da
   // Get all time periods
   const timePeriods = getTimePeriods(dateRange.start, dateRange.end, breakdownType);
 
-  // Group data by outer group -> time period
-  const groupedByOuterAndPeriod = {};
+  // Group data by time period first (matching reference implementation in report/page.jsx)
+  const groupedData = groupDataByTimePeriod(data, dateColumn, breakdownType, metrics);
+
+  // Transform to table data (outer group rows) using transformToTableData
+  // This matches the reference implementation approach
+  const transformedTableData = transformToTableData(groupedData, outerGroupField, breakdownType, true, metrics);
   
-  data.forEach(row => {
-    const outerValue = getDataValue(row, outerGroupField);
-    const dateValue = getDataValue(row, dateColumn);
-    if (!dateValue) return;
-
-    const outerKey = isNil(outerValue) ? '__null__' : String(outerValue);
-    const periodKey = getTimePeriodKey(dateValue, breakdownType);
-
-    if (!groupedByOuterAndPeriod[outerKey]) {
-      groupedByOuterAndPeriod[outerKey] = {};
-    }
-    if (!groupedByOuterAndPeriod[outerKey][periodKey]) {
-      groupedByOuterAndPeriod[outerKey][periodKey] = [];
-    }
-    groupedByOuterAndPeriod[outerKey][periodKey].push(row);
-  });
-
-  // Transform to table data (outer group rows)
-  const tableData = Object.entries(groupedByOuterAndPeriod).map(([outerKey, periods], index) => {
-    const row = {
-      id: index + 1,
-      [outerGroupField]: outerKey === '__null__' ? null : outerKey
+  // Map 'product' field to the actual outerGroupField since transformToTableData hardcodes 'product'
+  const tableData = transformedTableData.map(row => {
+    const { product, ...rest } = row;
+    return {
+      ...rest,
+      [outerGroupField]: product === 'Unknown' ? null : product
     };
-
-    // Aggregate metrics for each time period
-    timePeriods.forEach(period => {
-      const periodRows = periods[period] || [];
-      
-      metrics.forEach(metric => {
-        // If no data exists for this period, set to null instead of 0
-        if (periodRows.length === 0) {
-          row[`${period}_${metric}`] = null;
-        } else {
-          const sum = sumBy(periodRows, (r) => {
-            const val = getDataValue(r, metric);
-            if (isNil(val)) return 0;
-            const numVal = isNumber(val) ? val : toNumber(val);
-            return _isNaN(numVal) ? 0 : numVal;
-          });
-          row[`${period}_${metric}`] = sum;
-        }
-      });
-    });
-
-    return row;
   });
 
   // Generate nested table data (inner group breakdown) if innerGroupField is set
+  // This matches the reference implementation approach
   const nestedTableData = {};
   if (innerGroupField) {
-    Object.entries(groupedByOuterAndPeriod).forEach(([outerKey, periods]) => {
-      const outerValue = outerKey === '__null__' ? null : outerKey;
-      
-      // Group by inner group within each outer group
-      const innerGroups = {};
-      
-      Object.entries(periods).forEach(([period, rows]) => {
-        rows.forEach(row => {
-          const innerValue = getDataValue(row, innerGroupField);
-          const innerKey = isNil(innerValue) ? '__null__' : String(innerValue);
-          
-          if (!innerGroups[innerKey]) {
-            innerGroups[innerKey] = {};
-          }
-          if (!innerGroups[innerKey][period]) {
-            innerGroups[innerKey][period] = [];
-          }
-          innerGroups[innerKey][period].push(row);
-        });
-      });
-
-      // Transform inner groups to rows
-      const innerRows = Object.entries(innerGroups).map(([innerKey, innerPeriods], innerIndex) => {
-        const row = {
-          id: `${outerKey}-${innerIndex + 1}`,
-          [outerGroupField]: outerValue,
-          [innerGroupField]: innerKey === '__null__' ? null : innerKey
-        };
-
-        // Aggregate metrics for each time period
-        timePeriods.forEach(period => {
-          const periodRows = innerPeriods[period] || [];
-          
-          metrics.forEach(metric => {
-            // If no data exists for this period, set to null instead of 0
-            if (periodRows.length === 0) {
-              row[`${period}_${metric}`] = null;
-            } else {
-              const sum = sumBy(periodRows, (r) => {
-                const val = getDataValue(r, metric);
-                if (isNil(val)) return 0;
-                const numVal = isNumber(val) ? val : toNumber(val);
-                return _isNaN(numVal) ? 0 : numVal;
-              });
-              row[`${period}_${metric}`] = sum;
-            }
-          });
-        });
-
-        return row;
-      });
-
-      nestedTableData[outerValue] = innerRows;
+    const transformedNested = transformToNestedTableData(groupedData, outerGroupField, innerGroupField, breakdownType, timePeriods, metrics);
+    
+    // Map 'product' and 'category' fields to outerGroupField and innerGroupField
+    // since transformToNestedTableData hardcodes these field names
+    const mappedNested = transformedNested.map(row => {
+      const { product, category, ...rest } = row;
+      return {
+        ...rest,
+        [outerGroupField]: product === 'Unknown' ? null : product,
+        [innerGroupField]: category === 'Unknown' ? null : category
+      };
+    });
+    
+    // Group by outer group value for easy lookup (matching reference implementation)
+    mappedNested.forEach(row => {
+      const outerValue = row[outerGroupField];
+      // Handle null values consistently (use null as key, JavaScript handles this)
+      const key = isNil(outerValue) ? null : outerValue;
+      if (!nestedTableData[key]) {
+        nestedTableData[key] = [];
+      }
+      nestedTableData[key].push(row);
     });
   }
 

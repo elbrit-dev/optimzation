@@ -14,47 +14,89 @@ import ProductIconActive from '@/components/icons/ProductIconActive';
 import ProductIconInactive from '@/components/icons/ProductIconInactive';
 import HomeIcon from '@/components/icons/HomeIcon';
 
-// Default navigation items
+// Icon mapping - maps keys to icon components
+const ICON_MAP = {
+  planner: {
+    active: PlannerIconActive,
+    inactive: PlannerIconInactive,
+    defaultProps: { width: 24, height: 24 }
+  },
+  doctor: {
+    active: DoctorIconActive,
+    inactive: DoctorIconInactive,
+    defaultProps: { width: 24, height: 24 }
+  },
+  home: {
+    active: HomeIcon,
+    inactive: HomeIcon,
+    defaultProps: { width: 56, height: 56 },
+    inactiveProps: { width: 52, height: 52 }
+  },
+  products: {
+    active: ProductIconActive,
+    inactive: ProductIconInactive,
+    defaultProps: { width: 24, height: 24 }
+  },
+  chat: {
+    active: ChatIconActive,
+    inactive: ChatIconInactive,
+    defaultProps: { width: 24, height: 24 }
+  },
+};
+
+// Helper function to resolve icon component from key
+const resolveIcon = (iconKey, variant, iconMap, customProps = {}) => {
+  if (!iconKey || !iconMap[iconKey]) return null;
+  
+  const iconConfig = iconMap[iconKey];
+  const IconComponent = variant === 'active' ? iconConfig.active : iconConfig.inactive;
+  
+  if (!IconComponent) return null;
+  
+  // Use inactive-specific props if available, otherwise use default props
+  const props = variant === 'inactive' && iconConfig.inactiveProps 
+    ? { ...iconConfig.defaultProps, ...iconConfig.inactiveProps, ...customProps }
+    : { ...iconConfig.defaultProps, ...customProps };
+  
+  return <IconComponent {...props} />;
+};
+
+// Default navigation items - now using keys instead of components
 const DEFAULT_NAVIGATION_ITEMS = [
   {
     label: 'Planner',
     path: '/planner',
     mobileFullscreen: true,
     mobileOnly: false,
-    iconActive: <PlannerIconActive width={24} height={24} />,
-    iconInactive: <PlannerIconInactive width={24} height={24} />,
+    iconKey: 'planner',
   },
   {
     label: 'Doctor',
     path: '/doctor',
     mobileFullscreen: false,
     mobileOnly: false,
-    iconActive: <DoctorIconActive width={24} height={24} />,
-    iconInactive: <DoctorIconInactive width={24} height={24} />,
+    iconKey: 'doctor',
   },
   {
     path: '/home',
     mobileFullscreen: false,
     mobileOnly: true,
     isDefault: true,
-    iconActive: <HomeIcon width={56} height={56} />,
-    iconInactive: <HomeIcon width={52} height={52} />,
+    iconKey: 'home',
   },
   {
     label: 'Products',
     path: '/products',
     mobileFullscreen: false,
     mobileOnly: false,
-    iconActive: <ProductIconActive width={24} height={24} />,
-    iconInactive: <ProductIconInactive width={24} height={24} />,
+    iconKey: 'products',
   },
   {
     label: 'Chat',
     path: '/chat',
     mobileFullscreen: true,
     mobileOnly: false,
-    iconActive: <ChatIconActive width={24} height={24} />,
-    iconInactive: <ChatIconInactive width={24} height={24} />,
+    iconKey: 'chat',
   },
 ];
 
@@ -65,75 +107,52 @@ const Navigation = ({
   desktopHeight = '93dvh', // Default: auto (flex-1)
   mobileWidth = '100%', // Default: full width
   mobileHeight = '4rem', // Default: h-16
-  showCollapse = true // Default: true
+  showCollapse = true, // Default: true
+  iconMap = ICON_MAP // Allow custom icon mapping
 }) => {
   // Debug: Component initialization
-  console.log('[Navigation] Component initialized with props:', {
-    itemsProvided: !!items,
-    itemsCount: items?.length || DEFAULT_NAVIGATION_ITEMS.length,
-    defaultIndex,
-    desktopWidth,
-    desktopHeight,
-    mobileWidth,
-    mobileHeight
-  });
+
 
   // Use provided items or default items
   const navigationItems = items || DEFAULT_NAVIGATION_ITEMS;
 
-  // Debug: Navigation items validation
-  console.log('[Navigation] Navigation items:', {
-    totalItems: navigationItems.length,
-    items: navigationItems.map((item, idx) => ({
-      index: idx,
-      label: item.label || 'No label',
-      path: item.path || item.route || 'No path',
-      mobileOnly: item.mobileOnly || false,
-      mobileFullscreen: item.mobileFullscreen || false,
-      isDefault: item.isDefault || false,
-      isDisabled: item.isDisabled || false,
-      hasIconActive: !!item.iconActive,
-      hasIconInactive: !!item.iconInactive,
-      hasIcon: !!item.icon
-    }))
-  });
+  // Resolve icons from keys for navigation items
+  const resolvedItems = useMemo(() => {
+    return navigationItems.map(item => {
+      // If item already has iconActive/iconInactive components, use them (backward compatibility)
+      if (item.iconActive || item.iconInactive || item.icon) {
+        return item;
+      }
+      
+      // Otherwise, resolve from iconKey
+      if (item.iconKey) {
+        return {
+          ...item,
+          iconActive: resolveIcon(item.iconKey, 'active', iconMap),
+          iconInactive: resolveIcon(item.iconKey, 'inactive', iconMap),
+        };
+      }
+      
+      return item;
+    });
+  }, [navigationItems, iconMap]);
 
-  // Initialize swipe navigation hook with navigationItems
-  useSwipeNavigation(navigationItems);
+  // Debug: Navigation items validation
+
+
+  // Initialize swipe navigation hook with resolvedItems
+  useSwipeNavigation(resolvedItems);
 
   // Validate that only one item has isDefault: true
   useEffect(() => {
-    const defaultItemsCount = navigationItems.filter(item => item.isDefault === true).length;
-    console.log('[Navigation] Validating default items:', {
-      defaultItemsCount,
-      defaultItems: navigationItems
-        .map((item, idx) => ({ index: idx, label: item.label, isDefault: item.isDefault }))
-        .filter(item => item.isDefault)
-    });
-    if (defaultItemsCount > 1) {
-      console.warn(
-        `[Navigation] Multiple items with isDefault: true found (${defaultItemsCount}). Only one item should have isDefault: true.`
-      );
-    } else if (defaultItemsCount === 0) {
-      console.log('[Navigation] No items with isDefault: true found, will use defaultIndex prop');
-    }
-  }, [navigationItems]);
+    const defaultItemsCount = resolvedItems.filter(item => item.isDefault === true).length;
 
-  // Calculate default index from items with isDefault: true, or fall back to defaultIndex prop
-  const calculatedDefaultIndex = useMemo(() => {
-    const defaultItemIndex = navigationItems.findIndex(item => item.isDefault === true);
-    const result = defaultItemIndex >= 0 ? defaultItemIndex : defaultIndex;
-    console.log('[Navigation] Calculated default index:', {
-      defaultItemIndex,
-      defaultIndexProp: defaultIndex,
-      calculatedIndex: result,
-      itemAtCalculatedIndex: navigationItems[result] ? {
-        label: navigationItems[result].label,
-        path: navigationItems[result].path || navigationItems[result].route
-      } : null
-    });
-    return result;
-  }, [navigationItems, defaultIndex]);
+    if (defaultItemsCount > 1) {
+
+    } else if (defaultItemsCount === 0) {
+
+    }
+  }, [resolvedItems]);
 
   const router = useRouter();
   const pathname = usePathname();
@@ -144,40 +163,30 @@ const Navigation = ({
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   // Debug: Initial state
-  console.log('[Navigation] Initial state:', {
-    activeIndex,
-    isMobile,
-    mounted,
-    pathname,
-    calculatedDefaultIndex
-  });
+
 
   // Check if mobile on mount and resize - only after hydration
   useEffect(() => {
     if (typeof window === 'undefined') {
-      console.log('[Navigation] Server-side render, skipping mobile detection');
+
       return;
     }
 
     // Mark as mounted to prevent hydration mismatch
     setMounted(true);
-    console.log('[Navigation] Component mounted on client');
+
 
     const checkMobile = () => {
       const windowWidth = window.innerWidth;
       const isMobileNow = windowWidth < 1024;
-      console.log('[Navigation] Mobile detection check:', {
-        windowWidth,
-        isMobile: isMobileNow,
-        breakpoint: 1024
-      });
+
       setIsMobile(isMobileNow);
     };
     // Check immediately
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => {
-      console.log('[Navigation] Cleaning up resize listener');
+
       window.removeEventListener('resize', checkMobile);
     };
   }, []);
@@ -185,190 +194,76 @@ const Navigation = ({
   // Sync activeIndex with URL pathname
   useEffect(() => {
     if (!mounted) {
-      console.log('[Navigation] Pathname sync skipped (not mounted yet)');
+
       return;
     }
     const currentPath = pathname;
-    console.log('[Navigation] Pathname changed, syncing activeIndex:', {
-      currentPath,
-      currentActiveIndex: activeIndex
-    });
 
-    const index = navigationItems.findIndex(item => {
+
+    const index = resolvedItems.findIndex(item => {
       const itemPath = item.path || item.route;
       if (!itemPath) {
-        console.log('[Navigation] Item has no path/route:', item);
+
         return false;
       }
       // Exact match or pathname starts with item path (for nested routes)
       const matches = currentPath === itemPath || currentPath.startsWith(itemPath + '/');
       if (matches) {
-        console.log('[Navigation] Path match found:', {
-          itemIndex: navigationItems.indexOf(item),
-          itemPath,
-          currentPath,
-          matchType: currentPath === itemPath ? 'exact' : 'nested'
-        });
+
       }
       return matches;
     });
 
     if (index >= 0 && index !== activeIndex) {
-      console.log('[Navigation] Updating activeIndex from pathname:', {
-        oldIndex: activeIndex,
-        newIndex: index,
-        item: {
-          label: navigationItems[index].label,
-          path: navigationItems[index].path || navigationItems[index].route
-        }
-      });
+
       setActiveIndex(index);
     } else if (index < 0) {
-      console.warn('[Navigation] No matching navigation item found for pathname:', {
-        pathname: currentPath,
-        availablePaths: navigationItems.map(item => item.path || item.route).filter(Boolean)
-      });
+
       setActiveIndex(null);
     } else {
-      console.log('[Navigation] ActiveIndex already matches pathname:', {
-        index,
-        activeIndex
-      });
+
     }
-  }, [mounted, pathname, navigationItems, activeIndex]);
+  }, [mounted, pathname, resolvedItems, activeIndex]);
 
   const navigateToIndex = (index) => {
-    const maxIndex = navigationItems.length - 1;
-    console.log('[Navigation] navigateToIndex called:', {
-      requestedIndex: index,
-      maxIndex,
-      isValid: index >= 0 && index <= maxIndex
-    });
+    const maxIndex = resolvedItems.length - 1;
+
 
     if (index >= 0 && index <= maxIndex) {
-      const item = navigationItems[index];
-      console.log('[Navigation] Navigation item at index:', {
-        index,
-        item: {
-          label: item?.label,
-          path: item?.path || item?.route,
-          mobileOnly: item?.mobileOnly,
-          mobileFullscreen: item?.mobileFullscreen,
-          isDisabled: item?.isDisabled
-        },
-        hasPath: !!item?.path,
-        mounted
-      });
+      const item = resolvedItems[index];
+
 
       if (item?.path && mounted) {
-        console.log('[Navigation] Navigating to path:', {
-          path: item.path,
-          index,
-          scroll: false
-        });
+
         router.push(item.path, { scroll: false });
       } else if (!item?.path) {
-        console.warn('[Navigation] Cannot navigate: item has no path:', {
-          index,
-          item
-        });
+
       } else if (!mounted) {
-        console.warn('[Navigation] Cannot navigate: component not mounted yet');
+
       }
     } else {
-      console.error('[Navigation] Invalid index for navigation:', {
-        index,
-        maxIndex,
-        validRange: `0-${maxIndex}`
-      });
+
     }
   };
 
   const handleItemClick = (index) => {
-    const item = navigationItems[index];
-    console.log('[Navigation] Item clicked:', {
-      index,
-      item: {
-        label: item?.label,
-        path: item?.path || item?.route,
-        isDisabled: item?.isDisabled
-      }
-    });
+    const item = resolvedItems[index];
+
 
     // Don't navigate if item is disabled
     if (item?.isDisabled) {
-      console.log('[Navigation] Navigation blocked: item is disabled', {
-        index,
-        item
-      });
+
       return;
     }
     navigateToIndex(index);
   };
 
   // Use only the items array length (order of navigation items determines everything)
-  const maxItems = navigationItems.length;
+  const maxItems = resolvedItems.length;
 
   // Check if current route has mobileFullscreen enabled
-  const currentItem = activeIndex !== null ? navigationItems[activeIndex] : null;
+  const currentItem = activeIndex !== null ? resolvedItems[activeIndex] : null;
   const isMobileFullscreen = activeIndex !== null && currentItem?.mobileFullscreen === true;
-
-  // Debug: Current state and rendering decisions
-  console.log('[Navigation] Rendering state:', {
-    mounted,
-    isMobile,
-    activeIndex,
-    maxItems,
-    currentItem: currentItem ? {
-      label: currentItem.label,
-      path: currentItem.path || currentItem.route,
-      mobileFullscreen: currentItem.mobileFullscreen,
-      mobileOnly: currentItem.mobileOnly
-    } : null,
-    isMobileFullscreen,
-    willShowDesktop: mounted && !isMobile,
-    willShowMobile: mounted && isMobile && maxItems > 0 && !isMobileFullscreen
-  });
-
-  // Find the home page index for the logo click handler
-  // This should be the item with isDefault: true AND mobileOnly: true
-  const homePageIndex = useMemo(() => {
-    const index = navigationItems.findIndex(item => item.isDefault === true && item.mobileOnly === true);
-    console.log('[Navigation] Home page index calculated:', {
-      homePageIndex: index,
-      found: index >= 0
-    });
-    return index;
-  }, [navigationItems]);
-
-  // Debug: Active indicator position for mobile
-  useEffect(() => {
-    if (mounted && isMobile && maxItems > 0 && !isMobileFullscreen) {
-      console.log('[Navigation] Mobile active indicator position:', {
-        activeIndex,
-        maxItems,
-        widthPercent: `${100 / maxItems}%`,
-        leftPercent: `${(activeIndex * 100) / maxItems}%`
-      });
-    }
-  }, [mounted, isMobile, maxItems, isMobileFullscreen, activeIndex]);
-
-  // Debug: Log when navigation is hidden
-  useEffect(() => {
-    if (mounted) {
-      if (isMobile && isMobileFullscreen) {
-        console.log('[Navigation] Mobile navigation hidden due to mobileFullscreen:', {
-          currentItem: {
-            label: currentItem?.label,
-            path: currentItem?.path || currentItem?.route,
-            mobileFullscreen: currentItem?.mobileFullscreen
-          }
-        });
-      } else if (!mounted) {
-        console.log('[Navigation] Navigation hidden: component not mounted');
-      }
-    }
-  }, [mounted, isMobile, isMobileFullscreen, currentItem]);
 
   return (
     <>
@@ -376,8 +271,8 @@ const Navigation = ({
       {mounted && !isMobile && (
         <motion.aside
           initial={{ x: -100, opacity: 0 }}
-          animate={{ 
-            x: 0, 
+          animate={{
+            x: 0,
             opacity: 1,
             width: isCollapsed ? '5rem' : desktopWidth
           }}
@@ -389,28 +284,15 @@ const Navigation = ({
         >
           <nav className={`flex-1 flex flex-col ${isCollapsed ? 'p-1' : 'p-2'}`}>
             <div className={`flex-1 overflow-y-auto overflow-x-hidden ${isCollapsed ? 'flex flex-col items-center' : ''}`}>
-              {navigationItems.map((item, index) => {
+              {resolvedItems.map((item, index) => {
                 // Skip mobileOnly items in desktop sidebar
                 if (item.mobileOnly) {
-                  console.log('[Navigation] Skipping mobileOnly item in desktop sidebar:', {
-                    index,
-                    label: item.label,
-                    path: item.path || item.route
-                  });
+
                   return null;
                 }
                 const isDisabled = item.isDisabled === true;
                 const isActive = activeIndex === index;
-                console.log('[Navigation] Rendering desktop navigation item:', {
-                  index,
-                  label: item.label,
-                  path: item.path || item.route,
-                  isActive,
-                  isDisabled,
-                  hasIconActive: !!item.iconActive,
-                  hasIconInactive: !!item.iconInactive,
-                  hasIcon: !!item.icon
-                });
+
 
                 return (
                   <motion.button
@@ -476,20 +358,8 @@ const Navigation = ({
           }}
         >
           <div className="flex justify-around items-center px-2 relative" style={{ height: mobileHeight }}>
-            {navigationItems.map((item, index) => {
+            {resolvedItems.map((item, index) => {
               const isDisabled = item.isDisabled === true;
-              const isActive = activeIndex === index;
-              console.log('[Navigation] Rendering mobile navigation item:', {
-                index,
-                label: item.label,
-                path: item.path || item.route,
-                isActive,
-                isDisabled,
-                hasIconActive: !!item.iconActive,
-                hasIconInactive: !!item.iconInactive,
-                hasIcon: !!item.icon
-              });
-
               return (
                 <motion.button
                   key={item.path || item.route || index}

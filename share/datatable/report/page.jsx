@@ -9,9 +9,10 @@ import { Dropdown } from 'primereact/dropdown';
 import { Card } from 'primereact/card';
 import { Button } from 'primereact/button';
 import { Toast } from 'primereact/toast';
+import { InputSwitch } from 'primereact/inputswitch';
 import ProtectedRoute from '@/components/ProtectedRoute';
+import testData from '@/resource/test';
 import {
-  generateMockTimeSeriesData,
   getTimePeriods,
   groupDataByTimePeriod,
   transformToTableData,
@@ -27,13 +28,22 @@ const BREAKDOWN_OPTIONS = [
   { label: 'Annual-wise', value: 'annual' }
 ];
 
+// Transform test data - keep all fields, just map posting_date to date for compatibility
+const transformTestData = (data) => {
+  return data.map(item => ({
+    ...item,
+    date: item.posting_date // Add date field for time breakdown utilities
+  }));
+};
+
 export default function ReportPage() {
   const [breakdownType, setBreakdownType] = useState('month');
+  const [columnLayoutMode, setColumnLayoutMode] = useState('merged'); // 'merged' | 'sub-columns'
   const [expandedRows, setExpandedRows] = useState(null);
   const toast = useRef(null);
   
-  // Generate mock data
-  const rawData = useMemo(() => generateMockTimeSeriesData(10, 90), []);
+  // Transform and use test data
+  const rawData = useMemo(() => transformTestData(testData), []);
   
   // Get date range from data
   const dateRange = useMemo(() => {
@@ -46,11 +56,30 @@ export default function ReportPage() {
     };
   }, [rawData]);
   
-  // Group data by time period
+  // Detect numeric fields (metrics) from the data
+  const metrics = useMemo(() => {
+    if (!rawData || rawData.length === 0) return [];
+    const firstRow = rawData[0];
+    const numericFields = [];
+    // Fields to exclude from metrics (grouping fields and date)
+    const excludeFields = ['team', 'hq', 'item_name', 'customer_name', 'posting_date', 'date'];
+    
+    Object.keys(firstRow).forEach(key => {
+      if (!excludeFields.includes(key)) {
+        const value = firstRow[key];
+        if (typeof value === 'number') {
+          numericFields.push(key);
+        }
+      }
+    });
+    return numericFields; // Returns: ['qty', 'amount', 'sales', 'target']
+  }, [rawData]);
+
+  // Group data by time period with all numeric fields as metrics
   const groupedData = useMemo(() => {
     if (!rawData || rawData.length === 0) return {};
-    return groupDataByTimePeriod(rawData, 'date', breakdownType, ['sales', 'profits', 'count']);
-  }, [rawData, breakdownType]);
+    return groupDataByTimePeriod(rawData, 'date', breakdownType, metrics);
+  }, [rawData, breakdownType, metrics]);
   
   // Get all time periods
   const timePeriods = useMemo(() => {
@@ -61,45 +90,73 @@ export default function ReportPage() {
   // Transform to table data (include details for nested table)
   const tableData = useMemo(() => {
     if (!groupedData || Object.keys(groupedData).length === 0) return [];
-    return transformToTableData(groupedData, 'product', breakdownType, true);
-  }, [groupedData, breakdownType]);
+    const transformed = transformToTableData(groupedData, 'team', breakdownType, true, metrics);
+    // Map 'product' field to 'team' since the utility function hardcodes 'product'
+    return transformed.map(row => ({
+      ...row,
+      team: row.product,
+      product: undefined
+    })).map(({ product, ...rest }) => rest);
+  }, [groupedData, breakdownType, metrics]);
 
-  // Generate nested table data (grouped by category)
+  // Generate nested table data (grouped by hq)
   const nestedTableData = useMemo(() => {
     if (!groupedData || Object.keys(groupedData).length === 0 || timePeriods.length === 0) return {};
-    const nested = transformToNestedTableData(groupedData, 'product', 'category', breakdownType, timePeriods);
+    const nested = transformToNestedTableData(groupedData, 'team', 'hq', breakdownType, timePeriods, metrics);
     
-    // Group by product for easy lookup
-    const byProduct = {};
-    nested.forEach(row => {
-      if (!byProduct[row.product]) {
-        byProduct[row.product] = [];
-      }
-      byProduct[row.product].push(row);
+    // Map 'product' and 'category' fields to 'team' and 'hq' since the utility function hardcodes them
+    const mappedNested = nested.map(row => {
+      const { product, category, ...rest } = row;
+      return {
+        ...rest,
+        team: product,
+        hq: category
+      };
     });
-    return byProduct;
+    
+    // Group by team for easy lookup
+    const byTeam = {};
+    mappedNested.forEach(row => {
+      if (!byTeam[row.team]) {
+        byTeam[row.team] = [];
+      }
+      byTeam[row.team].push(row);
+    });
+    return byTeam;
   }, [groupedData, breakdownType, timePeriods]);
   
-  // Generate column groups
-  const headerGroup = useMemo(() => {
+  // Helper function to get metric label - capitalize and format field names
+  const getMetricLabel = (metricKey) => {
+    // Convert snake_case or camelCase to Title Case
+    return metricKey
+      .replace(/_/g, ' ')
+      .replace(/([A-Z])/g, ' $1')
+      .split(' ')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join(' ')
+      .trim();
+  };
+
+  // Generate merged columns header group (metrics first, then time periods)
+  const generateMergedHeaderGroup = () => {
     if (timePeriods.length === 0) return null;
     
-    const metrics = ['Sales', 'Profits', 'Count'];
+    const metricLabels = metrics.map(m => getMetricLabel(m));
     const totalCols = timePeriods.length * metrics.length;
     
     return (
       <ColumnGroup>
         <Row>
           <Column header="" rowSpan={3} style={{ width: '5rem' }} />
-          <Column header="Product" rowSpan={3} />
+          <Column header="Team" rowSpan={3} />
           <Column 
             header="" 
             colSpan={totalCols} 
           />
         </Row>
         <Row>
-          {metrics.map(metric => (
-            <Column key={metric} header={metric} colSpan={timePeriods.length} />
+          {metricLabels.map((label, idx) => (
+            <Column key={metrics[idx]} header={label} colSpan={timePeriods.length} />
           ))}
         </Row>
         <Row>
@@ -116,37 +173,84 @@ export default function ReportPage() {
         </Row>
       </ColumnGroup>
     );
-  }, [timePeriods, breakdownType]);
-  
-  // Body templates for formatting
-  const salesBodyTemplate = (rowData, { field }) => {
-    const value = rowData[field];
-    if (value === undefined || value === null) return '-';
-    return `${value}%`;
   };
-  
-  const profitsBodyTemplate = (rowData, { field }) => {
-    const value = rowData[field];
-    if (value === undefined || value === null) return '-';
-    return formatCurrency(value);
+
+  // Generate sub-columns header group (time periods first, then metrics)
+  const generateSubColumnsHeaderGroup = () => {
+    if (timePeriods.length === 0) return null;
+    
+    const totalCols = timePeriods.length * metrics.length;
+    
+    return (
+      <ColumnGroup>
+        <Row>
+          <Column header="" rowSpan={3} style={{ width: '5rem' }} />
+          <Column header="Team" rowSpan={3} />
+          <Column 
+            header="" 
+            colSpan={totalCols} 
+          />
+        </Row>
+        <Row>
+          {timePeriods.map(period => (
+            <Column 
+              key={period} 
+              header={getTimePeriodLabel(period, breakdownType)} 
+              colSpan={metrics.length} 
+            />
+          ))}
+        </Row>
+        <Row>
+          {timePeriods.map(period => 
+            metrics.map(metric => (
+              <Column 
+                key={`${period}_${metric}`}
+                header={getMetricLabel(metric, 'sub-columns')}
+                sortable
+                field={`${period}_${metric}`}
+              />
+            ))
+          )}
+        </Row>
+      </ColumnGroup>
+    );
   };
+
+  // Generate column groups
+  const headerGroup = useMemo(() => {
+    if (timePeriods.length === 0) return null;
+    
+    return columnLayoutMode === 'merged' 
+      ? generateMergedHeaderGroup()
+      : generateSubColumnsHeaderGroup();
+  }, [timePeriods, breakdownType, columnLayoutMode]);
   
-  const countBodyTemplate = (rowData, { field }) => {
-    const value = rowData[field];
-    if (value === undefined || value === null) return '-';
-    return value;
-  };
-  
-  const formatCurrency = (value) => {
-    return value.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+  // Dynamic body template based on metric type
+  const getBodyTemplate = (metric) => {
+    return (rowData, { field }) => {
+      const value = rowData[field];
+      if (value === undefined || value === null) return '-';
+      
+      // Format based on metric name patterns
+      if (metric === 'amount' || metric.includes('amount') || metric.includes('sales')) {
+        // Format as currency for amount/sales
+        return value.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+      } else if (metric === 'qty' || metric === 'count' || metric.includes('qty') || metric.includes('count')) {
+        // Format as number for quantities
+        return value.toLocaleString('en-US');
+      } else {
+        // Default: format as number
+        return value.toLocaleString('en-US');
+      }
+    };
   };
   
   // Row expansion handlers
   const onRowExpand = (event) => {
     toast.current?.show({ 
       severity: 'info', 
-      summary: 'Product Expanded', 
-      detail: event.data.product, 
+      summary: 'Team Expanded', 
+      detail: event.data.team, 
       life: 3000 
     });
   };
@@ -154,8 +258,8 @@ export default function ReportPage() {
   const onRowCollapse = (event) => {
     toast.current?.show({ 
       severity: 'success', 
-      summary: 'Product Collapsed', 
-      detail: event.data.product, 
+      summary: 'Team Collapsed', 
+      detail: event.data.team, 
       life: 3000 
     });
   };
@@ -175,91 +279,133 @@ export default function ReportPage() {
   };
 
   const allowExpansion = (rowData) => {
-    const categoryRows = nestedTableData[rowData.product];
-    return categoryRows && categoryRows.length > 0;
+    const hqRows = nestedTableData[rowData.team];
+    return hqRows && hqRows.length > 0;
   };
 
-  // Row expansion template with nested table (grouped by category)
-  const rowExpansionTemplate = (data) => {
-    const categoryRows = nestedTableData[data.product];
-    
-    if (!categoryRows || categoryRows.length === 0) {
-      return <div className="p-3">No category data available</div>;
-    }
-
-    // Generate nested table columns with same structure as main table
-    const nestedColumns = [];
-    
-    // Category column
-    nestedColumns.push(
-      <Column key="category" field="category" header="Category" />
-    );
-    
-    // Time period columns for each metric (same structure as main table)
-    timePeriods.forEach(period => {
-      // Sales column
-      nestedColumns.push(
-        <Column
-          key={`${period}_sales`}
-          field={`${period}_sales`}
-          body={salesBodyTemplate}
-        />
-      );
-      
-      // Profits column
-      nestedColumns.push(
-        <Column
-          key={`${period}_profits`}
-          field={`${period}_profits`}
-          body={profitsBodyTemplate}
-        />
-      );
-      
-      // Count column
-      nestedColumns.push(
-        <Column
-          key={`${period}_count`}
-          field={`${period}_count`}
-          body={countBodyTemplate}
-        />
-      );
-    });
-
-    // Generate nested column group (same structure as main table)
-    const nestedHeaderGroup = (
+  // Generate merged nested header group
+  const generateMergedNestedHeaderGroup = () => {
+    const metricLabels = metrics.map(m => getMetricLabel(m));
+    return (
       <ColumnGroup>
         <Row>
-          <Column header="Category" rowSpan={3} />
+          <Column header="HQ" rowSpan={3} />
           <Column 
             header="" 
-            colSpan={timePeriods.length * 3} 
+            colSpan={timePeriods.length * metrics.length} 
           />
         </Row>
         <Row>
-          {['Sales', 'Profits', 'Count'].map(metric => (
-            <Column key={metric} header={metric} colSpan={timePeriods.length} />
+          {metricLabels.map((label, idx) => (
+            <Column key={metrics[idx]} header={label} colSpan={timePeriods.length} />
           ))}
         </Row>
         <Row>
-          {['Sales', 'Profits', 'Count'].map(metric => 
+          {metrics.map(metric => 
             timePeriods.map(period => (
               <Column 
                 key={`${period}_${metric}`}
                 header={getTimePeriodLabel(period, breakdownType)}
                 sortable
-                field={`${period}_${metric.toLowerCase()}`}
+                field={`${period}_${metric}`}
               />
             ))
           )}
         </Row>
       </ColumnGroup>
     );
+  };
+
+  // Generate sub-columns nested header group
+  const generateSubColumnsNestedHeaderGroup = () => {
+    return (
+      <ColumnGroup>
+        <Row>
+          <Column header="HQ" rowSpan={3} />
+          <Column 
+            header="" 
+            colSpan={timePeriods.length * metrics.length} 
+          />
+        </Row>
+        <Row>
+          {timePeriods.map(period => (
+            <Column 
+              key={period} 
+              header={getTimePeriodLabel(period, breakdownType)} 
+              colSpan={metrics.length} 
+            />
+          ))}
+        </Row>
+        <Row>
+          {timePeriods.map(period => 
+            metrics.map(metric => (
+              <Column 
+                key={`${period}_${metric}`}
+                header={getMetricLabel(metric)}
+                sortable
+                field={`${period}_${metric}`}
+              />
+            ))
+          )}
+        </Row>
+      </ColumnGroup>
+    );
+  };
+
+  // Row expansion template with nested table (grouped by hq)
+  const rowExpansionTemplate = (data) => {
+    const hqRows = nestedTableData[data.team];
+    
+    if (!hqRows || hqRows.length === 0) {
+      return <div className="p-3">No HQ data available</div>;
+    }
+
+    // Generate nested table columns with same structure as main table
+    const nestedColumns = [];
+    
+    // HQ column
+    nestedColumns.push(
+      <Column key="hq" field="hq" header="HQ" />
+    );
+    
+    if (columnLayoutMode === 'merged') {
+      // Merged mode: metrics first, then time periods
+      metrics.forEach(metric => {
+        timePeriods.forEach(period => {
+          nestedColumns.push(
+            <Column
+              key={`${period}_${metric}`}
+              field={`${period}_${metric}`}
+              body={getBodyTemplate(metric)}
+            />
+          );
+        });
+      });
+    } else {
+      // Sub-columns mode: time periods first, then metrics
+      timePeriods.forEach(period => {
+        metrics.forEach(metric => {
+          nestedColumns.push(
+            <Column
+              key={`${period}_${metric}`}
+              field={`${period}_${metric}`}
+              body={getBodyTemplate(metric)}
+            />
+          );
+        });
+      });
+    }
+
+    // Generate nested column group (same structure as main table)
+    const nestedHeaderGroup = columnLayoutMode === 'merged'
+      ? generateMergedNestedHeaderGroup()
+      : generateSubColumnsNestedHeaderGroup();
 
     return (
       <div className="p-3">
-        <h5 className="mb-3">Category Breakdown for {data.product}</h5>
+        <h5 className="mb-3">HQ Breakdown for {data.team}</h5>
         <DataTable 
-          value={categoryRows} 
+          value={hqRows} 
           headerColumnGroup={nestedHeaderGroup}
           tableStyle={{ minWidth: '50rem' }}
           size="small"
@@ -297,43 +443,41 @@ export default function ReportPage() {
     
     const cols = [];
     
-    // Product column
+    // Team column
     cols.push(
-      <Column key="product" field="product" />
+      <Column key="team" field="team" />
     );
     
-    // Time period columns for each metric
-    timePeriods.forEach(period => {
-      // Sales column
-      cols.push(
-        <Column
-          key={`${period}_sales`}
-          field={`${period}_sales`}
-          body={salesBodyTemplate}
-        />
-      );
-      
-      // Profits column
-      cols.push(
-        <Column
-          key={`${period}_profits`}
-          field={`${period}_profits`}
-          body={profitsBodyTemplate}
-        />
-      );
-      
-      // Count column
-      cols.push(
-        <Column
-          key={`${period}_count`}
-          field={`${period}_count`}
-          body={countBodyTemplate}
-        />
-      );
-    });
+    if (columnLayoutMode === 'merged') {
+      // Merged mode: metrics first, then time periods
+      metrics.forEach(metric => {
+        timePeriods.forEach(period => {
+          cols.push(
+            <Column
+              key={`${period}_${metric}`}
+              field={`${period}_${metric}`}
+              body={getBodyTemplate(metric)}
+            />
+          );
+        });
+      });
+    } else {
+      // Sub-columns mode: time periods first, then metrics
+      timePeriods.forEach(period => {
+        metrics.forEach(metric => {
+          cols.push(
+            <Column
+              key={`${period}_${metric}`}
+              field={`${period}_${metric}`}
+              body={getBodyTemplate(metric)}
+            />
+          );
+        });
+      });
+    }
     
     return cols;
-  }, [timePeriods]);
+  }, [timePeriods, columnLayoutMode, metrics]);
   
   return (
     <ProtectedRoute>
@@ -344,16 +488,27 @@ export default function ReportPage() {
             <h1 className="text-2xl font-bold text-gray-800 mb-2">Report Dashboard</h1>
             <p className="text-gray-600 mb-4">Time-based breakdown analysis</p>
             
-            <div className="flex items-center gap-4">
-              <label className="text-sm font-medium text-gray-700">Breakdown Type:</label>
-              <Dropdown
-                value={breakdownType}
-                onChange={(e) => setBreakdownType(e.value)}
-                options={BREAKDOWN_OPTIONS}
-                optionLabel="label"
-                optionValue="value"
-                className="w-48"
-              />
+            <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium text-gray-700">Breakdown Type:</label>
+                <Dropdown
+                  value={breakdownType}
+                  onChange={(e) => setBreakdownType(e.value)}
+                  options={BREAKDOWN_OPTIONS}
+                  optionLabel="label"
+                  optionValue="value"
+                  className="w-48"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium text-gray-700">
+                  {columnLayoutMode === 'merged' ? 'Merged Columns' : 'Sub-Columns'}
+                </label>
+                <InputSwitch
+                  checked={columnLayoutMode === 'sub-columns'}
+                  onChange={(e) => setColumnLayoutMode(e.value ? 'sub-columns' : 'merged')}
+                />
+              </div>
             </div>
           </div>
           

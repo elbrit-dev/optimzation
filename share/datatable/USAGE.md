@@ -30,18 +30,13 @@ function MyComponent() {
 ### Raw Data
 
 #### `rawData`
-The original unfiltered table data.
+The sorted table data (after all processing including filtering, sorting, etc.). This is the final processed data before pagination.
+
+**Note**: Despite the name, `rawData` in the context actually represents the fully processed and sorted data, not the original unfiltered data. For the original data before user filters, use `filteredData` or check the data source directly.
 
 ```javascript
 const { rawData } = useTableOperations();
-// Returns: Array of all rows before any filtering
-```
-
-#### `tableData`
-Alias for `rawData` - base table data after auth filtering but before user filters.
-
-```javascript
-const { tableData } = useTableOperations();
+// Returns: Array of all rows after filtering and sorting
 ```
 
 ### Processed Data
@@ -186,6 +181,56 @@ Array of percentage column names.
 const { percentageColumnNames } = useTableOperations();
 ```
 
+### Additional Configuration
+
+#### `multiselectColumns`
+Array of column names that use multiselect filtering.
+
+```javascript
+const { multiselectColumns } = useTableOperations();
+// Check if a column uses multiselect
+const isMultiselect = multiselectColumns.includes('region');
+```
+
+#### `enableDivideBy1Lakh`
+Boolean flag indicating if numeric values should be divided by 1 lakh (100,000) for display.
+
+```javascript
+const { enableDivideBy1Lakh } = useTableOperations();
+if (enableDivideBy1Lakh) {
+  // Values are displayed divided by 100,000
+}
+```
+
+#### `enableReport`
+Boolean flag indicating if report mode is enabled.
+
+```javascript
+const { enableReport } = useTableOperations();
+if (enableReport) {
+  // Report features are available
+}
+```
+
+#### `reportData`
+Object containing report data when report mode is active. Structure depends on the report configuration.
+
+```javascript
+const { reportData, enableReport } = useTableOperations();
+if (enableReport && reportData) {
+  // Access report data
+  const reportTableData = reportData.tableData;
+}
+```
+
+#### `columnGroupBy`
+String indicating column grouping mode. Can be `'values'` or a date column name.
+
+```javascript
+const { columnGroupBy } = useTableOperations();
+// 'values' or date column name like 'date'
+```
+
 ### State Objects
 
 #### `filters`
@@ -225,6 +270,52 @@ Array of currently visible column names.
 
 ```javascript
 const { visibleColumns } = useTableOperations();
+```
+
+### Search and Sort Configuration
+
+#### `clientSave`
+Boolean indicating if client-side save is enabled for the current query.
+
+```javascript
+const { clientSave } = useTableOperations();
+if (clientSave) {
+  // Client-side save is enabled
+}
+```
+
+#### `searchFields`
+Array of field paths used for search functionality. These are the fields that will be searched when using the search term.
+
+```javascript
+const { searchFields } = useTableOperations();
+// e.g., ['name', 'email', 'address.city']
+```
+
+#### `sortFields`
+Array of field paths used for sort functionality. These are the fields that can be used for sorting.
+
+```javascript
+const { sortFields } = useTableOperations();
+// e.g., ['sales', 'date', 'region']
+```
+
+#### `searchTerm`
+Current search term string applied to the data.
+
+```javascript
+const { searchTerm } = useTableOperations();
+// Current search term, e.g., 'John Doe'
+```
+
+#### `sortConfig`
+Current sort configuration object. Structure: `{field: string, direction: "asc" | "desc"}`.
+
+**Note**: This is different from `sortMeta`. `sortConfig` is used for server-side or advanced sorting, while `sortMeta` is used for client-side table sorting.
+
+```javascript
+const { sortConfig } = useTableOperations();
+// { field: 'sales', direction: 'asc' } or null
 ```
 
 ### Drawer/Sidebar State
@@ -382,6 +473,84 @@ function SortControl() {
   );
 }
 ```
+
+---
+
+## Search and Sort Operations
+
+### `setSearchTerm(term)`
+Update the search term to filter data across search fields.
+
+```javascript
+const { setSearchTerm, searchTerm } = useTableOperations();
+
+// Set search term
+setSearchTerm('John Doe');
+
+// Clear search
+setSearchTerm('');
+```
+
+**Example: Search Input Component**
+
+```javascript
+function SearchInput() {
+  const { searchTerm, setSearchTerm } = useTableOperations();
+  
+  return (
+    <input
+      type="text"
+      value={searchTerm}
+      onChange={(e) => setSearchTerm(e.target.value)}
+      placeholder="Search..."
+    />
+  );
+}
+```
+
+### `setSortConfig(config)`
+Update the sort configuration for advanced/server-side sorting.
+
+```javascript
+const { setSortConfig, sortConfig } = useTableOperations();
+
+// Set sort configuration
+setSortConfig({ field: 'sales', direction: 'asc' });
+
+// Clear sort configuration
+setSortConfig(null);
+```
+
+**Example: Advanced Sort Control**
+
+```javascript
+function AdvancedSortControl() {
+  const { setSortConfig, sortConfig, sortFields } = useTableOperations();
+  
+  const handleSortChange = (field, direction) => {
+    setSortConfig({ field, direction });
+  };
+  
+  return (
+    <div>
+      {sortFields?.map(field => (
+        <div key={field}>
+          <button onClick={() => handleSortChange(field, 'asc')}>
+            Sort {field} ↑
+          </button>
+          <button onClick={() => handleSortChange(field, 'desc')}>
+            Sort {field} ↓
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+```
+
+**Note**: The difference between `sortConfig` and `sortMeta`:
+- `sortConfig` - Used for server-side or advanced sorting with field paths and direction strings
+- `sortMeta` - Used for client-side table sorting with field names and numeric order values
 
 ---
 
@@ -903,6 +1072,121 @@ export default function SalesChart() {
 }
 ```
 
+### Example 6: Multiselect Column Checker
+
+```javascript
+'use client';
+import { useTableOperations } from '../contexts/TableOperationsContext';
+
+export default function ColumnTypeIndicator({ column }) {
+  const { multiselectColumns, textFilterColumns } = useTableOperations();
+  
+  const isMultiselect = multiselectColumns.includes(column);
+  const isTextFilter = textFilterColumns.includes(column);
+  
+  return (
+    <div>
+      {isMultiselect && <span className="badge">Multiselect</span>}
+      {isTextFilter && <span className="badge">Text Filter</span>}
+    </div>
+  );
+}
+```
+
+### Example 7: Search and Sort Component
+
+```javascript
+'use client';
+import { useTableOperations } from '../contexts/TableOperationsContext';
+import { InputText } from 'primereact/inputtext';
+import { Dropdown } from 'primereact/dropdown';
+
+export default function SearchAndSortControl() {
+  const { 
+    searchTerm, 
+    setSearchTerm, 
+    sortConfig, 
+    setSortConfig,
+    searchFields,
+    sortFields 
+  } = useTableOperations();
+  
+  const sortOptions = sortFields?.map(field => ({
+    label: field,
+    value: { field, direction: 'asc' }
+  })) || [];
+  
+  return (
+    <div className="flex gap-2">
+      <InputText
+        value={searchTerm}
+        onChange={(e) => setSearchTerm(e.target.value)}
+        placeholder="Search..."
+      />
+      <Dropdown
+        value={sortConfig}
+        onChange={(e) => setSortConfig(e.value)}
+        options={[
+          { label: 'None', value: null },
+          ...sortOptions
+        ]}
+        placeholder="Sort by..."
+      />
+    </div>
+  );
+}
+```
+
+### Example 8: Report Data Display
+
+```javascript
+'use client';
+import { useTableOperations } from '../contexts/TableOperationsContext';
+
+export default function ReportSummary() {
+  const { enableReport, reportData, columnGroupBy } = useTableOperations();
+  
+  if (!enableReport || !reportData) {
+    return <div>Report mode is not enabled</div>;
+  }
+  
+  return (
+    <div>
+      <h3>Report Summary</h3>
+      <p>Grouping by: {columnGroupBy}</p>
+      {reportData.tableData && (
+        <p>Total records: {reportData.tableData.length}</p>
+      )}
+    </div>
+  );
+}
+```
+
+### Example 9: Value Formatter with Divide by 1 Lakh
+
+```javascript
+'use client';
+import { useTableOperations } from '../contexts/TableOperationsContext';
+
+export default function FormattedValue({ value, column }) {
+  const { enableDivideBy1Lakh, isNumericValue } = useTableOperations();
+  
+  const formatValue = (val) => {
+    if (!isNumericValue(val)) return val;
+    
+    const numValue = typeof val === 'string' ? parseFloat(val) : val;
+    
+    if (enableDivideBy1Lakh) {
+      return (numValue / 100000).toFixed(2) + ' L';
+    }
+    
+    return numValue.toLocaleString();
+  };
+  
+  return <span>{formatValue(value)}</span>;
+}
+```
+
 ---
 
 ## Integration Guide
@@ -1043,6 +1327,71 @@ const goToPage = (page) => {
 };
 ```
 
+### Pattern 6: Using Search and Sort Together
+
+```javascript
+const { 
+  searchTerm, 
+  setSearchTerm, 
+  sortConfig, 
+  setSortConfig,
+  filters,
+  updateFilter 
+} = useTableOperations();
+
+// Combine search, sort, and filters
+const applySearch = (term) => {
+  setSearchTerm(term);
+};
+
+const applySort = (field, direction) => {
+  setSortConfig({ field, direction });
+};
+
+// Search works across searchFields, filters work on specific columns
+```
+
+### Pattern 7: Working with Multiselect Columns
+
+```javascript
+const { 
+  multiselectColumns, 
+  filterOptions, 
+  updateFilter 
+} = useTableOperations();
+
+// Check if column is multiselect
+const isMultiselect = multiselectColumns.includes('region');
+
+if (isMultiselect) {
+  // Get available options
+  const options = filterOptions['region'] || [];
+  
+  // Update filter with array of selected values
+  updateFilter('region', ['North', 'South']);
+}
+```
+
+### Pattern 8: Handling Report Mode
+
+```javascript
+const { 
+  enableReport, 
+  reportData, 
+  columnGroupBy,
+  filteredData 
+} = useTableOperations();
+
+if (enableReport && reportData) {
+  // Use report data
+  const data = reportData.tableData || filteredData;
+  const groupingMode = columnGroupBy; // 'values' or date column name
+} else {
+  // Use regular filtered data
+  const data = filteredData;
+}
+```
+
 ---
 
 ## Best Practices
@@ -1058,10 +1407,29 @@ const goToPage = (page) => {
    - `paginatedData` - For current page display
    - `sortedData` - For total counts
    - `groupedData` - For grouped operations
+   - `rawData` - For fully processed data (note: it's actually sorted data, not raw)
 
 5. **Handle loading states** - Check if data is available before rendering.
 
 6. **Use utility functions** - Leverage `formatDateValue`, `formatHeaderName`, etc. for consistency.
+
+7. **Understanding search vs filters**:
+   - `searchTerm` - Global search across multiple fields (defined in `searchFields`). Use for quick text search.
+   - `filters` - Column-specific filters with operators. Use for precise filtering on specific columns.
+   - Both can be used together for comprehensive filtering.
+
+8. **Understanding sortConfig vs sortMeta**:
+   - `sortConfig` - Used for server-side or advanced sorting with field paths (`{field: string, direction: "asc" | "desc"}`). Use when working with nested fields or server-side sorting.
+   - `sortMeta` - Used for client-side table sorting with field names and numeric order (`[{field: string, order: 1 | -1}]`). Use for standard table column sorting.
+
+9. **Working with report data**:
+   - Always check `enableReport` before accessing `reportData`.
+   - `reportData` structure depends on report configuration and may include `tableData` and other report-specific properties.
+   - Use `columnGroupBy` to understand how data is grouped in report mode.
+
+10. **Multiselect columns**:
+    - Use `multiselectColumns` to check if a column supports multiselect filtering.
+    - Multiselect columns use array values in filters, while text filter columns use string values.
 
 ---
 
