@@ -4,6 +4,8 @@ import _ from "lodash";
 import jmespath_plus from '@metrichor/jmespath-plus';
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import DataTable from "./components/DataTable";
+import DataProvider from "./share/datatable/components/DataProviderNew";
+import DataTableNew from "./share/datatable/components/DataTableNew";
 import FirebaseUIComponent from "./components/FirebaseUIComponent";
 import TableDataProvider from "./components/TableDataProvider";
 import jsonata from 'jsonata';
@@ -17,7 +19,8 @@ export const PLASMIC = initPlasmicLoader({
     {
       id: "b6mXu8rXhi8fdDd6jwb8oh",
       token: "hKaQFlYDzP6By8Fk45XBc6AhEoXVcAk3jJA5AvDn7lEnJI4Ho97wv9zkcp0LvOnjUhV0wQ6ZeeXBj5V135I9YA",
-      version: process.env.NEXT_PUBLIC_PLASMIC_TAG || (process.env.NODE_ENV === "production" ? "prod" : "dev"),
+      // version: process.env.NEXT_PUBLIC_PLASMIC_TAG || (process.env.NODE_ENV === "production" ? "prod" : "dev"),
+      version: "dev",
     },
   ],
 
@@ -839,4 +842,345 @@ PLASMIC.registerComponent(TableDataProvider, {
   },
   providesData: true,
   importPath: "./components/TableDataProvider",
+});
+
+
+PLASMIC.registerComponent(DataProvider, {
+  name: "DataProvider",
+  props: {
+    dataSource: {
+      type: "string",
+      description: "The data source ID or 'offline' for local data",
+      defaultValue: "offline",
+    },
+    selectedQueryKey: {
+      type: "string",
+      description: "The specific key within the data source results to display",
+    },
+    variableOverrides: {
+      type: "object",
+      description: "Overrides for query variables (as an object)",
+      defaultValue: {},
+    },
+    // Individual Variable Props
+    First: {
+      type: "number",
+      description: "Default value for 'First' variable",
+    },
+    Operator: {
+      type: "string",
+      description: "Default value for 'Operator' variable",
+    },
+    Status: {
+      type: "object",
+      description: "Default values for 'Status' variable (Array of strings)",
+    },
+    Customer: {
+      type: "object",
+      description: "Default values for 'Customer' variable (Array of strings)",
+    },
+    // renderHeaderControls: {
+    //   type: "boolean",
+    //   description: "Show/hide data source and query selectors",
+    //   defaultValue: true,
+    // },
+    hideDataSourceAndQueryKey: {
+      type: "boolean",
+      description: "Explicitly hide the data source and query key dropdowns even if selectors are shown",
+    },
+    isAdminMode: {
+      type: "boolean",
+      description: "Enable admin mode to bypass data filtering",
+      defaultValue: false,
+    },
+    salesTeamColumn: {
+      type: "string",
+      description: "Column name for Sales Team filtering",
+    },
+    salesTeamValues: {
+      type: "object",
+      description: "Array of allowed Sales Team values",
+      defaultValue: [],
+    },
+    hqColumn: {
+      type: "string",
+      description: "Column name for HQ filtering",
+    },
+    hqValues: {
+      type: "object",
+      description: "Array of allowed HQ values",
+      defaultValue: [],
+    },
+    columnTypes: {
+      type: "object",
+      description: "Override column types (e.g., { fieldName: 'number' })",
+      defaultValue: { is_internal_customer: "number" },
+    },
+    useOrchestrationLayer: {
+      type: "boolean",
+      description: "Enable the new orchestration layer for data processing",
+      defaultValue: false,
+    },
+    enableSort: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Initial sort state for orchestration layer",
+    },
+    enableFilter: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Initial filter state for orchestration layer",
+    },
+    enableSummation: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Initial summation state for orchestration layer",
+    },
+    enableGrouping: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Initial grouping state for orchestration layer",
+    },
+    enableDivideBy1Lakh: {
+      type: "boolean",
+      defaultValue: false,
+      description: "Initial divide by 1 lakh state for orchestration layer",
+    },
+    textFilterColumns: {
+      type: "object",
+      defaultValue: [],
+      description: "Columns to use text search in orchestration layer",
+    },
+    visibleColumns: {
+      type: "object",
+      defaultValue: [],
+      description: "Initial visible columns for orchestration layer",
+    },
+    redFields: {
+      type: "object",
+      defaultValue: [],
+    },
+    greenFields: {
+      type: "object",
+      defaultValue: [],
+    },
+    outerGroupField: {
+      type: "string",
+    },
+    innerGroupField: {
+      type: "string",
+    },
+    percentageColumns: {
+      type: "object",
+      defaultValue: [],
+    },
+    drawerTabs: {
+      type: "object",
+      defaultValue: [],
+    },
+    drawerSalesTeamColumn: {
+      type: "string",
+      description: "Drawer-specific column name for Sales Team filtering",
+    },
+    drawerSalesTeamValues: {
+      type: "object",
+      description: "Drawer-specific array of allowed Sales Team values",
+      defaultValue: [],
+    },
+    drawerHqColumn: {
+      type: "string",
+      description: "Drawer-specific column name for HQ filtering",
+    },
+    drawerHqValues: {
+      type: "object",
+      description: "Drawer-specific array of allowed HQ values",
+      defaultValue: [],
+    },
+    drawerVisible: {
+      type: "boolean",
+      defaultValue: false,
+    },
+    enableReport: {
+      type: "boolean",
+      defaultValue: false,
+    },
+    dateColumn: {
+      type: "string",
+    },
+    breakdownType: {
+      type: "string",
+      defaultValue: "month",
+    },
+    onDataChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "notification", type: "object" }],
+    },
+    onError: {
+      type: "eventHandler",
+      argTypes: [{ name: "error", type: "object" }],
+    },
+    onTableDataChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "data", type: "object" }],
+    },
+    onRawDataChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "data", type: "object" }],
+    },
+    onVariablesChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "variables", type: "object" }],
+    },
+    onDataSourceChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "dataSource", type: "string" }],
+    },
+    onSavedQueriesChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "queries", type: "object" }],
+    },
+    onLoadingQueriesChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "loading", type: "boolean" }],
+    },
+    onExecutingQueryChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "executing", type: "boolean" }],
+    },
+    onAvailableQueryKeysChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "keys", type: "object" }],
+    },
+    onSelectedQueryKeyChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "key", type: "string" }],
+    },
+    onLoadingDataChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "loading", type: "boolean" }],
+    },
+    onLastUpdatedAtChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "timestamp", type: "string" }],
+    },
+    onVisibleColumnsChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "columns", type: "object" }],
+    },
+    onDrawerTabsChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "tabs", type: "object" }],
+    },
+    onDrawerVisibleChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "visible", type: "boolean" }],
+    },
+    onColumnTypesChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "columnTypes", type: "object" }],
+    },
+    onAdminModeChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "isAdminMode", type: "boolean" }],
+    },
+    onEnableReportChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "enabled", type: "boolean" }],
+    },
+    onDateColumnChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "column", type: "string" }],
+    },
+    onBreakdownTypeChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "type", type: "string" }],
+    },
+    onOuterGroupFieldChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "field", type: "string" }],
+    },
+    onInnerGroupFieldChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "field", type: "string" }],
+    },
+    children: {
+      type: "slot",
+      description: "Slot to add custom UI components that can access the table data",
+    },
+  },
+  providesData: true,
+  importPath: "./share/datatable/components/DataProviderNew",
+});
+
+PLASMIC.registerComponent(DataTableNew, {
+  name: "DataTableNew",
+  props: {
+    rowsPerPageOptions: {
+      type: "object",
+      defaultValue: [10, 25, 50, 100],
+      description: "Array of rows per page options",
+    },
+    defaultRows: {
+      type: "number",
+      defaultValue: 10,
+      description: "Default number of rows per page",
+    },
+    scrollable: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Enable/disable table scrolling",
+    },
+    scrollHeight: {
+      type: "string",
+      description: "Height of the scrollable area (e.g., '600px')",
+    },
+    enableCellEdit: {
+      type: "boolean",
+      defaultValue: false,
+      description: "Enable cell editing",
+    },
+    onCellEditComplete: {
+      type: "eventHandler",
+      argTypes: [
+        { name: "rowData", type: "object" },
+        { name: "field", type: "string" },
+        { name: "newValue", type: "any" }
+      ],
+    },
+    isCellEditable: {
+      type: "function",
+      description: "Function to determine if a cell is editable",
+    },
+    nonEditableColumns: {
+      type: "object",
+      defaultValue: [],
+      description: "Array of column names that cannot be edited",
+    },
+    enableFullscreenDialog: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Enable/disable fullscreen dialog feature",
+    },
+    tableName: {
+      type: "string",
+      defaultValue: "table",
+      description: "Name identifier for the table",
+    },
+    useOrchestrationLayer: {
+      type: "boolean",
+      defaultValue: false,
+      description: "Use orchestration layer (must be child of DataProvider with useOrchestrationLayer=true)",
+    },
+    onOuterGroupClick: {
+      type: "eventHandler",
+      argTypes: [{ name: "event", type: "object" }],
+      description: "Handler for outer group row clicks",
+    },
+    onInnerGroupClick: {
+      type: "eventHandler",
+      argTypes: [{ name: "event", type: "object" }],
+      description: "Handler for inner group row clicks",
+    },
+  },
+  importPath: "./share/datatable/components/DataTableNew",
 });

@@ -8,6 +8,7 @@ import { OverlayPanel } from 'primereact/overlaypanel';
 import { filter as lodashFilter } from 'lodash';
 import dayjs from 'dayjs';
 import * as Comlink from 'comlink';
+import { DataProvider as PlasmicDataProvider } from "@plasmicapp/loader-nextjs";
 import MonthRangePicker from '@/components/MonthRangePicker';
 import { firestoreService } from '@/app/graphql-playground/services/firestoreService';
 import { getInitialEndpoint, getEndpointConfigFromUrlKey } from '@/app/graphql-playground/constants';
@@ -630,7 +631,10 @@ export default function DataProviderNew({
   breakdownType = 'month',
   onBreakdownTypeChange,
   useOrchestrationLayer = false,
-  children
+  showSelectors = true,
+  hideDataSourceAndQueryKey = false,
+  children,
+  dataSlot
 }) {
   const [dataSource, setDataSource] = useState(dataSourceProp);
   const [selectedQueryKey, setSelectedQueryKey] = useState(selectedQueryKeyProp);
@@ -1873,7 +1877,10 @@ export default function DataProviderNew({
       const finalAuthToken = authToken || null;
 
       if (!finalEndpointUrl) {
-        throw new Error('GraphQL endpoint URL is not set');
+        const errorMsg = queryDocToUse?.urlKey 
+          ? `GraphQL endpoint URL is not set. Query "${queryId}" has urlKey "${queryDocToUse.urlKey}" but no matching endpoint configuration found. Please check your endpoint configuration or set NEXT_PUBLIC_GRAPHQL_ENDPOINT_UAT or NEXT_PUBLIC_GRAPHQL_ENDPOINT_ERP environment variables.`
+          : `GraphQL endpoint URL is not set. Query "${queryId}" has no urlKey and no default endpoint is configured. Please set NEXT_PUBLIC_GRAPHQL_ENDPOINT_UAT or NEXT_PUBLIC_GRAPHQL_ENDPOINT_ERP environment variables.`;
+        throw new Error(errorMsg);
       }
 
       // Always use worker for pipeline execution
@@ -3719,8 +3726,12 @@ export default function DataProviderNew({
         {/* Search and Sort Controls */}
         {SearchAndSortControls}
 
-        {/* Render children */}
-        {children}
+        {/* Expose contextValue to Plasmic data system and render children */}
+        <PlasmicDataProvider name="data" data={contextValue}>
+          <div style={{ height: 'auto' }}>
+            {children}
+          </div>
+        </PlasmicDataProvider>
       </TableOperationsContext.Provider>
 
       {/* Drawer Sidebar */}
