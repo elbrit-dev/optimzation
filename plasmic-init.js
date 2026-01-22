@@ -881,11 +881,6 @@ PLASMIC.registerComponent(DataProvider, {
       type: "boolean",
       description: "Explicitly hide the data source and query key dropdowns even if selectors are shown",
     },
-    renderHeaderControls: {
-      type: "boolean",
-      description: "Show/hide header controls (deprecated, use showSelectors)",
-      defaultValue: true,
-    },
     isAdminMode: {
       type: "boolean",
       description: "Enable admin mode to bypass data filtering",
