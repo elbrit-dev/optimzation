@@ -9,7 +9,7 @@ import DataTableNew from "./share/datatable/components/DataTableNew";
 import FirebaseUIComponent from "./components/FirebaseUIComponent";
 import TableDataProvider from "./components/TableDataProvider";
 import jsonata from 'jsonata';
-import PlasmicNavigation from "./components/PlasmicNavigation";
+import Navigation from "./share/navigation/components/Navigation";
 
 
 
@@ -464,102 +464,46 @@ PLASMIC.registerComponent(DataTable, {
   importPath: "./components/DataTable",
 });
 
-PLASMIC.registerComponent(PlasmicNavigation, {
+PLASMIC.registerComponent(Navigation, {
   name: "Navigation",
   props: {
     items: {
       type: "object",
-      description: "JSON array of items. Use icon names (e.g., 'ChatIconActive') or image paths (e.g., '/logo.jpeg'). Each item can have 'isDisabled: true' to disable it specifically.",
-      defaultValue: [
-        {
-          label: 'Planner',
-          path: '/planner',
-          mobileFullscreen: true,
-          iconActive: 'PlannerIconActive',
-          iconInactive: 'PlannerIconInactive',
-          isDisabled: true,
-        },
-        {
-          label: 'Doctor',
-          path: '/doctor',
-          iconActive: 'DoctorIconActive',
-          iconInactive: 'DoctorIconInactive',
-          isDisabled: true,
-        },
-        {
-          path: '/',
-          mobileOnly: true,
-          isDefault: true,
-          iconActive: 'HomeIcon',
-          iconInactive: 'HomeIcon',
-        },
-        {
-          label: 'Product',
-          path: '/product',
-          iconActive: 'ProductIconActive',
-          iconInactive: 'ProductIconInactive',
-        },
-        {
-          label: 'Desk',
-          path: '/desk',
-          mobileFullscreen: true,
-          iconActive: 'ChatIconActive',
-          iconInactive: 'ChatIconInactive',
-        },
-        {
-          label: 'Test',
-          path: '/test',
-          iconActive: 'PlannerIconActive',
-          iconInactive: 'PlannerIconInactive',
-        },
-      ],
+      description: "JSON array of navigation items. Each item should have: label (string), path (string), iconActive (JSX element), iconInactive (JSX element), mobileFullscreen (boolean), mobileOnly (boolean), isDefault (boolean), isDisabled (boolean). Icons must be JSX elements, not strings.",
+      defaultValue: [],
     },
     defaultIndex: {
       type: "number",
       defaultValue: 0,
-      description: "Fallback index if no URL path matches",
-    },
-    enableSwipe: {
-      type: "boolean",
-      defaultValue: true,
-      description: "Enable swipe gestures on mobile to switch between pages",
-    },
-    hideNavigation: {
-      type: "boolean",
-      defaultValue: false,
-      description: "Completely hide the navigation bars (sidebar and bottom bar)",
-    },
-    isDisabled: {
-      type: "boolean",
-      defaultValue: false,
-      description: "Disable all navigation items (grey out and non-interactive)",
+      description: "Fallback index if no URL path matches and no item has isDefault: true",
     },
     desktopWidth: {
       type: "string",
       defaultValue: "16rem",
+      description: "Width of the desktop sidebar navigation",
     },
     desktopHeight: {
       type: "string",
-      defaultValue: "auto",
+      defaultValue: "93dvh",
+      description: "Height of the desktop sidebar navigation",
     },
     mobileWidth: {
       type: "string",
       defaultValue: "100%",
+      description: "Width of the mobile bottom navigation",
     },
     mobileHeight: {
       type: "string",
       defaultValue: "4rem",
+      description: "Height of the mobile bottom navigation",
     },
-    className: "string",
-    children: {
-      type: "slot",
-      defaultValue: {
-        type: "text",
-        value: "Drop page content here",
-      },
+    showCollapse: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Show/hide the collapse button in desktop sidebar",
     },
   },
-  importPath: "./components/PlasmicNavigation",
+  importPath: "./share/navigation/components/Navigation",
 });
 
 // Register FirebaseUIComponent
