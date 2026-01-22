@@ -854,6 +854,10 @@ PLASMIC.registerComponent(TableDataProvider, {
 PLASMIC.registerComponent(DataProvider, {
   name: "DataProvider",
   props: {
+    offlineData: {
+      type: "object",
+      description: "Offline/local data to use when dataSource is 'offline'",
+    },
     dataSource: {
       type: "string",
       description: "The data source ID or 'offline' for local data",
@@ -868,31 +872,19 @@ PLASMIC.registerComponent(DataProvider, {
       description: "Overrides for query variables (as an object)",
       defaultValue: {},
     },
-    // Individual Variable Props
-    First: {
-      type: "number",
-      description: "Default value for 'First' variable",
+    showSelectors: {
+      type: "boolean",
+      description: "Show/hide data source and query selectors",
+      defaultValue: true,
     },
-    Operator: {
-      type: "string",
-      description: "Default value for 'Operator' variable",
-    },
-    Status: {
-      type: "object",
-      description: "Default values for 'Status' variable (Array of strings)",
-    },
-    Customer: {
-      type: "object",
-      description: "Default values for 'Customer' variable (Array of strings)",
-    },
-    // renderHeaderControls: {
-    //   type: "boolean",
-    //   description: "Show/hide data source and query selectors",
-    //   defaultValue: true,
-    // },
     hideDataSourceAndQueryKey: {
       type: "boolean",
       description: "Explicitly hide the data source and query key dropdowns even if selectors are shown",
+    },
+    renderHeaderControls: {
+      type: "boolean",
+      description: "Show/hide header controls (deprecated, use showSelectors)",
+      defaultValue: true,
     },
     isAdminMode: {
       type: "boolean",
@@ -917,10 +909,10 @@ PLASMIC.registerComponent(DataProvider, {
       description: "Array of allowed HQ values",
       defaultValue: [],
     },
-    columnTypes: {
+    columnTypesOverride: {
       type: "object",
       description: "Override column types (e.g., { fieldName: 'number' })",
-      defaultValue: { is_internal_customer: "number" },
+      defaultValue: {},
     },
     useOrchestrationLayer: {
       type: "boolean",
@@ -965,154 +957,124 @@ PLASMIC.registerComponent(DataProvider, {
     redFields: {
       type: "object",
       defaultValue: [],
+      description: "Array of column names to display in red",
     },
     greenFields: {
       type: "object",
       defaultValue: [],
+      description: "Array of column names to display in green",
     },
     outerGroupField: {
       type: "string",
+      description: "Field name for outer grouping",
     },
     innerGroupField: {
       type: "string",
+      description: "Field name for inner grouping",
     },
     percentageColumns: {
       type: "object",
       defaultValue: [],
+      description: "Array of percentage column configurations",
     },
     drawerTabs: {
       type: "object",
       defaultValue: [],
-    },
-    drawerSalesTeamColumn: {
-      type: "string",
-      description: "Drawer-specific column name for Sales Team filtering",
-    },
-    drawerSalesTeamValues: {
-      type: "object",
-      description: "Drawer-specific array of allowed Sales Team values",
-      defaultValue: [],
-    },
-    drawerHqColumn: {
-      type: "string",
-      description: "Drawer-specific column name for HQ filtering",
-    },
-    drawerHqValues: {
-      type: "object",
-      description: "Drawer-specific array of allowed HQ values",
-      defaultValue: [],
-    },
-    drawerVisible: {
-      type: "boolean",
-      defaultValue: false,
+      description: "Array of drawer tab configurations",
     },
     enableReport: {
       type: "boolean",
       defaultValue: false,
+      description: "Enable report mode with time breakdown",
     },
     dateColumn: {
       type: "string",
+      description: "Column name containing date values for report breakdown",
     },
     breakdownType: {
       type: "string",
       defaultValue: "month",
+      description: "Type of time breakdown: 'month', 'quarter', 'year'",
     },
     onDataChange: {
       type: "eventHandler",
       argTypes: [{ name: "notification", type: "object" }],
+      description: "Callback when data changes",
     },
     onError: {
       type: "eventHandler",
       argTypes: [{ name: "error", type: "object" }],
+      description: "Callback when an error occurs",
     },
     onTableDataChange: {
       type: "eventHandler",
       argTypes: [{ name: "data", type: "object" }],
+      description: "Callback when table data changes",
     },
     onRawDataChange: {
       type: "eventHandler",
       argTypes: [{ name: "data", type: "object" }],
+      description: "Callback when raw data changes",
     },
     onVariablesChange: {
       type: "eventHandler",
       argTypes: [{ name: "variables", type: "object" }],
+      description: "Callback when query variables change",
     },
     onDataSourceChange: {
       type: "eventHandler",
       argTypes: [{ name: "dataSource", type: "string" }],
+      description: "Callback when data source changes",
     },
     onSavedQueriesChange: {
       type: "eventHandler",
       argTypes: [{ name: "queries", type: "object" }],
+      description: "Callback when saved queries change",
     },
     onLoadingQueriesChange: {
       type: "eventHandler",
       argTypes: [{ name: "loading", type: "boolean" }],
+      description: "Callback when loading queries state changes",
     },
     onExecutingQueryChange: {
       type: "eventHandler",
       argTypes: [{ name: "executing", type: "boolean" }],
+      description: "Callback when query execution state changes",
     },
     onAvailableQueryKeysChange: {
       type: "eventHandler",
       argTypes: [{ name: "keys", type: "object" }],
+      description: "Callback when available query keys change",
     },
     onSelectedQueryKeyChange: {
       type: "eventHandler",
       argTypes: [{ name: "key", type: "string" }],
+      description: "Callback when selected query key changes",
     },
     onLoadingDataChange: {
       type: "eventHandler",
       argTypes: [{ name: "loading", type: "boolean" }],
-    },
-    onLastUpdatedAtChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "timestamp", type: "string" }],
+      description: "Callback when loading data state changes",
     },
     onVisibleColumnsChange: {
       type: "eventHandler",
       argTypes: [{ name: "columns", type: "object" }],
+      description: "Callback when visible columns change",
     },
     onDrawerTabsChange: {
       type: "eventHandler",
       argTypes: [{ name: "tabs", type: "object" }],
-    },
-    onDrawerVisibleChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "visible", type: "boolean" }],
-    },
-    onColumnTypesChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "columnTypes", type: "object" }],
-    },
-    onAdminModeChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "isAdminMode", type: "boolean" }],
-    },
-    onEnableReportChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "enabled", type: "boolean" }],
-    },
-    onDateColumnChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "column", type: "string" }],
+      description: "Callback when drawer tabs change",
     },
     onBreakdownTypeChange: {
       type: "eventHandler",
       argTypes: [{ name: "type", type: "string" }],
-    },
-    onOuterGroupFieldChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "field", type: "string" }],
-    },
-    onInnerGroupFieldChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "field", type: "string" }],
+      description: "Callback when breakdown type changes",
     },
     children: {
       type: "slot",
       description: "Slot to add custom UI components that can access the table data",
-    },
+    }
   },
   providesData: true,
   importPath: "./share/datatable/components/DataProviderNew",
