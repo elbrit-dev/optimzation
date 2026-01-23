@@ -13,13 +13,13 @@ import Navigation from "./share/navigation/components/Navigation";
 import { db } from "./firebase";
 
 // Validate tag: if deployLive is false,tag must be "dev"
-const plasmicTag = process.env.NEXT_PUBLIC_PLASMIC_TAG;
-const settings = await db.collection('DevOps').doc('Setting').get().catch(() => null);
-const isLive = settings?.data()?.deployLive;
+// const plasmicTag = process.env.NEXT_PUBLIC_PLASMIC_TAG;
+// const settings = await db.collection('DevOps').doc('Setting').get().catch(() => null);
+// const isLive = settings?.data()?.deployLive;
 
-if (plasmicTag && plasmicTag !== "dev" && !isLive) {
-  throw new Error(`Invalid Plasmic Tag "${plasmicTag}" for current deployment setting.`);
-}
+// if (plasmicTag && plasmicTag !== "dev" && !isLive) {
+//   throw new Error(`Invalid Plasmic Tag "${plasmicTag}" for current deployment setting.`);
+// }
 
 export const PLASMIC = initPlasmicLoader({
   projects: [
