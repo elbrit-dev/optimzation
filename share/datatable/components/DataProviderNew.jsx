@@ -3366,7 +3366,7 @@ export default function DataProviderNew({
     <>
       <div className="flex flex-col gap-2 sm:gap-3 md:gap-4 w-full min-w-0">
         <div className="flex flex-col sm:flex-row items-start sm:items-end justify-between w-full gap-2 sm:gap-3 md:gap-4">
-          <div className="flex flex-col sm:flex-row items-start sm:items-end gap-2 sm:gap-3 md:gap-4 flex-wrap min-w-0 flex-1 w-full sm:w-auto">
+          <div className="flex flex-col sm:flex-row items-start sm:items-end gap-6 sm:gap-3 md:gap-4 flex-wrap min-w-0 flex-1 w-full sm:w-auto">
             <div className='flex flex-col sm:flex-row gap-2 sm:gap-3 md:gap-4 w-full sm:w-auto'>
               <div className='flex flex-wrap items-center gap-2 sm:gap-3 md:gap-4'>
                 {/* Breakdown Toggle - Only show when report is enabled */}
