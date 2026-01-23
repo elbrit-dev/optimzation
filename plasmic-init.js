@@ -12,7 +12,7 @@ import jsonata from 'jsonata';
 import Navigation from "./share/navigation/components/Navigation";
 import { db } from "./firebase";
 
-// Validate tag: if deployLive is false, tag must be "dev"
+// Validate tag: if deployLive is false,tag must be "dev"
 const plasmicTag = process.env.NEXT_PUBLIC_PLASMIC_TAG;
 const settings = await db.collection('DevOps').doc('Setting').get().catch(() => null);
 const isLive = settings?.data()?.deployLive;
