@@ -13,7 +13,7 @@ import Navigation from "./share/navigation/components/Navigation";
 
 
 
-
+console.log('process.env', process.env);
 // Validate that NEXT_PUBLIC_PLASMIC_TAG is either undefined or "dev"
 if (process.env.NEXT_PUBLIC_PLASMIC_TAG && process.env.NEXT_PUBLIC_PLASMIC_TAG !== "dev") {
   throw new Error(
