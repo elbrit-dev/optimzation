@@ -10,15 +10,15 @@ import FirebaseUIComponent from "./components/FirebaseUIComponent";
 import TableDataProvider from "./components/TableDataProvider";
 import jsonata from 'jsonata';
 import Navigation from "./share/navigation/components/Navigation";
+import { db } from "./firebase";
 
+// Validate tag: if deployLive is false, tag must be "dev"
+const plasmicTag = process.env.NEXT_PUBLIC_PLASMIC_TAG;
+const settings = await db.collection('DevOps').doc('Setting').get().catch(() => null);
+const isLive = settings?.data()?.deployLive;
 
-
-console.log('process.env', process.env);
-// Validate that NEXT_PUBLIC_PLASMIC_TAG is either undefined or "dev"
-if (process.env.NEXT_PUBLIC_PLASMIC_TAG && process.env.NEXT_PUBLIC_PLASMIC_TAG !== "dev") {
-  throw new Error(
-    `Build failed: NEXT_PUBLIC_PLASMIC_TAG must be "dev" or unset, but got "${process.env.NEXT_PUBLIC_PLASMIC_TAG}"`
-  );
+if (plasmicTag && plasmicTag !== "dev" && !isLive) {
+  throw new Error(`Invalid Plasmic Tag "${plasmicTag}" for current deployment setting.`);
 }
 
 export const PLASMIC = initPlasmicLoader({
@@ -36,7 +36,6 @@ export const PLASMIC = initPlasmicLoader({
   // only use this for development, as this is significantly slower.
   preview: false,
 });
-
 // You can register any code components that you want to use here; see
 // https://docs.plasmic.app/learn/code-components-ref/
 // And configure your Plasmic project to use the host url pointing at
