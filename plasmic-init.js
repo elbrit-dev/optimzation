@@ -26,7 +26,7 @@ export const PLASMIC = initPlasmicLoader({
     {
       id: "b6mXu8rXhi8fdDd6jwb8oh",
       token: "hKaQFlYDzP6By8Fk45XBc6AhEoXVcAk3jJA5AvDn7lEnJI4Ho97wv9zkcp0LvOnjUhV0wQ6ZeeXBj5V135I9YA",
-      version: process.env.NEXT_PUBLIC_PLASMIC_TAG || (process.env.NODE_ENV === "production" ? "prod" : "dev"),
+      version: process.env.NEXT_PUBLIC_PLASMIC_TAG ,
     },
   ],
 
