@@ -3,12 +3,13 @@ import 'firebase/compat/auth';
 import 'firebase/compat/firestore';
 
 const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID
+  apiKey: "AIzaSyCY2qR__9xqrzr2OzCO26cFhoqle4gGYYU",
+  authDomain: "elbrit-sso.firebaseapp.com",
+  databaseURL: "https://elbrit-sso-default-rtdb.firebaseio.com",
+  projectId: "elbrit-sso",
+  storageBucket: "elbrit-sso.firebasestorage.app",
+  messagingSenderId: "998910471029",
+  appId: "1:998910471029:web:d0982d548891d02b89413c"
 };
 
 // Initialize Firebase
