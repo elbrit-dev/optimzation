@@ -1,5 +1,5 @@
 const site =
-  process.env.NEXT_PUBLIC_PLASMIC_SITE_TAG ||
+  process.env.NEXT_PUBLIC_PLASMIC_TAG ||
   process.env.PLASMIC_SITE_TAG;
 
 const release =
