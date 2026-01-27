@@ -8,7 +8,7 @@ const release =
 
 console.log("🔍 Release Guard:", { site, release });
 
-// Always allow dev
+// Always allow de
 if (site === "dev") {
   console.log("✅ Dev build allowed");
   process.exit(0);
