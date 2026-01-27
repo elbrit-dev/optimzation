@@ -2372,6 +2372,7 @@ export default function DataProviderNew({
   const [drawerData, setDrawerData] = useState([]);
   const [activeDrawerTabIndex, setActiveDrawerTabIndex] = useState(0);
   const [clickedDrawerValues, setClickedDrawerValues] = useState({ outerValue: null, innerValue: null });
+  const [drawerHeaderTitle, setDrawerHeaderTitle] = useState(null);
 
   // Ensure at least one tab exists
   useEffect(() => {
@@ -3289,28 +3290,6 @@ export default function DataProviderNew({
     }
   }, [sortedData, isApplyingFilterSort, workerComputedData]);
 
-  // Summation computation
-  const calculateSums = useMemo(() => {
-    const sums = {};
-    const dataForSums = filteredData;
-    if (isEmpty(dataForSums)) return sums;
-    columns.forEach((col) => {
-      const colType = columnTypes[col] || 'string';
-      if (colType === 'date') return;
-      const values = filter(
-        dataForSums.map((row) => getDataValue(row, col)),
-        (val) => !isNil(val)
-      );
-      if (!isEmpty(values) && isNumericValue(head(values))) {
-        sums[col] = sumBy(values, (val) => {
-          const numVal = isNumber(val) ? val : toNumber(val);
-          return _isNaN(numVal) ? 0 : numVal;
-        });
-      }
-    });
-    return sums;
-  }, [filteredData, columns, isNumericValue, columnTypes]);
-
   // Paginated data computation
   const paginatedData = useMemo(() => {
     const result = !isArray(sortedData) ? [] : sortedData.slice(tablePagination.first, tablePagination.first + tablePagination.rows);
@@ -3534,20 +3513,75 @@ export default function DataProviderNew({
     });
   }, [columns, columnTypes, multiselectColumns, hasPercentageColumns, percentageColumnNames, getPercentageColumnValue, applyDateFilter, applyNumericFilter, parseNumericFilter]);
 
+  // Variant 1: getSums(data, filters) - calculates sums on provided data with optional filters
+  // Variant 2: getSums(filters) - calculates sums on current filteredData with filters applied
+  // Variant 3: getSums() - calculates sums on current filteredData without additional filters
+  const getSums = useCallback((dataOrFilters, filters) => {
+    let dataToSum;
+    let filtersToApply;
+
+    // Detect variant: if no arguments, use current filteredData (Variant 3)
+    if (dataOrFilters === undefined && filters === undefined) {
+      // Variant 3: getSums()
+      dataToSum = filteredData;
+      filtersToApply = null;
+    } else if (isArray(dataOrFilters)) {
+      // Variant 1: getSums(data, filters)
+      dataToSum = dataOrFilters;
+      filtersToApply = filters || null;
+    } else {
+      // Variant 2: getSums(filters)
+      dataToSum = filteredData; // Use current filteredData
+      filtersToApply = dataOrFilters || null;
+    }
+
+    // Apply filters if provided
+    let dataForSums = dataToSum || [];
+    if (filtersToApply && !isEmpty(filtersToApply)) {
+      dataForSums = applyFiltersToData(dataToSum, filtersToApply);
+    }
+
+    // Calculate sums
+    const sums = {};
+    if (isEmpty(dataForSums)) return sums;
+    columns.forEach((col) => {
+      const colType = columnTypes[col] || 'string';
+      if (colType === 'date') return;
+      const values = filter(
+        dataForSums.map((row) => getDataValue(row, col)),
+        (val) => !isNil(val)
+      );
+      if (!isEmpty(values) && isNumericValue(head(values))) {
+        sums[col] = sumBy(values, (val) => {
+          const numVal = isNumber(val) ? val : toNumber(val);
+          return _isNaN(numVal) ? 0 : numVal;
+        });
+      }
+    });
+    return sums;
+  }, [filteredData, applyFiltersToData, columns, columnTypes, isNumericValue, getDataValue]);
+
+  // Summation computation
+  const calculateSums = useMemo(() => {
+    return getSums();
+  }, [getSums]);
+
   // Unified drawer function with two variants:
-  // Variant 1: openDrawer(data, filters) - applies filters on provided data
-  // Variant 2: openDrawer(filters) - applies filters on current filteredData
-  const openDrawer = useCallback((dataOrFilters, filters) => {
+  // Variant 1: openDrawer(data, filters, title) - applies filters on provided data
+  // Variant 2: openDrawer(filters, title) - applies filters on current filteredData
+  // Optional title parameter can be provided to set custom drawer header title
+  const openDrawer = useCallback((dataOrFilters, filters, title) => {
     let dataToFilter;
     let filtersToApply;
+    let customTitle = title;
 
     // Detect variant: if first arg is an array, it's variant 1 (with data)
     if (isArray(dataOrFilters)) {
-      // Variant 1: openDrawer(data, filters)
+      // Variant 1: openDrawer(data, filters, title)
       dataToFilter = dataOrFilters;
       filtersToApply = filters || null;
     } else {
-      // Variant 2: openDrawer(filters)
+      // Variant 2: openDrawer(filters, title)
       dataToFilter = filteredData; // Use current filteredData
       filtersToApply = dataOrFilters || null;
     }
@@ -3573,20 +3607,32 @@ export default function DataProviderNew({
     // Store filtered data
     setDrawerData(filteredResult);
     setClickedDrawerValues({ outerValue, innerValue });
+    
+    // Compute title: use custom title if provided, otherwise compute from clickedDrawerValues
+    const computedTitle = customTitle || (innerValue
+      ? `${outerValue} : ${innerValue}`
+      : outerValue || 'Drawer');
+    setDrawerHeaderTitle(computedTitle);
+    
     setActiveDrawerTabIndex(0);
     setDrawerVisible(true);
   }, [filteredData, applyFiltersToData, outerGroupField, innerGroupField]);
 
   // Drawer action handlers (legacy - calls unified openDrawer internally)
-  const openDrawerWithData = useCallback((data, outerValue = null, innerValue = null) => {
-    // Use unified API: openDrawer(data, null) - no filters
-    openDrawer(data, null);
+  const openDrawerWithData = useCallback((data, outerValue = null, innerValue = null, title = null) => {
+    // Compute title: use custom title if provided, otherwise compute from values
+    const computedTitle = title || (innerValue
+      ? `${outerValue} : ${innerValue}`
+      : outerValue || 'Drawer');
+    // Use unified API: openDrawer(data, null, computedTitle) - no filters
+    openDrawer(data, null, computedTitle);
     // Set clickedDrawerValues for display purposes
     setClickedDrawerValues({ outerValue, innerValue });
   }, [openDrawer]);
 
   const closeDrawer = useCallback(() => {
     setDrawerVisible(false);
+    setDrawerHeaderTitle(null);
   }, []);
 
   const addDrawerTab = useCallback(() => {
@@ -3830,6 +3876,7 @@ export default function DataProviderNew({
         sortedData,
         paginatedData,
         sums: calculateSums,
+        getSums,
         filterOptions: optionColumnValues,
         multiselectColumns,
         hasPercentageColumns,
@@ -3917,7 +3964,7 @@ export default function DataProviderNew({
     }
   }, [
     sortedData, columns, columnTypes, filteredData, groupedData, paginatedData,
-    calculateSums, optionColumnValues, multiselectColumns, hasPercentageColumns, percentageColumns, percentageColumnNames,
+    calculateSums, getSums, optionColumnValues, multiselectColumns, hasPercentageColumns, percentageColumns, percentageColumnNames,
     isPercentageColumn, getPercentageColumnValue, getPercentageColumnSortFunction, tableFilters, tableSortMeta, tablePagination,
     tableExpandedRows, tableVisibleColumns, enableSort, enableFilter, enableSummation, enableGrouping,
     textFilterColumns, outerGroupField, innerGroupField, redFields, greenFields, enableDivideBy1Lakh,
@@ -4473,9 +4520,6 @@ export default function DataProviderNew({
   // Drawer sidebar helpers
   const hasDrawerTabs = drawerTabs && drawerTabs.length > 0;
   const hasDrawerData = drawerData && drawerData.length > 0;
-  const drawerHeaderTitle = clickedDrawerValues.innerValue
-    ? `${clickedDrawerValues.outerValue} : ${clickedDrawerValues.innerValue}`
-    : clickedDrawerValues.outerValue || 'Drawer';
   const drawerActiveIndex = hasDrawerTabs
     ? Math.min(activeDrawerTabIndex, Math.max(0, drawerTabs.length - 1))
     : 0;
