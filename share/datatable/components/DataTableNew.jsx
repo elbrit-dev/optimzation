@@ -46,7 +46,8 @@ import { useTableOperations } from '../contexts/TableOperationsContext';
 import MultiselectFilter from './MultiselectFilter';
 import { ColumnGroup } from 'primereact/columngroup';
 import { Row } from 'primereact/row';
-import { getTimePeriodLabel } from '../report/utils/timeBreakdownUtils';
+import { getTimePeriodLabel, getTimePeriodLabelShort, reorganizePeriodsForPeriodOverPeriod } from '../report/utils/timeBreakdownUtils';
+import { computeReportColumnsStructure, generateReportHeaderGroup, getMetricLabel, getReportColumns } from '../utils/reportRenderingUtils';
 
 // Date format patterns for detection
 const DATE_PATTERNS = [
@@ -751,7 +752,12 @@ export default function DataTableNew({
     updateDrawerTab,
     setActiveDrawerTabIndex,
     enableReport,
+    enableBreakdown,
     reportData,
+    isComputingReport,
+    isApplyingFilterSort,
+    isLoading,
+    loadingText,
     columnGroupBy,
   } = useTableOperations();
 
@@ -1014,183 +1020,18 @@ export default function DataTableNew({
 
   // Report mode: Pre-compute column structure (shared by header and columns)
   const reportColumnsStructure = useMemo(() => {
-    if (!enableReport || !reportData || !reportData.timePeriods || !reportData.metrics) {
+    if (!enableBreakdown || !reportData) {
       return null;
     }
-
-    const { timePeriods, metrics, tableData, dateColumn } = reportData;
-    
-    // Pre-compute which columns have data (single pass through tableData)
-    const columnHasData = new Set();
-    if (tableData && tableData.length > 0) {
-      tableData.forEach(row => {
-        timePeriods.forEach(period => {
-          metrics.forEach(metric => {
-            const columnName = `${period}_${metric}`;
-            const value = row[columnName];
-            if (value !== null && value !== undefined) {
-              columnHasData.add(columnName);
-            }
-          });
-        });
-      });
-    }
-    
-    // Determine order based on columnGroupBy mode
-    const isMergedMode = columnGroupBy === 'values';
-    
-    // Build columns with data - order depends on mode
-    const columnsWithData = [];
-    if (isMergedMode) {
-      // Merged mode: metrics first, then time periods
-      metrics.forEach(metric => {
-        timePeriods.forEach(period => {
-          const columnName = `${period}_${metric}`;
-          if (columnHasData.has(columnName)) {
-            columnsWithData.push({ period, metric, columnName });
-          }
-        });
-      });
-    } else {
-      // Sub-columns mode: time periods first, then metrics
-      timePeriods.forEach(period => {
-        metrics.forEach(metric => {
-          const columnName = `${period}_${metric}`;
-          if (columnHasData.has(columnName)) {
-            columnsWithData.push({ period, metric, columnName });
-          }
-        });
-      });
-    }
-    
-    // Group by metric for header colSpan calculation (merged mode)
-    const metricGroups = {};
-    columnsWithData.forEach(({ metric, period }) => {
-      if (!metricGroups[metric]) {
-        metricGroups[metric] = [];
-      }
-      metricGroups[metric].push(period);
-    });
-    
-    // Group by period for header colSpan calculation (sub-columns mode)
-    const periodGroups = {};
-    columnsWithData.forEach(({ period, metric }) => {
-      if (!periodGroups[period]) {
-        periodGroups[period] = [];
-      }
-      periodGroups[period].push(metric);
-    });
-    
-    return {
-      columnsWithData,
-      metricGroups,
-      periodGroups,
-      metricsWithData: Object.keys(metricGroups),
-      timePeriodsWithData: Object.keys(periodGroups).sort(),
-      columnNames: columnsWithData.map(c => c.columnName),
-      isMergedMode
-    };
-  }, [enableReport, reportData, columnGroupBy]);
-
-  // Helper function to get metric label - capitalize and format field names
-  const getMetricLabel = (metricKey) => {
-    // Convert snake_case or camelCase to Title Case
-    return metricKey
-      .replace(/_/g, ' ')
-      .replace(/([A-Z])/g, ' $1')
-      .split(' ')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-      .join(' ')
-      .trim();
-  };
+    return computeReportColumnsStructure(reportData, columnGroupBy);
+  }, [enableBreakdown, reportData, columnGroupBy]);
 
   // Report mode: Generate header groups and columns
   const reportHeaderGroup = useMemo(() => {
     if (!reportColumnsStructure || !reportData) {
       return null;
     }
-
-    const { breakdownType } = reportData;
-    const { metricGroups, periodGroups, metricsWithData, timePeriodsWithData, columnsWithData, isMergedMode } = reportColumnsStructure;
-    const totalDataCols = columnsWithData.length;
-
-    if (isMergedMode) {
-      // Merged mode: metrics first, then time periods
-      return (
-        <ColumnGroup>
-          <Row>
-            <Column header="" rowSpan={3} style={{ width: '3rem' }} />
-            <Column header={formatHeaderName(outerGroupField)} rowSpan={3} />
-            {totalDataCols > 0 && (
-              <Column 
-                header="" 
-                colSpan={totalDataCols} 
-              />
-            )}
-          </Row>
-          <Row>
-            {metricsWithData.map(metric => {
-              const periodCount = metricGroups[metric].length;
-              return (
-                <Column key={metric} header={getMetricLabel(metric)} colSpan={periodCount} />
-              );
-            })}
-          </Row>
-          <Row>
-            {metricsWithData.map(metric => 
-              metricGroups[metric].map(period => (
-                <Column 
-                  key={`${period}_${metric}`}
-                  header={getTimePeriodLabel(period, breakdownType)}
-                  sortable
-                  field={`${period}_${metric}`}
-                />
-              ))
-            )}
-          </Row>
-        </ColumnGroup>
-      );
-    } else {
-      // Sub-columns mode: time periods first, then metrics
-      return (
-        <ColumnGroup>
-          <Row>
-            <Column header="" rowSpan={3} style={{ width: '3rem' }} />
-            <Column header={formatHeaderName(outerGroupField)} rowSpan={3} />
-            {totalDataCols > 0 && (
-              <Column 
-                header="" 
-                colSpan={totalDataCols} 
-              />
-            )}
-          </Row>
-          <Row>
-            {timePeriodsWithData.map(period => {
-              const metricCount = periodGroups[period].length;
-              return (
-                <Column 
-                  key={period} 
-                  header={getTimePeriodLabel(period, breakdownType)} 
-                  colSpan={metricCount} 
-                />
-              );
-            })}
-          </Row>
-          <Row>
-            {timePeriodsWithData.map(period => 
-              periodGroups[period].map(metric => (
-                <Column 
-                  key={`${period}_${metric}`}
-                  header={getMetricLabel(metric)}
-                  sortable
-                  field={`${period}_${metric}`}
-                />
-              ))
-            )}
-          </Row>
-        </ColumnGroup>
-      );
-    }
+    return generateReportHeaderGroup(reportColumnsStructure, reportData, outerGroupField, formatHeaderName);
   }, [reportColumnsStructure, reportData, outerGroupField, formatHeaderName]);
 
   // Report mode: Generate report columns
@@ -1198,19 +1039,16 @@ export default function DataTableNew({
     if (!reportColumnsStructure) {
       return [];
     }
-
-    const cols = [outerGroupField];
-    cols.push(...reportColumnsStructure.columnNames);
-    return cols;
+    return getReportColumns(reportColumnsStructure, outerGroupField);
   }, [reportColumnsStructure, outerGroupField]);
 
   // Use report columns when in report mode, otherwise use orderedColumns
   const displayColumns = useMemo(() => {
-    if (enableReport && reportColumns.length > 0) {
+    if (enableBreakdown && reportColumns.length > 0) {
       return reportColumns;
     }
     return orderedColumns;
-  }, [enableReport, reportColumns, orderedColumns]);
+  }, [enableBreakdown, reportColumns, orderedColumns]);
 
   const frozenCols = useMemo(
     () => {
@@ -1950,13 +1788,13 @@ export default function DataTableNew({
 
   // Check if a row can be expanded
   const allowExpansion = useCallback((rowData) => {
-    if (enableReport && reportData && innerGroupField) {
+    if (enableBreakdown && reportData && innerGroupField) {
       const outerValue = getDataValue(rowData, outerGroupField);
       const nestedRows = reportData.nestedTableData[outerValue];
       return nestedRows && nestedRows.length > 0;
     }
     return outerGroupField && rowData.__isGroupRow__ && rowData.__groupRows__ && rowData.__groupRows__.length > 0;
-  }, [outerGroupField, enableReport, reportData, innerGroupField]);
+  }, [outerGroupField, enableBreakdown, reportData, innerGroupField]);
 
   // Nested (expanded) tables: keep independent filter state and debounce timers per group
   const [nestedFiltersMap, setNestedFiltersMap] = useState({});
@@ -2225,13 +2063,38 @@ export default function DataTableNew({
 
   // Pre-compute nested table column structures per outer group
   const nestedTableColumnStructures = useMemo(() => {
-    if (!enableReport || !reportData || !reportData.nestedTableData) {
+    if (!enableBreakdown || !reportData || !reportData.nestedTableData) {
       return {};
     }
 
-    const { timePeriods, metrics } = reportData;
+    const { timePeriods: rawTimePeriods, metrics, breakdownType } = reportData;
     const structures = {};
-    const isMergedMode = columnGroupBy === 'values';
+    const isMergedMode = columnGroupBy === 'values' || columnGroupBy === 'period-over-period';
+    const isPeriodOverPeriod = columnGroupBy === 'period-over-period';
+    
+    // Reorganize periods for Period-over-Period mode
+    let timePeriods = rawTimePeriods;
+    if (isPeriodOverPeriod) {
+      // Get periods that actually have data in nested tables
+      const periodsWithData = new Set();
+      Object.values(reportData.nestedTableData).forEach(nestedRows => {
+        if (nestedRows && nestedRows.length > 0) {
+          nestedRows.forEach(row => {
+            rawTimePeriods.forEach(period => {
+              metrics.forEach(metric => {
+                const columnName = `${period}_${metric}`;
+                const value = row[columnName];
+                if (value !== null && value !== undefined) {
+                  periodsWithData.add(period);
+                }
+              });
+            });
+          });
+        }
+      });
+      const periodsArray = Array.from(periodsWithData).sort();
+      timePeriods = reorganizePeriodsForPeriodOverPeriod(periodsArray, breakdownType);
+    }
     
     Object.entries(reportData.nestedTableData).forEach(([outerValue, nestedRows]) => {
       if (!nestedRows || nestedRows.length === 0) {
@@ -2256,7 +2119,7 @@ export default function DataTableNew({
       // Build columns with data - order depends on mode
       const columnsWithData = [];
       if (isMergedMode) {
-        // Merged mode: metrics first, then time periods
+        // Merged mode or Period-over-Period: metrics first, then time periods
         metrics.forEach(metric => {
           timePeriods.forEach(period => {
             const columnName = `${period}_${metric}`;
@@ -2277,7 +2140,7 @@ export default function DataTableNew({
         });
       }
       
-      // Group by metric for header colSpan calculation (merged mode)
+      // Group by metric for header colSpan calculation (merged mode and period-over-period)
       const metricGroups = {};
       columnsWithData.forEach(({ metric, period }) => {
         if (!metricGroups[metric]) {
@@ -2302,16 +2165,17 @@ export default function DataTableNew({
         metricsWithData: Object.keys(metricGroups),
         timePeriodsWithData: Object.keys(periodGroups).sort(),
         columnNames: columnsWithData.map(c => c.columnName),
-        isMergedMode
+        isMergedMode,
+        isPeriodOverPeriod
       };
     });
     
     return structures;
-  }, [enableReport, reportData, columnGroupBy]);
+  }, [enableBreakdown, reportData, columnGroupBy]);
 
   // Report mode: Row expansion template for inner group breakdown
   const reportRowExpansionTemplate = useCallback((rowData) => {
-    if (!enableReport || !reportData || !innerGroupField) {
+    if (!enableBreakdown || !reportData || !innerGroupField) {
       return null;
     }
 
@@ -2331,10 +2195,11 @@ export default function DataTableNew({
     const { breakdownType } = reportData;
     const { columnsWithData, metricGroups, periodGroups, metricsWithData, timePeriodsWithData, isMergedMode } = structure;
     const totalDataCols = columnsWithData.length;
+    const isPeriodOverPeriod = columnGroupBy === 'period-over-period';
 
     // Generate nested header group matching the filtered columns and mode
     const nestedHeaderGroup = isMergedMode ? (
-      // Merged mode: metrics first, then time periods
+      // Merged mode or Period-over-Period: metrics first, then time periods
       <ColumnGroup>
         <Row>
           <Column header={formatHeaderName(innerGroupField)} rowSpan={3} />
@@ -2358,7 +2223,7 @@ export default function DataTableNew({
             metricGroups[metric].map(period => (
               <Column 
                 key={`${period}_${metric}`}
-                header={getTimePeriodLabel(period, breakdownType)}
+                header={getTimePeriodLabelShort(period, breakdownType)}
                 sortable
                 field={`${period}_${metric}`}
               />
@@ -2384,7 +2249,7 @@ export default function DataTableNew({
             return (
               <Column 
                 key={period} 
-                header={getTimePeriodLabel(period, breakdownType)} 
+                header={getTimePeriodLabelShort(period, breakdownType)} 
                 colSpan={metricCount} 
               />
             );
@@ -2431,17 +2296,22 @@ export default function DataTableNew({
           {formatHeaderName(innerGroupField)} Breakdown for {getDataValue(rowData, outerGroupField)}
         </h5>
         <DataTable 
-          value={nestedRows} 
+          value={nestedRows.map((row, index) => ({
+            ...row,
+            // Ensure each row has a unique identifier for React keys
+            __rowIndex__: index,
+            __uniqueId__: row.id ?? row.__groupKey__ ?? (innerGroupField && row[innerGroupField] ? `${row[innerGroupField]}_${index}` : `row_${index}`)
+          }))} 
           headerColumnGroup={nestedHeaderGroup}
           tableStyle={{ minWidth: '50rem' }}
           size="small"
-          dataKey="id"
+          dataKey="__uniqueId__"
         >
           {nestedColumns}
         </DataTable>
       </div>
     );
-  }, [enableReport, reportData, nestedTableColumnStructures, outerGroupField, innerGroupField, formatHeaderName, getMetricLabel]);
+  }, [enableBreakdown, reportData, nestedTableColumnStructures, outerGroupField, innerGroupField, formatHeaderName, getMetricLabel]);
 
   const onPageChange = (event) => {
     updatePagination(event.first, event.rows);
@@ -2631,12 +2501,12 @@ export default function DataTableNew({
         filterDisplay={enableFilter ? "row" : undefined}
         expandedRows={expandedRows}
         onRowToggle={(e) => updateExpandedRows(e.data)}
-        rowExpansionTemplate={enableReport && innerGroupField ? reportRowExpansionTemplate : (outerGroupField ? rowExpansionTemplate : undefined)}
-        dataKey={enableReport ? "id" : (outerGroupField ? "__groupKey__" : undefined)}
-        headerColumnGroup={enableReport ? reportHeaderGroup : undefined}
+        rowExpansionTemplate={enableBreakdown && innerGroupField ? reportRowExpansionTemplate : (outerGroupField ? rowExpansionTemplate : undefined)}
+        dataKey={enableBreakdown && reportData ? "id" : (outerGroupField ? "__groupKey__" : undefined)}
+        headerColumnGroup={enableBreakdown && reportData ? reportHeaderGroup : undefined}
         editMode={enableCellEdit ? "cell" : undefined}
       >
-        {(outerGroupField || (enableReport && innerGroupField)) && (
+        {(outerGroupField || (enableBreakdown && innerGroupField)) && (
           <Column
             expander={allowExpansion}
             style={{ width: '3rem' }}
@@ -2648,7 +2518,7 @@ export default function DataTableNew({
           const isNumericCol = isPctCol || get(colType, 'isNumeric', false);
           const isFirstColumn = index === 0;
           // In report mode, time period columns are always numeric
-          const isReportCol = enableReport && reportData && reportData.metrics.some(m => col.includes(`_${m}`));
+          const isReportCol = enableBreakdown && reportData && reportData.metrics.some(m => col.includes(`_${m}`));
           const isReportNumeric = isReportCol || isNumericCol;
           return (
             <Column
@@ -2683,7 +2553,7 @@ export default function DataTableNew({
           const colType = get(columnTypesFlags, col);
           const isNumericCol = isPctCol || get(colType, 'isNumeric', false);
           // In report mode, time period columns are always numeric
-          const isReportCol = enableReport && reportData && reportData.metrics.some(m => col.includes(`_${m}`));
+          const isReportCol = enableBreakdown && reportData && reportData.metrics.some(m => col.includes(`_${m}`));
           const isReportNumeric = isReportCol || isNumericCol;
           return (
             <Column
@@ -2767,6 +2637,29 @@ export default function DataTableNew({
   };
 
   if (isEmpty(safeData)) {
+    // Show loading state if any loading is in progress, otherwise show empty state
+    if (isLoading) {
+      return (
+        <div className="bg-white border border-gray-200 rounded-lg p-8 text-center relative" style={{ minHeight: '400px' }}>
+          <div className="flex flex-col items-center justify-center h-full">
+            {isComputingReport ? (
+              <>
+                <i className="pi pi-spin pi-spinner text-4xl text-blue-500 mb-4"></i>
+                <p className="text-gray-600 font-medium">{loadingText}</p>
+                <p className="text-sm text-gray-500 mt-1">Please wait while we process your data</p>
+              </>
+            ) : (
+              <>
+                <div className="mb-4">
+                  <div className="inline-block animate-spin rounded-full h-8 w-8 border-2 border-gray-200 border-t-blue-600"></div>
+                </div>
+                <p className="text-sm text-gray-500">{loadingText}</p>
+              </>
+            )}
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="bg-white border border-gray-200 rounded-lg p-8 text-center">
         <i className="pi pi-inbox text-4xl text-gray-400 mb-4"></i>
@@ -2777,7 +2670,17 @@ export default function DataTableNew({
   }
 
   return (
-    <div className="w-full">
+    <div className="w-full relative">
+      {isLoading && (
+        <div className="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center z-10 rounded-lg">
+          <div className="flex flex-col items-center justify-center">
+            <div className="mb-4">
+              <div className="inline-block animate-spin rounded-full h-8 w-8 border-2 border-gray-200 border-t-blue-600"></div>
+            </div>
+            <p className="text-sm text-gray-500">{loadingText}</p>
+          </div>
+        </div>
+      )}
       <FeatureStatusIndicators />
       <TableControls showFullscreenButton={true} enableFullscreenDialog={enableFullscreenDialog} />
       <FilterChips />

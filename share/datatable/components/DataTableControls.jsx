@@ -308,6 +308,25 @@ function ArrayVariableInput({ varName, defaultValue, currentValue, onVariableCha
   );
 }
 
+function ChartColumnsPicker({ columns, selectedColumns, onSelectionChange, formatFieldName }) {
+  if (isEmpty(columns)) {
+    return (
+      <div className="text-xs text-gray-500 p-2 bg-gray-50 rounded">
+        No columns available.
+      </div>
+    );
+  }
+
+  return (
+    <FieldPicker
+      columns={columns}
+      selectedFields={selectedColumns}
+      onSelectionChange={onSelectionChange}
+      formatFieldName={formatFieldName}
+    />
+  );
+}
+
 function FieldPicker({ columns, selectedFields, onSelectionChange, formatFieldName }) {
   const containerRef = React.useRef(null);
   const multiselectRef = React.useRef(null);
@@ -498,9 +517,15 @@ export default function DataTableControls({
   enableReport = defaultDataTableConfig.enableReport,
   dateColumn = defaultDataTableConfig.dateColumn,
   breakdownType = defaultDataTableConfig.breakdownType,
+  showChart = true,
+  chartColumns = [],
+  chartHeight = 400,
   onEnableReportChange,
   onDateColumnChange,
   onBreakdownTypeChange,
+  onShowChartChange,
+  onChartColumnsChange,
+  onChartHeightChange,
   // Data Source and Query Key props
   selectedQueryKey = null,
   availableQueryKeys = [],
@@ -1299,30 +1324,83 @@ export default function DataTableControls({
                         placeholder="Select date column..."
                       />
                     </div>
-                    {dateColumn && (
+                    {dateColumn && onBreakdownTypeChange && (
                       <div className="mb-4">
                         <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Breakdown By
+                          Breakdown Type
                         </label>
                         <p className="text-xs text-gray-500 mb-2">
-                          Select how to break down data by time periods
+                          Select the breakdown type for time-based grouping
                         </p>
                         <Dropdown
                           value={breakdownType}
                           onChange={(e) => onBreakdownTypeChange && onBreakdownTypeChange(e.value)}
                           options={[
-                            { label: 'Day-wise', value: 'day' },
-                            { label: 'Week-wise', value: 'week' },
-                            { label: 'Month-wise', value: 'month' },
-                            { label: 'Quarter-wise', value: 'quarter' },
-                            { label: 'Year-wise', value: 'annual' },
-                            { label: 'Month on Month', value: 'month-on-month' },
-                            { label: 'Quarter on Quarter', value: 'quarter-on-quarter' }
+                            { label: 'Day', value: 'day' },
+                            { label: 'Week', value: 'week' },
+                            { label: 'Month', value: 'month' },
+                            { label: 'Quarter', value: 'quarter' },
+                            { label: 'Annual', value: 'annual' }
                           ]}
                           optionLabel="label"
                           optionValue="value"
-                          className="w-full"
                           placeholder="Select breakdown type..."
+                          className="w-full"
+                        />
+                      </div>
+                    )}
+                    {onShowChartChange && (
+                      <div className="mb-4">
+                        <ToggleSwitch
+                          checked={showChart}
+                          onChange={onShowChartChange}
+                          label="Show Chart"
+                          icon="pi pi-chart-line"
+                          isLast={false}
+                        />
+                        <p className="text-xs text-gray-500 mt-1">
+                          Display line chart above the data table in report mode
+                        </p>
+                      </div>
+                    )}
+                    {showChart && onChartColumnsChange && !isEmpty(columns) && (
+                      <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          <i className="pi pi-chart-line mr-2"></i>
+                          Chart Columns
+                        </label>
+                        <p className="text-xs text-gray-500 mb-2">
+                          Select columns to display in the chart (empty = show all)
+                        </p>
+                        <ChartColumnsPicker
+                          columns={columns}
+                          selectedColumns={chartColumns}
+                          onSelectionChange={onChartColumnsChange}
+                          formatFieldName={formatFieldName}
+                        />
+                      </div>
+                    )}
+                    {showChart && onChartHeightChange && (
+                      <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Chart Height
+                        </label>
+                        <p className="text-xs text-gray-500 mb-2">
+                          Set the height of the chart in pixels
+                        </p>
+                        <input
+                          type="number"
+                          value={chartHeight || 400}
+                          onChange={(e) => {
+                            const value = parseInt(e.target.value, 10);
+                            if (!isNaN(value) && value > 0) {
+                              onChartHeightChange(value);
+                            }
+                          }}
+                          min="100"
+                          max="1000"
+                          step="50"
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         />
                       </div>
                     )}

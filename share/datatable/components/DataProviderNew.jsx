@@ -5,7 +5,7 @@ import { getEndpointConfigFromUrlKey, getInitialEndpoint } from '@/app/graphql-p
 import { firestoreService } from '@/app/graphql-playground/services/firestoreService';
 import { createExecutionContext } from '@/app/graphql-playground/utils/query-pipeline';
 import { parseGraphQLVariables } from '@/app/graphql-playground/utils/variableParser';
-import MonthRangePicker from '@/components/MonthRangePicker';
+import RangePicker from '@/components/RangePicker';
 import { DataProvider as PlasmicDataProvider } from "@plasmicapp/loader-nextjs";
 import { Switch } from 'antd';
 import * as Comlink from 'comlink';
@@ -38,17 +38,19 @@ import {
 } from 'lodash';
 import { Button } from 'primereact/button';
 import { Dropdown } from 'primereact/dropdown';
-import { InputText } from 'primereact/inputtext';
-import { OverlayPanel } from 'primereact/overlaypanel';
 import { Sidebar } from 'primereact/sidebar';
+import { SplitButton } from 'primereact/splitbutton';
 import { TabPanel, TabView } from 'primereact/tabview';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useDeferredValue, startTransition } from 'react';
 import * as XLSX from 'xlsx';
 import { TableOperationsContext } from '../contexts/TableOperationsContext';
+import FilterSortSidebar from '../filter-sort/components/FilterSortSidebar';
 import { getDataKeys, getDataValue, getNestedValue } from '../utils/dataAccessUtils';
 import { transformToReportData } from '../utils/reportUtils';
+import { useReportData } from '../utils/providerUtils';
+import { exportReportToXLSX } from '../utils/reportExportUtils';
 import DataTableComponent from './DataTableOld';
-import MultiselectFilter from './MultiselectFilter';
+import ReportLineChart from './ReportLineChart';
 
 
 /**
@@ -565,6 +567,8 @@ export default function DataProviderNew({
   onBreakdownTypeChange,
   enableBreakdown = false,
   onEnableBreakdownChange,
+  chartColumns = [],
+  chartHeight = 400,
   children
 }) {
   const [dataSource, setDataSource] = useState(dataSourceProp);
@@ -589,11 +593,11 @@ export default function DataProviderNew({
   const [queryVariables, setQueryVariables] = useState({}); // Variables from the saved query
   const [currentQueryDoc, setCurrentQueryDoc] = useState(null); // Current query document
   const [lastUpdatedAt, setLastUpdatedAt] = useState(null); // Last updated timestamp string from IndexedDB
-  const [selectedSalesTeams, setSelectedSalesTeams] = useState([]); // Selected Sales Teams for filter
-  const [selectedHqTeams, setSelectedHqTeams] = useState([]); // Selected HQ Teams for filter
+  const [preFilterValues, setPreFilterValues] = useState({}); // Unified pre-filter values: { fieldKey: [selectedValues] }
+  const [filterSortSidebarVisible, setFilterSortSidebarVisible] = useState(false); // Filter and Sort sidebar visibility
   const [searchTerm, setSearchTerm] = useState(''); // Global search input value (applied)
-  const [searchInputValue, setSearchInputValue] = useState(''); // Local input value (not applied until Enter/button)
   const [sortConfig, setSortConfig] = useState(null); // {field: "topLevelKey.nestedPath", direction: "asc" | "desc"}
+  const [isApplyingFilterSort, setIsApplyingFilterSort] = useState(false); // Loading state for filter/sort operations
   const [columnGroupBy, setColumnGroupBy] = useState('values'); // Column grouping mode: 'values' or dateColumn
   const queryVariablesRef = useRef({}); // Ref to track variables immediately (for synchronous access)
   const executingQueryIdRef = useRef(null); // Track which query is currently executing to prevent duplicates
@@ -952,8 +956,6 @@ export default function DataProviderNew({
       setQueryVariables({});
       setCurrentQueryDoc(null);
       setOfflineDataExecuted(false); // Reset offline execution state
-      setSelectedSalesTeams([]); // Reset Sales Teams selection
-      setSelectedHqTeams([]); // Reset HQ Teams selection
       // Reset execution context when switching to offline
       executionContextRef.current = createExecutionContext();
       // Notify parent that variables changed
@@ -971,9 +973,6 @@ export default function DataProviderNew({
         });
       }
     } else if (dataSource && dataSource !== 'offline' && dataSource !== 'test') {
-      // Reset Search Teams selection when switching data sources
-      setSelectedSalesTeams([]);
-      setSelectedHqTeams([]);
       // Mark initial load as in progress
       isInitialLoadRef.current = true;
       // Load query metadata and auto-execute
@@ -1443,7 +1442,7 @@ export default function DataProviderNew({
   }, [monthRange, checkIndexedDBAndLoadData]); // Include checkIndexedDBAndLoadData in deps
 
 
-  // Format date to "10 Jan 26 11:05 AM" format
+  // Format date to "10 Jan 26 23:05" format (24-hour clock)
   const formatLastUpdatedDate = (dateString) => {
     if (!dateString) return null;
 
@@ -1456,8 +1455,8 @@ export default function DataProviderNew({
         return dateString; // Return original if can't parse
       }
 
-      // Format to "10 Jan 26 11:05 AM" (MMM already returns capitalized month by default)
-      return parsedDate.format('D MMM YY h:mm A');
+      // Format to "10 Jan 26 23:05" (24-hour format, no AM/PM)
+      return parsedDate.format('D MMM YY HH:mm');
     } catch (error) {
       console.error('Error formatting date:', error);
       return dateString; // Return original on error
@@ -2012,114 +2011,74 @@ export default function DataProviderNew({
     return filteredData;
   }, [rawTableData, isAdminMode, salesTeamColumn, salesTeamValues, hqColumn, hqValues]);
 
-  // Extract available Sales Team values from auth-filtered data
-  const availableSalesTeamValues = useMemo(() => {
-    if (!authFilteredData || !Array.isArray(authFilteredData) || isEmpty(authFilteredData)) {
-      return [];
-    }
-
-    if (!salesTeamColumn) {
-      return [];
-    }
-
-    const salesTeamValuesSet = new Set();
-    authFilteredData.forEach(row => {
-      if (row && typeof row === 'object') {
-        const value = getDataValue(row, salesTeamColumn);
-        if (!isNil(value) && value !== '') {
-          salesTeamValuesSet.add(String(value));
-        }
+  // Pre-compute filter Sets for O(1) lookups (memoized separately for performance)
+  const preFilterSets = useMemo(() => {
+    const sets = {};
+    Object.keys(preFilterValues).forEach(fieldKey => {
+      const values = preFilterValues[fieldKey];
+      if (Array.isArray(values) && values.length > 0) {
+        // Convert to Set for O(1) lookup, normalize strings for comparison
+        sets[fieldKey] = new Set(values.map(v => String(v)));
       }
     });
+    return sets;
+  }, [preFilterValues]);
 
-    return Array.from(salesTeamValuesSet).sort();
-  }, [authFilteredData, salesTeamColumn]);
-
-  // Extract available HQ values from auth-filtered data
-  const availableHqValues = useMemo(() => {
-    if (!authFilteredData || !Array.isArray(authFilteredData) || isEmpty(authFilteredData)) {
-      return [];
-    }
-
-    if (!hqColumn) {
-      return [];
-    }
-
-    const hqValuesSet = new Set();
-    authFilteredData.forEach(row => {
-      if (row && typeof row === 'object') {
-        const value = getDataValue(row, hqColumn);
-        if (!isNil(value) && value !== '') {
-          hqValuesSet.add(String(value));
-        }
-      }
-    });
-
-    return Array.from(hqValuesSet).sort();
-  }, [authFilteredData, hqColumn]);
-
-  // Reset selectedSalesTeams when auth filters change significantly (to avoid stale selections)
-  useEffect(() => {
-    if (selectedSalesTeams && selectedSalesTeams.length > 0 && availableSalesTeamValues.length > 0) {
-      const availableValues = new Set(availableSalesTeamValues);
-      const hasInvalidSelection = selectedSalesTeams.some(team => !availableValues.has(team));
-      if (hasInvalidSelection) {
-        const validTeams = selectedSalesTeams.filter(team => availableValues.has(team));
-        setSelectedSalesTeams(validTeams);
-      }
-    } else if (selectedSalesTeams && selectedSalesTeams.length > 0 && availableSalesTeamValues.length === 0) {
-      setSelectedSalesTeams([]);
-    }
-  }, [availableSalesTeamValues, salesTeamColumn]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Reset selectedHqTeams when auth filters change significantly (to avoid stale selections)
-  useEffect(() => {
-    if (selectedHqTeams && selectedHqTeams.length > 0 && availableHqValues.length > 0) {
-      const availableValues = new Set(availableHqValues);
-      const hasInvalidSelection = selectedHqTeams.some(team => !availableValues.has(team));
-      if (hasInvalidSelection) {
-        const validTeams = selectedHqTeams.filter(team => availableValues.has(team));
-        setSelectedHqTeams(validTeams);
-      }
-    } else if (selectedHqTeams && selectedHqTeams.length > 0 && availableHqValues.length === 0) {
-      setSelectedHqTeams([]);
-    }
-  }, [availableHqValues, hqColumn]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Apply Sales Team and HQ filters to auth-filtered data
-  const tableData = useMemo(() => {
+  // Optimized pre-filter application - applies all pre-filters from preFilterValues
+  const preFilteredData = useMemo(() => {
+    // Early returns for performance
     if (!authFilteredData || !Array.isArray(authFilteredData) || isEmpty(authFilteredData)) {
       return authFilteredData;
     }
 
-    let filteredData = [...authFilteredData];
-
-    // Filter by selected Sales Teams
-    if (selectedSalesTeams && selectedSalesTeams.length > 0 && salesTeamColumn) {
-      filteredData = filteredData.filter(row => {
-        if (!row || typeof row !== 'object') return false;
-        const salesTeamValue = getDataValue(row, salesTeamColumn);
-        if (isNil(salesTeamValue)) {
-          return selectedSalesTeams.some(team => team === null || team === undefined || team === '');
-        }
-        return selectedSalesTeams.some(team => String(team) === String(salesTeamValue));
-      });
+    if (isEmpty(preFilterValues) || Object.keys(preFilterSets).length === 0) {
+      return authFilteredData;
     }
 
-    // Filter by selected HQ Teams
-    if (selectedHqTeams && selectedHqTeams.length > 0 && hqColumn) {
-      filteredData = filteredData.filter(row => {
-        if (!row || typeof row !== 'object') return false;
-        const hqValue = getDataValue(row, hqColumn);
-        if (isNil(hqValue)) {
-          return selectedHqTeams.some(team => team === null || team === undefined || team === '');
-        }
-        return selectedHqTeams.some(team => String(team) === String(hqValue));
-      });
-    }
+    // Single pass filtering with Set lookups
+    const filterKeys = Object.keys(preFilterSets);
+    if (filterKeys.length === 0) return authFilteredData;
 
-    return filteredData;
-  }, [authFilteredData, selectedSalesTeams, selectedHqTeams, salesTeamColumn, hqColumn]);
+    return filter(authFilteredData, (row) => {
+      // Fast null check
+      if (!row || typeof row !== 'object') return false;
+
+      // Check all filters with early exit
+      for (let i = 0; i < filterKeys.length; i++) {
+        const fieldKey = filterKeys[i];
+        const filterSet = preFilterSets[fieldKey];
+
+        // Skip if no filter set (shouldn't happen, but safety check)
+        if (!filterSet || filterSet.size === 0) continue;
+
+        // Extract cell value once
+        const cellValue = getDataValue(row, fieldKey);
+
+        // For pre-filters, use string comparison (sidebar only supports string multi-select for now)
+        // Convert to string for comparison
+        const cellStr = isNil(cellValue) ? null : String(cellValue);
+
+        // Check null/undefined handling
+        if (cellStr === null) {
+          if (!filterSet.has('null') && !filterSet.has('') && !filterSet.has('undefined')) {
+            return false; // Early exit if null not in filter
+          }
+          continue; // Null matches, check next filter
+        }
+
+        // O(1) Set lookup instead of O(n) array.includes()
+        if (!filterSet.has(cellStr)) {
+          return false; // Early exit on first mismatch
+        }
+      }
+
+      // All filters passed
+      return true;
+    });
+  }, [authFilteredData, preFilterSets]);
+
+  // tableData is now preFilteredData (pre-filters applied)
+  const tableData = preFilteredData;
 
   // Debug: Print searchFields and sortFields for selected queryId
   useEffect(() => {
@@ -2136,24 +2095,17 @@ export default function DataProviderNew({
     }
   }, [dataSource, currentQueryDoc]);
 
-  // Sync searchInputValue with searchTerm when searchTerm is cleared externally
-  useEffect(() => {
-    if (!searchTerm) {
-      setSearchInputValue('');
-    }
-  }, [searchTerm]);
-
-  // Reset search and sort when query changes
+  // Reset search, sort, and pre-filters when query changes
   useEffect(() => {
     setSearchTerm('');
-    setSearchInputValue('');
     setSortConfig(null);
+    setPreFilterValues({});
   }, [dataSource]);
 
   // Pre-compute search index: Map<rowIndex, Set<lowercasedSearchableValues>>
   // This allows O(1) lookup instead of O(m*k) per row during search
   const searchIndex = useMemo(() => {
-    if (!tableData || !Array.isArray(tableData) || isEmpty(tableData)) {
+    if (!preFilteredData || !Array.isArray(preFilteredData) || isEmpty(preFilteredData)) {
       return null;
     }
 
@@ -2166,7 +2118,7 @@ export default function DataProviderNew({
     const index = new Map();
 
     // Pre-extract all searchable values for each row
-    tableData.forEach((row, rowIndex) => {
+    preFilteredData.forEach((row, rowIndex) => {
       const searchableValues = new Set();
 
       // Extract values from all search fields
@@ -2190,25 +2142,25 @@ export default function DataProviderNew({
     });
 
     return index;
-  }, [tableData, currentQueryDoc?.searchFields, currentQueryDoc?.clientSave]);
+  }, [preFilteredData, currentQueryDoc?.searchFields, currentQueryDoc?.clientSave]);
 
-  // Apply search filter after auth filters (only when clientSave is true)
+  // Apply search filter after pre-filters (only when clientSave is true)
   // Optimized to use pre-computed searchIndex for O(n) instead of O(n*m*k)
   const searchedData = useMemo(() => {
-    if (!tableData || !Array.isArray(tableData) || isEmpty(tableData)) {
-      return tableData;
+    if (!preFilteredData || !Array.isArray(preFilteredData) || isEmpty(preFilteredData)) {
+      return preFilteredData;
     }
 
     // Only apply search if clientSave is true and searchFields exist
     const queryDoc = currentQueryDoc;
     if (!queryDoc || queryDoc.clientSave !== true || !queryDoc.searchFields || !searchTerm || !searchTerm.trim()) {
-      return tableData;
+      return preFilteredData;
     }
 
     // Use pre-computed search index if available
     if (searchIndex) {
       const searchLower = searchTerm.toLowerCase().trim();
-      const filtered = tableData.filter((row, rowIndex) => {
+      const filtered = preFilteredData.filter((row, rowIndex) => {
         const searchableValues = searchIndex.get(rowIndex);
         if (!searchableValues) return false;
 
@@ -2223,7 +2175,7 @@ export default function DataProviderNew({
     const searchFieldsObj = queryDoc.searchFields;
     const searchLower = searchTerm.toLowerCase().trim();
 
-    const filtered = tableData.filter((row) => {
+    const filtered = preFilteredData.filter((row) => {
       return Object.keys(searchFieldsObj).some(topLevelKey => {
         const nestedPaths = searchFieldsObj[topLevelKey];
         if (!Array.isArray(nestedPaths) || nestedPaths.length === 0) return false;
@@ -2276,6 +2228,37 @@ export default function DataProviderNew({
 
     return cache;
   }, [searchedData, currentQueryDoc?.sortFields, currentQueryDoc?.clientSave, sortConfig, columnTypesOverride]);
+
+  // Helper function to apply sortConfig sorting to any data array
+  // Returns a comparator function that can be used with Array.sort()
+  const getSortComparator = useCallback((sortConfig, fieldType, topLevelKey, nestedPath) => {
+    if (!sortConfig) return null;
+
+    const { field, direction } = sortConfig;
+    return (a, b) => {
+      const aValue = getNestedValue(a, topLevelKey, nestedPath);
+      const bValue = getNestedValue(b, topLevelKey, nestedPath);
+
+      let comparison = 0;
+      switch (fieldType) {
+        case 'number':
+          comparison = (toNumber(aValue) || 0) - (toNumber(bValue) || 0);
+          break;
+        case 'date':
+          const aDate = parseToDate(aValue);
+          const bDate = parseToDate(bValue);
+          comparison = (aDate?.getTime() || 0) - (bDate?.getTime() || 0);
+          break;
+        case 'boolean':
+          comparison = (aValue ? 1 : 0) - (bValue ? 1 : 0);
+          break;
+        default: // string
+          comparison = String(aValue || '').localeCompare(String(bValue || ''));
+      }
+
+      return direction === 'asc' ? comparison : -comparison;
+    };
+  }, []);
 
   // Apply sort after search (only when clientSave is true)
   // Optimized to use pre-computed sortValueCache for O(n log n) instead of O(n log n * d)
@@ -2378,6 +2361,12 @@ export default function DataProviderNew({
   const [tableExpandedRows, setTableExpandedRows] = useState(null);
   const [tableVisibleColumns, setTableVisibleColumns] = useState(visibleColumns || []);
 
+  // Filter/Sort worker state (declared early for use in useMemo hooks)
+  const filterSortWorkerRef = useRef(null);
+  const filterSortWorkerInstanceRef = useRef(null);
+  const filterSortComputationIdRef = useRef(0);
+  const [workerComputedData, setWorkerComputedData] = useState(null);
+
   // Drawer state
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [drawerData, setDrawerData] = useState([]);
@@ -2420,6 +2409,117 @@ export default function DataProviderNew({
       await runQuery(dataSource, true);
     }
   }, [dataSource, hasMonthSupport, monthRange, currentQueryDoc, checkIndexedDBAndLoadData, runQuery]);
+
+  // Handle clearing cached data for a specific month range (or all data for non-month queries) and syncing
+  const handleClearMonthRangeCache = useCallback(async () => {
+    if (!dataSource || dataSource === 'offline' || dataSource === 'test') return;
+    if (!currentQueryDoc || currentQueryDoc.clientSave !== true) return;
+
+    try {
+      const queryId = dataSource;
+      const isMonthQuery = currentQueryDoc.month === true;
+
+      // Get the query database
+      const queryDb = await indexedDBService.getQueryDatabase(queryId, currentQueryDoc);
+      const existingStores = queryDb.tables.map((table) => table.name);
+
+      if (isMonthQuery) {
+        // For month queries: clear stores for the selected month range
+        if (!monthRange || !Array.isArray(monthRange) || monthRange.length !== 2) {
+          return;
+        }
+
+        const [startDate, endDate] = monthRange;
+
+        // Generate month prefixes for the range
+        const monthPrefixes = generateMonthRangeArray(startDate, endDate);
+
+        if (monthPrefixes.length === 0) {
+          return;
+        }
+
+        // Clear all stores that match the month prefixes
+        for (const prefix of monthPrefixes) {
+          // Find all stores that start with this prefix
+          const matchingStores = existingStores.filter(storeName =>
+            storeName.startsWith(`${prefix}_`)
+          );
+
+          // Clear each matching store
+          for (const storeName of matchingStores) {
+            try {
+              await queryDb.table(storeName).clear();
+            } catch (error) {
+              console.error(`Error clearing store "${storeName}" for queryId ${queryId}:`, error);
+            }
+          }
+        }
+
+        // Also clear the index entries for the selected months
+        try {
+          const indexResult = await indexedDBService.getQueryIndexResult(queryId);
+          if (indexResult && indexResult.result) {
+            const indexData = indexResult.result;
+
+            // Check if index is an object with month keys (month query structure)
+            if (typeof indexData === 'object' && !Array.isArray(indexData) && indexData !== null) {
+              // Remove the selected month keys from the index
+              const updatedIndex = { ...indexData };
+              let hasChanges = false;
+
+              for (const prefix of monthPrefixes) {
+                if (prefix in updatedIndex) {
+                  delete updatedIndex[prefix];
+                  hasChanges = true;
+                }
+              }
+
+              // If there are remaining months, save the updated index
+              // If no months left, clear the entire index entry
+              if (hasChanges) {
+                const remainingKeys = Object.keys(updatedIndex);
+                if (remainingKeys.length > 0) {
+                  // Save updated index with remaining months
+                  await indexedDBService.saveQueryIndexResult(queryId, updatedIndex, currentQueryDoc);
+                } else {
+                  // No months left, clear the entire index
+                  await indexedDBService.clearQueryIndexResult(queryId);
+                }
+              }
+            }
+          }
+        } catch (indexError) {
+          console.error(`Error clearing index for queryId ${queryId}:`, indexError);
+        }
+      } else {
+        // For non-month queries: clear all stores (no month prefix)
+        for (const storeName of existingStores) {
+          // Only clear stores that don't have a month prefix (YYYY-MM_ format)
+          // Month prefix stores start with YYYY-MM_ (7 chars + underscore = 8 chars minimum)
+          const hasMonthPrefix = storeName.length >= 8 && /^\d{4}-\d{2}_/.test(storeName);
+          if (!hasMonthPrefix) {
+            try {
+              await queryDb.table(storeName).clear();
+            } catch (error) {
+              console.error(`Error clearing store "${storeName}" for queryId ${queryId}:`, error);
+            }
+          }
+        }
+
+        // Also clear the index entry for non-month queries
+        try {
+          await indexedDBService.clearQueryIndexResult(queryId);
+        } catch (indexError) {
+          console.error(`Error clearing index for queryId ${queryId}:`, indexError);
+        }
+      }
+
+      // After clearing, call sync to reload data
+      await handleSync();
+    } catch (error) {
+      console.error('Error clearing cache:', error);
+    }
+  }, [dataSource, monthRange, currentQueryDoc, handleSync]);
 
   // Column detection and type analysis (moved from DataTable)
   const columns = useMemo(() => {
@@ -2628,8 +2728,12 @@ export default function DataProviderNew({
     return values;
   }, [tableData, searchSortSortedData, multiselectColumns, tableFilters, columns, columnTypes, hasPercentageColumns, percentageColumnNames, isPercentageColumn, getPercentageColumnValue, enableFilter]);
 
-  // Filtered data computation
+  // Filtered data computation (use worker results if available)
   const filteredData = useMemo(() => {
+    // Use worker-computed data if available
+    if (workerComputedData?.filteredData) {
+      return workerComputedData.filteredData;
+    }
     // Use searchSortSortedData if available (it contains both search filtering and sort)
     // If searchSortSortedData exists, it means either:
     // 1. Search is active (searchedData was filtered) - use searchSortSortedData
@@ -2702,29 +2806,178 @@ export default function DataProviderNew({
       }
       return true;
     });
-  }, [searchSortSortedData, searchTerm, tableData, tableFilters, columns, columnTypes, multiselectColumns, hasPercentageColumns, percentageColumnNames, getPercentageColumnValue, enableFilter]);
+  }, [searchSortSortedData, searchTerm, tableData, tableFilters, columns, columnTypes, multiselectColumns, hasPercentageColumns, percentageColumnNames, getPercentageColumnValue, enableFilter, workerComputedData]);
 
-  // Report data computation (when enableReport is true)
-  const reportData = useMemo(() => {
-    if (!enableReport || !dateColumn || isEmpty(filteredData) || !outerGroupField) {
+  // Report data computation state (using Web Worker)
+  const reportWorkerRef = useRef(null);
+  const reportWorkerInstanceRef = useRef(null); // Store actual worker instance for cleanup
+
+  // Optimistic local state for immediate toggle response
+  const [localEnableBreakdown, setLocalEnableBreakdown] = useState(enableBreakdown);
+
+  // Sync local state with prop changes
+  useEffect(() => {
+    setLocalEnableBreakdown(enableBreakdown);
+  }, [enableBreakdown]);
+
+  // Initialize filter/sort worker
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof Worker === 'undefined') {
+      return;
+    }
+
+    const initializeFilterSortWorker = async () => {
+      try {
+        const worker = new Worker(new URL('../workers/filterSortWorker.js', import.meta.url), { type: 'module' });
+        filterSortWorkerInstanceRef.current = worker;
+        filterSortWorkerRef.current = Comlink.wrap(worker);
+      } catch (error) {
+        console.error('Failed to initialize filter/sort worker:', error);
+        filterSortWorkerRef.current = null;
+        filterSortWorkerInstanceRef.current = null;
+      }
+    };
+
+    initializeFilterSortWorker();
+
+    return () => {
+      if (filterSortWorkerInstanceRef.current) {
+        try {
+          filterSortWorkerInstanceRef.current.terminate();
+        } catch (error) {
+          // Ignore cleanup errors
+        }
+        filterSortWorkerInstanceRef.current = null;
+      }
+      filterSortWorkerRef.current = null;
+    };
+  }, []);
+
+  // Initialize report worker
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof Worker === 'undefined') {
+      return;
+    }
+
+    const initializeWorker = async () => {
+      try {
+        const worker = new Worker(new URL('../workers/reportWorker.js', import.meta.url), { type: 'module' });
+        reportWorkerInstanceRef.current = worker; // Store for cleanup
+        reportWorkerRef.current = Comlink.wrap(worker);
+      } catch (error) {
+        console.error('Failed to initialize report worker:', error);
+        reportWorkerRef.current = null;
+        reportWorkerInstanceRef.current = null;
+      }
+    };
+
+    initializeWorker();
+
+    return () => {
+      // Cleanup worker on unmount
+      if (reportWorkerInstanceRef.current) {
+        try {
+          reportWorkerInstanceRef.current.terminate();
+        } catch (error) {
+          // Ignore cleanup errors
+        }
+        reportWorkerInstanceRef.current = null;
+      }
+      reportWorkerRef.current = null;
+    };
+  }, []);
+
+  // Memoize sort field type to avoid expensive inferColumnType calls
+  const sortFieldType = useMemo(() => {
+    if (!sortConfig || !currentQueryDoc?.clientSave || !currentQueryDoc?.sortFields) {
+      return null;
+    }
+    const { field } = sortConfig;
+    const [topLevelKey, ...nestedParts] = field.split('.');
+    const nestedPath = nestedParts.join('.');
+    const sortFieldsObj = currentQueryDoc.sortFields;
+
+    if (!sortFieldsObj[topLevelKey] || !sortFieldsObj[topLevelKey].includes(nestedPath)) {
       return null;
     }
 
-    return transformToReportData(
-      filteredData,
-      outerGroupField,
-      innerGroupField,
-      dateColumn,
-      breakdownType,
-      columnTypes
-    );
-  }, [enableReport, dateColumn, breakdownType, filteredData, outerGroupField, innerGroupField, columnTypes]);
+    // Try columnTypesOverride first (fastest)
+    if (columnTypesOverride[field]) {
+      return { field, topLevelKey, nestedPath, fieldType: columnTypesOverride[field] };
+    }
 
-  // Grouped data computation
+    // Try columnTypes with nestedPath or field (fast)
+    const fieldTypeFromColumns = columnTypes[nestedPath] || columnTypes[field];
+    if (fieldTypeFromColumns) {
+      return { field, topLevelKey, nestedPath, fieldType: fieldTypeFromColumns };
+    }
+
+    // Only infer as last resort (slow, but cached per sortConfig change)
+    if (!isEmpty(filteredData)) {
+      const inferredType = inferColumnType(filteredData, field, topLevelKey, nestedPath);
+      return { field, topLevelKey, nestedPath, fieldType: inferredType };
+    }
+
+    return { field, topLevelKey, nestedPath, fieldType: 'string' };
+  }, [sortConfig, currentQueryDoc?.clientSave, currentQueryDoc?.sortFields, columnTypesOverride, columnTypes, filteredData]);
+
+  // Main table report data computation using shared hook
+  const { reportData, isComputingReport } = useReportData(
+    enableBreakdown,
+    filteredData,
+    outerGroupField,
+    innerGroupField,
+    dateColumn,
+    breakdownType,
+    columnTypes,
+    sortConfig,
+    sortFieldType,
+    reportWorkerRef
+  );
+
+  // Drawer report data computation using shared hook
+  // Get active tab's group fields for drawer report computation
+  const activeDrawerTab = drawerTabs && drawerTabs.length > 0 
+    ? drawerTabs[Math.min(activeDrawerTabIndex, Math.max(0, drawerTabs.length - 1))]
+    : null;
+  const drawerOuterGroupField = activeDrawerTab?.outerGroup || null;
+  const drawerInnerGroupField = activeDrawerTab?.innerGroup || null;
+  
+  const { reportData: drawerReportData, isComputingReport: isComputingDrawerReport } = useReportData(
+    enableBreakdown,
+    drawerData,
+    drawerOuterGroupField,
+    drawerInnerGroupField,
+    dateColumn,
+    breakdownType,
+    columnTypes,
+    sortConfig,
+    sortFieldType,
+    reportWorkerRef
+  );
+
+  // Grouped data computation (use worker results if available)
   const groupedData = useMemo(() => {
-    // If report is enabled, use report data instead
-    if (enableReport && reportData && reportData.tableData) {
-      return reportData.tableData;
+    // If report is enabled, use report data instead (prioritize over worker data)
+    if (enableBreakdown) {
+      // If report data is still computing, return empty array to avoid rendering issues
+      if (!reportData || !reportData.tableData) {
+        return [];
+      }
+      // Apply sorting as fallback (in case report generation didn't apply it)
+      let sortedReportData = reportData.tableData;
+      if (sortFieldType && sortConfig) {
+        const sortComparator = getSortComparator(sortConfig, sortFieldType.fieldType, sortFieldType.topLevelKey, sortFieldType.nestedPath);
+        if (sortComparator && sortedReportData.length > 0) {
+          sortedReportData = [...sortedReportData].sort(sortComparator);
+        }
+      }
+      return sortedReportData;
+    }
+
+    // Use worker-computed data if available (fallback when report mode is not enabled)
+    if (workerComputedData?.groupedData) {
+      return workerComputedData.groupedData;
     }
 
     // Otherwise use existing grouping logic
@@ -2762,6 +3015,20 @@ export default function DataProviderNew({
       }
       groups[key].push(row);
     });
+
+    // Apply sortConfig to rows within groups if sortConfig exists
+    let sortComparator = null;
+    if (sortFieldType) {
+      sortComparator = getSortComparator(sortConfig, sortFieldType.fieldType, sortFieldType.topLevelKey, sortFieldType.nestedPath);
+    }
+
+    // Sort rows within each group before processing
+    if (sortComparator) {
+      Object.keys(groups).forEach(key => {
+        groups[key].sort(sortComparator);
+      });
+    }
+
     const groupedResult = Object.entries(groups).map(([groupKey, rows]) => {
       let innerData = rows;
       if (innerGroupField && !isEmpty(rows)) {
@@ -2865,8 +3132,14 @@ export default function DataProviderNew({
       summaryRow.__isGroupRow__ = true;
       return summaryRow;
     }).filter(Boolean);
+
+    // Sort groups by sortConfig if it exists
+    if (sortComparator && groupedResult.length > 0) {
+      groupedResult.sort(sortComparator);
+    }
+
     return groupedResult;
-  }, [enableReport, reportData, filteredData, outerGroupField, innerGroupField, columns, columnTypes, hasPercentageColumns, percentageColumns]);
+  }, [enableBreakdown, reportData, filteredData, outerGroupField, innerGroupField, columns, columnTypes, hasPercentageColumns, percentageColumns, sortFieldType, sortConfig, getSortComparator]);
 
   // Sorted data computation
   const dataForSorting = useMemo(() => {
@@ -2875,25 +3148,146 @@ export default function DataProviderNew({
   }, [outerGroupField, groupedData, filteredData]);
 
   const sortedData = useMemo(() => {
+    // If report mode is enabled, prioritize report data over worker data
+    // groupedData already contains reportData.tableData when enableBreakdown is true
+    if (enableBreakdown) {
+      // Use dataForSorting which will be groupedData (with report data) when outerGroupField exists
+      if (!isArray(dataForSorting) || isEmpty(dataForSorting)) {
+        return [];
+      }
+      // Apply sorting if needed
+      let result = [...dataForSorting];
+      if (sortFieldType && sortConfig) {
+        const sortComparator = getSortComparator(sortConfig, sortFieldType.fieldType, sortFieldType.topLevelKey, sortFieldType.nestedPath);
+        if (sortComparator && result.length > 0) {
+          result.sort(sortComparator);
+        }
+      }
+      return result;
+    }
+    // Use worker-computed data if available (when not in report mode)
+    // When grouping is enabled, use groupedData instead of sortedData
+    if (outerGroupField && workerComputedData?.groupedData) {
+      return workerComputedData.groupedData;
+    }
+    if (workerComputedData?.sortedData) {
+      return workerComputedData.sortedData;
+    }
+
     if (!isArray(dataForSorting)) {
       return [];
     }
-    if (isEmpty(dataForSorting) || isEmpty(tableSortMeta)) {
+    if (isEmpty(dataForSorting)) {
       return dataForSorting;
     }
-    if (!enableSort) {
-      return dataForSorting;
-    }
-    const fields = tableSortMeta.map(s => {
-      const field = s.field;
-      if (isPercentageColumn(field)) {
-        return (rowData) => getPercentageColumnValue(rowData, field);
+
+    let result = [...dataForSorting];
+
+    // Apply tableSortMeta if it exists (overrides sortConfig)
+    if (!isEmpty(tableSortMeta) && enableSort) {
+      const fields = tableSortMeta.map(s => {
+        const field = s.field;
+        if (isPercentageColumn(field)) {
+          return (rowData) => getPercentageColumnValue(rowData, field);
+        }
+        return field;
+      });
+      const orders = tableSortMeta.map(s => s.order === 1 ? 'asc' : 'desc');
+      result = orderBy(result, fields, orders);
+    } else if (sortFieldType) {
+      // Apply sortConfig only if tableSortMeta doesn't exist (for both grouped and ungrouped data)
+      const sortComparator = getSortComparator(sortConfig, sortFieldType.fieldType, sortFieldType.topLevelKey, sortFieldType.nestedPath);
+      if (sortComparator) {
+        result.sort(sortComparator);
       }
-      return field;
-    });
-    const orders = tableSortMeta.map(s => s.order === 1 ? 'asc' : 'desc');
-    return orderBy(dataForSorting, fields, orders);
-  }, [dataForSorting, tableSortMeta, isPercentageColumn, getPercentageColumnValue, enableSort]);
+    }
+
+    return result;
+  }, [enableBreakdown, groupedData, dataForSorting, tableSortMeta, isPercentageColumn, getPercentageColumnValue, enableSort, sortFieldType, sortConfig, getSortComparator, workerComputedData]);
+
+  // Compute filter/sort/group using worker when applying
+  useEffect(() => {
+    if (!isApplyingFilterSort) {
+      setWorkerComputedData(null);
+      return;
+    }
+
+    // Only use worker if it's available and we have data
+    if (!filterSortWorkerRef.current || !tableData || isEmpty(tableData)) {
+      return;
+    }
+
+    const computationId = ++filterSortComputationIdRef.current;
+
+    const computeWithWorker = async () => {
+      try {
+        if (!filterSortWorkerRef.current) {
+          // Fallback to synchronous computation
+          return;
+        }
+
+        // Convert preFilterValues to tableFilters format
+        const filtersForWorker = {};
+        Object.keys(preFilterValues || {}).forEach(col => {
+          filtersForWorker[col] = { value: preFilterValues[col] };
+        });
+
+        const result = await filterSortWorkerRef.current.computeFilterSortGrouped(tableData, {
+          tableFilters: filtersForWorker,
+          columns,
+          columnTypes,
+          multiselectColumns,
+          hasPercentageColumns,
+          percentageColumns,
+          percentageColumnNames,
+          enableFilter,
+          searchTerm,
+          searchFields: currentQueryDoc?.searchFields || {},
+          sortConfig,
+          sortFieldType,
+          tableSortMeta,
+          enableSort,
+          outerGroupField,
+          innerGroupField,
+          // Note: isPercentageColumnFn removed - worker uses percentageColumns array instead
+        });
+
+        // Only update if this is still the latest computation
+        if (computationId === filterSortComputationIdRef.current) {
+          setWorkerComputedData(result);
+          setIsApplyingFilterSort(false);
+        }
+      } catch (error) {
+        console.error('Filter/sort worker computation error:', error);
+        if (computationId === filterSortComputationIdRef.current) {
+          setIsApplyingFilterSort(false);
+        }
+      }
+    };
+
+    computeWithWorker();
+  }, [isApplyingFilterSort, sortConfig, preFilterValues, tableData, columns, columnTypes, multiselectColumns, hasPercentageColumns, percentageColumns, percentageColumnNames, enableFilter, searchTerm, currentQueryDoc, sortFieldType, tableSortMeta, enableSort, outerGroupField, innerGroupField, isPercentageColumn]);
+
+  // Track when filter/sort computation is complete - callback-based approach with ref guard
+  const hasClearedLoadingRef = useRef(false);
+
+  // Watch sortedData changes and clear loading when ready (fallback for non-worker path)
+  useEffect(() => {
+    if (isApplyingFilterSort && sortedData && !hasClearedLoadingRef.current && !workerComputedData) {
+      // sortedData is ready - clear loading immediately
+      hasClearedLoadingRef.current = true;
+
+      // Use requestAnimationFrame for immediate UI update
+      requestAnimationFrame(() => {
+        setIsApplyingFilterSort(false);
+      });
+    }
+
+    // Reset guard when not applying
+    if (!isApplyingFilterSort) {
+      hasClearedLoadingRef.current = false;
+    }
+  }, [sortedData, isApplyingFilterSort, workerComputedData]);
 
   // Summation computation
   const calculateSums = useMemo(() => {
@@ -3020,13 +3414,176 @@ export default function DataProviderNew({
     }
   }, [onVisibleColumnsChange]);
 
-  // Drawer action handlers
-  const openDrawerWithData = useCallback((data, outerValue = null, innerValue = null) => {
-    setDrawerData(data || []);
+  /**
+   * Apply filters to data array
+   * @param {Array} data - Data array to filter
+   * @param {Object} filters - Filters in format { columnKey: [filterValues] }
+   * @param {Object} options - Options for filter application
+   * @returns {Array} Filtered data array
+   */
+  const applyFiltersToData = useCallback((data, filters, options = {}) => {
+    if (!isArray(data) || isEmpty(data)) {
+      return [];
+    }
+    if (!filters || isEmpty(filters)) {
+      return data;
+    }
+
+    // Convert simple filter format { columnKey: [values] } to internal format
+    const internalFilters = {};
+    Object.keys(filters).forEach((columnKey) => {
+      const filterValues = filters[columnKey];
+      if (isNil(filterValues) || filterValues === '') {
+        return; // Skip empty filters
+      }
+      if (isArray(filterValues) && isEmpty(filterValues)) {
+        return; // Skip empty arrays
+      }
+
+      const colType = columnTypes[columnKey] || 'string';
+      const isMultiselectColumn = includes(multiselectColumns, columnKey);
+
+      // Determine matchMode based on filter values and column type
+      let matchMode = 'contains';
+      if (isArray(filterValues)) {
+        matchMode = 'in'; // Multiselect
+      } else if (colType === 'boolean') {
+        matchMode = 'equals';
+      } else if (colType === 'date') {
+        matchMode = isArray(filterValues) ? 'dateRange' : 'equals';
+      } else if (colType === 'number') {
+        matchMode = 'contains'; // Numeric filter uses contains for parsing
+      }
+
+      internalFilters[columnKey] = {
+        value: filterValues,
+        matchMode
+      };
+    });
+
+    if (isEmpty(internalFilters)) {
+      return data;
+    }
+
+    // Apply filters using the same logic as filteredData computation
+    return filter(data, (row) => {
+      if (!row || typeof row !== 'object') return false;
+
+      // Check regular columns
+      const regularColumnsPass = every(columns, (col) => {
+        const filterObj = internalFilters[col];
+        if (!filterObj || isNil(filterObj.value) || filterObj.value === '') return true;
+        if (isArray(filterObj.value) && isEmpty(filterObj.value)) return true;
+
+        const cellValue = getDataValue(row, col);
+        const filterValue = filterObj.value;
+        const colType = columnTypes[col] || 'string';
+        const isMultiselectColumn = includes(multiselectColumns, col);
+
+        if (isMultiselectColumn && isArray(filterValue)) {
+          return some(filterValue, (v) => {
+            if (isNil(v) && isNil(cellValue)) return true;
+            if (isNil(v) || isNil(cellValue)) return false;
+            return v === cellValue || String(v) === String(cellValue);
+          });
+        }
+
+        if (colType === 'boolean') {
+          const cellIsTruthy = cellValue === true || cellValue === 1 || cellValue === '1';
+          const cellIsFalsy = cellValue === false || cellValue === 0 || cellValue === '0';
+          if (filterValue === true) {
+            return cellIsTruthy;
+          } else if (filterValue === false) {
+            return cellIsFalsy;
+          }
+          return true;
+        }
+
+        if (colType === 'date') {
+          return applyDateFilter(cellValue, filterValue);
+        }
+
+        if (colType === 'number') {
+          const parsedFilter = parseNumericFilter(filterValue);
+          return applyNumericFilter(cellValue, parsedFilter);
+        }
+
+        // String filter (contains)
+        const strCell = toLower(String(cellValue ?? ''));
+        const strFilter = toLower(String(filterValue));
+        return includes(strCell, strFilter);
+      });
+
+      if (!regularColumnsPass) return false;
+
+      // Check percentage columns
+      if (hasPercentageColumns) {
+        return every(percentageColumnNames, (col) => {
+          const filterObj = internalFilters[col];
+          if (!filterObj || isNil(filterObj.value) || filterObj.value === '') return true;
+          if (isArray(filterObj.value) && isEmpty(filterObj.value)) return true;
+
+          const cellValue = getPercentageColumnValue(row, col);
+          const filterValue = filterObj.value;
+          const parsedFilter = parseNumericFilter(filterValue);
+          return applyNumericFilter(cellValue, parsedFilter);
+        });
+      }
+
+      return true;
+    });
+  }, [columns, columnTypes, multiselectColumns, hasPercentageColumns, percentageColumnNames, getPercentageColumnValue, applyDateFilter, applyNumericFilter, parseNumericFilter]);
+
+  // Unified drawer function with two variants:
+  // Variant 1: openDrawer(data, filters) - applies filters on provided data
+  // Variant 2: openDrawer(filters) - applies filters on current filteredData
+  const openDrawer = useCallback((dataOrFilters, filters) => {
+    let dataToFilter;
+    let filtersToApply;
+
+    // Detect variant: if first arg is an array, it's variant 1 (with data)
+    if (isArray(dataOrFilters)) {
+      // Variant 1: openDrawer(data, filters)
+      dataToFilter = dataOrFilters;
+      filtersToApply = filters || null;
+    } else {
+      // Variant 2: openDrawer(filters)
+      dataToFilter = filteredData; // Use current filteredData
+      filtersToApply = dataOrFilters || null;
+    }
+
+    // Apply filters if provided
+    let filteredResult = dataToFilter || [];
+    if (filtersToApply && !isEmpty(filtersToApply)) {
+      filteredResult = applyFiltersToData(dataToFilter, filtersToApply);
+    }
+
+    // Extract clickedDrawerValues from filters if outer/inner group fields are present
+    let outerValue = null;
+    let innerValue = null;
+    if (filtersToApply && outerGroupField && filtersToApply[outerGroupField]) {
+      const outerFilterValue = filtersToApply[outerGroupField];
+      outerValue = isArray(outerFilterValue) ? outerFilterValue[0] : outerFilterValue;
+    }
+    if (filtersToApply && innerGroupField && filtersToApply[innerGroupField]) {
+      const innerFilterValue = filtersToApply[innerGroupField];
+      innerValue = isArray(innerFilterValue) ? innerFilterValue[0] : innerFilterValue;
+    }
+
+    // Store filtered data
+    setDrawerData(filteredResult);
     setClickedDrawerValues({ outerValue, innerValue });
     setActiveDrawerTabIndex(0);
     setDrawerVisible(true);
-  }, []);
+  }, [filteredData, applyFiltersToData, outerGroupField, innerGroupField]);
+
+  // Drawer action handlers (legacy - calls unified openDrawer internally)
+  const openDrawerWithData = useCallback((data, outerValue = null, innerValue = null) => {
+    // Use unified API: openDrawer(data, null) - no filters
+    openDrawer(data, null);
+    // Set clickedDrawerValues for display purposes
+    setClickedDrawerValues({ outerValue, innerValue });
+  }, [openDrawer]);
 
   const closeDrawer = useCallback(() => {
     setDrawerVisible(false);
@@ -3064,46 +3621,25 @@ export default function DataProviderNew({
     }
   }, [drawerTabs, onDrawerTabsChange]);
 
-  // Drawer filtering functions for group cells
+  // Drawer filtering functions for group cells (legacy - calls unified openDrawer internally)
   const openDrawerForOuterGroup = useCallback((value) => {
     if (!outerGroupField) return;
 
-    // Filter data based on outer group value
-    const filtered = filteredData.filter(row => {
-      const rowValue = getDataValue(row, outerGroupField);
-      if (isNil(value) && isNil(rowValue)) return true;
-      if (isNil(value) || isNil(rowValue)) return false;
-      return String(rowValue) === String(value);
-    });
-
-    openDrawerWithData(filtered, value, null);
-  }, [filteredData, outerGroupField, openDrawerWithData]);
+    // Use unified API: openDrawer({ [outerGroupField]: [value] })
+    const filters = { [outerGroupField]: [value] };
+    openDrawer(filters);
+  }, [outerGroupField, openDrawer]);
 
   const openDrawerForInnerGroup = useCallback((outerValue, innerValue) => {
     if (!outerGroupField || !innerGroupField) return;
 
-    // Filter data based on both outer and inner group values
-    const filtered = filteredData.filter(row => {
-      const rowOuterValue = getDataValue(row, outerGroupField);
-      const rowInnerValue = getDataValue(row, innerGroupField);
-
-      // Check outer match
-      let outerMatch = false;
-      if (isNil(outerValue) && isNil(rowOuterValue)) {
-        outerMatch = true;
-      } else if (!isNil(outerValue) && !isNil(rowOuterValue)) {
-        outerMatch = String(rowOuterValue) === String(outerValue);
-      }
-      if (!outerMatch) return false;
-
-      // Check inner match
-      if (isNil(innerValue) && isNil(rowInnerValue)) return true;
-      if (isNil(innerValue) || isNil(rowInnerValue)) return false;
-      return String(rowInnerValue) === String(innerValue);
-    });
-
-    openDrawerWithData(filtered, outerValue, innerValue);
-  }, [filteredData, outerGroupField, innerGroupField, openDrawerWithData]);
+    // Use unified API: openDrawer({ [outerGroupField]: [outerValue], [innerGroupField]: [innerValue] })
+    const filters = {
+      [outerGroupField]: [outerValue],
+      [innerGroupField]: [innerValue]
+    };
+    openDrawer(filters);
+  }, [outerGroupField, innerGroupField, openDrawer]);
 
   // Export helper functions
   const formatHeaderName = useCallback((key) => {
@@ -3132,6 +3668,27 @@ export default function DataProviderNew({
 
   // Export to XLSX function
   const exportToXLSX = useCallback(() => {
+    // Check if we're in report mode
+    if (enableBreakdown && reportData) {
+      // Use report export with merged headers
+      const wb = exportReportToXLSX(
+        reportData,
+        columnGroupBy,
+        outerGroupField,
+        innerGroupField,
+        formatHeaderName
+      );
+      
+      // Generate filename with current date
+      const dateStr = new Date().toISOString().split('T')[0];
+      const filename = `export_${dateStr}.xlsx`;
+      
+      // Write file
+      XLSX.writeFile(wb, filename);
+      return;
+    }
+
+    // Regular export logic (non-report mode)
     let dataToExport;
     let allColumns;
 
@@ -3259,81 +3816,106 @@ export default function DataProviderNew({
 
     // Write file
     XLSX.writeFile(wb, filename);
-  }, [sortedData, groupedData, outerGroupField, innerGroupField, hasPercentageColumns, percentageColumns, isPercentageColumn, getPercentageColumnValue, formatHeaderName, isTruthyBoolean, formatDateValue, getColumnTypeFlags]);
+  }, [enableBreakdown, reportData, columnGroupBy, sortedData, groupedData, outerGroupField, innerGroupField, hasPercentageColumns, percentageColumns, isPercentageColumn, getPercentageColumnValue, formatHeaderName, isTruthyBoolean, formatDateValue, getColumnTypeFlags]);
 
   // Create context value
-  const contextValue = useMemo(() => ({
-    rawData: sortedData, // Use sortedData as rawData for context (after all filters)
-    columns,
-    columnTypes,
-    filteredData,
-    groupedData,
-    sortedData,
-    paginatedData,
-    sums: calculateSums,
-    filterOptions: optionColumnValues,
-    multiselectColumns,
-    hasPercentageColumns,
-    percentageColumns,
-    percentageColumnNames,
-    isPercentageColumn,
-    getPercentageColumnValue,
-    getPercentageColumnSortFunction,
-    filters: tableFilters,
-    sortMeta: tableSortMeta,
-    pagination: tablePagination,
-    expandedRows: tableExpandedRows,
-    visibleColumns: tableVisibleColumns,
-    enableSort,
-    enableFilter,
-    enableSummation,
-    enableGrouping,
-    textFilterColumns,
-    outerGroupField,
-    innerGroupField,
-    redFields,
-    greenFields,
-    enableDivideBy1Lakh,
-    enableReport,
-    reportData,
-    columnGroupBy,
-    updateFilter,
-    clearFilter,
-    clearAllFilters,
-    updateSort,
-    updatePagination,
-    updateExpandedRows,
-    updateVisibleColumns,
-    drawerVisible,
-    drawerData,
-    drawerTabs,
-    activeDrawerTabIndex,
-    clickedDrawerValues,
-    openDrawerWithData,
-    openDrawerForOuterGroup,
-    openDrawerForInnerGroup,
-    closeDrawer,
-    addDrawerTab,
-    removeDrawerTab,
-    updateDrawerTab,
-    setActiveDrawerTabIndex,
-    formatDateValue,
-    formatHeaderName,
-    isTruthyBoolean,
-    exportToXLSX,
-    parseNumericFilter,
-    applyNumericFilter,
-    applyDateFilter,
-    isNumericValue,
-    // Search and sort props
-    clientSave: currentQueryDoc?.clientSave || false,
-    searchFields: currentQueryDoc?.searchFields || null,
-    sortFields: currentQueryDoc?.sortFields || null,
-    searchTerm,
-    setSearchTerm,
-    sortConfig,
-    setSortConfig,
-  }), [
+  const contextValue = useMemo(() => {
+    try {
+      const result = {
+        rawData: sortedData, // Use sortedData as rawData for context (after all filters)
+        columns,
+        columnTypes,
+        filteredData,
+        groupedData,
+        sortedData,
+        paginatedData,
+        sums: calculateSums,
+        filterOptions: optionColumnValues,
+        multiselectColumns,
+        hasPercentageColumns,
+        percentageColumns,
+        percentageColumnNames,
+        isPercentageColumn,
+        getPercentageColumnValue,
+        getPercentageColumnSortFunction,
+        filters: tableFilters,
+        sortMeta: tableSortMeta,
+        pagination: tablePagination,
+        expandedRows: tableExpandedRows,
+        visibleColumns: tableVisibleColumns,
+        enableSort,
+        enableFilter,
+        enableSummation,
+        enableGrouping,
+        textFilterColumns,
+        outerGroupField,
+        innerGroupField,
+        redFields,
+        greenFields,
+        enableDivideBy1Lakh,
+        enableReport,
+        enableBreakdown,
+        reportData,
+        isComputingReport,
+        isApplyingFilterSort,
+        chartColumns,
+        chartHeight,
+        // Unified loading state
+        isLoading: (() => {
+          return isComputingReport || isApplyingFilterSort;
+        })(),
+        loadingText: (() => {
+          return isComputingReport
+            ? 'Computing report...'
+            : isApplyingFilterSort
+              ? 'Applying Filter and Sort...'
+              : '';
+        })(),
+        columnGroupBy,
+        updateFilter,
+        clearFilter,
+        clearAllFilters,
+        updateSort,
+        updatePagination,
+        updateExpandedRows,
+        updateVisibleColumns,
+        drawerVisible,
+        drawerData,
+        drawerTabs,
+        activeDrawerTabIndex,
+        clickedDrawerValues,
+        openDrawer,
+        openDrawerWithData,
+        openDrawerForOuterGroup,
+        openDrawerForInnerGroup,
+        closeDrawer,
+        addDrawerTab,
+        removeDrawerTab,
+        updateDrawerTab,
+        setActiveDrawerTabIndex,
+        formatDateValue,
+        formatHeaderName,
+        isTruthyBoolean,
+        exportToXLSX,
+        parseNumericFilter,
+        applyNumericFilter,
+        applyDateFilter,
+        isNumericValue,
+        // Search and sort props
+        clientSave: currentQueryDoc?.clientSave || false,
+        searchFields: currentQueryDoc?.searchFields || null,
+        sortFields: currentQueryDoc?.sortFields || null,
+        searchTerm,
+        setSearchTerm,
+        sortConfig,
+        setSortConfig,
+      };
+      return result;
+    } catch (error) {
+      console.error('DataProviderNew: Error creating contextValue', error);
+      return {};
+    }
+  }, [
     sortedData, columns, columnTypes, filteredData, groupedData, paginatedData,
     calculateSums, optionColumnValues, multiselectColumns, hasPercentageColumns, percentageColumns, percentageColumnNames,
     isPercentageColumn, getPercentageColumnValue, getPercentageColumnSortFunction, tableFilters, tableSortMeta, tablePagination,
@@ -3341,17 +3923,60 @@ export default function DataProviderNew({
     textFilterColumns, outerGroupField, innerGroupField, redFields, greenFields, enableDivideBy1Lakh,
     updateFilter, clearFilter, clearAllFilters, updateSort, updatePagination, updateExpandedRows,
     updateVisibleColumns, drawerVisible, drawerData, drawerTabs, activeDrawerTabIndex, clickedDrawerValues,
-    openDrawerWithData, openDrawerForOuterGroup, openDrawerForInnerGroup, closeDrawer, addDrawerTab, removeDrawerTab, updateDrawerTab,
-    formatHeaderName, isTruthyBoolean, exportToXLSX, isNumericValue, currentQueryDoc, searchTerm, sortConfig, enableReport, reportData, columnGroupBy
+    openDrawer, openDrawerWithData, openDrawerForOuterGroup, openDrawerForInnerGroup, closeDrawer, addDrawerTab, removeDrawerTab, updateDrawerTab,
+    formatHeaderName, isTruthyBoolean, exportToXLSX, isNumericValue, currentQueryDoc, searchTerm, sortConfig, enableReport, enableBreakdown, reportData, isComputingReport, isApplyingFilterSort, columnGroupBy
   ]);
+
+  // Memoize field display names to avoid recalculating on every render
+  const fieldDisplayNames = useMemo(() => {
+    const names = {};
+    const searchFields = currentQueryDoc?.searchFields || {};
+    for (const topLevelKey of Object.keys(searchFields)) {
+      const nestedPaths = searchFields[topLevelKey];
+      if (Array.isArray(nestedPaths)) {
+        for (const nestedPath of nestedPaths) {
+          const key = nestedPath || topLevelKey;
+          names[key] = startCase(nestedPath || topLevelKey);
+        }
+      }
+    }
+    return names;
+  }, [currentQueryDoc?.searchFields]);
+
+  // Determine picker mode based on enableBreakdown, breakdownType, and columnGroupBy
+  const getPickerMode = () => {
+    if (!enableBreakdown) return 'month'; // Keep current behavior when breakdown is off
+    if (columnGroupBy === 'period-over-period') return 'year'; // Override for period-over-period
+    // Map breakdownType to mode
+    switch (breakdownType) {
+      case 'month': return 'month';
+      case 'week': return 'week';
+      case 'day': return 'date';
+      case 'quarter': return 'quarter';
+      case 'annual': return 'year';
+      default: return 'month';
+    }
+  };
+
+  const pickerMode = getPickerMode();
+
+  // Get placeholder based on mode
+  const getPickerPlaceholder = () => {
+    switch (pickerMode) {
+      case 'month': return ['Start month', 'End month'];
+      case 'week': return ['Start week', 'End week'];
+      case 'date': return ['Start date', 'End date'];
+      case 'quarter': return ['Start quarter', 'End quarter'];
+      case 'year': return ['Start year', 'End year'];
+      default: return ['Start month', 'End month'];
+    }
+  };
 
   // Conditional rendering helpers
   const isValidMonthRange = monthRange && Array.isArray(monthRange) && monthRange.length === 2;
   const showMonthRangePicker = dataSource && hasMonthSupport;
-  const showBreakdownToggle = enableReport && onEnableBreakdownChange;
-  const showBreakdownControls = enableReport && enableBreakdown && dateColumn && onBreakdownTypeChange;
-  const showSalesTeamSelector = salesTeamColumn && availableSalesTeamValues.length > 0;
-  const showHqSelector = hqColumn && availableHqValues.length > 0;
+  const showBreakdownToggle = enableReport;
+  const showBreakdownControls = enableBreakdown && dateColumn && onBreakdownTypeChange;
   const showSyncButton = dataSource && dataSource !== 'offline' && dataSource !== 'test';
   const isSyncDisabled = executingQuery || (hasMonthSupport && !isValidMonthRange);
   const syncIconClass = executingQuery ? 'pi pi-spin pi-spinner' : 'pi pi-refresh';
@@ -3359,15 +3984,16 @@ export default function DataProviderNew({
 
   // Check if header should be shown (if any selectors are visible)
   const hasHeaderContent = showMonthRangePicker || showBreakdownToggle || showBreakdownControls ||
-    showSalesTeamSelector || showHqSelector || showSyncButton;
+    showSyncButton;
 
   // Render selectors JSX with enhanced responsive classes
   const selectorsJSX = (
     <>
       <div className="flex flex-col gap-2 sm:gap-3 md:gap-4 w-full min-w-0">
-        <div className="flex flex-col sm:flex-row items-start sm:items-end justify-between w-full gap-2 sm:gap-3 md:gap-4">
-          <div className="flex flex-col sm:flex-row items-start sm:items-end gap-6 sm:gap-3 md:gap-4 flex-wrap min-w-0 flex-1 w-full sm:w-auto">
-            <div className='flex flex-col sm:flex-row gap-2 sm:gap-3 md:gap-4 w-full sm:w-auto'>
+        {/* Desktop Layout - Keep existing flex-wrap behavior */}
+        <div className="hidden sm:flex flex-row items-end justify-between w-full gap-2 sm:gap-3 md:gap-4">
+          <div className="flex flex-row items-end gap-2 sm:gap-3 md:gap-4 flex-wrap">
+            <div className='flex flex-row gap-2 sm:gap-3 md:gap-4 w-auto'>
               <div className='flex flex-wrap items-center gap-2 sm:gap-3 md:gap-4'>
                 {/* Breakdown Toggle - Only show when report is enabled */}
                 {showBreakdownToggle && (
@@ -3375,22 +4001,34 @@ export default function DataProviderNew({
                     <label className="block text-xs sm:text-sm font-medium text-gray-700 whitespace-nowrap">
                       Report
                     </label>
-                    <Switch checked={enableBreakdown} onChange={onEnableBreakdownChange} size={isMobile ? 'small' : 'default'} />
+                    <Switch
+                      checked={localEnableBreakdown}
+                      onChange={(checked) => {
+                        // Update local state immediately for instant UI response
+                        setLocalEnableBreakdown(checked);
+                        // Then call parent callback
+                        if (onEnableBreakdownChange) {
+                          onEnableBreakdownChange(checked);
+                        }
+                      }}
+                      size={isMobile ? 'small' : 'default'}
+                      disabled={isComputingReport}
+                    />
                   </div>
                 )}
 
                 {/* Breakdown By - Only show when report is enabled, breakdown toggle is on, and date column is set */}
                 {showBreakdownControls && (
-                  <div className="w-full sm:w-auto min-w-[120px]">
+                  <div className="w-auto min-w-[120px]">
                     <Dropdown
                       value={breakdownType}
                       onChange={(e) => onBreakdownTypeChange(e.value)}
                       options={[
-                        { label: 'Month-wise', value: 'month' },
-                        { label: 'Week-wise', value: 'week' },
-                        { label: 'Day-wise', value: 'day' },
-                        { label: 'Quarter-wise', value: 'quarter' },
-                        { label: 'Year-wise', value: 'annual' }
+                        { label: 'Month', value: 'month' },
+                        { label: 'Week', value: 'week' },
+                        { label: 'Day', value: 'day' },
+                        { label: 'Quarter', value: 'quarter' },
+                        { label: 'Year', value: 'annual' }
                       ]}
                       optionLabel="label"
                       optionValue="value"
@@ -3406,13 +4044,14 @@ export default function DataProviderNew({
 
                 {/* Column Group By - Only show when report is enabled and date column is set */}
                 {showBreakdownControls && (
-                  <div className="w-full sm:w-auto min-w-[120px]">
+                  <div className="w-auto min-w-[120px]">
                     <Dropdown
                       value={columnGroupBy}
                       onChange={(e) => setColumnGroupBy(e.value)}
                       options={[
                         { label: 'Values', value: 'values' },
-                        { label: startCase(dateColumn.split('__').join(' ').split('_').join(' ')), value: dateColumn }
+                        { label: startCase(dateColumn.split('__').join(' ').split('_').join(' ')), value: dateColumn },
+                        { label: 'Period-over-Period', value: 'period-over-period' }
                       ]}
                       optionLabel="label"
                       optionValue="value"
@@ -3426,100 +4065,399 @@ export default function DataProviderNew({
                   </div>
                 )}
               </div>
+            </div>
 
-              {/* Month Range Picker - Only show when using saved query that supports month filtering */}
-              {showMonthRangePicker && (
-                <div className="w-full sm:w-64 md:w-72 lg:w-80 min-w-0 shrink-0">
-                  <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
-                    Month Range
-                  </label>
-                  <MonthRangePicker
-                    key={dataSource} // Force re-render when data source changes
-                    value={monthRange}
-                    onChange={(dates) => {
-                      if (dates && dates[0] && dates[1]) {
-                        setMonthRange([dates[0], dates[1]]);
-                      } else {
-                        setMonthRange(null);
+            {/* Range Picker - Only show when using saved query that supports month filtering */}
+            {showMonthRangePicker && (
+              <div className="w-64 md:w-72 lg:w-80 min-w-0 shrink-0">
+                <RangePicker
+                  key={`${dataSource}-${pickerMode}`} // Force re-render when data source or mode changes
+                  value={monthRange}
+                  onChange={(dates) => {
+                    if (dates && dates[0] && dates[1]) {
+                      setMonthRange([dates[0], dates[1]]);
+                    } else {
+                      setMonthRange(null);
+                    }
+                  }}
+                  placeholder={getPickerPlaceholder()}
+                  format="MM/YY"
+                  mode={pickerMode}
+                  disabled={executingQuery}
+                  className="w-full"
+                  style={{
+                    width: '100%',
+                    fontSize: '0.875rem',
+                    height: '2rem',
+                  }}
+                />
+              </div>
+            )}
+            {/* Last Updated at with Sync button - Show when using saved query, in a new row below Data Source */}
+            {showSyncButton && (
+              <div className="flex-1 min-w-0">
+                <SplitButton
+                  outlined
+                  severity="secondary"
+                  label={<span style={{ fontSize: '0.75rem', whiteSpace: 'nowrap' }}>{lastUpdatedText}</span>}
+                  icon={syncIconClass}
+                  onClick={handleSync}
+                  model={[
+                    {
+                      label: 'Hard Refresh',
+                      icon: 'pi pi-sync',
+                      command: () => {
+                        handleClearMonthRangeCache();
                       }
-                    }}
-                    placeholder={['Start month', 'End month']}
-                    format="MM/YY"
-                    disabled={executingQuery}
-                    className="w-full"
-                    style={{
-                      width: '100%',
-                      fontSize: '0.875rem',
-                      height: '2rem',
-                    }}
-                  />
-                </div>
-              )}
-            </div>
+                    }
+                  ]}
+                  disabled={isSyncDisabled}
+                  style={{ height: '2rem', minWidth: 'fit-content' }}
+                />
+              </div>
+            )}
+            {/* Filter and Sort Button - Only show when clientSave === true */}
+            {currentQueryDoc?.clientSave === true &&
+              (Object.keys(currentQueryDoc?.searchFields || {}).length > 0 || currentQueryDoc?.sortFields) && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Button
+                    icon="pi pi-sliders-h"
+                    label="Filter / Sort"
+                    onClick={() => setFilterSortSidebarVisible(true)}
+                    className="p-button-outlined"
+                    severity="secondary"
+                    style={{ height: '2rem', fontSize: '0.875rem' }}
+                  >
+                    {(() => {
+                      // Calculate active filter count
+                      let count = 0;
+                      if (sortConfig && sortConfig.field) count += 1;
+                      Object.values(preFilterValues).forEach(vals => {
+                        if (Array.isArray(vals) && vals.length > 0) {
+                          count += vals.length;
+                        }
+                      });
+                      return count > 0 ? <span className="ml-2 px-2 py-0.5 bg-blue-600 text-white text-xs rounded-full">{count}</span> : null;
+                    })()}
+                  </Button>
 
-            <div className='w-full sm:w-auto flex flex-col sm:flex-row items-end gap-2 sm:gap-3 md:gap-4 flex-1 sm:flex-initial'>
-              {/* Sales Team Multi-Selector */}
-              {showSalesTeamSelector && (
-                <div className="w-full sm:w-48 md:w-56 lg:w-64 min-w-0">
-                  <MultiselectFilter
-                    value={selectedSalesTeams}
-                    options={availableSalesTeamValues.map(val => ({
-                      label: String(val),
-                      value: val
-                    }))}
-                    onChange={(values) => setSelectedSalesTeams(values || [])}
-                    placeholder="Select sales teams..."
-                    fieldName="sales teams"
-                    itemLabel="Sales Team"
-                    style={{
-                      fontSize: '0.875rem',
-                      height: '2rem',
-                    }}
-                  />
-                </div>
-              )}
+                  {/* Applied Sort Button */}
+                  {sortConfig && sortConfig.field && (() => {
+                    const fieldName = sortConfig.field.split('.').pop();
+                    const displayName = startCase(fieldName);
+                    const fieldType = columnTypes[fieldName] || 'string';
+                    let directionLabel = '';
+                    if (fieldType === 'date') {
+                      directionLabel = sortConfig.direction === 'asc' ? 'Oldest to Latest' : 'Latest to Oldest';
+                    } else if (fieldType === 'number') {
+                      directionLabel = sortConfig.direction === 'asc' ? 'Low to High' : 'High to Low';
+                    } else {
+                      directionLabel = sortConfig.direction === 'asc' ? 'A to Z' : 'Z to A';
+                    }
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsApplyingFilterSort(true);
+                          setSortConfig(null);
+                        }}
+                        className="inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-md hover:opacity-80 transition-opacity border"
+                        style={{
+                          height: '2rem',
+                          backgroundColor: '#db2d27',
+                          color: 'white',
+                          borderColor: '#db2d27'
+                        }}
+                        title="Remove sort"
+                      >
+                        <i className="pi pi-sort text-xs"></i>
+                        <span>{displayName} - {directionLabel}</span>
+                        <i className="pi pi-times text-xs"></i>
+                      </button>
+                    );
+                  })()}
 
-              {/* HQ Multi-Selector */}
-              {showHqSelector && (
-                <div className="w-full sm:w-48 md:w-56 lg:w-64 min-w-0">
-                  <MultiselectFilter
-                    value={selectedHqTeams}
-                    options={availableHqValues.map(val => ({
-                      label: String(val),
-                      value: val
-                    }))}
-                    onChange={(values) => setSelectedHqTeams(values || [])}
-                    placeholder="Select HQ..."
-                    fieldName="HQ"
-                    itemLabel="HQ"
-                    style={{
-                      fontSize: '0.875rem',
-                      height: '2rem',
-                    }}
-                  />
+                  {/* Applied Filter Value Buttons */}
+                  {Object.entries(preFilterValues).map(([fieldKey, values]) => {
+                    if (!Array.isArray(values) || values.length === 0) return null;
+
+                    // Get display name for field (use memoized map or fallback to startCase)
+                    const fieldDisplayName = fieldDisplayNames[fieldKey] || startCase(fieldKey);
+
+                    return values.map((value, idx) => (
+                      <button
+                        key={`${fieldKey}-${value}-${idx}`}
+                        type="button"
+                        onClick={() => {
+                          setIsApplyingFilterSort(true);
+                          setPreFilterValues(prev => {
+                            const newValues = { ...prev };
+                            if (newValues[fieldKey]) {
+                              newValues[fieldKey] = newValues[fieldKey].filter(v => v !== value);
+                              if (newValues[fieldKey].length === 0) {
+                                delete newValues[fieldKey];
+                              }
+                            }
+                            return newValues;
+                          });
+                        }}
+                        className="inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-md hover:opacity-80 transition-opacity border"
+                        style={{
+                          height: '2rem',
+                          backgroundColor: '#db2d27',
+                          color: 'white',
+                          borderColor: '#db2d27'
+                        }}
+                        title="Remove filter"
+                      >
+                        <i className="pi pi-filter text-xs"></i>
+                        <span>{fieldDisplayName}: {value}</span>
+                        <i className="pi pi-times text-xs"></i>
+                      </button>
+                    ));
+                  })}
                 </div>
               )}
-            </div>
           </div>
         </div>
 
-        {/* Last Updated at with Sync button - Show when using saved query, in a new row below Data Source */}
-        {showSyncButton && (
-          <div className="flex items-center gap-2 sm:gap-3 md:gap-4">
-            <button
-              onClick={handleSync}
-              disabled={isSyncDisabled}
-              className="flex items-center gap-2 px-2 sm:px-3 md:px-4 py-1.5 sm:py-2 text-xs sm:text-sm border border-gray-300 rounded-md bg-white hover:bg-gray-50 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed transition-colors shrink-0"
-            >
-              <i className={`${syncIconClass} text-blue-600`}></i>
-              <div className="flex flex-col items-start">
-                <span className="text-xs sm:text-sm text-gray-500">
-                  {lastUpdatedText}
-                </span>
+        {/* Mobile Layout - 3 distinct rows */}
+        <div className="flex sm:hidden flex-col gap-4 w-full">
+          {/* Row 1: Report toggle, Breakdown type, Grouping */}
+          {(showBreakdownToggle || showBreakdownControls) && (
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Breakdown Toggle - Only show when report is enabled */}
+              {showBreakdownToggle && (
+                <div className="flex items-center gap-2">
+                  <label className="block text-xs font-medium text-gray-700 whitespace-nowrap">
+                    Report
+                  </label>
+                  <Switch
+                    checked={localEnableBreakdown}
+                    onChange={(checked) => {
+                      // Update local state immediately for instant UI response
+                      setLocalEnableBreakdown(checked);
+                      // Then call parent callback
+                      if (onEnableBreakdownChange) {
+                        onEnableBreakdownChange(checked);
+                      }
+                    }}
+                    size="small"
+                    disabled={isComputingReport}
+                  />
+                </div>
+              )}
+
+              {/* Breakdown By - Only show when report is enabled, breakdown toggle is on, and date column is set */}
+              {showBreakdownControls && (
+                <div className="flex-1">
+                  <Dropdown
+                    value={breakdownType}
+                    onChange={(e) => onBreakdownTypeChange(e.value)}
+                    options={[
+                      { label: 'Month', value: 'month' },
+                      { label: 'Week', value: 'week' },
+                      { label: 'Day', value: 'day' },
+                      { label: 'Quarter', value: 'quarter' },
+                      { label: 'Year', value: 'annual' }
+                    ]}
+                    optionLabel="label"
+                    optionValue="value"
+                    className="w-full items-center"
+                    disabled={executingQuery}
+                    style={{
+                      fontSize: '0.875rem',
+                      height: '2rem',
+                    }}
+                  />
+                </div>
+              )}
+
+              {/* Column Group By - Only show when report is enabled and date column is set */}
+              {showBreakdownControls && (
+                <div className="flex-1">
+                  <Dropdown
+                    value={columnGroupBy}
+                    onChange={(e) => setColumnGroupBy(e.value)}
+                    options={[
+                      { label: 'Values', value: 'values' },
+                      { label: startCase(dateColumn.split('__').join(' ').split('_').join(' ')), value: dateColumn },
+                      { label: 'Period-over-Period', value: 'period-over-period' }
+                    ]}
+                    optionLabel="label"
+                    optionValue="value"
+                    className="w-full items-center"
+                    disabled={executingQuery}
+                    style={{
+                      fontSize: '0.875rem',
+                      height: '2rem',
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Row 2: Range picker, Sync button */}
+          {(showMonthRangePicker || showSyncButton) && (
+            <div className="flex items-center gap-2">
+              {/* Range Picker - Only show when using saved query that supports month filtering */}
+              {showMonthRangePicker && (
+                <RangePicker
+                  key={`${dataSource}-${pickerMode}`} // Force re-render when data source or mode changes
+                  value={monthRange}
+                  onChange={(dates) => {
+                    if (dates && dates[0] && dates[1]) {
+                      setMonthRange([dates[0], dates[1]]);
+                    } else {
+                      setMonthRange(null);
+                    }
+                  }}
+                  placeholder={getPickerPlaceholder()}
+                  format="MM/YY"
+                  mode={pickerMode}
+                  disabled={executingQuery}
+                  className="w-full"
+                  style={{
+                    fontSize: '0.875rem',
+                    height: '2rem',
+                  }}
+                />
+              )}
+              {/* Last Updated at with Sync button - Show when using saved query */}
+              {showSyncButton && (
+                <div className="w-full">
+                  <SplitButton
+                    outlined
+                    severity="secondary"
+                    label={<span style={{ fontSize: '0.75rem', whiteSpace: 'nowrap' }}>{lastUpdatedText}</span>}
+                    icon={syncIconClass}
+                    onClick={handleSync}
+                    model={[
+                      {
+                        label: 'Hard Refresh',
+                        icon: 'pi pi-sync',
+                        command: () => {
+                          handleClearMonthRangeCache();
+                        }
+                      }
+                    ]}
+                    disabled={isSyncDisabled}
+                    style={{ height: '2rem', minWidth: 'fit-content' }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Row 3: Filter and Sort button + applied filter buttons (with horizontal scroll) */}
+          {currentQueryDoc?.clientSave === true &&
+            (Object.keys(currentQueryDoc?.searchFields || {}).length > 0 || currentQueryDoc?.sortFields) && (
+              <div className="flex items-center gap-2 w-full min-w-0">
+                <Button
+                  icon="pi pi-sliders-h"
+                  label="Filter and Sort"
+                  onClick={() => setFilterSortSidebarVisible(true)}
+                  className="p-button-outlined shrink-0"
+                  severity="secondary"
+                  style={{ height: '2rem', fontSize: '0.875rem' }}
+                >
+                  {(() => {
+                    // Calculate active filter count
+                    let count = 0;
+                    if (sortConfig && sortConfig.field) count += 1;
+                    Object.values(preFilterValues).forEach(vals => {
+                      if (Array.isArray(vals) && vals.length > 0) {
+                        count += vals.length;
+                      }
+                    });
+                    return count > 0 ? <span className="ml-2 px-2 py-0.5 bg-blue-600 text-white text-xs rounded-full">{count}</span> : null;
+                  })()}
+                </Button>
+
+                {/* Scrollable container for applied filters */}
+                <div className="flex-1 min-w-0 overflow-x-auto">
+                  <div className="flex items-center gap-2 flex-nowrap">
+                    {/* Applied Sort Button */}
+                    {sortConfig && sortConfig.field && (() => {
+                      const fieldName = sortConfig.field.split('.').pop();
+                      const displayName = startCase(fieldName);
+                      const fieldType = columnTypes[fieldName] || 'string';
+                      let directionLabel = '';
+                      if (fieldType === 'date') {
+                        directionLabel = sortConfig.direction === 'asc' ? 'Oldest to Latest' : 'Latest to Oldest';
+                      } else if (fieldType === 'number') {
+                        directionLabel = sortConfig.direction === 'asc' ? 'Low to High' : 'High to Low';
+                      } else {
+                        directionLabel = sortConfig.direction === 'asc' ? 'A to Z' : 'Z to A';
+                      }
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsApplyingFilterSort(true);
+                            setSortConfig(null);
+                          }}
+                          className="inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-md hover:opacity-80 transition-opacity border shrink-0"
+                          style={{
+                            height: '2rem',
+                            backgroundColor: '#db2d27',
+                            color: 'white',
+                            borderColor: '#db2d27'
+                          }}
+                          title="Remove sort"
+                        >
+                          <i className="pi pi-sort text-xs"></i>
+                          <span>{displayName} - {directionLabel}</span>
+                          <i className="pi pi-times text-xs"></i>
+                        </button>
+                      );
+                    })()}
+
+                    {/* Applied Filter Value Buttons */}
+                    {Object.entries(preFilterValues).map(([fieldKey, values]) => {
+                      if (!Array.isArray(values) || values.length === 0) return null;
+
+                      // Get display name for field (use memoized map or fallback to startCase)
+                      const fieldDisplayName = fieldDisplayNames[fieldKey] || startCase(fieldKey);
+
+                      return values.map((value, idx) => (
+                        <button
+                          key={`${fieldKey}-${value}-${idx}`}
+                          type="button"
+                          onClick={() => {
+                            setIsApplyingFilterSort(true);
+                            setPreFilterValues(prev => {
+                              const newValues = { ...prev };
+                              if (newValues[fieldKey]) {
+                                newValues[fieldKey] = newValues[fieldKey].filter(v => v !== value);
+                                if (newValues[fieldKey].length === 0) {
+                                  delete newValues[fieldKey];
+                                }
+                              }
+                              return newValues;
+                            });
+                          }}
+                          className="inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-md hover:opacity-80 transition-opacity border shrink-0"
+                          style={{
+                            height: '2rem',
+                            backgroundColor: '#db2d27',
+                            color: 'white',
+                            borderColor: '#db2d27'
+                          }}
+                          title="Remove filter"
+                        >
+                          <i className="pi pi-filter text-xs"></i>
+                          <span>{fieldDisplayName}: {value}</span>
+                          <i className="pi pi-times text-xs"></i>
+                        </button>
+                      ));
+                    })}
+                  </div>
+                </div>
               </div>
-            </button>
-          </div>
-        )}
+            )}
+        </div>
       </div>
     </>
   );
@@ -3531,174 +4469,6 @@ export default function DataProviderNew({
     }
   }, [sortedData, onTableDataChange]);
 
-  // Ref for sort overlay panel
-  const sortOverlayRef = useRef(null);
-
-  // Combined Search and Sort Controls component - memoized to prevent focus loss
-  // Conditionally show search and sort UI based on searchFields/sortFields existence
-  const SearchAndSortControls = useMemo(() => {
-    // Check if searchFields exist
-    const hasSearchFields = currentQueryDoc?.searchFields &&
-      typeof currentQueryDoc.searchFields === 'object' &&
-      !Array.isArray(currentQueryDoc.searchFields) &&
-      Object.keys(currentQueryDoc.searchFields).length > 0;
-
-    // Check if sortFields exist
-    const hasSortFields = currentQueryDoc?.sortFields &&
-      typeof currentQueryDoc.sortFields === 'object' &&
-      !Array.isArray(currentQueryDoc.sortFields) &&
-      Object.keys(currentQueryDoc.sortFields).length > 0;
-
-    // If neither searchFields nor sortFields exist, return null
-    if (!hasSearchFields && !hasSortFields) {
-      return null;
-    }
-
-    // Search handlers
-    const handleSearch = () => {
-      const newSearchTerm = searchInputValue.trim();
-      setSearchTerm(newSearchTerm);
-    };
-
-    // Sort handlers and options
-    let sortableFields = [];
-    let combinedSortOptions = [];
-
-    if (hasSortFields && currentQueryDoc.sortFields) {
-      // Get all sortable fields from sortFields
-      Object.keys(currentQueryDoc.sortFields).forEach(topLevelKey => {
-        const nestedPaths = currentQueryDoc.sortFields[topLevelKey];
-        if (Array.isArray(nestedPaths)) {
-          nestedPaths.forEach(nestedPath => {
-            const fullPath = nestedPath ? `${topLevelKey}.${nestedPath}` : topLevelKey;
-            // Format displayName using same logic as formatHeaderName
-            const displayName = nestedPath
-              ? startCase(nestedPath.split('__').join(' ').split('_').join(' '))
-              : startCase(topLevelKey.split('__').join(' ').split('_').join(' '));
-            sortableFields.push({ path: fullPath, displayName });
-
-            // Create combined options: field + direction
-            combinedSortOptions.push({
-              label: `${displayName} (Asc)`,
-              value: { field: fullPath, direction: 'asc' },
-              icon: 'pi-sort-up'
-            });
-            combinedSortOptions.push({
-              label: `${displayName} (Desc)`,
-              value: { field: fullPath, direction: 'desc' },
-              icon: 'pi-sort-down'
-            });
-          });
-        }
-      });
-    }
-
-
-    // Determine sort icon based on column type and direction
-    const getSortIcon = () => {
-      if (!sortConfig?.field) {
-        return 'pi-sort-alt'; // Default icon when no sort
-      }
-
-      // Extract column name from field path (e.g., "data.item_name" -> "item_name")
-      const fieldParts = sortConfig.field.split('.');
-      const columnName = fieldParts.length > 1 ? fieldParts[fieldParts.length - 1] : sortConfig.field;
-
-      // Determine column type - check columnTypes first, then default to string
-      const colType = columnTypes[columnName] || 'string';
-      const isNumeric = colType === 'number';
-      const isAsc = sortConfig.direction === 'asc';
-
-      if (isNumeric) {
-        return isAsc ? 'pi-sort-numeric-down' : 'pi-sort-numeric-down-alt';
-      }
-      return isAsc ? 'pi-sort-alpha-down' : 'pi-sort-alpha-down-alt';
-    };
-
-    const handleSortButtonClick = (event) => {
-      if (sortOverlayRef.current) {
-        sortOverlayRef.current.toggle(event);
-      }
-    };
-
-    const handleSortOptionClick = (option) => {
-      // Apply any pending search text when sort changes
-      if (searchInputValue.trim() !== searchTerm) {
-        handleSearch();
-      }
-
-      // Set sort config based on option value
-      setSortConfig(option.value ?? null);
-
-      // Hide overlay panel
-      sortOverlayRef.current?.hide();
-    };
-
-    return (
-      <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-        <div className="flex items-center gap-3 flex-wrap">
-          {/* Search Section - Only show if searchFields exist */}
-          {hasSearchFields && (
-            <>
-              <InputText
-                value={searchInputValue}
-                onChange={(e) => setSearchInputValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    handleSearch();
-                  }
-                }}
-                placeholder="Search across all search fields..."
-                className="flex-1 min-w-50"
-                style={{ fontSize: '0.875rem' }}
-              />
-              <Button
-                icon="pi pi-search"
-                onClick={handleSearch}
-                className="p-button-sm p-button-outlined"
-                title="Search"
-              />
-            </>
-          )}
-
-          {/* Sort Section - Only show if sortFields exist */}
-          {hasSortFields && (
-            <>
-              <Button
-                icon={`pi ${getSortIcon()}`}
-                rounded
-                outlined
-                onClick={handleSortButtonClick}
-                aria-label="Sort"
-                className="p-button-sm"
-                style={{ fontSize: '0.875rem' }}
-              />
-              <OverlayPanel ref={sortOverlayRef} className="w-64">
-                <div className="flex flex-col gap-2">
-                  <div
-                    className="p-2 cursor-pointer hover:bg-gray-100 rounded"
-                    onClick={() => handleSortOptionClick({ value: null })}
-                  >
-                    <span>-- No Sort --</span>
-                  </div>
-                  {combinedSortOptions.map((option, index) => (
-                    <div
-                      key={index}
-                      className="p-2 cursor-pointer hover:bg-gray-100 rounded flex items-center gap-2"
-                      onClick={() => handleSortOptionClick(option)}
-                    >
-                      <i className={`pi ${option.icon || ''}`}></i>
-                      <span>{option.label}</span>
-                    </div>
-                  ))}
-                </div>
-              </OverlayPanel>
-            </>
-          )}
-        </div>
-      </div>
-    );
-  }, [currentQueryDoc, searchInputValue, searchTerm, sortConfig, columnTypes, setSearchInputValue, setSearchTerm, setSortConfig]);
 
   // Drawer sidebar helpers
   const hasDrawerTabs = drawerTabs && drawerTabs.length > 0;
@@ -3719,9 +4489,14 @@ export default function DataProviderNew({
     </div>
   );
 
+  // Ensure contextValue is never null/undefined (safeguard)
+  if (!contextValue) {
+    console.error('DataProviderNew: contextValue is null/undefined');
+  }
+
   return (
     <>
-      <TableOperationsContext.Provider value={contextValue}>
+      <TableOperationsContext.Provider value={contextValue || {}}>
         {/* Header Controls - Responsive container */}
         {hasHeaderContent && (
           <div className="px-2 sm:px-3 md:px-4 lg:px-6 xl:px-8 py-2 sm:py-3 md:py-4 border-b border-gray-200 shrink-0 bg-white min-w-0 overflow-x-auto">
@@ -3733,14 +4508,88 @@ export default function DataProviderNew({
           </div>
         )}
 
-        {/* Search and Sort Controls */}
-        {SearchAndSortControls}
-
         {/* Render children */}
         <PlasmicDataProvider name="data" data={contextValue}>
           {children}
         </PlasmicDataProvider>
       </TableOperationsContext.Provider>
+
+      {/* Filter and Sort Sidebar */}
+      {currentQueryDoc?.clientSave === true && (
+        <FilterSortSidebar
+          visible={filterSortSidebarVisible}
+          onHide={() => {
+            setFilterSortSidebarVisible(false);
+          }}
+          searchFields={currentQueryDoc?.searchFields || {}}
+          sortFields={currentQueryDoc?.sortFields || {}}
+          tableData={preFilteredData}
+          columnTypes={columnTypes}
+          currentSortConfig={sortConfig}
+          currentFilterValues={preFilterValues}
+          onApply={async (sortConfig, filterValues) => {
+            setIsApplyingFilterSort(true);
+
+            // Update state for worker computation (batch these together)
+            setSortConfig(sortConfig);
+            setPreFilterValues(filterValues || {});
+
+            // Trigger worker computation immediately (don't wait for useEffect)
+            // This reduces the delay between state update and worker start
+            if (filterSortWorkerRef.current && tableData && !isEmpty(tableData)) {
+              const computationId = ++filterSortComputationIdRef.current;
+
+              // Start worker computation immediately
+              (async () => {
+                try {
+                  // Convert preFilterValues to tableFilters format
+                  const filtersForWorker = {};
+                  Object.keys(filterValues || {}).forEach(col => {
+                    filtersForWorker[col] = { value: filterValues[col] };
+                  });
+
+                  const result = await filterSortWorkerRef.current.computeFilterSortGrouped(tableData, {
+                    tableFilters: filtersForWorker,
+                    columns,
+                    columnTypes,
+                    multiselectColumns,
+                    hasPercentageColumns,
+                    percentageColumns,
+                    percentageColumnNames,
+                    enableFilter,
+                    searchTerm,
+                    searchFields: currentQueryDoc?.searchFields || {},
+                    sortConfig,
+                    sortFieldType,
+                    tableSortMeta,
+                    enableSort,
+                    outerGroupField,
+                    innerGroupField,
+                  });
+
+                  // Only update if this is still the latest computation
+                  if (computationId === filterSortComputationIdRef.current) {
+                    setWorkerComputedData(result);
+                    setIsApplyingFilterSort(false);
+                  }
+                } catch (error) {
+                  console.error('Filter/sort worker computation error:', error);
+                  if (computationId === filterSortComputationIdRef.current) {
+                    setIsApplyingFilterSort(false);
+                  }
+                }
+              })();
+            }
+
+            // Sidebar is already closed by onHide() in FilterSortSidebar
+          }}
+          onClear={() => {
+            setIsApplyingFilterSort(true);
+            setSortConfig(null);
+            setPreFilterValues({});
+          }}
+        />
+      )}
 
       {/* Drawer Sidebar */}
       <Sidebar
@@ -3748,7 +4597,7 @@ export default function DataProviderNew({
         blockScroll
         visible={drawerVisible}
         onHide={closeDrawer}
-        style={{ height: '100vh' }}
+        style={{ height: '100dvh' }}
         className="p-sidebar-sm"
         header={
           <h2 className="text-lg font-semibold text-gray-800 m-0">
@@ -3764,46 +4613,67 @@ export default function DataProviderNew({
                 onTabChange={(e) => setActiveDrawerTabIndex(e.index)}
                 className="h-full flex flex-col"
               >
-                {drawerTabs.map((tab, index) => (
-                  <TabPanel
-                    key={tab.id}
-                    header={tab.name || `Tab ${index + 1}`}
-                    className="h-full flex flex-col"
-                  >
-                    <div className="flex-1 overflow-auto">
-                      {hasDrawerData ? (
-                        <DataTableComponent
-                          data={drawerData}
-                          rowsPerPageOptions={[5, 10, 25, 50, 100, 200]}
-                          defaultRows={10}
-                          scrollable={false}
-                          enableSort={enableSort}
-                          enableFilter={enableFilter}
-                          enableSummation={enableSummation}
-                          enableDivideBy1Lakh={enableDivideBy1Lakh}
-                          textFilterColumns={textFilterColumns}
-                          visibleColumns={visibleColumns}
-                          onVisibleColumnsChange={onVisibleColumnsChange}
-                          redFields={redFields}
-                          greenFields={greenFields}
-                          outerGroupField={tab.outerGroup}
-                          innerGroupField={tab.innerGroup}
-                          enableCellEdit={false}
-                          nonEditableColumns={[]}
-                          percentageColumns={percentageColumns}
-                          columnTypes={columnTypes}
-                          tableName="sidebar"
-                        />
-                      ) : (
-                        <DrawerEmptyState
-                          icon="pi-inbox"
-                          title="No data available"
-                          subtitle="No matching rows found"
-                        />
-                      )}
-                    </div>
-                  </TabPanel>
-                ))}
+                {drawerTabs.map((tab, index) => {
+                  // Ensure tab has a unique id (use index as fallback for stability)
+                  const tabId = tab.id || `tab-${index}`;
+                  
+                  // Base props from main table (inherit from DataProviderNew props)
+                  const baseTableProps = {
+                    rowsPerPageOptions: [5, 10, 25, 50, 100, 200], // drawer-specific default
+                    defaultRows: 10, // drawer-specific default
+                    scrollable: false, // drawer-specific default
+                    enableSort: enableSort, // from main table
+                    enableFilter: enableFilter, // from main table
+                    enableSummation: enableSummation, // from main table
+                    enableDivideBy1Lakh: enableDivideBy1Lakh, // from main table
+                    textFilterColumns: textFilterColumns, // from main table
+                    visibleColumns: visibleColumns, // from main table
+                    onVisibleColumnsChange: onVisibleColumnsChange, // from main table
+                    redFields: redFields, // from main table
+                    greenFields: greenFields, // from main table
+                    outerGroupField: tab.outerGroup, // from tab
+                    innerGroupField: tab.innerGroup, // from tab
+                    enableCellEdit: false, // drawer-specific default
+                    nonEditableColumns: [], // drawer-specific default
+                    percentageColumns: percentageColumns, // from main table
+                    columnTypes: columnTypes, // from main table
+                    tableName: "sidebar",
+                    // Report mode props
+                    enableBreakdown: enableBreakdown, // from main table
+                    reportData: drawerReportData, // computed for drawer
+                    columnGroupBy: columnGroupBy, // from main table
+                    dateColumn: dateColumn, // from main table
+                    breakdownType: breakdownType, // from main table
+                    isComputingReport: isComputingDrawerReport // loading state for drawer
+                  };
+
+                  // Extract tab-specific overrides (any prop beyond id, name, outerGroup, innerGroup)
+                  const { id, name, outerGroup, innerGroup, ...tabOverrides } = tab;
+                  const mergedTableProps = { ...baseTableProps, ...tabOverrides };
+
+                  return (
+                    <TabPanel
+                      key={tabId}
+                      header={tab.name || `Tab ${index + 1}`}
+                      className="h-full flex flex-col"
+                    >
+                      <div className="flex-1 overflow-auto">
+                        {hasDrawerData ? (
+                          <DataTableComponent
+                            data={drawerData}
+                            {...mergedTableProps}
+                          />
+                        ) : (
+                          <DrawerEmptyState
+                            icon="pi-inbox"
+                            title="No data available"
+                            subtitle="No matching rows found"
+                          />
+                        )}
+                      </div>
+                    </TabPanel>
+                  );
+                })}
               </TabView>
             ) : (
               <DrawerEmptyState

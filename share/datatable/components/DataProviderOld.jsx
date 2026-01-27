@@ -7,7 +7,7 @@ import { Button } from 'primereact/button';
 import { startCase, isNil, isEmpty, uniq, filter as lodashFilter } from 'lodash';
 import dayjs from 'dayjs';
 import * as Comlink from 'comlink';
-import MonthRangePicker from '@/components/MonthRangePicker';
+import RangePicker from '@/components/RangePicker';
 import { firestoreService } from '@/app/graphql-playground/services/firestoreService';
 import { getInitialEndpoint, getEndpointConfigFromUrlKey } from '@/app/graphql-playground/constants';
 import { createExecutionContext, executePipeline, fetchGraphQLRequest } from '@/app/graphql-playground/utils/query-pipeline';
@@ -1590,7 +1590,7 @@ export default function DataProviderOld({
                 <label className="block text-xs font-medium text-gray-700 mb-1">
                   Month Range
                 </label>
-                <MonthRangePicker
+                <RangePicker
                   key={dataSource} // Force re-render when data source changes
                   value={monthRange}
                   onChange={(dates) => {

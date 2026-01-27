@@ -665,8 +665,234 @@ updateExpandedRows(newExpanded);
 
 ## Sidebar/Drawer Operations
 
-### `openDrawerWithData(data, outerValue, innerValue)`
-Open sidebar with custom filtered data.
+### `openDrawer(data, filters)` (Unified API)
+
+Unified function to open the drawer with two variants:
+
+**Variant 1: With data** - `openDrawer(data, filters)`
+- Applies filters on the provided data array, then sends to drawer
+- `data`: Array of data to display in drawer
+- `filters`: Object with format `{ columnKey: [filterValues] }` (optional)
+
+**Variant 2: Without data** - `openDrawer(filters)`
+- Applies filters on current `filteredData`, then sends to drawer
+- `filters`: Object with format `{ columnKey: [filterValues] }` (optional)
+
+Filters are applied as **pre-filters** before data reaches the drawer table component.
+
+#### Filter Format
+
+All filters use the format: `{ columnKey: filterValue }`
+
+The `filterValue` format depends on the column type. Filters are applied as **AND** conditions - a row must match all specified filters.
+
+##### 1. String Columns (default)
+
+**Format**: Single value or array  
+**Behavior**: Case-insensitive "contains" search
+
+```javascript
+// Single value - searches for substring
+openDrawer({
+  customer_name: 'John'  // Matches "John", "Johnny", "Johnson", etc.
+});
+
+// Array - treated as multiple OR conditions
+openDrawer({
+  status: ['Active', 'Pending']  // Matches rows with status "Active" OR "Pending"
+});
+```
+
+##### 2. Multiselect Columns
+
+**Format**: Array of values  
+**Behavior**: Exact match - cell value must equal one of the filter values
+
+```javascript
+openDrawer({
+  region: ['North', 'South', 'East']  // Matches if region is exactly "North" OR "South" OR "East"
+});
+```
+
+##### 3. Boolean Columns
+
+**Format**: `true` or `false` (boolean, not string)  
+**Behavior**: Exact match
+
+```javascript
+openDrawer({
+  is_active: true,   // Matches true, 1, or '1'
+  is_deleted: false // Matches false, 0, or '0'
+});
+```
+
+##### 4. Date Columns
+
+**Format**: Array `[startDate, endDate]` for range, or single value  
+**Behavior**: Date range filtering (inclusive)
+
+```javascript
+// Date range (most common)
+const today = new Date();
+const startDate = new Date(today.setHours(0, 0, 0, 0));
+const endDate = new Date(today.setHours(23, 59, 59, 999));
+
+openDrawer({
+  order_date: [startDate, endDate]  // Matches dates between start and end (inclusive)
+});
+
+// Single date (treated as equals)
+openDrawer({
+  created_date: '2024-01-15'  // Matches exact date
+});
+
+// Start date only (>=)
+openDrawer({
+  order_date: [startDate, null]  // Matches dates >= startDate
+});
+
+// End date only (<=)
+openDrawer({
+  order_date: [null, endDate]  // Matches dates <= endDate
+});
+
+// Filter today's data
+const today = new Date();
+const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+const todayEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+openDrawer({
+  order_date: [todayStart, todayEnd]
+});
+```
+
+##### 5. Number Columns
+
+**Format**: String with operators, or plain number  
+**Behavior**: Supports comparison operators and ranges
+
+```javascript
+// Less than
+openDrawer({
+  price: '< 100'  // Matches values < 100
+});
+
+// Less than or equal
+openDrawer({
+  quantity: '<= 50'  // Matches values <= 50
+});
+
+// Greater than
+openDrawer({
+  revenue: '> 1000'  // Matches values > 1000
+});
+
+// Greater than or equal
+openDrawer({
+  score: '>= 80'  // Matches values >= 80
+});
+
+// Equals
+openDrawer({
+  count: '= 10'  // Matches exactly 10
+});
+
+// Range (between)
+openDrawer({
+  price: '50 <> 100'  // Matches values between 50 and 100 (inclusive)
+});
+
+// Plain number (contains - searches for substring in number string)
+openDrawer({
+  id: '123'  // Matches 123, 1234, 5123, etc. (string contains)
+});
+```
+
+**Supported operators**:
+- `< value` - Less than
+- `<= value` - Less than or equal
+- `> value` - Greater than
+- `>= value` - Greater than or equal
+- `= value` - Equals
+- `min <> max` - Range (between min and max, inclusive)
+- Plain number - String contains search
+
+##### 6. Percentage Columns
+
+**Format**: Same as Number columns  
+**Behavior**: Same numeric filtering as number columns, but operates on calculated percentage values
+
+```javascript
+openDrawer({
+  profit_margin: '>= 10',      // Percentage >= 10%
+  growth_rate: '5 <> 15'       // Percentage between 5% and 15%
+});
+```
+
+#### Complete Examples
+
+```javascript
+const { openDrawer } = useTableOperations();
+
+// Multiple column types at once
+openDrawer({
+  // String - contains search
+  customer_name: 'Smith',
+  
+  // Multiselect - exact match
+  region: ['North', 'South'],
+  
+  // Boolean
+  is_active: true,
+  
+  // Date range
+  order_date: [new Date('2024-01-01'), new Date('2024-01-31')],
+  
+  // Number with operator
+  price: '>= 100',
+  quantity: '10 <> 50',
+  
+  // Percentage
+  margin: '> 15'
+});
+
+// Filter today's orders with price >= 100
+const today = new Date();
+const todayStart = new Date(today.setHours(0, 0, 0, 0));
+const todayEnd = new Date(today.setHours(23, 59, 59, 999));
+
+openDrawer({
+  order_date: [todayStart, todayEnd],
+  total_price: '>= 100',
+  status: ['Completed', 'Shipped']
+});
+
+// Variant 1: Open drawer with custom data and filters
+const customData = filteredData.filter(row => row.priority === 'High');
+openDrawer(customData, { status: ['Active'] });
+
+// Variant 2: Open drawer with filters on current filteredData
+openDrawer({ region: ['North'], status: ['Active'] });
+
+// Variant 2: Open drawer with just filters
+openDrawer({ region: ['North'] });
+
+// Variant 1: Open drawer with data only (no filters)
+openDrawer(customData);
+```
+
+#### Filter Notes
+
+1. **All filters are AND conditions** - a row must match all specified filters
+2. **Empty filters are ignored** - `null`, `''`, or `[]` are skipped
+3. **Case-insensitive for strings** - string matching is case-insensitive
+4. **Null handling** - multiselect columns handle null values explicitly
+5. **Date parsing** - dates are parsed using `parseToDate` function
+6. **Number parsing** - numeric filters parse strings with operators
+
+### Legacy Methods (calls `openDrawer` internally)
+
+#### `openDrawerWithData(data, outerValue, innerValue)`
+Open sidebar with custom filtered data. **Legacy method** - calls `openDrawer(data, null)` internally.
 
 ```javascript
 const { openDrawerWithData, filteredData } = useTableOperations();
@@ -676,8 +902,8 @@ const customData = filteredData.filter(row => row.priority === 'High');
 openDrawerWithData(customData, 'High Priority', null);
 ```
 
-### `openDrawerForOuterGroup(value)`
-Filter by outer group field and open sidebar.
+#### `openDrawerForOuterGroup(value)`
+Filter by outer group field and open sidebar. **Legacy method** - calls `openDrawer({ [outerGroupField]: [value] })` internally.
 
 ```javascript
 const { openDrawerForOuterGroup } = useTableOperations();
@@ -686,8 +912,8 @@ const { openDrawerForOuterGroup } = useTableOperations();
 openDrawerForOuterGroup('North');
 ```
 
-### `openDrawerForInnerGroup(outerValue, innerValue)`
-Filter by both outer and inner group fields and open sidebar.
+#### `openDrawerForInnerGroup(outerValue, innerValue)`
+Filter by both outer and inner group fields and open sidebar. **Legacy method** - calls `openDrawer({ [outerGroupField]: [outerValue], [innerGroupField]: [innerValue] })` internally.
 
 ```javascript
 const { openDrawerForInnerGroup } = useTableOperations();
@@ -732,6 +958,69 @@ updateDrawerTab(drawerTabs[0].id, {
 });
 ```
 
+### Drawer Tab Configuration
+
+Each drawer tab can have optional prop overrides that customize the table behavior for that specific tab. The drawer table inherits props from the main table by default, and tab-specific overrides take precedence.
+
+#### Tab Structure
+
+```javascript
+drawerTabs = [
+  {
+    id: "tab-1",
+    name: "Custom Tab",
+    outerGroup: "customer_name",  // Optional: outer grouping field
+    innerGroup: "item_name",      // Optional: inner grouping field
+    // Optional prop overrides (any DataTableComponent prop):
+    rowsPerPageOptions: [10, 25, 50],
+    defaultRows: 25,
+    enableSort: false,
+    enableFilter: true,
+    enableSummation: true,
+    scrollable: true,
+    // ... any other table prop
+  }
+]
+```
+
+#### Prop Inheritance
+
+The drawer table merges props in this order:
+
+1. **Base props** (from main table): `enableSort`, `enableFilter`, `enableSummation`, `enableDivideBy1Lakh`, `textFilterColumns`, `visibleColumns`, `redFields`, `greenFields`, `percentageColumns`, `columnTypes`
+2. **Drawer-specific defaults**: `rowsPerPageOptions: [5, 10, 25, 50, 100, 200]`, `defaultRows: 10`, `scrollable: false`, `enableCellEdit: false`, `nonEditableColumns: []`, `tableName: "sidebar"`
+3. **Tab-specific overrides**: Any props defined in the tab object (beyond `id`, `name`, `outerGroup`, `innerGroup`)
+
+#### Examples
+
+```javascript
+// Configure drawer tabs with prop overrides
+const drawerTabs = [
+  {
+    id: "tab-1",
+    name: "Summary View",
+    outerGroup: "region",
+    innerGroup: "quarter",
+    rowsPerPageOptions: [10, 25, 50],
+    defaultRows: 25,
+    enableSort: false  // Disable sorting for this tab
+  },
+  {
+    id: "tab-2",
+    name: "Detailed View",
+    outerGroup: "customer_name",
+    enableFilter: false,  // Disable filtering for this tab
+    scrollable: true      // Enable scrolling for this tab
+  }
+];
+
+// Update a tab with prop overrides
+updateDrawerTab("tab-1", {
+  defaultRows: 50,
+  enableSummation: false
+});
+```
+
 ### `setActiveDrawerTabIndex(index)`
 Set the active drawer tab.
 
@@ -740,7 +1029,36 @@ const { setActiveDrawerTabIndex } = useTableOperations();
 setActiveDrawerTabIndex(1); // Switch to second tab
 ```
 
-**Example: Summary Card with Drawer**
+**Example: Summary Card with Drawer (New API)**
+
+```javascript
+function SummaryCard({ title, filterValue }) {
+  const { 
+    filteredData, 
+    openDrawer,
+    outerGroupField 
+  } = useTableOperations();
+  
+  const cardData = filteredData.filter(row => {
+    const value = getDataValue(row, outerGroupField);
+    return String(value) === String(filterValue);
+  });
+  
+  const handleClick = () => {
+    // Using new unified API
+    openDrawer(cardData, null);
+  };
+  
+  return (
+    <div onClick={handleClick} className="card">
+      <h3>{title}</h3>
+      <p>Count: {cardData.length}</p>
+    </div>
+  );
+}
+```
+
+**Example: Summary Card with Drawer (Legacy API)**
 
 ```javascript
 function SummaryCard({ title, filterValue }) {
@@ -1250,7 +1568,21 @@ DataProvider (useOrchestrationLayer={true})
 
 ## Common Patterns
 
-### Pattern 1: Filtering Data for Custom Display
+### Pattern 1: Filtering Data for Custom Display (New API)
+
+```javascript
+const { filteredData, openDrawer } = useTableOperations();
+
+// Filter by custom criteria
+const customData = filteredData.filter(row => {
+  return row.status === 'active' && row.sales > 1000;
+});
+
+// Display or open in drawer with new API
+openDrawer(customData, { priority: ['High'] });
+```
+
+### Pattern 1 (Legacy): Filtering Data for Custom Display
 
 ```javascript
 const { filteredData, openDrawerWithData } = useTableOperations();
@@ -1264,7 +1596,23 @@ const customData = filteredData.filter(row => {
 openDrawerWithData(customData, 'Active High Sales', null);
 ```
 
-### Pattern 2: Opening Sidebar with Filtered Data
+### Pattern 2: Opening Sidebar with Filtered Data (New API)
+
+```javascript
+// Option 1: Use unified API with filters
+const { openDrawer } = useTableOperations();
+openDrawer({ region: ['North'] });
+
+// Option 2: Multiple filters
+openDrawer({ region: ['North'], status: ['Active'] });
+
+// Option 3: Custom filtering with new API
+const { filteredData, openDrawer } = useTableOperations();
+const filtered = filteredData.filter(row => row.region === 'North');
+openDrawer(filtered, { status: ['Active'] });
+```
+
+### Pattern 2 (Legacy): Opening Sidebar with Filtered Data
 
 ```javascript
 // Option 1: Use helper functions

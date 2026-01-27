@@ -155,33 +155,83 @@ export class IndexedDBServiceWorker {
             return;
         }
 
-        // Close the database before schema change
-        queryDb.close();
+        // Retry logic for version upgrade (handles race conditions)
+        const maxRetries = 5;
+        const retryDelay = 100; // ms
+        
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+            try {
+                // Close the database before schema change
+                if (queryDb.isOpen()) {
+                    queryDb.close();
+                }
+                
+                // Small delay to let other operations complete
+                if (attempt > 0) {
+                    await new Promise(resolve => setTimeout(resolve, retryDelay * attempt));
+                }
 
-        // Create new version with additional stores
-        const newStores = {};
+                // Re-check existing stores (they might have been created by another thread)
+                const freshDb = await this.getQueryDatabase(queryId, queryDoc);
+                const freshStores = freshDb.tables.map((table) => table.name);
+                const stillNeedToCreate = storesToCreate.filter(store => !freshStores.includes(store));
+                
+                if (stillNeedToCreate.length === 0) {
+                    // Another thread already created the stores
+                    return;
+                }
 
-        // Add existing stores with their original schema (preserve primary key definition)
-        // We must use the same schema definition, not empty string, to avoid "changing primary key" error
-        existingStores.forEach((storeName) => {
-            newStores[storeName] = "++id, index"; // Use same schema as new stores to preserve primary key
-        });
+                // Close fresh connection
+                if (freshDb.isOpen()) {
+                    freshDb.close();
+                }
 
-        // Add new stores (use ++ for auto-increment primary key, or specify a key)
-        storesToCreate.forEach((storeName) => {
-            newStores[storeName] = "++id, index"; // Using auto-increment id as primary key, index as indexed field for sorting
-        });
+                // Create new version with additional stores
+                const newStores = {};
 
-        // Define new version with all stores
-        queryDb.version(currentVersion + 1).stores(newStores);
+                // Add existing stores with their original schema
+                freshStores.forEach((storeName) => {
+                    newStores[storeName] = "++id, index";
+                });
 
-        // Open the database again
-        try {
-            await queryDb.open();
-            console.log(`Added stores to database Elbrit-${queryId}-DB:`, storesToCreate);
-        } catch (error) {
-            console.error(`Error updating database schema for ${queryId}:`, error);
-            throw error;
+                // Add new stores
+                stillNeedToCreate.forEach((storeName) => {
+                    newStores[storeName] = "++id, index";
+                });
+
+                // Define new version with all stores
+                const newVersionDb = new Dexie(freshDb.name);
+                newVersionDb.version(freshDb.verno + 1).stores(newStores);
+
+                // Open the database again
+                await newVersionDb.open();
+                
+                // Update cache with new database instance
+                this.queryDatabases.set(queryId, newVersionDb);
+                
+                console.log(`Added stores to database Elbrit-${queryId}-DB:`, stillNeedToCreate);
+                return; // Success!
+                
+            } catch (error) {
+                // Check for retryable Dexie errors using instanceof
+                const isRetryableError = 
+                    error instanceof Dexie.DatabaseClosedError ||
+                    error instanceof Dexie.VersionChangeError ||
+                    error instanceof Dexie.VersionError ||
+                    (error?.name === 'DatabaseClosedError') ||
+                    (error?.name === 'VersionChangeError') ||
+                    (error?.name === 'VersionError');
+                
+                if (isRetryableError && attempt < maxRetries - 1) {
+                    const errorMessage = error?.message || String(error);
+                    console.warn(`Retry ${attempt + 1}/${maxRetries} for database upgrade on ${queryId}:`, errorMessage);
+                    continue; // Retry
+                }
+                
+                // Not retryable or max retries reached
+                console.error(`Error updating database schema for ${queryId}:`, error);
+                throw error;
+            }
         }
     }
 

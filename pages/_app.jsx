@@ -238,7 +238,7 @@ if (typeof window !== 'undefined') {
 
 function MyApp({ Component, pageProps }) {
   const [globalState, setGlobalState] = useState({});
-  console.log('globalState', process.env);
+  // console.log('globalState', process.env);
   const setState = useCallback((stateName, data, callback) => {
     if (typeof stateName === 'string') {
       setGlobalState(prev => {

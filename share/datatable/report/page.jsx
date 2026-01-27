@@ -9,7 +9,6 @@ import { Dropdown } from 'primereact/dropdown';
 import { Card } from 'primereact/card';
 import { Button } from 'primereact/button';
 import { Toast } from 'primereact/toast';
-import { InputSwitch } from 'primereact/inputswitch';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import testData from '@/resource/test';
 import {
@@ -17,7 +16,9 @@ import {
   groupDataByTimePeriod,
   transformToTableData,
   transformToNestedTableData,
-  getTimePeriodLabel
+  getTimePeriodLabel,
+  getTimePeriodLabelShort,
+  reorganizePeriodsForPeriodOverPeriod
 } from './utils/timeBreakdownUtils';
 
 const BREAKDOWN_OPTIONS = [
@@ -26,6 +27,12 @@ const BREAKDOWN_OPTIONS = [
   { label: 'Day-wise', value: 'day' },
   { label: 'Quarter-wise', value: 'quarter' },
   { label: 'Annual-wise', value: 'annual' }
+];
+
+const LAYOUT_MODE_OPTIONS = [
+  { label: 'Merged Columns', value: 'merged' },
+  { label: 'Sub-Columns', value: 'sub-columns' },
+  { label: 'Period-over-Period', value: 'period-over-period' }
 ];
 
 // Transform test data - keep all fields, just map posting_date to date for compatibility
@@ -38,7 +45,7 @@ const transformTestData = (data) => {
 
 export default function ReportPage() {
   const [breakdownType, setBreakdownType] = useState('month');
-  const [columnLayoutMode, setColumnLayoutMode] = useState('merged'); // 'merged' | 'sub-columns'
+  const [columnLayoutMode, setColumnLayoutMode] = useState('merged'); // 'merged' | 'sub-columns' | 'period-over-period'
   const [expandedRows, setExpandedRows] = useState(null);
   const toast = useRef(null);
   
@@ -81,11 +88,20 @@ export default function ReportPage() {
     return groupDataByTimePeriod(rawData, 'date', breakdownType, metrics);
   }, [rawData, breakdownType, metrics]);
   
-  // Get all time periods
+  // Get all time periods (only those with data)
   const timePeriods = useMemo(() => {
-    if (!dateRange.start || !dateRange.end) return [];
-    return getTimePeriods(dateRange.start, dateRange.end, breakdownType);
-  }, [dateRange, breakdownType]);
+    if (!dateRange.start || !dateRange.end || !groupedData || Object.keys(groupedData).length === 0) return [];
+    
+    // Get all periods that actually have data
+    const periodsWithData = Object.keys(groupedData).sort();
+    
+    // Reorganize periods for Period-over-Period mode to group by month/quarter/etc
+    if (columnLayoutMode === 'period-over-period') {
+      return reorganizePeriodsForPeriodOverPeriod(periodsWithData, breakdownType);
+    }
+    
+    return periodsWithData;
+  }, [dateRange, breakdownType, columnLayoutMode, groupedData]);
   
   // Transform to table data (include details for nested table)
   const tableData = useMemo(() => {
@@ -164,7 +180,7 @@ export default function ReportPage() {
             timePeriods.map(period => (
               <Column 
                 key={`${period}_${metric}`}
-                header={getTimePeriodLabel(period, breakdownType)}
+                header={getTimePeriodLabelShort(period, breakdownType)}
                 sortable
                 field={`${period}_${metric.toLowerCase()}`}
               />
@@ -195,7 +211,7 @@ export default function ReportPage() {
           {timePeriods.map(period => (
             <Column 
               key={period} 
-              header={getTimePeriodLabel(period, breakdownType)} 
+              header={getTimePeriodLabelShort(period, breakdownType)} 
               colSpan={metrics.length} 
             />
           ))}
@@ -216,14 +232,57 @@ export default function ReportPage() {
     );
   };
 
+  // Generate period-over-period header group
+  const generatePeriodOverPeriodHeaderGroup = () => {
+    if (timePeriods.length === 0) return null;
+    
+    const metricLabels = metrics.map(m => getMetricLabel(m));
+    const totalCols = timePeriods.length * metrics.length;
+    
+    return (
+      <ColumnGroup>
+        <Row>
+          <Column header="" rowSpan={3} style={{ width: '5rem' }} />
+          <Column header="Team" rowSpan={3} />
+          <Column 
+            header="" 
+            colSpan={totalCols} 
+          />
+        </Row>
+        <Row>
+          {metricLabels.map((label, idx) => (
+            <Column key={metrics[idx]} header={label} colSpan={timePeriods.length} />
+          ))}
+        </Row>
+        <Row>
+          {metrics.map(metric => 
+            timePeriods.map(period => (
+              <Column 
+                key={`${period}_${metric}`}
+                header={getTimePeriodLabelShort(period, breakdownType)}
+                sortable
+                field={`${period}_${metric}`}
+              />
+            ))
+          )}
+        </Row>
+      </ColumnGroup>
+    );
+  };
+
   // Generate column groups
   const headerGroup = useMemo(() => {
     if (timePeriods.length === 0) return null;
     
-    return columnLayoutMode === 'merged' 
-      ? generateMergedHeaderGroup()
-      : generateSubColumnsHeaderGroup();
-  }, [timePeriods, breakdownType, columnLayoutMode]);
+    if (columnLayoutMode === 'merged') {
+      return generateMergedHeaderGroup();
+    } else if (columnLayoutMode === 'sub-columns') {
+      return generateSubColumnsHeaderGroup();
+    } else if (columnLayoutMode === 'period-over-period') {
+      return generatePeriodOverPeriodHeaderGroup();
+    }
+    return generateMergedHeaderGroup();
+  }, [timePeriods, breakdownType, columnLayoutMode, metrics]);
   
   // Dynamic body template based on metric type
   const getBodyTemplate = (metric) => {
@@ -305,7 +364,7 @@ export default function ReportPage() {
             timePeriods.map(period => (
               <Column 
                 key={`${period}_${metric}`}
-                header={getTimePeriodLabel(period, breakdownType)}
+                header={getTimePeriodLabelShort(period, breakdownType)}
                 sortable
                 field={`${period}_${metric}`}
               />
@@ -331,7 +390,7 @@ export default function ReportPage() {
           {timePeriods.map(period => (
             <Column 
               key={period} 
-              header={getTimePeriodLabel(period, breakdownType)} 
+              header={getTimePeriodLabelShort(period, breakdownType)} 
               colSpan={metrics.length} 
             />
           ))}
@@ -342,6 +401,39 @@ export default function ReportPage() {
               <Column 
                 key={`${period}_${metric}`}
                 header={getMetricLabel(metric)}
+                sortable
+                field={`${period}_${metric}`}
+              />
+            ))
+          )}
+        </Row>
+      </ColumnGroup>
+    );
+  };
+
+  // Generate period-over-period nested header group
+  const generatePeriodOverPeriodNestedHeaderGroup = () => {
+    const metricLabels = metrics.map(m => getMetricLabel(m));
+    return (
+      <ColumnGroup>
+        <Row>
+          <Column header="HQ" rowSpan={3} />
+          <Column 
+            header="" 
+            colSpan={timePeriods.length * metrics.length} 
+          />
+        </Row>
+        <Row>
+          {metricLabels.map((label, idx) => (
+            <Column key={metrics[idx]} header={label} colSpan={timePeriods.length} />
+          ))}
+        </Row>
+        <Row>
+          {metrics.map(metric => 
+            timePeriods.map(period => (
+              <Column 
+                key={`${period}_${metric}`}
+                header={getTimePeriodLabelShort(period, breakdownType)}
                 sortable
                 field={`${period}_${metric}`}
               />
@@ -381,6 +473,19 @@ export default function ReportPage() {
           );
         });
       });
+    } else if (columnLayoutMode === 'period-over-period') {
+      // Period-over-Period mode: metrics first, then time periods (same structure as merged)
+      metrics.forEach(metric => {
+        timePeriods.forEach(period => {
+          nestedColumns.push(
+            <Column
+              key={`${period}_${metric}`}
+              field={`${period}_${metric}`}
+              body={getBodyTemplate(metric)}
+            />
+          );
+        });
+      });
     } else {
       // Sub-columns mode: time periods first, then metrics
       timePeriods.forEach(period => {
@@ -397,9 +502,16 @@ export default function ReportPage() {
     }
 
     // Generate nested column group (same structure as main table)
-    const nestedHeaderGroup = columnLayoutMode === 'merged'
-      ? generateMergedNestedHeaderGroup()
-      : generateSubColumnsNestedHeaderGroup();
+    let nestedHeaderGroup;
+    if (columnLayoutMode === 'merged') {
+      nestedHeaderGroup = generateMergedNestedHeaderGroup();
+    } else if (columnLayoutMode === 'sub-columns') {
+      nestedHeaderGroup = generateSubColumnsNestedHeaderGroup();
+    } else if (columnLayoutMode === 'period-over-period') {
+      nestedHeaderGroup = generatePeriodOverPeriodNestedHeaderGroup();
+    } else {
+      nestedHeaderGroup = generateMergedNestedHeaderGroup();
+    }
 
     return (
       <div className="p-3">
@@ -461,6 +573,19 @@ export default function ReportPage() {
           );
         });
       });
+    } else if (columnLayoutMode === 'period-over-period') {
+      // Period-over-Period mode: metrics first, then time periods (same structure as merged, but with short labels in header)
+      metrics.forEach(metric => {
+        timePeriods.forEach(period => {
+          cols.push(
+            <Column
+              key={`${period}_${metric}`}
+              field={`${period}_${metric}`}
+              body={getBodyTemplate(metric)}
+            />
+          );
+        });
+      });
     } else {
       // Sub-columns mode: time periods first, then metrics
       timePeriods.forEach(period => {
@@ -501,12 +626,14 @@ export default function ReportPage() {
                 />
               </div>
               <div className="flex items-center gap-2">
-                <label className="text-sm font-medium text-gray-700">
-                  {columnLayoutMode === 'merged' ? 'Merged Columns' : 'Sub-Columns'}
-                </label>
-                <InputSwitch
-                  checked={columnLayoutMode === 'sub-columns'}
-                  onChange={(e) => setColumnLayoutMode(e.value ? 'sub-columns' : 'merged')}
+                <label className="text-sm font-medium text-gray-700">Layout Mode:</label>
+                <Dropdown
+                  value={columnLayoutMode}
+                  onChange={(e) => setColumnLayoutMode(e.value)}
+                  options={LAYOUT_MODE_OPTIONS}
+                  optionLabel="label"
+                  optionValue="value"
+                  className="w-48"
                 />
               </div>
             </div>

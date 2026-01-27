@@ -43,6 +43,8 @@ import {
   values,
 } from 'lodash';
 import { getDataKeys, getDataValue } from '../utils/dataAccessUtils';
+import { computeReportColumnsStructure, generateReportHeaderGroup, getMetricLabel, getReportColumns } from '../utils/reportRenderingUtils';
+import { exportReportToXLSX } from '../utils/reportExportUtils';
 
 // Date format patterns for detection
 const DATE_PATTERNS = [
@@ -948,6 +950,13 @@ export default function DataTableComponent({
   enableFullscreenDialog = true, // Enable/disable fullscreen dialog feature
       tableName = 'table', // Table name for identification (e.g., 'main', 'dialog', 'sidebar')
   columnTypes: columnTypesOverride = {}, // Object with column names as keys and type strings as values: {columnName: "date" | "number" | "boolean" | "string"}
+  // Report mode props
+  enableBreakdown = false,
+  reportData = null,
+  columnGroupBy = 'values',
+  dateColumn = null,
+  breakdownType = 'month',
+  isComputingReport = false,
 }) {
   const [first, setFirst] = useState(0);
   const [rows, setRows] = useState(defaultRows);
@@ -1044,6 +1053,20 @@ export default function DataTableComponent({
   const columnTypes = useMemo(() => {
     const detectedTypes = {}; // String-based types from detection
     const diagnostics = {}; // Store diagnostics for each column
+    
+    // In report mode, ensure report columns are treated as numeric
+    // Compute report column names directly to avoid dependency on reportColumnsStructure
+    if (enableBreakdown && reportData && reportData.timePeriods && reportData.metrics) {
+      const { timePeriods, metrics } = reportData;
+      // Generate all possible report column names (period_metric format)
+      timePeriods.forEach(period => {
+        metrics.forEach(metric => {
+          const columnName = `${period}_${metric}`;
+          detectedTypes[columnName] = 'number';
+        });
+      });
+    }
+    
     if (isEmpty(safeData)) {
       // Merge with overrides and convert to boolean flags
       const mergedTypes = { ...detectedTypes, ...columnTypesOverride };
@@ -1252,7 +1275,7 @@ export default function DataTableComponent({
     });
 
     return result;
-  }, [safeData, columns, isNumericValue, columnTypesOverride, stringTypeToFlags]);
+  }, [safeData, columns, isNumericValue, columnTypesOverride, stringTypeToFlags, enableBreakdown, reportData]);
 
   // Helper function to get percentage value for a percentage column
   const getPercentageColumnValue = useCallback((rowData, columnName) => {
@@ -1455,22 +1478,6 @@ export default function DataTableComponent({
     return finalResult;
   }, [columns, visibleColumns, outerGroupField, innerGroupField, columnTypes, hasPercentageColumns, percentageColumns]);
 
-  const frozenCols = useMemo(
-    () => {
-      const result = isEmpty(orderedColumns) ? [] : [head(orderedColumns)];
-      return result;
-    },
-    [orderedColumns]
-  );
-
-  const regularCols = useMemo(
-    () => {
-      const result = tail(orderedColumns);
-      return result;
-    },
-    [orderedColumns]
-  );
-
   const formatHeaderName = useCallback((key) => {
     // Check if it's a percentage column
     const percentageConfig = percentageColumns.find(pc => pc.columnName === key);
@@ -1479,6 +1486,54 @@ export default function DataTableComponent({
     }
     return startCase(key.split('__').join(' ').split('_').join(' '));
   }, [percentageColumns]);
+
+  // Report mode: Pre-compute column structure (shared by header and columns)
+  const reportColumnsStructure = useMemo(() => {
+    if (!enableBreakdown || !reportData) {
+      return null;
+    }
+    return computeReportColumnsStructure(reportData, columnGroupBy);
+  }, [enableBreakdown, reportData, columnGroupBy]);
+
+  // Report mode: Generate header groups and columns
+  const reportHeaderGroup = useMemo(() => {
+    if (!reportColumnsStructure || !reportData) {
+      return null;
+    }
+    return generateReportHeaderGroup(reportColumnsStructure, reportData, outerGroupField, formatHeaderName);
+  }, [reportColumnsStructure, reportData, outerGroupField, formatHeaderName]);
+
+  // Report mode: Generate report columns
+  const reportColumns = useMemo(() => {
+    if (!reportColumnsStructure) {
+      return [];
+    }
+    return getReportColumns(reportColumnsStructure, outerGroupField);
+  }, [reportColumnsStructure, outerGroupField]);
+
+  // Use report columns when in report mode, otherwise use orderedColumns
+  const displayColumns = useMemo(() => {
+    if (enableBreakdown && reportColumns.length > 0) {
+      return reportColumns;
+    }
+    return orderedColumns;
+  }, [enableBreakdown, reportColumns, orderedColumns]);
+
+  const frozenCols = useMemo(
+    () => {
+      const result = isEmpty(displayColumns) ? [] : [head(displayColumns)];
+      return result;
+    },
+    [displayColumns]
+  );
+
+  const regularCols = useMemo(
+    () => {
+      const result = tail(displayColumns);
+      return result;
+    },
+    [displayColumns]
+  );
 
   // Compute available columns for visibility selector based on mode
   const availableColumnsForVisibility = useMemo(() => {
@@ -1900,6 +1955,11 @@ export default function DataTableComponent({
 
   // Group filtered data by outerGroupField if set
   const groupedData = useMemo(() => {
+    // In report mode, report data is already grouped, so return empty (dataForSorting will use reportData.tableData)
+    if (enableBreakdown && reportData && reportData.tableData) {
+      return [];
+    }
+    
     if (!outerGroupField || isEmpty(filteredData)) {
       // When outerGroupField is removed, ensure we return a clean array without group rows
       // Also convert Map instances to plain objects for PrimeReact compatibility
@@ -2098,10 +2158,15 @@ export default function DataTableComponent({
 
   // Use grouped data if outerGroupField is set, otherwise use filteredData
   const dataForSorting = useMemo(() => {
+    // In report mode, use report data tableData
+    if (enableBreakdown && reportData && reportData.tableData) {
+      return isArray(reportData.tableData) ? reportData.tableData : [];
+    }
+    
     const data = outerGroupField ? groupedData : filteredData;
     // Ensure we always return an array
     return isArray(data) ? data : [];
-  }, [outerGroupField, groupedData, filteredData]);
+  }, [enableBreakdown, reportData, outerGroupField, groupedData, filteredData]);
 
   const sortedData = useMemo(() => {
     // Ensure dataForSorting is an array
@@ -2757,8 +2822,16 @@ export default function DataTableComponent({
 
   // Check if a row can be expanded
   const allowExpansion = useCallback((rowData) => {
+    // In report mode with innerGroupField, check nestedTableData
+    if (enableBreakdown && reportData && innerGroupField) {
+      const outerValue = getDataValue(rowData, outerGroupField);
+      const nestedRows = reportData.nestedTableData?.[outerValue];
+      return nestedRows && nestedRows.length > 0;
+    }
+    
+    // Regular mode: check for group rows
     return outerGroupField && rowData.__isGroupRow__ && rowData.__groupRows__ && rowData.__groupRows__.length > 0;
-  }, [outerGroupField]);
+  }, [outerGroupField, enableBreakdown, reportData, innerGroupField]);
 
   // Nested (expanded) tables: keep independent filter state and debounce timers per group
   const [nestedFiltersMap, setNestedFiltersMap] = useState({});
@@ -2794,6 +2867,53 @@ export default function DataTableComponent({
     }
     fn(value);
   }, [updateNestedFilter]);
+
+  // Report mode row expansion template - shows nested table with report structure
+  const reportRowExpansionTemplate = useCallback((rowData) => {
+    if (!enableBreakdown || !reportData || !innerGroupField) {
+      return null;
+    }
+
+    const outerValue = getDataValue(rowData, outerGroupField);
+    const nestedRows = reportData.nestedTableData?.[outerValue];
+    
+    if (!nestedRows || nestedRows.length === 0) {
+      return <div className="p-3">No inner group data available</div>;
+    }
+
+    // For report mode, use a simplified nested table showing the nested rows
+    // The nested rows already have the report structure (period_metric columns)
+    const nestedColumns = [innerGroupField, ...(reportColumnsStructure?.columnNames || [])];
+    
+    return (
+      <div className="p-3 bg-gray-50">
+        <div className="text-xs font-semibold text-gray-700 mb-2">
+          Aggregated by {formatHeaderName(innerGroupField)}
+        </div>
+        <div className="border border-gray-200 rounded-lg overflow-hidden">
+          <DataTable
+            value={nestedRows}
+            className="p-datatable-sm"
+            style={{ minWidth: '100%' }}
+          >
+            {nestedColumns.map((col) => {
+              const colType = get(columnTypes, col);
+              const isNumericCol = get(colType, 'isNumeric', false);
+              return (
+                <Column
+                  key={col}
+                  field={col}
+                  header={formatHeaderName(col)}
+                  body={(rowData) => formatCellValue(getDataValue(rowData, col), colType)}
+                  align={isNumericCol ? 'right' : 'left'}
+                />
+              );
+            })}
+          </DataTable>
+        </div>
+      </div>
+    );
+  }, [enableBreakdown, reportData, innerGroupField, outerGroupField, reportColumnsStructure, columnTypes, formatHeaderName, formatCellValue]);
 
   // Row expansion template - shows nested table with same headers
   const rowExpansionTemplate = useCallback((rowData) => {
@@ -3191,6 +3311,15 @@ export default function DataTableComponent({
         className={`border border-gray-200 rounded-lg w-full responsive-table-container ${containerClassName}`} 
         style={{ position: 'relative', ...containerStyle }}
       >
+        {/* Loading overlay when computing report */}
+        {isComputingReport && (
+          <div className="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center z-10 rounded-lg">
+            <div className="text-center">
+              <div className="inline-block animate-spin rounded-full h-8 w-8 border-2 border-gray-200 border-t-blue-600 mb-3"></div>
+              <p className="text-sm text-gray-500">Computing report...</p>
+            </div>
+          </div>
+        )}
         <div ref={tableRef}>
       <DataTable
         resizableColumns
@@ -3212,11 +3341,12 @@ export default function DataTableComponent({
         filterDisplay={enableFilter ? "row" : undefined}
         expandedRows={expandedRows}
         onRowToggle={(e) => setExpandedRows(e.data)}
-        rowExpansionTemplate={outerGroupField ? rowExpansionTemplate : undefined}
-        dataKey={outerGroupField ? "__groupKey__" : undefined}
+        rowExpansionTemplate={enableBreakdown && innerGroupField ? reportRowExpansionTemplate : (outerGroupField ? rowExpansionTemplate : undefined)}
+        dataKey={enableBreakdown && reportData ? "id" : (outerGroupField ? "__groupKey__" : undefined)}
         editMode={enableCellEdit ? "cell" : undefined}
+        headerColumnGroup={enableBreakdown && reportData ? reportHeaderGroup : undefined}
       >
-        {outerGroupField && (
+        {(outerGroupField || (enableBreakdown && innerGroupField)) && (
           <Column
             expander={allowExpansion}
             style={{ width: '3rem' }}
@@ -3333,6 +3463,27 @@ export default function DataTableComponent({
   };
 
   const exportToXLSX = useCallback(() => {
+    // Check if we're in report mode
+    if (enableBreakdown && reportData) {
+      // Use report export with merged headers
+      const wb = exportReportToXLSX(
+        reportData,
+        columnGroupBy,
+        outerGroupField,
+        innerGroupField,
+        formatHeaderName
+      );
+      
+      // Generate filename with current date
+      const dateStr = new Date().toISOString().split('T')[0];
+      const filename = `export_${dateStr}.xlsx`;
+      
+      // Write file
+      XLSX.writeFile(wb, filename);
+      return;
+    }
+
+    // Regular export logic (non-report mode)
     let dataToExport;
     let allColumns;
 
@@ -3460,7 +3611,7 @@ export default function DataTableComponent({
 
     // Write file
     XLSX.writeFile(wb, filename);
-  }, [safeData, columnTypes, formatHeaderName, isTruthyBoolean, outerGroupField, groupedData, isPercentageColumn, hasPercentageColumns, percentageColumns, getPercentageColumnValue]);
+  }, [enableBreakdown, reportData, columnGroupBy, safeData, columnTypes, formatHeaderName, isTruthyBoolean, outerGroupField, innerGroupField, groupedData, isPercentageColumn, hasPercentageColumns, percentageColumns, getPercentageColumnValue]);
 
   if (isEmpty(safeData)) {
     return (

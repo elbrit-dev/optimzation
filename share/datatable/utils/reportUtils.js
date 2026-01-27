@@ -1,7 +1,65 @@
-import { getTimePeriodKey, getTimePeriodLabel, getTimePeriods, groupDataByTimePeriod, transformToTableData, transformToNestedTableData } from '../report/utils/timeBreakdownUtils';
-import { getDataValue } from './dataAccessUtils';
-import { sumBy, isNil, isNumber, toNumber, isNaN as _isNaN, isEmpty } from 'lodash';
+import { getTimePeriodKey, getTimePeriodLabel, getTimePeriods, groupDataByTimePeriod, transformToTableData, transformToNestedTableData, reorganizePeriodsForPeriodOverPeriod } from '../report/utils/timeBreakdownUtils';
+import { getDataValue, getNestedValue } from './dataAccessUtils';
+import { sumBy, isNil, isNumber, toNumber, isNaN as _isNaN, isEmpty, isDate, isString, trim } from 'lodash';
 import dayjs from 'dayjs';
+
+/**
+ * Parse a value to a Date object
+ */
+function parseToDate(value) {
+  if (isNil(value)) return null;
+  if (value === '' || value === 0 || value === '0') return null;
+  if (isDate(value)) return value;
+  if (isNumber(value)) {
+    if (value <= 0) return null;
+    const date = new Date(value);
+    return isNaN(date.getTime()) ? null : date;
+  }
+  if (isString(value)) {
+    const trimmed = trim(value);
+    if (trimmed === '') return null;
+    const parsed = new Date(trimmed);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  }
+  return null;
+}
+
+/**
+ * Create a sort comparator function based on sortConfig and fieldType
+ * @param {Object} sortConfig - Sort configuration with field and direction
+ * @param {string} fieldType - Type of field: 'number', 'date', 'boolean', 'string'
+ * @param {string} topLevelKey - Top-level key (e.g., "user")
+ * @param {string} nestedPath - Nested path (e.g., "profile.name")
+ * @returns {Function|null} Comparator function or null if sortConfig is invalid
+ */
+function createSortComparator(sortConfig, fieldType, topLevelKey, nestedPath) {
+  if (!sortConfig || !fieldType) return null;
+  
+  const { field, direction } = sortConfig;
+  return (a, b) => {
+    const aValue = getNestedValue(a, topLevelKey, nestedPath);
+    const bValue = getNestedValue(b, topLevelKey, nestedPath);
+
+    let comparison = 0;
+    switch (fieldType) {
+      case 'number':
+        comparison = (toNumber(aValue) || 0) - (toNumber(bValue) || 0);
+        break;
+      case 'date':
+        const aDate = parseToDate(aValue);
+        const bDate = parseToDate(bValue);
+        comparison = (aDate?.getTime() || 0) - (bDate?.getTime() || 0);
+        break;
+      case 'boolean':
+        comparison = (aValue ? 1 : 0) - (bValue ? 1 : 0);
+        break;
+      default: // string
+        comparison = String(aValue || '').localeCompare(String(bValue || ''));
+    }
+
+    return direction === 'asc' ? comparison : -comparison;
+  };
+}
 
 /**
  * Transform data to report format with time-based breakdown
@@ -11,9 +69,11 @@ import dayjs from 'dayjs';
  * @param {string} dateColumn - Column containing date values
  * @param {string} breakdownType - Type of breakdown: 'day', 'week', 'month', 'quarter', 'annual'
  * @param {Object} columnTypes - Object mapping column names to their types
+ * @param {Object} sortConfig - Optional sort configuration with field and direction
+ * @param {Object} sortFieldType - Optional sort field type info with fieldType, topLevelKey, nestedPath
  * @returns {Object} Report data structure with tableData, nestedTableData, timePeriods, and metrics
  */
-export function transformToReportData(data, outerGroupField, innerGroupField, dateColumn, breakdownType, columnTypes = {}) {
+export function transformToReportData(data, outerGroupField, innerGroupField, dateColumn, breakdownType, columnTypes = {}, sortConfig = null, sortFieldType = null) {
   if (!data || isEmpty(data) || !outerGroupField || !dateColumn) {
     return {
       tableData: [],
@@ -24,53 +84,55 @@ export function transformToReportData(data, outerGroupField, innerGroupField, da
     };
   }
 
-  // Detect numeric columns (metrics to aggregate)
+  // Detect numeric columns (metrics to aggregate) - optimized single pass
   const metrics = [];
-  if (!isEmpty(data)) {
-    // Collect ALL columns from ALL rows, not just first row
-    // This is critical because grouped/aggregated data may have different columns in different rows
-    const allColumnsSet = new Set();
-    data.forEach(row => {
-      if (row && typeof row === 'object') {
-        Object.keys(row).forEach(col => allColumnsSet.add(col));
-      }
-    });
-    const allColumns = Array.from(allColumnsSet);
-    const firstRow = data[0];
+  const allColumnsSet = new Set();
+  const columnNumericCount = new Map();
+  const columnCheckedCount = new Map();
+  const sampleSize = Math.min(data.length, 100);
 
-    allColumns.forEach(col => {
-      // Skip grouping fields and date column
-      if (col === outerGroupField || col === innerGroupField || col === dateColumn) {
-        return;
-      }
-      // Check if column is numeric based on columnTypes or data
-      const colType = columnTypes[col];
-      if (colType === 'number') {
-        metrics.push(col);
-      } else {
-        // Try to detect from data - check multiple rows, not just first row
-        // This is important because first row might not have all columns
-        let numericCount = 0;
-        let checkedCount = 0;
-        const sampleSize = Math.min(data.length, 100);
+  // Single pass to collect columns and detect metrics
+  if (!isEmpty(data)) {
+    for (let i = 0; i < data.length; i++) {
+      const row = data[i];
+      if (!row || typeof row !== 'object') continue;
+
+      Object.keys(row).forEach(col => {
+        allColumnsSet.add(col);
         
-        for (let i = 0; i < sampleSize; i++) {
-          const value = getDataValue(data[i], col);
+        // Skip grouping fields and date column
+        if (col === outerGroupField || col === innerGroupField || col === dateColumn) {
+          return;
+        }
+
+        // Check column type
+        const colType = columnTypes[col];
+        if (colType === 'number') {
+          if (!metrics.includes(col)) {
+            metrics.push(col);
+          }
+        } else if (i < sampleSize) {
+          // Sample rows for numeric detection
+          const value = getDataValue(row, col);
           if (value !== null && value !== undefined && value !== '') {
-            checkedCount++;
+            columnCheckedCount.set(col, (columnCheckedCount.get(col) || 0) + 1);
             if (typeof value === 'number') {
-              numericCount++;
+              columnNumericCount.set(col, (columnNumericCount.get(col) || 0) + 1);
             } else {
               const numVal = toNumber(value);
-              if (!_isNaN(numVal)) {
-                numericCount++;
+              if (!_isNaN(numVal) && isFinite(numVal)) {
+                columnNumericCount.set(col, (columnNumericCount.get(col) || 0) + 1);
               }
             }
           }
         }
-        
-        // If >50% of checked values are numeric, consider it a numeric column
-        // This is more lenient than the 80% threshold in columnTypes detection
+      });
+    }
+
+    // Process sampled columns
+    columnCheckedCount.forEach((checkedCount, col) => {
+      if (!metrics.includes(col)) {
+        const numericCount = columnNumericCount.get(col) || 0;
         if (checkedCount > 0 && numericCount / checkedCount > 0.5) {
           metrics.push(col);
         }
@@ -78,17 +140,28 @@ export function transformToReportData(data, outerGroupField, innerGroupField, da
     });
   }
 
-  // Get date range from data
-  const dates = data
-    .map(row => {
-      const dateValue = getDataValue(row, dateColumn);
-      if (!dateValue) return null;
-      // Try to parse as date
-      const parsed = dayjs(dateValue);
-      return parsed.isValid() ? parsed : null;
-    })
-    .filter(Boolean)
-    .sort((a, b) => a.valueOf() - b.valueOf());
+  // Get date range from data - optimized with single pass and caching
+  const dates = [];
+  const dateCache = new Map();
+  
+  for (let i = 0; i < data.length; i++) {
+    const dateValue = getDataValue(data[i], dateColumn);
+    if (!dateValue) continue;
+    
+    let parsed = dateCache.get(dateValue);
+    if (!parsed) {
+      parsed = dayjs(dateValue);
+      if (parsed.isValid()) {
+        dateCache.set(dateValue, parsed);
+        dates.push(parsed);
+      }
+    } else {
+      dates.push(parsed);
+    }
+  }
+  
+  // Sort dates
+  dates.sort((a, b) => a.valueOf() - b.valueOf());
 
   if (dates.length === 0) {
     return {
@@ -116,13 +189,26 @@ export function transformToReportData(data, outerGroupField, innerGroupField, da
   const transformedTableData = transformToTableData(groupedData, outerGroupField, breakdownType, true, metrics);
   
   // Map 'product' field to the actual outerGroupField since transformToTableData hardcodes 'product'
-  const tableData = transformedTableData.map(row => {
+  let tableData = transformedTableData.map(row => {
     const { product, ...rest } = row;
     return {
       ...rest,
       [outerGroupField]: product === 'Unknown' ? null : product
     };
   });
+
+  // Apply sorting to tableData if sortConfig is provided
+  if (sortConfig && sortFieldType) {
+    const sortComparator = createSortComparator(
+      sortConfig,
+      sortFieldType.fieldType,
+      sortFieldType.topLevelKey,
+      sortFieldType.nestedPath
+    );
+    if (sortComparator && tableData.length > 0) {
+      tableData.sort(sortComparator);
+    }
+  }
 
   // Generate nested table data (inner group breakdown) if innerGroupField is set
   // This matches the reference implementation approach
@@ -151,6 +237,24 @@ export function transformToReportData(data, outerGroupField, innerGroupField, da
       }
       nestedTableData[key].push(row);
     });
+
+    // Apply sorting to nested table data if sortConfig is provided
+    if (sortConfig && sortFieldType) {
+      const sortComparator = createSortComparator(
+        sortConfig,
+        sortFieldType.fieldType,
+        sortFieldType.topLevelKey,
+        sortFieldType.nestedPath
+      );
+      if (sortComparator) {
+        // Sort each nested table array
+        Object.keys(nestedTableData).forEach(key => {
+          if (nestedTableData[key] && nestedTableData[key].length > 0) {
+            nestedTableData[key].sort(sortComparator);
+          }
+        });
+      }
+    }
   }
 
   return {

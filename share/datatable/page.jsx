@@ -7,6 +7,7 @@ import { Dropdown } from 'primereact/dropdown';
 import DataTableNew from './components/DataTableNew';
 import DataTableControls from './components/DataTableControls';
 import DataProvider from './components/DataProvider';
+import ReportLineChartWrapper from './components/ReportLineChartWrapper';
 import data from '@/resource/data';
 import testData from '@/resource/test';
 import { uniq, flatMap, isEmpty, startCase, filter as lodashFilter, get, isNil, debounce } from 'lodash';
@@ -60,6 +61,9 @@ function DataTablePage() {
   const [dateColumn, setDateColumn] = useState(defaultDataTableConfig.dateColumn);
   const [breakdownType, setBreakdownType] = useState(defaultDataTableConfig.breakdownType);
   const [enableBreakdown, setEnableBreakdown] = useState(false);
+  const [showChart, setShowChart] = useState(true);
+  const [chartColumns, setChartColumns] = useState([]);
+  const [chartHeight, setChartHeight] = useState(400);
 
   // Drawer tabs state (still managed here for DataTableControls, but drawer rendering moved to DataProvider)
   const [drawerTabs, setDrawerTabs] = useState(defaultDataTableConfig.drawerTabs.length > 0 ? defaultDataTableConfig.drawerTabs : [{ id: `tab-${Date.now()}`, name: '', outerGroup: null, innerGroup: null }]);
@@ -459,6 +463,8 @@ function DataTablePage() {
             onBreakdownTypeChange={setBreakdownType}
             enableBreakdown={enableBreakdown}
             onEnableBreakdownChange={setEnableBreakdown}
+            chartColumns={chartColumns}
+            chartHeight={chartHeight}
           >
             <div className="flex-1 min-h-0">
               <Splitter style={{ height: '100%' }} layout="horizontal" className="h-full">
@@ -484,19 +490,27 @@ function DataTablePage() {
                         </p>
                       </div>
                     ) : (
-                      <DataTableNew
-                        scrollHeight={tableHeight}
-                        rowsPerPageOptions={rowsPerPageOptions}
-                        defaultRows={defaultRows}
-                        scrollable={false}
-                        enableCellEdit={enableCellEdit}
-                        nonEditableColumns={nonEditableColumns}
-                        onCellEditComplete={handleCellEditComplete}
-                        onOuterGroupClick={handleOuterGroupClick}
-                        onInnerGroupClick={handleInnerGroupClick}
-                        tableName="main"
-                        useOrchestrationLayer={true}
-                      />
+                      <>
+                        {/* Report Line Chart - Only render in report mode */}
+                        {enableBreakdown && showChart && (
+                          <div className="w-full mb-4">
+                            <ReportLineChartWrapper />
+                          </div>
+                        )}
+                        <DataTableNew
+                          scrollHeight={tableHeight}
+                          rowsPerPageOptions={rowsPerPageOptions}
+                          defaultRows={defaultRows}
+                          scrollable={false}
+                          enableCellEdit={enableCellEdit}
+                          nonEditableColumns={nonEditableColumns}
+                          onCellEditComplete={handleCellEditComplete}
+                          onOuterGroupClick={handleOuterGroupClick}
+                          onInnerGroupClick={handleInnerGroupClick}
+                          tableName="main"
+                          useOrchestrationLayer={true}
+                        />
+                      </>
                     )}
                   </div>
                 </SplitterPanel>
@@ -558,11 +572,18 @@ function DataTablePage() {
                     columnTypesOverride={columnTypesOverride}
                     onColumnTypesOverrideChange={handleColumnTypesOverrideChange}
                     enableReport={enableReport}
+                    enableBreakdown={enableBreakdown}
                     dateColumn={dateColumn}
                     breakdownType={breakdownType}
+                    showChart={showChart}
+                    chartColumns={chartColumns}
+                    chartHeight={chartHeight}
                     onEnableReportChange={setEnableReport}
                     onDateColumnChange={setDateColumn}
                     onBreakdownTypeChange={setBreakdownType}
+                    onShowChartChange={setShowChart}
+                    onChartColumnsChange={setChartColumns}
+                    onChartHeightChange={setChartHeight}
                     dataSource={dataSource}
                     selectedQueryKey={selectedQueryKey}
                     availableQueryKeys={availableQueryKeys}

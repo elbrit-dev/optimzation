@@ -29,31 +29,37 @@ export const defaultDataTableConfig = {
     greenFields: [],
 
     // Grouping
-    outerGroupField: 'team',
-    innerGroupField: 'hq',
+    outerGroupField: "sales_team",
+    innerGroupField: "hq",
 
     // Column types override
     columnTypesOverride: {},
 
     // Drawer tabs
-    drawerTabs: [],
+    drawerTabs: [
+        {
+            name: "Custom Tab",
+            outerGroup: "customer_name",
+            innerGroup: "item_name",
+        },
+    ],
 
     // Report settings
     enableReport: true,
     breakdownType: "month",
-    dateColumn: 'posting_date',
-    columnGroupBy: 'values',
+    dateColumn: "posting_date",
+    columnGroupBy: "values",
 
     // Auth Control
     isAdminMode: false,
-    salesTeamColumn: 'team',
+    salesTeamColumn: "sales_team",
     salesTeamValues: [],
-    hqColumn: 'hq',
+    hqColumn: "hq",
     hqValues: [],
 
     // Data source
-    dataSource: "test",
-    selectedQueryKey: 'primary',
+    dataSource: "Primary",
+    selectedQueryKey: "primary",
 };
 
 /**

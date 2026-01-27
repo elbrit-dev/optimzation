@@ -71,10 +71,64 @@ export function getTimePeriodLabel(periodKey, breakdownType) {
 }
 
 /**
- * Get all time periods in a range
+ * Get display label for time period with short year format (2-digit year)
+ * Used for Period-over-Period view
+ */
+export function getTimePeriodLabelShort(periodKey, breakdownType) {
+    switch (breakdownType) {
+        case "month":
+            // periodKey format: "2023-01" -> "Jan 23"
+            const monthDate = dayjs(periodKey + "-01");
+            const monthShort = monthDate.format("MMM");
+            const monthYear = monthDate.format("YY");
+            return `${monthShort} ${monthYear}`;
+        case "week":
+            // periodKey format: "2023-W01" -> "W1 23" (concise, no leading zero)
+            const weekMatch = periodKey.match(/(\d{4})-W(\d{1,2})/);
+            if (weekMatch) {
+                const year = weekMatch[1];
+                const weekNum = parseInt(weekMatch[2], 10); // Remove leading zero
+                const yearShort = year.slice(-2);
+                return `W${weekNum} ${yearShort}`;
+            }
+            // Fallback
+            return periodKey.replace(/(\d{4})-W(\d{1,2})/, (match, year, week) => {
+                return `W${parseInt(week, 10)} ${year.slice(-2)}`;
+            });
+        case "day":
+            // periodKey format: "2023-01-01" -> "2 Jan 25" (day first, then month and year)
+            const dayDate = dayjs(periodKey);
+            const dayDay = dayDate.format("D"); // No leading zero
+            const dayMonth = dayDate.format("MMM");
+            const dayYear = dayDate.format("YY");
+            return `${dayDay} ${dayMonth} ${dayYear}`;
+        case "quarter":
+            // periodKey format: "2023-Q1" -> "Q1 23"
+            const quarterMatch = periodKey.match(/(\d{4})-Q(\d)/);
+            if (quarterMatch) {
+                const year = quarterMatch[1];
+                const quarter = quarterMatch[2];
+                const yearShort = year.slice(-2);
+                return `Q${quarter} ${yearShort}`;
+            }
+            return periodKey.replace(/(\d{4})-Q/, "Q").replace(/(\d{4})/, (match) => match.slice(-2));
+        case "annual":
+            // Keep full year for annual: "2023" -> "2023"
+            return periodKey;
+        default:
+            // Default to month format
+            const defaultDate = dayjs(periodKey + "-01");
+            const defaultMonth = defaultDate.format("MMM");
+            const defaultYear = defaultDate.format("YY");
+            return `${defaultMonth} ${defaultYear}`;
+    }
+}
+
+/**
+ * Get all time periods in a range (optimized with Set)
  */
 export function getTimePeriods(startDate, endDate, breakdownType) {
-    const periods = [];
+    const periods = new Set();
     let current = dayjs(startDate);
     const end = dayjs(endDate);
 
@@ -92,9 +146,7 @@ export function getTimePeriods(startDate, endDate, breakdownType) {
         )
     ) {
         const periodKey = getTimePeriodKey(current, breakdownType);
-        if (!periods.includes(periodKey)) {
-            periods.push(periodKey);
-        }
+        periods.add(periodKey);
 
         // Increment based on breakdown type
         switch (breakdownType) {
@@ -118,85 +170,195 @@ export function getTimePeriods(startDate, endDate, breakdownType) {
         }
     }
 
-    return periods.sort();
+    return Array.from(periods).sort();
 }
 
 /**
- * Group data by time period
+ * Reorganize time periods for Period-over-Period view
+ * Groups periods by month/quarter/etc (ignoring year) and sorts by year within each group
+ * Example: ["2024-01", "2024-02", "2025-01", "2025-02"] -> ["2024-01", "2025-01", "2024-02", "2025-02"]
+ */
+export function reorganizePeriodsForPeriodOverPeriod(periods, breakdownType) {
+    if (!periods || periods.length === 0) return periods;
+
+    // For annual periods, just sort them (each year is its own period, no grouping needed)
+    if (breakdownType === "annual") {
+        return periods.sort((a, b) => {
+            const yearA = parseInt(a);
+            const yearB = parseInt(b);
+            return yearA - yearB;
+        });
+    }
+
+    // Group periods by their period identifier (without year)
+    const periodGroups = {};
+    
+    periods.forEach(periodKey => {
+        let groupKey;
+        
+        switch (breakdownType) {
+            case "month":
+                // Extract month from "2024-01" -> "01"
+                groupKey = periodKey.split("-")[1];
+                break;
+            case "quarter":
+                // Extract quarter from "2024-Q1" -> "Q1"
+                groupKey = periodKey.split("-")[1];
+                break;
+            case "week":
+                // Extract week from "2024-W01" -> "W01"
+                groupKey = periodKey.split("-")[1];
+                break;
+            case "day":
+                // Extract month-day from "2024-01-15" -> "01-15"
+                const parts = periodKey.split("-");
+                groupKey = `${parts[1]}-${parts[2]}`;
+                break;
+            default:
+                // Default to month format
+                groupKey = periodKey.split("-")[1];
+        }
+        
+        if (!periodGroups[groupKey]) {
+            periodGroups[groupKey] = [];
+        }
+        periodGroups[groupKey].push(periodKey);
+    });
+    
+    // Sort each group by year (ascending)
+    Object.keys(periodGroups).forEach(groupKey => {
+        periodGroups[groupKey].sort((a, b) => {
+            // Extract year from period key
+            const yearA = parseInt(a.split("-")[0]);
+            const yearB = parseInt(b.split("-")[0]);
+            return yearA - yearB;
+        });
+    });
+    
+    // Sort group keys to maintain order (month: 01-12, quarter: Q1-Q4, etc.)
+    const sortedGroupKeys = Object.keys(periodGroups).sort((a, b) => {
+        if (breakdownType === "month") {
+            return parseInt(a) - parseInt(b);
+        } else if (breakdownType === "quarter") {
+            return parseInt(a.replace("Q", "")) - parseInt(b.replace("Q", ""));
+        } else if (breakdownType === "week") {
+            return parseInt(a.replace("W", "")) - parseInt(b.replace("W", ""));
+        } else if (breakdownType === "day") {
+            // Sort by month first, then day
+            const [monthA, dayA] = a.split("-").map(Number);
+            const [monthB, dayB] = b.split("-").map(Number);
+            if (monthA !== monthB) return monthA - monthB;
+            return dayA - dayB;
+        }
+        return a.localeCompare(b);
+    });
+    
+    // Flatten groups into final array
+    const reorganized = [];
+    sortedGroupKeys.forEach(groupKey => {
+        reorganized.push(...periodGroups[groupKey]);
+    });
+    
+    return reorganized;
+}
+
+/**
+ * Group data by time period (optimized with Map and date caching)
  */
 export function groupDataByTimePeriod(data, dateField, breakdownType, metrics = ["sales", "profits", "count"]) {
-    const grouped = {};
+    const grouped = new Map();
+    const dateCache = new Map(); // Cache parsed dates to avoid redundant parsing
 
     data.forEach((item) => {
         const dateValue = item[dateField];
         if (!dateValue) return;
 
-        const periodKey = getTimePeriodKey(dateValue, breakdownType);
+        // Use cached parsed date if available
+        let parsedDate = dateCache.get(dateValue);
+        if (!parsedDate) {
+            parsedDate = dayjs(dateValue);
+            if (!parsedDate.isValid()) return;
+            dateCache.set(dateValue, parsedDate);
+        }
 
-        if (!grouped[periodKey]) {
-            grouped[periodKey] = {
+        const periodKey = getTimePeriodKey(parsedDate, breakdownType);
+
+        if (!grouped.has(periodKey)) {
+            const periodData = {
                 period: periodKey,
                 data: [],
             };
-
             // Initialize metrics
             metrics.forEach((metric) => {
-                grouped[periodKey][metric] = 0;
+                periodData[metric] = 0;
             });
+            grouped.set(periodKey, periodData);
         }
 
-        grouped[periodKey].data.push(item);
+        const periodData = grouped.get(periodKey);
+        periodData.data.push(item);
 
         // Aggregate metrics
         metrics.forEach((metric) => {
-            if (item[metric] !== undefined && item[metric] !== null) {
-                if (typeof item[metric] === "number") {
-                    grouped[periodKey][metric] += item[metric];
+            const value = item[metric];
+            if (value !== undefined && value !== null) {
+                if (typeof value === "number") {
+                    periodData[metric] += value;
                 }
             }
         });
     });
 
-    return grouped;
+    // Convert Map to object for compatibility
+    const result = {};
+    grouped.forEach((value, key) => {
+        result[key] = value;
+    });
+    return result;
 }
 
 /**
- * Transform grouped data into table format
+ * Transform grouped data into table format (optimized with Map)
  */
 export function transformToTableData(groupedData, productField, breakdownType, includeDetails = false, metrics = ['sales', 'profits', 'count']) {
-    const products = {};
+    const products = new Map();
 
     Object.values(groupedData).forEach((periodData) => {
         periodData.data.forEach((item) => {
             const product = item[productField] || "Unknown";
 
-            if (!products[product]) {
-                products[product] = {
+            if (!products.has(product)) {
+                products.set(product, {
                     product,
-                    periods: {},
-                    details: [], // Store detailed records for nested table
-                };
-            }
-
-            const periodKey = periodData.period;
-            if (!products[product].periods[periodKey]) {
-                products[product].periods[periodKey] = {};
-                // Initialize all metrics to 0
-                metrics.forEach(metric => {
-                    products[product].periods[periodKey][metric] = 0;
+                    periods: new Map(),
+                    details: includeDetails ? [] : undefined,
                 });
             }
 
+            const productEntry = products.get(product);
+            const periodKey = periodData.period;
+
+            if (!productEntry.periods.has(periodKey)) {
+                const periodMetrics = {};
+                metrics.forEach(metric => {
+                    periodMetrics[metric] = 0;
+                });
+                productEntry.periods.set(periodKey, periodMetrics);
+            }
+
+            const periodMetrics = productEntry.periods.get(periodKey);
+
             // Aggregate all metrics dynamically
             metrics.forEach(metric => {
-                if (item[metric] !== undefined && item[metric] !== null) {
-                    products[product].periods[periodKey][metric] += item[metric] || 0;
+                const value = item[metric];
+                if (value !== undefined && value !== null) {
+                    periodMetrics[metric] += value || 0;
                 }
             });
 
             // Store detailed record for nested table
             if (includeDetails) {
-                products[product].details.push({
+                productEntry.details.push({
                     ...item,
                     period: periodKey,
                     periodLabel: getTimePeriodLabel(periodKey, breakdownType),
@@ -209,27 +371,30 @@ export function transformToTableData(groupedData, productField, breakdownType, i
     const allPeriods = Object.keys(groupedData).sort();
 
     // Transform to flat structure
-    return Object.values(products).map((product, index) => {
+    const result = [];
+    let index = 0;
+    products.forEach((productEntry) => {
         const row = {
-            id: index + 1, // Add ID for row expansion
-            product: product.product,
+            id: ++index,
+            product: productEntry.product,
         };
 
         allPeriods.forEach((period) => {
-            const periodData = product.periods[period] || {};
-            // Add all metrics dynamically
+            const periodMetrics = productEntry.periods.get(period) || {};
             metrics.forEach(metric => {
-                row[`${period}_${metric}`] = periodData[metric] || 0;
+                row[`${period}_${metric}`] = periodMetrics[metric] || 0;
             });
         });
 
         // Include details for nested table
         if (includeDetails) {
-            row.details = product.details;
+            row.details = productEntry.details;
         }
 
-        return row;
+        result.push(row);
     });
+
+    return result;
 }
 
 /**
@@ -292,10 +457,10 @@ export function generateMockTimeSeriesData(productCount = 10, daysBack = 90) {
 }
 
 /**
- * Transform grouped data into nested table format (grouped by secondary dimension)
+ * Transform grouped data into nested table format (optimized with Map)
  */
 export function transformToNestedTableData(groupedData, productField, categoryField, breakdownType, allPeriods, metrics = ['sales', 'profits', 'count']) {
-    const nestedData = [];
+    const nestedData = new Map(); // product -> categories Map
 
     Object.values(groupedData).forEach((periodData) => {
         periodData.data.forEach((item) => {
@@ -304,66 +469,69 @@ export function transformToNestedTableData(groupedData, productField, categoryFi
             const periodKey = periodData.period;
 
             // Find or create product entry
-            let productEntry = nestedData.find((p) => p.product === product);
-            if (!productEntry) {
-                productEntry = {
-                    product,
-                    categories: {},
-                };
-                nestedData.push(productEntry);
+            if (!nestedData.has(product)) {
+                nestedData.set(product, new Map());
             }
+            const productCategories = nestedData.get(product);
 
             // Find or create category entry for this product
-            if (!productEntry.categories[category]) {
-                productEntry.categories[category] = {
+            if (!productCategories.has(category)) {
+                const categoryEntry = {
                     category,
-                    periods: {},
+                    periods: new Map(),
                 };
+                productCategories.set(category, categoryEntry);
             }
 
-            const categoryEntry = productEntry.categories[category];
+            const categoryEntry = productCategories.get(category);
 
             // Initialize period if not exists
-            if (!categoryEntry.periods[periodKey]) {
-                categoryEntry.periods[periodKey] = {};
-                // Initialize all metrics to 0
+            if (!categoryEntry.periods.has(periodKey)) {
+                const periodMetrics = {};
                 metrics.forEach(metric => {
-                    categoryEntry.periods[periodKey][metric] = 0;
+                    periodMetrics[metric] = 0;
                 });
+                categoryEntry.periods.set(periodKey, periodMetrics);
             }
+
+            const periodMetrics = categoryEntry.periods.get(periodKey);
 
             // Aggregate all metrics dynamically
             metrics.forEach(metric => {
-                if (item[metric] !== undefined && item[metric] !== null) {
-                    categoryEntry.periods[periodKey][metric] += item[metric] || 0;
+                const value = item[metric];
+                if (value !== undefined && value !== null) {
+                    periodMetrics[metric] += value || 0;
                 }
             });
         });
     });
 
     // Transform to flat structure for nested table
-    return nestedData
-        .map((productEntry, productIndex) => {
-            const categoryRows = Object.values(productEntry.categories).map((categoryEntry, categoryIndex) => {
-                const row = {
-                    id: `${productIndex + 1}-${categoryIndex + 1}`,
-                    product: productEntry.product,
-                    category: categoryEntry.category,
-                    isNestedRow: true,
-                };
+    const result = [];
+    let productIndex = 0;
+    nestedData.forEach((productCategories, product) => {
+        let categoryIndex = 0;
+        productCategories.forEach((categoryEntry, category) => {
+            const row = {
+                id: `${productIndex + 1}-${categoryIndex + 1}`,
+                product,
+                category,
+                isNestedRow: true,
+            };
 
-                // Add period columns for all metrics
-                allPeriods.forEach((period) => {
-                    const periodData = categoryEntry.periods[period] || {};
-                    metrics.forEach(metric => {
-                        row[`${period}_${metric}`] = periodData[metric] || 0;
-                    });
+            // Add period columns for all metrics
+            allPeriods.forEach((period) => {
+                const periodMetrics = categoryEntry.periods.get(period) || {};
+                metrics.forEach(metric => {
+                    row[`${period}_${metric}`] = periodMetrics[metric] || 0;
                 });
-
-                return row;
             });
 
-            return categoryRows;
-        })
-        .flat();
+            result.push(row);
+            categoryIndex++;
+        });
+        productIndex++;
+    });
+
+    return result;
 }
