@@ -12,9 +12,9 @@
   "dependencies": {
     "@graphiql/plugin-explorer": "^5.1.1",
     "@graphiql/react": "^0.37.3",
+    "@metrichor/jmespath-plus": "^0.5.3",
     "@monaco-editor/react": "^4.7.0",
     "@plasmicapp/loader-nextjs": "^1.0.446",
-    "@metrichor/jmespath-plus": "^0.5.3",
     "antd": "^6.1.4",
     "comlink": "^4.4.2",
     "dayjs": "^1.11.19",
@@ -38,6 +38,7 @@
     "primereact": "^10.9.7",
     "react": "19.2.1",
     "react-dom": "19.2.1",
+    "recharts": "^3.7.0",
     "swiper": "^12.0.3",
     "xlsx": "^0.18.5",
     "zustand": "^5.0.9"
