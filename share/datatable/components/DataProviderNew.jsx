@@ -563,10 +563,6 @@ export default function DataProviderNew({
   // Report props
   enableReport = false,
   dateColumn = null,
-  breakdownType = 'month',
-  onBreakdownTypeChange,
-  enableBreakdown = false,
-  onEnableBreakdownChange,
   chartColumns = [],
   chartHeight = 400,
   children
@@ -599,6 +595,8 @@ export default function DataProviderNew({
   const [sortConfig, setSortConfig] = useState(null); // {field: "topLevelKey.nestedPath", direction: "asc" | "desc"}
   const [isApplyingFilterSort, setIsApplyingFilterSort] = useState(false); // Loading state for filter/sort operations
   const [columnGroupBy, setColumnGroupBy] = useState('values'); // Column grouping mode: 'values' or dateColumn
+  const [breakdownType, setBreakdownType] = useState('month'); // Breakdown type: 'day', 'week', 'month', 'quarter', 'annual'
+  const [enableBreakdown, setEnableBreakdown] = useState(false); // Whether breakdown/report mode is enabled
   const queryVariablesRef = useRef({}); // Ref to track variables immediately (for synchronous access)
   const executingQueryIdRef = useRef(null); // Track which query is currently executing to prevent duplicates
   const executingQueriesRef = useRef(new Set()); // Track executing queries with queryId + variables key to prevent duplicates
@@ -2813,13 +2811,12 @@ export default function DataProviderNew({
   const reportWorkerRef = useRef(null);
   const reportWorkerInstanceRef = useRef(null); // Store actual worker instance for cleanup
 
-  // Optimistic local state for immediate toggle response
-  const [localEnableBreakdown, setLocalEnableBreakdown] = useState(enableBreakdown);
-
-  // Sync local state with prop changes
+  // Turn off enableBreakdown when enableReport is turned off
   useEffect(() => {
-    setLocalEnableBreakdown(enableBreakdown);
-  }, [enableBreakdown]);
+    if (!enableReport) {
+      setEnableBreakdown(false);
+    }
+  }, [enableReport]);
 
   // Initialize filter/sort worker
   useEffect(() => {
@@ -4023,7 +4020,7 @@ export default function DataProviderNew({
   const isValidMonthRange = monthRange && Array.isArray(monthRange) && monthRange.length === 2;
   const showMonthRangePicker = dataSource && hasMonthSupport;
   const showBreakdownToggle = enableReport;
-  const showBreakdownControls = enableBreakdown && dateColumn && onBreakdownTypeChange;
+  const showBreakdownControls = enableBreakdown && dateColumn;
   const showSyncButton = dataSource && dataSource !== 'offline' && dataSource !== 'test';
   const isSyncDisabled = executingQuery || (hasMonthSupport && !isValidMonthRange);
   const syncIconClass = executingQuery ? 'pi pi-spin pi-spinner' : 'pi pi-refresh';
@@ -4049,14 +4046,9 @@ export default function DataProviderNew({
                       Report
                     </label>
                     <Switch
-                      checked={localEnableBreakdown}
+                      checked={enableBreakdown}
                       onChange={(checked) => {
-                        // Update local state immediately for instant UI response
-                        setLocalEnableBreakdown(checked);
-                        // Then call parent callback
-                        if (onEnableBreakdownChange) {
-                          onEnableBreakdownChange(checked);
-                        }
+                        setEnableBreakdown(checked);
                       }}
                       size={isMobile ? 'small' : 'default'}
                       disabled={isComputingReport}
@@ -4069,7 +4061,7 @@ export default function DataProviderNew({
                   <div className="w-auto min-w-[120px]">
                     <Dropdown
                       value={breakdownType}
-                      onChange={(e) => onBreakdownTypeChange(e.value)}
+                      onChange={(e) => setBreakdownType(e.value)}
                       options={[
                         { label: 'Month', value: 'month' },
                         { label: 'Week', value: 'week' },
@@ -4280,14 +4272,9 @@ export default function DataProviderNew({
                     Report
                   </label>
                   <Switch
-                    checked={localEnableBreakdown}
+                    checked={enableBreakdown}
                     onChange={(checked) => {
-                      // Update local state immediately for instant UI response
-                      setLocalEnableBreakdown(checked);
-                      // Then call parent callback
-                      if (onEnableBreakdownChange) {
-                        onEnableBreakdownChange(checked);
-                      }
+                      setEnableBreakdown(checked);
                     }}
                     size="small"
                     disabled={isComputingReport}
@@ -4300,7 +4287,7 @@ export default function DataProviderNew({
                 <div className="flex-1">
                   <Dropdown
                     value={breakdownType}
-                    onChange={(e) => onBreakdownTypeChange(e.value)}
+                    onChange={(e) => setBreakdownType(e.value)}
                     options={[
                       { label: 'Month', value: 'month' },
                       { label: 'Week', value: 'week' },

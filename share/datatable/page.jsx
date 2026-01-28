@@ -59,8 +59,6 @@ function DataTablePage() {
   // Report settings state
   const [enableReport, setEnableReport] = useState(defaultDataTableConfig.enableReport);
   const [dateColumn, setDateColumn] = useState(defaultDataTableConfig.dateColumn);
-  const [breakdownType, setBreakdownType] = useState(defaultDataTableConfig.breakdownType);
-  const [enableBreakdown, setEnableBreakdown] = useState(false);
   const [showChart, setShowChart] = useState(true);
   const [chartColumns, setChartColumns] = useState([]);
   const [chartHeight, setChartHeight] = useState(400);
@@ -75,12 +73,6 @@ function DataTablePage() {
     }
   }, [drawerTabs, setDrawerTabs]);
 
-  // Turn off enableBreakdown when enableReport is turned off
-  useEffect(() => {
-    if (!enableReport) {
-      setEnableBreakdown(false);
-    }
-  }, [enableReport]);
 
   // Store original unfiltered data reference
   const originalTableDataRef = useRef(null);
@@ -459,10 +451,6 @@ function DataTablePage() {
             onDrawerTabsChange={setDrawerTabs}
             enableReport={enableReport}
             dateColumn={dateColumn}
-            breakdownType={breakdownType}
-            onBreakdownTypeChange={setBreakdownType}
-            enableBreakdown={enableBreakdown}
-            onEnableBreakdownChange={setEnableBreakdown}
             chartColumns={chartColumns}
             chartHeight={chartHeight}
           >
@@ -492,7 +480,7 @@ function DataTablePage() {
                     ) : (
                       <>
                         {/* Report Line Chart - Only render in report mode */}
-                        {enableBreakdown && showChart && (
+                        {showChart && (
                           <div className="w-full mb-4">
                             <ReportLineChartWrapper />
                           </div>
@@ -572,15 +560,12 @@ function DataTablePage() {
                     columnTypesOverride={columnTypesOverride}
                     onColumnTypesOverrideChange={handleColumnTypesOverrideChange}
                     enableReport={enableReport}
-                    enableBreakdown={enableBreakdown}
                     dateColumn={dateColumn}
-                    breakdownType={breakdownType}
                     showChart={showChart}
                     chartColumns={chartColumns}
                     chartHeight={chartHeight}
                     onEnableReportChange={setEnableReport}
                     onDateColumnChange={setDateColumn}
-                    onBreakdownTypeChange={setBreakdownType}
                     onShowChartChange={setShowChart}
                     onChartColumnsChange={setChartColumns}
                     onChartHeightChange={setChartHeight}

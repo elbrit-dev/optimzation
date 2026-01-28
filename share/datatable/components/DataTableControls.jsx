@@ -516,13 +516,11 @@ export default function DataTableControls({
   // Report settings
   enableReport = defaultDataTableConfig.enableReport,
   dateColumn = defaultDataTableConfig.dateColumn,
-  breakdownType = defaultDataTableConfig.breakdownType,
   showChart = true,
   chartColumns = [],
   chartHeight = 400,
   onEnableReportChange,
   onDateColumnChange,
-  onBreakdownTypeChange,
   onShowChartChange,
   onChartColumnsChange,
   onChartHeightChange,
@@ -1324,31 +1322,6 @@ export default function DataTableControls({
                         placeholder="Select date column..."
                       />
                     </div>
-                    {dateColumn && onBreakdownTypeChange && (
-                      <div className="mb-4">
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Breakdown Type
-                        </label>
-                        <p className="text-xs text-gray-500 mb-2">
-                          Select the breakdown type for time-based grouping
-                        </p>
-                        <Dropdown
-                          value={breakdownType}
-                          onChange={(e) => onBreakdownTypeChange && onBreakdownTypeChange(e.value)}
-                          options={[
-                            { label: 'Day', value: 'day' },
-                            { label: 'Week', value: 'week' },
-                            { label: 'Month', value: 'month' },
-                            { label: 'Quarter', value: 'quarter' },
-                            { label: 'Annual', value: 'annual' }
-                          ]}
-                          optionLabel="label"
-                          optionValue="value"
-                          placeholder="Select breakdown type..."
-                          className="w-full"
-                        />
-                      </div>
-                    )}
                     {onShowChartChange && (
                       <div className="mb-4">
                         <ToggleSwitch
