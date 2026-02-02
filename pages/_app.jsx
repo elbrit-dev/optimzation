@@ -186,6 +186,21 @@ const a = {
     const text = value == null ? '' : String(value);
     try { return decodeURIComponent(text); } catch (e) { return text; }
   },
+  textToBase64: (value) => {
+    const text = value == null ? '' : String(value);
+    try { 
+      if (typeof window !== 'undefined' && typeof btoa !== 'undefined') {
+        return btoa(text);
+      }
+      // Fallback for Node.js environment
+      if (typeof Buffer !== 'undefined') {
+        return Buffer.from(text, 'utf8').toString('base64');
+      }
+      return text;
+    } catch (e) { 
+      return text; 
+    }
+  },
 
   localforage: localforage,
   

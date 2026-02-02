@@ -1734,7 +1734,7 @@ export default function DataProviderNew({
     // Use ref for immediate access (avoids stale closure issues)
     // Merge queryVariables with variableOverrides (variableOverrides take precedence for user overrides)
     let mergedVariables = { ...queryVariablesRef.current, ...variableOverrides };
-
+    console.log('mergedVariables', mergedVariables);
     // When custom monthRange is set, remove startDate/endDate from variables
     // so that only the monthRange is used for API calls
     if (monthRange && Array.isArray(monthRange) && monthRange.length === 2) {
