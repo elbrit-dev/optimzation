@@ -262,38 +262,7 @@ const NovuInbox = ({
     }
   }, [config.subscriberId, userPayload]);
 
-  // Merge user payload override
-  const finalUserPayload = {
-    ...userPayload,
-  };
-
-  // Don't render until we're on client side (for localStorage access)
-  if (!isClient) {
-    return null;
-  }
-
-  // Validate required config
-  if (!config.subscriberId || !config.applicationIdentifier) {
-    console.warn('NovuInbox: subscriberId and applicationIdentifier are required');
-    return (
-      <div className={className} style={{ padding: '20px', textAlign: 'center' }}>
-        <p>Novu Inbox: Configuration missing. Please provide subscriberId and applicationIdentifier.</p>
-      </div>
-    );
-  }
-
-  // Build NovuProvider props - only include subscriberHash if it exists
-  const novuProviderProps = {
-    subscriberId: config.subscriberId,
-    applicationIdentifier: config.applicationIdentifier,
-  };
-
-  // Only add subscriberHash if it's provided (it's optional for HMAC authentication)
-  if (config.subscriberHash) {
-    novuProviderProps.subscriberHash = config.subscriberHash;
-  }
-
-  // Default action handler
+  // Default action handler - must be before any early returns (React hooks rule)
   const handleActionClick = useCallback(async (action, notificationId, notification) => {
     console.log('[NovuInbox] Action clicked:', { action, notificationId, notification });
     
@@ -326,6 +295,37 @@ const NovuInbox = ({
       }
     }
   }, [onActionClick, config.subscriberId]);
+
+  // Merge user payload override
+  const finalUserPayload = {
+    ...userPayload,
+  };
+
+  // Don't render until we're on client side (for localStorage access)
+  if (!isClient) {
+    return null;
+  }
+
+  // Validate required config
+  if (!config.subscriberId || !config.applicationIdentifier) {
+    console.warn('NovuInbox: subscriberId and applicationIdentifier are required');
+    return (
+      <div className={className} style={{ padding: '20px', textAlign: 'center' }}>
+        <p>Novu Inbox: Configuration missing. Please provide subscriberId and applicationIdentifier.</p>
+      </div>
+    );
+  }
+
+  // Build NovuProvider props - only include subscriberHash if it exists
+  const novuProviderProps = {
+    subscriberId: config.subscriberId,
+    applicationIdentifier: config.applicationIdentifier,
+  };
+
+  // Only add subscriberHash if it's provided (it's optional for HMAC authentication)
+  if (config.subscriberHash) {
+    novuProviderProps.subscriberHash = config.subscriberHash;
+  }
 
   return (
     <div className={className} {...props}>
