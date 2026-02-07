@@ -387,10 +387,25 @@ function MyApp({ Component, pageProps }) {
               __html: `
                 window.OneSignalDeferred = window.OneSignalDeferred || [];
                 OneSignalDeferred.push(async function(OneSignal) {
-                  await OneSignal.init({
-                    appId: "${process.env.NEXT_PUBLIC_ONESIGNAL_APP_ID || 'ae84e191-00f5-445c-8e43-173709b8a553'}",
-                  });
-                  window.OneSignal = OneSignal;
+                  try {
+                    await OneSignal.init({
+                      appId: "${process.env.NEXT_PUBLIC_ONESIGNAL_APP_ID || 'ae84e191-00f5-445c-8e43-173709b8a553'}",
+                    });
+                    window.OneSignal = OneSignal;
+                    
+                    // Wait for service worker to be ready
+                    if ('serviceWorker' in navigator) {
+                      // Give OneSignal time to register its service worker
+                      setTimeout(async () => {
+                        const registration = await navigator.serviceWorker.ready;
+                        if (registration) {
+                          console.log('[OneSignal] Service worker ready');
+                        }
+                      }, 2000);
+                    }
+                  } catch (error) {
+                    console.error('[OneSignal] Initialization error:', error);
+                  }
                 });
               `,
             }}
