@@ -3,6 +3,8 @@ import { NovuProvider, Inbox, useNotifications } from '@novu/react';
 
 // Custom notification item component with actions
 const CustomNotificationItem = ({ notification, onActionClick }) => {
+  if (!notification) return null;
+  
   const handleAction = async (action, notificationId) => {
     if (onActionClick) {
       await onActionClick(action, notificationId, notification);
@@ -106,11 +108,16 @@ const EnhancedInbox = ({
 }) => {
   const { notifications, markNotificationAsRead, markAllAsRead } = useNotifications();
   
-  // Calculate unseen count from notifications
-  const unseenCount = notifications.filter(n => !n.read).length;
+  // Ensure notifications is always an array
+  const notificationsArray = Array.isArray(notifications) ? notifications : [];
+  
+  // Calculate unseen count from notifications (safe check for read property)
+  const unseenCount = notificationsArray.filter(n => n && !n.read).length;
 
-  // Filter notifications based on active tab
-  const filteredNotifications = notifications.filter((notification) => {
+  // Filter notifications based on active tab (with null safety)
+  const filteredNotifications = notificationsArray.filter((notification) => {
+    // Skip null/undefined notifications
+    if (!notification) return false;
     if (activeTab === 'all') return true;
     
     const notificationType = notification?.payload?.type || 
@@ -162,13 +169,15 @@ const EnhancedInbox = ({
             No {activeTab !== 'all' ? activeTab : ''} notifications
           </div>
         ) : (
-          filteredNotifications.map((notification) => (
-            <CustomNotificationItem
-              key={notification.id}
-              notification={notification}
-              onActionClick={onActionClick}
-            />
-          ))
+          filteredNotifications
+            .filter(notification => notification != null)
+            .map((notification) => (
+              <CustomNotificationItem
+                key={notification.id || Math.random()}
+                notification={notification}
+                onActionClick={onActionClick}
+              />
+            ))
         )}
       </div>
     </div>
