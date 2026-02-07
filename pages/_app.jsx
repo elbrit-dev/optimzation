@@ -377,6 +377,7 @@ function MyApp({ Component, pageProps }) {
           <link rel="shortcut icon" href="/favicon.ico" />
           
           {/* OneSignal SDK */}
+          {/* OneSignal SDK */}
           <script
             src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js"
             defer
@@ -387,8 +388,9 @@ function MyApp({ Component, pageProps }) {
                 window.OneSignalDeferred = window.OneSignalDeferred || [];
                 OneSignalDeferred.push(async function(OneSignal) {
                   await OneSignal.init({
-                    appId: "ae84e191-00f5-445c-8e43-173709b8a553",
+                    appId: "${process.env.NEXT_PUBLIC_ONESIGNAL_APP_ID || 'ae84e191-00f5-445c-8e43-173709b8a553'}",
                   });
+                  window.OneSignal = OneSignal;
                 });
               `,
             }}
