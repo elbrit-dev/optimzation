@@ -37,9 +37,9 @@ export default function AppHeader() {
     {
       label: 'GraphQL Playground',
       icon: 'pi pi-code',
-      url: '/graphql-playground',
+      url: '/graphql-playground-v2',
       command: () => {
-        router.push('/graphql-playground');
+        router.push('/graphql-playground-v2');
       }
     },
     {

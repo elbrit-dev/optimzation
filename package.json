@@ -14,6 +14,7 @@
     "@graphiql/react": "^0.37.3",
     "@metrichor/jmespath-plus": "^0.5.3",
     "@monaco-editor/react": "^4.7.0",
+    "@novu/react": "^3.13.0",
     "@plasmicapp/loader-nextjs": "^1.0.446",
     "antd": "^6.1.4",
     "comlink": "^4.4.2",

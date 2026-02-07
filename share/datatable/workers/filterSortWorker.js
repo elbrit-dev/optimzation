@@ -252,8 +252,7 @@ async function computeFilterSortGrouped(
     sortFieldType = null,
     tableSortMeta = [],
     enableSort = true,
-    outerGroupField = null,
-    innerGroupField = null,
+    effectiveGroupFields = [],
   } = options;
 
   if (!isArray(data) || isEmpty(data)) {
@@ -405,13 +404,22 @@ async function computeFilterSortGrouped(
     }
   }
 
-  // Step 5: Apply grouping
+  // Step 5: Apply grouping using recursive grouping function
   let groupedData = sortedData;
-  if (outerGroupField && !isEmpty(sortedData)) {
+  
+  // Recursive grouping function for multi-level nesting
+  function groupDataRecursive(data, groupFields, currentLevel = 0, currentPath = []) {
+    if (!isArray(groupFields) || groupFields.length === 0 || currentLevel >= groupFields.length) {
+      return data;
+    }
+    
+    const currentField = groupFields[currentLevel];
+    if (!currentField) return data;
+    
     const groups = {};
-    sortedData.forEach((row) => {
+    data.forEach((row) => {
       if (row.__isGroupRow__) return;
-      const groupKey = getDataValue(row, outerGroupField);
+      const groupKey = getDataValue(row, currentField);
       const key = isNil(groupKey) ? '__null__' : String(groupKey);
       if (!groups[key]) {
         groups[key] = [];
@@ -441,14 +449,16 @@ async function computeFilterSortGrouped(
     const aggregatedGroups = Object.keys(groups).map((key) => {
       const rows = groups[key];
       const firstRow = rows[0];
-      const groupValue = getDataValue(firstRow, outerGroupField);
+      const groupValue = getDataValue(firstRow, currentField);
+      const newPath = [...currentPath, key === '__null__' ? null : key];
 
       // Create summary row
       const summaryRow = {
         __isGroupRow__: true,
-        __groupLevel__: 1,
-        [outerGroupField]: groupValue,
-        __groupKey__: key,
+        __groupLevel__: currentLevel,
+        __groupField__: currentField,
+        [currentField]: groupValue,
+        __groupKey__: newPath.join('|'),
         __rowCount__: rows.length,
       };
 
@@ -467,78 +477,12 @@ async function computeFilterSortGrouped(
         }
       });
 
-      // Handle inner grouping if innerGroupField is set
-      if (innerGroupField) {
-        const innerGroups = {};
-        rows.forEach((row) => {
-          const innerKey = getDataValue(row, innerGroupField);
-          const innerKeyStr = isNil(innerKey) ? '__null__' : String(innerKey);
-          if (!innerGroups[innerKeyStr]) {
-            innerGroups[innerKeyStr] = [];
-          }
-          innerGroups[innerKeyStr].push(row);
-        });
-
-        // Sort inner groups
-        Object.keys(innerGroups).forEach((innerKey) => {
-          if (sortComparator) {
-            innerGroups[innerKey].sort(sortComparator);
-          }
-        });
-
-        // Aggregate inner groups
-        const innerSummaryRows = Object.keys(innerGroups).map((innerKey) => {
-          const innerRows = innerGroups[innerKey];
-          const firstInnerRow = innerRows[0];
-          const innerGroupValue = getDataValue(firstInnerRow, innerGroupField);
-
-          const innerSummaryRow = {
-            __isGroupRow__: true,
-            __groupLevel__: 2,
-            [outerGroupField]: groupValue,
-            [innerGroupField]: innerGroupValue,
-            __groupKey__: `${key}_${innerKey}`,
-            __rowCount__: innerRows.length,
-          };
-
-          // Aggregate numeric columns for inner group
-          columns.forEach((col) => {
-            const colType = columnTypes[col] || 'string';
-            if (colType === 'number' || isPctCol(col)) {
-              const sum = innerRows.reduce((acc, row) => {
-                const value = isPctCol(col)
-                  ? getPercentageColumnValue(row, col, percentageColumns)
-                  : getDataValue(row, col);
-                const numValue = toNumber(value);
-                return acc + (isFinite(numValue) ? numValue : 0);
-              }, 0);
-              innerSummaryRow[col] = sum;
-            }
-          });
-
-          return innerSummaryRow;
-        });
-
-        // Sort inner groups by sortConfig if it exists
-        if (sortComparator) {
-          innerSummaryRows.sort(sortComparator);
-        }
-
-        // Sort groups themselves by sortConfig if it exists
-        if (sortComparator) {
-          const groupComparator = (a, b) => {
-            const aValue = getDataValue(a, outerGroupField);
-            const bValue = getDataValue(b, outerGroupField);
-            return sortComparator({ [outerGroupField]: aValue }, { [outerGroupField]: bValue });
-          };
-          innerSummaryRows.sort(groupComparator);
-        }
-
-        summaryRow.__innerRows__ = innerSummaryRows;
-        // Also set __groupRows__ to match non-worker structure (table component uses __groupRows__)
-        summaryRow.__groupRows__ = innerSummaryRows;
+      // Recursively group inner levels
+      if (currentLevel + 1 < groupFields.length) {
+        const innerGrouped = groupDataRecursive(rows, groupFields, currentLevel + 1, newPath);
+        summaryRow.__groupRows__ = innerGrouped;
       } else {
-        // When no inner grouping, store the actual rows in __groupRows__ to match non-worker structure
+        // Final level - store actual rows
         summaryRow.__groupRows__ = rows;
       }
 
@@ -548,14 +492,18 @@ async function computeFilterSortGrouped(
     // Sort groups themselves by sortConfig if it exists
     if (sortComparator) {
       const groupComparator = (a, b) => {
-        const aValue = getDataValue(a, outerGroupField);
-        const bValue = getDataValue(b, outerGroupField);
-        return sortComparator({ [outerGroupField]: aValue }, { [outerGroupField]: bValue });
+        const aValue = getDataValue(a, currentField);
+        const bValue = getDataValue(b, currentField);
+        return sortComparator({ [currentField]: aValue }, { [currentField]: bValue });
       };
       aggregatedGroups.sort(groupComparator);
     }
 
-    groupedData = aggregatedGroups;
+    return aggregatedGroups;
+  }
+  
+  if (effectiveGroupFields.length > 0 && !isEmpty(sortedData)) {
+    groupedData = groupDataRecursive(sortedData, effectiveGroupFields);
   }
 
   return {

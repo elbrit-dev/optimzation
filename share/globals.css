@@ -1210,3 +1210,45 @@ body {
 .p-sidebar .p-sidebar-content {
     padding: 0.25rem;
 }
+
+.graphql-playground-v2 .p-tabview-panel {
+    overflow: hidden !important;
+    height: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+  .graphql-playground-v2 .p-tabview-panels {
+    overflow: hidden !important;
+    flex: 1 !important;
+    min-height: 0 !important;
+  }
+  .graphql-playground-v2 .p-tabview {
+    overflow: hidden !important;
+  }
+  /* Constrain graphiql-explorer component */
+  .graphql-playground-v2 [class*="graphiql-explorer"],
+  .graphql-playground-v2 [class*="explorer"] {
+    height: 100% !important;
+    max-height: 100% !important;
+    overflow: visible !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+  .graphql-playground-v2 [class*="graphiql-explorer"] > *,
+  .graphql-playground-v2 [class*="explorer"] > * {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+  }
+  /* Remove width constraint from docExplorerWrap */
+  .graphql-playground-v2 .docExplorerWrap,
+  .graphql-playground-v2 [class*="docExplorerWrap"] {
+    width: auto !important;
+    min-width: auto !important;
+    max-width: none !important;
+  }
+
+  /* Hide docExplorerHide */
+  .graphql-playground-v2 .doc-explorer-rhs,
+  .graphql-playground-v2 [class*="doc-explorer-rhs"] {
+    display: none !important;
+  }

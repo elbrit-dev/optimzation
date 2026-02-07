@@ -1479,12 +1479,15 @@ export default function DataTableComponent({
   }, [columns, visibleColumns, outerGroupField, innerGroupField, columnTypes, hasPercentageColumns, percentageColumns]);
 
   const formatHeaderName = useCallback((key) => {
+    if (!key || key === null || key === undefined) {
+      return '';
+    }
     // Check if it's a percentage column
     const percentageConfig = percentageColumns.find(pc => pc.columnName === key);
     if (percentageConfig) {
       return percentageConfig.columnName;
     }
-    return startCase(key.split('__').join(' ').split('_').join(' '));
+    return startCase(String(key).split('__').join(' ').split('_').join(' '));
   }, [percentageColumns]);
 
   // Report mode: Pre-compute column structure (shared by header and columns)

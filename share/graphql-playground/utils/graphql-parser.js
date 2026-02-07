@@ -140,7 +140,6 @@ export const parseQueryToTreeNodes = (queryString, parentPath = '') => {
 
     return processSelections(operation.selectionSet.selections, parentPath);
   } catch (error) {
-    console.error('Error parsing query:', error);
     return [];
   }
 };

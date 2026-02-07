@@ -30,18 +30,19 @@ function getCellAddress(row, col) {
  * Exports report data to Excel with merged headers matching the report structure
  * @param {Object} reportData - Report data with tableData, nestedTableData, timePeriods, metrics, breakdownType
  * @param {string} columnGroupBy - Column grouping mode: 'values', 'sub-columns', 'period-over-period'
- * @param {string} outerGroupField - Outer group field name
- * @param {string} innerGroupField - Inner group field name (optional)
+ * @param {Array} effectiveGroupFields - Array of group fields for multi-level nesting
  * @param {Function} formatHeaderName - Function to format header names
  * @returns {Object} XLSX workbook ready for XLSX.writeFile
  */
 export function exportReportToXLSX(
   reportData,
   columnGroupBy,
-  outerGroupField,
-  innerGroupField,
+  effectiveGroupFields,
   formatHeaderName
 ) {
+  // Ensure effectiveGroupFields is an array
+  const groupFields = Array.isArray(effectiveGroupFields) ? effectiveGroupFields : [];
+  
   if (!reportData || !reportData.tableData || isEmpty(reportData.tableData)) {
     // Return empty workbook if no data
     const wb = XLSX.utils.book_new();
@@ -63,49 +64,90 @@ export function exportReportToXLSX(
   const { breakdownType } = reportData;
   const { metricGroups, periodGroups, metricsWithData, timePeriodsWithData, columnsWithData, isMergedMode } = reportColumnsStructure;
 
-  // Prepare data for export
+  // Prepare data for export - flatten nested data recursively for all levels
   let dataToExport = [];
 
-  // If innerGroupField is set, flatten nested data similar to grouped mode
-  if (innerGroupField && reportData.nestedTableData) {
-    reportData.tableData.forEach((outerRow) => {
-      const outerValue = getDataValue(outerRow, outerGroupField);
-      const nestedRows = reportData.nestedTableData[outerValue];
-      
-      if (nestedRows && nestedRows.length > 0) {
-        // Add nested rows with outer group field value
-        nestedRows.forEach((nestedRow) => {
-          const rowWithGroup = { ...nestedRow };
-          // Ensure outerGroupField is set
-          if (!rowWithGroup.hasOwnProperty(outerGroupField)) {
-            rowWithGroup[outerGroupField] = outerValue === '__null__' ? null : outerValue;
+  // Recursive function to flatten nested data for all group levels
+  function flattenNestedDataRecursive(tableData, nestedTableData, groupFields, currentLevel = 0, pathValues = []) {
+    if (currentLevel >= groupFields.length) {
+      // Final level - return the data as-is
+      return tableData.map(row => {
+        const result = { ...row };
+        // Ensure all group field values are set from path
+        groupFields.forEach((field, idx) => {
+          if (idx < pathValues.length && !result.hasOwnProperty(field)) {
+            result[field] = pathValues[idx] === '__null__' ? null : pathValues[idx];
           }
-          dataToExport.push(rowWithGroup);
         });
+        return result;
+      });
+    }
+
+    const currentField = groupFields[currentLevel];
+    if (!currentField) {
+      return tableData.map(row => ({ ...row }));
+    }
+
+    const flattened = [];
+    
+    tableData.forEach((row) => {
+      const currentValue = getDataValue(row, currentField);
+      const currentKey = isNil(currentValue) ? '__null__' : String(currentValue);
+      const newPath = [...pathValues, currentKey];
+      
+      // Check if there's nested data for this path
+      const compositeKey = newPath.join('|');
+      const nestedRows = nestedTableData && nestedTableData[compositeKey];
+      
+      if (nestedRows && nestedRows.length > 0 && currentLevel + 1 < groupFields.length) {
+        // Recursively flatten nested data
+        const nestedFlattened = flattenNestedDataRecursive(
+          nestedRows,
+          nestedTableData,
+          groupFields,
+          currentLevel + 1,
+          newPath
+        );
+        flattened.push(...nestedFlattened);
       } else {
-        // If no nested data, still include the outer row
-        dataToExport.push({ ...outerRow });
+        // No nested data or final level - add current row with all path values
+        const rowWithPath = { ...row };
+        groupFields.forEach((field, idx) => {
+          if (idx < newPath.length) {
+            rowWithPath[field] = newPath[idx] === '__null__' ? null : newPath[idx];
+          }
+        });
+        flattened.push(rowWithPath);
       }
     });
+
+    return flattened;
+  }
+
+  if (groupFields.length > 0 && reportData.nestedTableData) {
+    dataToExport = flattenNestedDataRecursive(
+      reportData.tableData,
+      reportData.nestedTableData,
+      groupFields
+    );
   } else {
-    // No inner group, just use outer table data
+    // No grouping, just use table data
     dataToExport = reportData.tableData.map(row => ({ ...row }));
   }
 
-  // Build column order matching the report structure
-  const exportColumns = [outerGroupField];
-  if (innerGroupField) {
-    exportColumns.push(innerGroupField);
-  }
+  // Build column order matching the report structure - include all group fields
+  const exportColumns = [...groupFields];
   exportColumns.push(...reportColumnsStructure.columnNames);
 
   // Create worksheet - we'll build it manually to have control over headers
   const ws = {};
   
-  // Calculate column positions
+  // Calculate column positions for all group fields
   let colIndex = 0;
-  const outerGroupColIndex = colIndex++;
-  const innerGroupColIndex = innerGroupField ? colIndex++ : -1;
+  const groupFieldColIndices = {};
+  groupFields.forEach((field) => {
+    groupFieldColIndices[field] = colIndex++;
+  });
   const dataStartColIndex = colIndex;
 
   // Build header structure
@@ -113,28 +155,18 @@ export function exportReportToXLSX(
   const headerRowIndex = 0;
   const dataStartRow = 3; // Data starts at row 4 (0-indexed row 3)
   
-  // Row 1: Outer group field + merged cell for all data columns
-  if (outerGroupField) {
-    const outerGroupHeader = formatHeaderName(outerGroupField);
-    ws[getCellAddress(headerRowIndex, outerGroupColIndex)] = { v: outerGroupHeader, t: 's' };
+  // Row 1: All group fields + merged cell for all data columns
+  groupFields.forEach((field) => {
+    const groupHeader = formatHeaderName(field);
+    const colIndex = groupFieldColIndices[field];
+    ws[getCellAddress(headerRowIndex, colIndex)] = { v: groupHeader, t: 's' };
     
-    // Merge outer group field across 3 rows
+    // Merge each group field across 3 rows
     merges.push({
-      s: { r: headerRowIndex, c: outerGroupColIndex },
-      e: { r: headerRowIndex + 2, c: outerGroupColIndex }
+      s: { r: headerRowIndex, c: colIndex },
+      e: { r: headerRowIndex + 2, c: colIndex }
     });
-  }
-
-  // If inner group field exists, add it to row 1 and merge across 3 rows
-  if (innerGroupField) {
-    const innerGroupHeader = formatHeaderName(innerGroupField);
-    ws[getCellAddress(headerRowIndex, innerGroupColIndex)] = { v: innerGroupHeader, t: 's' };
-    
-    merges.push({
-      s: { r: headerRowIndex, c: innerGroupColIndex },
-      e: { r: headerRowIndex + 2, c: innerGroupColIndex }
-    });
-  }
+  });
 
   // Merge all data columns in row 1
   if (columnsWithData.length > 0) {

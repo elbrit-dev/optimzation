@@ -51,7 +51,7 @@ function Home() {
           </Link>
 
           <Link
-            href="/graphql-playground"
+            href="/graphql-playground-v2"
             className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow duration-200 group"
           >
             <div className="flex items-start justify-between">
@@ -60,12 +60,12 @@ function Home() {
                   GraphQL Playground
                 </h2>
                 <p className="text-sm text-gray-600">
-                  Explore GraphQL APIs with GraphiQL and the Explorer plugin
+                  Modern GraphQL playground with Monaco Editor and query management
                 </p>
               </div>
               <div className="ml-4 text-gray-400 group-hover:text-blue-600 transition-colors">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
                 </svg>
               </div>
             </div>

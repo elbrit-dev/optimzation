@@ -4,6 +4,7 @@ import '../firebase'; // Initialize Firebase
 import { DataProvider } from '@plasmicapp/host';
 import { useEffect, useState, useCallback } from 'react';
 import Head from 'next/head';
+import Script from 'next/script';
 import localforage from 'localforage';
 import _ from 'lodash';
 import "primereact/resources/themes/lara-light-cyan/theme.css";
@@ -202,6 +203,18 @@ const a = {
     }
   },
 
+  base64ToBlob: (base64String, mimeType = 'application/octet-stream') => {
+    try {
+      if (!base64String || typeof base64String !== 'string') return null;
+      const [prefix, data] = base64String.split(',');
+      const base64Data = data || base64String;
+      const detectedMime = prefix?.match(/data:([^;]+)/)?.[1] || mimeType;
+      return new Blob([Uint8Array.from(atob(base64Data), c => c.charCodeAt(0))], { type: detectedMime });
+    } catch (e) {
+      return null;
+    }
+  },
+
   localforage: localforage,
   
   _: _,
@@ -364,6 +377,21 @@ function MyApp({ Component, pageProps }) {
           <link rel="apple-touch-icon" href="/logo.svg" />
           <link rel="shortcut icon" href="/favicon.ico" />
         </Head>
+        {/* OneSignal SDK */}
+        <Script
+          src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js"
+          strategy="afterInteractive"
+        />
+        <Script id="onesignal-init" strategy="afterInteractive">
+          {`
+            window.OneSignalDeferred = window.OneSignalDeferred || [];
+            OneSignalDeferred.push(async function(OneSignal) {
+              await OneSignal.init({
+                appId: "ae84e191-00f5-445c-8e43-173709b8a553",
+              });
+            });
+          `}
+        </Script>
         <Component {...pageProps} />
       </DataProvider>
     </DataProvider>

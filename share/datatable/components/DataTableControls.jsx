@@ -1,14 +1,14 @@
 'use client';
 
-import React, { useState } from 'react';
+import { filter, includes, isArray, isEmpty, startCase, toLower, uniq } from 'lodash';
 import { Accordion, AccordionTab } from 'primereact/accordion';
 import { Chip } from 'primereact/chip';
-import { InputText } from 'primereact/inputtext';
 import { Dropdown } from 'primereact/dropdown';
+import { InputText } from 'primereact/inputtext';
 import { MultiSelect } from 'primereact/multiselect';
-import { isEmpty, includes, filter, startCase, toLower, isArray, uniq } from 'lodash';
-import { getDataValue } from '../utils/dataAccessUtils';
+import React, { useState } from 'react';
 import { defaultDataTableConfig } from '../config/defaultConfig';
+import { getDataValue } from '../utils/dataAccessUtils';
 
 function SingleFieldSelector({ columns, selectedField, onSelectionChange, formatFieldName, placeholder, label }) {
   const containerRef = React.useRef(null);
@@ -253,11 +253,10 @@ function ArrayVariableInput({ varName, defaultValue, currentValue, onVariableCha
               onKeyDown={(e) => handleChipKeyDown(e, index)}
               onBlur={(e) => handleChipBlur(index, e)}
               onPaste={handleChipPaste}
-              className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full cursor-pointer transition-colors ${
-                editingIndex === index
-                  ? 'bg-white border-2 border-blue-500 outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1'
-                  : 'bg-blue-100 text-blue-800 hover:bg-blue-200'
-              }`}
+              className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full cursor-pointer transition-colors ${editingIndex === index
+                ? 'bg-white border-2 border-blue-500 outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1'
+                : 'bg-blue-100 text-blue-800 hover:bg-blue-200'
+                }`}
               style={editingIndex === index ? { minWidth: '60px', outline: 'none' } : {}}
             >
               {String(item)}
@@ -466,12 +465,14 @@ export default function DataTableControls({
   tableHeight = defaultDataTableConfig.tableHeight,
   columns = [],
   textFilterColumns = defaultDataTableConfig.textFilterColumns,
-  visibleColumns = defaultDataTableConfig.visibleColumns,
+  allowedColumns = defaultDataTableConfig.allowedColumns,
   redFields = defaultDataTableConfig.redFields,
   greenFields = defaultDataTableConfig.greenFields,
   outerGroupField = defaultDataTableConfig.outerGroupField,
   innerGroupField = defaultDataTableConfig.innerGroupField,
-  nonEditableColumns = defaultDataTableConfig.nonEditableColumns,
+  groupFields = null, // Array for infinite nesting
+  onGroupFieldsChange,
+  editableColumns = defaultDataTableConfig.editableColumns,
   percentageColumns = defaultDataTableConfig.percentageColumns,
   dataSource = null,
   queryVariables = {},
@@ -486,12 +487,12 @@ export default function DataTableControls({
   onDefaultRowsChange,
   onTableHeightChange,
   onTextFilterColumnsChange,
-  onVisibleColumnsChange,
+  onAllowedColumnsChange,
   onRedFieldsChange,
   onGreenFieldsChange,
   onOuterGroupFieldChange,
   onInnerGroupFieldChange,
-  onNonEditableColumnsChange,
+  onEditableColumnsChange,
   onPercentageColumnsChange,
   onSaveSettings,
   drawerTabs = defaultDataTableConfig.drawerTabs,
@@ -538,6 +539,58 @@ export default function DataTableControls({
   );
   const isInternalUpdateRef = React.useRef(false);
   const [pendingVariableOverrides, setPendingVariableOverrides] = React.useState({});
+
+  // Detect JSON table columns - columns that have nested tables
+  const jsonTableColumns = React.useMemo(() => {
+    if (!tableData || !Array.isArray(tableData) || tableData.length === 0) {
+      return {};
+    }
+
+    const jsonTableMap = {};
+    
+    // Sample a few rows to detect JSON table columns
+    const sampleRows = tableData.slice(0, Math.min(10, tableData.length));
+    
+    sampleRows.forEach(row => {
+      if (row && row.__nestedTables__ && Array.isArray(row.__nestedTables__)) {
+        row.__nestedTables__.forEach(nestedTable => {
+          const columnName = nestedTable.fieldName;
+          if (columnName && !columnName.startsWith('__')) {
+            if (!jsonTableMap[columnName]) {
+              jsonTableMap[columnName] = {
+                fieldName: columnName,
+                nestedTables: []
+              };
+            }
+            
+            // Check if this nested table is already recorded
+            const existingNested = jsonTableMap[columnName].nestedTables.find(
+              nt => nt.fieldName === nestedTable.fieldName
+            );
+            
+            if (!existingNested) {
+              // Extract columns from nested table data
+              let nestedColumns = [];
+              if (nestedTable.data && Array.isArray(nestedTable.data) && nestedTable.data.length > 0) {
+                const sampleNestedRow = nestedTable.data[0];
+                if (sampleNestedRow && typeof sampleNestedRow === 'object') {
+                  nestedColumns = Object.keys(sampleNestedRow).filter(key => !key.startsWith('__'));
+                }
+              }
+              
+              jsonTableMap[columnName].nestedTables.push({
+                fieldName: nestedTable.fieldName,
+                title: nestedTable.title || nestedTable.fieldName,
+                columns: nestedColumns
+              });
+            }
+          }
+        });
+      }
+    });
+    
+    return jsonTableMap;
+  }, [tableData]);
 
   React.useEffect(() => {
     if (!isInternalUpdateRef.current && Array.isArray(rowsPerPageOptions)) {
@@ -590,16 +643,16 @@ export default function DataTableControls({
     if (!Array.isArray(tableData) || isEmpty(tableData) || isEmpty(columns)) {
       return {};
     }
-    
+
     const types = {};
     const sampleData = tableData.slice(0, 100);
-    
+
     columns.forEach((col) => {
       let numericCount = 0;
       let dateCount = 0;
       let booleanCount = 0;
       let nonNullCount = 0;
-      
+
       sampleData.forEach((row) => {
         const value = getDataValue(row, col);
         if (value !== null && value !== undefined) {
@@ -618,7 +671,7 @@ export default function DataTableControls({
           }
         }
       });
-      
+
       if (nonNullCount > 0) {
         if (booleanCount > nonNullCount * 0.7) {
           types[col] = 'boolean';
@@ -633,7 +686,7 @@ export default function DataTableControls({
         types[col] = 'string';
       }
     });
-    
+
     return types;
   }, [tableData, columns]);
 
@@ -790,17 +843,17 @@ export default function DataTableControls({
     if (!columnName || !Array.isArray(tableData) || isEmpty(tableData)) {
       return [];
     }
-    
+
     // Use provided data or tableData
     const dataSource = dataToFilter || tableData;
-    
+
     const values = dataSource
       .map(row => {
         if (!row || typeof row !== 'object') return null;
         return getDataValue(row, columnName);
       })
       .filter(val => val !== null && val !== undefined && val !== '');
-    
+
     // Get unique values and sort them
     const uniqueValues = uniq(values.map(val => String(val)));
     return uniqueValues.sort();
@@ -816,7 +869,7 @@ export default function DataTableControls({
     if (!salesTeamColumn || !hqColumn || !Array.isArray(tableData) || isEmpty(tableData)) {
       return [];
     }
-    
+
     // First filter by salesTeam if salesTeamValues has exactly 1 value
     let filteredData = tableData;
     if (salesTeamValues && salesTeamValues.length === 1) {
@@ -827,7 +880,7 @@ export default function DataTableControls({
         return String(rowValue) === String(selectedSalesTeamValue);
       });
     }
-    
+
     return getUniqueValuesFromColumn(hqColumn, filteredData);
   }, [salesTeamColumn, hqColumn, salesTeamValues, tableData, getUniqueValuesFromColumn]);
 
@@ -882,6 +935,7 @@ export default function DataTableControls({
                     options={[
                       { label: 'Offline', value: 'offline' },
                       { label: 'Test Data', value: 'test' },
+                      { label: 'Nested Data', value: 'nested' },
                       ...savedQueries.map(q => ({ label: q.name, value: q.id }))
                     ]}
                     optionLabel="label"
@@ -898,7 +952,7 @@ export default function DataTableControls({
               )}
 
               {/* Query Key Selector */}
-              {onSelectedQueryKeyChange && dataSource && dataSource !== 'offline' && dataSource !== 'test' && availableQueryKeys.length > 0 && (
+              {onSelectedQueryKeyChange && dataSource && availableQueryKeys.length > 0 && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Query Key
@@ -1111,712 +1165,937 @@ export default function DataTableControls({
 
       {/* Table Settings Section */}
       <>
-          <div className="px-2 @3xs:px-4 py-2 @3xs:py-3 bg-gray-50 border-b border-gray-200 hidden @3xs:block">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <i className="pi pi-table text-base @3xs:text-lg text-primary"></i>
-                <span className="font-semibold text-sm @3xs:text-base text-primary">Table Settings</span>
-              </div>
+        <div className="px-2 @3xs:px-4 py-2 @3xs:py-3 bg-gray-50 border-b border-gray-200 hidden @3xs:block">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <i className="pi pi-table text-base @3xs:text-lg text-primary"></i>
+              <span className="font-semibold text-sm @3xs:text-base text-primary">Table Settings</span>
             </div>
           </div>
-          <div className="flex-1 p-2 @3xs:p-4 hidden @3xs:block">
-        <Accordion multiple activeIndex={[0]}>
-              {/* TABLE FEATURES */}
-              <AccordionTab header={
-                <div className="flex align-items-center gap-2">
-                  <i className="pi pi-cog"></i>
-                  <span>Table Features</span>
+        </div>
+        <div className="flex-1 p-2 @3xs:p-4 hidden @3xs:block">
+          <Accordion multiple activeIndex={[0]}>
+            {/* TABLE FEATURES */}
+            <AccordionTab header={
+              <div className="flex align-items-center gap-2">
+                <i className="pi pi-cog"></i>
+                <span>Table Features</span>
+              </div>
+            }>
+              <div className="m-0">
+                <ToggleSwitch
+                  checked={enableSort}
+                  onChange={onSortChange}
+                  label="Sorting"
+                  icon="pi pi-sort"
+                />
+                <ToggleSwitch
+                  checked={enableFilter}
+                  onChange={onFilterChange}
+                  label="Filtering"
+                  icon="pi pi-filter"
+                />
+                <ToggleSwitch
+                  checked={enableSummation}
+                  onChange={onSummationChange}
+                  label="Summation"
+                  icon="pi pi-calculator"
+                />
+                <ToggleSwitch
+                  checked={enableDivideBy1Lakh}
+                  onChange={onDivideBy1LakhChange}
+                  label="Divide by 1Lakh"
+                  icon="pi pi-calculator"
+                />
+                {onEnableReportChange && (
+                  <ToggleSwitch
+                    checked={enableReport}
+                    onChange={onEnableReportChange}
+                    label="Enable Report"
+                    icon="pi pi-chart-bar"
+                  />
+                )}
+                {onCellEditChange && (
+                  <ToggleSwitch
+                    checked={enableCellEdit}
+                    onChange={onCellEditChange}
+                    label="Cell Editing"
+                    icon="pi pi-pencil"
+                  />
+                )}
+                <div className="mb-4 mt-4 pt-4 border-t border-gray-200">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Table Height
+                  </label>
+                  <input
+                    type="text"
+                    value={tableHeight || ''}
+                    onChange={(e) => {
+                      if (onTableHeightChange) {
+                        onTableHeightChange(e.target.value);
+                      }
+                    }}
+                    placeholder="60dvh"
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Table height (e.g., "60dvh", "500px", "flex")
+                  </p>
                 </div>
-              }>
-                <div className="m-0">
-                  <ToggleSwitch
-                    checked={enableSort}
-                    onChange={onSortChange}
-                    label="Sorting"
-                    icon="pi pi-sort"
-                  />
-                  <ToggleSwitch
-                    checked={enableFilter}
-                    onChange={onFilterChange}
-                    label="Filtering"
-                    icon="pi pi-filter"
-                  />
-                  <ToggleSwitch
-                    checked={enableSummation}
-                    onChange={onSummationChange}
-                    label="Summation"
-                    icon="pi pi-calculator"
-                  />
-                  <ToggleSwitch
-                    checked={enableDivideBy1Lakh}
-                    onChange={onDivideBy1LakhChange}
-                    label="Divide by 1Lakh"
-                    icon="pi pi-calculator"
-                  />
-                  {onEnableReportChange && (
-                    <ToggleSwitch
-                      checked={enableReport}
-                      onChange={onEnableReportChange}
-                      label="Enable Report"
-                      icon="pi pi-chart-bar"
-                    />
-                  )}
-                  {onCellEditChange && (
-                    <ToggleSwitch
-                      checked={enableCellEdit}
-                      onChange={onCellEditChange}
-                      label="Cell Editing"
-                      icon="pi pi-pencil"
-                    />
-                  )}
-                  <div className="mb-4 mt-4 pt-4 border-t border-gray-200">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Table Height
-                    </label>
-                    <input
-                      type="text"
-                      value={tableHeight || ''}
-                      onChange={(e) => {
-                        if (onTableHeightChange) {
-                          onTableHeightChange(e.target.value);
-                        }
-                      }}
-                      placeholder="60dvh"
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Table height (e.g., "60dvh", "500px", "flex")
-                    </p>
-                  </div>
-                </div>
-              </AccordionTab>
+              </div>
+            </AccordionTab>
 
-              {/* COLUMN CONFIGURATION */}
-              {!isEmpty(columns) && (
-                <AccordionTab header={
-                  <div className="flex align-items-center gap-2">
-                    <i className="pi pi-list"></i>
-                    <span>Column Configuration</span>
-                  </div>
-                }>
-                  <div className="m-0">
-                    {enableFilter && (
-                      <div className="mb-4">
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          <i className="pi pi-search mr-2"></i>
-                          Text Search Fields
-                        </label>
-                        <p className="text-xs text-gray-500 mb-2">
-                          Fields that use text search instead of multiselect
-                        </p>
-                        <FieldPicker
-                          columns={columns}
-                          selectedFields={textFilterColumns}
-                          onSelectionChange={onTextFilterColumnsChange}
-                          formatFieldName={formatFieldName}
-                        />
-                      </div>
-                    )}
-                    <div className="mb-4">
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        <i className="pi pi-eye mr-2"></i>
-                        Visible Columns
-                      </label>
-                      <p className="text-xs text-gray-500 mb-2">
-                        Select fields to display (empty = show all)
-                      </p>
-                      <FieldPicker
-                        columns={columns}
-                        selectedFields={visibleColumns}
-                        onSelectionChange={onVisibleColumnsChange}
-                        formatFieldName={formatFieldName}
-                      />
-                    </div>
-                    {enableCellEdit && onNonEditableColumnsChange && (
-                      <div className="mb-4">
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          <i className="pi pi-lock mr-2"></i>
-                          Non-Editable Columns
-                        </label>
-                        <p className="text-xs text-gray-500 mb-2">
-                          Fields that cannot be edited
-                        </p>
-                        <FieldPicker
-                          columns={columns}
-                          selectedFields={nonEditableColumns}
-                          onSelectionChange={onNonEditableColumnsChange}
-                          formatFieldName={formatFieldName}
-                        />
-                      </div>
-                    )}
-                  </div>
-                </AccordionTab>
-              )}
-
-              {/* GROUPING */}
-              {!isEmpty(columns) && (
-                <AccordionTab header={
-                  <div className="flex align-items-center gap-2">
-                    <i className="pi pi-sitemap"></i>
-                    <span>Grouping</span>
-                  </div>
-                }>
-                  <div className="m-0">
-                    <div className="mb-4">
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Outer Group (Expandable Header)
-                      </label>
-                      <p className="text-xs text-gray-500 mb-2">
-                        Creates expandable row groups
-                      </p>
-                      <SingleFieldSelector
-                        columns={columns}
-                        selectedField={outerGroupField}
-                        onSelectionChange={onOuterGroupFieldChange}
-                        formatFieldName={formatFieldName}
-                        placeholder="Select outer group field..."
-                      />
-                    </div>
-                    {outerGroupField && (
-                      <div className="mb-4">
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Inner Group (Aggregation Anchor)
-                        </label>
-                        <p className="text-xs text-gray-500 mb-2">
-                          Aggregates data within each outer group
-                        </p>
-                        <SingleFieldSelector
-                          columns={columns}
-                          selectedField={innerGroupField}
-                          onSelectionChange={onInnerGroupFieldChange}
-                          formatFieldName={formatFieldName}
-                          placeholder="Select inner group field..."
-                        />
-                      </div>
-                    )}
-                  </div>
-                </AccordionTab>
-              )}
-
-              {/* REPORT SETTINGS */}
-              {enableReport && !isEmpty(columns) && (
-                <AccordionTab header={
-                  <div className="flex align-items-center gap-2">
-                    <i className="pi pi-chart-bar"></i>
-                    <span>Report Settings</span>
-                  </div>
-                }>
-                  <div className="m-0">
-                    <div className="mb-4">
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Date Column
-                      </label>
-                      <p className="text-xs text-gray-500 mb-2">
-                        Select the column containing date values for time-based breakdown
-                      </p>
-                      <SingleFieldSelector
-                        columns={columns}
-                        selectedField={dateColumn}
-                        onSelectionChange={onDateColumnChange}
-                        formatFieldName={formatFieldName}
-                        placeholder="Select date column..."
-                      />
-                    </div>
-                    {onShowChartChange && (
-                      <div className="mb-4">
-                        <ToggleSwitch
-                          checked={showChart}
-                          onChange={onShowChartChange}
-                          label="Show Chart"
-                          icon="pi pi-chart-line"
-                          isLast={false}
-                        />
-                        <p className="text-xs text-gray-500 mt-1">
-                          Display line chart above the data table in report mode
-                        </p>
-                      </div>
-                    )}
-                    {showChart && onChartColumnsChange && !isEmpty(columns) && (
-                      <div className="mb-4">
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          <i className="pi pi-chart-line mr-2"></i>
-                          Chart Columns
-                        </label>
-                        <p className="text-xs text-gray-500 mb-2">
-                          Select columns to display in the chart (empty = show all)
-                        </p>
-                        <ChartColumnsPicker
-                          columns={columns}
-                          selectedColumns={chartColumns}
-                          onSelectionChange={onChartColumnsChange}
-                          formatFieldName={formatFieldName}
-                        />
-                      </div>
-                    )}
-                    {showChart && onChartHeightChange && (
-                      <div className="mb-4">
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Chart Height
-                        </label>
-                        <p className="text-xs text-gray-500 mb-2">
-                          Set the height of the chart in pixels
-                        </p>
-                        <input
-                          type="number"
-                          value={chartHeight || 400}
-                          onChange={(e) => {
-                            const value = parseInt(e.target.value, 10);
-                            if (!isNaN(value) && value > 0) {
-                              onChartHeightChange(value);
-                            }
-                          }}
-                          min="100"
-                          max="1000"
-                          step="50"
-                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        />
-                      </div>
-                    )}
-                  </div>
-                </AccordionTab>
-              )}
-
-              {/* DRAWER CONTROLS */}
-              {outerGroupField && (
-                <AccordionTab header={
-                  <div className="flex align-items-center gap-2">
-                    <i className="pi pi-window-maximize"></i>
-                    <span>Drawer Controls</span>
-                  </div>
-                }>
-                  <div className="m-0">
-                    <div className="mb-4 flex items-center justify-between">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Drawer Tabs
-                        </label>
-                        <p className="text-xs text-gray-500">
-                          Configure multiple tabs for the drawer
-                        </p>
-                      </div>
-                      {onAddDrawerTab && (
-                        <button
-                          type="button"
-                          onClick={onAddDrawerTab}
-                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors"
-                          title="Add new drawer tab"
-                        >
-                          <i className="pi pi-plus text-xs"></i>
-                          <span>Add Tab</span>
-                        </button>
-                      )}
-                    </div>
-                    
-                    {drawerTabs && drawerTabs.length > 0 ? (
-                      <div className="space-y-4">
-                        {drawerTabs.map((tab, index) => (
-                          <div key={tab.id} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
-                            <div className="flex items-center justify-between mb-3">
-                              <h4 className="text-sm font-semibold text-gray-800">
-                                Tab {index + 1}
-                              </h4>
-                              {onRemoveDrawerTab && drawerTabs.length > 1 && (
-                                <button
-                                  type="button"
-                                  onClick={() => onRemoveDrawerTab(tab.id)}
-                                  className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
-                                  title="Remove this tab"
-                                >
-                                  <i className="pi pi-trash text-xs"></i>
-                                  <span>Remove</span>
-                                </button>
-                              )}
-                            </div>
-                            
-                            <div className="space-y-4">
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                  Tab Name
-                                </label>
-                                <p className="text-xs text-gray-500 mb-2">
-                                  Name displayed in drawer tab header
-                                </p>
-                                <InputText
-                                  value={tab.name || ''}
-                                  onChange={(e) => onUpdateDrawerTab && onUpdateDrawerTab(tab.id, { name: e.target.value })}
-                                  placeholder="Enter tab name..."
-                                  className="w-full"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                  Tab Outer Group
-                                </label>
-                                <p className="text-xs text-gray-500 mb-2">
-                                  Column to group by in drawer
-                                </p>
-                                <SingleFieldSelector
-                                  columns={columns}
-                                  selectedField={tab.outerGroup}
-                                  onSelectionChange={(value) => {
-                                    if (onUpdateDrawerTab) {
-                                      onUpdateDrawerTab(tab.id, { 
-                                        outerGroup: value,
-                                        // Clear inner group when outer group is cleared
-                                        innerGroup: value ? tab.innerGroup : null
-                                      });
-                                    }
-                                  }}
-                                  formatFieldName={formatFieldName}
-                                  placeholder="Select outer group field..."
-                                />
-                              </div>
-                              {tab.outerGroup && (
-                                <div>
-                                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    Tab Inner Group
-                                  </label>
-                                  <p className="text-xs text-gray-500 mb-2">
-                                    Column to aggregate by within each outer group in drawer
-                                  </p>
-                                  <SingleFieldSelector
-                                    columns={columns}
-                                    selectedField={tab.innerGroup}
-                                    onSelectionChange={(value) => onUpdateDrawerTab && onUpdateDrawerTab(tab.id, { innerGroup: value })}
-                                    formatFieldName={formatFieldName}
-                                    placeholder="Select inner group field..."
-                                  />
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-center py-8 text-gray-500">
-                        <i className="pi pi-inbox text-2xl mb-2"></i>
-                        <p className="text-sm">No tabs configured</p>
-                        <p className="text-xs mt-1">Click "Add Tab" to create your first drawer tab</p>
-                      </div>
-                    )}
-                  </div>
-                </AccordionTab>
-              )}
-
-              {/* PERCENTAGE COLUMNS */}
-              {!isEmpty(columns) && (
-                <AccordionTab header={
-                  <div className="flex align-items-center gap-2">
-                    <i className="pi pi-percentage"></i>
-                    <span>Percentage Columns</span>
-                  </div>
-                }>
-                  <div className="m-0">
-                    <div className="space-y-4">
-                      {Array.isArray(percentageColumns) && percentageColumns.map((pc, index) => (
-                        <div key={index} className="p-3 border border-gray-200 rounded-lg space-y-3">
-                          <div className="flex items-center justify-between mb-2">
-                            <label className="block text-sm font-medium text-gray-700">
-                              Percentage Column {index + 1}
-                            </label>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const newColumns = percentageColumns.filter((_, i) => i !== index);
-                                onPercentageColumnsChange && onPercentageColumnsChange(newColumns);
-                              }}
-                              className="text-red-600 hover:text-red-800 text-sm"
-                            >
-                              <i className="pi pi-times"></i> Remove
-                            </button>
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                              Column Name
-                            </label>
-                            <InputText
-                              value={pc.columnName || ''}
-                              onChange={(e) => {
-                                const newColumns = [...percentageColumns];
-                                newColumns[index] = { ...pc, columnName: e.target.value };
-                                onPercentageColumnsChange && onPercentageColumnsChange(newColumns);
-                              }}
-                              placeholder="Enter column name..."
-                              className="w-full"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                              Target Field
-                            </label>
-                            <SingleFieldSelector
-                              columns={columns}
-                              selectedField={pc.targetField}
-                              onSelectionChange={(value) => {
-                                const newColumns = [...percentageColumns];
-                                newColumns[index] = { ...pc, targetField: value };
-                                onPercentageColumnsChange && onPercentageColumnsChange(newColumns);
-                              }}
-                              formatFieldName={formatFieldName}
-                              placeholder="Select target field..."
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                              Value Field
-                            </label>
-                            <SingleFieldSelector
-                              columns={columns}
-                              selectedField={pc.valueField}
-                              onSelectionChange={(value) => {
-                                const newColumns = [...percentageColumns];
-                                newColumns[index] = { ...pc, valueField: value };
-                                onPercentageColumnsChange && onPercentageColumnsChange(newColumns);
-                              }}
-                              formatFieldName={formatFieldName}
-                              placeholder="Select value field..."
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                              Position Before Column
-                            </label>
-                            <p className="text-xs text-gray-500 mb-2">
-                              Select a column before which this percentage column should appear. If not specified, default positioning is used.
-                            </p>
-                            <SingleFieldSelector
-                              columns={columns.filter(col => col !== pc.columnName)}
-                              selectedField={pc.beforeColumn}
-                              onSelectionChange={(value) => {
-                                const newColumns = [...percentageColumns];
-                                newColumns[index] = { ...pc, beforeColumn: value };
-                                onPercentageColumnsChange && onPercentageColumnsChange(newColumns);
-                              }}
-                              formatFieldName={formatFieldName}
-                              placeholder="Select column to position before (optional)..."
-                            />
-                          </div>
-                        </div>
-                      ))}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const newColumns = [...(percentageColumns || []), { columnName: '', targetField: null, valueField: null, beforeColumn: null }];
-                          onPercentageColumnsChange && onPercentageColumnsChange(newColumns);
-                        }}
-                        className="w-full py-2 px-4 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 flex items-center justify-center gap-2"
-                      >
-                        <i className="pi pi-plus"></i>
-                        Add Percentage Column
-                      </button>
-                    </div>
-                  </div>
-                </AccordionTab>
-              )}
-
-              {/* STYLING */}
-              {enableSummation && !isEmpty(columns) && (
-                <AccordionTab header={
-                  <div className="flex align-items-center gap-2">
-                    <i className="pi pi-palette"></i>
-                    <span>Styling</span>
-                  </div>
-                }>
-                  <div className="m-0">
-                    <div className="mb-4">
-                      <label className="block text-sm font-medium text-red-700 mb-2">
-                        Red Fields
-                      </label>
-                      <p className="text-xs text-gray-500 mb-2">
-                        Summation totals in red
-                      </p>
-                      <FieldPicker
-                        columns={columns}
-                        selectedFields={redFields}
-                        onSelectionChange={onRedFieldsChange}
-                        formatFieldName={formatFieldName}
-                      />
-                    </div>
-                    <div className="mb-4">
-                      <label className="block text-sm font-medium text-green-700 mb-2">
-                        Green Fields
-                      </label>
-                      <p className="text-xs text-gray-500 mb-2">
-                        Summation totals in green
-                      </p>
-                      <FieldPicker
-                        columns={columns}
-                        selectedFields={greenFields}
-                        onSelectionChange={onGreenFieldsChange}
-                        formatFieldName={formatFieldName}
-                      />
-                    </div>
-                  </div>
-                </AccordionTab>
-              )}
-
-              {/* PAGINATION */}
+            {/* COLUMN CONFIGURATION */}
+            {!isEmpty(columns) && (
               <AccordionTab header={
                 <div className="flex align-items-center gap-2">
                   <i className="pi pi-list"></i>
-                  <span>Pagination</span>
+                  <span>Column Configuration</span>
+                </div>
+              }>
+                <div className="m-0">
+                  {enableFilter && (
+                    <div className="mb-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        <i className="pi pi-search mr-2"></i>
+                        Text Search Fields
+                      </label>
+                      <p className="text-xs text-gray-500 mb-2">
+                        Fields that use text search instead of multiselect
+                      </p>
+                      <FieldPicker
+                        columns={columns}
+                        selectedFields={textFilterColumns}
+                        onSelectionChange={onTextFilterColumnsChange}
+                        formatFieldName={formatFieldName}
+                      />
+                    </div>
+                  )}
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      <i className="pi pi-eye mr-2"></i>
+                      Allowed Columns
+                    </label>
+                    <p className="text-xs text-gray-500 mb-2">
+                      Select columns that users can choose to display (empty = allow all)
+                    </p>
+                    <FieldPicker
+                      columns={columns}
+                      selectedFields={allowedColumns}
+                      onSelectionChange={onAllowedColumnsChange}
+                      formatFieldName={formatFieldName}
+                    />
+                  </div>
+                  {enableCellEdit && onEditableColumnsChange && (
+                    <div className="mb-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        <i className="pi pi-pencil mr-2"></i>
+                        Editable Columns
+                      </label>
+                      <p className="text-xs text-gray-500 mb-2">
+                        Fields that can be edited (leave empty to allow all)
+                      </p>
+                      
+                      {/* Main columns selector */}
+                      <div className="mb-3">
+                        <FieldPicker
+                          columns={columns}
+                          selectedFields={Array.isArray(editableColumns) ? editableColumns : (editableColumns?.main || [])}
+                          onSelectionChange={(selected) => {
+                            const currentNested = editableColumns?.nested || {};
+                            // Remove nested config for columns that are no longer selected
+                            const newNested = {};
+                            selected.forEach(col => {
+                              if (currentNested[col]) {
+                                newNested[col] = currentNested[col];
+                              }
+                            });
+                            onEditableColumnsChange({
+                              main: selected || [],
+                              nested: newNested
+                            });
+                          }}
+                          formatFieldName={formatFieldName}
+                        />
+                      </div>
+
+                      {/* Nested table columns for JSON table columns */}
+                      {Object.keys(jsonTableColumns).length > 0 && (() => {
+                        const selectedMain = Array.isArray(editableColumns) ? editableColumns : (editableColumns?.main || []);
+                        const selectedJsonColumns = selectedMain.filter(col => jsonTableColumns[col]);
+                        const currentNested = editableColumns?.nested || {};
+                        
+                        if (selectedJsonColumns.length === 0) return null;
+                        
+                        return (
+                          <div className="mt-4 space-y-3 pl-4 border-l-2 border-gray-200">
+                            <p className="text-xs font-medium text-gray-600 mb-2">JSON Table Columns:</p>
+                            {selectedJsonColumns.map(jsonCol => {
+                              const jsonTableInfo = jsonTableColumns[jsonCol];
+                              if (!jsonTableInfo || !jsonTableInfo.nestedTables || jsonTableInfo.nestedTables.length === 0) {
+                                return null;
+                              }
+                              
+                              // Collect all columns from all nested tables in this JSON table column
+                              const allNestedColumns = [];
+                              const columnToNestedTableMap = {};
+                              
+                              jsonTableInfo.nestedTables.forEach(nestedTable => {
+                                if (nestedTable.columns && nestedTable.columns.length > 0) {
+                                  nestedTable.columns.forEach(col => {
+                                    if (!allNestedColumns.includes(col)) {
+                                      allNestedColumns.push(col);
+                                    }
+                                    // Map column to nested table for proper saving
+                                    if (!columnToNestedTableMap[col]) {
+                                      columnToNestedTableMap[col] = [];
+                                    }
+                                    columnToNestedTableMap[col].push(nestedTable.fieldName);
+                                  });
+                                }
+                              });
+                              
+                              // Get currently selected columns for this JSON table
+                              // Flatten all selected columns from all nested tables
+                              const currentSelected = [];
+                              if (currentNested[jsonCol]) {
+                                Object.values(currentNested[jsonCol]).forEach(cols => {
+                                  if (Array.isArray(cols)) {
+                                    cols.forEach(col => {
+                                      if (!currentSelected.includes(col)) {
+                                        currentSelected.push(col);
+                                      }
+                                    });
+                                  }
+                                });
+                              }
+                              
+                              return (
+                                <div key={jsonCol} className="space-y-2 mb-3">
+                                  <label className="block text-xs font-medium text-gray-700">
+                                    {formatFieldName(jsonCol)} - Select Columns:
+                                  </label>
+                                  <FieldPicker
+                                    columns={allNestedColumns}
+                                    selectedFields={currentSelected}
+                                    onSelectionChange={(selected) => {
+                                      // Distribute selected columns to their respective nested tables
+                                      const newNestedForJsonCol = {};
+                                      
+                                      // Initialize with existing selections
+                                      if (currentNested[jsonCol]) {
+                                        Object.keys(currentNested[jsonCol]).forEach(nestedTableFieldName => {
+                                          newNestedForJsonCol[nestedTableFieldName] = [];
+                                        });
+                                      }
+                                      
+                                      // Distribute selected columns to their nested tables
+                                      selected.forEach(col => {
+                                        const nestedTableFieldNames = columnToNestedTableMap[col] || [];
+                                        nestedTableFieldNames.forEach(nestedTableFieldName => {
+                                          if (!newNestedForJsonCol[nestedTableFieldName]) {
+                                            newNestedForJsonCol[nestedTableFieldName] = [];
+                                          }
+                                          if (!newNestedForJsonCol[nestedTableFieldName].includes(col)) {
+                                            newNestedForJsonCol[nestedTableFieldName].push(col);
+                                          }
+                                        });
+                                      });
+                                      
+                                      const newNested = {
+                                        ...currentNested,
+                                        [jsonCol]: newNestedForJsonCol
+                                      };
+                                      
+                                      onEditableColumnsChange({
+                                        main: selectedMain,
+                                        nested: newNested
+                                      });
+                                    }}
+                                    formatFieldName={formatFieldName}
+                                  />
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+                </div>
+              </AccordionTab>
+            )}
+
+            {/* GROUPING */}
+            {!isEmpty(columns) && (
+              <AccordionTab header={
+                <div className="flex align-items-center gap-2">
+                  <i className="pi pi-sitemap"></i>
+                  <span>Grouping</span>
+                </div>
+              }>
+                <div className="m-0">
+                  {/* Use groupFields if available, otherwise fall back to outerGroupField/innerGroupField */}
+                  {(() => {
+                    const effectiveGroupFields = (groupFields && Array.isArray(groupFields) && groupFields.length > 0)
+                      ? groupFields
+                      : (outerGroupField ? [outerGroupField, ...(innerGroupField ? [innerGroupField] : [])] : []);
+
+                    const handleLevelChange = (levelIndex, value) => {
+                      if (!onGroupFieldsChange) {
+                        // Fallback to old API if onGroupFieldsChange not provided
+                        if (levelIndex === 0) {
+                          onOuterGroupFieldChange?.(value);
+                        } else if (levelIndex === 1) {
+                          onInnerGroupFieldChange?.(value);
+                        }
+                        return;
+                      }
+
+                      const newGroupFields = [...effectiveGroupFields];
+                      if (value === null) {
+                        // Remove this level and all subsequent levels
+                        newGroupFields.splice(levelIndex);
+                      } else {
+                        // Update or add level
+                        if (levelIndex < newGroupFields.length) {
+                          newGroupFields[levelIndex] = value;
+                          // Remove subsequent levels if this level changed
+                          newGroupFields.splice(levelIndex + 1);
+                        } else {
+                          newGroupFields.push(value);
+                        }
+                      }
+                      onGroupFieldsChange(newGroupFields);
+                    };
+
+                    const handleRemoveLevel = (levelIndex) => {
+                      if (!onGroupFieldsChange) {
+                        // Fallback to old API
+                        if (levelIndex === 0) {
+                          onOuterGroupFieldChange?.(null);
+                        } else if (levelIndex === 1) {
+                          onInnerGroupFieldChange?.(null);
+                        }
+                        return;
+                      }
+
+                      const newGroupFields = [...effectiveGroupFields];
+                      newGroupFields.splice(levelIndex);
+                      onGroupFieldsChange(newGroupFields);
+                    };
+
+                    // Get available columns (exclude already selected fields)
+                    const getAvailableColumns = (levelIndex) => {
+                      return columns.filter(col => {
+                        // Don't show columns that are already selected at other levels
+                        return !effectiveGroupFields.slice(0, levelIndex).includes(col);
+                      });
+                    };
+
+                    return (
+                      <>
+                        {effectiveGroupFields.map((field, index) => (
+                          <div key={index} className="mb-4">
+                            <div className="flex items-center justify-between mb-2">
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700">
+                                  Level {index + 1} {index === 0 ? '(Outer Group)' : index === 1 ? '(Inner Group)' : ''}
+                                </label>
+                                <p className="text-xs text-gray-500 mt-1">
+                                  {index === 0
+                                    ? 'Creates expandable row groups'
+                                    : `Aggregates data within Level ${index} groups`}
+                                </p>
+                              </div>
+                              {index > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveLevel(index)}
+                                  className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                                  title="Remove this level"
+                                >
+                                  <i className="pi pi-times text-sm"></i>
+                                </button>
+                              )}
+                            </div>
+                            <SingleFieldSelector
+                              columns={getAvailableColumns(index)}
+                              selectedField={field}
+                              onSelectionChange={(value) => handleLevelChange(index, value)}
+                              formatFieldName={formatFieldName}
+                              placeholder={`Select Level ${index + 1} field...`}
+                            />
+                          </div>
+                        ))}
+
+                        {/* Always show next level dropdown directly (no add button needed) */}
+                        {effectiveGroupFields.length > 0 && (
+                          <div className="mb-4">
+                            <div className="flex items-center justify-between mb-2">
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700">
+                                  Level {effectiveGroupFields.length + 1} {effectiveGroupFields.length === 1 ? '(Inner Group)' : ''}
+                                </label>
+                                <p className="text-xs text-gray-500 mt-1">
+                                  Aggregates data within Level {effectiveGroupFields.length} groups
+                                </p>
+                              </div>
+                            </div>
+                            <SingleFieldSelector
+                              columns={getAvailableColumns(effectiveGroupFields.length)}
+                              selectedField={null}
+                              onSelectionChange={(value) => handleLevelChange(effectiveGroupFields.length, value)}
+                              formatFieldName={formatFieldName}
+                              placeholder={`Select Level ${effectiveGroupFields.length + 1} field...`}
+                            />
+                          </div>
+                        )}
+
+                        {/* Initial level selector if no levels selected */}
+                        {effectiveGroupFields.length === 0 && (
+                          <div className="mb-4">
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Level 1 (Outer Group)
+                            </label>
+                            <p className="text-xs text-gray-500 mb-2">
+                              Creates expandable row groups
+                            </p>
+                            <SingleFieldSelector
+                              columns={columns}
+                              selectedField={null}
+                              onSelectionChange={(value) => handleLevelChange(0, value)}
+                              formatFieldName={formatFieldName}
+                              placeholder="Select Level 1 field..."
+                            />
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              </AccordionTab>
+            )}
+
+            {/* REPORT SETTINGS */}
+            {enableReport && !isEmpty(columns) && (
+              <AccordionTab header={
+                <div className="flex align-items-center gap-2">
+                  <i className="pi pi-chart-bar"></i>
+                  <span>Report Settings</span>
                 </div>
               }>
                 <div className="m-0">
                   <div className="mb-4">
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Available Options (comma-separated)
+                      Date Column
                     </label>
-                    <input
-                      type="text"
-                      value={customOptions}
-                      onChange={(e) => handleOptionsChange(e.target.value)}
-                      placeholder="5, 10, 25, 50, 100"
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    <p className="text-xs text-gray-500 mb-2">
+                      Select the column containing date values for time-based breakdown
+                    </p>
+                    <SingleFieldSelector
+                      columns={columns}
+                      selectedField={dateColumn}
+                      onSelectionChange={onDateColumnChange}
+                      formatFieldName={formatFieldName}
+                      placeholder="Select date column..."
                     />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Enter numbers separated by commas
-                    </p>
                   </div>
-                  <div className="mb-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Default Rows Per Page
-                    </label>
-                    <select
-                      key={`default-rows-${rowsPerPageOptions?.join('-') || ''}`}
-                      value={defaultRows || ''}
-                      onChange={(e) => {
-                        const value = parseInt(e.target.value, 10);
-                        if (!isNaN(value) && value > 0 && onDefaultRowsChange) {
-                          onDefaultRowsChange(value);
-                        }
-                      }}
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    >
-                      <option value="">Select default...</option>
-                      {rowsPerPageOptions && Array.isArray(rowsPerPageOptions) && rowsPerPageOptions.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
+                  {onShowChartChange && (
+                    <div className="mb-4">
+                      <ToggleSwitch
+                        checked={showChart}
+                        onChange={onShowChartChange}
+                        label="Show Chart"
+                        icon="pi pi-chart-line"
+                        isLast={false}
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Display line chart above the data table in report mode
+                      </p>
+                    </div>
+                  )}
+                  {showChart && onChartColumnsChange && !isEmpty(columns) && (
+                    <div className="mb-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        <i className="pi pi-chart-line mr-2"></i>
+                        Chart Columns
+                      </label>
+                      <p className="text-xs text-gray-500 mb-2">
+                        Select columns to display in the chart (empty = show all)
+                      </p>
+                      <ChartColumnsPicker
+                        columns={columns}
+                        selectedColumns={chartColumns}
+                        onSelectionChange={onChartColumnsChange}
+                        formatFieldName={formatFieldName}
+                      />
+                    </div>
+                  )}
+                  {showChart && onChartHeightChange && (
+                    <div className="mb-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Chart Height
+                      </label>
+                      <p className="text-xs text-gray-500 mb-2">
+                        Set the height of the chart in pixels
+                      </p>
+                      <input
+                        type="number"
+                        value={chartHeight || 400}
+                        onChange={(e) => {
+                          const value = parseInt(e.target.value, 10);
+                          if (!isNaN(value) && value > 0) {
+                            onChartHeightChange(value);
+                          }
+                        }}
+                        min="100"
+                        max="1000"
+                        step="50"
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                  )}
+                </div>
+              </AccordionTab>
+            )}
+
+            {/* DRAWER CONTROLS */}
+            {outerGroupField && (
+              <AccordionTab header={
+                <div className="flex align-items-center gap-2">
+                  <i className="pi pi-window-maximize"></i>
+                  <span>Drawer Controls</span>
+                </div>
+              }>
+                <div className="m-0">
+                  <div className="mb-4 flex items-center justify-between">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Drawer Tabs
+                      </label>
+                      <p className="text-xs text-gray-500">
+                        Configure multiple tabs for the drawer
+                      </p>
+                    </div>
+                    {onAddDrawerTab && (
+                      <button
+                        type="button"
+                        onClick={onAddDrawerTab}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors"
+                        title="Add new drawer tab"
+                      >
+                        <i className="pi pi-plus text-xs"></i>
+                        <span>Add Tab</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {drawerTabs && drawerTabs.length > 0 ? (
+                    <div className="space-y-4">
+                      {drawerTabs.map((tab, index) => (
+                        <div key={tab.id} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                          <div className="flex items-center justify-between mb-3">
+                            <h4 className="text-sm font-semibold text-gray-800">
+                              Tab {index + 1}
+                            </h4>
+                            {onRemoveDrawerTab && drawerTabs.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => onRemoveDrawerTab(tab.id)}
+                                className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
+                                title="Remove this tab"
+                              >
+                                <i className="pi pi-trash text-xs"></i>
+                                <span>Remove</span>
+                              </button>
+                            )}
+                          </div>
+
+                          <div className="space-y-4">
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Tab Name
+                              </label>
+                              <p className="text-xs text-gray-500 mb-2">
+                                Name displayed in drawer tab header
+                              </p>
+                              <InputText
+                                value={tab.name || ''}
+                                onChange={(e) => onUpdateDrawerTab && onUpdateDrawerTab(tab.id, { name: e.target.value })}
+                                placeholder="Enter tab name..."
+                                className="w-full"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Tab Outer Group
+                              </label>
+                              <p className="text-xs text-gray-500 mb-2">
+                                Column to group by in drawer
+                              </p>
+                              <SingleFieldSelector
+                                columns={columns}
+                                selectedField={tab.outerGroup}
+                                onSelectionChange={(value) => {
+                                  if (onUpdateDrawerTab) {
+                                    onUpdateDrawerTab(tab.id, {
+                                      outerGroup: value,
+                                      // Clear inner group when outer group is cleared
+                                      innerGroup: value ? tab.innerGroup : null
+                                    });
+                                  }
+                                }}
+                                formatFieldName={formatFieldName}
+                                placeholder="Select outer group field..."
+                              />
+                            </div>
+                            {tab.outerGroup && (
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                  Tab Inner Group
+                                </label>
+                                <p className="text-xs text-gray-500 mb-2">
+                                  Column to aggregate by within each outer group in drawer
+                                </p>
+                                <SingleFieldSelector
+                                  columns={columns}
+                                  selectedField={tab.innerGroup}
+                                  onSelectionChange={(value) => onUpdateDrawerTab && onUpdateDrawerTab(tab.id, { innerGroup: value })}
+                                  formatFieldName={formatFieldName}
+                                  placeholder="Select inner group field..."
+                                />
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       ))}
-                    </select>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Default number of rows per page
-                    </p>
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-gray-500">
+                      <i className="pi pi-inbox text-2xl mb-2"></i>
+                      <p className="text-sm">No tabs configured</p>
+                      <p className="text-xs mt-1">Click "Add Tab" to create your first drawer tab</p>
+                    </div>
+                  )}
+                </div>
+              </AccordionTab>
+            )}
+
+            {/* PERCENTAGE COLUMNS */}
+            {!isEmpty(columns) && (
+              <AccordionTab header={
+                <div className="flex align-items-center gap-2">
+                  <i className="pi pi-percentage"></i>
+                  <span>Percentage Columns</span>
+                </div>
+              }>
+                <div className="m-0">
+                  <div className="space-y-4">
+                    {Array.isArray(percentageColumns) && percentageColumns.map((pc, index) => (
+                      <div key={index} className="p-3 border border-gray-200 rounded-lg space-y-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <label className="block text-sm font-medium text-gray-700">
+                            Percentage Column {index + 1}
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newColumns = percentageColumns.filter((_, i) => i !== index);
+                              onPercentageColumnsChange && onPercentageColumnsChange(newColumns);
+                            }}
+                            className="text-red-600 hover:text-red-800 text-sm"
+                          >
+                            <i className="pi pi-times"></i> Remove
+                          </button>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Column Name
+                          </label>
+                          <InputText
+                            value={pc.columnName || ''}
+                            onChange={(e) => {
+                              const newColumns = [...percentageColumns];
+                              newColumns[index] = { ...pc, columnName: e.target.value };
+                              onPercentageColumnsChange && onPercentageColumnsChange(newColumns);
+                            }}
+                            placeholder="Enter column name..."
+                            className="w-full"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Target Field
+                          </label>
+                          <SingleFieldSelector
+                            columns={columns}
+                            selectedField={pc.targetField}
+                            onSelectionChange={(value) => {
+                              const newColumns = [...percentageColumns];
+                              newColumns[index] = { ...pc, targetField: value };
+                              onPercentageColumnsChange && onPercentageColumnsChange(newColumns);
+                            }}
+                            formatFieldName={formatFieldName}
+                            placeholder="Select target field..."
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Value Field
+                          </label>
+                          <SingleFieldSelector
+                            columns={columns}
+                            selectedField={pc.valueField}
+                            onSelectionChange={(value) => {
+                              const newColumns = [...percentageColumns];
+                              newColumns[index] = { ...pc, valueField: value };
+                              onPercentageColumnsChange && onPercentageColumnsChange(newColumns);
+                            }}
+                            formatFieldName={formatFieldName}
+                            placeholder="Select value field..."
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Position Before Column
+                          </label>
+                          <p className="text-xs text-gray-500 mb-2">
+                            Select a column before which this percentage column should appear. If not specified, default positioning is used.
+                          </p>
+                          <SingleFieldSelector
+                            columns={columns.filter(col => col !== pc.columnName)}
+                            selectedField={pc.beforeColumn}
+                            onSelectionChange={(value) => {
+                              const newColumns = [...percentageColumns];
+                              newColumns[index] = { ...pc, beforeColumn: value };
+                              onPercentageColumnsChange && onPercentageColumnsChange(newColumns);
+                            }}
+                            formatFieldName={formatFieldName}
+                            placeholder="Select column to position before (optional)..."
+                          />
+                        </div>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const newColumns = [...(percentageColumns || []), { columnName: '', targetField: null, valueField: null, beforeColumn: null }];
+                        onPercentageColumnsChange && onPercentageColumnsChange(newColumns);
+                      }}
+                      className="w-full py-2 px-4 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 flex items-center justify-center gap-2"
+                    >
+                      <i className="pi pi-plus"></i>
+                      Add Percentage Column
+                    </button>
                   </div>
                 </div>
               </AccordionTab>
+            )}
 
-              {/* COLUMN TYPE OVERRIDES */}
-              {!isEmpty(columns) && (
-                <AccordionTab header={
-                  <div className="flex align-items-center gap-2">
-                    <i className="pi pi-tags"></i>
-                    <span>Column Type Overrides</span>
+            {/* STYLING */}
+            {enableSummation && !isEmpty(columns) && (
+              <AccordionTab header={
+                <div className="flex align-items-center gap-2">
+                  <i className="pi pi-palette"></i>
+                  <span>Styling</span>
+                </div>
+              }>
+                <div className="m-0">
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-red-700 mb-2">
+                      Red Fields
+                    </label>
+                    <p className="text-xs text-gray-500 mb-2">
+                      Summation totals in red
+                    </p>
+                    <FieldPicker
+                      columns={columns}
+                      selectedFields={redFields}
+                      onSelectionChange={onRedFieldsChange}
+                      formatFieldName={formatFieldName}
+                    />
                   </div>
-                }>
-                  <div className="m-0">
-                    <div className="mb-4">
-                      <p className="text-xs text-gray-500 mb-3">
-                        Override auto-detected column types. Select "Auto" to use detected type.
-                      </p>
-                      <div className="overflow-x-auto">
-                        <table className="w-full border-collapse">
-                          <thead>
-                            <tr className="border-b border-gray-200">
-                              <th className="text-left py-2 px-3 text-xs font-semibold text-gray-700">Column Name</th>
-                              <th className="text-left py-2 px-3 text-xs font-semibold text-gray-700">Column Type</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {columns.map((col) => {
-                              const detectedType = detectedColumnTypes[col] || 'string';
-                              const overrideType = columnTypesOverride[col];
-                              const isOverridden = !!overrideType;
-                              
-                              // Build dropdown options with icon for auto-detected type
-                              const dropdownOptions = ['string', 'number', 'date', 'boolean'].map(type => {
-                                const isAutoDetected = type === detectedType && !isOverridden;
-                                return {
-                                  label: isAutoDetected ? type : type,
-                                  value: isAutoDetected ? `${type} (auto)` : type,
-                                  isAuto: isAutoDetected
-                                };
-                              });
-                              
-                              // Current value: if overridden, show the override type, otherwise show detected type with auto marker
-                              const currentValue = isOverridden 
-                                ? overrideType 
-                                : `${detectedType} (auto)`;
-                              
-                              // Value template to show icon for auto-detected
-                              const valueTemplate = (option) => {
-                                if (!option) return null;
-                                const isAuto = option.isAuto || currentValue.endsWith(' (auto)');
-                                return (
-                                  <div className="flex items-center gap-1.5">
-                                    <span>{option.label || option}</span>
-                                    {isAuto && <i className="pi pi-microchip-ai text-xs text-gray-400"></i>}
-                                  </div>
-                                );
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-green-700 mb-2">
+                      Green Fields
+                    </label>
+                    <p className="text-xs text-gray-500 mb-2">
+                      Summation totals in green
+                    </p>
+                    <FieldPicker
+                      columns={columns}
+                      selectedFields={greenFields}
+                      onSelectionChange={onGreenFieldsChange}
+                      formatFieldName={formatFieldName}
+                    />
+                  </div>
+                </div>
+              </AccordionTab>
+            )}
+
+            {/* PAGINATION */}
+            <AccordionTab header={
+              <div className="flex align-items-center gap-2">
+                <i className="pi pi-list"></i>
+                <span>Pagination</span>
+              </div>
+            }>
+              <div className="m-0">
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Available Options (comma-separated)
+                  </label>
+                  <input
+                    type="text"
+                    value={customOptions}
+                    onChange={(e) => handleOptionsChange(e.target.value)}
+                    placeholder="5, 10, 25, 50, 100"
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Enter numbers separated by commas
+                  </p>
+                </div>
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Default Rows Per Page
+                  </label>
+                  <select
+                    key={`default-rows-${rowsPerPageOptions?.join('-') || ''}`}
+                    value={defaultRows || ''}
+                    onChange={(e) => {
+                      const value = parseInt(e.target.value, 10);
+                      if (!isNaN(value) && value > 0 && onDefaultRowsChange) {
+                        onDefaultRowsChange(value);
+                      }
+                    }}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="">Select default...</option>
+                    {rowsPerPageOptions && Array.isArray(rowsPerPageOptions) && rowsPerPageOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Default number of rows per page
+                  </p>
+                </div>
+              </div>
+            </AccordionTab>
+
+            {/* COLUMN TYPE OVERRIDES */}
+            {!isEmpty(columns) && (
+              <AccordionTab header={
+                <div className="flex align-items-center gap-2">
+                  <i className="pi pi-tags"></i>
+                  <span>Column Type Overrides</span>
+                </div>
+              }>
+                <div className="m-0">
+                  <div className="mb-4">
+                    <p className="text-xs text-gray-500 mb-3">
+                      Override auto-detected column types. Select "Auto" to use detected type.
+                    </p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse">
+                        <thead>
+                          <tr className="border-b border-gray-200">
+                            <th className="text-left py-2 px-3 text-xs font-semibold text-gray-700">Column Name</th>
+                            <th className="text-left py-2 px-3 text-xs font-semibold text-gray-700">Column Type</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {columns.map((col) => {
+                            const detectedType = detectedColumnTypes[col] || 'string';
+                            const overrideType = columnTypesOverride[col];
+                            const isOverridden = !!overrideType;
+
+                            // Build dropdown options with icon for auto-detected type
+                            const dropdownOptions = ['string', 'number', 'date', 'boolean'].map(type => {
+                              const isAutoDetected = type === detectedType && !isOverridden;
+                              return {
+                                label: isAutoDetected ? type : type,
+                                value: isAutoDetected ? `${type} (auto)` : type,
+                                isAuto: isAutoDetected
                               };
-                              
-                              // Item template for dropdown items
-                              const itemTemplate = (option) => {
-                                return (
-                                  <div className="flex items-center gap-1.5">
-                                    <span>{option.label}</span>
-                                    {option.isAuto && <i className="pi pi-microchip-ai text-xs text-gray-400"></i>}
-                                  </div>
-                                );
-                              };
-                              
+                            });
+
+                            // Current value: if overridden, show the override type, otherwise show detected type with auto marker
+                            const currentValue = isOverridden
+                              ? overrideType
+                              : `${detectedType} (auto)`;
+
+                            // Value template to show icon for auto-detected
+                            const valueTemplate = (option) => {
+                              if (!option) return null;
+                              const isAuto = option.isAuto || currentValue.endsWith(' (auto)');
                               return (
-                                <tr key={col} className="border-b border-gray-100 hover:bg-gray-50">
-                                  <td className="py-2 px-3 text-sm text-gray-800">
-                                    {formatFieldName(col)}
-                                  </td>
-                                  <td className="py-2 px-3">
-                                    <Dropdown
-                                      value={currentValue}
-                                      onChange={(e) => {
-                                        const newOverrides = { ...columnTypesOverride };
-                                        const selectedValue = e.value;
-                                        
-                                        // If selected value ends with " (auto)", it means auto-detected - remove override
-                                        if (selectedValue.endsWith(' (auto)')) {
-                                          delete newOverrides[col];
-                                        } else {
-                                          // Otherwise, it's an override
-                                          newOverrides[col] = selectedValue;
-                                        }
-                                        
-                                        if (onColumnTypesOverrideChange) {
-                                          onColumnTypesOverrideChange(newOverrides);
-                                        }
-                                      }}
-                                      options={dropdownOptions}
-                                      optionLabel="label"
-                                      optionValue="value"
-                                      valueTemplate={valueTemplate}
-                                      itemTemplate={itemTemplate}
-                                      className="flex-1 text-sm"
-                                      style={{ minWidth: '120px' }}
-                                    />
-                                  </td>
-                                </tr>
+                                <div className="flex items-center gap-1.5">
+                                  <span>{option.label || option}</span>
+                                  {isAuto && <i className="pi pi-microchip-ai text-xs text-gray-400"></i>}
+                                </div>
                               );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
+                            };
+
+                            // Item template for dropdown items
+                            const itemTemplate = (option) => {
+                              return (
+                                <div className="flex items-center gap-1.5">
+                                  <span>{option.label}</span>
+                                  {option.isAuto && <i className="pi pi-microchip-ai text-xs text-gray-400"></i>}
+                                </div>
+                              );
+                            };
+
+                            return (
+                              <tr key={col} className="border-b border-gray-100 hover:bg-gray-50">
+                                <td className="py-2 px-3 text-sm text-gray-800">
+                                  {formatFieldName(col)}
+                                </td>
+                                <td className="py-2 px-3">
+                                  <Dropdown
+                                    value={currentValue}
+                                    onChange={(e) => {
+                                      const newOverrides = { ...columnTypesOverride };
+                                      const selectedValue = e.value;
+
+                                      // If selected value ends with " (auto)", it means auto-detected - remove override
+                                      if (selectedValue.endsWith(' (auto)')) {
+                                        delete newOverrides[col];
+                                      } else {
+                                        // Otherwise, it's an override
+                                        newOverrides[col] = selectedValue;
+                                      }
+
+                                      if (onColumnTypesOverrideChange) {
+                                        onColumnTypesOverrideChange(newOverrides);
+                                      }
+                                    }}
+                                    options={dropdownOptions}
+                                    optionLabel="label"
+                                    optionValue="value"
+                                    valueTemplate={valueTemplate}
+                                    itemTemplate={itemTemplate}
+                                    className="flex-1 text-sm"
+                                    style={{ minWidth: '120px' }}
+                                  />
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
-                </AccordionTab>
-              )}
-        </Accordion>
-          </div>
-        </>
+                </div>
+              </AccordionTab>
+            )}
+          </Accordion>
+        </div>
+      </>
     </div>
   );
 }

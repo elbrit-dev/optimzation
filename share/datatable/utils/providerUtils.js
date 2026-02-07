@@ -8,8 +8,7 @@ import { transformToReportData } from './reportUtils';
  * 
  * @param {boolean} enableBreakdown - Whether report mode is enabled
  * @param {Array} data - Data array to compute report from
- * @param {string} outerGroupField - Field to group by (outer group)
- * @param {string} innerGroupField - Field to group by within outer group (optional)
+ * @param {Array} effectiveGroupFields - Array of fields for multi-level nesting (required for grouping)
  * @param {string} dateColumn - Column containing date values
  * @param {string} breakdownType - Type of breakdown: 'day', 'week', 'month', 'quarter', 'annual'
  * @param {Object} columnTypes - Object mapping column names to their types
@@ -21,8 +20,7 @@ import { transformToReportData } from './reportUtils';
 export function useReportData(
   enableBreakdown,
   data,
-  outerGroupField,
-  innerGroupField,
+  effectiveGroupFields,
   dateColumn,
   breakdownType,
   columnTypes,
@@ -42,8 +40,11 @@ export function useReportData(
       return;
     }
 
+    // Ensure effectiveGroupFields is an array
+    const groupFields = Array.isArray(effectiveGroupFields) ? effectiveGroupFields : [];
+    
     // If conditions not met, show loader but don't compute yet
-    if (!dateColumn || isEmpty(data) || !outerGroupField) {
+    if (!dateColumn || isEmpty(data) || groupFields.length === 0) {
       // Keep loader showing if toggle is on but conditions aren't ready
       setIsComputingReport(true);
       setReportData(null);
@@ -60,8 +61,7 @@ export function useReportData(
         try {
           const computed = transformToReportData(
             data,
-            outerGroupField,
-            innerGroupField,
+            groupFields,
             dateColumn,
             breakdownType,
             columnTypes,
@@ -86,8 +86,7 @@ export function useReportData(
       try {
         const computed = await reportWorkerRef.current.computeReportData(
           data,
-          outerGroupField,
-          innerGroupField,
+          groupFields,
           dateColumn,
           breakdownType,
           columnTypes,
@@ -106,8 +105,7 @@ export function useReportData(
         try {
           const computed = transformToReportData(
             data,
-            outerGroupField,
-            innerGroupField,
+            groupFields,
             dateColumn,
             breakdownType,
             columnTypes,
@@ -129,7 +127,7 @@ export function useReportData(
     };
 
     computeReport();
-  }, [enableBreakdown, dateColumn, breakdownType, data, outerGroupField, innerGroupField, columnTypes, sortConfig, sortFieldType, reportWorkerRef]);
+  }, [enableBreakdown, dateColumn, breakdownType, data, effectiveGroupFields, columnTypes, sortConfig, sortFieldType, reportWorkerRef]);
 
   return { reportData, isComputingReport };
 }

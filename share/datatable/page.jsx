@@ -1,29 +1,39 @@
 'use client';
 
-import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
-import { Toast } from 'primereact/toast';
-import { Splitter, SplitterPanel } from 'primereact/splitter';
-import { Dropdown } from 'primereact/dropdown';
-import DataTableNew from './components/DataTableNew';
-import DataTableControls from './components/DataTableControls';
-import DataProvider from './components/DataProvider';
-import ReportLineChartWrapper from './components/ReportLineChartWrapper';
+import ProtectedRoute from '@/components/ProtectedRoute';
 import data from '@/resource/data';
 import testData from '@/resource/test';
-import { uniq, flatMap, isEmpty, startCase, filter as lodashFilter, get, isNil, debounce } from 'lodash';
-import { getDataKeys, getDataValue } from './utils/dataAccessUtils';
-import ProtectedRoute from '@/components/ProtectedRoute';
+import nestedData from '@/resource/nested';
+import { debounce, flatMap, get, isEmpty, isNil, filter as lodashFilter, startCase, uniq } from 'lodash';
+import { Dropdown } from 'primereact/dropdown';
+import { Splitter, SplitterPanel } from 'primereact/splitter';
+import { Toast } from 'primereact/toast';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import DataProvider from './components/DataProvider';
+import DataTableControls from './components/DataTableControls';
+import DataTableNew from './components/DataTableNew';
+import ReportLineChartWrapper from './components/ReportLineChartWrapper';
 import { defaultDataTableConfig } from './config/defaultConfig';
+import { getDataKeys, getDataValue } from './utils/dataAccessUtils';
 
 
 function DataTablePage() {
   const toast = useRef(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [tableData, setTableData] = useState(data); // Filtered data for DataTable
-  const [rawTableData, setRawTableData] = useState(data); // Full/original data for Auth Control in DataTableControls
-  const [currentDataSource, setCurrentDataSource] = useState(null);
-  // State for Data Source and Query Key selectors (controlled by page)
+  
+  // Initialize dataSource first
   const [dataSource, setDataSource] = useState(defaultDataTableConfig.dataSource);
+  
+  // Initialize table data based on default dataSource
+  const getInitialData = (ds) => {
+    if (ds === 'test') return testData;
+    if (ds === 'nested') return nestedData;
+    return data;
+  };
+  
+  const [tableData, setTableData] = useState(getInitialData(defaultDataTableConfig.dataSource)); // Filtered data for DataTable
+  const [rawTableData, setRawTableData] = useState(getInitialData(defaultDataTableConfig.dataSource)); // Full/original data for Auth Control in DataTableControls
+  const [currentDataSource, setCurrentDataSource] = useState(null);
   const [selectedQueryKey, setSelectedQueryKey] = useState(defaultDataTableConfig.selectedQueryKey);
   // State exposed from DataProvider for selectors
   const [savedQueries, setSavedQueries] = useState([]);
@@ -40,12 +50,14 @@ function DataTablePage() {
   const [defaultRowsRaw, setDefaultRowsRaw] = useState(defaultDataTableConfig.defaultRows);
   const [tableHeight, setTableHeight] = useState(defaultDataTableConfig.tableHeight);
   const [textFilterColumnsRaw, setTextFilterColumnsRaw] = useState(defaultDataTableConfig.textFilterColumns);
-  const [visibleColumnsRaw, setVisibleColumnsRaw] = useState(defaultDataTableConfig.visibleColumns);
+  const [allowedColumnsRaw, setAllowedColumnsRaw] = useState(defaultDataTableConfig.allowedColumns);
   const [redFieldsRaw, setRedFieldsRaw] = useState(defaultDataTableConfig.redFields);
   const [greenFieldsRaw, setGreenFieldsRaw] = useState(defaultDataTableConfig.greenFields);
   const [outerGroupFieldRaw, setOuterGroupFieldRaw] = useState(defaultDataTableConfig.outerGroupField);
   const [innerGroupFieldRaw, setInnerGroupFieldRaw] = useState(defaultDataTableConfig.innerGroupField);
-  const [nonEditableColumnsRaw, setNonEditableColumnsRaw] = useState(defaultDataTableConfig.nonEditableColumns);
+  // Group fields array for infinite nesting support
+  const [groupFieldsRaw, setGroupFieldsRaw] = useState(defaultDataTableConfig.groupFields || []);
+  const [editableColumnsRaw, setEditableColumnsRaw] = useState(defaultDataTableConfig.editableColumns);
   const [percentageColumns, setPercentageColumns] = useState(defaultDataTableConfig.percentageColumns);
   const [queryVariables, setQueryVariables] = useState({});
   const [variableOverrides, setVariableOverrides] = useState({});
@@ -129,7 +141,19 @@ function DataTablePage() {
     if (dataSource === 'test') {
       return testData;
     }
+    if (dataSource === 'nested') {
+      return nestedData;
+    }
     return data;
+  }, [dataSource]);
+
+  // Convert 'offline', 'test', and 'nested' to null for DataProvider
+  // DataProvider only checks for null (offline mode) vs query ID
+  const dataSourceForProvider = useMemo(() => {
+    if (dataSource === 'offline' || dataSource === 'test' || dataSource === 'nested') {
+      return null;
+    }
+    return dataSource;
   }, [dataSource]);
 
   // Store original data reference on mount and when tableData changes
@@ -190,13 +214,13 @@ function DataTablePage() {
     return textFilterColumnsRaw;
   }, [textFilterColumnsRaw]);
 
-  // Ensure visibleColumns is always an array
-  const visibleColumns = useMemo(() => {
-    if (!Array.isArray(visibleColumnsRaw)) {
+  // Ensure allowedColumns is always an array
+  const allowedColumns = useMemo(() => {
+    if (!Array.isArray(allowedColumnsRaw)) {
       return [];
     }
-    return visibleColumnsRaw;
-  }, [visibleColumnsRaw]);
+    return allowedColumnsRaw;
+  }, [allowedColumnsRaw]);
 
   // Ensure redFields is always an array
   const redFields = useMemo(() => {
@@ -214,13 +238,21 @@ function DataTablePage() {
     return greenFieldsRaw;
   }, [greenFieldsRaw]);
 
-  // Ensure nonEditableColumns is always an array
-  const nonEditableColumns = useMemo(() => {
-    if (!Array.isArray(nonEditableColumnsRaw)) {
-      return [];
+  // Ensure editableColumns has the correct structure
+  const editableColumns = useMemo(() => {
+    if (!editableColumnsRaw || typeof editableColumnsRaw !== 'object') {
+      return { main: [], nested: {} };
     }
-    return nonEditableColumnsRaw;
-  }, [nonEditableColumnsRaw]);
+    // Handle backward compatibility: if it's an array, convert to new format
+    if (Array.isArray(editableColumnsRaw)) {
+      return { main: editableColumnsRaw, nested: {} };
+    }
+    // Ensure main and nested exist
+    return {
+      main: Array.isArray(editableColumnsRaw.main) ? editableColumnsRaw.main : [],
+      nested: editableColumnsRaw.nested && typeof editableColumnsRaw.nested === 'object' ? editableColumnsRaw.nested : {}
+    };
+  }, [editableColumnsRaw]);
 
   const setRowsPerPageOptions = (value) => {
     if (Array.isArray(value)) {
@@ -240,9 +272,9 @@ function DataTablePage() {
     }
   };
 
-  const setVisibleColumns = (value) => {
+  const setAllowedColumns = (value) => {
     if (Array.isArray(value)) {
-      setVisibleColumnsRaw(value);
+      setAllowedColumnsRaw(value);
     }
   };
 
@@ -258,16 +290,41 @@ function DataTablePage() {
     }
   };
 
-  const setNonEditableColumns = (value) => {
+  const setEditableColumns = (value) => {
+    if (value && typeof value === 'object') {
+      // Handle both new format (object) and old format (array for backward compatibility)
+      if (Array.isArray(value)) {
+        setEditableColumnsRaw({ main: value, nested: {} });
+      } else if (value.main !== undefined || value.nested !== undefined) {
+        setEditableColumnsRaw(value);
+      }
+    }
+  };
+
+  // Handle group fields array (for infinite nesting)
+  const groupFields = groupFieldsRaw;
+  const setGroupFields = (value) => {
     if (Array.isArray(value)) {
-      setNonEditableColumnsRaw(value);
+      setGroupFieldsRaw(value);
+      // Sync with outerGroupField and innerGroupField for backward compatibility
+      setOuterGroupFieldRaw(value[0] || null);
+      setInnerGroupFieldRaw(value[1] || null);
     }
   };
 
   // Handle outer group field (single value, not array) - already using localStorage hook
+  // Keep for backward compatibility, but sync with groupFields
   const outerGroupField = outerGroupFieldRaw;
   const setOuterGroupField = (value) => {
     setOuterGroupFieldRaw(value);
+    // Update groupFields array to maintain sync
+    const newGroupFields = [...groupFieldsRaw];
+    if (value) {
+      newGroupFields[0] = value;
+    } else {
+      newGroupFields.shift(); // Remove first element if cleared
+    }
+    setGroupFieldsRaw(newGroupFields);
     // Clear inner group field when outer group field is cleared
     if (!value) {
       setInnerGroupFieldRaw(null);
@@ -275,8 +332,30 @@ function DataTablePage() {
   };
 
   // Handle inner group field (single value, not array) - already using localStorage hook
+  // Keep for backward compatibility, but sync with groupFields
   const innerGroupField = innerGroupFieldRaw;
-  const setInnerGroupField = setInnerGroupFieldRaw;
+  const setInnerGroupField = (value) => {
+    setInnerGroupFieldRaw(value);
+    // Update groupFields array to maintain sync
+    const newGroupFields = [...groupFieldsRaw];
+    if (value) {
+      if (newGroupFields.length > 1) {
+        newGroupFields[1] = value;
+      } else if (newGroupFields.length === 1) {
+        newGroupFields.push(value);
+      } else {
+        // If no outer group, add outer group first (maintain order)
+        newGroupFields.push(outerGroupFieldRaw || null, value);
+      }
+    } else {
+      // Remove second element if cleared
+      if (newGroupFields.length > 1) {
+        newGroupFields.splice(1, 1);
+      }
+    }
+    setGroupFieldsRaw(newGroupFields);
+  };
+
 
   // Clear salesTeamValues, hqColumn, and hqValues when salesTeamColumn changes
   // Use refs to avoid including lengths in dependencies (which change when we clear values)
@@ -421,7 +500,7 @@ function DataTablePage() {
             onDataSourceChange={handleDataSourceChange}
             onVariablesChange={handleVariablesChange}
             variableOverrides={variableOverrides}
-            dataSource={dataSource}
+            dataSource={dataSourceForProvider}
             selectedQueryKey={selectedQueryKey}
             onSavedQueriesChange={setSavedQueries}
             onLoadingQueriesChange={setLoadingQueries}
@@ -438,11 +517,12 @@ function DataTablePage() {
             enableFilter={enableFilter}
             enableSummation={enableSummation}
             textFilterColumns={textFilterColumns}
-            visibleColumns={visibleColumns}
-            onVisibleColumnsChange={setVisibleColumns}
+            allowedColumns={allowedColumns}
+            onAllowedColumnsChange={setAllowedColumns}
             percentageColumns={percentageColumns}
             outerGroupField={outerGroupField}
             innerGroupField={innerGroupField}
+            groupFields={groupFields}
             redFields={redFields}
             greenFields={greenFields}
             enableDivideBy1Lakh={enableDivideBy1Lakh}
@@ -491,7 +571,7 @@ function DataTablePage() {
                           defaultRows={defaultRows}
                           scrollable={false}
                           enableCellEdit={enableCellEdit}
-                          nonEditableColumns={nonEditableColumns}
+                          editableColumns={editableColumns}
                           onCellEditComplete={handleCellEditComplete}
                           onOuterGroupClick={handleOuterGroupClick}
                           onInnerGroupClick={handleInnerGroupClick}
@@ -513,14 +593,15 @@ function DataTablePage() {
                     defaultRows={defaultRows}
                     columns={columns}
                     textFilterColumns={textFilterColumns}
-                    visibleColumns={visibleColumns}
+                    allowedColumns={allowedColumns}
                     redFields={redFields}
                     greenFields={greenFields}
                     outerGroupField={outerGroupField}
                     innerGroupField={innerGroupField}
-                    nonEditableColumns={nonEditableColumns}
+                    groupFields={groupFields}
+                    onGroupFieldsChange={setGroupFields}
+                    editableColumns={editableColumns}
                     percentageColumns={percentageColumns}
-                    dataSource={currentDataSource}
                     queryVariables={queryVariables}
                     variableOverrides={variableOverrides}
                     onVariableOverrideChange={setVariableOverrides}
@@ -534,12 +615,12 @@ function DataTablePage() {
                     tableHeight={tableHeight}
                     onTableHeightChange={setTableHeight}
                     onTextFilterColumnsChange={setTextFilterColumns}
-                    onVisibleColumnsChange={setVisibleColumns}
+                    onAllowedColumnsChange={setAllowedColumns}
                     onRedFieldsChange={setRedFields}
                     onGreenFieldsChange={setGreenFields}
                     onOuterGroupFieldChange={setOuterGroupField}
                     onInnerGroupFieldChange={setInnerGroupField}
-                    onNonEditableColumnsChange={setNonEditableColumns}
+                    onEditableColumnsChange={setEditableColumns}
                     onPercentageColumnsChange={setPercentageColumns}
                     drawerTabs={drawerTabs || []}
                     onDrawerTabsChange={setDrawerTabs}
@@ -551,7 +632,7 @@ function DataTablePage() {
                     salesTeamValues={salesTeamValues}
                     hqColumn={hqColumn}
                     hqValues={hqValues}
-                    tableData={rawTableData}
+                    tableData={tableData}
                     onAdminModeChange={setIsAdminMode}
                     onSalesTeamColumnChange={setSalesTeamColumn}
                     onSalesTeamValuesChange={setSalesTeamValues}

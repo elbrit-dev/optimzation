@@ -1,11 +1,12 @@
 'use client';
 
-import DataTableComponent from '@/app/datatable/components/DataTableOld';
+import DataProviderNew from '@/app/datatable/components/DataProviderNew';
+import DataTableComponent from '@/app/datatable/components/DataTableNew';
 import Editor from '@monaco-editor/react';
 import { Button } from 'primereact/button';
-import { TabPanel, TabView } from 'primereact/tabview';
 import { Splitter, SplitterPanel } from 'primereact/splitter';
-import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
+import { TabPanel, TabView } from 'primereact/tabview';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../stores/useAppStore';
 import { useTableDialogStore } from '../stores/useTableDialogStore';
 import { createExecutionContext, executePipeline, executeTransformer } from '../utils/query-pipeline';
@@ -53,12 +54,16 @@ function getDataValue(data, key) {
  */
 const MemoizedDataTable = memo(({ data, enableFullscreenDialog }) => {
   return (
-    <>
+    <DataProviderNew
+      dataSource={null}
+      offlineData={data || []}
+      drawerTabs={[]} // Disable drawer in nested instance
+    >
       <DataTableComponent
-        data={data}
+        useOrchestrationLayer={true}
         enableFullscreenDialog={enableFullscreenDialog}
       />
-    </>
+    </DataProviderNew>
   );
 }, (prevProps, nextProps) => {
   // Custom comparison function: only re-render if data reference changed

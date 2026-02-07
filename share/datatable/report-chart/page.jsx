@@ -74,14 +74,18 @@ export default function ReportChartPage() {
 
   // Transform data to report format
   const reportData = useMemo(() => {
-    if (!testData || testData.length === 0 || !dateColumn || !outerGroupField) {
+    // Convert outerGroupField/innerGroupField to groupFields array
+    const groupFields = [];
+    if (outerGroupField) groupFields.push(outerGroupField);
+    if (innerGroupField) groupFields.push(innerGroupField);
+    
+    if (!testData || testData.length === 0 || !dateColumn || groupFields.length === 0) {
       return null;
     }
 
     return transformToReportData(
       testData,
-      outerGroupField,
-      innerGroupField,
+      groupFields,
       dateColumn,
       breakdownType,
       columnTypes

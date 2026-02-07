@@ -262,6 +262,11 @@ export async function executeTransformer(transformerCode, rawData, queryFunction
         return rawData;
     }
 
+    // Handle null or undefined rawData
+    if (!rawData || typeof rawData !== 'object') {
+        return rawData;
+    }
+
     const inputKeys = Object.keys(rawData).filter((key) => rawData[key] && rawData[key].length > 0);
     const inputRowCounts = inputKeys.reduce((acc, key) => {
         const arr = rawData[key];

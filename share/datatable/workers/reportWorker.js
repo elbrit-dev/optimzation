@@ -433,8 +433,11 @@ function transformToNestedTableData(groupedData, productField, categoryField, br
 /**
  * Compute report data (main function exposed to main thread)
  */
-async function computeReportData(data, outerGroupField, innerGroupField, dateColumn, breakdownType, columnTypes = {}, sortConfig = null, sortFieldType = null) {
-    if (!data || isEmpty(data) || !outerGroupField || !dateColumn) {
+async function computeReportData(data, effectiveGroupFields, dateColumn, breakdownType, columnTypes = {}, sortConfig = null, sortFieldType = null) {
+    // Ensure effectiveGroupFields is an array
+    const groupFields = Array.isArray(effectiveGroupFields) ? effectiveGroupFields : [];
+    
+    if (!data || isEmpty(data) || groupFields.length === 0 || !dateColumn) {
         return {
             tableData: [],
             nestedTableData: {},
@@ -461,7 +464,7 @@ async function computeReportData(data, outerGroupField, innerGroupField, dateCol
             allColumnsSet.add(col);
             
             // Skip grouping fields and date column
-            if (col === outerGroupField || col === innerGroupField || col === dateColumn) {
+            if (groupFields.includes(col) || col === dateColumn) {
                 return;
             }
 
@@ -545,6 +548,7 @@ async function computeReportData(data, outerGroupField, innerGroupField, dateCol
     const groupedData = groupDataByTimePeriod(data, dateColumn, breakdownType, metrics);
 
     // Transform to table data (outer group rows)
+    const outerGroupField = groupFields[0];
     const transformedTableData = transformToTableData(groupedData, outerGroupField, breakdownType, true, metrics);
     
     // Map 'product' field to the actual outerGroupField
@@ -569,30 +573,148 @@ async function computeReportData(data, outerGroupField, innerGroupField, dateCol
         }
     }
 
-    // Generate nested table data (inner group breakdown) if innerGroupField is set
+    // Generate nested table data for multi-level nesting using composite keys
+    // Structure: nestedTableData['level0|level1|level2'] = [rows]
     const nestedTableData = {};
-    if (innerGroupField) {
-        const transformedNested = transformToNestedTableData(groupedData, outerGroupField, innerGroupField, breakdownType, timePeriods, metrics);
-        
-        // Map 'product' and 'category' fields
-        const mappedNested = transformedNested.map(row => {
-            const { product, category, ...rest } = row;
-            return {
-                ...rest,
-                [outerGroupField]: product === 'Unknown' ? null : product,
-                [innerGroupField]: category === 'Unknown' ? null : category
-            };
-        });
-        
-        // Group by outer group value for easy lookup
-        mappedNested.forEach(row => {
-            const outerValue = row[outerGroupField];
-            const key = isNil(outerValue) ? null : outerValue;
-            if (!nestedTableData[key]) {
-                nestedTableData[key] = [];
+    
+    if (groupFields.length > 1) {
+        // Helper function to transform raw data rows to nested table format with time breakdown
+        const transformRowsToNestedTable = (rawRows, currentField, nextField, parentPath = [], currentLevel = 0) => {
+            // First, group by time period (rawRows are individual data rows, not grouped by time)
+            const timeGroupedData = groupDataByTimePeriod(rawRows, dateColumn, breakdownType, metrics);
+            
+            // Then use transformToNestedTableData which expects time-grouped data
+            const transformedNested = transformToNestedTableData(
+                timeGroupedData,
+                currentField,
+                nextField,
+                breakdownType,
+                timePeriods,
+                metrics
+            );
+            
+            // Build a map of (currentField, nextField) -> deeper level field values from original rows
+            // This preserves deeper level field values for hasNestedGroups detection
+            const deeperFieldsMap = new Map();
+            if (currentLevel + 2 < groupFields.length) {
+                rawRows.forEach(originalRow => {
+                    const currentValue = getDataValue(originalRow, currentField);
+                    const nextValue = getDataValue(originalRow, nextField);
+                    const mapKey = `${isNil(currentValue) ? '__null__' : String(currentValue)}|${isNil(nextValue) ? '__null__' : String(nextValue)}`;
+                    
+                    if (!deeperFieldsMap.has(mapKey)) {
+                        deeperFieldsMap.set(mapKey, {});
+                    }
+                    
+                    // Collect deeper level field values
+                    for (let i = currentLevel + 2; i < groupFields.length; i++) {
+                        const deeperField = groupFields[i];
+                        const deeperValue = getDataValue(originalRow, deeperField);
+                        if (!isNil(deeperValue) && deeperValue !== '') {
+                            deeperFieldsMap.get(mapKey)[deeperField] = deeperValue;
+                        }
+                    }
+                });
             }
-            nestedTableData[key].push(row);
-        });
+            
+            // Map 'product' and 'category' fields to actual field names and preserve parent path
+            return transformedNested.map(row => {
+                const { product, category, ...rest } = row;
+                const currentValue = product === 'Unknown' ? null : product;
+                const nextValue = category === 'Unknown' ? null : category;
+                const result = {
+                    ...rest,
+                    [currentField]: currentValue,
+                    [nextField]: nextValue
+                };
+                // Preserve all parent path values
+                parentPath.forEach((pathValue, idx) => {
+                    if (idx < groupFields.length) {
+                        result[groupFields[idx]] = pathValue;
+                    }
+                });
+                
+                // Preserve deeper level field values if they exist
+                const mapKey = `${isNil(currentValue) ? '__null__' : String(currentValue)}|${isNil(nextValue) ? '__null__' : String(nextValue)}`;
+                if (deeperFieldsMap.has(mapKey)) {
+                    Object.assign(result, deeperFieldsMap.get(mapKey));
+                }
+                
+                return result;
+            });
+        };
+
+        // Recursive function to generate nested table data for all levels
+        const generateNestedDataRecursive = (data, currentLevel, pathKeys = []) => {
+            if (currentLevel >= groupFields.length) {
+                return; // Base case: no more levels
+            }
+
+            const currentField = groupFields[currentLevel];
+            const nextField = currentLevel + 1 < groupFields.length ? groupFields[currentLevel + 1] : null;
+            
+            if (!nextField) {
+                // Final level - no nested data needed
+                return;
+            }
+
+            // Check if data is already grouped by time period (level 0) or raw rows (deeper levels)
+            const isTimeGrouped = currentLevel === 0 && typeof data === 'object' && !Array.isArray(data);
+            
+            // Extract raw rows from time-grouped data or use data directly if it's already raw rows
+            let rawRows = [];
+            if (isTimeGrouped) {
+                // Level 0: data is time-grouped, extract all rows from all periods
+                Object.values(data).forEach(periodData => {
+                    if (periodData && periodData.data && Array.isArray(periodData.data)) {
+                        rawRows.push(...periodData.data);
+                    }
+                });
+            } else {
+                // Deeper levels: data is already raw rows
+                rawRows = Array.isArray(data) ? data : [];
+            }
+
+            // Group raw rows by current field
+            const groups = {};
+            rawRows.forEach(row => {
+                const groupKey = getDataValue(row, currentField);
+                const key = isNil(groupKey) ? '__null__' : String(groupKey);
+                if (!groups[key]) {
+                    groups[key] = [];
+                }
+                groups[key].push(row);
+            });
+
+            // Process each group
+            Object.entries(groups).forEach(([groupKey, rows]) => {
+                const currentPath = [...pathKeys, groupKey === '__null__' ? null : groupKey];
+                const compositeKey = currentPath.join('|');
+                
+                // Transform rows to nested table format with time breakdown
+                const transformedNested = transformRowsToNestedTable(
+                    rows,
+                    currentField,
+                    nextField,
+                    pathKeys, // Pass parent path to preserve values
+                    currentLevel // Pass current level to preserve deeper fields
+                );
+                
+                // Store with composite key
+                if (!nestedTableData[compositeKey]) {
+                    nestedTableData[compositeKey] = [];
+                }
+                nestedTableData[compositeKey].push(...transformedNested);
+                
+                // Recursively process next level with raw rows (not time-grouped)
+                if (currentLevel + 1 < groupFields.length) {
+                    generateNestedDataRecursive(rows, currentLevel + 1, currentPath);
+                }
+            });
+        };
+
+        // Start recursive generation from level 0 (groupedData is time-grouped)
+        generateNestedDataRecursive(groupedData, 0);
 
         // Apply sorting to nested table data if sortConfig is provided
         if (sortConfig && sortFieldType) {

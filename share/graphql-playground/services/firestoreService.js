@@ -69,12 +69,16 @@ export const firestoreService = {
           variables: doc.data().variables || '',
           month: doc.data().month || false,
           monthIndex: doc.data().monthIndex || '',
-          transformerCode: doc.data().transformerCode || '', // Include transformerCode
+          transformerCode: doc.data().transformerCode || '', // Include transformerCode (legacy)
+          readTransformerCode: doc.data().readTransformerCode !== undefined ? (doc.data().readTransformerCode || '') : undefined, // New format
+          writeTransformerCode: doc.data().writeTransformerCode !== undefined ? (doc.data().writeTransformerCode || '') : undefined, // New format
           searchFields: doc.data().searchFields || {},
           sortFields: doc.data().sortFields || {},
           bodyUpdatedAt: doc.data().bodyUpdatedAt || null,
           variablesUpdatedAt: doc.data().variablesUpdatedAt || null,
           transformerCodeUpdatedAt: doc.data().transformerCodeUpdatedAt || null,
+          readTransformerCodeUpdatedAt: doc.data().readTransformerCodeUpdatedAt || null,
+          writeTransformerCodeUpdatedAt: doc.data().writeTransformerCodeUpdatedAt || null,
           lastUpdatedBy: doc.data().lastUpdatedBy || null,
         });
       }

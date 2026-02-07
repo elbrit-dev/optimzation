@@ -31,11 +31,11 @@ export const getInitialEndpoint = () => {
   const erpUrl = GRAPHQL_ENDPOINTS.ERP;
 
   // Prefer UAT if available, otherwise use ERP
-  if (uatUrl) {
-    return { name: 'UAT', code: uatUrl };
-  }
   if (erpUrl) {
     return { name: 'ERP', code: erpUrl };
+  }
+  if (uatUrl) {
+    return { name: 'UAT', code: uatUrl };
   }
   return null;
 };

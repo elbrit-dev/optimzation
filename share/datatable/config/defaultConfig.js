@@ -20,7 +20,8 @@ export const defaultDataTableConfig = {
 
     // Column configuration
     textFilterColumns: [],
-    visibleColumns: [],
+    // allowedColumns: ["sales_team", "hq", "customer_name", "item_name", "target", "posting_date"],
+    allowedColumns: [],
     nonEditableColumns: [],
     percentageColumns: [],
 
@@ -29,19 +30,19 @@ export const defaultDataTableConfig = {
     greenFields: [],
 
     // Grouping
-    outerGroupField: "sales_team",
-    innerGroupField: "hq",
+    // groupFields: ["sales_team", "hq", "customer_name"],
+    groupFields: [],
 
     // Column types override
     columnTypesOverride: {},
 
     // Drawer tabs
     drawerTabs: [
-        {
-            name: "Custom Tab",
-            outerGroup: "customer_name",
-            innerGroup: "item_name",
-        },
+        // {
+        //     name: "Custom Tab",
+        //     outerGroup: "customer_name",
+        //     innerGroup: "item_name",
+        // },
     ],
 
     // Report settings
@@ -58,7 +59,7 @@ export const defaultDataTableConfig = {
     hqValues: [],
 
     // Data source
-    dataSource: "Primary",
+    dataSource: "nested",
     selectedQueryKey: "primary",
 };
 
@@ -106,7 +107,7 @@ export function extractStateFromConfig(config, setters = {}) {
 
         // Column configuration
         textFilterColumns: config.textFilterColumns ?? defaultDataTableConfig.textFilterColumns,
-        visibleColumns: config.visibleColumns ?? defaultDataTableConfig.visibleColumns,
+        allowedColumns: config.allowedColumns ?? defaultDataTableConfig.allowedColumns,
         nonEditableColumns: config.nonEditableColumns ?? defaultDataTableConfig.nonEditableColumns,
         percentageColumns: config.percentageColumns ?? defaultDataTableConfig.percentageColumns,
 
@@ -117,6 +118,8 @@ export function extractStateFromConfig(config, setters = {}) {
         // Grouping
         outerGroupField: config.outerGroupField ?? defaultDataTableConfig.outerGroupField,
         innerGroupField: config.innerGroupField ?? defaultDataTableConfig.innerGroupField,
+        // Group fields array for multi-level nesting
+        groupFields: config.groupFields ?? defaultDataTableConfig.groupFields ?? [],
 
         // Column types override
         columnTypesOverride: config.columnTypesOverride ?? defaultDataTableConfig.columnTypesOverride,
