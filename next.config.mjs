@@ -29,6 +29,36 @@ const nextConfig = {
     config.resolve.alias['../shared/components/src/components'] = path.resolve(__dirname, 'components/DataTable');
     return config;
   },
+  async headers() {
+    return [
+      {
+        source: '/OneSignalSDKWorker.js',
+        headers: [
+          {
+            key: 'Content-Type',
+            value: 'application/javascript',
+          },
+          {
+            key: 'Service-Worker-Allowed',
+            value: '/',
+          },
+        ],
+      },
+      {
+        source: '/OneSignalSDK.sw.js',
+        headers: [
+          {
+            key: 'Content-Type',
+            value: 'application/javascript',
+          },
+          {
+            key: 'Service-Worker-Allowed',
+            value: '/',
+          },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;
