@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { NovuProvider, Inbox, useNotifications, useNotificationCenter } from '@novu/react';
+import { NovuProvider, Inbox, useNotifications } from '@novu/react';
 
 // Custom notification item component with actions
 const CustomNotificationItem = ({ notification, onActionClick }) => {
@@ -105,7 +105,9 @@ const EnhancedInbox = ({
   className 
 }) => {
   const { notifications, markNotificationAsRead, markAllAsRead } = useNotifications();
-  const { unseenCount } = useNotificationCenter();
+  
+  // Calculate unseen count from notifications
+  const unseenCount = notifications.filter(n => !n.read).length;
 
   // Filter notifications based on active tab
   const filteredNotifications = notifications.filter((notification) => {
