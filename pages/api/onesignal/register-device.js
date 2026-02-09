@@ -27,13 +27,14 @@ export default async function handler(req, res) {
 
   try {
     await novu.subscribers.credentials.update(
-      {
-        providerId: "one_signal",
-        credentials: {
-          deviceTokens: [deviceId],
+        {
+          providerId: "one_signal",
+          integrationIdentifier: "test", // 👈 MUST match dashboard Identifier
+          credentials: {
+            deviceTokens: [deviceId],
+          },
         },
-      },
-      subscriberId
+        subscriberId
     );
 
     return res.status(200).json({ success: true });
