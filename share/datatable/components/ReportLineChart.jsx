@@ -12,7 +12,7 @@ import {
   ResponsiveContainer
 } from 'recharts';
 import { isEmpty, isNil, isNumber, sumBy } from 'lodash';
-import { getTimePeriodLabelShort } from '../report/utils/timeBreakdownUtils';
+import { getTimePeriodLabelShort } from '../utils/timeBreakdownUtils';
 import { getDataValue } from '../utils/dataAccessUtils';
 
 /**

@@ -1,0 +1,18 @@
+import { getEndpointConfigFromUrlKey, getInitialEndpoint } from '@/app/graphql-playground/constants';
+
+export function getEndpointAndAuth(queryDocument) {
+  let endpointUrl;
+  let authToken;
+
+  if (queryDocument?.urlKey) {
+    const config = getEndpointConfigFromUrlKey(queryDocument.urlKey);
+    endpointUrl = config.endpointUrl;
+    authToken = config.authToken;
+  }
+  if (!endpointUrl) {
+    const defaultEndpoint = getInitialEndpoint();
+    endpointUrl = defaultEndpoint?.code;
+    authToken = null;
+  }
+  return { endpointUrl, authToken };
+}

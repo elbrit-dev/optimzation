@@ -1,700 +1,54 @@
 'use client';
 import { generateMonthRangeArray } from '@/app/datatable/utils/dateUtils';
 import { indexedDBService } from '@/app/datatable/utils/indexedDBService';
-import { fetchGraphQLSchema } from '@/app/graphql-playground-v2/utils/schema-fetcher';
-import { getEndpointConfigFromUrlKey, getInitialEndpoint } from '@/app/graphql-playground/constants';
-import { firestoreService } from '@/app/graphql-playground/services/firestoreService';
-import { createExecutionContext } from '@/app/graphql-playground/utils/query-pipeline';
-import { parseGraphQLVariables } from '@/app/graphql-playground/utils/variableParser';
 import RangePicker from '@/components/RangePicker';
 import { DataProvider as PlasmicDataProvider } from "@plasmicapp/loader-nextjs";
 import { Switch } from 'antd';
 import * as Comlink from 'comlink';
-import dayjs from 'dayjs';
 import {
-  getNamedType,
-  isEnumType,
-  isInputObjectType,
-  isInterfaceType,
-  isListType,
-  isNonNullType,
-  isObjectType,
-  isScalarType,
-  isUnionType,
-} from 'graphql';
-import {
-  isFinite as _isFinite,
-  isNaN as _isNaN,
-  cloneDeep,
-  every,
-  filter,
-  flatMap,
-  get,
-  head,
-  includes,
-  isArray,
-  isBoolean,
-  isDate,
-  isEmpty,
-  isNil,
-  isNumber,
-  isString,
-  orderBy,
-  some,
-  startCase,
-  sumBy,
-  take,
-  toLower,
-  toNumber,
-  trim,
-  uniq,
+    isFinite as _isFinite,
+    isNaN as _isNaN,
+    cloneDeep,
+    every,
+    filter,
+    flatMap,
+    get,
+    head,
+    includes,
+    isArray,
+    isBoolean,
+    isEmpty,
+    isNil,
+    isNumber,
+    orderBy,
+    some,
+    startCase,
+    sumBy,
+    take,
+    toLower,
+    toNumber,
+    uniq
 } from 'lodash';
 import { Button } from 'primereact/button';
 import { Dropdown } from 'primereact/dropdown';
 import { Sidebar } from 'primereact/sidebar';
 import { SplitButton } from 'primereact/splitbutton';
 import { TabPanel, TabView } from 'primereact/tabview';
-import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, useContext } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { TableOperationsContext } from '../contexts/TableOperationsContext';
-import FilterSortSidebar from '../filter-sort/components/FilterSortSidebar';
-import { getDataKeys, getDataValue, getNestedValue } from '../utils/dataAccessUtils';
-import { isJsonArrayOfObjectsString, extractJsonNestedTablesRecursive } from '../utils/jsonArrayParser';
+import { useDataPipeline } from '../hooks/useDataPipeline';
+import { useQueryExecution } from '../hooks/useQueryExecution';
+import { getDataKeys, getDataValue } from '../utils/dataAccessUtils';
+import { applyDerivedColumns, applyDerivedColumnsForRow, getDerivedColumnNames, getOrderedColumnsWithDerived } from '../utils/derivedColumnsUtils';
+import { formatDateValue } from '../utils/dateFormatUtils';
+import { applyDateFilter, applyNumericFilter, filterRows, parseNumericFilter } from '../utils/filterUtils';
+import { isJsonArrayOfObjectsString } from '../utils/jsonArrayParser';
 import { useReportData } from '../utils/providerUtils';
 import { exportReportToXLSX } from '../utils/reportExportUtils';
-import { transformToReportData } from '../utils/reportUtils';
+import { isDateLike, isNumericValue } from '../utils/typeDetectionUtils';
 import DataTableComponent from './DataTableNew';
-import ReportLineChart from './ReportLineChart';
-
-
-/**
- * Helper function to get endpoint URL and auth token from query document
- * @param {Object} queryDoc - Query document with optional urlKey
- * @returns {Object} Object with endpointUrl and authToken, or null values if not available
- */
-function getEndpointAndAuth(queryDoc) {
-  let endpointUrl, authToken;
-
-  if (queryDoc?.urlKey) {
-    const config = getEndpointConfigFromUrlKey(queryDoc.urlKey);
-    endpointUrl = config.endpointUrl;
-    authToken = config.authToken;
-  }
-
-  // Fallback to default endpoint if urlKey didn't provide one
-  if (!endpointUrl) {
-    const defaultEndpoint = getInitialEndpoint();
-    endpointUrl = defaultEndpoint?.code;
-    authToken = null; // Will use DEFAULT_AUTH_TOKEN
-  }
-
-  return { endpointUrl, authToken };
-}
-
-
-// Date format patterns for detection
-const DATE_PATTERNS = [
-  /^\d{4}-\d{2}-\d{2}$/,                          // ISO: 2024-01-15
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/,         // ISO with time: 2024-01-15T10:30:00
-  /^\d{4}\/\d{2}\/\d{2}$/,                        // 2024/01/15
-  /^\d{1,2}\/\d{1,2}\/\d{4}$/,                    // US: 01/15/2024 or 1/15/2024
-  /^\d{1,2}-\d{1,2}-\d{4}$/,                      // 01-15-2024
-  /^\d{1,2}\.\d{1,2}\.\d{4}$/,                    // EU: 15.01.2024
-  /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s+\d{4}$/i, // Jan 15, 2024
-  /^\d{1,2}\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}$/i,   // 15 Jan 2024
-];
-
-function getNamedTypeKind(type) {
-  if (!type) return null;
-  if (isObjectType(type)) return 'OBJECT';
-  if (isInterfaceType(type)) return 'INTERFACE';
-  if (isUnionType(type)) return 'UNION';
-  if (isEnumType(type)) return 'ENUM';
-  if (isInputObjectType(type)) return 'INPUT_OBJECT';
-  if (isScalarType(type)) return 'SCALAR';
-  return null;
-}
-
-function createGraphQLSerializationContext(schema) {
-  return {
-    schema,
-    serializedTypes: new Map(),
-    inProgress: new Set(),
-  };
-}
-
-function serializeGraphQLArgument(arg, context) {
-  if (!arg) {
-    return null;
-  }
-
-  return {
-    name: arg.name,
-    description: arg.description ?? null,
-    defaultValue: arg.defaultValue ?? null,
-    type: serializeGraphQLTypeRef(arg.type, context),
-  };
-}
-
-function serializeGraphQLTypeRef(type, context) {
-  if (!type) {
-    return null;
-  }
-
-  if (isNonNullType(type)) {
-    return {
-      kind: 'NON_NULL',
-      ofType: serializeGraphQLTypeRef(type.ofType, context),
-    };
-  }
-
-  if (isListType(type)) {
-    return {
-      kind: 'LIST',
-      ofType: serializeGraphQLTypeRef(type.ofType, context),
-    };
-  }
-
-  const namedType = getNamedType(type);
-  const typeName = namedType?.name ?? null;
-  const kind = getNamedTypeKind(namedType);
-
-  if (namedType && typeName) {
-    ensureGraphQLTypeSerialized(namedType, context);
-  }
-
-  return {
-    kind,
-    name: typeName,
-  };
-}
-
-function ensureGraphQLTypeSerialized(namedType, context) {
-  if (!namedType) {
-    return;
-  }
-
-  const typeName = namedType.name;
-  if (!typeName) {
-    return;
-  }
-
-  if (context.serializedTypes.has(typeName) || context.inProgress.has(typeName)) {
-    return;
-  }
-
-  context.inProgress.add(typeName);
-
-  const kind = getNamedTypeKind(namedType);
-  const typeDef = {
-    kind,
-    name: typeName,
-    description: namedType?.description ?? null,
-  };
-
-  context.serializedTypes.set(typeName, typeDef);
-
-  try {
-    if (isObjectType(namedType) || isInterfaceType(namedType)) {
-      const fields = Object.values(namedType.getFields?.() ?? {});
-      typeDef.fields = fields.map((field) => ({
-        name: field.name,
-        description: field.description ?? null,
-        args: Array.isArray(field.args) ? field.args.map((arg) => serializeGraphQLArgument(arg, context)) : [],
-        type: serializeGraphQLTypeRef(field.type, context),
-      }));
-
-      if (typeof namedType.getInterfaces === 'function') {
-        const interfaces = namedType.getInterfaces();
-        typeDef.interfaces = interfaces.map((iface) => iface.name);
-        interfaces.forEach((iface) => ensureGraphQLTypeSerialized(iface, context));
-      }
-
-      if (isInterfaceType(namedType) && context.schema?.getPossibleTypes) {
-        try {
-          const possible = context.schema.getPossibleTypes(namedType) || [];
-          if (possible.length > 0) {
-            typeDef.possibleTypes = possible.map((possibleType) => possibleType.name);
-            possible.forEach((possibleType) => ensureGraphQLTypeSerialized(possibleType, context));
-          }
-        } catch (error) {
-          console.warn('DataProviderNew: Failed to resolve possible types for', typeName, error);
-        }
-      }
-    } else if (isUnionType(namedType)) {
-      const unionTypes = typeof namedType.getTypes === 'function' ? namedType.getTypes() : [];
-      typeDef.types = unionTypes.map((unionType) => unionType.name);
-      unionTypes.forEach((unionType) => ensureGraphQLTypeSerialized(unionType, context));
-    } else if (isEnumType(namedType)) {
-      typeDef.values = typeof namedType.getValues === 'function'
-        ? namedType.getValues().map((enumValue) => ({
-          name: enumValue.name,
-          description: enumValue.description ?? null,
-          deprecationReason: enumValue.deprecationReason ?? null,
-        }))
-        : [];
-    } else if (isInputObjectType(namedType)) {
-      const inputFields = Object.values(namedType.getFields?.() ?? {});
-      typeDef.inputFields = inputFields.map((inputField) => ({
-        name: inputField.name,
-        description: inputField.description ?? null,
-        defaultValue: inputField.defaultValue ?? null,
-        type: serializeGraphQLTypeRef(inputField.type, context),
-      }));
-    }
-  } finally {
-    context.inProgress.delete(typeName);
-  }
-}
-
-function serializeGraphQLField(field, schema) {
-  if (!field) {
-    return null;
-  }
-
-  const context = createGraphQLSerializationContext(schema);
-
-  const fieldInfo = {
-    name: field.name,
-    description: field.description ?? null,
-    args: Array.isArray(field.args) ? field.args.map((arg) => serializeGraphQLArgument(arg, context)) : [],
-    type: serializeGraphQLTypeRef(field.type, context),
-  };
-
-  const types = Object.fromEntries(context.serializedTypes);
-
-  return {
-    field: fieldInfo,
-    types,
-  };
-}
-
-/**
- * Check if a value looks like a date
- * Rejects ambiguous strings like "ARNIBLOC 100" that might parse as dates but aren't date patterns
- */
-function isDateLike(value) {
-  if (isNil(value)) return false;
-  if (value === 0 || value === '0' || value === '') return false;
-  if (isDate(value)) return true;
-  if (isNumber(value)) {
-    const minTimestamp = 315532800000; // 1980-01-01
-    const maxTimestamp = 4102444800000; // 2100-01-01
-    if (value >= minTimestamp && value <= maxTimestamp) {
-      const date = new Date(value);
-      return !isNaN(date.getTime());
-    }
-    return false;
-  }
-  if (isString(value)) {
-    const trimmed = trim(value);
-    if (trimmed === '') return false;
-
-    // Reject pure numbers without date separators
-    if (/^-?\d+$/.test(trimmed)) return false;
-
-    // Reject strings with mixed letters/numbers that don't match date patterns
-    // e.g., "ARNIBLOC 100" should be rejected
-    // Check if it contains letters (not just numbers and date separators)
-    const hasLetters = /[a-zA-Z]/.test(trimmed);
-    if (hasLetters) {
-      // Only accept if it matches a known date pattern (e.g., "Jan 15, 2024")
-      if (!DATE_PATTERNS.some(pattern => pattern.test(trimmed))) {
-        return false;
-      }
-    }
-
-    // Check against known date patterns first
-    if (DATE_PATTERNS.some(pattern => pattern.test(trimmed))) {
-      const parsed = new Date(trimmed);
-      if (!isNaN(parsed.getTime())) {
-        // Validate date is in reasonable range (1900-2100)
-        const year = parsed.getFullYear();
-        if (year >= 1900 && year <= 2100) {
-          return true;
-        }
-      }
-    }
-
-    // For strings without letters, try parsing but be more strict
-    // Reject if it's just a number (already checked above)
-    // Only accept if it has date separators and parses correctly
-    if (!hasLetters) {
-      const parsed = new Date(trimmed);
-      if (!isNaN(parsed.getTime())) {
-        // Must have date separators (/, -, .) or be ISO format
-        const hasSeparators = /[\/\-\.]/.test(trimmed) || /^\d{4}-\d{2}-\d{2}/.test(trimmed);
-        if (hasSeparators) {
-          const year = parsed.getFullYear();
-          if (year >= 1900 && year <= 2100) {
-            return !/^-?\d+\.?\d*$/.test(trimmed);
-          }
-        }
-      }
-    }
-  }
-  return false;
-}
-
-/**
- * Check if a value is a boolean (strict check)
- * Accepts: true, false, 'true', 'false', 'yes', 'no', 'y', 'n', '1', '0' (case-insensitive)
- */
-function isBooleanValue(value) {
-  if (isBoolean(value)) return true;
-  if (isString(value)) {
-    const lower = trim(value).toLowerCase();
-    return lower === 'true' || lower === 'false' ||
-      lower === 'yes' || lower === 'no' ||
-      lower === 'y' || lower === 'n' ||
-      lower === '1' || lower === '0';
-  }
-  if (isNumber(value)) {
-    return value === 0 || value === 1;
-  }
-  return false;
-}
-
-/**
- * Check if a value is numeric (strict check)
- * Accepts: numbers, numeric strings (with optional thousands separators, decimals, signs)
- * Rejects: strings with letters (except scientific notation)
- */
-function isNumericValue(value) {
-  if (isNumber(value)) return true;
-  if (isString(value)) {
-    const trimmed = trim(value);
-    if (trimmed === '') return false;
-
-    // Remove thousands separators (commas) for checking
-    const withoutCommas = trimmed.replace(/,/g, '');
-
-    // Check if it's a valid number pattern
-    // Allow: optional sign, digits, optional decimal point, optional exponent
-    // Reject if contains letters (except 'e' or 'E' for scientific notation)
-    const numericPattern = /^[+-]?\d+(\.\d+)?([eE][+-]?\d+)?$/;
-    if (numericPattern.test(withoutCommas)) {
-      // Verify it actually parses to a number
-      const parsed = toNumber(withoutCommas);
-      return !_isNaN(parsed);
-    }
-  }
-  return false;
-}
-
-/**
- * Parse a value to a Date object
- */
-function parseToDate(value) {
-  if (isNil(value)) return null;
-  if (value === '' || value === 0 || value === '0') return null;
-  if (isDate(value)) return value;
-  if (isNumber(value)) {
-    if (value <= 0) return null;
-    const date = new Date(value);
-    return isNaN(date.getTime()) ? null : date;
-  }
-  if (isString(value)) {
-    const trimmed = trim(value);
-    if (trimmed === '') return null;
-    const parsed = new Date(trimmed);
-    return isNaN(parsed.getTime()) ? null : parsed;
-  }
-  return null;
-}
-
-/**
- * Get distributed samples from data: half the data from top, middle, and bottom thirds
- * Only includes non-null values
- * @param {Array} data - Array of row objects
- * @param {string} topLevelKey - Top-level key (e.g., "user")
- * @param {string} nestedPath - Nested path (e.g., "profile.name")
- * @returns {Array} Array of non-null sample values
- */
-function getDistributedSamples(data, topLevelKey, nestedPath) {
-  if (!data || data.length === 0) return [];
-
-  const targetSampleSize = Math.floor(data.length / 2);
-  if (targetSampleSize === 0) return [];
-
-  const samples = [];
-  const dataLength = data.length;
-
-  // Divide data into thirds
-  const thirdSize = Math.floor(dataLength / 3);
-  const topEnd = thirdSize;
-  const middleStart = thirdSize;
-  const middleEnd = thirdSize * 2;
-  const bottomStart = thirdSize * 2;
-
-  // Calculate samples per third (distribute evenly)
-  const samplesPerThird = Math.ceil(targetSampleSize / 3);
-
-  // Sample from top third
-  const topStep = Math.max(1, Math.floor(topEnd / samplesPerThird));
-  for (let i = 0; i < topEnd && samples.length < targetSampleSize; i += topStep) {
-    const value = getNestedValue(data[i], topLevelKey, nestedPath);
-    if (value != null) {
-      samples.push(value);
-      if (samples.length >= targetSampleSize) break;
-    }
-  }
-
-  // Sample from middle third
-  const middleStep = Math.max(1, Math.floor((middleEnd - middleStart) / samplesPerThird));
-  for (let i = middleStart; i < middleEnd && samples.length < targetSampleSize; i += middleStep) {
-    const value = getNestedValue(data[i], topLevelKey, nestedPath);
-    if (value != null) {
-      samples.push(value);
-      if (samples.length >= targetSampleSize) break;
-    }
-  }
-
-  // Sample from bottom third
-  const bottomStep = Math.max(1, Math.floor((dataLength - bottomStart) / samplesPerThird));
-  for (let i = bottomStart; i < dataLength && samples.length < targetSampleSize; i += bottomStep) {
-    const value = getNestedValue(data[i], topLevelKey, nestedPath);
-    if (value != null) {
-      samples.push(value);
-      if (samples.length >= targetSampleSize) break;
-    }
-  }
-
-  // If we still need more samples (due to many nulls), fill from remaining data
-  // Use a Set to track seen values for efficiency (though duplicates are okay for type detection)
-  if (samples.length < targetSampleSize) {
-    const seen = new Set();
-    for (let i = 0; i < dataLength && samples.length < targetSampleSize; i++) {
-      const value = getNestedValue(data[i], topLevelKey, nestedPath);
-      if (value != null) {
-        // Use a simple string representation for Set comparison
-        const key = typeof value === 'object' ? String(value) : value;
-        if (!seen.has(key)) {
-          seen.add(key);
-          samples.push(value);
-        }
-      }
-    }
-  }
-
-  return samples;
-}
-
-/**
- * Infer column type from data samples
- * Uses smart sampling (half data from top/middle/bottom) and single-pass detection
- * @param {Array} data - Array of row objects
- * @param {string} field - Full field path (e.g., "user.profile.name")
- * @param {string} topLevelKey - Top-level key (e.g., "user")
- * @param {string} nestedPath - Nested path (e.g., "profile.name")
- * @returns {string} Type: "number" | "date" | "boolean" | "string"
- */
-function inferColumnType(data, field, topLevelKey, nestedPath) {
-  if (!data || data.length === 0) return 'string';
-
-  // Get distributed samples (half the data from top, middle, bottom thirds)
-  const samples = getDistributedSamples(data, topLevelKey, nestedPath);
-
-  if (samples.length === 0) return 'string';
-
-  // Single-pass algorithm: check all types in one pass
-  let booleanCount = 0;
-  let numberCount = 0;
-  let dateCount = 0;
-
-  for (const value of samples) {
-    if (isBooleanValue(value)) {
-      booleanCount++;
-    } else if (isNumericValue(value)) {
-      numberCount++;
-    } else if (isDateLike(value)) {
-      dateCount++;
-    }
-  }
-
-  // Strict checks: boolean and number require ALL samples to match
-  if (booleanCount === samples.length) return 'boolean';
-  if (numberCount === samples.length) return 'number';
-
-  // Majority rule for dates: ≥50% must be date-like
-  if (dateCount > samples.length / 2) return 'date';
-
-  // Default to string
-  return 'string';
-}
-
-/**
- * Format a date for display
- */
-function formatDateValue(value) {
-  if (isNil(value) || value === '' || value === 0 || value === '0') return '';
-  const date = parseToDate(value);
-  if (!date) return String(value ?? '');
-
-  let hasTime = false;
-  let hasSeconds = false;
-  let hasMilliseconds = false;
-
-  if (isString(value)) {
-    const trimmed = trim(value);
-    hasMilliseconds = /\.\d{1,3}Z?$/.test(trimmed) || /\.\d{1,3}[+-]/.test(trimmed);
-    hasSeconds = /:\d{2}(\.|Z|[+-]|$)/.test(trimmed) || /:\d{2}:\d{2}/.test(trimmed);
-    hasTime = /T\d{2}:\d{2}/.test(trimmed) || /\d{1,2}:\d{2}/.test(trimmed);
-  } else {
-    const hours = date.getHours();
-    const minutes = date.getMinutes();
-    const seconds = date.getSeconds();
-    const milliseconds = date.getMilliseconds();
-    hasTime = hours !== 0 || minutes !== 0 || seconds !== 0 || milliseconds !== 0;
-    hasSeconds = seconds !== 0 || milliseconds !== 0;
-    hasMilliseconds = milliseconds !== 0;
-  }
-
-  if (!hasTime) {
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
-  }
-
-  const formatOptions = {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false
-  };
-
-  if (hasSeconds) {
-    formatOptions.second = '2-digit';
-  }
-
-  let formatted = date.toLocaleString('en-US', formatOptions);
-
-  if (hasMilliseconds) {
-    const ms = date.getMilliseconds();
-    if (hasSeconds) {
-      formatted = formatted.replace(/(:\d{2})/, `$1.${String(ms).padStart(3, '0')}`);
-    } else {
-      formatted += `.${String(ms).padStart(3, '0')}`;
-    }
-  }
-
-  return formatted;
-}
-
-/**
- * Parse numeric filter expression
- */
-function parseNumericFilter(filterValue) {
-  if (isNil(filterValue) || filterValue === '') return null;
-  const str = trim(String(filterValue));
-  const numPattern = '([+-]?\\s*\\d+\\.?\\d*)';
-  const parseNum = (numStr) => {
-    const cleaned = numStr.replace(/\s+/g, '');
-    return toNumber(cleaned);
-  };
-  const rangeRegex = new RegExp(`^${numPattern}\\s*<>\\s*${numPattern}$`);
-  const rangeMatch = str.match(rangeRegex);
-  if (rangeMatch) {
-    const min = parseNum(rangeMatch[1]);
-    const max = parseNum(rangeMatch[2]);
-    if (!_isNaN(min) && !_isNaN(max)) {
-      return { type: 'range', min: Math.min(min, max), max: Math.max(min, max) };
-    }
-  }
-  const lteRegex = new RegExp(`^<=\\s*${numPattern}$`);
-  const lteMatch = str.match(lteRegex);
-  if (lteMatch) {
-    const num = parseNum(lteMatch[1]);
-    if (!_isNaN(num)) return { type: 'lte', value: num };
-  }
-  const gteRegex = new RegExp(`^>=\\s*${numPattern}$`);
-  const gteMatch = str.match(gteRegex);
-  if (gteMatch) {
-    const num = parseNum(gteMatch[1]);
-    if (!_isNaN(num)) return { type: 'gte', value: num };
-  }
-  const ltRegex = new RegExp(`^<\\s*${numPattern}$`);
-  const ltMatch = str.match(ltRegex);
-  if (ltMatch) {
-    const num = parseNum(ltMatch[1]);
-    if (!_isNaN(num)) return { type: 'lt', value: num };
-  }
-  const gtRegex = new RegExp(`^>\\s*${numPattern}$`);
-  const gtMatch = str.match(gtRegex);
-  if (gtMatch) {
-    const num = parseNum(gtMatch[1]);
-    if (!_isNaN(num)) return { type: 'gt', value: num };
-  }
-  const eqRegex = new RegExp(`^=\\s*${numPattern}$`);
-  const eqMatch = str.match(eqRegex);
-  if (eqMatch) {
-    const num = parseNum(eqMatch[1]);
-    if (!_isNaN(num)) return { type: 'eq', value: num };
-  }
-  const plainNumRegex = new RegExp(`^${numPattern}$`);
-  const plainMatch = str.match(plainNumRegex);
-  if (plainMatch) {
-    const num = parseNum(plainMatch[1]);
-    if (!_isNaN(num)) {
-      return { type: 'contains', value: str.replace(/\s+/g, '') };
-    }
-  }
-  return { type: 'text', value: str };
-}
-
-/**
- * Apply numeric filter to a cell value
- */
-function applyNumericFilter(cellValue, parsedFilter) {
-  if (!parsedFilter) return true;
-  const numCell = isNumber(cellValue) ? cellValue : toNumber(cellValue);
-  switch (parsedFilter.type) {
-    case 'lt':
-      return !_isNaN(numCell) && numCell < parsedFilter.value;
-    case 'gt':
-      return !_isNaN(numCell) && numCell > parsedFilter.value;
-    case 'lte':
-      return !_isNaN(numCell) && numCell <= parsedFilter.value;
-    case 'gte':
-      return !_isNaN(numCell) && numCell >= parsedFilter.value;
-    case 'eq':
-      return !_isNaN(numCell) && numCell === parsedFilter.value;
-    case 'range':
-      return !_isNaN(numCell) && numCell >= parsedFilter.min && numCell <= parsedFilter.max;
-    case 'contains':
-      return includes(String(cellValue ?? ''), parsedFilter.value);
-    case 'text':
-    default:
-      return includes(toLower(String(cellValue ?? '')), toLower(parsedFilter.value));
-  }
-}
-
-/**
- * Apply date range filter to a cell value
- */
-function applyDateFilter(cellValue, dateRange) {
-  if (!dateRange || (!dateRange[0] && !dateRange[1])) return true;
-  const cellDate = parseToDate(cellValue);
-  if (!cellDate) return false;
-  const [startDate, endDate] = dateRange;
-  const cellTime = cellDate.getTime();
-  if (startDate && endDate) {
-    const startTime = new Date(startDate).setHours(0, 0, 0, 0);
-    const endTime = new Date(endDate).setHours(23, 59, 59, 999);
-    return cellTime >= startTime && cellTime <= endTime;
-  } else if (startDate) {
-    const startTime = new Date(startDate).setHours(0, 0, 0, 0);
-    return cellTime >= startTime;
-  } else if (endDate) {
-    const endTime = new Date(endDate).setHours(23, 59, 59, 999);
-    return cellTime <= endTime;
-  }
-  return true;
-}
+import FilterSortSidebar from './FilterSortSidebar';
 
 export default function DataProviderNew({
   offlineData,
@@ -702,14 +56,10 @@ export default function DataProviderNew({
   onError,
   onTableDataChange,
   onRawDataChange, // New callback to pass raw/original data for Auth Control
-  onDataSourceChange,
   variableOverrides = {},
   onVariablesChange,
-  // Callbacks to expose state for selectors in parent
-  onSavedQueriesChange,
-  onLoadingQueriesChange,
+  // Callbacks for parent
   onExecutingQueryChange,
-  onAvailableQueryKeysChange,
   onSelectedQueryKeyChange,
   onLoadingDataChange,
   // Auth control props
@@ -732,6 +82,7 @@ export default function DataProviderNew({
   visibleColumns: visibleColumnsProp = null, // User-controlled: actual visible columns (can be passed from parent)
   onVisibleColumnsChange,
   percentageColumns = [],
+  derivedColumns = [],
   groupFields = null, // Array for infinite nesting - required for grouping (breaking change: outerGroupField/innerGroupField no longer supported)
   redFields = [],
   greenFields = [],
@@ -751,52 +102,58 @@ export default function DataProviderNew({
   parentColumnName = undefined,
   nestedTableFieldName = undefined,
   forceEnableWrite = undefined, // Force enableWrite for nested drawer tables
+  derivedColumnsMode = undefined, // Override for derived columns scope: 'main' | 'nested' (for sidebar nested tabs)
+  derivedColumnsFieldName = undefined, // For mode 'nested', the nested table's field name
+  // Parent refs for nested instances (to access parent's tracking data)
+  parentOriginalNestedTableDataRef = undefined,
+  parentNestedTableEditingDataRef = undefined,
+  // Parent handler for nested instances (to use parent's state)
+  parentHandleDrawerSaveProp = undefined,
+  // Tab ID for nested instances (to update parent's editing buffer)
+  nestedTableTabId = undefined,
+  // Callback from parent so nested instance can trigger parent re-render after buffer update
+  onNestedBufferChange = undefined,
   children
 }) {
-  const [dataSource, setDataSource] = useState(dataSourceProp);
-  const [selectedQueryKey, setSelectedQueryKey] = useState(selectedQueryKeyProp);
+  const [preFilterValues, setPreFilterValues] = useState({});
+  const [filterSortSidebarVisible, setFilterSortSidebarVisible] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortConfig, setSortConfig] = useState(null);
+  const [isApplyingFilterSort, setIsApplyingFilterSort] = useState(false);
+  const [columnGroupBy, setColumnGroupBy] = useState('values');
+  const [breakdownType, setBreakdownType] = useState('month');
+  const [enableBreakdown, setEnableBreakdown] = useState(forceBreakdown ?? false);
 
-  // Sync props with state when props change (for controlled component)
-  useEffect(() => {
-    setDataSource(dataSourceProp);
-  }, [dataSourceProp]);
-
-  useEffect(() => {
-    setSelectedQueryKey(selectedQueryKeyProp);
-  }, [selectedQueryKeyProp]);
-
-  const [savedQueries, setSavedQueries] = useState([]);
-  const [loadingQueries, setLoadingQueries] = useState(false);
-  const [executingQuery, setExecutingQuery] = useState(false);
-  const [loadingFromCache, setLoadingFromCache] = useState(false);
-  const [processedData, setProcessedData] = useState(null);
-  const [monthRange, setMonthRange] = useState(null); // Array of [startMonth, endMonth] or null
-  const [hasMonthSupport, setHasMonthSupport] = useState(false); // Whether the current query supports month filtering
-  const [queryVariables, setQueryVariables] = useState({}); // Variables from the saved query
-  const [currentQueryDoc, setCurrentQueryDoc] = useState(null); // Current query document
-  const [lastUpdatedAt, setLastUpdatedAt] = useState(null); // Last updated timestamp string from IndexedDB
-  const [preFilterValues, setPreFilterValues] = useState({}); // Unified pre-filter values: { fieldKey: [selectedValues] }
-  const [filterSortSidebarVisible, setFilterSortSidebarVisible] = useState(false); // Filter and Sort sidebar visibility
-  const [searchTerm, setSearchTerm] = useState(''); // Global search input value (applied)
-  const [sortConfig, setSortConfig] = useState(null); // {field: "topLevelKey.nestedPath", direction: "asc" | "desc"}
-  const [isApplyingFilterSort, setIsApplyingFilterSort] = useState(false); // Loading state for filter/sort operations
-  const [columnGroupBy, setColumnGroupBy] = useState('values'); // Column grouping mode: 'values' or dateColumn
-  const [breakdownType, setBreakdownType] = useState('month'); // Breakdown type: 'day', 'week', 'month', 'quarter', 'annual'
-  const [enableBreakdown, setEnableBreakdown] = useState(forceBreakdown ?? false); // Whether breakdown/report mode is enabled
-  const queryVariablesRef = useRef({}); // Ref to track variables immediately (for synchronous access)
-  const executingQueryIdRef = useRef(null); // Track which query is currently executing to prevent duplicates
-  const executingQueriesRef = useRef(new Set()); // Track executing queries with queryId + variables key to prevent duplicates
-  const executionContextRef = useRef(null); // Persist execution context across runs for caching
-  const pipelineExecutionInFlightRef = useRef(new Map()); // Track pipeline executions in flight to prevent concurrent execution: queryId -> { endpointUrl }
-  const isInitialLoadRef = useRef(false); // Track if we're in initial load phase to prevent monthRange effect from triggering
-  const workerRef = useRef(null); // Ref to store worker proxy
-  const allQueryDocsRef = useRef({}); // Cache of all query documents for worker
-  const indexQueriesExecutedRef = useRef(false); // Track if index queries have been executed
-  const cacheLoadInProgressRef = useRef(null); // Track if cache load is in progress to prevent duplicate calls
-  const previousDataSourceRef = useRef(dataSource); // Track previous dataSource to detect changes
-  const queryKeySetForDataSourceRef = useRef(null); // Track which dataSource we've set queryKey for
-  const lastSetQueryKeyRef = useRef(null); // Track the last queryKey we set to prevent unnecessary updates
-  const loggedWriteSchemaRef = useRef(new Set()); // Track logged write schema definitions to avoid duplicate logs
+  const queryExecution = useQueryExecution({
+    dataSourceProp,
+    selectedQueryKeyProp,
+    offlineData,
+    onError,
+    onDataChange,
+    onVariablesChange,
+    onExecutingQueryChange,
+    onSelectedQueryKeyChange,
+    onLoadingDataChange,
+    variableOverrides,
+    searchTerm,
+    sortConfig,
+  });
+  const {
+    dataSource,
+    selectedQueryKey,
+    executingQuery,
+    processedData,
+    monthRange,
+    setMonthRange,
+    hasMonthSupport,
+    currentQueryDoc,
+    lastUpdatedAt,
+    offlineDataExecuted,
+    runQuery,
+    checkIndexedDBAndLoadData,
+    availableQueryKeys,
+    formatLastUpdatedDate,
+  } = queryExecution;
 
   // Mobile detection for responsive Switch sizing
   const [isMobile, setIsMobile] = useState(false);
@@ -819,1785 +176,67 @@ export default function DataProviderNew({
     };
   }, []);
 
-  // Store onError in ref to avoid dependency issues (only runs once on mount)
-  const onErrorRef = useRef(onError);
-  useEffect(() => {
-    onErrorRef.current = onError;
-  }, [onError]);
-
-  // Initialize worker on mount
-  useEffect(() => {
-    const initializeWorker = async () => {
-      try {
-        // Create worker - Next.js handles worker imports differently
-        // Use dynamic import or direct worker path
-        let worker;
-        try {
-          // Try to create worker using new URL pattern (works in modern environments)
-          worker = new Worker(
-            new URL('../workers/queryWorker.js', import.meta.url),
-            { type: 'module' }
-          );
-        } catch (error) {
-          // Fallback: try absolute path pattern
-          console.warn('Failed to create worker with import.meta.url, trying alternative:', error);
-          // Worker may not be available in this environment, continue without worker
-          return;
-        }
-
-        // Wrap with Comlink
-        const workerAPI = Comlink.wrap(worker);
-
-        // Set up nested query callback
-        const nestedQueryCallback = Comlink.proxy(async (queryId) => {
-          // Load query from Firestore
-          const queryDoc = await firestoreService.loadQuery(queryId);
-          if (queryDoc) {
-            // Cache it
-            allQueryDocsRef.current[queryId] = queryDoc;
-            // Ensure transformerCode is explicitly included (Comlink may strip it during serialization)
-            // Return a new object with all fields explicitly set to ensure proper serialization
-            return {
-              ...queryDoc,
-              transformerCode: queryDoc.transformerCode || null, // Explicitly include, even if null
-            };
-          }
-          return queryDoc;
-        });
-        await workerAPI.setNestedQueryCallback(nestedQueryCallback);
-
-        // Set up endpoint config getter
-        const endpointConfigGetter = Comlink.proxy((urlKey) => {
-          if (urlKey) {
-            return getEndpointConfigFromUrlKey(urlKey);
-          } else {
-            return { endpointUrl: getInitialEndpoint()?.code || null, authToken: null };
-          }
-        });
-        await workerAPI.setEndpointConfigGetter(endpointConfigGetter);
-
-        // Set up global functions getter
-        const globalFunctionsGetter = Comlink.proxy(async () => {
-          try {
-            return await firestoreService.loadGlobalFunctions();
-          } catch (error) {
-            console.error('Failed to load global functions:', error);
-            return '';
-          }
-        });
-        await workerAPI.setGlobalFunctionsGetter(globalFunctionsGetter);
-
-        workerRef.current = workerAPI;
-        console.log('Worker initialized successfully');
-      } catch (error) {
-        console.error('Error initializing worker:', error);
-        // Continue without worker - will fallback to main thread execution
-      }
-    };
-
-    // Only initialize worker in browser environment
-    if (typeof window !== 'undefined' && typeof Worker !== 'undefined') {
-      initializeWorker();
-    }
-
-    // Cleanup worker on unmount
-    return () => {
-      if (workerRef.current) {
-        // Cleanup will be handled by Comlink
-        workerRef.current = null;
-      }
-    };
-  }, []);
-
-  // Load saved queries on mount - only run once, use ref for onError
-  useEffect(() => {
-    const loadSavedQueries = async () => {
-      setLoadingQueries(true);
-      try {
-        const queries = await firestoreService.getAllQueries();
-        setSavedQueries(queries);
-        // Don't execute index queries here - they will be executed when saved queries are loaded
-      } catch (error) {
-        console.error('Error loading saved queries:', error);
-        if (onErrorRef.current) {
-          onErrorRef.current({
-            severity: 'error',
-            summary: 'Error',
-            detail: 'Failed to load saved queries',
-            life: 3000
-          });
-        }
-      } finally {
-        setLoadingQueries(false);
-      }
-    };
-    loadSavedQueries();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only run once on mount
-
-  // Execute index queries when saved queries are loaded
-  useEffect(() => {
-    if (!indexQueriesExecutedRef.current && savedQueries.length > 0) {
-      indexQueriesExecutedRef.current = true;
-      executeAndStoreIndexQueries(savedQueries);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [savedQueries]);
-
-  // Execute index queries and store results in IndexedDB (using worker)
-  const executeAndStoreIndexQueries = async (queries) => {
-    if (!queries || queries.length === 0) {
-      return;
-    }
-
-    // Wait for worker to be initialized
-    if (!workerRef.current) {
-      console.warn('Worker not initialized, falling back to main thread execution');
-      // Fallback to main thread execution (original code) if worker not ready
-      return;
-    }
-
-    // Store all query docs in cache for worker
-    queries.forEach(query => {
-      if (query.id) {
-        allQueryDocsRef.current[query.id] = query;
-      }
-    });
-
-    // Create a map of queryId -> query object for quick lookup
-    const queryMap = new Map();
-    queries.forEach(query => {
-      if (query.id) {
-        queryMap.set(query.id, query);
-      }
-    });
-
-    // Register callback for all queries with clientSave === true (still needed for pipeline execution)
-    queries.forEach(query => {
-      if (query.id && query.index && query.index.trim() && query.clientSave === true) {
-        // Store the query object in closure for use in callback
-        const queryDoc = query;
-
-        // Create the callback function - all index saves happen in worker, so register in worker's indexedDBService
-        const onChangeCallback = async (queryId, oldResult, newResult, updatedAt, queryDocFromSave) => {
-          // Use queryDocFromSave if provided, otherwise fallback to stored queryDoc
-          const queryDocToUse = queryDocFromSave || queryMap.get(queryId) || queryDoc;
-
-          // Only proceed if clientSave is true
-          if (!queryDocToUse || queryDocToUse.clientSave !== true) {
-            console.log(`Skipping pipeline execution for ${queryId}: clientSave is not true`);
-            return;
-          }
-
-          console.log('Query index result changed:', {
-            queryId,
-            oldResult,
-            newResult,
-            updatedAt: new Date(updatedAt).toISOString(),
-            queryDoc: queryDocToUse
-          });
-
-          // Execute pipeline in background for both month == false and month == true queries (using worker)
-          if (queryDocToUse && (queryDocToUse.month === false || (queryDocToUse.month === true && queryDocToUse.monthIndex && queryDocToUse.monthIndex.trim()))) {
-            // Get endpoint/auth from query's urlKey, fallback to default (before checking in-flight)
-            const { endpointUrl, authToken } = getEndpointAndAuth(queryDocToUse);
-
-            if (!endpointUrl) {
-              console.warn(`No endpoint available for pipeline execution for ${queryId}`);
-              return;
-            }
-
-            // Guard: Check if pipeline execution is already in flight for this queryId (before scheduling)
-            if (pipelineExecutionInFlightRef.current.has(queryId)) {
-              const inFlightInfo = pipelineExecutionInFlightRef.current.get(queryId);
-              console.log(`Pipeline execution already in flight for ${queryId}${inFlightInfo ? ` (endpoint: ${inFlightInfo.endpointUrl})` : ''}, skipping callback`);
-              return;
-            }
-
-            // Mark as in flight immediately (before scheduling) with endpoint URL
-            pipelineExecutionInFlightRef.current.set(queryId, { endpointUrl });
-
-            // Execute pipeline in background using worker
-            const executePipelineAsync = async () => {
-              try {
-
-                // Always use worker for pipeline execution
-                if (!workerRef.current) {
-                  console.warn('Worker not available, skipping pipeline execution');
-                  if (pipelineExecutionInFlightRef.current.has(queryId)) {
-                    pipelineExecutionInFlightRef.current.delete(queryId);
-                  }
-                  return;
-                }
-                await workerRef.current.executePipeline(
-                  queryId,
-                  queryDocToUse,
-                  endpointUrl,
-                  authToken,
-                  null, // monthRange will be calculated in worker
-                  {}, // variableOverrides
-                  allQueryDocsRef.current // allQueryDocs cache
-                );
-                console.log(`Pipeline executed for ${queryId} using worker`);
-              } catch (error) {
-                console.error(`Error executing pipeline for ${queryId}:`, error);
-                // Don't throw - this is background execution
-              } finally {
-                // Remove from in flight map
-                if (pipelineExecutionInFlightRef.current.has(queryId)) {
-                  pipelineExecutionInFlightRef.current.delete(queryId);
-                }
-              }
-            };
-
-            // Use requestIdleCallback if available, otherwise fallback to setTimeout
-            if (typeof requestIdleCallback !== 'undefined') {
-              requestIdleCallback(executePipelineAsync, { timeout: 5000 });
-            } else {
-              setTimeout(executePipelineAsync, 0);
-            }
-          }
-        };
-
-        // Register callback in worker's indexedDBService (all index saves happen in worker)
-        if (workerRef.current && workerRef.current.indexedDBService) {
-          const proxiedCallback = Comlink.proxy(onChangeCallback);
-          workerRef.current.indexedDBService.setOnChangeCallback(query.id, proxiedCallback).catch((error) => {
-            console.error(`Failed to register callback in worker for ${query.id}:`, error);
-          });
-        }
-      }
-    });
-
-    // Execute index queries using worker (endpoint config getter already set during initialization)
-    try {
-      await workerRef.current.executeAndCacheIndexQueries(queries);
-    } catch (error) {
-      console.error('Error executing index queries in worker:', error);
-      // Fallback to main thread execution if worker fails
-    }
-  };
-
-  // Initialize execution context on mount
-  useEffect(() => {
-    if (!executionContextRef.current) {
-      executionContextRef.current = createExecutionContext();
-    }
-  }, []);
-
-  // Keep ref in sync with queryVariables state (for cases where state is updated elsewhere)
-  useEffect(() => {
-    queryVariablesRef.current = queryVariables;
-  }, [queryVariables]);
-
-  // Notify parent when data source changes
-  useEffect(() => {
-    if (onDataSourceChange) {
-      onDataSourceChange(dataSource);
-    }
-  }, [dataSource, onDataSourceChange]);
-
-  // Expose state values to parent for selectors
-  useEffect(() => {
-    if (onSavedQueriesChange) {
-      onSavedQueriesChange(savedQueries);
-    }
-  }, [savedQueries, onSavedQueriesChange]);
-
-  useEffect(() => {
-    if (onLoadingQueriesChange) {
-      onLoadingQueriesChange(loadingQueries);
-    }
-  }, [loadingQueries, onLoadingQueriesChange]);
-
-  useEffect(() => {
-    if (onExecutingQueryChange) {
-      onExecutingQueryChange(executingQuery);
-    }
-  }, [executingQuery, onExecutingQueryChange]);
-
-  // Combine executingQuery and loadingFromCache to track overall data loading
-  const isLoadingData = executingQuery || loadingFromCache;
-  useEffect(() => {
-    if (onLoadingDataChange) {
-      onLoadingDataChange(isLoadingData);
-    }
-  }, [isLoadingData, onLoadingDataChange]);
-
-  useEffect(() => {
-    if (onSelectedQueryKeyChange) {
-      onSelectedQueryKeyChange(selectedQueryKey);
-    }
-  }, [selectedQueryKey, onSelectedQueryKeyChange]);
-
-  useEffect(() => {
-    const logWriteSchemaDefinition = async () => {
-      const queryDoc = currentQueryDoc;
-      if (!queryDoc?.enableWrite || !queryDoc?.writeSchema) {
-        return;
-      }
-
-      const urlKey = typeof queryDoc.urlKey === 'string' ? queryDoc.urlKey.toUpperCase() : null;
-      if (!urlKey) {
-        console.warn('DataProviderNew: Skipping write schema logging due to missing urlKey');
-        return;
-      }
-
-      const fieldName = String(queryDoc.writeSchema).trim();
-      if (!fieldName) {
-        return;
-      }
-
-      const cacheKey = `${queryDoc.id ?? 'unknown'}::${urlKey}::${fieldName}`;
-      if (loggedWriteSchemaRef.current.has(cacheKey)) {
-        return;
-      }
-
-      try {
-        const schema = await fetchGraphQLSchema(urlKey);
-        const queryType = schema?.getQueryType?.();
-        if (!queryType) {
-          console.warn('DataProviderNew: GraphQL query type unavailable for environment', urlKey);
-          return;
-        }
-
-        const fields = queryType.getFields?.();
-        const fieldDefinition = fields ? fields[fieldName] : null;
-
-        if (!fieldDefinition) {
-          console.warn(`DataProviderNew: Field ${fieldName} not found on query type for ${urlKey}`);
-          return;
-        }
-
-        const serializedField = serializeGraphQLField(fieldDefinition, schema);
-
-        console.log('Write schema field definition',
-          serializedField?.types ?? [],
-        );
-        loggedWriteSchemaRef.current.add(cacheKey);
-      } catch (error) {
-        console.error('DataProviderNew: Failed to log write schema definition', error);
-      }
-    };
-
-    logWriteSchemaDefinition();
-  }, [currentQueryDoc]);
-
-  // Handle data source changes - auto-execute when user changes data source or on initial load
-  useEffect(() => {
-    if (!dataSource) {
-      // Switching to offline mode - reset query-related state
-      setProcessedData(null);
-      setSelectedQueryKey(null);
-      setMonthRange(null);
-      setHasMonthSupport(false);
-      setQueryVariables({});
-      setCurrentQueryDoc(null);
-      setOfflineDataExecuted(false); // Reset offline execution state
-      // Reset execution context when switching to offline
-      executionContextRef.current = createExecutionContext();
-      // Notify parent that variables changed
-      if (onVariablesChange) {
-        onVariablesChange({});
-      }
-      // Auto-execute offline data
-      setOfflineDataExecuted(true);
-      if (onDataChange) {
-        onDataChange({
-          severity: 'success',
-          summary: 'Success',
-          detail: 'Data loaded',
-          life: 3000
-        });
-      }
-    } else if (dataSource) {
-      // Mark initial load as in progress
-      isInitialLoadRef.current = true;
-      // Load query metadata and auto-execute
-      const loadQueryMetadata = async () => {
-        try {
-          const queryDoc = await firestoreService.loadQuery(dataSource);
-          if (queryDoc) {
-            setCurrentQueryDoc(queryDoc);
-            const { month, variables: rawVariables } = queryDoc;
-            setHasMonthSupport(month === true);
-
-            // Parse query variables
-            const parsedVariables = parseGraphQLVariables(rawVariables || '');
-
-            // Load initial month range from variables (startDate and endDate)
-            let initialMonthRange = null;
-            if (month === true && parsedVariables.startDate && parsedVariables.endDate) {
-              try {
-                const startDate = new Date(parsedVariables.startDate);
-                const endDate = new Date(parsedVariables.endDate);
-                if (!isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
-                  initialMonthRange = [startDate, endDate];
-                }
-              } catch (error) {
-                console.error('Error parsing startDate/endDate from variables:', error);
-              }
-            }
-
-            // Remove startDate and endDate from variables (they're handled by monthRange state)
-            const { startDate, endDate, ...filteredVariables } = parsedVariables;
-            // Update both state and ref immediately
-            setQueryVariables(filteredVariables);
-            queryVariablesRef.current = filteredVariables;
-            // Notify parent that variables changed
-            if (onVariablesChange) {
-              onVariablesChange(filteredVariables);
-            }
-
-            // Auto-execute query after loading metadata (including initial load)
-            // Set monthRange first, then load data (combined to avoid duplicate calls)
-            // For month-supported queries, only execute if monthRange is set
-            // Variables are already set in queryVariablesRef.current, so we can execute immediately
-            // Update monthRange to reflect the new data source's query variables
-            if (month === true) {
-              setMonthRange(initialMonthRange);
-            } else {
-              setMonthRange(null);
-            }
-
-            // Fetch last updated timestamp immediately after query doc is loaded
-            // This will show it as soon as possible if it exists in cache
-            // Pass queryDoc and initialMonthRange directly to avoid race condition with state updates
-            await fetchLastUpdatedAt(queryDoc, initialMonthRange);
-
-            if (month !== true || initialMonthRange) {
-              // Use shared helper function to check IndexedDB first, then API if not found
-              await checkIndexedDBAndLoadData(dataSource, queryDoc, initialMonthRange);
-            }
-
-            // Clear initial load flag after processing completes
-            isInitialLoadRef.current = false;
-          }
-        } catch (error) {
-          console.error('Error loading query metadata:', error);
-          setCurrentQueryDoc(null);
-          // Clear initial load flag on error
-          isInitialLoadRef.current = false;
-        }
-      };
-      loadQueryMetadata();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataSource]); // Only depend on dataSource, not onVariablesChange to avoid infinite loops
-
-  // Auto-execute when variableOverrides change (user applied variables)
-  useEffect(() => {
-    if (!dataSource) return; // Skip for offline mode
-
-    // Only execute if there are actual variable overrides
-    const hasOverrides = Object.keys(variableOverrides).length > 0;
-
-    if (hasOverrides) {
-      // For month-supported queries, require monthRange
-      if (hasMonthSupport && (!monthRange || !Array.isArray(monthRange) || monthRange.length !== 2)) {
-        return; // Don't execute if month range is required but not set
-      }
-      runQuery(dataSource, true);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [variableOverrides]); // Only depend on variableOverrides
-
-  // Re-execute query when search/sort changes for clientSave === false queries
-  // Runs regardless of whether searchFields or sortFields are defined
-  useEffect(() => {
-    // Only run for clientSave === false queries
-    if (!currentQueryDoc || currentQueryDoc.clientSave !== false || !dataSource) {
-      return;
-    }
-
-    // Re-execute query with updated search/sort variables
-    // Variables will be included in mergedVariables if searchTerm or sortConfig have values
-    runQuery(dataSource, true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchTerm, sortConfig, currentQueryDoc, dataSource]); // Watch searchTerm, sortConfig, currentQueryDoc, and dataSource
-
-  // Helper function to check IndexedDB and load data if available, otherwise call runQuery
-  // Use a ref to store runQuery to avoid dependency order issues
-  const runQueryRef = useRef(null);
-
-  // Helper function to fetch last updated timestamp from IndexedDB
-  // @param {Object} queryDocOverride - Optional query document to use instead of currentQueryDoc (to avoid race conditions)
-  // @param {Array} monthRangeOverride - Optional month range to use instead of monthRange state (to avoid race conditions)
-  const fetchLastUpdatedAt = useCallback(async (queryDocOverride = null, monthRangeOverride = null) => {
-    // Use queryDocOverride if provided, otherwise fall back to currentQueryDoc
-    const queryDocToUse = queryDocOverride || currentQueryDoc;
-    // Use monthRangeOverride if provided, otherwise fall back to monthRange state
-    const monthRangeToUse = monthRangeOverride !== null ? monthRangeOverride : monthRange;
-
-    // If offline mode or no dataSource, clear the last updated field
-    if (!dataSource) {
-      setLastUpdatedAt(null);
-      return;
-    }
-
-    try {
-      // Get the index result from IndexedDB
-      const indexResult = await indexedDBService.getQueryIndexResult(dataSource);
-
-      if (!indexResult || !indexResult.result) {
-        setLastUpdatedAt(null);
-        return;
-      }
-
-      const result = indexResult.result;
-
-      // Check if the query has month support (use queryDocToUse instead of currentQueryDoc)
-      if (queryDocToUse && queryDocToUse.month === true) {
-        // For month == true, result is an object like {"2025-11": "13:14:03.540037"}
-        // Extract YYYY-MM from monthRangeToUse (which may be from override or state)
-        if (monthRangeToUse && Array.isArray(monthRangeToUse) && monthRangeToUse.length > 0 && monthRangeToUse[0]) {
-          const yearMonthKey = dayjs(monthRangeToUse[0]).format('YYYY-MM');
-          // Look up the value for this month key
-          if (result && typeof result === 'object' && !Array.isArray(result)) {
-            const monthValue = result[yearMonthKey];
-            setLastUpdatedAt(monthValue || null);
-          } else {
-            setLastUpdatedAt(null);
-          }
-        } else {
-          // No month range selected, show null
-          setLastUpdatedAt(null);
-        }
-      } else {
-        // For month == false, result is a string directly
-        if (typeof result === 'string') {
-          setLastUpdatedAt(result);
-        } else {
-          setLastUpdatedAt(null);
-        }
-      }
-    } catch (error) {
-      console.error('Error fetching last updated timestamp:', error);
-      setLastUpdatedAt(null);
-    }
-  }, [dataSource, monthRange, currentQueryDoc]);
-
-  // Helper function to fetch and cache all months in a range in background (using worker)
-  const fetchAndCacheMonthsInRange = useCallback(async (queryId, queryDoc, monthRangeValue) => {
-    if (!queryId || !queryDoc || !monthRangeValue || !Array.isArray(monthRangeValue) || monthRangeValue.length !== 2) {
-      return;
-    }
-
-    const [startDate, endDate] = monthRangeValue;
-
-    // Generate array of month prefixes for the range
-    const monthPrefixes = generateMonthRangeArray(startDate, endDate);
-
-    if (monthPrefixes.length === 0) {
-      return;
-    }
-
-    // Execute in background without blocking UI
-    const fetchAndCacheAllMonthsAsync = async () => {
-      try {
-        const { endpointUrl, authToken } = getEndpointAndAuth(queryDoc);
-
-        if (!endpointUrl) {
-          console.warn(`No endpoint available for fetching months in range for ${queryId}`);
-          return;
-        }
-
-        // Fetch and cache each month in the range using worker
-        for (const prefix of monthPrefixes) {
-          try {
-            // Parse YYYY-MM to create month range (first day to last day of month)
-            const [year, month] = prefix.split('-').map(Number);
-            const monthStartDate = new Date(year, month - 1, 1);
-            const lastDay = new Date(year, month, 0).getDate();
-            const monthEndDate = new Date(year, month - 1, lastDay);
-            // Convert Date objects to serializable format for Comlink
-            const monthRangeSerialized = [
-              { year: monthStartDate.getFullYear(), month: monthStartDate.getMonth(), day: monthStartDate.getDate() },
-              { year: monthEndDate.getFullYear(), month: monthEndDate.getMonth(), day: monthEndDate.getDate() }
-            ];
-
-            // Always use worker for pipeline execution
-            if (!workerRef.current) {
-              console.warn('Worker not available for background caching');
-              continue;
-            }
-            await workerRef.current.executePipeline(
-              queryId,
-              queryDoc,
-              endpointUrl,
-              authToken,
-              monthRangeSerialized,
-              {},
-              allQueryDocsRef.current
-            );
-            console.log(`Cached month ${prefix} for ${queryId} using worker`);
-          } catch (error) {
-            console.error(`Error fetching and caching month ${prefix} for ${queryId}:`, error);
-            // Continue with other months even if one fails
-          }
-        }
-      } catch (error) {
-        console.error(`Error in background fetch for months in range for ${queryId}:`, error);
-      }
-    };
-
-    // Use requestIdleCallback if available, otherwise setTimeout
-    if (typeof requestIdleCallback !== 'undefined') {
-      requestIdleCallback(fetchAndCacheAllMonthsAsync, { timeout: 5000 });
-    } else {
-      setTimeout(fetchAndCacheAllMonthsAsync, 0);
-    }
-  }, []);
-
-  const checkIndexedDBAndLoadData = useCallback(async (queryId, queryDoc, monthRangeValue) => {
-    // Prevent duplicate concurrent calls
-    const cacheLoadKey = `${queryId}_${monthRangeValue?.[0]?.getTime()}_${monthRangeValue?.[1]?.getTime()}`;
-    if (cacheLoadInProgressRef.current === cacheLoadKey) {
-      // Already loading this exact query/monthRange, skip duplicate call
-      return;
-    }
-    cacheLoadInProgressRef.current = cacheLoadKey;
-    setLoadingFromCache(true);
-
-    if (!queryDoc || queryDoc.clientSave !== true) {
-      // No IndexedDB support, go directly to API
-      cacheLoadInProgressRef.current = null;
-      setLoadingFromCache(false);
-      if (runQueryRef.current) {
-        await runQueryRef.current(queryId, true);
-      }
-      return;
-    }
-
-    // Step 1: Check index query result to validate cache freshness
-    if (queryDoc.index && queryDoc.index.trim() && workerRef.current) {
-      try {
-        const { endpointUrl, authToken } = getEndpointAndAuth(queryDoc);
-        const finalEndpointUrl = endpointUrl || getInitialEndpoint()?.code || null;
-        const finalAuthToken = authToken || null;
-
-        if (finalEndpointUrl) {
-          // Get cached index result
-          const cachedIndexResult = await indexedDBService.getQueryIndexResult(queryId);
-          const cachedIndex = cachedIndexResult?.result || null;
-
-          // Execute index query to get current index
-          let currentIndex = null;
-          if (queryDoc.month === true && monthRangeValue && Array.isArray(monthRangeValue) && monthRangeValue.length === 2) {
-            // For month queries, execute index query for month range
-            const monthRangeSerialized = [
-              { year: monthRangeValue[0].getFullYear(), month: monthRangeValue[0].getMonth(), day: monthRangeValue[0].getDate() },
-              { year: monthRangeValue[1].getFullYear(), month: monthRangeValue[1].getMonth(), day: monthRangeValue[1].getDate() }
-            ];
-            await workerRef.current.executeIndexQueryForMonthRange(
-              queryId,
-              queryDoc,
-              finalEndpointUrl,
-              finalAuthToken,
-              monthRangeSerialized
-            );
-            // Get the updated index result after execution
-            const updatedIndexResult = await indexedDBService.getQueryIndexResult(queryId);
-            currentIndex = updatedIndexResult?.result || null;
-          } else {
-            // For non-month queries, extract startDate/endDate from variables if they exist
-            const parsedVariables = parseGraphQLVariables(queryDoc.variables || '');
-            const monthRangeVariables = (parsedVariables.startDate && parsedVariables.endDate)
-              ? { startDate: parsedVariables.startDate, endDate: parsedVariables.endDate }
-              : null;
-
-            await workerRef.current.executeIndexQuery(
-              queryId,
-              queryDoc,
-              finalEndpointUrl,
-              finalAuthToken,
-              monthRangeVariables
-            );
-            // Get the updated index result after execution
-            const updatedIndexResult = await indexedDBService.getQueryIndexResult(queryId);
-            currentIndex = updatedIndexResult?.result || null;
-          }
-
-          // Compare cached index with current index
-          if (cachedIndex !== null && currentIndex !== null) {
-            const cachedIndexString = JSON.stringify(cachedIndex);
-            const currentIndexString = JSON.stringify(currentIndex);
-
-            if (cachedIndexString !== currentIndexString) {
-              // Index has changed - cache is stale, skip cache and fetch live
-              console.log(`Index changed for ${queryId}, skipping cache and fetching live data`);
-              cacheLoadInProgressRef.current = null;
-              setLoadingFromCache(false);
-              if (runQueryRef.current) {
-                await runQueryRef.current(queryId, true);
-              }
-              return;
-            }
-            // Index is same - proceed to load from cache (continue below)
-          } else if (cachedIndex === null && currentIndex !== null) {
-            // No cached index but got current index - cache might be stale, fetch live to be safe
-            console.log(`No cached index for ${queryId}, fetching live data`);
-            cacheLoadInProgressRef.current = null;
-            setLoadingFromCache(false);
-            if (runQueryRef.current) {
-              await runQueryRef.current(queryId, true);
-            }
-            return;
-          }
-          // If both are null or comparison passed, proceed to load from cache
-        }
-      } catch (indexError) {
-        // If index check fails, log but continue to cache check (fallback behavior)
-        console.error(`Error checking index for ${queryId}:`, indexError);
-      }
-    }
-
-    try {
-      // For month == true queries, handle multi-month range
-      if (queryDoc.month === true && monthRangeValue && Array.isArray(monthRangeValue) && monthRangeValue.length === 2) {
-        const [startDate, endDate] = monthRangeValue;
-
-        // Generate array of month prefixes for the range
-        const monthPrefixes = generateMonthRangeArray(startDate, endDate);
-
-        if (monthPrefixes.length > 0) {
-          // Check which months are cached
-          const cachedPrefixes = await indexedDBService.getCachedMonthPrefixes(queryId, monthPrefixes);
-
-          if (cachedPrefixes.length === monthPrefixes.length) {
-            // All months cached: reconstruct from all
-            const reconstructed = await indexedDBService.reconstructPipelineResult(queryId, null, monthPrefixes);
-
-            if (reconstructed && typeof reconstructed === 'object' && Object.keys(reconstructed).length > 0) {
-              setProcessedData(reconstructed);
-
-              // Update last updated timestamp after loading from cache
-              await fetchLastUpdatedAt(queryDoc, monthRangeValue);
-
-              if (onDataChange) {
-                onDataChange({
-                  severity: 'success',
-                  summary: 'Success',
-                  detail: 'Data loaded from cache',
-                  life: 3000
-                });
-              }
-              cacheLoadInProgressRef.current = null;
-              setLoadingFromCache(false);
-              return; // Successfully loaded from IndexedDB
-            }
-          } else if (cachedPrefixes.length > 0) {
-            // Some months cached: reconstruct from cached months immediately
-            const reconstructed = await indexedDBService.reconstructPipelineResult(queryId, null, cachedPrefixes);
-
-            if (reconstructed && typeof reconstructed === 'object' && Object.keys(reconstructed).length > 0) {
-              setProcessedData(reconstructed);
-
-              // Update last updated timestamp after loading from cache
-              await fetchLastUpdatedAt(queryDoc, monthRangeValue);
-
-              if (onDataChange) {
-                onDataChange({
-                  severity: 'success',
-                  summary: 'Success',
-                  detail: `Data loaded from cache (${cachedPrefixes.length}/${monthPrefixes.length} months)`,
-                  life: 3000
-                });
-              }
-
-              // Cache all months in range in background (even if some already cached)
-              fetchAndCacheMonthsInRange(queryId, queryDoc, monthRangeValue);
-
-              cacheLoadInProgressRef.current = null;
-              setLoadingFromCache(false);
-              return; // Successfully loaded from cache, don't call API
-            }
-          }
-
-          // If not all months cached and no cached data available, fall through to API fetch
-        }
-      } else {
-        // Single month or month == false: use original logic
-        const yearMonthPrefix = (queryDoc.month === true && monthRangeValue && monthRangeValue[0])
-          ? dayjs(monthRangeValue[0]).format('YYYY-MM')
-          : null;
-
-        // Try to reconstruct from IndexedDB
-        const reconstructed = await indexedDBService.reconstructPipelineResult(queryId, null, yearMonthPrefix);
-
-        // Check if we got data (reconstructed format matches processedData format)
-        if (reconstructed && typeof reconstructed === 'object' && Object.keys(reconstructed).length > 0) {
-          // Load from IndexedDB - format is already correct, no transformation needed
-          setProcessedData(reconstructed);
-
-          // Update last updated timestamp after loading from cache
-          await fetchLastUpdatedAt(queryDoc, monthRangeValue);
-
-          if (onDataChange) {
-            onDataChange({
-              severity: 'success',
-              summary: 'Success',
-              detail: 'Data loaded from cache',
-              life: 3000
-            });
-          }
-          cacheLoadInProgressRef.current = null;
-          setLoadingFromCache(false);
-          return; // Successfully loaded from IndexedDB, don't call API
-        }
-      }
-    } catch (error) {
-      // If IndexedDB loading fails, fall through to normal query execution
-      console.error('Error loading from IndexedDB:', error);
-      cacheLoadInProgressRef.current = null;
-      setLoadingFromCache(false);
-    }
-
-    // IndexedDB check failed or no data found, call API
-    cacheLoadInProgressRef.current = null;
-    setLoadingFromCache(false);
-    if (runQueryRef.current) {
-      await runQueryRef.current(queryId, true);
-    }
-  }, [onDataChange, fetchAndCacheMonthsInRange, fetchLastUpdatedAt]);
-
-  // Auto-execute when monthRange changes (user changed month range)
-  useEffect(() => {
-    if (!dataSource) return; // Skip for offline mode
-    if (!hasMonthSupport) return; // Only for month-supported queries
-
-    // Skip if this is during initial load (prevent race condition with IndexedDB check)
-    if (isInitialLoadRef.current) {
-      return;
-    }
-
-    // Only execute if monthRange is set
-    if (monthRange && Array.isArray(monthRange) && monthRange.length === 2 && currentQueryDoc) {
-      // Check IndexedDB first, then API if not found
-      checkIndexedDBAndLoadData(dataSource, currentQueryDoc, monthRange);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [monthRange, checkIndexedDBAndLoadData]); // Include checkIndexedDBAndLoadData in deps
-
-
-  // Format date to "10 Jan 26 23:05" format (24-hour clock)
-  const formatLastUpdatedDate = (dateString) => {
-    if (!dateString) return null;
-
-    try {
-      // Try to parse the date string with dayjs
-      const parsedDate = dayjs(dateString);
-
-      // Check if the date is valid
-      if (!parsedDate.isValid()) {
-        return dateString; // Return original if can't parse
-      }
-
-      // Format to "10 Jan 26 23:05" (24-hour format, no AM/PM)
-      return parsedDate.format('D MMM YY HH:mm');
-    } catch (error) {
-      console.error('Error formatting date:', error);
-      return dateString; // Return original on error
-    }
-  };
-
-  // Fetch and display last updated timestamp from IndexedDB when monthRange changes
-  // Only call if currentQueryDoc is available and matches current dataSource to avoid race conditions
-  // Note: We also call fetchLastUpdatedAt explicitly after loading query doc and after data loads,
-  // so this useEffect mainly handles monthRange changes
-  useEffect(() => {
-    if (currentQueryDoc && dataSource && currentQueryDoc.id === dataSource && monthRange) {
-      fetchLastUpdatedAt();
-    }
-  }, [monthRange, currentQueryDoc, dataSource, fetchLastUpdatedAt]);
-
-  // Get available query keys from processedData
-  const availableQueryKeys = useMemo(() => {
-    if (!processedData || !dataSource) return [];
-    return getDataKeys(processedData).filter(key => {
-      const value = getDataValue(processedData, key);
-      return value && value.length > 0;
-    });
-  }, [processedData, dataSource]);
-
-  // Reset selectedQueryKey immediately when dataSource changes (separate effect to avoid loop)
-  useEffect(() => {
-    const dataSourceChanged = previousDataSourceRef.current !== dataSource;
-    if (dataSourceChanged) {
-      previousDataSourceRef.current = dataSource;
-      // Reset the flags tracking which dataSource we've set queryKey for
-      queryKeySetForDataSourceRef.current = null;
-      lastSetQueryKeyRef.current = null;
-      // When dataSource changes to a new query, reset selectedQueryKey immediately
-      // But don't reset if we have a valid default from props that might still be valid
-      if (dataSource) {
-        // Only reset if we don't have a valid default selectedQueryKeyProp
-        // (We'll check if it's valid in the next effect when availableQueryKeys are known)
-        setSelectedQueryKey(null);
-      }
-    }
-  }, [dataSource]);
-
-  // Set selectedQueryKey when processedData/availableQueryKeys become available (only once per dataSource)
-  useEffect(() => {
-    if (!dataSource || !processedData) {
-      return;
-    }
-
-    const firstAvailableKey = availableQueryKeys.length > 0 ? availableQueryKeys[0] : null;
-
-    // Check if the default/prop selectedQueryKey is valid and available
-    const defaultKeyIsValid = selectedQueryKeyProp && availableQueryKeys.includes(selectedQueryKeyProp);
-
-    // First time for this dataSource - prefer default key if valid, otherwise use first available key
-    if (queryKeySetForDataSourceRef.current !== dataSource) {
-      const keyToUse = defaultKeyIsValid ? selectedQueryKeyProp : firstAvailableKey;
-
-      if (keyToUse) {
-        // Only update if the value would actually change
-        if (lastSetQueryKeyRef.current !== keyToUse) {
-          queryKeySetForDataSourceRef.current = dataSource;
-          lastSetQueryKeyRef.current = keyToUse;
-          setSelectedQueryKey(keyToUse);
-        }
-      }
-      return;
-    }
-
-    // Already set for this dataSource - only update if current key is invalid
-    if (queryKeySetForDataSourceRef.current === dataSource) {
-      setSelectedQueryKey(currentSelectedKey => {
-        // If current key is invalid, prefer default key if valid, otherwise use first available
-        if (currentSelectedKey && !availableQueryKeys.includes(currentSelectedKey)) {
-          const keyToUse = defaultKeyIsValid ? selectedQueryKeyProp : firstAvailableKey;
-          if (keyToUse && lastSetQueryKeyRef.current !== keyToUse) {
-            lastSetQueryKeyRef.current = keyToUse;
-            return keyToUse;
-          }
-        }
-        // If current key is null/empty and we have a valid default, use it
-        if (!currentSelectedKey && defaultKeyIsValid) {
-          if (lastSetQueryKeyRef.current !== selectedQueryKeyProp) {
-            lastSetQueryKeyRef.current = selectedQueryKeyProp;
-            return selectedQueryKeyProp;
-          }
-        }
-        // No change needed
-        return currentSelectedKey;
-      });
-    }
-  }, [processedData, availableQueryKeys, dataSource, selectedQueryKeyProp]);
-
-  // Expose availableQueryKeys to parent (after it's defined)
-  useEffect(() => {
-    if (onAvailableQueryKeysChange) {
-      onAvailableQueryKeysChange(availableQueryKeys);
-    }
-  }, [availableQueryKeys, onAvailableQueryKeysChange]);
-
-  // Helper function to create execution key from queryId, variables, and monthRange
-  const createExecutionKey = (queryId, variables, monthRange) => {
-    // Create a stable string representation of variables (sorted keys for consistency)
-    const variablesStr = variables && typeof variables === 'object'
-      ? JSON.stringify(variables, Object.keys(variables).sort())
-      : '';
-
-    // Create a stable string representation of monthRange
-    const monthRangeStr = monthRange && Array.isArray(monthRange) && monthRange.length === 2
-      ? `${monthRange[0].getTime()}_${monthRange[1].getTime()}`
-      : '';
-
-    // Combine queryId, variables, and monthRange into a unique key
-    return `${queryId}__${variablesStr}__${monthRangeStr}`;
-  };
-
-  // Helper function to execute and cache month range per month (latest first)
-  const executeAndCacheMonthRange = useCallback(async (queryId, queryDoc, monthRangeValue, endpointUrl, authToken, mergedVariables) => {
-    if (!queryId || !queryDoc || !monthRangeValue || !Array.isArray(monthRangeValue) || monthRangeValue.length !== 2) {
-      throw new Error('Invalid parameters for executeAndCacheMonthRange');
-    }
-
-    const [startDate, endDate] = monthRangeValue;
-
-    // Generate array of month prefixes for the range
-    const monthPrefixes = generateMonthRangeArray(startDate, endDate);
-
-    if (monthPrefixes.length === 0) {
-      throw new Error('No months in range');
-    }
-
-    // Reverse order to start with latest month first
-    const reversedMonthPrefixes = [...monthPrefixes].reverse();
-
-    // Execute index queries for monthRange BEFORE executing pipelines
-    if (queryDoc.index && queryDoc.index.trim() && queryDoc.clientSave === true) {
-      try {
-        const monthRangeSerialized = [
-          { year: startDate.getFullYear(), month: startDate.getMonth(), day: startDate.getDate() },
-          { year: endDate.getFullYear(), month: endDate.getMonth(), day: endDate.getDate() }
-        ];
-        await workerRef.current.executeIndexQueryForMonthRange(
-          queryId,
-          queryDoc,
-          endpointUrl,
-          authToken,
-          monthRangeSerialized
-        );
-      } catch (indexError) {
-        console.error(`Error executing index queries for monthRange for ${queryId}:`, indexError);
-        // Continue with pipeline execution even if index queries fail
-      }
-    }
-
-    // Execute pipeline for each month in parallel (but start with latest first)
-    const pipelinePromises = reversedMonthPrefixes.map(async (prefix) => {
-      try {
-        // Parse YYYY-MM to create month range (first day to last day of month)
-        const [year, month] = prefix.split('-').map(Number);
-        const monthStartDate = new Date(year, month - 1, 1);
-        const lastDay = new Date(year, month, 0).getDate();
-        const monthEndDate = new Date(year, month - 1, lastDay);
-
-        // Convert Date objects to serializable format for Comlink
-        const monthRangeSerialized = [
-          { year: monthStartDate.getFullYear(), month: monthStartDate.getMonth(), day: monthStartDate.getDate() },
-          { year: monthEndDate.getFullYear(), month: monthEndDate.getMonth(), day: monthEndDate.getDate() }
-        ];
-
-        // Execute pipeline for this month (worker will save to cache with month prefix automatically)
-        await workerRef.current.executePipeline(
-          queryId,
-          queryDoc,
-          endpointUrl,
-          authToken,
-          monthRangeSerialized,
-          mergedVariables,
-          allQueryDocsRef.current
-        );
-
-        console.log(`Executed and cached month ${prefix} for ${queryId}`);
-      } catch (error) {
-        console.error(`Error executing pipeline for month ${prefix} for ${queryId}:`, error);
-        // Continue with other months even if one fails
-        throw error; // Re-throw to be caught by Promise.allSettled
-      }
-    });
-
-    // Execute all months in parallel (using allSettled to continue even if some fail)
-    const results = await Promise.allSettled(pipelinePromises);
-
-    // Check execution results
-    const successfulExecutions = results.filter(r => r.status === 'fulfilled').length;
-    const failedExecutions = results.filter(r => r.status === 'rejected');
-
-    console.log(`Pipeline execution results for ${queryId}: ${successfulExecutions}/${monthPrefixes.length} succeeded`);
-
-    if (successfulExecutions === 0) {
-      // All executions failed
-      const errors = failedExecutions.map(r => r.reason?.message || r.reason || 'Unknown error').filter(Boolean);
-      throw new Error(`All pipeline executions failed: ${errors.join('; ')}`);
-    }
-
-    if (failedExecutions.length > 0) {
-      console.warn(`Some pipeline executions failed for ${queryId}:`, failedExecutions.map(r => r.reason?.message || r.reason));
-    }
-
-    // Wait for IndexedDB writes to be committed and database version updates to propagate
-    // The worker may have closed and reopened the database with a new version, so we need to wait
-    // for the version change to be visible to the main thread
-    await new Promise(resolve => setTimeout(resolve, 100));
-
-    // Clear the cached database instance to force a fresh connection that sees new stores
-    // The worker may have created new stores by upgrading the database version
-    await indexedDBService.clearQueryDatabaseCache(queryId);
-
-    // Verify that data was actually cached before trying to reconstruct
-    // With cache cleared, we should see new stores immediately, but add one retry for transaction commit timing
-    let cachedPrefixes = await indexedDBService.getCachedMonthPrefixes(queryId, monthPrefixes);
-    console.log(`Cached prefixes for ${queryId}:`, cachedPrefixes, 'Expected:', monthPrefixes);
-
-    if (cachedPrefixes.length === 0) {
-      // Wait a bit more for transaction commits, then retry once
-      await new Promise(resolve => setTimeout(resolve, 100));
-      cachedPrefixes = await indexedDBService.getCachedMonthPrefixes(queryId, monthPrefixes);
-      console.log(`Cached prefixes (retry) for ${queryId}:`, cachedPrefixes, 'Expected:', monthPrefixes);
-    }
-
-    if (cachedPrefixes.length === 0) {
-      // Final check: inspect database directly for diagnostic purposes
-      try {
-        const queryDb = await indexedDBService.getQueryDatabase(queryId);
-        const existingStores = queryDb.tables.map((table) => table.name);
-        const matchingStores = existingStores.filter(storeName =>
-          monthPrefixes.some(prefix => storeName.startsWith(`${prefix}_`))
-        );
-
-        if (matchingStores.length === 0) {
-          throw new Error(`No data was cached for any month in range. Expected ${monthPrefixes.length} months (${monthPrefixes.join(', ')}), but none were found in cache after ${successfulExecutions} successful executions. Database has ${existingStores.length} stores total.`);
-        } else {
-          // Stores exist but getCachedMonthPrefixes didn't find them - use all prefixes
-          console.warn(`Stores exist (${matchingStores.length}) but getCachedMonthPrefixes didn't find them. Using all expected prefixes.`);
-          cachedPrefixes = monthPrefixes;
-        }
-      } catch (dbError) {
-        console.error(`Error checking database directly:`, dbError);
-        throw new Error(`No data was cached for any month in range. Expected ${monthPrefixes.length} months (${monthPrefixes.join(', ')}), but none were found in cache after ${successfulExecutions} successful executions. Error: ${dbError.message}`);
-      }
-    }
-
-    // Load from cache per month and combine
-    const reconstructed = await indexedDBService.reconstructPipelineResult(queryId, null, cachedPrefixes);
-
-    if (!reconstructed || typeof reconstructed !== 'object' || Object.keys(reconstructed).length === 0) {
-      // Try reconstructing with all prefixes one more time after a short delay
-      console.warn(`First reconstruction attempt failed for ${queryId}, retrying...`);
-      await new Promise(resolve => setTimeout(resolve, 200));
-      const retryReconstructed = await indexedDBService.reconstructPipelineResult(queryId, null, monthPrefixes);
-      if (!retryReconstructed || typeof retryReconstructed !== 'object' || Object.keys(retryReconstructed).length === 0) {
-        throw new Error(`Failed to reconstruct data from cache after execution. Cached prefixes: ${cachedPrefixes.join(', ')}, Expected: ${monthPrefixes.join(', ')}. Successful executions: ${successfulExecutions}/${monthPrefixes.length}`);
-      }
-      return retryReconstructed;
-    }
-
-    return reconstructed;
-  }, []);
-
-  // Execute query using the unified pipeline (using worker)
-  const runQuery = useCallback(async (queryId, skipMonthDateLoad = false) => {
-    // Update ref so checkIndexedDBAndLoadData can use it
-    runQueryRef.current = runQuery;
-    // Hard guard: prevent execution if already executing any query
-    if (executingQuery) {
-      return;
-    }
-
-    // Use ref for immediate access (avoids stale closure issues)
-    // Merge queryVariables with variableOverrides (variableOverrides take precedence for user overrides)
-    let mergedVariables = { ...queryVariablesRef.current, ...variableOverrides };
-
-    // When custom monthRange is set, remove startDate/endDate from variables
-    // so that only the monthRange is used for API calls
-    if (monthRange && Array.isArray(monthRange) && monthRange.length === 2) {
-      const { startDate, endDate, ...variablesWithoutDates } = mergedVariables;
-      mergedVariables = variablesWithoutDates;
-    }
-
-    // Include search/sort variables for clientSave === false queries
-    // Note: We check currentQueryDoc here; queryDocToUse will be loaded later and verified
-    if (currentQueryDoc && currentQueryDoc.clientSave === false) {
-      // Add searchText if searchTerm has a value
-      if (searchTerm && searchTerm.trim()) {
-        mergedVariables.searchText = searchTerm.trim();
-      }
-
-      // Add sortField and sortDirection if sortConfig exists
-      // Validate against sortFields if it exists
-      if (sortConfig && sortConfig.field) {
-        let shouldAddSortField = true;
-        const { field } = sortConfig;
-
-        // Parse field path: "topLevelKey.nestedPath" or just "topLevelKey"
-        const [topLevelKey, ...nestedParts] = field.split('.');
-        const nestedPath = nestedParts.join('.');
-
-        // If sortFields exists, validate that sortConfig.field is in sortFields
-        if (currentQueryDoc.sortFields && typeof currentQueryDoc.sortFields === 'object' && !Array.isArray(currentQueryDoc.sortFields)) {
-          const sortFieldsObj = currentQueryDoc.sortFields;
-
-          // Check if topLevelKey exists in sortFields
-          if (sortFieldsObj[topLevelKey] && Array.isArray(sortFieldsObj[topLevelKey])) {
-            // If nestedPath exists, check if it's in the array
-            if (nestedPath) {
-              shouldAddSortField = sortFieldsObj[topLevelKey].includes(nestedPath);
-            } else {
-              // Empty nestedPath means top-level key is valid
-              shouldAddSortField = true;
-            }
-          } else {
-            // topLevelKey not found in sortFields
-            shouldAddSortField = false;
-            console.warn(`Sort field "${field}" is not in sortFields configuration. Available sortFields:`, sortFieldsObj);
-          }
-        }
-
-        // Add sortField/sortDirection if validation passed or sortFields doesn't exist
-        if (shouldAddSortField) {
-          // Use only nestedPath (without topLevelKey prefix) for sortField variable
-          const sortFieldValue = nestedPath || topLevelKey;
-          mergedVariables.sortField = sortFieldValue;
-          mergedVariables.sortDirection = sortConfig.direction || 'asc';
-        }
-      }
-    }
-
-    // Create execution key from queryId, variables, and monthRange
-    const executionKey = createExecutionKey(queryId, mergedVariables, monthRange);
-
-    // Prevent concurrent execution of the same query with same variables and monthRange
-    if (executingQueriesRef.current.has(executionKey)) {
-      return;
-    }
-
-    // Ensure execution context exists
-    if (!executionContextRef.current) {
-      executionContextRef.current = createExecutionContext();
-    }
-
-    executingQueryIdRef.current = queryId; // Keep for backward compatibility
-    executingQueriesRef.current.add(executionKey);
-    setExecutingQuery(true);
-
-    try {
-      // Load query doc if not already loaded
-      let queryDocToUse = currentQueryDoc;
-      if (!queryDocToUse) {
-        queryDocToUse = await firestoreService.loadQuery(queryId);
-        if (queryDocToUse) {
-          allQueryDocsRef.current[queryId] = queryDocToUse;
-        }
-      }
-
-      if (!queryDocToUse) {
-        throw new Error(`Query "${queryId}" not found`);
-      }
-
-      // Get endpoint URL and auth token
-      const { endpointUrl, authToken } = getEndpointAndAuth(queryDocToUse);
-      const finalEndpointUrl = endpointUrl || getInitialEndpoint()?.code || null;
-      const finalAuthToken = authToken || null;
-
-      if (!finalEndpointUrl) {
-        throw new Error('GraphQL endpoint URL is not set');
-      }
-
-      // Always use worker for pipeline execution
-      if (!workerRef.current) {
-        throw new Error('Worker is not available. Please ensure worker is initialized.');
-      }
-      // For month == true queries with monthRange, always execute per month
-      if (queryDocToUse.month === true && monthRange && Array.isArray(monthRange) && monthRange.length === 2) {
-        // Execute per month: execute → save to cache → load from cache → combine
-        const finalData = await executeAndCacheMonthRange(
-          queryId,
-          queryDocToUse,
-          monthRange,
-          finalEndpointUrl,
-          finalAuthToken,
-          mergedVariables
-        );
-
-        // Store final processed data
-        setProcessedData(finalData);
-
-        // Update last updated timestamp after successful execution
-        await fetchLastUpdatedAt(queryDocToUse, monthRange);
-      } else {
-        // For month == false queries or no monthRange, use original single execution
-        // Convert Date objects to serializable format for Comlink (Date objects get corrupted in transfer)
-        const monthRangeToPass = monthRange && Array.isArray(monthRange) && monthRange.length === 2
-          ? [
-            { year: monthRange[0].getFullYear(), month: monthRange[0].getMonth(), day: monthRange[0].getDate() },
-            { year: monthRange[1].getFullYear(), month: monthRange[1].getMonth(), day: monthRange[1].getDate() }
-          ]
-          : undefined;
-
-        // Execute index queries BEFORE executing the pipeline
-        if (queryDocToUse.index && queryDocToUse.index.trim() && queryDocToUse.clientSave === true) {
-          try {
-            if (monthRangeToPass) {
-              // For monthRange, use executeIndexQueryForMonthRange
-              await workerRef.current.executeIndexQueryForMonthRange(
-                queryId,
-                queryDocToUse,
-                finalEndpointUrl,
-                finalAuthToken,
-                monthRangeToPass
-              );
-            } else {
-              // For non-month queries, extract startDate/endDate from variables if they exist
-              const monthRangeVariables = (mergedVariables.startDate && mergedVariables.endDate)
-                ? { startDate: mergedVariables.startDate, endDate: mergedVariables.endDate }
-                : null;
-
-              await workerRef.current.executeIndexQuery(
-                queryId,
-                queryDocToUse,
-                finalEndpointUrl,
-                finalAuthToken,
-                monthRangeVariables
-              );
-            }
-          } catch (indexError) {
-            // Log error but don't block pipeline execution
-            console.error(`Error executing index queries for ${queryId}:`, indexError);
-          }
-        }
-
-        const finalData = await workerRef.current.executePipeline(
-          queryId,
-          queryDocToUse,
-          finalEndpointUrl,
-          finalAuthToken,
-          monthRangeToPass,
-          mergedVariables,
-          allQueryDocsRef.current
-        );
-
-        // Store final processed data
-        setProcessedData(finalData);
-      }
-
-      // Update last updated timestamp after successful execution
-      await fetchLastUpdatedAt(queryDocToUse, monthRange);
-
-      if (onDataChange) {
-        onDataChange({
-          severity: 'success',
-          summary: 'Success',
-          detail: 'Query executed successfully',
-          life: 3000
-        });
-      }
-    } catch (error) {
-      console.error(`Query execution failed: ${queryId}`, error);
-      if (onError) {
-        onError({
-          severity: 'error',
-          summary: 'Error',
-          detail: error.message || 'Failed to execute query',
-          life: 5000
-        });
-      }
-      setProcessedData(null);
-    } finally {
-      // Remove from executing queries set
-      const executionKey = createExecutionKey(queryId, mergedVariables, monthRange);
-      executingQueriesRef.current.delete(executionKey);
-
-      // Only clear executingQueryIdRef if no other executions are in flight for this queryId
-      if (executingQueryIdRef.current === queryId) {
-        const hasOtherExecutions = Array.from(executingQueriesRef.current).some(key => key.startsWith(`${queryId}__`));
-        if (!hasOtherExecutions) {
-          executingQueryIdRef.current = null;
-        }
-      }
-      setExecutingQuery(false);
-    }
-  }, [onDataChange, onError, monthRange, executingQuery, variableOverrides, queryVariables, currentQueryDoc, searchTerm, sortConfig]);
-
-  // Update runQuery ref whenever runQuery changes
-  useEffect(() => {
-    runQueryRef.current = runQuery;
-  }, [runQuery]);
-
-  // Track if offline data has been "executed" (shown)
-  const [offlineDataExecuted, setOfflineDataExecuted] = useState(false);
-
-  // Determine which data to use (from executed queries or executed offline)
-  const rawTableData = useMemo(() => {
-    // If offline mode and executed, show offline data
-    if (!dataSource && offlineDataExecuted) {
-      return offlineData || [];
-    }
-    // If query mode and executed, show processed data
-    if (dataSource && processedData && selectedQueryKey) {
-      return getDataValue(processedData, selectedQueryKey) || [];
-    }
-    // Return null to indicate no data available (will show placeholder)
-    return null;
-  }, [dataSource, processedData, selectedQueryKey, offlineData, offlineDataExecuted]);
-
-  // Apply auth filtering to raw data
-  const authFilteredData = useMemo(() => {
-    if (!rawTableData || !Array.isArray(rawTableData) || isEmpty(rawTableData)) {
-      return rawTableData;
-    }
-
-    // If Admin mode is ON, return data as-is
-    if (isAdminMode) {
-      return rawTableData;
-    }
-
-    let filteredData = [...rawTableData];
-
-    // Step 1: Filter by salesTeam
-    if (salesTeamColumn && salesTeamValues && salesTeamValues.length > 0) {
-      filteredData = filteredData.filter(row => {
-        if (!row || typeof row !== 'object') return false;
-        const rowValue = getDataValue(row, salesTeamColumn);
-        // Handle null/undefined comparison - convert to string for comparison
-        if (isNil(rowValue)) {
-          return salesTeamValues.some(val => val === null || val === undefined || val === '');
-        }
-        return salesTeamValues.some(val => String(val) === String(rowValue));
-      });
-    }
-
-    // Step 2: Filter by hq (only if salesTeamValues count == 1)
-    if (salesTeamValues && salesTeamValues.length === 1 && hqColumn && hqValues && hqValues.length > 0) {
-      filteredData = filteredData.filter(row => {
-        if (!row || typeof row !== 'object') return false;
-        const rowValue = getDataValue(row, hqColumn);
-        // Handle null/undefined comparison - convert to string for comparison
-        if (isNil(rowValue)) {
-          return hqValues.some(val => val === null || val === undefined || val === '');
-        }
-        return hqValues.some(val => String(val) === String(rowValue));
-      });
-    }
-
-    return filteredData;
-  }, [rawTableData, isAdminMode, salesTeamColumn, salesTeamValues, hqColumn, hqValues]);
-
-  // Pre-compute filter Sets for O(1) lookups (memoized separately for performance)
-  const preFilterSets = useMemo(() => {
-    const sets = {};
-    Object.keys(preFilterValues).forEach(fieldKey => {
-      const values = preFilterValues[fieldKey];
-      if (Array.isArray(values) && values.length > 0) {
-        // Convert to Set for O(1) lookup, normalize strings for comparison
-        sets[fieldKey] = new Set(values.map(v => String(v)));
-      }
-    });
-    return sets;
-  }, [preFilterValues]);
-
-  // Optimized pre-filter application - applies all pre-filters from preFilterValues
-  const preFilteredData = useMemo(() => {
-    // Early returns for performance
-    if (!authFilteredData || !Array.isArray(authFilteredData) || isEmpty(authFilteredData)) {
-      return authFilteredData;
-    }
-
-    if (isEmpty(preFilterValues) || Object.keys(preFilterSets).length === 0) {
-      return authFilteredData;
-    }
-
-    // Single pass filtering with Set lookups
-    const filterKeys = Object.keys(preFilterSets);
-    if (filterKeys.length === 0) return authFilteredData;
-
-    return filter(authFilteredData, (row) => {
-      // Fast null check
-      if (!row || typeof row !== 'object') return false;
-
-      // Check all filters with early exit
-      for (let i = 0; i < filterKeys.length; i++) {
-        const fieldKey = filterKeys[i];
-        const filterSet = preFilterSets[fieldKey];
-
-        // Skip if no filter set (shouldn't happen, but safety check)
-        if (!filterSet || filterSet.size === 0) continue;
-
-        // Extract cell value once
-        const cellValue = getDataValue(row, fieldKey);
-
-        // For pre-filters, use string comparison (sidebar only supports string multi-select for now)
-        // Convert to string for comparison
-        const cellStr = isNil(cellValue) ? null : String(cellValue);
-
-        // Check null/undefined handling
-        if (cellStr === null) {
-          if (!filterSet.has('null') && !filterSet.has('') && !filterSet.has('undefined')) {
-            return false; // Early exit if null not in filter
-          }
-          continue; // Null matches, check next filter
-        }
-
-        // O(1) Set lookup instead of O(n) array.includes()
-        if (!filterSet.has(cellStr)) {
-          return false; // Early exit on first mismatch
-        }
-      }
-
-      // All filters passed
-      return true;
-    });
-  }, [authFilteredData, preFilterSets]);
-
-  // tableData is now preFilteredData (pre-filters applied)
-  const tableData = preFilteredData;
-
-  // Debug: Print searchFields and sortFields for selected queryId
-  useEffect(() => {
-    if (dataSource && currentQueryDoc) {
-      console.log(`[DataProvider] searchFields and sortFields for queryId: ${dataSource}`, {
-        queryId: dataSource,
-        clientSave: currentQueryDoc.clientSave,
-        searchFields: currentQueryDoc.searchFields || {},
-        sortFields: currentQueryDoc.sortFields || {},
-        searchFieldsKeys: currentQueryDoc.searchFields ? Object.keys(currentQueryDoc.searchFields) : [],
-        sortFieldsKeys: currentQueryDoc.sortFields ? Object.keys(currentQueryDoc.sortFields) : [],
-        currentQueryDoc: currentQueryDoc,
-      });
-    }
-  }, [dataSource, currentQueryDoc]);
-
-  // Reset search, sort, and pre-filters when query changes
-  useEffect(() => {
-    setSearchTerm('');
-    setSortConfig(null);
-    setPreFilterValues({});
-  }, [dataSource]);
-
-  // Pre-compute search index: Map<rowIndex, Set<lowercasedSearchableValues>>
-  // This allows O(1) lookup instead of O(m*k) per row during search
-  const searchIndex = useMemo(() => {
-    if (!preFilteredData || !Array.isArray(preFilteredData) || isEmpty(preFilteredData)) {
-      return null;
-    }
-
-    const queryDoc = currentQueryDoc;
-    if (!queryDoc || queryDoc.clientSave !== true || !queryDoc.searchFields) {
-      return null;
-    }
-
-    const searchFieldsObj = queryDoc.searchFields;
-    const index = new Map();
-
-    // Pre-extract all searchable values for each row
-    preFilteredData.forEach((row, rowIndex) => {
-      const searchableValues = new Set();
-
-      // Extract values from all search fields
-      Object.keys(searchFieldsObj).forEach(topLevelKey => {
-        const nestedPaths = searchFieldsObj[topLevelKey];
-        if (!Array.isArray(nestedPaths) || nestedPaths.length === 0) return;
-
-        nestedPaths.forEach(nestedPath => {
-          const value = getNestedValue(row, topLevelKey, nestedPath);
-          if (value != null) {
-            // Convert to lowercase string once and store
-            const valueLower = String(value).toLowerCase();
-            searchableValues.add(valueLower);
-          }
-        });
-      });
-
-      if (searchableValues.size > 0) {
-        index.set(rowIndex, searchableValues);
-      }
-    });
-
-    return index;
-  }, [preFilteredData, currentQueryDoc?.searchFields, currentQueryDoc?.clientSave]);
-
-  // Apply search filter after pre-filters (only when clientSave is true)
-  // Optimized to use pre-computed searchIndex for O(n) instead of O(n*m*k)
-  const searchedData = useMemo(() => {
-    if (!preFilteredData || !Array.isArray(preFilteredData) || isEmpty(preFilteredData)) {
-      return preFilteredData;
-    }
-
-    // Only apply search if clientSave is true and searchFields exist
-    const queryDoc = currentQueryDoc;
-    if (!queryDoc || queryDoc.clientSave !== true || !queryDoc.searchFields || !searchTerm || !searchTerm.trim()) {
-      return preFilteredData;
-    }
-
-    // Use pre-computed search index if available
-    if (searchIndex) {
-      const searchLower = searchTerm.toLowerCase().trim();
-      const filtered = preFilteredData.filter((row, rowIndex) => {
-        const searchableValues = searchIndex.get(rowIndex);
-        if (!searchableValues) return false;
-
-        // Check if any searchable value contains the search term
-        // Using Array.from and some for Set iteration
-        return Array.from(searchableValues).some(value => value.includes(searchLower));
-      });
-      return filtered;
-    }
-
-    // Fallback to original algorithm if searchIndex not available
-    const searchFieldsObj = queryDoc.searchFields;
-    const searchLower = searchTerm.toLowerCase().trim();
-
-    const filtered = preFilteredData.filter((row) => {
-      return Object.keys(searchFieldsObj).some(topLevelKey => {
-        const nestedPaths = searchFieldsObj[topLevelKey];
-        if (!Array.isArray(nestedPaths) || nestedPaths.length === 0) return false;
-
-        return nestedPaths.some(nestedPath => {
-          const value = getNestedValue(row, topLevelKey, nestedPath);
-          if (value == null) return false;
-          const valueLower = String(value).toLowerCase();
-          return valueLower.includes(searchLower);
-        });
-      });
-    });
-    return filtered;
-  }, [tableData, currentQueryDoc, searchTerm, searchIndex]);
-
-  // Pre-compute sort value cache: Array<{rowIndex, sortValue, originalRow}>
-  // This allows O(1) value access instead of O(d) per comparison during sort
-  const sortValueCache = useMemo(() => {
-    if (!searchedData || !Array.isArray(searchedData) || isEmpty(searchedData)) {
-      return null;
-    }
-
-    const queryDoc = currentQueryDoc;
-    if (!queryDoc || queryDoc.clientSave !== true || !queryDoc.sortFields || !sortConfig) {
-      return null;
-    }
-
-    const sortFieldsObj = queryDoc.sortFields;
-    const { field } = sortConfig;
-    const [topLevelKey, ...nestedParts] = field.split('.');
-    const nestedPath = nestedParts.join('.');
-
-    if (!sortFieldsObj[topLevelKey] || !sortFieldsObj[topLevelKey].includes(nestedPath)) {
-      return null;
-    }
-
-    // Infer column type once (cached)
-    const fieldType = columnTypesOverride[field] || inferColumnType(searchedData, field, topLevelKey, nestedPath);
-
-    // Pre-extract all sort values
-    const cache = searchedData.map((row, rowIndex) => {
-      const sortValue = getNestedValue(row, topLevelKey, nestedPath);
-      return {
-        rowIndex,
-        sortValue,
-        originalRow: row,
-        fieldType
-      };
-    });
-
-    return cache;
-  }, [searchedData, currentQueryDoc?.sortFields, currentQueryDoc?.clientSave, sortConfig, columnTypesOverride]);
-
-  // Helper function to apply sortConfig sorting to any data array
-  // Returns a comparator function that can be used with Array.sort()
-  const getSortComparator = useCallback((sortConfig, fieldType, topLevelKey, nestedPath) => {
-    if (!sortConfig) return null;
-
-    const { field, direction } = sortConfig;
-    return (a, b) => {
-      const aValue = getNestedValue(a, topLevelKey, nestedPath);
-      const bValue = getNestedValue(b, topLevelKey, nestedPath);
-
-      let comparison = 0;
-      switch (fieldType) {
-        case 'number':
-          comparison = (toNumber(aValue) || 0) - (toNumber(bValue) || 0);
-          break;
-        case 'date':
-          const aDate = parseToDate(aValue);
-          const bDate = parseToDate(bValue);
-          comparison = (aDate?.getTime() || 0) - (bDate?.getTime() || 0);
-          break;
-        case 'boolean':
-          comparison = (aValue ? 1 : 0) - (bValue ? 1 : 0);
-          break;
-        default: // string
-          comparison = String(aValue || '').localeCompare(String(bValue || ''));
-      }
-
-      return direction === 'asc' ? comparison : -comparison;
-    };
-  }, []);
-
-  // Apply sort after search (only when clientSave is true)
-  // Optimized to use pre-computed sortValueCache for O(n log n) instead of O(n log n * d)
-  const searchSortSortedData = useMemo(() => {
-    if (!searchedData || !Array.isArray(searchedData) || isEmpty(searchedData)) {
-      return searchedData;
-    }
-
-    const queryDoc = currentQueryDoc;
-    if (!queryDoc || queryDoc.clientSave !== true || !queryDoc.sortFields || !sortConfig) {
-      return searchedData;
-    }
-
-    const { field, direction } = sortConfig;
-    const [topLevelKey, ...nestedParts] = field.split('.');
-    const nestedPath = nestedParts.join('.');
-
-    const sortFieldsObj = queryDoc.sortFields;
-    if (!sortFieldsObj[topLevelKey] || !sortFieldsObj[topLevelKey].includes(nestedPath)) {
-      return searchedData;
-    }
-
-    // Use pre-computed cache if available
-    if (sortValueCache && sortValueCache.length > 0) {
-      const fieldType = sortValueCache[0].fieldType;
-
-      // Create typed comparator functions
-      let compareFn;
-      switch (fieldType) {
-        case 'number':
-          compareFn = (a, b) => {
-            const aNum = toNumber(a.sortValue) || 0;
-            const bNum = toNumber(b.sortValue) || 0;
-            return aNum - bNum;
-          };
-          break;
-        case 'date':
-          compareFn = (a, b) => {
-            const aDate = parseToDate(a.sortValue);
-            const bDate = parseToDate(b.sortValue);
-            return (aDate?.getTime() || 0) - (bDate?.getTime() || 0);
-          };
-          break;
-        case 'boolean':
-          compareFn = (a, b) => {
-            const aBool = a.sortValue ? 1 : 0;
-            const bBool = b.sortValue ? 1 : 0;
-            return aBool - bBool;
-          };
-          break;
-        default: // string
-          compareFn = (a, b) => {
-            return String(a.sortValue || '').localeCompare(String(b.sortValue || ''));
-          };
-      }
-
-      // Sort the cache array with direction applied
-      const sortedCache = [...sortValueCache].sort((a, b) => {
-        const comparison = compareFn(a, b);
-        return direction === 'asc' ? comparison : -comparison;
-      });
-
-      // Extract original rows in sorted order
-      return sortedCache.map(item => item.originalRow);
-    }
-
-    // Fallback to original algorithm if cache not available
-    const fieldType = columnTypesOverride[field] || inferColumnType(searchedData, field, topLevelKey, nestedPath);
-
-    const sorted = [...searchedData].sort((a, b) => {
-      const aValue = getNestedValue(a, topLevelKey, nestedPath);
-      const bValue = getNestedValue(b, topLevelKey, nestedPath);
-
-      let comparison = 0;
-      switch (fieldType) {
-        case 'number':
-          comparison = (toNumber(aValue) || 0) - (toNumber(bValue) || 0);
-          break;
-        case 'date':
-          const aDate = parseToDate(aValue);
-          const bDate = parseToDate(bValue);
-          comparison = (aDate?.getTime() || 0) - (bDate?.getTime() || 0);
-          break;
-        case 'boolean':
-          comparison = (aValue ? 1 : 0) - (bValue ? 1 : 0);
-          break;
-        default: // string
-          comparison = String(aValue || '').localeCompare(String(bValue || ''));
-      }
-
-      return direction === 'asc' ? comparison : -comparison;
-    });
-    return sorted;
-  }, [searchedData, currentQueryDoc, sortConfig, columnTypesOverride, sortValueCache]);
-
-  // Table operation state (for orchestration layer)
+  // Table operation state (needed before pipeline for hook options)
   const [tableFilters, setTableFilters] = useState({});
   const [tableSortMeta, setTableSortMeta] = useState([]);
-  const [tablePagination, setTablePagination] = useState({ first: 0, rows: 10 }); // Default rows will be updated from props
+  const [tablePagination, setTablePagination] = useState({ first: 0, rows: 10 });
   const [tableExpandedRows, setTableExpandedRows] = useState(null);
-  const [tableVisibleColumns, setTableVisibleColumns] = useState(visibleColumnsProp || []); // User-controlled: actual visible columns (independent from allowedColumns)
+  const [tableVisibleColumns, setTableVisibleColumns] = useState(visibleColumnsProp || []);
+  const reportDataRef = useRef(null);
+  // Pipeline must see current reportData; ref is updated in useEffect so it's one render behind.
+  // Sync reportData into state so useDataPipeline re-runs when report is ready (avoids "No data available").
+  const [reportDataForPipeline, setReportDataForPipeline] = useState(null);
+
+  const pipeline = useDataPipeline({
+    dataSource,
+    processedData,
+    selectedQueryKey,
+    offlineData,
+    offlineDataExecuted,
+    isAdminMode,
+    salesTeamColumn,
+    salesTeamValues,
+    hqColumn,
+    hqValues,
+    preFilterValues,
+    currentQueryDoc,
+    searchTerm,
+    sortConfig,
+    columnTypesOverride,
+    tableFilters,
+    groupFields,
+    tablePagination,
+    tableSortMeta,
+    enableFilter,
+    enableSort,
+    enableBreakdown,
+    reportData: reportDataForPipeline,
+    allowedColumns,
+    percentageColumns,
+    derivedColumns,
+    textFilterColumns,
+    dateColumn,
+    derivedColumnsMode: derivedColumnsMode ?? 'main',
+    derivedColumnsFieldName: derivedColumnsFieldName ?? null,
+  });
+
+  const {
+    rawTableData,
+    preFilteredData,
+    tableData,
+    searchSortSortedData,
+    filteredData,
+    groupedData,
+    sortedData,
+    paginatedData,
+    addEditingKeysToRows,
+    mainTableEditingDataRefEarly,
+    setTableDataUpdateTrigger,
+    effectiveGroupFields,
+    sortFieldType,
+  } = pipeline;
+
+  // runQuery comes from useQueryExecution
 
   // Sync visibleColumns from prop
   useEffect(() => {
@@ -2608,7 +247,8 @@ export default function DataProviderNew({
 
   // Access parent context to get handleDrawerSave for nested drawer tables
   const parentContext = useContext(TableOperationsContext);
-  const parentHandleDrawerSave = parentContext?.handleDrawerSave;
+  // Use prop if provided (for nested instances), otherwise use context
+  const parentHandleDrawerSave = parentHandleDrawerSaveProp || parentContext?.handleDrawerSave;
 
   // Filter/Sort worker state (declared early for use in useMemo hooks)
   const filterSortWorkerRef = useRef(null);
@@ -2623,13 +263,56 @@ export default function DataProviderNew({
   const [clickedDrawerValues, setClickedDrawerValues] = useState({ outerValue: null, innerValue: null });
   const [drawerHeaderTitle, setDrawerHeaderTitle] = useState(null);
   const [drawerTableOptions, setDrawerTableOptions] = useState(null);
-  const [drawerJsonTables, setDrawerJsonTables] = useState(null); // Store nested JSON tables for drawer
+  const [, setDrawerJsonTables] = useState(null); // Store nested JSON tables for drawer
   
   // Change tracking for nested tables
-  // Map structure: tabId -> { originalData: [...], parentRowData: {...}, nestedTableFieldName: string }
-  const originalNestedTableDataRef = useRef(new Map());
+  // Map structure: tabId -> { originalData: [...], parentRowData: {...}, nestedTableFieldName: string, parentRowEditingKey: string }
+  // Use parent refs if provided (for nested instances), otherwise create own refs
+  const originalNestedTableDataRef = parentOriginalNestedTableDataRef || useRef(new Map());
   const nestedTableDataRefsRef = useRef(new Map()); // Store refs to nested DataProviderNew instances to access current data
-  const currentNestedTableDataRef = useRef(new Map()); // Track current data per tab (use ref to avoid infinite loops)
+  const nestedTableEditingDataRef = parentNestedTableEditingDataRef || useRef(new Map()); // Track current editing data per tab (renamed from currentNestedTableDataRef for clarity)
+
+  // Main table buffer state management
+  const mainTableOriginalDataRef = useRef([]); // Original buffer (baseline)
+  // Use the early ref we created
+  const mainTableEditingDataRef = mainTableEditingDataRefEarly; // Editing buffer (working copy)
+  const [mainTableEditingData, setMainTableEditingData] = useState([]); // Editing buffer state for reactivity
+
+  // Debounced derived-column recompute for the edited row only
+  const derivedRecomputeTimerRef = useRef(null);
+  const pendingDerivedRecomputeKeyRef = useRef(null);
+
+  // Parent re-render when nested table buffer is updated (so nested tab gets new tabDataSource)
+  const [nestedTableUpdateCounter, setNestedTableUpdateCounter] = useState(0);
+  const handleNestedBufferChange = useCallback(() => setNestedTableUpdateCounter((v) => v + 1), []);
+
+  // Sync mainTableEditingData state with the ref for reactivity
+  // Also update the early ref so tableData can pick it up
+  // NOTE: We don't increment version here because propagateDrawerSaveToMain already does it
+  // and we don't want double increments causing excessive recalculations
+  useEffect(() => {
+    if (mainTableEditingData && isArray(mainTableEditingData) && !isEmpty(mainTableEditingData)) {
+      mainTableEditingDataRef.current = mainTableEditingData;
+      mainTableEditingDataRefEarly.current = mainTableEditingData;
+    } else if (!mainTableEditingData || !isArray(mainTableEditingData) || isEmpty(mainTableEditingData)) {
+      // Clear refs if state is empty
+      mainTableEditingDataRef.current = [];
+      mainTableEditingDataRefEarly.current = [];
+    }
+  }, [mainTableEditingData]);
+
+  // When dataSource or selectedQueryKey changes, clear editing buffer so tableData falls back to preFilteredData (stale buffer blocks data flow)
+  useEffect(() => {
+    if (derivedRecomputeTimerRef.current) {
+      clearTimeout(derivedRecomputeTimerRef.current);
+      derivedRecomputeTimerRef.current = null;
+    }
+    pendingDerivedRecomputeKeyRef.current = null;
+    mainTableEditingDataRefEarly.current = [];
+    mainTableEditingDataRef.current = [];
+    setMainTableEditingData([]);
+    setTableDataUpdateTrigger((t) => t + 1);
+  }, [dataSource, selectedQueryKey]);
 
   // Ensure at least one tab exists
   useEffect(() => {
@@ -2640,12 +323,37 @@ export default function DataProviderNew({
     }
   }, [drawerTabs, onDrawerTabsChange]);
 
+  // Clear debounced derived recompute timer on unmount
+  useEffect(() => {
+    return () => {
+      if (derivedRecomputeTimerRef.current) {
+        clearTimeout(derivedRecomputeTimerRef.current);
+        derivedRecomputeTimerRef.current = null;
+      }
+      pendingDerivedRecomputeKeyRef.current = null;
+    };
+  }, []);
+
   // Notify parent when raw data changes (for Auth Control in DataTableControls)
   useEffect(() => {
     if (onRawDataChange) {
       onRawDataChange(rawTableData);
     }
   }, [rawTableData, onRawDataChange]);
+
+  // Initialize mainTableEditingData with preFilteredData when it first loads (if empty)
+  // This happens before tableData is computed, so tableData can use mainTableEditingData
+  useEffect(() => {
+    if (preFilteredData && isArray(preFilteredData) && !isEmpty(preFilteredData)) {
+      // Only initialize if mainTableEditingData is empty
+      if (!mainTableEditingData || !isArray(mainTableEditingData) || isEmpty(mainTableEditingData)) {
+        // Ensure rows have editing keys
+        const dataWithKeys = addEditingKeysToRows(preFilteredData);
+        setMainTableEditingData(dataWithKeys);
+        mainTableEditingDataRef.current = dataWithKeys;
+      }
+    }
+  }, [preFilteredData, mainTableEditingData, addEditingKeysToRows]);
 
   // Note: onTableDataChange is called later with final sortedData (line 2904)
   // which includes both searchFields/sortFields sorting and tableSortMeta sorting
@@ -2714,40 +422,43 @@ export default function DataProviderNew({
         }
 
         // Also clear the index entries for the selected months
-        try {
-          const indexResult = await indexedDBService.getQueryIndexResult(queryId);
-          if (indexResult && indexResult.result) {
-            const indexData = indexResult.result;
+        // Skip if queryId is null (offline mode / drawer tables)
+        if (queryId) {
+          try {
+            const indexResult = await indexedDBService.getQueryIndexResult(queryId);
+            if (indexResult && indexResult.result) {
+              const indexData = indexResult.result;
 
-            // Check if index is an object with month keys (month query structure)
-            if (typeof indexData === 'object' && !Array.isArray(indexData) && indexData !== null) {
-              // Remove the selected month keys from the index
-              const updatedIndex = { ...indexData };
-              let hasChanges = false;
+              // Check if index is an object with month keys (month query structure)
+              if (typeof indexData === 'object' && !Array.isArray(indexData) && indexData !== null) {
+                // Remove the selected month keys from the index
+                const updatedIndex = { ...indexData };
+                let hasChanges = false;
 
-              for (const prefix of monthPrefixes) {
-                if (prefix in updatedIndex) {
-                  delete updatedIndex[prefix];
-                  hasChanges = true;
+                for (const prefix of monthPrefixes) {
+                  if (prefix in updatedIndex) {
+                    delete updatedIndex[prefix];
+                    hasChanges = true;
+                  }
                 }
-              }
 
-              // If there are remaining months, save the updated index
-              // If no months left, clear the entire index entry
-              if (hasChanges) {
-                const remainingKeys = Object.keys(updatedIndex);
-                if (remainingKeys.length > 0) {
-                  // Save updated index with remaining months
-                  await indexedDBService.saveQueryIndexResult(queryId, updatedIndex, currentQueryDoc);
-                } else {
-                  // No months left, clear the entire index
-                  await indexedDBService.clearQueryIndexResult(queryId);
+                // If there are remaining months, save the updated index
+                // If no months left, clear the entire index entry
+                if (hasChanges) {
+                  const remainingKeys = Object.keys(updatedIndex);
+                  if (remainingKeys.length > 0) {
+                    // Save updated index with remaining months
+                    await indexedDBService.saveQueryIndexResult(queryId, updatedIndex, currentQueryDoc);
+                  } else {
+                    // No months left, clear the entire index
+                    await indexedDBService.clearQueryIndexResult(queryId);
+                  }
                 }
               }
             }
+          } catch (indexError) {
+            console.error(`Error clearing index for queryId ${queryId}:`, indexError);
           }
-        } catch (indexError) {
-          console.error(`Error clearing index for queryId ${queryId}:`, indexError);
         }
       } else {
         // For non-month queries: clear all stores (no month prefix)
@@ -2765,10 +476,13 @@ export default function DataProviderNew({
         }
 
         // Also clear the index entry for non-month queries
-        try {
-          await indexedDBService.clearQueryIndexResult(queryId);
-        } catch (indexError) {
-          console.error(`Error clearing index for queryId ${queryId}:`, indexError);
+        // Skip if queryId is null (offline mode / drawer tables)
+        if (queryId) {
+          try {
+            await indexedDBService.clearQueryIndexResult(queryId);
+          } catch (indexError) {
+            console.error(`Error clearing index for queryId ${queryId}:`, indexError);
+          }
         }
       }
 
@@ -2784,15 +498,17 @@ export default function DataProviderNew({
     if (!tableData || !Array.isArray(tableData) || isEmpty(tableData)) {
       return [];
     }
+    // Exclude __nestedTables__ from columns (it's UI-only metadata, not a data column)
     return uniq(flatMap(tableData, (item) =>
-      item && typeof item === 'object' ? getDataKeys(item) : []
+      item && typeof item === 'object' ? getDataKeys(item).filter(key => key !== '__nestedTables__') : []
     ));
   }, [tableData]);
 
   // Compute array fields separately (will be used to filter columns)
   const arrayFieldsForColumnFilter = useMemo(() => {
-    // Use rawTableData to detect array fields early
-    const dataToCheck = rawTableData;
+    // Check both rawTableData and tableData (which includes user edits)
+    // This ensures array fields are detected even after save operations
+    const dataToCheck = tableData && !isEmpty(tableData) ? tableData : rawTableData;
     if (!isEmpty(dataToCheck) && isArray(dataToCheck)) {
       const sampleData = take(dataToCheck, 10);
       const arrayFields = new Set();
@@ -2813,7 +529,7 @@ export default function DataProviderNew({
       return arrayFields;
     }
     return new Set();
-  }, [rawTableData, columns]);
+  }, [rawTableData, tableData, columns]);
 
   // Filter columns based on allowedColumns (if provided)
   // This ensures only developer-approved columns are available throughout the app
@@ -2831,14 +547,18 @@ export default function DataProviderNew({
     if (arrayFieldsForColumnFilter.size > 0) {
       result = result.filter(col => !arrayFieldsForColumnFilter.has(col));
     }
-    
-    return result;
-  }, [columns, allowedColumns, arrayFieldsForColumnFilter]);
 
-  const isNumericValue = useCallback((value) => {
-    if (isNil(value)) return false;
-    return isNumber(value) || (!_isNaN(parseFloat(value)) && _isFinite(value));
-  }, []);
+    // Include derived columns at their specified position (position = 0-based index; omit to append at end)
+    const mode = derivedColumnsMode ?? 'main';
+    const fieldName = derivedColumnsFieldName ?? null;
+    result = getOrderedColumnsWithDerived(result, derivedColumns || [], mode, fieldName);
+    // #region agent log
+    if (mode === 'nested') {
+      fetch('http://127.0.0.1:7242/ingest/2135770c-01a3-4957-a1df-7b381363f2ec',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'DataProviderNew.jsx:filteredColumns',message:'nested filteredColumns',data:{mode,fieldName,columnsOrder:columns.slice(0,10),resultOrder:result.slice(0,10)},timestamp:Date.now(),hypothesisId:'H4'})}).catch(()=>{});
+    }
+    // #endregion
+    return result;
+  }, [columns, allowedColumns, arrayFieldsForColumnFilter, derivedColumns, derivedColumnsMode, derivedColumnsFieldName]);
 
   // Column types computation (NEW FORMAT: { field_name: "boolean" | "number" | "date" | "string" })
   const columnTypes = useMemo(() => {
@@ -2907,37 +627,17 @@ export default function DataProviderNew({
       detectedTypes[col] = detectedTypeString;
     });
 
-    // Merge detected types with overrides (overrides take precedence)
+    // Merge detected types with overrides and derived column types (overrides take precedence)
     const mergedTypes = { ...detectedTypes, ...columnTypesOverride };
-    return mergedTypes;
-  }, [tableData, filteredColumns, isNumericValue, columnTypesOverride]);
-
-  // JSON array fields detection - identify fields containing JSON string arrays or actual arrays
-  const jsonArrayFields = useMemo(() => {
-    if (isEmpty(tableData)) {
-      return new Set();
-    }
-
-    const sampleData = take(tableData, 100);
-    const jsonFields = new Set();
-
-    sampleData.forEach((row) => {
-      if (!row || typeof row !== 'object') return;
-      
-      // Check all fields in the row
-      for (const [fieldName, value] of Object.entries(row)) {
-        // Skip special fields
-        if (fieldName.startsWith('__')) continue;
-        
-        // Check if value is a JSON array string or actual array of objects
-        if (isJsonArrayOfObjectsString(value)) {
-          jsonFields.add(fieldName);
-        }
+    (derivedColumns || []).forEach((dc) => {
+      if (dc.columnName && dc.columnType) {
+        mergedTypes[dc.columnName] = dc.columnType;
       }
     });
+    return mergedTypes;
+  }, [tableData, filteredColumns, isNumericValue, columnTypesOverride, derivedColumns]);
 
-    return jsonFields;
-  }, [tableData]);
+  // jsonArrayFields comes from useDataPipeline
 
   // Multiselect columns computation
   const multiselectColumns = useMemo(() => {
@@ -3059,85 +759,7 @@ export default function DataProviderNew({
     return values;
   }, [tableData, searchSortSortedData, multiselectColumns, tableFilters, filteredColumns, columnTypes, hasPercentageColumns, percentageColumnNames, isPercentageColumn, getPercentageColumnValue, enableFilter]);
 
-  // Filtered data computation (use worker results if available)
-  const filteredData = useMemo(() => {
-    // Use worker-computed data if available
-    if (workerComputedData?.filteredData) {
-      return workerComputedData.filteredData;
-    }
-    // Use searchSortSortedData if available (it contains both search filtering and sort)
-    // If searchSortSortedData exists, it means either:
-    // 1. Search is active (searchedData was filtered) - use searchSortSortedData
-    // 2. Sort is active but no search (searchedData = tableData, but sorted) - use searchSortSortedData
-    // 3. Neither search nor sort - searchSortSortedData = searchedData = tableData - use it anyway
-    // Only use tableData directly if searchSortSortedData is null/undefined (shouldn't happen normally)
-    let dataSource;
-    if (searchSortSortedData != null) {
-      // searchSortSortedData exists - use it (handles both search and sort)
-      dataSource = searchSortSortedData;
-    } else {
-      // Fallback: use tableData if searchSortSortedData is somehow null
-      dataSource = tableData;
-    }
-    if (isEmpty(dataSource)) {
-      return [];
-    }
-    if (!enableFilter) {
-      return dataSource;
-    }
-    return filter(dataSource, (row) => {
-      if (!row || typeof row !== 'object') return false;
-      const regularColumnsPass = every(filteredColumns, (col) => {
-        const filterObj = get(tableFilters, col);
-        if (!filterObj || isNil(filterObj.value) || filterObj.value === '') return true;
-        if (isArray(filterObj.value) && isEmpty(filterObj.value)) return true;
-        const cellValue = getDataValue(row, col);
-        const filterValue = filterObj.value;
-        const colType = columnTypes[col] || 'string';
-        const isMultiselectColumn = includes(multiselectColumns, col);
-        if (isMultiselectColumn && isArray(filterValue)) {
-          return some(filterValue, (v) => {
-            if (isNil(v) && isNil(cellValue)) return true;
-            if (isNil(v) || isNil(cellValue)) return false;
-            return v === cellValue || String(v) === String(cellValue);
-          });
-        }
-        if (colType === 'boolean') {
-          const cellIsTruthy = cellValue === true || cellValue === 1 || cellValue === '1';
-          const cellIsFalsy = cellValue === false || cellValue === 0 || cellValue === '0';
-          if (filterValue === true) {
-            return cellIsTruthy;
-          } else if (filterValue === false) {
-            return cellIsFalsy;
-          }
-          return true;
-        }
-        if (colType === 'date') {
-          return applyDateFilter(cellValue, filterValue);
-        }
-        if (colType === 'number') {
-          const parsedFilter = parseNumericFilter(filterValue);
-          return applyNumericFilter(cellValue, parsedFilter);
-        }
-        const strCell = toLower(String(cellValue ?? ''));
-        const strFilter = toLower(String(filterValue));
-        return includes(strCell, strFilter);
-      });
-      if (!regularColumnsPass) return false;
-      if (hasPercentageColumns) {
-        return every(percentageColumnNames, (col) => {
-          const filterObj = get(tableFilters, col);
-          if (!filterObj || isNil(filterObj.value) || filterObj.value === '') return true;
-          if (isArray(filterObj.value) && isEmpty(filterObj.value)) return true;
-          const cellValue = getPercentageColumnValue(row, col);
-          const filterValue = filterObj.value;
-          const parsedFilter = parseNumericFilter(filterValue);
-          return applyNumericFilter(cellValue, parsedFilter);
-        });
-      }
-      return true;
-    });
-  }, [searchSortSortedData, searchTerm, tableData, tableFilters, columns, columnTypes, multiselectColumns, hasPercentageColumns, percentageColumnNames, getPercentageColumnValue, enableFilter, workerComputedData]);
+  // filteredData comes from useDataPipeline
 
   // Report data computation state (using Web Worker)
   const reportWorkerRef = useRef(null);
@@ -3225,45 +847,7 @@ export default function DataProviderNew({
     };
   }, []);
 
-  // Memoize sort field type to avoid expensive inferColumnType calls
-  const sortFieldType = useMemo(() => {
-    if (!sortConfig || !currentQueryDoc?.clientSave || !currentQueryDoc?.sortFields) {
-      return null;
-    }
-    const { field } = sortConfig;
-    const [topLevelKey, ...nestedParts] = field.split('.');
-    const nestedPath = nestedParts.join('.');
-    const sortFieldsObj = currentQueryDoc.sortFields;
-
-    if (!sortFieldsObj[topLevelKey] || !sortFieldsObj[topLevelKey].includes(nestedPath)) {
-      return null;
-    }
-
-    // Try columnTypesOverride first (fastest)
-    if (columnTypesOverride[field]) {
-      return { field, topLevelKey, nestedPath, fieldType: columnTypesOverride[field] };
-    }
-
-    // Try columnTypes with nestedPath or field (fast)
-    const fieldTypeFromColumns = columnTypes[nestedPath] || columnTypes[field];
-    if (fieldTypeFromColumns) {
-      return { field, topLevelKey, nestedPath, fieldType: fieldTypeFromColumns };
-    }
-
-    // Only infer as last resort (slow, but cached per sortConfig change)
-    if (!isEmpty(filteredData)) {
-      const inferredType = inferColumnType(filteredData, field, topLevelKey, nestedPath);
-      return { field, topLevelKey, nestedPath, fieldType: inferredType };
-    }
-
-    return { field, topLevelKey, nestedPath, fieldType: 'string' };
-  }, [sortConfig, currentQueryDoc?.clientSave, currentQueryDoc?.sortFields, columnTypesOverride, columnTypes, filteredData]);
-
-  // Use groupFields directly - breaking change: no longer supports outerGroupField/innerGroupField
-  // effectiveGroupFields is always an array (never null/undefined) for consistent usage
-  const effectiveGroupFields = useMemo(() => {
-    return Array.isArray(groupFields) ? groupFields : [];
-  }, [groupFields]);
+  // sortFieldType and effectiveGroupFields come from useDataPipeline
 
   const alwaysAllowedKeys = useMemo(() => new Set(['id', 'period', 'periodLabel', 'isNestedRow']), []);
 
@@ -3371,7 +955,7 @@ export default function DataProviderNew({
     return fields;
   }, [activeDrawerTab]);
 
-  const { reportData: rawDrawerReportData, isComputingReport: isComputingDrawerReport } = useReportData(
+  const { reportData: rawDrawerReportData } = useReportData(
     enableBreakdown,
     drawerReportInputData,
     drawerGroupFields,
@@ -3406,6 +990,31 @@ export default function DataProviderNew({
     };
   }, [baseReportData, allowedFieldSet]);
 
+  const reportDataWithDerived = useMemo(() => {
+    if (!reportData || !derivedColumns?.length) return reportData;
+    const tableDataDerived = reportData.tableData
+      ? applyDerivedColumns(reportData.tableData, derivedColumns, { mode: 'report', getDataValue })
+      : reportData.tableData;
+    const nestedTableDataDerived = reportData.nestedTableData
+      ? Object.fromEntries(
+          Object.entries(reportData.nestedTableData).map(([k, v]) => [
+            k,
+            applyDerivedColumns(v, derivedColumns, { mode: 'report', getDataValue }),
+          ])
+        )
+      : reportData.nestedTableData;
+    return {
+      ...reportData,
+      tableData: tableDataDerived,
+      nestedTableData: nestedTableDataDerived,
+    };
+  }, [reportData, derivedColumns]);
+
+  useEffect(() => {
+    reportDataRef.current = reportDataWithDerived;
+    setReportDataForPipeline(reportDataWithDerived);
+  }, [reportDataWithDerived]);
+
   const isComputingReport = reportDataOverride ? false : internalIsComputingReport;
 
   const drawerReportData = useMemo(() => {
@@ -3429,271 +1038,29 @@ export default function DataProviderNew({
     };
   }, [rawDrawerReportData, allowedFieldSet]);
 
-  const shouldShowDrawerReport = enableBreakdown && !!drawerReportData;
+  const drawerReportDataWithDerived = useMemo(() => {
+    if (!drawerReportData || !derivedColumns?.length) return drawerReportData;
+    const tableDataDerived = drawerReportData.tableData
+      ? applyDerivedColumns(drawerReportData.tableData, derivedColumns, { mode: 'report', getDataValue })
+      : drawerReportData.tableData;
+    const nestedTableDataDerived = drawerReportData.nestedTableData
+      ? Object.fromEntries(
+          Object.entries(drawerReportData.nestedTableData).map(([k, v]) => [
+            k,
+            applyDerivedColumns(v, derivedColumns, { mode: 'report', getDataValue }),
+          ])
+        )
+      : drawerReportData.nestedTableData;
+    return {
+      ...drawerReportData,
+      tableData: tableDataDerived,
+      nestedTableData: nestedTableDataDerived,
+    };
+  }, [drawerReportData, derivedColumns]);
 
-  // Recursive grouping function for infinite nesting
-  const groupDataRecursive = useCallback((data, fields, currentLevel = 0, parentPath = []) => {
-    // Base case: no more grouping levels
-    if (currentLevel >= fields.length || isEmpty(data)) {
-      return data;
-    }
+  const shouldShowDrawerReport = enableBreakdown && !!drawerReportDataWithDerived;
 
-    const currentField = fields[currentLevel];
-    const groups = {};
-
-    // Group data by current field
-    data.forEach((row) => {
-      if (row.__isGroupRow__) return;
-      const groupKey = getDataValue(row, currentField);
-      const key = isNil(groupKey) ? '__null__' : String(groupKey);
-      if (!groups[key]) {
-        groups[key] = [];
-      }
-      groups[key].push(row);
-    });
-
-    // Apply sortConfig to rows within groups if sortConfig exists
-    let sortComparator = null;
-    if (sortFieldType) {
-      sortComparator = getSortComparator(sortConfig, sortFieldType.fieldType, sortFieldType.topLevelKey, sortFieldType.nestedPath);
-    }
-
-    // Sort rows within each group before processing
-    if (sortComparator) {
-      Object.keys(groups).forEach(key => {
-        groups[key].sort(sortComparator);
-      });
-    }
-
-    // Process each group
-    return Object.entries(groups).map(([groupKey, rows]) => {
-      const currentPath = [...parentPath, groupKey === '__null__' ? null : groupKey];
-
-      // Recursively group next level
-      const nextLevelData = groupDataRecursive(rows, fields, currentLevel + 1, currentPath);
-
-      // Determine if we need to aggregate (if next level is still grouped)
-      const hasNextLevel = currentLevel + 1 < fields.length;
-      const innerData = hasNextLevel ? nextLevelData : rows;
-
-      // Create summary row
-      const summaryRow = {};
-      const firstItem = Array.isArray(innerData) && innerData.length > 0 ? innerData[0] : null;
-      if (!firstItem) return null;
-
-      filteredColumns.forEach((col) => {
-        const colType = columnTypes[col] || {};
-        // Set current field value
-        if (col === currentField) {
-          summaryRow[col] = groupKey === '__null__' ? null : groupKey;
-        }
-        // Clear fields from deeper levels (they'll be in nested tables)
-        else if (currentLevel < fields.length - 1 && fields.slice(currentLevel + 1).includes(col)) {
-          summaryRow[col] = null;
-        }
-        // Aggregate numeric columns
-        else if (colType === 'number') {
-          const sum = sumBy(innerData, (row) => {
-            const val = getDataValue(row, col);
-            if (isNil(val)) return 0;
-            const numVal = isNumber(val) ? val : toNumber(val);
-            return _isNaN(numVal) ? 0 : numVal;
-          });
-          summaryRow[col] = sum;
-        }
-        // For other columns, use first non-null value
-        else {
-          const firstNonNull = Array.isArray(innerData)
-            ? innerData.find(row => !isNil(getDataValue(row, col)))
-            : null;
-          summaryRow[col] = firstNonNull ? getDataValue(firstNonNull, col) : getDataValue(firstItem, col);
-        }
-      });
-
-      // Handle percentage columns
-      if (hasPercentageColumns) {
-        percentageColumns.forEach(pc => {
-          if (pc.columnName && pc.targetField && pc.valueField) {
-            const sumTarget = sumBy(rows, (row) => {
-              const val = getDataValue(row, pc.targetField);
-              if (isNil(val)) return 0;
-              const numVal = isNumber(val) ? val : toNumber(val);
-              return _isNaN(numVal) ? 0 : numVal;
-            });
-            const sumValue = sumBy(rows, (row) => {
-              const val = getDataValue(row, pc.valueField);
-              if (isNil(val)) return 0;
-              const numVal = isNumber(val) ? val : toNumber(val);
-              return _isNaN(numVal) ? 0 : numVal;
-            });
-            summaryRow[pc.columnName] = sumTarget !== 0 ? (sumValue / sumTarget) * 100 : null;
-          }
-        });
-      }
-
-      // Add metadata
-      summaryRow.__groupKey__ = groupKey === '__null__' ? null : groupKey;
-      summaryRow.__groupRows__ = innerData;
-      summaryRow.__groupLevel__ = currentLevel;
-      summaryRow.__groupField__ = currentField;
-      summaryRow.__isGroupRow__ = true;
-      summaryRow.__groupPath__ = currentPath;
-
-      // Preserve __nestedTables__ from first item if it exists
-      if (firstItem && firstItem.__nestedTables__) {
-        summaryRow.__nestedTables__ = firstItem.__nestedTables__;
-      }
-
-      return summaryRow;
-    }).filter(Boolean);
-  }, [filteredColumns, columnTypes, hasPercentageColumns, percentageColumns, sortFieldType, sortConfig, getSortComparator]);
-
-  // Extract JSON nested tables from data (recursive)
-  const extractJsonNestedTablesFromData = useCallback((data, maxDepth = 10) => {
-    if (!isArray(data) || isEmpty(data)) {
-      return data;
-    }
-
-    // Use recursive extraction function
-    return extractJsonNestedTablesRecursive(data, 0, maxDepth);
-  }, []);
-
-  // Grouped data computation (use worker results if available)
-  const groupedData = useMemo(() => {
-    // If report is enabled, use report data instead (prioritize over worker data)
-    if (enableBreakdown) {
-      // If report data is still computing, return empty array to avoid rendering issues
-      if (!reportData || !reportData.tableData) {
-        return [];
-      }
-      // Apply sorting as fallback (in case report generation didn't apply it)
-      let sortedReportData = reportData.tableData;
-      if (sortFieldType && sortConfig) {
-        const sortComparator = getSortComparator(sortConfig, sortFieldType.fieldType, sortFieldType.topLevelKey, sortFieldType.nestedPath);
-        if (sortComparator && sortedReportData.length > 0) {
-          sortedReportData = [...sortedReportData].sort(sortComparator);
-        }
-      }
-      return sortedReportData;
-    }
-
-    // Use worker-computed data if available (fallback when report mode is not enabled)
-    if (workerComputedData?.groupedData) {
-      return workerComputedData.groupedData;
-    }
-
-    // Extract JSON nested tables before grouping
-    let dataWithJsonTables = filteredData;
-    if (jsonArrayFields.size > 0 && !isEmpty(filteredData)) {
-      dataWithJsonTables = extractJsonNestedTablesFromData(filteredData);
-    }
-
-    // Use recursive grouping if groupFields is provided
-    if (effectiveGroupFields.length > 0 && !isEmpty(dataWithJsonTables)) {
-      const result = groupDataRecursive(dataWithJsonTables, effectiveGroupFields);
-      // Sort groups by sortConfig if it exists
-      if (sortFieldType) {
-        const sortComparator = getSortComparator(sortConfig, sortFieldType.fieldType, sortFieldType.topLevelKey, sortFieldType.nestedPath);
-        if (sortComparator && result.length > 0) {
-          return [...result].sort(sortComparator);
-        }
-      }
-      return result;
-    }
-
-    // Removed backward compatibility grouping logic - now only uses groupDataRecursive with effectiveGroupFields
-    // If no group fields, return filtered data as-is (with JSON tables extracted)
-    if (isEmpty(dataWithJsonTables) || !isArray(dataWithJsonTables)) {
-      return dataWithJsonTables || [];
-    }
-    return dataWithJsonTables.filter(row => !row?.__isGroupRow__).map(row => {
-      if (row instanceof Map) {
-        const plainObj = {};
-        row.forEach((value, key) => {
-          plainObj[key] = value;
-        });
-        return plainObj;
-      }
-      return row;
-    });
-  }, [enableBreakdown, reportData, filteredData, effectiveGroupFields, groupDataRecursive, filteredColumns, columnTypes, hasPercentageColumns, percentageColumns, sortFieldType, sortConfig, getSortComparator, jsonArrayFields, extractJsonNestedTablesFromData]);
-
-  // Extract JSON nested tables from filteredData if not already done (for non-grouped mode)
-  const filteredDataWithNestedTables = useMemo(() => {
-    if (effectiveGroupFields.length > 0) {
-      // Grouped data already has nested tables extracted
-      return filteredData;
-    }
-    // For non-grouped mode, extract nested tables from filteredData
-    if (jsonArrayFields.size > 0 && !isEmpty(filteredData)) {
-      return extractJsonNestedTablesFromData(filteredData);
-    }
-    return filteredData;
-  }, [filteredData, effectiveGroupFields.length, jsonArrayFields.size, extractJsonNestedTablesFromData]);
-
-  // Sorted data computation
-  const dataForSorting = useMemo(() => {
-    const data = effectiveGroupFields.length > 0 ? groupedData : filteredDataWithNestedTables;
-    return isArray(data) ? data : [];
-  }, [effectiveGroupFields, groupedData, filteredDataWithNestedTables]);
-
-  const sortedData = useMemo(() => {
-    // If report mode is enabled, prioritize report data over worker data
-    // groupedData already contains reportData.tableData when enableBreakdown is true
-    if (enableBreakdown) {
-      // Use dataForSorting which will be groupedData (with report data) when effectiveGroupFields exists
-      if (!isArray(dataForSorting) || isEmpty(dataForSorting)) {
-        return [];
-      }
-      // Apply sorting if needed
-      let result = [...dataForSorting];
-      if (sortFieldType && sortConfig) {
-        const sortComparator = getSortComparator(sortConfig, sortFieldType.fieldType, sortFieldType.topLevelKey, sortFieldType.nestedPath);
-        if (sortComparator && result.length > 0) {
-          result.sort(sortComparator);
-        }
-      }
-      return result;
-    }
-    // Use worker-computed data if available (when not in report mode)
-    // When grouping is enabled, use groupedData instead of sortedData
-    if (effectiveGroupFields.length > 0 && workerComputedData?.groupedData) {
-      return workerComputedData.groupedData;
-    }
-    if (workerComputedData?.sortedData) {
-      return workerComputedData.sortedData;
-    }
-
-    if (!isArray(dataForSorting)) {
-      return [];
-    }
-    if (isEmpty(dataForSorting)) {
-      return dataForSorting;
-    }
-
-    let result = [...dataForSorting];
-
-    // Apply tableSortMeta if it exists (overrides sortConfig)
-    if (!isEmpty(tableSortMeta) && enableSort) {
-      const fields = tableSortMeta.map(s => {
-        const field = s.field;
-        if (isPercentageColumn(field)) {
-          return (rowData) => getPercentageColumnValue(rowData, field);
-        }
-        return field;
-      });
-      const orders = tableSortMeta.map(s => s.order === 1 ? 'asc' : 'desc');
-      result = orderBy(result, fields, orders);
-    } else if (sortFieldType) {
-      // Apply sortConfig only if tableSortMeta doesn't exist (for both grouped and ungrouped data)
-      const sortComparator = getSortComparator(sortConfig, sortFieldType.fieldType, sortFieldType.topLevelKey, sortFieldType.nestedPath);
-      if (sortComparator) {
-        result.sort(sortComparator);
-      }
-    }
-
-    return result;
-  }, [enableBreakdown, groupedData, dataForSorting, tableSortMeta, isPercentageColumn, getPercentageColumnValue, enableSort, sortFieldType, sortConfig, getSortComparator, workerComputedData]);
+  // groupDataRecursive, extractJsonNestedTablesFromData, groupedData, filteredDataWithNestedTables, dataForSorting, sortedData, paginatedData come from useDataPipeline
 
   // Compute filter/sort/group using worker when applying
   useEffect(() => {
@@ -3741,9 +1108,21 @@ export default function DataProviderNew({
           // Note: isPercentageColumnFn removed - worker uses percentageColumns array instead
         });
 
+        // Apply derived columns to grouped data (including group summary rows)
+        const groupedDataWithDerived =
+          result.groupedData && derivedColumns?.length
+            ? applyDerivedColumns(result.groupedData, derivedColumns, {
+                mode: 'main',
+                getDataValue,
+              })
+            : result.groupedData;
+
         // Only update if this is still the latest computation
         if (computationId === filterSortComputationIdRef.current) {
-          setWorkerComputedData(result);
+          setWorkerComputedData({
+            ...result,
+            groupedData: groupedDataWithDerived,
+          });
           setIsApplyingFilterSort(false);
         }
       } catch (error) {
@@ -3778,11 +1157,69 @@ export default function DataProviderNew({
     }
   }, [sortedData, isApplyingFilterSort, workerComputedData]);
 
-  // Paginated data computation
-  const paginatedData = useMemo(() => {
-    const result = !isArray(sortedData) ? [] : sortedData.slice(tablePagination.first, tablePagination.first + tablePagination.rows);
-    return result;
-  }, [sortedData, tablePagination]);
+  // Track previous sortedData to prevent unnecessary re-initialization
+  const previousSortedDataRef = useRef(null);
+  const previousSortedDataHashRef = useRef(null);
+
+  // Initialize buffers from sortedData (final processed data after all preprocessing)
+  useEffect(() => {
+    if (!isArray(sortedData)) {
+      const currentEditingLength = mainTableEditingDataRef.current.length;
+      const currentOriginalLength = mainTableOriginalDataRef.current.length;
+      if (currentEditingLength > 0 || currentOriginalLength > 0) {
+        mainTableOriginalDataRef.current = [];
+        mainTableEditingDataRef.current = [];
+        setMainTableEditingData([]);
+        previousSortedDataRef.current = null;
+        previousSortedDataHashRef.current = null;
+      }
+      return;
+    }
+
+    // Create a hash of sortedData to detect actual changes (use length and editing keys if available)
+    let dataHash;
+    try {
+      if (sortedData.length === 0) {
+        dataHash = `0_empty`;
+      } else {
+        // Use editing keys if available, otherwise use a simple identifier
+        const firstKey = sortedData[0]?.__editingKey__ || sortedData[0]?.id || 'no_key';
+        const lastKey = sortedData[sortedData.length - 1]?.__editingKey__ || sortedData[sortedData.length - 1]?.id || 'no_key';
+        dataHash = `${sortedData.length}_${firstKey}_${lastKey}`;
+      }
+    } catch (e) {
+      dataHash = `error_${sortedData.length}`;
+    }
+
+    // Only re-initialize if data actually changed (different reference or different hash)
+    if (previousSortedDataRef.current === sortedData) {
+      // Same reference, definitely no change
+      return;
+    }
+    
+    if (previousSortedDataHashRef.current === dataHash && sortedData.length === (mainTableOriginalDataRef.current.length || 0)) {
+      // Same hash and length, likely no change - but update ref to current reference
+      previousSortedDataRef.current = sortedData;
+      return;
+    }
+
+    // Deep clone sortedData and add editing keys
+    const dataWithKeys = addEditingKeysToRows(cloneDeep(sortedData));
+    
+    // Initialize original buffer
+    mainTableOriginalDataRef.current = cloneDeep(dataWithKeys);
+    
+    // Initialize editing buffer (deep clone from original)
+    const editingData = cloneDeep(dataWithKeys);
+    mainTableEditingDataRef.current = editingData;
+    setMainTableEditingData(editingData);
+
+    // Update tracking refs
+    previousSortedDataRef.current = sortedData;
+    previousSortedDataHashRef.current = dataHash;
+  }, [sortedData, addEditingKeysToRows]);
+
+  // paginatedData comes from useDataPipeline
 
   // Initialize filters effect
   useEffect(() => {
@@ -3889,117 +1326,29 @@ export default function DataProviderNew({
    * @returns {Array} Filtered data array
    */
   const applyFiltersToData = useCallback((data, filters, options = {}) => {
-    if (!isArray(data) || isEmpty(data)) {
-      return [];
-    }
-    if (!filters || isEmpty(filters)) {
-      return data;
-    }
+    if (!isArray(data) || isEmpty(data)) return [];
+    if (!filters || isEmpty(filters)) return data;
 
-    // Convert simple filter format { columnKey: [values] } to internal format
     const internalFilters = {};
     Object.keys(filters).forEach((columnKey) => {
       const filterValues = filters[columnKey];
-      if (isNil(filterValues) || filterValues === '') {
-        return; // Skip empty filters
-      }
-      if (isArray(filterValues) && isEmpty(filterValues)) {
-        return; // Skip empty arrays
-      }
-
-      const colType = columnTypes[columnKey] || 'string';
-      const isMultiselectColumn = includes(multiselectColumns, columnKey);
-
-      // Determine matchMode based on filter values and column type
-      let matchMode = 'contains';
-      if (isArray(filterValues)) {
-        matchMode = 'in'; // Multiselect
-      } else if (colType === 'boolean') {
-        matchMode = 'equals';
-      } else if (colType === 'date') {
-        matchMode = isArray(filterValues) ? 'dateRange' : 'equals';
-      } else if (colType === 'number') {
-        matchMode = 'contains'; // Numeric filter uses contains for parsing
-      }
-
-      internalFilters[columnKey] = {
-        value: filterValues,
-        matchMode
-      };
+      if (isNil(filterValues) || filterValues === '') return;
+      if (isArray(filterValues) && isEmpty(filterValues)) return;
+      internalFilters[columnKey] = { value: filterValues };
     });
+    if (isEmpty(internalFilters)) return data;
 
-    if (isEmpty(internalFilters)) {
-      return data;
-    }
-
-    // Apply filters using the same logic as filteredData computation
-    return filter(data, (row) => {
-      if (!row || typeof row !== 'object') return false;
-
-      // Check regular columns
-      const regularColumnsPass = every(columns, (col) => {
-        const filterObj = internalFilters[col];
-        if (!filterObj || isNil(filterObj.value) || filterObj.value === '') return true;
-        if (isArray(filterObj.value) && isEmpty(filterObj.value)) return true;
-
-        const cellValue = getDataValue(row, col);
-        const filterValue = filterObj.value;
-        const colType = columnTypes[col] || 'string';
-        const isMultiselectColumn = includes(multiselectColumns, col);
-
-        if (isMultiselectColumn && isArray(filterValue)) {
-          return some(filterValue, (v) => {
-            if (isNil(v) && isNil(cellValue)) return true;
-            if (isNil(v) || isNil(cellValue)) return false;
-            return v === cellValue || String(v) === String(cellValue);
-          });
-        }
-
-        if (colType === 'boolean') {
-          const cellIsTruthy = cellValue === true || cellValue === 1 || cellValue === '1';
-          const cellIsFalsy = cellValue === false || cellValue === 0 || cellValue === '0';
-          if (filterValue === true) {
-            return cellIsTruthy;
-          } else if (filterValue === false) {
-            return cellIsFalsy;
-          }
-          return true;
-        }
-
-        if (colType === 'date') {
-          return applyDateFilter(cellValue, filterValue);
-        }
-
-        if (colType === 'number') {
-          const parsedFilter = parseNumericFilter(filterValue);
-          return applyNumericFilter(cellValue, parsedFilter);
-        }
-
-        // String filter (contains)
-        const strCell = toLower(String(cellValue ?? ''));
-        const strFilter = toLower(String(filterValue));
-        return includes(strCell, strFilter);
-      });
-
-      if (!regularColumnsPass) return false;
-
-      // Check percentage columns
-      if (hasPercentageColumns) {
-        return every(percentageColumnNames, (col) => {
-          const filterObj = internalFilters[col];
-          if (!filterObj || isNil(filterObj.value) || filterObj.value === '') return true;
-          if (isArray(filterObj.value) && isEmpty(filterObj.value)) return true;
-
-          const cellValue = getPercentageColumnValue(row, col);
-          const filterValue = filterObj.value;
-          const parsedFilter = parseNumericFilter(filterValue);
-          return applyNumericFilter(cellValue, parsedFilter);
-        });
-      }
-
-      return true;
-    });
-  }, [columns, columnTypes, multiselectColumns, hasPercentageColumns, percentageColumnNames, getPercentageColumnValue, applyDateFilter, applyNumericFilter, parseNumericFilter]);
+    const getCellValue = (row, col) => (includes(percentageColumnNames, col) ? getPercentageColumnValue(row, col) : getDataValue(row, col));
+    const columnMeta = {
+      columns,
+      columnTypes,
+      multiselectColumns,
+      hasPercentageColumns,
+      percentageColumnNames,
+      getCellValue,
+    };
+    return filterRows(data, { filters: internalFilters, columnMeta });
+  }, [columns, columnTypes, multiselectColumns, hasPercentageColumns, percentageColumnNames, getPercentageColumnValue]);
 
   // Variant 1: getSums(data, filters) - calculates sums on provided data with optional filters
   // Variant 2: getSums(filters) - calculates sums on current filteredData with filters applied
@@ -4046,8 +1395,35 @@ export default function DataProviderNew({
         });
       }
     });
+
+    // Run compute on total row for derived columns (totalRow = sums, each key has column sum)
+    const derivedColNames = getDerivedColumnNames(derivedColumns || [], derivedColumnsMode ?? 'main', derivedColumnsFieldName ?? null);
+    (derivedColumns || []).forEach((dc) => {
+      if (!dc.columnName || !dc.compute || !derivedColNames.includes(dc.columnName)) return;
+      try {
+        const totalRow = { ...sums };
+        const ctx = {
+          isTotalRow: true,
+          isGroupRow: false,
+          getDataValue: (r, k) => (r && typeof r === 'object' ? r[k] : undefined),
+          parentRow: null,
+          fieldName: derivedColumnsFieldName ?? null,
+          rowIndex: -1,
+          position: -1,
+        };
+        const value = typeof dc.compute === 'function' && dc.compute.length >= 2
+          ? dc.compute(totalRow, ctx)
+          : typeof dc.compute === 'function'
+            ? dc.compute(totalRow)
+            : null;
+        sums[dc.columnName] = value;
+      } catch (e) {
+        sums[dc.columnName] = null;
+      }
+    });
+
     return sums;
-  }, [filteredData, applyFiltersToData, columns, columnTypes, isNumericValue, getDataValue]);
+  }, [filteredData, applyFiltersToData, columns, columnTypes, isNumericValue, getDataValue, derivedColumns, derivedColumnsMode, derivedColumnsFieldName]);
 
   // Summation computation
   const calculateSums = useMemo(() => {
@@ -4130,8 +1506,9 @@ export default function DataProviderNew({
     setDrawerJsonTables(null);
     // Clear change tracking data when drawer closes
     originalNestedTableDataRef.current.clear();
+    nestedTableEditingDataRef.current.clear();
     nestedTableDataRefsRef.current.clear();
-  }, []);
+  }, [drawerTabs, onDrawerTabsChange]);
 
   const addDrawerTab = useCallback(() => {
     const newTab = {
@@ -4189,9 +1566,127 @@ export default function DataProviderNew({
   // Callback to update current nested table data for a specific tab
   const updateCurrentNestedTableData = useCallback((tabId, currentData) => {
     if (tabId && isArray(currentData)) {
-      currentNestedTableDataRef.current.set(tabId, cloneDeep(currentData));
+      // Don't overwrite saved data: if incoming data matches the saved original, preserve the editing buffer
+      // This prevents reverting user edits after save
+      const trackingData = originalNestedTableDataRef.current.get(tabId);
+      const existingData = nestedTableEditingDataRef.current.get(tabId);
+      if (trackingData && trackingData.originalData && existingData && existingData.length > 0) {
+        // Check if incoming data matches the saved original (which would revert edits)
+        const incomingMatchesSavedOriginal = trackingData.originalData.length === currentData.length && 
+          JSON.stringify(trackingData.originalData) === JSON.stringify(currentData);
+        // Check if existing data matches the saved original (meaning it's the saved state)
+        const existingMatchesSavedOriginal = existingData.length === trackingData.originalData.length &&
+          JSON.stringify(existingData) === JSON.stringify(trackingData.originalData);
+        if (incomingMatchesSavedOriginal && existingMatchesSavedOriginal) {
+          // Both match saved original - this is fine, data is already saved
+          return; // Skip update - data already matches saved state
+        }
+        // If incoming matches saved original but existing doesn't, preserve existing (user has new edits)
+        if (incomingMatchesSavedOriginal && !existingMatchesSavedOriginal) {
+          return; // Skip update to preserve user's new edits
+        }
+      }
+      // Don't overwrite if we already have data (preserve user edits)
+      // Only update if existing data is empty or if the new data is significantly different
+      if (existingData && existingData.length > 0 && currentData.length === existingData.length) {
+        // Check if data is actually different (not just a re-render with same data)
+        const isSameData = JSON.stringify(existingData) === JSON.stringify(currentData);
+        if (isSameData) {
+          return; // Skip update if data hasn't changed
+        }
+      }
+      // Ensure editing keys are preserved when updating
+      const dataWithKeys = addEditingKeysToRows(cloneDeep(currentData));
+      nestedTableEditingDataRef.current.set(tabId, dataWithKeys);
     }
-  }, []);
+  }, [addEditingKeysToRows]);
+
+  const DERIVED_RECOMPUTE_DEBOUNCE_MS = 350;
+
+  // Debounced: recompute derived columns for a single row by editingKey; then update buffer and trigger re-render.
+  const scheduleDerivedRecomputeForRow = useCallback((editingKey) => {
+    if (derivedRecomputeTimerRef.current) {
+      clearTimeout(derivedRecomputeTimerRef.current);
+      derivedRecomputeTimerRef.current = null;
+    }
+    pendingDerivedRecomputeKeyRef.current = editingKey;
+    derivedRecomputeTimerRef.current = setTimeout(() => {
+      derivedRecomputeTimerRef.current = null;
+      const keyToRecompute = pendingDerivedRecomputeKeyRef.current;
+      pendingDerivedRecomputeKeyRef.current = null;
+      if (keyToRecompute == null) return;
+      if (!derivedColumns || !isArray(derivedColumns) || isEmpty(derivedColumns)) return;
+
+      const context = {
+        mode: derivedColumnsMode ?? 'main',
+        fieldName: derivedColumnsFieldName ?? null,
+        getDataValue,
+      };
+
+      if (nestedTableTabId && parentNestedTableEditingDataRef) {
+        const parentEditingData = parentNestedTableEditingDataRef.current.get(nestedTableTabId) || [];
+        const rowIndex = parentEditingData.findIndex((row) => row && row.__editingKey__ === keyToRecompute);
+        if (rowIndex === -1) return;
+        const row = parentEditingData[rowIndex];
+        const enrichedRow = applyDerivedColumnsForRow(row, derivedColumns, context);
+        const updatedData = [...parentEditingData];
+        updatedData[rowIndex] = enrichedRow;
+        parentNestedTableEditingDataRef.current.set(nestedTableTabId, updatedData);
+        onNestedBufferChange?.();
+      } else {
+        const editingData = mainTableEditingDataRef.current;
+        if (!editingData || !isArray(editingData)) return;
+        const rowIndex = editingData.findIndex((row) => row && row.__editingKey__ === keyToRecompute);
+        if (rowIndex === -1) return;
+        const row = editingData[rowIndex];
+        const enrichedRow = applyDerivedColumnsForRow(row, derivedColumns, context);
+        const updatedData = [...editingData];
+        updatedData[rowIndex] = enrichedRow;
+        mainTableEditingDataRef.current = updatedData;
+        mainTableEditingDataRefEarly.current = updatedData;
+        setMainTableEditingData(updatedData);
+        setTableDataUpdateTrigger((t) => t + 1);
+      }
+    }, DERIVED_RECOMPUTE_DEBOUNCE_MS);
+  }, [
+    derivedColumns,
+    derivedColumnsMode,
+    derivedColumnsFieldName,
+    getDataValue,
+    nestedTableTabId,
+    parentNestedTableEditingDataRef,
+    onNestedBufferChange,
+    setTableDataUpdateTrigger,
+  ]);
+
+  // Main table editing buffer update function
+  const updateMainTableEditingData = useCallback((editingKey, field, newValue) => {
+    // If this is a nested instance, also update parent's nestedTableEditingDataRef
+    if (nestedTableTabId && parentNestedTableEditingDataRef) {
+      const parentEditingData = parentNestedTableEditingDataRef.current.get(nestedTableTabId) || [];
+      const rowIndex = parentEditingData.findIndex(row => row && row.__editingKey__ === editingKey);
+      if (rowIndex !== -1) {
+        const updatedRow = { ...parentEditingData[rowIndex], [field]: newValue };
+        const updatedData = [...parentEditingData];
+        updatedData[rowIndex] = updatedRow;
+        parentNestedTableEditingDataRef.current.set(nestedTableTabId, updatedData);
+      }
+    }
+    
+    setMainTableEditingData(prevData => {
+      const editingData = [...prevData];
+      const rowIndex = editingData.findIndex(row => row && row.__editingKey__ === editingKey);
+      if (rowIndex !== -1) {
+        editingData[rowIndex] = { ...editingData[rowIndex], [field]: newValue };
+        mainTableEditingDataRef.current = editingData;
+        return editingData;
+      }
+      return prevData;
+    });
+
+    // Schedule debounced derived-column recompute for this row only
+    scheduleDerivedRecomputeForRow(editingKey);
+  }, [nestedTableTabId, parentNestedTableEditingDataRef, scheduleDerivedRecomputeForRow]);
 
   // Helper function to detect changes in nested table data
   // Compares original data with current data and returns array of changed rows
@@ -4284,10 +1779,10 @@ export default function DataProviderNew({
   const getChangedRowsForTab = useCallback((tabId) => {
     const trackingData = originalNestedTableDataRef.current.get(tabId);
     if (!trackingData) {
-      return [];
+      return { tabId, changes: [], parentRowData: null, nestedTableFieldName: null, parentColumnName: null };
     }
 
-    const currentData = currentNestedTableDataRef.current.get(tabId) || [];
+    const currentData = nestedTableEditingDataRef.current.get(tabId) || [];
     const changes = detectNestedTableChanges(trackingData.originalData, currentData);
     
     return {
@@ -4304,7 +1799,7 @@ export default function DataProviderNew({
     const allChanges = [];
     
     originalNestedTableDataRef.current.forEach((trackingData, tabId) => {
-      const currentData = currentNestedTableDataRef.current.get(tabId) || [];
+      const currentData = nestedTableEditingDataRef.current.get(tabId) || [];
       const changes = detectNestedTableChanges(trackingData.originalData, currentData);
       
       if (changes.length > 0) {
@@ -4321,21 +1816,127 @@ export default function DataProviderNew({
     return allChanges;
   }, [detectNestedTableChanges]);
 
+  // Helper function to find parent row in editing buffer using editing key
+  const findParentRowInEditingBuffer = useCallback((parentRowEditingKey, editingData) => {
+    if (!parentRowEditingKey || !isArray(editingData)) {
+      return null;
+    }
+    const rowIndex = editingData.findIndex(row => row && row.__editingKey__ === parentRowEditingKey);
+    if (rowIndex === -1) {
+      return null;
+    }
+    return { row: editingData[rowIndex], index: rowIndex };
+  }, []);
+
+  // Helper function to propagate drawer save to main table
+  const propagateDrawerSaveToMain = useCallback((tabId, drawerOriginalData, parentRowEditingKey, nestedTableFieldName) => {
+    if (!parentRowEditingKey || !nestedTableFieldName) {
+      console.error('propagateDrawerSaveToMain: Missing required parameters');
+      return;
+    }
+
+    // Find parent row in main editing buffer
+    const parentRowInfo = findParentRowInEditingBuffer(parentRowEditingKey, mainTableEditingData);
+    if (!parentRowInfo) {
+      console.error('propagateDrawerSaveToMain: Parent row not found with editingKey:', parentRowEditingKey);
+      if (onDataChange) {
+        onDataChange({
+          severity: 'error',
+          summary: 'Save Failed',
+          detail: 'Could not find parent row in main table. The row may have been deleted.',
+          life: 5000,
+        });
+      }
+      return;
+    }
+
+    // Update the nested array field (e.g., 'items') in parent row with drawer's saved data
+    // Remove __nestedTables__ so it gets regenerated by the existing extraction flow
+    const updatedEditingData = [...mainTableEditingData];
+    const { __nestedTables__, ...rowWithoutNestedTables } = parentRowInfo.row;
+    
+    updatedEditingData[parentRowInfo.index] = {
+      ...rowWithoutNestedTables,
+      [nestedTableFieldName]: cloneDeep(drawerOriginalData), // Update items field directly
+      // __nestedTables__ will be regenerated by extractJsonNestedTablesFromData in the existing flow
+      // BUT we must ensure it's not included in serialized output for saving
+    };
+
+    // Update main editing buffer
+    mainTableEditingDataRef.current = updatedEditingData;
+    mainTableEditingDataRefEarly.current = updatedEditingData; // CRITICAL: Update early ref so tableData memo sees the change
+    setMainTableEditingData(updatedEditingData);
+    // Increment trigger to force tableData recalculation
+    setTableDataUpdateTrigger(prev => prev + 1);
+  }, [mainTableEditingData, findParentRowInEditingBuffer, onDataChange, setTableDataUpdateTrigger]);
+
   // Handle drawer save - saves changes for current active tab
   const handleDrawerSave = useCallback(() => {
-    if (!drawerTabs || drawerTabs.length === 0) {
-      return;
-    }
-
-    const activeTab = drawerTabs[activeDrawerTabIndex];
-    if (!activeTab || !activeTab.isJsonTable) {
-      return;
-    }
-
-    const tabId = activeTab.id;
-    const changedRowsData = getChangedRowsForTab(tabId);
+    console.log('🔵 SAVE BUTTON CLICKED: DRAWER/ sidebar table');
     
-    if (changedRowsData.changes.length === 0) {
+    // If we're using parent refs (nested instance), delegate to parent's handleDrawerSave
+    // This ensures the parent's state (mainTableEditingData) is updated correctly
+    if (parentOriginalNestedTableDataRef && parentHandleDrawerSave) {
+      return parentHandleDrawerSave();
+    }
+    
+    // If drawerTabs is empty but we have parentHandleDrawerSave, delegate to parent
+    // This handles nested instances that don't have drawerTabs prop
+    if ((!drawerTabs || drawerTabs.length === 0) && parentHandleDrawerSave) {
+      return parentHandleDrawerSave();
+    }
+    
+    // If drawerTabs is empty but we have tracking data, we're in a nested JSON table context
+    // Find the first (and likely only) tracking data entry and use it
+    let tabId = null;
+    let activeTab = null;
+    
+    if (!drawerTabs || drawerTabs.length === 0) {
+      // Try to get tabId from tracking data (for nested instances)
+      const trackingEntries = Array.from(originalNestedTableDataRef.current.entries());
+      if (trackingEntries.length > 0) {
+        // Use the first tracking entry (typically there's only one for nested tables)
+        tabId = trackingEntries[0][0];
+      } else {
+        return;
+      }
+    } else {
+      activeTab = drawerTabs[activeDrawerTabIndex];
+      if (!activeTab || !activeTab.isJsonTable) {
+        return;
+      }
+      tabId = activeTab.id;
+    }
+    const trackingData = originalNestedTableDataRef.current.get(tabId);
+    if (!trackingData) {
+      console.error('handleDrawerSave: No tracking data found for tab:', tabId);
+      return;
+    }
+
+    // Get current editing data (full drawer table state)
+    const drawerEditingData = nestedTableEditingDataRef.current.get(tabId) || [];
+    
+    // Sample first row data for comparison
+    
+    // Check if there are actual changes using deep comparison (not just length)
+    let hasChanges = false;
+    try {
+      if (!isArray(drawerEditingData) || !isArray(trackingData.originalData)) {
+        hasChanges = drawerEditingData !== trackingData.originalData;
+      } else if (drawerEditingData.length !== trackingData.originalData.length) {
+        hasChanges = true;
+      } else {
+        // Deep comparison using JSON.stringify (only if lengths match)
+        const editingJson = JSON.stringify(drawerEditingData);
+        const originalJson = JSON.stringify(trackingData.originalData);
+        hasChanges = editingJson !== originalJson;
+      }
+    } catch (e) {
+      // If comparison fails, assume there are changes to be safe
+      hasChanges = true;
+    }
+    
+    if (!hasChanges) {
       // Show notification - no changes
       if (onDataChange) {
         onDataChange({
@@ -4348,48 +1949,176 @@ export default function DataProviderNew({
       return;
     }
 
-    // Save changes for current tab (for now, just show notification)
+    // Step 1: Copy drawerEditing → drawerOriginal (save drawer changes)
+    const drawerOriginalData = cloneDeep(drawerEditingData);
+    
+    trackingData.originalData = drawerOriginalData;
+    originalNestedTableDataRef.current.set(tabId, trackingData);
+    // Also update editing buffer to match saved data (so it persists after re-render)
+    nestedTableEditingDataRef.current.set(tabId, cloneDeep(drawerOriginalData));
+
+    // Step 2: Propagate drawerOriginal → mainEditing (update main with saved drawer state)
+    const { parentRowEditingKey, nestedTableFieldName } = trackingData;
+    
+    if (parentRowEditingKey && nestedTableFieldName) {
+      propagateDrawerSaveToMain(tabId, drawerOriginalData, parentRowEditingKey, nestedTableFieldName);
+    } else {
+      console.warn('handleDrawerSave: Missing parentRowEditingKey or nestedTableFieldName');
+    }
+
+    // Show success notification
     if (onDataChange) {
       onDataChange({
         severity: 'success',
         summary: 'Changes Saved',
-        detail: `Saved ${changedRowsData.changes.length} change(s) in nested table.`,
+        detail: `Saved changes in nested table and updated main table.`,
+        life: 3000,
+      });
+    }
+  }, [drawerTabs, activeDrawerTabIndex, propagateDrawerSaveToMain, onDataChange, parentHandleDrawerSave, parentOriginalNestedTableDataRef]);
+
+  // Handle main save - copies editing buffer to original buffer
+  const handleMainSave = useCallback(() => {
+    console.log('🟢 SAVE BUTTON CLICKED: MAIN table');
+    // Deep clone editingData → originalData buffer
+    const editingData = mainTableEditingData;
+    // Strip __nestedTables__ from each row before saving (it's UI-only metadata)
+    const originalData = cloneDeep(editingData).map(row => {
+      if (row && typeof row === 'object' && '__nestedTables__' in row) {
+        const { __nestedTables__, ...rowWithoutNestedTables } = row;
+        return rowWithoutNestedTables;
+      }
+      return row;
+    });
+    mainTableOriginalDataRef.current = originalData;
+
+    // Show success notification
+    if (onDataChange) {
+      onDataChange({
+        severity: 'success',
+        summary: 'Changes Saved',
+        detail: 'All changes have been saved.',
         life: 3000,
       });
     }
 
-    // TODO: Implement actual save logic here (e.g., API call)
-    console.log('Drawer Save - Tab:', tabId, 'Changes:', changedRowsData);
-  }, [drawerTabs, activeDrawerTabIndex, getChangedRowsForTab]);
+    // Optionally trigger onDataChange callback for external systems
+    // Note: We don't update rawTableData or sortedData - those are derived from data source
+    // After save, originalData and editingData are in sync, but sortedData remains unchanged until data reload
+  }, [mainTableEditingData, onDataChange]);
 
-  // Handle main save - prints all changed nested table rows to console
-  const handleMainSave = useCallback(() => {
-    const allChanges = getAllChangedNestedTableRows();
-    
-    if (allChanges.length === 0) {
-      console.log('No changed nested table rows found.');
+  // Handle main cancel - reverts editing buffer to original buffer
+  const handleMainCancel = useCallback(() => {
+    // Deep clone originalData → editingData (revert all changes)
+    const originalData = mainTableOriginalDataRef.current;
+    const editingData = cloneDeep(originalData);
+    mainTableEditingDataRef.current = editingData;
+    setMainTableEditingData(editingData);
+
+    // Reset nested table buffers if needed
+    nestedTableEditingDataRef.current.clear();
+    originalNestedTableDataRef.current.clear();
+
+    // Show notification
+    if (onDataChange) {
+      onDataChange({
+        severity: 'info',
+        summary: 'Changes Discarded',
+        detail: 'All unsaved changes have been discarded.',
+        life: 3000,
+      });
+    }
+  }, [onDataChange]);
+
+  // Handle drawer cancel - reverts drawer editing buffer to original buffer
+  const handleDrawerCancel = useCallback(() => {
+    if (!drawerTabs || drawerTabs.length === 0) {
       return;
     }
 
-    console.log('=== Changed Nested Tables Rows ===');
-    allChanges.forEach((changeData) => {
-      console.group(`Tab: ${changeData.tabId} | Field: ${changeData.nestedTableFieldName}`);
-      console.log('Parent Row Data:', changeData.parentRowData);
-      console.log('Parent Column Name:', changeData.parentColumnName);
-      console.log('Nested Table Field Name:', changeData.nestedTableFieldName);
-      console.log('Changes:', changeData.changes);
-      changeData.changes.forEach((change, index) => {
-        console.log(`Change ${index + 1} (${change.type}):`, {
-          rowKey: change.rowKey,
-          originalRow: change.originalRow,
-          currentRow: change.currentRow,
-          changedFields: change.changedFields,
-        });
+    const activeTab = drawerTabs[activeDrawerTabIndex];
+    if (!activeTab || !activeTab.isJsonTable) {
+      return;
+    }
+
+    const tabId = activeTab.id;
+    const trackingData = originalNestedTableDataRef.current.get(tabId);
+    if (!trackingData) {
+      return;
+    }
+
+    // Deep clone drawer's originalData → drawer's editingData (revert changes for current tab only)
+    const drawerOriginalData = trackingData.originalData;
+    const drawerEditingData = cloneDeep(drawerOriginalData);
+    nestedTableEditingDataRef.current.set(tabId, drawerEditingData);
+
+    // Show notification
+    if (onDataChange) {
+      onDataChange({
+        severity: 'info',
+        summary: 'Changes Discarded',
+        detail: 'Unsaved changes in this nested table have been discarded.',
+        life: 3000,
       });
-      console.groupEnd();
-    });
-    console.log('=== End Changed Nested Tables Rows ===');
-  }, [getAllChangedNestedTableRows]);
+    }
+  }, [drawerTabs, activeDrawerTabIndex, onDataChange]);
+
+  // Check if main table has unsaved changes (use ref to avoid recalculating on every render)
+  const hasMainTableChangesRef = useRef(false);
+  const hasMainTableChanges = useMemo(() => {
+    const originalData = mainTableOriginalDataRef.current;
+    const editingData = mainTableEditingData;
+    if (!isArray(originalData) || !isArray(editingData) || originalData.length !== editingData.length) {
+      const hasChanges = originalData.length !== editingData.length;
+      hasMainTableChangesRef.current = hasChanges;
+      return hasChanges;
+    }
+    // Only do deep comparison if lengths match (optimization)
+    try {
+      const hasChanges = JSON.stringify(originalData) !== JSON.stringify(editingData);
+      hasMainTableChangesRef.current = hasChanges;
+      return hasChanges;
+    } catch (e) {
+      // Fallback to false if JSON.stringify fails (circular references, etc.)
+      return false;
+    }
+  }, [mainTableEditingData]);
+
+  // Check if drawer has unsaved changes (use ref to avoid recalculating on every render)
+  const hasDrawerChangesRef = useRef(false);
+  const hasDrawerChanges = useMemo(() => {
+    if (!drawerTabs || drawerTabs.length === 0) {
+      hasDrawerChangesRef.current = false;
+      return false;
+    }
+    const activeTab = drawerTabs[activeDrawerTabIndex];
+    if (!activeTab || !activeTab.isJsonTable) {
+      hasDrawerChangesRef.current = false;
+      return false;
+    }
+    const tabId = activeTab.id;
+    const trackingData = originalNestedTableDataRef.current.get(tabId);
+    if (!trackingData) {
+      hasDrawerChangesRef.current = false;
+      return false;
+    }
+    const originalData = trackingData.originalData;
+    const editingData = nestedTableEditingDataRef.current.get(tabId) || [];
+    if (!isArray(originalData) || !isArray(editingData) || originalData.length !== editingData.length) {
+      const hasChanges = originalData.length !== editingData.length;
+      hasDrawerChangesRef.current = hasChanges;
+      return hasChanges;
+    }
+    // Only do deep comparison if lengths match (optimization)
+    try {
+      const hasChanges = JSON.stringify(originalData) !== JSON.stringify(editingData);
+      hasDrawerChangesRef.current = hasChanges;
+      return hasChanges;
+    } catch (e) {
+      // Fallback to false if JSON.stringify fails
+      return false;
+    }
+  }, [drawerTabs, activeDrawerTabIndex]);
 
   // Open drawer with nested JSON tables
   // Creates tabs dynamically for each nested table
@@ -4408,20 +2137,25 @@ export default function DataProviderNew({
     const jsonTableTabs = nestedTables.map((nestedTable, index) => {
       const tabId = `json-table-${Date.now()}-${index}`;
       
+      // Extract parent row editing key - CRITICAL: rowData must have __editingKey__ from tableData
+      const parentRowEditingKey = rowData?.__editingKey__ || null;
+      
       // Store original data for change tracking (deep clone to prevent reference issues)
+      // Add __editingKey__ to drawer rows
       const originalData = nestedTable.data && isArray(nestedTable.data) 
-        ? cloneDeep(nestedTable.data) 
+        ? addEditingKeysToRows(cloneDeep(nestedTable.data))
         : [];
       
       originalNestedTableDataRef.current.set(tabId, {
         originalData,
         parentRowData: cloneDeep(rowData),
+        parentRowEditingKey, // Store parent row editing key for lookup
         nestedTableFieldName: nestedTable.fieldName,
         parentColumnName: parentColumnName,
       });
       
-      // Initialize current data with original data
-      currentNestedTableDataRef.current.set(tabId, cloneDeep(originalData));
+      // Initialize editing data with original data (deep clone to preserve editing keys)
+      nestedTableEditingDataRef.current.set(tabId, cloneDeep(originalData));
       
       return {
         id: tabId,
@@ -4495,11 +2229,11 @@ export default function DataProviderNew({
   // Export to XLSX function
   const exportToXLSX = useCallback(() => {
     // Check if we're in report mode
-    if (enableBreakdown && reportData) {
+    if (enableBreakdown && reportDataWithDerived) {
       // Use report export with merged headers
       // Pass effectiveGroupFields - function will extract first two for backward compatibility if needed
       const wb = exportReportToXLSX(
-        reportData,
+        reportDataWithDerived,
         columnGroupBy,
         effectiveGroupFields,
         formatHeaderName
@@ -4554,13 +2288,17 @@ export default function DataProviderNew({
         item && typeof item === 'object' ? getDataKeys(item) : []
       ));
 
-      // In grouped mode, filter to only include numeric columns (plus group fields and percentage columns)
+      // In grouped mode, filter to only include numeric columns (plus group fields, percentage columns, and derived columns)
+      const derivedColNamesMain = getDerivedColumnNames(derivedColumns || [], 'main');
       allColumns = allDataColumns.filter((col) => {
         // Always include all group fields
         if (effectiveGroupFields.includes(col)) return true;
 
         // Always include percentage columns (they're numeric)
         if (isPercentageColumn(col)) return true;
+
+        // Always include derived columns
+        if (derivedColNamesMain.includes(col)) return true;
 
         // Include numeric columns
         const colTypeFlags = getColumnTypeFlags(col);
@@ -4590,12 +2328,13 @@ export default function DataProviderNew({
         item && typeof item === 'object' ? getDataKeys(item) : []
       ));
 
-      // Add percentage columns explicitly (in case they're null/undefined and don't appear as keys)
+      // Add percentage columns and derived columns explicitly (in case they're null/undefined and don't appear as keys)
       const percentageColNames = hasPercentageColumns && percentageColumns
         ? percentageColumns.map(pc => pc.columnName).filter(Boolean)
         : [];
+      const derivedColNames = getDerivedColumnNames(derivedColumns || [], 'main');
 
-      allColumns = uniq([...dataColumns, ...percentageColNames]);
+      allColumns = uniq([...dataColumns, ...percentageColNames, ...derivedColNames]);
     }
 
     // Format and export data (same logic for both modes)
@@ -4649,13 +2388,13 @@ export default function DataProviderNew({
 
     // Write file
     XLSX.writeFile(wb, filename);
-  }, [enableBreakdown, reportData, columnGroupBy, sortedData, groupedData, effectiveGroupFields, hasPercentageColumns, percentageColumns, isPercentageColumn, getPercentageColumnValue, formatHeaderName, isTruthyBoolean, formatDateValue, getColumnTypeFlags]);
+  }, [enableBreakdown, reportDataWithDerived, columnGroupBy, sortedData, groupedData, effectiveGroupFields, hasPercentageColumns, percentageColumns, isPercentageColumn, getPercentageColumnValue, formatHeaderName, isTruthyBoolean, formatDateValue, getColumnTypeFlags]);
 
   // Create context value
   const contextValue = useMemo(() => {
     try {
       const result = {
-        rawData: sortedData, // Use sortedData as rawData for context (after all filters)
+        rawData: mainTableEditingData, // Use editingData state for reactivity (triggers updates when changed)
         columns: filteredColumns, // Expose filtered columns (respecting allowedColumns)
         columnTypes,
         filteredData,
@@ -4670,6 +2409,7 @@ export default function DataProviderNew({
         percentageColumns,
         percentageColumnNames,
         isPercentageColumn,
+        derivedColumns,
         getPercentageColumnValue,
         getPercentageColumnSortFunction,
         filters: tableFilters,
@@ -4688,7 +2428,7 @@ export default function DataProviderNew({
         enableDivideBy1Lakh,
         enableReport,
         enableBreakdown,
-        reportData,
+        reportData: reportDataWithDerived,
         isComputingReport,
         isApplyingFilterSort,
         chartColumns,
@@ -4755,6 +2495,17 @@ export default function DataProviderNew({
         // Use parent's handleDrawerSave if available (for nested drawer tables), otherwise use local one
         handleDrawerSave: parentHandleDrawerSave || handleDrawerSave,
         handleMainSave,
+        handleMainCancel,
+        handleDrawerCancel,
+        hasMainTableChanges,
+        hasDrawerChanges,
+        // Main table editing buffer update function
+        updateMainTableEditingData,
+        // Read-only access to original buffer for comparison
+        mainTableOriginalData: mainTableOriginalDataRef.current,
+        // Data control: availableQueryKeys and executingQuery for DataTableControls
+        availableQueryKeys,
+        executingQuery,
       };
       return result;
     } catch (error) {
@@ -4771,7 +2522,8 @@ export default function DataProviderNew({
     updateVisibleColumns, drawerVisible, drawerData, drawerTabs, activeDrawerTabIndex, clickedDrawerValues,
     openDrawer, openDrawerWithData, openDrawerForOuterGroup, openDrawerForInnerGroup, openDrawerWithJsonTables, closeDrawer, addDrawerTab, removeDrawerTab, updateDrawerTab,
     formatHeaderName, isTruthyBoolean, exportToXLSX, isNumericValue, currentQueryDoc, searchTerm, sortConfig, enableReport, enableBreakdown, reportData, isComputingReport, isApplyingFilterSort, columnGroupBy, filteredColumns, allowedColumns, parentColumnName, nestedTableFieldName,
-    updateCurrentNestedTableData, getChangedRowsForTab, getAllChangedNestedTableRows, handleDrawerSave, handleMainSave, forceEnableWrite, parentHandleDrawerSave
+    updateCurrentNestedTableData, getChangedRowsForTab, getAllChangedNestedTableRows, handleDrawerSave, handleMainSave, handleMainCancel, handleDrawerCancel, hasMainTableChanges, hasDrawerChanges, updateMainTableEditingData, forceEnableWrite, parentHandleDrawerSave, addEditingKeysToRows, mainTableEditingData,
+    availableQueryKeys, executingQuery
   ]);
 
   // Memoize field display names to avoid recalculating on every render
@@ -5303,7 +3055,15 @@ export default function DataProviderNew({
   // Keep existing callback for backward compatibility
   useEffect(() => {
     if (onTableDataChange) {
-      onTableDataChange(sortedData);
+      // Strip __nestedTables__ from data before passing to callback (it's UI-only metadata)
+      const dataWithoutNestedTables = isArray(sortedData) ? sortedData.map(row => {
+        if (row && typeof row === 'object' && '__nestedTables__' in row) {
+          const { __nestedTables__, ...rowWithoutNestedTables } = row;
+          return rowWithoutNestedTables;
+        }
+        return row;
+      }) : sortedData;
+      onTableDataChange(dataWithoutNestedTables);
     }
   }, [sortedData, onTableDataChange]);
 
@@ -5401,9 +3161,22 @@ export default function DataProviderNew({
                     effectiveGroupFields,
                   });
 
+                  // Apply derived columns to grouped data (including group summary rows)
+                  const groupedDataWithDerived =
+                    result.groupedData && derivedColumns?.length
+                      ? applyDerivedColumns(result.groupedData, derivedColumns, {
+                          mode: derivedColumnsMode ?? 'main',
+                          fieldName: derivedColumnsFieldName ?? null,
+                          getDataValue,
+                        })
+                      : result.groupedData;
+
                   // Only update if this is still the latest computation
                   if (computationId === filterSortComputationIdRef.current) {
-                    setWorkerComputedData(result);
+                    setWorkerComputedData({
+                      ...result,
+                      groupedData: groupedDataWithDerived,
+                    });
                     setIsApplyingFilterSort(false);
                   }
                 } catch (error) {
@@ -5481,12 +3254,13 @@ export default function DataProviderNew({
                       enableCellEdit: false, // drawer-specific default
                       editableColumns: { main: [], nested: {} }, // drawer-specific default
                       percentageColumns: percentageColumns, // from main table
+                      derivedColumns: derivedColumns, // from main table
                       columnTypes: columnTypes, // from main table
                       tableName: "sidebar",
                       // Report settings - drawer reuses parent report view without local toggle
                       enableReport: false,
                       forceBreakdown: shouldShowDrawerReport,
-                      reportDataOverride: shouldShowDrawerReport ? drawerReportData : null,
+                      reportDataOverride: shouldShowDrawerReport ? drawerReportDataWithDerived : null,
                       showProviderHeader: false,
                       dateColumn: dateColumn, // from main table
                       breakdownType: breakdownType, // from main table
@@ -5498,9 +3272,16 @@ export default function DataProviderNew({
                     // Merge order: default (baseTableProps) → tableOptions (drawerTableOptions) → tabOverrides
                     const mergedTableProps = { ...baseTableProps, ...(drawerTableOptions || {}), ...tabOverrides };
 
-                    // Determine data source: use tab data if it's a JSON table tab, otherwise use drawerData
-                    const tabDataSource = isJsonTable && tabData ? tabData : drawerData;
-                    const hasTabData = isJsonTable ? (tabData && isArray(tabData) && tabData.length > 0) : hasDrawerData;
+                    // Determine data source: use editing buffer for JSON table tabs, otherwise use drawerData
+                    // When nested instance calls onNestedBufferChange(), parent re-renders and re-reads ref here
+                    let tabDataSource;
+                    if (isJsonTable) {
+                      const editingData = nestedTableEditingDataRef.current.get(tab.id);
+                      tabDataSource = editingData && editingData.length > 0 ? editingData : (tabData && isArray(tabData) ? tabData : []);
+                    } else {
+                      tabDataSource = drawerData;
+                    }
+                    const hasTabData = isJsonTable ? (tabDataSource && isArray(tabDataSource) && tabDataSource.length > 0) : hasDrawerData;
 
                     return (
                       <TabPanel
@@ -5520,6 +3301,11 @@ export default function DataProviderNew({
                               enableGrouping={mergedTableProps.enableGrouping}
                               textFilterColumns={mergedTableProps.textFilterColumns || []}
                               percentageColumns={mergedTableProps.percentageColumns || []}
+                              derivedColumns={mergedTableProps.derivedColumns || []}
+                              {...(isJsonTable && {
+                                derivedColumnsMode: 'nested',
+                                derivedColumnsFieldName: nestedTableFieldName ?? undefined,
+                              })}
                               groupFields={mergedTableProps.groupFields}
                               redFields={mergedTableProps.redFields || []}
                               greenFields={mergedTableProps.greenFields || []}
@@ -5544,6 +3330,14 @@ export default function DataProviderNew({
                               chartHeight={mergedTableProps.chartHeight}
                               // Pass enableWrite from parent for nested drawer tables
                               forceEnableWrite={isJsonTable && currentQueryDoc?.enableWrite ? true : undefined}
+                              // Pass parent refs so nested instance can access tracking data
+                              parentOriginalNestedTableDataRef={isJsonTable ? originalNestedTableDataRef : undefined}
+                              parentNestedTableEditingDataRef={isJsonTable ? nestedTableEditingDataRef : undefined}
+                              // Pass parent handler so nested instance uses parent's state
+                              parentHandleDrawerSaveProp={isJsonTable ? handleDrawerSave : undefined}
+                              // Pass tabId so nested instance can update parent's editing buffer
+                              nestedTableTabId={isJsonTable ? tabId : undefined}
+                              onNestedBufferChange={isJsonTable ? handleNestedBufferChange : undefined}
                               onTableDataChange={isJsonTable ? (data) => {
                                 // Update current nested table data for this tab when data changes
                                 updateCurrentNestedTableData(tabId, data);
@@ -5557,6 +3351,8 @@ export default function DataProviderNew({
                                 rowsPerPageOptions={mergedTableProps.rowsPerPageOptions}
                                 defaultRows={mergedTableProps.defaultRows}
                                 enableCellEdit={mergedTableProps.enableCellEdit !== undefined ? mergedTableProps.enableCellEdit : false}
+                                tableName={mergedTableProps.tableName || 'table'}
+                                editableColumns={mergedTableProps.editableColumns || { main: [], nested: {} }}
                               />
                             </DataProviderNew>
                           ) : (

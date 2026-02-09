@@ -4,6 +4,7 @@ import ProtectedRoute from '@/components/ProtectedRoute';
 import data from '@/resource/data';
 import testData from '@/resource/test';
 import nestedData from '@/resource/nested';
+import { firestoreService } from '@/app/graphql-playground/services/firestoreService';
 import { debounce, flatMap, get, isEmpty, isNil, filter as lodashFilter, startCase, uniq } from 'lodash';
 import { Dropdown } from 'primereact/dropdown';
 import { Splitter, SplitterPanel } from 'primereact/splitter';
@@ -33,14 +34,12 @@ function DataTablePage() {
   
   const [tableData, setTableData] = useState(getInitialData(defaultDataTableConfig.dataSource)); // Filtered data for DataTable
   const [rawTableData, setRawTableData] = useState(getInitialData(defaultDataTableConfig.dataSource)); // Full/original data for Auth Control in DataTableControls
-  const [currentDataSource, setCurrentDataSource] = useState(null);
   const [selectedQueryKey, setSelectedQueryKey] = useState(defaultDataTableConfig.selectedQueryKey);
-  // State exposed from DataProvider for selectors
+  // Controller fetches savedQueries for Data Source dropdown
   const [savedQueries, setSavedQueries] = useState([]);
   const [loadingQueries, setLoadingQueries] = useState(false);
   const [executingQuery, setExecutingQuery] = useState(false);
   const [isLoadingData, setIsLoadingData] = useState(false);
-  const [availableQueryKeys, setAvailableQueryKeys] = useState([]);
   const [enableSort, setEnableSort] = useState(defaultDataTableConfig.enableSort);
   const [enableFilter, setEnableFilter] = useState(defaultDataTableConfig.enableFilter);
   const [enableSummation, setEnableSummation] = useState(defaultDataTableConfig.enableSummation);
@@ -59,6 +58,7 @@ function DataTablePage() {
   const [groupFieldsRaw, setGroupFieldsRaw] = useState(defaultDataTableConfig.groupFields || []);
   const [editableColumnsRaw, setEditableColumnsRaw] = useState(defaultDataTableConfig.editableColumns);
   const [percentageColumns, setPercentageColumns] = useState(defaultDataTableConfig.percentageColumns);
+  const [derivedColumns, setDerivedColumns] = useState(defaultDataTableConfig.derivedColumns);
   const [queryVariables, setQueryVariables] = useState({});
   const [variableOverrides, setVariableOverrides] = useState({});
   const [columnTypesOverride, setColumnTypesOverride] = useState(defaultDataTableConfig.columnTypesOverride);
@@ -122,12 +122,6 @@ function DataTablePage() {
     setColumnTypesOverride(overrides);
   }, []);
 
-  // Handle data source changes
-  const handleDataSourceChange = useCallback((newDataSource) => {
-    setCurrentDataSource(newDataSource);
-    setDataSource(newDataSource);
-  }, []);
-
   // Handle variables change from DataProvider
   const handleVariablesChange = useCallback((variables) => {
     setQueryVariables(variables);
@@ -166,6 +160,22 @@ function DataTablePage() {
   // Mark as loaded after first render
   useEffect(() => {
     setIsLoading(false);
+  }, []);
+
+  // Controller fetches savedQueries for Data Source dropdown
+  useEffect(() => {
+    const loadSavedQueries = async () => {
+      setLoadingQueries(true);
+      try {
+        const queries = await firestoreService.getAllQueries();
+        setSavedQueries(queries);
+      } catch (error) {
+        console.error('Error loading saved queries:', error);
+      } finally {
+        setLoadingQueries(false);
+      }
+    };
+    loadSavedQueries();
   }, []);
 
   // Ensure rowsPerPageOptions is always an array
@@ -497,16 +507,12 @@ function DataTablePage() {
             onError={handleError}
             onRawDataChange={handleRawDataChange}
             onTableDataChange={handleTableDataChange}
-            onDataSourceChange={handleDataSourceChange}
             onVariablesChange={handleVariablesChange}
             variableOverrides={variableOverrides}
             dataSource={dataSourceForProvider}
             selectedQueryKey={selectedQueryKey}
-            onSavedQueriesChange={setSavedQueries}
-            onLoadingQueriesChange={setLoadingQueries}
             onExecutingQueryChange={setExecutingQuery}
             onLoadingDataChange={setIsLoadingData}
-            onAvailableQueryKeysChange={setAvailableQueryKeys}
             onSelectedQueryKeyChange={setSelectedQueryKey}
             isAdminMode={isAdminMode}
             salesTeamColumn={salesTeamColumn}
@@ -520,6 +526,7 @@ function DataTablePage() {
             allowedColumns={allowedColumns}
             onAllowedColumnsChange={setAllowedColumns}
             percentageColumns={percentageColumns}
+            derivedColumns={derivedColumns}
             outerGroupField={outerGroupField}
             innerGroupField={innerGroupField}
             groupFields={groupFields}
@@ -652,10 +659,8 @@ function DataTablePage() {
                     onChartHeightChange={setChartHeight}
                     dataSource={dataSource}
                     selectedQueryKey={selectedQueryKey}
-                    availableQueryKeys={availableQueryKeys}
                     savedQueries={savedQueries}
                     loadingQueries={loadingQueries}
-                    executingQuery={executingQuery}
                     onDataSourceChange={setDataSource}
                     onSelectedQueryKeyChange={setSelectedQueryKey}
                   />

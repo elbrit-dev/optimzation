@@ -659,13 +659,10 @@ PLASMIC.registerComponent(DataProvider, {
       defaultValue: [],
       description: "Array of column names to display in green",
     },
-    outerGroupField: {
-      type: "string",
-      description: "Field name for outer grouping",
-    },
-    innerGroupField: {
-      type: "string",
-      description: "Field name for inner grouping",
+    groupFields: {
+      type: "object",
+      description: "Array of field names for grouping (supports infinite nesting). Main/outer group: 'sales_team', inner group: 'hq'. Example: ['sales_team', 'hq']",
+      defaultValue: ['sales_team', 'hq'],
     },
     percentageColumns: {
       type: "object",
@@ -785,6 +782,34 @@ PLASMIC.registerComponent(DataProvider, {
       type: "number",
       defaultValue: 400,
       description: "Height of the chart in pixels",
+    },
+    allowedColumns: {
+      type: "object",
+      description: "Developer-controlled: restricts which columns are available for selection",
+      defaultValue: [],
+    },
+    onAllowedColumnsChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "columns", type: "object" }],
+      description: "Callback when allowed columns change",
+    },
+    derivedColumns: {
+      type: "object",
+      description: "Array of derived column configurations",
+      defaultValue: [],
+    },
+    reportDataOverride: {
+      type: "object",
+      description: "Override report data (for custom report data)",
+    },
+    forceBreakdown: {
+      type: "boolean",
+      description: "Force breakdown mode (overrides enableBreakdown state)",
+    },
+    showProviderHeader: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Show/hide the provider header controls",
     },
     children: {
       type: "slot",

@@ -2,7 +2,7 @@ import React from 'react';
 import { ColumnGroup } from 'primereact/columngroup';
 import { Row } from 'primereact/row';
 import { Column } from 'primereact/column';
-import { reorganizePeriodsForPeriodOverPeriod, getTimePeriodLabelShort } from '../report/utils/timeBreakdownUtils';
+import { reorganizePeriodsForPeriodOverPeriod, getTimePeriodLabelShort } from './timeBreakdownUtils';
 
 /**
  * Formats metric labels - converts snake_case or camelCase to Title Case

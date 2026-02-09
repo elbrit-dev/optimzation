@@ -24,6 +24,22 @@ export const defaultDataTableConfig = {
     allowedColumns: [],
     nonEditableColumns: [],
     percentageColumns: [],
+    derivedColumns: [
+        {
+            columnName: "derived",
+            compute: (row) => 12345,
+            columnType: "number",
+            position: 2, // 3rd column (0-based)
+            scope: { main: true, report: true, nested: false },
+        },
+        {
+            columnName: "twice of sales_qty",
+            compute: (row) => 2 * row.sales_qty,
+            columnType: "number",
+            position: 2, // 3rd column (0-based)
+            scope: { main: false, report: false, nested: true },
+        },
+    ],
 
     // Styling
     redFields: [],
@@ -31,6 +47,7 @@ export const defaultDataTableConfig = {
 
     // Grouping
     // groupFields: ["sales_team", "hq", "customer_name"],
+    // groupFields: ["sales_team"],
     groupFields: [],
 
     // Column types override
@@ -59,8 +76,8 @@ export const defaultDataTableConfig = {
     hqValues: [],
 
     // Data source
-    dataSource: "nested",
-    selectedQueryKey: "primary",
+    dataSource: "WriteQuery",
+    selectedQueryKey: "secondary",
 };
 
 /**
@@ -79,6 +96,7 @@ export function mergeConfig(userConfig = {}) {
         },
         drawerTabs: userConfig.drawerTabs || defaultDataTableConfig.drawerTabs,
         percentageColumns: userConfig.percentageColumns || defaultDataTableConfig.percentageColumns,
+        derivedColumns: userConfig.derivedColumns || defaultDataTableConfig.derivedColumns,
     };
 }
 
@@ -110,6 +128,7 @@ export function extractStateFromConfig(config, setters = {}) {
         allowedColumns: config.allowedColumns ?? defaultDataTableConfig.allowedColumns,
         nonEditableColumns: config.nonEditableColumns ?? defaultDataTableConfig.nonEditableColumns,
         percentageColumns: config.percentageColumns ?? defaultDataTableConfig.percentageColumns,
+        derivedColumns: config.derivedColumns ?? defaultDataTableConfig.derivedColumns,
 
         // Styling
         redFields: config.redFields ?? defaultDataTableConfig.redFields,

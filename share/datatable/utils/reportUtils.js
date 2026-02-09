@@ -1,4 +1,4 @@
-import { getTimePeriodKey, getTimePeriodLabel, getTimePeriods, groupDataByTimePeriod, transformToTableData, transformToNestedTableData, reorganizePeriodsForPeriodOverPeriod } from '../report/utils/timeBreakdownUtils';
+import { getTimePeriodKey, getTimePeriodLabel, getTimePeriods, groupDataByTimePeriod, transformToTableData, transformToNestedTableData, reorganizePeriodsForPeriodOverPeriod } from './timeBreakdownUtils';
 import { getDataValue, getNestedValue } from './dataAccessUtils';
 import { sumBy, isNil, isNumber, toNumber, isNaN as _isNaN, isEmpty, isDate, isString, trim } from 'lodash';
 import dayjs from 'dayjs';

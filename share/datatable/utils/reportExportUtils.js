@@ -3,7 +3,7 @@ import { isEmpty, isNil, isNumber } from 'lodash';
 import { getDataValue } from './dataAccessUtils';
 import { computeReportColumnsStructure } from './reportRenderingUtils';
 import { getMetricLabel } from './reportRenderingUtils';
-import { getTimePeriodLabelShort } from '../report/utils/timeBreakdownUtils';
+import { getTimePeriodLabelShort } from './timeBreakdownUtils';
 
 /**
  * Converts column index to Excel column letter (0 -> A, 1 -> B, etc.)

@@ -3,6 +3,7 @@
  */
 
 import { isString, isArray, trim } from 'lodash';
+import { applyDerivedColumns } from './derivedColumnsUtils';
 
 /**
  * Check if a value looks like a JSON array of objects (string or actual array)
@@ -99,12 +100,15 @@ export function extractNestedTablesFromRow(row, depth = 0) {
  * @param {Array<Object>} data - Data array to process
  * @param {number} depth - Current depth level
  * @param {number} maxDepth - Maximum recursion depth (default: 10)
+ * @param {Object} [options] - Optional { derivedColumns, getDataValue }
  * @returns {Array<Object>} Processed data with __nestedTables__ property
  */
-export function extractJsonNestedTablesRecursive(data, depth = 0, maxDepth = 10) {
+export function extractJsonNestedTablesRecursive(data, depth = 0, maxDepth = 10, options = {}) {
   if (!isArray(data) || depth >= maxDepth) {
     return data;
   }
+
+  const { derivedColumns, getDataValue } = options;
 
   return data.map(row => {
     if (!row || typeof row !== 'object' || row.__isGroupRow__) {
@@ -113,12 +117,18 @@ export function extractJsonNestedTablesRecursive(data, depth = 0, maxDepth = 10)
 
     // Extract nested tables from this row
     const nestedTables = extractNestedTablesFromRow(row, depth);
-    
+
     // If we found nested tables, recursively process their data
     const processedNestedTables = nestedTables.map(nestedTable => {
-      // Recursively check if nested table data contains JSON arrays
-      const processedData = extractJsonNestedTablesRecursive(nestedTable.data, depth + 1, maxDepth);
-      
+      let processedData = extractJsonNestedTablesRecursive(nestedTable.data, depth + 1, maxDepth, options);
+      if (derivedColumns?.length) {
+        processedData = applyDerivedColumns(processedData, derivedColumns, {
+          mode: 'nested',
+          fieldName: nestedTable.fieldName,
+          parentRow: row,
+          getDataValue,
+        });
+      }
       return {
         ...nestedTable,
         data: processedData

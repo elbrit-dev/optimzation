@@ -6,7 +6,8 @@ import { Chip } from 'primereact/chip';
 import { Dropdown } from 'primereact/dropdown';
 import { InputText } from 'primereact/inputtext';
 import { MultiSelect } from 'primereact/multiselect';
-import React, { useState } from 'react';
+import React, { useContext, useState } from 'react';
+import { TableOperationsContext } from '../contexts/TableOperationsContext';
 import { defaultDataTableConfig } from '../config/defaultConfig';
 import { getDataValue } from '../utils/dataAccessUtils';
 
@@ -527,13 +528,15 @@ export default function DataTableControls({
   onChartHeightChange,
   // Data Source and Query Key props
   selectedQueryKey = null,
-  availableQueryKeys = [],
   savedQueries = [],
   loadingQueries = false,
-  executingQuery = false,
   onDataSourceChange,
   onSelectedQueryKeyChange,
 }) {
+  const tableOps = useContext(TableOperationsContext);
+  const availableQueryKeys = tableOps?.availableQueryKeys ?? [];
+  const executingQuery = tableOps?.executingQuery ?? false;
+
   const [customOptions, setCustomOptions] = useState(
     Array.isArray(rowsPerPageOptions) ? rowsPerPageOptions.join(', ') : ''
   );
@@ -548,10 +551,12 @@ export default function DataTableControls({
 
     const jsonTableMap = {};
     
-    // Sample a few rows to detect JSON table columns
-    const sampleRows = tableData.slice(0, Math.min(10, tableData.length));
+    // Check ALL rows, not just first 10, to find rows with __nestedTables__
+    // Also check if columns contain JSON arrays directly (for columns that haven't been processed yet)
+    const rowsWithNestedTables = tableData.filter(row => row && row.__nestedTables__ && Array.isArray(row.__nestedTables__) && row.__nestedTables__.length > 0);
     
-    sampleRows.forEach(row => {
+    // First, extract from rows that already have __nestedTables__
+    rowsWithNestedTables.forEach(row => {
       if (row && row.__nestedTables__ && Array.isArray(row.__nestedTables__)) {
         row.__nestedTables__.forEach(nestedTable => {
           const columnName = nestedTable.fieldName;
@@ -589,8 +594,48 @@ export default function DataTableControls({
       }
     });
     
+    // If no rows have __nestedTables__, check columns directly for JSON arrays
+    // This handles the case where extraction hasn't happened yet or data structure is different
+    if (rowsWithNestedTables.length === 0 && columns.length > 0) {
+      // Sample a few rows to check for JSON array columns
+      const sampleRows = tableData.slice(0, Math.min(50, tableData.length));
+      sampleRows.forEach(row => {
+        if (!row || typeof row !== 'object') return;
+        columns.forEach(columnName => {
+          if (columnName.startsWith('__')) return;
+          const columnValue = row[columnName];
+          // Check if column contains JSON array or is already an array
+          if (isArray(columnValue) && columnValue.length > 0) {
+            const firstItem = columnValue[0];
+            if (firstItem && typeof firstItem === 'object' && !isArray(firstItem)) {
+              // This is a JSON array column
+              if (!jsonTableMap[columnName]) {
+                jsonTableMap[columnName] = {
+                  fieldName: columnName,
+                  nestedTables: []
+                };
+              }
+              // Extract columns from the array items
+              const nestedColumns = Object.keys(firstItem).filter(key => !key.startsWith('__'));
+              // Check if we already have this nested table
+              const existingNested = jsonTableMap[columnName].nestedTables.find(
+                nt => nt.fieldName === columnName
+              );
+              if (!existingNested) {
+                jsonTableMap[columnName].nestedTables.push({
+                  fieldName: columnName,
+                  title: columnName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+                  columns: nestedColumns
+                });
+              }
+            }
+          }
+        });
+      });
+    }
+    
     return jsonTableMap;
-  }, [tableData]);
+  }, [tableData, columns]);
 
   React.useEffect(() => {
     if (!isInternalUpdateRef.current && Array.isArray(rowsPerPageOptions)) {
@@ -931,7 +976,9 @@ export default function DataTableControls({
                   </label>
                   <Dropdown
                     value={dataSource}
-                    onChange={(e) => onDataSourceChange(e.value)}
+                    onChange={(e) => {
+                      onDataSourceChange(e.value);
+                    }}
                     options={[
                       { label: 'Offline', value: 'offline' },
                       { label: 'Test Data', value: 'test' },
@@ -1310,10 +1357,11 @@ export default function DataTableControls({
                                 newNested[col] = currentNested[col];
                               }
                             });
-                            onEditableColumnsChange({
+                            const newEditableColumns = {
                               main: selected || [],
                               nested: newNested
-                            });
+                            };
+                            onEditableColumnsChange(newEditableColumns);
                           }}
                           formatFieldName={formatFieldName}
                         />
@@ -1325,7 +1373,9 @@ export default function DataTableControls({
                         const selectedJsonColumns = selectedMain.filter(col => jsonTableColumns[col]);
                         const currentNested = editableColumns?.nested || {};
                         
-                        if (selectedJsonColumns.length === 0) return null;
+                        if (selectedJsonColumns.length === 0) {
+                          return null;
+                        }
                         
                         return (
                           <div className="mt-4 space-y-3 pl-4 border-l-2 border-gray-200">

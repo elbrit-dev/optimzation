@@ -42,11 +42,12 @@ import {
   values,
 } from 'lodash';
 import { getDataKeys, getDataValue } from '../utils/dataAccessUtils';
+import { getOrderedColumnsWithDerived } from '../utils/derivedColumnsUtils';
 import { useTableOperations } from '../contexts/TableOperationsContext';
 import MultiselectFilter from './MultiselectFilter';
 import { ColumnGroup } from 'primereact/columngroup';
 import { Row } from 'primereact/row';
-import { getTimePeriodLabel, getTimePeriodLabelShort, reorganizePeriodsForPeriodOverPeriod } from '../report/utils/timeBreakdownUtils';
+import { getTimePeriodLabel, getTimePeriodLabelShort, reorganizePeriodsForPeriodOverPeriod } from '../utils/timeBreakdownUtils';
 import { computeReportColumnsStructure, generateReportHeaderGroup, getMetricLabel, getReportColumns } from '../utils/reportRenderingUtils';
 
 // Date format patterns for detection
@@ -752,6 +753,12 @@ export default function DataTableNew({
     enableWrite,
     handleMainSave,
     handleDrawerSave,
+    handleMainCancel,
+    handleDrawerCancel,
+    hasMainTableChanges,
+    hasDrawerChanges,
+    updateMainTableEditingData,
+    updateCurrentNestedTableData,
     drawerVisible,
     drawerData,
     drawerTabs,
@@ -773,6 +780,7 @@ export default function DataTableNew({
     effectiveGroupFields,
     parentColumnName: contextParentColumnName,
     nestedTableFieldName: contextNestedTableFieldName,
+    derivedColumns,
   } = useTableOperations();
   
   // Use context values if available, otherwise fall back to props
@@ -913,6 +921,9 @@ export default function DataTableNew({
         return get(colType, 'isNumeric', false);
       });
     }
+
+    // Always exclude __editingKey__ from visible columns (internal use only)
+    filteredColumns = filteredColumns.filter(col => col !== '__editingKey__');
 
     // Apply visibleColumns filter if provided (and not empty)
     if (!isEmpty(visibleColumns) && isArray(visibleColumns)) {
@@ -1742,6 +1753,11 @@ export default function DataTableNew({
   const getCellEditor = useCallback((col) => {
     if (!enableCellEdit) return undefined;
 
+    // Never allow editing of __editingKey__ field
+    if (col === '__editingKey__') {
+      return null;
+    }
+
     // Disable editing entirely if any group field is present
     if (effectiveGroupFields.length > 0) {
       return undefined;
@@ -1827,25 +1843,70 @@ export default function DataTableNew({
     const { rowData, newValue, field, originalEvent: event } = e;
     const oldValue = getDataValue(rowData, field);
 
-    // Store old value before update
-    const colType = get(columnTypesFlags, field);
-    const isNumericCol = get(colType, 'isNumeric', false);
+    // Never allow editing of __editingKey__ field
+    if (field === '__editingKey__') {
+      event.preventDefault();
+      return;
+    }
 
-    // Validate and update
-    if (isNumericCol) {
-      const numValue = isNumber(newValue) ? newValue : toNumber(newValue);
-      if (!_isNaN(numValue) && _isFinite(numValue)) {
-        rowData[field] = numValue;
+    // Get editing key from rowData
+    const editingKey = rowData?.__editingKey__;
+    if (!editingKey) {
+      console.warn('Cell edit: Row missing __editingKey__, falling back to direct mutation');
+      // Fallback to direct mutation if editing key is missing
+      const colType = get(columnTypesFlags, field);
+      const isNumericCol = get(colType, 'isNumeric', false);
+      if (isNumericCol) {
+        const numValue = isNumber(newValue) ? newValue : toNumber(newValue);
+        if (!_isNaN(numValue) && _isFinite(numValue)) {
+          rowData[field] = numValue;
+        } else {
+          event.preventDefault();
+          return;
+        }
       } else {
-        event.preventDefault();
-        return;
+        if (newValue !== null && newValue !== undefined && String(newValue).trim().length > 0) {
+          rowData[field] = newValue;
+        } else {
+          event.preventDefault();
+          return;
+        }
       }
     } else {
-      if (newValue !== null && newValue !== undefined && String(newValue).trim().length > 0) {
-        rowData[field] = newValue;
+      // Update editing buffer using editing key
+      const colType = get(columnTypesFlags, field);
+      const isNumericCol = get(colType, 'isNumeric', false);
+
+      // Validate value
+      let validatedValue = newValue;
+      if (isNumericCol) {
+        const numValue = isNumber(newValue) ? newValue : toNumber(newValue);
+        if (_isNaN(numValue) || !_isFinite(numValue)) {
+          event.preventDefault();
+          return;
+        }
+        validatedValue = numValue;
       } else {
-        event.preventDefault();
-        return;
+        if (newValue === null || newValue === undefined || String(newValue).trim().length === 0) {
+          event.preventDefault();
+          return;
+        }
+        validatedValue = newValue;
+      }
+
+      // Update main table editing buffer if updateMainTableEditingData is available
+      if (updateMainTableEditingData) {
+        // Always use updateMainTableEditingData if available (works for both main and nested tables)
+        // The nested instance's updateMainTableEditingData will update the parent's buffer
+        updateMainTableEditingData(editingKey, field, validatedValue);
+      } else if (tableName === 'sidebar' && updateCurrentNestedTableData) {
+        // For drawer tables, we need to get the current tab and update nested table data
+        // This will be handled by the nested DataProviderNew component
+        // For now, fall back to direct mutation
+        rowData[field] = validatedValue;
+      } else {
+        // Fallback to direct mutation
+        rowData[field] = validatedValue;
       }
     }
 
@@ -1857,7 +1918,7 @@ export default function DataTableNew({
         rowData: { ...rowData }
       });
     }
-  }, [columnTypes, onCellEditComplete, toNumber]);
+  }, [columnTypesFlags, onCellEditComplete, toNumber, updateMainTableEditingData, updateCurrentNestedTableData, tableName]);
 
   // Check if a row can be expanded
   const allowExpansion = useCallback((rowData) => {
@@ -2225,7 +2286,8 @@ export default function DataTableNew({
 
     // Detect column types for this nested table
     const nestedColumnTypes = detectNestedTableColumnTypes(data);
-    const columns = getDataKeys(data[0] || {}).filter(key => !key.startsWith('__'));
+    const baseColumns = getDataKeys(data[0] || {}).filter(key => !key.startsWith('__'));
+    const columns = getOrderedColumnsWithDerived(baseColumns, derivedColumns || [], 'nested', fieldName);
 
     // Get filter state for this table
     const nestedFilters = get(nestedFiltersMap, tableKey) || {};
@@ -2305,12 +2367,19 @@ export default function DataTableNew({
     // Check if any row in this nested table has its own nested tables
     const hasNestedTablesInRows = dataWithIds.some(row => row.__nestedTables__ && row.__nestedTables__.length > 0);
 
+    // Generate a data hash to force re-render when data changes
+    const dataHash = safeFilteredData.length > 0 
+      ? `${safeFilteredData[0]?.item__name || ''}_${safeFilteredData[0]?.sales_qty || ''}_${safeFilteredData.length}`
+      : `${safeFilteredData.length}`;
+    
+    
     return (
       <div className="border border-gray-200 rounded-lg overflow-hidden bg-white" style={{ marginLeft: `${depth * 20}px` }}>
         <div className="text-sm font-semibold text-gray-700 mb-2 p-2 bg-gray-100 border-b">
           {title} ({safeFilteredData.length} {safeFilteredData.length === 1 ? 'row' : 'rows'})
         </div>
         <NestedTableDataTable
+          key={`${tableKey}_${dataHash}`}
           value={dataWithIds}
           tableKey={tableKey}
           hasNestedTablesInRows={hasNestedTablesInRows}
@@ -2328,7 +2397,7 @@ export default function DataTableNew({
         />
       </div>
     );
-  }, [detectNestedTableColumnTypes, nestedFiltersMap, multiselectColumns, updateNestedFilter, nestedDebouncedUpdateFilter, nestedCancelDebounced, formatHeaderName, isPercentageColumn, enableSort, enableFilter, expandedRows, updateExpandedRows, getDataKeys, getDataValue, filter, every, get, includes, some, toLower, includes, orderBy, uniq, isNil, isNumber, isString, isBoolean, applyDateFilterFromContext, parseNumericFilterFromContext, applyNumericFilterFromContext]);
+  }, [detectNestedTableColumnTypes, nestedFiltersMap, multiselectColumns, updateNestedFilter, nestedDebouncedUpdateFilter, nestedCancelDebounced, formatHeaderName, isPercentageColumn, enableSort, enableFilter, expandedRows, updateExpandedRows, getDataKeys, getDataValue, filter, every, get, includes, some, toLower, includes, orderBy, uniq, isNil, isNumber, isString, isBoolean, applyDateFilterFromContext, parseNumericFilterFromContext, applyNumericFilterFromContext, derivedColumns]);
 
   // Row expansion template - shows nested table with same headers
   // Recursive row expansion template for infinite nesting
@@ -2661,10 +2730,14 @@ export default function DataTableNew({
       jsonTablesContent = (
         <div className="space-y-4">
           {rowData.__nestedTables__.map((nestedTable, tableIndex) => {
-            const tableKey = `${rowKey}_json_${tableIndex}`;
+            // Include data hash in key to force re-render when data changes
+            const dataHash = nestedTable?.data?.length > 0 
+              ? `${nestedTable.data[0]?.item__name || ''}_${nestedTable.data[0]?.sales_qty || ''}_${nestedTable.data.length}`
+              : '';
+            const tableKey = `${rowKey}_json_${tableIndex}_${dataHash}`;
             return (
               <div key={tableKey}>
-                {renderJsonNestedTable(nestedTable, tableKey, 0, [rowKey])}
+                {renderJsonNestedTable(nestedTable, `${rowKey}_json_${tableIndex}`, 0, [rowKey])}
               </div>
             );
           })}
@@ -3265,15 +3338,31 @@ export default function DataTableNew({
         </button>
       </div>
 
-      {/* Right side: Save, Export, Fullscreen, Maximize/Minimize, and Close buttons */}
+      {/* Right side: Save, Cancel, Export, Fullscreen, Maximize/Minimize, and Close buttons */}
       <div className="shrink-0 flex items-center gap-2">
         {enableWrite && (tableName === 'sidebar' ? handleDrawerSave : handleMainSave) && (
           <button
-            onClick={tableName === 'sidebar' ? handleDrawerSave : handleMainSave}
+            onClick={() => {
+              console.log('🔍 Save button clicked - tableName:', tableName, 'isSidebar:', tableName === 'sidebar');
+              if (tableName === 'sidebar') {
+                handleDrawerSave?.();
+              } else {
+                handleMainSave?.();
+              }
+            }}
             className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center"
             title={tableName === 'sidebar' ? "Save changes in this nested table" : "Save all nested table changes"}
           >
             <i className="pi pi-save"></i>
+          </button>
+        )}
+        {enableWrite && (tableName === 'sidebar' ? (handleDrawerCancel && hasDrawerChanges) : (handleMainCancel && hasMainTableChanges)) && (
+          <button
+            onClick={tableName === 'sidebar' ? handleDrawerCancel : handleMainCancel}
+            className="p-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center justify-center"
+            title={tableName === 'sidebar' ? "Discard changes in this nested table" : "Discard all unsaved changes"}
+          >
+            <i className="pi pi-times"></i>
           </button>
         )}
         <button
