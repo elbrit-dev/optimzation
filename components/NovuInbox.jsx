@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { NovuProvider, Inbox } from '@novu/react';
-import { useOneSignalConnect } from '@/hooks/useOneSignalConnect';
 
 const NovuInbox = ({
   subscriberId,
@@ -19,16 +18,6 @@ const NovuInbox = ({
     applicationIdentifier: applicationIdentifier || process.env.NEXT_PUBLIC_NOVU_APPLICATION_IDENTIFIER || 'sCfOsfXhHZNc',
     subscriberHash: subscriberHash || process.env.NEXT_PUBLIC_NOVU_SUBSCRIBER_HASH || undefined,
   };
-
-  // Parse user data for OneSignal connection
-  const userData = userPayload ? {
-    email: userPayload.email,
-    firstName: userPayload.firstName || (userPayload.displayName?.split(' ')[0]),
-    lastName: userPayload.lastName || (userPayload.displayName?.split(' ').slice(1).join(' ')),
-  } : {};
-
-  // Connect OneSignal to Novu (simplified with hook)
-  useOneSignalConnect(config.subscriberId, userData);
 
   // Set client-side flag
   useEffect(() => {

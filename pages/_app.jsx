@@ -4,6 +4,7 @@ import '../firebase'; // Initialize Firebase
 import { DataProvider } from '@plasmicapp/host';
 import { useEffect, useState, useCallback } from 'react';
 import Head from 'next/head';
+import Script from 'next/script';
 import localforage from 'localforage';
 import _ from 'lodash';
 import "primereact/resources/themes/lara-light-cyan/theme.css";
@@ -375,42 +376,22 @@ function MyApp({ Component, pageProps }) {
           <link rel="manifest" href="/manifest.webmanifest" />
           <link rel="apple-touch-icon" href="/logo.svg" />
           <link rel="shortcut icon" href="/favicon.ico" />
-          
-          {/* OneSignal SDK */}
-          {/* OneSignal SDK */}
-          <script
-            src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js"
-            defer
-          />
-          <script
-            dangerouslySetInnerHTML={{
-              __html: `
-                window.OneSignalDeferred = window.OneSignalDeferred || [];
-                OneSignalDeferred.push(async function(OneSignal) {
-                  try {
-                    await OneSignal.init({
-                      appId: "${process.env.NEXT_PUBLIC_ONESIGNAL_APP_ID || 'ae84e191-00f5-445c-8e43-173709b8a553'}",
-                    });
-                    window.OneSignal = OneSignal;
-                    
-                    // Wait for service worker to be ready
-                    if ('serviceWorker' in navigator) {
-                      // Give OneSignal time to register its service worker
-                      setTimeout(async () => {
-                        const registration = await navigator.serviceWorker.ready;
-                        if (registration) {
-                          console.log('[OneSignal] Service worker ready');
-                        }
-                      }, 2000);
-                    }
-                  } catch (error) {
-                    console.error('[OneSignal] Initialization error:', error);
-                  }
-                });
-              `,
-            }}
-          />
         </Head>
+        <Script
+          src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js"
+          strategy="afterInteractive"
+          defer
+        />
+        <Script id="onesignal-init" strategy="afterInteractive">
+          {`
+            window.OneSignalDeferred = window.OneSignalDeferred || [];
+            OneSignalDeferred.push(async function(OneSignal) {
+              await OneSignal.init({
+                appId: "ae84e191-00f5-445c-8e43-173709b8a553",
+              });
+            });
+          `}
+        </Script>
         <Component {...pageProps} />
       </DataProvider>
     </DataProvider>
