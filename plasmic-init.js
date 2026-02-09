@@ -543,6 +543,18 @@ PLASMIC.registerComponent(NovuInbox, {
       type: "string",
       description: "Optional subscriber hash for HMAC authentication (only needed if using HMAC). If not provided, will use NEXT_PUBLIC_NOVU_SUBSCRIBER_HASH from environment variables. Can be left empty if not using HMAC.",
     },
+    email: {
+      type: "string",
+      description: "User email address (optional). Will be added to OneSignal user profile.",
+    },
+    phone: {
+      type: "string",
+      description: "User phone number in E.164 format, e.g., +91XXXXXXXXXX (optional). Will be added to OneSignal user profile.",
+    },
+    tags: {
+      type: "object",
+      description: "User tags as key-value pairs (optional). Flat object only, no nested objects. Example: { role: 'admin', division: 'sales' }",
+    },
     className: {
       type: "string",
       description: "CSS class name for the container",

@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { NovuProvider, Inbox } from '@novu/react';
 import {
   requestPushPermission,
-  setOneSignalUser,
   getOneSignalDeviceId,
+  setOneSignalUserData,
 } from "@/lib/onesignal";
 
 const NovuInbox = ({
@@ -11,6 +11,9 @@ const NovuInbox = ({
   applicationIdentifier,
   subscriberHash,
   className,
+  email,
+  phone,
+  tags,
   ...props
 }) => {
   const [employeeId, setEmployeeId] = useState(null);
@@ -43,26 +46,42 @@ const NovuInbox = ({
 
     async function setupPush() {
       try {
-        // 1️⃣ Ask permission (only once per browser - localStorage guard prevents re-prompting)
+        // 1️⃣ Ask permission (will show prompt only if possible)
         await requestPushPermission();
 
-        // 2️⃣ Attach subscriberId to device
-        setOneSignalUser(config.subscriberId);
-
-        // 3️⃣ Get device ID
-        const deviceId = await getOneSignalDeviceId();
-        if (!deviceId || cancelled) return;
-
-        // 4️⃣ Prevent duplicate registration calls (cache last registered device)
-        const lastKey = `os_device_${config.subscriberId}`;
-        const lastRegisteredDeviceId = localStorage.getItem(lastKey);
-        
-        if (lastRegisteredDeviceId === deviceId) {
-          // Already registered this device for this subscriber, skip
+        // 2️⃣ HARD CHECK permission state
+        const permission = await window.OneSignal.Notifications.permission;
+        if (permission !== "granted") {
+          console.warn("Push permission NOT granted");
           return;
         }
 
-        // 5️⃣ Send deviceId → backend → Novu
+        // 3️⃣ HARD CHECK push subscription
+        const subscription = window.OneSignal.User?.PushSubscription;
+        if (!subscription || !subscription.id) {
+          console.warn("No active push subscription");
+          return;
+        }
+
+        const deviceId = subscription.id;
+        if (cancelled) return;
+
+        // 4️⃣ Attach subscriberId to device and enrich user data (email, phone, tags)
+        setOneSignalUserData({
+          subscriberId: config.subscriberId,
+          email,
+          phone,
+          tags: tags || {
+            employeeId: config.subscriberId,
+          },
+        });
+
+        // 5️⃣ Prevent duplicate registration
+        const lastKey = `os_device_${config.subscriberId}`;
+        const lastRegisteredDeviceId = localStorage.getItem(lastKey);
+        if (lastRegisteredDeviceId === deviceId) return;
+
+        // 6️⃣ Register device with Novu
         await fetch("/api/onesignal/register-device", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -72,7 +91,6 @@ const NovuInbox = ({
           }),
         });
 
-        // Cache successful registration
         localStorage.setItem(lastKey, deviceId);
       } catch (err) {
         console.error("Push setup failed", err);
@@ -80,7 +98,6 @@ const NovuInbox = ({
     }
 
     setupPush();
-
     return () => {
       cancelled = true;
     };
