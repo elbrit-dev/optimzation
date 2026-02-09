@@ -66,22 +66,12 @@ const NovuInbox = ({
         const deviceId = subscription.id;
         if (cancelled) return;
 
-        // 4️⃣ Attach subscriberId to device and enrich user data (email, phone, tags)
-        setOneSignalUserData({
-          subscriberId: config.subscriberId,
-          email,
-          phone,
-          tags: tags || {
-            employeeId: config.subscriberId,
-          },
-        });
-
-        // 5️⃣ Prevent duplicate registration
+        // 4️⃣ Prevent duplicate registration
         const lastKey = `os_device_${config.subscriberId}`;
         const lastRegisteredDeviceId = localStorage.getItem(lastKey);
         if (lastRegisteredDeviceId === deviceId) return;
 
-        // 6️⃣ Register device with Novu
+        // 5️⃣ Register device with Novu
         await fetch("/api/onesignal/register-device", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -102,6 +92,21 @@ const NovuInbox = ({
       cancelled = true;
     };
   }, [config.subscriberId]);
+
+  // OneSignal user profile sync (separate from push setup)
+  useEffect(() => {
+    if (!config.subscriberId) return;
+    if (typeof window === "undefined") return;
+
+    setOneSignalUserData({
+      subscriberId: config.subscriberId,
+      email,
+      phone,
+      tags: tags || {
+        employeeId: config.subscriberId,
+      },
+    });
+  }, [config.subscriberId, email, phone, JSON.stringify(tags)]);
 
   // Don't render until we're on client side (for localStorage access)
   if (!isClient) {
