@@ -1,5 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { NovuProvider, Inbox } from '@novu/react';
+import {
+  requestPushPermission,
+  setOneSignalUser,
+  getOneSignalDeviceId,
+} from "@/lib/onesignal";
 
 const NovuInbox = ({
   subscriberId,
@@ -28,6 +33,58 @@ const NovuInbox = ({
     applicationIdentifier: applicationIdentifier || process.env.NEXT_PUBLIC_NOVU_APPLICATION_IDENTIFIER || 'sCfOsfXhHZNc',
     subscriberHash: subscriberHash || process.env.NEXT_PUBLIC_NOVU_SUBSCRIBER_HASH || undefined,
   };
+
+  // OneSignal push notification setup (must be before early returns per React hooks rules)
+  useEffect(() => {
+    if (!config.subscriberId) return;
+    if (typeof window === "undefined") return;
+
+    let cancelled = false;
+
+    async function setupPush() {
+      try {
+        // 1️⃣ Ask permission (only once per browser - localStorage guard prevents re-prompting)
+        await requestPushPermission();
+
+        // 2️⃣ Attach subscriberId to device
+        setOneSignalUser(config.subscriberId);
+
+        // 3️⃣ Get device ID
+        const deviceId = await getOneSignalDeviceId();
+        if (!deviceId || cancelled) return;
+
+        // 4️⃣ Prevent duplicate registration calls (cache last registered device)
+        const lastKey = `os_device_${config.subscriberId}`;
+        const lastRegisteredDeviceId = localStorage.getItem(lastKey);
+        
+        if (lastRegisteredDeviceId === deviceId) {
+          // Already registered this device for this subscriber, skip
+          return;
+        }
+
+        // 5️⃣ Send deviceId → backend → Novu
+        await fetch("/api/onesignal/register-device", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            subscriberId: config.subscriberId,
+            deviceId,
+          }),
+        });
+
+        // Cache successful registration
+        localStorage.setItem(lastKey, deviceId);
+      } catch (err) {
+        console.error("Push setup failed", err);
+      }
+    }
+
+    setupPush();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [config.subscriberId]);
 
   // Don't render until we're on client side (for localStorage access)
   if (!isClient) {
