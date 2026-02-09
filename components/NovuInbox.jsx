@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { NovuProvider, Inbox } from '@novu/react';
+import { useOneSignalConnect } from '@/hooks/useOneSignalConnect';
 
 const NovuInbox = ({
   subscriberId,
@@ -19,73 +20,20 @@ const NovuInbox = ({
     subscriberHash: subscriberHash || process.env.NEXT_PUBLIC_NOVU_SUBSCRIBER_HASH || undefined,
   };
 
-  // Connect OneSignal to Novu when component mounts and user data is available
+  // Parse user data for OneSignal connection
+  const userData = userPayload ? {
+    email: userPayload.email,
+    firstName: userPayload.firstName || (userPayload.displayName?.split(' ')[0]),
+    lastName: userPayload.lastName || (userPayload.displayName?.split(' ').slice(1).join(' ')),
+  } : {};
+
+  // Connect OneSignal to Novu (simplified with hook)
+  useOneSignalConnect(config.subscriberId, userData);
+
+  // Set client-side flag
   useEffect(() => {
     setIsClient(true);
-    
-    if (typeof window !== 'undefined' && config.subscriberId && userPayload) {
-      const connectOneSignalToNovu = async () => {
-        // Wait for OneSignal to be ready
-        if (!window.OneSignal) {
-          setTimeout(connectOneSignalToNovu, 500);
-          return;
-        }
-
-        try {
-          const playerId = await window.OneSignal.User.PushSubscription.id;
-          const subscriptionId = await window.OneSignal.User.PushSubscription.token;
-          
-          if (playerId || subscriptionId) {
-            // Use firstName/lastName from props, or parse from displayName
-            let firstName = userPayload.firstName;
-            let lastName = userPayload.lastName;
-            
-            if (!firstName && userPayload.displayName) {
-              const userName = userPayload.displayName.split(' ');
-              firstName = userName[0];
-              lastName = userName.slice(1).join(' ');
-            }
-            
-            await fetch('/api/novu/connect', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                subscriberId: config.subscriberId,
-                oneSignalPlayerId: playerId,
-                oneSignalSubscriptionId: subscriptionId,
-                email: userPayload.email,
-                firstName,
-                lastName,
-              }),
-            });
-          }
-        } catch (error) {
-          console.error('[NovuInbox] Error connecting OneSignal to Novu:', error);
-        }
-      };
-      
-      // Connect when OneSignal is ready
-      connectOneSignalToNovu();
-      
-      // Also connect when subscription changes
-      const handleSubscriptionChange = async (isSubscribed) => {
-        if (isSubscribed) {
-          await connectOneSignalToNovu();
-        }
-      };
-      
-      if (window.OneSignal) {
-        window.OneSignal.Notifications.addEventListener('subscriptionChange', handleSubscriptionChange);
-      }
-      
-      // Cleanup
-      return () => {
-        if (window.OneSignal) {
-          window.OneSignal.Notifications.removeEventListener('subscriptionChange', handleSubscriptionChange);
-        }
-      };
-    }
-  }, [config.subscriberId, userPayload]);
+  }, []);
 
   // Default action handler - must be before any early returns (React hooks rule)
   const handleActionClick = useCallback(async (action, notificationId, notification) => {
