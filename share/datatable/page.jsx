@@ -13,14 +13,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import DataProvider from './components/DataProvider';
 import DataTableControls from './components/DataTableControls';
 import DataTableNew from './components/DataTableNew';
+import DebugDataContext from './components/DebugDataContext';
 import ReportLineChartWrapper from './components/ReportLineChartWrapper';
 import { defaultDataTableConfig } from './config/defaultConfig';
 import { getDataKeys, getDataValue } from './utils/dataAccessUtils';
 
 
+const isDebugTableContext = process.env.NEXT_PUBLIC_DEBUG_TABLE_CONTEXT === '1';
+
 function DataTablePage() {
   const toast = useRef(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [hideTableInDebug, setHideTableInDebug] = useState(false);
   
   // Initialize dataSource first
   const [dataSource, setDataSource] = useState(defaultDataTableConfig.dataSource);
@@ -129,6 +133,11 @@ function DataTablePage() {
     setVariableOverrides({});
   }, []);
 
+  // When data source changes, reset query key so provider can select first key for new source
+  const handleDataSourceChange = useCallback((value) => {
+    setDataSource(value);
+    setSelectedQueryKey(null);
+  }, []);
 
   // Select the appropriate offline data based on dataSource
   const offlineData = useMemo(() => {
@@ -534,6 +543,8 @@ function DataTablePage() {
             greenFields={greenFields}
             enableDivideBy1Lakh={enableDivideBy1Lakh}
             columnTypesOverride={columnTypesOverride}
+            enableCellEdit={enableCellEdit}
+            editableColumns={editableColumns}
             drawerTabs={drawerTabs}
             onDrawerTabsChange={setDrawerTabs}
             enableReport={enableReport}
@@ -541,6 +552,61 @@ function DataTablePage() {
             chartColumns={chartColumns}
             chartHeight={chartHeight}
           >
+            {isDebugTableContext ? (
+              <div className="flex-1 min-h-0 flex flex-col overflow-auto">
+                <div className="shrink-0 p-3 sm:p-4 md:p-6 pb-0">
+                  <DebugDataContext
+                    hideTable={hideTableInDebug}
+                    onHideTableChange={setHideTableInDebug}
+                  />
+                </div>
+                {!hideTableInDebug && (
+                  <div className="flex-1 min-h-0 flex flex-col min-w-0 p-3 sm:p-4 md:p-6">
+                    {isLoadingData ? (
+                      <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center">
+                        <div className="mb-4">
+                          <div className="inline-block animate-spin rounded-full h-8 w-8 border-2 border-gray-200 border-t-blue-600"></div>
+                        </div>
+                        <p className="text-sm text-gray-500">Loading data...</p>
+                      </div>
+                    ) : tableData === null ? (
+                      <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center">
+                        <div className="mb-4">
+                          <i className="pi pi-table text-6xl text-gray-300"></i>
+                        </div>
+                        <h3 className="text-lg font-semibold text-gray-700 mb-2">
+                          No Data Available
+                        </h3>
+                        <p className="text-sm text-gray-500 max-w-md">
+                          Please select a query from the dropdown above and click <strong>Execute</strong> to see the table data.
+                        </p>
+                      </div>
+                    ) : (
+                      <>
+                        {showChart && (
+                          <div className="w-full mb-4">
+                            <ReportLineChartWrapper />
+                          </div>
+                        )}
+                        <DataTableNew
+                          scrollHeight={tableHeight}
+                          rowsPerPageOptions={rowsPerPageOptions}
+                          defaultRows={defaultRows}
+                          scrollable={false}
+                          enableCellEdit={enableCellEdit}
+                          editableColumns={editableColumns}
+                          onCellEditComplete={handleCellEditComplete}
+                          onOuterGroupClick={handleOuterGroupClick}
+                          onInnerGroupClick={handleInnerGroupClick}
+                          tableName="main"
+                          useOrchestrationLayer={true}
+                        />
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
             <div className="flex-1 min-h-0">
               <Splitter style={{ height: '100%' }} layout="horizontal" className="h-full">
                 <SplitterPanel className="flex flex-col min-w-0 h-full" size={80} minSize={30}>
@@ -661,12 +727,13 @@ function DataTablePage() {
                     selectedQueryKey={selectedQueryKey}
                     savedQueries={savedQueries}
                     loadingQueries={loadingQueries}
-                    onDataSourceChange={setDataSource}
+                    onDataSourceChange={handleDataSourceChange}
                     onSelectedQueryKeyChange={setSelectedQueryKey}
                   />
                 </SplitterPanel>
               </Splitter>
             </div>
+            )}
           </DataProvider>
         )}
       </main>

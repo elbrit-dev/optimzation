@@ -7,6 +7,7 @@ import DataTable from "./components/DataTable";
 import DataProvider from "./share/datatable/components/DataProviderNew";
 import DataTableNew from "./share/datatable/components/DataTableNew";
 import FirebaseUIComponent from "./components/FirebaseUIComponent";
+import CalendarPage from "@calendar/components/CalendarPage";
 import NovuInbox from "./components/NovuInbox";
 // import TableDataProvider from "./components/TableDataProvider";
 import jsonata from 'jsonata';
@@ -527,6 +528,28 @@ PLASMIC.registerComponent(FirebaseUIComponent, {
   },
 });
 
+PLASMIC.registerComponent(CalendarPage, {
+  name: "CalendarPage",
+  props: {
+    erpUrl: {
+      type: "string",
+      helpText: "ERP GraphQL endpoint",
+    },
+    authToken: {
+      type: "string",
+      helpText: "User auth token",
+    },
+    homeUrl: {
+      type: "string",
+      defaultValue: "/",
+      helpText: "Redirect if not logged in",
+    },
+    me: {
+      type: "object",
+      helpText: "Result of GraphQL `me` query",
+    },
+  },
+});
 
 PLASMIC.registerComponent(NovuInbox, {
   name: "NovuInbox",

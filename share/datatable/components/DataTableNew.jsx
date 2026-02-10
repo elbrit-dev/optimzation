@@ -41,8 +41,10 @@ import {
   isArray,
   values,
 } from 'lodash';
+import { getNestedOverridesAtPath } from '../utils/columnTypesOverrideUtils';
 import { getDataKeys, getDataValue } from '../utils/dataAccessUtils';
 import { getOrderedColumnsWithDerived } from '../utils/derivedColumnsUtils';
+import { isJsonArrayOfObjectsString } from '../utils/jsonArrayParser';
 import { useTableOperations } from '../contexts/TableOperationsContext';
 import MultiselectFilter from './MultiselectFilter';
 import { ColumnGroup } from 'primereact/columngroup';
@@ -708,6 +710,7 @@ export default function DataTableNew({
     groupedData,
     columns,
     columnTypes, // Format: { field_name: "boolean" | "number" | "date" | "string" }
+    columnTypesOverride = {},
     sums: calculateSums,
     filterOptions,
     filters,
@@ -769,6 +772,8 @@ export default function DataTableNew({
     removeDrawerTab,
     updateDrawerTab,
     setActiveDrawerTabIndex,
+    selectedRowData,
+    setSelectedRowData,
     enableReport,
     enableBreakdown,
     reportData,
@@ -790,6 +795,9 @@ export default function DataTableNew({
   // Helper variables for backward compatibility during migration
   const outerGroupField = effectiveGroupFields[0] || null;
   const innerGroupField = effectiveGroupFields[1] || null;
+
+  // When enableWrite is on, editing is sidebar-only; main table must not be cell-editable
+  const effectiveEnableCellEdit = enableCellEdit && (tableName === 'sidebar' || !enableWrite);
 
   const [first, setFirst] = useState(pagination.first);
   const [rows, setRows] = useState(pagination.rows);
@@ -1751,7 +1759,7 @@ export default function DataTableNew({
 
   // Cell editor functions
   const getCellEditor = useCallback((col) => {
-    if (!enableCellEdit) return undefined;
+    if (!effectiveEnableCellEdit) return undefined;
 
     // Never allow editing of __editingKey__ field
     if (col === '__editingKey__') {
@@ -1773,26 +1781,19 @@ export default function DataTableNew({
       return undefined;
     }
 
-    // Check if column is editable using inverse logic
-    // If editableColumns.main is empty, all columns are editable (backward compatible)
-    // If editableColumns.main has values, only those columns are editable
+    // Check if column is editable: empty list = no columns editable; non-empty list = only those columns editable
     // For nested tables, check editableColumns.nested[parentColumnName][nestedTableFieldName]
     const editableMain = Array.isArray(editableColumns) ? editableColumns : (editableColumns?.main || []);
-    let isEditable = true;
-    
+    let isEditable = false;
+
     // If this is a nested table, check nested editable columns
     if (finalParentColumnName && finalNestedTableFieldName && editableColumns.nested && editableColumns.nested[finalParentColumnName]) {
       const nestedEditableCols = editableColumns.nested[finalParentColumnName][finalNestedTableFieldName] || [];
-      // If nested editable columns list is empty, all columns are editable
-      // If it has values, only those columns are editable
-      if (nestedEditableCols.length > 0 && !includes(nestedEditableCols, col)) {
-        isEditable = false;
-      }
+      // If nested editable columns list is empty, no columns are editable; otherwise only listed columns
+      isEditable = nestedEditableCols.length > 0 && includes(nestedEditableCols, col);
     } else {
-      // For main table, check main editable columns
-      if (editableMain.length > 0 && !includes(editableMain, col)) {
-        isEditable = false;
-      }
+      // For main table: if editableColumns.main is empty, no columns are editable; otherwise only listed columns
+      isEditable = editableMain.length > 0 && includes(editableMain, col);
     }
     
     if (!isEditable) {
@@ -1836,7 +1837,7 @@ export default function DataTableNew({
         />
       );
     };
-  }, [enableCellEdit, columnTypesFlags, outerGroupField, innerGroupField, editableColumns, isCellEditable, finalParentColumnName, finalNestedTableFieldName]);
+  }, [effectiveEnableCellEdit, columnTypesFlags, outerGroupField, innerGroupField, editableColumns, isCellEditable, finalParentColumnName, finalNestedTableFieldName]);
 
   // Handle cell edit complete
   const handleCellEditComplete = useCallback((e) => {
@@ -2156,7 +2157,8 @@ export default function DataTableNew({
     renderJsonNestedTable, 
     title, 
     depth, 
-    parentPath 
+    parentPath,
+    parentPathFieldNames = []
   }) => {
     // Isolated expandedRows state for this nested table
     const [localExpandedRows, setLocalExpandedRows] = useState(null);
@@ -2196,7 +2198,7 @@ export default function DataTableNew({
                 const nestedTableKey = `${tableKey}_json_${nestedIndex}`;
                 return (
                   <div key={nestedTableKey}>
-                    {renderJsonNestedTable(nestedTable, nestedTableKey, depth + 1, [...parentPath, tableKey])}
+                    {renderJsonNestedTable(nestedTable, nestedTableKey, depth + 1, [...parentPath, tableKey], [...parentPathFieldNames, nestedTable.fieldName])}
                   </div>
                 );
               })}
@@ -2261,7 +2263,7 @@ export default function DataTableNew({
   });
 
   // Render JSON nested table recursively
-  const renderJsonNestedTable = useCallback((nestedTable, tableKey, depth = 0, parentPath = []) => {
+  const renderJsonNestedTable = useCallback((nestedTable, tableKey, depth = 0, parentPath = [], parentPathFieldNames = []) => {
     const { fieldName, data, title } = nestedTable;
     if (!data || data.length === 0) {
       return (
@@ -2284,9 +2286,23 @@ export default function DataTableNew({
       );
     }
 
-    // Detect column types for this nested table
-    const nestedColumnTypes = detectNestedTableColumnTypes(data);
-    const baseColumns = getDataKeys(data[0] || {}).filter(key => !key.startsWith('__'));
+    // Exclude array-of-objects columns (they render as nested tables, not scalar columns)
+    const sampleRows = take(data, 10);
+    const arrayFieldNames = new Set();
+    sampleRows.forEach((row) => {
+      if (!row || typeof row !== 'object') return;
+      for (const key of Object.keys(row)) {
+        if (key.startsWith('__')) continue;
+        const value = getDataValue(row, key);
+        if (isJsonArrayOfObjectsString(value)) arrayFieldNames.add(key);
+      }
+    });
+    const baseColumns = getDataKeys(data[0] || {}).filter(key => !key.startsWith('__') && !arrayFieldNames.has(key));
+
+    // Detect column types for this nested table (scalar columns only)
+    const detectedTypes = detectNestedTableColumnTypes(data);
+    const levelOverrides = getNestedOverridesAtPath(columnTypesOverride, parentPathFieldNames);
+    const nestedColumnTypes = { ...detectedTypes, ...levelOverrides };
     const columns = getOrderedColumnsWithDerived(baseColumns, derivedColumns || [], 'nested', fieldName);
 
     // Get filter state for this table
@@ -2394,10 +2410,11 @@ export default function DataTableNew({
           title={title}
           depth={depth}
           parentPath={parentPath}
+          parentPathFieldNames={parentPathFieldNames}
         />
       </div>
     );
-  }, [detectNestedTableColumnTypes, nestedFiltersMap, multiselectColumns, updateNestedFilter, nestedDebouncedUpdateFilter, nestedCancelDebounced, formatHeaderName, isPercentageColumn, enableSort, enableFilter, expandedRows, updateExpandedRows, getDataKeys, getDataValue, filter, every, get, includes, some, toLower, includes, orderBy, uniq, isNil, isNumber, isString, isBoolean, applyDateFilterFromContext, parseNumericFilterFromContext, applyNumericFilterFromContext, derivedColumns]);
+  }, [detectNestedTableColumnTypes, columnTypesOverride, nestedFiltersMap, multiselectColumns, updateNestedFilter, nestedDebouncedUpdateFilter, nestedCancelDebounced, formatHeaderName, isPercentageColumn, enableSort, enableFilter, expandedRows, updateExpandedRows, getDataKeys, getDataValue, filter, every, get, includes, some, toLower, includes, orderBy, uniq, isNil, isNumber, isString, isBoolean, applyDateFilterFromContext, parseNumericFilterFromContext, applyNumericFilterFromContext, derivedColumns]);
 
   // Row expansion template - shows nested table with same headers
   // Recursive row expansion template for infinite nesting
@@ -2737,7 +2754,7 @@ export default function DataTableNew({
             const tableKey = `${rowKey}_json_${tableIndex}_${dataHash}`;
             return (
               <div key={tableKey}>
-                {renderJsonNestedTable(nestedTable, `${rowKey}_json_${tableIndex}`, 0, [rowKey])}
+                {renderJsonNestedTable(nestedTable, `${rowKey}_json_${tableIndex}`, 0, [rowKey], [nestedTable.fieldName])}
               </div>
             );
           })}
@@ -3539,9 +3556,16 @@ export default function DataTableNew({
           updateExpandedRows(e.data);
         }}
         rowExpansionTemplate={enableBreakdown && effectiveGroupFields.length > 1 ? reportRowExpansionTemplate : (effectiveGroupFields.length > 0 || hasNestedTablesInData ? rowExpansionTemplate : undefined)}
-        dataKey={enableBreakdown && reportData ? "id" : (effectiveGroupFields.length > 0 ? "__groupKey__" : "id")}
+        dataKey={tableName === 'main' && useOrchestrationLayer && enableCellEdit && setSelectedRowData ? '__editingKey__' : (enableBreakdown && reportData ? "id" : (effectiveGroupFields.length > 0 ? "__groupKey__" : "id"))}
         headerColumnGroup={enableBreakdown && reportData ? reportHeaderGroup : undefined}
-        editMode={enableCellEdit ? "cell" : undefined}
+        editMode={effectiveEnableCellEdit ? "cell" : undefined}
+        selectionMode={tableName === 'main' && useOrchestrationLayer && enableCellEdit && setSelectedRowData ? 'single' : undefined}
+        selection={tableName === 'main' && useOrchestrationLayer && enableCellEdit ? (selectedRowData ?? null) : undefined}
+        onSelectionChange={tableName === 'main' && useOrchestrationLayer && enableCellEdit && setSelectedRowData ? (e) => {
+          const v = e.value;
+          if (v && v.__isGroupRow__) return;
+          setSelectedRowData(v ?? null);
+        } : undefined}
       >
         {(() => {
           const shouldShowExpander = effectiveGroupFields.length > 0 || (enableBreakdown && effectiveGroupFields.length > 1) || hasNestedTablesInData;
@@ -3586,7 +3610,7 @@ export default function DataTableNew({
                 return value.toLocaleString('en-US');
               } : getBodyTemplate(col)}
               editor={getCellEditor(col)}
-              onCellEditComplete={enableCellEdit && getCellEditor(col) ? handleCellEditComplete : undefined}
+              onCellEditComplete={effectiveEnableCellEdit && getCellEditor(col) ? handleCellEditComplete : undefined}
               align={isReportNumeric ? 'right' : 'left'}
             />
           );
@@ -3620,7 +3644,7 @@ export default function DataTableNew({
                 return value.toLocaleString('en-US');
               } : getBodyTemplate(col)}
               editor={getCellEditor(col)}
-              onCellEditComplete={enableCellEdit && getCellEditor(col) ? handleCellEditComplete : undefined}
+              onCellEditComplete={effectiveEnableCellEdit && getCellEditor(col) ? handleCellEditComplete : undefined}
               align={isReportNumeric ? 'right' : 'left'}
             />
           );

@@ -1,6 +1,6 @@
 'use client';
 
-import { filter, includes, isArray, isEmpty, startCase, toLower, uniq } from 'lodash';
+import { filter, includes, isArray, isEmpty, startCase, take, toLower, uniq } from 'lodash';
 import { Accordion, AccordionTab } from 'primereact/accordion';
 import { Chip } from 'primereact/chip';
 import { Dropdown } from 'primereact/dropdown';
@@ -9,7 +9,9 @@ import { MultiSelect } from 'primereact/multiselect';
 import React, { useContext, useState } from 'react';
 import { TableOperationsContext } from '../contexts/TableOperationsContext';
 import { defaultDataTableConfig } from '../config/defaultConfig';
+import { getMainOverrides, getNestedOverridesAtPath, setOverrideAtPath } from '../utils/columnTypesOverrideUtils';
 import { getDataValue } from '../utils/dataAccessUtils';
+import { isJsonArrayOfObjectsString } from '../utils/jsonArrayParser';
 
 function SingleFieldSelector({ columns, selectedField, onSelectionChange, formatFieldName, placeholder, label }) {
   const containerRef = React.useRef(null);
@@ -455,6 +457,117 @@ function FieldPicker({ columns, selectedFields, onSelectionChange, formatFieldNa
   );
 }
 
+function ColumnTypeOverridesTree({ columnTree, columnTypesOverride, onColumnTypesOverrideChange, formatFieldName }) {
+  const levelOverrides = (path) => (path.length === 0 ? getMainOverrides(columnTypesOverride) : getNestedOverridesAtPath(columnTypesOverride, path));
+  const handleChange = (path, col, selectedValue) => {
+    const isAuto = selectedValue.endsWith(' (auto)');
+    const value = isAuto ? null : selectedValue;
+    const next = setOverrideAtPath(columnTypesOverride, path, col, value);
+    if (onColumnTypesOverrideChange) onColumnTypesOverrideChange(next);
+  };
+
+  function renderLevel(tree, path, sectionLabel) {
+    const overrides = levelOverrides(path);
+    const rows = (tree?.mainColumns || []).map(({ name: col, detectedType }) => {
+      const overrideType = overrides[col];
+      const isOverridden = !!overrideType;
+      const dropdownOptions = ['string', 'number', 'date', 'boolean'].map((type) => {
+        const isAutoDetected = type === detectedType && !isOverridden;
+        return {
+          label: isAutoDetected ? `${type} (auto)` : type,
+          value: isAutoDetected ? `${type} (auto)` : type,
+          isAuto: isAutoDetected
+        };
+      });
+      const currentValue = isOverridden ? overrideType : `${detectedType} (auto)`;
+      const valueTemplate = (option) => {
+        if (!option) return null;
+        return (
+          <div className="flex items-center gap-1.5">
+            <span>{option.label || option}</span>
+            {option.isAuto && <i className="pi pi-microchip-ai text-xs text-gray-400"></i>}
+          </div>
+        );
+      };
+      const itemTemplate = (option) => (
+        <div className="flex items-center gap-1.5">
+          <span>{option.label}</span>
+          {option.isAuto && <i className="pi pi-microchip-ai text-xs text-gray-400"></i>}
+        </div>
+      );
+      return (
+        <tr key={col} className="border-b border-gray-100 hover:bg-gray-50">
+          <td className="py-2 px-3 text-sm text-gray-800">{formatFieldName(col)}</td>
+          <td className="py-2 px-3">
+            <Dropdown
+              value={currentValue}
+              onChange={(e) => handleChange(path, col, e.value)}
+              options={dropdownOptions}
+              optionLabel="label"
+              optionValue="value"
+              valueTemplate={valueTemplate}
+              itemTemplate={itemTemplate}
+              className="flex-1 text-sm"
+              style={{ minWidth: '120px' }}
+            />
+          </td>
+        </tr>
+      );
+    });
+
+    // Only show nested sections when not at root (path.length > 0). Root-level nested is rendered by the caller in the "mt-4 space-y-4" block to avoid duplication.
+    const nestedSections = path.length > 0 && tree?.nested && Object.keys(tree.nested).length > 0 ? (
+      <div className="mt-3 space-y-3">
+        {Object.entries(tree.nested).map(([fieldName, childTree]) => (
+          <div key={fieldName} className="pl-4 mt-2 border-l-2 border-gray-200">
+            <p className="text-xs font-medium text-gray-600 mb-2">{formatFieldName(fieldName)} (array)</p>
+            {renderLevel(childTree, [...path, fieldName], fieldName)}
+          </div>
+        ))}
+      </div>
+    ) : null;
+
+    return (
+      <>
+        <table className="w-full border-collapse">
+          <thead>
+            <tr className="border-b border-gray-200">
+              <th className="text-left py-2 px-3 text-xs font-semibold text-gray-700">Column Name</th>
+              <th className="text-left py-2 px-3 text-xs font-semibold text-gray-700">Column Type</th>
+            </tr>
+          </thead>
+          <tbody>{rows}</tbody>
+        </table>
+        {nestedSections}
+      </>
+    );
+  }
+
+  if (!columnTree?.mainColumns?.length && (!columnTree?.nested || Object.keys(columnTree.nested).length === 0)) {
+    return (
+      <div className="text-xs text-gray-500 p-2 bg-gray-50 rounded">
+        No columns to override.
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto space-y-4">
+      {columnTree.mainColumns?.length > 0 && renderLevel(columnTree, [], null)}
+      {columnTree.nested && Object.keys(columnTree.nested).length > 0 && (
+        <div className="mt-4 space-y-4">
+          {Object.entries(columnTree.nested).map(([fieldName, childTree]) => (
+            <div key={fieldName} className="pl-4 border-l-2 border-gray-200">
+              <p className="text-xs font-medium text-gray-700 mb-2">{formatFieldName(fieldName)} (array)</p>
+              {renderLevel(childTree, [fieldName], fieldName)}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function DataTableControls({
   enableSort = defaultDataTableConfig.enableSort,
   enableFilter = defaultDataTableConfig.enableFilter,
@@ -734,6 +847,87 @@ export default function DataTableControls({
 
     return types;
   }, [tableData, columns]);
+
+  // Detect types for a subset of columns in a data array (for nested levels)
+  const detectTypesForData = React.useCallback((data, columnList) => {
+    if (!data || !data.length || !columnList?.length) return {};
+    const types = {};
+    const sample = take(data, 100);
+    columnList.forEach((col) => {
+      let numericCount = 0;
+      let dateCount = 0;
+      let booleanCount = 0;
+      let nonNullCount = 0;
+      sample.forEach((row) => {
+        const value = getDataValue(row, col);
+        if (value !== null && value !== undefined) {
+          nonNullCount++;
+          if (typeof value === 'boolean') booleanCount++;
+          else if (value === 0 || value === 1 || value === '0' || value === '1') {
+            if (typeof value === 'number' || !isNaN(Number(value))) numericCount++;
+          } else if (typeof value === 'number' || (!isNaN(Number(value)) && value !== '')) numericCount++;
+          else if (value instanceof Date || (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value))) dateCount++;
+        }
+      });
+      if (nonNullCount > 0) {
+        if (booleanCount > nonNullCount * 0.7) types[col] = 'boolean';
+        else if (dateCount > nonNullCount * 0.7) types[col] = 'date';
+        else if (numericCount > nonNullCount * 0.8) types[col] = 'number';
+        else types[col] = 'string';
+      } else types[col] = 'string';
+    });
+    return types;
+  }, []);
+
+  // Recursive column tree: main columns + nested array sections with sub-columns and detected types
+  const columnTree = React.useMemo(() => {
+    const mainColumns = (columns || []).filter((c) => !jsonTableColumns[c]).map((col) => ({
+      name: col,
+      detectedType: detectedColumnTypes[col] || 'string'
+    }));
+
+    function buildLevelFromData(data) {
+      if (!data || !isArray(data) || data.length === 0) return { mainColumns: [], nested: {} };
+      const sample = take(data, 20);
+      const allKeys = new Set();
+      sample.forEach((row) => {
+        if (row && typeof row === 'object') Object.keys(row).forEach((k) => { if (!k.startsWith('__')) allKeys.add(k); });
+      });
+      const arrayFields = new Set();
+      sample.forEach((row) => {
+        if (!row || typeof row !== 'object') return;
+        allKeys.forEach((k) => {
+          if (isJsonArrayOfObjectsString(getDataValue(row, k))) arrayFields.add(k);
+        });
+      });
+      const scalarKeys = [...allKeys].filter((k) => !arrayFields.has(k));
+      const detected = detectTypesForData(data, scalarKeys);
+      const mainCols = scalarKeys.map((name) => ({ name, detectedType: detected[name] || 'string' }));
+      const nestedMap = {};
+      sample.forEach((row) => {
+        if (!row?.__nestedTables__) return;
+        row.__nestedTables__.forEach((nt) => {
+          if (nt?.fieldName && !nestedMap[nt.fieldName]) {
+            nestedMap[nt.fieldName] = buildLevelFromData(nt.data || []);
+          }
+        });
+      });
+      return { mainColumns: mainCols, nested: nestedMap };
+    }
+
+    const nestedMap = {};
+    if (tableData && isArray(tableData)) {
+      const rowsWithNested = tableData.filter((row) => row?.__nestedTables__?.length > 0);
+      rowsWithNested.forEach((row) => {
+        row.__nestedTables__.forEach((nt) => {
+          if (nt?.fieldName && !nestedMap[nt.fieldName]) {
+            nestedMap[nt.fieldName] = buildLevelFromData(nt.data || []);
+          }
+        });
+      });
+    }
+    return { mainColumns, nested: nestedMap };
+  }, [tableData, columns, detectedColumnTypes, jsonTableColumns, detectTypesForData]);
 
   // Get variable type helper
   const getVariableType = React.useCallback((value) => {
@@ -2049,96 +2243,12 @@ export default function DataTableControls({
                     <p className="text-xs text-gray-500 mb-3">
                       Override auto-detected column types. Select "Auto" to use detected type.
                     </p>
-                    <div className="overflow-x-auto">
-                      <table className="w-full border-collapse">
-                        <thead>
-                          <tr className="border-b border-gray-200">
-                            <th className="text-left py-2 px-3 text-xs font-semibold text-gray-700">Column Name</th>
-                            <th className="text-left py-2 px-3 text-xs font-semibold text-gray-700">Column Type</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {columns.map((col) => {
-                            const detectedType = detectedColumnTypes[col] || 'string';
-                            const overrideType = columnTypesOverride[col];
-                            const isOverridden = !!overrideType;
-
-                            // Build dropdown options with icon for auto-detected type
-                            const dropdownOptions = ['string', 'number', 'date', 'boolean'].map(type => {
-                              const isAutoDetected = type === detectedType && !isOverridden;
-                              return {
-                                label: isAutoDetected ? type : type,
-                                value: isAutoDetected ? `${type} (auto)` : type,
-                                isAuto: isAutoDetected
-                              };
-                            });
-
-                            // Current value: if overridden, show the override type, otherwise show detected type with auto marker
-                            const currentValue = isOverridden
-                              ? overrideType
-                              : `${detectedType} (auto)`;
-
-                            // Value template to show icon for auto-detected
-                            const valueTemplate = (option) => {
-                              if (!option) return null;
-                              const isAuto = option.isAuto || currentValue.endsWith(' (auto)');
-                              return (
-                                <div className="flex items-center gap-1.5">
-                                  <span>{option.label || option}</span>
-                                  {isAuto && <i className="pi pi-microchip-ai text-xs text-gray-400"></i>}
-                                </div>
-                              );
-                            };
-
-                            // Item template for dropdown items
-                            const itemTemplate = (option) => {
-                              return (
-                                <div className="flex items-center gap-1.5">
-                                  <span>{option.label}</span>
-                                  {option.isAuto && <i className="pi pi-microchip-ai text-xs text-gray-400"></i>}
-                                </div>
-                              );
-                            };
-
-                            return (
-                              <tr key={col} className="border-b border-gray-100 hover:bg-gray-50">
-                                <td className="py-2 px-3 text-sm text-gray-800">
-                                  {formatFieldName(col)}
-                                </td>
-                                <td className="py-2 px-3">
-                                  <Dropdown
-                                    value={currentValue}
-                                    onChange={(e) => {
-                                      const newOverrides = { ...columnTypesOverride };
-                                      const selectedValue = e.value;
-
-                                      // If selected value ends with " (auto)", it means auto-detected - remove override
-                                      if (selectedValue.endsWith(' (auto)')) {
-                                        delete newOverrides[col];
-                                      } else {
-                                        // Otherwise, it's an override
-                                        newOverrides[col] = selectedValue;
-                                      }
-
-                                      if (onColumnTypesOverrideChange) {
-                                        onColumnTypesOverrideChange(newOverrides);
-                                      }
-                                    }}
-                                    options={dropdownOptions}
-                                    optionLabel="label"
-                                    optionValue="value"
-                                    valueTemplate={valueTemplate}
-                                    itemTemplate={itemTemplate}
-                                    className="flex-1 text-sm"
-                                    style={{ minWidth: '120px' }}
-                                  />
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
+                    <ColumnTypeOverridesTree
+                      columnTree={columnTree}
+                      columnTypesOverride={columnTypesOverride}
+                      onColumnTypesOverrideChange={onColumnTypesOverrideChange}
+                      formatFieldName={formatFieldName}
+                    />
                   </div>
                 </div>
               </AccordionTab>

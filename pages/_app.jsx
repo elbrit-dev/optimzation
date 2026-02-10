@@ -18,6 +18,8 @@ import 'graphiql/graphiql.css';
 import 'graphiql/style.css';
 import "@/app/graphql-playground/styles/graphql-playground.css";
 
+import "@calendar/styles/globals.css";
+
 const flatten = (renameMapOrData, maybeData, options = {}) => {
   const flat = (obj, prefix = '', res = {}) => {
     if (Array.isArray(obj)) {

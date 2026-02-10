@@ -5,7 +5,8 @@
       "@/*": ["./*"],
       "@/app/*": ["share/*"],
       "@/components/*": ["share/components/*"],
-      "@/lib/firebase": ["lib/firebase.js"]
+      "@/lib/firebase": ["lib/firebase.js"],
+      "@calendar/*": ["./shared/calendar/*"]
     }
   }
 }

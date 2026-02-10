@@ -1,0 +1,386 @@
+"use client";;
+import { createContext, useContext, useState, useEffect, useRef, useMemo } from "react";
+import { useLocalStorage } from "@calendar/components/calendar/hooks";
+import { fetchEventsByRange } from "@calendar/services/event.service";
+import { resolveCalendarRange } from "@calendar/lib/calendar/range";
+import { ELBRIT_ROLEID, EMPLOYEES_QUERY } from "@calendar/services/events.query";
+import { mapEmployeesToCalendarUsers } from "@calendar/services/employee-to-calendar-user";
+import { graphqlRequest } from "@calendar/lib/graphql-client";
+import { enrichEventsWithParticipants } from "@calendar/lib/calendar/enrich-events";
+
+const DEFAULT_SETTINGS = {
+	badgeVariant: "colored",
+	view: "day",
+	use24HourFormat: true,
+	agendaModeGroupBy: "date",
+};
+
+const CalendarContext = createContext({});
+
+export function CalendarProvider({
+	children,
+	events,
+	badge = "colored",
+	view = "day"
+}) {
+	const [settings, setSettings] = useLocalStorage("calendar-settings", {
+		...DEFAULT_SETTINGS,
+		badgeVariant: badge,
+		view: view,
+	});
+	const [mobileMode, setMobileMode] = useState("expanded");
+	const [badgeVariant, setBadgeVariantState] = useState(settings.badgeVariant);
+	const [currentView, setCurrentViewState] = useState(settings.view);
+	const [use24HourFormat, setUse24HourFormatState] = useState(settings.use24HourFormat);
+	const [agendaModeGroupBy, setAgendaModeGroupByState] = useState(settings.agendaModeGroupBy);
+	const [selectedDate, setSelectedDate] = useState(new Date());
+	const [selectedUserId, setSelectedUserId] = useState("all");
+	const [selectedColors, setSelectedColors] = useState([]);
+	const [allEvents, setAllEvents] = useState(events || []);
+	const [filteredEvents, setFilteredEvents] = useState(events || []);
+	const [users, setUsers] = useState([]);
+	const [usersLoading, setUsersLoading] = useState(true);
+	const [employeeOptions, setEmployeeOptions] = useState([]);
+	const [doctorOptions, setDoctorOptions] = useState([]);
+	const [hqTerritoryOptions, setHqTerritoryOptions] = useState([]);
+	const [elbritRoleEdges, setElbritRoleEdges] = useState([]);
+	const [elbritRoleLoading, setElbritRoleLoading] = useState(true);
+
+	const [eventListDate, setEventListDate] = useState(null);
+	const [activeDate, setActiveDate] = useState(null);
+	const isEventListOpen = eventListDate !== null;
+	const [mobileLayer, setMobileLayer] = useState("month-expanded");
+	const updateSettings = (newPartialSettings) => {
+		setSettings({
+			...settings,
+			...newPartialSettings,
+		});
+	};
+	const employeeEmailToId = useMemo(() => {
+		const map = new Map();
+		for (const u of users) {
+			if (u.email && u.id) {
+				map.set(u.email, u.id); // email → Employee ID
+			}
+		}
+		return map;
+	}, [users]);
+
+
+	const setBadgeVariant = (variant) => {
+		setBadgeVariantState(variant);
+		updateSettings({ badgeVariant: variant });
+	};
+
+	const setView = (newView) => {
+		setCurrentViewState(newView);
+		updateSettings({ view: newView });
+	};
+
+	const toggleTimeFormat = () => {
+		const newValue = !use24HourFormat;
+		setUse24HourFormatState(newValue);
+		updateSettings({ use24HourFormat: newValue });
+	};
+
+	const setAgendaModeGroupBy = (groupBy) => {
+		setAgendaModeGroupByState(groupBy);
+		updateSettings({ agendaModeGroupBy: groupBy });
+	};
+
+	const filterEventsBySelectedColors = (color) => {
+		const isColorSelected = selectedColors.includes(color);
+		const newColors = isColorSelected
+			? selectedColors.filter((c) => c !== color)
+			: [...selectedColors, color];
+
+		if (newColors.length > 0) {
+			const filtered = allEvents.filter((event) => {
+				const eventColor = event.color || "blue";
+				return newColors.includes(eventColor);
+			});
+			setFilteredEvents(filtered);
+		} else {
+			setFilteredEvents(allEvents);
+		}
+
+		setSelectedColors(newColors);
+	};
+
+	const filterEventsBySelectedUser = (userId) => {
+		setSelectedUserId(userId);
+		if (userId === "all") {
+			setFilteredEvents(allEvents);
+		} else {
+			const filtered = allEvents.filter((event) => event.owner?.id === userId);
+			setFilteredEvents(filtered);
+		}
+	};
+
+	const handleSelectDate = (date) => {
+		if (!date) return;
+		setSelectedDate(date);
+	};
+
+	const addEvent = (event) => {
+		const normalized = {
+			...event,
+			startDate: new Date(event.startDate).toISOString(),
+			endDate: new Date(event.endDate).toISOString(),
+		};
+
+		setAllEvents((prev) => [...prev, normalized]);
+		setFilteredEvents((prev) => [...prev, normalized]);
+	};
+
+	const updateEvent = (updatedEvent) => {
+		if (!updatedEvent.erpName) {
+			console.warn("Attempted to update event without erpName", updatedEvent);
+			return;
+		}
+
+		const normalized = {
+			...updatedEvent,
+			startDate: new Date(updatedEvent.startDate).toISOString(),
+			endDate: new Date(updatedEvent.endDate).toISOString(),
+		};
+
+		setAllEvents((prev) =>
+			prev.map((e) =>
+				e.erpName === normalized.erpName ? normalized : e
+			)
+		);
+
+		setFilteredEvents((prev) =>
+			prev.map((e) =>
+				e.erpName === normalized.erpName ? normalized : e
+			)
+		);
+	};
+
+
+	const removeEvent = (erpName) => {
+		if (!erpName) return;
+
+		setAllEvents(prev => prev.filter(e => e.erpName !== erpName));
+		setFilteredEvents(prev => prev.filter(e => e.erpName !== erpName));
+	};
+
+
+	const clearFilter = () => {
+		setFilteredEvents(allEvents);
+		setSelectedColors([]);
+		setSelectedUserId("all");
+	};
+	useEffect(() => {
+		let cancelled = false;
+
+		async function hydrateFromGraphql() {
+			const { start, end } = resolveCalendarRange(currentView, selectedDate);
+
+			try {
+				const events = await fetchEventsByRange(
+					start,
+					end,
+					currentView
+				);
+				if (!cancelled) {
+					setAllEvents(events);
+					setFilteredEvents(events);
+
+				}
+			} catch (err) {
+				console.error("Failed to fetch events", err);
+			}
+		}
+
+		hydrateFromGraphql();
+
+		return () => {
+			cancelled = true;
+		};
+	}, [currentView, selectedDate]);
+
+	useEffect(() => {
+		if (!allEvents.length) return;
+
+		if (
+			!employeeOptions.length &&
+			!doctorOptions.length &&
+			!employeeEmailToId.size
+		) {
+			return;
+		}
+
+		let changed = false;
+
+		const enriched = allEvents.map(event => {
+			let next = event;
+
+			/* ---------------------------------
+			   1️⃣ ERP participants enrichment
+			   (events only)
+			--------------------------------- */
+			if (
+				next.event_participants &&
+				(employeeOptions.length || doctorOptions.length)
+			) {
+				const [withParticipants] = enrichEventsWithParticipants(
+					[next],
+					employeeOptions,
+					doctorOptions
+				);
+
+				if (withParticipants !== next) {
+					next = withParticipants;
+					changed = true;
+				}
+			}
+
+			/* ---------------------------------
+			   2️⃣ TODO allocated_to normalization
+			   email → employeeId
+			--------------------------------- */
+			if (
+				next.tags === "Todo List" &&
+				typeof next.allocated_to === "string" && // email from ERP
+				!next.__allocatedToNormalized &&
+				employeeEmailToId.size
+			) {
+				const empId = employeeEmailToId.get(next.allocated_to);
+
+				if (empId) {
+					next = {
+						...next,
+						allocated_to: empId, // 🔑 canonical form
+						__allocatedToNormalized: true, // guard
+					};
+					changed = true;
+				}
+			}
+
+			return next;
+		});
+
+		if (!changed) return;
+
+		setAllEvents(enriched);
+		setFilteredEvents(enriched);
+	}, [
+		employeeOptions,
+		doctorOptions,
+		employeeEmailToId,
+	]);
+
+
+	useEffect(() => {
+		let cancelled = false;
+
+		async function hydrateEmployees() {
+			try {
+				const data = await graphqlRequest(EMPLOYEES_QUERY, {
+					first: 1000,
+				});
+
+				const employees =
+					data?.Employees?.edges?.map(e => e.node) ?? [];
+
+				const mappedUsers = mapEmployeesToCalendarUsers(employees);
+
+				if (!cancelled) {
+					setUsers(mappedUsers);
+					setUsersLoading(false);
+				}
+
+			} catch (err) {
+				console.error("Failed to fetch employees", err);
+				setUsersLoading(false);
+			}
+		}
+
+		hydrateEmployees();
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+	useEffect(() => {
+		let cancelled = false;
+	  
+		async function hydrateElbritRoles() {
+		  try {
+			const data = await graphqlRequest(ELBRIT_ROLEID, {
+			  first: 1000,
+			});
+	  
+			const edges = data?.ElbritRoleIDS?.edges ?? [];
+			if (!cancelled) {
+			  setElbritRoleEdges(edges);
+			  setElbritRoleLoading(false);
+			}
+		  } catch (err) {
+			console.error("❌ Failed to fetch ElbritRoleIDS", err);
+			setElbritRoleLoading(false);
+		  }
+		}
+	  
+		hydrateElbritRoles();
+	  
+		return () => {
+		  cancelled = true;
+		};
+	  }, []);
+	  
+
+	const value = {
+		selectedDate,
+		setSelectedDate: handleSelectDate,
+		selectedUserId,
+		setSelectedUserId,
+		badgeVariant,
+		setBadgeVariant,
+		users,
+		usersLoading,
+		selectedColors,
+		filterEventsBySelectedColors,
+		filterEventsBySelectedUser,
+		events: filteredEvents,
+		view: currentView,
+		use24HourFormat,
+		toggleTimeFormat,
+		setView,
+		agendaModeGroupBy,
+		setAgendaModeGroupBy,
+		addEvent,
+		updateEvent,
+		removeEvent,
+		clearFilter,
+		mobileMode,
+		setMobileMode,
+		eventListDate,
+		setEventListDate,
+		isEventListOpen,
+		activeDate, setActiveDate, mobileLayer,
+		setMobileLayer,
+		employeeOptions,
+		doctorOptions,
+		hqTerritoryOptions,
+		setEmployeeOptions,
+		setDoctorOptions,
+		setHqTerritoryOptions,
+		elbritRoleEdges,
+		elbritRoleLoading,
+	};
+
+	return (
+		<CalendarContext.Provider value={value}>
+			{children}
+		</CalendarContext.Provider>
+	);
+}
+
+export function useCalendar() {
+	const context = useContext(CalendarContext);
+	if (!context)
+		throw new Error("useCalendar must be used within a CalendarProvider.");
+	return context;
+}

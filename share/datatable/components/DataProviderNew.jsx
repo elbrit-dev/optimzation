@@ -30,7 +30,11 @@ import {
     uniq
 } from 'lodash';
 import { Button } from 'primereact/button';
+import { Calendar } from 'primereact/calendar';
+import { Checkbox } from 'primereact/checkbox';
 import { Dropdown } from 'primereact/dropdown';
+import { InputNumber } from 'primereact/inputnumber';
+import { InputText } from 'primereact/inputtext';
 import { Sidebar } from 'primereact/sidebar';
 import { SplitButton } from 'primereact/splitbutton';
 import { TabPanel, TabView } from 'primereact/tabview';
@@ -43,6 +47,7 @@ import { getDataKeys, getDataValue } from '../utils/dataAccessUtils';
 import { applyDerivedColumns, applyDerivedColumnsForRow, getDerivedColumnNames, getOrderedColumnsWithDerived } from '../utils/derivedColumnsUtils';
 import { formatDateValue } from '../utils/dateFormatUtils';
 import { applyDateFilter, applyNumericFilter, filterRows, parseNumericFilter } from '../utils/filterUtils';
+import { getMainOverrides } from '../utils/columnTypesOverrideUtils';
 import { isJsonArrayOfObjectsString } from '../utils/jsonArrayParser';
 import { useReportData } from '../utils/providerUtils';
 import { exportReportToXLSX } from '../utils/reportExportUtils';
@@ -88,6 +93,8 @@ export default function DataProviderNew({
   greenFields = [],
   enableDivideBy1Lakh = false,
   columnTypesOverride = {}, // Object with column names as keys and type strings as values: {columnName: "date" | "number" | "boolean" | "string"}
+  enableCellEdit = false,
+  editableColumns = { main: [], nested: {} },
   // Drawer props
   drawerTabs = [],
   onDrawerTabsChange,
@@ -285,6 +292,9 @@ export default function DataProviderNew({
   // Parent re-render when nested table buffer is updated (so nested tab gets new tabDataSource)
   const [nestedTableUpdateCounter, setNestedTableUpdateCounter] = useState(0);
   const handleNestedBufferChange = useCallback(() => setNestedTableUpdateCounter((v) => v + 1), []);
+
+  // Selected row in main table (for sidebar form editing) - only used by root provider
+  const [selectedRowData, setSelectedRowData] = useState(null);
 
   // Sync mainTableEditingData state with the ref for reactivity
   // Also update the early ref so tableData can pick it up
@@ -628,7 +638,8 @@ export default function DataProviderNew({
     });
 
     // Merge detected types with overrides and derived column types (overrides take precedence)
-    const mergedTypes = { ...detectedTypes, ...columnTypesOverride };
+    const mainOverrides = getMainOverrides(columnTypesOverride);
+    const mergedTypes = { ...detectedTypes, ...mainOverrides };
     (derivedColumns || []).forEach((dc) => {
       if (dc.columnName && dc.columnType) {
         mergedTypes[dc.columnName] = dc.columnType;
@@ -636,6 +647,59 @@ export default function DataProviderNew({
     });
     return mergedTypes;
   }, [tableData, filteredColumns, isNumericValue, columnTypesOverride, derivedColumns]);
+
+  // JSON table columns (columns that have __nestedTables__) - for scalar editable columns filter
+  const jsonTableColumns = useMemo(() => {
+    if (!tableData || !isArray(tableData) || tableData.length === 0) return {};
+    const jsonTableMap = {};
+    const rowsWithNestedTables = tableData.filter(row => row && row.__nestedTables__ && isArray(row.__nestedTables__) && row.__nestedTables__.length > 0);
+    rowsWithNestedTables.forEach(row => {
+      if (row && row.__nestedTables__ && isArray(row.__nestedTables__)) {
+        row.__nestedTables__.forEach(nestedTable => {
+          const columnName = nestedTable.fieldName;
+          if (columnName && !columnName.startsWith('__')) {
+            if (!jsonTableMap[columnName]) jsonTableMap[columnName] = { fieldName: columnName, nestedTables: [] };
+            const existing = jsonTableMap[columnName].nestedTables.find(nt => nt.fieldName === nestedTable.fieldName);
+            if (!existing) {
+              let nestedColumns = [];
+              if (nestedTable.data && isArray(nestedTable.data) && nestedTable.data.length > 0 && nestedTable.data[0] && typeof nestedTable.data[0] === 'object') {
+                nestedColumns = Object.keys(nestedTable.data[0]).filter(key => !key.startsWith('__'));
+              }
+              jsonTableMap[columnName].nestedTables.push({ fieldName: nestedTable.fieldName, title: nestedTable.title || nestedTable.fieldName, columns: nestedColumns });
+            }
+          }
+        });
+      }
+    });
+    if (rowsWithNestedTables.length === 0 && columns.length > 0) {
+      const sampleRows = tableData.slice(0, Math.min(50, tableData.length));
+      sampleRows.forEach(row => {
+        if (!row || typeof row !== 'object') return;
+        columns.forEach(columnName => {
+          if (columnName.startsWith('__')) return;
+          const columnValue = row[columnName];
+          if (isArray(columnValue) && columnValue.length > 0) {
+            const firstItem = columnValue[0];
+            if (firstItem && typeof firstItem === 'object' && !isArray(firstItem)) {
+              if (!jsonTableMap[columnName]) jsonTableMap[columnName] = { fieldName: columnName, nestedTables: [] };
+              const existing = jsonTableMap[columnName].nestedTables.find(nt => nt.fieldName === columnName);
+              if (!existing) {
+                jsonTableMap[columnName].nestedTables.push({
+                  fieldName: columnName,
+                  title: columnName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+                  columns: Object.keys(firstItem).filter(key => !key.startsWith('__'))
+                });
+              }
+            }
+          }
+        });
+      });
+    }
+    return jsonTableMap;
+  }, [tableData, columns]);
+
+  const editableMain = useMemo(() => Array.isArray(editableColumns) ? editableColumns : (editableColumns?.main || []), [editableColumns]);
+  const scalarEditableColumns = useMemo(() => editableMain.filter(col => !jsonTableColumns[col]), [editableMain, jsonTableColumns]);
 
   // jsonArrayFields comes from useDataPipeline
 
@@ -2397,6 +2461,7 @@ export default function DataProviderNew({
         rawData: mainTableEditingData, // Use editingData state for reactivity (triggers updates when changed)
         columns: filteredColumns, // Expose filtered columns (respecting allowedColumns)
         columnTypes,
+        columnTypesOverride,
         filteredData,
         groupedData,
         sortedData,
@@ -2467,6 +2532,8 @@ export default function DataProviderNew({
         removeDrawerTab,
         updateDrawerTab,
         setActiveDrawerTabIndex,
+        selectedRowData,
+        setSelectedRowData,
         formatDateValue,
         formatHeaderName,
         isTruthyBoolean,
@@ -2513,14 +2580,15 @@ export default function DataProviderNew({
       return {};
     }
   }, [
-    sortedData, columns, columnTypes, filteredData, groupedData, paginatedData,
+    sortedData, columns, columnTypes, columnTypesOverride, filteredData, groupedData, paginatedData,
     calculateSums, getSums, optionColumnValues, multiselectColumns, hasPercentageColumns, percentageColumns, percentageColumnNames,
     isPercentageColumn, getPercentageColumnValue, getPercentageColumnSortFunction, tableFilters, tableSortMeta, tablePagination,
     tableExpandedRows, tableVisibleColumns, enableSort, enableFilter, enableSummation, enableGrouping,
     textFilterColumns, effectiveGroupFields, redFields, greenFields, enableDivideBy1Lakh,
     updateFilter, clearFilter, clearAllFilters, updateSort, updatePagination, updateExpandedRows,
-    updateVisibleColumns, drawerVisible, drawerData, drawerTabs, activeDrawerTabIndex, clickedDrawerValues,
+    updateVisibleColumns,     drawerVisible, drawerData, drawerTabs, activeDrawerTabIndex, clickedDrawerValues,
     openDrawer, openDrawerWithData, openDrawerForOuterGroup, openDrawerForInnerGroup, openDrawerWithJsonTables, closeDrawer, addDrawerTab, removeDrawerTab, updateDrawerTab,
+    selectedRowData, setSelectedRowData,
     formatHeaderName, isTruthyBoolean, exportToXLSX, isNumericValue, currentQueryDoc, searchTerm, sortConfig, enableReport, enableBreakdown, reportData, isComputingReport, isApplyingFilterSort, columnGroupBy, filteredColumns, allowedColumns, parentColumnName, nestedTableFieldName,
     updateCurrentNestedTableData, getChangedRowsForTab, getAllChangedNestedTableRows, handleDrawerSave, handleMainSave, handleMainCancel, handleDrawerCancel, hasMainTableChanges, hasDrawerChanges, updateMainTableEditingData, forceEnableWrite, parentHandleDrawerSave, addEditingKeysToRows, mainTableEditingData,
     availableQueryKeys, executingQuery
@@ -3055,15 +3123,8 @@ export default function DataProviderNew({
   // Keep existing callback for backward compatibility
   useEffect(() => {
     if (onTableDataChange) {
-      // Strip __nestedTables__ from data before passing to callback (it's UI-only metadata)
-      const dataWithoutNestedTables = isArray(sortedData) ? sortedData.map(row => {
-        if (row && typeof row === 'object' && '__nestedTables__' in row) {
-          const { __nestedTables__, ...rowWithoutNestedTables } = row;
-          return rowWithoutNestedTables;
-        }
-        return row;
-      }) : sortedData;
-      onTableDataChange(dataWithoutNestedTables);
+      // Pass full sortedData including __nestedTables__ so Column Type Overrides (and similar UIs) can show nested array structure
+      onTableDataChange(sortedData);
     }
   }, [sortedData, onTableDataChange]);
 
@@ -3214,6 +3275,84 @@ export default function DataProviderNew({
           }
         >
           <div className="flex flex-col h-full">
+            {/* Scalar editable fields form - sibling above TabView (root provider only) */}
+            {!parentColumnName && drawerVisible && enableCellEdit && scalarEditableColumns.length > 0 && (
+              <div className="shrink-0 p-3 pb-2 border-b border-gray-200">
+                <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+                  {!selectedRowData ? (
+                    <div className="col-span-2 text-sm text-gray-500 py-2">
+                      Select a row in the table to edit.
+                    </div>
+                  ) : (
+                    scalarEditableColumns.map((col) => {
+                      const mainOverrides = getMainOverrides(columnTypesOverride);
+                      const resolvedType = mainOverrides[col] || columnTypes[col] || 'string';
+                      const value = getDataValue(selectedRowData, col);
+                      const editingKey = selectedRowData?.__editingKey__;
+                      const label = formatHeaderName(col);
+                      const handleChange = (newVal) => {
+                        if (editingKey != null && updateMainTableEditingData) {
+                          updateMainTableEditingData(editingKey, col, newVal);
+                        }
+                      };
+                      if (resolvedType === 'date') {
+                        return (
+                          <div key={col} className="flex flex-col gap-1">
+                            <label className="text-xs font-medium text-gray-700">{label}</label>
+                            <Calendar
+                              value={value ? (value instanceof Date ? value : new Date(value)) : null}
+                              onChange={(e) => handleChange(e.value)}
+                              dateFormat="M d, yy"
+                              showIcon
+                              className="w-full"
+                              inputClassName="text-sm w-full"
+                            />
+                          </div>
+                        );
+                      }
+                      if (resolvedType === 'boolean') {
+                        return (
+                          <div key={col} className="flex flex-col gap-1">
+                            <label className="text-xs font-medium text-gray-700">{label}</label>
+                            <div className="flex items-center pt-1">
+                              <Checkbox
+                                inputId={`sidebar-edit-${col}`}
+                                checked={!!value}
+                                onChange={(e) => handleChange(e.checked)}
+                              />
+                              <label htmlFor={`sidebar-edit-${col}`} className="ml-2 text-sm text-gray-600">{value ? 'Yes' : 'No'}</label>
+                            </div>
+                          </div>
+                        );
+                      }
+                      if (resolvedType === 'number') {
+                        return (
+                          <div key={col} className="flex flex-col gap-1">
+                            <label className="text-xs font-medium text-gray-700">{label}</label>
+                            <InputNumber
+                              value={value != null && value !== '' ? toNumber(value) : null}
+                              onValueChange={(e) => handleChange(e.value)}
+                              className="w-full"
+                              inputClassName="text-sm w-full"
+                            />
+                          </div>
+                        );
+                      }
+                      return (
+                        <div key={col} className="flex flex-col gap-1">
+                          <label className="text-xs font-medium text-gray-700">{label}</label>
+                          <InputText
+                            value={value != null ? String(value) : ''}
+                            onChange={(e) => handleChange(e.target.value)}
+                            className="w-full text-sm"
+                          />
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
             <div className="flex-1">
               {hasDrawerTabs ? (
                 <TabView
