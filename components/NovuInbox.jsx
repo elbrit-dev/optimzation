@@ -74,6 +74,7 @@ const NovuInbox = ({
   applicationIdentifier,
   subscriberHash,
   className,
+  mode = "icon", // "icon" | "panel" - icon mode prevents height stretching
   ...props
 }) => {
   const [employeeId, setEmployeeId] = useState(null);
@@ -123,6 +124,46 @@ const NovuInbox = ({
     novuProviderProps.subscriberHash = config.subscriberHash;
   }
 
+  // 🔥 Icon Mode: Content-based sizing, NO height constraints
+  if (mode === "icon") {
+    const iconTheme = {
+      ...elbritInboxTheme,
+      appearance: {
+        ...elbritInboxTheme.appearance,
+        elements: {
+          ...elbritInboxTheme.appearance.elements,
+          inboxRoot: {
+            height: "auto",
+            width: "auto",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+          },
+        },
+      },
+    };
+
+    return (
+      <div
+        className={className}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          height: "auto",
+          width: "auto",
+          alignSelf: "flex-start", // Prevent flex stretch in parent containers
+        }}
+        {...props}
+      >
+        <NovuProvider {...novuProviderProps}>
+          <Inbox {...iconTheme} />
+        </NovuProvider>
+      </div>
+    );
+  }
+
+  // 📦 Panel Mode: Full-height panel with container
   return (
     <div
       className={className}
