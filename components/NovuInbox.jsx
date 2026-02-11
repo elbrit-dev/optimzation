@@ -1,88 +1,19 @@
+"use client";
+
 import React, { useState, useEffect } from "react";
 import { NovuProvider, Inbox } from "@novu/react";
-
-/* ==============================
-   🔵 ELBRIT DESIGN SYSTEM
-================================ */
-
-const elbritInboxTheme = {
-  appearance: {
-    variables: {
-      colorPrimary: "#1F2F5F", // Elbrit Navy
-      colorPrimaryForeground: "#FFFFFF",
-      colorNeutralForeground: "#6B7280",
-      colorForeground: "#111827",
-      colorBackground: "#F4F6F9",
-      fontFamily: "Inter, sans-serif",
-      fontSize: "14px",
-      borderRadius: "10px",
-    },
-    elements: {
-      inboxRoot: {
-        height: "100%",
-        display: "flex",
-        flexDirection: "column",
-      },
-      header: {
-        background: "#1F2F5F",
-        color: "#FFFFFF",
-        fontWeight: 600,
-        fontSize: "15px",
-        padding: "14px 16px",
-      },
-      notificationsList: {
-        padding: "12px",
-      },
-      notificationItem: {
-        background: "#FFFFFF",
-        borderRadius: "12px",
-        padding: "14px 16px",
-        marginBottom: "10px",
-        boxShadow: "0 4px 12px rgba(0,0,0,0.05)",
-      },
-      notificationItemUnread: {
-        borderLeft: "4px solid #E0312B", // Red accent
-        background: "#FFF6F6",
-      },
-      notificationTitle: {
-        fontWeight: 600,
-        fontSize: "14px",
-        color: "#111827",
-      },
-      notificationBody: {
-        fontSize: "13px",
-        color: "#4B5563",
-      },
-      notificationDate: {
-        fontSize: "11px",
-        color: "#9CA3AF",
-      },
-      tabsTriggerActive: {
-        color: "#1F2F5F",
-        borderBottom: "2px solid #1F2F5F",
-      },
-    },
-  },
-};
-
-/* ==============================
-   🔔 NOVU INBOX COMPONENT
-================================ */
 
 const NovuInbox = ({
   subscriberId,
   applicationIdentifier,
   subscriberHash,
   className,
-  mode = "icon", // "icon" | "panel" - icon mode prevents height stretching
+  mode = "icon",
   ...props
 }) => {
   const [employeeId, setEmployeeId] = useState(null);
-  const [isClient, setIsClient] = useState(false);
 
   useEffect(() => {
-    setIsClient(true);
-
     const storedEmployeeId =
       typeof window !== "undefined"
         ? localStorage.getItem("employeeid")
@@ -92,8 +23,6 @@ const NovuInbox = ({
       setEmployeeId(storedEmployeeId);
     }
   }, []);
-
-  if (!isClient) return null;
 
   const config = {
     subscriberId: subscriberId || employeeId,
@@ -108,11 +37,7 @@ const NovuInbox = ({
   };
 
   if (!config.subscriberId || !config.applicationIdentifier) {
-    return (
-      <div style={{ padding: 20, textAlign: "center" }}>
-        Configuration missing.
-      </div>
-    );
+    return null;
   }
 
   const novuProviderProps = {
@@ -124,25 +49,26 @@ const NovuInbox = ({
     novuProviderProps.subscriberHash = config.subscriberHash;
   }
 
-  // 🔥 Icon Mode: Content-based sizing, NO height constraints
-  if (mode === "icon") {
-    const iconTheme = {
-      ...elbritInboxTheme,
-      appearance: {
-        ...elbritInboxTheme.appearance,
-        elements: {
-          ...elbritInboxTheme.appearance.elements,
-          inboxRoot: {
-            height: "auto",
-            width: "auto",
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-          },
-        },
+  const tabs = [
+    {
+      label: "All",
+      filter: {},
+    },
+    {
+      label: "Approval",
+      filter: {
+        tags: ["approval"],
       },
-    };
+    },
+    {
+      label: "Announcement",
+      filter: {
+        tags: ["announcement"],
+      },
+    },
+  ];
 
+  if (mode === "icon") {
     return (
       <div
         className={className}
@@ -150,20 +76,16 @@ const NovuInbox = ({
           display: "inline-flex",
           alignItems: "center",
           justifyContent: "center",
-          height: "auto",
-          width: "auto",
-          alignSelf: "flex-start", // Prevent flex stretch in parent containers
         }}
         {...props}
       >
         <NovuProvider {...novuProviderProps}>
-          <Inbox {...iconTheme} />
+          <Inbox tabs={tabs} />
         </NovuProvider>
       </div>
     );
   }
 
-  // 📦 Panel Mode: Full-height panel with container
   return (
     <div
       className={className}
@@ -173,7 +95,6 @@ const NovuInbox = ({
         display: "flex",
         justifyContent: "center",
         alignItems: "center",
-        background: "#F4F6F9",
         padding: "20px",
         boxSizing: "border-box",
       }}
@@ -185,16 +106,13 @@ const NovuInbox = ({
           maxWidth: "420px",
           height: "80vh",
           maxHeight: "700px",
-          background: "#FFFFFF",
-          borderRadius: "16px",
-          boxShadow: "0 20px 40px rgba(0,0,0,0.08)",
           overflow: "hidden",
           display: "flex",
           flexDirection: "column",
         }}
       >
         <NovuProvider {...novuProviderProps}>
-          <Inbox {...elbritInboxTheme} />
+          <Inbox tabs={tabs} />
         </NovuProvider>
       </div>
     </div>
