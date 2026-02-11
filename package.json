@@ -35,6 +35,7 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "@tiptap/extension-bullet-list": "^3.19.0",
     "@tiptap/extension-highlight": "^2.11.4",
+    "@tiptap/extension-list": "^3.19.0",
     "@tiptap/extension-list-item": "^3.19.0",
     "@tiptap/extension-ordered-list": "^3.19.0",
     "@tiptap/extension-task-item": "^3.19.0",
