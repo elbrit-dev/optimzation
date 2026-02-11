@@ -22,7 +22,7 @@ import {
   RedoIcon,
   StrikethroughIcon,
   UnderlineIcon,
-  UndoIcon,
+  UndoIcon, ListChecks,
   UnlinkIcon,
 } from "lucide-react";
 import { Button } from "@calendar/components/ui/button";
@@ -37,7 +37,11 @@ import {
   SelectValue,
 } from "@calendar/components/ui/select";
 import { BubbleMenu as TiptapBubbleMenu, FloatingMenu as TiptapFloatingMenu } from "@tiptap/react";
-
+import TaskList from "@tiptap/extension-task-list";
+import TaskItem from "@tiptap/extension-task-item";
+import BulletList from "@tiptap/extension-bullet-list";
+import OrderedList from "@tiptap/extension-ordered-list";
+import ListItem from "@tiptap/extension-list-item";
 // editorProps lets me customize the HTML element that Tiptap creates for the editor.
 // I add Tailwind’s prose classes so my editor text looks beautiful — with proper heading sizes, spacing, lists, blockquotes, and typography. Without this, the editor looks plain and unstyled
 
@@ -46,24 +50,40 @@ const Tiptap = ({
   onChange,
 }) => {
   const editor = useEditor({
-    extensions: [StarterKit.configure({
-      bulletList: {
+    extensions: [
+      StarterKit.configure({
+        bulletList: false,
+        orderedList: false,
+        listItem: false,
+      }),
+      // Re-enable lists explicitly
+      BulletList.configure({
         keepMarks: true,
-        keepAttributes: false,
-      },
-      orderedList: {
+      }),
+      OrderedList.configure({
         keepMarks: true,
-        keepAttributes: false,
-      },
-    }), 
-      Highlight.configure({ multicolor: true })], // define your extension array
+      }),
+      ListItem,
+      // Re-add lists explicitly
+      Highlight.configure({ multicolor: true }),
+
+      TaskList.configure({
+        HTMLAttributes: {
+          class: "task-list",
+        },
+      }),
+
+      TaskItem.configure({
+        nested: true,
+      }),
+    ],
     editorProps: {
       attributes: {
         class:
-        "prose dark:prose-invert prose-sm sm:prose-base max-w-none focus:outline-none \
+          "prose dark:prose-invert prose-sm sm:prose-base max-w-none focus:outline-none \
          prose-ul:list-disc prose-ul:pl-6 \
          prose-ol:list-decimal prose-ol:pl-6 \
-         prose-li:marker:text-foreground",      
+         prose-li:marker:text-foreground",
       },
     },
     content: content || "<p></p>",
@@ -166,6 +186,7 @@ const ToolBar = ({ editor }) => {
         isHeading5: ctx.editor.isActive("heading", { level: 5 }) ?? false,
         isHeading6: ctx.editor.isActive("heading", { level: 6 }) ?? false,
         isParagraph: ctx.editor.isActive("paragraph") ?? false,
+        isTaskList: ctx.editor.isActive("taskList") ?? false,
       };
     },
   });
@@ -178,7 +199,7 @@ const ToolBar = ({ editor }) => {
       editor.chain().focus().setHeading({ level }).run();
     }
   };
-  
+
   return (
     <div
       className={
@@ -191,14 +212,14 @@ const ToolBar = ({ editor }) => {
           editorState.isHeading2
             ? "heading2"
             : editorState.isHeading3
-            ? "heading3"
-            : editorState.isHeading4
-            ? "heading4"
-            : editorState.isHeading5
-            ? "heading5"
-            : editorState.isHeading6
-            ? "heading6"
-            : "paragraph"
+              ? "heading3"
+              : editorState.isHeading4
+                ? "heading4"
+                : editorState.isHeading5
+                  ? "heading5"
+                  : editorState.isHeading6
+                    ? "heading6"
+                    : "paragraph"
         }
       >
         <SelectTrigger className="w-[180px]">
@@ -286,6 +307,16 @@ const ToolBar = ({ editor }) => {
         aria-label="Toggle ordered list"
       >
         <ListOrderedIcon className="h-4 w-4" />
+      </Toggle>
+      <Toggle
+        size="sm"
+        pressed={editorState.isTaskList}
+        onPressedChange={() =>
+          editor.chain().focus().toggleTaskList().run()
+        }
+        aria-label="Toggle task list"
+      >
+        <ListChecks className="h-4 w-4" />
       </Toggle>
 
       <Toggle

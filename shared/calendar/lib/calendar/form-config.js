@@ -214,7 +214,7 @@ export const TAG_FORM_CONFIG = {
         { key: "startDate", label: "Date", type: "date" },
       ],
     },
-    fixedColor: "green",
+    fixedColor: "blue",
     forceAllDay: true,
     employee: {
       autoSelectLoggedIn: true,

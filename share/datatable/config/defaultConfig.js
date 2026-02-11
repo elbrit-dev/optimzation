@@ -10,7 +10,7 @@ export const defaultDataTableConfig = {
     enableSort: true,
     enableFilter: true,
     enableSummation: true,
-    enableCellEdit: false,
+    enableCellEdit: true,
     enableDivideBy1Lakh: false,
 
     // Pagination
@@ -23,10 +23,19 @@ export const defaultDataTableConfig = {
     // allowedColumns: ["sales_team", "hq", "customer_name", "item_name", "target", "posting_date"],
     allowedColumns: [],
     nonEditableColumns: [],
+
+    // Fields that can be edited (leave empty to allow all). Main = scalar columns; nested = per JSON table column (flat: column -> list of editable columns).
+    editableColumns: {
+        main: ["distributor_customer_name", "items"],
+        nested: {
+            items: ["sales_qty"], // JSON Table Columns: Items - Select Columns: Sales Qty
+        },
+    },
     percentageColumns: [],
     derivedColumns: [
         {
             columnName: "derived",
+            save: false,
             compute: (row) => 12345,
             columnType: "number",
             position: 2, // 3rd column (0-based)
@@ -34,6 +43,7 @@ export const defaultDataTableConfig = {
         },
         {
             columnName: "twice of sales_qty",
+            save: false,
             compute: (row) => 2 * row.sales_qty,
             columnType: "number",
             position: 2, // 3rd column (0-based)
@@ -127,6 +137,7 @@ export function extractStateFromConfig(config, setters = {}) {
         textFilterColumns: config.textFilterColumns ?? defaultDataTableConfig.textFilterColumns,
         allowedColumns: config.allowedColumns ?? defaultDataTableConfig.allowedColumns,
         nonEditableColumns: config.nonEditableColumns ?? defaultDataTableConfig.nonEditableColumns,
+        editableColumns: config.editableColumns ?? defaultDataTableConfig.editableColumns,
         percentageColumns: config.percentageColumns ?? defaultDataTableConfig.percentageColumns,
         derivedColumns: config.derivedColumns ?? defaultDataTableConfig.derivedColumns,
 

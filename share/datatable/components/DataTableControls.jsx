@@ -1582,37 +1582,18 @@ export default function DataTableControls({
                               
                               // Collect all columns from all nested tables in this JSON table column
                               const allNestedColumns = [];
-                              const columnToNestedTableMap = {};
-                              
                               jsonTableInfo.nestedTables.forEach(nestedTable => {
                                 if (nestedTable.columns && nestedTable.columns.length > 0) {
                                   nestedTable.columns.forEach(col => {
                                     if (!allNestedColumns.includes(col)) {
                                       allNestedColumns.push(col);
                                     }
-                                    // Map column to nested table for proper saving
-                                    if (!columnToNestedTableMap[col]) {
-                                      columnToNestedTableMap[col] = [];
-                                    }
-                                    columnToNestedTableMap[col].push(nestedTable.fieldName);
                                   });
                                 }
                               });
                               
-                              // Get currently selected columns for this JSON table
-                              // Flatten all selected columns from all nested tables
-                              const currentSelected = [];
-                              if (currentNested[jsonCol]) {
-                                Object.values(currentNested[jsonCol]).forEach(cols => {
-                                  if (Array.isArray(cols)) {
-                                    cols.forEach(col => {
-                                      if (!currentSelected.includes(col)) {
-                                        currentSelected.push(col);
-                                      }
-                                    });
-                                  }
-                                });
-                              }
+                              // Get currently selected columns for this JSON table (flat: nested[column] = array)
+                              const currentSelected = Array.isArray(currentNested[jsonCol]) ? [...currentNested[jsonCol]] : [];
                               
                               return (
                                 <div key={jsonCol} className="space-y-2 mb-3">
@@ -1623,34 +1604,10 @@ export default function DataTableControls({
                                     columns={allNestedColumns}
                                     selectedFields={currentSelected}
                                     onSelectionChange={(selected) => {
-                                      // Distribute selected columns to their respective nested tables
-                                      const newNestedForJsonCol = {};
-                                      
-                                      // Initialize with existing selections
-                                      if (currentNested[jsonCol]) {
-                                        Object.keys(currentNested[jsonCol]).forEach(nestedTableFieldName => {
-                                          newNestedForJsonCol[nestedTableFieldName] = [];
-                                        });
-                                      }
-                                      
-                                      // Distribute selected columns to their nested tables
-                                      selected.forEach(col => {
-                                        const nestedTableFieldNames = columnToNestedTableMap[col] || [];
-                                        nestedTableFieldNames.forEach(nestedTableFieldName => {
-                                          if (!newNestedForJsonCol[nestedTableFieldName]) {
-                                            newNestedForJsonCol[nestedTableFieldName] = [];
-                                          }
-                                          if (!newNestedForJsonCol[nestedTableFieldName].includes(col)) {
-                                            newNestedForJsonCol[nestedTableFieldName].push(col);
-                                          }
-                                        });
-                                      });
-                                      
                                       const newNested = {
                                         ...currentNested,
-                                        [jsonCol]: newNestedForJsonCol
+                                        [jsonCol]: selected
                                       };
-                                      
                                       onEditableColumnsChange({
                                         main: selectedMain,
                                         nested: newNested

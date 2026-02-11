@@ -58,6 +58,7 @@ export function EventDetailsDialog({
 		_employeeOptions: employeeOptions,
 		_doctorOptions: doctorOptions,
 	};
+	// console.log("EVENTS",event)
 	return (
 		<Dialog open={open} onOpenChange={setOpen}>
 			<DialogTrigger asChild onClick={() => setOpen(true)}>{children}</DialogTrigger>

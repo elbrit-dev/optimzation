@@ -91,7 +91,7 @@ export const eventSchema = z
       if (isEmpty) {
         ctx.addIssue({
           path: [field],
-          message: "This field is required",
+          message: `The ${field} is required`,
           code: z.ZodIssueCode.custom,
         });
       }

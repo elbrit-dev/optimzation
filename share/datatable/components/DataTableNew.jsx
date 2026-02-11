@@ -1782,14 +1782,13 @@ export default function DataTableNew({
     }
 
     // Check if column is editable: empty list = no columns editable; non-empty list = only those columns editable
-    // For nested tables, check editableColumns.nested[parentColumnName][nestedTableFieldName]
+    // For nested tables, check editableColumns.nested[parentColumnName] (flat: array of editable column names)
     const editableMain = Array.isArray(editableColumns) ? editableColumns : (editableColumns?.main || []);
     let isEditable = false;
 
     // If this is a nested table, check nested editable columns
-    if (finalParentColumnName && finalNestedTableFieldName && editableColumns.nested && editableColumns.nested[finalParentColumnName]) {
-      const nestedEditableCols = editableColumns.nested[finalParentColumnName][finalNestedTableFieldName] || [];
-      // If nested editable columns list is empty, no columns are editable; otherwise only listed columns
+    if (finalParentColumnName && editableColumns.nested && Array.isArray(editableColumns.nested[finalParentColumnName])) {
+      const nestedEditableCols = editableColumns.nested[finalParentColumnName];
       isEditable = nestedEditableCols.length > 0 && includes(nestedEditableCols, col);
     } else {
       // For main table: if editableColumns.main is empty, no columns are editable; otherwise only listed columns
@@ -3355,29 +3354,24 @@ export default function DataTableNew({
         </button>
       </div>
 
-      {/* Right side: Save, Cancel, Export, Fullscreen, Maximize/Minimize, and Close buttons */}
+      {/* Right side: Save, Cancel, Export, Fullscreen, Maximize/Minimize, and Close buttons (Save/Cancel hidden for sidebar - shown in Sidebar header) */}
       <div className="shrink-0 flex items-center gap-2">
-        {enableWrite && (tableName === 'sidebar' ? handleDrawerSave : handleMainSave) && (
+        {tableName !== 'sidebar' && enableWrite && (handleMainSave) && (
           <button
             onClick={() => {
-              console.log('🔍 Save button clicked - tableName:', tableName, 'isSidebar:', tableName === 'sidebar');
-              if (tableName === 'sidebar') {
-                handleDrawerSave?.();
-              } else {
-                handleMainSave?.();
-              }
+              handleMainSave?.();
             }}
             className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center"
-            title={tableName === 'sidebar' ? "Save changes in this nested table" : "Save all nested table changes"}
+            title="Save all nested table changes"
           >
             <i className="pi pi-save"></i>
           </button>
         )}
-        {enableWrite && (tableName === 'sidebar' ? (handleDrawerCancel && hasDrawerChanges) : (handleMainCancel && hasMainTableChanges)) && (
+        {tableName !== 'sidebar' && enableWrite && (handleMainCancel && hasMainTableChanges) && (
           <button
-            onClick={tableName === 'sidebar' ? handleDrawerCancel : handleMainCancel}
+            onClick={handleMainCancel}
             className="p-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center justify-center"
-            title={tableName === 'sidebar' ? "Discard changes in this nested table" : "Discard all unsaved changes"}
+            title="Discard all unsaved changes"
           >
             <i className="pi pi-times"></i>
           </button>

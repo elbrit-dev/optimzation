@@ -6,6 +6,16 @@ import { TAG_IDS } from "@calendar/components/calendar/mocks";
  * ERP GraphQL → Calendar Event
  * Employees & Doctors are derived ONLY from participants
  */
+function normalizeAttending(value) {
+  if (typeof value !== "string") return "No";
+
+  const v = value.trim().toLowerCase();
+
+  if (v === "yes") return "Yes";
+  if (v === "no") return "No";
+
+  return "No";
+}
 
 export function mapErpGraphqlEventToCalendar(node) {
   if (!node) return null;
@@ -56,6 +66,17 @@ export function mapErpGraphqlEventToCalendar(node) {
     startDate.setFullYear(currentYear);
     endDate = startDate;
   }
+  const hasEmployeeAttendingYes =
+    participants.some(
+      (p) => p.type === "Employee" && p.attending === "YES"
+    );
+  const color =
+    tag === TAG_IDS.DOCTOR_VISIT_PLAN && hasEmployeeAttendingYes
+      ? "green"
+      : tagConfig.fixedColor ??
+      mapHexToColor(node.color) ??
+      "blue";
+  const attending = normalizeAttending(node.attending);
 
   /* ---------------------------------------------
      EVENT OBJECT (SCHEMA-SAFE)
@@ -67,6 +88,7 @@ export function mapErpGraphqlEventToCalendar(node) {
     allDay: Boolean(node.all_day),
     startDate: startDate ? startDate.toISOString() : null,
     endDate: endDate ? endDate.toISOString() : null,
+    attending,
 
     tags: tag,
 
@@ -79,11 +101,7 @@ export function mapErpGraphqlEventToCalendar(node) {
       ? doctors
       : doctors[0] ?? undefined,
 
-    color:
-      tagConfig.fixedColor ??
-      mapHexToColor(node.color) ??
-      "blue",
-
+    color,
     hqTerritory: node.fsl_territory__name ?? "",
 
     owner: node.owner

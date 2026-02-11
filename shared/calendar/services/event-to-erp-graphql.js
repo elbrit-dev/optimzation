@@ -62,11 +62,6 @@ export function mapFormToErpEvent(values, options = {}) {
           reference_doctype: "Lead",
           reference_docname: isObject ? doctor.value : doctor,
         };
-
-        // ✅ PUSH DOCTOR LOCATION ON CREATE
-        // if (!isUpdate && isObject && doctor.kly_lat_long) {
-        //   participant.kly_lat_long = doctor.kly_lat_long;
-        // }
         if (
           isObject &&
           doctor.kly_lat_long &&
@@ -74,23 +69,40 @@ export function mapFormToErpEvent(values, options = {}) {
         ) {
           participant.kly_lat_long = doctor.kly_lat_long;
         }
-        
+
         participants.push(participant);
       });
     }
 
     return participants;
   }
+  const hasEmployee =
+    Boolean(values.employees) &&
+    (Array.isArray(values.employees)
+      ? values.employees.length > 0
+      : true);
+
+  const hasEmployeeAttendingYes =
+    isDoctorVisitPlan &&
+    isUpdate &&
+    hasEmployee &&
+    values.attending === "Yes";
+  const resolvedColor = hasEmployeeAttendingYes
+    ? "green"
+    : values.color;
 
   const isBirthday = values.tags === "Birthday";
   const doc = {
     // doctype: "Event",
     subject: values.title,
     description: values.description,
+    attending:values.attending,
     starts_on: format(values.startDate, "yyyy-MM-dd HH:mm:ss"),
     ends_on: format(values.endDate, "yyyy-MM-dd HH:mm:ss"),
     event_category: values.tags,
-    color: COLOR_HEX_MAP[values.color] ?? COLOR_HEX_MAP.blue,
+    color:
+      COLOR_HEX_MAP[resolvedColor] ??
+      COLOR_HEX_MAP.blue,
     all_day: isBirthday || values.allDay ? 1 : 0,
     event_type: "Public",
     status: "Open",

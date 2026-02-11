@@ -117,7 +117,7 @@ export function normalizeNonMeetingDates(
   endDateTouched
 ) {
   if (!startDate) return;
-  if (selectedTag === TAG_IDS.MEETING) return;
+  if (selectedTag === TAG_IDS.MEETING ||   selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN) return;
   if (endDateTouched) return;
 
   const now = new Date();

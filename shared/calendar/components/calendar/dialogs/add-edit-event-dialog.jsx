@@ -249,10 +249,27 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 		   Longitude and latitude
 		--------------------------------------------- */
 
-	useEffect(() => {
-		resolveLatLong(form, attending, isEditing, toast);
-	}, [attending, isEditing]);
-
+		useEffect(() => {
+			if (!isEditing) return;
+		  
+			// 📍 Doctor Visit Plan: capture endDate ONCE
+			if (
+			  selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN &&
+			  attending === "Yes" &&
+			  !endDateTouchedRef.current
+			) {
+			  form.setValue("endDate", new Date(), {
+				shouldDirty: true,
+				shouldValidate: true,
+			  });
+		  
+			  endDateTouchedRef.current = true;
+			}
+		  
+			// existing geo logic (unchanged)
+			resolveLatLong(form, attending, isEditing, toast);
+		  }, [attending, isEditing]);
+		
 
 	/* ---------------------------------------------
 	   Leave Balance Fetching
@@ -584,7 +601,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 				{}
 			);
 			const savedEvent = await saveEvent(erpDoc);
-
+			// console.log("ERP DOC", erpDoc)
 			const calendarEvent = {
 				erpName: savedEvent.name,
 				title: buildDoctorVisitTitle(doctorId, values), description: values.description,
@@ -592,13 +609,14 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 				tags: values.tags, owner: LOGGED_IN_USER.id,
 				// 🔒 ERP truth
 				event_participants: erpDoc.event_participants,
-
+				attending: values.attending,
 				// 👇 derived UI
 				participants: erpDoc.event_participants.map(p => ({
 					type: p.reference_doctype,
 					id: p.reference_docname,
 				})),
 			};
+			// console.log("Calendar Event", calendarEvent)
 			if (
 				values.pob_given === "Yes" &&
 				Array.isArray(values.fsl_doctor_item)
@@ -622,7 +640,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 		const erpDoc = mapFormToErpEvent(values, {
 			erpName: event?.erpName,
 		});
-
+		// console.log("ERP DOC", erpDoc)
 		const savedEvent = await saveEvent(erpDoc);
 		const calendarEvent = {
 			...(event ?? {}),
@@ -633,13 +651,14 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 			hqTerritory: values.hqTerritory || "",
 			// 🔒 ERP truth
 			event_participants: erpDoc.event_participants,
-
+			attending: values.attending,
 			// 👇 derived UI
 			participants: erpDoc.event_participants.map(p => ({
 				type: p.reference_doctype,
 				id: p.reference_docname,
 			})),
 		};
+		// console.log("Calendar Event", calendarEvent)
 		if (
 			values.tags === TAG_IDS.DOCTOR_VISIT_PLAN &&
 			values.pob_given === "Yes" &&
@@ -661,7 +680,6 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 	const onInvalid = (errors) => {
 		showFirstFormErrorAsToast(errors);
 	};
-
 
 	const onSubmit = async (values) => {
 		/* ========= NORMALIZATION ========= */
