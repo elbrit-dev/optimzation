@@ -131,6 +131,7 @@ export function CalendarMobileWeekAgenda({
               cell={cell}
               events={allEvents}
               eventPositions={eventPositions}
+              mobweek={true}
             />
           ))}
         </motion.div>

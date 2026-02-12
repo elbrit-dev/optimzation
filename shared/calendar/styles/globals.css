@@ -78,7 +78,11 @@
   opacity: 0.6;
 }
 
-
+@media(max-width:380px){
+  .mobile-height{
+    height: 80% !important;
+  }
+}
 
 /* -----------------------------
    Base reset (replaces v3 preflight)

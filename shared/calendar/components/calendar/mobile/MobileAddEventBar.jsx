@@ -5,20 +5,20 @@ import { AddEditEventDialog } from "@calendar/components/calendar/dialogs/add-ed
 import { Button } from "@calendar/components/ui/button";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 import { isBefore, startOfDay } from "date-fns";
-import { TAGS } from "@calendar/components/calendar/mocks";
+import { TAG_IDS, TAGS } from "@calendar/components/calendar/mocks";
 import { motion, AnimatePresence } from "framer-motion";
 import {Plus,
   Building2, Users, Cake,Calendar, Stethoscope, ListChecks, HelpCircle,
 } from "lucide-react";
 
 export const ICON_MAP = {
-  "Leave": Calendar,                // Time off / out of office
-  "HQ Tour Plan": Building2,     // Office / headquarters visit
-  "Meeting": Users,              // Group discussion
-  "Birthday": Cake,              // Celebration
-  "Doctor Visit plan": Stethoscope, // Medical appointment
-  "Todo List": ListChecks,       // Tasks / checklist
-  "Other": HelpCircle,           // Uncategorized / miscellaneous
+  [TAG_IDS.LEAVE]: Calendar,                // Time off / out of office
+  [TAG_IDS.HQ_TOUR_PLAN]: Building2,     // Office / headquarters visit
+  [TAG_IDS.MEETING]: Users,              // Group discussion
+  [TAG_IDS.BIRTHDAY]: Cake,              // Celebration
+  [TAG_IDS.DOCTOR_VISIT_PLAN]: Stethoscope, // Medical appointment
+  [TAG_IDS.TODO_LIST]: ListChecks,       // Tasks / checklist
+  [TAG_IDS.OTHER]: HelpCircle,           // Uncategorized / miscellaneous
 };
 
 export default function MobileAddEventBar({ date: propDate }) {

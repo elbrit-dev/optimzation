@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo } from "react";
-import { isSameDay, parseISO } from "date-fns";
+import { isSameDay, parseISO, isBefore, startOfDay } from "date-fns";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 import { useMediaQuery } from "@calendar/components/calendar/hooks";
 
@@ -16,8 +16,14 @@ import MobileAddEventBar from "@calendar/components/calendar/mobile/MobileAddEve
 import { AgendaEventsMobile } from "@calendar/components/calendar/views/agenda-view/AgendaEventsMobile";
 
 export function CalendarBody() {
-  const { view, events, mobileLayer } = useCalendar();
+  const { view, events, mobileLayer, selectedDate } = useCalendar();
   const isMobile = useMediaQuery("(max-width: 768px)");
+  const date = selectedDate || new Date();
+
+  const isPastDate = isBefore(
+    startOfDay(date),
+    startOfDay(new Date())
+  );
 
   /* ===============================
      EVENT NORMALIZATION
@@ -93,7 +99,7 @@ export function CalendarBody() {
   =============================== */
   if (!isMobile) {
     return (
-      <div className="flex-1 min-h-0 flex flex-col overflow-hidden relative w-full">
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden relative w-full h-full">
         {resolveDesktopView()}
         <MobileAddEventBar />
       </div>
@@ -101,7 +107,7 @@ export function CalendarBody() {
   }
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col h-full pb-[80px] overflow-hidden relative w-full custom-class">
+    <div className={`flex-1 min-h-0 flex flex-col h-full ${isPastDate ? "" : "pb-[80px]"} overflow-hidden relative w-full custom-class`}>
       {resolveMobileView()}
       <MobileAddEventBar />
     </div>

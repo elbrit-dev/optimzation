@@ -62,6 +62,7 @@ const NovuInbox = ({
           tabs={tabs}
           position="bottom-end"
           offset={8}
+          width="372px"
           popoverProps={{
             collisionPadding: 0,
             avoidCollisions: false

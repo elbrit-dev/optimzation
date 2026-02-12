@@ -145,9 +145,9 @@ export const AgendaEventsMobile = () => {
                         )}
                         <div className="w-full">
                           <p className="font-medium text-sm">{event.title}</p>
-                          <p className="text-xs text-muted-foreground line-clamp-1">
+                          {/* <p className="text-xs text-muted-foreground line-clamp-1">
                             {event.description}
-                          </p>
+                          </p> */}
                           <p className="text-xs text-muted-foreground line-clamp-1">
                             {event.owner?.name}
                           </p>

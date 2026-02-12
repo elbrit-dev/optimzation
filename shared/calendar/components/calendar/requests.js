@@ -1,6 +1,6 @@
 import {
 	CALENDAR_ITEMS_MOCK,
-	USERS_MOCK,
+	// USERS_MOCK,
 } from "@calendar/components/calendar/mocks";
 
 export const getEvents = async () => {

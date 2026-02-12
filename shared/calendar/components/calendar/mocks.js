@@ -1,11 +1,10 @@
 import { COLORS } from "@calendar/components/calendar/constants";
 import { USE_MOCK_DATA } from "@calendar/components/calendar/config";
-import { CALENDAR_USERS } from "@calendar/components/auth/calendar-users";
+// import { CALENDAR_USERS } from "@calendar/components/auth/calendar-users";
 
 /* =========================================================
    USERS
 ========================================================= */
-export const USERS_MOCK = USE_MOCK_DATA ? CALENDAR_USERS : [];
 
 /* =========================================================
    TAGS
@@ -48,7 +47,7 @@ const randomBetween = (min, max) =>
   Math.floor(Math.random() * (max - min + 1)) + min;
 
 const pickRandomUser = () =>
-  CALENDAR_USERS[randomBetween(0, CALENDAR_USERS.length - 1)];
+  CALENDAR_USERS[randomBetween(0, CALENDAR_USERS  .length - 1)];
 
 const pickRandomTag = () =>
   TAGS[randomBetween(0, TAGS.length - 1)].id;
