@@ -124,8 +124,6 @@ body {
 }
 
 .p-inputtext {
-    border: 1px solid #d1d5db;
-    border-radius: 6px;
     transition: all 0.2s ease;
     font-size: 0.875rem;
     padding: 0.5rem 0.75rem;
@@ -138,8 +136,6 @@ body {
 }
 
 .p-inputtext:focus {
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
     outline: none;
 }
 
@@ -529,7 +525,7 @@ body {
 }
 
 .p-paginator .p-dropdown {
-    border: 1px solid #d1d5db;
+    border: 0px;
     border-radius: 6px;
     height: 2.5rem;
     background: #ffffff;
@@ -572,6 +568,7 @@ body {
 
 .p-dropdown-panel .p-dropdown-items-wrapper {
     padding: 0.25rem 0;
+    max-height: 500px !important;
 }
 
 .p-dropdown-panel .p-dropdown-items {
@@ -1209,3 +1206,49 @@ body {
     margin-bottom: 1rem;
     padding: 0;
 }
+
+.p-sidebar .p-sidebar-content {
+    padding: 0.25rem;
+}
+
+.graphql-playground-v2 .p-tabview-panel {
+    overflow: hidden !important;
+    height: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+  .graphql-playground-v2 .p-tabview-panels {
+    overflow: hidden !important;
+    flex: 1 !important;
+    min-height: 0 !important;
+  }
+  .graphql-playground-v2 .p-tabview {
+    overflow: hidden !important;
+  }
+  /* Constrain graphiql-explorer component */
+  .graphql-playground-v2 [class*="graphiql-explorer"],
+  .graphql-playground-v2 [class*="explorer"] {
+    height: 100% !important;
+    max-height: 100% !important;
+    overflow: visible !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+  .graphql-playground-v2 [class*="graphiql-explorer"] > *,
+  .graphql-playground-v2 [class*="explorer"] > * {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+  }
+  /* Remove width constraint from docExplorerWrap */
+  .graphql-playground-v2 .docExplorerWrap,
+  .graphql-playground-v2 [class*="docExplorerWrap"] {
+    width: auto !important;
+    min-width: auto !important;
+    max-width: none !important;
+  }
+
+  /* Hide docExplorerHide */
+  .graphql-playground-v2 .doc-explorer-rhs,
+  .graphql-playground-v2 [class*="doc-explorer-rhs"] {
+    display: none !important;
+  }

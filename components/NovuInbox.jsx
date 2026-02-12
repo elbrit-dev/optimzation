@@ -58,7 +58,15 @@ const NovuInbox = ({
   return (
     <div className={className} {...props}>
       <NovuProvider {...novuProviderProps}>
-        <Inbox tabs={tabs} />
+        <Inbox
+          tabs={tabs}
+          position="bottom-end"
+          offset={8}
+          popoverProps={{
+            collisionPadding: 0,
+            avoidCollisions: false
+          }}
+        />
       </NovuProvider>
     </div>
   );
