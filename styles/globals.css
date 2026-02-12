@@ -1209,3 +1209,8 @@ body {
     margin-bottom: 1rem;
     padding: 0;
 }
+
+/* Novu Inbox Width Override */
+.nt-w-\[400px\] {
+    width: 374px !important;
+}
