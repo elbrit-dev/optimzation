@@ -556,7 +556,7 @@ PLASMIC.registerComponent(NovuInbox, {
   props: {
     subscriberId: {
       type: "string",
-      description: "Novu subscriber ID (user identifier). If not provided, will use 'employeeid' from localStorage, then fall back to NEXT_PUBLIC_NOVU_SUBSCRIBER_ID from environment variables.",
+      description: "Novu subscriber ID (MUST be user email). Required.",
     },
     applicationIdentifier: {
       type: "string",

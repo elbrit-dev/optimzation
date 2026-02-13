@@ -18,6 +18,11 @@ export default async function handler(req, res) {
   }
 
   const { subscriberId, deviceId } = req.body;
+  // ⚠️ subscriberId MUST be email to match:
+  // - Novu subscriberId (used in workflows)
+  // - OneSignal.login() identity
+  // - NovuProvider subscriberId
+  // - ERP webhook doc.leave_approver
 
   if (!subscriberId || !deviceId) {
     return res.status(400).json({

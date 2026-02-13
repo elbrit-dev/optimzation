@@ -1,52 +1,77 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useEffect } from "react";
 import { NovuProvider, Inbox } from "@novu/react";
+import {
+  requestPushPermission,
+  getOneSignalDeviceId,
+  setOneSignalUserData,
+} from "@/lib/onesignal";
 
 const NovuInbox = ({
-  subscriberId,
+  subscriberId, // MUST be email
   applicationIdentifier,
   subscriberHash,
   className,
   mode = "icon",
   ...props
 }) => {
-  const [employeeId, setEmployeeId] = useState(null);
-
+  // 🔥 Identity + Device Sync
   useEffect(() => {
-    const storedEmployeeId =
-      typeof window !== "undefined"
-        ? localStorage.getItem("employeeid")
-        : null;
+    if (!subscriberId) return;
 
-    if (storedEmployeeId) {
-      setEmployeeId(storedEmployeeId);
-    }
-  }, []);
+    const setup = async () => {
+      try {
+        // 1️⃣ Identify subscriber in Novu
+        await fetch("/api/novu/identify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: subscriberId,
+          }),
+        });
 
-  const config = {
-    subscriberId: subscriberId || employeeId,
-    applicationIdentifier:
-      applicationIdentifier ||
-      process.env.NEXT_PUBLIC_NOVU_APPLICATION_IDENTIFIER ||
-      "sCfOsfXhHZNc",
-    subscriberHash:
-      subscriberHash ||
-      process.env.NEXT_PUBLIC_NOVU_SUBSCRIBER_HASH ||
-      undefined,
-  };
+        // 2️⃣ Login OneSignal
+        await setOneSignalUserData({
+          subscriberId,
+          email: subscriberId,
+        });
 
-  if (!config.subscriberId || !config.applicationIdentifier) {
+        // 3️⃣ Ask push permission
+        await requestPushPermission();
+
+        // 4️⃣ Get device ID
+        const deviceId = await getOneSignalDeviceId();
+
+        if (deviceId) {
+          await fetch("/api/onesignal/register-device", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              subscriberId,
+              deviceId,
+            }),
+          });
+        }
+      } catch (error) {
+        console.error("NovuInbox setup error:", error);
+      }
+    };
+
+    setup();
+  }, [subscriberId]);
+
+  if (!subscriberId || !applicationIdentifier) {
     return null;
   }
 
   const novuProviderProps = {
-    subscriberId: config.subscriberId,
-    applicationIdentifier: config.applicationIdentifier,
+    subscriberId,
+    applicationIdentifier,
   };
 
-  if (config.subscriberHash) {
-    novuProviderProps.subscriberHash = config.subscriberHash;
+  if (subscriberHash) {
+    novuProviderProps.subscriberHash = subscriberHash;
   }
 
   const tabs = [
@@ -63,10 +88,6 @@ const NovuInbox = ({
           position="bottom-end"
           offset={8}
           width="372px"
-          popoverProps={{
-            collisionPadding: 0,
-            avoidCollisions: false
-          }}
         />
       </NovuProvider>
     </div>
