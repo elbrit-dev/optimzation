@@ -389,7 +389,7 @@ function MyApp({ Component, pageProps }) {
             window.OneSignalDeferred = window.OneSignalDeferred || [];
             OneSignalDeferred.push(async function(OneSignal) {
               await OneSignal.init({
-                appId: "ae84e191-00f5-445c-8e43-173709b8a553",
+                appId: "9cc963c3-d3c9-4230-b817-6860109d8f3f",
               });
             });
           `}
