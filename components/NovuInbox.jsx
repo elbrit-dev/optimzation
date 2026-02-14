@@ -9,38 +9,48 @@ import {
 } from "@/lib/onesignal";
 
 const NovuInbox = ({
-  subscriberId, // MUST be email
+  subscriberId,      // email (REQUIRED)
+  firstName,
+  lastName,
+  phone,
+  tags = {},
+  meta = {},
   applicationIdentifier,
   subscriberHash,
   className,
-  mode = "icon",
-  ...props
+  ...rest
 }) => {
-  // 🔥 Identity + Device Sync
   useEffect(() => {
     if (!subscriberId) return;
 
     const setup = async () => {
       try {
-        // 1️⃣ Identify subscriber in Novu
+        // 1️⃣ Identify subscriber in Novu (FULL DATA)
         await fetch("/api/novu/identify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             email: subscriberId,
+            firstName,
+            lastName,
+            phone,
+            tags,
+            meta,
           }),
         });
 
-        // 2️⃣ Login OneSignal
+        // 2️⃣ Login OneSignal with same identity
         await setOneSignalUserData({
           subscriberId,
           email: subscriberId,
+          phone,
+          tags,
         });
 
         // 3️⃣ Ask push permission
         await requestPushPermission();
 
-        // 4️⃣ Get device ID
+        // 4️⃣ Attach device to Novu
         const deviceId = await getOneSignalDeviceId();
 
         if (deviceId) {
@@ -59,7 +69,7 @@ const NovuInbox = ({
     };
 
     setup();
-  }, [subscriberId]);
+  }, [subscriberId, firstName, lastName, phone]);
 
   if (!subscriberId || !applicationIdentifier) {
     return null;
@@ -81,7 +91,7 @@ const NovuInbox = ({
   ];
 
   return (
-    <div className={className} {...props}>
+    <div className={className} {...rest}>
       <NovuProvider {...novuProviderProps}>
         <Inbox
           tabs={tabs}

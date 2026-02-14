@@ -34,7 +34,7 @@ export default async function handler(req, res) {
     await novu.subscribers.credentials.update(
         {
           providerId: "one_signal",
-          integrationIdentifier: "test", // 👈 MUST match dashboard Identifier
+          integrationIdentifier: "onesignal", // 👈 MUST match dashboard Identifier
           credentials: {
             deviceTokens: [deviceId],
           },
