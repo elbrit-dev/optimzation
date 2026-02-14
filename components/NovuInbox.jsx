@@ -29,7 +29,6 @@ const NovuInbox = ({
   }, []);
 
   useEffect(() => {
-    // ✅ 200% FIX: Console logging for transparency
     if (!subscriberId || !subscriberId.includes('@')) {
       console.log("NovuInbox: Waiting for a valid email prop...");
       setStatus("Waiting for Email...");
@@ -41,7 +40,6 @@ const NovuInbox = ({
         console.log(`NovuInbox: Starting setup for ${subscriberId}...`);
         setStatus("Identifying...");
 
-        // 1️⃣ Identify subscriber
         const identifyRes = await fetch("/api/novu/identify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -63,11 +61,9 @@ const NovuInbox = ({
         console.log("NovuInbox: Identification successful.");
         setStatus("Syncing OneSignal...");
 
-        // 2️⃣ Sync OneSignal
         await setOneSignalUserData({ subscriberId, email: subscriberId, phone, tags });
         await requestPushPermission();
     
-        // 3️⃣ Attach device
         const deviceId = await getOneSignalDeviceId();
         if (deviceId) {
           await fetch("/api/onesignal/register-device", {
@@ -88,7 +84,6 @@ const NovuInbox = ({
     setup();
   }, [subscriberId, firstName, lastName, phone, JSON.stringify(tags), JSON.stringify(meta)]);
 
-  // ✅ 200% FIX: Render a visible placeholder in Plasmic Studio
   if (!subscriberId || !applicationIdentifier) {
     return (
       <div className={className} style={{ 
@@ -113,7 +108,16 @@ const NovuInbox = ({
         applicationIdentifier={applicationIdentifier} 
         subscriberHash={subscriberHash}
       >
-        <Inbox position="bottom-end" offset={8} width="372px" />
+        <Inbox 
+          position="bottom-end" 
+          offset={8} 
+          width="372px"
+          tabs={[
+            { label: "All", value: [] },
+            { label: "Approval", value: ["approval"] },
+            { label: "Announcement", value: ["announcement"] }
+          ]}
+        />
       </NovuProvider>
     </div>
   );
