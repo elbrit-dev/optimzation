@@ -1,5 +1,4 @@
 import { Novu } from "@novu/node";
-
 const novu = new Novu(process.env.NOVU_API_KEY);
 
 export default async function handler(req, res) {
@@ -8,23 +7,17 @@ export default async function handler(req, res) {
   const { subscriberId, deviceId } = req.body;
   const cleanSubId = subscriberId?.toString().trim();
 
-  if (!cleanSubId || !deviceId) {
-    return res.status(400).json({ error: "subscriberId and deviceId are required" });
-  }
+  if (!cleanSubId || !deviceId) return res.status(400).json({ error: "Missing data" });
 
   try {
-    // FIX: Use 'one-signal' for Provider ID and 'onesignal' for Integration Identifier
+    // ✅ FIX: Uses 'one-signal' slug and modern setCredentials method
     await novu.subscribers.setCredentials(cleanSubId, 'one-signal', {
       deviceTokens: [deviceId],
-      integrationIdentifier: 'onesignal' // Matches "Identifier" in your dashboard image
+      integrationIdentifier: 'onesignal' // Matches your dashboard Identifier
     });
-
     return res.status(200).json({ success: true });
   } catch (err) {
     console.error("Device Registration Error:", err.response?.data || err);
-    return res.status(500).json({ 
-      error: "Device registration failed", 
-      details: err.response?.data || err.message 
-    });
+    return res.status(500).json({ error: "Registration failed", details: err.response?.data || err.message });
   }
 }
