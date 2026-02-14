@@ -6,6 +6,7 @@ import {
   requestPushPermission,
   getOneSignalDeviceId,
   setOneSignalUserData,
+  logoutOneSignal,
 } from "@/lib/onesignal";
 
 const NovuInbox = ({
@@ -20,6 +21,16 @@ const NovuInbox = ({
   className,
   ...rest
 }) => {
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const path = window.location.pathname;
+
+    if (path === "/login") {
+      logoutOneSignal();
+    }
+  }, []);
+
   useEffect(() => {
     if (!subscriberId) return;
 

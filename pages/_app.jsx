@@ -394,6 +394,7 @@ function MyApp({ Component, pageProps }) {
             });
           `}
         </Script>
+        
         <Component {...pageProps} />
       </DataProvider>
     </DataProvider>
