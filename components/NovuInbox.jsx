@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { NovuProvider, Inbox } from "@novu/react";
 import {
   requestPushPermission,
@@ -21,19 +21,26 @@ const NovuInbox = ({
   className,
   ...rest
 }) => {
+  const [status, setStatus] = useState("Initializing...");
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (window.location.pathname === "/login") logoutOneSignal();
   }, []);
 
   useEffect(() => {
-    // ✅ 200% FIX: Wait for a valid email before calling the API
-    if (!subscriberId || typeof subscriberId !== 'string' || !subscriberId.includes('@')) {
+    // ✅ 200% FIX: Console logging for transparency
+    if (!subscriberId || !subscriberId.includes('@')) {
+      console.log("NovuInbox: Waiting for a valid email prop...");
+      setStatus("Waiting for Email...");
       return; 
     }
 
     const setup = async () => {
       try {
+        console.log(`NovuInbox: Starting setup for ${subscriberId}...`);
+        setStatus("Identifying...");
+
         // 1️⃣ Identify subscriber
         const identifyRes = await fetch("/api/novu/identify", {
           method: "POST",
@@ -50,16 +57,17 @@ const NovuInbox = ({
     
         if (!identifyRes.ok) {
             const errorData = await identifyRes.json();
-            throw new Error(`Identify failed: ${errorData.details || errorData.error}`);
+            throw new Error(errorData.details || errorData.error);
         }
     
-        // 2️⃣ Login OneSignal
+        console.log("NovuInbox: Identification successful.");
+        setStatus("Syncing OneSignal...");
+
+        // 2️⃣ Sync OneSignal
         await setOneSignalUserData({ subscriberId, email: subscriberId, phone, tags });
-    
-        // 3️⃣ Ask push permission
         await requestPushPermission();
     
-        // 4️⃣ Attach device
+        // 3️⃣ Attach device
         const deviceId = await getOneSignalDeviceId();
         if (deviceId) {
           await fetch("/api/onesignal/register-device", {
@@ -67,20 +75,44 @@ const NovuInbox = ({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ subscriberId, deviceId }),
           });
+          console.log("NovuInbox: Device registered successfully.");
         }
+        
+        setStatus("Ready");
       } catch (error) {
-        console.error("NovuInbox setup error:", error.message);
+        console.error("NovuInbox Error:", error.message);
+        setStatus("Error: Check Console");
       }
     };
 
     setup();
   }, [subscriberId, firstName, lastName, phone, JSON.stringify(tags), JSON.stringify(meta)]);
 
-  if (!subscriberId || !applicationIdentifier) return null;
+  // ✅ 200% FIX: Render a visible placeholder in Plasmic Studio
+  if (!subscriberId || !applicationIdentifier) {
+    return (
+      <div className={className} style={{ 
+        padding: '20px', 
+        border: '2px dashed #3182ce', 
+        borderRadius: '8px',
+        background: '#ebf8ff',
+        color: '#2c5282',
+        textAlign: 'center',
+        fontSize: '12px'
+      }}>
+        <strong>Novu Inbox Placeholder</strong><br/>
+        Status: {status}
+      </div>
+    );
+  }
 
   return (
     <div className={className} {...rest}>
-      <NovuProvider subscriberId={subscriberId} applicationIdentifier={applicationIdentifier} subscriberHash={subscriberHash}>
+      <NovuProvider 
+        subscriberId={subscriberId} 
+        applicationIdentifier={applicationIdentifier} 
+        subscriberHash={subscriberHash}
+      >
         <Inbox position="bottom-end" offset={8} width="372px" />
       </NovuProvider>
     </div>
