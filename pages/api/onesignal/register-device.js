@@ -13,16 +13,11 @@ export default async function handler(req, res) {
   }
 
   try {
-    await novu.subscribers.credentials.update(
-      {
-        providerId: "onesignal",
-        integrationIdentifier: "onesignal", 
-        credentials: {
-          deviceTokens: [deviceId],
-        },
-      },
-      cleanSubId
-    );
+    // 3. Use setCredentials for modern SDK compatibility
+    // The providerId MUST be 'onesignal' as per dashboard settings
+    await novu.subscribers.setCredentials(cleanSubId, 'onesignal', {
+      deviceTokens: [deviceId],
+    });
 
     return res.status(200).json({ success: true });
   } catch (err) {

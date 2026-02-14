@@ -7,7 +7,7 @@ export default async function handler(req, res) {
 
   const { email, firstName, lastName, phone, meta = {} } = req.body;
 
-  // 1. Critical String Cleaning: Remove any hidden whitespace
+  // 1. Clean the email to prevent "malformed" errors
   const cleanEmail = email?.toString().trim();
 
   if (!cleanEmail || !cleanEmail.includes('@')) {
@@ -15,7 +15,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    // 2. Exact SDK Signature: identify(subscriberId, dataObject)
+    // 2. Identify the subscriber
     await novu.subscribers.identify(cleanEmail, {
       email: cleanEmail,
       firstName: firstName || "",
@@ -26,8 +26,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ success: true });
   } catch (err) {
-    // 3. Expose the real error to your Netlify logs
-    console.error("Novu Identify Error Detail:", err.response?.data || err);
+    console.error("Novu Identify Error:", err.response?.data || err);
     return res.status(500).json({ 
       error: "Identify failed", 
       details: err.response?.data || err.message 
