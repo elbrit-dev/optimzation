@@ -69,7 +69,14 @@ const NovuInbox = ({
     };
 
     setup();
-  }, [subscriberId, firstName, lastName, phone]);
+  }, [
+    subscriberId,
+    firstName,
+    lastName,
+    phone,
+    JSON.stringify(tags),
+    JSON.stringify(meta),
+  ]);
 
   if (!subscriberId || !applicationIdentifier) {
     return null;
