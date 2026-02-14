@@ -36,8 +36,8 @@ const NovuInbox = ({
 
     const setup = async () => {
       try {
-        // 1️⃣ Identify subscriber in Novu (FULL DATA)
-        await fetch("/api/novu/identify", {
+        // 1️⃣ Identify subscriber - WAIT for success before moving on
+        const identifyRes = await fetch("/api/novu/identify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -49,23 +49,28 @@ const NovuInbox = ({
             meta,
           }),
         });
-
-        // 2️⃣ Login OneSignal with same identity
+    
+        if (!identifyRes.ok) {
+            const errorData = await identifyRes.json();
+            throw new Error(`Identify failed: ${errorData.details || errorData.error}`);
+        }
+    
+        // 2️⃣ Login OneSignal
         await setOneSignalUserData({
           subscriberId,
           email: subscriberId,
           phone,
           tags,
         });
-
+    
         // 3️⃣ Ask push permission
         await requestPushPermission();
-
-        // 4️⃣ Attach device to Novu
+    
+        // 4️⃣ Attach device - only run if Identify succeeded
         const deviceId = await getOneSignalDeviceId();
-
+    
         if (deviceId) {
-          await fetch("/api/onesignal/register-device", {
+          const registerRes = await fetch("/api/onesignal/register-device", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -73,9 +78,13 @@ const NovuInbox = ({
               deviceId,
             }),
           });
+          
+          if (!registerRes.ok) {
+              console.warn("Device registration failed, but subscriber was identified.");
+          }
         }
       } catch (error) {
-        console.error("NovuInbox setup error:", error);
+        console.error("NovuInbox setup error:", error.message);
       }
     };
 
