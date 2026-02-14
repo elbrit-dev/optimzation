@@ -44,8 +44,12 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ success: true });
   } catch (err) {
-    console.error("OneSignal → Novu attach failed", err);
-    return res.status(500).json({ error: "Failed to register device" });
+    console.error("OneSignal → Novu attach failed", err.response?.data || err);
+    return res.status(500).json({ 
+      error: "Failed to register device",
+      message: err.message,
+      details: err.response?.data || "No additional details"
+    });
   }
 }
 
