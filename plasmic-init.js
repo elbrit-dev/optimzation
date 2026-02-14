@@ -557,34 +557,37 @@ PLASMIC.registerComponent(NovuInbox, {
     subscriberId: {
       type: "string",
       description: "Novu subscriber ID (MUST be user email). Required.",
+      defaultValue: "user@example.com", // ✅ Forces visibility in Studio
     },
     firstName: {
       type: "string",
-      description: "User first name (optional). Will appear in Novu dashboard subscriber profile.",
+      description: "User first name (optional).",
     },
     lastName: {
       type: "string",
-      description: "User last name (optional). Will appear in Novu dashboard subscriber profile.",
+      description: "User last name (optional).",
     },
     phone: {
       type: "string",
-      description: "User phone number in E.164 format, e.g., +91XXXXXXXXXX (optional). Will be added to Novu subscriber profile and OneSignal user profile.",
+      description: "User phone number in E.164 format.",
     },
     tags: {
       type: "object",
-      description: "User tags as key-value pairs (optional). Flat object only, no nested objects. Example: { role: 'admin', division: 'sales' }. Will be added to OneSignal user profile.",
+      description: "User tags (Flat object).",
     },
     meta: {
       type: "object",
-      description: "Additional metadata as key-value pairs (optional). Flat object only, no nested objects. Example: { department: 'sales', location: 'NYC' }. Will appear under 'data' in Novu dashboard subscriber profile.",
+      description: "Additional metadata (Flat object).",
     },
     applicationIdentifier: {
       type: "string",
-      description: "Novu application identifier. If not provided, will use NEXT_PUBLIC_NOVU_APPLICATION_IDENTIFIER from environment variables.",
+      description: "Novu application identifier.",
+      // ✅ Matches your Production environment ID from dashboard
+      defaultValue: "pdnBD6k7fkMq", 
     },
     subscriberHash: {
       type: "string",
-      description: "Optional subscriber hash for HMAC authentication (only needed if using HMAC). If not provided, will use NEXT_PUBLIC_NOVU_SUBSCRIBER_HASH from environment variables. Can be left empty if not using HMAC.",
+      description: "Optional subscriber hash for HMAC.",
     },
     className: {
       type: "string",
