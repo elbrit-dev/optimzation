@@ -15,7 +15,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    // 2. Identify the subscriber
+    // 2. Identify the subscriber in the specific Novu environment
     await novu.subscribers.identify(cleanEmail, {
       email: cleanEmail,
       firstName: firstName || "",
