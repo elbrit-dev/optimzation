@@ -554,10 +554,9 @@ PLASMIC.registerComponent(CalendarPage, {
 PLASMIC.registerComponent(NovuInbox, {
   name: "NovuInbox",
   props: {
-    subscriberId: {
+    email: {
       type: "string",
-      description: "Novu subscriber ID (MUST be user email). Required.",
-      defaultValue: "user@example.com", // ✅ Forces visibility in Studio
+      description: "User email (used as Novu subscriberId)",
     },
     firstName: {
       type: "string",

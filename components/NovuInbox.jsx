@@ -10,7 +10,7 @@ import {
 } from "@/lib/onesignal";
 
 const NovuInbox = ({
-  subscriberId,
+  email,
   firstName,
   lastName,
   phone,
@@ -22,6 +22,7 @@ const NovuInbox = ({
   ...rest
 }) => {
   const [status, setStatus] = useState("Initializing...");
+  const cleanEmail = (email || "").trim().toLowerCase();
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -29,7 +30,7 @@ const NovuInbox = ({
   }, []);
 
   useEffect(() => {
-    if (!subscriberId || !subscriberId.includes('@')) {
+    if (!cleanEmail || !cleanEmail.includes('@')) {
       console.log("NovuInbox: Waiting for a valid email prop...");
       setStatus("Waiting for Email...");
       return; 
@@ -37,14 +38,14 @@ const NovuInbox = ({
 
     const setup = async () => {
       try {
-        console.log(`NovuInbox: Starting setup for ${subscriberId}...`);
+        console.log(`NovuInbox: Starting setup for ${cleanEmail}...`);
         setStatus("Identifying...");
 
         const identifyRes = await fetch("/api/novu/identify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            email: subscriberId.trim(),
+            email: cleanEmail,
             firstName,
             lastName,
             phone,
@@ -61,7 +62,12 @@ const NovuInbox = ({
         console.log("NovuInbox: Identification successful.");
         setStatus("Syncing OneSignal...");
 
-        await setOneSignalUserData({ subscriberId, email: subscriberId, phone, tags });
+        await setOneSignalUserData({
+          subscriberId: cleanEmail,
+          email: cleanEmail,
+          phone,
+          tags
+        });
         await requestPushPermission();
     
         const deviceId = await getOneSignalDeviceId();
@@ -69,7 +75,7 @@ const NovuInbox = ({
           await fetch("/api/onesignal/register-device", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ subscriberId, deviceId }),
+            body: JSON.stringify({ subscriberId: cleanEmail, deviceId }),
           });
           console.log("NovuInbox: Device registered successfully.");
         }
@@ -82,9 +88,9 @@ const NovuInbox = ({
     };
 
     setup();
-  }, [subscriberId, firstName, lastName, phone, JSON.stringify(tags), JSON.stringify(meta)]);
+  }, [cleanEmail, firstName, lastName, phone, JSON.stringify(tags), JSON.stringify(meta)]);
 
-  if (!subscriberId || !applicationIdentifier) {
+  if (!cleanEmail || !applicationIdentifier) {
     return (
       <div className={className} style={{ 
         padding: '20px', 
@@ -104,7 +110,7 @@ const NovuInbox = ({
   return (
     <div className={className} {...rest}>
       <NovuProvider 
-        subscriberId={subscriberId} 
+        subscriberId={cleanEmail}
         applicationIdentifier={applicationIdentifier} 
         subscriberHash={subscriberHash}
       >
