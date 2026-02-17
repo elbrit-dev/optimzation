@@ -19,6 +19,8 @@ const NovuInbox = ({
   applicationIdentifier,
   subscriberHash,
   className,
+  onPrimaryActionClick,
+  onSecondaryActionClick,
   ...rest
 }) => {
   const [status, setStatus] = useState("Initializing...");
@@ -113,6 +115,8 @@ const NovuInbox = ({
         subscriberId={cleanEmail}
         applicationIdentifier={applicationIdentifier} 
         subscriberHash={subscriberHash}
+        onPrimaryActionClick={onPrimaryActionClick}
+        onSecondaryActionClick={onSecondaryActionClick}
       >
         <Inbox 
           position="bottom-end" 

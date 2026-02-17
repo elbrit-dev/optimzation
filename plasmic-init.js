@@ -592,6 +592,20 @@ PLASMIC.registerComponent(NovuInbox, {
       type: "string",
       description: "CSS class name for the container",
     },
+    onPrimaryActionClick: {
+      type: "eventHandler",
+      argTypes: [
+        { name: "notification", type: "object" }
+      ],
+      description: "Callback function called when primary action button is clicked",
+    },
+    onSecondaryActionClick: {
+      type: "eventHandler",
+      argTypes: [
+        { name: "notification", type: "object" }
+      ],
+      description: "Callback function called when secondary action button is clicked",
+    },
   },
   importPath: "./components/NovuInbox",
 });
