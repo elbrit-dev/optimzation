@@ -620,7 +620,6 @@ PLASMIC.registerComponent(DataProvider, {
     dataSource: {
       type: "string",
       description: "The data source ID or 'offline' for local data",
-      defaultValue: "offline",
     },
     selectedQueryKey: {
       type: "string",
@@ -630,15 +629,6 @@ PLASMIC.registerComponent(DataProvider, {
       type: "object",
       description: "Overrides for query variables (as an object)",
       defaultValue: {},
-    },
-    showSelectors: {
-      type: "boolean",
-      description: "Show/hide data source and query selectors",
-      defaultValue: true,
-    },
-    hideDataSourceAndQueryKey: {
-      type: "boolean",
-      description: "Explicitly hide the data source and query key dropdowns even if selectors are shown",
     },
     isAdminMode: {
       type: "boolean",
@@ -705,8 +695,7 @@ PLASMIC.registerComponent(DataProvider, {
     },
     visibleColumns: {
       type: "object",
-      defaultValue: [],
-      description: "Initial visible columns for orchestration layer",
+      description: "Initial visible columns for orchestration layer (can be passed from parent)",
     },
     redFields: {
       type: "object",
@@ -721,7 +710,6 @@ PLASMIC.registerComponent(DataProvider, {
     groupFields: {
       type: "object",
       description: "Array of field names for grouping (supports infinite nesting). Main/outer group: 'sales_team', inner group: 'hq'. Example: ['sales_team', 'hq']",
-      defaultValue: ['sales_team', 'hq'],
     },
     percentageColumns: {
       type: "object",
@@ -741,11 +729,6 @@ PLASMIC.registerComponent(DataProvider, {
     dateColumn: {
       type: "string",
       description: "Column name containing date values for report breakdown",
-    },
-    breakdownType: {
-      type: "string",
-      defaultValue: "month",
-      description: "Type of time breakdown: 'month', 'quarter', 'year'",
     },
     onDataChange: {
       type: "eventHandler",
@@ -772,30 +755,10 @@ PLASMIC.registerComponent(DataProvider, {
       argTypes: [{ name: "variables", type: "object" }],
       description: "Callback when query variables change",
     },
-    onDataSourceChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "dataSource", type: "string" }],
-      description: "Callback when data source changes",
-    },
-    onSavedQueriesChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "queries", type: "object" }],
-      description: "Callback when saved queries change",
-    },
-    onLoadingQueriesChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "loading", type: "boolean" }],
-      description: "Callback when loading queries state changes",
-    },
     onExecutingQueryChange: {
       type: "eventHandler",
       argTypes: [{ name: "executing", type: "boolean" }],
       description: "Callback when query execution state changes",
-    },
-    onAvailableQueryKeysChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "keys", type: "object" }],
-      description: "Callback when available query keys change",
     },
     onSelectedQueryKeyChange: {
       type: "eventHandler",
@@ -816,21 +779,6 @@ PLASMIC.registerComponent(DataProvider, {
       type: "eventHandler",
       argTypes: [{ name: "tabs", type: "object" }],
       description: "Callback when drawer tabs change",
-    },
-    onBreakdownTypeChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "type", type: "string" }],
-      description: "Callback when breakdown type changes",
-    },
-    enableBreakdown: {
-      type: "boolean",
-      defaultValue: false,
-      description: "Enable breakdown mode for report visualization",
-    },
-    onEnableBreakdownChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "enabled", type: "boolean" }],
-      description: "Callback when breakdown mode is toggled",
     },
     chartColumns: {
       type: "object",
@@ -870,6 +818,69 @@ PLASMIC.registerComponent(DataProvider, {
       defaultValue: true,
       description: "Show/hide the provider header controls",
     },
+    forceEnableWrite: {
+      type: "boolean",
+      description: "Force enableWrite for nested drawer tables. If provided, overrides the query's enableWrite setting. Use true to enable editing in nested tables.",
+    },
+    enableCellEdit: {
+      type: "boolean",
+      defaultValue: false,
+      description: "Enable cell editing in the table",
+    },
+    editableColumns: {
+      type: "object",
+      defaultValue: { main: [], nested: {} },
+      description: "Object defining editable columns. Format: { main: ['col1', 'col2'], nested: { parentCol: { nestedField: ['col1'] } } }. Empty main array means all columns editable. For nested tables, specify parent column and nested field name.",
+    },
+    slots: {
+      type: "object",
+      description: "Per-slot configuration object. When provided, allows different configurations for different slots. Format: { slotId: { enableSort, enableFilter, groupFields, derivedColumns, etc. } }. If not provided, falls back to flat props for backward compatibility.",
+    },
+    derivedColumnsMode: {
+      type: "string",
+      description: "Override for derived columns scope: 'main' | 'nested' (for sidebar nested tabs)",
+    },
+    derivedColumnsFieldName: {
+      type: "string",
+      description: "For mode 'nested', the nested table's field name",
+    },
+    fallbackColumns: {
+      type: "object",
+      description: "Fallback columns when data is empty (e.g., from other rows' schema for nested tables)",
+    },
+    parentColumnName: {
+      type: "string",
+      description: "Parent column name for nested tables (used with nestedTableFieldName)",
+    },
+    nestedTableFieldName: {
+      type: "string",
+      description: "Nested table field name (used with parentColumnName for nested drawer tables)",
+    },
+    parentOriginalNestedTableDataRef: {
+      type: "object",
+      description: "Parent ref for nested instances to access parent's original nested table data",
+    },
+    parentNestedTableEditingDataRef: {
+      type: "object",
+      description: "Parent ref for nested instances to access parent's nested table editing data",
+    },
+    parentHandleDrawerSaveProp: {
+      type: "function",
+      description: "Parent handler for nested instances to use parent's drawer save state",
+    },
+    nestedTableTabId: {
+      type: "string",
+      description: "Tab ID for nested instances to update parent's editing buffer",
+    },
+    onNestedBufferChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "buffer", type: "object" }],
+      description: "Callback from parent so nested instance can trigger parent re-render after buffer update",
+    },
+    parentHandleAddNestedRowAtZero: {
+      type: "function",
+      description: "Parent handler to add row at index 0 in nested table (for drawer nested table + button)",
+    },
     children: {
       type: "slot",
       description: "Slot to add custom UI components that can access the table data",
@@ -899,7 +910,7 @@ PLASMIC.registerComponent(DataTableNew, {
     },
     scrollHeight: {
       type: "string",
-      description: "Height of the scrollable area (e.g., '600px')",
+      description: "Height of the scrollable area (e.g., '600px', 'flex' for dynamic)",
     },
     enableCellEdit: {
       type: "boolean",
@@ -911,17 +922,19 @@ PLASMIC.registerComponent(DataTableNew, {
       argTypes: [
         { name: "rowData", type: "object" },
         { name: "field", type: "string" },
-        { name: "newValue", type: "any" }
+        { name: "newValue", type: "any" },
+        { name: "oldValue", type: "any" }
       ],
+      description: "Callback when cell edit is completed",
     },
     isCellEditable: {
       type: "function",
-      description: "Function to determine if a cell is editable",
+      description: "Function to determine if a cell is editable: (rowData, field) => boolean",
     },
-    nonEditableColumns: {
+    editableColumns: {
       type: "object",
-      defaultValue: [],
-      description: "Array of column names that cannot be edited",
+      defaultValue: { main: [], nested: {} },
+      description: "Object defining editable columns. Format: { main: ['col1', 'col2'], nested: { parentCol: { nestedField: ['col1'] } } }. Empty main array means all columns editable. For nested tables, specify parent column and nested field name.",
     },
     enableFullscreenDialog: {
       type: "boolean",
@@ -938,15 +951,35 @@ PLASMIC.registerComponent(DataTableNew, {
       defaultValue: false,
       description: "Use orchestration layer (must be child of DataProvider with useOrchestrationLayer=true)",
     },
+    parentColumnName: {
+      type: "string",
+      description: "Parent column name for nested tables (used with nestedTableFieldName)",
+    },
+    nestedTableFieldName: {
+      type: "string",
+      description: "Nested table field name (used with parentColumnName for nested drawer tables)",
+    },
     onOuterGroupClick: {
       type: "eventHandler",
-      argTypes: [{ name: "event", type: "object" }],
-      description: "Handler for outer group row clicks",
+      argTypes: [
+        { name: "rowData", type: "object" },
+        { name: "column", type: "string" },
+        { name: "value", type: "any" }
+      ],
+      description: "Handler for outer group row clicks (for backward compatibility)",
     },
     onInnerGroupClick: {
       type: "eventHandler",
-      argTypes: [{ name: "event", type: "object" }],
-      description: "Handler for inner group row clicks",
+      argTypes: [
+        { name: "rowData", type: "object" },
+        { name: "column", type: "string" },
+        { name: "value", type: "any" }
+      ],
+      description: "Handler for inner group row clicks (for backward compatibility)",
+    },
+    slotId: {
+      type: "string",
+      description: "Slot ID to select which slot's data to use (defaults to 'main' if not provided)",
     },
   },
   importPath: "./share/datatable/components/DataTableNew",
