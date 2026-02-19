@@ -1,6 +1,39 @@
 import { toast } from "sonner";
 import { set, addMinutes } from "date-fns";
-import { TAG_IDS } from "@calendar/components/calendar/mocks";
+import { TAG_IDS } from "@calendar/components/calendar/constants";
+export function buildParticipantsWithDetails(erpParticipants, {
+  employeeOptions,
+  doctorOptions,
+}) {
+  return erpParticipants.map((p) => {
+    const type = p.reference_doctype;
+    const id = String(p.reference_docname);
+
+    let name = id;
+
+    if (type === "Employee") {
+      const emp = employeeOptions.find(
+        (e) => e.value === id
+      );
+      name = emp?.label ?? id;
+    }
+
+    if (type === "Lead") {
+      const doc = doctorOptions.find(
+        (d) => d.value === id
+      );
+      name = doc?.label ?? id;
+    }
+
+    return {
+      type,
+      id,
+      name,
+      attending: p.attending ?? null,
+      kly_lat_long: p.kly_lat_long ?? null,
+    };
+  });
+}
 
 export function showFirstFormErrorAsToast(errors) {
   const findError = (obj) => {

@@ -7,6 +7,7 @@ export function mapEmployeesToCalendarUsers(employees = []) {
       email: emp.company_email,
       role: emp.designation?.name ?? null,
       status: "Active",
+      leave_approver:emp.leave_approver?.name ?? null,
       roleId:emp.role_id
     }));
   }

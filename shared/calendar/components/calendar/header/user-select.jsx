@@ -8,7 +8,7 @@ import {
 } from "@calendar/components/ui/popover";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 import { useEffect, useState, useMemo } from "react";
-import {resolveVisibleEmployeeIds} from "@calendar/lib/userVisibility";
+import {resolveVisibleEmployeeIds} from "@calendar/lib/employeeHeirachy";
 
 export function UserSelect() {
   const {

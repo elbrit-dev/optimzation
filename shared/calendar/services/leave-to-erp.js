@@ -1,5 +1,5 @@
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
-import { differenceInCalendarDays, startOfDay, endOfDay,format } from "date-fns";
+import { differenceInCalendarDays, startOfDay, endOfDay, format } from "date-fns";
 function toERPDate(date = new Date()) {
   return format(startOfDay(date), "yyyy-MM-dd");
 }
@@ -9,7 +9,7 @@ export function mapFormToErpLeave(values) {
   const toDate = isHalf
     ? fromDate
     : toERPDate(values.endDate);
-    const totalDays =
+  const totalDays =
     differenceInCalendarDays(
       startOfDay(values.endDate),
       startOfDay(values.startDate)
@@ -18,14 +18,12 @@ export function mapFormToErpLeave(values) {
     doctype: "Leave Application",
     employee: LOGGED_IN_USER.id,
     leave_type: values.leaveType,
-
     from_date: fromDate,
     to_date: toDate,
-
     half_day: isHalf ? 1 : 0,
     half_day_date: isHalf
-    ? toERPDate(values.halfDayDate)
-    : null,
+      ? toERPDate(values.halfDayDate)
+      : null,
     total_leave_days: isHalf
       ? totalDays - 0.5
       : totalDays,
@@ -34,6 +32,7 @@ export function mapFormToErpLeave(values) {
     status: "Open",
     follow_via_email: 1,
     fsl_attach: values.medicalAttachment ?? null,
+    leave_approver: values.leave_approver ?? null,
   };
 }
 
@@ -49,7 +48,7 @@ export function mapErpLeaveToCalendar(leave) {
   );
 
   return {
-    erpName:`LEAVE-${leave.name}`,
+    erpName: `LEAVE-${leave.name}`,
     id: `LEAVE-${leave.name}`,
     title: leave.leave_type__name || "Leave",
     tags: "Leave",
@@ -57,11 +56,16 @@ export function mapErpLeaveToCalendar(leave) {
     startDate: start.toISOString(), // ✅ normalized
     endDate: end.toISOString(),     // ✅ normalized
     status: leave.status,
-    halfDayDate:leave.half_day_date ?? "",
+    halfDayDate: leave.half_day_date ?? "",
     description: leave.description,
     color: "red",
     allDay: true,
-    medicalAttachment:leave.fsl_attach ?? "",
-    approvedBy:leave.leave_approver_name ?? ""
+    medicalAttachment: leave.fsl_attach ?? "",
+    employee: leave.employee?.name,
+    approvedBy: leave.leave_approver_name ?? "",
+    leave_approver:
+      typeof leave.leave_approver === "object"
+        ? leave.leave_approver?.name
+        : leave.leave_approver ?? null,
   };
 }

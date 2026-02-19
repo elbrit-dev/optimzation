@@ -1,10 +1,12 @@
 'use client';
 
+import { flatMap, isArray, uniq } from 'lodash';
 import { useCallback, useContext, useMemo, useState } from 'react';
 import { Button } from 'primereact/button';
 import { InputText } from 'primereact/inputtext';
 import { Accordion, AccordionTab } from 'primereact/accordion';
 import { Checkbox } from 'primereact/checkbox';
+import { useSlotId } from './DataSlot';
 import { TableOperationsContext } from '../contexts/TableOperationsContext';
 
 const PREVIEW_ITEMS = 5;
@@ -57,6 +59,14 @@ function ValuePreview({ value, keyName, depth = 0 }) {
     });
   }, [value, keyName]);
 
+  const allKeysFromArray = useMemo(() => {
+    if (!isArray(value)) return null;
+    const keys = uniq(flatMap(value, (item) =>
+      item && typeof item === 'object' && !Array.isArray(item) ? Object.keys(item) : []
+    ));
+    return keys;
+  }, [value]);
+
   if (value === null) return <span className="text-gray-500">null</span>;
   if (typeof value === 'function') {
     return (
@@ -78,6 +88,9 @@ function ValuePreview({ value, keyName, depth = 0 }) {
       <div className="ml-2 border-l border-gray-200 pl-2">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-gray-500 text-xs">length: {len}</span>
+          {allKeysFromArray && allKeysFromArray.length > 0 && (
+            <span className="text-gray-500 text-xs">{allKeysFromArray.length} keys (all rows)</span>
+          )}
           {len > PREVIEW_ITEMS && (
             <Button
               type="button"
@@ -148,13 +161,6 @@ function ValuePreview({ value, keyName, depth = 0 }) {
 function KeyRow({ contextKey, value, searchTerm, defaultExpanded = false }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [copyFeedback, setCopyFeedback] = useState(false);
-  const keyLower = contextKey.toLowerCase();
-  const term = (searchTerm || '').toLowerCase();
-  if (term && !keyLower.includes(term)) return null;
-
-  const typeLabel = getTypeLabel(value);
-  const category = getCategory(contextKey, value);
-
   const handleCopyKey = useCallback((e) => {
     e.stopPropagation();
     const str = serializeForCopy(value, contextKey);
@@ -163,6 +169,13 @@ function KeyRow({ contextKey, value, searchTerm, defaultExpanded = false }) {
       setTimeout(() => setCopyFeedback(false), 1500);
     });
   }, [value, contextKey]);
+
+  const keyLower = contextKey.toLowerCase();
+  const term = (searchTerm || '').toLowerCase();
+  if (term && !keyLower.includes(term)) return null;
+
+  const typeLabel = getTypeLabel(value);
+  const category = getCategory(contextKey, value);
 
   return (
     <div className="border-b border-gray-100 last:border-0">
@@ -219,7 +232,22 @@ export default function DebugDataContext({
   onHideTableChange,
   defaultCollapsed = false,
 }) {
-  const ctx = useContext(TableOperationsContext);
+  const rawContext = useContext(TableOperationsContext);
+  const currentSlotId = useSlotId() ?? 'main';
+  const isSlotSystem = rawContext && rawContext.rawData === undefined && typeof rawContext.main === 'object';
+
+  const { ctx, slotEntries } = useMemo(() => {
+    if (!rawContext) return { ctx: null, slotEntries: [] };
+    if (!isSlotSystem) return { ctx: rawContext, slotEntries: [] };
+    const slotIds = Object.keys(rawContext);
+    const entries = slotIds.map((slotId) => {
+      const slotCtx = rawContext[slotId];
+      return { slotId, ctx: slotCtx, categories: categorizeKeys(slotCtx) };
+    });
+    const ctxForCurrent = rawContext[currentSlotId];
+    return { ctx: ctxForCurrent ?? entries[0]?.ctx ?? null, slotEntries: entries };
+  }, [rawContext, currentSlotId, isSlotSystem]);
+
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -230,6 +258,12 @@ export default function DebugDataContext({
     const str = serializeForCopy(ctx, 'context');
     navigator.clipboard.writeText(str);
   }, [ctx]);
+
+  const handleCopySlot = useCallback((slotCtx, slotId) => {
+    if (!slotCtx) return;
+    const str = serializeForCopy(slotCtx, `context-slot-${slotId}`);
+    navigator.clipboard.writeText(str);
+  }, []);
 
   if (ctx === null || ctx === undefined) {
     return (
@@ -246,7 +280,14 @@ export default function DebugDataContext({
         onClick={() => setCollapsed(c => !c)}
         className="w-full flex items-center justify-between gap-2 px-4 py-3 bg-gray-50 hover:bg-gray-100 border-b border-gray-200 text-left"
       >
-        <span className="font-semibold text-gray-800">Table context debug</span>
+        <span className="font-semibold text-gray-800">
+          Table context debug
+          {isSlotSystem && (
+            <span className="ml-2 text-xs font-normal text-gray-500">
+              (Slots: {Object.keys(rawContext ?? {}).join(', ') || '—'} | Current: {currentSlotId})
+            </span>
+          )}
+        </span>
         <i className={`pi ${collapsed ? 'pi-chevron-down' : 'pi-chevron-up'} text-gray-500`} />
       </button>
       {!collapsed && (
@@ -269,34 +310,131 @@ export default function DebugDataContext({
             className="w-full mb-3"
           />
 
-          <Button label="Copy full context as JSON" icon="pi pi-copy" className="w-full mb-3" onClick={handleCopyFull} />
+          {!isSlotSystem && (
+            <Button label="Copy full context as JSON" icon="pi pi-copy" className="w-full mb-3" onClick={handleCopyFull} />
+          )}
 
           <div className="overflow-auto min-h-0 flex-1 border border-gray-100 rounded">
-            <Accordion multiple activeIndex={[0, 1, 2]}>
-              <AccordionTab header={`Data (${categories.data.length})`}>
-                <div className="space-y-0">
-                  {categories.data.map(k => (
-                    <KeyRow key={k} contextKey={k} value={ctx[k]} searchTerm={searchTerm} />
-                  ))}
-                  {categories.data.length === 0 && <p className="text-gray-500 text-sm">No data keys</p>}
-                </div>
-              </AccordionTab>
-              <AccordionTab header={`State (${categories.state.length})`}>
-                <div className="space-y-0">
-                  {categories.state.map(k => (
-                    <KeyRow key={k} contextKey={k} value={ctx[k]} searchTerm={searchTerm} />
-                  ))}
-                  {categories.state.length === 0 && <p className="text-gray-500 text-sm">No state keys</p>}
-                </div>
-              </AccordionTab>
-              <AccordionTab header={`Functions (${categories.functions.length})`}>
-                <div className="space-y-0">
-                  {categories.functions.map(k => (
-                    <KeyRow key={k} contextKey={k} value={ctx[k]} searchTerm={searchTerm} />
-                  ))}
-                  {categories.functions.length === 0 && <p className="text-gray-500 text-sm">No function keys</p>}
-                </div>
-              </AccordionTab>
+            <Accordion
+              multiple
+              activeIndex={
+                isSlotSystem
+                  ? Array.from({ length: 1 + slotEntries.length }, (_, i) => i)
+                  : [0, 1, 2]
+              }
+            >
+              {isSlotSystem && (
+                <AccordionTab header="Slot system">
+                  <div className="space-y-2 p-2">
+                    <div>
+                      <span className="font-medium text-gray-700">slotIds: </span>
+                      <pre className="text-sm font-mono bg-gray-50 p-2 rounded mt-1">
+                        {JSON.stringify(Object.keys(rawContext ?? {}), null, 2)}
+                      </pre>
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-700">Current slot (from useSlotId): </span>
+                      <span className="font-mono text-gray-800">{currentSlotId}</span>
+                    </div>
+                    {slotEntries.length === 0 && (
+                      <p className="text-amber-600 text-sm mt-2">No slots defined (slotIds empty or invalid).</p>
+                    )}
+                    <Button
+                      label="Copy slotIds"
+                      icon="pi pi-copy"
+                      size="small"
+                      className="mt-2"
+                      onClick={() => navigator.clipboard.writeText(JSON.stringify(rawContext?.slotIds ?? [], null, 2))}
+                    />
+                  </div>
+                </AccordionTab>
+              )}
+              {isSlotSystem && slotEntries.length > 0
+                ? slotEntries.map(({ slotId, ctx: slotCtx, categories: slotCats }, idx) => (
+                    <AccordionTab
+                      key={slotId}
+                      header={
+                        <span className="flex items-center justify-between gap-2 w-full pr-2">
+                          <span className="flex items-center gap-2">
+                            Slot: {slotId}
+                            {slotId === currentSlotId && (
+                              <span className="text-xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">current</span>
+                            )}
+                          </span>
+                          <Button
+                            type="button"
+                            icon="pi pi-copy"
+                            label="Copy"
+                            link
+                            size="small"
+                            className="flex-shrink-0 text-xs py-1 px-2"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCopySlot(slotCtx, slotId);
+                            }}
+                            title="Copy this slot context as JSON"
+                          />
+                        </span>
+                      }
+                    >
+                      <div className="space-y-2">
+                        <Accordion multiple activeIndex={[0, 1, 2]}>
+                          <AccordionTab header={`Data (${slotCats.data.length})`}>
+                            <div className="space-y-0">
+                              {slotCats.data.map(k => (
+                                <KeyRow key={k} contextKey={k} value={slotCtx[k]} searchTerm={searchTerm} />
+                              ))}
+                              {slotCats.data.length === 0 && <p className="text-gray-500 text-sm">No data keys</p>}
+                            </div>
+                          </AccordionTab>
+                          <AccordionTab header={`State (${slotCats.state.length})`}>
+                            <div className="space-y-0">
+                              {slotCats.state.map(k => (
+                                <KeyRow key={k} contextKey={k} value={slotCtx[k]} searchTerm={searchTerm} />
+                              ))}
+                              {slotCats.state.length === 0 && <p className="text-gray-500 text-sm">No state keys</p>}
+                            </div>
+                          </AccordionTab>
+                          <AccordionTab header={`Functions (${slotCats.functions.length})`}>
+                            <div className="space-y-0">
+                              {slotCats.functions.map(k => (
+                                <KeyRow key={k} contextKey={k} value={slotCtx[k]} searchTerm={searchTerm} />
+                              ))}
+                              {slotCats.functions.length === 0 && <p className="text-gray-500 text-sm">No function keys</p>}
+                            </div>
+                          </AccordionTab>
+                        </Accordion>
+                      </div>
+                    </AccordionTab>
+                  ))
+                : !isSlotSystem && (
+                    <>
+                      <AccordionTab header={`Data (${categories.data.length})`}>
+                        <div className="space-y-0">
+                          {categories.data.map(k => (
+                            <KeyRow key={k} contextKey={k} value={ctx[k]} searchTerm={searchTerm} />
+                          ))}
+                          {categories.data.length === 0 && <p className="text-gray-500 text-sm">No data keys</p>}
+                        </div>
+                      </AccordionTab>
+                      <AccordionTab header={`State (${categories.state.length})`}>
+                        <div className="space-y-0">
+                          {categories.state.map(k => (
+                            <KeyRow key={k} contextKey={k} value={ctx[k]} searchTerm={searchTerm} />
+                          ))}
+                          {categories.state.length === 0 && <p className="text-gray-500 text-sm">No state keys</p>}
+                        </div>
+                      </AccordionTab>
+                      <AccordionTab header={`Functions (${categories.functions.length})`}>
+                        <div className="space-y-0">
+                          {categories.functions.map(k => (
+                            <KeyRow key={k} contextKey={k} value={ctx[k]} searchTerm={searchTerm} />
+                          ))}
+                          {categories.functions.length === 0 && <p className="text-gray-500 text-sm">No function keys</p>}
+                        </div>
+                      </AccordionTab>
+                    </>
+                  )}
             </Accordion>
           </div>
         </div>

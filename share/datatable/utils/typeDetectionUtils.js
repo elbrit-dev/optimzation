@@ -1,4 +1,4 @@
-import { isArray, isBoolean, isNumber, isString, toNumber, trim } from 'lodash';
+import { isArray, isBoolean, isEmpty, isNil, isNumber, isString, take, toNumber, trim } from 'lodash';
 import { getNestedValue } from './dataAccessUtils';
 import { isDateLike, parseToDate } from './dateParsingUtils';
 
@@ -109,14 +109,90 @@ export function countSampleTypes(samples) {
 
 const DATE_MAJORITY_THRESHOLD = 0.5;
 
+/** Treat as empty for type inference: null, undefined, '', whitespace-only */
+function isEmptyForInference(value) {
+  if (value == null) return true;
+  if (typeof value === 'string' && trim(value) === '') return true;
+  return false;
+}
+
 export function inferColumnType(data, field, topLevelKey, nestedPath) {
   if (!data || data.length === 0) return 'string';
   const samples = getDistributedSamples(data, topLevelKey, nestedPath);
   if (samples.length === 0) return 'string';
 
-  const { booleanCount, numberCount, dateCount } = countSampleTypes(samples);
-  if (booleanCount === samples.length) return 'boolean';
-  if (numberCount === samples.length) return 'number';
-  if (dateCount > samples.length * DATE_MAJORITY_THRESHOLD) return 'date';
+  const meaningfulSamples = samples.filter((s) => !isEmptyForInference(s));
+  if (meaningfulSamples.length === 0) return 'string';
+
+  const { booleanCount, numberCount, dateCount } = countSampleTypes(meaningfulSamples);
+  if (booleanCount === meaningfulSamples.length) return 'boolean';
+  if (numberCount === meaningfulSamples.length) return 'number';
+  if (dateCount > meaningfulSamples.length * DATE_MAJORITY_THRESHOLD) return 'date';
   return 'string';
+}
+
+/**
+ * Detect column types using the same logic as DataProviderOld/DataProviderNew.
+ * Uses 80% threshold for numeric (nonNullCount denominator) so group aggregation matches.
+ * @param {Array} data - Sample rows
+ * @param {Array} columns - Column names to detect
+ * @param {Function} getDataValue - (row, col) => value
+ * @returns {Object} { colName: 'number'|'boolean'|'date'|'string' }
+ */
+export function detectColumnTypesLikeProvider(data, columns, getDataValue) {
+  const result = {};
+  if (!isArray(data) || isEmpty(data) || !isArray(columns)) return result;
+
+  const sampleData = take(data, 100);
+  columns.forEach((col) => {
+    let numericCount = 0;
+    let dateCount = 0;
+    let booleanCount = 0;
+    let binaryCount = 0;
+    let nonNullCount = 0;
+
+    sampleData.forEach((row) => {
+      const value = getDataValue(row, col);
+      if (!isNil(value)) {
+        nonNullCount++;
+        if (isBooleanValue(value)) {
+          booleanCount++;
+        } else if (value === 0 || value === 1 || value === '0' || value === '1') {
+          binaryCount++;
+        } else if (isDateLike(value)) {
+          dateCount++;
+        } else if (isNumericValue(value)) {
+          numericCount++;
+        }
+      }
+    });
+
+    const isTrueBooleanColumn = nonNullCount > 0 && booleanCount > nonNullCount * 0.7;
+    const isBinaryBooleanColumn = nonNullCount > 0 && binaryCount === nonNullCount && binaryCount >= 1;
+    const isBooleanColumn = isTrueBooleanColumn || isBinaryBooleanColumn;
+
+    let dateCountWithBinary = dateCount;
+    if (!isBooleanColumn && binaryCount > 0) {
+      sampleData.forEach((row) => {
+        const value = getDataValue(row, col);
+        if (!isNil(value) && (value === 0 || value === 1 || value === '0' || value === '1')) {
+          if (isDateLike(value)) dateCountWithBinary++;
+        }
+      });
+    }
+    const isDateColumn = !isBooleanColumn && nonNullCount > 0 && dateCountWithBinary > nonNullCount * 0.7;
+
+    let numericCountWithBinary = numericCount;
+    if (!isBooleanColumn && !isDateColumn && binaryCount > 0) {
+      numericCountWithBinary += binaryCount;
+    }
+    const isNumericColumn = !isBooleanColumn && !isDateColumn && nonNullCount > 0 && numericCountWithBinary > nonNullCount * 0.8;
+
+    let type = 'string';
+    if (isBooleanColumn) type = 'boolean';
+    else if (isDateColumn) type = 'date';
+    else if (isNumericColumn) type = 'number';
+    result[col] = type;
+  });
+  return result;
 }

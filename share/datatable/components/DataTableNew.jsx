@@ -46,6 +46,8 @@ import { getDataKeys, getDataValue } from '../utils/dataAccessUtils';
 import { getOrderedColumnsWithDerived } from '../utils/derivedColumnsUtils';
 import { isJsonArrayOfObjectsString } from '../utils/jsonArrayParser';
 import { useTableOperations } from '../contexts/TableOperationsContext';
+import { SlotContext } from './DataSlot';
+import { DataProvider as PlasmicDataProvider } from '@plasmicapp/loader-nextjs';
 import MultiselectFilter from './MultiselectFilter';
 import { ColumnGroup } from 'primereact/columngroup';
 import { Row } from 'primereact/row';
@@ -695,6 +697,7 @@ export default function DataTableNew({
   useOrchestrationLayer = false,
   parentColumnName = undefined,
   nestedTableFieldName = undefined,
+  slotId: slotIdProp = undefined,
 }) {
   // Use ref to track current editableColumns to avoid closure issues
   const editableColumnsRef = useRef(editableColumns);
@@ -702,7 +705,9 @@ export default function DataTableNew({
     editableColumnsRef.current = editableColumns;
   }, [editableColumns]);
   
-  // Get data and operations from context
+  // Get data and operations from context (slotId prop selects which slot)
+  const effectiveSlotId = slotIdProp ?? 'main';
+  const tableOps = useTableOperations(effectiveSlotId);
   const {
     rawData,
     paginatedData, // Final data for display
@@ -753,6 +758,8 @@ export default function DataTableNew({
     openDrawerForOuterGroup,
     openDrawerForInnerGroup,
     openDrawerWithJsonTables,
+    openDrawerForNewRow,
+    handleAddNestedRowAtZero,
     enableWrite,
     handleMainSave,
     handleDrawerSave,
@@ -785,8 +792,9 @@ export default function DataTableNew({
     effectiveGroupFields,
     parentColumnName: contextParentColumnName,
     nestedTableFieldName: contextNestedTableFieldName,
+    nestedTableTabId: contextNestedTableTabId,
     derivedColumns,
-  } = useTableOperations();
+  } = tableOps;
   
   // Use context values if available, otherwise fall back to props
   const finalParentColumnName = contextParentColumnName !== undefined ? contextParentColumnName : parentColumnName;
@@ -820,11 +828,15 @@ export default function DataTableNew({
     };
   }, [isFullscreen]);
 
+  // Sync defaultRows to context on mount and when defaultRows changes only.
+  // Must NOT depend on updatePagination: in multi-slot, any slot's update recreates all handlers,
+  // which would re-run this effect in every table and cause cross-table pagination resets.
   useEffect(() => {
     setRows(defaultRows);
     setFirst(0);
     updatePagination(0, defaultRows);
-  }, [defaultRows, updatePagination]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: avoid cross-slot cascade
+  }, [defaultRows]);
 
   // Sync local state with context pagination
   useEffect(() => {
@@ -864,8 +876,8 @@ export default function DataTableNew({
 
   // Use data from context - no need for safeData or columns computation
   const safeData = useMemo(() => {
-    if (!Array.isArray(paginatedData) || isEmpty(paginatedData)) return [];
-    return paginatedData;
+    const out = (!Array.isArray(paginatedData) || isEmpty(paginatedData)) ? [] : paginatedData;
+    return out;
   }, [paginatedData]);
 
   // isNumericValue comes from context - no need to duplicate
@@ -908,9 +920,17 @@ export default function DataTableNew({
    * - Percentage columns are excluded from filteredColumns and inserted at their specified positions
    */
   const orderedColumns = useMemo(() => {
-    if (isEmpty(columns)) return [];
+    const isNestedDrawer = !!finalParentColumnName;
+    if (isEmpty(columns)) {
+      return [];
+    }
+
+    const debugPayload = (msg, extra) => {
+      const d = { msg, columns: [...(columns || [])], visibleColumns: visibleColumns ? [...(visibleColumns || [])] : visibleColumns, outerGroupField, innerGroupField, isNestedDrawer, ...extra };
+    };
 
     let filteredColumns = columns;
+    debugPayload('start', { filteredAfterInit: [...filteredColumns] });
 
     // When grouping is active, show only numeric columns, but always include outer group field
     // Inner group field is hidden in main table (only shown in nested table)
@@ -928,6 +948,7 @@ export default function DataTableNew({
         const colType = get(columnTypesFlags, col, {});
         return get(colType, 'isNumeric', false);
       });
+      debugPayload('after outerGroupField filter', { filteredColumns: [...filteredColumns], columnTypesSample: columns.slice(0, 3).map(c => ({ col: c, type: columnTypesFlags[c], isNumeric: get(columnTypesFlags[c], 'isNumeric') })) });
     }
 
     // Always exclude __editingKey__ from visible columns (internal use only)
@@ -935,6 +956,7 @@ export default function DataTableNew({
 
     // Apply visibleColumns filter if provided (and not empty)
     if (!isEmpty(visibleColumns) && isArray(visibleColumns)) {
+      debugPayload('applying visibleColumns filter', { visibleSet: [...visibleColumns], beforeFilter: [...filteredColumns] });
       const visibleSet = new Set(visibleColumns);
       // Always include outer group field even if not in visibleColumns
       // Exclude inner group field from main table
@@ -947,6 +969,7 @@ export default function DataTableNew({
         }
         return visibleSet.has(col);
       });
+      debugPayload('after visibleColumns filter', { filteredColumns: [...filteredColumns] });
     }
 
     // Get percentage column names and configurations
@@ -1056,8 +1079,9 @@ export default function DataTableNew({
       }
     });
 
+    if (isNestedDrawer) debugPayload('final orderedColumns', { finalResult: [...finalResult] });
     return finalResult;
-  }, [columns, visibleColumns, outerGroupField, innerGroupField, columnTypesFlags, hasPercentageColumns, percentageColumns]);
+  }, [columns, visibleColumns, outerGroupField, innerGroupField, columnTypesFlags, hasPercentageColumns, percentageColumns, finalParentColumnName]);
 
   // Report mode: Pre-compute column structure (shared by header and columns)
   const reportColumnsStructure = useMemo(() => {
@@ -3354,8 +3378,23 @@ export default function DataTableNew({
         </button>
       </div>
 
-      {/* Right side: Save, Cancel, Export, Fullscreen, Maximize/Minimize, and Close buttons (Save/Cancel hidden for sidebar - shown in Sidebar header) */}
+      {/* Right side: Blue + (leftmost), Save, Cancel, Export, Fullscreen, Maximize/Minimize, and Close buttons (Save/Cancel hidden for sidebar - shown in Sidebar header) */}
       <div className="shrink-0 flex items-center gap-2">
+        {enableWrite && ((contextNestedTableTabId && handleAddNestedRowAtZero) || (!contextNestedTableTabId && tableName !== 'sidebar' && openDrawerForNewRow)) && (
+          <button
+            onClick={() => {
+              if (contextNestedTableTabId) {
+                handleAddNestedRowAtZero?.();
+              } else {
+                openDrawerForNewRow?.();
+              }
+            }}
+            className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center"
+            title={contextNestedTableTabId ? "Add row at top" : "Add new row"}
+          >
+            <i className="pi pi-plus"></i>
+          </button>
+        )}
         {tableName !== 'sidebar' && enableWrite && (handleMainSave) && (
           <button
             onClick={() => {
@@ -3699,7 +3738,7 @@ export default function DataTableNew({
   };
 
   if (isEmpty(safeData)) {
-    // Show loading state if any loading is in progress, otherwise show empty state
+    // Show loading state if any loading is in progress
     if (isLoading) {
       return (
         <div className="bg-white border border-gray-200 rounded-lg p-8 text-center relative" style={{ minHeight: '400px' }}>
@@ -3722,16 +3761,21 @@ export default function DataTableNew({
         </div>
       );
     }
-    return (
-      <div className="bg-white border border-gray-200 rounded-lg p-8 text-center">
-        <i className="pi pi-inbox text-4xl text-gray-400 mb-4"></i>
-        <p className="text-gray-600 font-medium">No data available</p>
-        <p className="text-sm text-gray-500 mt-1">Please check your data source</p>
-      </div>
-    );
+    // In enableWrite mode (main table or drawer nested table), show empty table so user can press + to add rows
+    if (enableWrite) {
+      // Fall through to render full table UI with controls (+ button) and empty table
+    } else {
+      return (
+        <div className="bg-white border border-gray-200 rounded-lg p-8 text-center">
+          <i className="pi pi-inbox text-4xl text-gray-400 mb-4"></i>
+          <p className="text-gray-600 font-medium">No data available</p>
+          <p className="text-sm text-gray-500 mt-1">Please check your data source</p>
+        </div>
+      );
+    }
   }
 
-  return (
+  const content = (
     <div className="w-full relative">
       {isLoading && (
         <div className="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center z-10 rounded-lg">
@@ -3801,5 +3845,13 @@ export default function DataTableNew({
       </Dialog>
       )}
     </div>
+  );
+
+  return (
+    <SlotContext.Provider value={effectiveSlotId}>
+      <PlasmicDataProvider name={`data-${effectiveSlotId}`} data={tableOps}>
+        {content}
+      </PlasmicDataProvider>
+    </SlotContext.Provider>
   );
 }

@@ -63,7 +63,6 @@ export function CalendarVerticalSwipeLayer({ children, style, enabled = true }) 
       setView(LAYER_TO_VIEW[nextLayer]);
     });
   };
-console.log("MobileLayer",mobileLayer)
   return (
     <motion.div
       drag={enabled ? "y" : false}

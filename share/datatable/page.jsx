@@ -20,6 +20,7 @@ import { getDataKeys, getDataValue } from './utils/dataAccessUtils';
 
 
 const isDebugTableContext = process.env.NEXT_PUBLIC_DEBUG_TABLE_CONTEXT === '1';
+const showLegacyProviderToggle = process.env.NEXT_PUBLIC_SHOW_LEGACY_PROVIDER_TOGGLE === '1';
 
 function DataTablePage() {
   const toast = useRef(null);
@@ -78,6 +79,7 @@ function DataTablePage() {
   const [showChart, setShowChart] = useState(true);
   const [chartColumns, setChartColumns] = useState([]);
   const [chartHeight, setChartHeight] = useState(400);
+  const [useLegacyProvider, setUseLegacyProvider] = useState(false);
 
   // Drawer tabs state (still managed here for DataTableControls, but drawer rendering moved to DataProvider)
   const [drawerTabs, setDrawerTabs] = useState(defaultDataTableConfig.drawerTabs.length > 0 ? defaultDataTableConfig.drawerTabs : [{ id: `tab-${Date.now()}`, name: '', outerGroup: null, innerGroup: null }]);
@@ -375,6 +377,24 @@ function DataTablePage() {
     setGroupFieldsRaw(newGroupFields);
   };
 
+  // Slots config for DataProvider (per-slot only; shared props stay flat)
+  // Per-slot: groupFields, derivedColumns, editableColumns, drawerTabs, redFields, greenFields, percentageColumns, textFilterColumns, enableSort, enableFilter, enableSummation, enableCellEdit
+  const slotsConfig = useMemo(() => ({
+    main: {
+      enableSort,
+      enableFilter,
+      enableSummation,
+      textFilterColumns,
+      percentageColumns,
+      derivedColumns,
+      groupFields,
+      redFields,
+      greenFields,
+      enableCellEdit,
+      editableColumns,
+      drawerTabs,
+    },
+  }), [enableSort, enableFilter, enableSummation, textFilterColumns, percentageColumns, derivedColumns, groupFields, redFields, greenFields, enableCellEdit, editableColumns, drawerTabs]);
 
   // Clear salesTeamValues, hqColumn, and hqValues when salesTeamColumn changes
   // Use refs to avoid including lengths in dependencies (which change when we clear values)
@@ -510,6 +530,7 @@ function DataTablePage() {
           </div>
         ) : (
           <DataProvider
+            useLegacyProvider={useLegacyProvider}
             useOrchestrationLayer={true}
             offlineData={offlineData}
             onDataChange={handleDataChange}
@@ -528,6 +549,7 @@ function DataTablePage() {
             salesTeamValues={salesTeamValues}
             hqColumn={hqColumn}
             hqValues={hqValues}
+            slots={slotsConfig}
             enableSort={enableSort}
             enableFilter={enableFilter}
             enableSummation={enableSummation}
@@ -554,6 +576,15 @@ function DataTablePage() {
           >
             {isDebugTableContext ? (
               <div className="flex-1 min-h-0 flex flex-col overflow-auto">
+                {showLegacyProviderToggle && (
+                  <div className="shrink-0 flex items-center gap-3 px-3 py-2 bg-amber-50 border-b border-amber-200 text-sm">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={useLegacyProvider} onChange={(e) => setUseLegacyProvider(e.target.checked)} className="rounded" />
+                      <span>Use legacy provider (DataProviderOld)</span>
+                    </label>
+                    <span className="text-amber-700">{useLegacyProvider ? 'Legacy' : 'New'}</span>
+                  </div>
+                )}
                 <div className="shrink-0 p-3 sm:p-4 md:p-6 pb-0">
                   <DebugDataContext
                     hideTable={hideTableInDebug}
@@ -607,8 +638,17 @@ function DataTablePage() {
                 )}
               </div>
             ) : (
-            <div className="flex-1 min-h-0">
-              <Splitter style={{ height: '100%' }} layout="horizontal" className="h-full">
+            <div className="flex-1 min-h-0 flex flex-col">
+              {showLegacyProviderToggle && (
+                <div className="shrink-0 flex items-center gap-3 px-3 py-2 bg-amber-50 border-b border-amber-200 text-sm">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={useLegacyProvider} onChange={(e) => setUseLegacyProvider(e.target.checked)} className="rounded" />
+                    <span>Use legacy provider (DataProviderOld)</span>
+                  </label>
+                  <span className="text-amber-700">{useLegacyProvider ? 'Legacy' : 'New'}</span>
+                </div>
+              )}
+              <Splitter style={{ height: '100%' }} layout="horizontal" className="h-full flex-1 min-h-0">
                 <SplitterPanel className="flex flex-col min-w-0 h-full" size={80} minSize={30}>
                   <div className="flex flex-col min-w-0 h-full p-3 sm:p-4 md:p-6">
                     {isLoadingData ? (

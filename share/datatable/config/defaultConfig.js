@@ -57,7 +57,7 @@ export const defaultDataTableConfig = {
 
     // Grouping
     // groupFields: ["sales_team", "hq", "customer_name"],
-    // groupFields: ["sales_team"],
+    // groupFields: ["sales_team", "hq"],
     groupFields: [],
 
     // Column types override

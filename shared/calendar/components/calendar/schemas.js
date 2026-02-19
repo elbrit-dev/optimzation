@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { differenceInCalendarDays } from "date-fns";
 import { TAG_FORM_CONFIG } from "@calendar/lib/calendar/form-config";
-import { TAG_IDS } from "@calendar/components/calendar/mocks";
+import { TAG_IDS } from "@calendar/components/calendar/constants";
 
 /* =====================================================
    POB ITEM SCHEMA
@@ -69,8 +69,9 @@ export const eventSchema = z
     /* ---------- Doctor Visit ---------- */
     pob_given: z.enum(["Yes", "No"]).optional(),
     fsl_doctor_item: z.array(pobItemSchema).optional(),
-
-    attending: z.enum(["Yes", "No"]).optional(),
+    roleId: z.string().optional(),
+    leave_approver:z.string().optional(),
+    attending: z.enum(["Yes", "No","Maybe",""]).optional(),
     kly_lat_long: z.string().optional(),
   })
   .superRefine((data, ctx) => {

@@ -253,6 +253,7 @@ async function computeFilterSortGrouped(
     tableSortMeta = [],
     enableSort = true,
     effectiveGroupFields = [],
+    derivedColumnNames = [],
   } = options;
 
   if (!isArray(data) || isEmpty(data)) {
@@ -462,8 +463,15 @@ async function computeFilterSortGrouped(
         __rowCount__: rows.length,
       };
 
-      // Aggregate numeric columns
+      // Aggregate numeric columns (skip derived columns - use first value)
+      const derivedSet = new Set(derivedColumnNames || []);
       columns.forEach((col) => {
+        if (derivedSet.has(col)) {
+          // Derived columns: use first value, never aggregate
+          const firstVal = rows.length ? getDataValue(rows[0], col) : undefined;
+          summaryRow[col] = firstVal;
+          return;
+        }
         const colType = columnTypes[col] || 'string';
         if (colType === 'number' || isPctCol(col)) {
           const sum = rows.reduce((acc, row) => {

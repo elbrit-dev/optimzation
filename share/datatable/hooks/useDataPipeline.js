@@ -21,140 +21,11 @@ import {
   isJsonArrayOfObjectsString,
   extractJsonNestedTablesRecursive,
 } from '../utils/jsonArrayParser';
-import { inferColumnType, parseToDate } from '../utils/typeDetectionUtils';
+import { detectColumnTypesLikeProvider, inferColumnType, parseToDate } from '../utils/typeDetectionUtils';
 import { applyDerivedColumns, getDerivedColumnNames, getOrderedColumnsWithDerived } from '../utils/derivedColumnsUtils';
+import { buildPipelineColumnMeta } from '../utils/perSlotPipelineUtils';
 
 const isNaNNumber = Number.isNaN;
-
-/**
- * Build minimal column meta from data for filter application (single source for pipeline filter step).
- * Used so useDataPipeline can compute filteredData without depending on useColumnDerivation.
- */
-function buildPipelineColumnMeta(options) {
-  const {
-    data,
-    allowedColumns,
-    columnTypesOverride,
-    percentageColumns,
-    derivedColumns,
-    textFilterColumns,
-    enableFilter,
-  } = options;
-  if (!isArray(data) || isEmpty(data)) {
-    return {
-      columns: [],
-      filteredColumns: [],
-      columnTypes: {},
-      multiselectColumns: [],
-      hasPercentageColumns: false,
-      percentageColumnNames: [],
-      getCellValue: (row, col) => getDataValue(row, col),
-    };
-  }
-
-  const columns = uniq(
-    flatMap(data, (item) =>
-      item && typeof item === 'object'
-        ? getDataKeys(item).filter((key) => key !== '__nestedTables__')
-        : []
-    )
-  );
-
-  const arrayFields = new Set();
-  take(data, 10).forEach((row) => {
-    if (!row || typeof row !== 'object') return;
-    for (const [fieldName, value] of Object.entries(row)) {
-      if (fieldName.startsWith('__')) continue;
-      if (isJsonArrayOfObjectsString(value)) arrayFields.add(fieldName);
-    }
-  });
-
-  let filteredColumns = columns;
-  if (allowedColumns && isArray(allowedColumns) && allowedColumns.length > 0) {
-    const allowedSet = new Set(allowedColumns);
-    filteredColumns = filteredColumns.filter((col) => allowedSet.has(col));
-  }
-  if (arrayFields.size > 0) {
-    filteredColumns = filteredColumns.filter((col) => !arrayFields.has(col));
-  }
-  const { derivedColumnsMode = 'main', derivedColumnsFieldName = null } = options;
-  filteredColumns = getOrderedColumnsWithDerived(filteredColumns, derivedColumns || [], derivedColumnsMode, derivedColumnsFieldName);
-  const derivedColumnNames = getDerivedColumnNames(derivedColumns || [], derivedColumnsMode, derivedColumnsFieldName);
-
-  const sampleData = take(data, 100);
-  const columnTypes = {};
-  filteredColumns.forEach((col) => {
-    const [topLevelKey, ...nestedParts] = col.split('.');
-    const nestedPath = nestedParts.join('.');
-    columnTypes[col] =
-      columnTypesOverride[col] ||
-      inferColumnType(sampleData, col, topLevelKey, nestedPath);
-  });
-  const mergedTypes = { ...columnTypes, ...columnTypesOverride };
-  derivedColumnNames.forEach((col) => {
-    const dc = (derivedColumns || []).find((d) => d.columnName === col);
-    if (dc?.columnType) mergedTypes[col] = dc.columnType;
-  });
-
-  const hasPercentageColumns =
-    isArray(percentageColumns) &&
-    percentageColumns.length > 0 &&
-    percentageColumns.some((pc) => pc.columnName && pc.columnName.trim() !== '');
-  const percentageColumnNames = hasPercentageColumns
-    ? percentageColumns.map((pc) => pc.columnName).filter(Boolean)
-    : [];
-
-  const getPercentageColumnValue = (rowData, columnName) => {
-    const config = percentageColumns.find((pc) => pc.columnName === columnName);
-    if (!config || !config.targetField || !config.valueField) return null;
-    const targetValue = getDataValue(rowData, config.targetField);
-    const actualValue = getDataValue(rowData, config.valueField);
-    const targetNum = isNumber(targetValue)
-      ? targetValue
-      : isNil(targetValue)
-        ? null
-        : toNumber(targetValue);
-    const actualNum = isNumber(actualValue)
-      ? actualValue
-      : isNil(actualValue)
-        ? null
-        : toNumber(actualValue);
-    if (
-      !isNil(targetNum) &&
-      !isNil(actualNum) &&
-      !isNaNNumber(targetNum) &&
-      !isNaNNumber(actualNum) &&
-      targetNum !== 0
-    ) {
-      return (actualNum / targetNum) * 100;
-    }
-    return null;
-  };
-
-  const getCellValue = (row, col) =>
-    includes(percentageColumnNames, col)
-      ? getPercentageColumnValue(row, col)
-      : getDataValue(row, col);
-
-  let multiselectColumns = [];
-  if (enableFilter) {
-    const stringColumns = filteredColumns.filter(
-      (col) => (mergedTypes[col] || 'string') === 'string'
-    );
-    const textFilterSet = new Set(textFilterColumns || []);
-    multiselectColumns = stringColumns.filter((col) => !textFilterSet.has(col));
-  }
-
-  return {
-    columns,
-    filteredColumns,
-    columnTypes: mergedTypes,
-    multiselectColumns,
-    hasPercentageColumns,
-    percentageColumnNames,
-    getCellValue,
-  };
-}
 
 /**
  * Data pipeline: raw → auth → preFilter → tableData → search → sort → filter → group → sort → paginate.
@@ -223,6 +94,8 @@ export function useDataPipeline(options) {
     dateColumn = null,
     derivedColumnsMode = 'main',
     derivedColumnsFieldName = null,
+    fallbackColumns = null,
+    useOfflineDataAsTableDataSource = false, // When true (nested drawer table), use preFilteredData/offlineData as source of truth so + add row reflects immediately
   } = options;
 
   const rawTableData = useMemo(() => {
@@ -359,7 +232,14 @@ export function useDataPipeline(options) {
   const tableData = useMemo(() => {
     const editingData = mainTableEditingDataRefEarly.current;
     let base;
-    if (editingData && isArray(editingData) && !isEmpty(editingData)) {
+    if (useOfflineDataAsTableDataSource) {
+      base =
+        preFilteredData &&
+        isArray(preFilteredData) &&
+        !isEmpty(preFilteredData)
+          ? addEditingKeysToRows(preFilteredData)
+          : preFilteredData;
+    } else if (editingData && isArray(editingData) && !isEmpty(editingData)) {
       base = editingData;
     } else {
       base =
@@ -375,7 +255,7 @@ export function useDataPipeline(options) {
       fieldName: derivedColumnsFieldName,
       getDataValue,
     });
-  }, [preFilteredData, tableDataUpdateTrigger, addEditingKeysToRows, derivedColumns, derivedColumnsMode, derivedColumnsFieldName]);
+  }, [preFilteredData, tableDataUpdateTrigger, addEditingKeysToRows, derivedColumns, derivedColumnsMode, derivedColumnsFieldName, useOfflineDataAsTableDataSource]);
 
   const searchedData = useMemo(() => {
     if (!tableData || !isArray(tableData) || isEmpty(tableData)) {
@@ -576,6 +456,7 @@ export function useDataPipeline(options) {
         enableFilter,
         derivedColumnsMode,
         derivedColumnsFieldName,
+        fallbackColumns,
       }),
     [
       searchSortSortedData,
@@ -587,6 +468,7 @@ export function useDataPipeline(options) {
       enableFilter,
       derivedColumnsMode,
       derivedColumnsFieldName,
+      fallbackColumns,
     ]
   );
 
@@ -613,6 +495,11 @@ export function useDataPipeline(options) {
   const effectiveGroupFields = useMemo(
     () => (isArray(groupFields) ? groupFields : []),
     [groupFields]
+  );
+
+  const derivedColumnNamesSet = useMemo(
+    () => new Set(getDerivedColumnNames(derivedColumns || [], derivedColumnsMode, derivedColumnsFieldName)),
+    [derivedColumns, derivedColumnsMode, derivedColumnsFieldName]
   );
 
   const jsonArrayFields = useMemo(() => {
@@ -746,6 +633,7 @@ export function useDataPipeline(options) {
 
         cols.forEach((col) => {
           const colType = colTypes[col] || 'string';
+          const isDerivedCol = derivedColumnNamesSet.has(col);
           if (col === currentField) {
             summaryRow[col] = groupKey === '__null__' ? null : groupKey;
           } else if (
@@ -753,7 +641,7 @@ export function useDataPipeline(options) {
             fields.slice(currentLevel + 1).includes(col)
           ) {
             summaryRow[col] = null;
-          } else if (colType === 'number') {
+          } else if (!isDerivedCol && colType === 'number') {
             const sum = sumBy(innerData, (row) => {
               const val = getCell(row, col);
               if (isNil(val)) return 0;
@@ -762,12 +650,34 @@ export function useDataPipeline(options) {
             });
             summaryRow[col] = sum;
           } else {
-            const firstNonNull = isArray(innerData)
-              ? innerData.find((row) => !isNil(getCell(row, col)))
-              : null;
-            summaryRow[col] = firstNonNull
-              ? getCell(firstNonNull, col)
-              : getCell(firstItem, col);
+            const canSum = !isDerivedCol && (() => {
+              if (!isArray(innerData) || innerData.length === 0) return false;
+              let numeric = 0;
+              let meaningful = 0;
+              for (const row of innerData) {
+                const val = getCell(row, col);
+                if (val == null || val === '') continue;
+                meaningful++;
+                const n = isNumber(val) ? val : toNumber(val);
+                if (!isNaNNumber(n) && Number.isFinite(n)) numeric++;
+              }
+              return meaningful > 0 && numeric / meaningful >= 0.8;
+            })();
+            if (canSum) {
+              summaryRow[col] = sumBy(innerData, (row) => {
+                const val = getCell(row, col);
+                if (isNil(val)) return 0;
+                const numVal = isNumber(val) ? val : toNumber(val);
+                return isNaNNumber(numVal) ? 0 : numVal;
+              });
+            } else {
+              const firstNonNull = isArray(innerData)
+                ? innerData.find((row) => !isNil(getCell(row, col)))
+                : null;
+              summaryRow[col] = firstNonNull
+                ? getCell(firstNonNull, col)
+                : getCell(firstItem, col);
+            }
           }
         });
 
@@ -810,6 +720,7 @@ export function useDataPipeline(options) {
       getSortComparator,
       pipelineColumnMeta,
       percentageColumns,
+      derivedColumnNamesSet,
     ]
   );
 
@@ -840,10 +751,23 @@ export function useDataPipeline(options) {
       dataWithJsonTables = extractJsonNestedTablesFromData(filteredData);
     }
     if (effectiveGroupFields.length > 0 && !isEmpty(dataWithJsonTables)) {
-      let result = groupDataRecursive(
-        dataWithJsonTables,
-        effectiveGroupFields
-      );
+      // If data is already grouped (from buffer) with same depth as groupFields, pass through.
+      // groupDataRecursive skips __isGroupRow__ rows and would return [] on pre-grouped input.
+      // Only pass through when structure depth matches - otherwise re-group from flat data.
+      const firstRow = dataWithJsonTables[0];
+      const getDepth = (rows) => {
+        if (!isArray(rows) || rows.length === 0) return 0;
+        const r = rows[0];
+        if (!r?.__groupRows__) return 0;
+        const child = r.__groupRows__[0];
+        if (!child) return 1;
+        return child.__isGroupRow__ ? 1 + getDepth(r.__groupRows__) : 1;
+      };
+      const existingDepth = getDepth(dataWithJsonTables);
+      const alreadyGroupedWithSameDepth = firstRow?.__isGroupRow__ && existingDepth === effectiveGroupFields.length;
+      let result = alreadyGroupedWithSameDepth
+        ? dataWithJsonTables
+        : groupDataRecursive(dataWithJsonTables, effectiveGroupFields);
       if (sortFieldType && sortConfig) {
         const sortComparator = getSortComparator(
           sortConfig,

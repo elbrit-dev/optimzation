@@ -7,6 +7,9 @@ import { ELBRIT_ROLEID, EMPLOYEES_QUERY } from "@calendar/services/events.query"
 import { mapEmployeesToCalendarUsers } from "@calendar/services/employee-to-calendar-user";
 import { graphqlRequest } from "@calendar/lib/graphql-client";
 import { enrichEventsWithParticipants } from "@calendar/lib/calendar/enrich-events";
+import { resolveVisibleEmployeeIds, resolveVisibleRoleIds } from "@calendar/lib/employeeHeirachy";
+import { TAGS } from "../constants";
+import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 
 const DEFAULT_SETTINGS = {
 	badgeVariant: "colored",
@@ -37,7 +40,7 @@ export function CalendarProvider({
 	const [selectedUserId, setSelectedUserId] = useState("all");
 	const [selectedColors, setSelectedColors] = useState([]);
 	const [allEvents, setAllEvents] = useState(events || []);
-	const [filteredEvents, setFilteredEvents] = useState(events || []);
+	// const [filteredEvents, setFilteredEvents] = useState(events || []);
 	const [users, setUsers] = useState([]);
 	const [usersLoading, setUsersLoading] = useState(true);
 	const [employeeOptions, setEmployeeOptions] = useState([]);
@@ -90,32 +93,17 @@ export function CalendarProvider({
 
 	const filterEventsBySelectedColors = (color) => {
 		const isColorSelected = selectedColors.includes(color);
+
 		const newColors = isColorSelected
 			? selectedColors.filter((c) => c !== color)
 			: [...selectedColors, color];
 
-		if (newColors.length > 0) {
-			const filtered = allEvents.filter((event) => {
-				const eventColor = event.color || "blue";
-				return newColors.includes(eventColor);
-			});
-			setFilteredEvents(filtered);
-		} else {
-			setFilteredEvents(allEvents);
-		}
-
 		setSelectedColors(newColors);
 	};
-
 	const filterEventsBySelectedUser = (userId) => {
 		setSelectedUserId(userId);
-		if (userId === "all") {
-			setFilteredEvents(allEvents);
-		} else {
-			const filtered = allEvents.filter((event) => event.owner?.id === userId);
-			setFilteredEvents(filtered);
-		}
 	};
+
 
 	const handleSelectDate = (date) => {
 		if (!date) return;
@@ -130,7 +118,7 @@ export function CalendarProvider({
 		};
 
 		setAllEvents((prev) => [...prev, normalized]);
-		setFilteredEvents((prev) => [...prev, normalized]);
+		// setFilteredEvents((prev) => [...prev, normalized]);
 	};
 
 	const updateEvent = (updatedEvent) => {
@@ -150,12 +138,6 @@ export function CalendarProvider({
 				e.erpName === normalized.erpName ? normalized : e
 			)
 		);
-
-		setFilteredEvents((prev) =>
-			prev.map((e) =>
-				e.erpName === normalized.erpName ? normalized : e
-			)
-		);
 	};
 
 
@@ -163,12 +145,12 @@ export function CalendarProvider({
 		if (!erpName) return;
 
 		setAllEvents(prev => prev.filter(e => e.erpName !== erpName));
-		setFilteredEvents(prev => prev.filter(e => e.erpName !== erpName));
+		// setFilteredEvents(prev => prev.filter(e => e.erpName !== erpName));
 	};
 
 
 	const clearFilter = () => {
-		setFilteredEvents(allEvents);
+		// setFilteredEvents(allEvents);
 		setSelectedColors([]);
 		setSelectedUserId("all");
 	};
@@ -186,7 +168,7 @@ export function CalendarProvider({
 				);
 				if (!cancelled) {
 					setAllEvents(events);
-					setFilteredEvents(events);
+					// setFilteredEvents(events);
 
 				}
 			} catch (err) {
@@ -265,7 +247,7 @@ export function CalendarProvider({
 		if (!changed) return;
 
 		setAllEvents(enriched);
-		setFilteredEvents(enriched);
+		// setFilteredEvents(enriched);
 	}, [
 		employeeOptions,
 		doctorOptions,
@@ -305,31 +287,136 @@ export function CalendarProvider({
 	}, []);
 	useEffect(() => {
 		let cancelled = false;
-	  
+
 		async function hydrateElbritRoles() {
-		  try {
-			const data = await graphqlRequest(ELBRIT_ROLEID, {
-			  first: 1000,
-			});
-	  
-			const edges = data?.ElbritRoleIDS?.edges ?? [];
-			if (!cancelled) {
-			  setElbritRoleEdges(edges);
-			  setElbritRoleLoading(false);
+			try {
+				const data = await graphqlRequest(ELBRIT_ROLEID, {
+					first: 1000,
+				});
+
+				const edges = data?.ElbritRoleIDS?.edges ?? [];
+				if (!cancelled) {
+					setElbritRoleEdges(edges);
+					setElbritRoleLoading(false);
+				}
+			} catch (err) {
+				console.error("❌ Failed to fetch ElbritRoleIDS", err);
+				setElbritRoleLoading(false);
 			}
-		  } catch (err) {
-			console.error("❌ Failed to fetch ElbritRoleIDS", err);
-			setElbritRoleLoading(false);
-		  }
 		}
-	  
+
 		hydrateElbritRoles();
-	  
+
 		return () => {
-		  cancelled = true;
+			cancelled = true;
 		};
-	  }, []);
-	  
+	}, []);
+	const getEventEmployeeIds = (event) => {
+		const ids = new Set();
+
+		// 1️⃣ General ERP event (participants)
+		if (event.event_participants?.length) {
+			event.event_participants.forEach(p => {
+				if (
+					p.reference_doctype === "Employee" &&
+					p.reference_docname
+				) {
+					ids.add(p.reference_docname);
+				}
+			});
+		}
+
+		// 2️⃣ General event fallback (employees field)
+		if (event.employees) {
+			ids.add(event.employees);
+		}
+
+		// 3️⃣ Leave Application
+		if (event.tags === TAGS.LEAVE && event.employee) {
+			ids.add(event.employee);
+		}
+
+		// 4️⃣ Todo List
+		if (event.tags === TAGS.TODO_LIST && event.allocated_to) {
+			ids.add(event.allocated_to); // already normalized to employeeId
+		}
+
+		return Array.from(ids);
+	};
+
+	const visibleRoleIds = useMemo(() => {
+		if (elbritRoleLoading) return [];
+		return resolveVisibleRoleIds(elbritRoleEdges);
+	}, [elbritRoleEdges, elbritRoleLoading]);
+
+	const allowedEmployeeIds = useMemo(() => {
+		if (usersLoading || elbritRoleLoading) return [];
+		return resolveVisibleEmployeeIds(elbritRoleEdges, users);
+	}, [users, usersLoading, elbritRoleEdges, elbritRoleLoading]);
+
+	const filteredEvents = useMemo(() => {
+		if (!allEvents?.length) return [];
+		// 🔴 HARD BYPASS FOR ADMIN
+		if (LOGGED_IN_USER?.roleId === "Admin") {
+			let result = allEvents;
+			// Still apply user dropdown
+			if (selectedUserId !== "all") {
+				result = result.filter(event => {
+					const eventEmployeeIds = getEventEmployeeIds(event);
+					return eventEmployeeIds.includes(selectedUserId);
+				});
+			}
+
+			// Still apply color filter
+			if (selectedColors.length) {
+				result = result.filter(event =>
+					selectedColors.includes(event.color || "blue")
+				);
+			}
+			
+			return result;
+		}
+
+		// 👇 Non-admin logic below
+		let result = allEvents;
+
+		result = result.filter(event => {
+			const roleMatch =
+				event.roleId &&
+				visibleRoleIds.includes(event.roleId);
+
+			const eventEmployeeIds = getEventEmployeeIds(event);
+
+			const employeeMatch =
+				eventEmployeeIds.some(id =>
+					allowedEmployeeIds.includes(id)
+				);
+
+			return roleMatch || employeeMatch;
+		});
+
+		if (selectedUserId !== "all") {
+			result = result.filter(event => {
+				const eventEmployeeIds = getEventEmployeeIds(event);
+				return eventEmployeeIds.includes(selectedUserId);
+			});
+		}
+
+		if (selectedColors.length) {
+			result = result.filter(event =>
+				selectedColors.includes(event.color || "blue")
+			);
+		}
+
+		return result;
+
+	}, [
+		allEvents,
+		visibleRoleIds,
+		allowedEmployeeIds,
+		selectedUserId,
+		selectedColors
+	]);
 
 	const value = {
 		selectedDate,

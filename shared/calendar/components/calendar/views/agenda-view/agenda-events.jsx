@@ -7,7 +7,7 @@ import {
   startOfDay,
   endOfDay,
   endOfWeek,
-  isWithinInterval,addDays
+  isWithinInterval, addDays
 } from "date-fns";
 import { useMemo, useRef } from "react";
 import { startTransition } from "react";
@@ -34,6 +34,7 @@ import {
   CommandList,
 } from "@calendar/components/ui/command";
 import { Avatar, AvatarFallback } from "@calendar/components/ui/avatar";
+import { ICON_MAP } from "../../mobile/MobileAddEventBar";
 
 const SWIPE_THRESHOLD = 60;
 
@@ -46,7 +47,7 @@ export const AgendaEvents = ({ scope = "all" }) => {
     selectedDate,
     setSelectedDate,
     activeDate,
-    setActiveDate,mobileLayer,view
+    setActiveDate, mobileLayer, view
   } = useCalendar();
 
   const isMobile = useMediaQuery("(max-width: 768px)");
@@ -81,14 +82,14 @@ export const AgendaEvents = ({ scope = "all" }) => {
 
   const onTouchEndCapture = (e) => {
     if (!isMobile || !isSwiping.current) return;
-  
+
     const t = e.changedTouches[0];
     const deltaX = t.clientX - startX.current;
-  
+
     if (Math.abs(deltaX) < SWIPE_THRESHOLD) return;
-  
+
     const direction = deltaX < 0 ? "next" : "previous";
-  
+
     startTransition(() => {
       /* ============================
          WEEK (EXACT WEEK VIEW LOGIC)
@@ -100,20 +101,20 @@ export const AgendaEvents = ({ scope = "all" }) => {
             direction === "next"
               ? addDays(activeDate, 1)
               : addDays(activeDate, -1);
-  
+
           setActiveDate(nextDay);
           setSelectedDate(nextDay);
           return;
         }
-  
+
         // 📆 WEEK swipe
         // 📅 MONTH swipe — DO NOT create activeDate
-      setSelectedDate((prev) =>
-        navigateDate(prev, "week", direction)
-      );
-      return;
+        setSelectedDate((prev) =>
+          navigateDate(prev, "week", direction)
+        );
+        return;
       }
-  
+
       /* ============================
          MONTH (EXACT MONTH VIEW LOGIC)
       ============================ */
@@ -124,12 +125,12 @@ export const AgendaEvents = ({ scope = "all" }) => {
             direction === "next"
               ? addDays(activeDate, 1)
               : addDays(activeDate, -1);
-  
+
           setActiveDate(nextDay);
           setSelectedDate(nextDay);
           return;
         }
-  
+
         // 📅 MONTH swipe
         setSelectedDate((prev) =>
           navigateDate(prev, "month", direction)
@@ -138,7 +139,7 @@ export const AgendaEvents = ({ scope = "all" }) => {
       }
     });
   };
-  
+
   /* ===============================
      EVENT FILTERING
   =============================== */
@@ -210,48 +211,59 @@ export const AgendaEvents = ({ scope = "all" }) => {
                   : toCapitalize(groupedEvents[0].color)
               }
             >
-              {groupedEvents.map((event) => (
-                <CommandItem
-                  key={event.id}
-                  className={cn(
-                    "mb-2 p-2 border rounded-md",
-                    badgeVariant === "colored"
-                      ? getColorClass(event.color)
-                      : "hover:bg-zinc-200 dark:hover:bg-gray-900"
-                  )}
-                >
-                  <EventDetailsDialog event={event}>
-                    <div className="flex justify-between gap-2 w-full">
-                      <div className="flex gap-2 items-center w-full">
-                        {badgeVariant === "dot" ? (
-                          <EventBullet color={event.color} />
-                        ) : (
-                          <Avatar>
-                            <AvatarFallback
-                              className={getBgColor(event.color)}
-                            >
-                              {getFirstLetters(event.title)}
-                            </AvatarFallback>
-                          </Avatar>
-                        )}
-                        <div className="w-full">
-                          <p className="font-medium text-sm">{event.title}</p>
-                          {/* <p className="text-xs text-muted-foreground line-clamp-1">
+              {groupedEvents.map((event) => {
+                const TagIcon = ICON_MAP[event.tags];
+                return (
+                  <CommandItem
+                    key={event.id}
+                    className={cn(
+                      "mb-2 p-2 border rounded-md",
+                      badgeVariant === "colored"
+                        ? getColorClass(event.color)
+                        : "hover:bg-zinc-200 dark:hover:bg-gray-900"
+                    )}
+                  >
+                    <EventDetailsDialog event={event}>
+                      <div className="flex justify-between gap-2 w-full">
+                        <div className="flex gap-2 items-center w-full">
+                          {badgeVariant === "dot" ? (
+                            <EventBullet color={event.color} />
+                          ) : (
+                            <Avatar>
+                              <AvatarFallback
+                                className={getBgColor(event.color)}
+                              >
+                                {getFirstLetters(event.title)}
+                              </AvatarFallback>
+                            </Avatar>
+                          )}
+                          <div className="w-full">
+                            <div className="flex items-center gap-2">
+                              {TagIcon && (
+                                <TagIcon className="w-4 h-4 text-muted-foreground" />
+                              )}
+                              <p className="font-medium text-sm">
+                                {event.title}
+                              </p>
+                            </div>
+                            {/* <p className="font-medium text-sm">{event.title}</p> */}
+                            {/* <p className="text-xs text-muted-foreground line-clamp-1">
                             {event.description}
                           </p> */}
-                          <p className="text-xs text-muted-foreground line-clamp-1">
-                            {event.owner?.name}
-                          </p>
+                            <p className="text-xs text-muted-foreground line-clamp-1">
+                              {event.owner?.name}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-xs flex items-center">
+                          {formatTime(event.startDate, use24HourFormat)} –{" "}
+                          {formatTime(event.endDate, use24HourFormat)}
                         </div>
                       </div>
-                      <div className="text-xs flex items-center">
-                        {formatTime(event.startDate, use24HourFormat)} –{" "}
-                        {formatTime(event.endDate, use24HourFormat)}
-                      </div>
-                    </div>
-                  </EventDetailsDialog>
-                </CommandItem>
-              ))}
+                    </EventDetailsDialog>
+                  </CommandItem>
+                )
+              })}
             </CommandGroup>
           ))}
 

@@ -59,6 +59,7 @@ import * as XLSX from 'xlsx';
 import { TableOperationsContext } from '../contexts/TableOperationsContext';
 import FilterSortSidebar from './FilterSortSidebar';
 import { getDataKeys, getDataValue, getNestedValue } from '../utils/dataAccessUtils';
+import { getDerivedColumnNames } from '../utils/derivedColumnsUtils';
 import { isJsonArrayOfObjectsString, extractJsonNestedTablesRecursive } from '../utils/jsonArrayParser';
 import { useReportData } from '../utils/providerUtils';
 import { exportReportToXLSX } from '../utils/reportExportUtils';
@@ -756,9 +757,9 @@ export default function DataProviderNew({
   nestedTableTabId = undefined,
   useOrchestrationLayer = false, // consumed for API compatibility when used as toggle alternative to DataProviderNew
   useLegacyProvider = false, // consumed for API compatibility
+  derivedColumns = [],
   children
 }) {
-  // #endregion
   const [dataSource, setDataSource] = useState(dataSourceProp);
   const [selectedQueryKey, setSelectedQueryKey] = useState(selectedQueryKeyProp);
 
@@ -3506,6 +3507,11 @@ export default function DataProviderNew({
 
   const shouldShowDrawerReport = enableBreakdown && !!drawerReportData;
 
+  const derivedColumnNamesSet = useMemo(
+    () => new Set(getDerivedColumnNames(derivedColumns || [], 'main')),
+    [derivedColumns]
+  );
+
   // Recursive grouping function for infinite nesting
   const groupDataRecursive = useCallback((data, fields, currentLevel = 0, parentPath = []) => {
     // Base case: no more grouping levels
@@ -3566,8 +3572,8 @@ export default function DataProviderNew({
         else if (currentLevel < fields.length - 1 && fields.slice(currentLevel + 1).includes(col)) {
           summaryRow[col] = null;
         }
-        // Aggregate numeric columns
-        else if (colType === 'number') {
+        // Aggregate numeric columns (skip derived - they use first value)
+        else if (colType === 'number' && !derivedColumnNamesSet.has(col)) {
           const sum = sumBy(innerData, (row) => {
             const val = getDataValue(row, col);
             if (isNil(val)) return 0;
@@ -3576,7 +3582,7 @@ export default function DataProviderNew({
           });
           summaryRow[col] = sum;
         }
-        // For other columns, use first non-null value
+        // For derived columns and other non-numeric columns, use first non-null value
         else {
           const firstNonNull = Array.isArray(innerData)
             ? innerData.find(row => !isNil(getDataValue(row, col)))
@@ -3585,10 +3591,10 @@ export default function DataProviderNew({
         }
       });
 
-      // Handle percentage columns
+      // Handle percentage columns (skip derived - they use first value from loop above)
       if (hasPercentageColumns) {
         percentageColumns.forEach(pc => {
-          if (pc.columnName && pc.targetField && pc.valueField) {
+          if (pc.columnName && pc.targetField && pc.valueField && !derivedColumnNamesSet.has(pc.columnName)) {
             const sumTarget = sumBy(rows, (row) => {
               const val = getDataValue(row, pc.targetField);
               if (isNil(val)) return 0;
@@ -3621,7 +3627,7 @@ export default function DataProviderNew({
 
       return summaryRow;
     }).filter(Boolean);
-  }, [filteredColumns, columnTypes, hasPercentageColumns, percentageColumns, sortFieldType, sortConfig, getSortComparator]);
+  }, [filteredColumns, columnTypes, hasPercentageColumns, percentageColumns, sortFieldType, sortConfig, getSortComparator, derivedColumnNamesSet]);
 
   // Extract JSON nested tables from data (recursive)
   const extractJsonNestedTablesFromData = useCallback((data, maxDepth = 10) => {
@@ -3814,6 +3820,7 @@ export default function DataProviderNew({
           tableSortMeta,
           enableSort,
           effectiveGroupFields,
+          derivedColumnNames: getDerivedColumnNames(derivedColumns || [], 'main'),
           // Note: isPercentageColumnFn removed - worker uses percentageColumns array instead
         });
 

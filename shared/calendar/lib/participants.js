@@ -1,4 +1,4 @@
-import { PARTICIPANT_SOURCE_BY_TAG } from "@calendar/components/calendar/mocks";
+import { PARTICIPANT_SOURCE_BY_TAG } from "@calendar/components/calendar/constants";
 import {
   fetchEmployees,fetchDoctors,fetchHQTerritories
 } from "@calendar/services/participants.service";

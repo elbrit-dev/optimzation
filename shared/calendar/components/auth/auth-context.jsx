@@ -37,6 +37,7 @@ export function AuthProvider({
     LOGGED_IN_USER.role = me.role || "System User";
     LOGGED_IN_USER.status = me.enabled ? "Active" : "Inactive";
     LOGGED_IN_USER.roleId = me.roleId;
+    LOGGED_IN_USER.leave_approver = me.leave_approver
   }, [me]);
 
   // 🚫 Don’t render children if unauthenticated

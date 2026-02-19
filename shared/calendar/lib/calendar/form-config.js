@@ -1,13 +1,11 @@
-// calendar/form-config.js
-
-import { TAG_IDS } from "@calendar/components/calendar/mocks";
+import { TAG_IDS } from "@calendar/components/calendar/constants";
 
 export const TAG_FORM_CONFIG = {
   [TAG_IDS.LEAVE]: {
     hide: [
       "title",
       "color",
-      "doctor","allocated_to"
+      "doctor", "allocated_to"
     ],
     show: ["startDate", "endDate", "description", "leaveType"],
     required: ["startDate", "endDate", "leaveType"],
@@ -18,6 +16,9 @@ export const TAG_FORM_CONFIG = {
       autoSelectLoggedIn: true,
       multiselect: false,
     },
+    labels: {
+      description: "Reason",
+    },    
     leave: {
       approvalRequired: true,
       medicalCertificateAfterDays: 2,
@@ -27,17 +28,15 @@ export const TAG_FORM_CONFIG = {
       showTags: false,
       allowDelete: (event) => event.status !== "APPROVED",
       allowEdit: (event) => event.status !== "APPROVED",
-    },  
+    },
     details: {
       fields: [
-        { key: "owner", label: "Created By", type: "owner" },
         { key: "startDate", label: "Start Date", type: "date" },
         { key: "endDate", label: "End Date", type: "date" },
         { key: "leaveType", label: "Leave Type", type: "text" },
         { key: "status", label: "Status", type: "text" },
-        { key: "approvedBy", label: "Approved By", type: "text" },
-        // { key: "description", label: "Description", type: "text" },
-
+        { key: "leave_approver", label: "Leave Approver", type: "text" },
+        { key: "description", label: "Reason", type: "text" },
       ],
     },
   },
@@ -47,10 +46,11 @@ export const TAG_FORM_CONFIG = {
       "title",
       "color",
       "doctor",
-      "description","allocated_to"
+      "description", "allocated_to"
     ],
     show: ["startDate", "endDate", "hqTerritory"],
     required: ["startDate", "hqTerritory"],
+    forceAllDay: true,
     dateOnly: true,
     ui: {
       lockTagOnEdit: true,
@@ -68,18 +68,17 @@ export const TAG_FORM_CONFIG = {
       { employeeOptions = [] } = {}
     ) => {
       if (!hqTerritory || !employees) return null;
-  
+
       const empId = Array.isArray(employees) ? employees[0] : employees;
       const emp = employeeOptions.find(e => e.value === empId);
-  
+
       if (!emp) return null;
-  
+
       return `${hqTerritory}-${emp.label.replace(/\s+/g, "-")}`;
     },
     fixedColor: "purple",
     details: {
       fields: [
-        { key: "owner", label: "Created By", type: "owner" },
         { key: "startDate", label: "Start Date", type: "date" },
         { key: "endDate", label: "End Date", type: "date" },
         { key: "hqTerritory", label: "HQ Territory", type: "text" },
@@ -92,7 +91,7 @@ export const TAG_FORM_CONFIG = {
   },
 
   [TAG_IDS.MEETING]: {
-    hide: ["color", "doctor","allocated_to"],
+    hide: ["color", "doctor", "allocated_to"],
     show: ["title", "startDate", "endDate", "employees", "allDay", "description"],
     required: ["title", "startDate", "endDate", "employees"],
     dateRange: true,
@@ -110,11 +109,9 @@ export const TAG_FORM_CONFIG = {
     },
     details: {
       fields: [
-        { key: "owner", label: "Created By", type: "owner" },
         { key: "startDate", label: "Start Date", type: "date" },
         { key: "endDate", label: "End Date", type: "date" },
         { key: "employee", label: "Employee", type: "employee" },
-        // { key: "description", label: "Description", type: "text" },
       ],
     },
     employee: {
@@ -123,64 +120,63 @@ export const TAG_FORM_CONFIG = {
     },
   },
 
-  [TAG_IDS.BIRTHDAY]: {
-    hide: [
-      "title",
-      "endDate",
-      "description",
-      "employees",
-      "color","allocated_to"
-    ],
-    show: ["startDate", "doctor"],
-    required: ["startDate", "doctor"],
-    dateOnly: true,
+  // [TAG_IDS.BIRTHDAY]: {
+  //   hide: [
+  //     "title",
+  //     "endDate",
+  //     "description",
+  //     "employees",
+  //     "color", "allocated_to"
+  //   ],
+  //   show: ["startDate", "doctor"],
+  //   required: ["startDate", "doctor"],
+  //   dateOnly: true,
 
-    fixedColor: "yellow",
-    forceAllDay: true,
-    ui: {
-      lockTagOnEdit: true,
-      showTags: false,
-      allowDelete: () => true,
-      allowEdit: () => true,
-    },
-    editReadOnly: {
-      fields: [
-        { key: "doctor", label: "Doctor", type: "doctor" },
-      ],
-    },
-    details: {
-      fields: [
-        { key: "owner", label: "Created By", type: "owner" },
-        { key: "startDate", label: "Birthday", type: "date" },
-        { key: "doctor", label: "Doctor", type: "doctor" },
-      ],
-    },
-    autoTitle: (
-      { doctor } = {},
-      { doctorOptions } = {}
-    ) => {
-      if (!doctor) return "Birthday";
+  //   fixedColor: "yellow",
+  //   forceAllDay: true,
+  //   ui: {
+  //     lockTagOnEdit: true,
+  //     showTags: false,
+  //     allowDelete: () => true,
+  //     allowEdit: () => true,
+  //   },
+  //   editReadOnly: {
+  //     fields: [
+  //       { key: "doctor", label: "Doctor", type: "doctor" },
+  //     ],
+  //   },
+  //   details: {
+  //     fields: [
+  //       { key: "startDate", label: "Birthday", type: "date" },
+  //       { key: "doctor", label: "Doctor", type: "doctor" },
+  //     ],
+  //   },
+  //   autoTitle: (
+  //     { doctor } = {},
+  //     { doctorOptions } = {}
+  //   ) => {
+  //     if (!doctor) return "Birthday";
 
-      const selectedDoctor = doctorOptions?.find(
-        (d) => d.value === doctor
-      );
+  //     const selectedDoctor = doctorOptions?.find(
+  //       (d) => d.value === doctor
+  //     );
 
-      if (!selectedDoctor) return "Birthday";
+  //     if (!selectedDoctor) return "Birthday";
 
-      const doctorName = selectedDoctor.label.replace(/\s+/g, "");
-      const doctorCode = selectedDoctor.value;
+  //     const doctorName = selectedDoctor.label.replace(/\s+/g, "");
+  //     const doctorCode = selectedDoctor.value;
 
-      return `BD-${doctorName}-${doctorCode}`;
-    },
+  //     return `BD-${doctorName}-${doctorCode}`;
+  //   },
 
-  },
+  // },
 
   [TAG_IDS.DOCTOR_VISIT_PLAN]: {
     hide: [
       "title",
       "endDate",
       "description",
-      "color","allocated_to"
+      "color", "allocated_to"
     ],
     show: ["startDate", "doctor"],
     required: ["startDate", "doctor"],
@@ -200,14 +196,15 @@ export const TAG_FORM_CONFIG = {
         ),
       allowEdit: () => true,
       primaryEditAction: {
-        label: "Visited",        // ← button text
+        label: "Visit Now",
+        type: "success",
         setOnEdit: {
-          attending: "Yes",      // ← forced value
+          attending: "Yes",
         },
       },
-  
+
     },
-    
+
     editReadOnly: {
       fields: [
         { key: "doctor", label: "Doctor", type: "doctor" },
@@ -242,7 +239,7 @@ export const TAG_FORM_CONFIG = {
           type: "radio",
           options: ["Yes", "No"],
         },
-    
+
         items: {
           key: "fsl_doctor_item",
           multiple: true,
@@ -252,10 +249,7 @@ export const TAG_FORM_CONFIG = {
     },
     details: {
       fields: [
-        { key: "owner", label: "Created By", type: "owner" },
         { key: "startDate", label: "Start Date", type: "date" },
-        // { key: "doctor", label: "Doctor", type: "text" },
-        // { key: "employee", label: "Employee", type: "text" },
         { key: "doctor", label: "Doctor", type: "doctor" },
         { key: "employee", label: "Participants", type: "employee" },
       ],
@@ -266,14 +260,14 @@ export const TAG_FORM_CONFIG = {
     hide: [
       "startDate",
       "doctor",
-      "color", "title","employees"
+      "color", "title", "employees"
     ],
-    show: ["endDate", "description", "priority","allocated_to"],
+    show: ["endDate", "description", "priority", "allocated_to"],
     required: ["allocated_to"],
     dateOnly: true,
     labels: {
       startDate: "From Date",
-      endDate: "To Date",
+      endDate: "Due Date",
     },
     ui: {
       lockTagOnEdit: true,
@@ -291,27 +285,24 @@ export const TAG_FORM_CONFIG = {
     },
     details: {
       fields: [
-        { key: "owner", label: "Created By", type: "owner" },
-        { key: "startDate", label: "Start Date", type: "date" },
-        { key: "endDate", label: "End Date", type: "date" },
+        { key: "endDate", label: "Due Date", type: "date" },
         { key: "status", label: "Status", type: "text" },
         { key: "priority", label: "Priority", type: "text" },
         { key: "allocated_to", label: "Allocated To", type: "allocated_to" },
+        { key: "description", label: "Description", type: "text" },
       ],
     },
   },
   Other: {
-    hide: ["color","allocated_to"],
+    hide: ["color", "allocated_to"],
     show: ["title", "startDate", "endDate", "employees", "doctor"],
     required: ["title", "startDate", "employees"],
     dateOnly: true,
     fixedColor: "teal",
     details: {
       fields: [
-        { key: "owner", label: "Created By", type: "owner" },
         { key: "startDate", label: "Start Date", type: "date" },
         { key: "endDate", label: "End Date", type: "date" },
-        // { key: "description", label: "Description", type: "text" },
         { key: "doctor", label: "Doctor", type: "doctor" },
         { key: "employee", label: "Participants", type: "employee" },
       ],

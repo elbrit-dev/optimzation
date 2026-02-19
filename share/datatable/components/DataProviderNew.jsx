@@ -40,10 +40,11 @@ import { InputText } from 'primereact/inputtext';
 import { Sidebar } from 'primereact/sidebar';
 import { SplitButton } from 'primereact/splitbutton';
 import { TabPanel, TabView } from 'primereact/tabview';
-import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { TableOperationsContext } from '../contexts/TableOperationsContext';
 import { useDataPipeline } from '../hooks/useDataPipeline';
+import { useMultiSlotPipeline } from '../hooks/useMultiSlotPipeline';
 import { useQueryExecution } from '../hooks/useQueryExecution';
 import { getDataKeys, getDataValue } from '../utils/dataAccessUtils';
 import { applyDerivedColumns, applyDerivedColumnsForRow, getDerivedColumnNames, getOrderedColumnsWithDerived } from '../utils/derivedColumnsUtils';
@@ -55,6 +56,7 @@ import { useReportData } from '../utils/providerUtils';
 import { exportReportToXLSX } from '../utils/reportExportUtils';
 import { isDateLike, isNumericValue } from '../utils/typeDetectionUtils';
 import DataTableComponent from './DataTableNew';
+import { useSlotId } from './DataSlot';
 import FilterSortSidebar from './FilterSortSidebar';
 
 export default function DataProviderNew({
@@ -120,10 +122,68 @@ export default function DataProviderNew({
   parentHandleDrawerSaveProp = undefined,
   // Tab ID for nested instances (to update parent's editing buffer)
   nestedTableTabId = undefined,
+  // Fallback columns when data is empty (e.g. from other rows' schema for nested tables)
+  fallbackColumns = undefined,
   // Callback from parent so nested instance can trigger parent re-render after buffer update
   onNestedBufferChange = undefined,
+  // Parent handler to add row at index 0 in nested table (for drawer nested table + button)
+  parentHandleAddNestedRowAtZero = undefined,
+  // Slots prop: per-slot config. When not provided, derived from flat props for nested/backward compat.
+  slots: slotsProp,
   children
 }) {
+  // Derive slots from prop or flat props (for nested instances)
+  const slots = useMemo(() => {
+    if (slotsProp && typeof slotsProp === 'object' && Object.keys(slotsProp).length > 0) {
+      return slotsProp;
+    }
+    return {
+      main: {
+        enableSort,
+        enableFilter,
+        enableSummation,
+        enableGrouping,
+        textFilterColumns,
+        allowedColumns,
+        percentageColumns,
+        derivedColumns,
+        groupFields,
+        redFields,
+        greenFields,
+        enableDivideBy1Lakh,
+        columnTypesOverride,
+        enableCellEdit,
+        editableColumns,
+        drawerTabs,
+        enableReport,
+        dateColumn,
+        chartColumns,
+        chartHeight,
+      },
+    };
+  }, [slotsProp, enableSort, enableFilter, enableSummation, enableGrouping, textFilterColumns, allowedColumns, percentageColumns, derivedColumns, groupFields, redFields, greenFields, enableDivideBy1Lakh, columnTypesOverride, enableCellEdit, editableColumns, drawerTabs, enableReport, dateColumn, chartColumns, chartHeight]);
+
+  const slotIds = useMemo(() => Object.keys(slots), [slots]);
+  // Effective config: per-slot props (slot override on flat). Shared props stay flat.
+  // Shared (flat only): allowedColumns, columnTypesOverride, dateColumn, chartColumns, chartHeight, enableReport, enableDivideBy1Lakh
+  // Per-slot (slot override): groupFields, derivedColumns, editableColumns, drawerTabs, redFields, greenFields,
+  //   percentageColumns, textFilterColumns, enableSort, enableFilter, enableSummation, enableCellEdit
+  const mainSlotConfig = useMemo(() => slots[slotIds[0]] || {}, [slots, slotIds]);
+  const effectiveMainConfig = useMemo(() => ({
+    enableSort: mainSlotConfig.enableSort ?? enableSort,
+    enableFilter: mainSlotConfig.enableFilter ?? enableFilter,
+    enableSummation: mainSlotConfig.enableSummation ?? enableSummation,
+    enableGrouping: mainSlotConfig.enableGrouping ?? enableGrouping,
+    textFilterColumns: mainSlotConfig.textFilterColumns ?? textFilterColumns,
+    percentageColumns: mainSlotConfig.percentageColumns ?? percentageColumns,
+    derivedColumns: mainSlotConfig.derivedColumns ?? derivedColumns,
+    groupFields: mainSlotConfig.groupFields ?? groupFields,
+    redFields: mainSlotConfig.redFields ?? redFields,
+    greenFields: mainSlotConfig.greenFields ?? greenFields,
+    enableCellEdit: mainSlotConfig.enableCellEdit ?? enableCellEdit,
+    editableColumns: mainSlotConfig.editableColumns ?? editableColumns,
+    drawerTabs: mainSlotConfig.drawerTabs ?? drawerTabs,
+  }), [mainSlotConfig, enableSort, enableFilter, enableSummation, enableGrouping, textFilterColumns, percentageColumns, derivedColumns, groupFields, redFields, greenFields, enableCellEdit, editableColumns, drawerTabs]);
   const [preFilterValues, setPreFilterValues] = useState({});
   const [filterSortSidebarVisible, setFilterSortSidebarVisible] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -186,22 +246,54 @@ export default function DataProviderNew({
   }, []);
 
   // Table operation state (needed before pipeline for hook options)
+  // When multi-slot (slotIds.length > 1), use per-slot maps; otherwise flat state for backward compat
+  const isMultiSlot = slotIds.length > 1;
   const [tableFilters, setTableFilters] = useState({});
   const [tableSortMeta, setTableSortMeta] = useState([]);
   const [tablePagination, setTablePagination] = useState({ first: 0, rows: 10 });
   const [tableExpandedRows, setTableExpandedRows] = useState(null);
   const [tableVisibleColumns, setTableVisibleColumns] = useState(visibleColumnsProp || []);
+  const [tableFiltersBySlot, setTableFiltersBySlot] = useState({});
+  const [tableSortMetaBySlot, setTableSortMetaBySlot] = useState({});
+  const [tablePaginationBySlot, setTablePaginationBySlot] = useState({});
   const reportDataRef = useRef(null);
   // Pipeline must see current reportData; ref is updated in useEffect so it's one render behind.
   // Sync reportData into state so useDataPipeline re-runs when report is ready (avoids "No data available").
   const [reportDataForPipeline, setReportDataForPipeline] = useState(null);
 
-  const pipeline = useDataPipeline({
+  const computedFallbackColumns = useMemo(() => {
+    if (fallbackColumns && isArray(fallbackColumns) && fallbackColumns.length > 0) return fallbackColumns;
+    if (parentColumnName) {
+      const nestedCols = effectiveMainConfig.editableColumns?.nested?.[parentColumnName];
+      if (nestedCols && isArray(nestedCols) && nestedCols.length > 0) return nestedCols;
+      return undefined;
+    }
+    const mainCols = effectiveMainConfig.editableColumns?.main;
+    const allowed = allowedColumns;
+    if (mainCols?.length) return mainCols;
+    if (allowed?.length) return allowed;
+    return undefined;
+  }, [fallbackColumns, parentColumnName, effectiveMainConfig.editableColumns, allowedColumns]);
+
+  const slotStateBySlot = useMemo(() => {
+    const bySlot = {};
+    for (const sid of slotIds) {
+      bySlot[sid] = {
+        tableFilters: isMultiSlot ? (tableFiltersBySlot[sid] ?? {}) : tableFilters,
+        tableSortMeta: isMultiSlot ? (tableSortMetaBySlot[sid] ?? []) : tableSortMeta,
+        tablePagination: isMultiSlot ? (tablePaginationBySlot[sid] ?? { first: 0, rows: 10 }) : tablePagination,
+      };
+    }
+    return bySlot;
+  }, [slotIds, isMultiSlot, tableFiltersBySlot, tableSortMetaBySlot, tablePaginationBySlot, tableFilters, tableSortMeta, tablePagination]);
+
+  const pipeline = useMultiSlotPipeline({
     dataSource,
     processedData,
     selectedQueryKey,
     offlineData,
     offlineDataExecuted,
+    fallbackColumns: computedFallbackColumns,
     isAdminMode,
     salesTeamColumn,
     salesTeamValues,
@@ -213,22 +305,28 @@ export default function DataProviderNew({
     sortConfig,
     columnTypesOverride,
     tableFilters,
-    groupFields,
+    groupFields: effectiveMainConfig.groupFields,
     tablePagination,
     tableSortMeta,
-    enableFilter,
-    enableSort,
+    enableFilter: effectiveMainConfig.enableFilter,
+    enableSort: effectiveMainConfig.enableSort,
     enableBreakdown,
     reportData: reportDataForPipeline,
     allowedColumns,
-    percentageColumns,
-    derivedColumns,
-    textFilterColumns,
+    percentageColumns: effectiveMainConfig.percentageColumns,
+    derivedColumns: effectiveMainConfig.derivedColumns,
+    textFilterColumns: effectiveMainConfig.textFilterColumns,
     dateColumn,
     derivedColumnsMode: derivedColumnsMode ?? 'main',
     derivedColumnsFieldName: derivedColumnsFieldName ?? null,
+    useOfflineDataAsTableDataSource: !!(nestedTableTabId && parentNestedTableEditingDataRef),
+    slots,
+    slotIds,
+    slotStateBySlot,
   });
 
+  const pipelinesBySlot = pipeline.pipelinesBySlot ?? {};
+  const mainPipeline = pipelinesBySlot[slotIds[0]] ?? pipeline;
   const {
     rawTableData,
     preFilteredData,
@@ -243,7 +341,14 @@ export default function DataProviderNew({
     setTableDataUpdateTrigger,
     effectiveGroupFields,
     sortFieldType,
-  } = pipeline;
+  } = {
+    ...pipeline,
+    filteredData: mainPipeline?.filteredData ?? pipeline.filteredData,
+    groupedData: mainPipeline?.groupedData ?? pipeline.groupedData,
+    sortedData: mainPipeline?.sortedData ?? pipeline.sortedData,
+    paginatedData: mainPipeline?.paginatedData ?? pipeline.paginatedData,
+    effectiveGroupFields: mainPipeline?.effectiveGroupFields ?? pipeline.effectiveGroupFields,
+  };
 
   // runQuery comes from useQueryExecution
 
@@ -255,9 +360,10 @@ export default function DataProviderNew({
   }, [visibleColumnsProp]);
 
   // Access parent context to get handleDrawerSave for nested drawer tables
+  const parentSlotId = useSlotId() ?? 'main';
   const parentContext = useContext(TableOperationsContext);
-  // Use prop if provided (for nested instances), otherwise use context
-  const parentHandleDrawerSave = parentHandleDrawerSaveProp || parentContext?.handleDrawerSave;
+  const parentSlotData = parentContext?.rawData !== undefined ? parentContext : parentContext?.[parentSlotId];
+  const parentHandleDrawerSave = parentHandleDrawerSaveProp || parentSlotData?.handleDrawerSave;
 
   // Filter/Sort worker state (declared early for use in useMemo hooks)
   const filterSortWorkerRef = useRef(null);
@@ -326,26 +432,52 @@ export default function DataProviderNew({
   }, [mainTableEditingData]);
 
   // When dataSource or selectedQueryKey changes, clear editing buffer so tableData falls back to preFilteredData (stale buffer blocks data flow)
+  // Only clear when values actually transition (not on initial mount with same values - avoids clearing during offline init)
+  const prevDataSourceKeyRef = useRef(null);
   useEffect(() => {
-    if (derivedRecomputeTimerRef.current) {
-      clearTimeout(derivedRecomputeTimerRef.current);
-      derivedRecomputeTimerRef.current = null;
+    const key = `${dataSource}|${selectedQueryKey}`;
+    const prevKey = prevDataSourceKeyRef.current;
+    prevDataSourceKeyRef.current = key;
+    if (prevKey !== null && prevKey !== key) {
+      if (derivedRecomputeTimerRef.current) {
+        clearTimeout(derivedRecomputeTimerRef.current);
+        derivedRecomputeTimerRef.current = null;
+      }
+      pendingDerivedRecomputeKeyRef.current = null;
+      mainTableEditingDataRefEarly.current = [];
+      mainTableEditingDataRef.current = [];
+      setMainTableEditingData([]);
+      setTableDataUpdateTrigger((t) => t + 1);
     }
-    pendingDerivedRecomputeKeyRef.current = null;
-    mainTableEditingDataRefEarly.current = [];
-    mainTableEditingDataRef.current = [];
-    setMainTableEditingData([]);
-    setTableDataUpdateTrigger((t) => t + 1);
   }, [dataSource, selectedQueryKey]);
+
+  // When groupFields changes, clear buffer so pipeline re-groups from flat data (enables different grouping levels)
+  const prevGroupFieldsRef = useRef(null);
+  useEffect(() => {
+    const gf = effectiveMainConfig.groupFields;
+    const prev = prevGroupFieldsRef.current;
+    prevGroupFieldsRef.current = gf;
+    if (prev !== null && prev !== gf) {
+      const prevStr = isArray(prev) ? prev.join(',') : String(prev);
+      const currStr = isArray(gf) ? gf.join(',') : String(gf);
+      if (prevStr !== currStr) {
+        mainTableEditingDataRefEarly.current = [];
+        mainTableEditingDataRef.current = [];
+        setMainTableEditingData([]);
+        setTableDataUpdateTrigger((t) => t + 1);
+      }
+    }
+  }, [effectiveMainConfig.groupFields]);
 
   // Ensure at least one tab exists
   useEffect(() => {
-    if (!drawerTabs || drawerTabs.length === 0) {
+    const tabs = effectiveMainConfig.drawerTabs;
+    if (!tabs || tabs.length === 0) {
       if (onDrawerTabsChange) {
         onDrawerTabsChange([{ id: `tab-${Date.now()}`, name: '', outerGroup: null, innerGroup: null }]);
       }
     }
-  }, [drawerTabs, onDrawerTabsChange]);
+  }, [effectiveMainConfig.drawerTabs, onDrawerTabsChange]);
 
   // Clear debounced derived recompute timer on unmount
   useEffect(() => {
@@ -366,18 +498,18 @@ export default function DataProviderNew({
   }, [rawTableData, onRawDataChange]);
 
   // Initialize mainTableEditingData with preFilteredData when it first loads (if empty)
-  // This happens before tableData is computed, so tableData can use mainTableEditingData
+  // Skip when sortedData already has data - prevents overwriting buffer with flat data after pipeline produced grouped data
   useEffect(() => {
     if (preFilteredData && isArray(preFilteredData) && !isEmpty(preFilteredData)) {
-      // Only initialize if mainTableEditingData is empty
-      if (!mainTableEditingData || !isArray(mainTableEditingData) || isEmpty(mainTableEditingData)) {
-        // Ensure rows have editing keys
+      const mainEmpty = !mainTableEditingData || !isArray(mainTableEditingData) || isEmpty(mainTableEditingData);
+      const sortedHasData = isArray(sortedData) && sortedData.length > 0;
+      if (mainEmpty && !sortedHasData) {
         const dataWithKeys = addEditingKeysToRows(preFilteredData);
         setMainTableEditingData(dataWithKeys);
         mainTableEditingDataRef.current = dataWithKeys;
       }
     }
-  }, [preFilteredData, mainTableEditingData, addEditingKeysToRows]);
+  }, [preFilteredData, mainTableEditingData, addEditingKeysToRows, sortedData]);
 
   // Note: onTableDataChange is called later with final sortedData (line 2904)
   // which includes both searchFields/sortFields sorting and tableSortMeta sorting
@@ -560,10 +692,15 @@ export default function DataProviderNew({
   // Also exclude array fields (they will be shown as nested tables instead)
   const filteredColumns = useMemo(() => {
     let result = columns;
+    if (isEmpty(result) && computedFallbackColumns && isArray(computedFallbackColumns) && computedFallbackColumns.length > 0) {
+      result = computedFallbackColumns.filter((c) => c && typeof c === 'string' && !String(c).startsWith('__'));
+    }
+    const allowed = allowedColumns; // shared
+    const derived = effectiveMainConfig.derivedColumns;
     
     // Filter by allowedColumns if provided
-    if (allowedColumns && Array.isArray(allowedColumns) && allowedColumns.length > 0) {
-      const allowedSet = new Set(allowedColumns);
+    if (allowed && Array.isArray(allowed) && allowed.length > 0) {
+      const allowedSet = new Set(allowed);
       result = result.filter(col => allowedSet.has(col));
     }
     
@@ -575,14 +712,9 @@ export default function DataProviderNew({
     // Include derived columns at their specified position (position = 0-based index; omit to append at end)
     const mode = derivedColumnsMode ?? 'main';
     const fieldName = derivedColumnsFieldName ?? null;
-    result = getOrderedColumnsWithDerived(result, derivedColumns || [], mode, fieldName);
-    // #region agent log
-    if (mode === 'nested') {
-      fetch('http://127.0.0.1:7242/ingest/2135770c-01a3-4957-a1df-7b381363f2ec',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'DataProviderNew.jsx:filteredColumns',message:'nested filteredColumns',data:{mode,fieldName,columnsOrder:columns.slice(0,10),resultOrder:result.slice(0,10)},timestamp:Date.now(),hypothesisId:'H4'})}).catch(()=>{});
-    }
-    // #endregion
+    result = getOrderedColumnsWithDerived(result, derived || [], mode, fieldName);
     return result;
-  }, [columns, allowedColumns, arrayFieldsForColumnFilter, derivedColumns, derivedColumnsMode, derivedColumnsFieldName]);
+  }, [columns, computedFallbackColumns, allowedColumns, effectiveMainConfig.derivedColumns, arrayFieldsForColumnFilter, derivedColumnsMode, derivedColumnsFieldName]);
 
   // Column types computation (NEW FORMAT: { field_name: "boolean" | "number" | "date" | "string" })
   const columnTypes = useMemo(() => {
@@ -652,15 +784,15 @@ export default function DataProviderNew({
     });
 
     // Merge detected types with overrides and derived column types (overrides take precedence)
-    const mainOverrides = getMainOverrides(columnTypesOverride);
+    const mainOverrides = getMainOverrides(columnTypesOverride); // shared
     const mergedTypes = { ...detectedTypes, ...mainOverrides };
-    (derivedColumns || []).forEach((dc) => {
+    (effectiveMainConfig.derivedColumns || []).forEach((dc) => {
       if (dc.columnName && dc.columnType) {
         mergedTypes[dc.columnName] = dc.columnType;
       }
     });
     return mergedTypes;
-  }, [tableData, filteredColumns, isNumericValue, columnTypesOverride, derivedColumns]);
+  }, [tableData, filteredColumns, isNumericValue, columnTypesOverride, effectiveMainConfig.derivedColumns]);
 
   // JSON table columns (columns that have __nestedTables__) - for scalar editable columns filter
   const jsonTableColumns = useMemo(() => {
@@ -673,13 +805,15 @@ export default function DataProviderNew({
           const columnName = nestedTable.fieldName;
           if (columnName && !columnName.startsWith('__')) {
             if (!jsonTableMap[columnName]) jsonTableMap[columnName] = { fieldName: columnName, nestedTables: [] };
+            let nestedColumns = [];
+            if (nestedTable.data && isArray(nestedTable.data) && nestedTable.data.length > 0 && nestedTable.data[0] && typeof nestedTable.data[0] === 'object') {
+              nestedColumns = Object.keys(nestedTable.data[0]).filter(key => !key.startsWith('__'));
+            }
             const existing = jsonTableMap[columnName].nestedTables.find(nt => nt.fieldName === nestedTable.fieldName);
             if (!existing) {
-              let nestedColumns = [];
-              if (nestedTable.data && isArray(nestedTable.data) && nestedTable.data.length > 0 && nestedTable.data[0] && typeof nestedTable.data[0] === 'object') {
-                nestedColumns = Object.keys(nestedTable.data[0]).filter(key => !key.startsWith('__'));
-              }
               jsonTableMap[columnName].nestedTables.push({ fieldName: nestedTable.fieldName, title: nestedTable.title || nestedTable.fieldName, columns: nestedColumns });
+            } else if (existing.columns.length === 0 && nestedColumns.length > 0) {
+              existing.columns = nestedColumns;
             }
           }
         });
@@ -696,13 +830,16 @@ export default function DataProviderNew({
             const firstItem = columnValue[0];
             if (firstItem && typeof firstItem === 'object' && !isArray(firstItem)) {
               if (!jsonTableMap[columnName]) jsonTableMap[columnName] = { fieldName: columnName, nestedTables: [] };
+              const cols = Object.keys(firstItem).filter(key => !key.startsWith('__'));
               const existing = jsonTableMap[columnName].nestedTables.find(nt => nt.fieldName === columnName);
               if (!existing) {
                 jsonTableMap[columnName].nestedTables.push({
                   fieldName: columnName,
                   title: columnName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-                  columns: Object.keys(firstItem).filter(key => !key.startsWith('__'))
+                  columns: cols
                 });
+              } else if (existing.columns.length === 0 && cols.length > 0) {
+                existing.columns = cols;
               }
             }
           }
@@ -719,35 +856,39 @@ export default function DataProviderNew({
 
   // Multiselect columns computation
   const multiselectColumns = useMemo(() => {
-    if (!enableFilter) return [];
+    if (!effectiveMainConfig.enableFilter) return [];
     // Get all string columns (non-numeric, non-boolean, non-date)
     const stringColumns = filteredColumns.filter(col => {
       const colType = columnTypes[col] || 'string';
       return colType === 'string';
     });
     // Remove textFilterColumns from string columns to get multiselect columns
-    const textFilterSet = new Set(textFilterColumns);
+    const textFilterSet = new Set(effectiveMainConfig.textFilterColumns);
     return stringColumns.filter(col => !textFilterSet.has(col));
-  }, [filteredColumns, columnTypes, textFilterColumns, enableFilter]);
+  }, [filteredColumns, columnTypes, effectiveMainConfig.textFilterColumns, effectiveMainConfig.enableFilter]);
 
   // Percentage column helpers
   const hasPercentageColumns = useMemo(() => {
-    if (isEmpty(percentageColumns) || !isArray(percentageColumns)) {
+    const pct = effectiveMainConfig.percentageColumns;
+    if (isEmpty(pct) || !isArray(pct)) {
       return false;
     }
-    return percentageColumns.some(pc => pc.columnName && pc.columnName.trim() !== '');
-  }, [percentageColumns]);
+    return pct.some(pc => pc.columnName && pc.columnName.trim() !== '');
+  }, [effectiveMainConfig.percentageColumns]);
 
   const percentageColumnNames = useMemo(() => {
-    return hasPercentageColumns ? percentageColumns.map(pc => pc.columnName).filter(Boolean) : [];
-  }, [hasPercentageColumns, percentageColumns]);
+    const pct = effectiveMainConfig.percentageColumns;
+    return hasPercentageColumns ? (pct || []).map(pc => pc.columnName).filter(Boolean) : [];
+  }, [hasPercentageColumns, effectiveMainConfig.percentageColumns]);
 
   const isPercentageColumn = useCallback((columnName) => {
-    return hasPercentageColumns && percentageColumns.some(pc => pc.columnName === columnName);
-  }, [hasPercentageColumns, percentageColumns]);
+    const pct = effectiveMainConfig.percentageColumns;
+    return hasPercentageColumns && pct && pct.some(pc => pc.columnName === columnName);
+  }, [hasPercentageColumns, effectiveMainConfig.percentageColumns]);
 
   const getPercentageColumnValue = useCallback((rowData, columnName) => {
-    const config = percentageColumns.find(pc => pc.columnName === columnName);
+    const pct = effectiveMainConfig.percentageColumns;
+    const config = pct && pct.find(pc => pc.columnName === columnName);
     if (!config || !config.targetField || !config.valueField) return null;
     const targetValue = getDataValue(rowData, config.targetField);
     const actualValue = getDataValue(rowData, config.valueField);
@@ -757,7 +898,7 @@ export default function DataProviderNew({
       return (actualNum / targetNum) * 100;
     }
     return null;
-  }, [percentageColumns]);
+  }, [effectiveMainConfig.percentageColumns]);
 
   const getPercentageColumnSortFunction = useCallback((col) => {
     return (rowData1, rowData2) => {
@@ -777,7 +918,7 @@ export default function DataProviderNew({
 
   // Filter options computation
   const optionColumnValues = useMemo(() => {
-    if (!enableFilter || isEmpty(tableData)) return {};
+    if (!effectiveMainConfig.enableFilter || isEmpty(tableData)) return {};
     const values = {};
     filteredColumns.forEach((col) => {
       const filteredForColumn = filter(tableData, (row) => {
@@ -835,7 +976,7 @@ export default function DataProviderNew({
       values[col] = options;
     });
     return values;
-  }, [tableData, searchSortSortedData, multiselectColumns, tableFilters, filteredColumns, columnTypes, hasPercentageColumns, percentageColumnNames, isPercentageColumn, getPercentageColumnValue, enableFilter]);
+  }, [tableData, searchSortSortedData, multiselectColumns, tableFilters, filteredColumns, columnTypes, hasPercentageColumns, percentageColumnNames, isPercentageColumn, getPercentageColumnValue, effectiveMainConfig.enableFilter]);
 
   // filteredData comes from useDataPipeline
 
@@ -930,13 +1071,15 @@ export default function DataProviderNew({
   const alwaysAllowedKeys = useMemo(() => new Set(['id', 'period', 'periodLabel', 'isNestedRow']), []);
 
   const allowedFieldSet = useMemo(() => {
-    if (!Array.isArray(allowedColumns) || allowedColumns.length === 0) {
+    const allowed = allowedColumns; // shared
+    const dateCol = dateColumn; // shared
+    if (!Array.isArray(allowed) || allowed.length === 0) {
       return null;
     }
 
     const set = new Set();
 
-    allowedColumns.forEach((col) => {
+    allowed.forEach((col) => {
       if (col) {
         set.add(col);
       }
@@ -954,8 +1097,8 @@ export default function DataProviderNew({
       }
     });
 
-    if (dateColumn) {
-      set.add(dateColumn);
+    if (dateCol) {
+      set.add(dateCol);
     }
 
     percentageColumnNames.forEach((col) => {
@@ -965,7 +1108,7 @@ export default function DataProviderNew({
     });
 
     return set;
-  }, [allowedColumns, filteredColumns, effectiveGroupFields, dateColumn, percentageColumnNames]);
+  }, [allowedColumns, dateColumn, filteredColumns, effectiveGroupFields, percentageColumnNames]);
 
   const sanitizeRowsByAllowedColumns = useCallback((rows) => {
     if (!allowedFieldSet || !Array.isArray(rows)) {
@@ -1017,8 +1160,9 @@ export default function DataProviderNew({
 
   // Drawer report data computation using shared hook
   // Get active tab's group fields for drawer report computation
-  const activeDrawerTab = drawerTabs && drawerTabs.length > 0
-    ? drawerTabs[Math.min(activeDrawerTabIndex, Math.max(0, drawerTabs.length - 1))]
+  const effectiveDrawerTabs = effectiveMainConfig.drawerTabs || [];
+  const activeDrawerTab = effectiveDrawerTabs.length > 0
+    ? effectiveDrawerTabs[Math.min(activeDrawerTabIndex, Math.max(0, effectiveDrawerTabs.length - 1))]
     : null;
   // Convert drawer tab's outerGroup/innerGroup to groupFields array format
   const drawerGroupFields = useMemo(() => {
@@ -1069,15 +1213,16 @@ export default function DataProviderNew({
   }, [baseReportData, allowedFieldSet]);
 
   const reportDataWithDerived = useMemo(() => {
-    if (!reportData || !derivedColumns?.length) return reportData;
+    const derived = effectiveMainConfig.derivedColumns;
+    if (!reportData || !derived?.length) return reportData;
     const tableDataDerived = reportData.tableData
-      ? applyDerivedColumns(reportData.tableData, derivedColumns, { mode: 'report', getDataValue })
+      ? applyDerivedColumns(reportData.tableData, derived, { mode: 'report', getDataValue })
       : reportData.tableData;
     const nestedTableDataDerived = reportData.nestedTableData
       ? Object.fromEntries(
           Object.entries(reportData.nestedTableData).map(([k, v]) => [
             k,
-            applyDerivedColumns(v, derivedColumns, { mode: 'report', getDataValue }),
+            applyDerivedColumns(v, derived, { mode: 'report', getDataValue }),
           ])
         )
       : reportData.nestedTableData;
@@ -1086,7 +1231,7 @@ export default function DataProviderNew({
       tableData: tableDataDerived,
       nestedTableData: nestedTableDataDerived,
     };
-  }, [reportData, derivedColumns]);
+  }, [reportData, effectiveMainConfig.derivedColumns]);
 
   useEffect(() => {
     reportDataRef.current = reportDataWithDerived;
@@ -1117,15 +1262,16 @@ export default function DataProviderNew({
   }, [rawDrawerReportData, allowedFieldSet]);
 
   const drawerReportDataWithDerived = useMemo(() => {
-    if (!drawerReportData || !derivedColumns?.length) return drawerReportData;
+    const derived = effectiveMainConfig.derivedColumns;
+    if (!drawerReportData || !derived?.length) return drawerReportData;
     const tableDataDerived = drawerReportData.tableData
-      ? applyDerivedColumns(drawerReportData.tableData, derivedColumns, { mode: 'report', getDataValue })
+      ? applyDerivedColumns(drawerReportData.tableData, derived, { mode: 'report', getDataValue })
       : drawerReportData.tableData;
     const nestedTableDataDerived = drawerReportData.nestedTableData
       ? Object.fromEntries(
           Object.entries(drawerReportData.nestedTableData).map(([k, v]) => [
             k,
-            applyDerivedColumns(v, derivedColumns, { mode: 'report', getDataValue }),
+            applyDerivedColumns(v, derived, { mode: 'report', getDataValue }),
           ])
         )
       : drawerReportData.nestedTableData;
@@ -1134,7 +1280,7 @@ export default function DataProviderNew({
       tableData: tableDataDerived,
       nestedTableData: nestedTableDataDerived,
     };
-  }, [drawerReportData, derivedColumns]);
+  }, [drawerReportData, effectiveMainConfig.derivedColumns]);
 
   const shouldShowDrawerReport = enableBreakdown && !!drawerReportDataWithDerived;
 
@@ -1173,23 +1319,25 @@ export default function DataProviderNew({
           columnTypes,
           multiselectColumns,
           hasPercentageColumns,
-          percentageColumns,
+          percentageColumns: effectiveMainConfig.percentageColumns,
           percentageColumnNames,
-          enableFilter,
+          enableFilter: effectiveMainConfig.enableFilter,
           searchTerm,
           searchFields: currentQueryDoc?.searchFields || {},
           sortConfig,
           sortFieldType,
           tableSortMeta,
-          enableSort,
+          enableSort: effectiveMainConfig.enableSort,
           effectiveGroupFields,
+          derivedColumnNames: getDerivedColumnNames(effectiveMainConfig.derivedColumns || [], 'main'),
           // Note: isPercentageColumnFn removed - worker uses percentageColumns array instead
         });
 
         // Apply derived columns to grouped data (including group summary rows)
+        const derivedCols = effectiveMainConfig.derivedColumns;
         const groupedDataWithDerived =
-          result.groupedData && derivedColumns?.length
-            ? applyDerivedColumns(result.groupedData, derivedColumns, {
+          result.groupedData && derivedCols?.length
+            ? applyDerivedColumns(result.groupedData, derivedCols, {
                 mode: 'main',
                 getDataValue,
               })
@@ -1212,7 +1360,7 @@ export default function DataProviderNew({
     };
 
     computeWithWorker();
-  }, [isApplyingFilterSort, sortConfig, preFilterValues, tableData, columns, columnTypes, multiselectColumns, hasPercentageColumns, percentageColumns, percentageColumnNames, enableFilter, searchTerm, currentQueryDoc, sortFieldType, tableSortMeta, enableSort, effectiveGroupFields, isPercentageColumn]);
+  }, [isApplyingFilterSort, sortConfig, preFilterValues, tableData, columns, columnTypes, multiselectColumns, hasPercentageColumns, effectiveMainConfig.percentageColumns, percentageColumnNames, effectiveMainConfig.enableFilter, searchTerm, currentQueryDoc, sortFieldType, tableSortMeta, effectiveMainConfig.enableSort, effectiveGroupFields, isPercentageColumn, effectiveMainConfig.derivedColumns]);
 
   // Track when filter/sort computation is complete - callback-based approach with ref guard
   const hasClearedLoadingRef = useRef(false);
@@ -1238,9 +1386,19 @@ export default function DataProviderNew({
   // Track previous sortedData to prevent unnecessary re-initialization
   const previousSortedDataRef = useRef(null);
   const previousSortedDataHashRef = useRef(null);
+  // When we add a new row via drawer, sortedData updates from pipeline - skip re-init so original stays unchanged
+  const skipNextInitFromSortedDataRef = useRef(false);
 
   // Initialize buffers from sortedData (final processed data after all preprocessing)
   useEffect(() => {
+    if (skipNextInitFromSortedDataRef.current) {
+      skipNextInitFromSortedDataRef.current = false;
+      previousSortedDataRef.current = sortedData;
+      const firstKey = sortedData?.length ? (sortedData[0]?.__editingKey__ || sortedData[0]?.id || 'no_key') : null;
+      const lastKey = sortedData?.length ? (sortedData[sortedData.length - 1]?.__editingKey__ || sortedData[sortedData.length - 1]?.id || 'no_key') : null;
+      previousSortedDataHashRef.current = sortedData?.length ? `${sortedData.length}_${firstKey}_${lastKey}` : '0_empty';
+      return;
+    }
     if (!isArray(sortedData)) {
       const currentEditingLength = mainTableEditingDataRef.current.length;
       const currentOriginalLength = mainTableOriginalDataRef.current.length;
@@ -1281,27 +1439,40 @@ export default function DataProviderNew({
       return;
     }
 
-    // Deep clone sortedData and add editing keys
+    // Deep clone sortedData and add editing keys (top-level and nested arrays)
     const dataWithKeys = addEditingKeysToRows(cloneDeep(sortedData));
-    
+    const dataWithNestedKeys = dataWithKeys.map((row) => {
+      if (!row || typeof row !== 'object') return row;
+      const result = { ...row };
+      Object.keys(result).forEach((k) => {
+        if (String(k).startsWith('__')) return;
+        const v = result[k];
+        if (isArray(v) && v.every((item) => item == null || (typeof item === 'object' && !isArray(item)))) {
+          result[k] = addEditingKeysToRows(v);
+        }
+      });
+      return result;
+    });
     // Initialize original buffer
-    mainTableOriginalDataRef.current = cloneDeep(dataWithKeys);
+    mainTableOriginalDataRef.current = cloneDeep(dataWithNestedKeys);
     
     // Initialize editing buffer (deep clone from original)
-    const editingData = cloneDeep(dataWithKeys);
+    const editingData = cloneDeep(dataWithNestedKeys);
     mainTableEditingDataRef.current = editingData;
     setMainTableEditingData(editingData);
+    // Force pipeline tableData memo to re-run so it picks up the ref (ref doesn't trigger memo deps)
+    setTableDataUpdateTrigger((t) => t + 1);
 
     // Update tracking refs
     previousSortedDataRef.current = sortedData;
     previousSortedDataHashRef.current = dataHash;
-  }, [sortedData, addEditingKeysToRows]);
+  }, [sortedData, addEditingKeysToRows, setTableDataUpdateTrigger]);
 
   // paginatedData comes from useDataPipeline
 
   // Initialize filters effect
   useEffect(() => {
-    if (!enableFilter) {
+    if (!effectiveMainConfig.enableFilter) {
       if (!isEmpty(tableFilters)) {
         setTableFilters({});
       }
@@ -1337,7 +1508,7 @@ export default function DataProviderNew({
     if (changed) {
       setTableFilters(newFilters);
     }
-  }, [columns, enableFilter, columnTypes, multiselectColumns, hasPercentageColumns, percentageColumnNames, tableFilters]);
+  }, [columns, effectiveMainConfig.enableFilter, columnTypes, multiselectColumns, hasPercentageColumns, percentageColumnNames, tableFilters]);
 
   // Action handlers
   const updateFilter = useCallback((column, value) => {
@@ -1348,9 +1519,54 @@ export default function DataProviderNew({
     setTablePagination(prev => ({ ...prev, first: 0 }));
   }, []);
 
+  const updateFilterForSlot = useCallback((slotId, column, value) => {
+    setTableFiltersBySlot(prev => {
+      const slotFilters = prev[slotId] ?? {};
+      return { ...prev, [slotId]: { ...slotFilters, [column]: { ...get(slotFilters, column, {}), value } } };
+    });
+    setTablePaginationBySlot(prev => {
+      const slotPag = prev[slotId] ?? { first: 0, rows: 10 };
+      return { ...prev, [slotId]: { ...slotPag, first: 0 } };
+    });
+  }, []);
+
   const clearFilter = useCallback((column) => {
     updateFilter(column, null);
   }, [updateFilter]);
+
+  const clearFilterForSlot = useCallback((slotId, column) => {
+    updateFilterForSlot(slotId, column, null);
+  }, [updateFilterForSlot]);
+
+  const clearAllFiltersForSlot = useCallback((slotId) => {
+    const meta = pipelinesBySlot[slotId]?.pipelineColumnMeta;
+    const cols = meta?.filteredColumns ?? columns;
+    const colTypes = meta?.columnTypes ?? columnTypes;
+    const multiselectCols = meta?.multiselectColumns ?? multiselectColumns;
+    const pctCols = meta?.percentageColumnNames ?? percentageColumnNames;
+    const hasPct = meta?.hasPercentageColumns ?? hasPercentageColumns;
+    const clearedFilters = {};
+    cols.forEach((col) => {
+      const colType = colTypes[col] || 'string';
+      const isMultiselectColumn = includes(multiselectCols, col);
+      if (isMultiselectColumn) {
+        clearedFilters[col] = { value: null, matchMode: 'in' };
+      } else if (colType === 'boolean') {
+        clearedFilters[col] = { value: null, matchMode: 'equals' };
+      } else if (colType === 'date') {
+        clearedFilters[col] = { value: null, matchMode: 'dateRange' };
+      } else {
+        clearedFilters[col] = { value: null, matchMode: 'contains' };
+      }
+    });
+    if (hasPct && pctCols?.length) {
+      pctCols.forEach((col) => {
+        clearedFilters[col] = { value: null, matchMode: 'contains' };
+      });
+    }
+    setTableFiltersBySlot(prev => ({ ...prev, [slotId]: clearedFilters }));
+    setTablePaginationBySlot(prev => ({ ...prev, [slotId]: { ...(prev[slotId] ?? { first: 0, rows: 10 }), first: 0 } }));
+  }, [pipelinesBySlot, columns, columnTypes, multiselectColumns, hasPercentageColumns, percentageColumnNames]);
 
   const clearAllFilters = useCallback(() => {
     const clearedFilters = {};
@@ -1381,12 +1597,28 @@ export default function DataProviderNew({
     setTablePagination(prev => ({ ...prev, first: 0 }));
   }, []);
 
+  const updateSortForSlot = useCallback((slotId, sortMeta) => {
+    setTableSortMetaBySlot(prev => ({ ...prev, [slotId]: sortMeta || [] }));
+    setTablePaginationBySlot(prev => ({ ...prev, [slotId]: { ...(prev[slotId] ?? { first: 0, rows: 10 }), first: 0 } }));
+  }, []);
+
   const updatePagination = useCallback((first, rows) => {
     setTablePagination({ first, rows });
   }, []);
 
+  const updatePaginationForSlot = useCallback((slotId, first, rows) => {
+    setTablePaginationBySlot(prev => ({ ...prev, [slotId]: { first, rows: rows ?? (prev[slotId]?.rows ?? 10) } }));
+  }, []);
+
+  const [tableExpandedRowsBySlot, setTableExpandedRowsBySlot] = useState({});
+  const [tableVisibleColumnsBySlot, setTableVisibleColumnsBySlot] = useState({});
+
   const updateExpandedRows = useCallback((rows) => {
     setTableExpandedRows(rows);
+  }, []);
+
+  const updateExpandedRowsForSlot = useCallback((slotId, rows) => {
+    setTableExpandedRowsBySlot(prev => ({ ...prev, [slotId]: rows }));
   }, []);
 
   const updateVisibleColumns = useCallback((columns) => {
@@ -1395,6 +1627,10 @@ export default function DataProviderNew({
       onVisibleColumnsChange(columns);
     }
   }, [onVisibleColumnsChange]);
+
+  const updateVisibleColumnsForSlot = useCallback((slotId, columns) => {
+    setTableVisibleColumnsBySlot(prev => ({ ...prev, [slotId]: columns }));
+  }, []);
 
   /**
    * Apply filters to data array
@@ -1589,7 +1825,7 @@ export default function DataProviderNew({
     originalNestedTableDataRef.current.clear();
     nestedTableEditingDataRef.current.clear();
     nestedTableDataRefsRef.current.clear();
-  }, [drawerTabs, onDrawerTabsChange]);
+  }, [effectiveMainConfig.drawerTabs, onDrawerTabsChange]);
 
   // Wrapper so that when user selects another row in the main table (drawer open), form buffer is re-inited
   const setSelectedRowDataWithFormSync = useCallback((row) => {
@@ -1611,29 +1847,30 @@ export default function DataProviderNew({
       innerGroup: null
     };
     if (onDrawerTabsChange) {
-      onDrawerTabsChange([...(drawerTabs || []), newTab]);
+      onDrawerTabsChange([...effectiveMainConfig.drawerTabs, newTab]);
     }
-    setActiveDrawerTabIndex((drawerTabs || []).length);
-  }, [drawerTabs, onDrawerTabsChange]);
+    setActiveDrawerTabIndex((effectiveMainConfig.drawerTabs || []).length);
+  }, [effectiveMainConfig.drawerTabs, onDrawerTabsChange]);
 
   const removeDrawerTab = useCallback((tabId) => {
-    if (!drawerTabs || drawerTabs.length <= 1) return;
-    const newTabs = drawerTabs.filter(tab => tab.id !== tabId);
+    const tabs = effectiveMainConfig.drawerTabs || [];
+    if (tabs.length <= 1) return;
+    const newTabs = tabs.filter(tab => tab.id !== tabId);
     if (onDrawerTabsChange) {
       onDrawerTabsChange(newTabs);
     }
     if (activeDrawerTabIndex >= newTabs.length) {
       setActiveDrawerTabIndex(newTabs.length - 1);
     }
-  }, [drawerTabs, activeDrawerTabIndex, onDrawerTabsChange]);
+  }, [effectiveMainConfig.drawerTabs, activeDrawerTabIndex, onDrawerTabsChange]);
 
   const updateDrawerTab = useCallback((tabId, updates) => {
     if (onDrawerTabsChange) {
-      onDrawerTabsChange(drawerTabs.map(tab =>
+      onDrawerTabsChange((effectiveMainConfig.drawerTabs || []).map(tab =>
         tab.id === tabId ? { ...tab, ...updates } : tab
       ));
     }
-  }, [drawerTabs, onDrawerTabsChange]);
+  }, [effectiveMainConfig.drawerTabs, onDrawerTabsChange]);
 
   // Drawer filtering functions for group cells (legacy - calls unified openDrawer internally)
   const openDrawerForOuterGroup = useCallback((value) => {
@@ -1763,6 +2000,7 @@ export default function DataProviderNew({
         const updatedData = [...parentEditingData];
         updatedData[rowIndex] = updatedRow;
         parentNestedTableEditingDataRef.current.set(nestedTableTabId, updatedData);
+        onNestedBufferChange?.(); // Parent re-renders so nested gets updated offlineData
       }
     }
     
@@ -1779,7 +2017,7 @@ export default function DataProviderNew({
 
     // Schedule debounced derived-column recompute for this row only
     scheduleDerivedRecomputeForRow(editingKey);
-  }, [nestedTableTabId, parentNestedTableEditingDataRef, scheduleDerivedRecomputeForRow]);
+  }, [nestedTableTabId, parentNestedTableEditingDataRef, onNestedBufferChange, scheduleDerivedRecomputeForRow]);
 
   // Helper function to detect changes in nested table data
   // Compares original data with current data and returns array of changed rows
@@ -1792,16 +2030,16 @@ export default function DataProviderNew({
     const originalMap = new Map();
     
     // Create a map of original rows by a unique identifier
-    // Use JSON.stringify of the row as key (or first few fields if available)
+    // Prefer __editingKey__ (stable in editing buffer), then id/key/__id__, else JSON.stringify
+    const getRowKey = (r, i) => r?.__editingKey__ ?? r?.id ?? r?.key ?? r?.__id__ ?? `__match_${i}`;
     originalData.forEach((row, index) => {
-      // Try to find a unique identifier field (id, key, etc.)
-      const rowKey = row?.id || row?.key || row?.__id__ || JSON.stringify(row);
+      const rowKey = getRowKey(row, index);
       originalMap.set(rowKey, { row: cloneDeep(row), index });
     });
 
     // Check for modified and new rows
     currentData.forEach((currentRow, currentIndex) => {
-      const rowKey = currentRow?.id || currentRow?.key || currentRow?.__id__ || JSON.stringify(currentRow);
+      const rowKey = getRowKey(currentRow, currentIndex);
       const originalEntry = originalMap.get(rowKey);
       
       if (originalEntry) {
@@ -1854,7 +2092,7 @@ export default function DataProviderNew({
 
     // Remaining entries in originalMap are deleted rows
     originalMap.forEach(({ row, index }) => {
-      const rowKey = row?.id || row?.key || row?.__id__ || JSON.stringify(row);
+      const rowKey = getRowKey(row, index);
       changes.push({
         type: 'deleted',
         rowKey,
@@ -1923,14 +2161,39 @@ export default function DataProviderNew({
 
   // Helper function to propagate drawer save to main table
   // Uses mainTableEditingDataRef so it sees the latest buffer (e.g. after form commit in same save).
+  // When parentRowEditingKey is null (new row from openDrawerForNewRow), appends the row instead of updating.
   const propagateDrawerSaveToMain = useCallback((tabId, drawerOriginalData, parentRowEditingKey, nestedTableFieldName) => {
-    if (!parentRowEditingKey || !nestedTableFieldName) {
-      console.error('propagateDrawerSaveToMain: Missing required parameters');
+    if (!nestedTableFieldName) {
+      console.error('propagateDrawerSaveToMain: Missing nestedTableFieldName');
       return;
     }
 
     const currentEditingData = mainTableEditingDataRef.current;
-    // Find parent row in main editing buffer (use ref so we see form commit from same save)
+
+    // New row case: parentRowEditingKey is null - prepend form row + all nested tab data to main table at index 0
+    if (!parentRowEditingKey) {
+      const currentFormRow = formEditingRowRef.current;
+      if (!currentFormRow) return;
+      const { __nestedTables__, ...rowWithoutNested } = currentFormRow;
+      const newRow = { ...rowWithoutNested };
+      // Collect nested data from all tabs for this new row (all have parentRowEditingKey null)
+      const trackingEntries = Array.from(originalNestedTableDataRef.current.entries());
+      trackingEntries.forEach(([tid, tdata]) => {
+        if (tdata.parentRowEditingKey === null && tdata.nestedTableFieldName) {
+          const nestedData = nestedTableEditingDataRef.current.get(tid) || [];
+          newRow[tdata.nestedTableFieldName] = cloneDeep(nestedData);
+        }
+      });
+      const updatedEditingData = [newRow, ...(currentEditingData || [])];
+      mainTableEditingDataRef.current = updatedEditingData;
+      mainTableEditingDataRefEarly.current = updatedEditingData;
+      setMainTableEditingData(updatedEditingData);
+      skipNextInitFromSortedDataRef.current = true; // Prevent onTableDataChange from re-initing original
+      setTableDataUpdateTrigger(prev => prev + 1);
+      return;
+    }
+
+    // Existing row case: find and update
     const parentRowInfo = findParentRowInEditingBuffer(parentRowEditingKey, currentEditingData);
     if (!parentRowInfo) {
       console.error('propagateDrawerSaveToMain: Parent row not found with editingKey:', parentRowEditingKey);
@@ -1945,35 +2208,27 @@ export default function DataProviderNew({
       return;
     }
 
-    // Update the nested array field (e.g., 'items') in parent row with drawer's saved data
-    // Remove __nestedTables__ so it gets regenerated by the existing extraction flow
     const updatedEditingData = [...currentEditingData];
     const { __nestedTables__, ...rowWithoutNestedTables } = parentRowInfo.row;
-    
+
     updatedEditingData[parentRowInfo.index] = {
       ...rowWithoutNestedTables,
-      [nestedTableFieldName]: cloneDeep(drawerOriginalData), // Update items field directly
-      // __nestedTables__ will be regenerated by extractJsonNestedTablesFromData in the existing flow
-      // BUT we must ensure it's not included in serialized output for saving
+      [nestedTableFieldName]: cloneDeep(drawerOriginalData),
     };
 
-    // Update main editing buffer
     mainTableEditingDataRef.current = updatedEditingData;
-    mainTableEditingDataRefEarly.current = updatedEditingData; // CRITICAL: Update early ref so tableData memo sees the change
+    mainTableEditingDataRefEarly.current = updatedEditingData;
     setMainTableEditingData(updatedEditingData);
-    // Increment trigger to force tableData recalculation
     setTableDataUpdateTrigger(prev => prev + 1);
   }, [findParentRowInEditingBuffer, onDataChange, setTableDataUpdateTrigger]);
 
   // Handle drawer save - commits form buffer then saves nested table for current active tab
   const handleDrawerSave = useCallback(() => {
-    console.log('🔵 SAVE BUTTON CLICKED: DRAWER/ sidebar table');
-    
     // If we're using parent refs (nested instance), delegate to parent's handleDrawerSave
     if (parentOriginalNestedTableDataRef && parentHandleDrawerSave) {
       return parentHandleDrawerSave();
     }
-    if ((!drawerTabs || drawerTabs.length === 0) && parentHandleDrawerSave) {
+    if ((!effectiveDrawerTabs || effectiveDrawerTabs.length === 0) && parentHandleDrawerSave) {
       return parentHandleDrawerSave();
     }
 
@@ -2009,7 +2264,7 @@ export default function DataProviderNew({
     // Resolve tab for nested save
     let tabId = null;
     let activeTab = null;
-    if (!drawerTabs || drawerTabs.length === 0) {
+    if (!effectiveDrawerTabs || effectiveDrawerTabs.length === 0) {
       const trackingEntries = Array.from(originalNestedTableDataRef.current.entries());
       if (trackingEntries.length > 0) {
         tabId = trackingEntries[0][0];
@@ -2025,7 +2280,7 @@ export default function DataProviderNew({
         return;
       }
     } else {
-      activeTab = drawerTabs[activeDrawerTabIndex];
+      activeTab = effectiveDrawerTabs[activeDrawerTabIndex];
       if (!activeTab || !activeTab.isJsonTable) {
         if (hasFormChanges && onDataChange) {
           onDataChange({
@@ -2087,11 +2342,31 @@ export default function DataProviderNew({
 
       // Step 2: Propagate drawerOriginal → mainEditing (update main with saved drawer state)
       const { parentRowEditingKey, nestedTableFieldName } = trackingData;
-      if (parentRowEditingKey && nestedTableFieldName) {
+      if (nestedTableFieldName) {
         propagateDrawerSaveToMain(tabId, drawerOriginalData, parentRowEditingKey, nestedTableFieldName);
       } else {
-        console.warn('handleDrawerSave: Missing parentRowEditingKey or nestedTableFieldName');
+        console.warn('handleDrawerSave: Missing nestedTableFieldName');
       }
+
+      // New row with multiple nested tabs: sync all tabs' tracking so close does not show unsaved
+      if (!parentRowEditingKey) {
+        originalNestedTableDataRef.current.forEach((tdata, tid) => {
+          if (tdata.parentRowEditingKey === null && tdata.nestedTableFieldName) {
+            const nestedData = nestedTableEditingDataRef.current.get(tid) || [];
+            tdata.originalData = cloneDeep(nestedData);
+            originalNestedTableDataRef.current.set(tid, tdata);
+            nestedTableEditingDataRef.current.set(tid, cloneDeep(nestedData));
+          }
+        });
+      }
+    } else if (hasFormChanges && !trackingData.parentRowEditingKey && trackingData.nestedTableFieldName) {
+      // New row with form changes only (no nested changes) - still need to append to main table
+      propagateDrawerSaveToMain(tabId, drawerEditingData, null, trackingData.nestedTableFieldName);
+    }
+
+    // For new row: sync form "original" so close does not show unsaved (row was just added to main)
+    if (!trackingData.parentRowEditingKey && currentFormRow && (hasFormChanges || hasNestedChanges)) {
+      formOriginalRowRef.current = cloneDeep(currentFormRow);
     }
 
     if ((hasFormChanges || hasNestedChanges) && onDataChange) {
@@ -2106,7 +2381,7 @@ export default function DataProviderNew({
         life: 3000,
       });
     }
-  }, [drawerTabs, activeDrawerTabIndex, propagateDrawerSaveToMain, onDataChange, parentHandleDrawerSave, parentOriginalNestedTableDataRef, scalarEditableColumns.length, mainTableEditingData, setTableDataUpdateTrigger]);
+  }, [effectiveDrawerTabs, activeDrawerTabIndex, propagateDrawerSaveToMain, onDataChange, parentHandleDrawerSave, parentOriginalNestedTableDataRef, scalarEditableColumns.length, mainTableEditingData, setTableDataUpdateTrigger]);
 
   // Persist main table editing buffer to original (used after diff dialog OK or when no diff)
   const persistMainSave = useCallback((editingData) => {
@@ -2138,34 +2413,49 @@ export default function DataProviderNew({
     );
     const skipKey = (k) => String(k).startsWith('__') || excludeFromDiff.has(k);
 
-    // Helper: diff a single field value; if array-of-objects (nested table), diff by row index and field
+    // Stable row key for matching: prefer __editingKey__, then id/key, else fallback for original rows
+    const getRowKey = (row, origIndex) => {
+      if (!row || typeof row !== 'object') return `__match_${origIndex}`;
+      return row.__editingKey__ ?? row.id ?? row.key ?? row.__id__ ?? `__match_${origIndex}`;
+    };
+
+    // Helper: diff a single field value; if array-of-objects (nested table), diff by row key (not index)
     const diffFieldValue = (o, e) => {
       const isArrayOfObjects = (v) =>
         isArray(v) && v.every((item) => item == null || (typeof item === 'object' && !isArray(item)));
       if (isArrayOfObjects(o) && isArrayOfObjects(e)) {
+        const origArr = o || [];
+        const editArr = e || [];
+        const getNestedKey = (item, idx) => {
+          if (!item || typeof item !== 'object') return `__nested_${idx}`;
+          return item.__editingKey__ ?? item.id ?? item.key ?? item.__id__ ?? `__nested_${idx}`;
+        };
+        const origMap = new Map();
+        origArr.forEach((item, idx) => origMap.set(getNestedKey(item, idx), { row: item, index: idx }));
         const nested = [];
-        const maxLen = Math.max((o || []).length, (e || []).length);
-        for (let ni = 0; ni < maxLen; ni++) {
-          const no = (o || [])[ni];
-          const ne = (e || [])[ni];
-          if (no == null && ne == null) continue;
-          if (no == null || ne == null) {
-            nested.push({ nestedIndex: ni, type: no == null ? 'added' : 'removed', row: no ?? ne });
-            continue;
+        editArr.forEach((editItem, editIdx) => {
+          const editKey = getNestedKey(editItem, editIdx);
+          const origEntry = origMap.get(editKey);
+          origMap.delete(editKey);
+          if (!origEntry) {
+            nested.push({ nestedKey: editKey, type: 'added', row: editItem });
+            return;
           }
-          const nKeys = uniq([...getDataKeys(no), ...getDataKeys(ne)].filter((k) => !skipKey(k)));
+          const no = origEntry.row;
+          const nKeys = uniq([...getDataKeys(no), ...getDataKeys(editItem)].filter((k) => !skipKey(k)));
           const nChanges = {};
           nKeys.forEach((nk) => {
             const vo = getDataValue(no, nk);
-            const ve = getDataValue(ne, nk);
+            const ve = getDataValue(editItem, nk);
             if (JSON.stringify(vo) !== JSON.stringify(ve)) {
               nChanges[nk] = { from: vo, to: ve };
             }
           });
           if (Object.keys(nChanges).length > 0) {
-            nested.push({ nestedIndex: ni, type: 'changed', changes: nChanges });
+            nested.push({ nestedKey: editKey, type: 'changed', changes: nChanges });
           }
-        }
+        });
+        origMap.forEach(({ row }, key) => nested.push({ nestedKey: key, type: 'removed', row }));
         return nested.length > 0 ? { nested } : null;
       }
       if (JSON.stringify(o) !== JSON.stringify(e)) {
@@ -2177,30 +2467,31 @@ export default function DataProviderNew({
     const originalData = mainTableOriginalDataRef.current;
     const editingData = mainTableEditingData;
     if (isArray(originalData) && isArray(editingData)) {
+      const originalMap = new Map();
+      originalData.forEach((row, idx) => originalMap.set(getRowKey(row, idx), { row, index: idx }));
       const diff = [];
-      const maxLen = Math.max(originalData.length, editingData.length);
-      for (let i = 0; i < maxLen; i++) {
-        const orig = originalData[i];
-        const edit = editingData[i];
-        if (!orig && !edit) continue;
-        if (!orig || !edit) {
-          diff.push({ index: i, type: orig ? 'removed' : 'added', row: orig || edit });
-          continue;
+      editingData.forEach((editRow, editIndex) => {
+        const editKey = getRowKey(editRow, editIndex);
+        const origEntry = originalMap.get(editKey);
+        originalMap.delete(editKey);
+        if (!origEntry) {
+          diff.push({ index: editIndex, rowKey: editKey, type: 'added', row: editRow });
+          return;
         }
-        const keys = uniq([...getDataKeys(orig), ...getDataKeys(edit)].filter((k) => !skipKey(k)));
+        const orig = origEntry.row;
+        const keys = uniq([...getDataKeys(orig), ...getDataKeys(editRow)].filter((k) => !skipKey(k)));
         const changes = {};
         keys.forEach(k => {
           const o = getDataValue(orig, k);
-          const e = getDataValue(edit, k);
+          const e = getDataValue(editRow, k);
           const fieldDiff = diffFieldValue(o, e);
-          if (fieldDiff) {
-            changes[k] = fieldDiff;
-          }
+          if (fieldDiff) changes[k] = fieldDiff;
         });
         if (Object.keys(changes).length > 0) {
-          diff.push({ index: i, type: 'changed', changes });
+          diff.push({ index: editIndex, rowKey: editKey, type: 'changed', changes });
         }
-      }
+      });
+      originalMap.forEach(({ row }, key) => diff.push({ index: -1, rowKey: key, type: 'removed', row }));
       if (diff.length > 0) {
         setSaveDiffContent(diff);
         setSaveDiffDialogVisible(true);
@@ -2223,30 +2514,34 @@ export default function DataProviderNew({
     setSaveDiffDialogVisible(false);
   }, [persistMainSave, mainTableEditingData]);
 
-  // Format save diff for dialog display (from → to)
+  // Format save diff for dialog display (from → to), grouped by New / Updated / Removed
   const saveDiffFormatted = useMemo(() => {
     if (!isArray(saveDiffContent) || saveDiffContent.length === 0) return '';
-    const lines = [];
-    saveDiffContent.forEach((entry) => {
-      lines.push(`Row ${entry.index} (${entry.type})`);
+    const added = saveDiffContent.filter((e) => e.type === 'added');
+    const updated = saveDiffContent.filter((e) => e.type === 'changed');
+    const removed = saveDiffContent.filter((e) => e.type === 'removed');
+
+    const formatEntry = (entry, label) => {
+      const lines = [];
+      lines.push(label);
       if (entry.type === 'added' || entry.type === 'removed') {
         lines.push('  ' + JSON.stringify(entry.row, null, 2).replace(/\n/g, '\n  '));
-        return;
+        return lines;
       }
       if (entry.changes) {
         Object.entries(entry.changes).forEach(([field, val]) => {
           if (val && typeof val === 'object' && val.nested) {
             lines.push(`  ${field} (nested):`);
             val.nested.forEach((n, idx) => {
-              const ni = n.nestedIndex ?? idx;
+              const nk = n.nestedKey ?? `[${idx}]`;
               if (n.type === 'changed' && n.changes) {
                 Object.entries(n.changes).forEach(([k, v]) => {
                   if (v && (v.from !== undefined || v.to !== undefined)) {
-                    lines.push(`    [${ni}] ${k}: ${JSON.stringify(v.from)} → ${JSON.stringify(v.to)}`);
+                    lines.push(`    ${nk} ${k}: ${JSON.stringify(v.from)} → ${JSON.stringify(v.to)}`);
                   }
                 });
               } else {
-                lines.push(`    [${ni}] ${n.type || 'changed'}`);
+                lines.push(`    ${nk} ${n.type || 'changed'}`);
               }
             });
           } else if (val && (val.from !== undefined || val.to !== undefined)) {
@@ -2254,9 +2549,25 @@ export default function DataProviderNew({
           }
         });
       }
+      return lines;
+    };
+
+    const lines = [];
+    if (added.length > 0) {
+      lines.push('=== NEW ROWS ===');
+      added.forEach((entry, i) => formatEntry(entry, `Row (new ${i + 1})`).forEach((l) => lines.push(l)));
       lines.push('');
-    });
-    return lines.join('\n');
+    }
+    if (updated.length > 0) {
+      lines.push('=== UPDATED ROWS ===');
+      updated.forEach((entry, i) => formatEntry(entry, `Row ${i + 1} (updated)`).forEach((l) => lines.push(l)));
+      lines.push('');
+    }
+    if (removed.length > 0) {
+      lines.push('=== REMOVED ROWS ===');
+      removed.forEach((entry, i) => formatEntry(entry, `Row (removed ${i + 1})`).forEach((l) => lines.push(l)));
+    }
+    return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
   }, [saveDiffContent]);
 
   // Handle main cancel - reverts editing buffer to original buffer
@@ -2288,11 +2599,11 @@ export default function DataProviderNew({
 
   // Handle drawer cancel - reverts drawer editing buffer to original buffer
   const handleDrawerCancel = useCallback(() => {
-    if (!drawerTabs || drawerTabs.length === 0) {
+    if (!effectiveDrawerTabs || effectiveDrawerTabs.length === 0) {
       return;
     }
 
-    const activeTab = drawerTabs[activeDrawerTabIndex];
+    const activeTab = effectiveDrawerTabs[activeDrawerTabIndex];
     if (!activeTab || !activeTab.isJsonTable) {
       return;
     }
@@ -2322,7 +2633,7 @@ export default function DataProviderNew({
         life: 3000,
       });
     }
-  }, [drawerTabs, activeDrawerTabIndex, onDataChange]);
+  }, [effectiveDrawerTabs, activeDrawerTabIndex, onDataChange]);
 
   // Check if main table has unsaved changes (use ref to avoid recalculating on every render)
   const hasMainTableChangesRef = useRef(false);
@@ -2355,8 +2666,8 @@ export default function DataProviderNew({
   const hasDrawerChangesRef = useRef(false);
   const hasDrawerChanges = useMemo(() => {
     let hasNestedChanges = false;
-    if (drawerTabs && drawerTabs.length > 0) {
-      const activeTab = drawerTabs[activeDrawerTabIndex];
+    if (effectiveDrawerTabs && effectiveDrawerTabs.length > 0) {
+      const activeTab = effectiveDrawerTabs[activeDrawerTabIndex];
       if (activeTab?.isJsonTable) {
         const tabId = activeTab.id;
         const trackingData = originalNestedTableDataRef.current.get(tabId);
@@ -2377,7 +2688,7 @@ export default function DataProviderNew({
     }
     hasDrawerChangesRef.current = hasNestedChanges;
     return hasNestedChanges;
-  }, [drawerTabs, activeDrawerTabIndex]);
+  }, [effectiveDrawerTabs, activeDrawerTabIndex]);
 
   // On-demand: form or nested has unsaved changes (used only on Close to avoid recomputing on every keystroke)
   const getHasUnsavedDrawerChanges = useCallback(() => {
@@ -2389,8 +2700,8 @@ export default function DataProviderNew({
       } catch (e) {}
     }
     let hasNestedChanges = false;
-    if (drawerTabs && drawerTabs.length > 0) {
-      const activeTab = drawerTabs[activeDrawerTabIndex];
+    if (effectiveDrawerTabs && effectiveDrawerTabs.length > 0) {
+      const activeTab = effectiveDrawerTabs[activeDrawerTabIndex];
       if (activeTab?.isJsonTable) {
         const tabId = activeTab.id;
         const trackingData = originalNestedTableDataRef.current.get(tabId);
@@ -2408,7 +2719,7 @@ export default function DataProviderNew({
       }
     }
     return hasFormChanges || hasNestedChanges;
-  }, [drawerTabs, activeDrawerTabIndex, scalarEditableColumns.length]);
+  }, [effectiveDrawerTabs, activeDrawerTabIndex, scalarEditableColumns.length]);
 
   // Open drawer with nested JSON tables
   // Creates tabs dynamically for each nested table
@@ -2447,6 +2758,14 @@ export default function DataProviderNew({
       // Initialize editing data with original data (deep clone to preserve editing keys)
       nestedTableEditingDataRef.current.set(tabId, cloneDeep(originalData));
       
+      let tabCols = nestedTable.data && isArray(nestedTable.data) && nestedTable.data.length > 0 && nestedTable.data[0]
+        ? Object.keys(nestedTable.data[0]).filter(k => !String(k).startsWith('__'))
+        : [];
+      if (tabCols.length === 0) {
+        const jtc = jsonTableColumns[nestedTable.fieldName];
+        const nt = jtc?.nestedTables?.find(n => n.fieldName === nestedTable.fieldName);
+        if (nt?.columns?.length) tabCols = nt.columns;
+      }
       return {
         id: tabId,
         name: nestedTable.title || nestedTable.fieldName || `Table ${index + 1}`,
@@ -2455,6 +2774,7 @@ export default function DataProviderNew({
         parentColumnName: parentColumnName, // Store parent column name for nested editable columns lookup
         nestedTableFieldName: nestedTable.fieldName, // The nested table's own fieldName for lookup in editableColumns.nested
         isJsonTable: true, // Flag to identify JSON table tabs
+        columns: tabCols,
       };
     });
 
@@ -2497,7 +2817,163 @@ export default function DataProviderNew({
 
     // Open drawer with first table's data
     openDrawer(firstTableData, null, drawerTitle, tableOptions);
-  }, [columns, onDrawerTabsChange, openDrawer, scalarEditableColumns]);
+  }, [columns, onDrawerTabsChange, openDrawer, scalarEditableColumns, jsonTableColumns]);
+
+  // Open drawer for new row (empty form + empty nested tables) - used by blue "+" in main table
+  const openDrawerForNewRow = useCallback(() => {
+    let nestedTables = [];
+
+    // Build nested table structure from jsonTableColumns (when we have existing data with nested tables)
+    const jsonMap = jsonTableColumns;
+    if (jsonMap && typeof jsonMap === 'object' && Object.keys(jsonMap).length > 0) {
+      Object.values(jsonMap).forEach((jsonInfo) => {
+        if (jsonInfo?.nestedTables && isArray(jsonInfo.nestedTables)) {
+          jsonInfo.nestedTables.forEach((nt) => {
+            nestedTables.push({
+              fieldName: nt.fieldName,
+              title: nt.title || nt.fieldName,
+              data: [],
+              columns: nt.columns && isArray(nt.columns) ? nt.columns : [],
+            });
+          });
+        }
+      });
+    }
+
+    // Fallback when no data: use editableColumns.nested or writeSchema
+    if (nestedTables.length === 0) {
+      const nested = effectiveMainConfig.editableColumns?.nested;
+      if (nested && typeof nested === 'object') {
+        Object.entries(nested).forEach(([fieldName, nestedCols]) => {
+          const cols = isArray(nestedCols) ? nestedCols : (nestedCols && typeof nestedCols === 'object' ? Object.keys(nestedCols) : []);
+          nestedTables.push({
+            fieldName,
+            title: startCase(String(fieldName).replace(/_/g, ' ')),
+            data: [],
+            columns: cols,
+          });
+        });
+      }
+      if (nestedTables.length === 0 && currentQueryDoc?.writeSchema) {
+        try {
+          const schema = typeof currentQueryDoc.writeSchema === 'string'
+            ? JSON.parse(currentQueryDoc.writeSchema)
+            : currentQueryDoc.writeSchema;
+          if (schema && typeof schema === 'object') {
+            const visit = (obj, fieldPath = []) => {
+              if (!obj || typeof obj !== 'object') return;
+              Object.entries(obj).forEach(([k, v]) => {
+                if (k === 'children' || (v && typeof v === 'object' && (v.types || v.children))) {
+                  const child = v?.children || v;
+                  if (child && typeof child === 'object' && !isArray(child)) {
+                    const cols = Object.keys(child).filter(x => !x.startsWith('__'));
+                    if (cols.length > 0) {
+                      const fName = fieldPath.length > 0 ? fieldPath.join('_') : k;
+                      nestedTables.push({
+                        fieldName: fName,
+                        title: startCase(String(fName).replace(/_/g, ' ')),
+                        data: [],
+                        columns: cols,
+                      });
+                    }
+                    visit(child, [...fieldPath, k]);
+                  }
+                }
+              });
+            };
+            visit(schema);
+          }
+        } catch (e) {
+          // ignore parse errors
+        }
+      }
+    }
+
+    if (nestedTables.length === 0) {
+      if (onDataChange) {
+        onDataChange({
+          severity: 'warn',
+          summary: 'Cannot add new row',
+          detail: 'No nested table schema available. Add data first or configure editable columns.',
+          life: 5000,
+        });
+      }
+      return;
+    }
+
+    setDrawerJsonTables(nestedTables);
+    const parentColumnName = nestedTables[0]?.fieldName || null;
+    const jsonTableTabs = nestedTables.map((nestedTable, index) => {
+      const tabId = `json-table-new-${Date.now()}-${index}`;
+      originalNestedTableDataRef.current.set(tabId, {
+        originalData: [],
+        parentRowData: null,
+        parentRowEditingKey: null,
+        nestedTableFieldName: nestedTable.fieldName,
+        parentColumnName,
+      });
+      nestedTableEditingDataRef.current.set(tabId, []);
+
+      return {
+        id: tabId,
+        name: nestedTable.title || nestedTable.fieldName || `Table ${index + 1}`,
+        data: [],
+        fieldName: nestedTable.fieldName,
+        parentColumnName,
+        nestedTableFieldName: nestedTable.fieldName,
+        isJsonTable: true,
+        columns: nestedTable.columns && isArray(nestedTable.columns) ? nestedTable.columns : [],
+      };
+    });
+
+    const emptyRow = {};
+    scalarEditableColumns.forEach((col) => {
+      const t = columnTypes[col] || 'string';
+      if (t === 'number') emptyRow[col] = null;
+      else if (t === 'boolean') emptyRow[col] = false;
+      else if (t === 'date') emptyRow[col] = null;
+      else emptyRow[col] = '';
+    });
+    const newEditingKey = `main_row_new_${Date.now()}`;
+    emptyRow.__editingKey__ = newEditingKey;
+
+    if (onDrawerTabsChange) {
+      onDrawerTabsChange(jsonTableTabs);
+    }
+    setSelectedRowData(emptyRow);
+    formOriginalRowRef.current = cloneDeep(emptyRow);
+    setFormEditingRow(cloneDeep(emptyRow));
+    const tableOptions = {
+      editableColumns: effectiveMainConfig.editableColumns,
+      enableCellEdit: true,
+    };
+    openDrawer([], null, 'New Row', tableOptions);
+  }, [
+    jsonTableColumns, effectiveMainConfig.editableColumns, currentQueryDoc, scalarEditableColumns,
+    columnTypes, onDrawerTabsChange, openDrawer, onDataChange,
+  ]);
+
+  // Insert empty row at index 0 in nested table - used by blue "+" in drawer nested table context
+  const handleAddNestedRowAtZero = useCallback((tabId) => {
+    if (!tabId) return;
+    const tab = (effectiveDrawerTabs || []).find(t => t.id === tabId);
+    const cols = tab?.columns && isArray(tab.columns) ? tab.columns : [];
+    const colTypes = columnTypes || {};
+    const emptyRow = {};
+    cols.forEach((col) => {
+      const t = colTypes[col] || 'string';
+      if (t === 'number') emptyRow[col] = null;
+      else if (t === 'boolean') emptyRow[col] = false;
+      else if (t === 'date') emptyRow[col] = null;
+      else emptyRow[col] = '';
+    });
+    const withKey = addEditingKeysToRows([emptyRow])[0];
+    const current = nestedTableEditingDataRef.current.get(tabId) || [];
+    const updated = [withKey, ...current];
+    nestedTableEditingDataRef.current.set(tabId, updated);
+    onNestedBufferChange?.();
+    setNestedTableUpdateCounter(c => c + 1);
+  }, [effectiveDrawerTabs, columnTypes, addEditingKeysToRows, onNestedBufferChange]);
 
   // Export helper functions
   const formatHeaderName = useCallback((key) => {
@@ -2691,14 +3167,14 @@ export default function DataProviderNew({
     XLSX.writeFile(wb, filename);
   }, [enableBreakdown, reportDataWithDerived, columnGroupBy, sortedData, groupedData, effectiveGroupFields, hasPercentageColumns, percentageColumns, isPercentageColumn, getPercentageColumnValue, formatHeaderName, isTruthyBoolean, formatDateValue, getColumnTypeFlags]);
 
-  // Create context value
-  const contextValue = useMemo(() => {
+  // Create slot-scoped context (flat object for each slot; for single-slot, all slots share same data)
+  const slotContextData = useMemo(() => {
     try {
-      const result = {
+      return {
         rawData: mainTableEditingData, // Use editingData state for reactivity (triggers updates when changed)
         columns: filteredColumns, // Expose filtered columns (respecting allowedColumns)
         columnTypes,
-        columnTypesOverride,
+        columnTypesOverride, // shared
         filteredData,
         groupedData,
         sortedData,
@@ -2708,10 +3184,10 @@ export default function DataProviderNew({
         filterOptions: optionColumnValues,
         multiselectColumns,
         hasPercentageColumns,
-        percentageColumns,
+        percentageColumns: effectiveMainConfig.percentageColumns,
         percentageColumnNames,
         isPercentageColumn,
-        derivedColumns,
+        derivedColumns: effectiveMainConfig.derivedColumns,
         getPercentageColumnValue,
         getPercentageColumnSortFunction,
         filters: tableFilters,
@@ -2719,22 +3195,22 @@ export default function DataProviderNew({
         pagination: tablePagination,
         expandedRows: tableExpandedRows,
         visibleColumns: tableVisibleColumns,
-        enableSort,
-        enableFilter,
-        enableSummation,
-        enableGrouping,
-        textFilterColumns,
+        enableSort: effectiveMainConfig.enableSort,
+        enableFilter: effectiveMainConfig.enableFilter,
+        enableSummation: effectiveMainConfig.enableSummation,
+        enableGrouping: effectiveMainConfig.enableGrouping,
+        textFilterColumns: effectiveMainConfig.textFilterColumns,
         effectiveGroupFields, // Array of group fields for multi-level nesting
-        redFields,
-        greenFields,
-        enableDivideBy1Lakh,
-        enableReport,
+        redFields: effectiveMainConfig.redFields,
+        greenFields: effectiveMainConfig.greenFields,
+        enableDivideBy1Lakh, // shared
+        enableReport, // shared
         enableBreakdown,
         reportData: reportDataWithDerived,
         isComputingReport,
         isApplyingFilterSort,
-        chartColumns,
-        chartHeight,
+        chartColumns, // shared
+        chartHeight, // shared
         // Unified loading state
         isLoading: (() => {
           return isComputingReport || isApplyingFilterSort;
@@ -2756,7 +3232,7 @@ export default function DataProviderNew({
         updateVisibleColumns,
         drawerVisible,
         drawerData,
-        drawerTabs,
+        drawerTabs: effectiveMainConfig.drawerTabs,
         activeDrawerTabIndex,
         clickedDrawerValues,
         openDrawer,
@@ -2764,10 +3240,13 @@ export default function DataProviderNew({
         openDrawerForOuterGroup,
         openDrawerForInnerGroup,
         openDrawerWithJsonTables,
+        openDrawerForNewRow,
+        handleAddNestedRowAtZero: parentHandleAddNestedRowAtZero || handleAddNestedRowAtZero,
         closeDrawer,
         addDrawerTab,
         removeDrawerTab,
         updateDrawerTab,
+        drawerTabs: effectiveMainConfig.drawerTabs,
         setActiveDrawerTabIndex,
         selectedRowData,
         setSelectedRowData: setSelectedRowDataWithFormSync,
@@ -2792,6 +3271,7 @@ export default function DataProviderNew({
         // Nested table context for editable columns lookup
         parentColumnName,
         nestedTableFieldName,
+        nestedTableTabId,
         // Change tracking for nested tables
         updateCurrentNestedTableData,
         getChangedRowsForTab,
@@ -2811,25 +3291,176 @@ export default function DataProviderNew({
         availableQueryKeys,
         executingQuery,
       };
-      return result;
     } catch (error) {
-      console.error('DataProviderNew: Error creating contextValue', error);
+      console.error('DataProviderNew: Error creating slotContextData', error);
       return {};
     }
   }, [
-    sortedData, columns, columnTypes, columnTypesOverride, filteredData, groupedData, paginatedData,
-    calculateSums, getSums, optionColumnValues, multiselectColumns, hasPercentageColumns, percentageColumns, percentageColumnNames,
+    sortedData, columns, columnTypes, filteredData, groupedData, paginatedData,
+    calculateSums, getSums, optionColumnValues, multiselectColumns, hasPercentageColumns, percentageColumnNames,
     isPercentageColumn, getPercentageColumnValue, getPercentageColumnSortFunction, tableFilters, tableSortMeta, tablePagination,
-    tableExpandedRows, tableVisibleColumns, enableSort, enableFilter, enableSummation, enableGrouping,
-    textFilterColumns, effectiveGroupFields, redFields, greenFields, enableDivideBy1Lakh,
+    tableExpandedRows, tableVisibleColumns, effectiveGroupFields,
     updateFilter, clearFilter, clearAllFilters, updateSort, updatePagination, updateExpandedRows,
-    updateVisibleColumns,     drawerVisible, drawerData, drawerTabs, activeDrawerTabIndex, clickedDrawerValues,
-    openDrawer, openDrawerWithData, openDrawerForOuterGroup, openDrawerForInnerGroup, openDrawerWithJsonTables, closeDrawer, addDrawerTab, removeDrawerTab, updateDrawerTab,
+    updateVisibleColumns, drawerVisible, drawerData, activeDrawerTabIndex, clickedDrawerValues,
+    openDrawer, openDrawerWithData, openDrawerForOuterGroup, openDrawerForInnerGroup, openDrawerWithJsonTables, openDrawerForNewRow, handleAddNestedRowAtZero, closeDrawer, addDrawerTab, removeDrawerTab, updateDrawerTab,
     selectedRowData, setSelectedRowDataWithFormSync,
-    formatHeaderName, isTruthyBoolean, exportToXLSX, isNumericValue, currentQueryDoc, searchTerm, sortConfig, enableReport, enableBreakdown, reportData, isComputingReport, isApplyingFilterSort, columnGroupBy, filteredColumns, allowedColumns, parentColumnName, nestedTableFieldName,
-    updateCurrentNestedTableData, getChangedRowsForTab, getAllChangedNestedTableRows, handleDrawerSave, handleMainSave, handleMainCancel, handleDrawerCancel, hasMainTableChanges, hasDrawerChanges, updateMainTableEditingData, forceEnableWrite, parentHandleDrawerSave, addEditingKeysToRows, mainTableEditingData,
-    availableQueryKeys, executingQuery
+    formatHeaderName, isTruthyBoolean, exportToXLSX, isNumericValue, currentQueryDoc, searchTerm, sortConfig, enableBreakdown, reportData, isComputingReport, isApplyingFilterSort, columnGroupBy, filteredColumns, parentColumnName, nestedTableFieldName, nestedTableTabId,
+    updateCurrentNestedTableData, getChangedRowsForTab, getAllChangedNestedTableRows, handleDrawerSave, handleMainSave, handleMainCancel, handleDrawerCancel, hasMainTableChanges, hasDrawerChanges, updateMainTableEditingData, forceEnableWrite, parentHandleDrawerSave, parentHandleAddNestedRowAtZero, addEditingKeysToRows, mainTableEditingData,
+    availableQueryKeys, executingQuery, effectiveMainConfig, columnTypesOverride, enableDivideBy1Lakh, enableReport, chartColumns, chartHeight
   ]);
+
+  // When multi-slot, build per-slot context from pipelinesBySlot with slot-scoped handlers
+  const slotContextMap = useMemo(() => {
+    if (!isMultiSlot || !pipelinesBySlot || Object.keys(pipelinesBySlot).length === 0) return {};
+    const map = {};
+    for (const slotId of slotIds) {
+      const pSlot = pipelinesBySlot[slotId];
+      if (!pSlot) continue;
+      const slotConfig = slots[slotId] ?? {};
+      const effectiveSlotConfig = { ...effectiveMainConfig, ...slotConfig };
+      const slotFilters = tableFiltersBySlot[slotId] ?? {};
+      const slotSortMeta = tableSortMetaBySlot[slotId] ?? [];
+      const slotPagination = tablePaginationBySlot[slotId] ?? { first: 0, rows: 10 };
+      const slotExpandedRows = tableExpandedRowsBySlot[slotId] ?? null;
+      const slotVisibleColumns = tableVisibleColumnsBySlot[slotId] ?? tableVisibleColumns ?? [];
+      const meta = pSlot.pipelineColumnMeta || {};
+      const slotFilteredData = pSlot.filteredData ?? [];
+      const getSumsForSlot = (dataOrFilters, filters) => {
+        if (dataOrFilters === undefined && filters === undefined) return getSums(slotFilteredData);
+        if (isArray(dataOrFilters)) return getSums(dataOrFilters, filters);
+        return getSums(slotFilteredData, dataOrFilters);
+      };
+      const slotCalculateSums = getSumsForSlot();
+      map[slotId] = {
+        rawData: mainTableEditingData,
+        columns: meta.filteredColumns ?? [],
+        columnTypes: meta.columnTypes ?? columnTypes,
+        columnTypesOverride,
+        filteredData: pSlot.filteredData,
+        groupedData: pSlot.groupedData,
+        sortedData: pSlot.sortedData,
+        paginatedData: pSlot.paginatedData,
+        sums: slotCalculateSums,
+        getSums: getSumsForSlot,
+        filterOptions: pSlot.optionColumnValues ?? {},
+        multiselectColumns: meta.multiselectColumns ?? multiselectColumns,
+        hasPercentageColumns: meta.hasPercentageColumns ?? hasPercentageColumns,
+        percentageColumns: effectiveSlotConfig.percentageColumns,
+        percentageColumnNames: meta.percentageColumnNames ?? percentageColumnNames,
+        isPercentageColumn: (col) => (meta.hasPercentageColumns && (effectiveSlotConfig.percentageColumns || []).some((pc) => pc?.columnName === col)),
+        derivedColumns: effectiveSlotConfig.derivedColumns,
+        getPercentageColumnValue,
+        getPercentageColumnSortFunction,
+        filters: slotFilters,
+        sortMeta: slotSortMeta,
+        pagination: slotPagination,
+        expandedRows: slotExpandedRows,
+        visibleColumns: slotVisibleColumns,
+        enableSort: effectiveSlotConfig.enableSort,
+        enableFilter: effectiveSlotConfig.enableFilter,
+        enableSummation: effectiveSlotConfig.enableSummation,
+        enableGrouping: effectiveSlotConfig.enableGrouping,
+        textFilterColumns: effectiveSlotConfig.textFilterColumns,
+        effectiveGroupFields: pSlot.effectiveGroupFields ?? [],
+        redFields: effectiveSlotConfig.redFields,
+        greenFields: effectiveSlotConfig.greenFields,
+        enableDivideBy1Lakh,
+        enableReport,
+        enableBreakdown,
+        reportData: reportDataWithDerived,
+        isComputingReport,
+        isApplyingFilterSort,
+        chartColumns,
+        chartHeight,
+        isLoading: isComputingReport || isApplyingFilterSort,
+        loadingText: isComputingReport ? 'Computing report...' : (isApplyingFilterSort ? 'Applying Filter and Sort...' : ''),
+        columnGroupBy,
+        updateFilter: (col, val) => updateFilterForSlot(slotId, col, val),
+        clearFilter: (col) => clearFilterForSlot(slotId, col),
+        clearAllFilters: () => clearAllFiltersForSlot(slotId),
+        updateSort: (sortMeta) => updateSortForSlot(slotId, sortMeta),
+        updatePagination: (first, rows) => updatePaginationForSlot(slotId, first, rows),
+        updateExpandedRows: (rows) => updateExpandedRowsForSlot(slotId, rows),
+        updateVisibleColumns: (cols) => updateVisibleColumnsForSlot(slotId, cols),
+        drawerVisible,
+        drawerData,
+        drawerTabs: effectiveSlotConfig.drawerTabs,
+        activeDrawerTabIndex,
+        clickedDrawerValues,
+        openDrawer,
+        openDrawerWithData,
+        openDrawerForOuterGroup,
+        openDrawerForInnerGroup,
+        openDrawerWithJsonTables,
+        openDrawerForNewRow,
+        handleAddNestedRowAtZero: parentHandleAddNestedRowAtZero || handleAddNestedRowAtZero,
+        closeDrawer,
+        addDrawerTab,
+        removeDrawerTab,
+        updateDrawerTab,
+        setActiveDrawerTabIndex,
+        selectedRowData,
+        setSelectedRowData: setSelectedRowDataWithFormSync,
+        formatDateValue,
+        formatHeaderName,
+        isTruthyBoolean,
+        exportToXLSX,
+        parseNumericFilter,
+        applyNumericFilter,
+        applyDateFilter,
+        isNumericValue,
+        clientSave: currentQueryDoc?.clientSave || false,
+        searchFields: currentQueryDoc?.searchFields || null,
+        sortFields: currentQueryDoc?.sortFields || null,
+        searchTerm,
+        setSearchTerm,
+        sortConfig,
+        setSortConfig,
+        enableWrite: forceEnableWrite !== undefined ? forceEnableWrite : (currentQueryDoc?.enableWrite || false),
+        parentColumnName,
+        nestedTableFieldName,
+        nestedTableTabId,
+        updateCurrentNestedTableData,
+        getChangedRowsForTab,
+        getAllChangedNestedTableRows,
+        handleDrawerSave: parentHandleDrawerSave || handleDrawerSave,
+        handleMainSave,
+        handleMainCancel,
+        handleDrawerCancel,
+        hasMainTableChanges,
+        hasDrawerChanges,
+        updateMainTableEditingData,
+        mainTableOriginalData: mainTableOriginalDataRef.current,
+        availableQueryKeys,
+        executingQuery,
+      };
+    }
+    return map;
+  }, [
+    isMultiSlot, slotIds, pipelinesBySlot, slots, effectiveMainConfig,
+    tableFiltersBySlot, tableSortMetaBySlot, tablePaginationBySlot, tableExpandedRowsBySlot, tableVisibleColumnsBySlot, tableVisibleColumns,
+    updateFilterForSlot, clearFilterForSlot, clearAllFiltersForSlot, updateSortForSlot, updatePaginationForSlot, updateExpandedRowsForSlot, updateVisibleColumnsForSlot,
+    getSums, mainTableEditingData, columnTypes, columnTypesOverride, multiselectColumns, hasPercentageColumns, percentageColumnNames, getPercentageColumnValue, getPercentageColumnSortFunction,
+    reportDataWithDerived, isComputingReport, isApplyingFilterSort, chartColumns, chartHeight, columnGroupBy,
+    drawerVisible, drawerData, activeDrawerTabIndex, clickedDrawerValues,
+    openDrawer, openDrawerWithData, openDrawerForOuterGroup, openDrawerForInnerGroup, openDrawerWithJsonTables, openDrawerForNewRow,
+    parentHandleAddNestedRowAtZero, selectedRowData, setSelectedRowDataWithFormSync,
+    formatDateValue, formatHeaderName, isTruthyBoolean, exportToXLSX, isNumericValue,
+    currentQueryDoc, searchTerm, sortConfig, forceEnableWrite, parentColumnName, nestedTableFieldName, nestedTableTabId,
+    updateCurrentNestedTableData, getChangedRowsForTab, getAllChangedNestedTableRows, parentHandleDrawerSave,
+    handleMainSave, handleMainCancel, handleDrawerCancel, hasMainTableChanges, hasDrawerChanges, updateMainTableEditingData,
+    availableQueryKeys, executingQuery,
+  ]);
+
+  // Build single context as slot map: { main: {...}, salesTeamHq: {...}, ... }
+  const contextValue = useMemo(() => {
+    const singleData = slotContextData || {};
+    const multiMap = slotContextMap || {};
+    if (isMultiSlot && Object.keys(multiMap).length > 0) {
+      return multiMap;
+    }
+    return { main: singleData };
+  }, [slotContextData, slotContextMap, isMultiSlot]);
 
   // Memoize field display names to avoid recalculating on every render
   const fieldDisplayNames = useMemo(() => {
@@ -3367,10 +3998,10 @@ export default function DataProviderNew({
 
 
   // Drawer sidebar helpers
-  const hasDrawerTabs = drawerTabs && drawerTabs.length > 0;
+  const hasDrawerTabs = effectiveDrawerTabs && effectiveDrawerTabs.length > 0;
   const hasDrawerData = drawerData && drawerData.length > 0;
   const drawerActiveIndex = hasDrawerTabs
-    ? Math.min(activeDrawerTabIndex, Math.max(0, drawerTabs.length - 1))
+    ? Math.min(activeDrawerTabIndex, Math.max(0, effectiveDrawerTabs.length - 1))
     : 0;
 
   // Empty state component for drawer
@@ -3401,8 +4032,8 @@ export default function DataProviderNew({
           </div>
         )}
 
-        {/* Render children */}
-        <PlasmicDataProvider name="data" data={contextValue}>
+        {/* Render children - wrap with PlasmicDataProvider so data (slot map) is available in Plasmic Studio. */}
+        <PlasmicDataProvider name="data" data={contextValue || {}}>
           {children}
         </PlasmicDataProvider>
       </TableOperationsContext.Provider>
@@ -3457,6 +4088,7 @@ export default function DataProviderNew({
                     tableSortMeta,
                     enableSort,
                     effectiveGroupFields,
+                    derivedColumnNames: getDerivedColumnNames(derivedColumns || [], derivedColumnsMode ?? 'main', derivedColumnsFieldName ?? null),
                   });
 
                   // Apply derived columns to grouped data (including group summary rows)
@@ -3624,26 +4256,26 @@ export default function DataProviderNew({
                   onTabChange={(e) => setActiveDrawerTabIndex(e.index)}
                   className="h-full flex flex-col"
                 >
-                  {drawerTabs.map((tab, index) => {
+                  {effectiveDrawerTabs.map((tab, index) => {
                     // Ensure tab has a unique id (use index as fallback for stability)
                     const tabId = tab.id || `tab-${index}`;
 
-                    // Base props from main table (inherit from DataProviderNew props)
+                    // Base props from main table (inherit from DataProviderNew props; slot override applies)
                     const baseTableProps = {
                       rowsPerPageOptions: [5, 10, 25, 50, 100, 200], // drawer-specific default
                       defaultRows: 10, // drawer-specific default
                       scrollable: false, // drawer-specific default
-                      enableSort: enableSort, // from main table
-                      enableFilter: enableFilter, // from main table
-                      enableSummation: enableSummation, // from main table
-                      enableDivideBy1Lakh: enableDivideBy1Lakh, // from main table
-                      textFilterColumns: textFilterColumns, // from main table
-                      allowedColumns: allowedColumns, // from main table - ensures drawer respects column filtering
+                      enableSort: effectiveMainConfig.enableSort,
+                      enableFilter: effectiveMainConfig.enableFilter,
+                      enableSummation: effectiveMainConfig.enableSummation,
+                      enableDivideBy1Lakh, // shared - pass flat to nested
+                      textFilterColumns: effectiveMainConfig.textFilterColumns || [],
+                      allowedColumns: allowedColumns || [], // shared
                       onAllowedColumnsChange: onAllowedColumnsChange, // from main table
                       visibleColumns: tableVisibleColumns, // from main table - ensures drawer respects column visibility
                       onVisibleColumnsChange: onVisibleColumnsChange, // from main table
-                      redFields: redFields, // from main table
-                      greenFields: greenFields, // from main table
+                      redFields: effectiveMainConfig.redFields || [],
+                      greenFields: effectiveMainConfig.greenFields || [],
                       groupFields: (() => {
                         // Convert tab's outerGroup/innerGroup to groupFields array, or use tab.groupFields if provided
                         if (tab.groupFields && Array.isArray(tab.groupFields)) {
@@ -3656,16 +4288,17 @@ export default function DataProviderNew({
                       })(),
                       enableCellEdit: false, // drawer-specific default
                       editableColumns: { main: [], nested: {} }, // drawer-specific default
-                      percentageColumns: percentageColumns, // from main table
-                      derivedColumns: derivedColumns, // from main table
+                      percentageColumns: effectiveMainConfig.percentageColumns || [],
+                      derivedColumns: effectiveMainConfig.derivedColumns || [],
                       columnTypes: columnTypes, // from main table
+                      columnTypesOverride: columnTypesOverride || {}, // shared
                       tableName: "sidebar",
                       // Report settings - drawer reuses parent report view without local toggle
                       enableReport: false,
                       forceBreakdown: shouldShowDrawerReport,
                       reportDataOverride: shouldShowDrawerReport ? drawerReportDataWithDerived : null,
                       showProviderHeader: false,
-                      dateColumn: dateColumn, // from main table
+                      dateColumn, // shared
                       breakdownType: breakdownType, // from main table
                       columnGroupBy: columnGroupBy, // from main table
                     };
@@ -3680,11 +4313,13 @@ export default function DataProviderNew({
                     let tabDataSource;
                     if (isJsonTable) {
                       const editingData = nestedTableEditingDataRef.current.get(tab.id);
-                      tabDataSource = editingData && editingData.length > 0 ? editingData : (tabData && isArray(tabData) ? tabData : []);
+                      tabDataSource = editingData && isArray(editingData) ? editingData : (tabData && isArray(tabData) ? tabData : []);
                     } else {
                       tabDataSource = drawerData;
                     }
-                    const hasTabData = isJsonTable ? (tabDataSource && isArray(tabDataSource) && tabDataSource.length > 0) : hasDrawerData;
+                    const hasTabData = isJsonTable
+                      ? (tabDataSource && isArray(tabDataSource))
+                      : hasDrawerData;
 
                     return (
                       <TabPanel
@@ -3720,8 +4355,8 @@ export default function DataProviderNew({
                               parentColumnName={isJsonTable ? parentColumnName : undefined}
                               nestedTableFieldName={isJsonTable ? nestedTableFieldName : undefined}
                               onAllowedColumnsChange={mergedTableProps.onAllowedColumnsChange}
-                              visibleColumns={mergedTableProps.visibleColumns}
-                              onVisibleColumnsChange={mergedTableProps.onVisibleColumnsChange}
+                              visibleColumns={isJsonTable ? undefined : mergedTableProps.visibleColumns}
+                              onVisibleColumnsChange={isJsonTable ? undefined : mergedTableProps.onVisibleColumnsChange}
                               enableReport={mergedTableProps.enableReport}
                               forceBreakdown={mergedTableProps.forceBreakdown}
                               reportDataOverride={mergedTableProps.reportDataOverride}
@@ -3741,6 +4376,8 @@ export default function DataProviderNew({
                               // Pass tabId so nested instance can update parent's editing buffer
                               nestedTableTabId={isJsonTable ? tabId : undefined}
                               onNestedBufferChange={isJsonTable ? handleNestedBufferChange : undefined}
+                              parentHandleAddNestedRowAtZero={isJsonTable ? (() => handleAddNestedRowAtZero(tabId)) : undefined}
+                              fallbackColumns={isJsonTable && tab.columns && isArray(tab.columns) && tab.columns.length > 0 ? tab.columns : undefined}
                               onTableDataChange={isJsonTable ? (data) => {
                                 // Update current nested table data for this tab when data changes
                                 updateCurrentNestedTableData(tabId, data);
@@ -3793,9 +4430,13 @@ export default function DataProviderNew({
             <Button label="OK" onClick={handleSaveDiffDialogOk} />
           }
         >
-          <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: '60vh', overflow: 'auto' }}>
-            {saveDiffFormatted}
-          </pre>
+          <div style={{ maxHeight: '60vh', overflow: 'auto' }}>
+            {saveDiffFormatted ? (
+              <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                {saveDiffFormatted}
+              </pre>
+            ) : null}
+          </div>
         </Dialog>
       )}
     </>

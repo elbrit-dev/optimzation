@@ -1,7 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
+import { differenceInCalendarDays } from "date-fns";
+import { TAG_IDS } from "@calendar/components/calendar/constants";
+import { fetchEmployeeLeaveBalance } from "@calendar/services/event.service";
+import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
+import { normalizeMeetingTimes, normalizeNonMeetingDates, syncPobItemRates } from "@calendar/lib/helper";
+import { loadParticipantOptionsByTag } from "@calendar/lib/participants";
 
 export function useDisclosure({
-    defaultIsOpen = false
+	defaultIsOpen = false
 } = {}) {
 	const [isOpen, setIsOpen] = useState(defaultIsOpen);
 
@@ -62,3 +68,22 @@ export function useMediaQuery(query) {
 
 	return matches;
 }
+
+export const useSubmissionRouter = ({
+	isEditing,
+	handleLeave,
+	handleTodo,
+	handleDoctorVisitPlan,
+	handleDefaultEvent,
+}) => {
+	return {
+		[TAG_IDS.LEAVE]: handleLeave,
+		[TAG_IDS.TODO_LIST]: handleTodo,
+		[TAG_IDS.DOCTOR_VISIT_PLAN]: async (values) => {
+			if (isEditing) return handleDefaultEvent(values);
+			if (Array.isArray(values.doctor) && values.doctor.length)
+				return handleDoctorVisitPlan(values);
+		},
+		default: handleDefaultEvent,
+	};
+};

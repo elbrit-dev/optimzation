@@ -19,7 +19,8 @@ export async function fetchEmployees() {
       label: node.employee_name, 
       email: node.company_email, 
       role: node.designation?.name ?? null,// UI text
-      roleId:node.role_id
+      roleId:node.role_id,
+      leave_approver:node.leave_approver?.name ?? null,
     })) || []
   );
 }

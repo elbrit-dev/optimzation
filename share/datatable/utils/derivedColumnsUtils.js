@@ -114,10 +114,6 @@ export function getOrderedColumnsWithDerived(dataColumnNames, derivedColumns, mo
   const result = [...dataColumnNames];
   if (!isArray(derivedColumns) || isEmpty(derivedColumns)) return result;
 
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/2135770c-01a3-4957-a1df-7b381363f2ec',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'derivedColumnsUtils.js:getOrderedColumnsWithDerived',message:'entry',data:{mode,fieldName:fieldName??null,dataLen:dataColumnNames.length,dataCols:dataColumnNames.slice(0,8),derivedNames:derivedColumns.map(d=>d.columnName),derivedWithPos:derivedColumns.filter(d=>d.columnName).map(d=>({n:d.columnName,p:d.position}))},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
-  // #endregion
-
   const configs = derivedColumns
     .filter((dc) => dc.columnName && matchesScope(dc, mode, fieldName))
     .map((dc, index) => ({ ...dc, _index: index }));
@@ -149,10 +145,6 @@ export function getOrderedColumnsWithDerived(dataColumnNames, derivedColumns, mo
     result.splice(insertAt, 0, dc.columnName);
     insertedCount += 1;
   });
-
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/2135770c-01a3-4957-a1df-7b381363f2ec',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'derivedColumnsUtils.js:getOrderedColumnsWithDerived',message:'exit',data:{resultOrder:result},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
-  // #endregion
 
   return result;
 }

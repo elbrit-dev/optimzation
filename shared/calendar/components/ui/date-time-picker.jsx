@@ -147,7 +147,7 @@ export function DateTimePicker({
 					</FormControl>
 				</PopoverTrigger>
 				<PopoverContent className="w-auto p-0">
-					<div className="sm:flex">
+					<div className="sm:flex w-[220px]">
 						<Calendar
 							mode="single"
 							selected={field.value}

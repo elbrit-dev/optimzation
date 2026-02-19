@@ -6,8 +6,8 @@ import { Chip } from 'primereact/chip';
 import { Dropdown } from 'primereact/dropdown';
 import { InputText } from 'primereact/inputtext';
 import { MultiSelect } from 'primereact/multiselect';
-import React, { useContext, useState } from 'react';
-import { TableOperationsContext } from '../contexts/TableOperationsContext';
+import React, { useState } from 'react';
+import { useTableOperations } from '../contexts/TableOperationsContext';
 import { defaultDataTableConfig } from '../config/defaultConfig';
 import { getMainOverrides, getNestedOverridesAtPath, setOverrideAtPath } from '../utils/columnTypesOverrideUtils';
 import { getDataValue } from '../utils/dataAccessUtils';
@@ -646,7 +646,7 @@ export default function DataTableControls({
   onDataSourceChange,
   onSelectedQueryKeyChange,
 }) {
-  const tableOps = useContext(TableOperationsContext);
+  const tableOps = useTableOperations();
   const availableQueryKeys = tableOps?.availableQueryKeys ?? [];
   const executingQuery = tableOps?.executingQuery ?? false;
 
