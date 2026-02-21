@@ -15,6 +15,7 @@ import { Modal, ModalContent, ModalHeader, ModalTitle, ModalTrigger, } from "@ca
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, } from "@calendar/components/ui/select";
 import { RHFFieldWrapper, RHFComboboxField, RHFDateTimeField, InlineCheckboxField, FormFooter, } from "@calendar/components/calendar/form-fields";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
+import { RHFDoctorCardSelector } from "@calendar/components/RHFDoctorCardSelector";
 import { useDisclosure, useSubmissionRouter } from "@calendar/components/calendar/hooks";
 import { eventSchema } from "@calendar/components/calendar/schemas";
 import { TAG_FORM_CONFIG } from "@calendar/lib/calendar/form-config";
@@ -25,11 +26,10 @@ import { mapErpLeaveToCalendar, mapFormToErpLeave } from "@calendar/services/lea
 import { useEmployeeResolvers } from "@calendar/lib/employeeResolver";
 import { uploadLeaveMedicalCertificate } from "@calendar/lib/file.service";
 import { fetchItems } from "@calendar/services/participants.service";
-import { buildParticipantsWithDetails, getAvailableItems, normalizeMeetingTimes, normalizeNonMeetingDates, resolveLatLong, showFirstFormErrorAsToast, showFormErrorsAsToast, syncPobItemRates, updatePobRow } from "@calendar/lib/helper";
+import { buildParticipantsWithDetails, getAvailableItems, normalizeMeetingTimes, normalizeNonMeetingDates, resolveLatLong, showFirstFormErrorAsToast, syncPobItemRates, updatePobRow } from "@calendar/lib/helper";
 import { Button } from "@calendar/components/ui/button";
 import { resolveDisplayValueFromEvent } from "@calendar/lib/calendar/resolveDisplay";
 import { useAuth } from "@calendar/components/auth/auth-context";
-import { Textarea } from "@calendar/components/ui/textarea";
 import Tiptap from "@calendar/components/ui/TodoWysiwyg";
 
 export function AddEditEventDialog({ children, event, defaultTag, forceValues }) {
@@ -46,6 +46,8 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 	const [leaveLoading, setLeaveLoading] = useState(false);
 	const employeeResolvers = useEmployeeResolvers(employeeOptions);
 	const [itemOptions, setItemOptions] = useState([]);
+	const [isResolvingLocation, setIsResolvingLocation] = useState(false);
+
 	const endDateTouchedRef = useRef(false); // existing
 
 	const form = useForm({
@@ -82,6 +84,13 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 		if (tagConfig.hide) return !tagConfig.hide.includes(field);
 		return true;
 	};
+	const currentLocation = form.watch("kly_lat_long");
+
+	const shouldShowRequestLocation =
+		selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN &&
+		!currentLocation &&
+		!isResolvingLocation;
+
 
 	const getFieldLabel = (field, fallback) => {
 		return tagConfig.labels?.[field] ?? fallback;
@@ -170,6 +179,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 			});
 		}
 	}, [selectedTag]);
+
 	/* ---------------------------------------------
 	  Fetch POB ITEMS
 	--------------------------------------------- */
@@ -228,6 +238,17 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 		// existing geo logic (unchanged)
 		resolveLatLong(form, attending, isEditing, toast);
 	}, [attending, isEditing]);
+
+	const handleRequestLocation = async () => {
+		try {
+			setIsResolvingLocation(true);
+
+		    resolveLatLong(form, attending, isEditing, toast);
+
+		} finally {
+			setIsResolvingLocation(false);
+		}
+	};
 
 
 	/* ---------------------------------------------
@@ -520,7 +541,6 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 		});
 
 		const savedEvent = await saveEvent(erpDoc);
-		// console.log("ERP DEFAULT EVENT", erpDoc)
 		const calendarEvent = buildCalendarEvent({
 			event,
 			values,
@@ -531,7 +551,6 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 			doctorOptions,
 			ownerOverride: event ? event.owner : LOGGED_IN_USER.id,
 		});
-		// console.log("Calendar DEFAULT EVENT", calendarEvent)
 		upsertCalendarEvent(calendarEvent);
 		finalize("Event saved");
 	};
@@ -548,20 +567,20 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 		for (const doctor of normalizedDoctors) {
 			const doctorId =
 				typeof doctor === "object" ? doctor.value : doctor;
+			const computedTitle = buildDoctorVisitTitle(doctorId, values);
 
-			const erpDoc = mapFormToErpEvent(
-				{
-					...values,
-					title: buildDoctorVisitTitle(doctorId, values),
-					doctor,
-				},
-				{}
-			);
+			const enrichedValues = {
+				...values,
+				title: computedTitle,
+				doctor,
+			};
+
+			const erpDoc = mapFormToErpEvent(enrichedValues, {});
 
 			const savedEvent = await saveEvent(erpDoc);
 
 			const calendarEvent = buildCalendarEvent({
-				values,
+				values: enrichedValues,
 				erpDoc,
 				savedName: savedEvent.name,
 				tagConfig,
@@ -569,10 +588,9 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 				doctorOptions,
 				ownerOverride: LOGGED_IN_USER.id,
 			});
-
 			addEvent(calendarEvent);
+			
 		}
-
 		finalize(`Created ${values.doctor.length} Doctor Visit events`);
 	};
 
@@ -677,6 +695,9 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 			_doctorOptions: doctorOptions,
 		};
 	}, [event, employeeOptions, doctorOptions]);
+	const shouldHideDateGrid =
+		isEditing && selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN;
+
 
 	return (
 		<Modal open={isOpen} onOpenChange={onToggle}>
@@ -708,7 +729,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 												disabled={isEditing && tagConfig.ui?.lockTagOnEdit}
 												onClick={() => field.onChange(tag.id)}
 												className={`px-4 py-1 rounded-full ${field.value === tag.id
-													? "bg-black text-white"
+													? "bg-primary text-white"
 													: "bg-muted"
 													} ${isEditing ? "cursor-default" : ""}`}
 											>
@@ -794,23 +815,6 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 								/>
 							)}
 
-						{/* ================= DOCTOR ================= */}
-						{!tagConfig.hide?.includes("doctor") &&
-							!isEditReadOnlyField("doctor") && (
-								<FormField
-									control={form.control}
-									name="doctor"
-									render={({ field }) => (
-										<RHFFieldWrapper label="Doctor">
-											<RHFComboboxField
-												{...field}
-												options={doctorOptions}
-												multiple={isDoctorMulti}
-											/>
-										</RHFFieldWrapper>
-									)}
-								/>
-							)}
 
 						{/* ================= MEETING ================= */}
 						{selectedTag === TAG_IDS.MEETING ? (
@@ -871,8 +875,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 									</div>
 								)}
 							</>
-						) : (
-							/* ================= NON-MEETING ================= */
+						) : !shouldHideDateGrid && (
 							<div
 								className={`grid gap-3 ${(isFieldVisible("startDate") &&
 									isFieldVisible("endDate")) ||
@@ -931,6 +934,30 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 								)}
 							</div>
 						)}
+						{/* ================= DOCTOR ================= */}
+						{!tagConfig.hide?.includes("doctor") &&
+							!isEditReadOnlyField("doctor") && (
+								<FormField
+									control={form.control}
+									name="doctor"
+									render={({ field }) => (
+										<RHFFieldWrapper label="Doctor">
+											{selectedTag == TAG_IDS.DOCTOR_VISIT_PLAN ? <RHFDoctorCardSelector
+												value={field.value}
+												onChange={field.onChange}
+												options={doctorOptions}
+												multiple={isDoctorMulti}
+											/> :
+											<RHFComboboxField
+												{...field}
+												options={doctorOptions}
+												multiple={isDoctorMulti}
+											/>}
+
+										</RHFFieldWrapper>
+									)}
+								/>
+							)}
 
 						{/* ================= EMPLOYEES ================= */}
 						{!tagConfig.hide?.includes("employees") &&
@@ -1029,9 +1056,21 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 								)}
 							/>
 						)}
+						{/* ================= LOCATION ================= */}
+						{isEditing && selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN && (
+							<div>
+								<p className="text-sm font-medium">
+									Location
+								</p>
+								<p className="text-sm text-muted-foreground">
+									{form.watch("kly_lat_long") || "Location not captured"}
+								</p>
+							</div>
+						)}
+
 						{/* ================= POB QUESTION ================= */}
 						{isEditing &&
-							selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN && attending === "Yes" && (
+							selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN && (
 								<FormField
 									control={form.control}
 									name="pob_given"
@@ -1168,6 +1207,9 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 					<FormFooter
 						isEditing={isEditing}
 						disabled={form.formState.isSubmitting}
+						showCaptureLocation={shouldShowRequestLocation}
+						onCaptureLocation={handleRequestLocation}
+						isResolvingLocation={isResolvingLocation}
 					/>
 				</div>
 			</ModalContent>

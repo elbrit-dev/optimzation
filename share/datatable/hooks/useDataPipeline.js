@@ -726,7 +726,7 @@ export function useDataPipeline(options) {
 
   const groupedData = useMemo(() => {
     if (enableBreakdown) {
-      if (reportData && reportData.tableData) {
+      if (reportData && reportData.tableData && !isEmpty(reportData.tableData)) {
         let sortedReportData = reportData.tableData;
         if (sortFieldType && sortConfig) {
           const sortComparator = getSortComparator(
@@ -741,9 +741,8 @@ export function useDataPipeline(options) {
         }
         return sortedReportData;
       }
-      // Report mode but report not ready: do not pass raw/grouped raw data to the table.
-      // Report columns expect period_metric keys; raw rows would show "-" for every cell.
-      return [];
+      // Report mode but report not ready (no/empty tableData): fall through to normal grouping
+      // so drawer with raw data can still display when report structure is incompatible.
     }
 
     let dataWithJsonTables = filteredData;

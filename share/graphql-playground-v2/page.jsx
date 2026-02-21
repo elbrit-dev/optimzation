@@ -16,6 +16,7 @@ import { ResponseViewer } from './components/ResponseViewer';
 import { SaveControls } from './components/SaveControls';
 import { SavedQueries } from './components/SavedQueries';
 import { TableViewer } from './components/TableViewer';
+import { TransformerConsoleViewer } from './components/TransformerConsoleViewer';
 import { TransformerFunction } from './components/TransformerFunction';
 import { usePlaygroundStore } from './stores/usePlaygroundStore';
 
@@ -24,6 +25,7 @@ function GraphQLPlaygroundV2() {
   const variables = usePlaygroundStore((state) => state.variables);
   const selectedEnvironment = usePlaygroundStore((state) => state.selectedEnvironment);
   const setResponse = usePlaygroundStore((state) => state.setResponse);
+  const clearTransformerLogs = usePlaygroundStore((state) => state.clearTransformerLogs);
   const resetWorkspace = usePlaygroundStore((state) => state.resetWorkspace);
   const isDirty = usePlaygroundStore((state) => state.isDirty);
   const workspaceRevision = usePlaygroundStore((state) => state.workspaceRevision);
@@ -79,6 +81,7 @@ function GraphQLPlaygroundV2() {
       return;
     }
 
+    clearTransformerLogs();
     setIsExecuting(true);
     try {
       // Get endpoint configuration
@@ -123,7 +126,7 @@ function GraphQLPlaygroundV2() {
     } finally {
       setIsExecuting(false);
     }
-  }, [query, variables, selectedEnvironment, setResponse]);
+  }, [query, variables, selectedEnvironment, setResponse, clearTransformerLogs]);
 
   return (
     <div className="flex flex-col bg-gray-50 graphql-playground-v2" style={{ height: 'calc(100vh - 65px)' }}>
@@ -207,12 +210,12 @@ function GraphQLPlaygroundV2() {
           </div>
         </SplitterPanel>
 
-        {/* Right Panel: Tab View with JSON Viewer and Table Viewer */}
+        {/* Right Panel: Tab View with JSON Viewer, Table Viewer, and Transformer Console */}
         <SplitterPanel size={50} className="flex flex-col min-w-0">
-          <div className="flex flex-col" style={{ height: '100%' }}>
-            {/* Custom header with Execute button and tabs */}
-            <div className="flex items-center border-b border-gray-200 bg-gray-50" style={{ flexShrink: 0 }}>
-              <div className="px-3 py-1.5">
+          <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+            {/* Header with Execute button and tabs - above the splitter like middle panel TabMenu */}
+            <div className="flex items-center border-b border-gray-200 bg-gray-50 px-3" style={{ flexShrink: 0 }}>
+              <div className="px-0 py-1.5">
                 <Button
                   icon={isExecuting || isTransforming ? "pi pi-spin pi-spinner" : "pi pi-play"}
                   label={isExecuting ? "Executing..." : isTransforming ? "Applying..." : "Execute"}
@@ -222,7 +225,7 @@ function GraphQLPlaygroundV2() {
                 />
               </div>
               <div className="flex-1"></div>
-              <div className="flex items-center pr-3">
+              <div className="flex items-center">
                 <TabMenu
                   model={tabMenuItems}
                   activeIndex={activeTab}
@@ -230,20 +233,31 @@ function GraphQLPlaygroundV2() {
                 />
               </div>
             </div>
-            {/* Tab content */}
-            <div className="flex-1 overflow-hidden">
-              <div
-                className="h-full overflow-hidden"
-                style={{ display: activeTab === 0 ? 'block' : 'none', height: '100%' }}
-              >
-                <ResponseViewer key={`response-${workspaceRevision}`} />
-              </div>
-              <div
-                className="h-full overflow-hidden"
-                style={{ display: activeTab === 1 ? 'block' : 'none', height: '100%' }}
-              >
-                <TableViewer key={`table-${workspaceRevision}`} />
-              </div>
+            {/* Splitter for JSON/Table | Transformer Console - same pattern as QueryTabContent */}
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <Splitter style={{ height: 'calc(100dvh - 164px)' }} layout="vertical" className="flex-1">
+                <SplitterPanel size={70} className="flex flex-col h-full min-h-0">
+                  <div className="h-full flex flex-col overflow-hidden">
+                    <div className="flex-1 overflow-hidden min-h-0">
+                      <div
+                        className="h-full overflow-hidden"
+                        style={{ display: activeTab === 0 ? 'block' : 'none', height: '100%' }}
+                      >
+                        <ResponseViewer key={`response-${workspaceRevision}`} />
+                      </div>
+                      <div
+                        className="h-full overflow-hidden"
+                        style={{ display: activeTab === 1 ? 'block' : 'none', height: '100%' }}
+                      >
+                        <TableViewer key={`table-${workspaceRevision}`} />
+                      </div>
+                    </div>
+                  </div>
+                </SplitterPanel>
+                <SplitterPanel size={1} className="flex flex-col h-full min-h-0">
+                  <TransformerConsoleViewer />
+                </SplitterPanel>
+              </Splitter>
             </div>
           </div>
         </SplitterPanel>

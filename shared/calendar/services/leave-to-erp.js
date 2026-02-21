@@ -1,4 +1,5 @@
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
+import { TAG_IDS } from "@calendar/components/calendar/constants";
 import { differenceInCalendarDays, startOfDay, endOfDay, format } from "date-fns";
 function toERPDate(date = new Date()) {
   return format(startOfDay(date), "yyyy-MM-dd");
@@ -9,11 +10,12 @@ export function mapFormToErpLeave(values) {
   const toDate = isHalf
     ? fromDate
     : toERPDate(values.endDate);
-  const totalDays =
-    differenceInCalendarDays(
-      startOfDay(values.endDate),
-      startOfDay(values.startDate)
-    ) + 1;
+  const totalDays = calculateTotalLeaveDays(
+    values.startDate,
+    values.endDate,
+    isHalf
+  );
+
   return {
     doctype: "Leave Application",
     employee: LOGGED_IN_USER.id,
@@ -24,9 +26,7 @@ export function mapFormToErpLeave(values) {
     half_day_date: isHalf
       ? toERPDate(values.halfDayDate)
       : null,
-    total_leave_days: isHalf
-      ? totalDays - 0.5
-      : totalDays,
+    total_leave_days: totalDays,
     description: values.description ?? "",
     posting_date: toERPDate(),
     status: "Open",
@@ -39,27 +39,34 @@ export function mapFormToErpLeave(values) {
 export function mapErpLeaveToCalendar(leave) {
   if (!leave?.from_date || !leave?.to_date || !leave?.name) return null;
 
-  const start = startOfDay(
-    new Date(`${leave.from_date}T00:00:00`)
-  );
+  const start = startOfDay(new Date(`${leave.from_date}T00:00:00`));
+  const end = endOfDay(new Date(`${leave.to_date}T00:00:00`));
 
-  const end = endOfDay(
-    new Date(`${leave.to_date}T00:00:00`)
-  );
+  const isHalfDay = leave.half_day === 1 || leave.half_day === true;
 
+  const totalDays =
+    leave.total_leave_days ??
+    calculateTotalLeaveDays(start, end, isHalfDay);
+  // 🎯 Status → Color mapping
+  const statusColorMap = {
+    Approved: "green",
+    Rejected: "red",
+    Open: "orange",
+  };
   return {
-    erpName: `LEAVE-${leave.name}`,
-    id: `LEAVE-${leave.name}`,
-    title: leave.leave_type__name || "Leave",
-    tags: "Leave",
+    erpName: `${leave.name}`,
+    id: `${leave.name}`,
+    title: leave.leave_type__name || TAG_IDS.LEAVE,
+    tags: TAG_IDS.LEAVE,
     leaveType: leave.leave_type__name,
     startDate: start.toISOString(), // ✅ normalized
     endDate: end.toISOString(),     // ✅ normalized
     status: leave.status,
+    half_day: isHalfDay ? 1 : 0,
+    total_leave_days: totalDays,
     halfDayDate: leave.half_day_date ?? "",
     description: leave.description,
-    color: "red",
-    allDay: true,
+    color: statusColorMap[leave.status] ?? "red",
     medicalAttachment: leave.fsl_attach ?? "",
     employee: leave.employee?.name,
     approvedBy: leave.leave_approver_name ?? "",
@@ -68,4 +75,15 @@ export function mapErpLeaveToCalendar(leave) {
         ? leave.leave_approver?.name
         : leave.leave_approver ?? null,
   };
+}
+
+
+export function calculateTotalLeaveDays(startDate, endDate, isHalfDay) {
+  const totalDays =
+    differenceInCalendarDays(
+      startOfDay(endDate),
+      startOfDay(startDate)
+    ) + 1;
+
+  return isHalfDay ? totalDays - 0.5 : totalDays;
 }

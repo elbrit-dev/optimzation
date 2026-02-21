@@ -44,6 +44,23 @@ mutation SaveEvent($doc: String!) {
   }
 }
 `;
+const UPDATE_LEAVE_STATUS_MUTATION = `
+mutation UpdateLeaveStatus(
+  $name: String!
+  $value: DOCFIELD_VALUE_TYPE!
+) {
+  setValue(
+    doctype: "Leave Application"
+    name: $name
+    fieldname: "status"
+    value: $value
+  ) {
+    name
+  }
+}
+`;
+
+
 const UPDATE_LEAVE_ATTACHMENT_MUTATION = `
 mutation UpdateLeaveAttachment(
   $name: String!
@@ -91,6 +108,79 @@ export async function saveEvent(doc) {
 
   return data.saveDoc.doc;
 }
+export async function updateLeaveStatus(leaveName, newStatus) {
+  if (!leaveName || !newStatus) {
+    throw new Error("Invalid leave update payload");
+  }
+
+  const data = await graphqlRequest(
+    UPDATE_LEAVE_STATUS_MUTATION,
+    {
+      name: leaveName,
+      value: newStatus,
+    }
+  );
+
+  if (!data?.setValue?.name) {
+    throw new Error("Failed to update leave status");
+  }
+
+  // Clear all relevant caches
+  clearLeaveCache();
+
+  return true;
+}
+export async function addLeadNote(leadName, newNoteHtml) {
+  if (!leadName || !newNoteHtml) {
+    throw new Error("Invalid note payload");
+  }
+
+  // 1️⃣ Fetch current lead with notes
+  const leadRes = await graphqlRequest(
+    `
+    query GetLead($name: String!) {
+      Lead(name: $name) {
+        name
+        notes {
+          note
+        }
+      }
+    }
+    `,
+    { name: leadName }
+  );
+
+  const existingNotes =
+    leadRes?.Lead?.notes?.map(n => ({ note: n.note })) ?? [];
+
+  // 2️⃣ Append new note
+  const updatedDoc = {
+    name: leadName,
+    notes: [
+      ...existingNotes,
+      { note: newNoteHtml }
+    ]
+  };
+
+  // 3️⃣ Save Lead
+  const saveRes = await graphqlRequest(
+    `
+    mutation SaveLead($doc: String!) {
+      saveDoc(doctype: "Lead", doc: $doc) {
+        doc { name }
+      }
+    }
+    `,
+    { doc: JSON.stringify(updatedDoc) }
+  );
+
+  if (!saveRes?.saveDoc?.doc?.name) {
+    throw new Error("Failed to save lead note");
+  }
+
+  return true;
+}
+
 export async function saveDocToErp(doc) {
   const data = await graphqlRequest(SAVE_EVENT_TODO, {
     doc: JSON.stringify(doc),

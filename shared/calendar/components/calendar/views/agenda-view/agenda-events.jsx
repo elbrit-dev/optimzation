@@ -243,7 +243,8 @@ export const AgendaEvents = ({ scope = "all" }) => {
                                 <TagIcon className="w-4 h-4 text-muted-foreground" />
                               )}
                               <p className="font-medium text-sm">
-                                {event.title}
+                                {/* {event.title} */}
+                                {event.tags}
                               </p>
                             </div>
                             {/* <p className="font-medium text-sm">{event.title}</p> */}

@@ -48,9 +48,21 @@ export function resolveDisplayValueFromEvent({
     }
 
     case "owner": {
-      return event.owner?.name ?? null;
+      return event.employeeResolvers?.getEmployeeNameById(event.employee) 
+        ?? event.employee;
     }
-
+    case "leave_approver": {
+      if (!event.leave_approver) return null;
+    
+      const approver = event._employeeOptions?.find(
+        (e) =>
+          e.email?.toLowerCase() ===
+          event.leave_approver.toLowerCase()
+      );
+    
+      return approver?.label ?? event.leave_approver;
+    }
+    
     case "date": {
       const d =
         typeof value === "string" ? parseISO(value) : new Date(value);

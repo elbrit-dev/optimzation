@@ -98,6 +98,29 @@ export function RHFCombobox({
   --------------------------------------- */
   return (
     <>
+
+      {/* ---------------------------------------
+         Selected tags (BOTTOM)
+      --------------------------------------- */}
+      {hasSelection && tagsDisplay && (
+        <div className="mb-2 flex flex-wrap gap-2">
+          {selectedOptions.map((opt) => (
+            <span
+              key={opt.value}
+              className="flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-sm"
+            >
+              {opt.label}
+              <button
+                type="button"
+                onClick={() => handleRemove(opt.value)}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X size={14} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
       <Popover open={open} onOpenChange={setOpen} modal>
         <PopoverTrigger asChild>
           <Button
@@ -151,28 +174,6 @@ export function RHFCombobox({
         </PopoverContent>
       </Popover>
 
-      {/* ---------------------------------------
-         Selected tags (BOTTOM)
-      --------------------------------------- */}
-      {hasSelection && tagsDisplay && (
-        <div className="mt-2 flex flex-wrap gap-2">
-          {selectedOptions.map((opt) => (
-            <span
-              key={opt.value}
-              className="flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-sm"
-            >
-              {opt.label}
-              <button
-                type="button"
-                onClick={() => handleRemove(opt.value)}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <X size={14} />
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
     </>
   );
 }

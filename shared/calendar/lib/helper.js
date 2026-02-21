@@ -1,28 +1,40 @@
 import { toast } from "sonner";
 import { set, addMinutes } from "date-fns";
 import { TAG_IDS } from "@calendar/components/calendar/constants";
-export function buildParticipantsWithDetails(erpParticipants, {
-  employeeOptions,
-  doctorOptions,
-}) {
+import { saveEvent } from "@calendar/services/event.service";
+export function buildParticipantsWithDetails(
+  erpParticipants,
+  { employeeOptions, doctorOptions }
+) {
   return erpParticipants.map((p) => {
     const type = p.reference_doctype;
     const id = String(p.reference_docname);
 
     let name = id;
+    let email = p.email ?? null;
+    let roleId = null;
 
     if (type === "Employee") {
       const emp = employeeOptions.find(
         (e) => e.value === id
       );
+
       name = emp?.label ?? id;
+
+      // Prefer ERP truth, fallback to option
+      email = p.email ?? emp?.email ?? null;
+      roleId = p.kly_role_id ?? emp?.roleId ?? null;
     }
 
     if (type === "Lead") {
       const doc = doctorOptions.find(
         (d) => d.value === id
       );
+
       name = doc?.label ?? id;
+
+      // Lead only email
+      email = p.email ?? doc?.email ?? null;
     }
 
     return {
@@ -31,9 +43,18 @@ export function buildParticipantsWithDetails(erpParticipants, {
       name,
       attending: p.attending ?? null,
       kly_lat_long: p.kly_lat_long ?? null,
+
+      // ✅ NEW
+      email,
+
+      // ✅ Only Employee gets roleId
+      ...(type === "Employee" && roleId
+        ? { kly_role_id: roleId }
+        : {}),
     };
   });
 }
+
 
 export function showFirstFormErrorAsToast(errors) {
   const findError = (obj) => {
@@ -107,10 +128,10 @@ export function syncPobItemRates(form, pobItems, itemOptions) {
    GEO LOCATION HANDLER
 --------------------------------------------- */
 export function resolveLatLong(form, attending, isEditing, toast) {
-  if (!isEditing || !attending) return;
+  if (!isEditing) return;
   if (form.getValues("kly_lat_long")) return;
 
-  const FALLBACK = "0,0";
+  const FALLBACK = JSON.stringify({ x: 0, y: 0 });
 
   const setFallback = () =>
     form.setValue("kly_lat_long", FALLBACK, {
@@ -125,12 +146,24 @@ export function resolveLatLong(form, attending, isEditing, toast) {
   }
 
   navigator.geolocation.getCurrentPosition(
-    pos => {
+    (pos) => {
+      const location = {
+        x: pos.coords.latitude,
+        y: pos.coords.longitude,
+      };
+
+      // ✅ Set location
       form.setValue(
         "kly_lat_long",
-        `${pos.coords.latitude},${pos.coords.longitude}`,
+        JSON.stringify(location),
         { shouldDirty: true }
       );
+
+      // ✅ Force attending = "Yes"
+      form.setValue("attending", "Yes", {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
     },
     () => {
       toast.error("Unable to fetch location. Using fallback.");
@@ -139,7 +172,6 @@ export function resolveLatLong(form, attending, isEditing, toast) {
     { timeout: 20000 }
   );
 }
-
 /* ---------------------------------------------
    NON-MEETING DATE NORMALIZATION
 --------------------------------------------- */
@@ -230,3 +262,38 @@ export function normalizeMeetingTimes(
     });
   }
 }
+
+
+export async function joinDoctorVisit({
+  erpName,
+  existingParticipants,
+  employeeId,
+}) {
+  return saveEvent({
+    name: erpName,
+    event_participants: [
+      ...existingParticipants,
+      {
+        reference_doctype: "Employee",
+        reference_docname: employeeId,
+      },
+    ],
+  });
+}
+export async function leaveDoctorVisit({
+  erpName,
+  existingParticipants,
+  employeeId,
+}) {
+  return saveEvent({
+    name: erpName,
+    event_participants: existingParticipants.filter(
+      (p) =>
+        !(
+          p.reference_doctype === "Employee" &&
+          String(p.reference_docname) === String(employeeId)
+        )
+    ),
+  });
+}
+

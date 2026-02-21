@@ -30,6 +30,10 @@ query EventsByRange(
           kly_lat_long
           reference_docname__name
           attending
+          email
+          kly_role_id {
+            name
+          }
         }
           fsl_doctor_item {
           amount
@@ -62,7 +66,7 @@ query ToDoes($first: Int!) {
   }
 }
 `;
-export const ELBRIT_ROLEID=`
+export const ELBRIT_ROLEID = `
 query ElbritRoleIDS($first: Int) {
   ElbritRoleIDS(first: $first) {
     edges {
@@ -131,6 +135,18 @@ query Doctors($first: Int) {
         name
         lead_name
         fsl_lat_lon
+        city
+        fsl_speciality__name
+        fsl_ecubix_code
+        email_id
+        notes {
+          note
+          creation
+        }
+        fsl_category1__name
+        fsl_category2__name
+        fsl_category3__name
+        territory__name
       }
     }
   }

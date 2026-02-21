@@ -15,3 +15,7 @@ export function clearCached(keys = []) {
     delete cache[key];
   });
 }
+export function clearParticipantCache(key) {
+  delete cache[key];
+}
+

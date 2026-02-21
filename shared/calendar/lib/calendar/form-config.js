@@ -10,7 +10,7 @@ export const TAG_FORM_CONFIG = {
     show: ["startDate", "endDate", "description", "leaveType"],
     required: ["startDate", "endDate", "leaveType"],
     dateOnly: true,
-    fixedColor: "red",
+    fixedColor: "yellow",
     autoTitle: () => "Leave",
     employee: {
       autoSelectLoggedIn: true,
@@ -30,15 +30,35 @@ export const TAG_FORM_CONFIG = {
       allowEdit: (event) => event.status !== "APPROVED",
     },
     details: {
-      fields: [
-        { key: "startDate", label: "Start Date", type: "date" },
-        { key: "endDate", label: "End Date", type: "date" },
-        { key: "leaveType", label: "Leave Type", type: "text" },
-        { key: "status", label: "Status", type: "text" },
-        { key: "leave_approver", label: "Leave Approver", type: "text" },
-        { key: "description", label: "Reason", type: "text" },
+      layout: [
+        {
+          columns: 2,
+          fields: ["startDate", "status"],
+        },
+        {
+          columns: 2,
+          fields: ["owner", "leave_approver"],
+        },
+        {
+          columns: 1,
+          fields: ["description"],
+        },
+        {
+          columns: 1,
+          fields: ["attachment"],
+        },
       ],
-    },
+    
+      fields: {
+        // startDate: { label: "Start Date", type: "date" },
+        // status: { label: "Status", type: "text" },
+        owner: { label: "Request By", type: "owner" },
+        leave_approver: { label: "Approved By", type: "leave_approver" },
+        description: { label: "Reason", type: "text" },
+        attachment: { label: "Attached File", type: "file" },
+      },
+    }
+    
   },
 
   [TAG_IDS.HQ_TOUR_PLAN]: {
@@ -178,7 +198,7 @@ export const TAG_FORM_CONFIG = {
       "description",
       "color", "allocated_to"
     ],
-    show: ["startDate", "doctor"],
+    // show: ["startDate", "doctor"],
     required: ["startDate", "doctor"],
     dateOnly: true,
     labels: {
@@ -196,7 +216,7 @@ export const TAG_FORM_CONFIG = {
         ),
       allowEdit: () => true,
       primaryEditAction: {
-        label: "Visit Now",
+        label: "Visit",
         type: "success",
         setOnEdit: {
           attending: "Yes",

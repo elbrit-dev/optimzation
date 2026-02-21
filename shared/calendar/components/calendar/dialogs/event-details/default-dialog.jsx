@@ -1,20 +1,23 @@
 "use client";;
 import {  useRef, useMemo } from "react";
-import { toast } from "sonner";
 import { Button } from "@calendar/components/ui/button";
 import { TAG_FORM_CONFIG } from "@calendar/lib/calendar/form-config";
 import { ScrollArea } from "@calendar/components/ui/scroll-area";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 import { AddEditEventDialog } from "@calendar/components/calendar/dialogs/add-edit-event-dialog";
-import { deleteEventFromErp } from "@calendar/services/event.service";
 import { buildParticipantsWithDetails } from "@calendar/lib/helper";
 import { resolveDisplayValueFromEvent } from "@calendar/lib/calendar/resolveDisplay";
 import { ICONS } from "../event-details-dialog";
+import { useDeleteEvent } from "../../hooks";
 
 export function EventDefaultDialog({
 	event,setOpen
 }) {
 	const { use24HourFormat, removeEvent, employeeOptions, doctorOptions } = useCalendar();
+    const { handleDelete } = useDeleteEvent({
+        removeEvent,
+        onClose: () => setOpen(false),
+      });
 	const deleteLockRef = useRef(false);
 	const tagConfig =TAG_FORM_CONFIG[event.tags] ?? TAG_FORM_CONFIG.DEFAULT;
 
@@ -62,21 +65,7 @@ export function EventDefaultDialog({
 					{canDelete && (
 						<Button
 							variant="destructive"
-							onClick={async () => {
-								if (deleteLockRef.current) return;
-								deleteLockRef.current = true;
-
-								try {
-									await deleteEventFromErp(event.erpName);
-									removeEvent(event.erpName);
-									setOpen(false);
-									toast.success("Event deleted successfully.");
-								} catch (e) {
-									toast.error("Error deleting event.");
-								} finally {
-									deleteLockRef.current = false;
-								}
-							}}
+                            onClick={() => handleDelete(event.erpName)}
 						>
 							Delete
 						</Button>

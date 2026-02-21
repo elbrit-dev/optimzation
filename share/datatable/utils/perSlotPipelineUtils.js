@@ -194,7 +194,7 @@ function getSortComparatorForQuery(config, fieldType, topLevelKey, nestedPath) {
  * another slot's pipeline output or shared ref), groupDataRecursive skips them, producing empty
  * groups. Extract leaf rows from __groupRows__ so grouping works for this slot.
  */
-function flattenToLeafRows(data) {
+export function flattenToLeafRows(data) {
   if (!isArray(data) || isEmpty(data)) return data;
   const first = data[0];
   if (!first?.__isGroupRow__ || !isArray(first?.__groupRows__)) return data;

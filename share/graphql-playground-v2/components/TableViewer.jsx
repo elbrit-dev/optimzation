@@ -10,6 +10,7 @@ import {
   executeTransformer,
 } from '@/app/graphql-playground/utils/query-pipeline';
 import { TabPanel, TabView } from 'primereact/tabview';
+import { runWithConsoleCapture, argsToLogEntry } from '../utils/consoleCapture';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePlaygroundStore } from '../stores/usePlaygroundStore';
 
@@ -48,6 +49,8 @@ export function TableViewer() {
     setRawTableData,
     setTransformedTableData,
     setIsTransforming,
+    clearTransformerLogs,
+    setTransformerLogs,
   } = usePlaygroundStore();
   const [rawResponseData, setRawResponseData] = useState(null);
   const [processedData, setProcessedData] = useState(null);
@@ -89,10 +92,10 @@ export function TableViewer() {
           const runToken = Symbol('transform');
           latestTransformRef.current = runToken;
           setIsTransforming(true);
+          clearTransformerLogs();
           const executionContext = createExecutionContext();
 
           try {
-
             // Query helper mirrors v1 behavior: always use pipeline lookups
             const queryFunction = async (queryId, queryVariables = {}) => {
               const trimmedId = queryId ? queryId.trim() : '';
@@ -108,11 +111,6 @@ export function TableViewer() {
                 throw new Error('No endpoint available');
               }
 
-              console.log('[PlaygroundV2] Transformer pipeline query:', {
-                id: trimmedId,
-                hasVariables: Object.keys(queryVariables || {}).length > 0,
-              });
-
               return executePipeline(trimmedId, executionContext, {
                 endpointUrl,
                 authToken,
@@ -120,12 +118,42 @@ export function TableViewer() {
               });
             };
 
-            console.log('[PlaygroundV2] Transformer length:', currentTransformerCode.length);
-            const transformedData = await executeTransformer(currentTransformerCode, rawData, queryFunction);
+            const transformedData = await runWithConsoleCapture(
+              () => executeTransformer(currentTransformerCode, rawData, queryFunction),
+              (level, args) => {
+                const { content, preview } = argsToLogEntry(args);
+                setTransformerLogs((prev) => {
+                  const next = [...prev];
+                  next.push({
+                    id: `log-${Date.now()}-${next.length}`,
+                    level,
+                    args,
+                    content,
+                    preview,
+                    timestamp: new Date().toISOString(),
+                  });
+                  return next;
+                });
+              }
+            );
             setProcessedData(transformedData);
             setTransformedTableData(transformedData || null);
           } catch (error) {
-            console.error('Error applying transformer:', error);
+            const errorMessage = error?.message || String(error);
+            const errorStack = error?.stack || '';
+            const content = errorStack || errorMessage;
+            const preview = content.split('\n')[0]?.slice(0, 80) || errorMessage;
+            setTransformerLogs((prev) => {
+              const next = [...prev];
+              next.push({
+                id: `log-error-${Date.now()}`,
+                level: 'error',
+                content,
+                preview,
+                timestamp: new Date().toISOString(),
+              });
+              return next;
+            });
             setProcessedData(null);
             setTransformedTableData(null);
           } finally {

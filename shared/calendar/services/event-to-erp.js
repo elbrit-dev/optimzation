@@ -18,49 +18,70 @@ export function mapFormToErpEvent(values, options = {}) {
   const isUpdate = Boolean(erpName);
   function buildParticipants(values) {
     const participants = [];
+  
     /* ---------- Employees ---------- */
     if (values.employees) {
-      const employeeIds = Array.isArray(values.employees)
+      const employeeList = Array.isArray(values.employees)
         ? values.employees
         : [values.employees];
-
-      employeeIds.forEach((emp) => {
-        const empId =
-          typeof emp === "object" ? emp.value : emp;
-
+  
+      employeeList.forEach((emp) => {
+        const isObject = typeof emp === "object" && emp !== null;
+  
+        const empId = isObject ? emp.value : emp;
+        const empEmail = isObject ? emp.email : undefined;
+        const empRoleId =
+          isObject ? emp.roleId : values.roleId; // fallback
+  
         const participant = {
           reference_doctype: "Employee",
           reference_docname: empId,
+  
+          // ✅ EMAIL
+          ...(empEmail && { email: empEmail }),
+  
+          // ✅ ROLE (ERP STRUCTURE)
+          ...(empRoleId && {
+            kly_role_id: empRoleId,
+          }),
         };
-
-        // ✅ ONLY ON EDIT + DOCTOR VISIT PLAN
+  
+        // Doctor Visit Edit logic
         if (isDoctorVisitPlan && isUpdate) {
           if (values.attending === "Yes" || values.attending === "No") {
             participant.attending = values.attending;
           }
-
-
+  
           if (values.kly_lat_long) {
             participant.kly_lat_long = values.kly_lat_long;
           }
         }
-
+  
         participants.push(participant);
       });
     }
-    /* ---------- Doctors ---------- */
+  
+    /* ---------- Leads ---------- */
     if (values.doctor) {
       const doctors = Array.isArray(values.doctor)
         ? values.doctor
         : [values.doctor];
-
+  
       doctors.forEach((doctor) => {
-        const isObject = typeof doctor === "object" && doctor !== null;
-
+        const isObject =
+          typeof doctor === "object" && doctor !== null;
+  
+        const leadId = isObject ? doctor.value : doctor;
+        const leadEmail = isObject ? doctor.email : undefined;
+  
         const participant = {
           reference_doctype: "Lead",
-          reference_docname: isObject ? doctor.value : doctor,
+          reference_docname: leadId,
+  
+          // ✅ EMAIL ONLY
+          ...(leadEmail && { email: leadEmail }),
         };
+  
         if (
           isObject &&
           doctor.kly_lat_long &&
@@ -68,13 +89,14 @@ export function mapFormToErpEvent(values, options = {}) {
         ) {
           participant.kly_lat_long = doctor.kly_lat_long;
         }
-
+  
         participants.push(participant);
       });
     }
-
+  
     return participants;
   }
+  
   const hasEmployee =
     Boolean(values.employees) &&
     (Array.isArray(values.employees)
@@ -118,13 +140,16 @@ export function mapFormToErpEvent(values, options = {}) {
     Array.isArray(values.fsl_doctor_item)
   ) {
     doc.fsl_doctor_item = values.fsl_doctor_item.map((row) => ({
-      item: {
-        name: row.item__name, // 👈 REQUIRED BY ERP
-      },
+      item:
+        typeof row.item__name === "object"
+          ? row.item__name.value
+          : row.item__name,
+    
       qty: Number(row.qty) || 0,
       rate: Number(row.rate) || 0,
       amount: Number(row.amount) || 0,
     }));
+    
   }
 
   /* ------------------------------------

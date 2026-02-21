@@ -33,6 +33,12 @@ export function mapErpGraphqlEventToCalendar(node) {
       reference_docname: String(p.reference_docname__name),
       attending: p.attending,
       kly_lat_long: p.kly_lat_long,
+      email: p.email ?? null,
+      // ✅ Only meaningful for Employee
+      kly_role_id:
+        p.reference_doctype__name === "Employee"
+          ? p.kly_role_id?.name ?? null
+          : null,
     })) ?? [];
 
   const participants = event_participants.map((p) => ({
@@ -40,6 +46,12 @@ export function mapErpGraphqlEventToCalendar(node) {
     id: p.reference_docname,
     attending: p.attending,
     kly_lat_long: p.kly_lat_long,
+    email: p.email,
+
+    // ✅ Only Employee gets roleId
+    ...(p.reference_doctype === "Employee" && {
+      kly_role_id: p.kly_role_id,
+    }),
   }));
 
   /* ---------------------------------------------

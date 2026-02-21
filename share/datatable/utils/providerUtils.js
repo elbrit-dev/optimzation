@@ -42,7 +42,7 @@ export function useReportData(
 
     // Ensure effectiveGroupFields is an array
     const groupFields = Array.isArray(effectiveGroupFields) ? effectiveGroupFields : [];
-    
+
     // If conditions not met, show loader but don't compute yet
     if (!dateColumn || isEmpty(data) || groupFields.length === 0) {
       // Keep loader showing if toggle is on but conditions aren't ready
@@ -69,6 +69,12 @@ export function useReportData(
             sortFieldType
           );
           if (computationId === computationIdRef.current) {
+            const inputHadData = Array.isArray(data) && data.length > 0;
+            const outputEmpty = !computed?.tableData?.length;
+            if (inputHadData && outputEmpty) {
+              setIsComputingReport(false);
+              return;
+            }
             setReportData(computed);
             setIsComputingReport(false);
           }
@@ -96,6 +102,14 @@ export function useReportData(
 
         // Only update if this is still the latest computation
         if (computationId === computationIdRef.current) {
+          // Reject empty output when input had data - prevents loop (wrong-format input produces empty, which triggers re-run)
+          const inputHadData = Array.isArray(data) && data.length > 0;
+          const outputEmpty = !computed?.tableData?.length;
+          if (inputHadData && outputEmpty) {
+            // Keep previous reportData, just stop computing
+            setIsComputingReport(false);
+            return;
+          }
           setReportData(computed);
           setIsComputingReport(false);
         }
@@ -113,6 +127,12 @@ export function useReportData(
             sortFieldType
           );
           if (computationId === computationIdRef.current) {
+            const inputHadData = Array.isArray(data) && data.length > 0;
+            const outputEmpty = !computed?.tableData?.length;
+            if (inputHadData && outputEmpty) {
+              setIsComputingReport(false);
+              return;
+            }
             setReportData(computed);
             setIsComputingReport(false);
           }

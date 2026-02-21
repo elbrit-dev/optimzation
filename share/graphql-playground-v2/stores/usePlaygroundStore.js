@@ -17,6 +17,7 @@ export const usePlaygroundStore = create((set) => {
     transformerFunction: '',
     rawTableData: null,
     transformedTableData: null,
+    transformerLogs: [],
   });
 
   return {
@@ -30,6 +31,11 @@ export const usePlaygroundStore = create((set) => {
     setRawTableData: (rawTableData) => set({ rawTableData }),
     setTransformedTableData: (transformedTableData) => set({ transformedTableData }),
     setIsTransforming: (isTransforming) => set({ isTransforming }),
+    transformerLogs: [],
+    setTransformerLogs: (arg) => set((state) => ({
+      transformerLogs: typeof arg === 'function' ? arg(state.transformerLogs) : arg,
+    })),
+    clearTransformerLogs: () => set({ transformerLogs: [] }),
 
     // Dirty tracking for workspace edits
     isDirty: false,

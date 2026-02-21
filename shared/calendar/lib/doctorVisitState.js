@@ -25,7 +25,7 @@ export function resolveDoctorVisitState(event, loggedInUserId) {
   const hasVisited =
     isParticipant &&
     participant?.kly_lat_long &&
-    participant?.attending === "Yes";
+    participant?.attending.toLowerCase() === "yes";
 
   return {
     isDoctorVisit: true,

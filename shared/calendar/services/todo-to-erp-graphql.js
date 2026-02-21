@@ -1,5 +1,6 @@
 import { format,startOfDay, endOfDay  } from "date-fns";
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
+import { TAG_IDS } from "@calendar/components/calendar/constants";
 
 export function mapFormToErpTodo(values, resolvers) {
   const employeeId = values.allocated_to
@@ -31,7 +32,7 @@ export function mapFormToErpTodo(values, resolvers) {
       description: todo.description,
       startDate: start.toISOString(),
       endDate: end.toISOString(),
-      tags: "Todo List",
+      tags: TAG_IDS.TODO_LIST,
       color: "orange",
       isTodo: true,
       status: todo.status,

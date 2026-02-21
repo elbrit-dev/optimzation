@@ -190,7 +190,7 @@ export function useQueryExecution(options) {
     }
   }, [dataSource, monthRange, currentQueryDoc]);
 
-  const fetchAndCacheMonthsInRange = useCallback(async (queryId, queryDoc, monthRangeValue) => {
+  const fetchAndCacheMonthsInRange = useCallback(async (queryId, queryDoc, monthRangeValue, onComplete) => {
     if (!queryId || !queryDoc || !monthRangeValue || !Array.isArray(monthRangeValue) || monthRangeValue.length !== 2) return;
     const [startDate, endDate] = monthRangeValue;
     const monthPrefixes = generateMonthRangeArray(startDate, endDate);
@@ -213,6 +213,13 @@ export function useQueryExecution(options) {
             await workerRef.current.executePipeline(queryId, queryDoc, endpointUrl, authToken, monthRangeSerialized, {}, allQueryDocsRef.current);
           } catch (e) {
             console.error(`Error fetching month ${prefix}:`, e);
+          }
+        }
+        if (typeof onComplete === 'function') {
+          try {
+            await onComplete();
+          } catch (e) {
+            console.error('Error in fetchAndCacheMonthsInRange onComplete:', e);
           }
         }
       } catch (e) {
@@ -368,7 +375,16 @@ export function useQueryExecution(options) {
               setProcessedData(reconstructed);
               await fetchLastUpdatedAt(queryDoc, monthRangeValue);
               if (onDataChange) onDataChange({ severity: 'success', summary: 'Success', detail: `Data loaded from cache (${cachedPrefixes.length}/${monthPrefixes.length} months)`, life: 3000 });
-              fetchAndCacheMonthsInRange(queryId, queryDoc, monthRangeValue);
+              const onBackgroundComplete = async () => {
+                await new Promise((resolve) => setTimeout(resolve, 100));
+                const fullReconstructed = await indexedDBService.reconstructPipelineResult(queryId, null, monthPrefixes);
+                if (fullReconstructed && typeof fullReconstructed === 'object' && Object.keys(fullReconstructed).length > 0) {
+                  setProcessedData(fullReconstructed);
+                  await fetchLastUpdatedAt(queryDoc, monthRangeValue);
+                  if (onDataChange) onDataChange({ severity: 'success', summary: 'Success', detail: 'All months loaded', life: 3000 });
+                }
+              };
+              fetchAndCacheMonthsInRange(queryId, queryDoc, monthRangeValue, onBackgroundComplete);
               cacheLoadInProgressRef.current = null;
               setLoadingFromCache(false);
               return;

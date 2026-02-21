@@ -710,6 +710,7 @@ export default function DataTableNew({
   const tableOps = useTableOperations(effectiveSlotId);
   const {
     rawData,
+    filteredData: contextFilteredData,
     paginatedData, // Final data for display
     sortedData, // For totalRecords calculation
     groupedData,
@@ -1701,8 +1702,12 @@ export default function DataTableNew({
             title={cellValue}
             onClick={(e) => {
               e.stopPropagation();
-              // Use unified openDrawer with filters for all levels
-              openDrawer(filters);
+              // Use slot's filteredData and drawerTabs so drawer shows correct data+tabs in multi-slot mode
+              const dataToUse = contextFilteredData && Array.isArray(contextFilteredData) ? contextFilteredData : undefined;
+              const tableOptions = (drawerTabs && Array.isArray(drawerTabs) && drawerTabs.length > 0)
+                ? { drawerTabsOverride: drawerTabs }
+                : undefined;
+              openDrawer(dataToUse != null ? dataToUse : filters, dataToUse != null ? filters : undefined, undefined, tableOptions);
               // Still call parent callbacks if provided (for backward compatibility)
               if (groupFieldIndex === 0 && onOuterGroupClick) {
                 onOuterGroupClick(rowData, col, value);
@@ -1765,7 +1770,7 @@ export default function DataTableNew({
         </div>
       );
     };
-  }, [columnTypesFlags, effectiveGroupFields, onOuterGroupClick, onInnerGroupClick, booleanBodyTemplate, dateBodyTemplate, formatCellValue, isPercentageColumn, getPercentageColumnValue, getColumnColorClass, openDrawer, orderedColumns, enableWrite, openDrawerWithJsonTables]);
+  }, [columnTypesFlags, effectiveGroupFields, onOuterGroupClick, onInnerGroupClick, booleanBodyTemplate, dateBodyTemplate, formatCellValue, isPercentageColumn, getPercentageColumnValue, getColumnColorClass, openDrawer, orderedColumns, enableWrite, openDrawerWithJsonTables, contextFilteredData, drawerTabs]);
 
   // Helper to check if a column (top-level key) is in sortFields
 

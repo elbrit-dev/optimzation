@@ -5,7 +5,9 @@ import { fetchEmployeeLeaveBalance } from "@calendar/services/event.service";
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 import { normalizeMeetingTimes, normalizeNonMeetingDates, syncPobItemRates } from "@calendar/lib/helper";
 import { loadParticipantOptionsByTag } from "@calendar/lib/participants";
-
+import { useRef } from "react";
+import { toast } from "sonner";
+import { deleteEventFromErp } from "@calendar/services/event.service";
 export function useDisclosure({
 	defaultIsOpen = false
 } = {}) {
@@ -87,3 +89,25 @@ export const useSubmissionRouter = ({
 		default: handleDefaultEvent,
 	};
 };
+
+export function useDeleteEvent({ removeEvent, onClose }) {
+  const deleteLockRef = useRef(false);
+
+  const handleDelete = async (erpName) => {
+    if (deleteLockRef.current) return;
+    deleteLockRef.current = true;
+
+    try {
+      await deleteEventFromErp(erpName);
+      removeEvent(erpName);
+      onClose?.();
+      toast.success("Event deleted successfully.");
+    } catch (e) {
+      toast.error("Error deleting event.");
+    } finally {
+      deleteLockRef.current = false;
+    }
+  };
+
+  return { handleDelete };
+}

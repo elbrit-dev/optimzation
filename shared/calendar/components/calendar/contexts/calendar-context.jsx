@@ -1,5 +1,5 @@
 "use client";;
-import { createContext, useContext, useState, useEffect, useRef, useMemo } from "react";
+import { createContext, useContext, useState, useEffect, useMemo } from "react";
 import { useLocalStorage } from "@calendar/components/calendar/hooks";
 import { fetchEventsByRange } from "@calendar/services/event.service";
 import { resolveCalendarRange } from "@calendar/lib/calendar/range";
@@ -8,7 +8,7 @@ import { mapEmployeesToCalendarUsers } from "@calendar/services/employee-to-cale
 import { graphqlRequest } from "@calendar/lib/graphql-client";
 import { enrichEventsWithParticipants } from "@calendar/lib/calendar/enrich-events";
 import { resolveVisibleEmployeeIds, resolveVisibleRoleIds } from "@calendar/lib/employeeHeirachy";
-import { TAGS } from "../constants";
+import { TAG_IDS, TAGS } from "../constants";
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 
 const DEFAULT_SETTINGS = {
@@ -314,7 +314,7 @@ export function CalendarProvider({
 	const getEventEmployeeIds = (event) => {
 		const ids = new Set();
 
-		// 1️⃣ General ERP event (participants)
+		// 1️⃣ ERP participants
 		if (event.event_participants?.length) {
 			event.event_participants.forEach(p => {
 				if (
@@ -326,21 +326,32 @@ export function CalendarProvider({
 			});
 		}
 
-		// 2️⃣ General event fallback (employees field)
+		// 2️⃣ Fallback
 		if (event.employees) {
 			ids.add(event.employees);
 		}
 
-		// 3️⃣ Leave Application
-		if (event.tags === TAGS.LEAVE && event.employee) {
-			ids.add(event.employee);
+		// 3️⃣ Leave
+		if (event.tags === TAG_IDS.LEAVE) {
+			if (event.employee) {
+				ids.add(event.employee);
+			} 
+
+			if (event.leave_approver) {
+				const approverId = employeeEmailToId.get(
+					event.leave_approver
+				);
+
+				if (approverId) {
+					ids.add(approverId);
+				} 
+			}
 		}
 
-		// 4️⃣ Todo List
+		// 4️⃣ Todo
 		if (event.tags === TAGS.TODO_LIST && event.allocated_to) {
-			ids.add(event.allocated_to); // already normalized to employeeId
+			ids.add(event.allocated_to);
 		}
-
 		return Array.from(ids);
 	};
 
@@ -355,6 +366,10 @@ export function CalendarProvider({
 	}, [users, usersLoading, elbritRoleEdges, elbritRoleLoading]);
 
 	const filteredEvents = useMemo(() => {
+		if (usersLoading || elbritRoleLoading) {
+			return allEvents; // temporarily show everything
+		}
+
 		if (!allEvents?.length) return [];
 		// 🔴 HARD BYPASS FOR ADMIN
 		if (LOGGED_IN_USER?.roleId === "Admin") {
@@ -373,13 +388,12 @@ export function CalendarProvider({
 					selectedColors.includes(event.color || "blue")
 				);
 			}
-			
+
 			return result;
 		}
 
 		// 👇 Non-admin logic below
 		let result = allEvents;
-
 		result = result.filter(event => {
 			const roleMatch =
 				event.roleId &&

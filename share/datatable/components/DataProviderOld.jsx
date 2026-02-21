@@ -50,7 +50,9 @@ import {
   uniq,
 } from 'lodash';
 import { Button } from 'primereact/button';
+import { Dialog } from 'primereact/dialog';
 import { Dropdown } from 'primereact/dropdown';
+import { MultiSelect } from 'primereact/multiselect';
 import { Sidebar } from 'primereact/sidebar';
 import { SplitButton } from 'primereact/splitbutton';
 import { TabPanel, TabView } from 'primereact/tabview';
@@ -2648,7 +2650,11 @@ export default function DataProviderNew({
   const [drawerHeaderTitle, setDrawerHeaderTitle] = useState(null);
   const [drawerTableOptions, setDrawerTableOptions] = useState(null);
   const [drawerJsonTables, setDrawerJsonTables] = useState(null); // Store nested JSON tables for drawer
-  
+
+  // Export group selector (when groupFields active, popup to choose which levels to export)
+  const [exportGroupSelectorVisible, setExportGroupSelectorVisible] = useState(false);
+  const [exportGroupSelectorSelectedLevels, setExportGroupSelectorSelectedLevels] = useState([]);
+
   // Change tracking for nested tables
   // Map structure: tabId -> { originalData: [...], parentRowData: {...}, nestedTableFieldName: string, parentRowEditingKey: string }
   // Use parent refs if provided (for nested instances), otherwise create own refs
@@ -4945,8 +4951,31 @@ export default function DataProviderNew({
     };
   }, [columnTypes]);
 
-  // Export to XLSX function
-  const exportToXLSX = useCallback(() => {
+  // Sanitize sheet name for Excel (max 31 chars, exclude \ / * ? [ ])
+  const sanitizeSheetName = useCallback((name) => {
+    if (!name || typeof name !== 'string') return 'Sheet';
+    const sanitized = String(name).replace(/[\\/*?[\]]/g, '_').trim();
+    return sanitized ? sanitized.slice(0, 31) : 'Sheet';
+  }, []);
+
+  // Collect all summary rows at a given group level from the tree
+  const collectSummaryRowsAtLevel = useCallback((data, levelIndex, acc = []) => {
+    if (!isArray(data)) return acc;
+    data.forEach((row) => {
+      if (!row || !row.__isGroupRow__) return;
+      const rowLevel = row.__groupLevel__ ?? 0;
+      if (rowLevel === levelIndex) {
+        acc.push(row);
+      } else if (rowLevel < levelIndex && row.__groupRows__) {
+        const groupRows = row.__groupRows__.filter((r) => r?.__isGroupRow__);
+        collectSummaryRowsAtLevel(groupRows, levelIndex, acc);
+      }
+    });
+    return acc;
+  }, []);
+
+  // Export to XLSX function (optional selectedLevelIndices: when grouped, no-arg opens popup, with-arg exports selected levels)
+  const exportToXLSX = useCallback((selectedLevelIndices) => {
     // Check if we're in report mode
     if (enableBreakdown && reportData) {
       // Use report export with merged headers
@@ -4967,61 +4996,89 @@ export default function DataProviderNew({
       return;
     }
 
-    // Regular export logic (non-report mode)
+    // Grouped mode: no args = open popup; with args = multi-sheet export
+    if (effectiveGroupFields.length > 0 && !isEmpty(groupedData)) {
+      if (!Array.isArray(selectedLevelIndices) || selectedLevelIndices.length === 0) {
+        setExportGroupSelectorSelectedLevels(effectiveGroupFields.map((_, i) => i));
+        setExportGroupSelectorVisible(true);
+        return;
+      }
+      // Multi-sheet export: one sheet per selected level with summary rows
+      const derivedColNamesMain = getDerivedColumnNames(derivedColumns || [], 'main');
+      const wb = XLSX.utils.book_new();
+      const dateStr = new Date().toISOString().split('T')[0];
+      const filename = `export_${dateStr}.xlsx`;
+
+      const formatRowForExport = (row, cols) => {
+        const exportRow = {};
+        cols.forEach((col) => {
+          let value = getDataValue(row, col);
+          if (isNil(value) && isPercentageColumn(col)) {
+            value = getPercentageColumnValue(row, col);
+          }
+          const colTypeFlags = getColumnTypeFlags(col);
+          if (isNil(value)) {
+            exportRow[formatHeaderName(col)] = '';
+          } else if (colTypeFlags.isBoolean) {
+            exportRow[formatHeaderName(col)] = isTruthyBoolean(value) ? 'Yes' : 'No';
+          } else if (colTypeFlags.isDate) {
+            exportRow[formatHeaderName(col)] = formatDateValue(value);
+          } else {
+            const isPctCol = isPercentageColumn(col);
+            const isNumeric = isPctCol || colTypeFlags.isNumeric || (typeof value === 'number' && Number.isFinite(value));
+            if (isNumeric) {
+              const numeric = typeof value === 'number' ? value : parseFloat(String(value).replace(/,/g, ''));
+              exportRow[formatHeaderName(col)] = Number.isFinite(numeric) ? numeric : String(value);
+            } else {
+              exportRow[formatHeaderName(col)] = String(value);
+            }
+          }
+        });
+        return exportRow;
+      };
+
+      selectedLevelIndices.forEach((levelIndex) => {
+        const rows = collectSummaryRowsAtLevel(groupedData, levelIndex);
+        const fieldName = effectiveGroupFields[levelIndex];
+        const allDataColumns = isEmpty(rows) ? [] : uniq(flatMap(rows, (item) =>
+          item && typeof item === 'object' ? getDataKeys(item) : []
+        ));
+        const filtered = allDataColumns.filter((col) => {
+          if (col.startsWith('__')) return false;
+          if (effectiveGroupFields.includes(col)) {
+            const colIndex = effectiveGroupFields.indexOf(col);
+            return colIndex <= levelIndex;
+          }
+          if (isPercentageColumn(col)) return true;
+          if (derivedColNamesMain.includes(col)) return true;
+          const colTypeFlags = getColumnTypeFlags(col);
+          return colTypeFlags.isNumeric;
+        });
+        const pivotCols = effectiveGroupFields.slice(0, levelIndex + 1).filter((c) => filtered.includes(c));
+        const otherCols = filtered.filter((c) => !effectiveGroupFields.includes(c));
+        const allColumns = [...pivotCols, ...otherCols];
+        const cleanRows = rows.map((row) => {
+          const clean = {};
+          allColumns.forEach((col) => { clean[col] = getDataValue(row, col); });
+          return clean;
+        });
+        const exportData = cleanRows.map((row) => formatRowForExport(row, allColumns));
+        const sheetName = sanitizeSheetName(formatHeaderName(fieldName));
+        const ws = XLSX.utils.json_to_sheet(exportData);
+        XLSX.utils.book_append_sheet(wb, ws, sheetName);
+      });
+
+      XLSX.writeFile(wb, filename);
+      setExportGroupSelectorVisible(false);
+      return;
+    }
+
+    // Regular export logic (non-grouped mode)
     let dataToExport;
     let allColumns;
 
-    if (effectiveGroupFields.length > 0 && !isEmpty(groupedData)) {
-      // Grouped mode: extract inner rows from each group
-      const flattenedInnerRows = [];
-
-      groupedData.forEach((groupRow) => {
-        if (groupRow.__isGroupRow__ && groupRow.__groupRows__) {
-          // Get group key from first group field or __groupKey__
-          const firstGroupField = effectiveGroupFields[0];
-          const groupKey = groupRow.__groupKey__ || (firstGroupField ? getDataValue(groupRow, firstGroupField) : null);
-
-          groupRow.__groupRows__.forEach((innerRow) => {
-            // Ensure all group field values are set (should already be in aggregated rows, but ensure it)
-            const rowWithGroup = { ...innerRow };
-            effectiveGroupFields.forEach((field, index) => {
-              if (!rowWithGroup.hasOwnProperty(field)) {
-                if (index === 0) {
-                  rowWithGroup[field] = groupKey === '__null__' ? null : groupKey;
-                } else {
-                  // For nested levels, get from parent group row
-                  const parentValue = getDataValue(groupRow, field);
-                  rowWithGroup[field] = parentValue;
-                }
-              }
-            });
-            flattenedInnerRows.push(rowWithGroup);
-          });
-        }
-      });
-
-      dataToExport = flattenedInnerRows;
-
-      // Collect all columns from flattened data
-      const allDataColumns = isEmpty(dataToExport) ? [] : uniq(flatMap(dataToExport, (item) =>
-        item && typeof item === 'object' ? getDataKeys(item) : []
-      ));
-
-      // In grouped mode, filter to only include numeric columns (plus group fields and percentage columns)
-      allColumns = allDataColumns.filter((col) => {
-        // Always include all group fields
-        if (effectiveGroupFields.includes(col)) return true;
-
-        // Always include percentage columns (they're numeric)
-        if (isPercentageColumn(col)) return true;
-
-        // Include numeric columns
-        const colTypeFlags = getColumnTypeFlags(col);
-        return colTypeFlags.isNumeric;
-      });
-    } else {
-      // Normal mode: use sortedData (full dataset) and compute percentage columns
-      dataToExport = sortedData.map((row) => {
+    // Normal mode: use sortedData (full dataset) and compute percentage columns
+    dataToExport = sortedData.map((row) => {
         const rowWithPercentages = { ...row };
 
         // Compute percentage columns if configured
@@ -5048,8 +5105,7 @@ export default function DataProviderNew({
         ? percentageColumns.map(pc => pc.columnName).filter(Boolean)
         : [];
 
-      allColumns = uniq([...dataColumns, ...percentageColNames]);
-    }
+    allColumns = uniq([...dataColumns, ...percentageColNames]);
 
     // Format and export data (same logic for both modes)
     const exportData = dataToExport.map((row) => {
@@ -5102,7 +5158,7 @@ export default function DataProviderNew({
 
     // Write file
     XLSX.writeFile(wb, filename);
-  }, [enableBreakdown, reportData, columnGroupBy, sortedData, groupedData, effectiveGroupFields, hasPercentageColumns, percentageColumns, isPercentageColumn, getPercentageColumnValue, formatHeaderName, isTruthyBoolean, formatDateValue, getColumnTypeFlags]);
+  }, [enableBreakdown, reportData, columnGroupBy, sortedData, groupedData, effectiveGroupFields, hasPercentageColumns, percentageColumns, isPercentageColumn, getPercentageColumnValue, formatHeaderName, isTruthyBoolean, formatDateValue, getColumnTypeFlags, derivedColumns, collectSummaryRowsAtLevel, sanitizeSheetName]);
 
   // Create context value
   const contextValue = useMemo(() => {
@@ -6071,6 +6127,42 @@ export default function DataProviderNew({
             </div>
           </div>
         </Sidebar>
+      )}
+
+      {!parentColumnName && effectiveGroupFields?.length > 0 && (
+        <Dialog
+          header="Export grouped data"
+          visible={exportGroupSelectorVisible}
+          style={{ width: '90vw', maxWidth: '480px' }}
+          onHide={() => setExportGroupSelectorVisible(false)}
+          footer={
+            <>
+              <Button label="Cancel" severity="secondary" onClick={() => setExportGroupSelectorVisible(false)} />
+              <Button
+                label="Export"
+                icon="pi pi-download"
+                onClick={() => {
+                  if (exportGroupSelectorSelectedLevels?.length > 0) {
+                    exportToXLSX(exportGroupSelectorSelectedLevels);
+                  }
+                }}
+                disabled={!exportGroupSelectorSelectedLevels?.length}
+              />
+            </>
+          }
+        >
+          <p className="mb-3 text-gray-600">Select which group levels to export. Each selected level becomes a separate sheet in the Excel file.</p>
+          <MultiSelect
+            value={exportGroupSelectorSelectedLevels}
+            onChange={(e) => setExportGroupSelectorSelectedLevels(e.value ?? [])}
+            options={effectiveGroupFields.map((f, i) => ({ value: i, label: formatHeaderName(f) }))}
+            optionLabel="label"
+            optionValue="value"
+            placeholder="Select levels"
+            display="chip"
+            className="w-full"
+          />
+        </Dialog>
       )}
     </>
   );

@@ -32,7 +32,12 @@ function SlotsDemoPage() {
       greenFields: [],
       enableCellEdit: false,
       editableColumns: { main: [], nested: {} },
-      drawerTabs: [],
+      drawerTabs: [
+        // Target rows (rows 1-9) have hq but no customer_name/item_name; use hq for first-level clicks
+        { id: 'salesTeamHq-tab-1', name: 'By HQ', outerGroup: 'hq', innerGroup: null },
+        // Transaction rows have customer_name, item_name
+        { id: 'salesTeamHq-tab-2', name: 'By Customer & Item', outerGroup: 'customer_name', innerGroup: 'item_name' },
+      ],
     },
     nameHq: {
       enableSort: true,
@@ -46,7 +51,10 @@ function SlotsDemoPage() {
       greenFields: [],
       enableCellEdit: false,
       editableColumns: { main: [], nested: {} },
-      drawerTabs: [],
+      drawerTabs: [
+        // Transaction rows have item_name
+        { id: 'nameHq-tab-1', name: 'By Item', outerGroup: 'item_name', innerGroup: null },
+      ],
     },
   }), []);
 
@@ -56,7 +64,7 @@ function SlotsDemoPage() {
         <div className="mb-4">
           <h1 className="text-xl font-semibold text-gray-800">Per-Slot Demo</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Single DataProvider, two slots. Left: sales_team + hq. Right: name + hq. Independent filters/sort/pagination.
+            Single DataProvider, two slots. Left: sales_team + hq + customer_name. Right: customer_name + item_name. Independent filters/sort/pagination. Click group cells to open the drawer.
           </p>
         </div>
 
@@ -72,7 +80,7 @@ function SlotsDemoPage() {
           <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 min-h-0">
             <div className="flex flex-col min-h-0 border border-gray-200 rounded-lg overflow-hidden bg-white">
               <div className="shrink-0 px-4 py-2 bg-blue-50 border-b border-blue-100 font-medium text-blue-800">
-                Grouped by: sales_team, hq
+                Grouped by: sales_team, hq, customer_name
               </div>
               <div className="flex-1 min-h-0 p-4">
                 <DataTableNew
@@ -88,7 +96,7 @@ function SlotsDemoPage() {
             </div>
             <div className="flex flex-col min-h-0 border border-gray-200 rounded-lg overflow-hidden bg-white">
               <div className="shrink-0 px-4 py-2 bg-green-50 border-b border-green-100 font-medium text-green-800">
-                Grouped by: name, hq
+                Grouped by: customer_name, item_name
               </div>
               <div className="flex-1 min-h-0 p-4">
                 <DataTableNew

@@ -62,7 +62,7 @@ export function EventDetailsDialog({ event, children }) {
 
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{event.title}</DialogTitle>
+          <DialogTitle>{event.tags}</DialogTitle>
         </DialogHeader>
 
         <LayoutComponent
