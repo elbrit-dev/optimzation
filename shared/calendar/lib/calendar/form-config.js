@@ -68,18 +68,20 @@ export const TAG_FORM_CONFIG = {
       "doctor",
       "description", "allocated_to"
     ],
-    show: ["startDate", "endDate", "hqTerritory"],
-    required: ["startDate", "hqTerritory"],
+    show: ["startDate",  "hqTerritory","endDate"],
+    required: ["startDate","endDate", "hqTerritory"],
     forceAllDay: true,
     dateOnly: true,
     ui: {
       lockTagOnEdit: true,
       showTags: false,
-      allowDelete: () => true,
-      allowEdit: () => true,
+      allowDelete: () => false,
+      allowEdit: () => false,
     },
     editReadOnly: {
       fields: [
+        { key: "startDate", label: "Start Date", type: "date" },
+        { key: "endDate", label: "End Date", type: "date" },
         { key: "hqTerritory", label: "HQTerrioty", type: "hqTerritory" },
       ],
     },
@@ -280,10 +282,10 @@ export const TAG_FORM_CONFIG = {
     hide: [
       "startDate",
       "doctor",
-      "color", "title", "employees"
+      "color",  "employees"
     ],
-    show: ["endDate", "description", "priority", "allocated_to"],
-    required: ["allocated_to"],
+    show: ["endDate", "description", "priority", "allocated_to","title",],
+    required: ["allocated_to","title",],
     dateOnly: true,
     labels: {
       startDate: "From Date",
@@ -305,6 +307,7 @@ export const TAG_FORM_CONFIG = {
     },
     details: {
       fields: [
+        { key: "title", label: "Title", type: "text" },
         { key: "endDate", label: "Due Date", type: "date" },
         { key: "status", label: "Status", type: "text" },
         { key: "priority", label: "Priority", type: "text" },

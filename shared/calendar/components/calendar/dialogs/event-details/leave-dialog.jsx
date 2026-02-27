@@ -102,7 +102,6 @@ export function EventLeaveDialog({
 			toast.error("Failed to update leave status");
 		}
 	};
-
 	return (
 		<>
 			<ScrollArea className="max-h-[80vh]">
@@ -150,7 +149,7 @@ export function EventLeaveDialog({
 
 						<Button
 							variant="destructive"
-							onClick={() => handleDelete(event.erpName)}
+							onClick={() => handleDelete(event.erpName,"Leave Application")}
 						>
 							Delete
 						</Button>

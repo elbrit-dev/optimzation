@@ -47,7 +47,7 @@ export const eventSchema = z
 
     description: z.string().optional(),
     color: z.string().optional(),
-
+    forceVisit: z.boolean().optional(),
     employees: z.any().optional(),
     doctor: z.any().optional(),
     allocated_to:z.any().optional(),
@@ -61,9 +61,9 @@ export const eventSchema = z
     medicalAttachment: z.any().optional(),
     halfDayDate: z.date().optional(),
     approvedBy: z.string().optional(),
-
+    assignedTo:z.any().optional(),
     /* ---------- Todo ---------- */
-    todoStatus: z.enum(["Open", "Closed", "Cancelled"]).optional(),
+    status: z.enum(["Open", "Closed", "Cancelled"]).optional(),
     priority: z.enum(["High", "Medium", "Low"]).optional(),
 
     /* ---------- Doctor Visit ---------- */

@@ -134,7 +134,7 @@ export function DayCell({
       transition={transition}>
       <DroppableArea
         date={date}
-        className="w-full h-full py-2 flex md:block pointer-events-none"
+        className="w-full h-full py-2  pointer-events-none"
       >
         <motion.span
           onPointerDown={(e) => e.stopPropagation()}
@@ -149,7 +149,7 @@ export function DayCell({
         </motion.span>
         <motion.div
           className={cn(
-            "flex gap-1 px-2 mt-1 lg:h-max-content overflow-hidden lg:flex-col lg:gap-1 lg:px-0",
+            "flex gap-1 px-0 mt-1 lg:h-max-content overflow-hidden lg:flex-col lg:gap-1 w-full",
             !currentMonth && "opacity-50"
           )}>
           {!isPastDate && cellEvents.length === 0 ? (
@@ -170,12 +170,18 @@ export function DayCell({
             visibleEvents.map((event, index) => (
               <motion.div
                 key={`event-${event.id}`}
-                className="lg:flex-1"
+                className="lg:flex-1 w-full"
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: index * 0.05, ...transition }}
               >
-                {!isMobile && (
+                <MonthEventBadge
+                  className="flex"
+                  event={event}
+                  cellDate={startOfDay(date)}
+                  isMobile={isMobile}
+                />
+                {/* {!isMobile && (
                   <MonthEventBadge
                     className="hidden lg:flex"
                     event={event}
@@ -185,7 +191,7 @@ export function DayCell({
 
                 {isMobile && (
                   <EventBullet color={event.color} />
-                )}
+                )} */}
               </motion.div>
             ))
           )}
@@ -243,15 +249,15 @@ export function DayCell({
   if (isMobile) {
     return (
       <motion.div className={`${mobweek ? 'w-full' : 'w-[14%]'}`}
-    onPointerDown = {(e) => e.stopPropagation()
-  }
-  onClick = { toggleDateSelection }
-    >
-    { cellContent }
+        onPointerDown={(e) => e.stopPropagation()
+        }
+        onClick={toggleDateSelection}
+      >
+        {cellContent}
       </motion.div >
 
     );
-}
+  }
 
-return cellContent;
+  return cellContent;
 }

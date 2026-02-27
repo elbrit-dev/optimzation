@@ -22,6 +22,8 @@ import {
   getFirstLetters,
   toCapitalize,
   navigateDate,
+  getStatusBadgeClass,
+  getPriorityClass,
 } from "@calendar/components/calendar/helpers";
 import { EventDetailsDialog } from "@calendar/components/calendar/dialogs/event-details-dialog";
 import { EventBullet } from "@calendar/components/calendar/views/month-view/event-bullet";
@@ -35,6 +37,7 @@ import {
 } from "@calendar/components/ui/command";
 import { Avatar, AvatarFallback } from "@calendar/components/ui/avatar";
 import { ICON_MAP } from "../../mobile/MobileAddEventBar";
+import { TAG_IDS } from "../../constants";
 
 const SWIPE_THRESHOLD = 60;
 
@@ -162,11 +165,9 @@ export const AgendaEvents = ({ scope = "all" }) => {
       );
     }
 
-    if (scope === "month") {
-      return getEventsForMonth(events, selectedDate);
-    }
+    return getEventsForMonth(events, selectedDate);
 
-    return events;
+    // return events;
   }, [events, selectedDate, scope]);
 
   /* ===============================
@@ -242,23 +243,49 @@ export const AgendaEvents = ({ scope = "all" }) => {
                               {TagIcon && (
                                 <TagIcon className="w-4 h-4 text-muted-foreground" />
                               )}
-                              <p className="font-medium text-sm">
-                                {/* {event.title} */}
+                              {event.tags === TAG_IDS.TODO_LIST ? (
+                                <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
+                                  <p className="font-medium text-sm">{event.title ? event.title :event.tags}
+                                  </p>
+                                  {event.priority && (
+                                    <p
+                                      className={`text-sm font-medium ${getPriorityClass(
+                                        event.priority
+                                      )}`}
+                                    >
+                                      {event.priority ?? "-"}
+                                    </p>
+                                  )}
+                                </div>
+                              ) : (
+                                <p className="font-medium text-sm">{event.tags}
+                                </p>
+                              )}
+                              {/* <p className="font-medium text-sm">
                                 {event.tags}
-                              </p>
+                              </p> */}
                             </div>
-                            {/* <p className="font-medium text-sm">{event.title}</p> */}
-                            {/* <p className="text-xs text-muted-foreground line-clamp-1">
-                            {event.description}
-                          </p> */}
                             <p className="text-xs text-muted-foreground line-clamp-1">
                               {event.owner?.name}
                             </p>
                           </div>
                         </div>
                         <div className="text-xs flex items-center">
-                          {formatTime(event.startDate, use24HourFormat)} –{" "}
-                          {formatTime(event.endDate, use24HourFormat)}
+                          {event.tags === TAG_IDS.TODO_LIST ? (
+                            <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
+                              {event.status && (
+                                <span
+                                  className={`text-white text-xs px-3 py-1 rounded-md ${getStatusBadgeClass(
+                                    event.status
+                                  )}`}
+                                >
+                                  {event.status}
+                                </span>
+                              )}
+                            </div>
+                          ) : null}
+                          {/* {formatTime(event.startDate, use24HourFormat)} –{" "}
+                        {formatTime(event.endDate, use24HourFormat)} */}
                         </div>
                       </div>
                     </EventDetailsDialog>

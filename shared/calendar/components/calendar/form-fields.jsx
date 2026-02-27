@@ -7,12 +7,112 @@ import {
 } from "@calendar/components/ui/form";
 import { Checkbox } from "@calendar/components/ui/checkbox";
 import { Button } from "@calendar/components/ui/button";
+import { Input } from "@calendar/components/ui/input";
 import {
   ModalFooter,
   ModalClose,
 } from "@calendar/components/ui/responsive-modal";
 import { RHFCombobox } from "@calendar/components/ui/RHFCombobox";
 import { DateTimePicker } from "@calendar/components/ui/date-time-picker";
+
+export function RHFHQCardSelector({
+  control,
+  name,
+  options = [],
+  label,
+}) {
+  const [search, setSearch] = useState("");
+
+  const filteredOptions = useMemo(() => {
+    if (!search) return options;
+
+    return options.filter((opt) =>
+      opt.label
+        .toLowerCase()
+        .includes(search.toLowerCase())
+    );
+  }, [search, options]);
+  
+  return (
+    <FormField
+      control={control}
+      name={name}
+      render={({ field, fieldState }) => {
+
+        const selected = field.value;
+
+        return (
+          <RHFFieldWrapper
+            label={label}
+            error={fieldState.error?.message}
+          >
+            {/* Selected Tag */}
+            {selected && (
+              <div className="flex gap-2 mb-3">
+                <div className="px-3 py-1 bg-muted rounded-full text-sm flex items-center gap-2">
+                  {selected}
+                  <button
+                    type="button"
+                    onClick={() => field.onChange("")}
+                    className="text-xs"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Search Box */}
+            <Input
+              placeholder="Search HQ..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="mb-3"
+            />
+
+            {/* Scrollable Grid */}
+            <div className="max-h-48 overflow-y-auto border rounded-md p-2">
+              <div className="grid grid-cols-2 gap-3">
+                {filteredOptions.length === 0 && (
+                  <div className="text-sm text-muted-foreground col-span-2 text-center py-4">
+                    No HQ found
+                  </div>
+                )}
+
+                {filteredOptions.map((opt) => {
+                  const isActive =
+                    selected === opt.value;
+
+                  return (
+                    <Button
+                      key={opt.value}
+                      type="button"
+                      variant={
+                        isActive
+                          ? "default"
+                          : "secondary"
+                      }
+                      className={`w-full justify-center transition-all ${
+                        isActive
+                          ? "bg-primary text-white shadow-md"
+                          : "bg-muted hover:bg-accent"
+                      }`}
+                      onClick={() =>
+                        field.onChange(opt.value)
+                      }
+                    >
+                      {opt.label}
+                    </Button>
+                  );
+                })}
+              </div>
+            </div>
+          </RHFFieldWrapper>
+        );
+      }}
+    />
+  );
+}
 /* =====================================================
    BASE WRAPPER (Label + Error)
 ===================================================== */
@@ -144,7 +244,7 @@ export function FormFooter({
         </Button>
       </ModalClose>
 
-      {showCaptureLocation && (
+      {showCaptureLocation && isEditing && (
         <Button
           type="button"
           variant="secondary"

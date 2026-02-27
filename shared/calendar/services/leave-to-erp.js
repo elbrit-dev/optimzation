@@ -4,19 +4,21 @@ import { differenceInCalendarDays, startOfDay, endOfDay, format } from "date-fns
 function toERPDate(date = new Date()) {
   return format(startOfDay(date), "yyyy-MM-dd");
 }
-export function mapFormToErpLeave(values) {
+export function mapFormToErpLeave(values,options = {}) {
+  const { erpName } = options;
   const isHalf = values.leavePeriod === "Half";
   const fromDate = toERPDate(values.startDate);
   const toDate = isHalf
     ? fromDate
     : toERPDate(values.endDate);
+
   const totalDays = calculateTotalLeaveDays(
     values.startDate,
     values.endDate,
     isHalf
   );
 
-  return {
+  const doc = {
     doctype: "Leave Application",
     employee: LOGGED_IN_USER.id,
     leave_type: values.leaveType,
@@ -34,6 +36,13 @@ export function mapFormToErpLeave(values) {
     fsl_attach: values.medicalAttachment ?? null,
     leave_approver: values.leave_approver ?? null,
   };
+
+  // 🔥 CRITICAL FOR UPDATE
+  if (erpName) {
+    doc.name = erpName;
+  }
+
+  return doc;
 }
 
 export function mapErpLeaveToCalendar(leave) {

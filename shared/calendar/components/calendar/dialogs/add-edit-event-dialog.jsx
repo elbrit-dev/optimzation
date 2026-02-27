@@ -6,14 +6,14 @@ import { toast } from "sonner";
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 import { buildEventDefaultValues, TAG_IDS, TAGS } from "@calendar/components/calendar/constants";
 import { mapFormToErpEvent } from "@calendar/services/event-to-erp";
-import { saveDocToErp, saveEvent, fetchEmployeeLeaveBalance, saveLeaveApplication, updateLeaveAttachment, updateLeadDob } from "@calendar/services/event.service";
+import { saveDocToErp, saveEvent, fetchEmployeeLeaveBalance, saveLeaveApplication, updateLeaveAttachment, updateLeadDob, saveDocToQuotation } from "@calendar/services/event.service";
 import { useWatch } from "react-hook-form";
 import { LeaveTypeCards } from "@calendar/components/calendar/leave/LeaveTypeCards";
 import { Form, FormControl, FormField, } from "@calendar/components/ui/form";
 import { Input } from "@calendar/components/ui/input";
 import { Modal, ModalContent, ModalHeader, ModalTitle, ModalTrigger, } from "@calendar/components/ui/responsive-modal";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, } from "@calendar/components/ui/select";
-import { RHFFieldWrapper, RHFComboboxField, RHFDateTimeField, InlineCheckboxField, FormFooter, } from "@calendar/components/calendar/form-fields";
+import { RHFFieldWrapper, RHFComboboxField, RHFDateTimeField, InlineCheckboxField, FormFooter, RHFHQCardSelector, } from "@calendar/components/calendar/form-fields";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 import { RHFDoctorCardSelector } from "@calendar/components/RHFDoctorCardSelector";
 import { useDisclosure, useSubmissionRouter } from "@calendar/components/calendar/hooks";
@@ -31,6 +31,8 @@ import { Button } from "@calendar/components/ui/button";
 import { resolveDisplayValueFromEvent } from "@calendar/lib/calendar/resolveDisplay";
 import { useAuth } from "@calendar/components/auth/auth-context";
 import Tiptap from "@calendar/components/ui/TodoWysiwyg";
+import { mapDoctorVisitToQuotation } from "@calendar/services/quotation-to-erp";
+import { calculateDistanceKm, parseLatLong } from "../helpers";
 
 export function AddEditEventDialog({ children, event, defaultTag, forceValues }) {
 	const { isOpen, onClose, onToggle } = useDisclosure();
@@ -47,7 +49,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 	const employeeResolvers = useEmployeeResolvers(employeeOptions);
 	const [itemOptions, setItemOptions] = useState([]);
 	const [isResolvingLocation, setIsResolvingLocation] = useState(false);
-
+	const [distanceKm, setDistanceKm] = useState(null);
 	const endDateTouchedRef = useRef(false); // existing
 
 	const form = useForm({
@@ -85,7 +87,50 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 		return true;
 	};
 	const currentLocation = form.watch("kly_lat_long");
-
+	useEffect(() => {
+		if (!isEditing) return;
+		if (!event?.participants?.length) return;
+		if (!currentLocation) {
+		  setDistanceKm(null);
+		  return;
+		}
+	  
+		// Doctor (Lead)
+		const doctor = event.participants.find(
+		  (p) => p.type === "Lead"
+		);
+	  
+		if (!doctor?.kly_lat_long) {
+		  setDistanceKm(null);
+		  return;
+		}
+	  
+		const doctorLoc = parseLatLong(doctor.kly_lat_long);
+		const visitLoc = parseLatLong(currentLocation);
+	  
+		if (!doctorLoc || !visitLoc) {
+		  setDistanceKm(null);
+		  return;
+		}
+	  
+		const dist = calculateDistanceKm(
+		  doctorLoc.lat,
+		  doctorLoc.lng,
+		  visitLoc.lat,
+		  visitLoc.lng
+		);
+	  
+		setDistanceKm(dist);
+	  
+		// 🔥 FORCE VISIT if within 50 meters
+		const isWithinRange = dist < 0.05;
+	  
+		form.setValue("forceVisit", isWithinRange, {
+		  shouldDirty: true,
+		  shouldValidate: true,
+		});
+	  
+	  }, [currentLocation, event, isEditing]);
 	const shouldShowRequestLocation =
 		selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN &&
 		!currentLocation &&
@@ -103,7 +148,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 	const resetFieldsOnTagChange = () => {
 		reset({
 			employees: undefined, doctor: isDoctorMulti ? [] : undefined,
-			todoStatus: "Open", priority: "Medium", title: "",
+			status: "Open", priority: "Medium", title: "",
 		});
 		// ❌ HQ is REQUIRED for this tag — never reset it
 		if (selectedTag !== TAG_IDS.HQ_TOUR_PLAN) {
@@ -146,6 +191,16 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 
 		return differenceInCalendarDays(endDate, startDate) + 1;
 	}, [selectedTag, startDate, endDate, leavePeriod]);
+	useEffect(() => {
+		if (!startDate || !endDate) return;
+
+		if (endDate < startDate) {
+			form.setValue("endDate", startDate, {
+				shouldDirty: true,
+				shouldValidate: true,
+			});
+		}
+	}, [startDate, endDate]);
 	const requiresMedical = useMemo(() => {
 		if (selectedTag !== TAG_IDS.LEAVE) return false;
 		if (leaveType !== "Sick Leave") return false;
@@ -243,7 +298,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 		try {
 			setIsResolvingLocation(true);
 
-		    resolveLatLong(form, attending, isEditing, toast);
+			resolveLatLong(form, attending, isEditing, toast);
 
 		} finally {
 			setIsResolvingLocation(false);
@@ -357,13 +412,14 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 	useEffect(() => {
 		if (!tagConfig?.forceAllDay) return;
 
+		// 1️⃣ Force allDay checkbox
 		if (form.getValues("allDay") !== true) {
 			form.setValue("allDay", true, {
 				shouldDirty: false,
 				shouldValidate: false,
 			});
 		}
-	}, [selectedTag]);
+	}, [selectedTag, startDate]);
 
 	/* --------------------------------------------------
 	   RESET FORM
@@ -379,7 +435,9 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 		form.reset({
 			...currentValues,               // ✅ keeps title
 			startDate: now,
-			endDate: addMinutes(now, 60),
+			endDate: tagConfig.dateOnly
+				? now
+				: addMinutes(now, 60),
 			tags: selectedTag,
 		});
 	}, [isOpen, selectedTag, isEditing]);
@@ -535,12 +593,75 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 
 		return calendarEvent;
 	};
+	useEffect(() => {
+		if (!isOpen) return;
+		if (!isEditing) return;
+		if (!event?.allocated_to) return;
+		if (!employeeOptions.length) return;
+
+		// allocated_to is EMAIL
+		const email = event.allocated_to.toLowerCase();
+
+		// Resolve employee ID from email
+		const employeeId =
+			employeeResolvers.getEmployeeIdByEmail(email);
+
+		if (!employeeId) return;
+
+		// Find matching option object
+		const employeeOption =
+			employeeOptions.find(
+				(opt) => opt.value === employeeId
+			);
+
+		if (!employeeOption) return;
+
+		// Set full option object in form
+		form.setValue("allocated_to", employeeOption, {
+			shouldDirty: false,
+		});
+	}, [
+		isOpen,
+		isEditing,
+		event?.allocated_to,
+		employeeOptions,
+	]);
+
 	const handleDefaultEvent = async (values) => {
+		let quotationName =
+			event?.reference_docname || null;
+
+		// Only for Doctor Visit Plan
+		if (
+			values.tags === TAG_IDS.DOCTOR_VISIT_PLAN &&
+			values.pob_given === "Yes"
+		) {
+			const doctorId = values?.doctor[0]?.value;
+
+			const quotationDoc =
+				mapDoctorVisitToQuotation({
+					values,
+					doctorId,
+					existingName: quotationName,
+				});
+
+			const savedQuotation =
+				await saveDocToQuotation(quotationDoc);
+
+			quotationName = savedQuotation.name;
+		}
+
 		const erpDoc = mapFormToErpEvent(values, {
 			erpName: event?.erpName,
 		});
 
+		if (quotationName) {
+			erpDoc.reference_doctype = "Quotation";
+			erpDoc.reference_docname = quotationName;
+		}
+
 		const savedEvent = await saveEvent(erpDoc);
+
 		const calendarEvent = buildCalendarEvent({
 			event,
 			values,
@@ -549,10 +670,12 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 			tagConfig,
 			employeeOptions,
 			doctorOptions,
-			ownerOverride: event ? event.owner : LOGGED_IN_USER.id,
+			ownerOverride:
+				event?.owner || LOGGED_IN_USER.id,
 		});
 		upsertCalendarEvent(calendarEvent);
-		finalize("Event saved");
+
+		finalize("Event updated");
 	};
 	const handleDoctorVisitPlan = async (values) => {
 		const normalizedDoctors = (Array.isArray(values.doctor)
@@ -589,7 +712,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 				ownerOverride: LOGGED_IN_USER.id,
 			});
 			addEvent(calendarEvent);
-			
+
 		}
 		finalize(`Created ${values.doctor.length} Doctor Visit events`);
 	};
@@ -604,7 +727,9 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 			const leaveDoc = mapFormToErpLeave(values);
 			delete leaveDoc.fsl_attach;
 
-			const savedLeave = await saveLeaveApplication(leaveDoc);
+			const savedLeave = await saveLeaveApplication(leaveDoc, {
+				erpName: event?.erpName,
+			});
 
 			// 🚨 If backend returned null (GraphQL validation error case)
 			if (!savedLeave) {
@@ -649,17 +774,20 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 			toast.error(message);
 		}
 	};
-
 	const handleTodo = async (values) => {
-		const todoDoc = mapFormToErpTodo(values, employeeResolvers);
+		const todoDoc = mapFormToErpTodo(values, employeeResolvers, {
+			erpName: event?.erpName,
+		});
+
 		const savedTodo = await saveDocToErp(todoDoc);
-		const calendarTodo = mapErpTodoToCalendar(
-			{
-				...todoDoc,
-				name: savedTodo.name
-			}
-		);
+
+		const calendarTodo = mapErpTodoToCalendar({
+			...todoDoc,
+			name: savedTodo.name,
+		});
+
 		upsertCalendarEvent(calendarTodo);
+
 		finalize("Todo saved");
 	};
 	const onInvalid = (errors) => {
@@ -800,22 +928,6 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 								)}
 							/>
 						)}
-
-						{/* ================= HQ TERRITORY ================= */}
-						{selectedTag === TAG_IDS.HQ_TOUR_PLAN &&
-							!isEditReadOnlyField("hqTerritory") && (
-								<FormField
-									control={form.control}
-									name="hqTerritory"
-									render={({ field }) => (
-										<RHFFieldWrapper label="HQ Territory">
-											<RHFComboboxField  {...field} options={hqTerritoryOptions} placeholder="Select HQ Territory" />
-										</RHFFieldWrapper>
-									)}
-								/>
-							)}
-
-
 						{/* ================= MEETING ================= */}
 						{selectedTag === TAG_IDS.MEETING ? (
 							<>
@@ -932,8 +1044,56 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 										)}
 									/>
 								)}
+								{selectedTag === TAG_IDS.TODO_LIST && isEditing && (
+									<FormField
+										control={form.control}
+										name="status"
+										render={({ field, fieldState }) => (
+											<RHFFieldWrapper
+												label="Status"
+												error={fieldState.error?.message}
+											>
+												<Select
+													value={field.value}
+													onValueChange={field.onChange}
+												>
+													<SelectTrigger>
+														<SelectValue placeholder="Select status" />
+													</SelectTrigger>
+
+													<SelectContent>
+														{["Open", "Closed", "Cancelled"].map((status) => (
+															<SelectItem key={status} value={status}>
+																{status}
+															</SelectItem>
+														))}
+													</SelectContent>
+												</Select>
+											</RHFFieldWrapper>
+										)}
+									/>
+								)}
 							</div>
 						)}
+
+						{/* ================= HQ TERRITORY ================= */}
+						{selectedTag === TAG_IDS.HQ_TOUR_PLAN &&
+							!isEditReadOnlyField("hqTerritory") && (
+								<FormField
+									control={form.control}
+									name="hqTerritory"
+									render={({ field }) => (
+										<RHFFieldWrapper label="HQ Territory">
+											<RHFHQCardSelector
+												control={form.control}
+												name="hqTerritory"
+												options={hqTerritoryOptions}
+											// label="HQ"
+											/>
+										</RHFFieldWrapper>
+									)}
+								/>
+							)}
 						{/* ================= DOCTOR ================= */}
 						{!tagConfig.hide?.includes("doctor") &&
 							!isEditReadOnlyField("doctor") && (
@@ -948,11 +1108,11 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 												options={doctorOptions}
 												multiple={isDoctorMulti}
 											/> :
-											<RHFComboboxField
-												{...field}
-												options={doctorOptions}
-												multiple={isDoctorMulti}
-											/>}
+												<RHFComboboxField
+													{...field}
+													options={doctorOptions}
+													multiple={isDoctorMulti}
+												/>}
 
 										</RHFFieldWrapper>
 									)}
@@ -1067,7 +1227,23 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 								</p>
 							</div>
 						)}
+						{isEditing && selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN && (
+							<div className="mt-2 space-y-1">
+								<p className="text-sm font-medium">Distance</p>
 
+								<p className="text-sm text-muted-foreground">
+									{distanceKm !== null
+										? distanceKm.toFixed(3) + " km"
+										: "Capture location to calculate distance"}
+								</p>
+
+								{distanceKm !== null && distanceKm < 0.05 && (
+									<p className="text-sm text-green-600 font-medium">
+										Within 50 meters — Force Visit Enabled
+									</p>
+								)}
+							</div>
+						)}
 						{/* ================= POB QUESTION ================= */}
 						{isEditing &&
 							selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN && (

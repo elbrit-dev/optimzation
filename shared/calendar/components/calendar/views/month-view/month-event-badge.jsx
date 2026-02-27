@@ -6,9 +6,10 @@ import { EventDetailsDialog } from "@calendar/components/calendar/dialogs/event-
 import { DraggableEvent } from "@calendar/components/calendar/dnd/draggable-event";
 import { formatTime } from "@calendar/components/calendar/helpers";
 import {EventBullet} from "@calendar/components/calendar/views/month-view/event-bullet";
+import { TAG_IDS } from "../../constants";
 
 const eventBadgeVariants = cva(
-    "mx-1 flex size-auto h-6.5 select-none items-center justify-between gap-1.5 truncate whitespace-nowrap rounded-md border px-2 text-xs",
+    "mx-1 w-full flex size-auto h-3.5 md:h-6.5 select-none items-center justify-between gap-1.5 truncate whitespace-nowrap rounded-md border px-1 md:px-2 text-xs",
     {
 		variants: {
 			color: {
@@ -89,31 +90,31 @@ export function MonthEventBadge({
         <DraggableEvent event={event}>
             <EventDetailsDialog event={event}>
 				<div role="button" tabIndex={0} className={eventBadgeClasses}>
-					<div className="flex items-center gap-1.5 truncate">
+					<div className="flex items-center gap-1 md:gap-1.5 truncate">
 						{!["middle", "last"].includes(position) &&
 							badgeVariant === "dot" && (
 								<EventBullet color={event.color} />
 							)}
 
 						{renderBadgeText && (
-							<p className="flex-1 truncate font-semibold">
+							<p className="flex-1 truncate font-semibold text-[8px] md:text-[12px]">
 								{eventCurrentDay && (
 									<span className="text-xs">
 										Day {eventCurrentDay} of {eventTotalDays} •{" "}
 									</span>
 								)}
-								{event.title}
+								{TAG_IDS.TODO_LIST ? (event.title || event.tags) : event.tags}
 							</p>
 						)}
 					</div>
 
-					<div className="hidden sm:block">
+					{/* <div className="hidden sm:block">
 						{renderBadgeTime && (
 							<span>
 							{formatTime(new Date(event.startDate), use24HourFormat)}
 						</span>
 						)}
-					</div>
+					</div> */}
 				</div>
 			</EventDetailsDialog>
         </DraggableEvent>

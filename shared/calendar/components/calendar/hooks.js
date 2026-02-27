@@ -1,10 +1,5 @@
-import { useEffect, useState, useMemo } from "react";
-import { differenceInCalendarDays } from "date-fns";
+import { useEffect, useState } from "react";
 import { TAG_IDS } from "@calendar/components/calendar/constants";
-import { fetchEmployeeLeaveBalance } from "@calendar/services/event.service";
-import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
-import { normalizeMeetingTimes, normalizeNonMeetingDates, syncPobItemRates } from "@calendar/lib/helper";
-import { loadParticipantOptionsByTag } from "@calendar/lib/participants";
 import { useRef } from "react";
 import { toast } from "sonner";
 import { deleteEventFromErp } from "@calendar/services/event.service";
@@ -93,12 +88,12 @@ export const useSubmissionRouter = ({
 export function useDeleteEvent({ removeEvent, onClose }) {
   const deleteLockRef = useRef(false);
 
-  const handleDelete = async (erpName) => {
+  const handleDelete = async (erpName,docname) => {
     if (deleteLockRef.current) return;
     deleteLockRef.current = true;
 
     try {
-      await deleteEventFromErp(erpName);
+      await deleteEventFromErp(erpName,docname);
       removeEvent(erpName);
       onClose?.();
       toast.success("Event deleted successfully.");

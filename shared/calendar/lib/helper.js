@@ -2,6 +2,7 @@ import { toast } from "sonner";
 import { set, addMinutes } from "date-fns";
 import { TAG_IDS } from "@calendar/components/calendar/constants";
 import { saveEvent } from "@calendar/services/event.service";
+import { TAG_FORM_CONFIG } from "./calendar/form-config";
 export function buildParticipantsWithDetails(
   erpParticipants,
   { employeeOptions, doctorOptions }
@@ -182,7 +183,10 @@ export function normalizeNonMeetingDates(
   endDateTouched
 ) {
   if (!startDate) return;
-  if (selectedTag === TAG_IDS.MEETING ||   selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN) return;
+  if (
+    selectedTag === TAG_IDS.MEETING ||
+    selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN 
+  ) return;
   if (endDateTouched) return;
 
   const now = new Date();

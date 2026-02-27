@@ -14,6 +14,7 @@ import { EventLeaveDialog } from "./event-details/leave-dialog";
 import { EventDefaultDialog } from "./event-details/default-dialog";
 import { Calendar, Clock, Text, User } from "lucide-react";
 import { EventDoctorVisitDialog } from "./event-details/doctor-visit-dialog";
+import { EventTodoDialog } from "./event-details/todo-dialog";
 
 export const ICONS = {
 	owner: User,
@@ -25,6 +26,7 @@ export const ICONS = {
 export const EVENT_DETAILS_LAYOUTS = {
 	[TAG_IDS.LEAVE]: EventLeaveDialog,
 	[TAG_IDS.DOCTOR_VISIT_PLAN]: EventDoctorVisitDialog,
+  [TAG_IDS.TODO_LIST]:EventTodoDialog,
 };
 export const getEventDetailsLayout = (tag) =>
 	EVENT_DETAILS_LAYOUTS[tag] ?? EventDefaultDialog;
@@ -62,7 +64,7 @@ export function EventDetailsDialog({ event, children }) {
 
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{event.tags}</DialogTitle>
+          <DialogTitle>{event.tags == TAG_IDS.TODO_LIST ? event.title:event.tags}</DialogTitle>
         </DialogHeader>
 
         <LayoutComponent

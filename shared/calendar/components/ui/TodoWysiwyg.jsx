@@ -50,6 +50,9 @@ const Tiptap = ({
   onChange,
 }) => {
   const editor = useEditor({
+    parseOptions: {
+      preserveWhitespace: "full",
+    },
     extensions: [
       StarterKit.configure({
         bulletList: false,

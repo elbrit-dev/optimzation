@@ -2,11 +2,14 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
+      "@/app/*": ["./share/src/app/*"],
+      "@/components/*": ["./share/src/components/*"],
+      "@/resource/*": ["./share/src/resource/*"],
+      // "@/lib/*": ["./share/src/lib/*"],
       "@/*": ["./*"],
-      "@/app/*": ["share/*"],
-      "@/components/*": ["share/components/*"],
-      "@/lib/firebase": ["lib/firebase.js"],
+      "@shared/*": ["./shared/components/src/*"],
       "@calendar/*": ["./shared/calendar/*"]
     }
-  }
+  },
+  "exclude": ["node_modules", ".next"]
 }

@@ -1,6 +1,6 @@
 import { graphqlRequest } from "@calendar/lib/graphql-client";
 import { serializeEventDoc } from "./event-to-erp";
-import { EVENTS_BY_RANGE_QUERY, LEAVE_ALLOCATIONS_QUERY, LEAVE_APPLICATIONS_QUERY, LEAVE_QUERY, TODO_LIST_QUERY } from "@calendar/services/events.query";
+import { EVENTS_BY_RANGE_QUERY, LEAVE_ALLOCATIONS_QUERY, LEAVE_APPLICATIONS_QUERY, LEAVE_QUERY, QUOTATIONS_BY_NAMES_QUERY, TODO_LIST_QUERY } from "@calendar/services/events.query";
 import { mapErpGraphqlEventToCalendar } from "@calendar/services/erp-to-event";
 import { getCachedEvents, setCachedEvents } from "@calendar/lib/calendar/event-cache";
 import { buildRangeCacheKey } from "@calendar/lib/calendar/cache-key";
@@ -35,6 +35,15 @@ mutation SaveEvent($doc: String!) {
   }
 }
 `;
+const SAVE_EVENT_QUOTATION=`
+mutation SaveEvent($doc: String!) {
+  saveDoc(doctype: "Quotation", doc: $doc) {
+    doc {
+      name
+    }
+  }
+}
+`
 const SAVE_LEAVE_APPLICATION_MUTATION = `
 mutation SaveEvent($doc: String!) {
   saveDoc(doctype: "Leave Application", doc: $doc) {
@@ -76,6 +85,33 @@ mutation UpdateLeaveAttachment(
   }
 }
 `;
+export async function fetchQuotationsByNames(names) {
+  if (!names?.length) return {};
+
+  const filters = [
+    {
+      fieldname: "name",
+      operator: "IN",
+      value: names.join(","),
+    },
+  ];
+
+  const data = await graphqlRequest(
+    QUOTATIONS_BY_NAMES_QUERY,
+    {
+      first: names.length, // or 50
+      filters,
+    }
+  );
+
+  const map = {};
+
+  data?.Quotations?.edges?.forEach(({ node }) => {
+    map[node.name] = node;
+  });
+
+  return map;
+}
 export async function updateLeaveAttachment(leaveName, fileUrl) {
   if (!leaveName || !fileUrl) return;
 
@@ -193,7 +229,18 @@ export async function saveDocToErp(doc) {
   clearEventCache();
   return data.saveDoc.doc;
 }
+export async function saveDocToQuotation(doc) {
+  const data = await graphqlRequest(SAVE_EVENT_QUOTATION, {
+    doc: JSON.stringify(doc),
+  });
 
+  if (!data?.saveDoc?.doc?.name) {
+    throw new Error("ERP did not return document name");
+  }
+
+  clearEventCache();
+  return data.saveDoc.doc;
+}
 export async function saveLeaveApplication(doc) {
   const data = await graphqlRequest(SAVE_LEAVE_APPLICATION_MUTATION, {
     doc: JSON.stringify(doc),
@@ -232,12 +279,10 @@ export async function fetchEventsByRange(startDate, endDate, view) {
   const cacheKey = buildRangeCacheKey(view, startDate, endDate);
 
   const cached = getCachedEvents(cacheKey);
-  if (cached) {
-    return cached;
-  }
+  if (cached) return cached;
 
   let after = null;
-  let events = [];
+  let rawEventNodes = [];
 
   const filter = [
     {
@@ -252,6 +297,9 @@ export async function fetchEventsByRange(startDate, endDate, view) {
     },
   ];
 
+  // --------------------------------------------
+  // 1️⃣ FETCH RAW EVENT NODES (NO MAPPING YET)
+  // --------------------------------------------
   while (true) {
     const data = await graphqlRequest(EVENTS_BY_RANGE_QUERY, {
       first: PAGE_SIZE,
@@ -262,20 +310,77 @@ export async function fetchEventsByRange(startDate, endDate, view) {
     const connection = data?.Events;
     if (!connection) break;
 
-    const pageEvents = connection.edges
-      .map(edge => mapErpGraphqlEventToCalendar(edge.node))
-      .filter(Boolean);
-
-    events.push(...pageEvents);
+    rawEventNodes.push(
+      ...connection.edges.map((edge) => edge.node)
+    );
 
     if (!connection.pageInfo?.hasNextPage) break;
     after = connection.pageInfo.endCursor;
   }
 
+  // --------------------------------------------
+  // 2️⃣ COLLECT QUOTATION REFERENCES
+  // --------------------------------------------
+  const quotationNames = rawEventNodes
+    .filter(
+      (node) =>
+        node.reference_doctype?.name === "Quotation" &&
+        node.reference_docname__name
+    )
+    .map((node) => node.reference_docname__name);
+
+  const uniqueQuotationNames = [
+    ...new Set(quotationNames),
+  ];
+
+  // --------------------------------------------
+  // 3️⃣ FETCH QUOTATIONS IN BATCH
+  // --------------------------------------------
+  const quotationMap =
+    await fetchQuotationsByNames(uniqueQuotationNames);
+
+  // --------------------------------------------
+  // 4️⃣ INJECT QUOTATION ITEMS INTO RAW NODES
+  // --------------------------------------------
+  const enrichedNodes = rawEventNodes.map((node) => {
+    if (
+      node.reference_doctype?.name === "Quotation" &&
+      quotationMap[node.reference_docname__name]
+    ) {
+      const quotation =
+        quotationMap[node.reference_docname__name];
+
+      node.fsl_doctor_item =
+        quotation.items?.map((row) => ({
+          item__name: row.item_code?.name,
+          qty: Number(row.qty) || 0,
+          rate: Number(row.rate) || 0,
+          amount: Number(row.amount) || 0,
+        })) || [];
+    }
+
+    return node;
+  });
+
+  // --------------------------------------------
+  // 5️⃣ NOW MAP TO CALENDAR
+  // --------------------------------------------
+  const events = enrichedNodes
+    .map((node) =>
+      mapErpGraphqlEventToCalendar(node)
+    )
+    .filter(Boolean);
+
+  // --------------------------------------------
+  // 6️⃣ MERGE LEAVES + TODOS
+  // --------------------------------------------
   const leaves = await fetchAllLeaveApplications();
   const todolist = await fetchAllTodoList();
+
   const merged = [...events, ...leaves, ...todolist];
+
   setCachedEvents(cacheKey, merged);
+
   return merged;
 }
 
@@ -287,12 +392,12 @@ mutation DeleteEvent($doctype: String!, $name: String!) {
 }
 `;
 
-export async function deleteEventFromErp(erpName) {
+export async function deleteEventFromErp(erpName,docname) {
   if (!erpName) return true;
 
   try {
     const data = await graphqlRequest(DELETE_EVENT_MUTATION, {
-      doctype: "Event",
+      doctype: docname ?? "Event",
       name: erpName,
     });
 
@@ -418,3 +523,4 @@ export async function updateLeadDob(leadName, dob) {
     value: formatDateForERP(dob),
   });
 }
+

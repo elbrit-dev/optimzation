@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { cn } from "@calendar/lib/utils";
 import { transition } from "@calendar/components/calendar/animations";
 
-const eventBulletVariants = cva("size-2 rounded-full", {
+const eventBulletVariants = cva("size-1.5 md:size-2 rounded-full", {
 	variants: {
 		color: {
 			blue: "bg-blue-600 dark:bg-blue-500",
