@@ -16,7 +16,7 @@ import '@graphiql/plugin-explorer/style.css';
 import '@graphiql/react/style.css';
 import 'graphiql/graphiql.css';
 import 'graphiql/style.css';
-import "@/app/graphql-playground/styles/graphql-playground.css";
+import "../share/src/app/graphql-playground/styles/graphql-playground.css";
 
 import "@calendar/styles/globals.css";
 

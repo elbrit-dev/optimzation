@@ -880,11 +880,11 @@ export default function DataProviderNew({
 
         // Set up endpoint config getter
         const endpointConfigGetter = Comlink.proxy((urlKey) => {
-          if (urlKey) {
-            return getEndpointConfigFromUrlKey(urlKey);
-          } else {
-            return { endpointUrl: getInitialEndpoint()?.code || null, authToken: null };
-          }
+          if (urlKey) return getEndpointConfigFromUrlKey(urlKey);
+          const defaultEndpoint = getInitialEndpoint();
+          if (!defaultEndpoint) return { endpointUrl: null, authToken: null };
+          const config = getEndpointConfigFromUrlKey(defaultEndpoint.name);
+          return { endpointUrl: config.endpointUrl || defaultEndpoint.code, authToken: config.authToken || null };
         });
         await workerAPI.setEndpointConfigGetter(endpointConfigGetter);
 

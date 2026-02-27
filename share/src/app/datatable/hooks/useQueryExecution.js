@@ -116,7 +116,10 @@ export function useQueryExecution(options) {
         await workerAPI.setNestedQueryCallback(nestedQueryCallback);
         const endpointConfigGetter = Comlink.proxy((urlKey) => {
           if (urlKey) return getEndpointConfigFromUrlKey(urlKey);
-          return { endpointUrl: getInitialEndpoint()?.code || null, authToken: null };
+          const defaultEndpoint = getInitialEndpoint();
+          if (!defaultEndpoint) return { endpointUrl: null, authToken: null };
+          const config = getEndpointConfigFromUrlKey(defaultEndpoint.name);
+          return { endpointUrl: config.endpointUrl || defaultEndpoint.code, authToken: config.authToken || null };
         });
         await workerAPI.setEndpointConfigGetter(endpointConfigGetter);
         const globalFunctionsGetter = Comlink.proxy(async () => {

@@ -11,8 +11,11 @@ export function getEndpointAndAuth(queryDocument) {
   }
   if (!endpointUrl) {
     const defaultEndpoint = getInitialEndpoint();
-    endpointUrl = defaultEndpoint?.code;
-    authToken = null;
+    if (defaultEndpoint) {
+      const config = getEndpointConfigFromUrlKey(defaultEndpoint.name);
+      endpointUrl = config.endpointUrl || defaultEndpoint.code;
+      authToken = config.authToken ?? null;
+    }
   }
   return { endpointUrl, authToken };
 }

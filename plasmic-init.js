@@ -4,14 +4,14 @@ import _ from "lodash";
 import jmespath_plus from '@metrichor/jmespath-plus';
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import DataTable from "./components/DataTable";
-import DataProvider from "./share/datatable/components/DataProviderNew";
-import DataTableNew from "./share/datatable/components/DataTableNew";
+import DataProvider from "./share/src/app/datatable/components/DataProviderNew";
+import DataTableNew from "./share/src/app/datatable/components/DataTableNew";
+import Navigation from "./share/src/app/navigation/components/Navigation";
 import FirebaseUIComponent from "./components/FirebaseUIComponent";
 import CalendarPage from "@calendar/components/CalendarPage";
 import NovuInbox from "./components/NovuInbox";
 // import TableDataProvider from "./components/TableDataProvider";
 import jsonata from 'jsonata';
-import Navigation from "./share/navigation/components/Navigation";
 import { db } from "./firebase";
 
 // Validate tag: if deployLive is false,tag must be "dev"
@@ -504,7 +504,7 @@ PLASMIC.registerComponent(Navigation, {
       description: "Show/hide the collapse button in desktop sidebar",
     },
   },
-  importPath: "./share/navigation/components/Navigation",
+  importPath: "./share/src/app/navigation/components/Navigation",
 });
 
 // Register FirebaseUIComponent
@@ -881,13 +881,23 @@ PLASMIC.registerComponent(DataProvider, {
       type: "function",
       description: "Parent handler to add row at index 0 in nested table (for drawer nested table + button)",
     },
+    skipConfirmDialog: {
+      type: "boolean",
+      defaultValue: false,
+      description: "When true, do not render ConfirmDialog (parent page provides one - avoids duplicate dialogs)",
+    },
+    formInputOverride: {
+      type: "object",
+      defaultValue: {},
+      description: "Per-column input override for editing. Format: { columnName: 'Calendar'|'Checkbox'|'InputNumber'|'InputText'|'Quill'|{ type:'Select', getOptions:(ctx)=>string[]|Promise<string[]> } } where ctx={ columnName, query }",
+    },
     children: {
       type: "slot",
       description: "Slot to add custom UI components that can access the table data",
     }
   },
   providesData: true,
-  importPath: "./share/datatable/components/DataProviderNew",
+  importPath: "./share/src/app/datatable/components/DataProviderNew",
 });
 
 PLASMIC.registerComponent(DataTableNew, {
@@ -982,5 +992,5 @@ PLASMIC.registerComponent(DataTableNew, {
       description: "Slot ID to select which slot's data to use (defaults to 'main' if not provided)",
     },
   },
-  importPath: "./share/datatable/components/DataTableNew",
+  importPath: "./share/src/app/datatable/components/DataTableNew",
 });
