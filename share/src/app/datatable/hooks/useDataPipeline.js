@@ -19,6 +19,7 @@ import { getDataKeys, getDataValue, getNestedValue } from '../utils/dataAccessUt
 import { applyRowFilters } from '../utils/filterUtils';
 import {
   isJsonArrayOfObjectsString,
+  isJsonObjectLike,
   extractJsonNestedTablesRecursive,
 } from '../utils/jsonArrayParser';
 import { detectColumnTypesLikeProvider, inferColumnType, parseToDate } from '../utils/typeDetectionUtils';
@@ -519,6 +520,23 @@ export function useDataPipeline(options) {
     return jsonFields;
   }, [searchSortSortedData]);
 
+  const jsonObjectFields = useMemo(() => {
+    if (!isArray(searchSortSortedData) || isEmpty(searchSortSortedData)) {
+      return new Set();
+    }
+    const sampleData = take(searchSortSortedData, 100);
+    const jsonFields = new Set();
+    sampleData.forEach((row) => {
+      if (!row || typeof row !== 'object') return;
+      for (const [fieldName, value] of Object.entries(row)) {
+        if (fieldName.startsWith('__')) continue;
+        if (isJsonArrayOfObjectsString(value)) continue;
+        if (isJsonObjectLike(value)) jsonFields.add(fieldName);
+      }
+    });
+    return jsonFields;
+  }, [searchSortSortedData]);
+
   const extractJsonNestedTablesFromData = useCallback((data, maxDepth = 10) => {
     if (!isArray(data) || isEmpty(data)) return data;
     return extractJsonNestedTablesRecursive(data, 0, maxDepth, {
@@ -813,6 +831,7 @@ export function useDataPipeline(options) {
     effectiveGroupFields,
     groupDataRecursive,
     jsonArrayFields,
+    jsonObjectFields,
     extractJsonNestedTablesFromData,
     derivedColumns,
     sortFieldType,

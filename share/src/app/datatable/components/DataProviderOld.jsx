@@ -62,7 +62,7 @@ import * as XLSX from 'xlsx';
 import { TableOperationsContext } from '../contexts/TableOperationsContext';
 import FilterSortSidebar from './FilterSortSidebar';
 import { getDataKeys, getDataValue, getNestedValue } from '../utils/dataAccessUtils';
-import { getDerivedColumnNames } from '../utils/derivedColumnsUtils';
+import { getDerivedColumnNames, getExemptFromBreakdownColumnNames } from '../utils/derivedColumnsUtils';
 import { aggregateNonNumeric } from '../utils/perSlotPipelineUtils';
 import { isJsonArrayOfObjectsString, extractJsonNestedTablesRecursive } from '../utils/jsonArrayParser';
 import { useReportData } from '../utils/providerUtils';
@@ -745,6 +745,7 @@ export default function DataProviderNew({
   // Report props
   enableReport = false,
   dateColumn = null,
+  columnsExemptFromBreakdown = [],
   chartColumns = [],
   chartHeight = 400,
   reportDataOverride = null,
@@ -3443,6 +3444,13 @@ export default function DataProviderNew({
 
   const drawerReportInputData = useMemo(() => sanitizeRowsByAllowedColumns(drawerData), [drawerData, sanitizeRowsByAllowedColumns]);
 
+  // Effective exempt columns: prop + derived columns with exemptFromBreakdown
+  const effectiveColumnsExemptFromBreakdown = useMemo(() => {
+    const fromProp = Array.isArray(columnsExemptFromBreakdown) ? columnsExemptFromBreakdown : [];
+    const fromDerived = getExemptFromBreakdownColumnNames(derivedColumns || []);
+    return [...fromProp, ...fromDerived];
+  }, [columnsExemptFromBreakdown, derivedColumns]);
+
   // Main table report data computation using shared hook
   const { reportData: rawReportData, isComputingReport: internalIsComputingReport } = useReportData(
     enableBreakdown,
@@ -3453,7 +3461,8 @@ export default function DataProviderNew({
     columnTypes,
     sortConfig,
     sortFieldType,
-    reportWorkerRef
+    reportWorkerRef,
+    effectiveColumnsExemptFromBreakdown
   );
 
   // Drawer report data computation using shared hook
@@ -3482,7 +3491,8 @@ export default function DataProviderNew({
     columnTypes,
     sortConfig,
     sortFieldType,
-    reportWorkerRef
+    reportWorkerRef,
+    effectiveColumnsExemptFromBreakdown
   );
 
   const baseReportData = reportDataOverride || rawReportData;

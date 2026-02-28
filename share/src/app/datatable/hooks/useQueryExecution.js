@@ -63,6 +63,7 @@ export function useQueryExecution(options) {
   const [queryVariables, setQueryVariables] = useState({});
   const [currentQueryDoc, setCurrentQueryDoc] = useState(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState(null);
+  const [indexFreshnessToken, setIndexFreshnessToken] = useState(null);
   const [offlineDataExecuted, setOfflineDataExecuted] = useState(false);
 
   const queryVariablesRef = useRef({});
@@ -165,6 +166,51 @@ export function useQueryExecution(options) {
       : '';
     return `${queryId}__${variablesStr}__${monthRangeStr}`;
   }, []);
+
+  const stringifyStableObject = useCallback((value) => {
+    if (value === null || value === undefined) return 'null';
+    if (typeof value !== 'object' || Array.isArray(value)) return JSON.stringify(value);
+    const sorted = Object.keys(value).sort().reduce((acc, key) => {
+      acc[key] = value[key];
+      return acc;
+    }, {});
+    return JSON.stringify(sorted);
+  }, []);
+
+  const buildIndexFreshnessToken = useCallback((queryId, queryDoc, monthRangeValue, indexPayload) => {
+    if (!queryId) return null;
+    const isMonthQuery = queryDoc?.month === true;
+    const monthScope = isMonthQuery && monthRangeValue && Array.isArray(monthRangeValue) && monthRangeValue.length === 2
+      ? `${monthRangeValue[0]?.getTime?.() ?? 'null'}_${monthRangeValue[1]?.getTime?.() ?? 'null'}`
+      : 'all';
+    let scopedPayload = indexPayload;
+    if (
+      isMonthQuery &&
+      scopedPayload &&
+      typeof scopedPayload === 'object' &&
+      !Array.isArray(scopedPayload) &&
+      monthRangeValue &&
+      Array.isArray(monthRangeValue) &&
+      monthRangeValue.length === 2
+    ) {
+      const [startDate, endDate] = monthRangeValue;
+      const prefixes = generateMonthRangeArray(startDate, endDate);
+      scopedPayload = prefixes.reduce((acc, prefix) => {
+        if (Object.prototype.hasOwnProperty.call(indexPayload, prefix)) {
+          acc[prefix] = indexPayload[prefix];
+        }
+        return acc;
+      }, {});
+    }
+    return `${queryId}::${monthScope}::${stringifyStableObject(scopedPayload)}`;
+  }, [stringifyStableObject]);
+
+  const applyIndexFreshnessToken = useCallback((queryId, queryDoc, monthRangeValue, indexPayload, source = 'unknown') => {
+    setIndexFreshnessToken((prevToken) => {
+      const nextToken = buildIndexFreshnessToken(queryId, queryDoc, monthRangeValue, indexPayload);
+      return nextToken;
+    });
+  }, [buildIndexFreshnessToken]);
 
   const fetchLastUpdatedAt = useCallback(async (queryDocOverride = null, monthRangeOverride = null) => {
     const queryDocToUse = queryDocOverride || currentQueryDoc;
@@ -331,6 +377,7 @@ export function useQueryExecution(options) {
         if (finalEndpointUrl) {
           const cachedIndexResult = await indexedDBService.getQueryIndexResult(queryId);
           const cachedIndex = cachedIndexResult?.result ?? null;
+          applyIndexFreshnessToken(queryId, queryDoc, monthRangeValue, cachedIndex, 'checkIndexedDB.cachedIndex');
           let currentIndex = null;
           if (queryDoc.month === true && monthRangeValue?.length === 2) {
             const monthRangeSerialized = [
@@ -349,6 +396,7 @@ export function useQueryExecution(options) {
             const updated = await indexedDBService.getQueryIndexResult(queryId);
             currentIndex = updated?.result ?? null;
           }
+          applyIndexFreshnessToken(queryId, queryDoc, monthRangeValue, currentIndex, 'checkIndexedDB.currentIndex');
           if (cachedIndex != null && currentIndex != null && JSON.stringify(cachedIndex) !== JSON.stringify(currentIndex)) {
             cacheLoadInProgressRef.current = null;
             setLoadingFromCache(false);
@@ -466,7 +514,9 @@ export function useQueryExecution(options) {
 
   const runQuery = useCallback(async (queryId, skipMonthDateLoad = false) => {
     runQueryRef.current = runQuery;
-    if (executingQuery) return;
+    if (executingQuery) {
+      return;
+    }
     let mergedVariables = { ...queryVariablesRef.current, ...variableOverrides };
     if (monthRange?.length === 2) {
       const { startDate, endDate, ...rest } = mergedVariables;
@@ -488,7 +538,9 @@ export function useQueryExecution(options) {
       }
     }
     const executionKey = createExecutionKey(queryId, mergedVariables, monthRange);
-    if (executingQueriesRef.current.has(executionKey)) return;
+    if (executingQueriesRef.current.has(executionKey)) {
+      return;
+    }
     const mergedVariablesForFinally = mergedVariables;
     if (!executionContextRef.current) executionContextRef.current = createExecutionContext();
     executingQueryIdRef.current = queryId;
@@ -518,6 +570,10 @@ export function useQueryExecution(options) {
       if (!isOffline && queryDocToUse.month === true && monthRange?.length === 2) {
         const finalData = await executeAndCacheMonthRange(queryId, queryDocToUse, monthRange, finalEndpointUrl, finalAuthToken, mergedVariables);
         setProcessedData(finalData);
+        if (queryDocToUse.index?.trim() && queryDocToUse.clientSave === true) {
+          const latestIndexResult = await indexedDBService.getQueryIndexResult(queryId);
+          applyIndexFreshnessToken(queryId, queryDocToUse, monthRange, latestIndexResult?.result ?? null, 'runQuery.month.success');
+        }
         await fetchLastUpdatedAt(queryDocToUse, monthRange);
       } else {
         const monthRangeToPass = monthRange?.length === 2
@@ -550,6 +606,10 @@ export function useQueryExecution(options) {
           allQueryDocsRef.current
         );
         setProcessedData(finalData);
+        if (queryDocToUse.index?.trim() && queryDocToUse.clientSave === true) {
+          const latestIndexResult = await indexedDBService.getQueryIndexResult(queryId);
+          applyIndexFreshnessToken(queryId, queryDocToUse, monthRange, latestIndexResult?.result ?? null, 'runQuery.nonMonth.success');
+        }
       }
       await fetchLastUpdatedAt(queryDocToUse, monthRange);
       if (onDataChange) onDataChange({ severity: 'success', summary: 'Success', detail: 'Query executed successfully', life: 3000 });
@@ -695,6 +755,7 @@ export function useQueryExecution(options) {
       setHasMonthSupport(false);
       setQueryVariables({});
       setCurrentQueryDoc(null);
+      setIndexFreshnessToken(null);
       setOfflineDataExecuted(false);
       executionContextRef.current = createExecutionContext();
       if (onVariablesChange) onVariablesChange({});
@@ -858,6 +919,7 @@ export function useQueryExecution(options) {
     queryVariables,
     setQueryVariables,
     currentQueryDoc,
+    indexFreshnessToken,
     loadingFromCache,
     offlineDataExecuted,
     setOfflineDataExecuted,

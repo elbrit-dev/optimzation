@@ -178,8 +178,16 @@ function GraphQLPlaygroundV2() {
                 model={middleTabMenuItems}
                 activeIndex={activeMiddleTab}
                 onTabChange={(e) => {
+                  const nextTabIndex = e.index;
                   requestAllEditorsFlush();
-                  setActiveMiddleTab(e.index);
+                  setActiveMiddleTab(nextTabIndex);
+
+                  const isControlsTab = nextTabIndex === 2;
+                  const hasRunnableQuery = Boolean(query && query.trim());
+                  const canAutoExecute = isControlsTab && hasRunnableQuery && !isExecuting && !isTransforming;
+                  if (canAutoExecute) {
+                    handleExecute();
+                  }
                 }}
               />
               <Button

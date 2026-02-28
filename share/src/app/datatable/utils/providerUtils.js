@@ -15,6 +15,7 @@ import { transformToReportData } from './reportUtils';
  * @param {Object} sortConfig - Optional sort configuration with field and direction
  * @param {Object} sortFieldType - Optional sort field type info with fieldType, topLevelKey, nestedPath
  * @param {Object} reportWorkerRef - Ref to the report worker instance (optional)
+ * @param {Array} columnsExemptFromBreakdown - Column names exempt from time-period breakdown in report mode
  * @returns {Object} { reportData, isComputingReport }
  */
 export function useReportData(
@@ -26,7 +27,8 @@ export function useReportData(
   columnTypes,
   sortConfig,
   sortFieldType,
-  reportWorkerRef = null
+  reportWorkerRef = null,
+  columnsExemptFromBreakdown = []
 ) {
   const [reportData, setReportData] = useState(null);
   const [isComputingReport, setIsComputingReport] = useState(false);
@@ -55,7 +57,8 @@ export function useReportData(
 
     // Stabilize: only run computation when input signature actually changed (avoids rapid re-runs from unstable refs)
     const sortKey = sortConfig ? `${sortConfig.field ?? ''}-${sortConfig.direction ?? ''}` : '';
-    const inputSignature = `${data?.length ?? 0}-${groupFields.join(',')}-${dateColumn}-${breakdownType}-${sortKey}`;
+    const exemptKey = Array.isArray(columnsExemptFromBreakdown) ? columnsExemptFromBreakdown.join(',') : '';
+    const inputSignature = `${data?.length ?? 0}-${groupFields.join(',')}-${dateColumn}-${breakdownType}-${sortKey}-${exemptKey}`;
     if (prevInputSignatureRef.current === inputSignature) {
       return;
     }
@@ -75,7 +78,8 @@ export function useReportData(
             breakdownType,
             columnTypes,
             sortConfig,
-            sortFieldType
+            sortFieldType,
+            columnsExemptFromBreakdown
           );
           if (computationId === computationIdRef.current) {
             const inputHadData = Array.isArray(data) && data.length > 0;
@@ -106,7 +110,8 @@ export function useReportData(
           breakdownType,
           columnTypes,
           sortConfig,
-          sortFieldType
+          sortFieldType,
+          columnsExemptFromBreakdown
         );
 
         // Only update if this is still the latest computation
@@ -133,7 +138,8 @@ export function useReportData(
             breakdownType,
             columnTypes,
             sortConfig,
-            sortFieldType
+            sortFieldType,
+            columnsExemptFromBreakdown
           );
           if (computationId === computationIdRef.current) {
             const inputHadData = Array.isArray(data) && data.length > 0;
@@ -156,7 +162,7 @@ export function useReportData(
     };
 
     computeReport();
-  }, [enableBreakdown, dateColumn, breakdownType, data, effectiveGroupFields, columnTypes, sortConfig, sortFieldType, reportWorkerRef]);
+  }, [enableBreakdown, dateColumn, breakdownType, data, effectiveGroupFields, columnTypes, sortConfig, sortFieldType, reportWorkerRef, columnsExemptFromBreakdown]);
 
   return { reportData, isComputingReport };
 }

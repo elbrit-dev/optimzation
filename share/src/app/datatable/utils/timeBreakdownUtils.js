@@ -318,9 +318,26 @@ export function groupDataByTimePeriod(data, dateField, breakdownType, metrics = 
 }
 
 /**
- * Transform grouped data into table format (optimized with Map)
+ * Check if a value is numeric for exempt column aggregation
  */
-export function transformToTableData(groupedData, productField, breakdownType, includeDetails = false, metrics = ['sales', 'profits', 'count']) {
+function isNumericValue(value) {
+    if (value === null || value === undefined) return false;
+    if (typeof value === "number" && !Number.isNaN(value)) return true;
+    const n = Number(value);
+    return !Number.isNaN(n) && isFinite(n);
+}
+
+/**
+ * Transform grouped data into table format (optimized with Map)
+ * @param {Object} groupedData - Time-grouped data
+ * @param {string} productField - Field name for product/group
+ * @param {string} breakdownType - Breakdown type
+ * @param {boolean} includeDetails - Include details for nested table
+ * @param {string[]} metrics - Metric column names for period breakdown
+ * @param {string[]} exemptColumns - Column names exempt from breakdown (shown as single column, aggregated per product)
+ * @param {Object} columnTypes - Column type overrides { colName: 'number'|'string'|'date'|'boolean' }
+ */
+export function transformToTableData(groupedData, productField, breakdownType, includeDetails = false, metrics = ['sales', 'profits', 'count'], exemptColumns = [], columnTypes = {}) {
     const products = new Map();
 
     Object.values(groupedData).forEach((periodData) => {
@@ -332,6 +349,8 @@ export function transformToTableData(groupedData, productField, breakdownType, i
                     product,
                     periods: new Map(),
                     details: includeDetails ? [] : undefined,
+                    exemptValues: {},
+                    exemptFirst: {},
                 });
             }
 
@@ -353,6 +372,20 @@ export function transformToTableData(groupedData, productField, breakdownType, i
                 const value = item[metric];
                 if (value !== undefined && value !== null) {
                     periodMetrics[metric] += value || 0;
+                }
+            });
+
+            // Aggregate exempt columns: numeric = sum, non-numeric = first
+            exemptColumns.forEach((col) => {
+                const value = item[col];
+                const isNumeric = columnTypes[col] === "number" || isNumericValue(value);
+                if (isNumeric) {
+                    const numVal = typeof value === "number" ? value : Number(value);
+                    if (!Number.isNaN(numVal) && isFinite(numVal)) {
+                        productEntry.exemptValues[col] = (productEntry.exemptValues[col] ?? 0) + numVal;
+                    }
+                } else if (productEntry.exemptFirst[col] === undefined && value !== null && value !== undefined && value !== "") {
+                    productEntry.exemptFirst[col] = value;
                 }
             });
 
@@ -384,6 +417,15 @@ export function transformToTableData(groupedData, productField, breakdownType, i
             metrics.forEach(metric => {
                 row[`${period}_${metric}`] = periodMetrics[metric] || 0;
             });
+        });
+
+        // Add exempt column values
+        exemptColumns.forEach((col) => {
+            if (productEntry.exemptValues[col] !== undefined) {
+                row[col] = productEntry.exemptValues[col];
+            } else if (productEntry.exemptFirst[col] !== undefined) {
+                row[col] = productEntry.exemptFirst[col];
+            }
         });
 
         // Include details for nested table
@@ -458,8 +500,16 @@ export function generateMockTimeSeriesData(productCount = 10, daysBack = 90) {
 
 /**
  * Transform grouped data into nested table format (optimized with Map)
+ * @param {Object} groupedData - Time-grouped data
+ * @param {string} productField - Field name for product
+ * @param {string} categoryField - Field name for category
+ * @param {string} breakdownType - Breakdown type
+ * @param {string[]} allPeriods - All time periods
+ * @param {string[]} metrics - Metric column names
+ * @param {string[]} exemptColumns - Column names exempt from breakdown
+ * @param {Object} columnTypes - Column type overrides
  */
-export function transformToNestedTableData(groupedData, productField, categoryField, breakdownType, allPeriods, metrics = ['sales', 'profits', 'count']) {
+export function transformToNestedTableData(groupedData, productField, categoryField, breakdownType, allPeriods, metrics = ['sales', 'profits', 'count'], exemptColumns = [], columnTypes = {}) {
     const nestedData = new Map(); // product -> categories Map
 
     Object.values(groupedData).forEach((periodData) => {
@@ -479,6 +529,8 @@ export function transformToNestedTableData(groupedData, productField, categoryFi
                 const categoryEntry = {
                     category,
                     periods: new Map(),
+                    exemptValues: {},
+                    exemptFirst: {},
                 };
                 productCategories.set(category, categoryEntry);
             }
@@ -503,6 +555,20 @@ export function transformToNestedTableData(groupedData, productField, categoryFi
                     periodMetrics[metric] += value || 0;
                 }
             });
+
+            // Aggregate exempt columns
+            exemptColumns.forEach((col) => {
+                const value = item[col];
+                const isNumeric = columnTypes[col] === "number" || isNumericValue(value);
+                if (isNumeric) {
+                    const numVal = typeof value === "number" ? value : Number(value);
+                    if (!Number.isNaN(numVal) && isFinite(numVal)) {
+                        categoryEntry.exemptValues[col] = (categoryEntry.exemptValues[col] ?? 0) + numVal;
+                    }
+                } else if (categoryEntry.exemptFirst[col] === undefined && value !== null && value !== undefined && value !== "") {
+                    categoryEntry.exemptFirst[col] = value;
+                }
+            });
         });
     });
 
@@ -525,6 +591,15 @@ export function transformToNestedTableData(groupedData, productField, categoryFi
                 metrics.forEach(metric => {
                     row[`${period}_${metric}`] = periodMetrics[metric] || 0;
                 });
+            });
+
+            // Add exempt column values
+            exemptColumns.forEach((col) => {
+                if (categoryEntry.exemptValues?.[col] !== undefined) {
+                    row[col] = categoryEntry.exemptValues[col];
+                } else if (categoryEntry.exemptFirst?.[col] !== undefined) {
+                    row[col] = categoryEntry.exemptFirst[col];
+                }
             });
 
             result.push(row);

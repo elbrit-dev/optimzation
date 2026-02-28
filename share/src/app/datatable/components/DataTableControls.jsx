@@ -10,7 +10,7 @@ import React, { useState } from 'react';
 import { defaultDataTableConfig } from '../config/defaultConfig';
 import { getMainOverrides, getNestedOverridesAtPath, setOverrideAtPath } from '../utils/columnTypesOverrideUtils';
 import { getDataValue } from '../utils/dataAccessUtils';
-import { isJsonArrayOfObjectsString } from '../utils/jsonArrayParser';
+import { isJsonArrayOfObjectsString, parseJsonObject } from '../utils/jsonArrayParser';
 
 function SingleFieldSelector({ columns, selectedField, onSelectionChange, formatFieldName, placeholder, label }) {
   const containerRef = React.useRef(null);
@@ -470,7 +470,7 @@ function ColumnTypeOverridesTree({ columnTree, columnTypesOverride, onColumnType
     const rows = (tree?.mainColumns || []).map(({ name: col, detectedType }) => {
       const overrideType = overrides[col];
       const isOverridden = !!overrideType;
-      const dropdownOptions = ['string', 'number', 'date', 'boolean'].map((type) => {
+      const dropdownOptions = ['string', 'number', 'date', 'boolean', 'object'].map((type) => {
         const isAutoDetected = type === detectedType && !isOverridden;
         return {
           label: isAutoDetected ? `${type} (auto)` : type,
@@ -848,6 +848,35 @@ export default function DataTableControls({
     }
     
     return jsonTableMap;
+  }, [tableData, columns]);
+
+  const jsonObjectColumns = React.useMemo(() => {
+    if (!tableData || !Array.isArray(tableData) || tableData.length === 0) {
+      return {};
+    }
+    const objectMap = {};
+    const sampleRows = tableData.slice(0, Math.min(100, tableData.length));
+    columns.forEach((columnName) => {
+      if (columnName.startsWith('__')) return;
+      const keys = new Set();
+      sampleRows.forEach((row) => {
+        if (!row || typeof row !== 'object') return;
+        const value = row[columnName];
+        if (isJsonArrayOfObjectsString(value)) return;
+        const parsed = parseJsonObject(value);
+        if (!parsed) return;
+        Object.keys(parsed)
+          .filter((key) => !key.startsWith('__'))
+          .forEach((key) => keys.add(key));
+      });
+      if (keys.size > 0) {
+        objectMap[columnName] = {
+          fieldName: columnName,
+          keys: Array.from(keys),
+        };
+      }
+    });
+    return objectMap;
   }, [tableData, columns]);
 
   React.useEffect(() => {
@@ -1639,16 +1668,22 @@ export default function DataTableControls({
                           selectedFields={Array.isArray(editableColumns) ? editableColumns : (editableColumns?.main || [])}
                           onSelectionChange={(selected) => {
                             const currentNested = editableColumns?.nested || {};
+                            const currentObject = editableColumns?.object || {};
                             // Remove nested config for columns that are no longer selected
                             const newNested = {};
+                            const newObject = {};
                             selected.forEach(col => {
                               if (currentNested[col]) {
                                 newNested[col] = currentNested[col];
                               }
+                              if (currentObject[col]) {
+                                newObject[col] = currentObject[col];
+                              }
                             });
                             const newEditableColumns = {
                               main: selected || [],
-                              nested: newNested
+                              nested: newNested,
+                              object: newObject,
                             };
                             onEditableColumnsChange(newEditableColumns);
                           }}
@@ -1705,7 +1740,55 @@ export default function DataTableControls({
                                       };
                                       onEditableColumnsChange({
                                         main: selectedMain,
-                                        nested: newNested
+                                        nested: newNested,
+                                        object: editableColumns?.object || {},
+                                      });
+                                    }}
+                                    formatFieldName={formatFieldName}
+                                  />
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })()}
+                      {/* Object key selector for JSON object columns */}
+                      {Object.keys(jsonObjectColumns).length > 0 && (() => {
+                        const selectedMain = Array.isArray(editableColumns) ? editableColumns : (editableColumns?.main || []);
+                        const selectedObjectColumns = selectedMain.filter(col => jsonObjectColumns[col]);
+                        const currentNested = editableColumns?.nested || {};
+                        const currentObject = editableColumns?.object || {};
+
+                        if (selectedObjectColumns.length === 0) {
+                          return null;
+                        }
+
+                        return (
+                          <div className="mt-4 space-y-3 pl-4 border-l-2 border-gray-200">
+                            <p className="text-xs font-medium text-gray-600 mb-2">JSON Object Columns:</p>
+                            {selectedObjectColumns.map((objectCol) => {
+                              const objectInfo = jsonObjectColumns[objectCol];
+                              const keys = Array.isArray(objectInfo?.keys) ? objectInfo.keys : [];
+                              if (keys.length === 0) return null;
+                              const currentSelected = Array.isArray(currentObject[objectCol]) ? [...currentObject[objectCol]] : [];
+
+                              return (
+                                <div key={objectCol} className="space-y-2 mb-3">
+                                  <label className="block text-xs font-medium text-gray-700">
+                                    {formatFieldName(objectCol)} - Editable Keys:
+                                  </label>
+                                  <FieldPicker
+                                    columns={keys}
+                                    selectedFields={currentSelected}
+                                    onSelectionChange={(selected) => {
+                                      const newObject = {
+                                        ...currentObject,
+                                        [objectCol]: selected,
+                                      };
+                                      onEditableColumnsChange({
+                                        main: selectedMain,
+                                        nested: currentNested,
+                                        object: newObject,
                                       });
                                     }}
                                     formatFieldName={formatFieldName}

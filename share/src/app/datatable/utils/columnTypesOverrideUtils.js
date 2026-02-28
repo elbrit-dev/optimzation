@@ -3,7 +3,7 @@
  * Used for backward compatibility and per-level override lookup for nested JSON tables.
  */
 
-const VALID_TYPES = new Set(['string', 'number', 'date', 'boolean']);
+const VALID_TYPES = new Set(['string', 'number', 'date', 'boolean', 'object']);
 
 function isTypeString(value) {
   return typeof value === 'string' && VALID_TYPES.has(value);
@@ -71,7 +71,7 @@ export function getNestedOverridesAtPath(columnTypesOverride, path) {
  * @param {Object} columnTypesOverride - Current full override
  * @param {string[]} path - [] for main table, or e.g. ["order_items"] or ["order_items", "line_items"]
  * @param {string} columnName - Column name at that level
- * @param {string|null|undefined} typeValue - "string"|"number"|"date"|"boolean", or null/undefined to clear (Auto)
+ * @param {string|null|undefined} typeValue - "string"|"number"|"date"|"boolean"|"object", or null/undefined to clear (Auto)
  * @returns {Object} New columnTypesOverride (new shape with main/nested if path is nested)
  */
 export function setOverrideAtPath(columnTypesOverride, path, columnName, typeValue) {

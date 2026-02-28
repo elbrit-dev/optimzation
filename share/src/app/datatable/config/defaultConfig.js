@@ -26,7 +26,8 @@ export const defaultDataTableConfig = {
     allowedColumns: [],
     nonEditableColumns: [],
 
-    // Fields that can be edited (leave empty to allow all). Main = scalar columns; nested = per JSON table column (flat: column -> list of editable columns).
+    // Fields that can be edited (leave empty to allow all).
+    // main = scalar columns, nested = per JSON table column, object = per JSON object column keys.
     // editableColumns: {
     //     main: ["distributor_customer_name", "items"],
     //     nested: {
@@ -34,7 +35,11 @@ export const defaultDataTableConfig = {
     //     },
     // },
     editableColumns: {
-        main: ["name", "subject", "description"]
+        main: ["subject", "description", "issue_type"],
+        nested: {},
+        object: {
+            "issue_type": ["name"]
+        },
     },
     percentageColumns: [],
     derivedColumns: [
@@ -44,6 +49,7 @@ export const defaultDataTableConfig = {
             compute: (row) => 12345,
             columnType: "number",
             position: 2, // 3rd column (0-based)
+            exemptFromBreakdown: true,
             scope: { main: true, report: true, nested: false },
         },
         {
@@ -64,12 +70,12 @@ export const defaultDataTableConfig = {
     // groupFields: ["sales_team", "hq", "customer_name"],
     // groupFields: ["sales_team", "hq"],
     // groupFields: ["item", "warehouse"],
-    groupFields: [],
+    // groupFields: [],
 
     // Column types override
     columnTypesOverride: {},
 
-    // Form input override: same structure as editableColumns. main = main table; nested = per parent column.
+    // Form input override: same structure as editableColumns. main = main table; nested = per parent column; object = per object-column key.
     // Each value: 'Calendar'|'Checkbox'|'InputNumber'|'InputText'|'Quill'|{ type:'Select', getOptions } or { type:'Select', getOptionsCode }. ctx={ columnName, query }
     formInputOverride: {
         main: {
@@ -103,6 +109,7 @@ export const defaultDataTableConfig = {
         //         },
         //     },
         // },
+        object: {},
     },
 
     // Drawer tabs
@@ -119,6 +126,7 @@ export const defaultDataTableConfig = {
     breakdownType: "month",
     dateColumn: "posting_date",
     columnGroupBy: "values",
+    columnsExemptFromBreakdown: ["batch_qty"],
 
     // Auth Control
     isAdminMode: false,
@@ -133,8 +141,8 @@ export const defaultDataTableConfig = {
     // dataSource: "WriteQuery",
     // selectedQueryKey: "secondary",
     dataSource: "Issues",
-    selectedQueryKey: "Issues",
-    // dataSource: "PrimaryStockOffline",
+    selectedQueryKey: "issues",
+    // dataSource: "PrimaryStock",
     // selectedQueryKey: "primary",
 };
 
@@ -166,6 +174,19 @@ export function mergeConfig(userConfig = {}) {
                     merged[tableName] = {
                         ...(defaultNested[tableName] || {}),
                         ...(userNested[tableName] || {}),
+                    };
+                }
+                return merged;
+            })(),
+            object: (() => {
+                const defaultObject = defaultDataTableConfig.formInputOverride?.object || {};
+                const userObject = userConfig.formInputOverride?.object || {};
+                const objectColumns = new Set([...Object.keys(defaultObject), ...Object.keys(userObject)]);
+                const merged = {};
+                for (const columnName of objectColumns) {
+                    merged[columnName] = {
+                        ...(defaultObject[columnName] || {}),
+                        ...(userObject[columnName] || {}),
                     };
                 }
                 return merged;
@@ -232,6 +253,7 @@ export function extractStateFromConfig(config, setters = {}) {
         breakdownType: config.breakdownType ?? defaultDataTableConfig.breakdownType,
         dateColumn: config.dateColumn ?? defaultDataTableConfig.dateColumn,
         columnGroupBy: config.columnGroupBy ?? defaultDataTableConfig.columnGroupBy,
+        columnsExemptFromBreakdown: config.columnsExemptFromBreakdown ?? defaultDataTableConfig.columnsExemptFromBreakdown,
 
         // Auth Control
         isAdminMode: config.isAdminMode ?? defaultDataTableConfig.isAdminMode,

@@ -70,9 +70,10 @@ function createSortComparator(sortConfig, fieldType, topLevelKey, nestedPath) {
  * @param {Object} columnTypes - Object mapping column names to their types
  * @param {Object} sortConfig - Optional sort configuration with field and direction
  * @param {Object} sortFieldType - Optional sort field type info with fieldType, topLevelKey, nestedPath
- * @returns {Object} Report data structure with tableData, nestedTableData, timePeriods, and metrics
+ * @param {Array} columnsExemptFromBreakdown - Column names that appear as single columns without time breakdown
+ * @returns {Object} Report data structure with tableData, nestedTableData, timePeriods, metrics, exemptColumns
  */
-export function transformToReportData(data, effectiveGroupFields, dateColumn, breakdownType, columnTypes = {}, sortConfig = null, sortFieldType = null) {
+export function transformToReportData(data, effectiveGroupFields, dateColumn, breakdownType, columnTypes = {}, sortConfig = null, sortFieldType = null, columnsExemptFromBreakdown = []) {
   // Ensure effectiveGroupFields is an array
   const groupFields = Array.isArray(effectiveGroupFields) ? effectiveGroupFields : [];
   
@@ -82,11 +83,15 @@ export function transformToReportData(data, effectiveGroupFields, dateColumn, br
       nestedTableData: {},
       timePeriods: [],
       metrics: [],
+      exemptColumns: [],
       dateRange: { start: null, end: null }
     };
   }
 
+  const exemptColumns = Array.isArray(columnsExemptFromBreakdown) ? columnsExemptFromBreakdown : [];
+
   // Detect numeric columns (metrics to aggregate) - optimized single pass
+  // Exclude exempt columns from metrics
   const metrics = [];
   const allColumnsSet = new Set();
   const columnNumericCount = new Map();
@@ -102,8 +107,8 @@ export function transformToReportData(data, effectiveGroupFields, dateColumn, br
       Object.keys(row).forEach(col => {
         allColumnsSet.add(col);
         
-        // Skip grouping fields and date column
-        if (groupFields.includes(col) || col === dateColumn) {
+        // Skip grouping fields, date column, and exempt columns
+        if (groupFields.includes(col) || col === dateColumn || exemptColumns.includes(col)) {
           return;
         }
 
@@ -131,9 +136,9 @@ export function transformToReportData(data, effectiveGroupFields, dateColumn, br
       });
     }
 
-    // Process sampled columns
+    // Process sampled columns (exclude exempt from metrics)
     columnCheckedCount.forEach((checkedCount, col) => {
-      if (!metrics.includes(col)) {
+      if (!metrics.includes(col) && !exemptColumns.includes(col)) {
         const numericCount = columnNumericCount.get(col) || 0;
         if (checkedCount > 0 && numericCount / checkedCount > 0.5) {
           metrics.push(col);
@@ -171,6 +176,7 @@ export function transformToReportData(data, effectiveGroupFields, dateColumn, br
       nestedTableData: {},
       timePeriods: [],
       metrics: [],
+      exemptColumns: [],
       dateRange: { start: null, end: null }
     };
   }
@@ -189,15 +195,50 @@ export function transformToReportData(data, effectiveGroupFields, dateColumn, br
   // Transform to table data (outer group rows) using transformToTableData
   // This matches the reference implementation approach
   const outerGroupField = groupFields[0];
-  const transformedTableData = transformToTableData(groupedData, outerGroupField, breakdownType, true, metrics);
+  const transformedTableData = transformToTableData(groupedData, outerGroupField, breakdownType, true, metrics, exemptColumns, columnTypes);
+
+  // Aggregate exempt columns from FULL data - groupDataByTimePeriod skips rows without valid date,
+  // but exempt columns must include those rows (e.g. batch_qty often on rows without posting_date)
+  const exemptValuesByProduct = new Map();
+  if (exemptColumns.length > 0) {
+    const isNum = (v) => (v != null && typeof v === 'number' && !Number.isNaN(v)) || (!Number.isNaN(Number(v)) && isFinite(Number(v)));
+    data.forEach((item) => {
+      const product = getDataValue(item, outerGroupField) || 'Unknown';
+      if (!exemptValuesByProduct.has(product)) {
+        exemptValuesByProduct.set(product, { exemptValues: {}, exemptFirst: {} });
+      }
+      const entry = exemptValuesByProduct.get(product);
+      exemptColumns.forEach((col) => {
+        const value = getDataValue(item, col);
+        const isNumeric = columnTypes[col] === 'number' || isNum(value);
+        if (isNumeric) {
+          const numVal = typeof value === 'number' ? value : Number(value);
+          if (!Number.isNaN(numVal) && isFinite(numVal)) {
+            entry.exemptValues[col] = (entry.exemptValues[col] ?? 0) + numVal;
+          }
+        } else if (entry.exemptFirst[col] === undefined && value != null && value !== '') {
+          entry.exemptFirst[col] = value;
+        }
+      });
+    });
+  }
   
-  // Map 'product' field to the actual outerGroupField since transformToTableData hardcodes 'product'
+  // Map 'product' field to the actual outerGroupField and merge exempt values from full data
   let tableData = transformedTableData.map(row => {
     const { product, ...rest } = row;
-    return {
-      ...rest,
-      [outerGroupField]: product === 'Unknown' ? null : product
-    };
+    const productKey = product === 'Unknown' ? null : product;
+    const result = { ...rest, [outerGroupField]: productKey };
+    const exemptEntry = exemptValuesByProduct.get(productKey ?? 'Unknown');
+    if (exemptEntry) {
+      exemptColumns.forEach((col) => {
+        if (exemptEntry.exemptValues[col] !== undefined) {
+          result[col] = exemptEntry.exemptValues[col];
+        } else if (exemptEntry.exemptFirst[col] !== undefined) {
+          result[col] = exemptEntry.exemptFirst[col];
+        }
+      });
+    }
+    return result;
   });
 
   // Apply sorting to tableData if sortConfig is provided
@@ -231,7 +272,9 @@ export function transformToReportData(data, effectiveGroupFields, dateColumn, br
         nextField,
         breakdownType,
         timePeriods,
-        metrics
+        metrics,
+        exemptColumns,
+        columnTypes
       );
       
       // Build a map of (currentField, nextField) -> deeper level field values from original rows
@@ -381,6 +424,7 @@ export function transformToReportData(data, effectiveGroupFields, dateColumn, br
     nestedTableData,
     timePeriods,
     metrics,
+    exemptColumns,
     dateRange,
     breakdownType
   };

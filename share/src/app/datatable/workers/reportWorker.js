@@ -258,9 +258,19 @@ function groupDataByTimePeriod(data, dateField, breakdownType, metrics = []) {
 }
 
 /**
+ * Check if a value is numeric for exempt column aggregation
+ */
+function isNumericValue(value) {
+    if (value === null || value === undefined) return false;
+    if (typeof value === "number" && !Number.isNaN(value)) return true;
+    const n = Number(value);
+    return !Number.isNaN(n) && isFinite(n);
+}
+
+/**
  * Transform grouped data into table format (optimized)
  */
-function transformToTableData(groupedData, productField, breakdownType, includeDetails = false, metrics = []) {
+function transformToTableData(groupedData, productField, breakdownType, includeDetails = false, metrics = [], exemptColumns = [], columnTypes = {}) {
     const products = new Map();
 
     Object.values(groupedData).forEach((periodData) => {
@@ -272,6 +282,8 @@ function transformToTableData(groupedData, productField, breakdownType, includeD
                     product,
                     periods: new Map(),
                     details: includeDetails ? [] : undefined,
+                    exemptValues: {},
+                    exemptFirst: {},
                 });
             }
 
@@ -300,6 +312,20 @@ function transformToTableData(groupedData, productField, breakdownType, includeD
                             periodMetrics[metric] += numVal;
                         }
                     }
+                }
+            });
+
+            // Aggregate exempt columns: numeric = sum, non-numeric = first
+            exemptColumns.forEach((col) => {
+                const value = getDataValue(item, col);
+                const isNumeric = columnTypes[col] === "number" || isNumericValue(value);
+                if (isNumeric) {
+                    const numVal = typeof value === "number" ? value : Number(value);
+                    if (!Number.isNaN(numVal) && isFinite(numVal)) {
+                        productEntry.exemptValues[col] = (productEntry.exemptValues[col] ?? 0) + numVal;
+                    }
+                } else if (productEntry.exemptFirst[col] === undefined && value !== null && value !== undefined && value !== "") {
+                    productEntry.exemptFirst[col] = value;
                 }
             });
 
@@ -332,6 +358,15 @@ function transformToTableData(groupedData, productField, breakdownType, includeD
             });
         });
 
+        // Add exempt column values
+        exemptColumns.forEach((col) => {
+            if (productEntry.exemptValues[col] !== undefined) {
+                row[col] = productEntry.exemptValues[col];
+            } else if (productEntry.exemptFirst[col] !== undefined) {
+                row[col] = productEntry.exemptFirst[col];
+            }
+        });
+
         // Include details for nested table
         if (includeDetails) {
             row.details = productEntry.details;
@@ -346,7 +381,7 @@ function transformToTableData(groupedData, productField, breakdownType, includeD
 /**
  * Transform grouped data into nested table format (optimized)
  */
-function transformToNestedTableData(groupedData, productField, categoryField, breakdownType, allPeriods, metrics = []) {
+function transformToNestedTableData(groupedData, productField, categoryField, breakdownType, allPeriods, metrics = [], exemptColumns = [], columnTypes = {}) {
     const nestedData = new Map(); // product -> categories Map
 
     Object.values(groupedData).forEach((periodData) => {
@@ -366,6 +401,8 @@ function transformToNestedTableData(groupedData, productField, categoryField, br
                 const categoryEntry = {
                     category,
                     periods: new Map(),
+                    exemptValues: {},
+                    exemptFirst: {},
                 };
                 productCategories.set(category, categoryEntry);
             }
@@ -397,6 +434,20 @@ function transformToNestedTableData(groupedData, productField, categoryField, br
                     }
                 }
             });
+
+            // Aggregate exempt columns
+            exemptColumns.forEach((col) => {
+                const value = getDataValue(item, col);
+                const isNumeric = columnTypes[col] === "number" || isNumericValue(value);
+                if (isNumeric) {
+                    const numVal = typeof value === "number" ? value : Number(value);
+                    if (!Number.isNaN(numVal) && isFinite(numVal)) {
+                        categoryEntry.exemptValues[col] = (categoryEntry.exemptValues[col] ?? 0) + numVal;
+                    }
+                } else if (categoryEntry.exemptFirst[col] === undefined && value !== null && value !== undefined && value !== "") {
+                    categoryEntry.exemptFirst[col] = value;
+                }
+            });
         });
     });
 
@@ -421,6 +472,15 @@ function transformToNestedTableData(groupedData, productField, categoryField, br
                 });
             });
 
+            // Add exempt column values
+            exemptColumns.forEach((col) => {
+                if (categoryEntry.exemptValues?.[col] !== undefined) {
+                    row[col] = categoryEntry.exemptValues[col];
+                } else if (categoryEntry.exemptFirst?.[col] !== undefined) {
+                    row[col] = categoryEntry.exemptFirst[col];
+                }
+            });
+
             result.push(row);
             categoryIndex++;
         });
@@ -433,7 +493,7 @@ function transformToNestedTableData(groupedData, productField, categoryField, br
 /**
  * Compute report data (main function exposed to main thread)
  */
-async function computeReportData(data, effectiveGroupFields, dateColumn, breakdownType, columnTypes = {}, sortConfig = null, sortFieldType = null) {
+async function computeReportData(data, effectiveGroupFields, dateColumn, breakdownType, columnTypes = {}, sortConfig = null, sortFieldType = null, columnsExemptFromBreakdown = []) {
     // Ensure effectiveGroupFields is an array
     const groupFields = Array.isArray(effectiveGroupFields) ? effectiveGroupFields : [];
     
@@ -443,10 +503,13 @@ async function computeReportData(data, effectiveGroupFields, dateColumn, breakdo
             nestedTableData: {},
             timePeriods: [],
             metrics: [],
+            exemptColumns: [],
             dateRange: { start: null, end: null },
             breakdownType
         };
     }
+
+    const exemptColumns = Array.isArray(columnsExemptFromBreakdown) ? columnsExemptFromBreakdown : [];
 
     // Detect numeric columns (metrics to aggregate) - optimized single pass
     const metrics = [];
@@ -463,8 +526,8 @@ async function computeReportData(data, effectiveGroupFields, dateColumn, breakdo
         Object.keys(row).forEach(col => {
             allColumnsSet.add(col);
             
-            // Skip grouping fields and date column
-            if (groupFields.includes(col) || col === dateColumn) {
+            // Skip grouping fields, date column, and exempt columns
+            if (groupFields.includes(col) || col === dateColumn || exemptColumns.includes(col)) {
                 return;
             }
 
@@ -492,9 +555,9 @@ async function computeReportData(data, effectiveGroupFields, dateColumn, breakdo
         });
     }
 
-    // Process sampled columns
+    // Process sampled columns (exclude exempt from metrics)
     columnCheckedCount.forEach((checkedCount, col) => {
-        if (!metrics.includes(col)) {
+        if (!metrics.includes(col) && !exemptColumns.includes(col)) {
             const numericCount = columnNumericCount.get(col) || 0;
             if (checkedCount > 0 && numericCount / checkedCount > 0.5) {
                 metrics.push(col);
@@ -528,6 +591,7 @@ async function computeReportData(data, effectiveGroupFields, dateColumn, breakdo
             nestedTableData: {},
             timePeriods: [],
             metrics: [],
+            exemptColumns: [],
             dateRange: { start: null, end: null },
             breakdownType
         };
@@ -549,15 +613,49 @@ async function computeReportData(data, effectiveGroupFields, dateColumn, breakdo
 
     // Transform to table data (outer group rows)
     const outerGroupField = groupFields[0];
-    const transformedTableData = transformToTableData(groupedData, outerGroupField, breakdownType, true, metrics);
+    const transformedTableData = transformToTableData(groupedData, outerGroupField, breakdownType, true, metrics, exemptColumns, columnTypes);
+
+    // Aggregate exempt columns from FULL data - groupDataByTimePeriod skips rows without valid date,
+    // but exempt columns must include those rows (e.g. batch_qty often on rows without posting_date)
+    const exemptValuesByProduct = new Map();
+    if (exemptColumns.length > 0) {
+        data.forEach((item) => {
+            const product = getDataValue(item, outerGroupField) || "Unknown";
+            if (!exemptValuesByProduct.has(product)) {
+                exemptValuesByProduct.set(product, { exemptValues: {}, exemptFirst: {} });
+            }
+            const entry = exemptValuesByProduct.get(product);
+            exemptColumns.forEach((col) => {
+                const value = getDataValue(item, col);
+                const isNumeric = columnTypes[col] === "number" || isNumericValue(value);
+                if (isNumeric) {
+                    const numVal = typeof value === "number" ? value : Number(value);
+                    if (!Number.isNaN(numVal) && isFinite(numVal)) {
+                        entry.exemptValues[col] = (entry.exemptValues[col] ?? 0) + numVal;
+                    }
+                } else if (entry.exemptFirst[col] === undefined && value !== null && value !== undefined && value !== "") {
+                    entry.exemptFirst[col] = value;
+                }
+            });
+        });
+    }
     
-    // Map 'product' field to the actual outerGroupField
+    // Map 'product' field to the actual outerGroupField and merge exempt values from full data
     let tableData = transformedTableData.map(row => {
         const { product, ...rest } = row;
-        return {
-            ...rest,
-            [outerGroupField]: product === 'Unknown' ? null : product
-        };
+        const productKey = product === 'Unknown' ? null : product;
+        const result = { ...rest, [outerGroupField]: productKey };
+        const exemptEntry = exemptValuesByProduct.get(productKey ?? "Unknown");
+        if (exemptEntry) {
+            exemptColumns.forEach((col) => {
+                if (exemptEntry.exemptValues[col] !== undefined) {
+                    result[col] = exemptEntry.exemptValues[col];
+                } else if (exemptEntry.exemptFirst[col] !== undefined) {
+                    result[col] = exemptEntry.exemptFirst[col];
+                }
+            });
+        }
+        return result;
     });
 
     // Apply sorting to tableData if sortConfig is provided
@@ -590,7 +688,9 @@ async function computeReportData(data, effectiveGroupFields, dateColumn, breakdo
                 nextField,
                 breakdownType,
                 timePeriods,
-                metrics
+                metrics,
+                exemptColumns,
+                columnTypes
             );
             
             // Build a map of (currentField, nextField) -> deeper level field values from original rows
@@ -740,6 +840,7 @@ async function computeReportData(data, effectiveGroupFields, dateColumn, breakdo
         nestedTableData,
         timePeriods,
         metrics,
+        exemptColumns,
         dateRange,
         breakdownType
     };

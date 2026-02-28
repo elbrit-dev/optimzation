@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback, useRef, useLayoutEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef, useLayoutEffect, forwardRef, useImperativeHandle } from 'react';
 import { createPortal } from 'react-dom';
 import { DataTable } from 'primereact/datatable';
 import { Column } from 'primereact/column';
@@ -45,7 +45,7 @@ import {
 import { getNestedOverridesAtPath } from '../utils/columnTypesOverrideUtils';
 import { getDataKeys, getDataValue } from '../utils/dataAccessUtils';
 import { getOrderedColumnsWithDerived } from '../utils/derivedColumnsUtils';
-import { isJsonArrayOfObjectsString } from '../utils/jsonArrayParser';
+import { isJsonArrayOfObjectsString, parseJsonObject } from '../utils/jsonArrayParser';
 import { useTableOperations } from '../contexts/TableOperationsContext';
 import { SlotContext } from './DataSlot';
 import { DataProvider as PlasmicDataProvider } from '@plasmicapp/loader-nextjs';
@@ -101,6 +101,155 @@ function InlineSelectCellEditor({ options: editorOptions, col, getOptions, query
     </div>
   );
 }
+
+const BreakdownChips = React.memo(function BreakdownChips({
+  primary,
+  moreCount,
+  onOpen,
+  isNumericCol,
+  colorClass,
+  cellValue
+}) {
+  return (
+    <div
+      className={`flex flex-nowrap gap-0.5 items-center min-w-0 overflow-hidden ${isNumericCol ? 'justify-end' : 'justify-start'} ${colorClass}`}
+      title={`${cellValue} (Click to view grouped counts)`}
+    >
+      <button type="button" className="shrink-0" onClick={onOpen}>
+        <Chip label={primary} className="text-[10px] py-0 px-1.5 h-5 shrink-0 cursor-pointer hover:bg-gray-100 [&_.p-chip-text]:text-[10px]" removable={false} />
+      </button>
+      {moreCount != null && moreCount > 0 && (
+        <button type="button" className="shrink-0" onClick={onOpen}>
+          <Chip label={`+${moreCount} more`} className="text-[10px] py-0 px-1.5 h-5 shrink-0 bg-gray-100 text-gray-700 cursor-pointer hover:bg-gray-200 [&_.p-chip-text]:text-[10px]" removable={false} />
+        </button>
+      )}
+    </div>
+  );
+});
+
+const BreakdownDialogHost = forwardRef(function BreakdownDialogHost(_props, ref) {
+  const [dialogState, setDialogState] = useState({
+    visible: false,
+    columnLabel: '',
+    summaryValue: '',
+    totalCount: 0,
+    rows: [],
+  });
+
+  useImperativeHandle(ref, () => ({
+    open: ({ columnLabel, summaryValue, breakdown }) => {
+      if (!isArray(breakdown) || breakdown.length === 0) return;
+      const rows = breakdown.map((item, index) => {
+        const count = toNumber(item?.count) || 0;
+        return {
+          id: `${columnLabel}_${index}`,
+          value: String(item?.value ?? ''),
+          count,
+        };
+      });
+      const totalCount = rows.reduce((acc, row) => acc + row.count, 0);
+      setDialogState({
+        visible: true,
+        columnLabel: String(columnLabel ?? ''),
+        summaryValue: String(summaryValue ?? ''),
+        totalCount,
+        rows,
+      });
+    }
+  }), []);
+
+  return (
+    <Dialog
+      visible={dialogState.visible}
+      header={`${dialogState.columnLabel} grouped counts`}
+      modal
+      style={{ width: '42rem', maxWidth: '95vw' }}
+      onHide={() => setDialogState((prev) => ({ ...prev, visible: false }))}
+    >
+      <div className="space-y-3">
+        {dialogState.summaryValue && (
+          <div className="text-sm text-gray-700">
+            Summary: <span className="font-medium">{dialogState.summaryValue}</span>
+          </div>
+        )}
+        <div className="text-xs text-gray-500">
+          Total values: {dialogState.totalCount}
+        </div>
+        <DataTable
+          value={dialogState.rows}
+          showGridlines
+          stripedRows
+          className="p-datatable-sm"
+          sortMode="single"
+        >
+          <Column field="value" header="Value" sortable />
+          <Column field="count" header="Count" align="right" sortable />
+        </DataTable>
+      </div>
+    </Dialog>
+  );
+});
+
+const ObjectFieldChip = React.memo(function ObjectFieldChip({ fieldCount, onOpen }) {
+  return (
+    <button type="button" className="shrink-0" onClick={onOpen}>
+      <Chip
+        label={`${fieldCount} Field${fieldCount === 1 ? '' : 's'}`}
+        className="text-[10px] py-0 px-1.5 h-5 shrink-0 bg-blue-50 text-blue-700 cursor-pointer hover:bg-blue-100 [&_.p-chip-text]:text-[10px]"
+        removable={false}
+      />
+    </button>
+  );
+});
+
+const ObjectDetailsDialogHost = forwardRef(function ObjectDetailsDialogHost(_props, ref) {
+  const [dialogState, setDialogState] = useState({
+    visible: false,
+    columnLabel: '',
+    rows: [],
+  });
+
+  useImperativeHandle(ref, () => ({
+    open: ({ columnLabel, objectValue }) => {
+      if (!objectValue || typeof objectValue !== 'object') return;
+      const rows = Object.entries(objectValue)
+        .filter(([key]) => !String(key).startsWith('__'))
+        .map(([key, value], index) => ({
+          id: `${columnLabel}_${key}_${index}`,
+          key: String(key),
+          value: value == null
+            ? ''
+            : (typeof value === 'object' ? JSON.stringify(value) : String(value)),
+        }));
+      setDialogState({
+        visible: true,
+        columnLabel: String(columnLabel ?? ''),
+        rows,
+      });
+    }
+  }), []);
+
+  return (
+    <Dialog
+      visible={dialogState.visible}
+      header={`${dialogState.columnLabel} fields`}
+      modal
+      style={{ width: '42rem', maxWidth: '95vw' }}
+      onHide={() => setDialogState((prev) => ({ ...prev, visible: false }))}
+    >
+      <DataTable
+        value={dialogState.rows}
+        showGridlines
+        stripedRows
+        className="p-datatable-sm"
+        sortMode="single"
+      >
+        <Column field="key" header="Key" sortable />
+        <Column field="value" header="Value" />
+      </DataTable>
+    </Dialog>
+  );
+});
 
 // Date format patterns for detection
 const DATE_PATTERNS = [
@@ -739,7 +888,7 @@ export default function DataTableNew({
   enableCellEdit = false,
   onCellEditComplete,
   isCellEditable,
-  editableColumns = { main: [], nested: {} },
+  editableColumns = { main: [], nested: {}, object: {} },
   enableFullscreenDialog = true,
   tableName = 'table',
   useOrchestrationLayer = false,
@@ -866,6 +1015,8 @@ export default function DataTableNew({
   const [freezeFirstColumn, setFreezeFirstColumn] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
+  const breakdownDialogHostRef = useRef(null);
+  const objectDetailsDialogHostRef = useRef(null);
   const dialogRef = useRef(null);
   const scrollPositionRef = useRef(0);
 
@@ -1788,6 +1939,20 @@ export default function DataTableNew({
     const isFirstColumn = orderedColumns && orderedColumns.length > 0 && col === orderedColumns[0];
     const hasNestedTables = isFirstColumn && enableWrite && !finalParentColumnName;
 
+    const openBreakdownDialog = (breakdown, summaryValue) => {
+      breakdownDialogHostRef.current?.open({
+        columnLabel: formatHeaderName(col),
+        summaryValue: String(summaryValue ?? ''),
+        breakdown,
+      });
+    };
+    const openObjectDetailsDialog = (objectValue) => {
+      objectDetailsDialogHostRef.current?.open({
+        columnLabel: formatHeaderName(col),
+        objectValue,
+      });
+    };
+
     return (rowData) => {
       const value = getDataValue(rowData, col);
       const cellValue = formatCellValue(value, colType);
@@ -1800,15 +1965,17 @@ export default function DataTableNew({
         const primary = match ? match[1] : (cellValue || '');
         const moreCount = match ? parseInt(match[2], 10) : null;
         return (
-          <div
-            className={`flex flex-nowrap gap-0.5 items-center min-w-0 overflow-hidden ${isNumericCol ? 'justify-end' : 'justify-start'} ${colorClass}`}
-            title={`${cellValue} (Expand row for value breakdown)`}
-          >
-            <Chip label={primary} className="text-[10px] py-0 px-1.5 h-5 shrink-0 [&_.p-chip-text]:text-[10px]" removable={false} />
-            {moreCount != null && moreCount > 0 && (
-              <Chip label={`+${moreCount} more`} className="text-[10px] py-0 px-1.5 h-5 shrink-0 bg-gray-100 text-gray-700 [&_.p-chip-text]:text-[10px]" removable={false} />
-            )}
-          </div>
+          <BreakdownChips
+            primary={primary}
+            moreCount={moreCount}
+            isNumericCol={isNumericCol}
+            colorClass={colorClass}
+            cellValue={cellValue}
+            onOpen={(e) => {
+              e.stopPropagation();
+              openBreakdownDialog(stringBreakdown, cellValue);
+            }}
+          />
         );
       }
 
@@ -1836,6 +2003,22 @@ export default function DataTableNew({
           </div>
         );
       }
+
+      const parsedObject = parseJsonObject(value);
+      if (parsedObject && !finalParentColumnName) {
+        const visibleKeys = Object.keys(parsedObject).filter((k) => !String(k).startsWith('__'));
+        return (
+          <div className={`text-xs sm:text-sm ${isNumericCol ? 'text-right' : 'text-left'} ${colorClass}`}>
+            <ObjectFieldChip
+              fieldCount={visibleKeys.length}
+              onOpen={(e) => {
+                e.stopPropagation();
+                openObjectDetailsDialog(parsedObject);
+              }}
+            />
+          </div>
+        );
+      }
       
       return (
         <div
@@ -1846,7 +2029,7 @@ export default function DataTableNew({
         </div>
       );
     };
-  }, [columnTypesFlags, effectiveGroupFields, onOuterGroupClick, onInnerGroupClick, booleanBodyTemplate, dateBodyTemplate, formatCellValue, isPercentageColumn, getPercentageColumnValue, getColumnColorClass, openDrawer, orderedColumns, enableWrite, openDrawerWithJsonTables, openDrawerForRow, contextFilteredData, drawerTabs, finalParentColumnName]);
+  }, [columnTypesFlags, effectiveGroupFields, onOuterGroupClick, onInnerGroupClick, booleanBodyTemplate, dateBodyTemplate, formatCellValue, isPercentageColumn, getPercentageColumnValue, getColumnColorClass, openDrawer, orderedColumns, enableWrite, openDrawerWithJsonTables, openDrawerForRow, contextFilteredData, drawerTabs, finalParentColumnName, formatHeaderName]);
 
   // Helper to check if a column (top-level key) is in sortFields
 
@@ -2071,10 +2254,6 @@ export default function DataTableNew({
   const allowExpansion = useCallback((rowData) => {
     // Check for JSON nested tables (works in all modes)
     const hasJsonNestedTables = rowData.__nestedTables__ && rowData.__nestedTables__.length > 0;
-    // Check for string value count breakdown (inline table, not drawer)
-    const hasStringBreakdown = rowData.__stringBreakdown__ && Object.keys(rowData.__stringBreakdown__).some(
-      (col) => isArray(rowData.__stringBreakdown__[col]) && rowData.__stringBreakdown__[col].length > 0
-    );
     if (enableBreakdown && reportData && effectiveGroupFields.length > 1) {
       // For report mode, check if there are more nesting levels
       const currentLevel = rowData.__groupLevel__ || 0;
@@ -2089,9 +2268,9 @@ export default function DataTableNew({
         const compositeKey = pathKeys.join('|');
         const nestedRows = reportData.nestedTableData[compositeKey];
         const result = nestedRows && nestedRows.length > 0;
-        return result || hasJsonNestedTables || hasStringBreakdown;
+        return result || hasJsonNestedTables;
       }
-      return hasJsonNestedTables || hasStringBreakdown;
+      return hasJsonNestedTables;
     }
     
     // Check for group rows
@@ -2102,10 +2281,10 @@ export default function DataTableNew({
       const currentLevel = rowData.__groupLevel__ || 0;
       const hasMoreLevelsBelow = (currentLevel + 1) < effectiveGroupFields.length;
       const hasNestedGroupRows = rowData.__groupRows__.some(row => row.__isGroupRow__);
-      return hasNestedGroupRows || hasMoreLevelsBelow || hasJsonNestedTables || hasStringBreakdown;
+      return hasNestedGroupRows || hasMoreLevelsBelow || hasJsonNestedTables;
     }
     
-    return hasJsonNestedTables || hasStringBreakdown;
+    return hasJsonNestedTables;
   }, [effectiveGroupFields, enableBreakdown, reportData]);
 
   // Nested (expanded) tables: keep independent filter state and debounce timers per group
@@ -2571,11 +2750,8 @@ export default function DataTableNew({
   const rowExpansionTemplate = useCallback((rowData) => {
     const hasGroupRows = rowData.__groupRows__ && !isEmpty(rowData.__groupRows__);
     const hasJsonNestedTables = rowData.__nestedTables__ && rowData.__nestedTables__.length > 0;
-    const hasStringBreakdown = rowData.__stringBreakdown__ && Object.keys(rowData.__stringBreakdown__).some(
-      (col) => isArray(rowData.__stringBreakdown__[col]) && rowData.__stringBreakdown__[col].length > 0
-    );
 
-    if (!hasGroupRows && !hasJsonNestedTables && !hasStringBreakdown) {
+    if (!hasGroupRows && !hasJsonNestedTables) {
       return null;
     }
 
@@ -2835,6 +3011,18 @@ export default function DataTableNew({
       return hasNestedGroupRows || hasMoreLevelsBelow;
     };
 
+      // Non-report nested: use prefixed __uniqueId__ when hasNestedGroups (same pattern as report mode)
+      // to avoid duplicate keys across expansion panels sharing expandedRows
+      const nonReportNestedValue = hasNestedGroups
+        ? safeNestedFilteredData.map((row, index) => {
+            const baseKey = row?.__groupPath__ && isArray(row.__groupPath__)
+              ? row.__groupPath__.join('|')
+              : (row?.__groupKey__ ?? row?.id ?? `row_${index}`);
+            return { ...row, __uniqueId__: `${rowKey}_${baseKey}` };
+          })
+        : safeNestedFilteredData;
+      const nonReportDataKey = hasNestedGroups ? '__uniqueId__' : undefined;
+
       groupTableContent = (
         <div className="p-3 bg-gray-50">
           <div className="text-xs font-semibold text-gray-700 mb-2">
@@ -2846,7 +3034,7 @@ export default function DataTableNew({
             <DataTable
               resizableColumns
               columnResizeMode="expand"
-              value={safeNestedFilteredData}
+              value={nonReportNestedValue}
               sortMode={enableSort ? 'multiple' : undefined}
               removableSort={enableSort}
               filterDisplay={enableFilter ? 'row' : undefined}
@@ -2857,7 +3045,7 @@ export default function DataTableNew({
               expandedRows={expandedRows}
               onRowToggle={(e) => updateExpandedRows(e.data)}
               rowExpansionTemplate={hasNestedGroups ? rowExpansionTemplate : undefined}
-              dataKey={hasNestedGroups ? "__groupKey__" : undefined}
+              dataKey={nonReportDataKey}
             >
               {hasNestedGroups && (
                 <Column
@@ -2915,43 +3103,10 @@ export default function DataTableNew({
       );
     }
 
-    // Render string value count breakdown tables (inline, similar to JSON nested tables)
-    let stringBreakdownContent = null;
-    if (hasStringBreakdown) {
-      const breakdownEntries = Object.entries(rowData.__stringBreakdown__).filter(
-        ([, arr]) => isArray(arr) && arr.length > 0
-      );
-      stringBreakdownContent = (
-        <div className="space-y-4">
-          {breakdownEntries.map(([col, breakdown]) => {
-            const colLabel = col ? startCase(String(col).split('__').join(' ').split('_').join(' ')) : 'Value';
-            return (
-              <div key={`${rowKey}_breakdown_${col}`} className="border border-gray-200 rounded-lg overflow-hidden bg-white">
-                <div className="text-sm font-semibold text-gray-700 mb-2 p-2 bg-gray-100 border-b">
-                  {colLabel} ({breakdown.length} {breakdown.length === 1 ? 'value' : 'values'})
-                </div>
-                <DataTable
-                  value={breakdown}
-                  showGridlines
-                  stripedRows
-                  className="p-datatable-sm"
-                  style={{ minWidth: '100%' }}
-                >
-                  <Column field="value" header="Value" />
-                  <Column field="count" header="Count" align="right" />
-                </DataTable>
-              </div>
-            );
-          })}
-        </div>
-      );
-    }
-
     return (
       <div className="p-3 bg-gray-50 space-y-4">
         {groupTableContent}
         {jsonTablesContent}
-        {stringBreakdownContent}
       </div>
     );
   }, [outerGroupField, innerGroupField, effectiveGroupFields, orderedColumns, columnTypes, formatHeaderName, getBodyTemplate, calculateColumnWidths, getHeaderTemplate, multiselectColumns, nestedFiltersMap, updateNestedFilter, nestedDebouncedUpdateFilter, nestedCancelDebounced, expandedRows, updateExpandedRows, renderJsonNestedTable]);
@@ -3206,36 +3361,39 @@ export default function DataTableNew({
             {formatHeaderName(nextField)} Breakdown for {getDataValue(rowData, currentField)}
           </h5>
           <DataTable 
-            value={nestedRows.map((row, index) => {
-              // Check if this row has the next level field populated and if there are more levels below
-              const hasMoreLevelsBelow = (nextLevel + 1) < effectiveGroupFields.length;
-              const nextFieldValue = nextField ? getDataValue(row, nextField) : null;
-              const hasNextFieldValue = !isNil(nextFieldValue);
-              const isGroupRow = hasMoreLevelsBelow && hasNextFieldValue;
-              
-              // Build composite key for this nested row to get deeper nested data
-              const nestedPathKeys = [];
-              for (let i = 0; i <= nextLevel; i++) {
-                const value = getDataValue(row, effectiveGroupFields[i]);
-                nestedPathKeys.push(isNil(value) ? '__null__' : String(value));
-              }
-              const nestedCompositeKey = nestedPathKeys.join('|');
-              const deeperNestedRows = reportData.nestedTableData[nestedCompositeKey];
-              const mappedRow = {
-                ...row,
-                __rowIndex__: index,
-                __groupLevel__: nextLevel,
-                __isGroupRow__: isGroupRow,
-                __groupRows__: isGroupRow && deeperNestedRows && deeperNestedRows.length > 0 ? deeperNestedRows : (isGroupRow ? [] : undefined),
-                __groupKey__: nextField && nextFieldValue ? `${nextField}_${nextFieldValue}` : undefined,
-                __uniqueId__: row.id ?? row.__groupKey__ ?? (nextField && nextFieldValue ? `${nextFieldValue}_${index}` : `row_${index}`)
-              };
-              return mappedRow;
-            })} 
+            value={(() => {
+              const prefix = `${compositeKey}_`;
+              const mapped = nestedRows.map((row, index) => {
+                const hasMoreLevelsBelow = (nextLevel + 1) < effectiveGroupFields.length;
+                const nextFieldValue = nextField ? getDataValue(row, nextField) : null;
+                const hasNextFieldValue = !isNil(nextFieldValue);
+                const isGroupRow = hasMoreLevelsBelow && hasNextFieldValue;
+                const nestedPathKeys = [];
+                for (let i = 0; i <= nextLevel; i++) {
+                  const value = getDataValue(row, effectiveGroupFields[i]);
+                  nestedPathKeys.push(isNil(value) ? '__null__' : String(value));
+                }
+                const nestedCompositeKey = nestedPathKeys.join('|');
+                const deeperNestedRows = reportData.nestedTableData[nestedCompositeKey];
+                const __groupKey__ = nextField && nextFieldValue ? `${nextField}_${nextFieldValue}` : undefined;
+                const baseId = row.id ?? __groupKey__ ?? (nextField && nextFieldValue ? `${nextFieldValue}_${index}` : `row_${index}`);
+                const __uniqueId__ = prefix + baseId;
+                return {
+                  ...row,
+                  __rowIndex__: index,
+                  __groupLevel__: nextLevel,
+                  __isGroupRow__: isGroupRow,
+                  __groupRows__: isGroupRow && deeperNestedRows && deeperNestedRows.length > 0 ? deeperNestedRows : (isGroupRow ? [] : undefined),
+                  __groupKey__,
+                  __uniqueId__
+                };
+              });
+              return mapped;
+            })()} 
             headerColumnGroup={nestedHeaderGroup}
             tableStyle={{ minWidth: '50rem' }}
             size="small"
-            dataKey={hasNestedGroups ? "__groupKey__" : "__uniqueId__"}
+            dataKey="__uniqueId__"
             expandedRows={expandedRows}
             onRowToggle={(e) => updateExpandedRows(e.data)}
             rowExpansionTemplate={hasNestedGroups ? reportRowExpansionTemplate : undefined}
@@ -3480,12 +3638,15 @@ export default function DataTableNew({
           {formatHeaderName(nextField || innerGroupField)} Breakdown for {getDataValue(rowData, currentField || outerGroupField)}
         </h5>
         <DataTable 
-          value={nestedRows.map((row, index) => ({
-            ...row,
-            // Ensure each row has a unique identifier for React keys
-            __rowIndex__: index,
-            __uniqueId__: row.id ?? row.__groupKey__ ?? (innerGroupField && row[innerGroupField] ? `${row[innerGroupField]}_${index}` : `row_${index}`)
-          }))} 
+          value={(() => {
+            const prefix = `${structureKey}_`;
+            const mapped = nestedRows.map((row, index) => ({
+              ...row,
+              __rowIndex__: index,
+              __uniqueId__: prefix + (row.id ?? row.__groupKey__ ?? (innerGroupField && row[innerGroupField] ? `${row[innerGroupField]}_${index}` : `row_${index}`))
+            }));
+            return mapped;
+          })()} 
           headerColumnGroup={nestedHeaderGroup}
           tableStyle={{ minWidth: '50rem' }}
           size="small"
@@ -3675,6 +3836,17 @@ export default function DataTableNew({
     const tableContainerRef = useRef(null);
     const tableRef = useRef(null);
     const [calculatedScrollHeight, setCalculatedScrollHeight] = useState(scrollHeight === "flex" ? undefined : scrollHeight);
+    const shouldUseEditingKeyForMainRows = (
+      tableName === 'main' &&
+      useOrchestrationLayer &&
+      enableCellEdit &&
+      setSelectedRowData &&
+      !enableBreakdown &&
+      effectiveGroupFields.length === 0
+    );
+    const resolvedMainDataKey = shouldUseEditingKeyForMainRows
+      ? '__editingKey__'
+      : (enableBreakdown && reportData ? 'id' : (effectiveGroupFields.length > 0 ? '__groupKey__' : 'id'));
 
     // Calculate scrollHeight dynamically when "flex" is used
     useEffect(() => {
@@ -3716,23 +3888,21 @@ export default function DataTableNew({
         value={useMemo(() => {
           const data = isArray(paginatedData) ? paginatedData : [];
           // Ensure all rows have unique IDs when dataKey="id" is used
-          const dataKeyValue = enableBreakdown && reportData ? "id" : (effectiveGroupFields.length > 0 ? "__groupKey__" : "id");
+          const dataKeyValue = resolvedMainDataKey;
           if (dataKeyValue === "id") {
-            return data.map((row, index) => {
+            const result = data.map((row, index) => {
               if (!row || typeof row !== 'object') return row;
-              // Use existing id if present and not null, otherwise create one based on index
               if (row.id !== undefined && row.id !== null) {
                 return row;
               }
-              // Create a stable unique ID using pagination offset + index
-              // This ensures IDs are stable across re-renders of the same page
               const paginationOffset = pagination?.first || 0;
               const rowId = `main_row_${paginationOffset + index}`;
               return { ...row, id: rowId };
             });
+            return result;
           }
           return data;
-        }, [paginatedData, enableBreakdown, reportData, effectiveGroupFields.length, pagination?.first])}
+        }, [paginatedData, resolvedMainDataKey, enableBreakdown, reportData, effectiveGroupFields.length, pagination?.first])}
         scrollable={scrollHeight ? true : scrollable}
         scrollHeight={calculatedScrollHeight || scrollHeight}
         sortMode={enableSort ? "multiple" : undefined}
@@ -3748,11 +3918,9 @@ export default function DataTableNew({
         style={{ minWidth: '100%' }}
         filterDisplay={enableFilter ? "row" : undefined}
         expandedRows={expandedRows}
-        onRowToggle={(e) => {
-          updateExpandedRows(e.data);
-        }}
+        onRowToggle={(e) => updateExpandedRows(e.data)}
         rowExpansionTemplate={enableBreakdown && effectiveGroupFields.length > 1 ? reportRowExpansionTemplate : (effectiveGroupFields.length > 0 || hasNestedTablesInData ? rowExpansionTemplate : undefined)}
-        dataKey={tableName === 'main' && useOrchestrationLayer && enableCellEdit && setSelectedRowData ? '__editingKey__' : (enableBreakdown && reportData ? "id" : (effectiveGroupFields.length > 0 ? "__groupKey__" : "id"))}
+        dataKey={resolvedMainDataKey}
         headerColumnGroup={enableBreakdown && reportData ? reportHeaderGroup : undefined}
         editMode={effectiveEnableCellEdit ? "cell" : undefined}
         selectionMode={tableName === 'main' && useOrchestrationLayer && enableCellEdit && setSelectedRowData ? 'single' : undefined}
@@ -4007,6 +4175,9 @@ export default function DataTableNew({
         </div>
       </Dialog>
       )}
+
+      <BreakdownDialogHost ref={breakdownDialogHostRef} />
+      <ObjectDetailsDialogHost ref={objectDetailsDialogHostRef} />
     </div>
   );
 

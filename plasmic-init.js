@@ -836,6 +836,16 @@ PLASMIC.registerComponent(DataProvider, {
       type: "object",
       description: "Per-slot configuration object. When provided, allows different configurations for different slots. Format: { slotId: { enableSort, enableFilter, groupFields, derivedColumns, etc. } }. If not provided, falls back to flat props for backward compatibility.",
     },
+    columnsExemptFromBreakdown: {
+      type: "object",
+      defaultValue: [],
+      description: "Array of column names exempt from report breakdown",
+    },
+    onAvailableQueryKeysChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "keys", type: "object" }],
+      description: "Callback when available query keys change",
+    },
     derivedColumnsMode: {
       type: "string",
       description: "Override for derived columns scope: 'main' | 'nested' (for sidebar nested tabs)",

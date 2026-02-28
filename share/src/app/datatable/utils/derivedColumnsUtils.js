@@ -85,6 +85,20 @@ export function applyDerivedColumnsForRow(row, derivedColumns, context = {}) {
 }
 
 /**
+ * Get column names from derivedColumns that have exemptFromBreakdown: true and scope.report !== false.
+ * Used for report mode to exclude these from time-period breakdown.
+ * @param {Array} derivedColumns
+ * @returns {string[]}
+ */
+export function getExemptFromBreakdownColumnNames(derivedColumns) {
+  if (!isArray(derivedColumns) || isEmpty(derivedColumns)) return [];
+  return derivedColumns
+    .filter((dc) => dc.exemptFromBreakdown === true && dc.columnName && (dc.scope?.report !== false))
+    .map((dc) => dc.columnName)
+    .filter(Boolean);
+}
+
+/**
  * Get derived column names for a given mode and optional fieldName.
  * Used by pipeline/worker to know which columns to include and aggregate.
  * @param {Array} derivedColumns

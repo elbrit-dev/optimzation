@@ -5,6 +5,10 @@
 import { isString, isArray, trim } from 'lodash';
 import { applyDerivedColumns } from './derivedColumnsUtils';
 
+function isPlainObjectValue(value) {
+  return value != null && typeof value === 'object' && !isArray(value) && !(value instanceof Date);
+}
+
 /**
  * Check if a value looks like a JSON array of objects (string or actual array)
  * Pattern: [{ (with optional spaces) for strings, or actual array of objects
@@ -49,6 +53,43 @@ export function parseJsonArrayOfObjects(value) {
     console.warn('Failed to parse JSON array:', e);
   }
   return null;
+}
+
+/**
+ * Check if a value looks like a JSON object (string or actual plain object)
+ * @param {*} value - Value to check
+ * @returns {boolean} True if value is/contains a plain JSON object
+ */
+export function isJsonObjectLike(value) {
+  if (isPlainObjectValue(value)) return true;
+  if (!isString(value) || !value.trim()) return false;
+  const trimmed = trim(value);
+  if (!/^\s*\{/.test(trimmed)) return false;
+  try {
+    const parsed = JSON.parse(trimmed);
+    return isPlainObjectValue(parsed);
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * Parse a value as JSON object.
+ * Returns plain object if successful, null otherwise.
+ * @param {*} value - Value to parse
+ * @returns {Object|null}
+ */
+export function parseJsonObject(value) {
+  if (isPlainObjectValue(value)) return value;
+  if (!isString(value) || !value.trim()) return null;
+  const trimmed = trim(value);
+  if (!/^\s*\{/.test(trimmed)) return null;
+  try {
+    const parsed = JSON.parse(trimmed);
+    return isPlainObjectValue(parsed) ? parsed : null;
+  } catch (e) {
+    return null;
+  }
 }
 
 /**

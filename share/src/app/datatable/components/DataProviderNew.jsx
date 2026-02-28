@@ -49,11 +49,11 @@ import { useDataPipeline } from '../hooks/useDataPipeline';
 import { useMultiSlotPipeline } from '../hooks/useMultiSlotPipeline';
 import { useQueryExecution } from '../hooks/useQueryExecution';
 import { getDataKeys, getDataValue } from '../utils/dataAccessUtils';
-import { applyDerivedColumns, applyDerivedColumnsForRow, getDerivedColumnNames, getOrderedColumnsWithDerived } from '../utils/derivedColumnsUtils';
+import { applyDerivedColumns, applyDerivedColumnsForRow, getDerivedColumnNames, getExemptFromBreakdownColumnNames, getOrderedColumnsWithDerived } from '../utils/derivedColumnsUtils';
 import { formatDateValue } from '../utils/dateFormatUtils';
 import { applyDateFilter, applyNumericFilter, filterRows, parseNumericFilter } from '../utils/filterUtils';
 import { getMainOverrides } from '../utils/columnTypesOverrideUtils';
-import { isJsonArrayOfObjectsString } from '../utils/jsonArrayParser';
+import { isJsonArrayOfObjectsString, parseJsonObject } from '../utils/jsonArrayParser';
 import { flattenToLeafRows } from '../utils/perSlotPipelineUtils';
 import { useReportData } from '../utils/providerUtils';
 import { exportReportToXLSX } from '../utils/reportExportUtils';
@@ -205,15 +205,25 @@ function rowToCreateFields(row, schemaStructure, skipKey) {
     fields[k] = v;
   }
   for (const [tableName, childFieldNames] of Object.entries(childTables)) {
-    const arr = row[tableName];
-    if (!Array.isArray(arr)) continue;
-    fields[tableName] = arr.map((child) => {
-      const obj = {};
-      for (const f of childFieldNames) {
-        if (!skipKey(f) && child && f in child) obj[f] = child[f];
-      }
-      return obj;
-    });
+    const tableValue = row[tableName];
+    if (!Array.isArray(tableValue) && (!tableValue || typeof tableValue !== 'object')) {
+      continue;
+    }
+    if (Array.isArray(tableValue)) {
+      fields[tableName] = tableValue.map((child) => {
+        const obj = {};
+        for (const f of childFieldNames) {
+          if (!skipKey(f) && child && f in child) obj[f] = child[f];
+        }
+        return obj;
+      });
+      continue;
+    }
+    const obj = {};
+    for (const f of childFieldNames) {
+      if (!skipKey(f) && tableValue && f in tableValue) obj[f] = tableValue[f];
+    }
+    if (Object.keys(obj).length > 0) fields[tableName] = obj;
   }
   return fields;
 }
@@ -299,9 +309,9 @@ export default function DataProviderNew({
   redFields = [],
   greenFields = [],
   enableDivideBy1Lakh = false,
-  columnTypesOverride = {}, // Object with column names as keys and type strings as values: {columnName: "date" | "number" | "boolean" | "string"}
+  columnTypesOverride = {}, // Object with column names as keys and type strings as values: {columnName: "date" | "number" | "boolean" | "string" | "object"}
   enableCellEdit = false,
-  editableColumns = { main: [], nested: {} },
+  editableColumns = { main: [], nested: {}, object: {} },
   formInputOverride = {}, // Per-column override: 'Calendar'|'Checkbox'|'InputNumber'|'InputText'|'Quill'|{ type:'Select', getOptions:(ctx)=>string[]|Promise<string[]> } where ctx={ columnName, query }
   // When true, do not render ConfirmDialog (parent page provides one - avoids duplicate dialogs)
   skipConfirmDialog = false,
@@ -311,6 +321,7 @@ export default function DataProviderNew({
   // Report props
   enableReport = false,
   dateColumn = null,
+  columnsExemptFromBreakdown = [],
   chartColumns = [],
   chartHeight = 400,
   reportDataOverride = null,
@@ -420,12 +431,14 @@ export default function DataProviderNew({
     dataSource,
     selectedQueryKey,
     executingQuery,
+    loadingFromCache,
     processedData,
     monthRange,
     setMonthRange,
     hasMonthSupport,
     currentQueryDoc,
     lastUpdatedAt,
+    indexFreshnessToken,
     offlineDataExecuted,
     runQuery,
     queryFunction,
@@ -551,6 +564,7 @@ export default function DataProviderNew({
     setTableDataUpdateTrigger,
     effectiveGroupFields,
     sortFieldType,
+    jsonObjectFields,
   } = {
     ...pipeline,
     filteredData: mainPipeline?.filteredData ?? pipeline.filteredData,
@@ -1138,7 +1152,82 @@ export default function DataProviderNew({
   }, [tableData, columns]);
 
   const editableMain = useMemo(() => Array.isArray(editableColumns) ? editableColumns : (editableColumns?.main || []), [editableColumns]);
-  const scalarEditableColumns = useMemo(() => editableMain.filter(col => !jsonTableColumns[col]), [editableMain, jsonTableColumns]);
+  const jsonObjectColumns = useMemo(() => {
+    if (!tableData || !isArray(tableData) || tableData.length === 0) return {};
+    const objectMap = {};
+    const sampleForStructure = take(tableData, 100);
+    const objectFieldSet = jsonObjectFields instanceof Set ? jsonObjectFields : new Set();
+    const objectFieldCandidates = objectFieldSet.size > 0
+      ? Array.from(objectFieldSet)
+      : columns.filter((c) => !String(c).startsWith('__'));
+
+    objectFieldCandidates.forEach((columnName) => {
+      const keys = new Set();
+      const keyTypes = {};
+      sampleForStructure.forEach((row) => {
+        if (!row || typeof row !== 'object') return;
+        const rawValue = row[columnName];
+        if (isJsonArrayOfObjectsString(rawValue)) return;
+        const parsed = parseJsonObject(rawValue);
+        if (parsed && typeof parsed === 'object') {
+          Object.entries(parsed)
+            .filter(([k]) => !k.startsWith('__'))
+            .forEach(([k, v]) => {
+              keys.add(k);
+              if (isNil(v) || keyTypes[k]) return;
+              if (isBoolean(v)) keyTypes[k] = 'boolean';
+              else if (isDateLike(v)) keyTypes[k] = 'date';
+              else if (isNumericValue(v)) keyTypes[k] = 'number';
+              else keyTypes[k] = 'string';
+            });
+        }
+      });
+      if (keys.size > 0) {
+        objectMap[columnName] = {
+          fieldName: columnName,
+          keys: Array.from(keys),
+          keyTypes,
+        };
+      }
+    });
+
+    return objectMap;
+  }, [tableData, columns, jsonObjectFields]);
+  const objectEditableMap = useMemo(() => {
+    if (editableColumns && typeof editableColumns === 'object' && editableColumns.object && typeof editableColumns.object === 'object') {
+      return editableColumns.object;
+    }
+    return {};
+  }, [editableColumns]);
+  const formatObjectFieldLabel = useCallback((value) => {
+    return startCase(String(value ?? '').split('__').join(' ').split('_').join(' '));
+  }, []);
+  const objectEditableFields = useMemo(() => {
+    const rows = [];
+    Object.entries(objectEditableMap).forEach(([columnName, selectedKeys]) => {
+      if (!includes(editableMain, columnName)) return;
+      if (!Array.isArray(selectedKeys) || selectedKeys.length === 0) return;
+      const jsonInfo = jsonObjectColumns[columnName];
+      const availableKeys = new Set(Array.isArray(jsonInfo?.keys) ? jsonInfo.keys : []);
+      selectedKeys.forEach((key) => {
+        if (!key || key.startsWith('__')) return;
+        if (availableKeys.size > 0 && !availableKeys.has(key)) return;
+        rows.push({
+          columnName,
+          key,
+          formKey: `__obj__::${columnName}::${key}`,
+          label: `${formatObjectFieldLabel(columnName)} - ${formatObjectFieldLabel(key)}`,
+          resolvedType: jsonInfo?.keyTypes?.[key] || 'string',
+        });
+      });
+    });
+    return rows;
+  }, [objectEditableMap, editableMain, jsonObjectColumns, formatObjectFieldLabel]);
+  const scalarEditableColumns = useMemo(
+    () => editableMain.filter(col => !jsonTableColumns[col] && !jsonObjectColumns[col]),
+    [editableMain, jsonTableColumns, jsonObjectColumns]
+  );
+  const hasDrawerFormFields = scalarEditableColumns.length > 0 || objectEditableFields.length > 0;
 
   // jsonArrayFields comes from useDataPipeline
 
@@ -1355,7 +1444,18 @@ export default function DataProviderNew({
 
   // sortFieldType and effectiveGroupFields come from useDataPipeline
 
-  const alwaysAllowedKeys = useMemo(() => new Set(['id', 'period', 'periodLabel', 'isNestedRow']), []);
+  // Effective exempt columns: prop + derived columns with exemptFromBreakdown (must be before allowedFieldSet/alwaysAllowedKeys)
+  const effectiveColumnsExemptFromBreakdown = useMemo(() => {
+    const fromProp = Array.isArray(columnsExemptFromBreakdown) ? columnsExemptFromBreakdown : [];
+    const fromDerived = getExemptFromBreakdownColumnNames(effectiveMainConfig.derivedColumns || []);
+    return [...fromProp, ...fromDerived];
+  }, [columnsExemptFromBreakdown, effectiveMainConfig.derivedColumns]);
+
+  // alwaysAllowedKeys must include exempt columns so sanitizeRowsByAllowedColumns never strips them
+  const alwaysAllowedKeys = useMemo(
+    () => new Set(['id', 'period', 'periodLabel', 'isNestedRow', ...(effectiveColumnsExemptFromBreakdown || [])]),
+    [effectiveColumnsExemptFromBreakdown]
+  );
 
   const allowedFieldSet = useMemo(() => {
     const allowed = allowedColumns; // shared
@@ -1394,8 +1494,12 @@ export default function DataProviderNew({
       }
     });
 
+    effectiveColumnsExemptFromBreakdown.forEach((col) => {
+      if (col) set.add(col);
+    });
+
     return set;
-  }, [allowedColumns, dateColumn, filteredColumns, effectiveGroupFields, percentageColumnNames]);
+  }, [allowedColumns, dateColumn, filteredColumns, effectiveGroupFields, percentageColumnNames, effectiveColumnsExemptFromBreakdown]);
 
   const sanitizeRowsByAllowedColumns = useCallback((rows) => {
     if (!rows || !isArray(rows)) return [];
@@ -1452,7 +1556,8 @@ export default function DataProviderNew({
     columnTypes,
     sortConfig,
     sortFieldType,
-    reportWorkerRef
+    reportWorkerRef,
+    effectiveColumnsExemptFromBreakdown
   );
 
   // Drawer report data computation using shared hook
@@ -1486,7 +1591,8 @@ export default function DataProviderNew({
     columnTypes,
     sortConfig,
     sortFieldType,
-    reportWorkerRef
+    reportWorkerRef,
+    effectiveColumnsExemptFromBreakdown
   );
 
   const baseReportData = reportDataOverride || rawReportData;
@@ -1514,24 +1620,40 @@ export default function DataProviderNew({
 
   const reportDataWithDerived = useMemo(() => {
     const derived = effectiveMainConfig.derivedColumns;
-    if (!reportData || !derived?.length) return reportData;
-    const tableDataDerived = reportData.tableData
-      ? applyDerivedColumns(reportData.tableData, derived, { mode: 'report', getDataValue })
-      : reportData.tableData;
-    const nestedTableDataDerived = reportData.nestedTableData
+    const base = reportData;
+    if (!base) return base;
+
+    // Preserve original column order for report mode: exempt columns and breakdown metrics
+    // in the order they appear in filteredColumns (which uses getOrderedColumnsWithDerived)
+    const exemptSet = new Set(effectiveColumnsExemptFromBreakdown);
+    const metricsSet = base.metrics && Array.isArray(base.metrics) ? new Set(base.metrics) : new Set();
+    const orderedNonGroupColumns = filteredColumns.filter(
+      (col) =>
+        !effectiveGroupFields.includes(col) &&
+        col !== dateColumn &&
+        (exemptSet.has(col) || metricsSet.has(col))
+    );
+
+    let result = { ...base, orderedNonGroupColumns };
+    if (!derived?.length) return result;
+
+    const tableDataDerived = base.tableData
+      ? applyDerivedColumns(base.tableData, derived, { mode: 'report', getDataValue })
+      : base.tableData;
+    const nestedTableDataDerived = base.nestedTableData
       ? Object.fromEntries(
-          Object.entries(reportData.nestedTableData).map(([k, v]) => [
+          Object.entries(base.nestedTableData).map(([k, v]) => [
             k,
             applyDerivedColumns(v, derived, { mode: 'report', getDataValue }),
           ])
         )
-      : reportData.nestedTableData;
+      : base.nestedTableData;
     return {
-      ...reportData,
+      ...result,
       tableData: tableDataDerived,
       nestedTableData: nestedTableDataDerived,
     };
-  }, [reportData, effectiveMainConfig.derivedColumns]);
+  }, [reportData, effectiveMainConfig.derivedColumns, filteredColumns, effectiveGroupFields, dateColumn, effectiveColumnsExemptFromBreakdown]);
 
   useEffect(() => {
     reportDataRef.current = reportDataWithDerived;
@@ -1563,24 +1685,39 @@ export default function DataProviderNew({
 
   const drawerReportDataWithDerived = useMemo(() => {
     const derived = effectiveMainConfig.derivedColumns;
-    if (!drawerReportData || !derived?.length) return drawerReportData;
-    const tableDataDerived = drawerReportData.tableData
-      ? applyDerivedColumns(drawerReportData.tableData, derived, { mode: 'report', getDataValue })
-      : drawerReportData.tableData;
-    const nestedTableDataDerived = drawerReportData.nestedTableData
+    const base = drawerReportData;
+    if (!base) return base;
+
+    // Preserve original column order for drawer report (same as main report)
+    const exemptSet = new Set(effectiveColumnsExemptFromBreakdown);
+    const metricsSet = base.metrics && Array.isArray(base.metrics) ? new Set(base.metrics) : new Set();
+    const orderedNonGroupColumns = filteredColumns.filter(
+      (col) =>
+        !drawerGroupFields.includes(col) &&
+        col !== dateColumn &&
+        (exemptSet.has(col) || metricsSet.has(col))
+    );
+
+    let result = { ...base, orderedNonGroupColumns };
+    if (!derived?.length) return result;
+
+    const tableDataDerived = base.tableData
+      ? applyDerivedColumns(base.tableData, derived, { mode: 'report', getDataValue })
+      : base.tableData;
+    const nestedTableDataDerived = base.nestedTableData
       ? Object.fromEntries(
-          Object.entries(drawerReportData.nestedTableData).map(([k, v]) => [
+          Object.entries(base.nestedTableData).map(([k, v]) => [
             k,
             applyDerivedColumns(v, derived, { mode: 'report', getDataValue }),
           ])
         )
-      : drawerReportData.nestedTableData;
+      : base.nestedTableData;
     return {
-      ...drawerReportData,
+      ...result,
       tableData: tableDataDerived,
       nestedTableData: nestedTableDataDerived,
     };
-  }, [drawerReportData, effectiveMainConfig.derivedColumns]);
+  }, [drawerReportData, effectiveMainConfig.derivedColumns, filteredColumns, drawerGroupFields, dateColumn, effectiveColumnsExemptFromBreakdown]);
 
   const shouldShowDrawerReport = enableBreakdown && !!drawerReportDataWithDerived;
 
@@ -1689,24 +1826,28 @@ export default function DataProviderNew({
   // When we add a new row via drawer, sortedData updates from pipeline - skip re-init so original stays unchanged
   const skipNextInitFromSortedDataRef = useRef(false);
 
-  // When rawTableData length changes (date range expanded/narrowed and new data arrived), clear buffer so tableData uses fresh preFilteredData
-  const prevRawTableDataLengthRef = useRef(0);
+  // When index freshness token changes, clear stale editing buffer so table uses fresh upstream data.
+  const prevIndexFreshnessTokenRef = useRef(null);
   useEffect(() => {
-    const len = rawTableData && isArray(rawTableData) ? rawTableData.length : 0;
-    const prev = prevRawTableDataLengthRef.current;
-    prevRawTableDataLengthRef.current = len;
-    if (prev > 0 && len !== prev) {
+    const prevToken = prevIndexFreshnessTokenRef.current;
+    prevIndexFreshnessTokenRef.current = indexFreshnessToken;
+    const hasEditingBuffer = isArray(mainTableEditingDataRef.current) && mainTableEditingDataRef.current.length > 0;
+    const shouldResetForFreshData = prevToken !== null && indexFreshnessToken !== null && prevToken !== indexFreshnessToken && hasEditingBuffer;
+    if (shouldResetForFreshData) {
       mainTableEditingDataRefEarly.current = [];
       mainTableEditingDataRef.current = [];
       setMainTableEditingData([]);
       setTableDataUpdateTrigger((t) => t + 1);
     }
-  }, [rawTableData]);
+  }, [indexFreshnessToken]);
 
   // Initialize buffers from sortedData (final processed data after all preprocessing)
   // When enableBreakdown is on, sortedData is report data (period_metric columns). Do NOT init buffer from it,
   // so that when user turns report off, tableData/columns stay derived from the original structure.
   useEffect(() => {
+    if (executingQuery || loadingFromCache) {
+      return;
+    }
     if (skipNextInitFromSortedDataRef.current) {
       skipNextInitFromSortedDataRef.current = false;
       previousSortedDataRef.current = sortedData;
@@ -1782,7 +1923,7 @@ export default function DataProviderNew({
     // Update tracking refs
     previousSortedDataRef.current = sortedData;
     previousSortedDataHashRef.current = dataHash;
-  }, [sortedData, addEditingKeysToRows, setTableDataUpdateTrigger, enableBreakdown]);
+  }, [sortedData, addEditingKeysToRows, setTableDataUpdateTrigger, enableBreakdown, executingQuery, loadingFromCache]);
 
   // paginatedData comes from useDataPipeline
 
@@ -2173,14 +2314,14 @@ export default function DataProviderNew({
   // Wrapper so that when user selects another row in the main table (drawer open), form buffer is re-inited
   const setSelectedRowDataWithFormSync = useCallback((row) => {
     setSelectedRowData(row);
-    if (drawerVisible && scalarEditableColumns.length > 0 && row) {
+    if (drawerVisible && hasDrawerFormFields && row) {
       formOriginalRowRef.current = cloneDeep(row);
       setFormEditingRow(cloneDeep(row));
     } else if (!row) {
       formOriginalRowRef.current = null;
       setFormEditingRow(null);
     }
-  }, [drawerVisible, scalarEditableColumns.length]);
+  }, [drawerVisible, hasDrawerFormFields]);
 
   const addDrawerTab = useCallback(() => {
     const newTab = {
@@ -2579,14 +2720,14 @@ export default function DataProviderNew({
     // Commit form buffer to main table if form has changes (read latest from ref)
     const currentFormRow = formEditingRowRef.current;
     let hasFormChanges = false;
-    if (scalarEditableColumns.length > 0 && currentFormRow && formOriginalRowRef.current) {
+    if (hasDrawerFormFields && currentFormRow && formOriginalRowRef.current) {
       try {
         hasFormChanges = JSON.stringify(currentFormRow) !== JSON.stringify(formOriginalRowRef.current);
       } catch (e) {}
     }
     if (hasFormChanges) {
       const editingKey = currentFormRow.__editingKey__;
-      const editingData = mainTableEditingData;
+      const editingData = mainTableEditingDataRef.current || [];
       const rowIndex = editingData.findIndex(row => row && row.__editingKey__ === editingKey);
       const rowToSave = cloneDeep(currentFormRow);
       const isNewRow = editingKey && String(editingKey).startsWith('main_row_new_');
@@ -2623,26 +2764,16 @@ export default function DataProviderNew({
       if (trackingEntries.length > 0) {
         tabId = trackingEntries[0][0];
       } else {
-        if (hasFormChanges && onDataChange) {
-          onDataChange({
-            severity: 'success',
-            summary: 'Changes Saved',
-            detail: 'Saved changes in form and updated main table.',
-            life: 3000,
-          });
+        if (hasFormChanges) {
+          openSaveDiffDialog(mainTableEditingDataRef.current);
         }
         return;
       }
     } else {
       activeTab = effectiveDrawerTabs[activeDrawerTabIndex];
       if (!activeTab || !activeTab.isJsonTable) {
-        if (hasFormChanges && onDataChange) {
-          onDataChange({
-            severity: 'success',
-            summary: 'Changes Saved',
-            detail: 'Saved changes in form and updated main table.',
-            life: 3000,
-          });
+        if (hasFormChanges) {
+          openSaveDiffDialog(mainTableEditingDataRef.current);
         }
         return;
       }
@@ -2650,13 +2781,8 @@ export default function DataProviderNew({
     }
     const trackingData = originalNestedTableDataRef.current.get(tabId);
     if (!trackingData) {
-      if (hasFormChanges && onDataChange) {
-        onDataChange({
-          severity: 'success',
-          summary: 'Changes Saved',
-          detail: 'Saved changes in form and updated main table.',
-          life: 3000,
-        });
+      if (hasFormChanges) {
+        openSaveDiffDialog(mainTableEditingDataRef.current);
       }
       return;
     }
@@ -2723,19 +2849,10 @@ export default function DataProviderNew({
       formOriginalRowRef.current = cloneDeep(currentFormRow);
     }
 
-    if ((hasFormChanges || hasNestedChanges) && onDataChange) {
-      onDataChange({
-        severity: 'success',
-        summary: 'Changes Saved',
-        detail: hasFormChanges && hasNestedChanges
-          ? 'Saved form and nested table changes and updated main table.'
-          : hasFormChanges
-            ? 'Saved changes in form and updated main table.'
-            : 'Saved changes in nested table and updated main table.',
-        life: 3000,
-      });
+    if (hasFormChanges || hasNestedChanges) {
+      openSaveDiffDialog(mainTableEditingDataRef.current);
     }
-  }, [effectiveDrawerTabs, activeDrawerTabIndex, propagateDrawerSaveToMain, onDataChange, parentHandleDrawerSave, parentOriginalNestedTableDataRef, scalarEditableColumns.length, mainTableEditingData, setTableDataUpdateTrigger]);
+  }, [effectiveDrawerTabs, activeDrawerTabIndex, propagateDrawerSaveToMain, onDataChange, parentHandleDrawerSave, parentOriginalNestedTableDataRef, hasDrawerFormFields, setTableDataUpdateTrigger, openSaveDiffDialog]);
 
   // Persist main table editing buffer to original (used after diff dialog OK or when no diff)
   const persistMainSave = useCallback((editingData) => {
@@ -2759,8 +2876,8 @@ export default function DataProviderNew({
     }
   }, [mainTableEditingData, onDataChange]);
 
-  // Handle main save - copies editing buffer to original buffer, shows create/update payload in popup
-  const handleMainSave = useCallback(() => {
+  // Prepare save diff + payload dialog from current (or provided) editing buffer
+  function openSaveDiffDialog(editingDataOverride) {
     const writeSchemaRaw = currentQueryDoc?.writeSchema;
     if (!writeSchemaRaw) {
       if (onDataChange) {
@@ -2776,7 +2893,6 @@ export default function DataProviderNew({
     const writeSchema = typeof writeSchemaRaw === 'string' ? (() => { try { return JSON.parse(writeSchemaRaw); } catch { return writeSchemaRaw; } })() : writeSchemaRaw;
     const doctype = getDoctypeFromWriteSchema(writeSchema);
     const schemaStructure = getSchemaStructure(writeSchema);
-
     const excludeFromDiff = new Set(
       (derivedColumns || []).filter((dc) => dc.save !== true).map((dc) => dc.columnName).filter(Boolean)
     );
@@ -2832,7 +2948,7 @@ export default function DataProviderNew({
     };
 
     const originalData = mainTableOriginalDataRef.current;
-    const editingData = mainTableEditingData;
+    const editingData = editingDataOverride ?? mainTableEditingDataRef.current ?? [];
     if (isArray(originalData) && isArray(editingData)) {
       const originalMap = new Map();
       originalData.forEach((row, idx) => originalMap.set(getRowKey(row, idx), { row, index: idx }));
@@ -2888,7 +3004,12 @@ export default function DataProviderNew({
         life: 3000,
       });
     }
-  }, [mainTableEditingData, onDataChange, derivedColumns, currentQueryDoc]);
+  }
+
+  // Handle main save - shows create/update payload dialog
+  const handleMainSave = () => {
+    openSaveDiffDialog();
+  };
 
   // Load global functions module when save dialog opens (for display and for Save button)
   useEffect(() => {
@@ -3178,7 +3299,7 @@ export default function DataProviderNew({
   const getHasUnsavedDrawerChanges = useCallback(() => {
     let hasFormChanges = false;
     const currentFormRow = formEditingRowRef.current;
-    if (scalarEditableColumns.length > 0 && currentFormRow && formOriginalRowRef.current) {
+    if (hasDrawerFormFields && currentFormRow && formOriginalRowRef.current) {
       try {
         hasFormChanges = JSON.stringify(currentFormRow) !== JSON.stringify(formOriginalRowRef.current);
       } catch (e) {}
@@ -3203,7 +3324,7 @@ export default function DataProviderNew({
       }
     }
     return hasFormChanges || hasNestedChanges;
-  }, [effectiveDrawerTabs, activeDrawerTabIndex, scalarEditableColumns.length]);
+  }, [effectiveDrawerTabs, activeDrawerTabIndex, hasDrawerFormFields]);
 
   // Open drawer with nested JSON tables
   // Creates tabs dynamically for each nested table
@@ -3291,7 +3412,7 @@ export default function DataProviderNew({
     // Pre-select the row we opened from so the scalar edit form has a row without requiring a separate selection
     setSelectedRowData(rowData || null);
     // Init form buffer (drawer not visible yet so wrapper would not run)
-    if (rowData && scalarEditableColumns.length > 0) {
+    if (rowData && hasDrawerFormFields) {
       formOriginalRowRef.current = cloneDeep(rowData);
       setFormEditingRow(cloneDeep(rowData));
     } else {
@@ -3301,13 +3422,13 @@ export default function DataProviderNew({
 
     // Open drawer with first table's data
     openDrawer(firstTableData, null, drawerTitle, tableOptions);
-  }, [columns, onDrawerTabsChange, openDrawer, scalarEditableColumns, jsonTableColumns]);
+  }, [columns, onDrawerTabsChange, openDrawer, hasDrawerFormFields, jsonTableColumns]);
 
   // Open drawer for a single row in enableWrite mode - works with scalar-only, nested-only, or both
   const openDrawerForRow = useCallback((rowData, tableOptions = null) => {
     const nestedTables = rowData?.__nestedTables__;
     const hasNested = nestedTables && isArray(nestedTables) && nestedTables.length > 0;
-    const hasScalar = scalarEditableColumns.length > 0;
+    const hasScalar = hasDrawerFormFields;
 
     if (hasNested) {
       openDrawerWithJsonTables(nestedTables, rowData, tableOptions);
@@ -3339,7 +3460,7 @@ export default function DataProviderNew({
 
     const tableOptsWithOverride = { ...(tableOptions || {}), drawerTabsOverride: [] };
     openDrawer([rowData], null, drawerTitle, tableOptsWithOverride);
-  }, [columns, onDrawerTabsChange, openDrawer, openDrawerWithJsonTables, scalarEditableColumns]);
+  }, [columns, onDrawerTabsChange, openDrawer, openDrawerWithJsonTables, hasDrawerFormFields]);
 
   // Open drawer for new row (empty form + empty nested tables) - used by blue "+" in main table
   const openDrawerForNewRow = useCallback(() => {
@@ -3412,7 +3533,7 @@ export default function DataProviderNew({
     }
 
     // Block only when both scalar and nested are empty (no editable content at all)
-    if (nestedTables.length === 0 && scalarEditableColumns.length === 0) {
+    if (nestedTables.length === 0 && !hasDrawerFormFields) {
       if (onDataChange) {
         onDataChange({
           severity: 'warn',
@@ -3457,6 +3578,15 @@ export default function DataProviderNew({
       else if (t === 'date') emptyRow[col] = null;
       else emptyRow[col] = '';
     });
+    objectEditableFields.forEach(({ columnName, key, resolvedType }) => {
+      const objectValue = parseJsonObject(emptyRow[columnName]) || {};
+      if (objectValue[key] !== undefined) return;
+      if (resolvedType === 'number') objectValue[key] = null;
+      else if (resolvedType === 'boolean') objectValue[key] = false;
+      else if (resolvedType === 'date') objectValue[key] = null;
+      else objectValue[key] = '';
+      emptyRow[columnName] = objectValue;
+    });
     const newEditingKey = `main_row_new_${Date.now()}`;
     emptyRow.__editingKey__ = newEditingKey;
 
@@ -3472,8 +3602,8 @@ export default function DataProviderNew({
     };
     openDrawer([], null, 'New Row', tableOptions);
   }, [
-    jsonTableColumns, effectiveMainConfig.editableColumns, currentQueryDoc, scalarEditableColumns,
-    columnTypes, onDrawerTabsChange, openDrawer, onDataChange,
+    jsonTableColumns, effectiveMainConfig.editableColumns, currentQueryDoc, scalarEditableColumns, objectEditableFields,
+    columnTypes, onDrawerTabsChange, openDrawer, onDataChange, hasDrawerFormFields,
   ]);
 
   // Insert empty row at index 0 in nested table - used by blue "+" in drawer nested table context
@@ -3745,6 +3875,7 @@ export default function DataProviderNew({
         columns: filteredColumns, // Expose filtered columns (respecting allowedColumns)
         columnTypes,
         columnTypesOverride, // shared
+        jsonObjectColumns,
         filteredData,
         groupedData,
         sortedData,
@@ -3880,7 +4011,7 @@ export default function DataProviderNew({
     selectedRowData, setSelectedRowDataWithFormSync,
     formatHeaderName, isTruthyBoolean, exportToXLSX, isNumericValue, currentQueryDoc, searchTerm, sortConfig, enableBreakdown, reportData, isComputingReport, isApplyingFilterSort, columnGroupBy, filteredColumns, parentColumnName, nestedTableFieldName, nestedTableTabId,
     updateCurrentNestedTableData, getChangedRowsForTab, getAllChangedNestedTableRows, handleDrawerSave, handleMainSave, handleMainCancel, handleDrawerCancel, hasMainTableChanges, hasDrawerChanges, updateMainTableEditingData, forceEnableWrite, parentHandleDrawerSave, parentHandleAddNestedRowAtZero, addEditingKeysToRows, mainTableEditingData,
-    queryFunction, effectiveMainConfig, columnTypesOverride, enableDivideBy1Lakh, enableReport, chartColumns, chartHeight,
+    queryFunction, effectiveMainConfig, columnTypesOverride, jsonObjectColumns, enableDivideBy1Lakh, enableReport, chartColumns, chartHeight,
     dataSource, offlineData, offlineDataExecuted, formInputOverride, selectOptionsCache
   ]);
 
@@ -4595,7 +4726,7 @@ export default function DataProviderNew({
   const hasDrawerTabs = effectiveDrawerTabs && effectiveDrawerTabs.length > 0;
   const hasJsonTabs = effectiveDrawerTabs?.some(t => t?.isJsonTable) ?? false;
   const enableWriteForDrawer = forceEnableWrite !== undefined ? forceEnableWrite : (currentQueryDoc?.enableWrite || false);
-  const shouldShowDrawer = hasDrawerTabs || (enableWriteForDrawer && drawerVisible && (scalarEditableColumns.length > 0 || hasJsonTabs));
+  const shouldShowDrawer = hasDrawerTabs || (enableWriteForDrawer && drawerVisible && (hasDrawerFormFields || hasJsonTabs));
   const hasDrawerData = drawerData && drawerData.length > 0;
   const drawerActiveIndex = hasDrawerTabs
     ? Math.min(activeDrawerTabIndex, Math.max(0, effectiveDrawerTabs.length - 1))
@@ -4609,6 +4740,109 @@ export default function DataProviderNew({
       <p className="text-sm text-gray-500 mt-1">{subtitle}</p>
     </div>
   );
+
+  const renderDrawerFormField = useCallback((fieldConfig) => {
+    const { fieldId, value, label, resolvedType, override, handleChange, isObjectField = false } = fieldConfig;
+    const overrideType = typeof override === 'object' && override?.type === 'Select'
+      ? 'Select'
+      : (typeof override === 'string' ? override : null);
+
+    if (overrideType === 'Calendar' || (!overrideType && resolvedType === 'date')) {
+      return (
+        <div key={fieldId} className="flex flex-col gap-1">
+          <label className="text-xs font-medium text-gray-700">{label}</label>
+          <Calendar
+            value={value ? (value instanceof Date ? value : new Date(value)) : null}
+            onChange={(e) => handleChange(e.value)}
+            dateFormat="M d, yy"
+            showIcon
+            className="w-full text-sm"
+          />
+        </div>
+      );
+    }
+    if (overrideType === 'Checkbox' || (!overrideType && resolvedType === 'boolean')) {
+      return (
+        <div key={fieldId} className="flex flex-col gap-1">
+          <label className="text-xs font-medium text-gray-700">{label}</label>
+          <div className="flex items-center pt-1">
+            <Checkbox
+              inputId={`sidebar-edit-${fieldId}`}
+              checked={!!value}
+              onChange={(e) => handleChange(e.checked)}
+            />
+            <label htmlFor={`sidebar-edit-${fieldId}`} className="ml-2 text-sm text-gray-600">{value ? 'Yes' : 'No'}</label>
+          </div>
+        </div>
+      );
+    }
+    if (overrideType === 'InputNumber' || (!overrideType && resolvedType === 'number')) {
+      return (
+        <div key={fieldId} className="flex flex-col gap-1">
+          <label className="text-xs font-medium text-gray-700">{label}</label>
+          <InputNumber
+            value={value != null && value !== '' ? toNumber(value) : null}
+            onValueChange={(e) => handleChange(e.value)}
+            className="w-full text-sm"
+          />
+        </div>
+      );
+    }
+    if (overrideType === 'Select') {
+      let getOptions = override?.getOptions;
+      if (typeof getOptions !== 'function' && typeof override?.getOptionsCode === 'string' && override.getOptionsCode.trim()) {
+        try {
+          getOptions = new Function('ctx', 'return (' + override.getOptionsCode + ')(ctx);');
+        } catch (err) {
+          console.warn('[FormInputOverride] Invalid getOptionsCode for field', fieldId, err);
+          getOptions = () => [];
+        }
+      }
+      getOptions = typeof getOptions === 'function' ? getOptions : () => [];
+      const ctx = {
+        columnName: fieldId,
+        query: queryFunction ?? (async () => { throw new Error('Query execution not available'); }),
+      };
+      const cacheBucket = isObjectField ? 'object' : 'main';
+      const formCachedOptions = selectOptionsCache?.[`${cacheBucket}|${fieldId}`];
+      return (
+        <FormSelectOptionsField
+          key={fieldId}
+          col={fieldId}
+          value={value}
+          label={label}
+          handleChange={handleChange}
+          getOptions={getOptions}
+          ctx={ctx}
+          cachedOptions={formCachedOptions}
+        />
+      );
+    }
+    if (overrideType === 'Quill') {
+      return (
+        <div key={fieldId} className="flex flex-col gap-1 col-span-2">
+          <label className="text-xs font-medium text-gray-700">{label}</label>
+          <Editor
+            value={value != null ? String(value) : ''}
+            onTextChange={(e) => handleChange(e.htmlValue)}
+            headerTemplate={quillFormToolbar}
+            style={{ height: '160px' }}
+            className="w-full"
+          />
+        </div>
+      );
+    }
+    return (
+      <div key={fieldId} className="flex flex-col gap-1">
+        <label className="text-xs font-medium text-gray-700">{label}</label>
+        <InputText
+          value={value != null ? String(value) : ''}
+          onChange={(e) => handleChange(e.target.value)}
+          className="w-full text-sm"
+        />
+      </div>
+    );
+  }, [queryFunction, selectOptionsCache]);
 
   // Ensure contextValue is never null/undefined (safeguard)
   if (!contextValue) {
@@ -4771,120 +5005,54 @@ export default function DataProviderNew({
         >
           <div className="flex flex-col h-full dynamic-form-container">
             {/* Scalar section - part of dynamic form (root provider only) */}
-            {!parentColumnName && drawerVisible && enableCellEdit && scalarEditableColumns.length > 0 && (
+            {!parentColumnName && drawerVisible && enableCellEdit && hasDrawerFormFields && (
               <section className="shrink-0 p-3 pb-2 border-b border-gray-200 drawer-form-inputs">
                 <div className="grid grid-cols-2 gap-x-3 gap-y-2">
                   {(formEditingRow ?? selectedRowData) && (
-                    scalarEditableColumns.map((col) => {
+                    (() => {
                       const formRow = formEditingRow ?? selectedRowData;
-                      const override = effectiveMainConfig.formInputOverride?.main?.[col] ?? formInputOverride?.main?.[col];
                       const mainOverrides = getMainOverrides(columnTypesOverride);
-                      const resolvedType = mainOverrides[col] || columnTypes[col] || 'string';
-                      const value = getDataValue(formRow, col);
-                      const label = formatHeaderName(col);
-                      const handleChange = (newVal) => {
-                        setFormEditingRow(prev => prev ? { ...prev, [col]: newVal } : null);
-                      };
-                      // formInputOverride: 'Calendar'|'Checkbox'|'InputNumber'|'InputText'|'Quill'|{ type:'Select', getOptions }
-                      const overrideType = typeof override === 'object' && override?.type === 'Select' ? 'Select' : (typeof override === 'string' ? override : null);
-                      if (overrideType === 'Calendar' || (!overrideType && resolvedType === 'date')) {
-                        return (
-                          <div key={col} className="flex flex-col gap-1">
-                            <label className="text-xs font-medium text-gray-700">{label}</label>
-                            <Calendar
-                              value={value ? (value instanceof Date ? value : new Date(value)) : null}
-                              onChange={(e) => handleChange(e.value)}
-                              dateFormat="M d, yy"
-                              showIcon
-                              className="w-full text-sm"
-                            />
-                          </div>
-                        );
-                      }
-                      if (overrideType === 'Checkbox' || (!overrideType && resolvedType === 'boolean')) {
-                        return (
-                          <div key={col} className="flex flex-col gap-1">
-                            <label className="text-xs font-medium text-gray-700">{label}</label>
-                            <div className="flex items-center pt-1">
-                              <Checkbox
-                                inputId={`sidebar-edit-${col}`}
-                                checked={!!value}
-                                onChange={(e) => handleChange(e.checked)}
-                              />
-                              <label htmlFor={`sidebar-edit-${col}`} className="ml-2 text-sm text-gray-600">{value ? 'Yes' : 'No'}</label>
-                            </div>
-                          </div>
-                        );
-                      }
-                      if (overrideType === 'InputNumber' || (!overrideType && resolvedType === 'number')) {
-                        return (
-                          <div key={col} className="flex flex-col gap-1">
-                            <label className="text-xs font-medium text-gray-700">{label}</label>
-                            <InputNumber
-                              value={value != null && value !== '' ? toNumber(value) : null}
-                              onValueChange={(e) => handleChange(e.value)}
-                              className="w-full text-sm"
-                            />
-                          </div>
-                        );
-                      }
-                      if (overrideType === 'Select') {
-                        let getOptions = override?.getOptions;
-                        if (typeof getOptions !== 'function' && typeof override?.getOptionsCode === 'string' && override.getOptionsCode.trim()) {
-                          try {
-                            getOptions = new Function('ctx', 'return (' + override.getOptionsCode + ')(ctx);');
-                          } catch (err) {
-                            console.warn('[FormInputOverride] Invalid getOptionsCode for column', col, err);
-                            getOptions = () => [];
-                          }
-                        }
-                        getOptions = typeof getOptions === 'function' ? getOptions : () => [];
-                        const ctx = {
-                          columnName: col,
-                          query: queryFunction ?? (async () => { throw new Error('Query execution not available'); }),
+                      const scalarFields = scalarEditableColumns.map((col) => ({
+                        fieldId: col,
+                        value: getDataValue(formRow, col),
+                        label: formatHeaderName(col),
+                        resolvedType: mainOverrides[col] || columnTypes[col] || 'string',
+                        override: effectiveMainConfig.formInputOverride?.main?.[col] ?? formInputOverride?.main?.[col],
+                        handleChange: (newVal) => {
+                          setFormEditingRow(prev => prev ? { ...prev, [col]: newVal } : null);
+                        },
+                        isObjectField: false,
+                      }));
+                      const objectFields = objectEditableFields.map((fieldInfo) => {
+                        const objectValue = parseJsonObject(getDataValue(formRow, fieldInfo.columnName)) || {};
+                        const fieldId = fieldInfo.formKey;
+                        return {
+                          fieldId,
+                          value: objectValue[fieldInfo.key],
+                          label: fieldInfo.label,
+                          resolvedType: fieldInfo.resolvedType,
+                          override: effectiveMainConfig.formInputOverride?.object?.[fieldInfo.columnName]?.[fieldInfo.key]
+                            ?? formInputOverride?.object?.[fieldInfo.columnName]?.[fieldInfo.key],
+                          handleChange: (newVal) => {
+                            setFormEditingRow((prev) => {
+                              if (!prev) return null;
+                              const prevRawValue = prev[fieldInfo.columnName];
+                              const prevObject = parseJsonObject(prevRawValue) || {};
+                              const nextObject = {
+                                ...prevObject,
+                                [fieldInfo.key]: newVal,
+                              };
+                              return {
+                                ...prev,
+                                [fieldInfo.columnName]: typeof prevRawValue === 'string' ? JSON.stringify(nextObject) : nextObject,
+                              };
+                            });
+                          },
+                          isObjectField: true,
                         };
-                        const formCachedOptions = selectOptionsCache?.[`main|${col}`];
-                        return (
-                          <FormSelectOptionsField
-                            key={col}
-                            col={col}
-                            value={value}
-                            label={label}
-                            handleChange={handleChange}
-                            getOptions={getOptions}
-                            ctx={ctx}
-                            cachedOptions={formCachedOptions}
-                          />
-                        );
-                      }
-                      if (overrideType === 'Quill') {
-                        return (
-                          <div key={col} className="flex flex-col gap-1 col-span-2">
-                            <label className="text-xs font-medium text-gray-700">{label}</label>
-                            <Editor
-                              value={value != null ? String(value) : ''}
-                              onTextChange={(e) => handleChange(e.htmlValue)}
-                              headerTemplate={quillFormToolbar}
-                              style={{ height: '160px' }}
-                              className="w-full"
-                            />
-                          </div>
-                        );
-                      }
-                      if (overrideType === 'InputText' || !overrideType) {
-                        return (
-                          <div key={col} className="flex flex-col gap-1">
-                            <label className="text-xs font-medium text-gray-700">{label}</label>
-                            <InputText
-                              value={value != null ? String(value) : ''}
-                              onChange={(e) => handleChange(e.target.value)}
-                              className="w-full text-sm"
-                            />
-                          </div>
-                        );
-                      }
-                      return null;
-                    })
+                      });
+                      return [...scalarFields, ...objectFields].map(renderDrawerFormField);
+                    })()
                   )}
                 </div>
               </section>
@@ -4928,7 +5096,7 @@ export default function DataProviderNew({
                         return derived.length > 0 ? derived : null;
                       })(),
                       enableCellEdit: false, // drawer-specific default
-                      editableColumns: { main: [], nested: {} }, // drawer-specific default
+                      editableColumns: { main: [], nested: {}, object: {} }, // drawer-specific default
                       percentageColumns: effectiveMainConfig.percentageColumns || [],
                       derivedColumns: effectiveMainConfig.derivedColumns || [],
                       columnTypes: columnTypes, // from main table
@@ -4991,7 +5159,7 @@ export default function DataProviderNew({
                               enableDivideBy1Lakh={mergedTableProps.enableDivideBy1Lakh || false}
                               columnTypesOverride={mergedTableProps.columnTypesOverride || {}}
                               allowedColumns={mergedTableProps.allowedColumns || []}
-                              editableColumns={mergedTableProps.editableColumns || { main: [], nested: {} }}
+                              editableColumns={mergedTableProps.editableColumns || { main: [], nested: {}, object: {} }}
                               enableCellEdit={mergedTableProps.enableCellEdit !== undefined ? mergedTableProps.enableCellEdit : false}
                               parentColumnName={isJsonTable ? parentColumnName : undefined}
                               nestedTableFieldName={isJsonTable ? nestedTableFieldName : undefined}
@@ -5034,7 +5202,7 @@ export default function DataProviderNew({
                                 defaultRows={mergedTableProps.defaultRows}
                                 enableCellEdit={mergedTableProps.enableCellEdit !== undefined ? mergedTableProps.enableCellEdit : false}
                                 tableName={mergedTableProps.tableName || 'table'}
-                                editableColumns={mergedTableProps.editableColumns || { main: [], nested: {} }}
+                                editableColumns={mergedTableProps.editableColumns || { main: [], nested: {}, object: {} }}
                               />
                             </DataProviderNew>
                           ) : (
@@ -5049,7 +5217,7 @@ export default function DataProviderNew({
                     );
                   })}
                 </TabView>
-              ) : scalarEditableColumns.length === 0 ? (
+              ) : !hasDrawerFormFields ? (
                 <DrawerEmptyState
                   icon="pi-inbox"
                   title="No tabs configured"

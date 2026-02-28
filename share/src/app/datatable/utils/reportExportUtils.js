@@ -1,8 +1,7 @@
 import * as XLSX from 'xlsx';
 import { isEmpty, isNil, isNumber } from 'lodash';
 import { getDataValue } from './dataAccessUtils';
-import { computeReportColumnsStructure } from './reportRenderingUtils';
-import { getMetricLabel } from './reportRenderingUtils';
+import { computeReportColumnsStructure, getReportColumns, getMetricLabel } from './reportRenderingUtils';
 import { getTimePeriodLabelShort } from './timeBreakdownUtils';
 
 /**
@@ -62,7 +61,22 @@ export function exportReportToXLSX(
   }
 
   const { breakdownType } = reportData;
-  const { metricGroups, periodGroups, metricsWithData, timePeriodsWithData, columnsWithData, isMergedMode } = reportColumnsStructure;
+  const outerGroupField = groupFields[0] || '';
+  const {
+    metricGroups,
+    periodGroups,
+    metricsWithData,
+    timePeriodsWithData,
+    columnsWithData,
+    exemptColumns = [],
+    orderedSegments,
+    isMergedMode
+  } = reportColumnsStructure;
+  const exemptColsArray = Array.isArray(exemptColumns) ? exemptColumns : [];
+
+  // Build export column order (preserves original position when orderedSegments is present)
+  const reportCols = getReportColumns(reportColumnsStructure, outerGroupField);
+  const exportColumns = [...groupFields, ...reportCols.filter((c) => !groupFields.includes(c))];
 
   // Prepare data for export - flatten nested data recursively for all levels
   let dataToExport = [];
@@ -135,109 +149,99 @@ export function exportReportToXLSX(
     dataToExport = reportData.tableData.map(row => ({ ...row }));
   }
 
-  // Build column order matching the report structure - include all group fields
-  const exportColumns = [...groupFields];
-  exportColumns.push(...reportColumnsStructure.columnNames);
-
   // Create worksheet - we'll build it manually to have control over headers
   const ws = {};
-  
-  // Calculate column positions for all group fields
-  let colIndex = 0;
-  const groupFieldColIndices = {};
-  groupFields.forEach((field) => {
-    groupFieldColIndices[field] = colIndex++;
-  });
-  const dataStartColIndex = colIndex;
-
-  // Build header structure
   const merges = [];
   const headerRowIndex = 0;
   const dataStartRow = 3; // Data starts at row 4 (0-indexed row 3)
-  
-  // Row 1: All group fields + merged cell for all data columns
+
+  let colIndex = 0;
+
+  // Row 1: Group fields
   groupFields.forEach((field) => {
-    const groupHeader = formatHeaderName(field);
-    const colIndex = groupFieldColIndices[field];
-    ws[getCellAddress(headerRowIndex, colIndex)] = { v: groupHeader, t: 's' };
-    
-    // Merge each group field across 3 rows
-    merges.push({
-      s: { r: headerRowIndex, c: colIndex },
-      e: { r: headerRowIndex + 2, c: colIndex }
-    });
+    ws[getCellAddress(headerRowIndex, colIndex)] = { v: formatHeaderName(field), t: 's' };
+    merges.push({ s: { r: headerRowIndex, c: colIndex }, e: { r: headerRowIndex + 2, c: colIndex } });
+    colIndex++;
   });
 
-  // Merge all data columns in row 1
-  if (columnsWithData.length > 0) {
-    merges.push({
-      s: { r: headerRowIndex, c: dataStartColIndex },
-      e: { r: headerRowIndex, c: dataStartColIndex + columnsWithData.length - 1 }
-    });
-  }
-
-  // Row 2: Metric headers (merged mode) or Time period headers (sub-columns mode)
-  let currentCol = dataStartColIndex;
-  
-  if (isMergedMode) {
-    // Merged mode: metrics first, then time periods
-    metricsWithData.forEach((metric) => {
-      const periodCount = metricGroups[metric].length;
-      const metricLabel = getMetricLabel(metric);
-      
-      ws[getCellAddress(headerRowIndex + 1, currentCol)] = { v: metricLabel, t: 's' };
-      
-      // Merge metric header across its periods
-      if (periodCount > 1) {
-        merges.push({
-          s: { r: headerRowIndex + 1, c: currentCol },
-          e: { r: headerRowIndex + 1, c: currentCol + periodCount - 1 }
-        });
+  if (orderedSegments && orderedSegments.length > 0) {
+    // Interleaved structure: exempt + breakdown segments in original order
+    orderedSegments.forEach((seg) => {
+      if (seg.type === 'exempt') {
+        ws[getCellAddress(headerRowIndex, colIndex)] = { v: formatHeaderName(seg.name), t: 's' };
+        merges.push({ s: { r: headerRowIndex, c: colIndex }, e: { r: headerRowIndex + 2, c: colIndex } });
+        colIndex++;
+      } else {
+        const count = seg.periods?.length ?? 0;
+        if (count > 0) {
+          merges.push({ s: { r: headerRowIndex, c: colIndex }, e: { r: headerRowIndex, c: colIndex + count - 1 } });
+          if (isMergedMode) {
+            ws[getCellAddress(headerRowIndex + 1, colIndex)] = { v: getMetricLabel(seg.metric), t: 's' };
+            if (count > 1) {
+              merges.push({ s: { r: headerRowIndex + 1, c: colIndex }, e: { r: headerRowIndex + 1, c: colIndex + count - 1 } });
+            }
+            seg.periods.forEach((period) => {
+              ws[getCellAddress(headerRowIndex + 2, colIndex)] = { v: getTimePeriodLabelShort(period, breakdownType), t: 's' };
+              colIndex++;
+            });
+          } else {
+            seg.periods.forEach((period) => {
+              ws[getCellAddress(headerRowIndex + 1, colIndex)] = { v: getTimePeriodLabelShort(period, breakdownType), t: 's' };
+              ws[getCellAddress(headerRowIndex + 2, colIndex)] = { v: getMetricLabel(seg.metric), t: 's' };
+              colIndex++;
+            });
+          }
+        }
       }
-      
-      currentCol += periodCount;
     });
   } else {
-    // Sub-columns mode: time periods first, then metrics
-    timePeriodsWithData.forEach((period) => {
-      const metricCount = periodGroups[period].length;
-      const periodLabel = getTimePeriodLabelShort(period, breakdownType);
-      
-      ws[getCellAddress(headerRowIndex + 1, currentCol)] = { v: periodLabel, t: 's' };
-      
-      // Merge period header across its metrics
-      if (metricCount > 1) {
-        merges.push({
-          s: { r: headerRowIndex + 1, c: currentCol },
-          e: { r: headerRowIndex + 1, c: currentCol + metricCount - 1 }
+    // Legacy: exempt block, then breakdown block
+    exemptColsArray.forEach((col) => {
+      ws[getCellAddress(headerRowIndex, colIndex)] = { v: formatHeaderName(col), t: 's' };
+      merges.push({ s: { r: headerRowIndex, c: colIndex }, e: { r: headerRowIndex + 2, c: colIndex } });
+      colIndex++;
+    });
+    const dataStartColIndex = colIndex;
+    if (columnsWithData.length > 0) {
+      merges.push({
+        s: { r: headerRowIndex, c: dataStartColIndex },
+        e: { r: headerRowIndex, c: dataStartColIndex + columnsWithData.length - 1 }
+      });
+    }
+    let currentCol = dataStartColIndex;
+    if (isMergedMode) {
+      metricsWithData.forEach((metric) => {
+        const periodCount = metricGroups[metric].length;
+        ws[getCellAddress(headerRowIndex + 1, currentCol)] = { v: getMetricLabel(metric), t: 's' };
+        if (periodCount > 1) {
+          merges.push({ s: { r: headerRowIndex + 1, c: currentCol }, e: { r: headerRowIndex + 1, c: currentCol + periodCount - 1 } });
+        }
+        currentCol += periodCount;
+      });
+      currentCol = dataStartColIndex;
+      metricsWithData.forEach((metric) => {
+        metricGroups[metric].forEach((period) => {
+          ws[getCellAddress(headerRowIndex + 2, currentCol)] = { v: getTimePeriodLabelShort(period, breakdownType), t: 's' };
+          currentCol++;
         });
-      }
-      
-      currentCol += metricCount;
-    });
-  }
-
-  // Row 3: Time period headers (merged mode) or Metric headers (sub-columns mode)
-  currentCol = dataStartColIndex;
-  
-  if (isMergedMode) {
-    // Merged mode: time periods under each metric
-    metricsWithData.forEach((metric) => {
-      metricGroups[metric].forEach((period) => {
-        const periodLabel = getTimePeriodLabelShort(period, breakdownType);
-        ws[getCellAddress(headerRowIndex + 2, currentCol)] = { v: periodLabel, t: 's' };
-        currentCol++;
       });
-    });
-  } else {
-    // Sub-columns mode: metrics under each period
-    timePeriodsWithData.forEach((period) => {
-      periodGroups[period].forEach((metric) => {
-        const metricLabel = getMetricLabel(metric);
-        ws[getCellAddress(headerRowIndex + 2, currentCol)] = { v: metricLabel, t: 's' };
-        currentCol++;
+    } else {
+      timePeriodsWithData.forEach((period) => {
+        const metricCount = periodGroups[period].length;
+        ws[getCellAddress(headerRowIndex + 1, currentCol)] = { v: getTimePeriodLabelShort(period, breakdownType), t: 's' };
+        if (metricCount > 1) {
+          merges.push({ s: { r: headerRowIndex + 1, c: currentCol }, e: { r: headerRowIndex + 1, c: currentCol + metricCount - 1 } });
+        }
+        currentCol += metricCount;
       });
-    });
+      currentCol = dataStartColIndex;
+      timePeriodsWithData.forEach((period) => {
+        periodGroups[period].forEach((metric) => {
+          ws[getCellAddress(headerRowIndex + 2, currentCol)] = { v: getMetricLabel(metric), t: 's' };
+          currentCol++;
+        });
+      });
+    }
   }
 
   // Add data rows starting from row 4 (index 3)

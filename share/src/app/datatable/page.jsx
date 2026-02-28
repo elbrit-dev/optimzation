@@ -68,6 +68,7 @@ function DataTablePage() {
   // Report settings state
   const [enableReport, setEnableReport] = useState(defaultDataTableConfig.enableReport);
   const [dateColumn, setDateColumn] = useState(defaultDataTableConfig.dateColumn);
+  const [columnsExemptFromBreakdown, setColumnsExemptFromBreakdown] = useState(defaultDataTableConfig.columnsExemptFromBreakdown || []);
   const [showChart, setShowChart] = useState(true);
   const [chartColumns, setChartColumns] = useState([]);
   const [chartHeight, setChartHeight] = useState(400);
@@ -240,16 +241,17 @@ function DataTablePage() {
   // Ensure editableColumns has the correct structure
   const editableColumns = useMemo(() => {
     if (!editableColumnsRaw || typeof editableColumnsRaw !== 'object') {
-      return { main: [], nested: {} };
+      return { main: [], nested: {}, object: {} };
     }
     // Handle backward compatibility: if it's an array, convert to new format
     if (Array.isArray(editableColumnsRaw)) {
-      return { main: editableColumnsRaw, nested: {} };
+      return { main: editableColumnsRaw, nested: {}, object: {} };
     }
-    // Ensure main and nested exist
+    // Ensure main, nested and object exist
     return {
       main: Array.isArray(editableColumnsRaw.main) ? editableColumnsRaw.main : [],
-      nested: editableColumnsRaw.nested && typeof editableColumnsRaw.nested === 'object' ? editableColumnsRaw.nested : {}
+      nested: editableColumnsRaw.nested && typeof editableColumnsRaw.nested === 'object' ? editableColumnsRaw.nested : {},
+      object: editableColumnsRaw.object && typeof editableColumnsRaw.object === 'object' ? editableColumnsRaw.object : {},
     };
   }, [editableColumnsRaw]);
 
@@ -293,9 +295,13 @@ function DataTablePage() {
     if (value && typeof value === 'object') {
       // Handle both new format (object) and old format (array for backward compatibility)
       if (Array.isArray(value)) {
-        setEditableColumnsRaw({ main: value, nested: {} });
-      } else if (value.main !== undefined || value.nested !== undefined) {
-        setEditableColumnsRaw(value);
+        setEditableColumnsRaw({ main: value, nested: {}, object: {} });
+      } else if (value.main !== undefined || value.nested !== undefined || value.object !== undefined) {
+        setEditableColumnsRaw({
+          main: Array.isArray(value.main) ? value.main : [],
+          nested: value.nested && typeof value.nested === 'object' ? value.nested : {},
+          object: value.object && typeof value.object === 'object' ? value.object : {},
+        });
       }
     }
   };
@@ -555,6 +561,7 @@ function DataTablePage() {
             onDrawerTabsChange={setDrawerTabs}
             enableReport={enableReport}
             dateColumn={dateColumn}
+            columnsExemptFromBreakdown={columnsExemptFromBreakdown}
             chartColumns={chartColumns}
             chartHeight={chartHeight}
           >

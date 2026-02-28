@@ -1,5 +1,9 @@
 import { flatten } from 'flat';
 
+function isPlainObject(value) {
+  return value != null && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date);
+}
+
 /**
  * Flatten array of node objects to 1D using flat library
  * @param {Array} nodes - Array of node objects
@@ -27,6 +31,14 @@ export function flattenResponse(nodes) {
       for (const key in flattenedNode) {
         if (flattenedNode.hasOwnProperty(key)) {
           processed[key] = flattenedNode[key];
+        }
+      }
+
+      // Preserve original top-level object fields as objects so object-typed columns remain available.
+      // Flattened child fields (e.g. issue_type_name) are still kept for backward compatibility.
+      for (const [key, value] of Object.entries(node)) {
+        if (isPlainObject(value)) {
+          processed[key] = value;
         }
       }
 

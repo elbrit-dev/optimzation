@@ -207,23 +207,43 @@ export function aggregateNonNumeric(col, colType, innerData, getCell) {
 
   if (vals.length === 0) return { display: null };
 
+  const buildDisplayAndBreakdown = (entries) => {
+    const sortedEntries = entries
+      .filter((entry) => !isNil(entry?.value) && entry.count > 0)
+      .sort((a, b) => {
+        if (b.count !== a.count) return b.count - a.count;
+        return String(a.value).localeCompare(String(b.value));
+      });
+    if (sortedEntries.length === 0) return { display: null };
+    const first = sortedEntries[0];
+    const display = `${first.value} x ${first.count}`;
+    const moreCount = sortedEntries.length - 1;
+    return {
+      display: moreCount > 0 ? `${display} +${moreCount} more` : display,
+      breakdown: sortedEntries,
+    };
+  };
+
   if (colType === 'date') {
     const dates = vals.map((v) => parseToDate(v)).filter(Boolean);
     if (dates.length === 0) return { display: null };
-    const timestamps = dates.map((d) => d.getTime());
-    const minDate = new Date(Math.min(...timestamps));
-    const maxDate = new Date(Math.max(...timestamps));
-    const minStr = formatDateValue(minDate);
-    const maxStr = formatDateValue(maxDate);
-    return { display: minStr === maxStr ? minStr : `${minStr} - ${maxStr}` };
+    const countMap = new Map();
+    dates.forEach((date) => {
+      const key = formatDateValue(date);
+      countMap.set(key, (countMap.get(key) || 0) + 1);
+    });
+    const entries = Array.from(countMap.entries()).map(([value, count]) => ({ value, count }));
+    return buildDisplayAndBreakdown(entries);
   }
 
   if (colType === 'boolean') {
     const isTruthy = (v) => v === true || v === 'true' || v === 1 || v === '1' || v === 'yes' || v === 'y';
-    const isFalsy = (v) => v === false || v === 'false' || v === 0 || v === '0' || v === 'no' || v === 'n';
     const t = vals.filter(isTruthy).length;
-    const f = vals.filter(isFalsy).length;
-    return { display: `true: ${t}, false: ${f}` };
+    const f = vals.length - t;
+    return buildDisplayAndBreakdown([
+      { value: 'true', count: t },
+      { value: 'false', count: f },
+    ]);
   }
 
   if (colType === 'string' || !['number', 'date', 'boolean'].includes(colType)) {
@@ -232,13 +252,8 @@ export function aggregateNonNumeric(col, colType, innerData, getCell) {
       const key = String(v);
       countMap.set(key, (countMap.get(key) || 0) + 1);
     });
-    const entries = Array.from(countMap.entries()).sort((a, b) => (b[1] - a[1]));
-    const first = entries[0];
-    const display = first ? `${first[0]} x ${first[1]}` : '';
-    const moreCount = entries.length - 1;
-    const displayWithMore = moreCount > 0 ? `${display} +${moreCount} more` : display;
-    const breakdown = entries.map(([value, count]) => ({ value, count }));
-    return { display: displayWithMore || null, breakdown };
+    const entries = Array.from(countMap.entries()).map(([value, count]) => ({ value, count }));
+    return buildDisplayAndBreakdown(entries);
   }
 
   return { display: vals[0] };

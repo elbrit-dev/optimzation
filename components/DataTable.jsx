@@ -5,14 +5,14 @@ import { Toast } from 'primereact/toast';
 import { Splitter, SplitterPanel } from 'primereact/splitter';
 import { Sidebar } from 'primereact/sidebar';
 import { TabView, TabPanel } from 'primereact/tabview';
-import DataTableComponent from '../share/src/app/datatable/components/DataTable';
-import DataTableControls from '../share/src/app/datatable/components/DataTableControls';
+import DataTableComponent from '../share/datatable/components/DataTable';
+import DataTableControls from '../share/datatable/components/DataTableControls';
 import data from '../resource/data';
 
 import { uniq, flatMap, keys, isEmpty, startCase, filter as lodashFilter, get, isNil } from 'lodash';
 import { saveSettingsForDataSource, loadSettingsForDataSource } from '../lib/settingsService';
 import { useTableContext } from './TableContext';
-import { TableOperationsContext } from '../share/src/app/datatable/contexts/TableOperationsContext';
+import { TableOperationsContext } from '../share/datatable/contexts/TableOperationsContext';
 import { useContext } from 'react';
 
 // Custom hook for localStorage with proper JSON serialization for booleans
