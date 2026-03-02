@@ -168,9 +168,10 @@ export function computeReportColumnsStructure(reportData, columnGroupBy, exemptC
  * @param {Object} reportData - Report data object with breakdownType
  * @param {string} outerGroupField - Outer group field name
  * @param {Function} formatHeaderName - Function to format header names
+ * @param {boolean} [enableSort=true] - Whether to show sort option on columns
  * @returns {JSX.Element|null} ColumnGroup element or null
  */
-export function generateReportHeaderGroup(reportColumnsStructure, reportData, outerGroupField, formatHeaderName) {
+export function generateReportHeaderGroup(reportColumnsStructure, reportData, outerGroupField, formatHeaderName, enableSort = true) {
   if (!reportColumnsStructure || !reportData) {
     return null;
   }
@@ -200,7 +201,7 @@ export function generateReportHeaderGroup(reportColumnsStructure, reportData, ou
             <Column header={formatHeaderName(outerGroupField)} rowSpan={3} />
             {orderedSegments.map((seg, idx) =>
               seg.type === 'exempt' ? (
-                <Column key={`exempt-${seg.name}`} header={formatHeaderName(seg.name)} rowSpan={3} sortable field={seg.name} />
+                <Column key={`exempt-${seg.name}`} header={formatHeaderName(seg.name)} rowSpan={3} sortable={enableSort} field={seg.name} />
               ) : (
                 <Column key={`breakdown-${seg.metric}-${idx}`} header="" colSpan={seg.periods.length} />
               )
@@ -221,7 +222,7 @@ export function generateReportHeaderGroup(reportColumnsStructure, reportData, ou
                     <Column
                       key={`${period}_${seg.metric}`}
                       header={getTimePeriodLabelShort(period, breakdownType)}
-                      sortable
+                      sortable={enableSort}
                       field={`${period}_${seg.metric}`}
                     />
                   ))
@@ -238,7 +239,7 @@ export function generateReportHeaderGroup(reportColumnsStructure, reportData, ou
           <Column header={formatHeaderName(outerGroupField)} rowSpan={3} />
           {orderedSegments.map((seg, idx) =>
             seg.type === 'exempt' ? (
-              <Column key={`exempt-${seg.name}`} header={formatHeaderName(seg.name)} rowSpan={3} sortable field={seg.name} />
+              <Column key={`exempt-${seg.name}`} header={formatHeaderName(seg.name)} rowSpan={3} sortable={enableSort} field={seg.name} />
             ) : (
               <Column key={`breakdown-${seg.metric}-${idx}`} header="" colSpan={seg.periods.length} />
             )
@@ -261,7 +262,7 @@ export function generateReportHeaderGroup(reportColumnsStructure, reportData, ou
                   <Column
                     key={`${period}_${seg.metric}`}
                     header={getMetricLabel(seg.metric)}
-                    sortable
+                    sortable={enableSort}
                     field={`${period}_${seg.metric}`}
                   />
                 ))
@@ -279,7 +280,7 @@ export function generateReportHeaderGroup(reportColumnsStructure, reportData, ou
           <Column header="" rowSpan={3} style={{ width: '3rem' }} />
           <Column header={formatHeaderName(outerGroupField)} rowSpan={3} />
           {exemptColsArray.map((col) => (
-            <Column key={col} header={formatHeaderName(col)} rowSpan={3} sortable field={col} />
+            <Column key={col} header={formatHeaderName(col)} rowSpan={3} sortable={enableSort} field={col} />
           ))}
           {totalDataCols > 0 && (
             <Column header="" colSpan={totalDataCols} />
@@ -294,26 +295,26 @@ export function generateReportHeaderGroup(reportColumnsStructure, reportData, ou
         <Row>
           {metricsWithData.map((metric) =>
             metricGroups[metric].map((period) => (
-              <Column
-                key={`${period}_${metric}`}
-                header={getTimePeriodLabelShort(period, breakdownType)}
-                sortable
-                field={`${period}_${metric}`}
-              />
-            ))
-          )}
-        </Row>
-      </ColumnGroup>
-    );
-  }
-  // Sub-columns mode
+            <Column
+              key={`${period}_${metric}`}
+              header={getTimePeriodLabelShort(period, breakdownType)}
+              sortable={enableSort}
+              field={`${period}_${metric}`}
+            />
+          ))
+        )}
+      </Row>
+    </ColumnGroup>
+  );
+}
+// Sub-columns mode
   return (
     <ColumnGroup>
       <Row>
         <Column key="report-expander" header="" rowSpan={3} style={{ width: '3rem' }} />
         <Column key={`report-group-${outerGroupField}`} header={formatHeaderName(outerGroupField)} rowSpan={3} />
         {exemptColsArray.map((col) => (
-          <Column key={col} header={formatHeaderName(col)} rowSpan={3} sortable field={col} />
+          <Column key={col} header={formatHeaderName(col)} rowSpan={3} sortable={enableSort} field={col} />
         ))}
         {totalDataCols > 0 && <Column header="" colSpan={totalDataCols} />}
       </Row>
@@ -328,7 +329,7 @@ export function generateReportHeaderGroup(reportColumnsStructure, reportData, ou
       <Row>
         {timePeriodsWithData.map((period) =>
           periodGroups[period].map((metric) => (
-            <Column key={`${period}_${metric}`} header={getMetricLabel(metric)} sortable field={`${period}_${metric}`} />
+            <Column key={`${period}_${metric}`} header={getMetricLabel(metric)} sortable={enableSort} field={`${period}_${metric}`} />
           ))
         )}
       </Row>

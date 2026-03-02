@@ -254,7 +254,10 @@ async function computeFilterSortGrouped(
     enableSort = true,
     effectiveGroupFields = [],
     derivedColumnNames = [],
+    nonAggregatableColumns = [],
   } = options;
+
+  const nonAggregatableSet = new Set(nonAggregatableColumns);
 
   if (!isArray(data) || isEmpty(data)) {
     return {
@@ -549,6 +552,10 @@ async function computeFilterSortGrouped(
       columns.forEach((col) => {
         if (col === currentField) return;
         if (col && typeof col === 'string' && col.startsWith('__')) return;
+        if (nonAggregatableSet.has(col)) {
+          summaryRow[col] = rows.length > 0 ? getCell(rows[0], col) : undefined;
+          return;
+        }
         const colType = columnTypes[col] || 'string';
         if (colType === 'number' || isPctCol(col)) {
           const sum = rows.reduce((acc, row) => {

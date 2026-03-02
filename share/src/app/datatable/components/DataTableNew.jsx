@@ -1303,8 +1303,8 @@ export default function DataTableNew({
     if (!reportColumnsStructure || !reportData) {
       return null;
     }
-    return generateReportHeaderGroup(reportColumnsStructure, reportData, outerGroupField, formatHeaderName);
-  }, [reportColumnsStructure, reportData, outerGroupField, formatHeaderName]);
+    return generateReportHeaderGroup(reportColumnsStructure, reportData, outerGroupField, formatHeaderName, enableSort);
+  }, [reportColumnsStructure, reportData, outerGroupField, formatHeaderName, enableSort]);
 
   // Report mode: Generate report columns
   const reportColumns = useMemo(() => {
@@ -3118,6 +3118,8 @@ export default function DataTableNew({
     }
 
     const { timePeriods: rawTimePeriods, metrics, breakdownType } = reportData;
+    const metricsSet = new Set(metrics || []);
+    const orderedNonGroupColumns = reportData.orderedNonGroupColumns || [];
     const structures = {};
     const isMergedMode = columnGroupBy === 'values' || columnGroupBy === 'period-over-period';
     const isPeriodOverPeriod = columnGroupBy === 'period-over-period';
@@ -3167,10 +3169,38 @@ export default function DataTableNew({
         });
       });
       
-      // Build columns with data - order depends on mode
+      // Build metric->periods map (same as reportRenderingUtils)
+      const metricToPeriods = {};
+      metrics.forEach(metric => {
+        timePeriods.forEach(period => {
+          const columnName = `${period}_${metric}`;
+          if (columnHasData.has(columnName)) {
+            if (!metricToPeriods[metric]) metricToPeriods[metric] = [];
+            metricToPeriods[metric].push(period);
+          }
+        });
+      });
+      
+      // Build ordered segments matching outer table (preserve column order from orderedNonGroupColumns)
+      const orderedSegments = [];
+      if (orderedNonGroupColumns.length > 0) {
+        for (const col of orderedNonGroupColumns) {
+          if (!metricsSet.has(col)) {
+            orderedSegments.push({ type: 'exempt', name: col });
+          } else if ((metricToPeriods[col]?.length ?? 0) > 0) {
+            orderedSegments.push({
+              type: 'breakdown',
+              metric: col,
+              periods: metricToPeriods[col],
+              columnNames: metricToPeriods[col].map((p) => `${p}_${col}`)
+            });
+          }
+        }
+      }
+      
+      // Legacy: build columnsWithData for backward compatibility (merged mode order)
       const columnsWithData = [];
       if (isMergedMode) {
-        // Merged mode or Period-over-Period: metrics first, then time periods
         metrics.forEach(metric => {
           timePeriods.forEach(period => {
             const columnName = `${period}_${metric}`;
@@ -3180,7 +3210,6 @@ export default function DataTableNew({
           });
         });
       } else {
-        // Sub-columns mode: time periods first, then metrics
         timePeriods.forEach(period => {
           metrics.forEach(metric => {
             const columnName = `${period}_${metric}`;
@@ -3191,21 +3220,15 @@ export default function DataTableNew({
         });
       }
       
-      // Group by metric for header colSpan calculation (merged mode and period-over-period)
       const metricGroups = {};
       columnsWithData.forEach(({ metric, period }) => {
-        if (!metricGroups[metric]) {
-          metricGroups[metric] = [];
-        }
+        if (!metricGroups[metric]) metricGroups[metric] = [];
         metricGroups[metric].push(period);
       });
       
-      // Group by period for header colSpan calculation (sub-columns mode)
       const periodGroups = {};
       columnsWithData.forEach(({ period, metric }) => {
-        if (!periodGroups[period]) {
-          periodGroups[period] = [];
-        }
+        if (!periodGroups[period]) periodGroups[period] = [];
         periodGroups[period].push(metric);
       });
       
@@ -3216,11 +3239,13 @@ export default function DataTableNew({
         metricsWithData: Object.keys(metricGroups),
         timePeriodsWithData: Object.keys(periodGroups).sort(),
         columnNames: columnsWithData.map(c => c.columnName),
+        orderedSegments: orderedSegments.length > 0 ? orderedSegments : null,
+        exemptColumns: orderedSegments.filter((s) => s.type === 'exempt').map((s) => s.name),
         isMergedMode,
         isPeriodOverPeriod
       };
     });
-    
+
     return structures;
   }, [enableBreakdown, reportData, columnGroupBy]);
 
@@ -3277,77 +3302,113 @@ export default function DataTableNew({
       }
       
       const { breakdownType } = reportData;
-      const { columnsWithData, metricGroups, periodGroups, metricsWithData, timePeriodsWithData, isMergedMode } = structure;
+      const { columnsWithData, metricGroups, periodGroups, metricsWithData, timePeriodsWithData, isMergedMode, orderedSegments: structOrderedSegments, exemptColumns: structExemptCols = [] } = structure;
       const totalDataCols = columnsWithData.length;
-      const isPeriodOverPeriod = columnGroupBy === 'period-over-period';
+      const useOrderedSegments = structOrderedSegments && structOrderedSegments.length > 0;
       
-      // Generate nested header group matching the filtered columns and mode (same as final level)
-      const nestedHeaderGroup = isMergedMode ? (
-        // Merged mode or Period-over-Period: metrics first, then time periods
+      // Generate nested header group - use orderedSegments when available to match outer table column order
+      const nestedHeaderGroup = useOrderedSegments ? (
+        isMergedMode ? (
+          <ColumnGroup>
+            <Row>
+              <Column header={formatHeaderName(nextField)} rowSpan={3} />
+              {structOrderedSegments.map((seg, idx) =>
+                seg.type === 'exempt' ? (
+                  <Column key={`exempt-${seg.name}`} header={formatHeaderName(seg.name)} rowSpan={3} sortable={enableSort} field={seg.name} />
+                ) : (
+                  <Column key={`breakdown-${seg.metric}-${idx}`} header="" colSpan={seg.periods.length} />
+                )
+              )}
+            </Row>
+            <Row>
+              {structOrderedSegments.map((seg, idx) =>
+                seg.type === 'exempt' ? null : (
+                  <Column key={`metric-${seg.metric}-${idx}`} header={getMetricLabel(seg.metric)} colSpan={seg.periods.length} />
+                )
+              )}
+            </Row>
+            <Row>
+              {structOrderedSegments.map((seg) =>
+                seg.type === 'exempt'
+                  ? null
+                  : seg.periods.map((period) => (
+                      <Column key={`${period}_${seg.metric}`} header={getTimePeriodLabelShort(period, breakdownType)} sortable={enableSort} field={`${period}_${seg.metric}`} />
+                    ))
+              )}
+            </Row>
+          </ColumnGroup>
+        ) : (
+          <ColumnGroup>
+            <Row>
+              <Column header={formatHeaderName(nextField)} rowSpan={3} />
+              {structOrderedSegments.map((seg, idx) =>
+                seg.type === 'exempt' ? (
+                  <Column key={`exempt-${seg.name}`} header={formatHeaderName(seg.name)} rowSpan={3} sortable={enableSort} field={seg.name} />
+                ) : (
+                  <Column key={`breakdown-${seg.metric}-${idx}`} header="" colSpan={seg.periods.length} />
+                )
+              )}
+            </Row>
+            <Row>
+              {structOrderedSegments.map((seg) =>
+                seg.type === 'exempt'
+                  ? null
+                  : seg.periods.map((period) => (
+                      <Column key={`period-${period}-${seg.metric}`} header={getTimePeriodLabelShort(period, breakdownType)} colSpan={1} />
+                    ))
+              )}
+            </Row>
+            <Row>
+              {structOrderedSegments.map((seg) =>
+                seg.type === 'exempt'
+                  ? null
+                  : seg.periods.map((period) => (
+                      <Column key={`${period}_${seg.metric}`} header={getMetricLabel(seg.metric)} sortable field={`${period}_${seg.metric}`} />
+                    ))
+              )}
+            </Row>
+          </ColumnGroup>
+        )
+      ) : isMergedMode ? (
         <ColumnGroup>
           <Row>
             <Column header={formatHeaderName(nextField)} rowSpan={3} />
-            {totalDataCols > 0 && (
-              <Column 
-                header="" 
-                colSpan={totalDataCols} 
-              />
-            )}
+            {structExemptCols.map((col) => (
+              <Column key={`exempt-${col}`} header={formatHeaderName(col)} rowSpan={3} sortable={enableSort} field={col} />
+            ))}
+            {totalDataCols > 0 && <Column header="" colSpan={totalDataCols} />}
           </Row>
           <Row>
-            {metricsWithData.map(metric => {
-              const periodCount = metricGroups[metric].length;
-              return (
-                <Column key={metric} header={getMetricLabel(metric)} colSpan={periodCount} />
-              );
-            })}
+            {metricsWithData.map(metric => (
+              <Column key={metric} header={getMetricLabel(metric)} colSpan={metricGroups[metric].length} />
+            ))}
           </Row>
           <Row>
-            {metricsWithData.map(metric => 
+            {metricsWithData.map(metric =>
               metricGroups[metric].map(period => (
-                <Column 
-                  key={`${period}_${metric}`}
-                  header={getTimePeriodLabelShort(period, breakdownType)}
-                  sortable
-                  field={`${period}_${metric}`}
-                />
+                <Column key={`${period}_${metric}`} header={getTimePeriodLabelShort(period, breakdownType)} sortable={enableSort} field={`${period}_${metric}`} />
               ))
             )}
           </Row>
         </ColumnGroup>
       ) : (
-        // Sub-columns mode: time periods first, then metrics
         <ColumnGroup>
           <Row>
             <Column header={formatHeaderName(nextField)} rowSpan={3} />
-            {totalDataCols > 0 && (
-              <Column 
-                header="" 
-                colSpan={totalDataCols} 
-              />
-            )}
+            {structExemptCols.map((col) => (
+              <Column key={`exempt-${col}`} header={formatHeaderName(col)} rowSpan={3} sortable={enableSort} field={col} />
+            ))}
+            {totalDataCols > 0 && <Column header="" colSpan={totalDataCols} />}
           </Row>
           <Row>
-            {timePeriodsWithData.map(period => {
-              const metricCount = periodGroups[period].length;
-              return (
-                <Column 
-                  key={period} 
-                  header={getTimePeriodLabelShort(period, breakdownType)} 
-                  colSpan={metricCount} 
-                />
-              );
-            })}
+            {timePeriodsWithData.map(period => (
+              <Column key={period} header={getTimePeriodLabelShort(period, breakdownType)} colSpan={periodGroups[period].length} />
+            ))}
           </Row>
           <Row>
-            {timePeriodsWithData.map(period => 
+            {timePeriodsWithData.map(period =>
               periodGroups[period].map(metric => (
-                <Column 
-                  key={`${period}_${metric}`}
-                  header={getMetricLabel(metric)}
-                  sortable
-                  field={`${period}_${metric}`}
-                />
+                <Column key={`${period}_${metric}`} header={getMetricLabel(metric)} sortable={enableSort} field={`${period}_${metric}`} />
               ))
             )}
           </Row>
@@ -3463,19 +3524,55 @@ export default function DataTableNew({
                 );
               }}
             />
-            {/* Render time breakdown columns for intermediate levels */}
-            {columnsWithData.map(({ columnName }) => (
-              <Column
-                key={columnName}
-                field={columnName}
-                body={(rowData, { field: colField }) => {
-                  const value = getDataValue(rowData, colField);
-                  if (value === undefined || value === null) return '-';
-                  return value.toLocaleString('en-US');
-                }}
-                align="right"
-              />
-            ))}
+            {/* Render columns - use orderedSegments when available for correct column order */}
+            {useOrderedSegments ? (
+              structOrderedSegments.map((seg) =>
+                seg.type === 'exempt' ? (
+                  <Column
+                    key={`exempt-${seg.name}`}
+                    field={seg.name}
+                    sortable={enableSort}
+                    body={(rowData, { field: colField }) => formatCellValue(getDataValue(rowData, colField), get(columnTypesFlags, seg.name))}
+                  />
+                ) : (
+                  seg.columnNames.map((columnName) => (
+                    <Column
+                      key={columnName}
+                      field={columnName}
+                      body={(rowData, { field: colField }) => {
+                        const value = getDataValue(rowData, colField);
+                        if (value === undefined || value === null) return '-';
+                        return value.toLocaleString('en-US');
+                      }}
+                      align="right"
+                    />
+                  ))
+                )
+              )
+            ) : (
+              <>
+                {structExemptCols.map((col) => (
+                  <Column
+                    key={`exempt-${col}`}
+                    field={col}
+                    sortable={enableSort}
+                    body={(rowData, { field: colField }) => formatCellValue(getDataValue(rowData, colField), get(columnTypesFlags, col))}
+                  />
+                ))}
+                {columnsWithData.map(({ columnName }) => (
+                  <Column
+                    key={columnName}
+                    field={columnName}
+                    body={(rowData, { field: colField }) => {
+                      const value = getDataValue(rowData, colField);
+                      if (value === undefined || value === null) return '-';
+                      return value.toLocaleString('en-US');
+                    }}
+                    align="right"
+                  />
+                ))}
+              </>
+            )}
           </DataTable>
         </div>
       );
@@ -3490,84 +3587,132 @@ export default function DataTableNew({
     }
 
     const { breakdownType } = reportData;
-    const { columnsWithData, metricGroups, periodGroups, metricsWithData, timePeriodsWithData, isMergedMode } = structure;
+    const { columnsWithData, metricGroups, periodGroups, metricsWithData, timePeriodsWithData, isMergedMode, orderedSegments: structOrderedSegments, exemptColumns: structExemptCols = [] } = structure;
     const totalDataCols = columnsWithData.length;
     const isPeriodOverPeriod = columnGroupBy === 'period-over-period';
+    const useOrderedSegments = structOrderedSegments && structOrderedSegments.length > 0;
+    const groupFieldLabel = formatHeaderName(nextField || innerGroupField);
 
-    // Generate nested header group matching the filtered columns and mode
-    const nestedHeaderGroup = isMergedMode ? (
-      // Merged mode or Period-over-Period: metrics first, then time periods
+    // Generate nested header group - use orderedSegments when available to match outer table column order
+    const nestedHeaderGroup = useOrderedSegments ? (
+      isMergedMode ? (
+        <ColumnGroup>
+          <Row>
+            <Column header={groupFieldLabel} rowSpan={3} />
+            {structOrderedSegments.map((seg, idx) =>
+              seg.type === 'exempt' ? (
+                <Column key={`exempt-${seg.name}`} header={formatHeaderName(seg.name)} rowSpan={3} sortable={enableSort} field={seg.name} />
+              ) : (
+                <Column key={`breakdown-${seg.metric}-${idx}`} header="" colSpan={seg.periods.length} />
+              )
+            )}
+          </Row>
+          <Row>
+            {structOrderedSegments.map((seg, idx) =>
+              seg.type === 'exempt' ? null : (
+                <Column key={`metric-${seg.metric}-${idx}`} header={getMetricLabel(seg.metric)} colSpan={seg.periods.length} />
+              )
+            )}
+          </Row>
+          <Row>
+            {structOrderedSegments.map((seg) =>
+              seg.type === 'exempt'
+                ? null
+                : seg.periods.map((period) => (
+                    <Column
+                      key={`${period}_${seg.metric}`}
+                      header={getTimePeriodLabelShort(period, breakdownType)}
+                      sortable={enableSort}
+                      field={`${period}_${seg.metric}`}
+                    />
+                  ))
+            )}
+          </Row>
+        </ColumnGroup>
+      ) : (
+        <ColumnGroup>
+          <Row>
+            <Column header={groupFieldLabel} rowSpan={3} />
+            {structOrderedSegments.map((seg, idx) =>
+                seg.type === 'exempt' ? (
+                  <Column key={`exempt-${seg.name}`} header={formatHeaderName(seg.name)} rowSpan={3} sortable={enableSort} field={seg.name} />
+                ) : (
+                  <Column key={`breakdown-${seg.metric}-${idx}`} header="" colSpan={seg.periods.length} />
+                )
+              )}
+            </Row>
+            <Row>
+              {structOrderedSegments.map((seg) =>
+                seg.type === 'exempt'
+                  ? null
+                  : seg.periods.map((period) => (
+                      <Column key={`period-${period}-${seg.metric}`} header={getTimePeriodLabelShort(period, breakdownType)} colSpan={1} />
+                    ))
+              )}
+            </Row>
+            <Row>
+              {structOrderedSegments.map((seg) =>
+                seg.type === 'exempt'
+                  ? null
+                  : seg.periods.map((period) => (
+                      <Column
+                        key={`${period}_${seg.metric}`}
+                        header={getMetricLabel(seg.metric)}
+                        sortable={enableSort}
+                        field={`${period}_${seg.metric}`}
+                      />
+                  ))
+            )}
+          </Row>
+        </ColumnGroup>
+      )
+    ) : isMergedMode ? (
       <ColumnGroup>
         <Row>
-          <Column header={formatHeaderName(nextField || innerGroupField)} rowSpan={3} />
-          {totalDataCols > 0 && (
-            <Column 
-              header="" 
-              colSpan={totalDataCols} 
-            />
-          )}
+          <Column header={groupFieldLabel} rowSpan={3} />
+          {structExemptCols.map((col) => (
+            <Column key={`exempt-${col}`} header={formatHeaderName(col)} rowSpan={3} sortable={enableSort} field={col} />
+          ))}
+          {totalDataCols > 0 && <Column header="" colSpan={totalDataCols} />}
         </Row>
         <Row>
-          {metricsWithData.map(metric => {
-            const periodCount = metricGroups[metric].length;
-            return (
-              <Column key={metric} header={getMetricLabel(metric)} colSpan={periodCount} />
-            );
-          })}
+          {metricsWithData.map(metric => (
+            <Column key={metric} header={getMetricLabel(metric)} colSpan={metricGroups[metric].length} />
+          ))}
         </Row>
         <Row>
-          {metricsWithData.map(metric => 
+          {metricsWithData.map(metric =>
             metricGroups[metric].map(period => (
-              <Column 
-                key={`${period}_${metric}`}
-                header={getTimePeriodLabelShort(period, breakdownType)}
-                sortable
-                field={`${period}_${metric}`}
-              />
+              <Column key={`${period}_${metric}`} header={getTimePeriodLabelShort(period, breakdownType)} sortable={enableSort} field={`${period}_${metric}`} />
             ))
           )}
         </Row>
       </ColumnGroup>
     ) : (
-      // Sub-columns mode: time periods first, then metrics
       <ColumnGroup>
         <Row>
-          <Column header={formatHeaderName(nextField || innerGroupField)} rowSpan={3} />
-          {totalDataCols > 0 && (
-            <Column 
-              header="" 
-              colSpan={totalDataCols} 
-            />
-          )}
+          <Column header={groupFieldLabel} rowSpan={3} />
+          {structExemptCols.map((col) => (
+            <Column key={`exempt-${col}`} header={formatHeaderName(col)} rowSpan={3} sortable={enableSort} field={col} />
+          ))}
+          {totalDataCols > 0 && <Column header="" colSpan={totalDataCols} />}
         </Row>
         <Row>
-          {timePeriodsWithData.map(period => {
-            const metricCount = periodGroups[period].length;
-            return (
-              <Column 
-                key={period} 
-                header={getTimePeriodLabelShort(period, breakdownType)} 
-                colSpan={metricCount} 
-              />
-            );
-          })}
+          {timePeriodsWithData.map(period => (
+            <Column key={period} header={getTimePeriodLabelShort(period, breakdownType)} colSpan={periodGroups[period].length} />
+          ))}
         </Row>
         <Row>
-          {timePeriodsWithData.map(period => 
+          {timePeriodsWithData.map(period =>
             periodGroups[period].map(metric => (
-              <Column 
-                key={`${period}_${metric}`}
-                header={getMetricLabel(metric)}
-                sortable
-                field={`${period}_${metric}`}
-              />
+              <Column key={`${period}_${metric}`} header={getMetricLabel(metric)} sortable={enableSort} field={`${period}_${metric}`} />
             ))
           )}
         </Row>
       </ColumnGroup>
     );
 
-    // Generate nested columns - only include columns with data
+    // Generate nested columns - use orderedSegments when available for correct column order
     // Get column type for next/current group field to determine formatting
     const groupFieldToShow = nextField || innerGroupField;
     const innerColType = get(columnTypesFlags, groupFieldToShow);
@@ -3617,20 +3762,62 @@ export default function DataTableNew({
       />
     ];
 
-    columnsWithData.forEach(({ columnName }) => {
-      nestedColumns.push(
-        <Column
-          key={columnName}
-          field={columnName}
-          body={(rowData, { field: colField }) => {
-            const value = getDataValue(rowData, colField);
-            if (value === undefined || value === null) return '-';
-            return value.toLocaleString('en-US');
-          }}
-          align="right"
-        />
-      );
-    });
+    if (useOrderedSegments) {
+      structOrderedSegments.forEach((seg) => {
+        if (seg.type === 'exempt') {
+          const colType = get(columnTypesFlags, seg.name);
+          nestedColumns.push(
+            <Column
+              key={`exempt-${seg.name}`}
+              field={seg.name}
+              sortable={enableSort}
+              body={(rowData, { field: colField }) => formatCellValue(getDataValue(rowData, colField), colType)}
+            />
+          );
+        } else {
+          seg.columnNames.forEach((columnName) => {
+            nestedColumns.push(
+              <Column
+                key={columnName}
+                field={columnName}
+                body={(rowData, { field: colField }) => {
+                  const value = getDataValue(rowData, colField);
+                  if (value === undefined || value === null) return '-';
+                  return value.toLocaleString('en-US');
+                }}
+                align="right"
+              />
+            );
+          });
+        }
+      });
+    } else {
+      structExemptCols.forEach((col) => {
+        const colType = get(columnTypesFlags, col);
+        nestedColumns.push(
+          <Column
+            key={`exempt-${col}`}
+            field={col}
+            sortable={enableSort}
+            body={(rowData, { field: colField }) => formatCellValue(getDataValue(rowData, colField), colType)}
+          />
+        );
+      });
+      columnsWithData.forEach(({ columnName }) => {
+        nestedColumns.push(
+          <Column
+            key={columnName}
+            field={columnName}
+            body={(rowData, { field: colField }) => {
+              const value = getDataValue(rowData, colField);
+              if (value === undefined || value === null) return '-';
+              return value.toLocaleString('en-US');
+            }}
+            align="right"
+          />
+        );
+      });
+    }
 
     return (
       <div className="p-3">

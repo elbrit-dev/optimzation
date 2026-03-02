@@ -23,7 +23,7 @@ import {
   extractJsonNestedTablesRecursive,
 } from '../utils/jsonArrayParser';
 import { detectColumnTypesLikeProvider, inferColumnType, parseToDate } from '../utils/typeDetectionUtils';
-import { applyDerivedColumns, getDerivedColumnNames, getOrderedColumnsWithDerived } from '../utils/derivedColumnsUtils';
+import { applyDerivedColumns, getDerivedColumnNames, getNonAggregatableColumnNames, getOrderedColumnsWithDerived } from '../utils/derivedColumnsUtils';
 import { buildPipelineColumnMeta, aggregateNonNumeric } from '../utils/perSlotPipelineUtils';
 
 const isNaNNumber = Number.isNaN;
@@ -596,6 +596,11 @@ export function useDataPipeline(options) {
     filteredData,
   ]);
 
+  const nonAggregatableSet = useMemo(
+    () => new Set(getNonAggregatableColumnNames(derivedColumns)),
+    [derivedColumns]
+  );
+
   const groupDataRecursive = useCallback(
     (data, fields, currentLevel = 0, parentPath = []) => {
       if (currentLevel >= fields.length || isEmpty(data)) return data;
@@ -652,6 +657,10 @@ export function useDataPipeline(options) {
 
         cols.forEach((col) => {
           if (col && typeof col === 'string' && col.startsWith('__')) return;
+          if (nonAggregatableSet.has(col)) {
+            summaryRow[col] = rows.length > 0 ? getCell(rows[0], col) : undefined;
+            return;
+          }
           const colType = colTypes[col] || 'string';
           if (col === currentField) {
             summaryRow[col] = groupKey === '__null__' ? null : groupKey;
@@ -745,6 +754,7 @@ export function useDataPipeline(options) {
       getSortComparator,
       pipelineColumnMeta,
       percentageColumns,
+      nonAggregatableSet,
     ]
   );
 

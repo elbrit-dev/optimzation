@@ -38,30 +38,73 @@ export const defaultDataTableConfig = {
         main: ["subject", "description", "issue_type"],
         nested: {},
         object: {
-            "issue_type": ["name"]
+            "issue_type": ["name"],
         },
     },
     percentageColumns: [],
-    derivedColumns: [
+    // derivedColumns: [
+    //     {
+    //         columnName: "derived",
+    //         save: false,
+    //         compute: (row) => 12345,
+    //         columnType: "number",
+    //         position: 2, // 3rd column (0-based)
+    //         exemptFromBreakdown: true,
+    //         scope: {
+    //             main: true,
+    //             report: { enabled: true, executionPoint: "before-breakdown" },
+    //             nested: false
+    //         },
+    //     },
+    //     {
+    //         columnName: "twice of sales_qty",
+    //         save: false,
+    //         compute: (row) => 2 * row.sales_qty,
+    //         columnType: "number",
+    //         position: 2, // 3rd column (0-based)
+    //         scope: { main: false, report: false, nested: true },
+    //     },
+    //     {
+    //         columnName: "report_only_post_breakdown",
+    //         save: false,
+    //         compute: (row, ctx) => {
+    //             // ctx.reportExecutionPoint === "after-breakdown"
+    //             // row.qty can be an object like { "2026-01": 123, "2026-02": 124 }
+    //             return row.qty;
+    //         },
+    //         columnType: "number",
+    //         scope: {
+    //             main: false,
+    //             report: { enabled: true, executionPoint: "after-breakdown" },
+    //             nested: false
+    //         },
+    //     },
+    // ],
+
+    "derivedColumns": [
         {
-            columnName: "derived",
+            columnName: "max of qty",
             save: false,
-            compute: (row) => 12345,
+            compute: (row, ctx) => {
+                if (ctx.isReportRow) {
+                    return Math.max(...Object.values(row.qty));
+                }
+                return 123;
+            },
             columnType: "number",
-            position: 2, // 3rd column (0-based)
-            exemptFromBreakdown: true,
-            scope: { main: true, report: true, nested: false },
-        },
-        {
-            columnName: "twice of sales_qty",
-            save: false,
-            compute: (row) => 2 * row.sales_qty,
-            columnType: "number",
-            position: 2, // 3rd column (0-based)
-            scope: { main: false, report: false, nested: true },
+            position: 2,
+            aggregate: false,
+            scope: {
+                main: true,
+                report: {
+                    enabled: true,
+                    exemptFromBreakdown: true,
+                    getRowAsBreakdown: true,
+                },
+                nested: true,
+            },
         },
     ],
-
     // Styling
     redFields: [],
     greenFields: [],
@@ -69,7 +112,7 @@ export const defaultDataTableConfig = {
     // Grouping
     // groupFields: ["sales_team", "hq", "customer_name"],
     // groupFields: ["sales_team", "hq"],
-    // groupFields: ["item", "warehouse"],
+    groupFields: ["item", "warehouse"],
     // groupFields: [],
 
     // Column types override
@@ -79,7 +122,7 @@ export const defaultDataTableConfig = {
     // Each value: 'Calendar'|'Checkbox'|'InputNumber'|'InputText'|'Quill'|{ type:'Select', getOptions } or { type:'Select', getOptionsCode }. ctx={ columnName, query }
     formInputOverride: {
         main: {
-            description: "Quill"
+            description: "Quill",
             // distributor_customer_name: {
             //     type: "Select",
             //     getOptionsCode: `async (ctx) => {
@@ -140,10 +183,10 @@ export const defaultDataTableConfig = {
     // selectedQueryKey: "primary",
     // dataSource: "WriteQuery",
     // selectedQueryKey: "secondary",
-    dataSource: "Issues",
-    selectedQueryKey: "issues",
-    // dataSource: "PrimaryStock",
-    // selectedQueryKey: "primary",
+    // dataSource: "Issues",
+    // selectedQueryKey: "issues",
+    dataSource: "PrimaryStock",
+    selectedQueryKey: "primary",
 };
 
 /**
@@ -253,7 +296,8 @@ export function extractStateFromConfig(config, setters = {}) {
         breakdownType: config.breakdownType ?? defaultDataTableConfig.breakdownType,
         dateColumn: config.dateColumn ?? defaultDataTableConfig.dateColumn,
         columnGroupBy: config.columnGroupBy ?? defaultDataTableConfig.columnGroupBy,
-        columnsExemptFromBreakdown: config.columnsExemptFromBreakdown ?? defaultDataTableConfig.columnsExemptFromBreakdown,
+        columnsExemptFromBreakdown:
+            config.columnsExemptFromBreakdown ?? defaultDataTableConfig.columnsExemptFromBreakdown,
 
         // Auth Control
         isAdminMode: config.isAdminMode ?? defaultDataTableConfig.isAdminMode,

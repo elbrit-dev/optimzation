@@ -49,7 +49,7 @@ import { useDataPipeline } from '../hooks/useDataPipeline';
 import { useMultiSlotPipeline } from '../hooks/useMultiSlotPipeline';
 import { useQueryExecution } from '../hooks/useQueryExecution';
 import { getDataKeys, getDataValue } from '../utils/dataAccessUtils';
-import { applyDerivedColumns, applyDerivedColumnsForRow, getDerivedColumnNames, getExemptFromBreakdownColumnNames, getOrderedColumnsWithDerived } from '../utils/derivedColumnsUtils';
+import { applyDerivedColumns, applyDerivedColumnsForRow, getDerivedColumnNames, getExemptFromBreakdownColumnNames, getNonAggregatableColumnNames, getOrderedColumnsWithDerived } from '../utils/derivedColumnsUtils';
 import { formatDateValue } from '../utils/dateFormatUtils';
 import { applyDateFilter, applyNumericFilter, filterRows, parseNumericFilter } from '../utils/filterUtils';
 import { getMainOverrides } from '../utils/columnTypesOverrideUtils';
@@ -1637,14 +1637,22 @@ export default function DataProviderNew({
     let result = { ...base, orderedNonGroupColumns };
     if (!derived?.length) return result;
 
+    const reportMeta = {
+      metrics: base.metrics,
+      timePeriods: base.timePeriods,
+      dateRange: base.dateRange,
+      breakdownType,
+      columnGroupBy,
+    };
+    const reportCtx = { mode: 'report', getDataValue, reportMeta };
     const tableDataDerived = base.tableData
-      ? applyDerivedColumns(base.tableData, derived, { mode: 'report', getDataValue })
+      ? applyDerivedColumns(base.tableData, derived, reportCtx)
       : base.tableData;
     const nestedTableDataDerived = base.nestedTableData
       ? Object.fromEntries(
           Object.entries(base.nestedTableData).map(([k, v]) => [
             k,
-            applyDerivedColumns(v, derived, { mode: 'report', getDataValue }),
+            applyDerivedColumns(v, derived, reportCtx),
           ])
         )
       : base.nestedTableData;
@@ -1653,7 +1661,7 @@ export default function DataProviderNew({
       tableData: tableDataDerived,
       nestedTableData: nestedTableDataDerived,
     };
-  }, [reportData, effectiveMainConfig.derivedColumns, filteredColumns, effectiveGroupFields, dateColumn, effectiveColumnsExemptFromBreakdown]);
+  }, [reportData, effectiveMainConfig.derivedColumns, filteredColumns, effectiveGroupFields, dateColumn, effectiveColumnsExemptFromBreakdown, breakdownType, columnGroupBy]);
 
   useEffect(() => {
     reportDataRef.current = reportDataWithDerived;
@@ -1701,14 +1709,22 @@ export default function DataProviderNew({
     let result = { ...base, orderedNonGroupColumns };
     if (!derived?.length) return result;
 
+    const reportMeta = {
+      metrics: base.metrics,
+      timePeriods: base.timePeriods,
+      dateRange: base.dateRange,
+      breakdownType,
+      columnGroupBy,
+    };
+    const reportCtx = { mode: 'report', getDataValue, reportMeta };
     const tableDataDerived = base.tableData
-      ? applyDerivedColumns(base.tableData, derived, { mode: 'report', getDataValue })
+      ? applyDerivedColumns(base.tableData, derived, reportCtx)
       : base.tableData;
     const nestedTableDataDerived = base.nestedTableData
       ? Object.fromEntries(
           Object.entries(base.nestedTableData).map(([k, v]) => [
             k,
-            applyDerivedColumns(v, derived, { mode: 'report', getDataValue }),
+            applyDerivedColumns(v, derived, reportCtx),
           ])
         )
       : base.nestedTableData;
@@ -1717,7 +1733,7 @@ export default function DataProviderNew({
       tableData: tableDataDerived,
       nestedTableData: nestedTableDataDerived,
     };
-  }, [drawerReportData, effectiveMainConfig.derivedColumns, filteredColumns, drawerGroupFields, dateColumn, effectiveColumnsExemptFromBreakdown]);
+  }, [drawerReportData, effectiveMainConfig.derivedColumns, filteredColumns, drawerGroupFields, dateColumn, effectiveColumnsExemptFromBreakdown, breakdownType, columnGroupBy]);
 
   const shouldShowDrawerReport = enableBreakdown && !!drawerReportDataWithDerived;
 
@@ -1767,7 +1783,7 @@ export default function DataProviderNew({
           enableSort: effectiveMainConfig.enableSort,
           effectiveGroupFields,
           derivedColumnNames: getDerivedColumnNames(effectiveMainConfig.derivedColumns || [], 'main'),
-          // Note: isPercentageColumnFn removed - worker uses percentageColumns array instead
+          nonAggregatableColumns: getNonAggregatableColumnNames(effectiveMainConfig.derivedColumns || []),
         });
 
         // Apply derived columns to grouped data (including group summary rows)
@@ -4920,6 +4936,7 @@ export default function DataProviderNew({
                     enableSort,
                     effectiveGroupFields,
                     derivedColumnNames: getDerivedColumnNames(derivedColumns || [], derivedColumnsMode ?? 'main', derivedColumnsFieldName ?? null),
+                    nonAggregatableColumns: getNonAggregatableColumnNames(derivedColumns || []),
                   });
 
                   // Apply derived columns to grouped data (including group summary rows)

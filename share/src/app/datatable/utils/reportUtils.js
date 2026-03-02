@@ -258,6 +258,37 @@ export function transformToReportData(data, effectiveGroupFields, dateColumn, br
   // Structure: nestedTableData['level0|level1|level2'] = [rows]
   const nestedTableData = {};
   
+  // Aggregate exempt columns from FULL data by composite key (same as outer table: groupDataByTimePeriod
+  // skips rows without valid date, but exempt columns must include those rows e.g. batch_qty)
+  const exemptByFullKey = new Map();
+  if (groupFields.length > 1 && exemptColumns.length > 0) {
+    data.forEach((item) => {
+      for (let level = 2; level <= groupFields.length; level++) {
+        const pathParts = groupFields.slice(0, level).map((f) => {
+          const v = getDataValue(item, f);
+          return isNil(v) ? '__null__' : String(v);
+        });
+        const mapKey = pathParts.join('|');
+        if (!exemptByFullKey.has(mapKey)) {
+          exemptByFullKey.set(mapKey, { exemptValues: {}, exemptFirst: {} });
+        }
+        const entry = exemptByFullKey.get(mapKey);
+        exemptColumns.forEach((col) => {
+          const value = getDataValue(item, col);
+          const isNumeric = columnTypes[col] === 'number' || (typeof value === 'number' && !Number.isNaN(value) && isFinite(value));
+          if (isNumeric) {
+            const numVal = typeof value === 'number' ? value : Number(value);
+            if (!Number.isNaN(numVal) && isFinite(numVal)) {
+              entry.exemptValues[col] = (entry.exemptValues[col] ?? 0) + numVal;
+            }
+          } else if (entry.exemptFirst[col] === undefined && value !== null && value !== undefined && value !== '') {
+            entry.exemptFirst[col] = value;
+          }
+        });
+      }
+    });
+  }
+  
   if (groupFields.length > 1) {
     // Helper function to transform raw data rows to nested table format with time breakdown
     // This works for any level by grouping by time period first, then by nextField
@@ -306,6 +337,9 @@ export function transformToReportData(data, effectiveGroupFields, dateColumn, br
         const { product, category, ...rest } = row;
         const currentValue = product === 'Unknown' ? null : product;
         const nextValue = category === 'Unknown' ? null : category;
+        const mapKey = `${isNil(currentValue) ? '__null__' : String(currentValue)}|${isNil(nextValue) ? '__null__' : String(nextValue)}`;
+        const pathPartsForKey = parentPath.map((p) => (isNil(p) ? '__null__' : String(p)));
+        const fullKey = [...pathPartsForKey, isNil(currentValue) ? '__null__' : String(currentValue), isNil(nextValue) ? '__null__' : String(nextValue)].join('|');
         const result = {
           ...rest,
           [currentField]: currentValue,
@@ -318,8 +352,19 @@ export function transformToReportData(data, effectiveGroupFields, dateColumn, br
           }
         });
         
+        // Merge exempt values from full data (overrides time-grouped aggregation)
+        const exemptEntry = exemptByFullKey.get(fullKey);
+        if (exemptEntry) {
+          exemptColumns.forEach((col) => {
+            if (exemptEntry.exemptValues[col] !== undefined) {
+              result[col] = exemptEntry.exemptValues[col];
+            } else if (exemptEntry.exemptFirst[col] !== undefined) {
+              result[col] = exemptEntry.exemptFirst[col];
+            }
+          });
+        }
+        
         // Preserve deeper level field values if they exist
-        const mapKey = `${isNil(currentValue) ? '__null__' : String(currentValue)}|${isNil(nextValue) ? '__null__' : String(nextValue)}`;
         if (deeperFieldsMap.has(mapKey)) {
           Object.assign(result, deeperFieldsMap.get(mapKey));
         }

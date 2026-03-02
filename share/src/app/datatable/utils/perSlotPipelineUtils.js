@@ -29,7 +29,7 @@ import {
 } from './jsonArrayParser';
 import { detectColumnTypesLikeProvider, inferColumnType, parseToDate } from './typeDetectionUtils';
 import { formatDateValue } from './dateFormatUtils';
-import { applyDerivedColumns, getDerivedColumnNames, getOrderedColumnsWithDerived } from './derivedColumnsUtils';
+import { applyDerivedColumns, getDerivedColumnNames, getNonAggregatableColumnNames, getOrderedColumnsWithDerived } from './derivedColumnsUtils';
 
 const isNaNNumber = Number.isNaN;
 
@@ -283,6 +283,7 @@ function groupDataRecursive(data, fields, currentLevel, parentPath, options) {
     sortConfig,
     percentageColumns,
     derivedColumnNamesSet,
+    nonAggregatableSet,
   } = options;
   if (currentLevel >= fields.length || isEmpty(data)) return data;
   const currentField = fields[currentLevel];
@@ -323,6 +324,10 @@ function groupDataRecursive(data, fields, currentLevel, parentPath, options) {
 
     cols.forEach((col) => {
       if (col && typeof col === 'string' && col.startsWith('__')) return;
+      if (nonAggregatableSet && nonAggregatableSet.has(col)) {
+        summaryRow[col] = isArray(rows) && rows.length > 0 ? getCell(rows[0], col) : undefined;
+        return;
+      }
       const colType = colTypes[col] || 'string';
       if (col === currentField) {
         summaryRow[col] = groupKey === '__null__' ? null : groupKey;
@@ -610,6 +615,7 @@ export function computeSlotPipeline(baseData, slotConfig, slotState, sharedOptio
   }
 
   const derivedColumnNamesSet = new Set(getDerivedColumnNames(derivedColumns || [], derivedColumnsMode, derivedColumnsFieldName));
+  const nonAggregatableSet = new Set(getNonAggregatableColumnNames(derivedColumns || []));
 
   let sortFieldType = null;
   if (sortConfig && currentQueryDoc?.clientSave && currentQueryDoc?.sortFields) {
@@ -647,6 +653,7 @@ export function computeSlotPipeline(baseData, slotConfig, slotState, sharedOptio
       sortConfig,
       percentageColumns: percentageColumns || [],
       derivedColumnNamesSet,
+      nonAggregatableSet,
     };
     let result = alreadyGroupedWithSameDepth
       ? dataWithJsonTables

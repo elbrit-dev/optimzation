@@ -1503,8 +1503,8 @@ export default function DataTableComponent({
     if (!reportColumnsStructure || !reportData) {
       return null;
     }
-    return generateReportHeaderGroup(reportColumnsStructure, reportData, outerGroupField, formatHeaderName);
-  }, [reportColumnsStructure, reportData, outerGroupField, formatHeaderName]);
+    return generateReportHeaderGroup(reportColumnsStructure, reportData, outerGroupField, formatHeaderName, enableSort);
+  }, [reportColumnsStructure, reportData, outerGroupField, formatHeaderName, enableSort]);
 
   // Report mode: Generate report columns
   const reportColumns = useMemo(() => {
