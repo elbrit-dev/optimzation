@@ -605,6 +605,13 @@ body {
     color: #2563eb;
 }
 
+/* Preset dropdown - full width items so delete button takes remaining space */
+.preset-dropdown-panel .p-dropdown-item-label {
+    display: block;
+    width: 100%;
+    min-width: 0;
+}
+
 .p-paginator .p-paginator-icon {
     width: 1rem;
     height: 1rem;
@@ -1246,6 +1253,10 @@ body {
 
 .p-sidebar .p-sidebar-content {
     padding: 0.25rem;
+}
+
+.p-sidebar-custom-header{
+    padding: 1.25rem 1.25rem 0rem 1.25rem;
 }
 
 .graphql-playground-v2 .p-tabview-panel {

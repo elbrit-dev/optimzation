@@ -41,35 +41,44 @@ export function flattenResponse(nodes) {
 }
 
 /**
- * Remove __index__ keys from processed data
+ * Remove __index__ keys from processed data.
+ * Uses a WeakSet to detect circular references and avoid stack overflow.
  * @param {any} data - Data to clean (can be object, array, Map, or primitive)
+ * @param {Object} [_ctx] - Internal context for circular reference detection
  * @returns {any} Data with __index__ keys removed, preserving original type (Map or Object)
  */
-export function removeIndexKeys(data) {
+export function removeIndexKeys(data, _ctx) {
+  const ctx = _ctx || { seen: new WeakSet() };
+
   if (data === null || data === undefined) {
     return data;
   }
 
   if (Array.isArray(data)) {
-    return data.map(item => removeIndexKeys(item));
+    if (ctx.seen.has(data)) return data;
+    ctx.seen.add(data);
+    return data.map(item => removeIndexKeys(item, ctx));
   }
 
-  // Handle Map before general object check
   if (data instanceof Map) {
+    if (ctx.seen.has(data)) return data;
+    ctx.seen.add(data);
     const cleaned = new Map();
     for (const [key, value] of data.entries()) {
       if (key !== '__index__') {
-        cleaned.set(key, removeIndexKeys(value));
+        cleaned.set(key, removeIndexKeys(value, ctx));
       }
     }
     return cleaned;
   }
 
   if (typeof data === 'object') {
+    if (ctx.seen.has(data)) return data;
+    ctx.seen.add(data);
     const cleaned = {};
     for (const [key, value] of Object.entries(data)) {
       if (key !== '__index__') {
-        cleaned[key] = removeIndexKeys(value);
+        cleaned[key] = removeIndexKeys(value, ctx);
       }
     }
     return cleaned;

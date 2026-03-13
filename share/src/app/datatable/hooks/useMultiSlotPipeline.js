@@ -95,6 +95,11 @@ export function useMultiSlotPipeline(options) {
     for (const slotId of slotIds) {
       const slotConfig = slots[slotId] ?? {};
       const slotState = slotStateBySlot[slotId] ?? {};
+      const slotAllowedColumns = slotConfig.allowedColumns ?? sharedPipelineOptions.allowedColumns;
+      const slotSharedOptions = {
+        ...sharedPipelineOptions,
+        allowedColumns: slotAllowedColumns,
+      };
       const tableData = baseTableData && !isEmpty(baseTableData)
         ? applyDerivedColumns(baseTableData, slotConfig.derivedColumns ?? [], {
             mode: derivedColumnsMode ?? 'main',
@@ -103,7 +108,7 @@ export function useMultiSlotPipeline(options) {
           })
         : baseTableData;
       const searchSortSortedData = computeSearchSortSortedData(tableData, sharedSearchSortOptions);
-      const slotResult = computeSlotPipeline(searchSortSortedData, slotConfig, slotState, sharedPipelineOptions);
+      const slotResult = computeSlotPipeline(searchSortSortedData, slotConfig, slotState, slotSharedOptions);
       result[slotId] = slotResult;
     }
     return result;

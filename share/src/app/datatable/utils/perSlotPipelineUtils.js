@@ -30,6 +30,7 @@ import {
 import { detectColumnTypesLikeProvider, inferColumnType, parseToDate } from './typeDetectionUtils';
 import { formatDateValue } from './dateFormatUtils';
 import { applyDerivedColumns, getDerivedColumnNames, getNonAggregatableColumnNames, getOrderedColumnsWithDerived } from './derivedColumnsUtils';
+import { getAllowedForScope } from './allowedColumnsUtils';
 
 const isNaNNumber = Number.isNaN;
 
@@ -319,6 +320,8 @@ function groupDataRecursive(data, fields, currentLevel, parentPath, options) {
     const hasNextLevel = currentLevel + 1 < fields.length;
     const innerData = hasNextLevel ? nextLevelData : rows;
     const summaryRow = {};
+    // Always set current group field value - required for display even when not in allowedColumns
+    summaryRow[currentField] = groupKey === '__null__' ? null : groupKey;
     const firstItem = isArray(innerData) && innerData.length > 0 ? innerData[0] : null;
     if (!firstItem) return null;
 
@@ -572,9 +575,13 @@ export function computeSlotPipeline(baseData, slotConfig, slotState, sharedOptio
   const dataSource = baseData != null ? baseData : [];
   const isEmptyData = !isArray(dataSource) || isEmpty(dataSource);
 
+  const allowedColumnsForMeta = Array.isArray(allowedColumns)
+    ? allowedColumns
+    : (getAllowedForScope(allowedColumns, 'main') ?? []);
+
   const pipelineColumnMeta = buildPipelineColumnMeta({
     data: dataSource,
-    allowedColumns,
+    allowedColumns: allowedColumnsForMeta,
     columnTypesOverride,
     percentageColumns,
     derivedColumns,

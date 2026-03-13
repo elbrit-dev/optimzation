@@ -264,31 +264,43 @@ export function reorganizePeriodsForPeriodOverPeriod(periods, breakdownType) {
 
 /**
  * Group data by time period (optimized with Map and date caching)
+ * @param {string} [fallbackPeriod] - When provided, rows without valid date are added to this period
+ * (e.g. stock rows with batch_id but no posting_date - common for inventory data)
  */
-export function groupDataByTimePeriod(data, dateField, breakdownType, metrics = ["sales", "profits", "count"]) {
+export function groupDataByTimePeriod(data, dateField, breakdownType, metrics = ["sales", "profits", "count"], fallbackPeriod = null) {
     const grouped = new Map();
     const dateCache = new Map(); // Cache parsed dates to avoid redundant parsing
 
     data.forEach((item) => {
         const dateValue = item[dateField];
-        if (!dateValue) return;
+        let periodKey = null;
 
-        // Use cached parsed date if available
-        let parsedDate = dateCache.get(dateValue);
-        if (!parsedDate) {
-            parsedDate = dayjs(dateValue);
-            if (!parsedDate.isValid()) return;
-            dateCache.set(dateValue, parsedDate);
+        if (dateValue) {
+            let parsedDate = dateCache.get(dateValue);
+            if (!parsedDate) {
+                parsedDate = dayjs(dateValue);
+                if (parsedDate.isValid()) {
+                    dateCache.set(dateValue, parsedDate);
+                    periodKey = getTimePeriodKey(parsedDate, breakdownType);
+                }
+            } else {
+                periodKey = getTimePeriodKey(parsedDate, breakdownType);
+            }
         }
 
-        const periodKey = getTimePeriodKey(parsedDate, breakdownType);
+        if (!periodKey) {
+            if (fallbackPeriod) {
+                periodKey = fallbackPeriod;
+            } else {
+                return;
+            }
+        }
 
         if (!grouped.has(periodKey)) {
             const periodData = {
                 period: periodKey,
                 data: [],
             };
-            // Initialize metrics
             metrics.forEach((metric) => {
                 periodData[metric] = 0;
             });
@@ -298,7 +310,6 @@ export function groupDataByTimePeriod(data, dateField, breakdownType, metrics = 
         const periodData = grouped.get(periodKey);
         periodData.data.push(item);
 
-        // Aggregate metrics
         metrics.forEach((metric) => {
             const value = item[metric];
             if (value !== undefined && value !== null) {
@@ -309,7 +320,6 @@ export function groupDataByTimePeriod(data, dateField, breakdownType, metrics = 
         });
     });
 
-    // Convert Map to object for compatibility
     const result = {};
     grouped.forEach((value, key) => {
         result[key] = value;
@@ -349,8 +359,7 @@ export function transformToTableData(groupedData, productField, breakdownType, i
                     product,
                     periods: new Map(),
                     details: includeDetails ? [] : undefined,
-                    exemptValues: {},
-                    exemptFirst: {},
+                    exemptByPeriod: {},
                 });
             }
 
@@ -375,17 +384,20 @@ export function transformToTableData(groupedData, productField, breakdownType, i
                 }
             });
 
-            // Aggregate exempt columns: numeric = sum, non-numeric = first
+            // Aggregate exempt columns by period (use latest period's value for output)
             exemptColumns.forEach((col) => {
                 const value = item[col];
+                if (value === null || value === undefined || value === "") return;
                 const isNumeric = columnTypes[col] === "number" || isNumericValue(value);
+                if (!productEntry.exemptByPeriod[col]) productEntry.exemptByPeriod[col] = {};
+                const byPeriod = productEntry.exemptByPeriod[col];
                 if (isNumeric) {
                     const numVal = typeof value === "number" ? value : Number(value);
                     if (!Number.isNaN(numVal) && isFinite(numVal)) {
-                        productEntry.exemptValues[col] = (productEntry.exemptValues[col] ?? 0) + numVal;
+                        byPeriod[periodKey] = (byPeriod[periodKey] ?? 0) + numVal;
                     }
-                } else if (productEntry.exemptFirst[col] === undefined && value !== null && value !== undefined && value !== "") {
-                    productEntry.exemptFirst[col] = value;
+                } else if (byPeriod[periodKey] === undefined) {
+                    byPeriod[periodKey] = value;
                 }
             });
 
@@ -419,12 +431,17 @@ export function transformToTableData(groupedData, productField, breakdownType, i
             });
         });
 
-        // Add exempt column values
+        // Add exempt column values (from latest period only)
         exemptColumns.forEach((col) => {
-            if (productEntry.exemptValues[col] !== undefined) {
-                row[col] = productEntry.exemptValues[col];
-            } else if (productEntry.exemptFirst[col] !== undefined) {
-                row[col] = productEntry.exemptFirst[col];
+            const byPeriod = productEntry.exemptByPeriod?.[col];
+            if (byPeriod && allPeriods.length > 0) {
+                for (let i = allPeriods.length - 1; i >= 0; i--) {
+                    const p = allPeriods[i];
+                    if (byPeriod[p] !== undefined && byPeriod[p] !== null) {
+                        row[col] = byPeriod[p];
+                        break;
+                    }
+                }
             }
         });
 
@@ -529,8 +546,7 @@ export function transformToNestedTableData(groupedData, productField, categoryFi
                 const categoryEntry = {
                     category,
                     periods: new Map(),
-                    exemptValues: {},
-                    exemptFirst: {},
+                    exemptByPeriod: {},
                 };
                 productCategories.set(category, categoryEntry);
             }
@@ -556,17 +572,20 @@ export function transformToNestedTableData(groupedData, productField, categoryFi
                 }
             });
 
-            // Aggregate exempt columns
+            // Aggregate exempt columns by period (use latest period's value for output)
             exemptColumns.forEach((col) => {
                 const value = item[col];
+                if (value === null || value === undefined || value === "") return;
                 const isNumeric = columnTypes[col] === "number" || isNumericValue(value);
+                if (!categoryEntry.exemptByPeriod[col]) categoryEntry.exemptByPeriod[col] = {};
+                const byPeriod = categoryEntry.exemptByPeriod[col];
                 if (isNumeric) {
                     const numVal = typeof value === "number" ? value : Number(value);
                     if (!Number.isNaN(numVal) && isFinite(numVal)) {
-                        categoryEntry.exemptValues[col] = (categoryEntry.exemptValues[col] ?? 0) + numVal;
+                        byPeriod[periodKey] = (byPeriod[periodKey] ?? 0) + numVal;
                     }
-                } else if (categoryEntry.exemptFirst[col] === undefined && value !== null && value !== undefined && value !== "") {
-                    categoryEntry.exemptFirst[col] = value;
+                } else if (byPeriod[periodKey] === undefined) {
+                    byPeriod[periodKey] = value;
                 }
             });
         });
@@ -593,12 +612,17 @@ export function transformToNestedTableData(groupedData, productField, categoryFi
                 });
             });
 
-            // Add exempt column values
+            // Add exempt column values (from latest period only)
             exemptColumns.forEach((col) => {
-                if (categoryEntry.exemptValues?.[col] !== undefined) {
-                    row[col] = categoryEntry.exemptValues[col];
-                } else if (categoryEntry.exemptFirst?.[col] !== undefined) {
-                    row[col] = categoryEntry.exemptFirst[col];
+                const byPeriod = categoryEntry.exemptByPeriod?.[col];
+                if (byPeriod && allPeriods.length > 0) {
+                    for (let i = allPeriods.length - 1; i >= 0; i--) {
+                        const p = allPeriods[i];
+                        if (byPeriod[p] !== undefined && byPeriod[p] !== null) {
+                            row[col] = byPeriod[p];
+                            break;
+                        }
+                    }
                 }
             });
 

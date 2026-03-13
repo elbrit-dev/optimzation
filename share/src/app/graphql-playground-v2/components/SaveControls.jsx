@@ -11,14 +11,21 @@ import { Timestamp } from 'firebase/firestore';
 import { parse, print } from 'graphql';
 import { parse as parseJsonc, stripComments } from 'jsonc-parser';
 import { Button } from 'primereact/button';
-import { Calendar } from 'primereact/calendar';
+import { InputText } from 'primereact/inputtext';
 import { confirmDialog } from 'primereact/confirmdialog';
 import { OverlayPanel } from 'primereact/overlaypanel';
 import { Tree } from 'primereact/tree';
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import RangePicker from '@/components/RangePicker';
 import { usePlaygroundStore } from '../stores/usePlaygroundStore';
 import { useSavedQueriesStore } from '../stores/useSavedQueriesStore';
 import { buildSchemaTreeNodes, extractRootFieldsFromQuery, fetchGraphQLSchema } from '../utils/schema-fetcher';
+
+function rootKeyToDoctypeName(rootKey) {
+  if (!rootKey || typeof rootKey !== 'string') return '';
+  const withoutS = rootKey.endsWith('s') ? rootKey.slice(0, -1) : rootKey;
+  return withoutS.replace(/([A-Z])/g, ' $1').trim();
+}
 
 export function SaveControls() {
   // Get state from v2 store
@@ -56,6 +63,7 @@ export function SaveControls() {
   const [writeSchemaSelectionKeys, setWriteSchemaSelectionKeys] = React.useState({});
   const [writeSchemaTreeNodes, setWriteSchemaTreeNodes] = React.useState([]);
   const [writeSchemaExpandedKeys, setWriteSchemaExpandedKeys] = React.useState({});
+  const [writeDocTypeName, setWriteDocTypeName] = React.useState('');
   const loadSavedQueries = useSavedQueriesStore((state) => state.loadQueries);
 
   const { user } = useAuth();
@@ -252,7 +260,9 @@ export function SaveControls() {
             setExpandedKeys({});
           }
 
-          setMonth(existingData.month && existingData.monthDate ? new Date(existingData.monthDate) : null);
+          setMonth(existingData.month && existingData.monthDate
+            ? [new Date(existingData.monthDate), new Date(existingData.monthDate)]
+            : null);
 
           if (existingData.monthIndex && existingData.monthIndex.trim()) {
             const matchingMonthIndexKey = findNodeKeyFromIndexQuery(existingData.monthIndex, nodesForMatching);
@@ -280,6 +290,7 @@ export function SaveControls() {
           
           setSearchFields(existingData.searchFields || {});
           setSortFields(existingData.sortFields || {});
+          setWriteDocTypeName(existingData.writeDocTypeName || '');
         }
         if (!existingData && !canceled) {
           setClientSave(false);
@@ -291,6 +302,7 @@ export function SaveControls() {
           setEnableWrite(false);
           setWriteSchemaSelectionKeys({});
           setWriteSchemaExpandedKeys({});
+          setWriteDocTypeName('');
           setSearchFields({});
           setSortFields({});
           setSearchFieldsExpandedKeys({});
@@ -308,6 +320,7 @@ export function SaveControls() {
           setEnableWrite(false);
           setWriteSchemaSelectionKeys({});
           setWriteSchemaExpandedKeys({});
+          setWriteDocTypeName('');
           setSearchFields({});
           setSortFields({});
           setSearchFieldsExpandedKeys({});
@@ -325,6 +338,53 @@ export function SaveControls() {
     };
   }, [query]);
 
+  const handleMonthChange = (range) => {
+    setMonth(range);
+
+    if (!Array.isArray(range) || !range[0] || !range[1]) {
+      return;
+    }
+
+    const [startMonth, endMonth] = range;
+
+    const startYear = startMonth.getFullYear();
+    const startMonthIndex = startMonth.getMonth(); // 0-11
+
+    const endYear = endMonth.getFullYear();
+    const endMonthIndex = endMonth.getMonth(); // 0-11
+
+    const startDate = `${startYear}-${String(startMonthIndex + 1).padStart(2, '0')}-01`;
+
+    const lastDay = new Date(endYear, endMonthIndex + 1, 0).getDate();
+    const endDate = `${endYear}-${String(endMonthIndex + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+
+    let currentVariables = {};
+    try {
+      const variablesString = usePlaygroundStore.getState().variables;
+      if (variablesString && variablesString.trim()) {
+        currentVariables = parseJsonc(variablesString);
+      }
+    } catch (e) {
+      try {
+        const variablesString = usePlaygroundStore.getState().variables;
+        const stripped = stripComments(variablesString);
+        currentVariables = JSON.parse(stripped);
+      } catch {
+        // Use empty object if parsing fails
+      }
+    }
+
+    // Only update if dates actually changed
+    if (currentVariables.startDate === startDate && currentVariables.endDate === endDate) {
+      return;
+    }
+
+    currentVariables.startDate = startDate;
+    currentVariables.endDate = endDate;
+    const updatedVariablesString = JSON.stringify(currentVariables, null, 2);
+    setVariables(updatedVariablesString);
+  };
+
   // Clear monthIndexKeys when month is cleared
   useEffect(() => {
     if (!month) {
@@ -341,47 +401,64 @@ export function SaveControls() {
     }
   }, [monthIndexKeys]);
 
-  // Update variables with startDate and endDate when month changes
+  // Keep month range in sync when variables JSON is edited manually (variables -> picker)
   useEffect(() => {
-    if (!month) return;
-
-    // Compute startDate (first day of month) and endDate (last day of month)
-    const year = month.getFullYear();
-    const monthIndex = month.getMonth(); // 0-11
-
-    // Start date: first day of the month
-    const startDate = `${year}-${String(monthIndex + 1).padStart(2, '0')}-01`;
-
-    // End date: last day of the month
-    const lastDay = new Date(year, monthIndex + 1, 0).getDate();
-    const endDate = `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
-
-    // Get current variables
-    let currentVariables = {};
-    try {
-      if (variables && variables.trim()) {
-        currentVariables = parseJsonc(variables);
+    if (!variables || !variables.trim()) {
+      if (month) {
+        setMonth(null);
       }
-    } catch (e) {
-      try {
-        const stripped = stripComments(variables);
-        currentVariables = JSON.parse(stripped);
-      } catch {
-        // Use empty object if parsing fails
-      }
-    }
-
-    // Only update if dates actually changed
-    if (currentVariables.startDate === startDate && currentVariables.endDate === endDate) {
       return;
     }
 
-    // Update variables
-    currentVariables.startDate = startDate;
-    currentVariables.endDate = endDate;
-    const updatedVariablesString = JSON.stringify(currentVariables, null, 2);
-    setVariables(updatedVariablesString);
-  }, [month, variables, setVariables]);
+    let parsed;
+    try {
+      parsed = parseJsonc(variables);
+    } catch {
+      try {
+        const stripped = stripComments(variables);
+        parsed = JSON.parse(stripped);
+      } catch {
+        // If variables are not valid JSON/JSONC, don't fight the user.
+        return;
+      }
+    }
+
+    const { startDate, endDate } = parsed || {};
+    if (!startDate || !endDate) {
+      if (month) {
+        setMonth(null);
+      }
+      return;
+    }
+
+    let start;
+    let end;
+    try {
+      start = new Date(startDate);
+      end = new Date(endDate);
+      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+        return;
+      }
+    } catch {
+      return;
+    }
+
+    const startIso = start.toISOString().slice(0, 10);
+    const endIso = end.toISOString().slice(0, 10);
+
+    if (
+      month &&
+      Array.isArray(month) &&
+      month[0] instanceof Date &&
+      month[1] instanceof Date &&
+      month[0].toISOString().slice(0, 10) === startIso &&
+      month[1].toISOString().slice(0, 10) === endIso
+    ) {
+      return;
+    }
+
+    setMonth([start, end]);
+  }, [variables, month, setMonth]);
 
   // Clear monthIndexKeys when selectedKeys changes (parent may have changed)
   useEffect(() => {
@@ -709,6 +786,21 @@ export function SaveControls() {
   const handleWriteSchemaToggle = useCallback((e) => {
     setWriteSchemaExpandedKeys(e.value);
   }, []);
+
+  // Auto-populate writeDocTypeName from write schema root once when not present in loaded data
+  useEffect(() => {
+    if (!enableWrite) return;
+    const rootKey = Object.keys(writeSchemaSelectionKeys).find(key => writeSchemaSelectionKeys[key]?.checked && isRootField(key)) ||
+      (() => {
+        const firstSelected = Object.keys(writeSchemaSelectionKeys).find(key => writeSchemaSelectionKeys[key]?.checked);
+        return firstSelected ? getRootFieldForKey(firstSelected) : null;
+      })();
+    if (!rootKey) return;
+    setWriteDocTypeName(prev => {
+      if (prev) return prev;
+      return rootKeyToDoctypeName(rootKey);
+    });
+  }, [enableWrite, writeSchemaSelectionKeys, isRootField, getRootFieldForKey]);
 
   const sanitizedMonthIndexKey = typeof monthIndexKeys === 'string' ? monthIndexKeys : null;
   const monthIndexLabel = sanitizedMonthIndexKey
@@ -2046,11 +2138,13 @@ export function SaveControls() {
               </div>
             </div>
           )}
-          {month && (
+          {month && Array.isArray(month) && month[0] && month[1] && (
             <>
               <div>
                 <p className="font-semibold text-sm mb-1">Month:</p>
-                <p className="text-sm text-gray-700 font-mono">{month ? month.toLocaleDateString('en-US', { month: '2-digit', year: 'numeric' }) : 'Not selected'}</p>
+                <p className="text-sm text-gray-700 font-mono">
+                  {`${month[0].toLocaleDateString('en-US', { month: '2-digit', year: 'numeric' })} - ${month[1].toLocaleDateString('en-US', { month: '2-digit', year: 'numeric' })}`}
+                </p>
               </div>
               {clientSave && (
                 <div>
@@ -2468,11 +2562,12 @@ export function SaveControls() {
             clientSave: clientSave,
             enableWrite: enableWrite,
             writeSchema: enableWrite && Object.keys(writeSchemaJson).length > 0 ? writeSchemaJson : null,
+            writeDocTypeName: enableWrite ? (writeDocTypeName || null) : null,
             index: validatedIndexQuery,
             variables: validVariablesString,
             month: month !== null,
-            ...(month && {
-              monthDate: month.toISOString(),
+            ...(month && Array.isArray(month) && month[0] && {
+              monthDate: month[0].toISOString(),
               monthIndex: validatedMonthIndexQuery,
             }),
             ...(currentTransformerCode && {
@@ -2501,7 +2596,7 @@ export function SaveControls() {
         }
       },
     });
-  }, [clientSave, selectedKeys, month, monthIndexKeys, treeNodes, processedDataTreeNodesMemo, formatFieldName, transformerCode, query, variables, selectedEnvironment, user, searchFields, sortFields, enableWrite, writeSchemaSelectionKeys, isRootField, getRootFieldForKey, setVariables, loadSavedQueries, getFieldTypeInfo, schema]);
+  }, [clientSave, selectedKeys, month, monthIndexKeys, treeNodes, processedDataTreeNodesMemo, formatFieldName, transformerCode, query, variables, selectedEnvironment, user, searchFields, sortFields, enableWrite, writeSchemaSelectionKeys, writeDocTypeName, isRootField, getRootFieldForKey, setVariables, loadSavedQueries, getFieldTypeInfo, schema]);
 
   return (
     <>
@@ -2838,6 +2933,16 @@ export function SaveControls() {
                 </div>
               </OverlayPanel>
             </div>
+            {/* Doctype Name - below Write Schema */}
+            <div className="flex flex-col gap-1.5" style={{ width: '100%', minWidth: '280px', maxWidth: '280px' }}>
+              <h3 className="text-sm font-semibold text-gray-700">Doctype Name</h3>
+              <InputText
+                value={writeDocTypeName}
+                onChange={(e) => setWriteDocTypeName(e.target.value)}
+                placeholder="e.g. Secondary Data Entry"
+                className="w-full p-inputtext-sm"
+              />
+            </div>
           </div>
         )}
 
@@ -2912,64 +3017,15 @@ export function SaveControls() {
           </div>
         )}
 
-        {/* Month Picker */}
+        {/* Month Picker (range) */}
         <div className="flex flex-col gap-1.5" style={{ width: '100%', minWidth: '280px', maxWidth: '280px' }}>
           <h3 className="text-sm font-semibold text-gray-700">Month</h3>
-          <div className="graphiql-month-picker relative">
-            <Calendar
-              value={month}
-              onChange={(e) => setMonth(e.value)}
-              view="month"
-              dateFormat="mm/yy"
-              placeholder="Select month"
-              showIcon
-              iconPos="left"
-              className="w-full"
-              inputStyle={{
-                width: '100%',
-                padding: '0.5rem 0.75rem',
-                paddingRight: month ? '2.5rem' : '0.75rem',
-                fontSize: '0.875rem'
-              }}
-            />
-            {month && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setMonth(null);
-                }}
-                style={{
-                  position: 'absolute',
-                  right: '0.5rem',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  background: 'transparent',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: '0.25rem',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#6b7280',
-                  borderRadius: '4px',
-                  transition: 'all 0.2s ease',
-                  zIndex: 10
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#fee2e2';
-                  e.currentTarget.style.color = '#dc2626';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'transparent';
-                  e.currentTarget.style.color = '#6b7280';
-                }}
-                title="Clear month"
-              >
-                <i className="pi pi-times" style={{ fontSize: '0.875rem' }}></i>
-              </button>
-            )}
-          </div>
+          <RangePicker
+            mode="month"
+            value={month}
+            onChange={handleMonthChange}
+            placeholder={['Start month', 'End month']}
+          />
         </div>
 
         {/* Month Index Field Selector - Only show when clientSave is enabled and month is selected */}

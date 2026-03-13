@@ -84,15 +84,15 @@ export function useReportData(
           if (computationId === computationIdRef.current) {
             const inputHadData = Array.isArray(data) && data.length > 0;
             const outputEmpty = !computed?.tableData?.length;
-            if (inputHadData && outputEmpty) {
-              setIsComputingReport(false);
-              return;
-            }
-            setReportData(computed);
+          if (inputHadData && outputEmpty) {
             setIsComputingReport(false);
+            return;
           }
-        } catch (error) {
-          console.error('Report computation error:', error);
+          setReportData(computed);
+          setIsComputingReport(false);
+        }
+      } catch (error) {
+        console.error('Report computation error:', error);
           if (computationId === computationIdRef.current) {
             setReportData(null);
             setIsComputingReport(false);

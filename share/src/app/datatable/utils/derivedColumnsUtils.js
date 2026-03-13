@@ -38,7 +38,7 @@ function matchesScope(dc, mode, fieldName) {
  * @param {boolean} getRowAsBreakdown - If true, metric becomes { period: value }; otherwise sum
  * @returns {Object} Virtual row for compute
  */
-function buildReportComputeRow(row, metrics, timePeriods, getRowAsBreakdown) {
+export function buildReportComputeRow(row, metrics, timePeriods, getRowAsBreakdown) {
   const periodMetricKeys = new Set();
   for (const m of metrics) {
     for (const p of timePeriods) {

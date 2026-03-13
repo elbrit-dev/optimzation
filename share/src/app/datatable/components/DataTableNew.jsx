@@ -45,6 +45,7 @@ import {
 import { getNestedOverridesAtPath } from '../utils/columnTypesOverrideUtils';
 import { getDataKeys, getDataValue } from '../utils/dataAccessUtils';
 import { getOrderedColumnsWithDerived } from '../utils/derivedColumnsUtils';
+import { computeRowStyle, computeColumnStyle, getEffectiveRowRules, getEffectiveColumnRules } from '../utils/rowColumnStylesUtils';
 import { isJsonArrayOfObjectsString, parseJsonObject } from '../utils/jsonArrayParser';
 import { useTableOperations } from '../contexts/TableOperationsContext';
 import { SlotContext } from './DataSlot';
@@ -56,6 +57,7 @@ import { ColumnGroup } from 'primereact/columngroup';
 import { Row } from 'primereact/row';
 import { getTimePeriodLabel, getTimePeriodLabelShort, reorganizePeriodsForPeriodOverPeriod } from '../utils/timeBreakdownUtils';
 import { computeReportColumnsStructure, generateReportHeaderGroup, getMetricLabel, getReportColumns } from '../utils/reportRenderingUtils';
+import { getAllowedForScope, getAllowedForGroupField, getAllowedForReportGroupField } from '../utils/allowedColumnsUtils';
 
 // Inline Select cell editor - loads options via getOptions(ctx) or uses cachedOptions when available. ctx = { columnName, query } (row-independent)
 function InlineSelectCellEditor({ options: editorOptions, col, getOptions, queryFunction, cachedOptions }) {
@@ -936,6 +938,7 @@ export default function DataTableNew({
     textFilterColumns,
     redFields,
     greenFields,
+    rowColumnStyles = [],
     multiselectColumns,
     hasPercentageColumns,
     percentageColumns,
@@ -989,6 +992,7 @@ export default function DataTableNew({
     loadingText,
     columnGroupBy,
     effectiveGroupFields,
+    allowedColumns: contextAllowedColumns,
     parentColumnName: contextParentColumnName,
     nestedTableFieldName: contextNestedTableFieldName,
     nestedTableTabId: contextNestedTableTabId,
@@ -999,6 +1003,7 @@ export default function DataTableNew({
   } = tableOps;
   
   // Use context values if available, otherwise fall back to props
+  const allowedColumns = contextAllowedColumns ?? [];
   const finalParentColumnName = contextParentColumnName !== undefined ? contextParentColumnName : parentColumnName;
   const finalNestedTableFieldName = contextNestedTableFieldName !== undefined ? contextNestedTableFieldName : nestedTableFieldName;
   
@@ -1155,6 +1160,13 @@ export default function DataTableNew({
         // Include all columns - we now aggregate string, date, bool (oldest-newest, true: N false: M, value x N + more)
         return true;
       });
+      // Per-groupField allowedColumns: filter by allowedColumnsByGroupField[outerGroupField] ?? main
+      // Group field is only shown when in allowedSet (no special case - allows hiding brand when not in allowedColumns)
+      const allowedForLevel = getAllowedForGroupField(allowedColumns, outerGroupField) ?? getAllowedForScope(allowedColumns, 'main');
+      if (allowedForLevel && allowedForLevel.length > 0) {
+        const allowedSet = new Set(allowedForLevel);
+        filteredColumns = filteredColumns.filter(col => allowedSet.has(col));
+      }
       debugPayload('after outerGroupField filter', { filteredColumns: [...filteredColumns], columnTypesSample: columns.slice(0, 3).map(c => ({ col: c, type: columnTypesFlags[c], isNumeric: get(columnTypesFlags[c], 'isNumeric') })) });
     }
 
@@ -1288,7 +1300,7 @@ export default function DataTableNew({
 
     if (isNestedDrawer) debugPayload('final orderedColumns', { finalResult: [...finalResult] });
     return finalResult;
-  }, [columns, visibleColumns, outerGroupField, innerGroupField, effectiveGroupFields, columnTypesFlags, hasPercentageColumns, percentageColumns, finalParentColumnName]);
+  }, [columns, visibleColumns, outerGroupField, innerGroupField, effectiveGroupFields, columnTypesFlags, hasPercentageColumns, percentageColumns, finalParentColumnName, allowedColumns]);
 
   // Report mode: Pre-compute column structure (shared by header and columns)
   const reportColumnsStructure = useMemo(() => {
@@ -1298,21 +1310,28 @@ export default function DataTableNew({
     return computeReportColumnsStructure(reportData, columnGroupBy);
   }, [enableBreakdown, reportData, columnGroupBy]);
 
+  // Report mode: include group column only when in allowedColumns (allows hiding brand in report)
+  const reportIncludeGroupColumn = useMemo(() => {
+    const allowedForReport = getAllowedForScope(allowedColumns, 'report') ?? getAllowedForScope(allowedColumns, 'main');
+    if (!allowedForReport || allowedForReport.length === 0) return true;
+    return new Set(allowedForReport).has(outerGroupField);
+  }, [allowedColumns, outerGroupField]);
+
   // Report mode: Generate header groups and columns
   const reportHeaderGroup = useMemo(() => {
     if (!reportColumnsStructure || !reportData) {
       return null;
     }
-    return generateReportHeaderGroup(reportColumnsStructure, reportData, outerGroupField, formatHeaderName, enableSort);
-  }, [reportColumnsStructure, reportData, outerGroupField, formatHeaderName, enableSort]);
+    return generateReportHeaderGroup(reportColumnsStructure, reportData, outerGroupField, formatHeaderName, enableSort, reportIncludeGroupColumn);
+  }, [reportColumnsStructure, reportData, outerGroupField, formatHeaderName, enableSort, reportIncludeGroupColumn]);
 
   // Report mode: Generate report columns
   const reportColumns = useMemo(() => {
     if (!reportColumnsStructure) {
       return [];
     }
-    return getReportColumns(reportColumnsStructure, outerGroupField);
-  }, [reportColumnsStructure, outerGroupField]);
+    return getReportColumns(reportColumnsStructure, outerGroupField, reportIncludeGroupColumn);
+  }, [reportColumnsStructure, outerGroupField, reportIncludeGroupColumn]);
 
   // Use report columns when in report mode, otherwise use orderedColumns
   const displayColumns = useMemo(() => {
@@ -1549,6 +1568,69 @@ export default function DataTableNew({
     const isGreenField = includes(greenFields, column);
     return isRedField ? 'text-red-600' : isGreenField ? 'text-green-600' : '';
   }, [redFields, greenFields]);
+
+  // Row/column styling from rowColumnStyles
+  const rowColumnStylesMode = (enableBreakdown && reportData) ? 'report' : (contextParentColumnName ? 'nested' : 'main');
+  const rowColumnStylesFieldName = finalNestedTableFieldName ?? null;
+  const rowColumnStylesReportMeta = useMemo(() => {
+    if (rowColumnStylesMode !== 'report' || !reportData) return null;
+    return {
+      metrics: reportData.metrics ?? [],
+      timePeriods: reportData.timePeriods ?? [],
+      dateRange: reportData.dateRange ?? null,
+      breakdownType: reportData.breakdownType ?? null,
+      columnGroupBy: columnGroupBy ?? null,
+    };
+  }, [rowColumnStylesMode, reportData, columnGroupBy]);
+  const rowRules = useMemo(
+    () => getEffectiveRowRules(rowColumnStyles || [], rowColumnStylesMode, rowColumnStylesFieldName),
+    [rowColumnStyles, rowColumnStylesMode, rowColumnStylesFieldName]
+  );
+  const columnRules = useMemo(
+    () => getEffectiveColumnRules(rowColumnStyles || [], rowColumnStylesMode, rowColumnStylesFieldName),
+    [rowColumnStyles, rowColumnStylesMode, rowColumnStylesFieldName]
+  );
+  const getColumnValues = useCallback((col) => {
+    const data = isArray(paginatedData) ? paginatedData : [];
+    return data.map((row) => getDataValue(row, col));
+  }, [paginatedData, getDataValue]);
+  const getCellWrapperStyle = useCallback((rowData, col, rowIndex = 0) => {
+    if ((!rowRules || rowRules.length === 0) && (!columnRules || columnRules.length === 0)) return {};
+    const rowCtx = {
+      mode: rowColumnStylesMode,
+      fieldName: rowColumnStylesFieldName,
+      getDataValue,
+      parentRow: null,
+      reportMeta: rowColumnStylesReportMeta,
+      rowIndex,
+      position: rowIndex,
+    };
+    const rowStyle = computeRowStyle(rowData, rowRules, rowCtx);
+    const columnData = {
+      columnName: col,
+      values: getColumnValues(col),
+      columnIndex: orderedColumns?.indexOf(col) ?? 0,
+      rowCount: (isArray(paginatedData) ? paginatedData : []).length,
+    };
+    const colCtx = {
+      mode: rowColumnStylesMode,
+      tableData: paginatedData,
+      getDataValue,
+      fieldName: rowColumnStylesFieldName,
+      reportMeta: rowColumnStylesReportMeta,
+    };
+    const colStyle = computeColumnStyle(col, columnData, columnRules, colCtx);
+    return { ...rowStyle, ...colStyle };
+  }, [rowRules, columnRules, rowColumnStylesMode, rowColumnStylesFieldName, rowColumnStylesReportMeta, getDataValue, getColumnValues, orderedColumns, paginatedData]);
+  const wrapWithCellStyle = useCallback((content, rowData, col) => {
+    const style = getCellWrapperStyle(rowData, col, safeData.indexOf(rowData));
+    if (!style || Object.keys(style).length === 0) return content;
+    return <div style={style}>{content}</div>;
+  }, [getCellWrapperStyle, safeData]);
+  const wrapBodyWithCellStyle = useCallback((bodyFn, col) => (rowData, options) => {
+    const content = typeof bodyFn === 'function' ? bodyFn(rowData, options) : bodyFn;
+    return wrapWithCellStyle(content, rowData, col);
+  }, [wrapWithCellStyle]);
 
   const booleanBodyTemplate = useCallback((rowData, column, colorClass = '') => {
     const value = getDataValue(rowData, column);
@@ -1909,7 +1991,7 @@ export default function DataTableNew({
               // Use slot's filteredData and drawerTabs so drawer shows correct data+tabs in multi-slot mode
               const dataToUse = contextFilteredData && Array.isArray(contextFilteredData) ? contextFilteredData : undefined;
               const tableOptions = (drawerTabs && Array.isArray(drawerTabs) && drawerTabs.length > 0)
-                ? { drawerTabsOverride: drawerTabs }
+                ? { drawerTabsOverride: drawerTabs, allowedColumnsOverride: allowedColumns }
                 : undefined;
               openDrawer(dataToUse != null ? dataToUse : filters, dataToUse != null ? filters : undefined, undefined, tableOptions);
               // Still call parent callbacks if provided (for backward compatibility)
@@ -2829,6 +2911,13 @@ export default function DataTableNew({
         nestedColumns = [actualNextField, ...nestedColumns];
       }
     }
+    // Per-groupField allowedColumns: filter nested table columns by allowedColumnsByGroupField[nextField] ?? main
+    // Next-level group field is only shown when in allowedSet (allows hiding item_name when not in allowedColumns)
+    const allowedForNestedLevel = getAllowedForGroupField(allowedColumns, actualNextField) ?? getAllowedForScope(allowedColumns, 'main');
+    if (allowedForNestedLevel && allowedForNestedLevel.length > 0) {
+      const allowedSet = new Set(allowedForNestedLevel);
+      nestedColumns = nestedColumns.filter(col => allowedSet.has(col));
+    }
 
     const groupKey = rowData.__groupKey__;
     const nestedFilters = get(nestedFiltersMap, groupKey) || {};
@@ -3067,7 +3156,7 @@ export default function DataTableNew({
                     filterElement={enableFilter ? getNestedFilterElement(col) : undefined}
                     showFilterMenu={false}
                     showClearButton={false}
-                    body={getBodyTemplate(col)}
+                    body={wrapBodyWithCellStyle(getBodyTemplate(col), col)}
                     align={isNumericCol ? 'right' : 'left'}
                     style={{
                       width: `${get(calculateColumnWidths, col, 120)}px`,
@@ -3277,17 +3366,28 @@ export default function DataTableNew({
 
     // Check if nested rows can be expanded further
     // There are more levels if nextLevel + 1 < effectiveGroupFields.length
-    // AND nested rows have values for the field at nextLevel + 1
+    // Use nestedTableData keys to detect deeper level: if any key matches "compositeKey|nextFieldValue"
+    // (report worker may not include deeper field in row output, but nestedTableData has the data)
     let hasNestedGroups = false;
     if (hasMoreLevels) {
       const levelAfterNext = nextLevel + 1;
       if (levelAfterNext < effectiveGroupFields.length) {
         const fieldAfterNext = effectiveGroupFields[levelAfterNext];
-        // Check if any nested row has a non-null value for the next level field
+        // First try: check if any nested row has the next level field (legacy)
         hasNestedGroups = nestedRows.some(row => {
           const fieldAfterNextValue = getDataValue(row, fieldAfterNext);
           return !isNil(fieldAfterNextValue) && fieldAfterNextValue !== '';
         });
+        // Fallback: check nestedTableData for keys that indicate deeper level exists
+        // Keys like "Item|Warehouse" exist when batch_id breakdown was generated
+        if (!hasNestedGroups && reportData.nestedTableData) {
+          const hasDeeperKey = nestedRows.some(row => {
+            const nextFieldValue = getDataValue(row, nextField);
+            const nestedKey = `${compositeKey}|${isNil(nextFieldValue) ? '__null__' : String(nextFieldValue)}`;
+            return reportData.nestedTableData[nestedKey] && reportData.nestedTableData[nestedKey].length > 0;
+          });
+          hasNestedGroups = hasDeeperKey;
+        }
       }
     }
 
@@ -3305,16 +3405,23 @@ export default function DataTableNew({
       const { columnsWithData, metricGroups, periodGroups, metricsWithData, timePeriodsWithData, isMergedMode, orderedSegments: structOrderedSegments, exemptColumns: structExemptCols = [] } = structure;
       const totalDataCols = columnsWithData.length;
       const useOrderedSegments = structOrderedSegments && structOrderedSegments.length > 0;
-      
+      const allowedForIntermediate = getAllowedForReportGroupField(allowedColumns, nextField) ?? getAllowedForScope(allowedColumns, 'report') ?? getAllowedForScope(allowedColumns, 'main');
+      const includeNextFieldInIntermediate = !allowedForIntermediate || allowedForIntermediate.length === 0 || new Set(allowedForIntermediate).has(nextField);
+
       // Generate nested header group - use orderedSegments when available to match outer table column order
+      // Add expander column header when hasNestedGroups so expander aligns in its own column (not under Warehouse)
+      const expanderHeaderCol = hasNestedGroups ? <Column key="nested-expander-header" header="" rowSpan={3} style={{ width: '3rem' }} /> : null;
       const nestedHeaderGroup = useOrderedSegments ? (
         isMergedMode ? (
           <ColumnGroup>
             <Row>
-              <Column header={formatHeaderName(nextField)} rowSpan={3} />
+              {expanderHeaderCol}
+              {includeNextFieldInIntermediate && nextField && <Column header={formatHeaderName(nextField)} rowSpan={3} />}
               {structOrderedSegments.map((seg, idx) =>
                 seg.type === 'exempt' ? (
-                  <Column key={`exempt-${seg.name}`} header={formatHeaderName(seg.name)} rowSpan={3} sortable={enableSort} field={seg.name} />
+                  (allowedForIntermediate && allowedForIntermediate.length > 0 && !allowedForIntermediate.includes(seg.name)) ? null : (
+                    <Column key={`exempt-${seg.name}`} header={formatHeaderName(seg.name)} rowSpan={3} sortable={enableSort} field={seg.name} />
+                  )
                 ) : (
                   <Column key={`breakdown-${seg.metric}-${idx}`} header="" colSpan={seg.periods.length} />
                 )
@@ -3340,7 +3447,8 @@ export default function DataTableNew({
         ) : (
           <ColumnGroup>
             <Row>
-              <Column header={formatHeaderName(nextField)} rowSpan={3} />
+              {expanderHeaderCol}
+              {includeNextFieldInIntermediate && nextField && <Column header={formatHeaderName(nextField)} rowSpan={3} />}
               {structOrderedSegments.map((seg, idx) =>
                 seg.type === 'exempt' ? (
                   <Column key={`exempt-${seg.name}`} header={formatHeaderName(seg.name)} rowSpan={3} sortable={enableSort} field={seg.name} />
@@ -3372,7 +3480,8 @@ export default function DataTableNew({
       ) : isMergedMode ? (
         <ColumnGroup>
           <Row>
-            <Column header={formatHeaderName(nextField)} rowSpan={3} />
+            {expanderHeaderCol}
+            {includeNextFieldInIntermediate && nextField && <Column header={formatHeaderName(nextField)} rowSpan={3} />}
             {structExemptCols.map((col) => (
               <Column key={`exempt-${col}`} header={formatHeaderName(col)} rowSpan={3} sortable={enableSort} field={col} />
             ))}
@@ -3394,7 +3503,8 @@ export default function DataTableNew({
       ) : (
         <ColumnGroup>
           <Row>
-            <Column header={formatHeaderName(nextField)} rowSpan={3} />
+            {expanderHeaderCol}
+            {includeNextFieldInIntermediate && nextField && <Column header={formatHeaderName(nextField)} rowSpan={3} />}
             {structExemptCols.map((col) => (
               <Column key={`exempt-${col}`} header={formatHeaderName(col)} rowSpan={3} sortable={enableSort} field={col} />
             ))}
@@ -3484,6 +3594,7 @@ export default function DataTableNew({
               style={{ width: '3rem' }}
             />
             )}
+            {includeNextFieldInIntermediate && nextField && (
             <Column 
               key={nextField} 
               field={nextField} 
@@ -3524,18 +3635,24 @@ export default function DataTableNew({
                 );
               }}
             />
+            )}
             {/* Render columns - use orderedSegments when available for correct column order */}
             {useOrderedSegments ? (
               structOrderedSegments.map((seg) =>
                 seg.type === 'exempt' ? (
+                  (allowedForIntermediate && allowedForIntermediate.length > 0 && !allowedForIntermediate.includes(seg.name)) ? null : (
                   <Column
                     key={`exempt-${seg.name}`}
                     field={seg.name}
                     sortable={enableSort}
                     body={(rowData, { field: colField }) => formatCellValue(getDataValue(rowData, colField), get(columnTypesFlags, seg.name))}
                   />
+                  )
                 ) : (
-                  seg.columnNames.map((columnName) => (
+                  seg.columnNames.filter((columnName) => {
+                    const metric = columnName.indexOf('_') >= 0 ? columnName.slice(columnName.indexOf('_') + 1) : columnName;
+                    return !allowedForIntermediate || allowedForIntermediate.length === 0 || allowedForIntermediate.includes(metric);
+                  }).map((columnName) => (
                     <Column
                       key={columnName}
                       field={columnName}
@@ -3551,7 +3668,7 @@ export default function DataTableNew({
               )
             ) : (
               <>
-                {structExemptCols.map((col) => (
+                {structExemptCols.filter((col) => !allowedForIntermediate || allowedForIntermediate.length === 0 || allowedForIntermediate.includes(col)).map((col) => (
                   <Column
                     key={`exempt-${col}`}
                     field={col}
@@ -3559,7 +3676,10 @@ export default function DataTableNew({
                     body={(rowData, { field: colField }) => formatCellValue(getDataValue(rowData, colField), get(columnTypesFlags, col))}
                   />
                 ))}
-                {columnsWithData.map(({ columnName }) => (
+                {columnsWithData.filter(({ columnName, metric }) => {
+                  const baseMetric = metric ?? (columnName.indexOf('_') >= 0 ? columnName.slice(columnName.indexOf('_') + 1) : columnName);
+                  return !allowedForIntermediate || allowedForIntermediate.length === 0 || allowedForIntermediate.includes(baseMetric);
+                }).map(({ columnName }) => (
                   <Column
                     key={columnName}
                     field={columnName}
@@ -3591,15 +3711,34 @@ export default function DataTableNew({
     const totalDataCols = columnsWithData.length;
     const isPeriodOverPeriod = columnGroupBy === 'period-over-period';
     const useOrderedSegments = structOrderedSegments && structOrderedSegments.length > 0;
-    const groupFieldLabel = formatHeaderName(nextField || innerGroupField);
+    const groupFieldToShow = nextField || innerGroupField;
+    const groupFieldLabel = formatHeaderName(groupFieldToShow);
+    const allowedForReportNested = getAllowedForReportGroupField(allowedColumns, groupFieldToShow) ?? getAllowedForScope(allowedColumns, 'report') ?? getAllowedForScope(allowedColumns, 'main');
+    const includeGroupColInReportNested = !allowedForReportNested || allowedForReportNested.length === 0 || new Set(allowedForReportNested).has(groupFieldToShow);
+    const allowedSetForReportNested = allowedForReportNested && allowedForReportNested.length > 0 ? new Set(allowedForReportNested) : null;
 
-    // Generate nested header group - use orderedSegments when available to match outer table column order
+    // Filter header segments to match body: only show columns allowed for this group level (fix: header showed all cols, body filtered → empty cells)
+    const headerSegments = useOrderedSegments && allowedSetForReportNested
+      ? structOrderedSegments.filter((seg) =>
+          seg.type === 'exempt' ? allowedSetForReportNested.has(seg.name) : allowedSetForReportNested.has(seg.metric)
+        )
+      : structOrderedSegments;
+    const headerExemptCols = !useOrderedSegments && allowedSetForReportNested ? structExemptCols.filter((c) => allowedSetForReportNested.has(c)) : structExemptCols;
+    const headerMetricsWithData = allowedSetForReportNested ? metricsWithData.filter((m) => allowedSetForReportNested.has(m)) : metricsWithData;
+    const headerColumnsWithData = allowedSetForReportNested
+      ? columnsWithData.filter(({ metric, columnName }) => {
+          const baseMetric = metric ?? columnName.slice(columnName.indexOf('_') + 1);
+          return allowedSetForReportNested.has(baseMetric);
+        })
+      : columnsWithData;
+
+    // Generate nested header group - use filtered segments to match body columns
     const nestedHeaderGroup = useOrderedSegments ? (
       isMergedMode ? (
         <ColumnGroup>
           <Row>
-            <Column header={groupFieldLabel} rowSpan={3} />
-            {structOrderedSegments.map((seg, idx) =>
+            {includeGroupColInReportNested && groupFieldToShow && <Column header={groupFieldLabel} rowSpan={3} />}
+            {headerSegments.map((seg, idx) =>
               seg.type === 'exempt' ? (
                 <Column key={`exempt-${seg.name}`} header={formatHeaderName(seg.name)} rowSpan={3} sortable={enableSort} field={seg.name} />
               ) : (
@@ -3608,14 +3747,14 @@ export default function DataTableNew({
             )}
           </Row>
           <Row>
-            {structOrderedSegments.map((seg, idx) =>
+            {headerSegments.map((seg, idx) =>
               seg.type === 'exempt' ? null : (
                 <Column key={`metric-${seg.metric}-${idx}`} header={getMetricLabel(seg.metric)} colSpan={seg.periods.length} />
               )
             )}
           </Row>
           <Row>
-            {structOrderedSegments.map((seg) =>
+            {headerSegments.map((seg) =>
               seg.type === 'exempt'
                 ? null
                 : seg.periods.map((period) => (
@@ -3632,8 +3771,8 @@ export default function DataTableNew({
       ) : (
         <ColumnGroup>
           <Row>
-            <Column header={groupFieldLabel} rowSpan={3} />
-            {structOrderedSegments.map((seg, idx) =>
+            {includeGroupColInReportNested && groupFieldToShow && <Column header={groupFieldLabel} rowSpan={3} />}
+            {headerSegments.map((seg, idx) =>
                 seg.type === 'exempt' ? (
                   <Column key={`exempt-${seg.name}`} header={formatHeaderName(seg.name)} rowSpan={3} sortable={enableSort} field={seg.name} />
                 ) : (
@@ -3642,7 +3781,7 @@ export default function DataTableNew({
               )}
             </Row>
             <Row>
-              {structOrderedSegments.map((seg) =>
+              {headerSegments.map((seg) =>
                 seg.type === 'exempt'
                   ? null
                   : seg.periods.map((period) => (
@@ -3651,7 +3790,7 @@ export default function DataTableNew({
               )}
             </Row>
             <Row>
-              {structOrderedSegments.map((seg) =>
+              {headerSegments.map((seg) =>
                 seg.type === 'exempt'
                   ? null
                   : seg.periods.map((period) => (
@@ -3662,27 +3801,27 @@ export default function DataTableNew({
                         field={`${period}_${seg.metric}`}
                       />
                   ))
-            )}
-          </Row>
-        </ColumnGroup>
-      )
+              )}
+            </Row>
+          </ColumnGroup>
+        )
     ) : isMergedMode ? (
       <ColumnGroup>
         <Row>
-          <Column header={groupFieldLabel} rowSpan={3} />
-          {structExemptCols.map((col) => (
+          {includeGroupColInReportNested && groupFieldToShow && <Column header={groupFieldLabel} rowSpan={3} />}
+          {headerExemptCols.map((col) => (
             <Column key={`exempt-${col}`} header={formatHeaderName(col)} rowSpan={3} sortable={enableSort} field={col} />
           ))}
-          {totalDataCols > 0 && <Column header="" colSpan={totalDataCols} />}
+          {headerColumnsWithData.length > 0 && <Column header="" colSpan={headerColumnsWithData.length} />}
         </Row>
         <Row>
-          {metricsWithData.map(metric => (
-            <Column key={metric} header={getMetricLabel(metric)} colSpan={metricGroups[metric].length} />
+          {headerMetricsWithData.map(metric => (
+            <Column key={metric} header={getMetricLabel(metric)} colSpan={metricGroups[metric]?.length ?? 0} />
           ))}
         </Row>
         <Row>
-          {metricsWithData.map(metric =>
-            metricGroups[metric].map(period => (
+          {headerMetricsWithData.map(metric =>
+            (metricGroups[metric] ?? []).map(period => (
               <Column key={`${period}_${metric}`} header={getTimePeriodLabelShort(period, breakdownType)} sortable={enableSort} field={`${period}_${metric}`} />
             ))
           )}
@@ -3691,20 +3830,21 @@ export default function DataTableNew({
     ) : (
       <ColumnGroup>
         <Row>
-          <Column header={groupFieldLabel} rowSpan={3} />
-          {structExemptCols.map((col) => (
+          {includeGroupColInReportNested && groupFieldToShow && <Column header={groupFieldLabel} rowSpan={3} />}
+          {headerExemptCols.map((col) => (
             <Column key={`exempt-${col}`} header={formatHeaderName(col)} rowSpan={3} sortable={enableSort} field={col} />
           ))}
-          {totalDataCols > 0 && <Column header="" colSpan={totalDataCols} />}
+          {headerColumnsWithData.length > 0 && <Column header="" colSpan={headerColumnsWithData.length} />}
         </Row>
         <Row>
-          {timePeriodsWithData.map(period => (
-            <Column key={period} header={getTimePeriodLabelShort(period, breakdownType)} colSpan={periodGroups[period].length} />
-          ))}
+          {timePeriodsWithData.map(period => {
+            const periodMetrics = (periodGroups[period] ?? []).filter(m => !allowedSetForReportNested || allowedSetForReportNested.has(m));
+            return <Column key={period} header={getTimePeriodLabelShort(period, breakdownType)} colSpan={periodMetrics.length} />;
+          })}
         </Row>
         <Row>
           {timePeriodsWithData.map(period =>
-            periodGroups[period].map(metric => (
+            (periodGroups[period] ?? []).filter(m => !allowedSetForReportNested || allowedSetForReportNested.has(m)).map(metric => (
               <Column key={`${period}_${metric}`} header={getMetricLabel(metric)} sortable={enableSort} field={`${period}_${metric}`} />
             ))
           )}
@@ -3714,12 +3854,13 @@ export default function DataTableNew({
 
     // Generate nested columns - use orderedSegments when available for correct column order
     // Get column type for next/current group field to determine formatting
-    const groupFieldToShow = nextField || innerGroupField;
     const innerColType = get(columnTypesFlags, groupFieldToShow);
     const isInnerNumericCol = get(innerColType, 'isNumeric', false);
     const innerColorClass = getColumnColorClass(groupFieldToShow);
-    
-    const nestedColumns = [
+
+    const nestedColumns = [];
+    if (includeGroupColInReportNested && groupFieldToShow) {
+      nestedColumns.push(
       <Column 
         key={groupFieldToShow} 
         field={groupFieldToShow} 
@@ -3760,11 +3901,19 @@ export default function DataTableNew({
           );
         }}
       />
-    ];
+      );
+    }
+
+    // Helper: breakdown columns use period_metric format; allowedSet has base metric names
+    const extractMetricFromBreakdownCol = (columnName) => {
+      const idx = String(columnName).indexOf('_');
+      return idx >= 0 ? columnName.slice(idx + 1) : columnName;
+    };
 
     if (useOrderedSegments) {
       structOrderedSegments.forEach((seg) => {
         if (seg.type === 'exempt') {
+          if (allowedSetForReportNested && !allowedSetForReportNested.has(seg.name)) return;
           const colType = get(columnTypesFlags, seg.name);
           nestedColumns.push(
             <Column
@@ -3775,6 +3924,7 @@ export default function DataTableNew({
             />
           );
         } else {
+          if (allowedSetForReportNested && !allowedSetForReportNested.has(seg.metric)) return;
           seg.columnNames.forEach((columnName) => {
             nestedColumns.push(
               <Column
@@ -3793,6 +3943,7 @@ export default function DataTableNew({
       });
     } else {
       structExemptCols.forEach((col) => {
+        if (allowedSetForReportNested && !allowedSetForReportNested.has(col)) return;
         const colType = get(columnTypesFlags, col);
         nestedColumns.push(
           <Column
@@ -3803,7 +3954,9 @@ export default function DataTableNew({
           />
         );
       });
-      columnsWithData.forEach(({ columnName }) => {
+      columnsWithData.forEach(({ columnName, metric }) => {
+        const baseMetric = metric ?? extractMetricFromBreakdownCol(columnName);
+        if (allowedSetForReportNested && !allowedSetForReportNested.has(baseMetric)) return;
         nestedColumns.push(
           <Column
             key={columnName}
@@ -3843,7 +3996,7 @@ export default function DataTableNew({
         </DataTable>
       </div>
     );
-  }, [enableBreakdown, reportData, nestedTableColumnStructures, effectiveGroupFields, formatHeaderName, getMetricLabel, getDataValue, formatCellValue, columnTypesFlags, getColumnColorClass, openDrawer, onInnerGroupClick, expandedRows, updateExpandedRows]);
+  }, [enableBreakdown, reportData, nestedTableColumnStructures, effectiveGroupFields, formatHeaderName, getMetricLabel, getDataValue, formatCellValue, columnTypesFlags, getColumnColorClass, openDrawer, onInnerGroupClick, expandedRows, updateExpandedRows, allowedColumns]);
 
   const onPageChange = (event) => {
     updatePagination(event.first, event.rows);
@@ -4155,11 +4308,11 @@ export default function DataTableNew({
               showFilterMenu={false}
               showClearButton={false}
               footer={footerTemplate(col, isFirstColumn)}
-              body={isReportCol ? (rowData) => {
+              body={wrapBodyWithCellStyle(isReportCol ? (rowData) => {
                 const value = getDataValue(rowData, col);
                 if (value === undefined || value === null) return '-';
                 return value.toLocaleString('en-US');
-              } : getBodyTemplate(col)}
+              } : getBodyTemplate(col), col)}
               editor={getCellEditor(col)}
               onCellEditComplete={effectiveEnableCellEdit && getCellEditor(col) ? handleCellEditComplete : undefined}
               align={isReportNumeric ? 'right' : 'left'}
@@ -4189,11 +4342,11 @@ export default function DataTableNew({
               showFilterMenu={false}
               showClearButton={false}
               footer={footerTemplate(col)}
-              body={isReportCol ? (rowData) => {
+              body={wrapBodyWithCellStyle(isReportCol ? (rowData) => {
                 const value = getDataValue(rowData, col);
                 if (value === undefined || value === null) return '-';
                 return value.toLocaleString('en-US');
-              } : getBodyTemplate(col)}
+              } : getBodyTemplate(col), col)}
               editor={getCellEditor(col)}
               onCellEditComplete={effectiveEnableCellEdit && getCellEditor(col) ? handleCellEditComplete : undefined}
               align={isReportNumeric ? 'right' : 'left'}

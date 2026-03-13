@@ -851,16 +851,18 @@ export function useQueryExecution(options) {
       previousDataSourceRef.current = dataSource;
       queryKeySetForDataSourceRef.current = null;
       lastSetQueryKeyRef.current = null;
-      if (dataSource) setSelectedQueryKey(null);
+      // When parent provides selectedQueryKeyProp (e.g. from Apply), keep it instead of resetting to null
+      if (dataSource) setSelectedQueryKey(selectedQueryKeyProp ?? null);
     }
-  }, [dataSource]);
+  }, [dataSource, selectedQueryKeyProp]);
 
   useEffect(() => {
     if (!dataSource || !processedData) return;
     const firstAvailableKey = availableQueryKeys.length > 0 ? availableQueryKeys[0] : null;
     const defaultKeyIsValid = selectedQueryKeyProp && availableQueryKeys.includes(selectedQueryKeyProp);
     if (queryKeySetForDataSourceRef.current !== dataSource) {
-      const keyToUse = defaultKeyIsValid ? selectedQueryKeyProp : firstAvailableKey;
+      // Prefer prop when provided (e.g. from Apply), else first available - availableQueryKeys may not be populated yet
+      const keyToUse = selectedQueryKeyProp || firstAvailableKey;
       if (keyToUse && lastSetQueryKeyRef.current !== keyToUse) {
         queryKeySetForDataSourceRef.current = dataSource;
         lastSetQueryKeyRef.current = keyToUse;
@@ -882,6 +884,11 @@ export function useQueryExecution(options) {
             lastSetQueryKeyRef.current = selectedQueryKeyProp;
             return selectedQueryKeyProp;
           }
+        }
+        // When selectedQueryKeyProp changes (e.g. from Apply), sync to it - trust parent even if not yet in availableQueryKeys
+        if (selectedQueryKeyProp && current !== selectedQueryKeyProp && lastSetQueryKeyRef.current !== selectedQueryKeyProp) {
+          lastSetQueryKeyRef.current = selectedQueryKeyProp;
+          return selectedQueryKeyProp;
         }
         return current;
       });

@@ -55,7 +55,9 @@ import { applyDateFilter, applyNumericFilter, filterRows, parseNumericFilter } f
 import { getMainOverrides } from '../utils/columnTypesOverrideUtils';
 import { isJsonArrayOfObjectsString, parseJsonObject } from '../utils/jsonArrayParser';
 import { flattenToLeafRows } from '../utils/perSlotPipelineUtils';
+import { getAllowedForScope } from '../utils/allowedColumnsUtils';
 import { useReportData } from '../utils/providerUtils';
+import { transformToReportData } from '../utils/reportUtils';
 import { exportReportToXLSX } from '../utils/reportExportUtils';
 import { isDateLike, isNumericValue } from '../utils/typeDetectionUtils';
 import { firestoreService } from '@/app/graphql-playground/services/firestoreService';
@@ -174,11 +176,13 @@ const quillFormToolbar = (
 );
 
 // WriteSchema helpers for save payload (create/update structure per write.md)
+// Format root key like SaveControls rootKeyToDoctypeName: SecondaryDataEntry => Secondary Data Entry
 function getDoctypeFromWriteSchema(writeSchema) {
   if (!writeSchema || typeof writeSchema !== 'object') return null;
   const rootKey = Object.keys(writeSchema)[0];
   if (!rootKey) return null;
-  return rootKey.endsWith('s') ? rootKey.slice(0, -1) : rootKey;
+  const withoutS = rootKey.endsWith('s') ? rootKey.slice(0, -1) : rootKey;
+  return withoutS.replace(/([A-Z])/g, ' $1').trim();
 }
 
 function getSchemaStructure(writeSchema) {
@@ -199,6 +203,7 @@ function rowToCreateFields(row, schemaStructure, skipKey) {
   const { mainFields, childTables } = schemaStructure;
   const fields = {};
   for (const k of mainFields) {
+    if (k === 'name') continue;
     if (skipKey(k)) continue;
     const v = row[k];
     if (v === undefined) continue;
@@ -213,6 +218,7 @@ function rowToCreateFields(row, schemaStructure, skipKey) {
       fields[tableName] = tableValue.map((child) => {
         const obj = {};
         for (const f of childFieldNames) {
+          if (f === 'name') continue;
           if (!skipKey(f) && child && f in child) obj[f] = child[f];
         }
         return obj;
@@ -221,6 +227,7 @@ function rowToCreateFields(row, schemaStructure, skipKey) {
     }
     const obj = {};
     for (const f of childFieldNames) {
+      if (f === 'name') continue;
       if (!skipKey(f) && tableValue && f in tableValue) obj[f] = tableValue[f];
     }
     if (Object.keys(obj).length > 0) fields[tableName] = obj;
@@ -268,7 +275,103 @@ function rowToUpdateFields(editRow, changes, schemaStructure, skipKey) {
       fields[k] = val.to;
     }
   }
+  if (schemaStructure.mainFields?.includes('name') && docName != null) {
+    fields.name = docName;
+  }
   return { name: docName, fields };
+}
+
+/**
+ * Build bulkUpdate variables for frappe_graphql API (create_child, update_child, delete_child, fields).
+ * Splits changed rows into parent-level updates and child table operations.
+ */
+function buildBulkUpdateVariables(doctype, changedRows, schemaStructure, skipKey) {
+  const fields = [];
+  const createChild = [];
+  const updateChild = [];
+  const deleteChild = [];
+
+  const getNestedKey = (item, idx) => {
+    if (!item || typeof item !== 'object') return `__nested_${idx}`;
+    return item.__editingKey__ ?? item.id ?? item.key ?? item.__id__ ?? `__nested_${idx}`;
+  };
+
+  for (const entry of changedRows) {
+    const { editRow, changes } = entry;
+    const parentId = editRow?.name ?? editRow?.id ?? editRow?.key ?? editRow?.__editingKey__ ?? null;
+    if (!parentId) continue;
+
+    const parentFields = {};
+    const createByTable = {};
+    const updateByTable = {};
+    const deleteByTable = {};
+
+    for (const [k, val] of Object.entries(changes)) {
+      if (skipKey(k)) continue;
+      if (val?.nested) {
+        const tableName = k;
+        const editArr = editRow[k];
+        if (!Array.isArray(editArr)) continue;
+        for (const n of val.nested) {
+          if (n.type === 'added' && n.row) {
+            const obj = {};
+            for (const [f, v] of Object.entries(n.row)) {
+              if (!skipKey(f) && v !== undefined) obj[f] = v;
+            }
+            if (Object.keys(obj).length > 0) {
+              if (!createByTable[tableName]) createByTable[tableName] = [];
+              createByTable[tableName].push(obj);
+            }
+          } else if (n.type === 'changed' && n.changes) {
+            const nestedKey = n.nestedKey;
+            const editItem = editArr.find((child, idx) => getNestedKey(child, idx) === nestedKey);
+            const obj = {};
+            if (editItem?.name != null) obj.name = editItem.name;
+            else if (editItem?.id != null) obj.id = editItem.id;
+            else if (editItem?.key != null) obj.key = editItem.key;
+            for (const [f, cv] of Object.entries(n.changes)) {
+              if (skipKey(f)) continue;
+              if (cv?.to !== undefined) obj[f] = cv.to;
+            }
+            if (!updateByTable[tableName]) updateByTable[tableName] = [];
+            updateByTable[tableName].push(obj);
+          } else if (n.type === 'removed' && n.row) {
+            const childId = n.row?.name ?? n.row?.id ?? n.row?.key ?? n.row?.__editingKey__;
+            if (childId != null) {
+              if (!deleteByTable[tableName]) deleteByTable[tableName] = [];
+              deleteByTable[tableName].push(childId);
+            }
+          }
+        }
+      } else if (val?.to !== undefined) {
+        parentFields[k] = val.to;
+      }
+    }
+
+    if (Object.keys(parentFields).length > 0) {
+      if (schemaStructure.mainFields?.includes('name') && parentId != null) {
+        parentFields.name = parentId;
+      }
+      fields.push({ name: parentId, fields: parentFields });
+    }
+
+    if (Object.keys(createByTable).length > 0) {
+      createChild.push({ parent: parentId, fields: createByTable });
+    }
+    if (Object.keys(updateByTable).length > 0) {
+      updateChild.push({ parent: parentId, fields: updateByTable });
+    }
+    if (Object.keys(deleteByTable).length > 0) {
+      deleteChild.push({ parent: parentId, fields: Object.entries(deleteByTable).map(([t, ids]) => ({ [t]: ids })) });
+    }
+  }
+
+  const variables = { doctype };
+  if (fields.length > 0) variables.fields = fields;
+  if (createChild.length > 0) variables.create_child = createChild;
+  if (updateChild.length > 0) variables.update_child = updateChild;
+  if (deleteChild.length > 0) variables.delete_child = deleteChild;
+  return variables;
 }
 
 export default function DataProviderNew({
@@ -308,6 +411,7 @@ export default function DataProviderNew({
   groupFields = null, // Array for infinite nesting - required for grouping (breaking change: outerGroupField/innerGroupField no longer supported)
   redFields = [],
   greenFields = [],
+  rowColumnStyles = [],
   enableDivideBy1Lakh = false,
   columnTypesOverride = {}, // Object with column names as keys and type strings as values: {columnName: "date" | "number" | "boolean" | "string" | "object"}
   enableCellEdit = false,
@@ -367,6 +471,7 @@ export default function DataProviderNew({
         groupFields,
         redFields,
         greenFields,
+        rowColumnStyles,
         enableDivideBy1Lakh,
         columnTypesOverride,
         enableCellEdit,
@@ -379,12 +484,12 @@ export default function DataProviderNew({
         chartHeight,
       },
     };
-  }, [slotsProp, enableSort, enableFilter, enableSummation, enableGrouping, textFilterColumns, allowedColumns, percentageColumns, derivedColumns, groupFields, redFields, greenFields, enableDivideBy1Lakh, columnTypesOverride, enableCellEdit, editableColumns, formInputOverride, drawerTabs, enableReport, dateColumn, chartColumns, chartHeight]);
+  }, [slotsProp, enableSort, enableFilter, enableSummation, enableGrouping, textFilterColumns, allowedColumns, percentageColumns, derivedColumns, groupFields, redFields, greenFields, rowColumnStyles, enableDivideBy1Lakh, columnTypesOverride, enableCellEdit, editableColumns, formInputOverride, drawerTabs, enableReport, dateColumn, chartColumns, chartHeight]);
 
   const slotIds = useMemo(() => Object.keys(slots), [slots]);
   // Effective config: per-slot props (slot override on flat). Shared props stay flat.
-  // Shared (flat only): allowedColumns, columnTypesOverride, dateColumn, chartColumns, chartHeight, enableReport, enableDivideBy1Lakh
-  // Per-slot (slot override): groupFields, derivedColumns, editableColumns, drawerTabs, redFields, greenFields,
+  // Shared (flat only): columnTypesOverride, dateColumn, chartColumns, chartHeight, enableReport, enableDivideBy1Lakh
+  // Per-slot (slot override): allowedColumns, groupFields, derivedColumns, editableColumns, drawerTabs, redFields, greenFields, rowColumnStyles,
   //   percentageColumns, textFilterColumns, enableSort, enableFilter, enableSummation, enableCellEdit
   const mainSlotConfig = useMemo(() => slots[slotIds[0]] || {}, [slots, slotIds]);
   const effectiveMainConfig = useMemo(() => ({
@@ -398,11 +503,12 @@ export default function DataProviderNew({
     groupFields: mainSlotConfig.groupFields ?? groupFields,
     redFields: mainSlotConfig.redFields ?? redFields,
     greenFields: mainSlotConfig.greenFields ?? greenFields,
+    rowColumnStyles: mainSlotConfig.rowColumnStyles ?? rowColumnStyles,
     enableCellEdit: mainSlotConfig.enableCellEdit ?? enableCellEdit,
     editableColumns: mainSlotConfig.editableColumns ?? editableColumns,
     formInputOverride: mainSlotConfig.formInputOverride ?? formInputOverride,
     drawerTabs: mainSlotConfig.drawerTabs ?? drawerTabs,
-  }), [mainSlotConfig, enableSort, enableFilter, enableSummation, enableGrouping, textFilterColumns, percentageColumns, derivedColumns, groupFields, redFields, greenFields, enableCellEdit, editableColumns, formInputOverride, drawerTabs]);
+  }), [mainSlotConfig, enableSort, enableFilter, enableSummation, enableGrouping, textFilterColumns, percentageColumns, derivedColumns, groupFields, redFields, greenFields, rowColumnStyles, enableCellEdit, editableColumns, formInputOverride, drawerTabs]);
   const [preFilterValues, setPreFilterValues] = useState({});
   const [filterSortSidebarVisible, setFilterSortSidebarVisible] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -492,7 +598,7 @@ export default function DataProviderNew({
       return undefined;
     }
     const mainCols = effectiveMainConfig.editableColumns?.main;
-    const allowed = allowedColumns;
+    const allowed = getAllowedForScope(allowedColumns, 'main');
     if (mainCols?.length) return mainCols;
     if (allowed?.length) return allowed;
     return undefined;
@@ -535,7 +641,7 @@ export default function DataProviderNew({
     enableSort: effectiveMainConfig.enableSort,
     enableBreakdown,
     reportData: reportDataForPipeline,
-    allowedColumns,
+    allowedColumns: getAllowedForScope(allowedColumns, 'main') ?? (Array.isArray(allowedColumns) ? allowedColumns : []),
     percentageColumns: effectiveMainConfig.percentageColumns,
     derivedColumns: effectiveMainConfig.derivedColumns,
     textFilterColumns: effectiveMainConfig.textFilterColumns,
@@ -639,7 +745,7 @@ export default function DataProviderNew({
   // Main table save payload dialog (show create/update structure before confirming save)
   const [saveDiffDialogVisible, setSaveDiffDialogVisible] = useState(false);
   const [saveDiffDialogSaving, setSaveDiffDialogSaving] = useState(false);
-  const [savePayloadContent, setSavePayloadContent] = useState({ createPayload: null, updatePayload: null, removedRows: [], doctype: null });
+  const [savePayloadContent, setSavePayloadContent] = useState({ createPayload: null, updatePayload: null, removedRows: [], doctype: null, changedRows: null, schemaStructure: null, skipKey: null });
   const [savePayloadDisplayQueries, setSavePayloadDisplayQueries] = useState({ bulkCreate: null, bulkUpdate: null });
   const savePayloadElbritRef = useRef(null);
 
@@ -947,6 +1053,16 @@ export default function DataProviderNew({
     }
   }, [dataSource, monthRange, currentQueryDoc, handleSync]);
 
+  const syncButtonModel = useMemo(() => [
+    {
+      label: 'Hard Refresh',
+      icon: 'pi pi-sync',
+      command: () => {
+        handleClearMonthRangeCache();
+      }
+    }
+  ], [handleClearMonthRangeCache]);
+
   // Column detection and type analysis (moved from DataTable)
   const columns = useMemo(() => {
     if (!tableData || !Array.isArray(tableData) || isEmpty(tableData)) {
@@ -999,11 +1115,11 @@ export default function DataProviderNew({
     if (isEmpty(result) && computedFallbackColumns && isArray(computedFallbackColumns) && computedFallbackColumns.length > 0) {
       result = computedFallbackColumns.filter((c) => c && typeof c === 'string' && !String(c).startsWith('__'));
     }
-    const allowed = allowedColumns; // shared
+    const allowed = getAllowedForScope(allowedColumns, 'main');
     const derived = effectiveMainConfig.derivedColumns;
     
     // Filter by allowedColumns and exclude array fields in a single pass
-    const allowedSet = allowed && Array.isArray(allowed) && allowed.length > 0 ? new Set(allowed) : null;
+    const allowedSet = allowed && allowed.length > 0 ? new Set(allowed) : null;
     const hasArrayFilter = arrayFieldsForColumnFilter.size > 0;
     result = result.filter((col) => {
       if (allowedSet && !allowedSet.has(col)) return false;
@@ -1017,6 +1133,13 @@ export default function DataProviderNew({
     result = getOrderedColumnsWithDerived(result, derived || [], mode, fieldName);
     return result;
   }, [columns, computedFallbackColumns, allowedColumns, effectiveMainConfig.derivedColumns, arrayFieldsForColumnFilter, derivedColumnsMode, derivedColumnsFieldName]);
+
+  // Stable key for filteredColumns - used by allowedFieldSet and reportDataWithDerived to avoid loops when
+  // filteredColumns gets new array reference but same content (pipeline -> columns -> filteredColumns cycle)
+  const filteredColumnsKey = useMemo(
+    () => (Array.isArray(filteredColumns) ? filteredColumns.join(',') : ''),
+    [filteredColumns]
+  );
 
   // Column types computation (NEW FORMAT: { field_name: "boolean" | "number" | "date" | "string" })
   const columnTypes = useMemo(() => {
@@ -1258,6 +1381,12 @@ export default function DataProviderNew({
     return hasPercentageColumns ? (pct || []).map(pc => pc.columnName).filter(Boolean) : [];
   }, [hasPercentageColumns, effectiveMainConfig.percentageColumns]);
 
+  // Stable key for percentageColumnNames - used by allowedFieldSet to avoid report-mode loop
+  const percentageColumnNamesKey = useMemo(
+    () => (Array.isArray(percentageColumnNames) ? percentageColumnNames.join(',') : ''),
+    [percentageColumnNames]
+  );
+
   const isPercentageColumn = useCallback((columnName) => {
     const pct = effectiveMainConfig.percentageColumns;
     return hasPercentageColumns && pct && pct.some(pc => pc.columnName === columnName);
@@ -1451,16 +1580,10 @@ export default function DataProviderNew({
     return [...fromProp, ...fromDerived];
   }, [columnsExemptFromBreakdown, effectiveMainConfig.derivedColumns]);
 
-  // alwaysAllowedKeys must include exempt columns so sanitizeRowsByAllowedColumns never strips them
-  const alwaysAllowedKeys = useMemo(
-    () => new Set(['id', 'period', 'periodLabel', 'isNestedRow', ...(effectiveColumnsExemptFromBreakdown || [])]),
-    [effectiveColumnsExemptFromBreakdown]
-  );
-
   const allowedFieldSet = useMemo(() => {
-    const allowed = allowedColumns; // shared
+    const allowed = getAllowedForScope(allowedColumns, 'report') ?? getAllowedForScope(allowedColumns, 'main');
     const dateCol = dateColumn; // shared
-    if (!Array.isArray(allowed) || allowed.length === 0) {
+    if (!allowed || allowed.length === 0) {
       return null;
     }
 
@@ -1499,40 +1622,11 @@ export default function DataProviderNew({
     });
 
     return set;
-  }, [allowedColumns, dateColumn, filteredColumns, effectiveGroupFields, percentageColumnNames, effectiveColumnsExemptFromBreakdown]);
-
-  const sanitizeRowsByAllowedColumns = useCallback((rows) => {
-    if (!rows || !isArray(rows)) return [];
-    if (!allowedFieldSet || allowedFieldSet.size === 0) return rows;
-
-    const sanitizeRow = (row) => {
-      if (!row || typeof row !== 'object') {
-        return row;
-      }
-
-      const sanitizedRow = {};
-      Object.keys(row).forEach((key) => {
-        if (
-          allowedFieldSet.has(key) ||
-          key.startsWith('__') ||
-          alwaysAllowedKeys.has(key)
-        ) {
-          const value = row[key];
-          if (key === '__groupRows__' && Array.isArray(value)) {
-            sanitizedRow[key] = sanitizeRowsByAllowedColumns(value);
-          } else {
-            sanitizedRow[key] = value;
-          }
-        }
-      });
-      return sanitizedRow;
-    };
-
-    return rows.map((row) => sanitizeRow(row));
-  }, [allowedFieldSet, alwaysAllowedKeys]);
+  }, [allowedColumns, dateColumn, filteredColumnsKey, effectiveGroupFields, percentageColumnNamesKey, effectiveColumnsExemptFromBreakdown]);
 
   // Report needs flat leaf rows with date values. When filteredData has group structure (__groupRows__),
   // getDataValue(groupRow, dateColumn) returns wrong values. Flatten to leaf rows before report.
+  // Full row data is passed (no stripping) so report can aggregate all metrics; allowedFieldSet filters displayed metrics only.
   const reportInputData = useMemo(() => {
     let dataForReport = filteredData;
     if (dataForReport && isArray(dataForReport) && !isEmpty(dataForReport)) {
@@ -1541,10 +1635,10 @@ export default function DataProviderNew({
         dataForReport = flattenToLeafRows(dataForReport);
       }
     }
-    return sanitizeRowsByAllowedColumns(dataForReport);
-  }, [filteredData, sanitizeRowsByAllowedColumns]);
+    return dataForReport ?? [];
+  }, [filteredData]);
 
-  const drawerReportInputData = useMemo(() => sanitizeRowsByAllowedColumns(drawerData), [drawerData, sanitizeRowsByAllowedColumns]);
+  const drawerReportInputData = useMemo(() => drawerData ?? [], [drawerData]);
 
   // Main table report data computation using shared hook
   const { reportData: rawReportData, isComputingReport: internalIsComputingReport } = useReportData(
@@ -1581,6 +1675,23 @@ export default function DataProviderNew({
     if (activeDrawerTab.innerGroup) derived.push(activeDrawerTab.innerGroup);
     return derived;
   }, [activeDrawerTab]);
+
+  const effectiveDrawerAllowedColumns = drawerTableOptions?.allowedColumnsOverride ?? allowedColumns;
+  const drawerAllowedFieldSet = useMemo(() => {
+    const allowed = getAllowedForScope(effectiveDrawerAllowedColumns, 'report') ?? getAllowedForScope(effectiveDrawerAllowedColumns, 'main');
+    const dateCol = dateColumn;
+    if (!allowed || allowed.length === 0) {
+      return null;
+    }
+    const set = new Set();
+    allowed.forEach((col) => { if (col) set.add(col); });
+    filteredColumns.forEach((col) => { if (col) set.add(col); });
+    drawerGroupFields.forEach((field) => { if (field) set.add(field); });
+    if (dateCol) set.add(dateCol);
+    percentageColumnNames.forEach((col) => { if (col) set.add(col); });
+    effectiveColumnsExemptFromBreakdown.forEach((col) => { if (col) set.add(col); });
+    return set;
+  }, [drawerTableOptions, allowedColumns, dateColumn, filteredColumnsKey, drawerGroupFields, percentageColumnNamesKey, effectiveColumnsExemptFromBreakdown]);
 
   const { reportData: rawDrawerReportData } = useReportData(
     enableBreakdown,
@@ -1627,11 +1738,19 @@ export default function DataProviderNew({
     // in the order they appear in filteredColumns (which uses getOrderedColumnsWithDerived)
     const exemptSet = new Set(effectiveColumnsExemptFromBreakdown);
     const metricsSet = base.metrics && Array.isArray(base.metrics) ? new Set(base.metrics) : new Set();
-    const orderedNonGroupColumns = filteredColumns.filter(
+    const baseNonGroupColumns = filteredColumns.filter(
       (col) =>
         !effectiveGroupFields.includes(col) &&
         col !== dateColumn &&
         (exemptSet.has(col) || metricsSet.has(col))
+    );
+    // Include report-enabled derived columns (scope.main: false, scope.report.enabled: true)
+    // that are not in filteredColumns, since filteredColumns uses mode 'main'
+    const orderedNonGroupColumns = getOrderedColumnsWithDerived(
+      baseNonGroupColumns,
+      derived || [],
+      'report',
+      null
     );
 
     let result = { ...base, orderedNonGroupColumns };
@@ -1661,17 +1780,131 @@ export default function DataProviderNew({
       tableData: tableDataDerived,
       nestedTableData: nestedTableDataDerived,
     };
-  }, [reportData, effectiveMainConfig.derivedColumns, filteredColumns, effectiveGroupFields, dateColumn, effectiveColumnsExemptFromBreakdown, breakdownType, columnGroupBy]);
+  }, [reportData, effectiveMainConfig.derivedColumns, filteredColumnsKey, effectiveGroupFields, dateColumn, effectiveColumnsExemptFromBreakdown, breakdownType, columnGroupBy]);
+
+  // Per-slot report data when multi-slot + report mode (uses each slot's allowedColumns and filteredData)
+  const reportDataBySlot = useMemo(() => {
+    if (!isMultiSlot || !enableBreakdown || !pipelinesBySlot || Object.keys(pipelinesBySlot).length === 0) {
+      return null;
+    }
+    const result = {};
+    for (const slotId of slotIds) {
+      const pSlot = pipelinesBySlot[slotId];
+      if (!pSlot) continue;
+      const slotConfig = slots[slotId] ?? {};
+      const effectiveSlotConfig = { ...effectiveMainConfig, ...slotConfig };
+      const slotFilteredData = pSlot.filteredData ?? [];
+      let dataForReport = slotFilteredData;
+      if (dataForReport && isArray(dataForReport) && !isEmpty(dataForReport)) {
+        const first = dataForReport[0];
+        if (first?.__isGroupRow__ && isArray(first?.__groupRows__)) {
+          dataForReport = flattenToLeafRows(dataForReport);
+        }
+      }
+      const slotGroupFields = pSlot.effectiveGroupFields ?? (effectiveSlotConfig.groupFields ?? []);
+      const slotAllowedColumns = effectiveSlotConfig.allowedColumns ?? allowedColumns;
+      const slotAllowed = getAllowedForScope(slotAllowedColumns, 'report') ?? getAllowedForScope(slotAllowedColumns, 'main');
+      const slotFilteredColumns = pSlot.pipelineColumnMeta?.filteredColumns ?? [];
+      const slotPercentageNames = pSlot.pipelineColumnMeta?.percentageColumnNames ?? [];
+      const allowedFieldSetForSlot = new Set();
+      if (slotAllowed?.length) slotAllowed.forEach((c) => c && allowedFieldSetForSlot.add(c));
+      slotFilteredColumns.forEach((c) => c && allowedFieldSetForSlot.add(c));
+      slotGroupFields.forEach((f) => f && allowedFieldSetForSlot.add(f));
+      if (dateColumn) allowedFieldSetForSlot.add(dateColumn);
+      slotPercentageNames.forEach((c) => c && allowedFieldSetForSlot.add(c));
+      effectiveColumnsExemptFromBreakdown.forEach((c) => c && allowedFieldSetForSlot.add(c));
+      const rawSlotReport = transformToReportData(
+        dataForReport,
+        slotGroupFields,
+        dateColumn,
+        breakdownType,
+        columnTypes,
+        sortConfig,
+        sortFieldType,
+        effectiveColumnsExemptFromBreakdown
+      );
+      const filteredMetrics = rawSlotReport?.metrics && Array.isArray(rawSlotReport.metrics)
+        ? rawSlotReport.metrics.filter((m) => allowedFieldSetForSlot.has(m))
+        : rawSlotReport?.metrics ?? [];
+      let baseReport = rawSlotReport
+        ? { ...rawSlotReport, metrics: filteredMetrics }
+        : rawSlotReport;
+      if (!baseReport) {
+        result[slotId] = null;
+        continue;
+      }
+      const derived = effectiveSlotConfig.derivedColumns;
+      const exemptSet = new Set(effectiveColumnsExemptFromBreakdown);
+      const metricsSet = new Set(baseReport.metrics ?? []);
+      const baseNonGroupColumns = slotFilteredColumns.filter(
+        (col) =>
+          !slotGroupFields.includes(col) &&
+          col !== dateColumn &&
+          (exemptSet.has(col) || metricsSet.has(col))
+      );
+      const orderedNonGroupColumns = getOrderedColumnsWithDerived(
+        baseNonGroupColumns,
+        derived || [],
+        'report',
+        null
+      );
+      let finalReport = { ...baseReport, orderedNonGroupColumns };
+      if (derived?.length) {
+        const reportMeta = {
+          metrics: baseReport.metrics,
+          timePeriods: baseReport.timePeriods,
+          dateRange: baseReport.dateRange,
+          breakdownType,
+          columnGroupBy,
+        };
+        const reportCtx = { mode: 'report', getDataValue, reportMeta };
+        finalReport = {
+          ...finalReport,
+          tableData: baseReport.tableData
+            ? applyDerivedColumns(baseReport.tableData, derived, reportCtx)
+            : baseReport.tableData,
+          nestedTableData: baseReport.nestedTableData
+            ? Object.fromEntries(
+                Object.entries(baseReport.nestedTableData).map(([k, v]) => [
+                  k,
+                  applyDerivedColumns(v, derived, reportCtx),
+                ])
+              )
+            : baseReport.nestedTableData,
+        };
+      }
+      result[slotId] = finalReport;
+    }
+    return Object.keys(result).length > 0 ? result : null;
+  }, [
+    isMultiSlot,
+    enableBreakdown,
+    pipelinesBySlot,
+    slotIds,
+    slots,
+    effectiveMainConfig,
+    allowedColumns,
+    dateColumn,
+    breakdownType,
+    columnTypes,
+    sortConfig,
+    sortFieldType,
+    effectiveColumnsExemptFromBreakdown,
+    columnGroupBy,
+  ]);
 
   useEffect(() => {
-    reportDataRef.current = reportDataWithDerived;
-    setReportDataForPipeline(reportDataWithDerived);
-  }, [reportDataWithDerived]);
+    const dataToSet = isMultiSlot && reportDataBySlot && slotIds.length > 0
+      ? reportDataBySlot[slotIds[0]] ?? reportDataWithDerived
+      : reportDataWithDerived;
+    reportDataRef.current = dataToSet;
+    setReportDataForPipeline(dataToSet);
+  }, [reportDataWithDerived, isMultiSlot, reportDataBySlot, slotIds]);
 
-  const isComputingReport = reportDataOverride ? false : internalIsComputingReport;
+  const isComputingReport = reportDataOverride ? false : (isMultiSlot && reportDataBySlot ? false : internalIsComputingReport);
 
   const drawerReportData = useMemo(() => {
-    if (!rawDrawerReportData || !allowedFieldSet) {
+    if (!rawDrawerReportData || !drawerAllowedFieldSet) {
       return rawDrawerReportData;
     }
 
@@ -1679,7 +1912,7 @@ export default function DataProviderNew({
       return rawDrawerReportData;
     }
 
-    const filteredMetrics = rawDrawerReportData.metrics.filter(metric => allowedFieldSet.has(metric));
+    const filteredMetrics = rawDrawerReportData.metrics.filter(metric => drawerAllowedFieldSet.has(metric));
 
     if (filteredMetrics.length === rawDrawerReportData.metrics.length) {
       return rawDrawerReportData;
@@ -1689,7 +1922,7 @@ export default function DataProviderNew({
       ...rawDrawerReportData,
       metrics: filteredMetrics
     };
-  }, [rawDrawerReportData, allowedFieldSet]);
+  }, [rawDrawerReportData, drawerAllowedFieldSet]);
 
   const drawerReportDataWithDerived = useMemo(() => {
     const derived = effectiveMainConfig.derivedColumns;
@@ -1699,11 +1932,17 @@ export default function DataProviderNew({
     // Preserve original column order for drawer report (same as main report)
     const exemptSet = new Set(effectiveColumnsExemptFromBreakdown);
     const metricsSet = base.metrics && Array.isArray(base.metrics) ? new Set(base.metrics) : new Set();
-    const orderedNonGroupColumns = filteredColumns.filter(
+    const baseNonGroupColumns = filteredColumns.filter(
       (col) =>
         !drawerGroupFields.includes(col) &&
         col !== dateColumn &&
         (exemptSet.has(col) || metricsSet.has(col))
+    );
+    const orderedNonGroupColumns = getOrderedColumnsWithDerived(
+      baseNonGroupColumns,
+      derived || [],
+      'report',
+      null
     );
 
     let result = { ...base, orderedNonGroupColumns };
@@ -2907,7 +3146,9 @@ export default function DataProviderNew({
       return;
     }
     const writeSchema = typeof writeSchemaRaw === 'string' ? (() => { try { return JSON.parse(writeSchemaRaw); } catch { return writeSchemaRaw; } })() : writeSchemaRaw;
-    const doctype = getDoctypeFromWriteSchema(writeSchema);
+    // Resolve doctype: prefer explicit writeDocTypeName from query doc (Firebase), else derive from writeSchema root
+    const explicitDoctype = currentQueryDoc?.writeDocTypeName ?? currentQueryDoc?.writeDocType;
+    const doctype = (explicitDoctype && String(explicitDoctype).trim()) || getDoctypeFromWriteSchema(writeSchema);
     const schemaStructure = getSchemaStructure(writeSchema);
     const excludeFromDiff = new Set(
       (derivedColumns || []).filter((dc) => dc.save !== true).map((dc) => dc.columnName).filter(Boolean)
@@ -3007,7 +3248,7 @@ export default function DataProviderNew({
 
         const removedRows = removed.map((e) => e.row);
 
-        setSavePayloadContent({ createPayload, updatePayload, removedRows, doctype });
+        setSavePayloadContent({ createPayload, updatePayload, removedRows, doctype, changedRows: changed, schemaStructure, skipKey });
         setSaveDiffDialogVisible(true);
         return;
       }
@@ -3148,7 +3389,14 @@ export default function DataProviderNew({
         }
       }
       if (hasUpdate) {
-        const res = await fetchGraphQLRequest(bulkUpdate, { doctype, fields: updatePayload.fields }, options);
+        const { changedRows, schemaStructure, skipKey } = savePayloadContent;
+        const bulkUpdateVariables = buildBulkUpdateVariables(
+          doctype,
+          changedRows || [],
+          schemaStructure || { mainFields: [], childTables: {} },
+          skipKey || (() => false)
+        );
+        const res = await fetchGraphQLRequest(bulkUpdate, bulkUpdateVariables, options);
         if (!res.ok) {
           const errBody = await res.text();
           let errMsg = errBody;
@@ -3918,8 +4166,10 @@ export default function DataProviderNew({
         enableGrouping: effectiveMainConfig.enableGrouping,
         textFilterColumns: effectiveMainConfig.textFilterColumns,
         effectiveGroupFields, // Array of group fields for multi-level nesting
+        allowedColumns, // Full object/array for getAllowedForGroupField, getAllowedForScope('nested')
         redFields: effectiveMainConfig.redFields,
         greenFields: effectiveMainConfig.greenFields,
+        rowColumnStyles: effectiveMainConfig.rowColumnStyles,
         enableDivideBy1Lakh, // shared
         enableReport, // shared
         enableBreakdown,
@@ -4053,15 +4303,28 @@ export default function DataProviderNew({
         return getSums(slotFilteredData, dataOrFilters);
       };
       const slotCalculateSums = getSumsForSlot();
+      const slotReportData = reportDataBySlot && reportDataBySlot[slotId];
+      let slotGroupedData = pSlot.groupedData;
+      let slotSortedData = pSlot.sortedData;
+      let slotPaginatedData = pSlot.paginatedData;
+      if (slotReportData && slotReportData.tableData && isArray(slotReportData.tableData)) {
+        slotGroupedData = slotReportData.tableData;
+        slotSortedData = !isEmpty(slotSortMeta) && enableBreakdown
+          ? orderBy(slotGroupedData, slotSortMeta.map((s) => s.field), slotSortMeta.map((s) => (s.order === 1 ? 'asc' : 'desc')))
+          : slotGroupedData;
+        const first = slotPagination?.first ?? 0;
+        const rows = slotPagination?.rows ?? 10;
+        slotPaginatedData = isArray(slotSortedData) ? slotSortedData.slice(first, first + rows) : [];
+      }
       map[slotId] = {
         rawData: mainTableEditingData,
         columns: meta.filteredColumns ?? [],
         columnTypes: meta.columnTypes ?? columnTypes,
         columnTypesOverride,
         filteredData: pSlot.filteredData,
-        groupedData: pSlot.groupedData,
-        sortedData: pSlot.sortedData,
-        paginatedData: pSlot.paginatedData,
+        groupedData: slotGroupedData,
+        sortedData: slotSortedData,
+        paginatedData: slotPaginatedData,
         sums: slotCalculateSums,
         getSums: getSumsForSlot,
         filterOptions: pSlot.optionColumnValues ?? {},
@@ -4084,12 +4347,14 @@ export default function DataProviderNew({
         enableGrouping: effectiveSlotConfig.enableGrouping,
         textFilterColumns: effectiveSlotConfig.textFilterColumns,
         effectiveGroupFields: pSlot.effectiveGroupFields ?? [],
+        allowedColumns: effectiveSlotConfig.allowedColumns ?? allowedColumns,
         redFields: effectiveSlotConfig.redFields,
         greenFields: effectiveSlotConfig.greenFields,
+        rowColumnStyles: effectiveSlotConfig.rowColumnStyles,
         enableDivideBy1Lakh,
         enableReport,
         enableBreakdown,
-        reportData: reportDataWithDerived,
+        reportData: slotReportData ?? reportDataWithDerived,
         isComputingReport,
         isApplyingFilterSort,
         chartColumns,
@@ -4164,7 +4429,7 @@ export default function DataProviderNew({
     }
     return map;
   }, [
-    isMultiSlot, slotIds, pipelinesBySlot, slots, effectiveMainConfig,
+    isMultiSlot, slotIds, pipelinesBySlot, slots, effectiveMainConfig, allowedColumns, reportDataBySlot, reportDataWithDerived,
     tableFiltersBySlot, tableSortMetaBySlot, tablePaginationBySlot, tableExpandedRowsBySlot, tableVisibleColumnsBySlot, tableVisibleColumns,
     updateFilterForSlot, clearFilterForSlot, clearAllFiltersForSlot, updateSortForSlot, updatePaginationForSlot, updateExpandedRowsForSlot, updateVisibleColumnsForSlot,
     getSums, mainTableEditingData, columnTypes, columnTypesOverride, multiselectColumns, hasPercentageColumns, percentageColumnNames, getPercentageColumnValue, getPercentageColumnSortFunction,
@@ -4378,15 +4643,7 @@ export default function DataProviderNew({
                   label={<span style={{ fontSize: '0.75rem', whiteSpace: 'nowrap' }}>{lastUpdatedText}</span>}
                   icon={syncIconClass}
                   onClick={handleSync}
-                  model={[
-                    {
-                      label: 'Hard Refresh',
-                      icon: 'pi pi-sync',
-                      command: () => {
-                        handleClearMonthRangeCache();
-                      }
-                    }
-                  ]}
+                  model={syncButtonModel}
                   disabled={isSyncDisabled}
                   style={{ height: '2rem', minWidth: 'fit-content' }}
                 />
@@ -4598,15 +4855,7 @@ export default function DataProviderNew({
                     label={<span style={{ fontSize: '0.75rem', whiteSpace: 'nowrap' }}>{lastUpdatedText}</span>}
                     icon={syncIconClass}
                     onClick={handleSync}
-                    model={[
-                      {
-                        label: 'Hard Refresh',
-                        icon: 'pi pi-sync',
-                        command: () => {
-                          handleClearMonthRangeCache();
-                        }
-                      }
-                    ]}
+                    model={syncButtonModel}
                     disabled={isSyncDisabled}
                     style={{ height: '2rem', minWidth: 'fit-content' }}
                   />
@@ -5096,12 +5345,13 @@ export default function DataProviderNew({
                       enableSummation: effectiveMainConfig.enableSummation,
                       enableDivideBy1Lakh, // shared - pass flat to nested
                       textFilterColumns: effectiveMainConfig.textFilterColumns || [],
-                      allowedColumns: allowedColumns || [], // shared
+                      allowedColumns: tab.allowedColumns ?? (getAllowedForScope(effectiveDrawerAllowedColumns, 'nested') ?? getAllowedForScope(effectiveDrawerAllowedColumns, 'main')) ?? [], // drawer: tab override, else nested scope, else main (from slot when opened from slot)
                       onAllowedColumnsChange: onAllowedColumnsChange, // from main table
                       visibleColumns: tableVisibleColumns, // from main table - ensures drawer respects column visibility
                       onVisibleColumnsChange: onVisibleColumnsChange, // from main table
                       redFields: effectiveMainConfig.redFields || [],
                       greenFields: effectiveMainConfig.greenFields || [],
+                      rowColumnStyles: effectiveMainConfig.rowColumnStyles || [],
                       groupFields: (() => {
                         // If tab.groupFields is set use it, else derive from [outerGroup, innerGroup]
                         if (tab.groupFields && Array.isArray(tab.groupFields)) {
@@ -5173,6 +5423,7 @@ export default function DataProviderNew({
                               groupFields={mergedTableProps.groupFields}
                               redFields={mergedTableProps.redFields || []}
                               greenFields={mergedTableProps.greenFields || []}
+                              rowColumnStyles={mergedTableProps.rowColumnStyles || []}
                               enableDivideBy1Lakh={mergedTableProps.enableDivideBy1Lakh || false}
                               columnTypesOverride={mergedTableProps.columnTypesOverride || {}}
                               allowedColumns={mergedTableProps.allowedColumns || []}

@@ -3,8 +3,13 @@
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { queryRegistry } from '@/app/graphql-playground/services/queryRegistry';
 import { debounce, flatMap, get, isEmpty, isNil, filter as lodashFilter, startCase, uniq } from 'lodash';
+import { Button } from 'primereact/button';
+import { Dialog } from 'primereact/dialog';
 import { Dropdown } from 'primereact/dropdown';
+import { InputText } from 'primereact/inputtext';
+import { TabPanel, TabView } from 'primereact/tabview';
 import { Splitter, SplitterPanel } from 'primereact/splitter';
+import { confirmDialog } from 'primereact/confirmdialog';
 import { Toast } from 'primereact/toast';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import DataProvider from './components/DataProvider';
@@ -12,12 +17,43 @@ import DataTableControls from './components/DataTableControls';
 import DataTableNew from './components/DataTableNew';
 import DebugDataContext from './components/DebugDataContext';
 import ReportLineChartWrapper from './components/ReportLineChartWrapper';
-import { defaultDataTableConfig } from './config/defaultConfig';
+import { extractStateFromConfig, isConfigDirty as checkConfigDirty } from './config/configService';
+import { listConfigs, getConfig, getDefaultConfig, getDefaultConfigId, getConfigList } from './config/configService';
+import { getLocalConfig } from './config/providers/localConfigProvider';
+import { configSerialized } from './config/configSerialized';
+import { serializeConfigToJs, deserializeJsToConfig } from './config/configSerializer';
+import { firestoreService } from '@/app/graphql-playground/services/firestoreService';
 import { getDataKeys, getDataValue } from './utils/dataAccessUtils';
 
-
+const defaultConfig = getDefaultConfig() ?? {};
 const isDebugTableContext = process.env.NEXT_PUBLIC_DEBUG_TABLE_CONTEXT === '1';
 const showLegacyProviderToggle = process.env.NEXT_PUBLIC_SHOW_LEGACY_PROVIDER_TOGGLE === '1';
+
+/** Build single main slot from flat state values (used when config has no slots) */
+function buildSingleSlotFromFlat(values) {
+  return {
+    main: {
+      enableSort: values.enableSort,
+      enableFilter: values.enableFilter,
+      enableSummation: values.enableSummation,
+      textFilterColumns: values.textFilterColumns ?? [],
+      percentageColumns: values.percentageColumns ?? [],
+      derivedColumns: values.derivedColumns ?? [],
+      groupFields: values.groupFields ?? [],
+      redFields: values.redFields ?? [],
+      greenFields: values.greenFields ?? [],
+      rowColumnStyles: values.rowColumnStyles ?? [],
+      enableCellEdit: values.enableCellEdit,
+      editableColumns: values.editableColumns ?? { main: [], nested: {}, object: {} },
+      formInputOverride: values.formInputOverride ?? {},
+      drawerTabs: values.drawerTabs?.length > 0 ? values.drawerTabs : [{ id: `tab-${Date.now()}`, name: '', outerGroup: null, innerGroup: null }],
+      enableReport: values.enableReport,
+      dateColumn: values.dateColumn,
+      chartColumns: values.chartColumns ?? [],
+      chartHeight: values.chartHeight ?? 400,
+    },
+  };
+}
 
 function DataTablePage() {
   const toast = useRef(null);
@@ -25,57 +61,88 @@ function DataTablePage() {
   const [hideTableInDebug, setHideTableInDebug] = useState(false);
   
   // Initialize dataSource first
-  const [dataSource, setDataSource] = useState(defaultDataTableConfig.dataSource);
+  const [dataSource, setDataSource] = useState(defaultConfig.dataSource);
   
   const [tableData, setTableData] = useState([]); // Filtered data for DataTable
   const [rawTableData, setRawTableData] = useState([]); // Full/original data for Auth Control in DataTableControls
-  const [selectedQueryKey, setSelectedQueryKey] = useState(defaultDataTableConfig.selectedQueryKey);
+  const [selectedQueryKey, setSelectedQueryKey] = useState(defaultConfig.selectedQueryKey);
   const [availableQueryKeys, setAvailableQueryKeys] = useState([]);
   // Controller fetches savedQueries for Data Source dropdown
   const [savedQueries, setSavedQueries] = useState([]);
   const [loadingQueries, setLoadingQueries] = useState(false);
   const [executingQuery, setExecutingQuery] = useState(false);
   const [isLoadingData, setIsLoadingData] = useState(false);
-  const [enableSort, setEnableSort] = useState(defaultDataTableConfig.enableSort);
-  const [enableFilter, setEnableFilter] = useState(defaultDataTableConfig.enableFilter);
-  const [enableSummation, setEnableSummation] = useState(defaultDataTableConfig.enableSummation);
-  const [enableCellEdit, setEnableCellEdit] = useState(defaultDataTableConfig.enableCellEdit);
-  const [enableDivideBy1Lakh, setEnableDivideBy1Lakh] = useState(defaultDataTableConfig.enableDivideBy1Lakh);
-  const [rowsPerPageOptionsRaw, setRowsPerPageOptionsRaw] = useState(defaultDataTableConfig.rowsPerPageOptions);
-  const [defaultRowsRaw, setDefaultRowsRaw] = useState(defaultDataTableConfig.defaultRows);
-  const [tableHeight, setTableHeight] = useState(defaultDataTableConfig.tableHeight);
-  const [textFilterColumnsRaw, setTextFilterColumnsRaw] = useState(defaultDataTableConfig.textFilterColumns);
-  const [allowedColumnsRaw, setAllowedColumnsRaw] = useState(defaultDataTableConfig.allowedColumns);
-  const [redFieldsRaw, setRedFieldsRaw] = useState(defaultDataTableConfig.redFields);
-  const [greenFieldsRaw, setGreenFieldsRaw] = useState(defaultDataTableConfig.greenFields);
-  const [outerGroupFieldRaw, setOuterGroupFieldRaw] = useState(defaultDataTableConfig.outerGroupField);
-  const [innerGroupFieldRaw, setInnerGroupFieldRaw] = useState(defaultDataTableConfig.innerGroupField);
+  const [enableSort, setEnableSort] = useState(defaultConfig.enableSort);
+  const [enableFilter, setEnableFilter] = useState(defaultConfig.enableFilter);
+  const [enableSummation, setEnableSummation] = useState(defaultConfig.enableSummation);
+  const [enableCellEdit, setEnableCellEdit] = useState(defaultConfig.enableCellEdit);
+  const [enableDivideBy1Lakh, setEnableDivideBy1Lakh] = useState(defaultConfig.enableDivideBy1Lakh);
+  const [rowsPerPageOptionsRaw, setRowsPerPageOptionsRaw] = useState(defaultConfig.rowsPerPageOptions);
+  const [defaultRowsRaw, setDefaultRowsRaw] = useState(defaultConfig.defaultRows);
+  const [tableHeight, setTableHeight] = useState(defaultConfig.tableHeight);
+  const [textFilterColumnsRaw, setTextFilterColumnsRaw] = useState(defaultConfig.textFilterColumns);
+  const [allowedColumnsRaw, setAllowedColumnsRaw] = useState(defaultConfig.allowedColumns);
+  const [redFieldsRaw, setRedFieldsRaw] = useState(defaultConfig.redFields);
+  const [greenFieldsRaw, setGreenFieldsRaw] = useState(defaultConfig.greenFields);
+  const [rowColumnStyles, setRowColumnStyles] = useState(defaultConfig.rowColumnStyles || []);
+  const [outerGroupFieldRaw, setOuterGroupFieldRaw] = useState(defaultConfig.outerGroupField);
+  const [innerGroupFieldRaw, setInnerGroupFieldRaw] = useState(defaultConfig.innerGroupField);
   // Group fields array for infinite nesting support
-  const [groupFieldsRaw, setGroupFieldsRaw] = useState(defaultDataTableConfig.groupFields || []);
-  const [editableColumnsRaw, setEditableColumnsRaw] = useState(defaultDataTableConfig.editableColumns);
-  const [percentageColumns, setPercentageColumns] = useState(defaultDataTableConfig.percentageColumns);
-  const [derivedColumns, setDerivedColumns] = useState(defaultDataTableConfig.derivedColumns);
+  const [groupFieldsRaw, setGroupFieldsRaw] = useState(defaultConfig.groupFields || []);
+  const [editableColumnsRaw, setEditableColumnsRaw] = useState(defaultConfig.editableColumns);
+  const [percentageColumns, setPercentageColumns] = useState(defaultConfig.percentageColumns);
+  const [derivedColumns, setDerivedColumns] = useState(defaultConfig.derivedColumns);
   const [queryVariables, setQueryVariables] = useState({});
   const [variableOverrides, setVariableOverrides] = useState({});
-  const [columnTypesOverride, setColumnTypesOverride] = useState(defaultDataTableConfig.columnTypesOverride);
-  const [formInputOverride, setFormInputOverride] = useState(defaultDataTableConfig.formInputOverride);
+  const [columnTypesOverride, setColumnTypesOverride] = useState(defaultConfig.columnTypesOverride);
+  const [formInputOverride, setFormInputOverride] = useState(defaultConfig.formInputOverride);
   // Auth Control settings
-  const [isAdminMode, setIsAdminMode] = useState(defaultDataTableConfig.isAdminMode);
-  const [salesTeamColumn, setSalesTeamColumn] = useState(defaultDataTableConfig.salesTeamColumn);
-  const [salesTeamValues, setSalesTeamValues] = useState(defaultDataTableConfig.salesTeamValues);
-  const [hqColumn, setHqColumn] = useState(defaultDataTableConfig.hqColumn);
-  const [hqValues, setHqValues] = useState(defaultDataTableConfig.hqValues);
+  const [isAdminMode, setIsAdminMode] = useState(defaultConfig.isAdminMode);
+  const [salesTeamColumn, setSalesTeamColumn] = useState(defaultConfig.salesTeamColumn);
+  const [salesTeamValues, setSalesTeamValues] = useState(defaultConfig.salesTeamValues ?? []);
+  const [hqColumn, setHqColumn] = useState(defaultConfig.hqColumn);
+  const [hqValues, setHqValues] = useState(defaultConfig.hqValues ?? []);
   // Report settings state
-  const [enableReport, setEnableReport] = useState(defaultDataTableConfig.enableReport);
-  const [dateColumn, setDateColumn] = useState(defaultDataTableConfig.dateColumn);
-  const [columnsExemptFromBreakdown, setColumnsExemptFromBreakdown] = useState(defaultDataTableConfig.columnsExemptFromBreakdown || []);
-  const [showChart, setShowChart] = useState(true);
+  const [enableReport, setEnableReport] = useState(defaultConfig.enableReport);
+  const [dateColumn, setDateColumn] = useState(defaultConfig.dateColumn);
+  const [columnsExemptFromBreakdown, setColumnsExemptFromBreakdown] = useState(defaultConfig.columnsExemptFromBreakdown || []);
+  const [showChart, setShowChart] = useState(defaultConfig.showChart);
   const [chartColumns, setChartColumns] = useState([]);
   const [chartHeight, setChartHeight] = useState(400);
   const [useLegacyProvider, setUseLegacyProvider] = useState(false);
 
   // Drawer tabs state (still managed here for DataTableControls, but drawer rendering moved to DataProvider)
-  const [drawerTabs, setDrawerTabs] = useState(defaultDataTableConfig.drawerTabs.length > 0 ? defaultDataTableConfig.drawerTabs : [{ id: `tab-${Date.now()}`, name: '', outerGroup: null, innerGroup: null }]);
+  const [drawerTabs, setDrawerTabs] = useState((defaultConfig.drawerTabs?.length ?? 0) > 0 ? defaultConfig.drawerTabs : [{ id: `tab-${Date.now()}`, name: '', outerGroup: null, innerGroup: null }]);
+
+  // Slots config: from config when it has slots, else built from flat state
+  const [slotsConfigState, setSlotsConfigState] = useState(() => {
+    const slots = defaultConfig.slots;
+    if (slots && typeof slots === 'object' && Object.keys(slots).length > 0) {
+      return slots;
+    }
+    return null;
+  });
+
+  // Config Presets state
+  const [activeConfigId, setActiveConfigId] = useState(() => getDefaultConfigId());
+  const [configList, setConfigList] = useState(() => getConfigList());
+  const [configLoading, setConfigLoading] = useState(false);
+
+  // Code mode state
+  const [codeMode, setCodeMode] = useState(false);
+  const [firebasePresets, setFirebasePresets] = useState({});
+  const [firebasePresetsLoading, setFirebasePresetsLoading] = useState(false);
+  const [selectedPresetKey, setSelectedPresetKey] = useState(() => {
+    const id = getDefaultConfigId();
+    return id.startsWith('firebase:') ? id : 'local:' + id;
+  });
+  const [presetJsValue, setPresetJsValue] = useState('');
+  const [presetSaving, setPresetSaving] = useState(false);
+  const [saveLocalAsFirebaseDialogVisible, setSaveLocalAsFirebaseDialogVisible] = useState(false);
+  const [saveLocalAsFirebaseName, setSaveLocalAsFirebaseName] = useState('');
+  const saveLocalAsFirebaseContextRef = useRef(null);
+  const [configApplyKey, setConfigApplyKey] = useState(0);
+  const [appliedConfig, setAppliedConfig] = useState(() => defaultConfig);
 
   // Ensure at least one tab exists
   useEffect(() => {
@@ -214,12 +281,12 @@ function DataTablePage() {
     return textFilterColumnsRaw;
   }, [textFilterColumnsRaw]);
 
-  // Ensure allowedColumns is always an array
+  // allowedColumns: array or object { main?, report?, nested?, group? }
   const allowedColumns = useMemo(() => {
-    if (!Array.isArray(allowedColumnsRaw)) {
-      return [];
-    }
-    return allowedColumnsRaw;
+    if (allowedColumnsRaw == null) return [];
+    if (Array.isArray(allowedColumnsRaw)) return allowedColumnsRaw;
+    if (typeof allowedColumnsRaw === 'object') return allowedColumnsRaw;
+    return [];
   }, [allowedColumnsRaw]);
 
   // Ensure redFields is always an array
@@ -274,7 +341,7 @@ function DataTablePage() {
   };
 
   const setAllowedColumns = (value) => {
-    if (Array.isArray(value)) {
+    if (Array.isArray(value) || (value && typeof value === 'object' && !Array.isArray(value))) {
       setAllowedColumnsRaw(value);
     }
   };
@@ -361,9 +428,12 @@ function DataTablePage() {
     setGroupFieldsRaw(newGroupFields);
   };
 
-  // Slots config for DataProvider (per-slot; includes report props for slot self-containment)
-  const slotsConfig = useMemo(() => ({
-    main: {
+  // Slots config for DataProvider: use config slots when present, else build from flat state
+  const slotsConfig = useMemo(() => {
+    if (slotsConfigState && typeof slotsConfigState === 'object' && Object.keys(slotsConfigState).length > 0) {
+      return slotsConfigState;
+    }
+    return buildSingleSlotFromFlat({
       enableSort,
       enableFilter,
       enableSummation,
@@ -373,6 +443,7 @@ function DataTablePage() {
       groupFields,
       redFields,
       greenFields,
+      rowColumnStyles,
       enableCellEdit,
       editableColumns,
       formInputOverride,
@@ -381,8 +452,16 @@ function DataTablePage() {
       dateColumn,
       chartColumns,
       chartHeight,
-    },
-  }), [enableSort, enableFilter, enableSummation, textFilterColumns, percentageColumns, derivedColumns, groupFields, redFields, greenFields, enableCellEdit, editableColumns, formInputOverride, drawerTabs, enableReport, dateColumn, chartColumns, chartHeight]);
+    });
+  }, [slotsConfigState, enableSort, enableFilter, enableSummation, textFilterColumns, percentageColumns, derivedColumns, groupFields, redFields, greenFields, rowColumnStyles, enableCellEdit, editableColumns, formInputOverride, drawerTabs, enableReport, dateColumn, chartColumns, chartHeight]);
+
+  const slotIds = useMemo(() => Object.keys(slotsConfig), [slotsConfig]);
+  const isMultiSlot = slotIds.length > 1;
+
+  const getSlotTabName = useCallback((slotId) => {
+    const slot = slotsConfig[slotId];
+    return slot?.name || slot?.displayName || startCase(slotId);
+  }, [slotsConfig]);
 
   // Clear salesTeamValues, hqColumn, and hqValues when salesTeamColumn changes
   // Use refs to avoid including lengths in dependencies (which change when we clear values)
@@ -505,9 +584,286 @@ function DataTablePage() {
     });
   }, []);
 
+  // Fetch config list on mount
+  useEffect(() => {
+    let cancelled = false;
+    setConfigLoading(true);
+    listConfigs()
+      .then((list) => {
+        if (!cancelled) {
+          setConfigList(list);
+          if (list.length > 0 && !list.some((c) => c.id === activeConfigId)) {
+            setActiveConfigId(list[0].id);
+          }
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setConfigLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Apply config to all state - maps config keys to setters
+  const applyConfig = useCallback((config) => {
+    if (!config) return;
+    setAppliedConfig(config);
+    const values = extractStateFromConfig(config);
+    setDataSource(values.dataSource);
+    setSelectedQueryKey(values.selectedQueryKey);
+    setEnableSort(values.enableSort);
+    setEnableFilter(values.enableFilter);
+    setEnableSummation(values.enableSummation);
+    setEnableCellEdit(values.enableCellEdit);
+    setEnableDivideBy1Lakh(values.enableDivideBy1Lakh);
+    setRowsPerPageOptionsRaw(values.rowsPerPageOptions);
+    setDefaultRowsRaw(values.defaultRows);
+    setTableHeight(values.tableHeight);
+    setTextFilterColumnsRaw(values.textFilterColumns);
+    setAllowedColumnsRaw(values.allowedColumns);
+    setRedFieldsRaw(values.redFields);
+    setGreenFieldsRaw(values.greenFields);
+    setRowColumnStyles(values.rowColumnStyles || []);
+    setGroupFields(values.groupFields || []);
+    setEditableColumnsRaw(values.editableColumns);
+    setPercentageColumns(values.percentageColumns);
+    setDerivedColumns(values.derivedColumns);
+    setColumnTypesOverride(values.columnTypesOverride);
+    setFormInputOverride(values.formInputOverride);
+    setIsAdminMode(values.isAdminMode);
+    setSalesTeamColumn(values.salesTeamColumn);
+    setSalesTeamValues(values.salesTeamValues || []);
+    setHqColumn(values.hqColumn);
+    setHqValues(values.hqValues || []);
+    setEnableReport(values.enableReport);
+    setDateColumn(values.dateColumn);
+    setColumnsExemptFromBreakdown(values.columnsExemptFromBreakdown || []);
+    setShowChart(values.showChart);
+    const tabs = values.drawerTabs?.length > 0 ? values.drawerTabs : [{ id: `tab-${Date.now()}`, name: '', outerGroup: null, innerGroup: null }];
+    setDrawerTabs(tabs);
+    if (values.slots && typeof values.slots === 'object' && Object.keys(values.slots).length > 0) {
+      setSlotsConfigState(values.slots);
+    } else {
+      setSlotsConfigState(null);
+    }
+    setConfigApplyKey((k) => k + 1);
+  }, []);
+
+  const handleConfigSelect = useCallback(async (id) => {
+    setActiveConfigId(id);
+    setConfigLoading(true);
+    try {
+      const config = await getConfig(id);
+      applyConfig(config);
+    } finally {
+      setConfigLoading(false);
+    }
+  }, [applyConfig]);
+
+  // --- Code mode handlers ---
+
+  const loadFirebasePresets = useCallback(async () => {
+    setFirebasePresetsLoading(true);
+    try {
+      const presets = await firestoreService.loadPresets();
+      setFirebasePresets(presets);
+    } catch (err) {
+      console.error('Failed to load presets:', err);
+    } finally {
+      setFirebasePresetsLoading(false);
+    }
+  }, []);
+
+  // Load Firebase presets on mount so the merged dropdown works in both modes
+  useEffect(() => {
+    loadFirebasePresets();
+  }, [loadFirebasePresets]);
+
+  const handleCodeModeToggle = useCallback(() => {
+    setCodeMode(prev => {
+      const next = !prev;
+      if (next) loadFirebasePresets();
+      return next;
+    });
+  }, [loadFirebasePresets]);
+
+  const presetDropdownOptions = useMemo(() => {
+    const localItems = configList.map(c => ({
+      label: c.displayName,
+      value: 'local:' + c.id,
+      source: 'local',
+    }));
+    const fbItems = Object.keys(firebasePresets).map(name => ({
+      label: name,
+      value: 'firebase:' + name,
+      source: 'firebase',
+    }));
+    return [
+      { label: 'Local', items: localItems },
+      { label: 'Firebase', items: fbItems },
+    ];
+  }, [configList, firebasePresets]);
+
+  // Config-level dirty check: in-memory preset differs from applied config
+  const isConfigDirty = checkConfigDirty(presetJsValue, appliedConfig);
+
+  const handlePresetSelect = useCallback((key) => {
+    setSelectedPresetKey(key);
+    if (!key) { setPresetJsValue(''); return; }
+    const [source, ...rest] = key.split(':');
+    const id = rest.join(':');
+    if (source === 'local') {
+      const config = getLocalConfig(id);
+      if (config) {
+        const presetJs = configSerialized[id] ?? serializeConfigToJs(config);
+        setPresetJsValue(presetJs);
+        applyConfig(config);
+      }
+    } else if (source === 'firebase') {
+      const stored = firebasePresets[id];
+      if (stored) {
+        setPresetJsValue(stored);
+        try {
+          const config = deserializeJsToConfig(stored);
+          applyConfig(config);
+        } catch (err) {
+          console.error('Failed to apply Firebase preset:', err);
+        }
+      }
+    }
+  }, [firebasePresets, applyConfig]);
+
+  // Load selected preset on mount and when entering code mode (dropdown shows default but presetJsValue was never populated)
+  useEffect(() => {
+    if (selectedPresetKey && !presetJsValue) {
+      handlePresetSelect(selectedPresetKey);
+    }
+  }, [selectedPresetKey, presetJsValue, handlePresetSelect]);
+
+  const handleCreateNewPreset = useCallback(() => {
+    const name = window.prompt('Enter a name for the new preset:');
+    if (!name?.trim()) return;
+    const defaultId = getDefaultConfigId();
+    const presetJs = configSerialized[defaultId] ?? serializeConfigToJs(getDefaultConfig() ?? {});
+    setPresetJsValue(presetJs);
+    const key = 'firebase:' + name.trim();
+    setFirebasePresets(prev => ({ ...prev, [name.trim()]: presetJs }));
+    setSelectedPresetKey(key);
+  }, []);
+
+  const handleDeletePreset = useCallback((presetName) => {
+    confirmDialog({
+      message: `Delete Firebase preset "${presetName}"? This cannot be undone.`,
+      header: 'Delete Preset',
+      icon: 'pi pi-exclamation-triangle',
+      acceptClassName: 'p-button-danger',
+      accept: async () => {
+        try {
+          await firestoreService.deletePreset(presetName);
+          setFirebasePresets(prev => {
+            const next = { ...prev };
+            delete next[presetName];
+            return next;
+          });
+          if (selectedPresetKey === 'firebase:' + presetName) {
+            setSelectedPresetKey('');
+            setPresetJsValue('');
+          }
+          toast.current?.show({ severity: 'success', summary: 'Deleted', detail: `Preset "${presetName}" deleted`, life: 3000 });
+        } catch (err) {
+          console.error('Failed to delete preset:', err);
+          toast.current?.show({ severity: 'error', summary: 'Error', detail: 'Failed to delete preset', life: 3000 });
+        }
+      },
+    });
+  }, [selectedPresetKey]);
+
+  const doSavePreset = useCallback(async (saveName, value) => {
+    setPresetSaving(true);
+    try {
+      await firestoreService.savePreset(saveName, value);
+      setFirebasePresets(prev => ({ ...prev, [saveName]: value }));
+      const newKey = 'firebase:' + saveName;
+      setSelectedPresetKey(newKey);
+      toast.current?.show({ severity: 'success', summary: 'Saved', detail: `Preset "${saveName}" saved`, life: 3000 });
+    } catch (err) {
+      console.error('Failed to save preset:', err);
+      toast.current?.show({ severity: 'error', summary: 'Error', detail: 'Failed to save preset', life: 3000 });
+    } finally {
+      setPresetSaving(false);
+    }
+  }, []);
+
+  const handleSavePreset = useCallback(() => {
+    if (!selectedPresetKey || !presetJsValue) return;
+    const [source, ...rest] = selectedPresetKey.split(':');
+    let saveName = rest.join(':');
+
+    if (source === 'local') {
+      const localEntry = configList.find(c => c.id === saveName);
+      const defaultName = (localEntry?.displayName || saveName) + ' (copy)';
+      saveLocalAsFirebaseContextRef.current = { presetJsValue };
+      setSaveLocalAsFirebaseName(defaultName);
+      setSaveLocalAsFirebaseDialogVisible(true);
+      return;
+    }
+
+    doSavePreset(saveName, presetJsValue);
+  }, [selectedPresetKey, presetJsValue, configList, doSavePreset]);
+
+  const handleSaveLocalAsFirebaseConfirm = useCallback(async () => {
+    const name = saveLocalAsFirebaseName?.trim();
+    if (!name) return;
+    const ctx = saveLocalAsFirebaseContextRef.current;
+    if (!ctx) return;
+    setSaveLocalAsFirebaseDialogVisible(false);
+    saveLocalAsFirebaseContextRef.current = null;
+    await doSavePreset(name, ctx.presetJsValue);
+  }, [saveLocalAsFirebaseName, doSavePreset]);
+
+  const handleApplyPreset = useCallback((valueFromEditor) => {
+    const toUse = (valueFromEditor && valueFromEditor.trim()) ? valueFromEditor : presetJsValue;
+    if (!toUse) return;
+    try {
+      const config = deserializeJsToConfig(toUse);
+      applyConfig(config);
+      toast.current?.show({ severity: 'success', summary: 'Applied', detail: 'Preset config applied', life: 2000 });
+    } catch (err) {
+      console.error('Failed to apply preset:', err);
+      toast.current?.show({ severity: 'error', summary: 'Error', detail: 'Invalid config: ' + err.message, life: 4000 });
+    }
+  }, [presetJsValue, applyConfig]);
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <Toast ref={toast} />
+      <Dialog
+        header="Save preset"
+        visible={saveLocalAsFirebaseDialogVisible}
+        onHide={() => setSaveLocalAsFirebaseDialogVisible(false)}
+        style={{ width: '24rem' }}
+        footer={
+          <div className="flex gap-2 justify-end">
+            <Button label="Cancel" severity="secondary" onClick={() => setSaveLocalAsFirebaseDialogVisible(false)} />
+            <Button
+              label="Save"
+              icon="pi pi-save"
+              onClick={handleSaveLocalAsFirebaseConfirm}
+              disabled={!saveLocalAsFirebaseName?.trim()}
+            />
+          </div>
+        }
+      >
+        <p className="text-sm text-gray-600 mb-3">
+          Local presets cannot be overwritten. Create a new Firebase preset based on it?
+        </p>
+        <label className="font-medium text-sm mb-1">Preset name</label>
+        <InputText
+          value={saveLocalAsFirebaseName}
+          onChange={(e) => setSaveLocalAsFirebaseName(e.target.value)}
+          placeholder="Enter preset name"
+          className="w-full"
+        />
+      </Dialog>
       <main className="flex-1 flex flex-col min-h-0">
         {isLoading ? (
           <div className="flex items-center justify-center min-h-[calc(100vh-180px)]">
@@ -518,6 +874,7 @@ function DataTablePage() {
           </div>
         ) : (
           <DataProvider
+            key={configApplyKey}
             useLegacyProvider={useLegacyProvider}
             useOrchestrationLayer={true}
             offlineData={offlineData}
@@ -552,6 +909,7 @@ function DataTablePage() {
             groupFields={groupFields}
             redFields={redFields}
             greenFields={greenFields}
+            rowColumnStyles={rowColumnStyles}
             enableDivideBy1Lakh={enableDivideBy1Lakh}
             columnTypesOverride={columnTypesOverride}
             enableCellEdit={enableCellEdit}
@@ -610,19 +968,44 @@ function DataTablePage() {
                             <ReportLineChartWrapper />
                           </div>
                         )}
-                        <DataTableNew
-                          scrollHeight={tableHeight}
-                          rowsPerPageOptions={rowsPerPageOptions}
-                          defaultRows={defaultRows}
-                          scrollable={false}
-                          enableCellEdit={enableCellEdit}
-                          editableColumns={editableColumns}
-                          onCellEditComplete={handleCellEditComplete}
-                          onOuterGroupClick={handleOuterGroupClick}
-                          onInnerGroupClick={handleInnerGroupClick}
-                          tableName="main"
-                          useOrchestrationLayer={true}
-                        />
+                        {isMultiSlot ? (
+                          <TabView className="flex-1 flex flex-col min-h-0" renderActiveOnly={false}>
+                            {slotIds.map((slotId) => (
+                              <TabPanel key={slotId} header={getSlotTabName(slotId)} className="flex-1 flex flex-col min-h-0">
+                                <div className="flex-1 min-h-0 flex flex-col">
+                                  <DataTableNew
+                                    slotId={slotId}
+                                    scrollHeight={tableHeight}
+                                    rowsPerPageOptions={rowsPerPageOptions}
+                                    defaultRows={defaultRows}
+                                    scrollable={false}
+                                    enableCellEdit={enableCellEdit}
+                                    editableColumns={editableColumns}
+                                    onCellEditComplete={handleCellEditComplete}
+                                    onOuterGroupClick={handleOuterGroupClick}
+                                    onInnerGroupClick={handleInnerGroupClick}
+                                    tableName={slotId}
+                                    useOrchestrationLayer={true}
+                                  />
+                                </div>
+                              </TabPanel>
+                            ))}
+                          </TabView>
+                        ) : (
+                          <DataTableNew
+                            scrollHeight={tableHeight}
+                            rowsPerPageOptions={rowsPerPageOptions}
+                            defaultRows={defaultRows}
+                            scrollable={false}
+                            enableCellEdit={enableCellEdit}
+                            editableColumns={editableColumns}
+                            onCellEditComplete={handleCellEditComplete}
+                            onOuterGroupClick={handleOuterGroupClick}
+                            onInnerGroupClick={handleInnerGroupClick}
+                            tableName="main"
+                            useOrchestrationLayer={true}
+                          />
+                        )}
                       </>
                     )}
                   </div>
@@ -669,101 +1052,63 @@ function DataTablePage() {
                             <ReportLineChartWrapper />
                           </div>
                         )}
-                        <DataTableNew
-                          scrollHeight={tableHeight}
-                          rowsPerPageOptions={rowsPerPageOptions}
-                          defaultRows={defaultRows}
-                          scrollable={false}
-                          enableCellEdit={enableCellEdit}
-                          editableColumns={editableColumns}
-                          onCellEditComplete={handleCellEditComplete}
-                          onOuterGroupClick={handleOuterGroupClick}
-                          onInnerGroupClick={handleInnerGroupClick}
-                          tableName="main"
-                          useOrchestrationLayer={true}
-                        />
+                        {isMultiSlot ? (
+                          <TabView className="flex-1 flex flex-col min-h-0" renderActiveOnly={false}>
+                            {slotIds.map((slotId) => (
+                              <TabPanel key={slotId} header={getSlotTabName(slotId)} className="flex-1 flex flex-col min-h-0">
+                                <div className="flex-1 min-h-0 flex flex-col">
+                                  <DataTableNew
+                                    slotId={slotId}
+                                    scrollHeight={tableHeight}
+                                    rowsPerPageOptions={rowsPerPageOptions}
+                                    defaultRows={defaultRows}
+                                    scrollable={false}
+                                    enableCellEdit={enableCellEdit}
+                                    editableColumns={editableColumns}
+                                    onCellEditComplete={handleCellEditComplete}
+                                    onOuterGroupClick={handleOuterGroupClick}
+                                    onInnerGroupClick={handleInnerGroupClick}
+                                    tableName={slotId}
+                                    useOrchestrationLayer={true}
+                                  />
+                                </div>
+                              </TabPanel>
+                            ))}
+                          </TabView>
+                        ) : (
+                          <DataTableNew
+                            scrollHeight={tableHeight}
+                            rowsPerPageOptions={rowsPerPageOptions}
+                            defaultRows={defaultRows}
+                            scrollable={false}
+                            enableCellEdit={enableCellEdit}
+                            editableColumns={editableColumns}
+                            onCellEditComplete={handleCellEditComplete}
+                            onOuterGroupClick={handleOuterGroupClick}
+                            onInnerGroupClick={handleInnerGroupClick}
+                            tableName="main"
+                            useOrchestrationLayer={true}
+                          />
+                        )}
                       </>
                     )}
                   </div>
                 </SplitterPanel>
-                <SplitterPanel className="flex flex-col min-w-0 h-full border-l border-gray-200" size={20} minSize={2}>
+                <SplitterPanel className="flex flex-col min-w-0 overflow-hidden border-l border-gray-200" size={20} minSize={2}>
                   <DataTableControls
-                    enableSort={enableSort}
-                    enableFilter={enableFilter}
-                    enableSummation={enableSummation}
-                    enableCellEdit={enableCellEdit}
-                    enableDivideBy1Lakh={enableDivideBy1Lakh}
-                    rowsPerPageOptions={rowsPerPageOptions}
-                    defaultRows={defaultRows}
-                    columns={columns}
-                    textFilterColumns={textFilterColumns}
-                    allowedColumns={allowedColumns}
-                    redFields={redFields}
-                    greenFields={greenFields}
-                    outerGroupField={outerGroupField}
-                    innerGroupField={innerGroupField}
-                    groupFields={groupFields}
-                    onGroupFieldsChange={setGroupFields}
-                    editableColumns={editableColumns}
-                    percentageColumns={percentageColumns}
-                    queryVariables={queryVariables}
-                    variableOverrides={variableOverrides}
-                    onVariableOverrideChange={setVariableOverrides}
-                    onSortChange={setEnableSort}
-                    onFilterChange={setEnableFilter}
-                    onSummationChange={setEnableSummation}
-                    onCellEditChange={setEnableCellEdit}
-                    onDivideBy1LakhChange={setEnableDivideBy1Lakh}
-                    onRowsPerPageOptionsChange={setRowsPerPageOptions}
-                    onDefaultRowsChange={setDefaultRows}
-                    tableHeight={tableHeight}
-                    onTableHeightChange={setTableHeight}
-                    onTextFilterColumnsChange={setTextFilterColumns}
-                    onAllowedColumnsChange={setAllowedColumns}
-                    onRedFieldsChange={setRedFields}
-                    onGreenFieldsChange={setGreenFields}
-                    onOuterGroupFieldChange={setOuterGroupField}
-                    onInnerGroupFieldChange={setInnerGroupField}
-                    onEditableColumnsChange={setEditableColumns}
-                    onPercentageColumnsChange={setPercentageColumns}
-                    drawerTabs={drawerTabs || []}
-                    onDrawerTabsChange={setDrawerTabs}
-                    onAddDrawerTab={handleAddDrawerTab}
-                    onRemoveDrawerTab={handleRemoveDrawerTab}
-                    onUpdateDrawerTab={handleUpdateDrawerTab}
-                    isAdminMode={isAdminMode}
-                    salesTeamColumn={salesTeamColumn}
-                    salesTeamValues={salesTeamValues}
-                    hqColumn={hqColumn}
-                    hqValues={hqValues}
-                    tableData={tableData}
-                    onAdminModeChange={setIsAdminMode}
-                    onSalesTeamColumnChange={setSalesTeamColumn}
-                    onSalesTeamValuesChange={setSalesTeamValues}
-                    onHqColumnChange={setHqColumn}
-                    onHqValuesChange={setHqValues}
-                    columnTypesOverride={columnTypesOverride}
-                    onColumnTypesOverrideChange={handleColumnTypesOverrideChange}
-                    formInputOverride={formInputOverride}
-                    onFormInputOverrideChange={setFormInputOverride}
-                    enableReport={enableReport}
-                    dateColumn={dateColumn}
-                    showChart={showChart}
-                    chartColumns={chartColumns}
-                    chartHeight={chartHeight}
-                    onEnableReportChange={setEnableReport}
-                    onDateColumnChange={setDateColumn}
-                    onShowChartChange={setShowChart}
-                    onChartColumnsChange={setChartColumns}
-                    onChartHeightChange={setChartHeight}
-                    dataSource={dataSource}
-                    selectedQueryKey={selectedQueryKey}
-                    availableQueryKeys={availableQueryKeys}
-                    executingQuery={executingQuery}
-                    savedQueries={savedQueries}
-                    loadingQueries={loadingQueries}
-                    onDataSourceChange={handleDataSourceChange}
-                    onSelectedQueryKeyChange={setSelectedQueryKey}
+                    codeMode={codeMode}
+                    onCodeModeToggle={handleCodeModeToggle}
+                    presetDropdownOptions={presetDropdownOptions}
+                    selectedPresetKey={selectedPresetKey}
+                    onPresetSelect={handlePresetSelect}
+                    presetJsValue={presetJsValue}
+                    onPresetJsChange={setPresetJsValue}
+                    onSavePreset={handleSavePreset}
+                    onApplyPreset={handleApplyPreset}
+                    onCreateNewPreset={handleCreateNewPreset}
+                    onDeletePreset={handleDeletePreset}
+                    presetSaving={presetSaving}
+                    isConfigDirty={isConfigDirty}
                   />
                 </SplitterPanel>
               </Splitter>

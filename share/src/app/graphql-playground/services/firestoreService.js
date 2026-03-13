@@ -1,4 +1,4 @@
-import { doc, setDoc, getDoc, deleteDoc, collection, getDocs, writeBatch } from 'firebase/firestore';
+import { doc, setDoc, getDoc, deleteDoc, updateDoc, deleteField, collection, getDocs, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { DEFAULT_GQL_COLLECTION } from '../constants';
 
@@ -129,6 +129,25 @@ export const firestoreService = {
       return data.functions || '';
     }
     return '';
+  },
+
+  async loadPresets() {
+    const docRef = doc(db, DEFAULT_COLLECTION, '#__GLOBAL__#');
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      return docSnap.data().presets || {};
+    }
+    return {};
+  },
+
+  async savePreset(name, jsonString) {
+    const docRef = doc(db, DEFAULT_COLLECTION, '#__GLOBAL__#');
+    await setDoc(docRef, { presets: { [name]: jsonString } }, { merge: true });
+  },
+
+  async deletePreset(name) {
+    const docRef = doc(db, DEFAULT_COLLECTION, '#__GLOBAL__#');
+    await updateDoc(docRef, { [`presets.${name}`]: deleteField() });
   },
 
   /**

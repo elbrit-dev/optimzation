@@ -169,9 +169,10 @@ export function computeReportColumnsStructure(reportData, columnGroupBy, exemptC
  * @param {string} outerGroupField - Outer group field name
  * @param {Function} formatHeaderName - Function to format header names
  * @param {boolean} [enableSort=true] - Whether to show sort option on columns
+ * @param {boolean} [includeGroupColumn=true] - When false, omit group column (e.g. when not in allowedColumns)
  * @returns {JSX.Element|null} ColumnGroup element or null
  */
-export function generateReportHeaderGroup(reportColumnsStructure, reportData, outerGroupField, formatHeaderName, enableSort = true) {
+export function generateReportHeaderGroup(reportColumnsStructure, reportData, outerGroupField, formatHeaderName, enableSort = true, includeGroupColumn = true) {
   if (!reportColumnsStructure || !reportData) {
     return null;
   }
@@ -198,7 +199,7 @@ export function generateReportHeaderGroup(reportColumnsStructure, reportData, ou
         <ColumnGroup>
           <Row>
             <Column header="" rowSpan={3} style={{ width: '3rem' }} />
-            <Column header={formatHeaderName(outerGroupField)} rowSpan={3} />
+            {includeGroupColumn && <Column header={formatHeaderName(outerGroupField)} rowSpan={3} />}
             {orderedSegments.map((seg, idx) =>
               seg.type === 'exempt' ? (
                 <Column key={`exempt-${seg.name}`} header={formatHeaderName(seg.name)} rowSpan={3} sortable={enableSort} field={seg.name} />
@@ -236,7 +237,7 @@ export function generateReportHeaderGroup(reportColumnsStructure, reportData, ou
       <ColumnGroup>
         <Row>
           <Column header="" rowSpan={3} style={{ width: '3rem' }} />
-          <Column header={formatHeaderName(outerGroupField)} rowSpan={3} />
+          {includeGroupColumn && <Column header={formatHeaderName(outerGroupField)} rowSpan={3} />}
           {orderedSegments.map((seg, idx) =>
             seg.type === 'exempt' ? (
               <Column key={`exempt-${seg.name}`} header={formatHeaderName(seg.name)} rowSpan={3} sortable={enableSort} field={seg.name} />
@@ -278,7 +279,7 @@ export function generateReportHeaderGroup(reportColumnsStructure, reportData, ou
       <ColumnGroup>
         <Row>
           <Column header="" rowSpan={3} style={{ width: '3rem' }} />
-          <Column header={formatHeaderName(outerGroupField)} rowSpan={3} />
+          {includeGroupColumn && <Column header={formatHeaderName(outerGroupField)} rowSpan={3} />}
           {exemptColsArray.map((col) => (
             <Column key={col} header={formatHeaderName(col)} rowSpan={3} sortable={enableSort} field={col} />
           ))}
@@ -312,7 +313,7 @@ export function generateReportHeaderGroup(reportColumnsStructure, reportData, ou
     <ColumnGroup>
       <Row>
         <Column key="report-expander" header="" rowSpan={3} style={{ width: '3rem' }} />
-        <Column key={`report-group-${outerGroupField}`} header={formatHeaderName(outerGroupField)} rowSpan={3} />
+        {includeGroupColumn && <Column key={`report-group-${outerGroupField}`} header={formatHeaderName(outerGroupField)} rowSpan={3} />}
         {exemptColsArray.map((col) => (
           <Column key={col} header={formatHeaderName(col)} rowSpan={3} sortable={enableSort} field={col} />
         ))}
@@ -341,14 +342,15 @@ export function generateReportHeaderGroup(reportColumnsStructure, reportData, ou
  * Generates report column list from column structure
  * @param {Object} reportColumnsStructure - Column structure from computeReportColumnsStructure
  * @param {string} outerGroupField - Outer group field name
+ * @param {boolean} [includeGroupColumn=true] - When false, omit group column (e.g. when not in allowedColumns)
  * @returns {Array} Array of column names
  */
-export function getReportColumns(reportColumnsStructure, outerGroupField) {
+export function getReportColumns(reportColumnsStructure, outerGroupField, includeGroupColumn = true) {
   if (!reportColumnsStructure) {
     return [];
   }
 
-  const cols = [outerGroupField];
+  const cols = includeGroupColumn ? [outerGroupField] : [];
   const { orderedSegments, exemptColumns = [], columnNames } = reportColumnsStructure;
 
   if (orderedSegments && orderedSegments.length > 0) {

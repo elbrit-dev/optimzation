@@ -33,18 +33,36 @@ function getDataValue(data, key) {
 }
 
 /**
- * Merge all objects in an array to create a complete structure with all keys
- * This ensures we capture all fields even if some items omit certain fields
+ * Merge all objects in an array to create a complete structure with all keys.
+ * Adds protection against circular references and excessively deep nesting.
  * @param {Array} array - Array of objects to merge
+ * @param {WeakSet<object>} [seen] - Internal set to track visited objects
+ * @param {number} [depth] - Current recursion depth
+ * @param {number} [maxDepth] - Maximum allowed recursion depth
  * @returns {Object} Merged object containing all keys from all items
  */
-function mergeArrayObjects(array) {
+function mergeArrayObjects(array, seen = new WeakSet(), depth = 0, maxDepth = 20) {
     if (!Array.isArray(array) || array.length === 0) {
         return {};
     }
 
-    // Check if all items are objects
-    const objectItems = array.filter((item) => item && typeof item === "object" && !Array.isArray(item));
+    // Prevent runaway recursion on extremely deep or cyclic structures
+    if (depth > maxDepth) {
+        return {};
+    }
+
+    // Only keep plain objects; skip Maps and already-seen objects
+    const objectItems = array.filter((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item) || item instanceof Map) {
+            return false;
+        }
+        if (seen.has(item)) {
+            return false;
+        }
+        seen.add(item);
+        return true;
+    });
+
     if (objectItems.length === 0) {
         return {};
     }
@@ -52,7 +70,11 @@ function mergeArrayObjects(array) {
     // Collect all unique keys
     const allKeysSet = new Set();
     objectItems.forEach((item) => {
-        Object.keys(item).forEach((key) => allKeysSet.add(key));
+        try {
+            Object.keys(item).forEach((key) => allKeysSet.add(key));
+        } catch {
+            // If Object.keys fails for some exotic object, skip it
+        }
     });
 
     const merged = {};
@@ -63,8 +85,9 @@ function mergeArrayObjects(array) {
         // Find first non-null value to determine type
         let sampleValue = null;
         for (const item of objectItems) {
-            if (item[key] !== null && item[key] !== undefined) {
-                sampleValue = item[key];
+            const value = item[key];
+            if (value !== null && value !== undefined) {
+                sampleValue = value;
                 break;
             }
         }
@@ -73,12 +96,26 @@ function mergeArrayObjects(array) {
             // All values are null/undefined - use null as placeholder
             merged[key] = null;
         } else if (typeof sampleValue === "object" && !Array.isArray(sampleValue)) {
+            // If this is a Map or already-seen object, treat as leaf to avoid cycles
+            if (sampleValue instanceof Map || seen.has(sampleValue)) {
+                merged[key] = null;
+                return;
+            }
+
             // Nested object - merge all nested objects for this key
             const nestedObjects = objectItems
                 .map((item) => item[key])
-                .filter((val) => val && typeof val === "object" && !Array.isArray(val));
+                .filter(
+                    (val) =>
+                        val &&
+                        typeof val === "object" &&
+                        !Array.isArray(val) &&
+                        !(val instanceof Map) &&
+                        !seen.has(val)
+                );
+
             if (nestedObjects.length > 0) {
-                merged[key] = mergeArrayObjects(nestedObjects);
+                merged[key] = mergeArrayObjects(nestedObjects, seen, depth + 1, maxDepth);
             } else {
                 merged[key] = sampleValue;
             }
@@ -88,15 +125,30 @@ function mergeArrayObjects(array) {
                 sampleValue.length > 0 &&
                 sampleValue[0] &&
                 typeof sampleValue[0] === "object" &&
-                !Array.isArray(sampleValue[0])
+                !Array.isArray(sampleValue[0]) &&
+                !(sampleValue[0] instanceof Map)
             ) {
                 // Array of objects - merge all first objects from all arrays
                 const arrayOfObjects = objectItems
                     .map((item) => item[key])
-                    .filter((val) => Array.isArray(val) && val.length > 0 && val[0] && typeof val[0] === "object");
+                    .filter(
+                        (val) =>
+                            Array.isArray(val) &&
+                            val.length > 0 &&
+                            val[0] &&
+                            typeof val[0] === "object" &&
+                            !Array.isArray(val[0]) &&
+                            !(val[0] instanceof Map)
+                    );
                 if (arrayOfObjects.length > 0) {
-                    const firstObjects = arrayOfObjects.map((arr) => arr[0]).filter(Boolean);
-                    merged[key] = [mergeArrayObjects(firstObjects)];
+                    const firstObjects = arrayOfObjects
+                        .map((arr) => arr[0])
+                        .filter((obj) => obj && typeof obj === "object" && !seen.has(obj));
+                    if (firstObjects.length > 0) {
+                        merged[key] = [mergeArrayObjects(firstObjects, seen, depth + 1, maxDepth)];
+                    } else {
+                        merged[key] = sampleValue;
+                    }
                 } else {
                     merged[key] = sampleValue;
                 }
@@ -187,10 +239,16 @@ export function buildTreeFromProcessedData(processedData, parentPath = "") {
  * @param {string} parentPath - Parent path for nested keys
  * @returns {Array} Array of tree node objects
  */
-function buildTreeNodesFromObject(obj, parentPath = "") {
+function buildTreeNodesFromObject(obj, parentPath = "", seen = new WeakSet(), depth = 0, maxDepth = 20) {
     if (!obj || typeof obj !== "object" || Array.isArray(obj)) {
         return [];
     }
+
+    // Avoid infinite recursion on cyclic structures
+    if (seen.has(obj) || depth > maxDepth) {
+        return [];
+    }
+    seen.add(obj);
 
     const nodes = [];
     const keys = Object.keys(obj);
@@ -237,7 +295,7 @@ function buildTreeNodesFromObject(obj, parentPath = "") {
             } else if (value[0] && typeof value[0] === "object" && !Array.isArray(value[0])) {
                 // Array of objects - merge all objects to get complete structure with all keys
                 const mergedStructure = mergeArrayObjects(value);
-                const children = buildTreeNodesFromObject(mergedStructure, currentPath);
+                const children = buildTreeNodesFromObject(mergedStructure, currentPath, seen, depth + 1, maxDepth);
                 nodes.push({
                     key: currentPath,
                     label: React.createElement("span", { className: "font-medium" }, key),
@@ -261,8 +319,21 @@ function buildTreeNodesFromObject(obj, parentPath = "") {
                 });
             }
         } else if (typeof value === "object") {
+            // Treat Maps as leaves to avoid traversing their internal structure
+            if (value instanceof Map) {
+                nodes.push({
+                    key: currentPath,
+                    label: React.createElement("span", { className: "font-medium" }, key),
+                    data: {
+                        name: key,
+                        path: currentPath,
+                    },
+                    leaf: true,
+                });
+                continue;
+            }
             // Nested object - recurse
-            const children = buildTreeNodesFromObject(value, currentPath);
+            const children = buildTreeNodesFromObject(value, currentPath, seen, depth + 1, maxDepth);
             nodes.push({
                 key: currentPath,
                 label: React.createElement("span", { className: "font-medium" }, key),

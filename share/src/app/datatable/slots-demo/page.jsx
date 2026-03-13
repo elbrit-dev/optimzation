@@ -5,7 +5,7 @@ import primaryData from '@/resource/primary';
 import { useMemo, useState } from 'react';
 import DataProvider from '../components/DataProvider';
 import DataTableNew from '../components/DataTableNew';
-import { defaultDataTableConfig } from '../config/defaultConfig';
+import { getDefaultConfig } from '../config/configService';
 
 /**
  * Slots Demo Page - Demonstrates per-slot capability
@@ -15,7 +15,7 @@ import { defaultDataTableConfig } from '../config/defaultConfig';
  * Each table has independent filters, sort, pagination, expansion, and drawer.
  */
 function SlotsDemoPage() {
-  const [tableHeight] = useState(defaultDataTableConfig.tableHeight || '400px');
+  const [tableHeight] = useState(getDefaultConfig()?.tableHeight || '400px');
 
   const offlineData = useMemo(() => primaryData, []);
 

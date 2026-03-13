@@ -651,6 +651,8 @@ export function useDataPipeline(options) {
         const hasNextLevel = currentLevel + 1 < fields.length;
         const innerData = hasNextLevel ? nextLevelData : rows;
         const summaryRow = {};
+        // Always set current group field value - required for display even when not in allowedColumns
+        summaryRow[currentField] = groupKey === '__null__' ? null : groupKey;
         const firstItem =
           isArray(innerData) && innerData.length > 0 ? innerData[0] : null;
         if (!firstItem) return null;

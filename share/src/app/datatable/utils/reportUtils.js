@@ -189,52 +189,69 @@ export function transformToReportData(data, effectiveGroupFields, dateColumn, br
   // Get all time periods
   const timePeriods = getTimePeriods(dateRange.start, dateRange.end, breakdownType);
 
-  // Group data by time period first (matching reference implementation in report/page.jsx)
-  const groupedData = groupDataByTimePeriod(data, dateColumn, breakdownType, metrics);
+  // Group data by time period (include rows without date in first period for full batch_id breakdown)
+  const fallbackPeriod = timePeriods.length > 0 ? timePeriods[0] : null;
+  const groupedData = groupDataByTimePeriod(data, dateColumn, breakdownType, metrics, fallbackPeriod);
 
   // Transform to table data (outer group rows) using transformToTableData
   // This matches the reference implementation approach
   const outerGroupField = groupFields[0];
   const transformedTableData = transformToTableData(groupedData, outerGroupField, breakdownType, true, metrics, exemptColumns, columnTypes);
 
-  // Aggregate exempt columns from FULL data - groupDataByTimePeriod skips rows without valid date,
-  // but exempt columns must include those rows (e.g. batch_qty often on rows without posting_date)
-  const exemptValuesByProduct = new Map();
+  // Aggregate exempt columns from FULL data by period (use latest period's value for output)
+  const exemptByPeriodByProduct = new Map();
   if (exemptColumns.length > 0) {
     const isNum = (v) => (v != null && typeof v === 'number' && !Number.isNaN(v)) || (!Number.isNaN(Number(v)) && isFinite(Number(v)));
     data.forEach((item) => {
       const product = getDataValue(item, outerGroupField) || 'Unknown';
-      if (!exemptValuesByProduct.has(product)) {
-        exemptValuesByProduct.set(product, { exemptValues: {}, exemptFirst: {} });
+      const dateValue = getDataValue(item, dateColumn);
+      let periodKey = fallbackPeriod;
+      if (dateValue) {
+        const parsed = dayjs(dateValue);
+        if (parsed.isValid()) {
+          periodKey = getTimePeriodKey(parsed, breakdownType);
+        }
       }
-      const entry = exemptValuesByProduct.get(product);
+      if (!periodKey) return;
+      if (!exemptByPeriodByProduct.has(product)) {
+        exemptByPeriodByProduct.set(product, { exemptByPeriod: {} });
+      }
+      const entry = exemptByPeriodByProduct.get(product);
       exemptColumns.forEach((col) => {
         const value = getDataValue(item, col);
+        if (value === null || value === undefined || value === '') return;
         const isNumeric = columnTypes[col] === 'number' || isNum(value);
+        if (!entry.exemptByPeriod[col]) entry.exemptByPeriod[col] = {};
+        const byPeriod = entry.exemptByPeriod[col];
         if (isNumeric) {
           const numVal = typeof value === 'number' ? value : Number(value);
           if (!Number.isNaN(numVal) && isFinite(numVal)) {
-            entry.exemptValues[col] = (entry.exemptValues[col] ?? 0) + numVal;
+            byPeriod[periodKey] = (byPeriod[periodKey] ?? 0) + numVal;
           }
-        } else if (entry.exemptFirst[col] === undefined && value != null && value !== '') {
-          entry.exemptFirst[col] = value;
+        } else if (byPeriod[periodKey] === undefined) {
+          byPeriod[periodKey] = value;
         }
       });
     });
   }
   
-  // Map 'product' field to the actual outerGroupField and merge exempt values from full data
+  // Map 'product' field to the actual outerGroupField and merge exempt values from full data (latest period only)
   let tableData = transformedTableData.map(row => {
     const { product, ...rest } = row;
     const productKey = product === 'Unknown' ? null : product;
     const result = { ...rest, [outerGroupField]: productKey };
-    const exemptEntry = exemptValuesByProduct.get(productKey ?? 'Unknown');
-    if (exemptEntry) {
+    const exemptEntry = exemptByPeriodByProduct.get(productKey ?? 'Unknown');
+    if (exemptEntry?.exemptByPeriod && timePeriods.length > 0) {
       exemptColumns.forEach((col) => {
-        if (exemptEntry.exemptValues[col] !== undefined) {
-          result[col] = exemptEntry.exemptValues[col];
-        } else if (exemptEntry.exemptFirst[col] !== undefined) {
-          result[col] = exemptEntry.exemptFirst[col];
+        const byPeriod = exemptEntry.exemptByPeriod[col];
+        if (byPeriod) {
+          for (let i = timePeriods.length - 1; i >= 0; i--) {
+            const p = timePeriods[i];
+            if (byPeriod[p] !== undefined && byPeriod[p] !== null) {
+              result[col] = byPeriod[p];
+              break;
+            }
+          }
         }
       });
     }
@@ -258,11 +275,20 @@ export function transformToReportData(data, effectiveGroupFields, dateColumn, br
   // Structure: nestedTableData['level0|level1|level2'] = [rows]
   const nestedTableData = {};
   
-  // Aggregate exempt columns from FULL data by composite key (same as outer table: groupDataByTimePeriod
-  // skips rows without valid date, but exempt columns must include those rows e.g. batch_qty)
+  // Aggregate exempt columns from FULL data by composite key and period (use latest period's value for output)
   const exemptByFullKey = new Map();
   if (groupFields.length > 1 && exemptColumns.length > 0) {
+    const isNum = (v) => (v != null && typeof v === 'number' && !Number.isNaN(v)) || (!Number.isNaN(Number(v)) && isFinite(Number(v)));
     data.forEach((item) => {
+      const dateValue = getDataValue(item, dateColumn);
+      let periodKey = fallbackPeriod;
+      if (dateValue) {
+        const parsed = dayjs(dateValue);
+        if (parsed.isValid()) {
+          periodKey = getTimePeriodKey(parsed, breakdownType);
+        }
+      }
+      if (!periodKey) return;
       for (let level = 2; level <= groupFields.length; level++) {
         const pathParts = groupFields.slice(0, level).map((f) => {
           const v = getDataValue(item, f);
@@ -270,19 +296,22 @@ export function transformToReportData(data, effectiveGroupFields, dateColumn, br
         });
         const mapKey = pathParts.join('|');
         if (!exemptByFullKey.has(mapKey)) {
-          exemptByFullKey.set(mapKey, { exemptValues: {}, exemptFirst: {} });
+          exemptByFullKey.set(mapKey, { exemptByPeriod: {} });
         }
         const entry = exemptByFullKey.get(mapKey);
         exemptColumns.forEach((col) => {
           const value = getDataValue(item, col);
-          const isNumeric = columnTypes[col] === 'number' || (typeof value === 'number' && !Number.isNaN(value) && isFinite(value));
+          if (value === null || value === undefined || value === '') return;
+          const isNumeric = columnTypes[col] === 'number' || isNum(value);
+          if (!entry.exemptByPeriod[col]) entry.exemptByPeriod[col] = {};
+          const byPeriod = entry.exemptByPeriod[col];
           if (isNumeric) {
             const numVal = typeof value === 'number' ? value : Number(value);
             if (!Number.isNaN(numVal) && isFinite(numVal)) {
-              entry.exemptValues[col] = (entry.exemptValues[col] ?? 0) + numVal;
+              byPeriod[periodKey] = (byPeriod[periodKey] ?? 0) + numVal;
             }
-          } else if (entry.exemptFirst[col] === undefined && value !== null && value !== undefined && value !== '') {
-            entry.exemptFirst[col] = value;
+          } else if (byPeriod[periodKey] === undefined) {
+            byPeriod[periodKey] = value;
           }
         });
       }
@@ -293,8 +322,8 @@ export function transformToReportData(data, effectiveGroupFields, dateColumn, br
     // Helper function to transform raw data rows to nested table format with time breakdown
     // This works for any level by grouping by time period first, then by nextField
     const transformRowsToNestedTable = (rawRows, currentField, nextField, parentPath = [], currentLevel = 0) => {
-      // First, group by time period (rawRows are individual data rows, not grouped by time)
-      const timeGroupedData = groupDataByTimePeriod(rawRows, dateColumn, breakdownType, metrics);
+      // First, group by time period (include rows without date in first period for full batch_id breakdown)
+      const timeGroupedData = groupDataByTimePeriod(rawRows, dateColumn, breakdownType, metrics, fallbackPeriod);
       
       // Then use transformToNestedTableData which expects time-grouped data
       const transformedNested = transformToNestedTableData(
@@ -352,14 +381,19 @@ export function transformToReportData(data, effectiveGroupFields, dateColumn, br
           }
         });
         
-        // Merge exempt values from full data (overrides time-grouped aggregation)
+        // Merge exempt values from full data (latest period only)
         const exemptEntry = exemptByFullKey.get(fullKey);
-        if (exemptEntry) {
+        if (exemptEntry?.exemptByPeriod && timePeriods.length > 0) {
           exemptColumns.forEach((col) => {
-            if (exemptEntry.exemptValues[col] !== undefined) {
-              result[col] = exemptEntry.exemptValues[col];
-            } else if (exemptEntry.exemptFirst[col] !== undefined) {
-              result[col] = exemptEntry.exemptFirst[col];
+            const byPeriod = exemptEntry.exemptByPeriod[col];
+            if (byPeriod) {
+              for (let i = timePeriods.length - 1; i >= 0; i--) {
+                const p = timePeriods[i];
+                if (byPeriod[p] !== undefined && byPeriod[p] !== null) {
+                  result[col] = byPeriod[p];
+                  break;
+                }
+              }
             }
           });
         }
