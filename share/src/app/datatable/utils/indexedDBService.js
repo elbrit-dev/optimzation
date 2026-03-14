@@ -133,6 +133,17 @@ class IndexedDBService {
     }
 
     /**
+     * Delete the entire query database from IndexedDB
+     * Closes the cached instance first, then deletes the database
+     * @param {string} queryId - The query identifier
+     */
+    async deleteQueryDatabase(queryId) {
+        await this.clearQueryDatabaseCache(queryId);
+        const dbName = `elbrit-${queryId}-db`;
+        await Dexie.delete(dbName);
+    }
+
+    /**
      * Ensure stores exist for each key in the pipeline result
      * Creates stores dynamically if they don't exist
      * @param {string} queryId - The query identifier

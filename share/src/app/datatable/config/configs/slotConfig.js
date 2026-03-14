@@ -23,6 +23,7 @@ export const defaultDataTableConfig = {
         { columnName: 'Inv %', valueField: 'inv_offer', targetField: 'target', beforeColumn: 'inv_offer' },
       ],
       derivedColumns: [],
+      derivedRows: null,
       groupFields: ['sales_team', 'hq', 'customer_name'],
       allowedColumns: {
         main: [
@@ -102,6 +103,7 @@ export const defaultDataTableConfig = {
       textFilterColumns: [],
       percentageColumns: [],
       derivedColumns: [],
+      derivedRows: null,
       groupFields: ['customer_name', 'item_name'],
       allowedColumns: {
         main: [
@@ -160,6 +162,7 @@ export const defaultDataTableConfig = {
       textFilterColumns: [],
       percentageColumns: [],
       derivedColumns: [],
+      derivedRows: null,
       groupFields: ['brand', 'item_name'],
       allowedColumns: {
         main: [

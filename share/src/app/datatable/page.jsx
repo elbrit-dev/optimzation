@@ -39,6 +39,7 @@ function buildSingleSlotFromFlat(values) {
       textFilterColumns: values.textFilterColumns ?? [],
       percentageColumns: values.percentageColumns ?? [],
       derivedColumns: values.derivedColumns ?? [],
+      derivedRows: values.derivedRows ?? null,
       groupFields: values.groupFields ?? [],
       redFields: values.redFields ?? [],
       greenFields: values.greenFields ?? [],
@@ -92,6 +93,7 @@ function DataTablePage() {
   const [editableColumnsRaw, setEditableColumnsRaw] = useState(defaultConfig.editableColumns);
   const [percentageColumns, setPercentageColumns] = useState(defaultConfig.percentageColumns);
   const [derivedColumns, setDerivedColumns] = useState(defaultConfig.derivedColumns);
+  const [derivedRows, setDerivedRows] = useState(defaultConfig.derivedRows ?? null);
   const [queryVariables, setQueryVariables] = useState({});
   const [variableOverrides, setVariableOverrides] = useState({});
   const [columnTypesOverride, setColumnTypesOverride] = useState(defaultConfig.columnTypesOverride);
@@ -438,6 +440,7 @@ function DataTablePage() {
       textFilterColumns,
       percentageColumns,
       derivedColumns,
+      derivedRows,
       groupFields,
       redFields,
       greenFields,
@@ -451,7 +454,7 @@ function DataTablePage() {
       chartColumns,
       chartHeight,
     });
-  }, [slotsConfigState, enableSort, enableFilter, enableSummation, textFilterColumns, percentageColumns, derivedColumns, groupFields, redFields, greenFields, rowColumnStyles, enableCellEdit, editableColumns, formInputOverride, drawerTabs, enableReport, dateColumn, chartColumns, chartHeight]);
+  }, [slotsConfigState, enableSort, enableFilter, enableSummation, textFilterColumns, percentageColumns, derivedColumns, derivedRows, groupFields, redFields, greenFields, rowColumnStyles, enableCellEdit, editableColumns, formInputOverride, drawerTabs, enableReport, dateColumn, chartColumns, chartHeight]);
 
   const slotIds = useMemo(() => Object.keys(slotsConfig), [slotsConfig]);
   const isMultiSlot = slotIds.length > 1;
@@ -634,6 +637,7 @@ function DataTablePage() {
     setEditableColumnsRaw(values.editableColumns);
     setPercentageColumns(values.percentageColumns);
     setDerivedColumns(values.derivedColumns);
+    setDerivedRows(values.derivedRows ?? null);
     setColumnTypesOverride(values.columnTypesOverride);
     setFormInputOverride(values.formInputOverride);
     setIsAdminMode(values.isAdminMode);
@@ -903,6 +907,7 @@ function DataTablePage() {
             onAllowedColumnsChange={setAllowedColumns}
             percentageColumns={percentageColumns}
             derivedColumns={derivedColumns}
+            derivedRows={derivedRows}
             outerGroupField={outerGroupField}
             innerGroupField={innerGroupField}
             groupFields={groupFields}

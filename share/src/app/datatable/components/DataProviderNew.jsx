@@ -1,5 +1,4 @@
 'use client';
-import { generateMonthRangeArray } from '@/app/datatable/utils/dateUtils';
 import { indexedDBService } from '@/app/datatable/utils/indexedDBService';
 import RangePicker from '@/components/RangePicker';
 import { DataProvider as PlasmicDataProvider } from "@plasmicapp/loader-nextjs";
@@ -408,6 +407,7 @@ export default function DataProviderNew({
   onVisibleColumnsChange,
   percentageColumns = [],
   derivedColumns = [],
+  derivedRows = null,
   groupFields = null, // Array for infinite nesting - required for grouping (breaking change: outerGroupField/innerGroupField no longer supported)
   redFields = [],
   greenFields = [],
@@ -468,6 +468,7 @@ export default function DataProviderNew({
         allowedColumns,
         percentageColumns,
         derivedColumns,
+        derivedRows,
         groupFields,
         redFields,
         greenFields,
@@ -484,7 +485,7 @@ export default function DataProviderNew({
         chartHeight,
       },
     };
-  }, [slotsProp, enableSort, enableFilter, enableSummation, enableGrouping, textFilterColumns, allowedColumns, percentageColumns, derivedColumns, groupFields, redFields, greenFields, rowColumnStyles, enableDivideBy1Lakh, columnTypesOverride, enableCellEdit, editableColumns, formInputOverride, drawerTabs, enableReport, dateColumn, chartColumns, chartHeight]);
+  }, [slotsProp, enableSort, enableFilter, enableSummation, enableGrouping, textFilterColumns, allowedColumns, percentageColumns, derivedColumns, derivedRows, groupFields, redFields, greenFields, rowColumnStyles, enableDivideBy1Lakh, columnTypesOverride, enableCellEdit, editableColumns, formInputOverride, drawerTabs, enableReport, dateColumn, chartColumns, chartHeight]);
 
   const slotIds = useMemo(() => Object.keys(slots), [slots]);
   // Effective config: per-slot props (slot override on flat). Shared props stay flat.
@@ -500,6 +501,7 @@ export default function DataProviderNew({
     textFilterColumns: mainSlotConfig.textFilterColumns ?? textFilterColumns,
     percentageColumns: mainSlotConfig.percentageColumns ?? percentageColumns,
     derivedColumns: mainSlotConfig.derivedColumns ?? derivedColumns,
+    derivedRows: mainSlotConfig.derivedRows ?? derivedRows,
     groupFields: mainSlotConfig.groupFields ?? groupFields,
     redFields: mainSlotConfig.redFields ?? redFields,
     greenFields: mainSlotConfig.greenFields ?? greenFields,
@@ -508,7 +510,7 @@ export default function DataProviderNew({
     editableColumns: mainSlotConfig.editableColumns ?? editableColumns,
     formInputOverride: mainSlotConfig.formInputOverride ?? formInputOverride,
     drawerTabs: mainSlotConfig.drawerTabs ?? drawerTabs,
-  }), [mainSlotConfig, enableSort, enableFilter, enableSummation, enableGrouping, textFilterColumns, percentageColumns, derivedColumns, groupFields, redFields, greenFields, rowColumnStyles, enableCellEdit, editableColumns, formInputOverride, drawerTabs]);
+  }), [mainSlotConfig, enableSort, enableFilter, enableSummation, enableGrouping, textFilterColumns, percentageColumns, derivedColumns, derivedRows, groupFields, redFields, greenFields, rowColumnStyles, enableCellEdit, editableColumns, formInputOverride, drawerTabs]);
   const [preFilterValues, setPreFilterValues] = useState({});
   const [filterSortSidebarVisible, setFilterSortSidebarVisible] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -551,6 +553,7 @@ export default function DataProviderNew({
     checkIndexedDBAndLoadData,
     availableQueryKeys,
     formatLastUpdatedDate,
+    workerRef,
   } = queryExecution;
 
   // Mobile detection for responsive Switch sizing
@@ -644,8 +647,11 @@ export default function DataProviderNew({
     allowedColumns: getAllowedForScope(allowedColumns, 'main') ?? (Array.isArray(allowedColumns) ? allowedColumns : []),
     percentageColumns: effectiveMainConfig.percentageColumns,
     derivedColumns: effectiveMainConfig.derivedColumns,
+    derivedRows: effectiveMainConfig.derivedRows,
+    queryFunction,
     textFilterColumns: effectiveMainConfig.textFilterColumns,
     dateColumn,
+    monthRange: monthRange && Array.isArray(monthRange) && monthRange.length === 2 ? monthRange : null,
     derivedColumnsMode: derivedColumnsMode ?? 'main',
     derivedColumnsFieldName: derivedColumnsFieldName ?? null,
     useOfflineDataAsTableDataSource: !!(nestedTableTabId && parentNestedTableEditingDataRef),
@@ -936,122 +942,29 @@ export default function DataProviderNew({
     }
   }, [dataSource, hasMonthSupport, monthRange, currentQueryDoc, checkIndexedDBAndLoadData, runQuery]);
 
-  // Handle clearing cached data for a specific month range (or all data for non-month queries) and syncing
+  // Handle clearing cached data: drop entire query DB, clear index, and sync
   const handleClearMonthRangeCache = useCallback(async () => {
     if (!dataSource) return; // Skip for offline mode
     if (!currentQueryDoc || currentQueryDoc.clientSave !== true) return;
 
     try {
       const queryId = dataSource;
-      const isMonthQuery = currentQueryDoc.month === true;
 
-      // Get the query database
-      const queryDb = await indexedDBService.getQueryDatabase(queryId, currentQueryDoc);
-      const existingStores = queryDb.tables.map((table) => table.name);
+      // Clear the query index
+      await indexedDBService.clearQueryIndexResult(queryId);
 
-      if (isMonthQuery) {
-        // For month queries: clear stores for the selected month range
-        if (!monthRange || !Array.isArray(monthRange) || monthRange.length !== 2) {
-          return;
-        }
+      // Clear worker cache so it does not hold an open connection
+      await workerRef.current?.indexedDBService?.clearQueryDatabaseCache?.(queryId);
 
-        const [startDate, endDate] = monthRange;
+      // Drop the entire query database
+      await indexedDBService.deleteQueryDatabase(queryId);
 
-        // Generate month prefixes for the range
-        const monthPrefixes = generateMonthRangeArray(startDate, endDate);
-
-        if (monthPrefixes.length === 0) {
-          return;
-        }
-
-        // Clear all stores that match the month prefixes
-        for (const prefix of monthPrefixes) {
-          // Find all stores that start with this prefix
-          const matchingStores = existingStores.filter(storeName =>
-            storeName.startsWith(`${prefix}_`)
-          );
-
-          // Clear each matching store
-          for (const storeName of matchingStores) {
-            try {
-              await queryDb.table(storeName).clear();
-            } catch (error) {
-              console.error(`Error clearing store "${storeName}" for queryId ${queryId}:`, error);
-            }
-          }
-        }
-
-        // Also clear the index entries for the selected months
-        // Skip if queryId is null (offline mode / drawer tables)
-        if (queryId) {
-          try {
-            const indexResult = await indexedDBService.getQueryIndexResult(queryId);
-            if (indexResult && indexResult.result) {
-              const indexData = indexResult.result;
-
-              // Check if index is an object with month keys (month query structure)
-              if (typeof indexData === 'object' && !Array.isArray(indexData) && indexData !== null) {
-                // Remove the selected month keys from the index
-                const updatedIndex = { ...indexData };
-                let hasChanges = false;
-
-                for (const prefix of monthPrefixes) {
-                  if (prefix in updatedIndex) {
-                    delete updatedIndex[prefix];
-                    hasChanges = true;
-                  }
-                }
-
-                // If there are remaining months, save the updated index
-                // If no months left, clear the entire index entry
-                if (hasChanges) {
-                  const remainingKeys = Object.keys(updatedIndex);
-                  if (remainingKeys.length > 0) {
-                    // Save updated index with remaining months
-                    await indexedDBService.saveQueryIndexResult(queryId, updatedIndex, currentQueryDoc);
-                  } else {
-                    // No months left, clear the entire index
-                    await indexedDBService.clearQueryIndexResult(queryId);
-                  }
-                }
-              }
-            }
-          } catch (indexError) {
-            console.error(`Error clearing index for queryId ${queryId}:`, indexError);
-          }
-        }
-      } else {
-        // For non-month queries: clear all stores (no month prefix)
-        for (const storeName of existingStores) {
-          // Only clear stores that don't have a month prefix (YYYY-MM_ format)
-          // Month prefix stores start with YYYY-MM_ (7 chars + underscore = 8 chars minimum)
-          const hasMonthPrefix = storeName.length >= 8 && /^\d{4}-\d{2}_/.test(storeName);
-          if (!hasMonthPrefix) {
-            try {
-              await queryDb.table(storeName).clear();
-            } catch (error) {
-              console.error(`Error clearing store "${storeName}" for queryId ${queryId}:`, error);
-            }
-          }
-        }
-
-        // Also clear the index entry for non-month queries
-        // Skip if queryId is null (offline mode / drawer tables)
-        if (queryId) {
-          try {
-            await indexedDBService.clearQueryIndexResult(queryId);
-          } catch (indexError) {
-            console.error(`Error clearing index for queryId ${queryId}:`, indexError);
-          }
-        }
-      }
-
-      // After clearing, call sync to reload data
+      // Sync to reload data
       await handleSync();
     } catch (error) {
       console.error('Error clearing cache:', error);
     }
-  }, [dataSource, monthRange, currentQueryDoc, handleSync]);
+  }, [dataSource, currentQueryDoc, handleSync]);
 
   const syncButtonModel = useMemo(() => [
     {
@@ -1763,7 +1676,7 @@ export default function DataProviderNew({
       breakdownType,
       columnGroupBy,
     };
-    const reportCtx = { mode: 'report', getDataValue, reportMeta };
+    const reportCtx = { mode: 'report', getDataValue, reportMeta, query: queryFunction };
     const tableDataDerived = base.tableData
       ? applyDerivedColumns(base.tableData, derived, reportCtx)
       : base.tableData;
@@ -1780,7 +1693,7 @@ export default function DataProviderNew({
       tableData: tableDataDerived,
       nestedTableData: nestedTableDataDerived,
     };
-  }, [reportData, effectiveMainConfig.derivedColumns, filteredColumnsKey, effectiveGroupFields, dateColumn, effectiveColumnsExemptFromBreakdown, breakdownType, columnGroupBy]);
+  }, [reportData, effectiveMainConfig.derivedColumns, filteredColumnsKey, effectiveGroupFields, dateColumn, effectiveColumnsExemptFromBreakdown, breakdownType, columnGroupBy, queryFunction]);
 
   // Per-slot report data when multi-slot + report mode (uses each slot's allowedColumns and filteredData)
   const reportDataBySlot = useMemo(() => {
@@ -1857,7 +1770,7 @@ export default function DataProviderNew({
           breakdownType,
           columnGroupBy,
         };
-        const reportCtx = { mode: 'report', getDataValue, reportMeta };
+        const reportCtx = { mode: 'report', getDataValue, reportMeta, query: queryFunction };
         finalReport = {
           ...finalReport,
           tableData: baseReport.tableData
@@ -1955,7 +1868,7 @@ export default function DataProviderNew({
       breakdownType,
       columnGroupBy,
     };
-    const reportCtx = { mode: 'report', getDataValue, reportMeta };
+    const reportCtx = { mode: 'report', getDataValue, reportMeta, query: queryFunction };
     const tableDataDerived = base.tableData
       ? applyDerivedColumns(base.tableData, derived, reportCtx)
       : base.tableData;
@@ -1972,7 +1885,7 @@ export default function DataProviderNew({
       tableData: tableDataDerived,
       nestedTableData: nestedTableDataDerived,
     };
-  }, [drawerReportData, effectiveMainConfig.derivedColumns, filteredColumns, drawerGroupFields, dateColumn, effectiveColumnsExemptFromBreakdown, breakdownType, columnGroupBy]);
+  }, [drawerReportData, effectiveMainConfig.derivedColumns, filteredColumns, drawerGroupFields, dateColumn, effectiveColumnsExemptFromBreakdown, breakdownType, columnGroupBy, queryFunction]);
 
   const shouldShowDrawerReport = enableBreakdown && !!drawerReportDataWithDerived;
 
@@ -2032,6 +1945,7 @@ export default function DataProviderNew({
             ? applyDerivedColumns(result.groupedData, derivedCols, {
                 mode: 'main',
                 getDataValue,
+                query: queryFunction,
               })
             : result.groupedData;
 
@@ -2690,6 +2604,8 @@ export default function DataProviderNew({
         mode: derivedColumnsMode ?? 'main',
         fieldName: derivedColumnsFieldName ?? null,
         getDataValue,
+        query: queryFunction,
+        monthRange: monthRange && Array.isArray(monthRange) && monthRange.length === 2 ? monthRange : null,
       };
 
       if (nestedTableTabId && parentNestedTableEditingDataRef) {
@@ -2722,6 +2638,8 @@ export default function DataProviderNew({
     derivedColumnsMode,
     derivedColumnsFieldName,
     getDataValue,
+    queryFunction,
+    monthRange,
     nestedTableTabId,
     parentNestedTableEditingDataRef,
     onNestedBufferChange,
@@ -5195,6 +5113,7 @@ export default function DataProviderNew({
                           mode: derivedColumnsMode ?? 'main',
                           fieldName: derivedColumnsFieldName ?? null,
                           getDataValue,
+                          query: queryFunction,
                         })
                       : result.groupedData;
 

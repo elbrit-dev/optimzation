@@ -557,6 +557,8 @@ export function computeSlotPipeline(baseData, slotConfig, slotState, sharedOptio
     fallbackColumns = null,
     derivedColumnsMode = 'main',
     derivedColumnsFieldName = null,
+    queryFunction = null,
+    monthRange = null,
   } = sharedOptions;
 
   const {
@@ -616,7 +618,7 @@ export function computeSlotPipeline(baseData, slotConfig, slotState, sharedOptio
 
   const extractJsonNestedTablesFromData = (data, maxDepth = 10) => {
     if (!isArray(data) || isEmpty(data)) return data;
-    return extractJsonNestedTablesRecursive(data, 0, maxDepth, { derivedColumns, getDataValue });
+    return extractJsonNestedTablesRecursive(data, 0, maxDepth, { derivedColumns, getDataValue, query: queryFunction, monthRange });
   };
 
   let dataWithJsonTables = filteredData;
@@ -683,6 +685,8 @@ export function computeSlotPipeline(baseData, slotConfig, slotState, sharedOptio
       mode: derivedColumnsMode,
       fieldName: derivedColumnsFieldName,
       getDataValue,
+      query: queryFunction,
+      monthRange,
     });
   } else {
     groupedData = isEmpty(dataWithJsonTables) || !isArray(dataWithJsonTables)

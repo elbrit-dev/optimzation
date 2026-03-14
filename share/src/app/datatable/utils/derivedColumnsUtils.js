@@ -76,15 +76,16 @@ export function buildReportComputeRow(row, metrics, timePeriods, getRowAsBreakdo
  * Apply derived columns to data. Mutates row objects by adding or overwriting values.
  * @param {Array} data - Array of row objects
  * @param {Array} derivedColumns - Array of { columnName, compute, scope?, columnType?, beforeColumn?, aggregate? }
- * @param {Object} context - { mode, fieldName?, getDataValue?, parentRow?, reportMeta? }
+ * @param {Object} context - { mode, fieldName?, getDataValue?, parentRow?, reportMeta?, query? }
  *   reportMeta (report mode only): { metrics, timePeriods, dateRange, breakdownType, columnGroupBy }
+ *   query: runQuery/queryFunction for getOptions-like async (e.g. ctx.query('QueryId') to fetch data)
  * @returns {Array} Data with derived values added to each row (same reference, enriched)
  */
 export function applyDerivedColumns(data, derivedColumns, context = {}) {
   if (!isArray(data) || isEmpty(data)) return data;
   if (!isArray(derivedColumns) || isEmpty(derivedColumns)) return data;
 
-  const { mode, fieldName, getDataValue, parentRow, reportMeta } = context;
+  const { mode, fieldName, getDataValue, parentRow, reportMeta, query } = context;
   const configs = derivedColumns.filter((dc) => matchesScope(dc, mode, fieldName));
   if (isEmpty(configs)) return data;
 
@@ -96,6 +97,7 @@ export function applyDerivedColumns(data, derivedColumns, context = {}) {
     getDataValue: getDataValue ?? ((r, k) => (r && typeof r === 'object' ? r[k] : undefined)),
     parentRow: parentRow ?? null,
     fieldName: fieldName ?? null,
+    query: query ?? null,
   };
 
   if (isReport && reportMeta) {
@@ -103,6 +105,15 @@ export function applyDerivedColumns(data, derivedColumns, context = {}) {
     ctx.columnGroupBy = reportMeta.columnGroupBy ?? null;
     ctx.breakdownType = reportMeta.breakdownType ?? null;
     ctx.monthRange = reportMeta.dateRange ?? null;
+  }
+
+  if (!ctx.monthRange && context.monthRange) {
+    const mr = context.monthRange;
+    if (Array.isArray(mr) && mr.length === 2 && mr[0] && mr[1]) {
+      ctx.monthRange = { start: mr[0], end: mr[1] };
+    } else if (mr && typeof mr === 'object' && (mr.start != null || mr.end != null)) {
+      ctx.monthRange = { start: mr.start ?? mr.end, end: mr.end ?? mr.start };
+    }
   }
 
   return data.map((row, rowIndex) => {

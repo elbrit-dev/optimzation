@@ -3,59 +3,60 @@
  * This object contains all default settings for the datatable page
  */
 export const defaultDataTableConfig = {
-    allowedColumns: {
-        "main": [
-            "item",
-            "qty",
-            "batch_qty",
-            "lead_time",
-            "standard_moq"
-        ],
-        "report": [
-            "item",
-            "qty",
-            "batch_qty",
-            "lead_time",
-            "standard_moq",
-            "batch_id",
-            "batch stock in days",
-            "avg per day qty",
-            "max of qty"
-        ],
-        "group": {
-            "warehouse": [
-                "warehouse",
-                "batch_qty",
-                "qty"
-            ],
-            "batch_id": [
-                "batch_id",
-                "batch_qty"
-            ]
-        },
-        "reportGroup": {
-            "warehouse": [
-                "warehouse",
-                "batch_qty",
-                "qty",
-                "standard_moq",
-                "lead_time",
-                "max of qty",
-                "avg per day qty",
-                "batch stock in days"
-            ],
-            "batch_id": [
-                "batch_id",
-                "batch_qty",
-                "max of qty",
-                "standard_moq",
-                "avg per day qty",
-                "lead_time",
-                "batch stock in days",
-                "qty"
-            ]
-        }
-    },
+    allowedColumns: [],
+    // allowedColumns: {
+    //     "main": [
+    //         "item",
+    //         "qty",
+    //         "batch_qty",
+    //         "lead_time",
+    //         "standard_moq"
+    //     ],
+    //     "report": [
+    //         "item",
+    //         "qty",
+    //         "batch_qty",
+    //         "lead_time",
+    //         "standard_moq",
+    //         "batch_id",
+    //         "batch stock in days",
+    //         "avg per day qty",
+    //         "max of qty"
+    //     ],
+    //     "group": {
+    //         "warehouse": [
+    //             "warehouse",
+    //             "batch_qty",
+    //             "qty"
+    //         ],
+    //         "batch_id": [
+    //             "batch_id",
+    //             "batch_qty"
+    //         ]
+    //     },
+    //     "reportGroup": {
+    //         "warehouse": [
+    //             "warehouse",
+    //             "batch_qty",
+    //             "qty",
+    //             "standard_moq",
+    //             "lead_time",
+    //             "max of qty",
+    //             "avg per day qty",
+    //             "batch stock in days"
+    //         ],
+    //         "batch_id": [
+    //             "batch_id",
+    //             "batch_qty",
+    //             "max of qty",
+    //             "standard_moq",
+    //             "avg per day qty",
+    //             "lead_time",
+    //             "batch stock in days",
+    //             "qty"
+    //         ]
+    //     }
+    // },
     derivedColumns: [
         {
             columnName: "max of qty",
@@ -144,11 +145,28 @@ export const defaultDataTableConfig = {
             }
         }
     ],
+    derivedRows: {
+        compute: () => [
+            {
+                description: 'Sample issue description',
+                issue_type: 'bug',
+                issue_type_name: 'Bug',
+                modified: '2025-03-14',
+                name: 'Sample Issue',
+                priority__name: 'High',
+                raised_by: 'john.doe',
+                response_by: 'jane.smith',
+                sla_resolution_by: '2025-03-21',
+                status: 'Open',
+                subject: 'Sample issue subject',
+            },
+        ],
+    },
 
     groupFields: [
-        "item",
-        "warehouse",
-        "batch_id"
+        // "item",
+        // "warehouse",
+        // "batch_id"
     ],
     "enableSort": true,
     "enableFilter": true,
@@ -187,10 +205,10 @@ export const defaultDataTableConfig = {
     // Data source
     // dataSource: "Primary",
     // selectedQueryKey: "primary",
-    dataSource: "PrimaryStock",
-    selectedQueryKey: "primary",
-    // dataSource: "Issues",
-    // selectedQueryKey: "issues",
+    // dataSource: "PrimaryStock",
+    // selectedQueryKey: "primary",
+    dataSource: "Issues",
+    selectedQueryKey: "issues",
     // dataSource: "PrimaryStock",
     // selectedQueryKey: "primary",
 };

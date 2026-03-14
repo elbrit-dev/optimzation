@@ -31,6 +31,7 @@ export function useMultiSlotPipeline(options) {
     tablePagination: slotStateBySlot[slotIds[0]]?.tablePagination ?? pipelineOptions.tablePagination ?? { first: 0, rows: 10 },
     groupFields: slots[slotIds[0]]?.groupFields ?? pipelineOptions.groupFields,
     derivedColumns: slots[slotIds[0]]?.derivedColumns ?? pipelineOptions.derivedColumns ?? [],
+    derivedRows: slots[slotIds[0]]?.derivedRows ?? pipelineOptions.derivedRows ?? null,
     percentageColumns: slots[slotIds[0]]?.percentageColumns ?? pipelineOptions.percentageColumns ?? [],
     textFilterColumns: slots[slotIds[0]]?.textFilterColumns ?? pipelineOptions.textFilterColumns ?? [],
     enableFilter: slots[slotIds[0]]?.enableFilter ?? pipelineOptions.enableFilter ?? true,
@@ -63,6 +64,8 @@ export function useMultiSlotPipeline(options) {
       derivedColumnsMode,
       derivedColumnsFieldName,
       fallbackColumns,
+      queryFunction,
+      monthRange,
     } = pipelineOptions;
     const { addEditingKeysToRows, mainTableEditingDataRefEarly } = singlePipeline;
 
@@ -89,6 +92,8 @@ export function useMultiSlotPipeline(options) {
       fallbackColumns,
       derivedColumnsMode: derivedColumnsMode ?? 'main',
       derivedColumnsFieldName: derivedColumnsFieldName ?? null,
+      queryFunction,
+      monthRange,
     };
 
     const result = {};
@@ -105,6 +110,8 @@ export function useMultiSlotPipeline(options) {
             mode: derivedColumnsMode ?? 'main',
             fieldName: derivedColumnsFieldName ?? null,
             getDataValue,
+            query: queryFunction,
+            monthRange,
           })
         : baseTableData;
       const searchSortSortedData = computeSearchSortSortedData(tableData, sharedSearchSortOptions);
@@ -134,6 +141,8 @@ export function useMultiSlotPipeline(options) {
     pipelineOptions.fallbackColumns,
     pipelineOptions.derivedColumnsMode,
     pipelineOptions.derivedColumnsFieldName,
+    pipelineOptions.queryFunction,
+    pipelineOptions.monthRange,
   ]);
 
   return {

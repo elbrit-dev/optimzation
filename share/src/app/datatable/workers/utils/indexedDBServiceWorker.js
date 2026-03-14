@@ -42,6 +42,24 @@ export class IndexedDBServiceWorker {
     }
 
     /**
+     * Clear cached database instance for a queryId to force refresh
+     * @param {string} queryId - The query identifier
+     */
+    async clearQueryDatabaseCache(queryId) {
+        if (this.queryDatabases.has(queryId)) {
+            const cachedDb = this.queryDatabases.get(queryId);
+            try {
+                if (cachedDb.isOpen()) {
+                    cachedDb.close();
+                }
+            } catch (error) {
+                console.warn(`Error closing cached database for ${queryId}:`, error);
+            }
+            this.queryDatabases.delete(queryId);
+        }
+    }
+
+    /**
      * Get or create a database for a specific queryId
      * Creates the database if it doesn't exist
      * Note: This method should only be called for queries with clientSave === true

@@ -109,6 +109,7 @@ export function mergeConfig(userConfig = {}, baseConfig = getDefaultConfig()) {
     slots: userConfig.slots || base.slots,
     percentageColumns: userConfig.percentageColumns ?? base.percentageColumns,
     derivedColumns: userConfig.derivedColumns ?? base.derivedColumns,
+    derivedRows: userConfig.derivedRows ?? base.derivedRows ?? null,
     rowColumnStyles: userConfig.rowColumnStyles ?? base.rowColumnStyles,
     // allowedColumns: array = use as-is; object = deep-merge group key
     allowedColumns: (() => {
@@ -155,6 +156,7 @@ export function extractStateFromConfig(config, baseConfig = getDefaultConfig()) 
     editableColumns: config.editableColumns ?? base.editableColumns,
     percentageColumns: config.percentageColumns ?? base.percentageColumns,
     derivedColumns: config.derivedColumns ?? base.derivedColumns,
+    derivedRows: config.derivedRows ?? base.derivedRows ?? null,
     redFields: config.redFields ?? base.redFields,
     greenFields: config.greenFields ?? base.greenFields,
     rowColumnStyles: config.rowColumnStyles ?? base.rowColumnStyles,

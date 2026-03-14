@@ -804,6 +804,10 @@ PLASMIC.registerComponent(DataProvider, {
       description: "Array of derived column configurations",
       defaultValue: [],
     },
+    derivedRows: {
+      type: "object",
+      description: "Derived rows configuration (e.g. for row-level derived data)",
+    },
     reportDataOverride: {
       type: "object",
       description: "Override report data (for custom report data)",

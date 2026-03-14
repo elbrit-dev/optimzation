@@ -141,7 +141,7 @@ export function extractNestedTablesFromRow(row, depth = 0) {
  * @param {Array<Object>} data - Data array to process
  * @param {number} depth - Current depth level
  * @param {number} maxDepth - Maximum recursion depth (default: 10)
- * @param {Object} [options] - Optional { derivedColumns, getDataValue }
+ * @param {Object} [options] - Optional { derivedColumns, getDataValue, query, monthRange }
  * @returns {Array<Object>} Processed data with __nestedTables__ property
  */
 export function extractJsonNestedTablesRecursive(data, depth = 0, maxDepth = 10, options = {}) {
@@ -149,7 +149,7 @@ export function extractJsonNestedTablesRecursive(data, depth = 0, maxDepth = 10,
     return data;
   }
 
-  const { derivedColumns, getDataValue } = options;
+  const { derivedColumns, getDataValue, query, monthRange } = options;
 
   return data.map(row => {
     if (!row || typeof row !== 'object' || row.__isGroupRow__) {
@@ -168,6 +168,8 @@ export function extractJsonNestedTablesRecursive(data, depth = 0, maxDepth = 10,
           fieldName: nestedTable.fieldName,
           parentRow: row,
           getDataValue,
+          query,
+          monthRange,
         });
       }
       return {

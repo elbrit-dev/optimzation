@@ -25,6 +25,7 @@ import {
 import { detectColumnTypesLikeProvider, inferColumnType, parseToDate } from '../utils/typeDetectionUtils';
 import { applyDerivedColumns, getDerivedColumnNames, getNonAggregatableColumnNames, getOrderedColumnsWithDerived } from '../utils/derivedColumnsUtils';
 import { buildPipelineColumnMeta, aggregateNonNumeric } from '../utils/perSlotPipelineUtils';
+import { useDerivedRowsData } from './useDerivedRowsData';
 
 const isNaNNumber = Number.isNaN;
 
@@ -93,10 +94,13 @@ export function useDataPipeline(options) {
     derivedColumns = [],
     textFilterColumns = [],
     dateColumn = null,
+    monthRange = null,
     derivedColumnsMode = 'main',
     derivedColumnsFieldName = null,
     fallbackColumns = null,
     useOfflineDataAsTableDataSource = false, // When true (nested drawer table), use preFilteredData/offlineData as source of truth so + add row reflects immediately
+    derivedRows = null,
+    queryFunction = null,
   } = options;
 
   const rawTableData = useMemo(() => {
@@ -114,6 +118,11 @@ export function useDataPipeline(options) {
     }
     return null;
   }, [dataSource, processedData, selectedQueryKey, offlineData, offlineDataExecuted]);
+
+  const { data: dataWithDerivedRows } = useDerivedRowsData(rawTableData, derivedRows, queryFunction, {
+    selectedQueryKey,
+    currentQueryDoc,
+  });
 
   const mainTableEditingDataRefEarly = useRef([]);
   const [tableDataUpdateTrigger, setTableDataUpdateTrigger] = useState(0);
@@ -148,11 +157,12 @@ export function useDataPipeline(options) {
   }, [preFilterValues]);
 
   const authFilteredData = useMemo(() => {
-    if (!rawTableData || !isArray(rawTableData) || isEmpty(rawTableData)) {
-      return rawTableData;
+    const dataSourceForAuth = dataWithDerivedRows ?? rawTableData;
+    if (!dataSourceForAuth || !isArray(dataSourceForAuth) || isEmpty(dataSourceForAuth)) {
+      return dataSourceForAuth;
     }
-    if (isAdminMode) return rawTableData;
-    let data = rawTableData;
+    if (isAdminMode) return dataSourceForAuth;
+    let data = dataSourceForAuth;
     if (salesTeamColumn && salesTeamValues && salesTeamValues.length > 0) {
       data = data.filter((row) => {
         if (!row || typeof row !== 'object') return false;
@@ -185,6 +195,7 @@ export function useDataPipeline(options) {
     }
     return data;
   }, [
+    dataWithDerivedRows,
     rawTableData,
     isAdminMode,
     salesTeamColumn,
@@ -255,8 +266,10 @@ export function useDataPipeline(options) {
       mode: derivedColumnsMode,
       fieldName: derivedColumnsFieldName,
       getDataValue,
+      query: queryFunction,
+      monthRange,
     });
-  }, [preFilteredData, tableDataUpdateTrigger, addEditingKeysToRows, derivedColumns, derivedColumnsMode, derivedColumnsFieldName, useOfflineDataAsTableDataSource]);
+  }, [preFilteredData, tableDataUpdateTrigger, addEditingKeysToRows, derivedColumns, derivedColumnsMode, derivedColumnsFieldName, useOfflineDataAsTableDataSource, queryFunction, monthRange]);
 
   const searchedData = useMemo(() => {
     if (!tableData || !isArray(tableData) || isEmpty(tableData)) {
@@ -542,8 +555,10 @@ export function useDataPipeline(options) {
     return extractJsonNestedTablesRecursive(data, 0, maxDepth, {
       derivedColumns,
       getDataValue,
+      query: queryFunction,
+      monthRange,
     });
-  }, [derivedColumns]);
+  }, [derivedColumns, queryFunction, monthRange]);
 
   const sortFieldType = useMemo(() => {
     if (
@@ -819,6 +834,8 @@ export function useDataPipeline(options) {
         mode: derivedColumnsMode,
         fieldName: derivedColumnsFieldName,
         getDataValue,
+        query: queryFunction,
+        monthRange,
       });
     }
     if (isEmpty(dataWithJsonTables) || !isArray(dataWithJsonTables)) {
@@ -851,6 +868,8 @@ export function useDataPipeline(options) {
     getSortComparator,
     derivedColumnsMode,
     derivedColumnsFieldName,
+    queryFunction,
+    monthRange,
   ]);
 
   const filteredDataWithNestedTables = useMemo(() => {
