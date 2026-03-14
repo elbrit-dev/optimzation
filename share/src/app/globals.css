@@ -605,6 +605,16 @@ body {
     color: #2563eb;
 }
 
+/* Config preset dropdown - vertically center label text */
+.config-preset-dropdown.p-dropdown {
+    display: flex;
+    align-items: center;
+}
+.config-preset-dropdown.p-dropdown .p-dropdown-label {
+    display: flex;
+    align-items: center;
+}
+
 /* Preset dropdown - full width items so delete button takes remaining space */
 .preset-dropdown-panel .p-dropdown-item-label {
     display: block;

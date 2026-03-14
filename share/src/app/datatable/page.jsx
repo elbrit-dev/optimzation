@@ -128,8 +128,6 @@ function DataTablePage() {
   const [configList, setConfigList] = useState(() => getConfigList());
   const [configLoading, setConfigLoading] = useState(false);
 
-  // Code mode state
-  const [codeMode, setCodeMode] = useState(false);
   const [firebasePresets, setFirebasePresets] = useState({});
   const [firebasePresetsLoading, setFirebasePresetsLoading] = useState(false);
   const [selectedPresetKey, setSelectedPresetKey] = useState(() => {
@@ -528,6 +526,15 @@ function DataTablePage() {
     ));
   }, [rawTableData, tableData]);
 
+  // All column names for Info tab (excludes internal __* columns, ignores allowedColumns)
+  const allColumnNames = useMemo(() => {
+    const dataToUse = rawTableData || tableData;
+    if (!Array.isArray(dataToUse) || isEmpty(dataToUse)) return [];
+    return uniq(flatMap(dataToUse, (item) =>
+      item && typeof item === 'object' ? getDataKeys(item).filter(k => k && typeof k === 'string' && !k.startsWith('__')) : []
+    )).sort();
+  }, [rawTableData, tableData]);
+
   // Format field name for display
   const formatFieldName = (key) => {
     return startCase(key.split('__').join(' ').split('_').join(' '));
@@ -676,14 +683,6 @@ function DataTablePage() {
   // Load Firebase presets on mount so the merged dropdown works in both modes
   useEffect(() => {
     loadFirebasePresets();
-  }, [loadFirebasePresets]);
-
-  const handleCodeModeToggle = useCallback(() => {
-    setCodeMode(prev => {
-      const next = !prev;
-      if (next) loadFirebasePresets();
-      return next;
-    });
   }, [loadFirebasePresets]);
 
   const presetDropdownOptions = useMemo(() => {
@@ -1096,8 +1095,7 @@ function DataTablePage() {
                 </SplitterPanel>
                 <SplitterPanel className="flex flex-col min-w-0 overflow-hidden border-l border-gray-200" size={20} minSize={2}>
                   <DataTableControls
-                    codeMode={codeMode}
-                    onCodeModeToggle={handleCodeModeToggle}
+                    allColumnNames={allColumnNames}
                     presetDropdownOptions={presetDropdownOptions}
                     selectedPresetKey={selectedPresetKey}
                     onPresetSelect={handlePresetSelect}

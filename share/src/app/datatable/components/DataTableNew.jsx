@@ -587,7 +587,7 @@ function IconOnlyMultiselectFilter({ value, options, onChange, placeholder = "Se
   // Use local state for selected values - only apply to parent on blur
   const [localSelectedValues, setLocalSelectedValues] = useState(value || []);
   const [mounted, setMounted] = useState(false);
-  
+
   // Sync local state when value prop changes (from outside)
   useEffect(() => {
     setLocalSelectedValues(value || []);
@@ -837,6 +837,138 @@ function IconOnlyMultiselectFilter({ value, options, onChange, placeholder = "Se
   );
 }
 
+// Extracted to module scope so it has stable identity - prevents unmount/remount on every DataTableNew render
+function TableControlsBar({
+  showFullscreenButton = true,
+  controlsRowClassName = "",
+  onClose,
+  onMaximizeToggle,
+  isMaximized: maximized = false,
+  enableFullscreenDialog = true,
+  updateVisibleColumns,
+  availableColumnsForVisibility,
+  formatHeaderName,
+  visibleColumns,
+  freezeFirstColumn,
+  setFreezeFirstColumn,
+  enableWrite,
+  contextNestedTableTabId,
+  handleAddNestedRowAtZero,
+  tableName,
+  openDrawerForNewRow,
+  handleMainSave,
+  handleMainCancel,
+  hasMainTableChanges,
+  exportToXLSX,
+  sortedData,
+  isEmpty,
+  setIsFullscreen,
+  setIsMaximized,
+}) {
+  return (
+    <div className={`mb-4 flex items-center justify-between gap-4 flex-wrap ${controlsRowClassName}`}>
+      <div className="shrink-0 flex items-center gap-2">
+        {updateVisibleColumns && !isEmpty(availableColumnsForVisibility) && (
+          <IconOnlyMultiselectFilter
+            value={visibleColumns}
+            options={availableColumnsForVisibility.map(col => ({
+              label: formatHeaderName(col),
+              value: col,
+            }))}
+            onChange={updateVisibleColumns}
+            placeholder="Visible Columns"
+            fieldName="columns"
+            itemLabel="Visible Column"
+            icon="pi-eye"
+          />
+        )}
+        <button
+          onClick={() => setFreezeFirstColumn(!freezeFirstColumn)}
+          className={`p-2 rounded-lg transition-colors flex items-center justify-center ${freezeFirstColumn
+            ? 'bg-blue-600 text-white hover:bg-blue-700'
+            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            }`}
+          title={freezeFirstColumn ? 'Unlock first column' : 'Lock first column'}
+        >
+          <i className={`pi ${freezeFirstColumn ? 'pi-lock' : 'pi-unlock'}`}></i>
+        </button>
+      </div>
+      <div className="shrink-0 flex items-center gap-2">
+        {enableWrite && ((contextNestedTableTabId && handleAddNestedRowAtZero) || (!contextNestedTableTabId && tableName !== 'sidebar' && openDrawerForNewRow)) && (
+          <button
+            onClick={() => {
+              if (contextNestedTableTabId) {
+                handleAddNestedRowAtZero?.();
+              } else {
+                openDrawerForNewRow?.();
+              }
+            }}
+            className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center"
+            title={contextNestedTableTabId ? "Add row at top" : "Add new row"}
+          >
+            <i className="pi pi-plus"></i>
+          </button>
+        )}
+        {tableName !== 'sidebar' && enableWrite && (handleMainSave) && (
+          <button
+            onClick={() => handleMainSave?.()}
+            className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center"
+            title="Save all nested table changes"
+          >
+            <i className="pi pi-save"></i>
+          </button>
+        )}
+        {tableName !== 'sidebar' && enableWrite && (handleMainCancel && hasMainTableChanges) && (
+          <button
+            onClick={handleMainCancel}
+            className="p-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center justify-center"
+            title="Discard all unsaved changes"
+          >
+            <i className="pi pi-times"></i>
+          </button>
+        )}
+        <button
+          onClick={exportToXLSX}
+          disabled={isEmpty(sortedData)}
+          className="p-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center justify-center"
+          title="Export to Excel"
+        >
+          <i className="pi pi-file-excel"></i>
+        </button>
+        {showFullscreenButton && enableFullscreenDialog && (
+          <button
+            onClick={() => {
+              setIsFullscreen(true);
+              setIsMaximized(true);
+            }}
+            className="p-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center justify-center"
+            title="View table in fullscreen"
+          >
+            <i className="pi pi-window-maximize"></i>
+          </button>
+        )}
+        {onMaximizeToggle && (
+          <button
+            onClick={onMaximizeToggle}
+            className="p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors flex items-center justify-center"
+            title={maximized ? 'Minimize' : 'Maximize'}
+          >
+            <i className={`pi ${maximized ? 'pi-window-minimize' : 'pi-window-maximize'}`}></i>
+          </button>
+        )}
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="p-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center"
+            title="Close"
+          >
+            <i className="pi pi-times"></i>
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function DateRangeFilter({ value, onChange }) {
   const handleChange = (e) => {
@@ -1204,7 +1336,10 @@ export default function DataTableNew({
     const ordered = [];
     
     // Step 1: Add outerGroupField first if it exists (outerGroupField must always be first)
-    if (outerGroupField && includes(filteredColumns, outerGroupField)) {
+    // Only include when in filteredColumns OR (grouping active AND allowed by allowedColumns)
+    const allowedForOuter = getAllowedForGroupField(allowedColumns, outerGroupField) ?? getAllowedForScope(allowedColumns, 'main');
+    const outerGroupAllowed = !allowedForOuter || allowedForOuter.length === 0 || includes(allowedForOuter, outerGroupField);
+    if (outerGroupField && (includes(filteredColumns, outerGroupField) || (effectiveGroupFields?.length > 0 && outerGroupAllowed))) {
       ordered.push(outerGroupField);
     }
 
@@ -4004,122 +4139,28 @@ export default function DataTableNew({
     setRows(event.rows);
   };
 
-  // Reusable Table Controls Component
-  const TableControls = ({
-    showFullscreenButton = true,
-    controlsRowClassName = "",
-    onClose,
-    onMaximizeToggle,
-    isMaximized: maximized = false,
-    enableFullscreenDialog = true
-  }) => (
-    <div className={`mb-4 flex items-center justify-between gap-4 flex-wrap ${controlsRowClassName}`}>
-      {/* Left side: Visibility Control and Lock button */}
-      <div className="shrink-0 flex items-center gap-2">
-        {updateVisibleColumns && !isEmpty(availableColumnsForVisibility) && (
-          <IconOnlyMultiselectFilter
-            value={visibleColumns}
-            options={availableColumnsForVisibility.map(col => ({
-              label: formatHeaderName(col),
-              value: col,
-            }))}
-            onChange={updateVisibleColumns}
-            placeholder="Visible Columns"
-            fieldName="columns"
-            itemLabel="Visible Column"
-            icon="pi-eye"
-          />
-        )}
-        <button
-          onClick={() => setFreezeFirstColumn(!freezeFirstColumn)}
-          className={`p-2 rounded-lg transition-colors flex items-center justify-center ${freezeFirstColumn
-            ? 'bg-blue-600 text-white hover:bg-blue-700'
-            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-            }`}
-          title={freezeFirstColumn ? 'Unlock first column' : 'Lock first column'}
-        >
-          <i className={`pi ${freezeFirstColumn ? 'pi-lock' : 'pi-unlock'}`}></i>
-        </button>
-      </div>
-
-      {/* Right side: Blue + (leftmost), Save, Cancel, Export, Fullscreen, Maximize/Minimize, and Close buttons (Save/Cancel hidden for sidebar - shown in Sidebar header) */}
-      <div className="shrink-0 flex items-center gap-2">
-        {enableWrite && ((contextNestedTableTabId && handleAddNestedRowAtZero) || (!contextNestedTableTabId && tableName !== 'sidebar' && openDrawerForNewRow)) && (
-          <button
-            onClick={() => {
-              if (contextNestedTableTabId) {
-                handleAddNestedRowAtZero?.();
-              } else {
-                openDrawerForNewRow?.();
-              }
-            }}
-            className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center"
-            title={contextNestedTableTabId ? "Add row at top" : "Add new row"}
-          >
-            <i className="pi pi-plus"></i>
-          </button>
-        )}
-        {tableName !== 'sidebar' && enableWrite && (handleMainSave) && (
-          <button
-            onClick={() => {
-              handleMainSave?.();
-            }}
-            className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center"
-            title="Save all nested table changes"
-          >
-            <i className="pi pi-save"></i>
-          </button>
-        )}
-        {tableName !== 'sidebar' && enableWrite && (handleMainCancel && hasMainTableChanges) && (
-          <button
-            onClick={handleMainCancel}
-            className="p-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center justify-center"
-            title="Discard all unsaved changes"
-          >
-            <i className="pi pi-times"></i>
-          </button>
-        )}
-        <button
-          onClick={exportToXLSX}
-          disabled={isEmpty(sortedData)}
-          className="p-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center justify-center"
-          title="Export to Excel"
-        >
-          <i className="pi pi-file-excel"></i>
-        </button>
-        {showFullscreenButton && enableFullscreenDialog && (
-          <button
-            onClick={() => {
-              setIsFullscreen(true);
-              setIsMaximized(true);
-            }}
-            className="p-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center justify-center"
-            title="View table in fullscreen"
-          >
-            <i className="pi pi-window-maximize"></i>
-          </button>
-        )}
-        {onMaximizeToggle && (
-          <button
-            onClick={onMaximizeToggle}
-            className="p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors flex items-center justify-center"
-            title={maximized ? 'Minimize' : 'Maximize'}
-          >
-            <i className={`pi ${maximized ? 'pi-window-minimize' : 'pi-window-maximize'}`}></i>
-          </button>
-        )}
-        {onClose && (
-          <button
-            onClick={onClose}
-            className="p-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center"
-            title="Close"
-          >
-            <i className="pi pi-times"></i>
-          </button>
-        )}
-      </div>
-    </div>
-  );
+  // TableControlsBar is defined at module scope for stable identity (prevents unmount/remount loop)
+  const tableControlsProps = {
+    updateVisibleColumns,
+    availableColumnsForVisibility,
+    formatHeaderName,
+    visibleColumns,
+    freezeFirstColumn,
+    setFreezeFirstColumn,
+    enableWrite,
+    contextNestedTableTabId,
+    handleAddNestedRowAtZero,
+    tableName,
+    openDrawerForNewRow,
+    handleMainSave,
+    handleMainCancel,
+    hasMainTableChanges,
+    exportToXLSX,
+    sortedData,
+    isEmpty,
+    setIsFullscreen,
+    setIsMaximized,
+  };
 
   // Reusable Filter Chips Component
   const FilterChips = ({ className = "" }) => {
@@ -4459,7 +4500,7 @@ export default function DataTableNew({
         </div>
       )}
       <FeatureStatusIndicators />
-      <TableControls showFullscreenButton={true} enableFullscreenDialog={enableFullscreenDialog} />
+      <TableControlsBar {...tableControlsProps} showFullscreenButton={true} enableFullscreenDialog={enableFullscreenDialog} />
       <FilterChips />
       <TableView 
         scrollHeight={scrollHeight || (scrollable ? scrollHeightValue : undefined)}
@@ -4490,7 +4531,8 @@ export default function DataTableNew({
       >
         <div className="w-full h-full flex flex-col" style={{ height: '100%', maxHeight: '100%', minHeight: 0, overflow: 'hidden' }}>
           <FeatureStatusIndicators className="shrink-0" />
-          <TableControls
+          <TableControlsBar
+            {...tableControlsProps}
             showFullscreenButton={false}
             controlsRowClassName="shrink-0"
             enableFullscreenDialog={enableFullscreenDialog}
@@ -4499,7 +4541,6 @@ export default function DataTableNew({
               setIsMaximized(false);
             }}
             onMaximizeToggle={() => {
-              // Toggle maximize state directly
               setIsMaximized(!isMaximized);
             }}
             isMaximized={isMaximized}

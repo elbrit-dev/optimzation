@@ -118,7 +118,7 @@ export const defaultDataTableConfig = {
           'inv_offer',
         ],
         report: [
-          'customer_name',
+          // 'customer_name',
           'inc_primary',
           'gross_primary',
           'net_primary',

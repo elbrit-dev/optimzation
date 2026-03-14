@@ -51,9 +51,12 @@ export function buildPipelineColumnMeta(options) {
     fallbackColumns,
   } = options;
   if (!isArray(data) || isEmpty(data)) {
-    const cols = (fallbackColumns && isArray(fallbackColumns) && fallbackColumns.length > 0)
+    let cols = (fallbackColumns && isArray(fallbackColumns) && fallbackColumns.length > 0)
       ? fallbackColumns.filter((c) => c && typeof c === 'string' && !String(c).startsWith('__'))
       : [];
+    if (cols.length === 0 && allowedColumns && isArray(allowedColumns) && allowedColumns.length > 0) {
+      cols = allowedColumns.filter((c) => c && typeof c === 'string' && !String(c).startsWith('__'));
+    }
     if (cols.length === 0) {
       return {
         columns: [],

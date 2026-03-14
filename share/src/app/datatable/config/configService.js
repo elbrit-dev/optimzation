@@ -190,11 +190,17 @@ export function extractStateFromConfig(config, baseConfig = getDefaultConfig()) 
  * @returns {boolean} True if dirty (preset differs from applied, or parse error)
  */
 export function isConfigDirty(presetJsValue, appliedConfig) {
-  if (!presetJsValue || !presetJsValue.trim()) return false;
+  const hasPreset = !!(presetJsValue && presetJsValue.trim());
+  if (!hasPreset) {
+    return false;
+  }
   try {
     const parsed = deserializeJsToConfig(presetJsValue);
-    return !isEqual(parsed, appliedConfig ?? {});
-  } catch {
+    const applied = appliedConfig ?? {};
+    const equal = isEqual(parsed, applied);
+    const dirty = !equal;
+    return dirty;
+  } catch (err) {
     return true; // Invalid parse = treat as dirty (user has edits)
   }
 }
