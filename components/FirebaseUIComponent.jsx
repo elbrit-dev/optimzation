@@ -1,8 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
-import app, { db } from "../firebase"; // compat app + compat Firestore instance
+import app from "../firebase"; // now using compat app
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
-// Firestore is initialized in ../firebase.js (compat). No need to import compat/firestore here.
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/router';
 
@@ -50,56 +49,6 @@ const FirebaseUIComponent = ({ onSuccess, onError, className }) => {
           callbacks: {
           signInSuccessWithAuthResult: (authResult, redirectUrl) => {
             console.log('Login successful:', authResult.user.phoneNumber || authResult.user.email);
-
-            // Persist logged-in user to Firestore so `users/{uid}` exists.
-            // Note: Firestore write is best-effort; we don't block sign-in if it fails.
-            const user = authResult?.user;
-            const uid = user?.uid;
-            if (uid && db) {
-              const providerId =
-                user.providerData?.[0]?.providerId ||
-                (user.phoneNumber ? "phone" : "password");
-              const isPhoneLogin = providerId === "phone";
-              const originalPhoneNumber = user.phoneNumber || null;
-              const normalizedPhoneNumber = originalPhoneNumber?.startsWith("+91")
-                ? originalPhoneNumber.slice(3)
-                : originalPhoneNumber;
-              const fallbackDisplayName = isPhoneLogin ? "User" : null;
-
-              const userRef = db.collection("users").doc(uid);
-              userRef
-                .get()
-                .then((existingSnap) => {
-                  const existingData = existingSnap.exists ? existingSnap.data() : {};
-                  const createdAt = existingData?.createdAt || new Date();
-                  const role = existingData?.role || "Editor";
-
-                  return userRef.set(
-                    {
-                      uid,
-                      createdAt,
-                      lastLoginAt: new Date(),
-                      displayName: user.displayName || fallbackDisplayName,
-                      email: user.email || null,
-                      photoURL: user.photoURL || null,
-                      phoneNumber: normalizedPhoneNumber || null,
-                      originalPhoneNumber,
-                      role,
-                      customProperties: {
-                        accessLevel: "full",
-                        organization: "Elbrit Life Sciences",
-                        provider: providerId,
-                        ...(isPhoneLogin ? { authMethod: "phone" } : {}),
-                      },
-                    },
-                    { merge: true }
-                  );
-                })
-                .catch((err) => {
-                  console.error("Failed to write users/{uid} doc:", err);
-                });
-            }
-
             if (onSuccess) onSuccess({ firebaseUser: authResult.user });
             return false; // Prevent redirect
           },
