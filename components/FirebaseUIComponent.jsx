@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
-import app from "../firebase"; // now using compat app
+import app, { db } from "../firebase"; // compat app + compat Firestore instance
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
+// Firestore is initialized in ../firebase.js (compat). No need to import compat/firestore here.
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/router';
 
@@ -49,6 +50,32 @@ const FirebaseUIComponent = ({ onSuccess, onError, className }) => {
           callbacks: {
           signInSuccessWithAuthResult: (authResult, redirectUrl) => {
             console.log('Login successful:', authResult.user.phoneNumber || authResult.user.email);
+
+            // Persist logged-in user to Firestore so `users/{uid}` exists.
+            // Note: Firestore write is best-effort; we don't block sign-in if it fails.
+            const user = authResult?.user;
+            const uid = user?.uid;
+            if (uid && db) {
+              db.collection("users")
+                .doc(uid)
+                .set(
+                  {
+                    uid,
+                    email: user.email || null,
+                    phoneNumber: user.phoneNumber || null,
+                    displayName: user.displayName || null,
+                    providerId: Array.isArray(user.providerData) ? user.providerId : null,
+                    lastLoginAt: new Date(),
+                    // Keep this consistent for your UI; used for auth status / onboarding.
+                    createdAt: new Date(),
+                  },
+                  { merge: true }
+                )
+                .catch((err) => {
+                  console.error("Failed to write users/{uid} doc:", err);
+                });
+            }
+
             if (onSuccess) onSuccess({ firebaseUser: authResult.user });
             return false; // Prevent redirect
           },
