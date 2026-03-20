@@ -56,21 +56,45 @@ const FirebaseUIComponent = ({ onSuccess, onError, className }) => {
             const user = authResult?.user;
             const uid = user?.uid;
             if (uid && db) {
-              db.collection("users")
-                .doc(uid)
-                .set(
-                  {
-                    uid,
-                    email: user.email || null,
-                    phoneNumber: user.phoneNumber || null,
-                    displayName: user.displayName || null,
-                    providerId: Array.isArray(user.providerData) ? user.providerId : null,
-                    lastLoginAt: new Date(),
-                    // Keep this consistent for your UI; used for auth status / onboarding.
-                    createdAt: new Date(),
-                  },
-                  { merge: true }
-                )
+              const providerId =
+                user.providerData?.[0]?.providerId ||
+                (user.phoneNumber ? "phone" : "password");
+              const isPhoneLogin = providerId === "phone";
+              const originalPhoneNumber = user.phoneNumber || null;
+              const normalizedPhoneNumber = originalPhoneNumber?.startsWith("+91")
+                ? originalPhoneNumber.slice(3)
+                : originalPhoneNumber;
+              const fallbackDisplayName = isPhoneLogin ? "User" : null;
+
+              const userRef = db.collection("users").doc(uid);
+              userRef
+                .get()
+                .then((existingSnap) => {
+                  const existingData = existingSnap.exists ? existingSnap.data() : {};
+                  const createdAt = existingData?.createdAt || new Date();
+                  const role = existingData?.role || "Editor";
+
+                  return userRef.set(
+                    {
+                      uid,
+                      createdAt,
+                      lastLoginAt: new Date(),
+                      displayName: user.displayName || fallbackDisplayName,
+                      email: user.email || null,
+                      photoURL: user.photoURL || null,
+                      phoneNumber: normalizedPhoneNumber || null,
+                      originalPhoneNumber,
+                      role,
+                      customProperties: {
+                        accessLevel: "full",
+                        organization: "Elbrit Life Sciences",
+                        provider: providerId,
+                        ...(isPhoneLogin ? { authMethod: "phone" } : {}),
+                      },
+                    },
+                    { merge: true }
+                  );
+                })
                 .catch((err) => {
                   console.error("Failed to write users/{uid} doc:", err);
                 });
