@@ -1,5 +1,5 @@
 import { TAG_IDS } from "@calendar/components/calendar/constants";
-
+import { startOfDay, isBefore } from "date-fns";
 export const TAG_FORM_CONFIG = {
   [TAG_IDS.LEAVE]: {
     hide: [
@@ -75,8 +75,17 @@ export const TAG_FORM_CONFIG = {
     ui: {
       lockTagOnEdit: true,
       showTags: false,
-      allowDelete: () => false,
-      allowEdit: () => false,
+      allowDelete: (event) =>
+        !isBefore(
+          startOfDay(new Date(event.startDate)),
+          startOfDay(new Date())
+        ),
+      
+      allowEdit: (event) =>
+        !isBefore(
+          startOfDay(new Date(event.startDate)),
+          startOfDay(new Date())
+        ),
     },
     editReadOnly: {
       fields: [
@@ -209,22 +218,30 @@ export const TAG_FORM_CONFIG = {
     ui: {
       lockTagOnEdit: true,
       showTags: false,
-      allowDelete: (event) =>
-        !(
+      allowDelete: (event) => {
+        const isPast = isBefore(
+          startOfDay(new Date(event.startDate)),
+          startOfDay(new Date())
+        );
+      
+        if (isPast) return false;
+      
+        return !(
           event.attending === "Yes" ||
           event.pob_given === "Yes" ||
           (Array.isArray(event.fsl_doctor_item) &&
             event.fsl_doctor_item.length > 0)
-        ),
-      allowEdit: () => true,
-      primaryEditAction: {
-        label: "Visit",
-        type: "success",
-        setOnEdit: {
-          attending: "Yes",
-        },
+        );
       },
-
+      
+      allowEdit: (event) => {
+        const isPast = isBefore(
+          startOfDay(new Date(event.startDate)),
+          startOfDay(new Date())
+        );
+      
+        return !isPast;
+      },
     },
 
     editReadOnly: {

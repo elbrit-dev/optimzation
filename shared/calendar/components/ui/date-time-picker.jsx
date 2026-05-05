@@ -27,6 +27,7 @@ export function DateTimePicker({
 	defaultMinute = 0,
 	disabled = false,
 	minDate,
+	disabledDates = [],
 	maxDate,
 }) {
 	const { use24HourFormat } = useCalendar();
@@ -114,7 +115,11 @@ export function DateTimePicker({
 	const normalizedMaxDate = maxDate
 		? new Date(maxDate.getFullYear(), maxDate.getMonth(), maxDate.getDate())
 		: null;
-
+	const normalizedDisabledDates = (disabledDates || []).map((d) => {
+		const n = new Date(d);
+		n.setHours(0, 0, 0, 0);
+		return n.getTime();
+	});
 	return (
 		<FormItem className="flex flex-col">
 			<FormLabel>
@@ -165,6 +170,11 @@ export function DateTimePicker({
 
 								const day = new Date(date.getFullYear(), date.getMonth(), date.getDate());
 
+								// HQ disabled dates
+								if (normalizedDisabledDates.includes(day.getTime())) {
+									return true;
+								}
+
 								// 🔒 MIN DATE
 								if (normalizedMinDate && day < normalizedMinDate) {
 									return true;
@@ -176,7 +186,8 @@ export function DateTimePicker({
 								}
 
 								// Existing rules
-								if (field.name === "startDate") {
+								// Prevent past dates only when not allowing all dates
+								if (field.name === "startDate" && !allowAllDates) {
 									return day < today;
 								}
 

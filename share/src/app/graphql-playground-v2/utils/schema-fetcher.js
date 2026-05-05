@@ -1,5 +1,5 @@
 import { buildClientSchema, parse } from 'graphql';
-import { GRAPHQL_ENDPOINTS, ENDPOINT_TOKENS } from '@/app/graphql-playground/constants';
+import { getEndpointConfigFromUrlKeyAsync } from '@/app/graphql-playground/constants';
 
 /**
  * GraphQL introspection query to fetch schema
@@ -101,23 +101,44 @@ const INTROSPECTION_QUERY = `
 `;
 
 /**
- * Cache for schemas per environment
+ * Cache for schemas per environment (and per env+auth override segment)
  */
 const schemaCache = new Map();
+
+/** Stable non-reversible cache segment from token (no secret in key string beyond fingerprint) */
+function authTokenCacheSegment(token) {
+  let h = 2166136261;
+  for (let i = 0; i < token.length; i++) {
+    h ^= token.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(16);
+}
+
+function getSchemaCacheKey(environment, authTokenOverride) {
+  const envKey = String(environment);
+  const trimmed = authTokenOverride != null && typeof authTokenOverride === 'string' ? authTokenOverride.trim() : '';
+  if (!trimmed) return envKey;
+  return `${envKey}::__auth__${authTokenCacheSegment(trimmed)}`;
+}
 
 /**
  * Fetches GraphQL schema via introspection query
  * @param {string} environment - Environment name ('UAT' or 'ERP')
+ * @param {{ authToken?: string|null }} [options] - When authToken is non-empty, use for Authorization instead of configured global token
  * @returns {Promise<GraphQLSchema>} GraphQL schema object
  */
-export async function fetchGraphQLSchema(environment) {
-  // Check cache first
-  if (schemaCache.has(environment)) {
-    return schemaCache.get(environment);
+export async function fetchGraphQLSchema(environment, options = {}) {
+  const override = options?.authToken != null && typeof options.authToken === 'string' ? options.authToken.trim() : '';
+  const cacheKey = getSchemaCacheKey(environment, override || null);
+
+  if (schemaCache.has(cacheKey)) {
+    return schemaCache.get(cacheKey);
   }
 
-  const endpointUrl = GRAPHQL_ENDPOINTS[environment];
-  const authToken = ENDPOINT_TOKENS[environment] || '';
+  const endpointConfig = await getEndpointConfigFromUrlKeyAsync(environment);
+  const endpointUrl = endpointConfig?.endpointUrl || '';
+  const authToken = override || endpointConfig?.authToken || '';
 
   if (!endpointUrl) {
     throw new Error(`GraphQL endpoint URL is not set for environment: ${environment}`);
@@ -166,8 +187,7 @@ export async function fetchGraphQLSchema(environment) {
     // Build GraphQL schema object from introspection result
     const schema = buildClientSchema(result.data);
 
-    // Cache the schema
-    schemaCache.set(environment, schema);
+    schemaCache.set(cacheKey, schema);
 
     return schema;
   } catch (error) {
@@ -185,7 +205,12 @@ export async function fetchGraphQLSchema(environment) {
  */
 export function clearSchemaCache(environment = null) {
   if (environment) {
-    schemaCache.delete(environment);
+    const prefix = String(environment);
+    for (const key of [...schemaCache.keys()]) {
+      if (key === prefix || key.startsWith(`${prefix}::__auth__`)) {
+        schemaCache.delete(key);
+      }
+    }
   } else {
     schemaCache.clear();
   }

@@ -11,17 +11,17 @@ export function mapDoctorVisitToQuotation({
     doctype: "Quotation",
     ...(existingName && { name: existingName }),
 
-    quotation_to: "Lead",
-    party_name: doctorId,
+    quotation_to: "Customer",
+    party_name: values.customer,
     custom_doctorvisit:doctorId,
     transaction_date: formatDateForERP(values.startDate),
     valid_till: formatDateForERP(values.endDate),
-    company_address:"Elbrit Lifesciences Private Limited-Billing-22",
+    company_address:"CFA-Chennai-Billing",
     order_type: "Sales",
     company: "Elbrit Lifesciences Private Limited",
     currency: "INR",
     selling_price_list: "MRP Billing",
-
+    // gst_category: "Unregistered",
     items: (values.fsl_doctor_item || []).map((row) => ({
       item_code:
         typeof row.item__name === "object"
@@ -41,6 +41,7 @@ export function mapErpQuotationToUi(node) {
   
     return {
       name: node.name,
+      customer: node.party_name,
       items: node.items?.map((row) => ({
         item__name: row.item_code?.name,
         qty: Number(row.qty) || 0,

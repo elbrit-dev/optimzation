@@ -1310,3 +1310,89 @@ body {
   .graphql-playground-v2 [class*="doc-explorer-rhs"] {
     display: none !important;
   }
+
+/* Elbrit event timeline — datatable-aligned blue (see paginator / dropdown highlights) */
+.elbrit-event-timeline.p-timeline .p-timeline-event {
+    min-height: 150px;
+}
+
+.elbrit-event-timeline.p-timeline .p-timeline-event:last-child {
+    min-height: 0;
+}
+
+.elbrit-event-timeline.p-timeline .p-timeline-event-opposite,
+.elbrit-event-timeline.p-timeline .p-timeline-event-content {
+    padding-top: 0;
+    padding-bottom: 1.125rem;
+}
+
+.elbrit-event-timeline.p-timeline .p-timeline-event-connector {
+    background: #93c5fd;
+}
+
+.elbrit-event-timeline.p-timeline .p-timeline-event-marker {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+}
+
+.elbrit-event-timeline.p-timeline .elbrit-event-timeline__marker {
+    border-color: #3b82f6 !important;
+    background: #eff6ff !important;
+    color: #2563eb !important;
+}
+
+.elbrit-event-timeline.p-timeline button.elbrit-event-timeline__marker {
+    transition:
+        transform 0.15s ease,
+        box-shadow 0.15s ease,
+        border-color 0.15s ease,
+        background-color 0.15s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .elbrit-event-timeline.p-timeline button.elbrit-event-timeline__marker {
+        transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+    }
+}
+
+.elbrit-event-timeline.p-timeline button.elbrit-event-timeline__marker:hover {
+    border-color: #1d4ed8 !important;
+    background: #dbeafe !important;
+    color: #1d4ed8 !important;
+    box-shadow:
+        0 4px 6px -1px rgb(15 23 42 / 0.08),
+        0 2px 4px -2px rgb(15 23 42 / 0.06);
+    transform: translateY(-1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .elbrit-event-timeline.p-timeline button.elbrit-event-timeline__marker:hover {
+        transform: none;
+    }
+}
+
+.elbrit-event-timeline.p-timeline button.elbrit-event-timeline__marker:active {
+    transform: translateY(0) scale(0.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .elbrit-event-timeline.p-timeline button.elbrit-event-timeline__marker:active {
+        transform: none;
+    }
+}
+
+/* Left/right card alignment: no empty opposite column, don’t stretch to parent width */
+.elbrit-event-timeline.elbrit-event-timeline--single-side.p-timeline {
+    flex-grow: 0;
+    width: fit-content;
+    max-width: min(48rem, 100%);
+}
+
+.elbrit-event-timeline.elbrit-event-timeline--single-side.p-timeline .p-timeline-event-opposite {
+    display: none;
+}
+
+.elbrit-event-timeline.elbrit-event-timeline--single-side.p-timeline .p-timeline-event-content {
+    flex: 0 1 auto;
+}

@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { Dropdown } from 'primereact/dropdown';
 import { usePlaygroundStore } from '../stores/usePlaygroundStore';
-import { getEndpointOptions } from '@/app/graphql-playground/constants';
+import { getEndpointOptionsAsync } from '@/app/graphql-playground/constants';
 import { fetchGraphQLSchema } from '../utils/schema-fetcher';
 import Explorer from 'graphiql-explorer';
 import { useDebounce } from '@/hooks/useDebounce';
@@ -33,8 +33,24 @@ export function GraphQLExplorer() {
     debouncedSetQuery(query);
   }, [query, debouncedSetQuery]);
 
-  // Get endpoint options for dropdown
-  const endpointOptions = useMemo(() => getEndpointOptions(), []);
+  const [endpointOptions, setEndpointOptions] = useState([]);
+
+  useEffect(() => {
+    let mounted = true;
+    const loadEndpointOptions = async () => {
+      try {
+        const options = await getEndpointOptionsAsync();
+        if (mounted) setEndpointOptions(options);
+      } catch (err) {
+        if (mounted) {
+          setEndpointOptions([]);
+          setError(err?.message || 'No global tokens configured');
+        }
+      }
+    };
+    loadEndpointOptions();
+    return () => { mounted = false; };
+  }, []);
 
   // Fetch schema when environment changes
   useEffect(() => {

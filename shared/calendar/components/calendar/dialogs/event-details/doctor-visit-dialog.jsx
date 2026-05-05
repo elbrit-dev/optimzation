@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Tiptap from "@calendar/components/ui/TodoWysiwyg";
 import { toast } from "sonner";
 import { Button } from "@calendar/components/ui/button";
 import { TAG_FORM_CONFIG } from "@calendar/lib/calendar/form-config";
@@ -21,6 +20,8 @@ import { clearParticipantCache } from "@calendar/lib/participants-cache";
 import { fetchDoctors } from "@calendar/services/participants.service";
 import { CircleCheck, Copy } from "lucide-react"
 import { useCallback } from "react";
+import { DoctorNotesSection } from "../../doctor/DoctorNotesSection";
+import DeleteEventDialog from "../delete-event-dialog";
 /* =====================================================
    PURE HELPERS (NO LOGIC CHANGE)
 ===================================================== */
@@ -398,68 +399,20 @@ export function EventDoctorVisitDialog({
           })}
 
           {/* ================= Notes Section ================= */}
-          {doctorDetails?.doctorNotes?.length > 0 && (
-            <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <p className="text-sm font-medium mb-[4px]">
-                  Notes
-                </p>
-
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowEditor(true)}
-                >
-                  + Add
-                </Button>
-              </div>
-
-              {doctorDetails.doctorNotes.map((noteObj, index) => {
-                const formattedDate = noteObj.creation
-                  ? new Date(noteObj.creation).toLocaleDateString("en-GB")
-                  : "";
-
-                return (
-                  <div
-                    key={index}
-                    className="rounded-md border p-3 text-sm space-y-2"
-                  >
-                    {formattedDate && (
-                      <div className="text-xs text-muted-foreground">
-                        {formattedDate}
-                      </div>
-                    )}
-                    <div
-                      dangerouslySetInnerHTML={{ __html: noteObj.note }}
-                    />
-
-                  </div>
-                );
-              })}
-
-            </div>
-          )}
-          {showEditor && (
-            <div className="space-y-2 border rounded-md p-3">
-              <Tiptap
-                content={newNote}
-                onChange={setNewNote}
-              />
-
-              <div className="flex justify-end gap-2">
-                <Button
-                  variant="ghost"
-                  onClick={handleCancelNote}
-                >
-                  Cancel
-                </Button>
-
-                <Button
-                  onClick={handleSaveNote}
-                >
-                  Save
-                </Button>
-              </div>
+          <DoctorNotesSection
+            doctorId={doctorDetails.doctorId}
+            notes={doctorDetails.doctorNotes}
+            setDoctorOptions={setDoctorOptions}
+          />
+          {/* ================= Force Visit Reason ================= */}
+          {event.forceVisit && (
+            <div>
+              <p className="text-sm font-medium mb-[4px]">
+                Force Visit Reason
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {event.custom_force_visit_reason}
+              </p>
             </div>
           )}
           {/* ================= POB ================= */}
@@ -553,14 +506,9 @@ export function EventDoctorVisitDialog({
         )}
 
         {permissions.canDelete && !hasParticipants && (
-          <Button
-            variant="destructive"
-            onClick={() =>
-              handleDelete(event.erpName)
-            }
-          >
-            Delete
-          </Button>
+            <DeleteEventDialog
+            onConfirm={() => handleDelete(event.erpName)}
+          />
         )}
       </div>
     </>

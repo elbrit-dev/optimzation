@@ -1,8 +1,36 @@
 import { doc, setDoc, getDoc, deleteDoc, updateDoc, deleteField, collection, getDocs, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { DEFAULT_GQL_COLLECTION } from '../constants';
+const DEFAULT_COLLECTION = process.env.NEXT_PUBLIC_GQL_COLLECTION || 'gql';
+const GLOBAL_DOC_ID = '#__GLOBAL__#';
 
-const DEFAULT_COLLECTION = DEFAULT_GQL_COLLECTION;
+function sanitizeTokenRows(rows) {
+  if (!Array.isArray(rows)) return [];
+  const cleaned = rows
+    .map((row) => ({
+      name: String(row?.name || '').trim().toUpperCase(),
+      endpoint: String(row?.endpoint || '').trim(),
+      token: String(row?.token || '').trim(),
+      isDefault: Boolean(row?.isDefault),
+    }))
+    .filter((row) => row.name && row.endpoint);
+
+  if (cleaned.length === 0) return [];
+
+  let hasDefault = false;
+  const normalized = cleaned.map((row) => {
+    if (row.isDefault && !hasDefault) {
+      hasDefault = true;
+      return row;
+    }
+    return { ...row, isDefault: false };
+  });
+
+  if (!hasDefault) {
+    normalized[0] = { ...normalized[0], isDefault: true };
+  }
+
+  return normalized;
+}
 
 /**
  * Recursively convert Firestore Timestamps and other non-JSON-serializable values to JSON-safe format
@@ -34,7 +62,7 @@ export const firestoreService = {
    */
   async saveQuery(operationName, data) {
     const docRef = doc(db, DEFAULT_COLLECTION, operationName);
-    await setDoc(docRef, data);
+    await setDoc(docRef, data, { merge: true });
   },
 
   /**
@@ -51,6 +79,7 @@ export const firestoreService = {
         ...data,
         searchFields: data.searchFields || {},
         sortFields: data.sortFields || {},
+        queryKeys: Array.isArray(data.queryKeys) ? data.queryKeys : [],
       };
     }
     return null;
@@ -73,32 +102,18 @@ export const firestoreService = {
   async getAllQueries() {
     const querySnapshot = await getDocs(collection(db, DEFAULT_COLLECTION));
     const queries = [];
-    querySnapshot.forEach((doc) => {
-      const body = doc.data().body || '';
+    querySnapshot.forEach((docSnap) => {
+      const data = docSnap.data();
+      const body = data.body || '';
       // Only include queries that have a body
       if (body.trim()) {
         queries.push({
-          id: doc.id,
-          name: doc.id,
-          body: body,
-          urlKey: doc.data().urlKey || '',
-          index: doc.data().index || '',
-          clientSave: doc.data().clientSave || false,
-          variables: doc.data().variables || '',
-          month: doc.data().month || false,
-          monthIndex: doc.data().monthIndex || '',
-          transformerCode: doc.data().transformerCode || '', // Include transformerCode (legacy)
-          readTransformerCode: doc.data().readTransformerCode !== undefined ? (doc.data().readTransformerCode || '') : undefined, // New format
-          writeTransformerCode: doc.data().writeTransformerCode !== undefined ? (doc.data().writeTransformerCode || '') : undefined, // New format
-          searchFields: doc.data().searchFields || {},
-          sortFields: doc.data().sortFields || {},
-          queryKeys: Array.isArray(doc.data().queryKeys) ? doc.data().queryKeys : [],
-          bodyUpdatedAt: doc.data().bodyUpdatedAt || null,
-          variablesUpdatedAt: doc.data().variablesUpdatedAt || null,
-          transformerCodeUpdatedAt: doc.data().transformerCodeUpdatedAt || null,
-          readTransformerCodeUpdatedAt: doc.data().readTransformerCodeUpdatedAt || null,
-          writeTransformerCodeUpdatedAt: doc.data().writeTransformerCodeUpdatedAt || null,
-          lastUpdatedBy: doc.data().lastUpdatedBy || null,
+          ...data,
+          id: docSnap.id,
+          name: docSnap.id,
+          searchFields: data.searchFields || {},
+          sortFields: data.sortFields || {},
+          queryKeys: Array.isArray(data.queryKeys) ? data.queryKeys : [],
         });
       }
     });
@@ -113,7 +128,7 @@ export const firestoreService = {
    * @returns {Promise<void>}
    */
   async saveGlobalFunctions(functions) {
-    const docRef = doc(db, DEFAULT_COLLECTION, '#__GLOBAL__#');
+    const docRef = doc(db, DEFAULT_COLLECTION, GLOBAL_DOC_ID);
     await setDoc(docRef, { functions: functions || '' }, { merge: true });
   },
 
@@ -122,7 +137,7 @@ export const firestoreService = {
    * @returns {Promise<string>} The functions code as a string, or empty string if not found
    */
   async loadGlobalFunctions() {
-    const docRef = doc(db, DEFAULT_COLLECTION, '#__GLOBAL__#');
+    const docRef = doc(db, DEFAULT_COLLECTION, GLOBAL_DOC_ID);
     const docSnap = await getDoc(docRef);
     if (docSnap.exists()) {
       const data = docSnap.data();
@@ -132,7 +147,7 @@ export const firestoreService = {
   },
 
   async loadPresets() {
-    const docRef = doc(db, DEFAULT_COLLECTION, '#__GLOBAL__#');
+    const docRef = doc(db, DEFAULT_COLLECTION, GLOBAL_DOC_ID);
     const docSnap = await getDoc(docRef);
     if (docSnap.exists()) {
       return docSnap.data().presets || {};
@@ -141,13 +156,85 @@ export const firestoreService = {
   },
 
   async savePreset(name, jsonString) {
-    const docRef = doc(db, DEFAULT_COLLECTION, '#__GLOBAL__#');
+    const docRef = doc(db, DEFAULT_COLLECTION, GLOBAL_DOC_ID);
     await setDoc(docRef, { presets: { [name]: jsonString } }, { merge: true });
   },
 
   async deletePreset(name) {
-    const docRef = doc(db, DEFAULT_COLLECTION, '#__GLOBAL__#');
+    const docRef = doc(db, DEFAULT_COLLECTION, GLOBAL_DOC_ID);
     await updateDoc(docRef, { [`presets.${name}`]: deleteField() });
+  },
+
+  async loadGlobalTokens() {
+    const docRef = doc(db, DEFAULT_COLLECTION, GLOBAL_DOC_ID);
+    const docSnap = await getDoc(docRef);
+    if (!docSnap.exists()) return [];
+    const data = docSnap.data();
+    return sanitizeTokenRows(data?.tokens);
+  },
+
+  async saveGlobalTokens(tokens) {
+    const docRef = doc(db, DEFAULT_COLLECTION, GLOBAL_DOC_ID);
+    const sanitized = sanitizeTokenRows(tokens);
+    await setDoc(docRef, { tokens: sanitized }, { merge: true });
+    return sanitized;
+  },
+
+  /**
+   * Load presets for a specific query (stored in query doc)
+   * @param {string} queryId - The query document ID
+   * @returns {Promise<Array<{ name: string, config: string }>>}
+   */
+  async loadPresetsForQuery(queryId) {
+    if (!queryId) return [];
+    const docRef = doc(db, DEFAULT_COLLECTION, queryId);
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      const presets = docSnap.data().presets;
+      return Array.isArray(presets) ? presets : [];
+    }
+    return [];
+  },
+
+  /**
+   * Save a preset for a specific query (append or update by name)
+   * @param {string} queryId - The query document ID
+   * @param {string} name - Preset name
+   * @param {string} config - Serialized config
+   * @returns {Promise<void>}
+   */
+  async savePresetForQuery(queryId, name, config) {
+    if (!queryId || !name) return;
+    const docRef = doc(db, DEFAULT_COLLECTION, queryId);
+    const docSnap = await getDoc(docRef);
+    const existing = docSnap.exists() ? docSnap.data() : {};
+    const presets = Array.isArray(existing.presets) ? [...existing.presets] : [];
+    const idx = presets.findIndex((p) => p.name === name);
+    const entry = { name, config };
+    if (idx >= 0) {
+      presets[idx] = entry;
+    } else {
+      presets.push(entry);
+    }
+    await setDoc(docRef, { ...existing, presets }, { merge: true });
+  },
+
+  /**
+   * Delete a preset from a specific query
+   * @param {string} queryId - The query document ID
+   * @param {string} name - Preset name
+   * @returns {Promise<void>}
+   */
+  async deletePresetForQuery(queryId, name) {
+    if (!queryId || !name) return;
+    const docRef = doc(db, DEFAULT_COLLECTION, queryId);
+    const docSnap = await getDoc(docRef);
+    if (!docSnap.exists()) return;
+    const existing = docSnap.data();
+    const presets = Array.isArray(existing.presets)
+      ? existing.presets.filter((p) => p.name !== name)
+      : [];
+    await setDoc(docRef, { ...existing, presets }, { merge: true });
   },
 
   /**

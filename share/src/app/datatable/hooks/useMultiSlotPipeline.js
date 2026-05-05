@@ -84,7 +84,7 @@ export function useMultiSlotPipeline(options) {
       columnTypesOverride: columnTypesOverride ?? {},
     };
 
-    const sharedPipelineOptions = {
+    const sharedPipelineOptionsBase = {
       columnTypesOverride: columnTypesOverride ?? {},
       allowedColumns: allowedColumns ?? [],
       currentQueryDoc,
@@ -100,10 +100,19 @@ export function useMultiSlotPipeline(options) {
     for (const slotId of slotIds) {
       const slotConfig = slots[slotId] ?? {};
       const slotState = slotStateBySlot[slotId] ?? {};
-      const slotAllowedColumns = slotConfig.allowedColumns ?? sharedPipelineOptions.allowedColumns;
+      const slotColumnTypesOverride =
+        slotConfig.columnTypesOverride && typeof slotConfig.columnTypesOverride === 'object'
+          ? slotConfig.columnTypesOverride
+          : columnTypesOverride ?? {};
+      const slotAllowedColumns = slotConfig.allowedColumns ?? sharedPipelineOptionsBase.allowedColumns;
       const slotSharedOptions = {
-        ...sharedPipelineOptions,
+        ...sharedPipelineOptionsBase,
+        columnTypesOverride: slotColumnTypesOverride,
         allowedColumns: slotAllowedColumns,
+      };
+      const slotSearchSortOptions = {
+        ...sharedSearchSortOptions,
+        columnTypesOverride: slotColumnTypesOverride,
       };
       const tableData = baseTableData && !isEmpty(baseTableData)
         ? applyDerivedColumns(baseTableData, slotConfig.derivedColumns ?? [], {
@@ -114,7 +123,7 @@ export function useMultiSlotPipeline(options) {
             monthRange,
           })
         : baseTableData;
-      const searchSortSortedData = computeSearchSortSortedData(tableData, sharedSearchSortOptions);
+      const searchSortSortedData = computeSearchSortSortedData(tableData, slotSearchSortOptions);
       const slotResult = computeSlotPipeline(searchSortSortedData, slotConfig, slotState, slotSharedOptions);
       result[slotId] = slotResult;
     }

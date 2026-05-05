@@ -1088,6 +1088,103 @@ function SummaryCard({ title, filterValue }) {
 
 ---
 
+## Overrides (`overrides`: variables and token)
+
+Optional prop on **`DataProviderNew`** or **`DataProvider`** (not on `config`):
+
+```jsx
+<DataProviderNew
+  config={…}
+  overrides={{
+    variables: { /* GraphQL variables merged over saved query variables */ },
+    token: 'Bearer …',
+  }}
+/>
+```
+
+- **`overrides.token`**: When it is a non-empty string (after trim), it is sent as the **`Authorization`** header for all datatable GraphQL traffic for that provider: main query pipeline (worker), index checks, month fetches, write-schema introspection, and save (`bulkCreate` / `bulkUpdate`) mutations.
+- When **`overrides`** is omitted or **`token`** is omitted or empty, auth comes from the query’s **`urlKey`** resolved against global tokens stored in **`#__GLOBAL__#.tokens`** (managed in the **`/tokens`** UI). If `urlKey` is missing/invalid, the configured **default** token row is used.
+- **`overrides.variables`**: Merged over variables from the query document (and over legacy **`config.variableOverrides`** if still present on the config object for older presets). Prop values win on key conflicts.
+- Nested drawer **`DataProviderNew`** instances receive the same **`overrides`** object from the parent, so token and variable overrides stay aligned.
+
+### Plasmic (`registerComponent` / Studio props)
+
+If you registered **`DataProvider`** or **`DataProviderNew`** as a code component:
+
+1. **Remove** the **`graphqlToken`** (and any **`__internal.graphqlToken`**) prop from the registration `props` / `propTypes`.
+2. **Add** **`overrides`**: type **`object`** (or a `json` prop in Studio if you prefer a single JSON field). Expose **`variables`** and **`token`** as nested fields if your registration API supports object props; otherwise use one object prop and document the shape `{ variables?: object, token?: string }`.
+3. **Studio:** Re-bind old token fields to **`overrides.token`**, or use a **custom code** expression that returns the full object, e.g. `{ token: authToken, variables: queryVars }`.
+4. **Not the same provider:** `@plasmicapp/loader-nextjs` **`DataProvider`** (used inside the table to pass **`data`** into Plasmic) is unrelated to the datatable **`DataProvider` / `DataProviderNew`** — no change there.
+
+### Using shared `src/plasmic-init.js` from another Next.js app
+
+This repo ships **[`src/plasmic-init.js`](../../plasmic-init.js)** so you can copy it (and the underlying components) into your project or import from a git submodule/path. Codegen **`importPath`** values assume component files live at **`./src/app/datatable/...`** and **`./src/app/navigation/...`** relative to your app root—adjust those strings in the meta objects if your folders differ.
+
+**Recommended: one loader, register Elbrit on it**
+
+In your app’s Plasmic entry (often `plasmic-init.ts` / `plasmic-init.js`), initialize your real project, then register:
+
+```tsx
+import { initPlasmicLoader } from '@plasmicapp/loader-nextjs';
+import { registerElbritCoreComponents } from '@/plasmic-init';
+
+export const PLASMIC = initPlasmicLoader({
+  projects: [
+    { id: 'YOUR_PLASMIC_PROJECT_ID', token: 'YOUR_PLASMIC_TOKEN' },
+  ],
+});
+
+registerElbritCoreComponents(PLASMIC);
+```
+
+Pass **`PLASMIC`** into **`PlasmicRootProvider`** as usual. Studio will list **DataProvider**, **DataTableNew**, and **Navigation** under the **ElbritCoreLib** section.
+
+**Optional: standalone loader object** (e.g. playground or docs)
+
+```tsx
+import { ElbritCoreLib, DataProvider, DataTableNew, Navigation } from '@/plasmic-init';
+
+// ElbritCoreLib is a loader with projects: [] but with the three components registered.
+// You can spread ElbritCoreLib.components into custom maps if your tooling expects that shape.
+```
+
+**If you only copy the file** (no package): place `plasmic-init.js` under `src/`, fix the **`@/…`** imports (or replace with relative paths) and the **`importPath`** fields in each meta to match your tree, then `import { registerElbritCoreComponents } from './plasmic-init'` from your main Plasmic init file.
+
+---
+
+## Write permissions (`writePermissions`)
+
+When the query has **`enableWrite: true`** (Firebase query document), you can restrict which persistence operations are allowed by setting **`writePermissions`** on the **datatable config** (preset / `DataProviderNew` `config`).
+
+- **Shape:** `{ create?: boolean, update?: boolean, delete?: boolean }`
+- **Defaults:** each flag defaults to **`true`** if omitted (backward compatible with unrestricted write).
+- **Partial config:** e.g. `{ delete: false }` leaves create and update as **`true`**.
+
+### Behavior summary
+
+| Flag | Effect when `false` |
+|------|---------------------|
+| `create` | Hides the add-row (`+`) control; blocks opening the “new row” drawer and nested row inserts; save rejects creates. |
+| `update` | Disables row / group / report cells that open the editable drawer; blocks scalar and nested edits at save (`bulkUpdate` parent and child updates stripped); opening drawers for existing rows is guarded. |
+| `delete` | Save rejects diffs that remove main rows or nested rows; `delete_child` is omitted from `bulkUpdate` variables. |
+
+### Config examples
+
+```javascript
+// Updates only (no new rows, no deletes)
+writePermissions: { create: false, update: true, delete: false },
+
+// Append-only (new rows allowed, no edits to existing, no deletes)
+writePermissions: { create: true, update: false, delete: false },
+
+// Default — same as omitting writePermissions when enableWrite is on
+writePermissions: { create: true, update: true, delete: true },
+```
+
+`writePermissions` is exposed on **`useTableOperations()`** as `writePermissions` (resolved object with all three booleans).
+
+---
+
 ## Export Operations
 
 ### `exportToXLSX()`
@@ -1778,6 +1875,25 @@ if (enableReport && reportData) {
 10. **Multiselect columns**:
     - Use `multiselectColumns` to check if a column supports multiselect filtering.
     - Multiselect columns use array values in filters, while text filter columns use string values.
+
+---
+
+## `writeForm` shape (`DataProviderNew`)
+
+`writeForm` is always `{ layout, fields }`:
+
+- **`layout`** — drawer **container** only (not Doc fields):
+  - **`drawerGrid`**: `{ columns?: number, rows?: number | string, gap?: number | string }`. When `columns` is set (and `drawerScalarGridClass` is not), the scalar drawer uses a CSS grid with `repeat(columns, minmax(0, 1fr))`.
+  - **`drawerScalarGridClass`**: optional Tailwind (or other) class string for that grid container. If non-empty, it **wins** over `drawerGrid` for the container.
+- **`fields`** — Doc column definitions (same nesting as before: object groups use nested `fields`, tables use `ui: 'table'` + `fields`).
+
+Optional **per-field** drawer placement (on each field node under `fields`, including nested object leaves):
+
+```ts
+layout?: { row: number; col: number; colSpan?: number; rowSpan?: number }
+```
+
+`row` / `col` are **1-based** grid track starts. Fields **with** this object are ordered first by `row`, then `col`; fields **without** it keep the default order (all scalars, then all JSON-object sub-fields). Quill full-width uses `colSpan` equal to `layout.drawerGrid.columns`, or `col-span-2` when using the default two-column Tailwind grid.
 
 ---
 

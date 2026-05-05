@@ -76,6 +76,8 @@ export function buildEventDefaultValues({ event, defaultTag }) {
     doctor: event?.doctor,
     assignedTo: event?.assignedTo,
     forceVisit:event?.forceVisit ?? false,
+    customer: event?.customer ?? "",
+    custom_force_visit_reason:event?.custom_force_visit_reason ?? "",
     allocated_to: event?.allocated_to ?? "",
     leaveType: event?.leaveType ?? "Casual Leave",
     reportTo: event?.reportTo ?? "",

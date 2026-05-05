@@ -21,5 +21,10 @@ export function useTableOperations(slotIdOverride) {
   if (context.rawData !== undefined) {
     return context;
   }
-  return context[slotId] ?? context.main ?? {};
+  const slotData = context[slotId] ?? context.main;
+  if (slotData) return slotData;
+  const available = Object.keys(context).filter((k) => context[k] && typeof context[k] === 'object');
+  throw new Error(
+    `useTableOperations: slot "${slotId}" not found. Available: ${available.length ? available.join(', ') : 'none'}`
+  );
 }

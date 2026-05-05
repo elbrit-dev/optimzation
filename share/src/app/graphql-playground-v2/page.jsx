@@ -1,6 +1,6 @@
 'use client';
 
-import { getEndpointConfigFromUrlKey, getInitialEndpoint } from '@/app/graphql-playground/constants';
+import { getEndpointConfigFromUrlKeyAsync, getInitialEndpointAsync } from '@/app/graphql-playground/constants';
 import { fetchGraphQLRequest } from '@/app/graphql-playground/utils/query-pipeline';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { parse as parseJsonc, stripComments } from 'jsonc-parser';
@@ -92,8 +92,8 @@ function GraphQLPlaygroundV2() {
       }
 
       try {
-        const endpointConfig = getEndpointConfigFromUrlKey(selectedEnvironment);
-        const endpointUrl = endpointConfig?.endpointUrl || getInitialEndpoint()?.code;
+        const endpointConfig = await getEndpointConfigFromUrlKeyAsync(selectedEnvironment);
+        const endpointUrl = endpointConfig?.endpointUrl || (await getInitialEndpointAsync())?.code;
         const authToken = endpointConfig?.authToken || null;
         if (!endpointUrl) throw new Error('GraphQL endpoint URL is not set');
 

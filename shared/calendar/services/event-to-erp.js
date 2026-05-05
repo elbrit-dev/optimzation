@@ -122,6 +122,7 @@ export function mapFormToErpEvent(values, options = {}) {
     ends_on: format(values.endDate, "yyyy-MM-dd HH:mm:ss"),
     fsl_role_id: values.roleId,
     event_category: values.tags,
+    custom_force_visit_reason:values.custom_force_visit_reason || "",
     color:
       COLOR_HEX_MAP[resolvedColor] ??
       COLOR_HEX_MAP.blue,

@@ -4,8 +4,8 @@
  * with dataSource and selectedQueryKey first.
  */
 
-/** Display order: most important first. Keys not in this list appear at end. */
-const DISPLAY_ORDER = [
+/** Display order: most important first. Keys not in this list appear at end. Exported for playground Docs tab. */
+export const CONFIG_DISPLAY_ORDER = [
   'dataSource',
   'selectedQueryKey',
   'allowedColumns',
@@ -15,12 +15,13 @@ const DISPLAY_ORDER = [
   'enableFilter',
   'enableSummation',
   'enableCellEdit',
+  'writeForm',
+  'writePermissions',
   'enableDivideBy1Lakh',
   'useOrchestrationLayer',
   'rowsPerPageOptions',
   'defaultRows',
   'tableHeight',
-  'editableColumns',
   'percentageColumns',
   'derivedColumns',
   'nonEditableColumns',
@@ -44,11 +45,10 @@ const DISPLAY_ORDER = [
   'hqColumn',
   'hqValues',
   'columnTypesOverride',
-  'formInputOverride',
 ];
 
-/** Human-readable labels for config keys */
-const KEY_LABELS = {
+/** Human-readable labels for config keys. Exported for playground Docs tab. */
+export const CONFIG_KEY_LABELS = {
   dataSource: 'Data Source',
   selectedQueryKey: 'Selected Query Key',
   allowedColumns: 'Allowed Columns',
@@ -58,12 +58,13 @@ const KEY_LABELS = {
   enableFilter: 'Enable Filter',
   enableSummation: 'Enable Summation',
   enableCellEdit: 'Enable Cell Edit',
+  writeForm: 'Write Form: { layout } (drawer grid) + { fields } (Doc columns, per-field layout optional)',
+  writePermissions: 'Write Permissions (create / update / delete)',
   enableDivideBy1Lakh: 'Enable Divide by 1 Lakh',
   useOrchestrationLayer: 'Use Orchestration Layer',
   rowsPerPageOptions: 'Rows Per Page Options',
   defaultRows: 'Default Rows',
   tableHeight: 'Table Height',
-  editableColumns: 'Editable Columns',
   percentageColumns: 'Percentage Columns',
   derivedColumns: 'Derived Columns',
   nonEditableColumns: 'Non-Editable Columns',
@@ -86,12 +87,11 @@ const KEY_LABELS = {
   salesTeamValues: 'Sales Team Values',
   hqColumn: 'HQ Column',
   hqValues: 'HQ Values',
-  columnTypesOverride: 'Column Type Overrides',
-  formInputOverride: 'Form Input Override',
+  columnTypesOverride: 'Column Type Overrides (grid / pipeline typing)',
 };
 
 function formatKey(key) {
-  return KEY_LABELS[key] ?? key.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase()).trim();
+  return CONFIG_KEY_LABELS[key] ?? key.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase()).trim();
 }
 
 /**
@@ -102,10 +102,10 @@ function formatKey(key) {
 export function getOrderedConfigEntries(config) {
   if (!config || typeof config !== 'object') return [];
 
-  const ordered = new Set(DISPLAY_ORDER);
+  const ordered = new Set(CONFIG_DISPLAY_ORDER);
   const keys = Object.keys(config);
   const orderedKeys = [
-    ...DISPLAY_ORDER.filter((k) => keys.includes(k)),
+    ...CONFIG_DISPLAY_ORDER.filter((k) => keys.includes(k)),
     ...keys.filter((k) => !ordered.has(k)).sort(),
   ];
 

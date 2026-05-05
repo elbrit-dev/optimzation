@@ -12,47 +12,42 @@ import {
 	AlertDialogTrigger,
 } from "@calendar/components/ui/alert-dialog";
 import { Button } from "@calendar/components/ui/button";
-import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 
 export default function DeleteEventDialog({
-    erpName
+	onConfirm,
 }) {
-	const { removeEvent } = useCalendar();
-
-	const deleteEvent = () => {
-		try {
-			removeEvent(erpName);
-			toast.success("Event deleted successfully.");
-		} catch {
-			toast.error("Error deleting event.");
-		}
-	};
-
-	if (!erpName) {
-		return null;
-	}
-
 	return (
-        <AlertDialog>
-            <AlertDialogTrigger asChild>
+		<AlertDialog>
+			<AlertDialogTrigger asChild>
 				<Button variant="destructive">
 					<TrashIcon />
 					Delete
 				</Button>
 			</AlertDialogTrigger>
-            <AlertDialogContent>
+
+			<AlertDialogContent className="bg-background/95 backdrop-blur-sm">
 				<AlertDialogHeader>
-					<AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+					<AlertDialogTitle>
+						Are you absolutely sure?
+					</AlertDialogTitle>
+
 					<AlertDialogDescription>
 						This action cannot be undone. This will permanently delete your
 						event and remove event data from our servers.
 					</AlertDialogDescription>
 				</AlertDialogHeader>
+
 				<AlertDialogFooter>
 					<AlertDialogCancel>Cancel</AlertDialogCancel>
-					<AlertDialogAction onClick={deleteEvent}>Continue</AlertDialogAction>
+
+					<AlertDialogAction
+						onClick={onConfirm}
+						className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+					>
+						Yes Delete
+					</AlertDialogAction>
 				</AlertDialogFooter>
 			</AlertDialogContent>
-        </AlertDialog>
-    );
+		</AlertDialog>
+	);
 }

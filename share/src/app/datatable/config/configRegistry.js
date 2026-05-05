@@ -14,7 +14,7 @@ import { defaultDataTableConfig } from './configs/defaultConfig';
 import { defaultDataTableConfig as slotConfig } from './configs/slotConfig';
 
 /** Config id selected by default in the dropdown and used for initial page state */
-export const defaultConfigId = 'defaultConfig';
+export const defaultConfigId = 'firebase:Slot Config (copy)';
 
 const configRegistry = {
   defaultConfig: {

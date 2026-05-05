@@ -209,6 +209,10 @@ export const defaultDataTableConfig = {
     // selectedQueryKey: "primary",
     dataSource: "Issues",
     selectedQueryKey: "issues",
-    // dataSource: "PrimaryStock",
-    // selectedQueryKey: "primary",
+
+    // Table display
+    rowsPerPageOptions: [10, 25, 50, 100],
+    defaultRows: 10,
+    scrollable: true,
+    enableFullscreenDialog: true,
 };

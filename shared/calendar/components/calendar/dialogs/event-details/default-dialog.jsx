@@ -9,11 +9,13 @@ import { buildParticipantsWithDetails } from "@calendar/lib/helper";
 import { resolveDisplayValueFromEvent } from "@calendar/lib/calendar/resolveDisplay";
 import { ICONS } from "../event-details-dialog";
 import { useDeleteEvent } from "../../hooks";
+import TiptapViewer from "@calendar/components/ui/TiptapViewer";
+import DeleteEventDialog from "../delete-event-dialog";
 
 export function EventDefaultDialog({
   event, setOpen
 }) {
-  console.log("EVENT",event)
+  console.log("EVENT", event)
   const { use24HourFormat, removeEvent, employeeOptions, doctorOptions } = useCalendar();
   const { handleDelete } = useDeleteEvent({
     removeEvent,
@@ -64,12 +66,9 @@ export function EventDefaultDialog({
         )}
 
         {canDelete && (
-          <Button
-            variant="destructive"
-            onClick={() => handleDelete(event.erpName)}
-          >
-            Delete
-          </Button>
+         <DeleteEventDialog
+         onConfirm={() => handleDelete(event.erpName)}
+       />
         )}
       </div>
     </>
@@ -98,9 +97,10 @@ export function EventDetailsFields({ event, config, use24HourFormat }) {
               {/* 1️⃣ Description */}
               {field.key === "description" && (
                 <div
-                  className="prose prose-sm dark:prose-invert max-w-none text-muted-foreground"
-                  dangerouslySetInnerHTML={{ __html: value }}
-                />
+                  className="prose prose-sm dark:prose-invert max-w-none text-muted-foreground" >
+                  <TiptapViewer content={event.description} />
+                </div>
+
               )}
 
               {/* 3️⃣ Default Value (only if not description or employee) */}

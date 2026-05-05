@@ -3,9 +3,10 @@ import jmespath from "jmespath";
 import _ from "lodash";
 import jmespath_plus from '@metrichor/jmespath-plus';
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import DataProvider from "./share/src/app/datatable/components/DataProviderNew";
-import DataTableNew from "./share/src/app/datatable/components/DataTableNew";
-import Navigation from "./share/src/app/navigation/components/Navigation";
+// import DataProvider from "./share/src/app/datatable/components/DataProviderNew";
+// import DataTableNew from "./share/src/app/datatable/components/DataTableNew";
+// import Navigation from "./share/src/app/navigation/components/Navigation";
+import { registerElbritCoreComponents } from './share/src/plasmic-init'
 import FirebaseUIComponent from "./components/FirebaseUIComponent";
 import CalendarPage from "@calendar/components/CalendarPage";
 import NovuInbox from "./components/NovuInbox";
@@ -18,9 +19,9 @@ import { db } from "./firebase";
 // const settings = await db.collection('DevOps').doc('Setting').get().catch(() => null);
 // const isLive = settings?.data()?.deployLive;
 
-// if (plasmicTag && plasmicTag !== "dev" && !isLive) {
-//   throw new Error(`Invalid Plasmic Tag "${plasmicTag}" for current deployment setting.`);
-// }
+if (plasmicTag && plasmicTag !== "dev" ) {
+  throw new Error(`Invalid Plasmic Tag "${plasmicTag}" for current deployment setting.`);
+}
 
 export const PLASMIC = initPlasmicLoader({
   projects: [
@@ -464,47 +465,47 @@ PLASMIC.registerFunction(getGlobalState, {
 //   importPath: "./components/DataTable",
 // });
 
-PLASMIC.registerComponent(Navigation, {
-  name: "Navigation",
-  props: {
-    items: {
-      type: "object",
-      description: "JSON array of navigation items. Each item should have: label (string), path (string), iconActive (JSX element), iconInactive (JSX element), mobileFullscreen (boolean), mobileOnly (boolean), isDefault (boolean), isDisabled (boolean). Icons must be JSX elements, not strings.",
-      defaultValue: [],
-    },
-    defaultIndex: {
-      type: "number",
-      defaultValue: 0,
-      description: "Fallback index if no URL path matches and no item has isDefault: true",
-    },
-    desktopWidth: {
-      type: "string",
-      defaultValue: "16rem",
-      description: "Width of the desktop sidebar navigation",
-    },
-    desktopHeight: {
-      type: "string",
-      defaultValue: "93dvh",
-      description: "Height of the desktop sidebar navigation",
-    },
-    mobileWidth: {
-      type: "string",
-      defaultValue: "100%",
-      description: "Width of the mobile bottom navigation",
-    },
-    mobileHeight: {
-      type: "string",
-      defaultValue: "4rem",
-      description: "Height of the mobile bottom navigation",
-    },
-    showCollapse: {
-      type: "boolean",
-      defaultValue: true,
-      description: "Show/hide the collapse button in desktop sidebar",
-    },
-  },
-  importPath: "./share/src/app/navigation/components/Navigation",
-});
+// PLASMIC.registerComponent(Navigation, {
+//   name: "Navigation",
+//   props: {
+//     items: {
+//       type: "object",
+//       description: "JSON array of navigation items. Each item should have: label (string), path (string), iconActive (JSX element), iconInactive (JSX element), mobileFullscreen (boolean), mobileOnly (boolean), isDefault (boolean), isDisabled (boolean). Icons must be JSX elements, not strings.",
+//       defaultValue: [],
+//     },
+//     defaultIndex: {
+//       type: "number",
+//       defaultValue: 0,
+//       description: "Fallback index if no URL path matches and no item has isDefault: true",
+//     },
+//     desktopWidth: {
+//       type: "string",
+//       defaultValue: "16rem",
+//       description: "Width of the desktop sidebar navigation",
+//     },
+//     desktopHeight: {
+//       type: "string",
+//       defaultValue: "93dvh",
+//       description: "Height of the desktop sidebar navigation",
+//     },
+//     mobileWidth: {
+//       type: "string",
+//       defaultValue: "100%",
+//       description: "Width of the mobile bottom navigation",
+//     },
+//     mobileHeight: {
+//       type: "string",
+//       defaultValue: "4rem",
+//       description: "Height of the mobile bottom navigation",
+//     },
+//     showCollapse: {
+//       type: "boolean",
+//       defaultValue: true,
+//       description: "Show/hide the collapse button in desktop sidebar",
+//     },
+//   },
+//   importPath: "./share/src/app/navigation/components/Navigation",
+// });
 
 // Register FirebaseUIComponent
 PLASMIC.registerComponent(FirebaseUIComponent, {
@@ -609,401 +610,403 @@ PLASMIC.registerComponent(NovuInbox, {
   importPath: "./components/NovuInbox",
 });
 
-PLASMIC.registerComponent(DataProvider, {
-  name: "DataProvider",
-  props: {
-    offlineData: {
-      type: "object",
-      description: "Offline/local data to use when dataSource is 'offline'",
-    },
-    dataSource: {
-      type: "string",
-      description: "The data source ID or 'offline' for local data",
-    },
-    selectedQueryKey: {
-      type: "string",
-      description: "The specific key within the data source results to display",
-    },
-    variableOverrides: {
-      type: "object",
-      description: "Overrides for query variables (as an object)",
-      defaultValue: {},
-    },
-    isAdminMode: {
-      type: "boolean",
-      description: "Enable admin mode to bypass data filtering",
-      defaultValue: false,
-    },
-    salesTeamColumn: {
-      type: "string",
-      description: "Column name for Sales Team filtering",
-    },
-    salesTeamValues: {
-      type: "object",
-      description: "Array of allowed Sales Team values",
-      defaultValue: [],
-    },
-    hqColumn: {
-      type: "string",
-      description: "Column name for HQ filtering",
-    },
-    hqValues: {
-      type: "object",
-      description: "Array of allowed HQ values",
-      defaultValue: [],
-    },
-    columnTypesOverride: {
-      type: "object",
-      description: "Override column types (e.g., { fieldName: 'number' })",
-      defaultValue: {},
-    },
-    useOrchestrationLayer: {
-      type: "boolean",
-      description: "Enable the new orchestration layer for data processing",
-      defaultValue: false,
-    },
-    enableSort: {
-      type: "boolean",
-      defaultValue: true,
-      description: "Initial sort state for orchestration layer",
-    },
-    enableFilter: {
-      type: "boolean",
-      defaultValue: true,
-      description: "Initial filter state for orchestration layer",
-    },
-    enableSummation: {
-      type: "boolean",
-      defaultValue: true,
-      description: "Initial summation state for orchestration layer",
-    },
-    enableGrouping: {
-      type: "boolean",
-      defaultValue: true,
-      description: "Initial grouping state for orchestration layer",
-    },
-    enableDivideBy1Lakh: {
-      type: "boolean",
-      defaultValue: false,
-      description: "Initial divide by 1 lakh state for orchestration layer",
-    },
-    textFilterColumns: {
-      type: "object",
-      defaultValue: [],
-      description: "Columns to use text search in orchestration layer",
-    },
-    visibleColumns: {
-      type: "object",
-      description: "Initial visible columns for orchestration layer (can be passed from parent)",
-    },
-    redFields: {
-      type: "object",
-      defaultValue: [],
-      description: "Array of column names to display in red",
-    },
-    greenFields: {
-      type: "object",
-      defaultValue: [],
-      description: "Array of column names to display in green",
-    },
-    groupFields: {
-      type: "object",
-      description: "Array of field names for grouping (supports infinite nesting). Main/outer group: 'sales_team', inner group: 'hq'. Example: ['sales_team', 'hq']",
-    },
-    percentageColumns: {
-      type: "object",
-      defaultValue: [],
-      description: "Array of percentage column configurations",
-    },
-    drawerTabs: {
-      type: "object",
-      defaultValue: [],
-      description: "Array of drawer tab configurations",
-    },
-    enableReport: {
-      type: "boolean",
-      defaultValue: false,
-      description: "Enable report mode with time breakdown",
-    },
-    dateColumn: {
-      type: "string",
-      description: "Column name containing date values for report breakdown",
-    },
-    onDataChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "notification", type: "object" }],
-      description: "Callback when data changes",
-    },
-    onError: {
-      type: "eventHandler",
-      argTypes: [{ name: "error", type: "object" }],
-      description: "Callback when an error occurs",
-    },
-    onTableDataChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "data", type: "object" }],
-      description: "Callback when table data changes",
-    },
-    onRawDataChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "data", type: "object" }],
-      description: "Callback when raw data changes",
-    },
-    onVariablesChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "variables", type: "object" }],
-      description: "Callback when query variables change",
-    },
-    onExecutingQueryChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "executing", type: "boolean" }],
-      description: "Callback when query execution state changes",
-    },
-    onSelectedQueryKeyChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "key", type: "string" }],
-      description: "Callback when selected query key changes",
-    },
-    onLoadingDataChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "loading", type: "boolean" }],
-      description: "Callback when loading data state changes",
-    },
-    onVisibleColumnsChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "columns", type: "object" }],
-      description: "Callback when visible columns change",
-    },
-    onDrawerTabsChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "tabs", type: "object" }],
-      description: "Callback when drawer tabs change",
-    },
-    chartColumns: {
-      type: "object",
-      defaultValue: [],
-      description: "Array of column names to display in the chart",
-    },
-    chartHeight: {
-      type: "number",
-      defaultValue: 400,
-      description: "Height of the chart in pixels",
-    },
-    allowedColumns: {
-      type: "object",
-      description: "Developer-controlled: restricts which columns are available for selection",
-      defaultValue: [],
-    },
-    onAllowedColumnsChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "columns", type: "object" }],
-      description: "Callback when allowed columns change",
-    },
-    derivedColumns: {
-      type: "object",
-      description: "Array of derived column configurations",
-      defaultValue: [],
-    },
-    derivedRows: {
-      type: "object",
-      description: "Derived rows configuration (e.g. for row-level derived data)",
-    },
-    reportDataOverride: {
-      type: "object",
-      description: "Override report data (for custom report data)",
-    },
-    forceBreakdown: {
-      type: "boolean",
-      description: "Force breakdown mode (overrides enableBreakdown state)",
-    },
-    showProviderHeader: {
-      type: "boolean",
-      defaultValue: true,
-      description: "Show/hide the provider header controls",
-    },
-    forceEnableWrite: {
-      type: "boolean",
-      description: "Force enableWrite for nested drawer tables. If provided, overrides the query's enableWrite setting. Use true to enable editing in nested tables.",
-    },
-    enableCellEdit: {
-      type: "boolean",
-      defaultValue: false,
-      description: "Enable cell editing in the table",
-    },
-    editableColumns: {
-      type: "object",
-      defaultValue: { main: [], nested: {} },
-      description: "Object defining editable columns. Format: { main: ['col1', 'col2'], nested: { parentCol: { nestedField: ['col1'] } } }. Empty main array means all columns editable. For nested tables, specify parent column and nested field name.",
-    },
-    slots: {
-      type: "object",
-      description: "Per-slot configuration object. When provided, allows different configurations for different slots. Format: { slotId: { enableSort, enableFilter, groupFields, derivedColumns, etc. } }. If not provided, falls back to flat props for backward compatibility.",
-    },
-    columnsExemptFromBreakdown: {
-      type: "object",
-      defaultValue: [],
-      description: "Array of column names exempt from report breakdown",
-    },
-    onAvailableQueryKeysChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "keys", type: "object" }],
-      description: "Callback when available query keys change",
-    },
-    derivedColumnsMode: {
-      type: "string",
-      description: "Override for derived columns scope: 'main' | 'nested' (for sidebar nested tabs)",
-    },
-    derivedColumnsFieldName: {
-      type: "string",
-      description: "For mode 'nested', the nested table's field name",
-    },
-    fallbackColumns: {
-      type: "object",
-      description: "Fallback columns when data is empty (e.g., from other rows' schema for nested tables)",
-    },
-    parentColumnName: {
-      type: "string",
-      description: "Parent column name for nested tables (used with nestedTableFieldName)",
-    },
-    nestedTableFieldName: {
-      type: "string",
-      description: "Nested table field name (used with parentColumnName for nested drawer tables)",
-    },
-    parentOriginalNestedTableDataRef: {
-      type: "object",
-      description: "Parent ref for nested instances to access parent's original nested table data",
-    },
-    parentNestedTableEditingDataRef: {
-      type: "object",
-      description: "Parent ref for nested instances to access parent's nested table editing data",
-    },
-    parentHandleDrawerSaveProp: {
-      type: "function",
-      description: "Parent handler for nested instances to use parent's drawer save state",
-    },
-    nestedTableTabId: {
-      type: "string",
-      description: "Tab ID for nested instances to update parent's editing buffer",
-    },
-    onNestedBufferChange: {
-      type: "eventHandler",
-      argTypes: [{ name: "buffer", type: "object" }],
-      description: "Callback from parent so nested instance can trigger parent re-render after buffer update",
-    },
-    parentHandleAddNestedRowAtZero: {
-      type: "function",
-      description: "Parent handler to add row at index 0 in nested table (for drawer nested table + button)",
-    },
-    skipConfirmDialog: {
-      type: "boolean",
-      defaultValue: false,
-      description: "When true, do not render ConfirmDialog (parent page provides one - avoids duplicate dialogs)",
-    },
-    formInputOverride: {
-      type: "object",
-      defaultValue: {},
-      description: "Per-column input override for editing. Format: { columnName: 'Calendar'|'Checkbox'|'InputNumber'|'InputText'|'Quill'|{ type:'Select', getOptions:(ctx)=>string[]|Promise<string[]> } } where ctx={ columnName, query }",
-    },
-    children: {
-      type: "slot",
-      description: "Slot to add custom UI components that can access the table data",
-    }
-  },
-  providesData: true,
-  importPath: "./share/src/app/datatable/components/DataProviderNew",
-});
+registerElbritCoreComponents(PLASMIC)
 
-PLASMIC.registerComponent(DataTableNew, {
-  name: "DataTableNew",
-  props: {
-    rowsPerPageOptions: {
-      type: "object",
-      defaultValue: [10, 25, 50, 100],
-      description: "Array of rows per page options",
-    },
-    defaultRows: {
-      type: "number",
-      defaultValue: 10,
-      description: "Default number of rows per page",
-    },
-    scrollable: {
-      type: "boolean",
-      defaultValue: true,
-      description: "Enable/disable table scrolling",
-    },
-    scrollHeight: {
-      type: "string",
-      description: "Height of the scrollable area (e.g., '600px', 'flex' for dynamic)",
-    },
-    enableCellEdit: {
-      type: "boolean",
-      defaultValue: false,
-      description: "Enable cell editing",
-    },
-    onCellEditComplete: {
-      type: "eventHandler",
-      argTypes: [
-        { name: "rowData", type: "object" },
-        { name: "field", type: "string" },
-        { name: "newValue", type: "any" },
-        { name: "oldValue", type: "any" }
-      ],
-      description: "Callback when cell edit is completed",
-    },
-    isCellEditable: {
-      type: "function",
-      description: "Function to determine if a cell is editable: (rowData, field) => boolean",
-    },
-    editableColumns: {
-      type: "object",
-      defaultValue: { main: [], nested: {} },
-      description: "Object defining editable columns. Format: { main: ['col1', 'col2'], nested: { parentCol: { nestedField: ['col1'] } } }. Empty main array means all columns editable. For nested tables, specify parent column and nested field name.",
-    },
-    enableFullscreenDialog: {
-      type: "boolean",
-      defaultValue: true,
-      description: "Enable/disable fullscreen dialog feature",
-    },
-    tableName: {
-      type: "string",
-      defaultValue: "table",
-      description: "Name identifier for the table",
-    },
-    useOrchestrationLayer: {
-      type: "boolean",
-      defaultValue: false,
-      description: "Use orchestration layer (must be child of DataProvider with useOrchestrationLayer=true)",
-    },
-    parentColumnName: {
-      type: "string",
-      description: "Parent column name for nested tables (used with nestedTableFieldName)",
-    },
-    nestedTableFieldName: {
-      type: "string",
-      description: "Nested table field name (used with parentColumnName for nested drawer tables)",
-    },
-    onOuterGroupClick: {
-      type: "eventHandler",
-      argTypes: [
-        { name: "rowData", type: "object" },
-        { name: "column", type: "string" },
-        { name: "value", type: "any" }
-      ],
-      description: "Handler for outer group row clicks (for backward compatibility)",
-    },
-    onInnerGroupClick: {
-      type: "eventHandler",
-      argTypes: [
-        { name: "rowData", type: "object" },
-        { name: "column", type: "string" },
-        { name: "value", type: "any" }
-      ],
-      description: "Handler for inner group row clicks (for backward compatibility)",
-    },
-    slotId: {
-      type: "string",
-      description: "Slot ID to select which slot's data to use (defaults to 'main' if not provided)",
-    },
-  },
-  importPath: "./share/src/app/datatable/components/DataTableNew",
-});
+// PLASMIC.registerComponent(DataProvider, {
+//   name: "DataProvider",
+//   props: {
+//     offlineData: {
+//       type: "object",
+//       description: "Offline/local data to use when dataSource is 'offline'",
+//     },
+//     dataSource: {
+//       type: "string",
+//       description: "The data source ID or 'offline' for local data",
+//     },
+//     selectedQueryKey: {
+//       type: "string",
+//       description: "The specific key within the data source results to display",
+//     },
+//     variableOverrides: {
+//       type: "object",
+//       description: "Overrides for query variables (as an object)",
+//       defaultValue: {},
+//     },
+//     isAdminMode: {
+//       type: "boolean",
+//       description: "Enable admin mode to bypass data filtering",
+//       defaultValue: false,
+//     },
+//     salesTeamColumn: {
+//       type: "string",
+//       description: "Column name for Sales Team filtering",
+//     },
+//     salesTeamValues: {
+//       type: "object",
+//       description: "Array of allowed Sales Team values",
+//       defaultValue: [],
+//     },
+//     hqColumn: {
+//       type: "string",
+//       description: "Column name for HQ filtering",
+//     },
+//     hqValues: {
+//       type: "object",
+//       description: "Array of allowed HQ values",
+//       defaultValue: [],
+//     },
+//     columnTypesOverride: {
+//       type: "object",
+//       description: "Override column types (e.g., { fieldName: 'number' })",
+//       defaultValue: {},
+//     },
+//     useOrchestrationLayer: {
+//       type: "boolean",
+//       description: "Enable the new orchestration layer for data processing",
+//       defaultValue: false,
+//     },
+//     enableSort: {
+//       type: "boolean",
+//       defaultValue: true,
+//       description: "Initial sort state for orchestration layer",
+//     },
+//     enableFilter: {
+//       type: "boolean",
+//       defaultValue: true,
+//       description: "Initial filter state for orchestration layer",
+//     },
+//     enableSummation: {
+//       type: "boolean",
+//       defaultValue: true,
+//       description: "Initial summation state for orchestration layer",
+//     },
+//     enableGrouping: {
+//       type: "boolean",
+//       defaultValue: true,
+//       description: "Initial grouping state for orchestration layer",
+//     },
+//     enableDivideBy1Lakh: {
+//       type: "boolean",
+//       defaultValue: false,
+//       description: "Initial divide by 1 lakh state for orchestration layer",
+//     },
+//     textFilterColumns: {
+//       type: "object",
+//       defaultValue: [],
+//       description: "Columns to use text search in orchestration layer",
+//     },
+//     visibleColumns: {
+//       type: "object",
+//       description: "Initial visible columns for orchestration layer (can be passed from parent)",
+//     },
+//     redFields: {
+//       type: "object",
+//       defaultValue: [],
+//       description: "Array of column names to display in red",
+//     },
+//     greenFields: {
+//       type: "object",
+//       defaultValue: [],
+//       description: "Array of column names to display in green",
+//     },
+//     groupFields: {
+//       type: "object",
+//       description: "Array of field names for grouping (supports infinite nesting). Main/outer group: 'sales_team', inner group: 'hq'. Example: ['sales_team', 'hq']",
+//     },
+//     percentageColumns: {
+//       type: "object",
+//       defaultValue: [],
+//       description: "Array of percentage column configurations",
+//     },
+//     drawerTabs: {
+//       type: "object",
+//       defaultValue: [],
+//       description: "Array of drawer tab configurations",
+//     },
+//     enableReport: {
+//       type: "boolean",
+//       defaultValue: false,
+//       description: "Enable report mode with time breakdown",
+//     },
+//     dateColumn: {
+//       type: "string",
+//       description: "Column name containing date values for report breakdown",
+//     },
+//     onDataChange: {
+//       type: "eventHandler",
+//       argTypes: [{ name: "notification", type: "object" }],
+//       description: "Callback when data changes",
+//     },
+//     onError: {
+//       type: "eventHandler",
+//       argTypes: [{ name: "error", type: "object" }],
+//       description: "Callback when an error occurs",
+//     },
+//     onTableDataChange: {
+//       type: "eventHandler",
+//       argTypes: [{ name: "data", type: "object" }],
+//       description: "Callback when table data changes",
+//     },
+//     onRawDataChange: {
+//       type: "eventHandler",
+//       argTypes: [{ name: "data", type: "object" }],
+//       description: "Callback when raw data changes",
+//     },
+//     onVariablesChange: {
+//       type: "eventHandler",
+//       argTypes: [{ name: "variables", type: "object" }],
+//       description: "Callback when query variables change",
+//     },
+//     onExecutingQueryChange: {
+//       type: "eventHandler",
+//       argTypes: [{ name: "executing", type: "boolean" }],
+//       description: "Callback when query execution state changes",
+//     },
+//     onSelectedQueryKeyChange: {
+//       type: "eventHandler",
+//       argTypes: [{ name: "key", type: "string" }],
+//       description: "Callback when selected query key changes",
+//     },
+//     onLoadingDataChange: {
+//       type: "eventHandler",
+//       argTypes: [{ name: "loading", type: "boolean" }],
+//       description: "Callback when loading data state changes",
+//     },
+//     onVisibleColumnsChange: {
+//       type: "eventHandler",
+//       argTypes: [{ name: "columns", type: "object" }],
+//       description: "Callback when visible columns change",
+//     },
+//     onDrawerTabsChange: {
+//       type: "eventHandler",
+//       argTypes: [{ name: "tabs", type: "object" }],
+//       description: "Callback when drawer tabs change",
+//     },
+//     chartColumns: {
+//       type: "object",
+//       defaultValue: [],
+//       description: "Array of column names to display in the chart",
+//     },
+//     chartHeight: {
+//       type: "number",
+//       defaultValue: 400,
+//       description: "Height of the chart in pixels",
+//     },
+//     allowedColumns: {
+//       type: "object",
+//       description: "Developer-controlled: restricts which columns are available for selection",
+//       defaultValue: [],
+//     },
+//     onAllowedColumnsChange: {
+//       type: "eventHandler",
+//       argTypes: [{ name: "columns", type: "object" }],
+//       description: "Callback when allowed columns change",
+//     },
+//     derivedColumns: {
+//       type: "object",
+//       description: "Array of derived column configurations",
+//       defaultValue: [],
+//     },
+//     derivedRows: {
+//       type: "object",
+//       description: "Derived rows configuration (e.g. for row-level derived data)",
+//     },
+//     reportDataOverride: {
+//       type: "object",
+//       description: "Override report data (for custom report data)",
+//     },
+//     forceBreakdown: {
+//       type: "boolean",
+//       description: "Force breakdown mode (overrides enableBreakdown state)",
+//     },
+//     showProviderHeader: {
+//       type: "boolean",
+//       defaultValue: true,
+//       description: "Show/hide the provider header controls",
+//     },
+//     forceEnableWrite: {
+//       type: "boolean",
+//       description: "Force enableWrite for nested drawer tables. If provided, overrides the query's enableWrite setting. Use true to enable editing in nested tables.",
+//     },
+//     enableCellEdit: {
+//       type: "boolean",
+//       defaultValue: false,
+//       description: "Enable cell editing in the table",
+//     },
+//     editableColumns: {
+//       type: "object",
+//       defaultValue: { main: [], nested: {} },
+//       description: "Object defining editable columns. Format: { main: ['col1', 'col2'], nested: { parentCol: { nestedField: ['col1'] } } }. Empty main array means all columns editable. For nested tables, specify parent column and nested field name.",
+//     },
+//     slots: {
+//       type: "object",
+//       description: "Per-slot configuration object. When provided, allows different configurations for different slots. Format: { slotId: { enableSort, enableFilter, groupFields, derivedColumns, etc. } }. If not provided, falls back to flat props for backward compatibility.",
+//     },
+//     columnsExemptFromBreakdown: {
+//       type: "object",
+//       defaultValue: [],
+//       description: "Array of column names exempt from report breakdown",
+//     },
+//     onAvailableQueryKeysChange: {
+//       type: "eventHandler",
+//       argTypes: [{ name: "keys", type: "object" }],
+//       description: "Callback when available query keys change",
+//     },
+//     derivedColumnsMode: {
+//       type: "string",
+//       description: "Override for derived columns scope: 'main' | 'nested' (for sidebar nested tabs)",
+//     },
+//     derivedColumnsFieldName: {
+//       type: "string",
+//       description: "For mode 'nested', the nested table's field name",
+//     },
+//     fallbackColumns: {
+//       type: "object",
+//       description: "Fallback columns when data is empty (e.g., from other rows' schema for nested tables)",
+//     },
+//     parentColumnName: {
+//       type: "string",
+//       description: "Parent column name for nested tables (used with nestedTableFieldName)",
+//     },
+//     nestedTableFieldName: {
+//       type: "string",
+//       description: "Nested table field name (used with parentColumnName for nested drawer tables)",
+//     },
+//     parentOriginalNestedTableDataRef: {
+//       type: "object",
+//       description: "Parent ref for nested instances to access parent's original nested table data",
+//     },
+//     parentNestedTableEditingDataRef: {
+//       type: "object",
+//       description: "Parent ref for nested instances to access parent's nested table editing data",
+//     },
+//     parentHandleDrawerSaveProp: {
+//       type: "function",
+//       description: "Parent handler for nested instances to use parent's drawer save state",
+//     },
+//     nestedTableTabId: {
+//       type: "string",
+//       description: "Tab ID for nested instances to update parent's editing buffer",
+//     },
+//     onNestedBufferChange: {
+//       type: "eventHandler",
+//       argTypes: [{ name: "buffer", type: "object" }],
+//       description: "Callback from parent so nested instance can trigger parent re-render after buffer update",
+//     },
+//     parentHandleAddNestedRowAtZero: {
+//       type: "function",
+//       description: "Parent handler to add row at index 0 in nested table (for drawer nested table + button)",
+//     },
+//     skipConfirmDialog: {
+//       type: "boolean",
+//       defaultValue: false,
+//       description: "When true, do not render ConfirmDialog (parent page provides one - avoids duplicate dialogs)",
+//     },
+//     formInputOverride: {
+//       type: "object",
+//       defaultValue: {},
+//       description: "Per-column input override for editing. Format: { columnName: 'Calendar'|'Checkbox'|'InputNumber'|'InputText'|'Quill'|{ type:'Select', getOptions:(ctx)=>string[]|Promise<string[]> } } where ctx={ columnName, query }",
+//     },
+//     children: {
+//       type: "slot",
+//       description: "Slot to add custom UI components that can access the table data",
+//     }
+//   },
+//   providesData: true,
+//   importPath: "./share/src/app/datatable/components/DataProviderNew",
+// });
+
+// PLASMIC.registerComponent(DataTableNew, {
+//   name: "DataTableNew",
+//   props: {
+//     rowsPerPageOptions: {
+//       type: "object",
+//       defaultValue: [10, 25, 50, 100],
+//       description: "Array of rows per page options",
+//     },
+//     defaultRows: {
+//       type: "number",
+//       defaultValue: 10,
+//       description: "Default number of rows per page",
+//     },
+//     scrollable: {
+//       type: "boolean",
+//       defaultValue: true,
+//       description: "Enable/disable table scrolling",
+//     },
+//     scrollHeight: {
+//       type: "string",
+//       description: "Height of the scrollable area (e.g., '600px', 'flex' for dynamic)",
+//     },
+//     enableCellEdit: {
+//       type: "boolean",
+//       defaultValue: false,
+//       description: "Enable cell editing",
+//     },
+//     onCellEditComplete: {
+//       type: "eventHandler",
+//       argTypes: [
+//         { name: "rowData", type: "object" },
+//         { name: "field", type: "string" },
+//         { name: "newValue", type: "any" },
+//         { name: "oldValue", type: "any" }
+//       ],
+//       description: "Callback when cell edit is completed",
+//     },
+//     isCellEditable: {
+//       type: "function",
+//       description: "Function to determine if a cell is editable: (rowData, field) => boolean",
+//     },
+//     editableColumns: {
+//       type: "object",
+//       defaultValue: { main: [], nested: {} },
+//       description: "Object defining editable columns. Format: { main: ['col1', 'col2'], nested: { parentCol: { nestedField: ['col1'] } } }. Empty main array means all columns editable. For nested tables, specify parent column and nested field name.",
+//     },
+//     enableFullscreenDialog: {
+//       type: "boolean",
+//       defaultValue: true,
+//       description: "Enable/disable fullscreen dialog feature",
+//     },
+//     tableName: {
+//       type: "string",
+//       defaultValue: "table",
+//       description: "Name identifier for the table",
+//     },
+//     useOrchestrationLayer: {
+//       type: "boolean",
+//       defaultValue: false,
+//       description: "Use orchestration layer (must be child of DataProvider with useOrchestrationLayer=true)",
+//     },
+//     parentColumnName: {
+//       type: "string",
+//       description: "Parent column name for nested tables (used with nestedTableFieldName)",
+//     },
+//     nestedTableFieldName: {
+//       type: "string",
+//       description: "Nested table field name (used with parentColumnName for nested drawer tables)",
+//     },
+//     onOuterGroupClick: {
+//       type: "eventHandler",
+//       argTypes: [
+//         { name: "rowData", type: "object" },
+//         { name: "column", type: "string" },
+//         { name: "value", type: "any" }
+//       ],
+//       description: "Handler for outer group row clicks (for backward compatibility)",
+//     },
+//     onInnerGroupClick: {
+//       type: "eventHandler",
+//       argTypes: [
+//         { name: "rowData", type: "object" },
+//         { name: "column", type: "string" },
+//         { name: "value", type: "any" }
+//       ],
+//       description: "Handler for inner group row clicks (for backward compatibility)",
+//     },
+//     slotId: {
+//       type: "string",
+//       description: "Slot ID to select which slot's data to use (defaults to 'main' if not provided)",
+//     },
+//   },
+//   importPath: "./share/src/app/datatable/components/DataTableNew",
+// });

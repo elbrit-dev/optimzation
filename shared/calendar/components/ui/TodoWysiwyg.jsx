@@ -6,6 +6,8 @@ import {
   EditorContent,
   Editor,
   useEditorState,
+  BubbleMenu as TiptapBubbleMenu,
+  FloatingMenu as TiptapFloatingMenu,
 } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Highlight from "@tiptap/extension-highlight";
@@ -36,7 +38,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@calendar/components/ui/select";
-import { BubbleMenu as TiptapBubbleMenu, FloatingMenu as TiptapFloatingMenu } from "@tiptap/react";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import BulletList from "@tiptap/extension-bullet-list";

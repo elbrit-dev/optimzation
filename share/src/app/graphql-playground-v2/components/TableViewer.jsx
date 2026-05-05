@@ -2,7 +2,7 @@
 
 import DataProviderNew from '@/app/datatable/components/DataProviderNew';
 import DataTableComponent from '@/app/datatable/components/DataTableNew';
-import { getEndpointConfigFromUrlKey, getInitialEndpoint } from '@/app/graphql-playground/constants';
+import { getEndpointConfigFromUrlKeyAsync, getInitialEndpointAsync } from '@/app/graphql-playground/constants';
 import { extractDataFromResponse } from '@/app/graphql-playground/utils/data-extractor';
 import {
   createExecutionContext,
@@ -104,8 +104,8 @@ export function TableViewer() {
                 throw new Error('Query key is required');
               }
 
-              const endpointConfig = getEndpointConfigFromUrlKey(selectedEnvironment);
-              const endpointUrl = endpointConfig?.endpointUrl || getInitialEndpoint()?.code;
+              const endpointConfig = await getEndpointConfigFromUrlKeyAsync(selectedEnvironment);
+              const endpointUrl = endpointConfig?.endpointUrl || (await getInitialEndpointAsync())?.code;
               const authToken = endpointConfig?.authToken || null;
 
               if (!endpointUrl) {
@@ -227,11 +227,8 @@ export function TableViewer() {
               return (
                 <TabPanel key={queryKey} header={queryKey}>
                   <div className="h-full overflow-auto p-2">
-                    <DataProviderNew dataSource={null} offlineData={tableData} drawerTabs={[]} skipConfirmDialog>
-                      <DataTableComponent
-                        useOrchestrationLayer={true}
-                        enableFullscreenDialog={true}
-                      />
+                    <DataProviderNew config={{ dataSource: null, drawerTabs: [], enableFullscreenDialog: true }} offlineData={tableData} __internal={{ skipConfirmDialog: true }}>
+                      <DataTableComponent />
                     </DataProviderNew>
                   </div>
                 </TabPanel>
@@ -240,11 +237,8 @@ export function TableViewer() {
           </TabView>
         ) : (
           <div className="h-full overflow-auto p-2">
-            <DataProviderNew dataSource={null} offlineData={memoizedDataByKey[queryKeys[0]]} drawerTabs={[]} skipConfirmDialog>
-              <DataTableComponent
-                useOrchestrationLayer={true}
-                enableFullscreenDialog={true}
-              />
+            <DataProviderNew config={{ dataSource: null, drawerTabs: [], enableFullscreenDialog: true }} offlineData={memoizedDataByKey[queryKeys[0]]} __internal={{ skipConfirmDialog: true }}>
+              <DataTableComponent />
             </DataProviderNew>
           </div>
         )}

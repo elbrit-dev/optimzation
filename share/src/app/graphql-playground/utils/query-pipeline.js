@@ -7,7 +7,7 @@ import { firestoreService } from "../services/firestoreService";
 import { queryRegistry } from "../services/queryRegistry";
 import { extractDataFromResponse } from "./data-extractor";
 import { removeIndexKeys } from "./data-flattener";
-import { DEFAULT_AUTH_TOKEN, getInitialEndpoint, getEndpointConfigFromUrlKey } from "../constants";
+import { DEFAULT_AUTH_TOKEN, getInitialEndpointAsync, getEndpointConfigFromUrlKeyAsync } from "../constants";
 
 /**
  * Simple hash function for data structures (for logging/comparison)
@@ -61,7 +61,7 @@ export function createExecutionContext(options = {}) {
 export async function fetchGraphQLRequest(query, variables = {}, options = {}) {
     const { endpointUrl, authToken } = options;
 
-    const finalEndpointUrl = endpointUrl || getInitialEndpoint()?.code;
+    const finalEndpointUrl = endpointUrl || (await getInitialEndpointAsync())?.code;
     const finalAuthToken = authToken || DEFAULT_AUTH_TOKEN;
 
     if (!finalEndpointUrl) {
@@ -469,7 +469,7 @@ export async function executePipeline(queryId, context, options = {}) {
         if (!isOffline) {
             // Online: get endpoint and token from urlKey if available
             if (queryDoc.urlKey) {
-                const urlKeyConfig = getEndpointConfigFromUrlKey(queryDoc.urlKey);
+                const urlKeyConfig = await getEndpointConfigFromUrlKeyAsync(queryDoc.urlKey);
                 if (urlKeyConfig.endpointUrl) {
                     finalEndpointUrl = urlKeyConfig.endpointUrl;
                     finalAuthToken = urlKeyConfig.authToken;
@@ -478,7 +478,7 @@ export async function executePipeline(queryId, context, options = {}) {
 
             // Fallback to provided options or defaults if urlKey didn't provide endpoint
             if (!finalEndpointUrl) {
-                finalEndpointUrl = endpointUrl || getInitialEndpoint()?.code;
+                finalEndpointUrl = endpointUrl || (await getInitialEndpointAsync())?.code;
                 finalAuthToken = authToken || DEFAULT_AUTH_TOKEN;
                 if (!finalEndpointUrl) {
                     console.error("No endpoint URL available");

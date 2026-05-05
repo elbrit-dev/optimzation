@@ -55,20 +55,13 @@ function getDataValue(data, key) {
 const MemoizedDataTable = memo(({ data, enableFullscreenDialog }) => {
   return (
     <DataProviderNew
-      dataSource={null}
+      config={{ dataSource: null, drawerTabs: [], enableFullscreenDialog }}
       offlineData={data || []}
-      drawerTabs={[]} // Disable drawer in nested instance
     >
-      <DataTableComponent
-        useOrchestrationLayer={true}
-        enableFullscreenDialog={enableFullscreenDialog}
-      />
+      <DataTableComponent />
     </DataProviderNew>
   );
 }, (prevProps, nextProps) => {
-  // Custom comparison function: only re-render if data reference changed
-  // Since we're using useMemo for data extraction, references will be stable
-  // unless the actual data changed
   return prevProps.data === nextProps.data && prevProps.enableFullscreenDialog === nextProps.enableFullscreenDialog;
 });
 

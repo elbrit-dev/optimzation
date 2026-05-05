@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { getInitialEndpoint, ENDPOINT_TOKENS } from '../constants';
+import { getInitialEndpoint, getEndpointConfigFromUrlKey } from '../constants';
 
 /**
  * Global application store for GraphQL Playground
@@ -10,7 +10,7 @@ export const useAppStore = create((set, get) => ({
   authToken: (() => {
     const initialEndpoint = getInitialEndpoint();
     const endpointName = initialEndpoint?.name || '';
-    return ENDPOINT_TOKENS[endpointName] || '';
+    return getEndpointConfigFromUrlKey(endpointName)?.authToken || '';
   })(),
   setAuthToken: (token) => set({ authToken: token }),
 
@@ -25,7 +25,7 @@ export const useAppStore = create((set, get) => ({
   setSelectedEndpoint: (endpoint) => {
     // Automatically set the token based on the selected endpoint
     const endpointName = endpoint?.name || '';
-    const token = ENDPOINT_TOKENS[endpointName] || '';
+    const token = getEndpointConfigFromUrlKey(endpointName)?.authToken || '';
     
     set({
       selectedEndpoint: endpoint,

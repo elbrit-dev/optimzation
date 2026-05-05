@@ -59,6 +59,17 @@ import { getTimePeriodLabel, getTimePeriodLabelShort, reorganizePeriodsForPeriod
 import { computeReportColumnsStructure, generateReportHeaderGroup, getMetricLabel, getReportColumns } from '../utils/reportRenderingUtils';
 import { getAllowedForScope, getAllowedForGroupField, getAllowedForReportGroupField } from '../utils/allowedColumnsUtils';
 
+/**
+ * Drawer drill filters must match raw leaf row fields. Group summary rows may store ancestor
+ * dimensions as aggregated display strings (e.g. "Name x 212"); __groupPath__ holds grouping keys.
+ */
+function getGroupDrillFilterValue(row, fieldIndex, fieldName, getDataValueFn) {
+  if (row && isArray(row.__groupPath__) && fieldIndex < row.__groupPath__.length) {
+    return row.__groupPath__[fieldIndex];
+  }
+  return getDataValueFn(row, fieldName);
+}
+
 // Inline Select cell editor - loads options via getOptions(ctx) or uses cachedOptions when available. ctx = { columnName, query } (row-independent)
 function InlineSelectCellEditor({ options: editorOptions, col, getOptions, queryFunction, cachedOptions }) {
   const [opts, setOpts] = useState([]);
@@ -852,6 +863,7 @@ function TableControlsBar({
   freezeFirstColumn,
   setFreezeFirstColumn,
   enableWrite,
+  writePermissions = { create: true, update: true, delete: true },
   contextNestedTableTabId,
   handleAddNestedRowAtZero,
   tableName,
@@ -865,6 +877,8 @@ function TableControlsBar({
   setIsFullscreen,
   setIsMaximized,
 }) {
+  const writeOpsAllowed =
+    writePermissions.create || writePermissions.update || writePermissions.delete;
   return (
     <div className={`mb-4 flex items-center justify-between gap-4 flex-wrap ${controlsRowClassName}`}>
       <div className="shrink-0 flex items-center gap-2">
@@ -894,7 +908,7 @@ function TableControlsBar({
         </button>
       </div>
       <div className="shrink-0 flex items-center gap-2">
-        {enableWrite && ((contextNestedTableTabId && handleAddNestedRowAtZero) || (!contextNestedTableTabId && tableName !== 'sidebar' && openDrawerForNewRow)) && (
+        {enableWrite && writePermissions.create && ((contextNestedTableTabId && handleAddNestedRowAtZero) || (!contextNestedTableTabId && tableName !== 'sidebar' && openDrawerForNewRow)) && (
           <button
             onClick={() => {
               if (contextNestedTableTabId) {
@@ -909,7 +923,7 @@ function TableControlsBar({
             <i className="pi pi-plus"></i>
           </button>
         )}
-        {tableName !== 'sidebar' && enableWrite && (handleMainSave) && (
+        {tableName !== 'sidebar' && enableWrite && writeOpsAllowed && (handleMainSave) && (
           <button
             onClick={() => handleMainSave?.()}
             className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center"
@@ -918,7 +932,7 @@ function TableControlsBar({
             <i className="pi pi-save"></i>
           </button>
         )}
-        {tableName !== 'sidebar' && enableWrite && (handleMainCancel && hasMainTableChanges) && (
+        {tableName !== 'sidebar' && enableWrite && writeOpsAllowed && (handleMainCancel && hasMainTableChanges) && (
           <button
             onClick={handleMainCancel}
             className="p-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center justify-center"
@@ -1012,41 +1026,249 @@ function DateRangeFilter({ value, onChange }) {
   );
 }
 
-export default function DataTableNew({
-  rowsPerPageOptions = [10, 25, 50, 100],
-  defaultRows = 10,
-  scrollable = true,
+function DataTableNewScrollableTableView({
   scrollHeight,
-  onOuterGroupClick, // Keep for backward compatibility
-  onInnerGroupClick, // Keep for backward compatibility
-  enableCellEdit = false,
+  containerClassName = '',
+  containerStyle = {},
+  tableName,
+  enableCellEdit,
+  setSelectedRowData,
+  enableBreakdown,
+  effectiveGroupFields,
+  reportData,
+  paginatedData,
+  pagination,
+  scrollable,
+  multiSortMeta,
+  updateSort,
+  updatePagination,
+  rows,
+  enableSort,
+  enableFilter,
+  expandedRows,
+  updateExpandedRows,
+  reportRowExpansionTemplate,
+  rowExpansionTemplate,
+  hasNestedTablesInData,
+  reportHeaderGroup,
+  effectiveEnableCellEdit,
+  selectedRowData,
+  allowExpansion,
+  frozenCols,
+  regularCols,
+  isPercentageColumn,
+  columnTypesFlags,
+  calculateColumnWidths,
+  getHeaderTemplate,
+  formatHeaderName,
+  getPercentageColumnSortFunction,
+  freezeFirstColumn,
+  getFilterElement,
+  footerTemplate,
+  getDataValue,
+  getBodyTemplate,
+  wrapBodyWithCellStyle,
+  getCellEditor,
+  handleCellEditComplete,
+}) {
+  const tableContainerRef = useRef(null);
+  const tableRef = useRef(null);
+  const [calculatedScrollHeight, setCalculatedScrollHeight] = useState(scrollHeight === 'flex' ? undefined : scrollHeight);
+  const shouldUseEditingKeyForMainRows = (
+    tableName === 'main' &&
+    enableCellEdit &&
+    setSelectedRowData &&
+    !enableBreakdown &&
+    effectiveGroupFields.length === 0
+  );
+  const resolvedMainDataKey = shouldUseEditingKeyForMainRows
+    ? '__editingKey__'
+    : (enableBreakdown && reportData ? 'id' : (effectiveGroupFields.length > 0 ? '__groupKey__' : 'id'));
+
+  useEffect(() => {
+    if (scrollHeight === 'flex' && tableContainerRef.current) {
+      const calculateHeight = () => {
+        if (tableContainerRef.current) {
+          const rect = tableContainerRef.current.getBoundingClientRect();
+          if (rect.height > 0) {
+            const newHeight = `${rect.height}px`;
+            setCalculatedScrollHeight((prev) => (prev === newHeight ? prev : newHeight));
+          }
+        }
+      };
+
+      calculateHeight();
+      const resizeObserver = new ResizeObserver(calculateHeight);
+      if (tableContainerRef.current) {
+        resizeObserver.observe(tableContainerRef.current);
+      }
+
+      return () => {
+        resizeObserver.disconnect();
+      };
+    } else {
+      setCalculatedScrollHeight(scrollHeight);
+    }
+  }, [scrollHeight]);
+
+  return (
+    <div
+      ref={tableContainerRef}
+      className={`border border-gray-200 rounded-lg w-full responsive-table-container ${containerClassName}`}
+      style={{ position: 'relative', ...containerStyle }}
+    >
+      <div ref={tableRef}>
+        <DataTable
+          resizableColumns
+          columnResizeMode="expand"
+          value={useMemo(() => {
+            const data = isArray(paginatedData) ? paginatedData : [];
+            const dataKeyValue = resolvedMainDataKey;
+            if (dataKeyValue === 'id') {
+              const result = data.map((row, index) => {
+                if (!row || typeof row !== 'object') return row;
+                if (row.id !== undefined && row.id !== null) {
+                  return row;
+                }
+                const paginationOffset = pagination?.first || 0;
+                const rowId = `main_row_${paginationOffset + index}`;
+                return { ...row, id: rowId };
+              });
+              return result;
+            }
+            return data;
+          }, [paginatedData, resolvedMainDataKey, enableBreakdown, reportData, effectiveGroupFields.length, pagination?.first])}
+          scrollable={scrollHeight ? true : scrollable}
+          scrollHeight={calculatedScrollHeight || scrollHeight}
+          sortMode={enableSort ? 'multiple' : undefined}
+          removableSort={enableSort}
+          multiSortMeta={multiSortMeta}
+          onSort={(e) => {
+            updateSort(e.multiSortMeta || []);
+            updatePagination(0, rows);
+          }}
+          showGridlines
+          stripedRows
+          className="p-datatable-sm w-full"
+          style={{ minWidth: '100%' }}
+          filterDisplay={enableFilter ? 'row' : undefined}
+          expandedRows={expandedRows}
+          onRowToggle={(e) => updateExpandedRows(e.data)}
+          rowExpansionTemplate={enableBreakdown && effectiveGroupFields.length > 1 ? reportRowExpansionTemplate : (effectiveGroupFields.length > 0 || hasNestedTablesInData ? rowExpansionTemplate : undefined)}
+          dataKey={resolvedMainDataKey}
+          headerColumnGroup={enableBreakdown && reportData ? reportHeaderGroup : undefined}
+          editMode={effectiveEnableCellEdit ? 'cell' : undefined}
+          selectionMode={tableName === 'main' && enableCellEdit && setSelectedRowData ? 'single' : undefined}
+          selection={tableName === 'main' && enableCellEdit ? (selectedRowData ?? null) : undefined}
+          onSelectionChange={tableName === 'main' && enableCellEdit && setSelectedRowData ? (e) => {
+            const v = e.value;
+            if (v && v.__isGroupRow__) return;
+            setSelectedRowData(v ?? null);
+          } : undefined}
+        >
+          {(() => {
+            const shouldShowExpander = effectiveGroupFields.length > 0 || (enableBreakdown && effectiveGroupFields.length > 1) || hasNestedTablesInData;
+            if (shouldShowExpander) {
+              return (
+                <Column
+                  key="expander-column"
+                  expander={allowExpansion}
+                  style={{ width: '3rem' }}
+                />
+              );
+            }
+            return null;
+          })()}
+          {frozenCols.map((col, index) => {
+            const isPctCol = isPercentageColumn(col);
+            const colType = get(columnTypesFlags, col);
+            const isNumericCol = isPctCol || get(colType, 'isNumeric', false);
+            const isFirstColumn = index === 0;
+            const isReportCol = enableBreakdown && reportData && reportData.metrics.some(m => col.includes(`_${m}`));
+            const isReportNumeric = isReportCol || isNumericCol;
+            return (
+              <Column
+                key={`frozen-${col}`}
+                field={col}
+                header={getHeaderTemplate(col) || formatHeaderName(col)}
+                sortable={enableSort}
+                sortFunction={isPctCol ? getPercentageColumnSortFunction(col) : undefined}
+                frozen={freezeFirstColumn}
+                style={{
+                  width: isPctCol ? '130px' : `${get(calculateColumnWidths, col, 120)}px`,
+                }}
+                filter={enableFilter && !isReportCol}
+                filterElement={enableFilter && !isReportCol ? getFilterElement(col) : undefined}
+                showFilterMenu={false}
+                showClearButton={false}
+                footer={footerTemplate(col, isFirstColumn)}
+                body={wrapBodyWithCellStyle(isReportCol ? (rowData) => {
+                  const value = getDataValue(rowData, col);
+                  if (value === undefined || value === null) return '-';
+                  return value.toLocaleString('en-US');
+                } : getBodyTemplate(col), col)}
+                editor={getCellEditor(col)}
+                onCellEditComplete={effectiveEnableCellEdit && getCellEditor(col) ? handleCellEditComplete : undefined}
+                align={isReportNumeric ? 'right' : 'left'}
+              />
+            );
+          })}
+
+          {regularCols.map((col, index) => {
+            const isPctCol = isPercentageColumn(col);
+            const colType = get(columnTypesFlags, col);
+            const isNumericCol = isPctCol || get(colType, 'isNumeric', false);
+            const isReportCol = enableBreakdown && reportData && reportData.metrics.some(m => col.includes(`_${m}`));
+            const isReportNumeric = isReportCol || isNumericCol;
+            return (
+              <Column
+                key={col}
+                field={col}
+                header={getHeaderTemplate(col) || formatHeaderName(col)}
+                sortable={enableSort}
+                sortFunction={isPctCol ? getPercentageColumnSortFunction(col) : undefined}
+                style={{
+                  width: isPctCol ? '130px' : `${get(calculateColumnWidths, col, 120)}px`,
+                }}
+                filter={enableFilter && !isReportCol}
+                filterElement={enableFilter && !isReportCol ? getFilterElement(col) : undefined}
+                showFilterMenu={false}
+                showClearButton={false}
+                footer={footerTemplate(col)}
+                body={wrapBodyWithCellStyle(isReportCol ? (rowData) => {
+                  const value = getDataValue(rowData, col);
+                  if (value === undefined || value === null) return '-';
+                  return value.toLocaleString('en-US');
+                } : getBodyTemplate(col), col)}
+                editor={getCellEditor(col)}
+                onCellEditComplete={effectiveEnableCellEdit && getCellEditor(col) ? handleCellEditComplete : undefined}
+                align={isReportNumeric ? 'right' : 'left'}
+              />
+            );
+          })}
+        </DataTable>
+      </div>
+    </div>
+  );
+}
+
+export default function DataTableNew({
+  slotId: slotIdProp = undefined,
+  tableName = 'table',
   onCellEditComplete,
   isCellEditable,
-  editableColumns = { main: [], nested: {}, object: {} },
-  enableFullscreenDialog = true,
-  tableName = 'table',
-  useOrchestrationLayer = false,
-  parentColumnName = undefined,
-  nestedTableFieldName = undefined,
-  slotId: slotIdProp = undefined,
 }) {
-  // Use ref to track current editableColumns to avoid closure issues
-  const editableColumnsRef = useRef(editableColumns);
-  useEffect(() => {
-    editableColumnsRef.current = editableColumns;
-  }, [editableColumns]);
-  
   // Get data and operations from context (slotId prop selects which slot)
   const effectiveSlotId = slotIdProp ?? 'main';
   const tableOps = useTableOperations(effectiveSlotId);
   const {
     rawData,
     filteredData: contextFilteredData,
-    paginatedData, // Final data for display
-    sortedData, // For totalRecords calculation
+    paginatedData,
+    sortedData,
     groupedData,
     columns,
-    columnTypes, // Format: { field_name: "boolean" | "number" | "date" | "string" }
+    columnTypes,
     columnTypesOverride = {},
     sums: calculateSums,
     filterOptions,
@@ -1095,6 +1317,7 @@ export default function DataTableNew({
     openDrawerForNewRow,
     handleAddNestedRowAtZero,
     enableWrite,
+    writePermissions = { create: true, update: true, delete: true },
     handleMainSave,
     handleDrawerSave,
     handleMainCancel,
@@ -1132,14 +1355,26 @@ export default function DataTableNew({
     formInputOverride = {},
     queryFunction,
     selectOptionsCache,
+    // Display config from context (was previously props)
+    rowsPerPageOptions = [10, 25, 50, 100],
+    defaultRows = 10,
+    tableHeight: scrollHeight,
+    scrollable = true,
+    enableFullscreenDialog = true,
+    enableCellEdit = false,
+    editableColumns = { main: [], nested: {}, object: {} },
   } = tableOps;
-  
-  // Use context values if available, otherwise fall back to props
+
+  // Use ref to track current editableColumns to avoid closure issues
+  const editableColumnsRef = useRef(editableColumns);
+  useEffect(() => {
+    editableColumnsRef.current = editableColumns;
+  }, [editableColumns]);
+
   const allowedColumns = contextAllowedColumns ?? [];
-  const finalParentColumnName = contextParentColumnName !== undefined ? contextParentColumnName : parentColumnName;
-  const finalNestedTableFieldName = contextNestedTableFieldName !== undefined ? contextNestedTableFieldName : nestedTableFieldName;
-  
-  // Helper variables for backward compatibility during migration
+  const finalParentColumnName = contextParentColumnName;
+  const finalNestedTableFieldName = contextNestedTableFieldName;
+
   const outerGroupField = effectiveGroupFields[0] || null;
   const innerGroupField = effectiveGroupFields[1] || null;
 
@@ -2103,7 +2338,7 @@ export default function DataTableNew({
         const filters = {};
         for (let i = 0; i <= groupFieldIndex; i++) {
           const field = effectiveGroupFields[i];
-          const fieldValue = getDataValue(rowData, field);
+          const fieldValue = getGroupDrillFilterValue(rowData, i, field, getDataValue);
           if (!isNil(fieldValue)) {
             filters[field] = [fieldValue];
           }
@@ -2117,11 +2352,12 @@ export default function DataTableNew({
           : 'hover:bg-purple-50';
         
         const isNestedInDrawer = !!finalParentColumnName;
+        const allowGroupDrawerOpen = !isNestedInDrawer && (!enableWrite || writePermissions.update);
         return (
           <div
-            className={`text-xs sm:text-sm truncate px-1 py-0.5 rounded transition-colors ${isNumericCol ? 'text-right' : 'text-left'} ${colorClass} ${!isNestedInDrawer ? `cursor-pointer ${hoverColorClass}` : ''}`}
+            className={`text-xs sm:text-sm truncate px-1 py-0.5 rounded transition-colors ${isNumericCol ? 'text-right' : 'text-left'} ${colorClass} ${allowGroupDrawerOpen ? `cursor-pointer ${hoverColorClass}` : ''}`}
             title={cellValue}
-            onClick={!isNestedInDrawer ? (e) => {
+            onClick={allowGroupDrawerOpen ? (e) => {
               e.stopPropagation();
               // Use slot's filteredData and drawerTabs so drawer shows correct data+tabs in multi-slot mode
               const dataToUse = contextFilteredData && Array.isArray(contextFilteredData) ? contextFilteredData : undefined;
@@ -2129,13 +2365,6 @@ export default function DataTableNew({
                 ? { drawerTabsOverride: drawerTabs, allowedColumnsOverride: allowedColumns }
                 : undefined;
               openDrawer(dataToUse != null ? dataToUse : filters, dataToUse != null ? filters : undefined, undefined, tableOptions);
-              // Still call parent callbacks if provided (for backward compatibility)
-              if (groupFieldIndex === 0 && onOuterGroupClick) {
-                onOuterGroupClick(rowData, col, value);
-              } else if (groupFieldIndex === 1 && onInnerGroupClick) {
-                const outerValue = getDataValue(rowData, effectiveGroupFields[0]);
-                onInnerGroupClick(rowData, col, value);
-              }
             } : undefined}
           >
             {cellValue}
@@ -2154,7 +2383,7 @@ export default function DataTableNew({
     // Check if this is the first column and enableWrite is true
     // When in nested table (within drawer), do not make first column clickable to open another drawer
     const isFirstColumn = orderedColumns && orderedColumns.length > 0 && col === orderedColumns[0];
-    const hasNestedTables = isFirstColumn && enableWrite && !finalParentColumnName;
+    const hasNestedTables = isFirstColumn && enableWrite && writePermissions.update && !finalParentColumnName;
 
     const openBreakdownDialog = (breakdown, summaryValue) => {
       breakdownDialogHostRef.current?.open({
@@ -2246,7 +2475,7 @@ export default function DataTableNew({
         </div>
       );
     };
-  }, [columnTypesFlags, effectiveGroupFields, onOuterGroupClick, onInnerGroupClick, booleanBodyTemplate, dateBodyTemplate, formatCellValue, isPercentageColumn, getPercentageColumnValue, getColumnColorClass, openDrawer, orderedColumns, enableWrite, openDrawerWithJsonTables, openDrawerForRow, contextFilteredData, drawerTabs, finalParentColumnName, formatHeaderName]);
+  }, [columnTypesFlags, effectiveGroupFields, booleanBodyTemplate, dateBodyTemplate, formatCellValue, isPercentageColumn, getPercentageColumnValue, getColumnColorClass, openDrawer, orderedColumns, enableWrite, writePermissions.update, openDrawerWithJsonTables, openDrawerForRow, contextFilteredData, drawerTabs, finalParentColumnName, formatHeaderName, allowedColumns]);
 
   // Helper to check if a column (top-level key) is in sortFields
 
@@ -2479,7 +2708,8 @@ export default function DataTableNew({
         // Build composite key for nested data lookup (supports multi-level nesting)
         const pathKeys = [];
         for (let i = 0; i <= currentLevel; i++) {
-          const value = getDataValue(rowData, effectiveGroupFields[i]);
+          const field = effectiveGroupFields[i];
+          const value = getGroupDrillFilterValue(rowData, i, field, getDataValue);
           pathKeys.push(isNil(value) ? '__null__' : String(value));
         }
         const compositeKey = pathKeys.join('|');
@@ -3478,6 +3708,7 @@ export default function DataTableNew({
     if (!enableBreakdown || !reportData || effectiveGroupFields.length < 2) {
       return null;
     }
+    const allowReportWriteDrawer = !enableWrite || writePermissions.update;
 
     // Get current nesting level
     const currentLevel = rowData.__groupLevel__ || 0;
@@ -3489,7 +3720,8 @@ export default function DataTableNew({
     // Build composite key for nested data lookup
     const pathKeys = [];
     for (let i = 0; i <= currentLevel; i++) {
-      const value = getDataValue(rowData, effectiveGroupFields[i]);
+      const field = effectiveGroupFields[i];
+      const value = getGroupDrillFilterValue(rowData, i, field, getDataValue);
       pathKeys.push(isNil(value) ? '__null__' : String(value));
     }
     const compositeKey = pathKeys.join('|');
@@ -3676,7 +3908,8 @@ export default function DataTableNew({
                 const isGroupRow = hasMoreLevelsBelow && hasNextFieldValue;
                 const nestedPathKeys = [];
                 for (let i = 0; i <= nextLevel; i++) {
-                  const value = getDataValue(row, effectiveGroupFields[i]);
+                  const field = effectiveGroupFields[i];
+                  const value = getGroupDrillFilterValue(row, i, field, getDataValue);
                   nestedPathKeys.push(isNil(value) ? '__null__' : String(value));
                 }
                 const nestedCompositeKey = nestedPathKeys.join('|');
@@ -3718,7 +3951,8 @@ export default function DataTableNew({
                 // Build composite key for nested data lookup
                 const pathKeys = [];
                 for (let i = 0; i <= nestedRowLevel; i++) {
-                  const value = getDataValue(nestedRowData, effectiveGroupFields[i]);
+                  const field = effectiveGroupFields[i];
+                  const value = getGroupDrillFilterValue(nestedRowData, i, field, getDataValue);
                   pathKeys.push(isNil(value) ? '__null__' : String(value));
                 }
                 const compositeKey = pathKeys.join('|');
@@ -3743,15 +3977,15 @@ export default function DataTableNew({
                 
                 return (
                   <div
-                    className={`text-xs sm:text-sm truncate cursor-pointer hover:bg-green-50 px-1 py-0.5 rounded transition-colors ${isNumericCol ? 'text-right' : 'text-left'} ${colorClass || ''}`}
+                    className={`text-xs sm:text-sm truncate px-1 py-0.5 rounded transition-colors ${isNumericCol ? 'text-right' : 'text-left'} ${colorClass || ''} ${allowReportWriteDrawer ? 'cursor-pointer hover:bg-green-50' : ''}`}
                     title={cellValue}
-                    onClick={(e) => {
+                    onClick={allowReportWriteDrawer ? (e) => {
                       e.stopPropagation();
                       // Build filter object with all parent group field values up to this level
                       const filters = {};
                       for (let i = 0; i <= currentLevel; i++) {
                         const field = effectiveGroupFields[i];
-                        const fieldValue = getDataValue(rowData, field);
+                        const fieldValue = getGroupDrillFilterValue(rowData, i, field, getDataValue);
                         if (!isNil(fieldValue)) {
                           filters[field] = [fieldValue];
                         }
@@ -3763,7 +3997,7 @@ export default function DataTableNew({
                       
                       // Use unified openDrawer with filters for all levels
                       openDrawer(filters);
-                    }}
+                    } : undefined}
                   >
                     {cellValue}
                   </div>
@@ -4009,15 +4243,15 @@ export default function DataTableNew({
           
           return (
             <div
-              className={`text-xs sm:text-sm truncate cursor-pointer hover:bg-green-50 px-1 py-0.5 rounded transition-colors ${isInnerNumericCol ? 'text-right' : 'text-left'} ${innerColorClass || ''}`}
+              className={`text-xs sm:text-sm truncate px-1 py-0.5 rounded transition-colors ${isInnerNumericCol ? 'text-right' : 'text-left'} ${innerColorClass || ''} ${allowReportWriteDrawer ? 'cursor-pointer hover:bg-green-50' : ''}`}
               title={cellValue}
-              onClick={(e) => {
+              onClick={allowReportWriteDrawer ? (e) => {
                 e.stopPropagation();
                 // Build filter object with all parent group field values up to this level
                 const filters = {};
                 for (let i = 0; i <= currentLevel; i++) {
                   const field = effectiveGroupFields[i];
-                  const fieldValue = getDataValue(rowData, field);
+                  const fieldValue = getGroupDrillFilterValue(rowData, i, field, getDataValue);
                   if (!isNil(fieldValue)) {
                     filters[field] = [fieldValue];
                   }
@@ -4029,7 +4263,7 @@ export default function DataTableNew({
                 
                 // Use unified openDrawer with filters for all levels
                 openDrawer(filters);
-              }}
+              } : undefined}
             >
               {cellValue}
             </div>
@@ -4131,7 +4365,7 @@ export default function DataTableNew({
         </DataTable>
       </div>
     );
-  }, [enableBreakdown, reportData, nestedTableColumnStructures, effectiveGroupFields, formatHeaderName, getMetricLabel, getDataValue, formatCellValue, columnTypesFlags, getColumnColorClass, openDrawer, onInnerGroupClick, expandedRows, updateExpandedRows, allowedColumns]);
+  }, [enableBreakdown, reportData, nestedTableColumnStructures, effectiveGroupFields, formatHeaderName, getMetricLabel, getDataValue, formatCellValue, columnTypesFlags, getColumnColorClass, openDrawer, expandedRows, updateExpandedRows, allowedColumns, enableWrite, writePermissions]);
 
   const onPageChange = (event) => {
     updatePagination(event.first, event.rows);
@@ -4148,6 +4382,7 @@ export default function DataTableNew({
     freezeFirstColumn,
     setFreezeFirstColumn,
     enableWrite,
+    writePermissions,
     contextNestedTableTabId,
     handleAddNestedRowAtZero,
     tableName,
@@ -4212,192 +4447,46 @@ export default function DataTableNew({
     return hasNested;
   }, [paginatedData]);
 
-  // Reusable Table View Component with Scrollable Support
-  const TableView = ({ scrollHeight, containerClassName = "", containerStyle = {}, tableName: viewTableName = tableName }) => {
-    const tableContainerRef = useRef(null);
-    const tableRef = useRef(null);
-    const [calculatedScrollHeight, setCalculatedScrollHeight] = useState(scrollHeight === "flex" ? undefined : scrollHeight);
-    const shouldUseEditingKeyForMainRows = (
-      tableName === 'main' &&
-      useOrchestrationLayer &&
-      enableCellEdit &&
-      setSelectedRowData &&
-      !enableBreakdown &&
-      effectiveGroupFields.length === 0
-    );
-    const resolvedMainDataKey = shouldUseEditingKeyForMainRows
-      ? '__editingKey__'
-      : (enableBreakdown && reportData ? 'id' : (effectiveGroupFields.length > 0 ? '__groupKey__' : 'id'));
-
-    // Calculate scrollHeight dynamically when "flex" is used
-    useEffect(() => {
-      if (scrollHeight === "flex" && tableContainerRef.current) {
-        const calculateHeight = () => {
-          if (tableContainerRef.current) {
-            const rect = tableContainerRef.current.getBoundingClientRect();
-            if (rect.height > 0) {
-              setCalculatedScrollHeight(`${rect.height}px`);
-            }
-          }
-        };
-        
-        // Calculate immediately and on resize
-        calculateHeight();
-        const resizeObserver = new ResizeObserver(calculateHeight);
-        if (tableContainerRef.current) {
-          resizeObserver.observe(tableContainerRef.current);
-        }
-        
-        return () => {
-          resizeObserver.disconnect();
-        };
-      } else {
-        setCalculatedScrollHeight(scrollHeight);
-      }
-    }, [scrollHeight]);
-
-    return (
-      <div 
-        ref={tableContainerRef}
-        className={`border border-gray-200 rounded-lg w-full responsive-table-container ${containerClassName}`} 
-        style={{ position: 'relative', ...containerStyle }}
-      >
-        <div ref={tableRef}>
-      <DataTable
-        resizableColumns
-        columnResizeMode="expand"
-        value={useMemo(() => {
-          const data = isArray(paginatedData) ? paginatedData : [];
-          // Ensure all rows have unique IDs when dataKey="id" is used
-          const dataKeyValue = resolvedMainDataKey;
-          if (dataKeyValue === "id") {
-            const result = data.map((row, index) => {
-              if (!row || typeof row !== 'object') return row;
-              if (row.id !== undefined && row.id !== null) {
-                return row;
-              }
-              const paginationOffset = pagination?.first || 0;
-              const rowId = `main_row_${paginationOffset + index}`;
-              return { ...row, id: rowId };
-            });
-            return result;
-          }
-          return data;
-        }, [paginatedData, resolvedMainDataKey, enableBreakdown, reportData, effectiveGroupFields.length, pagination?.first])}
-        scrollable={scrollHeight ? true : scrollable}
-        scrollHeight={calculatedScrollHeight || scrollHeight}
-        sortMode={enableSort ? "multiple" : undefined}
-        removableSort={enableSort}
-        multiSortMeta={multiSortMeta}
-        onSort={(e) => {
-          updateSort(e.multiSortMeta || []);
-          updatePagination(0, rows);
-        }}
-        showGridlines
-        stripedRows
-        className="p-datatable-sm w-full"
-        style={{ minWidth: '100%' }}
-        filterDisplay={enableFilter ? "row" : undefined}
-        expandedRows={expandedRows}
-        onRowToggle={(e) => updateExpandedRows(e.data)}
-        rowExpansionTemplate={enableBreakdown && effectiveGroupFields.length > 1 ? reportRowExpansionTemplate : (effectiveGroupFields.length > 0 || hasNestedTablesInData ? rowExpansionTemplate : undefined)}
-        dataKey={resolvedMainDataKey}
-        headerColumnGroup={enableBreakdown && reportData ? reportHeaderGroup : undefined}
-        editMode={effectiveEnableCellEdit ? "cell" : undefined}
-        selectionMode={tableName === 'main' && useOrchestrationLayer && enableCellEdit && setSelectedRowData ? 'single' : undefined}
-        selection={tableName === 'main' && useOrchestrationLayer && enableCellEdit ? (selectedRowData ?? null) : undefined}
-        onSelectionChange={tableName === 'main' && useOrchestrationLayer && enableCellEdit && setSelectedRowData ? (e) => {
-          const v = e.value;
-          if (v && v.__isGroupRow__) return;
-          setSelectedRowData(v ?? null);
-        } : undefined}
-      >
-        {(() => {
-          const shouldShowExpander = effectiveGroupFields.length > 0 || (enableBreakdown && effectiveGroupFields.length > 1) || hasNestedTablesInData;
-          if (shouldShowExpander) {
-            return (
-              <Column
-                key="expander-column"
-                expander={allowExpansion}
-                style={{ width: '3rem' }}
-              />
-            );
-          }
-          return null;
-        })()}
-        {frozenCols.map((col, index) => {
-          const isPctCol = isPercentageColumn(col);
-          const colType = get(columnTypesFlags, col);
-          const isNumericCol = isPctCol || get(colType, 'isNumeric', false);
-          const isFirstColumn = index === 0;
-          // In report mode, time period columns are always numeric
-          const isReportCol = enableBreakdown && reportData && reportData.metrics.some(m => col.includes(`_${m}`));
-          const isReportNumeric = isReportCol || isNumericCol;
-          return (
-            <Column
-              key={`frozen-${col}`}
-              field={col}
-              header={getHeaderTemplate(col) || formatHeaderName(col)}
-              sortable={enableSort}
-              sortFunction={isPctCol ? getPercentageColumnSortFunction(col) : undefined}
-              frozen={freezeFirstColumn}
-              style={{
-                width: isPctCol ? '130px' : `${get(calculateColumnWidths, col, 120)}px`,
-              }}
-              filter={enableFilter && !isReportCol}
-              filterElement={enableFilter && !isReportCol ? getFilterElement(col) : undefined}
-              showFilterMenu={false}
-              showClearButton={false}
-              footer={footerTemplate(col, isFirstColumn)}
-              body={wrapBodyWithCellStyle(isReportCol ? (rowData) => {
-                const value = getDataValue(rowData, col);
-                if (value === undefined || value === null) return '-';
-                return value.toLocaleString('en-US');
-              } : getBodyTemplate(col), col)}
-              editor={getCellEditor(col)}
-              onCellEditComplete={effectiveEnableCellEdit && getCellEditor(col) ? handleCellEditComplete : undefined}
-              align={isReportNumeric ? 'right' : 'left'}
-            />
-          );
-        })}
-
-        {regularCols.map((col, index) => {
-          const isPctCol = isPercentageColumn(col);
-          const colType = get(columnTypesFlags, col);
-          const isNumericCol = isPctCol || get(colType, 'isNumeric', false);
-          // In report mode, time period columns are always numeric
-          const isReportCol = enableBreakdown && reportData && reportData.metrics.some(m => col.includes(`_${m}`));
-          const isReportNumeric = isReportCol || isNumericCol;
-          return (
-            <Column
-              key={col}
-              field={col}
-              header={getHeaderTemplate(col) || formatHeaderName(col)}
-              sortable={enableSort}
-              sortFunction={isPctCol ? getPercentageColumnSortFunction(col) : undefined}
-              style={{
-                width: isPctCol ? '130px' : `${get(calculateColumnWidths, col, 120)}px`,
-              }}
-              filter={enableFilter && !isReportCol}
-              filterElement={enableFilter && !isReportCol ? getFilterElement(col) : undefined}
-              showFilterMenu={false}
-              showClearButton={false}
-              footer={footerTemplate(col)}
-              body={wrapBodyWithCellStyle(isReportCol ? (rowData) => {
-                const value = getDataValue(rowData, col);
-                if (value === undefined || value === null) return '-';
-                return value.toLocaleString('en-US');
-              } : getBodyTemplate(col), col)}
-              editor={getCellEditor(col)}
-              onCellEditComplete={effectiveEnableCellEdit && getCellEditor(col) ? handleCellEditComplete : undefined}
-              align={isReportNumeric ? 'right' : 'left'}
-            />
-          );
-        })}
-      </DataTable>
-        </div>
-    </div>
-  );
+  const scrollableTableViewBaseProps = {
+    enableCellEdit,
+    setSelectedRowData,
+    enableBreakdown,
+    effectiveGroupFields,
+    reportData,
+    paginatedData,
+    pagination,
+    scrollable,
+    multiSortMeta,
+    updateSort,
+    updatePagination,
+    rows,
+    enableSort,
+    enableFilter,
+    expandedRows,
+    updateExpandedRows,
+    reportRowExpansionTemplate,
+    rowExpansionTemplate,
+    hasNestedTablesInData,
+    reportHeaderGroup,
+    effectiveEnableCellEdit,
+    selectedRowData,
+    allowExpansion,
+    frozenCols,
+    regularCols,
+    isPercentageColumn,
+    columnTypesFlags,
+    calculateColumnWidths,
+    getHeaderTemplate,
+    formatHeaderName,
+    getPercentageColumnSortFunction,
+    freezeFirstColumn,
+    getFilterElement,
+    footerTemplate,
+    getDataValue,
+    getBodyTemplate,
+    wrapBodyWithCellStyle,
+    getCellEditor,
+    handleCellEditComplete,
   };
 
   // Reusable Paginator Wrapper Component
@@ -4502,9 +4591,10 @@ export default function DataTableNew({
       <FeatureStatusIndicators />
       <TableControlsBar {...tableControlsProps} showFullscreenButton={true} enableFullscreenDialog={enableFullscreenDialog} />
       <FilterChips />
-      <TableView 
-        scrollHeight={scrollHeight || (scrollable ? scrollHeightValue : undefined)}
+      <DataTableNewScrollableTableView
+        {...scrollableTableViewBaseProps}
         tableName={tableName}
+        scrollHeight={scrollHeight || (scrollable ? scrollHeightValue : undefined)}
       />
       <PaginatorWrapper />
 
@@ -4546,11 +4636,12 @@ export default function DataTableNew({
             isMaximized={isMaximized}
           />
           <FilterChips className="shrink-0" />
-          <TableView
+          <DataTableNewScrollableTableView
+            {...scrollableTableViewBaseProps}
+            tableName={`${tableName}-dialog`}
             scrollHeight="flex"
             containerClassName="flex-1"
             containerStyle={{ minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
-            tableName={`${tableName}-dialog`}
           />
           <PaginatorWrapper className="shrink-0" />
         </div>

@@ -15,6 +15,8 @@ import { fetchEmployeeLeaveBalance, updateLeaveStatus } from "@calendar/services
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 import { resolveLeavePermissions } from "@calendar/lib/leavePermissions";
 import { toast } from "sonner";
+import TiptapViewer from "@calendar/components/ui/TiptapViewer";
+import DeleteEventDialog from "../delete-event-dialog";
 
 export function EventLeaveDialog({
 	event, setOpen,
@@ -147,12 +149,9 @@ export function EventLeaveDialog({
 							</Button>
 						</AddEditEventDialog>
 
-						<Button
-							variant="destructive"
-							onClick={() => handleDelete(event.erpName,"Leave Application")}
-						>
-							Delete
-						</Button>
+						<DeleteEventDialog
+							onConfirm={() => handleDelete(event.erpName, "Leave Application")}
+						/>
 					</>
 				)}
 
@@ -214,10 +213,9 @@ export function EventDetailsFields({ event, config, use24HourFormat }) {
 
 								{/* Description HTML */}
 								{fieldKey === "description" ? (
-									<div
-										className="prose prose-sm dark:prose-invert max-w-none"
-										dangerouslySetInnerHTML={{ __html: value }}
-									/>
+									<div className="prose prose-sm dark:prose-invert max-w-none">
+										<TiptapViewer content={event.description} />
+									</div>
 								) : (
 									<p className="text-sm">{value}</p>
 								)}

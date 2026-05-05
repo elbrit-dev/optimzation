@@ -1,9 +1,4 @@
-// GraphQL Endpoint Configuration
-export const GRAPHQL_ENDPOINTS = {
-  UAT: process.env.NEXT_PUBLIC_GRAPHQL_ENDPOINT_UAT,
-  ERP: process.env.NEXT_PUBLIC_GRAPHQL_ENDPOINT_ERP,
-  NEW: process.env.NEXT_PUBLIC_GRAPHQL_ENDPOINT_NEW,
-};
+import { firestoreService } from '../services/firestoreService';
 
 // Firestore Collection - uses GQL_COLLECTION env (singular)
 export const DEFAULT_GQL_COLLECTION = process.env.NEXT_PUBLIC_GQL_COLLECTION || 'gql';
@@ -23,71 +18,151 @@ export const QUERY_TYPES = {
 // Default Auth Token
 export const DEFAULT_AUTH_TOKEN = '';
 
-// Endpoint-specific Auth Tokens
-export const ENDPOINT_TOKENS = {
-  UAT: process.env.NEXT_PUBLIC_GRAPHQL_AUTH_TOKEN_UAT || '',
-  ERP: process.env.NEXT_PUBLIC_GRAPHQL_AUTH_TOKEN_ERP || '',
-  NEW: process.env.NEXT_PUBLIC_GRAPHQL_AUTH_TOKEN_NEW || '',
-};
+let globalTokenRowsCache = null;
+let globalTokenRowsPromise = null;
+
+function sanitizeTokenRows(rows) {
+  if (!Array.isArray(rows)) return [];
+  const cleaned = rows
+    .map((row) => ({
+      name: String(row?.name || '').trim().toUpperCase(),
+      endpoint: String(row?.endpoint || '').trim(),
+      token: String(row?.token || '').trim(),
+      isDefault: Boolean(row?.isDefault),
+    }))
+    .filter((row) => row.name && row.endpoint);
+
+  if (cleaned.length === 0) return [];
+  let hasDefault = false;
+  const normalized = cleaned.map((row) => {
+    if (row.isDefault && !hasDefault) {
+      hasDefault = true;
+      return row;
+    }
+    return { ...row, isDefault: false };
+  });
+  if (!hasDefault) {
+    normalized[0] = { ...normalized[0], isDefault: true };
+  }
+  return normalized;
+}
+
+function getEffectiveRows() {
+  return globalTokenRowsCache || [];
+}
+
+function ensureRows(rows) {
+  if (!rows || rows.length === 0) {
+    throw new Error('No global tokens configured. Please add tokens in /tokens.');
+  }
+  return rows;
+}
+
+export function getCachedGlobalTokenRows() {
+  return globalTokenRowsCache || [];
+}
+
+export async function refreshGlobalTokenRows(force = false) {
+  if (!force && globalTokenRowsCache) return globalTokenRowsCache;
+  if (!force && globalTokenRowsPromise) return globalTokenRowsPromise;
+  globalTokenRowsPromise = (async () => {
+    try {
+      const rows = await firestoreService.loadGlobalTokens();
+      globalTokenRowsCache = sanitizeTokenRows(rows);
+      return globalTokenRowsCache;
+    } catch {
+      globalTokenRowsCache = [];
+      return globalTokenRowsCache;
+    } finally {
+      globalTokenRowsPromise = null;
+    }
+  })();
+  return globalTokenRowsPromise;
+}
+
+export async function saveGlobalTokenRows(rows) {
+  const saved = await firestoreService.saveGlobalTokens(rows);
+  globalTokenRowsCache = sanitizeTokenRows(saved);
+  return globalTokenRowsCache;
+}
+
+export function clearGlobalTokenRowsCache() {
+  globalTokenRowsCache = null;
+}
+
+function getDefaultRow(rows) {
+  if (!rows || rows.length === 0) return null;
+  return rows.find((row) => row.isDefault) || rows[0];
+}
 
 // Get initial endpoint configuration
 export const getInitialEndpoint = () => {
-  const uatUrl = GRAPHQL_ENDPOINTS.UAT;
-  const erpUrl = GRAPHQL_ENDPOINTS.ERP;
-  const newUrl = GRAPHQL_ENDPOINTS.NEW;
-
-  // Prefer UAT if available, otherwise use ERP
-  if (uatUrl) {
-    return { name: 'UAT', code: uatUrl };
-  }
-  if (erpUrl) {
-    return { name: 'ERP', code: erpUrl };
-  }
-  if (newUrl) {
-    return { name: 'NEW', code: newUrl };
+  const defaultRow = getDefaultRow(getEffectiveRows());
+  if (defaultRow?.endpoint) {
+    return { name: defaultRow.name, code: defaultRow.endpoint };
   }
   return null;
+};
+
+export const getInitialEndpointAsync = async () => {
+  const rows = ensureRows(await refreshGlobalTokenRows());
+  const defaultRow = getDefaultRow(rows);
+  if (defaultRow?.endpoint) {
+    return { name: defaultRow.name, code: defaultRow.endpoint };
+  }
+  throw new Error('No default global token endpoint configured.');
 };
 
 // Get endpoint options
 export const getEndpointOptions = () => {
-  const options = [];
-  if (GRAPHQL_ENDPOINTS.UAT) {
-    options.push({ name: 'UAT', code: GRAPHQL_ENDPOINTS.UAT });
-  }
-  if (GRAPHQL_ENDPOINTS.ERP) {
-    options.push({ name: 'ERP', code: GRAPHQL_ENDPOINTS.ERP });
-  }
-  if (GRAPHQL_ENDPOINTS.NEW) {
-    options.push({ name: 'NEW', code: GRAPHQL_ENDPOINTS.NEW });
-  }
-  return options;
+  return getEffectiveRows().map((row) => ({ name: row.name, code: row.endpoint }));
+};
+
+export const getEndpointOptionsAsync = async () => {
+  const rows = ensureRows(await refreshGlobalTokenRows());
+  return rows.map((row) => ({ name: row.name, code: row.endpoint }));
 };
 
 // Get endpoint configuration from urlKey
 export const getEndpointFromUrlKey = (urlKey) => {
-  if (!urlKey) return null;
-
-  const upperKey = urlKey.toUpperCase();
-  if (upperKey === 'UAT' && GRAPHQL_ENDPOINTS.UAT) {
-    return { name: 'UAT', code: GRAPHQL_ENDPOINTS.UAT };
+  const rows = getEffectiveRows();
+  if (!urlKey) {
+    const fallback = getDefaultRow(rows);
+    return fallback ? { name: fallback.name, code: fallback.endpoint } : null;
   }
-  if (upperKey === 'ERP' && GRAPHQL_ENDPOINTS.ERP) {
-    return { name: 'ERP', code: GRAPHQL_ENDPOINTS.ERP };
-  }
-  if (upperKey === 'NEW' && GRAPHQL_ENDPOINTS.NEW) {
-    return { name: 'NEW', code: GRAPHQL_ENDPOINTS.NEW };
-  }
+  const upperKey = String(urlKey).toUpperCase();
+  const match = rows.find((row) => row.name === upperKey);
+  if (match) return { name: match.name, code: match.endpoint };
+  const fallback = getDefaultRow(rows);
+  if (fallback) return { name: fallback.name, code: fallback.endpoint };
   return null;
+};
+
+export const getEndpointFromUrlKeyAsync = async (urlKey) => {
+  const effectiveRows = ensureRows(await refreshGlobalTokenRows());
+  if (!urlKey) {
+    const fallback = getDefaultRow(effectiveRows);
+    return fallback ? { name: fallback.name, code: fallback.endpoint } : null;
+  }
+  const upperKey = String(urlKey).toUpperCase();
+  const match = effectiveRows.find((row) => row.name === upperKey);
+  if (match) return { name: match.name, code: match.endpoint };
+  const fallback = getDefaultRow(effectiveRows);
+  return fallback ? { name: fallback.name, code: fallback.endpoint } : null;
 };
 
 // Get endpoint URL and token from urlKey
 export const getEndpointConfigFromUrlKey = (urlKey) => {
   const endpoint = getEndpointFromUrlKey(urlKey);
-  if (!endpoint) return { endpointUrl: null, authToken: null };
+  if (!endpoint) return { endpointUrl: null, authToken: null, name: null };
+  const row = getEffectiveRows().find((item) => item.name === endpoint.name);
+  return { endpointUrl: endpoint.code, authToken: row?.token || '', name: endpoint.name };
+};
 
-  return {
-    endpointUrl: endpoint.code,
-    authToken: ENDPOINT_TOKENS[endpoint.name] || '',
-  };
+export const getEndpointConfigFromUrlKeyAsync = async (urlKey) => {
+  const endpoint = await getEndpointFromUrlKeyAsync(urlKey);
+  if (!endpoint) return { endpointUrl: null, authToken: null, name: null };
+  const effectiveRows = ensureRows(await refreshGlobalTokenRows());
+  const row = effectiveRows.find((item) => item.name === endpoint.name);
+  return { endpointUrl: endpoint.code, authToken: row?.token || '', name: endpoint.name };
 };

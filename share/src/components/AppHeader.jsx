@@ -49,6 +49,22 @@ export default function AppHeader() {
       command: () => {
         router.push('/navigation');
       }
+    },
+    {
+      label: 'Event Timeline',
+      icon: 'pi pi-clock',
+      url: '/timeline',
+      command: () => {
+        router.push('/timeline');
+      }
+    },
+    {
+      label: 'Global Tokens',
+      icon: 'pi pi-key',
+      url: '/tokens',
+      command: () => {
+        router.push('/tokens');
+      }
     }
   ].map(item => ({
     ...item,

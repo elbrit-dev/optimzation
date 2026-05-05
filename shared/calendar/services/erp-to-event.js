@@ -104,6 +104,7 @@ export function mapErpGraphqlEventToCalendar(node) {
     attending,
     roleId: node.fsl_role_id?.name ?? undefined,
     tags: tag,
+    custom_force_visit_reason:node.custom_force_visit_reason ?? "",
 
     // ✅ REQUIRED BY eventSchema
     employees: tagConfig.employee?.multiselect

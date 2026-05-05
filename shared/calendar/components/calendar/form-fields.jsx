@@ -180,7 +180,7 @@ export function RHFDateTimeField({
   hideTime = false,
   minDate,
   maxDate,
-  allowAllDates,
+  allowAllDates,disabledDates,
   onChange,
 }) {
   return (
@@ -194,6 +194,7 @@ export function RHFDateTimeField({
           hideTime={hideTime}
           minDate={minDate}
           maxDate={maxDate}
+          disabledDates={disabledDates} // ✅ NEW
           allowAllDates={allowAllDates}
           field={{
             ...field,

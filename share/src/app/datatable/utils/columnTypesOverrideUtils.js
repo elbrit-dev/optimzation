@@ -115,3 +115,62 @@ function setOverrideAtPathInLevel(level, path, columnName, typeValue) {
   nested[path0] = updatedChild;
   return { ...level, nested };
 }
+
+function normalizeStructuredOverride(obj) {
+  if (!obj || typeof obj !== 'object') {
+    return { main: {}, nested: {} };
+  }
+  if (isLegacyColumnTypesOverride(obj)) {
+    return { main: { ...obj }, nested: {} };
+  }
+  const main = obj.main && typeof obj.main === 'object' ? { ...obj.main } : {};
+  const nestedRaw = obj.nested && typeof obj.nested === 'object' && !Array.isArray(obj.nested) ? obj.nested : {};
+  const nested = {};
+  for (const k of Object.keys(nestedRaw)) {
+    nested[k] = normalizeNestedLevel(nestedRaw[k]);
+  }
+  return { main, nested };
+}
+
+function normalizeNestedLevel(level) {
+  if (!level || typeof level !== 'object' || Array.isArray(level)) {
+    return { main: {}, nested: {} };
+  }
+  const main = level.main && typeof level.main === 'object' ? { ...level.main } : {};
+  const nestedRaw = level.nested && typeof level.nested === 'object' && !Array.isArray(level.nested) ? level.nested : {};
+  const nested = {};
+  for (const k of Object.keys(nestedRaw)) {
+    nested[k] = normalizeNestedLevel(nestedRaw[k]);
+  }
+  return { main, nested };
+}
+
+function mergeNestedLevels(a, b) {
+  const A = normalizeNestedLevel(a);
+  const B = normalizeNestedLevel(b);
+  const main = { ...A.main, ...B.main };
+  const nested = {};
+  const keys = new Set([...Object.keys(A.nested), ...Object.keys(B.nested)]);
+  for (const k of keys) {
+    nested[k] = mergeNestedLevels(A.nested[k], B.nested[k]);
+  }
+  return { main, nested };
+}
+
+/**
+ * Deep-merge column type overrides (main + nested JSON paths). Later overlay wins.
+ * @param {*} base
+ * @param {*} overlay
+ * @returns {{ main: Record<string,string>, nested: Record<string, { main: Record<string,string>, nested: object }> }}
+ */
+export function mergeColumnTypesOverride(base, overlay) {
+  const B = normalizeStructuredOverride(base);
+  const O = normalizeStructuredOverride(overlay);
+  const main = { ...B.main, ...O.main };
+  const nested = {};
+  const keys = new Set([...Object.keys(B.nested), ...Object.keys(O.nested)]);
+  for (const k of keys) {
+    nested[k] = mergeNestedLevels(B.nested[k], O.nested[k]);
+  }
+  return { main, nested };
+}

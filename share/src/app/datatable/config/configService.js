@@ -8,7 +8,9 @@ import { isEqual } from 'lodash';
 import { listLocalConfigs, getLocalConfig } from './providers/localConfigProvider';
 import { defaultConfigId } from './configRegistry';
 import { deserializeJsToConfig } from './configSerializer';
-// Future: import { listFirebaseConfigs, getFirebaseConfig } from './providers/firebaseConfigProvider';
+import { firestoreService } from '@/app/graphql-playground/services/firestoreService';
+import { mergeColumnTypesOverride } from '../utils/columnTypesOverrideUtils';
+import { deepMergeWriteForm, normalizeWriteForm } from '../utils/writeFormUtils';
 
 /**
  * List all available configs (sync - from registry)
@@ -24,8 +26,6 @@ export function getConfigList() {
  */
 export async function listConfigs() {
   const local = listLocalConfigs();
-  // const remote = await listFirebaseConfigs?.() ?? [];
-  // return [...local, ...remote].sort((a, b) => a.displayName.localeCompare(b.displayName));
   return local;
 }
 
@@ -37,7 +37,6 @@ export async function listConfigs() {
 export async function getConfig(id) {
   const local = getLocalConfig(id);
   if (local) return local;
-  // return await getFirebaseConfig?.(id) ?? null;
   return null;
 }
 
@@ -51,7 +50,6 @@ export function getDefaultConfigId() {
 
 /**
  * Get default config synchronously (for initial state, default props).
- * Uses defaultConfigId from registry - change it to switch which config loads on page init.
  * @returns {Object|null} - The default config object or null
  */
 export function getDefaultConfig() {
@@ -66,52 +64,46 @@ export function getDefaultConfig() {
  */
 export function mergeConfig(userConfig = {}, baseConfig = getDefaultConfig()) {
   const base = baseConfig ?? {};
+  const mergedSlots = (() => {
+    const bs = base.slots;
+    const us = userConfig.slots;
+    if (!us || typeof us !== 'object') return bs;
+    if (!bs || typeof bs !== 'object') return us;
+    const ids = new Set([...Object.keys(bs), ...Object.keys(us)]);
+    const out = {};
+    for (const id of ids) {
+      const bSlot = bs[id] || {};
+      const uSlot = us[id];
+      if (!uSlot || typeof uSlot !== 'object') {
+        out[id] = bSlot;
+        continue;
+      }
+      out[id] = {
+        ...bSlot,
+        ...uSlot,
+        writeForm: deepMergeWriteForm(
+          bSlot.writeForm && typeof bSlot.writeForm === 'object' ? bSlot.writeForm : {},
+          uSlot.writeForm && typeof uSlot.writeForm === 'object' ? uSlot.writeForm : {},
+        ),
+        columnTypesOverride: mergeColumnTypesOverride(bSlot.columnTypesOverride, uSlot.columnTypesOverride),
+      };
+    }
+    return out;
+  })();
   return {
     ...base,
     ...userConfig,
-    columnTypesOverride: {
-      ...(base.columnTypesOverride || {}),
-      ...(userConfig.columnTypesOverride || {}),
-    },
-    formInputOverride: {
-      main: {
-        ...(base.formInputOverride?.main || {}),
-        ...(userConfig.formInputOverride?.main || {}),
-      },
-      nested: (() => {
-        const defaultNested = base.formInputOverride?.nested || {};
-        const userNested = userConfig.formInputOverride?.nested || {};
-        const tableNames = new Set([...Object.keys(defaultNested), ...Object.keys(userNested)]);
-        const merged = {};
-        for (const tableName of tableNames) {
-          merged[tableName] = {
-            ...(defaultNested[tableName] || {}),
-            ...(userNested[tableName] || {}),
-          };
-        }
-        return merged;
-      })(),
-      object: (() => {
-        const defaultObject = base.formInputOverride?.object || {};
-        const userObject = userConfig.formInputOverride?.object || {};
-        const objectColumns = new Set([...Object.keys(defaultObject), ...Object.keys(userObject)]);
-        const merged = {};
-        for (const columnName of objectColumns) {
-          merged[columnName] = {
-            ...(defaultObject[columnName] || {}),
-            ...(userObject[columnName] || {}),
-          };
-        }
-        return merged;
-      })(),
-    },
+    writeForm: deepMergeWriteForm(
+      base.writeForm && typeof base.writeForm === 'object' ? base.writeForm : {},
+      userConfig.writeForm && typeof userConfig.writeForm === 'object' ? userConfig.writeForm : {},
+    ),
+    columnTypesOverride: mergeColumnTypesOverride(base.columnTypesOverride, userConfig.columnTypesOverride),
     drawerTabs: userConfig.drawerTabs || base.drawerTabs,
-    slots: userConfig.slots || base.slots,
+    slots: mergedSlots,
     percentageColumns: userConfig.percentageColumns ?? base.percentageColumns,
     derivedColumns: userConfig.derivedColumns ?? base.derivedColumns,
     derivedRows: userConfig.derivedRows ?? base.derivedRows ?? null,
     rowColumnStyles: userConfig.rowColumnStyles ?? base.rowColumnStyles,
-    // allowedColumns: array = use as-is; object = deep-merge group key
     allowedColumns: (() => {
       const baseAC = base.allowedColumns;
       const userAC = userConfig.allowedColumns;
@@ -123,7 +115,7 @@ export function mergeConfig(userConfig = {}, baseConfig = getDefaultConfig()) {
           merged.group = { ...(baseAC?.group || {}), ...(userAC.group || {}) };
         }
         if (merged.reportGroup || baseAC?.reportGroup || userAC?.reportGroup) {
-          merged.reportGroup = { ...(baseAC?.reportGroup || {}), ...(userAC?.reportGroup || {}) };
+          merged.reportGroup = { ...(baseAC?.reportGroup || {}), ...(userAC.reportGroup || {}) };
         }
         return merged;
       }
@@ -133,63 +125,99 @@ export function mergeConfig(userConfig = {}, baseConfig = getDefaultConfig()) {
 }
 
 /**
- * Extract state values from config (for applying to React state)
- * @param {Object} config - Configuration object
- * @param {Object} [baseConfig] - Base config for fallbacks (defaults to getDefaultConfig())
- * @returns {Object} Object with state values extracted from config
+ * Resolve a config prop to a full config object.
+ * @param {string|Object} configProp - Preset name string or config object
+ * @returns {Object} Resolved config object
  */
-export function extractStateFromConfig(config, baseConfig = getDefaultConfig()) {
+export function resolveConfig(configProp) {
+  if (!configProp) return {};
+  if (typeof configProp === 'string') {
+    const local = getLocalConfig(configProp);
+    if (local) return local;
+    return {};
+  }
+  if (typeof configProp === 'object') {
+    return configProp;
+  }
+  return {};
+}
+
+/**
+ * Fetch and resolve a Firebase preset by name.
+ * @param {string} dataSource - Query document ID
+ * @param {string} presetName - Preset name
+ * @returns {Promise<Object|null>}
+ */
+export async function resolveFirebaseConfig(dataSource, presetName) {
+  if (!dataSource || !presetName) return null;
+  const presets = await firestoreService.loadPresetsForQuery(dataSource);
+  const preset = presets?.find((p) => p?.name === presetName);
+  if (!preset?.config) return null;
+  try {
+    return deserializeJsToConfig(preset.config);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Extract state values from config (for applying to React state).
+ * @param {Object} config - Configuration object
+ * @param {Object} [baseConfig] - Optional base config for fallbacks
+ * @returns {Object}
+ */
+export function extractStateFromConfig(config, baseConfig = {}) {
   const base = baseConfig ?? {};
   return {
-    useOrchestrationLayer: config.useOrchestrationLayer ?? base.useOrchestrationLayer,
-    enableSort: config.enableSort ?? base.enableSort,
-    enableFilter: config.enableFilter ?? base.enableFilter,
-    enableSummation: config.enableSummation ?? base.enableSummation,
-    enableCellEdit: config.enableCellEdit ?? base.enableCellEdit,
-    enableDivideBy1Lakh: config.enableDivideBy1Lakh ?? base.enableDivideBy1Lakh,
-    rowsPerPageOptions: config.rowsPerPageOptions ?? base.rowsPerPageOptions,
-    defaultRows: config.defaultRows ?? base.defaultRows,
+    enableSort: config.enableSort ?? base.enableSort ?? true,
+    enableFilter: config.enableFilter ?? base.enableFilter ?? true,
+    enableSummation: config.enableSummation ?? base.enableSummation ?? false,
+    enableGrouping: config.enableGrouping ?? base.enableGrouping ?? false,
+    enableCellEdit: config.enableCellEdit ?? base.enableCellEdit ?? false,
+    enableDivideBy1Lakh: config.enableDivideBy1Lakh ?? base.enableDivideBy1Lakh ?? false,
+    rowsPerPageOptions: config.rowsPerPageOptions ?? base.rowsPerPageOptions ?? [10, 25, 50, 100],
+    defaultRows: config.defaultRows ?? base.defaultRows ?? 10,
     tableHeight: config.tableHeight ?? base.tableHeight,
-    textFilterColumns: config.textFilterColumns ?? base.textFilterColumns,
-    allowedColumns: config.allowedColumns ?? base.allowedColumns,
-    nonEditableColumns: config.nonEditableColumns ?? base.nonEditableColumns,
-    editableColumns: config.editableColumns ?? base.editableColumns,
-    percentageColumns: config.percentageColumns ?? base.percentageColumns,
-    derivedColumns: config.derivedColumns ?? base.derivedColumns,
+    scrollable: config.scrollable ?? base.scrollable ?? true,
+    enableFullscreenDialog: config.enableFullscreenDialog ?? base.enableFullscreenDialog ?? true,
+    textFilterColumns: config.textFilterColumns ?? base.textFilterColumns ?? [],
+    allowedColumns: config.allowedColumns ?? base.allowedColumns ?? [],
+    nonEditableColumns: config.nonEditableColumns ?? base.nonEditableColumns ?? [],
+    writeForm: normalizeWriteForm(config.writeForm ?? base.writeForm ?? {}),
+    columnTypesOverride: config.columnTypesOverride ?? base.columnTypesOverride ?? {},
+    percentageColumns: config.percentageColumns ?? base.percentageColumns ?? [],
+    derivedColumns: config.derivedColumns ?? base.derivedColumns ?? [],
     derivedRows: config.derivedRows ?? base.derivedRows ?? null,
-    redFields: config.redFields ?? base.redFields,
-    greenFields: config.greenFields ?? base.greenFields,
-    rowColumnStyles: config.rowColumnStyles ?? base.rowColumnStyles,
-    outerGroupField: config.outerGroupField ?? base.outerGroupField,
-    innerGroupField: config.innerGroupField ?? base.innerGroupField,
+    redFields: config.redFields ?? base.redFields ?? [],
+    greenFields: config.greenFields ?? base.greenFields ?? [],
+    rowColumnStyles: config.rowColumnStyles ?? base.rowColumnStyles ?? [],
     groupFields: config.groupFields ?? base.groupFields ?? [],
-    columnTypesOverride: config.columnTypesOverride ?? base.columnTypesOverride,
-    formInputOverride: config.formInputOverride ?? base.formInputOverride,
-    drawerTabs: config.drawerTabs ?? base.drawerTabs,
-    enableReport: config.enableReport ?? base.enableReport,
-    showChart: config.showChart ?? base.showChart,
-    breakdownType: config.breakdownType ?? base.breakdownType,
-    dateColumn: config.dateColumn ?? base.dateColumn,
-    columnGroupBy: config.columnGroupBy ?? base.columnGroupBy,
-    columnsExemptFromBreakdown: config.columnsExemptFromBreakdown ?? base.columnsExemptFromBreakdown,
-    isAdminMode: config.isAdminMode ?? base.isAdminMode,
-    salesTeamColumn: config.salesTeamColumn ?? base.salesTeamColumn,
-    salesTeamValues: config.salesTeamValues ?? base.salesTeamValues,
-    hqColumn: config.hqColumn ?? base.hqColumn,
-    hqValues: config.hqValues ?? base.hqValues,
-    dataSource: config.dataSource ?? base.dataSource,
-    selectedQueryKey: config.selectedQueryKey ?? base.selectedQueryKey,
-    // Only use config.slots when config defines slots; otherwise undefined so page uses buildSingleSlotFromFlat (no tabs)
+    drawerTabs: config.drawerTabs ?? base.drawerTabs ?? [],
+    enableReport: config.enableReport ?? base.enableReport ?? false,
+    showChart: config.showChart ?? base.showChart ?? false,
+    breakdownType: config.breakdownType ?? base.breakdownType ?? 'month',
+    dateColumn: config.dateColumn ?? base.dateColumn ?? null,
+    columnGroupBy: config.columnGroupBy ?? base.columnGroupBy ?? 'values',
+    columnsExemptFromBreakdown: config.columnsExemptFromBreakdown ?? base.columnsExemptFromBreakdown ?? [],
+    chartColumns: config.chartColumns ?? base.chartColumns ?? [],
+    chartHeight: config.chartHeight ?? base.chartHeight ?? 400,
+    isAdminMode: config.isAdminMode ?? base.isAdminMode ?? false,
+    salesTeamColumn: config.salesTeamColumn ?? base.salesTeamColumn ?? null,
+    salesTeamValues: config.salesTeamValues ?? base.salesTeamValues ?? [],
+    hqColumn: config.hqColumn ?? base.hqColumn ?? null,
+    hqValues: config.hqValues ?? base.hqValues ?? [],
+    dataSource: config.dataSource ?? base.dataSource ?? null,
+    selectedQueryKey: config.selectedQueryKey ?? base.selectedQueryKey ?? null,
     slots: 'slots' in config ? config.slots : undefined,
+    writePermissions: config.writePermissions ?? base.writePermissions,
   };
 }
 
 /**
- * Check if config is dirty: in-memory preset (parsed from JS) differs from applied config.
- * Config-level check - compares config objects only.
- * @param {string} presetJsValue - Serialized config (JS string from editor or preset)
- * @param {Object|null} appliedConfig - The config object currently applied
- * @returns {boolean} True if dirty (preset differs from applied, or parse error)
+ * Check if config is dirty
+ * @param {string} presetJsValue
+ * @param {Object|null} appliedConfig
+ * @returns {boolean}
  */
 export function isConfigDirty(presetJsValue, appliedConfig) {
   const hasPreset = !!(presetJsValue && presetJsValue.trim());
@@ -199,10 +227,8 @@ export function isConfigDirty(presetJsValue, appliedConfig) {
   try {
     const parsed = deserializeJsToConfig(presetJsValue);
     const applied = appliedConfig ?? {};
-    const equal = isEqual(parsed, applied);
-    const dirty = !equal;
-    return dirty;
-  } catch (err) {
-    return true; // Invalid parse = treat as dirty (user has edits)
+    return !isEqual(parsed, applied);
+  } catch {
+    return true;
   }
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { getEndpointConfigFromUrlKey, getInitialEndpoint } from '@/app/graphql-playground/constants';
+import { getEndpointConfigFromUrlKeyAsync, getInitialEndpointAsync } from '@/app/graphql-playground/constants';
 import { firestoreService } from '@/app/graphql-playground/services/firestoreService';
 import { buildTreeFromProcessedData } from '@/app/graphql-playground/utils/data-tree-builder';
 import { extractOperationName, parseQueryToTreeNodes } from '@/app/graphql-playground/utils/graphql-parser';
@@ -1678,13 +1678,13 @@ export function SaveControls() {
           // Get endpoint and auth
           let endpointUrl, authToken;
           if (selectedEnvironment) {
-            const config = getEndpointConfigFromUrlKey(selectedEnvironment);
+            const config = await getEndpointConfigFromUrlKeyAsync(selectedEnvironment);
             endpointUrl = config.endpointUrl;
             authToken = config.authToken;
           }
 
           if (!endpointUrl) {
-            const defaultEndpoint = getInitialEndpoint();
+            const defaultEndpoint = await getInitialEndpointAsync();
             endpointUrl = defaultEndpoint?.code;
             authToken = null;
           }
@@ -1808,13 +1808,13 @@ export function SaveControls() {
               try {
                 let endpointUrl, authToken;
                 if (selectedEnvironment) {
-                  const config = getEndpointConfigFromUrlKey(selectedEnvironment);
+                  const config = await getEndpointConfigFromUrlKeyAsync(selectedEnvironment);
                   endpointUrl = config.endpointUrl;
                   authToken = config.authToken;
                 }
 
                 if (!endpointUrl) {
-                  const defaultEndpoint = getInitialEndpoint();
+                  const defaultEndpoint = await getInitialEndpointAsync();
                   endpointUrl = defaultEndpoint?.code;
                   authToken = null;
                 }

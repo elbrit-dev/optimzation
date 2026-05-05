@@ -1,11 +1,16 @@
 'use client';
 
+import { queryRegistry } from '@/app/graphql-playground/services/queryRegistry';
+import { flatMap, isEmpty, uniq } from 'lodash';
 import { Dropdown } from 'primereact/dropdown';
 import { InputText } from 'primereact/inputtext';
 import Editor from '@monaco-editor/react';
-import React, { useMemo, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { useTableOperations } from '../contexts/TableOperationsContext';
 import { deserializeJsToConfig } from '../config/configSerializer';
 import { getOrderedConfigEntries, isEmptyValue } from '../config/configReadableView';
+import { getDataKeys } from '../utils/dataAccessUtils';
+import DatatableDocsPanel from './DatatableDocsPanel';
 
 function ConfigReadableView({ presetJsValue }) {
   const { config, error } = useMemo(() => {
@@ -236,9 +241,12 @@ function ColumnNamesList({ columns = [] }) {
 const TAB_READ = 'read';
 const TAB_EDIT = 'edit';
 const TAB_INFO = 'info';
+const TAB_DOCS = 'docs';
 
 export default function DataTableControls({
-  allColumnNames = [],
+  config,
+  dataSource = null,
+  onDataSourceChange,
   presetDropdownOptions = [],
   selectedPresetKey = null,
   onPresetSelect,
@@ -251,6 +259,22 @@ export default function DataTableControls({
   presetSaving = false,
   isConfigDirty = false,
 }) {
+  const slotIdForData = (config?.slots && Object.keys(config.slots)[0]) ?? 'main';
+  const tableOps = useTableOperations(slotIdForData);
+  const { rawData } = tableOps;
+
+  const allColumnNames = useMemo(() => {
+    if (!Array.isArray(rawData) || isEmpty(rawData)) return [];
+    return uniq(flatMap(rawData, (item) =>
+      item && typeof item === 'object' ? getDataKeys(item).filter(k => k && typeof k === 'string' && !k.startsWith('__')) : []
+    )).sort();
+  }, [rawData]);
+
+  const [savedQueries, setSavedQueries] = useState([]);
+  useEffect(() => {
+    queryRegistry.getAllQueries().then(setSavedQueries).catch(() => setSavedQueries([]));
+  }, []);
+  const dataSourceOptions = useMemo(() => savedQueries.filter((q) => !q._offline), [savedQueries]);
   const monacoEditorRef = useRef(null);
   const [activeTab, setActiveTab] = useState(TAB_READ);
 
@@ -281,11 +305,28 @@ export default function DataTableControls({
 
   return (
     <div className="@container h-full flex flex-col bg-white border-l border-gray-200">
-      <div className="border-b border-gray-200 bg-white hidden @[200px]:flex flex-1 flex-col min-h-0">
+      <div className="border-b border-gray-200 bg-white hidden @[200px]:flex flex-1 flex-col min-h-0 overflow-hidden">
         <div className="px-2 @3xs:px-4 py-2 @3xs:py-3 bg-gray-50 border-b border-gray-200 space-y-2">
           <div className="flex items-center gap-2">
+            <i className="pi pi-database text-base @3xs:text-lg text-primary"></i>
+            <span className="font-semibold text-sm @3xs:text-base text-primary">DataSource</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Dropdown
+              value={dataSource}
+              onChange={(e) => onDataSourceChange?.(e.value)}
+              options={dataSourceOptions}
+              optionLabel="name"
+              optionValue="id"
+              placeholder="Select data source..."
+              className="config-preset-dropdown flex-1 min-w-0"
+              style={{ height: '2rem' }}
+              disabled={!dataSourceOptions?.length}
+            />
+          </div>
+          <div className="flex items-center gap-2">
             <i className="pi pi-folder-open text-base @3xs:text-lg text-primary"></i>
-            <span className="font-semibold text-sm @3xs:text-base text-primary">Config Preset</span>
+            <span className="font-semibold text-sm @3xs:text-base text-primary">Config</span>
           </div>
           <div className="flex items-center gap-2">
             <Dropdown
@@ -336,7 +377,7 @@ export default function DataTableControls({
           </div>
         </div>
 
-        <div className="flex gap-4 px-2 @3xs:px-4 py-2 border-b border-gray-200 bg-gray-50/50">
+        <div className="flex flex-wrap gap-2 px-2 @3xs:px-4 py-2 border-b border-gray-200 bg-gray-50/50">
           <button
             type="button"
             onClick={() => setActiveTab(TAB_READ)}
@@ -357,6 +398,13 @@ export default function DataTableControls({
             className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${activeTab === TAB_INFO ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-200'}`}
           >
             Info
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab(TAB_DOCS)}
+            className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${activeTab === TAB_DOCS ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-200'}`}
+          >
+            Docs
           </button>
         </div>
 
@@ -393,6 +441,12 @@ export default function DataTableControls({
         {activeTab === TAB_INFO && (
           <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
             <ColumnNamesList columns={allColumnNames} />
+          </div>
+        )}
+
+        {activeTab === TAB_DOCS && (
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+            <DatatableDocsPanel />
           </div>
         )}
       </div>

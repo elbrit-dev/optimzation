@@ -8,14 +8,14 @@ import { isEmpty } from 'lodash';
 /**
  * Wrapper component that gets reportData from context and renders the chart
  */
-export default function ReportLineChartWrapper() {
+export default function ReportLineChartWrapper({ slotId = 'main' } = {}) {
   const {
     enableBreakdown,
     reportData,
     formatHeaderName,
     chartColumns,
     chartHeight
-  } = useTableOperations();
+  } = useTableOperations(slotId);
 
   // Use selected chartColumns if provided, otherwise use all available metrics
   const finalChartColumns = useMemo(() => {

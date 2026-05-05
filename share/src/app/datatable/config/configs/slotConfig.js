@@ -89,7 +89,7 @@ export const defaultDataTableConfig = {
       redFields: [],
       greenFields: [],
       enableCellEdit: false,
-      editableColumns: { main: [], nested: {} },
+      writeForm: { layout: {}, fields: {} },
       drawerTabs: [
         { id: 'salesTeamHq-tab-1', name: 'Customer', outerGroup: 'customer_name', innerGroup: 'invoice' },
         { id: 'salesTeamHq-tab-2', name: 'Invoice', outerGroup: 'invoice', innerGroup: 'item_name' },
@@ -151,7 +151,7 @@ export const defaultDataTableConfig = {
       redFields: [],
       greenFields: [],
       enableCellEdit: false,
-      editableColumns: { main: [], nested: {} },
+      writeForm: { layout: {}, fields: {} },
       drawerTabs: [],
     },
     BrandItem: {
@@ -211,7 +211,7 @@ export const defaultDataTableConfig = {
       redFields: [],
       greenFields: [],
       enableCellEdit: false,
-      editableColumns: { main: [], nested: {} },
+      writeForm: { layout: {}, fields: {} },
       drawerTabs: [
         { id: 'BrandItem-tab-1', name: 'Team', outerGroup: 'customer_name', innerGroup: null },
         { id: 'BrandItem-tab-2', name: 'HQ', outerGroup: 'hq', innerGroup: null },

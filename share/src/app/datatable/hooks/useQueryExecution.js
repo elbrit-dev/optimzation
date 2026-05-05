@@ -4,11 +4,11 @@ import * as Comlink from 'comlink';
 import dayjs from 'dayjs';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getDataKeys, getDataValue } from '../utils/dataAccessUtils';
-import { getEndpointAndAuth } from '../utils/queryEndpointUtils';
+import { getEndpointAndAuthWithTokenOverride } from '../utils/queryEndpointUtils';
 import { generateMonthRangeArray } from '../utils/dateUtils';
 import { indexedDBService } from '../utils/indexedDBService';
 import { fetchGraphQLSchema } from '@/app/graphql-playground-v2/utils/schema-fetcher';
-import { getEndpointConfigFromUrlKey, getInitialEndpoint } from '@/app/graphql-playground/constants';
+import { getEndpointConfigFromUrlKeyAsync, getInitialEndpointAsync } from '@/app/graphql-playground/constants';
 import { firestoreService } from '@/app/graphql-playground/services/firestoreService';
 import { queryRegistry } from '@/app/graphql-playground/services/queryRegistry';
 import { createExecutionContext } from '@/app/graphql-playground/utils/query-pipeline';
@@ -33,6 +33,7 @@ import { serializeGraphQLField } from '../utils/graphqlSchemaSerialization';
  * @param {Object} [options.variableOverrides] - User variable overrides
  * @param {string} [options.searchTerm] - Search term for clientSave=false queries
  * @param {Object|null} [options.sortConfig] - Sort config for clientSave=false queries
+ * @param {string|null} [options.graphqlToken] - When set (non-empty), use as Authorization instead of env tokens
  */
 export function useQueryExecution(options) {
   const {
@@ -49,6 +50,7 @@ export function useQueryExecution(options) {
     variableOverrides = {},
     searchTerm = '',
     sortConfig = null,
+    graphqlToken = null,
   } = options;
 
   const [dataSource, setDataSource] = useState(dataSourceProp);
@@ -115,11 +117,11 @@ export function useQueryExecution(options) {
           return queryDoc;
         });
         await workerAPI.setNestedQueryCallback(nestedQueryCallback);
-        const endpointConfigGetter = Comlink.proxy((urlKey) => {
-          if (urlKey) return getEndpointConfigFromUrlKey(urlKey);
-          const defaultEndpoint = getInitialEndpoint();
+        const endpointConfigGetter = Comlink.proxy(async (urlKey) => {
+          if (urlKey) return getEndpointConfigFromUrlKeyAsync(urlKey);
+          const defaultEndpoint = await getInitialEndpointAsync();
           if (!defaultEndpoint) return { endpointUrl: null, authToken: null };
-          const config = getEndpointConfigFromUrlKey(defaultEndpoint.name);
+          const config = await getEndpointConfigFromUrlKeyAsync(defaultEndpoint.name);
           return { endpointUrl: config.endpointUrl || defaultEndpoint.code, authToken: config.authToken || null };
         });
         await workerAPI.setEndpointConfigGetter(endpointConfigGetter);
@@ -249,7 +251,7 @@ export function useQueryExecution(options) {
     if (monthPrefixes.length === 0) return;
     const doFetch = async () => {
       try {
-        const { endpointUrl, authToken } = getEndpointAndAuth(queryDoc);
+        const { endpointUrl, authToken } = await getEndpointAndAuthWithTokenOverride(queryDoc, graphqlToken);
         if (!endpointUrl) return;
         for (const prefix of monthPrefixes) {
           try {
@@ -280,7 +282,7 @@ export function useQueryExecution(options) {
     };
     if (typeof requestIdleCallback !== 'undefined') requestIdleCallback(doFetch, { timeout: 5000 });
     else setTimeout(doFetch, 0);
-  }, []);
+  }, [graphqlToken]);
 
   const executeAndCacheMonthRange = useCallback(async (queryId, queryDoc, monthRangeValue, endpointUrl, authToken, mergedVariables) => {
     if (!queryId || !queryDoc || !monthRangeValue || !Array.isArray(monthRangeValue) || monthRangeValue.length !== 2) {
@@ -371,8 +373,8 @@ export function useQueryExecution(options) {
     }
     if (queryDoc.index?.trim() && workerRef.current) {
       try {
-        const { endpointUrl, authToken } = getEndpointAndAuth(queryDoc);
-        const finalEndpointUrl = endpointUrl || getInitialEndpoint()?.code || null;
+        const { endpointUrl, authToken } = await getEndpointAndAuthWithTokenOverride(queryDoc, graphqlToken);
+        const finalEndpointUrl = endpointUrl || (await getInitialEndpointAsync())?.code || null;
         const finalAuthToken = authToken || null;
         if (finalEndpointUrl) {
           const cachedIndexResult = await indexedDBService.getQueryIndexResult(queryId);
@@ -470,7 +472,7 @@ export function useQueryExecution(options) {
     cacheLoadInProgressRef.current = null;
     setLoadingFromCache(false);
     if (runQueryRef.current) await runQueryRef.current(queryId, true);
-  }, [onDataChange, fetchAndCacheMonthsInRange, fetchLastUpdatedAt]);
+  }, [onDataChange, fetchAndCacheMonthsInRange, fetchLastUpdatedAt, graphqlToken]);
 
   const executeAndStoreIndexQueries = useCallback(async (queries) => {
     if (!queries?.length) return;
@@ -486,7 +488,7 @@ export function useQueryExecution(options) {
         if (!queryDocToUse.month && queryDocToUse.month !== false) return;
         const hasMonth = queryDocToUse.month === true && queryDocToUse.monthIndex?.trim();
         if (!hasMonth) return;
-        const { endpointUrl, authToken } = getEndpointAndAuth(queryDocToUse);
+        const { endpointUrl, authToken } = await getEndpointAndAuthWithTokenOverride(queryDocToUse, graphqlToken);
         if (!endpointUrl) return;
         if (pipelineExecutionInFlightRef.current.has(queryId)) return;
         pipelineExecutionInFlightRef.current.set(queryId, { endpointUrl });
@@ -510,7 +512,7 @@ export function useQueryExecution(options) {
     } catch (e) {
       console.error('Error executing index queries:', e);
     }
-  }, []);
+  }, [graphqlToken]);
 
   const runQuery = useCallback(async (queryId, skipMonthDateLoad = false) => {
     runQueryRef.current = runQuery;
@@ -554,8 +556,8 @@ export function useQueryExecution(options) {
       }
       if (!queryDocToUse) throw new Error(`Query "${queryId}" not found`);
       const isOffline = queryDocToUse?.json != null && queryDocToUse?.body;
-      const { endpointUrl, authToken } = getEndpointAndAuth(queryDocToUse);
-      const finalEndpointUrl = endpointUrl || getInitialEndpoint()?.code || null;
+      const { endpointUrl, authToken } = await getEndpointAndAuthWithTokenOverride(queryDocToUse, graphqlToken);
+      const finalEndpointUrl = endpointUrl || (await getInitialEndpointAsync())?.code || null;
       const finalAuthToken = authToken ?? null;
       if (!isOffline && !finalEndpointUrl) throw new Error('GraphQL endpoint URL is not set');
       // Wait for worker to be ready (handles race when offline data loads before worker initializes)
@@ -624,7 +626,7 @@ export function useQueryExecution(options) {
       }
       setExecutingQuery(false);
     }
-  }, [onDataChange, onError, monthRange, executingQuery, variableOverrides, currentQueryDoc, searchTerm, sortConfig, createExecutionKey, executeAndCacheMonthRange, fetchLastUpdatedAt]);
+  }, [onDataChange, onError, monthRange, executingQuery, variableOverrides, currentQueryDoc, searchTerm, sortConfig, createExecutionKey, executeAndCacheMonthRange, fetchLastUpdatedAt, graphqlToken]);
 
   /**
    * Execute a query and return processed data (similar to transformer's queryFunction).
@@ -665,8 +667,8 @@ export function useQueryExecution(options) {
       }
     }
     const isOffline = queryDocToUse?.json != null && queryDocToUse?.body;
-    const { endpointUrl, authToken } = getEndpointAndAuth(queryDocToUse);
-    const finalEndpointUrl = endpointUrl || getInitialEndpoint()?.code || null;
+    const { endpointUrl, authToken } = await getEndpointAndAuthWithTokenOverride(queryDocToUse, graphqlToken);
+    const finalEndpointUrl = endpointUrl || (await getInitialEndpointAsync())?.code || null;
     const finalAuthToken = authToken ?? null;
     if (!isOffline && !finalEndpointUrl) {
       throw new Error('GraphQL endpoint URL is not set');
@@ -699,7 +701,7 @@ export function useQueryExecution(options) {
       mergedVariables,
       allQueryDocsRef.current
     );
-  }, [variableOverrides, monthRange, searchTerm, sortConfig, executeAndCacheMonthRange]);
+  }, [variableOverrides, monthRange, searchTerm, sortConfig, executeAndCacheMonthRange, graphqlToken]);
 
   useEffect(() => {
     if (!executionContextRef.current) executionContextRef.current = createExecutionContext();
@@ -732,7 +734,8 @@ export function useQueryExecution(options) {
     if (loggedWriteSchemaRef.current.has(cacheKey)) return;
     const log = async () => {
       try {
-        const schema = await fetchGraphQLSchema(urlKey);
+        const tokenTrim = graphqlToken != null && typeof graphqlToken === 'string' ? graphqlToken.trim() : '';
+        const schema = await fetchGraphQLSchema(urlKey, tokenTrim ? { authToken: tokenTrim } : {});
         const queryType = schema?.getQueryType?.();
         if (!queryType) return;
         const fields = queryType.getFields?.();
@@ -745,7 +748,7 @@ export function useQueryExecution(options) {
       }
     };
     log();
-  }, [currentQueryDoc]);
+  }, [currentQueryDoc, graphqlToken]);
 
   useEffect(() => {
     if (!dataSource) {

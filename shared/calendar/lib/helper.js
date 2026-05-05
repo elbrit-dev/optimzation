@@ -2,7 +2,6 @@ import { toast } from "sonner";
 import { set, addMinutes } from "date-fns";
 import { TAG_IDS } from "@calendar/components/calendar/constants";
 import { saveEvent } from "@calendar/services/event.service";
-import { TAG_FORM_CONFIG } from "./calendar/form-config";
 export function buildParticipantsWithDetails(
   erpParticipants,
   { employeeOptions, doctorOptions }
@@ -105,7 +104,11 @@ export function getAvailableItems(allItems, selectedRows, currentValue) {
       shouldValidate: true,
     });
   }
-
+  export const getInitials = (name = "") => {
+    const parts = name.split(" ");
+    if (parts.length === 1) return parts[0][0].toUpperCase();
+    return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+  };
 /* ---------------------------------------------
    POB ITEM → RATE SYNC
 --------------------------------------------- */
@@ -173,6 +176,7 @@ export function resolveLatLong(form, attending, isEditing, toast) {
     { timeout: 20000 }
   );
 }
+
 /* ---------------------------------------------
    NON-MEETING DATE NORMALIZATION
 --------------------------------------------- */

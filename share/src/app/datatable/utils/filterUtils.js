@@ -1,4 +1,4 @@
-import { every, get, includes, isArray, isNil, isEmpty, filter, toLower } from 'lodash';
+import { every, get, includes, isArray, isNil, isEmpty, filter, toLower, uniq } from 'lodash';
 import { isNumber, toNumber } from 'lodash';
 import { parseToDate } from './dateParsingUtils';
 
@@ -144,7 +144,13 @@ export function applyRowFilters(row, options) {
 
   const { columns, columnTypes, multiselectColumns, hasPercentageColumns, percentageColumnNames, getCellValue } = columnMeta;
 
-  const regularColumnsPass = every(columns, (col) => {
+  // Include every active filter key: `columns` is often derived from top-level rows only, so nested
+  // group dimensions (e.g. hq) may be missing from `columns` and would otherwise never be applied
+  // (e.g. drawer drill { sales_team, hq } only filtering on sales_team).
+  const filterKeys = Object.keys(filters);
+  const columnsToApply = uniq([...(isArray(columns) ? columns : []), ...filterKeys]);
+
+  const regularColumnsPass = every(columnsToApply, (col) => {
     const filterObj = get(filters, col);
     if (!filterObj || isNil(filterObj.value) || filterObj.value === '') return true;
     if (isArray(filterObj.value) && isEmpty(filterObj.value)) return true;

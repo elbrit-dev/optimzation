@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { addMinutes, differenceInCalendarDays, set } from "date-fns";
+import { addMinutes, differenceInCalendarDays, startOfDay, endOfDay } from "date-fns";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -33,25 +33,30 @@ import { useAuth } from "@calendar/components/auth/auth-context";
 import Tiptap from "@calendar/components/ui/TodoWysiwyg";
 import { mapDoctorVisitToQuotation } from "@calendar/services/quotation-to-erp";
 import { calculateDistanceKm, parseLatLong } from "../helpers";
+import { useDoctorResolvers } from "@calendar/lib/doctorResolver";
+import { DoctorNotesSection } from "../doctor/DoctorNotesSection";
+import TodoComments from "@calendar/components/ui/TodoCommentsSection";
+import { Textarea } from "@calendar/components/ui/textarea";
 
-export function AddEditEventDialog({ children, event, defaultTag, forceValues }) {
+export function AddEditEventDialog({ children, event, defaultTag, forceValues, startDate: initialStartDate }) {
 	const { isOpen, onClose, onToggle } = useDisclosure();
 	const { erpUrl, authToken } = useAuth();
 	const { addEvent, updateEvent, employeeOptions,
-		doctorOptions,
+		doctorOptions, events,
 		hqTerritoryOptions,
 		setEmployeeOptions,
-		setDoctorOptions,
+		setDoctorOptions, customerOptions, selectedDate,
 		setHqTerritoryOptions, } = useCalendar();
 	const isEditing = !!event;
 	const [leaveBalance, setLeaveBalance] = useState(null);
 	const [leaveLoading, setLeaveLoading] = useState(false);
 	const employeeResolvers = useEmployeeResolvers(employeeOptions);
+	const doctorResolvers = useDoctorResolvers(doctorOptions);
 	const [itemOptions, setItemOptions] = useState([]);
 	const [isResolvingLocation, setIsResolvingLocation] = useState(false);
 	const [distanceKm, setDistanceKm] = useState(null);
 	const endDateTouchedRef = useRef(false); // existing
-
+	const [showReason, setShowReason] = useState(false);
 	const form = useForm({
 		resolver: zodResolver(eventSchema),
 		mode: "onChange",
@@ -91,46 +96,54 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 		if (!isEditing) return;
 		if (!event?.participants?.length) return;
 		if (!currentLocation) {
-		  setDistanceKm(null);
-		  return;
+			setDistanceKm(null);
+			setShowReason(false);
+			return;
 		}
-	  
-		// Doctor (Lead)
-		const doctor = event.participants.find(
-		  (p) => p.type === "Lead"
-		);
-	  
+
+		const doctor = event.participants.find((p) => p.type === "Lead");
+
 		if (!doctor?.kly_lat_long) {
-		  setDistanceKm(null);
-		  return;
+			setDistanceKm(null);
+			setShowReason(false);
+			return;
 		}
-	  
+
 		const doctorLoc = parseLatLong(doctor.kly_lat_long);
 		const visitLoc = parseLatLong(currentLocation);
-	  
+
 		if (!doctorLoc || !visitLoc) {
-		  setDistanceKm(null);
-		  return;
+			setDistanceKm(null);
+			setShowReason(false);
+			return;
 		}
-	  
+
 		const dist = calculateDistanceKm(
-		  doctorLoc.lat,
-		  doctorLoc.lng,
-		  visitLoc.lat,
-		  visitLoc.lng
+			doctorLoc.lat,
+			doctorLoc.lng,
+			visitLoc.lat,
+			visitLoc.lng
 		);
-	  
+
 		setDistanceKm(dist);
-	  
-		// 🔥 FORCE VISIT if within 50 meters
-		const isWithinRange = dist < 0.05;
-	  
-		form.setValue("forceVisit", isWithinRange, {
-		  shouldDirty: true,
-		  shouldValidate: true,
+
+		// 🔴 FORCE VISIT when outside 500m
+		const isForceVisit = dist > 0.5;
+
+		form.setValue("forceVisit", isForceVisit, {
+			shouldDirty: true,
+			shouldValidate: true,
 		});
-	  
-	  }, [currentLocation, event, isEditing]);
+
+		setShowReason(isForceVisit);
+
+		if (isForceVisit) {
+			toast.warning(
+				"Employee location is outside 500 meters from doctor. Force Visit reason required."
+			);
+		}
+
+	}, [currentLocation, event, isEditing]);
 	const shouldShowRequestLocation =
 		selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN &&
 		!currentLocation &&
@@ -191,6 +204,23 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 
 		return differenceInCalendarDays(endDate, startDate) + 1;
 	}, [selectedTag, startDate, endDate, leavePeriod]);
+	const doctorDetails = useMemo(() => {
+		const doctorRef = event?.participants?.find(
+			(p) => p.type === "Lead"
+		);
+
+		const doctorId = doctorRef?.id;
+		if (!doctorId) return null;
+
+		return {
+			doctorId,
+			doctorNotes:
+				doctorResolvers.getDoctorFieldById(
+					doctorId,
+					"notes"
+				) ?? [],
+		};
+	}, [event?.participants, doctorResolvers]);
 	useEffect(() => {
 		if (!startDate || !endDate) return;
 
@@ -430,19 +460,71 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 		if (!isOpen || isEditing) return;
 
 		const now = new Date();
+
+		const baseDate =
+			initialStartDate ??
+			selectedDate ??
+			now;
+
 		const currentValues = form.getValues();
 
 		form.reset({
-			...currentValues,               // ✅ keeps title
-			startDate: now,
+			...currentValues,
+			startDate: baseDate,
 			endDate: tagConfig.dateOnly
-				? now
-				: addMinutes(now, 60),
+				? baseDate
+				: addMinutes(baseDate, 60),
 			tags: selectedTag,
 		});
-	}, [isOpen, selectedTag, isEditing]);
+	}, [isOpen, selectedTag, isEditing, initialStartDate, selectedDate]);
+	// ----------------------------------------------------
+	// RULE A: Only one HQ Tour Plan per day per participant
+	// Prevents duplicate HQ booking for same day
+	// ----------------------------------------------------
+	const hasDuplicateHqForDay = useMemo(() => {
+		if (selectedTag !== TAG_IDS.HQ_TOUR_PLAN) return false;
+		if (!startDate || !events?.length) return false;
 
+		const selectedDay = startOfDay(new Date(startDate));
 
+		// normalize selected employees
+		const selectedEmployeeIds = (Array.isArray(employees) ? employees : [employees])
+			.filter(Boolean)
+			.map((e) => (typeof e === "object" ? e.value : e));
+
+		return events.some((ev) => {
+			// only HQ events
+			if (ev.tags !== TAG_IDS.HQ_TOUR_PLAN) return false;
+
+			// ignore same event while editing
+			if (isEditing && ev.erpName === event?.erpName) return false;
+
+			const evDay = startOfDay(new Date(ev.startDate));
+
+			// different date
+			if (evDay.getTime() !== selectedDay.getTime()) return false;
+
+			// participant ids
+			const evParticipants = ev.participants?.map((p) => p.id) ?? [];
+
+			// if any participant overlaps -> duplicate
+			return selectedEmployeeIds.some((id) =>
+				evParticipants.includes(id)
+			);
+		});
+	}, [events, startDate, employees, selectedTag, isEditing, event]);
+	const duplicateToastShown = useRef(false);
+
+	useEffect(() => {
+		if (hasDuplicateHqForDay && !duplicateToastShown.current) {
+			toast.warning("HQ Tour Plan already exists for selected date.");
+			duplicateToastShown.current = true;
+		}
+
+		if (!hasDuplicateHqForDay) {
+			duplicateToastShown.current = false;
+		}
+	}, [hasDuplicateHqForDay]);
 	/* --------------------------------------------------
 	   AUTO TITLE (SAFE)
 	-------------------------------------------------- */
@@ -626,7 +708,84 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 		event?.allocated_to,
 		employeeOptions,
 	]);
+	// ----------------------------------------------------
+	// RULE B: Doctor Visit Plan tab only visible
+	// if user has HQ Tour Plan for selected date
+	// ----------------------------------------------------
+	const hasValidHqTourPlan = useMemo(() => {
+		if (!startDate || !events?.length) return false;
 
+		const selectedDay = startOfDay(new Date(startDate));
+
+		return events.some((ev) => {
+			if (ev.tags !== TAG_IDS.HQ_TOUR_PLAN) return false;
+
+			// logged in user must be participant
+			const isParticipant = ev.participants?.some(
+				(p) => p.id === LOGGED_IN_USER.id
+			);
+
+			if (!isParticipant) return false;
+
+			const planStart = startOfDay(new Date(ev.startDate));
+			const planEnd = endOfDay(new Date(ev.endDate));
+
+			return selectedDay >= planStart && selectedDay <= planEnd;
+		});
+	}, [events, startDate]);
+	const validHqIntervals = useMemo(() => {
+		if (!events?.length) return [];
+
+		return events
+			.filter((ev) => {
+				if (ev.tags !== TAG_IDS.HQ_TOUR_PLAN) return false;
+
+				return ev.participants?.some(
+					(p) => p.id === LOGGED_IN_USER.id
+				);
+			})
+			.map((ev) => ({
+				start: startOfDay(new Date(ev.startDate)),
+				end: endOfDay(new Date(ev.endDate)),
+			}));
+	}, [events]);
+	// ----------------------------------------------------
+	// Disabled dates for HQ Tour Plan (logged-in user only)
+	// Prevent selecting dates where HQ already exists
+	// ----------------------------------------------------
+	const disabledHqDates = useMemo(() => {
+		if (!events?.length) return [];
+
+		const disabled = [];
+
+		events.forEach((ev) => {
+			if (ev.tags !== TAG_IDS.HQ_TOUR_PLAN) return;
+
+			const isParticipant = ev.participants?.some(
+				(p) => p.id === LOGGED_IN_USER.id
+			);
+
+			if (!isParticipant) return;
+
+			let current = startOfDay(new Date(ev.startDate));
+			const end = endOfDay(new Date(ev.endDate));
+
+			while (current <= end) {
+				disabled.push(new Date(current));
+				current.setDate(current.getDate() + 1);
+			}
+		});
+		return disabled;
+	}, [events]);
+
+	useEffect(() => {
+		const customer = form.watch("customer");
+
+		if (!customer) {
+			form.setValue("pob_given", undefined, { shouldDirty: true });
+			form.setValue("fsl_doctor_item", [], { shouldDirty: true });
+		}
+	}, [form.watch("customer")]);
 	const handleDefaultEvent = async (values) => {
 		let quotationName =
 			event?.reference_docname || null;
@@ -801,9 +960,20 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 		handleDefaultEvent,
 	});
 
+	// ----------------------------------------------------
+	// FINAL SUBMIT HANDLER (HQ validation guard)
+	// ----------------------------------------------------
 	const onSubmit = async (values) => {
+
+		// 🔒 HARD GUARD – prevent duplicate HQ submission
+		if (selectedTag === TAG_IDS.HQ_TOUR_PLAN && hasDuplicateHqForDay) {
+			toast.error("HQ Tour Plan already exists for this date.");
+			return; // ❌ stop submission
+		}
+
 		const handler =
 			submitHandlers[values.tags] || submitHandlers.default;
+
 		await handler(values);
 	};
 
@@ -825,7 +995,8 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 	}, [event, employeeOptions, doctorOptions]);
 	const shouldHideDateGrid =
 		isEditing && selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN;
-
+	const isSubmitDisabled =
+		form.formState.isSubmitting || hasDuplicateHqForDay;
 
 	return (
 		<Modal open={isOpen} onOpenChange={onToggle}>
@@ -850,7 +1021,12 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 								name="tags"
 								render={({ field }) => (
 									<div className="flex flex-wrap gap-2">
-										{TAGS.map((tag) => (
+										{TAGS.filter((tag) => {
+											if (tag.id === TAG_IDS.DOCTOR_VISIT_PLAN) {
+												return hasValidHqTourPlan;
+											}
+											return true;
+										}).map((tag) => (
 											<button
 												key={tag.id}
 												type="button"
@@ -1002,8 +1178,23 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 											control={form.control}
 											form={form}
 											name="startDate"
-											label={getFieldLabel("startDate", "Start Date")}
-											hideTime={tagConfig.dateOnly}
+											label="Date"
+											hideTime
+											/* Doctor Tour Plan restriction */
+											minDate={
+												selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN && validHqIntervals.length
+													? validHqIntervals[0].start
+													: undefined
+											}
+
+											maxDate={
+												selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN && validHqIntervals.length
+													? validHqIntervals[0].end
+													: undefined
+											}
+											disabledDates={
+												selectedTag === TAG_IDS.HQ_TOUR_PLAN ? disabledHqDates : []
+											}
 										/>
 									)}
 
@@ -1075,7 +1266,12 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 								)}
 							</div>
 						)}
-
+						{/* ================= Error HQ TERRITORY ================= */}
+						{selectedTag === TAG_IDS.HQ_TOUR_PLAN && hasDuplicateHqForDay && (
+							<p className="text-red-500 text-sm">
+								HQ Tour Plan already exists for this date.
+							</p>
+						)}
 						{/* ================= HQ TERRITORY ================= */}
 						{selectedTag === TAG_IDS.HQ_TOUR_PLAN &&
 							!isEditReadOnlyField("hqTerritory") && (
@@ -1237,13 +1433,37 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 										: "Capture location to calculate distance"}
 								</p>
 
-								{distanceKm !== null && distanceKm < 0.05 && (
+								{distanceKm !== null && distanceKm <= 0.5 && (
 									<p className="text-sm text-green-600 font-medium">
-										Within 50 meters — Force Visit Enabled
+										Within 500 meters — Normal Visit
+									</p>
+								)}
+
+								{distanceKm !== null && distanceKm > 0.5 && (
+									<p className="text-sm text-red-600 font-medium">
+										Outside 500 meters — Force Visit Required
 									</p>
 								)}
 							</div>
 						)}
+						{isEditing && selectedTag == TAG_IDS.DOCTOR_VISIT_PLAN && showReason && (
+							<div className="mt-2 space-y-1">
+								<FormField
+									control={form.control}
+									name="custom_force_visit_reason"
+									render={({ field }) => (
+										<RHFFieldWrapper label={"Force Visit Reason"}>
+											<Textarea content={field.value} onChange={field.onChange} />
+											{/* <Tiptap
+											content={field.value}
+											onChange={field.onChange}
+										/> */}
+										</RHFFieldWrapper>
+									)}
+								/>
+							</div>
+						)}
+
 						{/* ================= POB QUESTION ================= */}
 						{isEditing &&
 							selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN && (
@@ -1277,11 +1497,30 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 									)}
 								/>
 							)}
-
+						{/* ================= CUSTOMER ================= */}
+						{isEditing &&
+							selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN && 
+							pobGiven === "Yes" && (
+								<FormField
+									control={form.control}
+									name="customer"
+									render={({ field }) => (
+										<RHFFieldWrapper label="Customer">
+											<RHFComboboxField
+												{...field}
+												options={customerOptions}
+												multiple={false}
+												placeholder="Select Customer"
+												searchPlaceholder="Search customer"
+											/>
+										</RHFFieldWrapper>
+									)}
+								/>
+							)}
 						{/* ================= POB ================= */}
 						{isEditing &&
 							selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN &&
-							pobGiven === "Yes" && (
+							pobGiven === "Yes" && form.watch("customer") && (
 								<div className="space-y-4">
 									<h4 className="font-medium">POB Details</h4>
 
@@ -1360,7 +1599,16 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 									</Button>
 								</div>
 							)}
-
+						{/* ================= Notes ================= */}
+						{isEditing &&
+							selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN &&
+							doctorDetails?.doctorId && (
+								<DoctorNotesSection
+									doctorId={doctorDetails.doctorId}
+									notes={doctorDetails.doctorNotes}
+									setDoctorOptions={setDoctorOptions}
+								/>
+							)}
 						{/* ================= DESCRIPTION ================= */}
 						{!tagConfig.hide?.includes("description") && (
 							<FormField
@@ -1376,13 +1624,16 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues })
 								)}
 							/>
 						)}
+						{selectedTag === TAG_IDS.TODO_LIST && event?.erpName && (
+							<TodoComments todoName={event.erpName} />
+						)}
 					</form>
 				</Form>
 
 				<div className="pt-4 flex mt-auto justify-end">
 					<FormFooter
 						isEditing={isEditing}
-						disabled={form.formState.isSubmitting}
+						disabled={isSubmitDisabled}
 						showCaptureLocation={shouldShowRequestLocation}
 						onCaptureLocation={handleRequestLocation}
 						isResolvingLocation={isResolvingLocation}

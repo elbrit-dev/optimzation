@@ -157,6 +157,44 @@ function Home() {
             </div>
           </Link>
 
+          <Link
+            href="/timeline"
+            className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow duration-200 group"
+          >
+            <div className="flex items-start justify-between">
+              <div className="flex-1">
+                <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors">
+                  Event Timeline
+                </h2>
+                <p className="text-sm text-gray-600">
+                  PrimeReact timeline for activity, financial, and performance events — edit data in the JS editor and run
+                </p>
+              </div>
+              <div className="ml-4 text-gray-400 group-hover:text-blue-600 transition-colors">
+                <i className="pi pi-clock text-2xl" aria-hidden />
+              </div>
+            </div>
+          </Link>
+
+          <Link
+            href="/tokens"
+            className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow duration-200 group"
+          >
+            <div className="flex items-start justify-between">
+              <div className="flex-1">
+                <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors">
+                  Global Tokens
+                </h2>
+                <p className="text-sm text-gray-600">
+                  Manage GraphQL endpoints, tokens, and the default environment from one place
+                </p>
+              </div>
+              <div className="ml-4 text-gray-400 group-hover:text-blue-600 transition-colors">
+                <i className="pi pi-key text-2xl" aria-hidden />
+              </div>
+            </div>
+          </Link>
+
           <button
             type="button"
             onClick={() => setDownloadDialogVisible(true)}

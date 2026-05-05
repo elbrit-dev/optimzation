@@ -1,7 +1,7 @@
 "use client";;
 import { createContext, useContext, useState, useEffect, useMemo } from "react";
 import { useLocalStorage } from "@calendar/components/calendar/hooks";
-import { fetchEventsByRange } from "@calendar/services/event.service";
+import { fetchAllCustomers, fetchEventsByRange } from "@calendar/services/event.service";
 import { resolveCalendarRange } from "@calendar/lib/calendar/range";
 import { ELBRIT_ROLEID, EMPLOYEES_QUERY } from "@calendar/services/events.query";
 import { mapEmployeesToCalendarUsers } from "@calendar/services/employee-to-calendar-user";
@@ -48,7 +48,7 @@ export function CalendarProvider({
 	const [hqTerritoryOptions, setHqTerritoryOptions] = useState([]);
 	const [elbritRoleEdges, setElbritRoleEdges] = useState([]);
 	const [elbritRoleLoading, setElbritRoleLoading] = useState(true);
-
+	const [customerOptions, setCustomerOptions] = useState([]);
 	const [eventListDate, setEventListDate] = useState(null);
 	const [activeDate, setActiveDate] = useState(null);
 	const isEventListOpen = eventListDate !== null;
@@ -283,7 +283,32 @@ export function CalendarProvider({
 		}
 		return Array.from(ids);
 	};
-
+	useEffect(() => {
+		let cancelled = false;
+	  
+		async function hydrateCustomers() {
+		  try {
+			const customers = await fetchAllCustomers();
+	  
+			const normalized = (customers ?? []).map((name) => ({
+			  label: name,
+			  value: name,
+			}));
+	  
+			if (!cancelled) {
+			  setCustomerOptions(normalized);
+			}
+		  } catch (err) {
+			console.error("Failed to fetch customers", err);
+		  }
+		}
+	  
+		hydrateCustomers();
+	  
+		return () => {
+		  cancelled = true;
+		};
+	  }, []);
 	const visibleRoleIds = useMemo(() => {
 		if (elbritRoleLoading) return [];
 		return resolveVisibleRoleIds(elbritRoleEdges);
@@ -398,7 +423,7 @@ export function CalendarProvider({
 		setDoctorOptions,
 		setHqTerritoryOptions,
 		elbritRoleEdges,
-		elbritRoleLoading,
+		elbritRoleLoading,customerOptions,setCustomerOptions
 	};
 
 	return (
