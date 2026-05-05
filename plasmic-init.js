@@ -15,7 +15,7 @@ import jsonata from 'jsonata';
 import { db } from "./firebase";
 
 // Validate tag: if deployLive is false,tag must be "dev"
-// const plasmicTag = process.env.NEXT_PUBLIC_PLASMIC_TAG;
+const plasmicTag = process.env.NEXT_PUBLIC_PLASMIC_TAG;
 // const settings = await db.collection('DevOps').doc('Setting').get().catch(() => null);
 // const isLive = settings?.data()?.deployLive;
 
