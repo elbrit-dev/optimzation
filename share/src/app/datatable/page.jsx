@@ -393,7 +393,7 @@ function DataTablePage() {
         ) : (
           <DataProvider
             key={configApplyKey}
-            config={configState}
+            __internal={{ config: configState }}
             offlineData={offlineData}
             onDataChange={handleDataChange}
             onError={handleError}

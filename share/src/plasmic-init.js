@@ -15,7 +15,6 @@ const dataProviderMeta = {
   importPath: './src/app/datatable/components/DataProvider',
   isDefaultExport: true,
   props: {
-    config: 'object',
     presetDataSource: {
       type: 'string',
       displayName: 'presetDataSource',
@@ -30,7 +29,8 @@ const dataProviderMeta = {
     overrides: {
       type: 'object',
       displayName: 'overrides',
-      description: 'Optional { variables, token } for GraphQL variables and Authorization override.',
+      description:
+        'Optional { variables?, token?, config? }. GraphQL variables + Authorization; config is a partial preset overlay merged in DataProvider (not read by DataProviderNew). Full table config is not a Studio prop — use presets or code with __internal.config.',
     },
     onDataChange: {
       type: 'eventHandler',

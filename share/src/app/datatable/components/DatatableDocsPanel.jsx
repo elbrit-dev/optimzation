@@ -45,7 +45,7 @@ export default function DatatableDocsPanel() {
           <CodeBlock>{`import DataProvider from '@/app/datatable/components/DataProvider';
 import DataTableNew from '@/app/datatable/components/DataTableNew';
 
-<DataProvider config={config} offlineData={rows}>
+<DataProvider __internal={{ config }} offlineData={rows}>
   <DataTableNew tableName="main" />
 </DataProvider>`}</CodeBlock>
         </section>

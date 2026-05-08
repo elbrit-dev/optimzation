@@ -1088,9 +1088,9 @@ function SummaryCard({ title, filterValue }) {
 
 ---
 
-## Overrides (`overrides`: variables and token)
+## Overrides (`overrides`: variables, token, and config on DataProvider)
 
-Optional prop on **`DataProviderNew`** or **`DataProvider`** (not on `config`):
+Optional prop on **`DataProviderNew`** or **`DataProvider`**. It is **not** a field on the `config` object itself.
 
 ```jsx
 <DataProviderNew
@@ -1105,15 +1105,44 @@ Optional prop on **`DataProviderNew`** or **`DataProvider`** (not on `config`):
 - **`overrides.token`**: When it is a non-empty string (after trim), it is sent as the **`Authorization`** header for all datatable GraphQL traffic for that provider: main query pipeline (worker), index checks, month fetches, write-schema introspection, and save (`bulkCreate` / `bulkUpdate`) mutations.
 - When **`overrides`** is omitted or **`token`** is omitted or empty, auth comes from the query’s **`urlKey`** resolved against global tokens stored in **`#__GLOBAL__#.tokens`** (managed in the **`/tokens`** UI). If `urlKey` is missing/invalid, the configured **default** token row is used.
 - **`overrides.variables`**: Merged over variables from the query document (and over legacy **`config.variableOverrides`** if still present on the config object for older presets). Prop values win on key conflicts.
-- Nested drawer **`DataProviderNew`** instances receive the same **`overrides`** object from the parent, so token and variable overrides stay aligned.
+- **`DataProvider`** full table configuration (non-preset flows) is passed as **`__internal.config`**, not a top-level **`config`** prop — this keeps **`config`** out of Plasmic Studio registration.
+
+```jsx
+<DataProvider __internal={{ config: tableConfig }} offlineData={rows}>
+  <DataTableNew />
+</DataProvider>
+```
+
+- **`overrides.config`** (**[`DataProvider`](./components/DataProvider.jsx)** only): Partial datatable config merged **on top of** the resolved base — either **`__internal.config`** or the config loaded from **`presetDataSource`** + **`presetName`**. Uses **`mergeConfig`** from `configService` (same deep-merge rules as elsewhere for `writeForm`, `slots`, `columnTypesOverride`, object-shaped `allowedColumns`, etc.). **`DataProviderNew`** does **not** read **`overrides.config`**; merge yourself before passing **`config`** if you use **`DataProviderNew`** directly.
+
+```jsx
+<DataProvider
+  presetDataSource="…"
+  presetName="…"
+  overrides={{
+    token: 'Bearer …',
+    variables: { region: 'IN' },
+    config: {
+      salesTeamColumn: 'sales_team',
+      salesTeamValues: ['Team A'],
+      hqColumn: 'hq',
+      hqValues: [],
+    },
+  }}
+>
+  …
+</DataProvider>
+```
+
+- Nested drawer **`DataProviderNew`** instances receive the same **`overrides`** object from the parent (without **`overrides.config`** — it is stripped after **`DataProvider`** merges it), and **`__internal`** without **`config`** (so nested providers do not receive the parent’s merged table config via **`__internal`**). Token and variable overrides stay aligned.
 
 ### Plasmic (`registerComponent` / Studio props)
 
 If you registered **`DataProvider`** or **`DataProviderNew`** as a code component:
 
 1. **Remove** the **`graphqlToken`** (and any **`__internal.graphqlToken`**) prop from the registration `props` / `propTypes`.
-2. **Add** **`overrides`**: type **`object`** (or a `json` prop in Studio if you prefer a single JSON field). Expose **`variables`** and **`token`** as nested fields if your registration API supports object props; otherwise use one object prop and document the shape `{ variables?: object, token?: string }`.
-3. **Studio:** Re-bind old token fields to **`overrides.token`**, or use a **custom code** expression that returns the full object, e.g. `{ token: authToken, variables: queryVars }`.
+2. **Add** **`overrides`**: type **`object`** (or a `json` prop in Studio if you prefer a single JSON field). Expose **`variables`**, **`token`**, and (on **`DataProvider`** only) **`config`** as nested fields if your registration API supports object props; otherwise use one object prop and document the shape `{ variables?: object, token?: string, config?: object }` (**`config`** = partial overlay merged in **`DataProvider`** only).
+3. **Studio:** Re-bind old token fields to **`overrides.token`**, or use a **custom code** expression that returns the full object, e.g. `{ token: authToken, variables: queryVars, config: partialConfig }`.
 4. **Not the same provider:** `@plasmicapp/loader-nextjs` **`DataProvider`** (used inside the table to pass **`data`** into Plasmic) is unrelated to the datatable **`DataProvider` / `DataProviderNew`** — no change there.
 
 ### Using shared `src/plasmic-init.js` from another Next.js app

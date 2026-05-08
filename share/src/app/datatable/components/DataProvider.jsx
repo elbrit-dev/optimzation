@@ -1,11 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import DataProviderNew from './DataProviderNew';
-import { resolveFirebaseConfig } from '../config/configService';
+import { mergeConfig, resolveFirebaseConfig } from '../config/configService';
+
+function applyOverridesConfig(base, overrides) {
+  const patch = overrides?.config;
+  if (patch == null || typeof patch !== 'object') return base;
+  return mergeConfig(patch, base);
+}
 
 export default function DataProvider({
-  config: configProp,
   presetDataSource,
   presetName,
   offlineData,
@@ -15,6 +20,7 @@ export default function DataProvider({
   overrides,
   __internal = {},
 }) {
+  const configProp = __internal?.config;
   const [presetConfig, setPresetConfig] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -44,6 +50,33 @@ export default function DataProvider({
     return () => { cancelled = true; };
   }, [presetDataSource, presetName]);
 
+  const baseConfigFromProp = useMemo(
+    () => ((typeof configProp === 'object' && configProp !== null) ? configProp : {}),
+    [configProp],
+  );
+
+  const effectiveConfigPreset = useMemo(
+    () => applyOverridesConfig(presetConfig ?? {}, overrides),
+    [presetConfig, overrides],
+  );
+
+  const effectiveConfigDirect = useMemo(
+    () => applyOverridesConfig(baseConfigFromProp, overrides),
+    [baseConfigFromProp, overrides],
+  );
+
+  const overridesForNew = useMemo(() => {
+    if (overrides == null || typeof overrides !== 'object') return overrides;
+    const { config: _omit, ...rest } = overrides;
+    return rest;
+  }, [overrides]);
+
+  const __internalForNew = useMemo(() => {
+    if (__internal == null || typeof __internal !== 'object') return __internal ?? {};
+    const { config: _omit, ...rest } = __internal;
+    return rest;
+  }, [__internal]);
+
   if (presetDataSource && presetName) {
     if (loading) {
       return (
@@ -57,12 +90,12 @@ export default function DataProvider({
     }
     return (
       <DataProviderNew
-        config={presetConfig ?? {}}
+        config={effectiveConfigPreset}
         offlineData={offlineData}
         onDataChange={onDataChange}
         onError={onError}
-        overrides={overrides}
-        __internal={__internal}
+        overrides={overridesForNew}
+        __internal={__internalForNew}
       >
         {children}
       </DataProviderNew>
@@ -71,12 +104,12 @@ export default function DataProvider({
 
   return (
     <DataProviderNew
-      config={configProp}
+      config={effectiveConfigDirect}
       offlineData={offlineData}
       onDataChange={onDataChange}
       onError={onError}
-      overrides={overrides}
-      __internal={__internal}
+      overrides={overridesForNew}
+      __internal={__internalForNew}
     >
       {children}
     </DataProviderNew>

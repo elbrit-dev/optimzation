@@ -77,7 +77,7 @@ function SlotsDemoPage() {
           </p>
         </div>
 
-        <DataProvider config={slotsConfig} offlineData={offlineData}>
+        <DataProvider __internal={{ config: slotsConfig }} offlineData={offlineData}>
           <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 min-h-0">
             <div className="flex flex-col min-h-0 border border-gray-200 rounded-lg overflow-hidden bg-white">
               <div className="shrink-0 px-4 py-2 bg-blue-50 border-b border-blue-100 font-medium text-blue-800">
