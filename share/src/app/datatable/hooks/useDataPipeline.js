@@ -217,7 +217,7 @@ export function useDataPipeline(options) {
     }
     const filterKeys = Object.keys(preFilterSets);
     if (filterKeys.length === 0) return authFilteredData;
-    return lodashFilter(authFilteredData, (row) => {
+    const out = lodashFilter(authFilteredData, (row) => {
       if (!row || typeof row !== 'object') return false;
       for (let i = 0; i < filterKeys.length; i++) {
         const fieldKey = filterKeys[i];
@@ -239,6 +239,7 @@ export function useDataPipeline(options) {
       }
       return true;
     });
+    return out;
   }, [authFilteredData, preFilterSets]);
 
   const tableData = useMemo(() => {
@@ -269,7 +270,17 @@ export function useDataPipeline(options) {
       query: queryFunction,
       monthRange,
     });
-  }, [preFilteredData, tableDataUpdateTrigger, addEditingKeysToRows, derivedColumns, derivedColumnsMode, derivedColumnsFieldName, useOfflineDataAsTableDataSource, queryFunction, monthRange]);
+  }, [
+    preFilteredData,
+    tableDataUpdateTrigger,
+    addEditingKeysToRows,
+    derivedColumns,
+    derivedColumnsMode,
+    derivedColumnsFieldName,
+    useOfflineDataAsTableDataSource,
+    queryFunction,
+    monthRange,
+  ]);
 
   const searchedData = useMemo(() => {
     if (!tableData || !isArray(tableData) || isEmpty(tableData)) {

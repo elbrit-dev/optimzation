@@ -55,7 +55,6 @@ export function useMultiSlotPipeline(options) {
     }
 
     const {
-      preFilteredData,
       currentQueryDoc,
       searchTerm,
       sortConfig,
@@ -67,7 +66,7 @@ export function useMultiSlotPipeline(options) {
       queryFunction,
       monthRange,
     } = pipelineOptions;
-    const { addEditingKeysToRows, mainTableEditingDataRefEarly } = singlePipeline;
+    const { preFilteredData, addEditingKeysToRows, mainTableEditingDataRefEarly } = singlePipeline;
 
     const editingData = mainTableEditingDataRefEarly?.current;
     const baseTableData =
@@ -141,7 +140,7 @@ export function useMultiSlotPipeline(options) {
     singlePipeline.filteredDataWithNestedTables,
     singlePipeline.addEditingKeysToRows,
     singlePipeline.mainTableEditingDataRefEarly,
-    pipelineOptions.preFilteredData,
+    singlePipeline.preFilteredData,
     pipelineOptions.currentQueryDoc,
     pipelineOptions.searchTerm,
     pipelineOptions.sortConfig,

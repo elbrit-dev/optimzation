@@ -40,7 +40,7 @@ import { InputText } from 'primereact/inputtext';
 import { Sidebar } from 'primereact/sidebar';
 import { SplitButton } from 'primereact/splitbutton';
 import { TabPanel, TabView } from 'primereact/tabview';
-import React, { Fragment, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Fragment, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { TableOperationsContext } from '../contexts/TableOperationsContext';
 import { useSelectOptionsCacheStore } from '../stores/useSelectOptionsCacheStore';
@@ -96,6 +96,39 @@ import { useSlotId } from './DataSlot';
 import FilterSortSidebar from './FilterSortSidebar';
 import MultiselectFilter from './MultiselectFilter';
 import SingleSelectFilter from './SingleSelectFilter';
+
+/**
+ * Match main-table buffer init: deep clone, top-level __editingKey__, then keys on nested object-child arrays.
+ */
+function mainTableEditingRowsFromLeafData(rows, addEditingKeysToRows) {
+  if (!isArray(rows) || isEmpty(rows)) return [];
+  const withTopKeys = addEditingKeysToRows(cloneDeep(rows));
+  return withTopKeys.map((row) => {
+    if (!row || typeof row !== 'object') return row;
+    const next = { ...row };
+    Object.keys(next).forEach((k) => {
+      if (String(k).startsWith('__')) return;
+      const v = next[k];
+      if (isArray(v) && v.every((item) => item == null || (typeof item === 'object' && !isArray(item)))) {
+        next[k] = addEditingKeysToRows(v);
+      }
+    });
+    return next;
+  });
+}
+
+/** Ref + hash pair used to avoid redundant buffer re-inits from sortedData. */
+function sortedDataInitCursor(sortedData) {
+  if (!isArray(sortedData) || sortedData.length === 0) {
+    return { ref: sortedData, hash: '0_empty' };
+  }
+  const firstKey = sortedData[0]?.__editingKey__ || sortedData[0]?.id || 'no_key';
+  const lastKey =
+    sortedData[sortedData.length - 1]?.__editingKey__ ||
+    sortedData[sortedData.length - 1]?.id ||
+    'no_key';
+  return { ref: sortedData, hash: `${sortedData.length}_${firstKey}_${lastKey}` };
+}
 
 // Form Select with async getOptions support - getOptions(ctx) receives ctx with columnName, query (row-independent)
 // When cachedOptions is provided, uses it directly to avoid re-fetch on parent re-renders (e.g. cell edit mode changes)
@@ -348,6 +381,18 @@ export default function DataProviderNew({
     [mainSlotConfig.columnTypesOverride],
   );
   const [preFilterValues, setPreFilterValues] = useState({});
+  const sidebarActiveFilterSig = useMemo(() => {
+    if (!preFilterValues || typeof preFilterValues !== 'object') return '';
+    const sortedKeys = Object.keys(preFilterValues).sort();
+    const parts = [];
+    for (const k of sortedKeys) {
+      const v = preFilterValues[k];
+      if (!isArray(v) || v.length === 0) continue;
+      const vals = [...v].map(String).sort((a, b) => a.localeCompare(b)).join('|');
+      parts.push(`${k}:${vals}`);
+    }
+    return parts.join(';');
+  }, [preFilterValues]);
   const [filterSortSidebarVisible, setFilterSortSidebarVisible] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortConfig, setSortConfig] = useState(null);
@@ -554,6 +599,10 @@ export default function DataProviderNew({
     effectiveGroupFields: mainPipeline?.effectiveGroupFields ?? pipeline.effectiveGroupFields,
   };
 
+  // Latest pipeline slice for Filter & Sort re-seed (ref so layout effect does not depend on array identity churn).
+  const preFilteredDataForSidebarReseedRef = useRef(preFilteredData);
+  preFilteredDataForSidebarReseedRef.current = preFilteredData;
+
   // runQuery comes from useQueryExecution
 
   // Sync visibleColumns from prop
@@ -637,6 +686,9 @@ export default function DataProviderNew({
   // Export group selector (when groupFields active, popup to choose which levels to export)
   const [exportGroupSelectorVisible, setExportGroupSelectorVisible] = useState(false);
   const [exportGroupSelectorSelectedLevels, setExportGroupSelectorSelectedLevels] = useState([]);
+  /** Group field list shown in export dialog & levels pre-selected — may differ per slot when multi-slot */
+  const [exportDialogGroupFields, setExportDialogGroupFields] = useState([]);
+  const exportGroupOverridesRef = useRef(null);
   // Bump when we persist so hasMainTableChanges recomputes and Cancel hides
   const [mainTableOriginalVersion, setMainTableOriginalVersion] = useState(0);
 
@@ -1907,6 +1959,47 @@ export default function DataProviderNew({
   const previousSortedDataHashRef = useRef(null);
   // When we add a new row via drawer, sortedData updates from pipeline - skip re-init so original stays unchanged
   const skipNextInitFromSortedDataRef = useRef(false);
+  /**
+   * After sidebar re-seed, the next passive sortedData effect can still see the *previous* pipeline slice
+   * (short buffer) and would overwrite the new buffer. Skip that single stale pass and advance the cursor.
+   */
+  const skipNextSortedDataBufferInitRef = useRef(false);
+
+  const isNestedDrawerOfflineTable = !!(nestedTableTabId && parentNestedTableEditingDataRef);
+
+  // Filter & Sort Apply: align main editing buffer with preFilteredData; cell edits keep using the buffer path.
+  useLayoutEffect(() => {
+    if (isNestedDrawerOfflineTable || parentColumnName) return;
+    if (!sidebarActiveFilterSig) return;
+    if (enableBreakdown || saveDiffDialogVisible) return;
+    if (executingQuery || loadingFromCache) return;
+
+    const pf = isArray(preFilteredDataForSidebarReseedRef.current)
+      ? preFilteredDataForSidebarReseedRef.current
+      : [];
+    const dataWithNestedKeys = mainTableEditingRowsFromLeafData(pf, addEditingKeysToRows);
+
+    mainTableOriginalDataRef.current = cloneDeep(dataWithNestedKeys);
+    const editingData = cloneDeep(mainTableOriginalDataRef.current);
+    mainTableEditingDataRef.current = editingData;
+    mainTableEditingDataRefEarly.current = editingData;
+    setMainTableEditingData(editingData);
+    setTableDataUpdateTrigger((t) => t + 1);
+
+    previousSortedDataHashRef.current = null;
+    previousSortedDataRef.current = null;
+    skipNextSortedDataBufferInitRef.current = true;
+  }, [
+    sidebarActiveFilterSig,
+    enableBreakdown,
+    saveDiffDialogVisible,
+    executingQuery,
+    loadingFromCache,
+    addEditingKeysToRows,
+    isNestedDrawerOfflineTable,
+    parentColumnName,
+    setTableDataUpdateTrigger,
+  ]);
 
   // When index freshness token changes, clear stale editing buffer so table uses fresh upstream data.
   const prevIndexFreshnessTokenRef = useRef(null);
@@ -1923,19 +2016,24 @@ export default function DataProviderNew({
     }
   }, [indexFreshnessToken]);
 
-  // Initialize buffers from sortedData (final processed data after all preprocessing)
-  // When enableBreakdown is on, sortedData is report data (period_metric columns). Do NOT init buffer from it,
-  // so that when user turns report off, tableData/columns stay derived from the original structure.
+  // Main editing buffer:
+  // - Default: keep in sync with sortedData (search / sort / column filters / grouping in the pipeline).
+  // - Filter & Sort sidebar: layout re-seeds from preFilteredData; the next sortedData effect often still
+  //   observes the *old* pipeline slice, so skipNextSortedDataBufferInitRef skips one stale buffer overwrite.
+  // - Drawer add-row: skipNextInitFromSortedDataRef skips one init (same cursor advance only).
   useEffect(() => {
     if (executingQuery || loadingFromCache) {
       return;
     }
-    if (skipNextInitFromSortedDataRef.current) {
+    if (
+      skipNextSortedDataBufferInitRef.current ||
+      skipNextInitFromSortedDataRef.current
+    ) {
+      skipNextSortedDataBufferInitRef.current = false;
       skipNextInitFromSortedDataRef.current = false;
-      previousSortedDataRef.current = sortedData;
-      const firstKey = sortedData?.length ? (sortedData[0]?.__editingKey__ || sortedData[0]?.id || 'no_key') : null;
-      const lastKey = sortedData?.length ? (sortedData[sortedData.length - 1]?.__editingKey__ || sortedData[sortedData.length - 1]?.id || 'no_key') : null;
-      previousSortedDataHashRef.current = sortedData?.length ? `${sortedData.length}_${firstKey}_${lastKey}` : '0_empty';
+      const cursor = sortedDataInitCursor(sortedData);
+      previousSortedDataRef.current = cursor.ref;
+      previousSortedDataHashRef.current = cursor.hash;
       return;
     }
     if (saveDiffDialogVisible) return; // Don't re-init while save dialog is open
@@ -1953,17 +2051,9 @@ export default function DataProviderNew({
       return;
     }
 
-    // Create a hash of sortedData to detect actual changes (use length and editing keys if available)
     let dataHash;
     try {
-      if (sortedData.length === 0) {
-        dataHash = `0_empty`;
-      } else {
-        // Use editing keys if available, otherwise use a simple identifier
-        const firstKey = sortedData[0]?.__editingKey__ || sortedData[0]?.id || 'no_key';
-        const lastKey = sortedData[sortedData.length - 1]?.__editingKey__ || sortedData[sortedData.length - 1]?.id || 'no_key';
-        dataHash = `${sortedData.length}_${firstKey}_${lastKey}`;
-      }
+      dataHash = sortedDataInitCursor(sortedData).hash;
     } catch (e) {
       dataHash = `error_${sortedData.length}`;
     }
@@ -1980,20 +2070,7 @@ export default function DataProviderNew({
       return;
     }
 
-    // Deep clone sortedData and add editing keys (top-level and nested arrays)
-    const dataWithKeys = addEditingKeysToRows(cloneDeep(sortedData));
-    const dataWithNestedKeys = dataWithKeys.map((row) => {
-      if (!row || typeof row !== 'object') return row;
-      const result = { ...row };
-      Object.keys(result).forEach((k) => {
-        if (String(k).startsWith('__')) return;
-        const v = result[k];
-        if (isArray(v) && v.every((item) => item == null || (typeof item === 'object' && !isArray(item)))) {
-          result[k] = addEditingKeysToRows(v);
-        }
-      });
-      return result;
-    });
+    const dataWithNestedKeys = mainTableEditingRowsFromLeafData(sortedData, addEditingKeysToRows);
     // Initialize original buffer
     mainTableOriginalDataRef.current = cloneDeep(dataWithNestedKeys);
     // Initialize editing buffer (deep clone from original)
@@ -3878,37 +3955,69 @@ export default function DataProviderNew({
     return acc;
   }, []);
 
-  // Export to XLSX function (optional selectedLevelIndices: when grouped, no-arg opens popup, with-arg exports selected levels)
-  const exportToXLSX = useCallback((selectedLevelIndices) => {
-    // Check if we're in report mode
-    if (enableBreakdown && reportDataWithDerived) {
-      // Use report export with merged headers
-      // Pass effectiveGroupFields - function will extract first two for backward compatibility if needed
+  // Export to XLSX: optional overrides use per-slot pipeline data when multi-slot. Grouped export with no level arg opens popup; ref stores overrides for Confirm.
+  const runExportToXLSX = useCallback((selectedLevelIndices, overrides) => {
+    const ov = overrides && typeof overrides === 'object' ? overrides : null;
+    const resolvedReportData = ov && 'reportData' in ov ? ov.reportData : reportDataWithDerived;
+    const resolvedSortedData = ov?.sortedData ?? sortedData;
+    const resolvedGroupedData = ov?.groupedData ?? groupedData;
+    const resolvedGroupFields = Array.isArray(ov?.effectiveGroupFields) ? ov.effectiveGroupFields : effectiveGroupFields;
+    const resolvedDerivedColumns = ov?.derivedColumns ?? effectiveMainConfig?.derivedColumns ?? derivedColumns ?? [];
+    const resolvedPctColumns = ov?.percentageColumns ?? effectiveMainConfig?.percentageColumns;
+    const resolvedHasPct = ov?.hasPercentageColumns ?? hasPercentageColumns;
+    const resolvedColumnTypes = ov?.columnTypes ?? columnTypes;
+
+    const getColTypeFlagsForExport = (col) => {
+      const typeString = resolvedColumnTypes[col] || 'string';
+      return {
+        isBoolean: typeString === 'boolean',
+        isNumeric: typeString === 'number',
+        isDate: typeString === 'date',
+        isText: typeString === 'string'
+      };
+    };
+
+    const isPctColumnForExport = (col) =>
+      resolvedHasPct && resolvedPctColumns?.some((pc) => pc?.columnName === col);
+
+    const getPctValueForExport = (rowData, columnName) => {
+      const config = resolvedPctColumns?.find((pc) => pc.columnName === columnName);
+      if (!config || !config.targetField || !config.valueField) return null;
+      const targetValue = getDataValue(rowData, config.targetField);
+      const actualValue = getDataValue(rowData, config.valueField);
+      const targetNum = isNumber(targetValue) ? targetValue : (isNil(targetValue) ? null : toNumber(targetValue));
+      const actualNum = isNumber(actualValue) ? actualValue : (isNil(actualValue) ? null : toNumber(actualValue));
+      if (!isNil(targetNum) && !isNil(actualNum) && !_isNaN(targetNum) && !_isNaN(actualNum) && _isFinite(targetNum) && _isFinite(actualNum) && targetNum !== 0) {
+        return (actualNum / targetNum) * 100;
+      }
+      return null;
+    };
+
+    // Report mode
+    if (enableBreakdown && resolvedReportData) {
       const wb = exportReportToXLSX(
-        reportDataWithDerived,
+        resolvedReportData,
         columnGroupBy,
-        effectiveGroupFields,
+        resolvedGroupFields,
         formatHeaderName
       );
 
-      // Generate filename with current date
       const dateStr = new Date().toISOString().split('T')[0];
       const filename = `export_${dateStr}.xlsx`;
-
-      // Write file
       XLSX.writeFile(wb, filename);
       return;
     }
 
     // Grouped mode: no args = open popup; with args = multi-sheet export
-    if (effectiveGroupFields.length > 0 && !isEmpty(groupedData)) {
+    if (resolvedGroupFields.length > 0 && !isEmpty(resolvedGroupedData)) {
       if (!Array.isArray(selectedLevelIndices) || selectedLevelIndices.length === 0) {
-        setExportGroupSelectorSelectedLevels(effectiveGroupFields.map((_, i) => i));
+        exportGroupOverridesRef.current = ov;
+        setExportDialogGroupFields(resolvedGroupFields);
+        setExportGroupSelectorSelectedLevels(resolvedGroupFields.map((_, i) => i));
         setExportGroupSelectorVisible(true);
         return;
       }
-      // Multi-sheet export: one sheet per selected level with summary rows
-      const derivedColNamesMain = getDerivedColumnNames(effectiveMainConfig?.derivedColumns || [], 'main');
+      const derivedColNamesMain = getDerivedColumnNames(resolvedDerivedColumns || [], 'main');
       const wb = XLSX.utils.book_new();
       const dateStr = new Date().toISOString().split('T')[0];
       const filename = `export_${dateStr}.xlsx`;
@@ -3917,10 +4026,10 @@ export default function DataProviderNew({
         const exportRow = {};
         cols.forEach((col) => {
           let value = getDataValue(row, col);
-          if (isNil(value) && isPercentageColumn(col)) {
-            value = getPercentageColumnValue(row, col);
+          if (isNil(value) && isPctColumnForExport(col)) {
+            value = getPctValueForExport(row, col);
           }
-          const colTypeFlags = getColumnTypeFlags(col);
+          const colTypeFlags = getColTypeFlagsForExport(col);
           if (isNil(value)) {
             exportRow[formatHeaderName(col)] = '';
           } else if (colTypeFlags.isBoolean) {
@@ -3928,7 +4037,7 @@ export default function DataProviderNew({
           } else if (colTypeFlags.isDate) {
             exportRow[formatHeaderName(col)] = formatDateValue(value);
           } else {
-            const isPctCol = isPercentageColumn(col);
+            const isPctCol = isPctColumnForExport(col);
             const isNumeric = isPctCol || colTypeFlags.isNumeric || (typeof value === 'number' && Number.isFinite(value));
             if (isNumeric) {
               const numeric = typeof value === 'number' ? value : parseFloat(String(value).replace(/,/g, ''));
@@ -3942,24 +4051,24 @@ export default function DataProviderNew({
       };
 
       selectedLevelIndices.forEach((levelIndex) => {
-        const rows = collectSummaryRowsAtLevel(groupedData, levelIndex);
-        const fieldName = effectiveGroupFields[levelIndex];
+        const rows = collectSummaryRowsAtLevel(resolvedGroupedData, levelIndex);
+        const fieldName = resolvedGroupFields[levelIndex];
         const allDataColumns = isEmpty(rows) ? [] : uniq(flatMap(rows, (item) =>
           item && typeof item === 'object' ? getDataKeys(item) : []
         ));
         const filtered = allDataColumns.filter((col) => {
           if (col.startsWith('__')) return false;
-          if (effectiveGroupFields.includes(col)) {
-            const colIndex = effectiveGroupFields.indexOf(col);
+          if (resolvedGroupFields.includes(col)) {
+            const colIndex = resolvedGroupFields.indexOf(col);
             return colIndex <= levelIndex;
           }
-          if (isPercentageColumn(col)) return true;
+          if (isPctColumnForExport(col)) return true;
           if (derivedColNamesMain.includes(col)) return true;
-          const colTypeFlags = getColumnTypeFlags(col);
+          const colTypeFlags = getColTypeFlagsForExport(col);
           return colTypeFlags.isNumeric;
         });
-        const pivotCols = effectiveGroupFields.slice(0, levelIndex + 1).filter((c) => filtered.includes(c));
-        const otherCols = filtered.filter((c) => !effectiveGroupFields.includes(c));
+        const pivotCols = resolvedGroupFields.slice(0, levelIndex + 1).filter((c) => filtered.includes(c));
+        const otherCols = filtered.filter((c) => !resolvedGroupFields.includes(c));
         const allColumns = [...pivotCols, ...otherCols];
         const cleanRows = rows.map((row) => {
           const clean = {};
@@ -3974,30 +4083,29 @@ export default function DataProviderNew({
 
       XLSX.writeFile(wb, filename);
       setExportGroupSelectorVisible(false);
+      exportGroupOverridesRef.current = null;
       return;
     }
 
-    // Regular export logic (non-grouped mode)
+    // Regular export (non-grouped)
     let dataToExport;
-    let allColumns;
+    let allColumnsExport;
 
-    // Normal mode: use sortedData (full dataset). Only copy when percentage columns need to be computed
-    if (hasPercentageColumns && percentageColumns) {
-      dataToExport = sortedData.map((row) => {
+    if (resolvedHasPct && resolvedPctColumns) {
+      dataToExport = resolvedSortedData.map((row) => {
         const rowWithPercentages = { ...row };
-        percentageColumns.forEach(pc => {
+        resolvedPctColumns.forEach((pc) => {
           if (pc.columnName && pc.targetField && pc.valueField) {
-            const percentageValue = getPercentageColumnValue(row, pc.columnName);
+            const percentageValue = getPctValueForExport(row, pc.columnName);
             rowWithPercentages[pc.columnName] = percentageValue;
           }
         });
         return rowWithPercentages;
       });
     } else {
-      dataToExport = sortedData;
+      dataToExport = resolvedSortedData;
     }
 
-    // Collect columns from data plus percentage columns
     const dataColSet = new Set();
     if (!isEmpty(dataToExport)) {
       dataToExport.forEach((item) => {
@@ -4006,29 +4114,23 @@ export default function DataProviderNew({
         }
       });
     }
-    const percentageColNames = hasPercentageColumns && percentageColumns
-      ? percentageColumns.map(pc => pc.columnName).filter(Boolean)
+    const percentageColNames = resolvedHasPct && resolvedPctColumns
+      ? resolvedPctColumns.map((pc) => pc.columnName).filter(Boolean)
       : [];
-    const derivedColNames = getDerivedColumnNames(derivedColumns || [], 'main');
+    const derivedColNames = getDerivedColumnNames(resolvedDerivedColumns || [], 'main');
     const allColSet = new Set([...dataColSet, ...percentageColNames, ...derivedColNames]);
-    allColumns = [...allColSet];
+    allColumnsExport = [...allColSet];
 
-    // Format and export data (same logic for both modes)
     const exportData = dataToExport.map((row) => {
       const exportRow = {};
-      allColumns.forEach((col) => {
-        // For percentage columns, the value might already be computed (grouped mode) or we need to compute it (normal mode)
-        // But since we computed it in normal mode above, we can just get it from the row
+      allColumnsExport.forEach((col) => {
         let value = getDataValue(row, col);
-
-        // If value is still null/undefined and it's a percentage column, try computing it
-        if (isNil(value) && isPercentageColumn(col)) {
-          value = getPercentageColumnValue(row, col);
+        if (isNil(value) && isPctColumnForExport(col)) {
+          value = getPctValueForExport(row, col);
         }
 
-        const colTypeFlags = getColumnTypeFlags(col);
+        const colTypeFlags = getColTypeFlagsForExport(col);
 
-        // Format the value for export
         if (isNil(value)) {
           exportRow[formatHeaderName(col)] = '';
         } else if (colTypeFlags.isBoolean) {
@@ -4036,16 +4138,13 @@ export default function DataProviderNew({
         } else if (colTypeFlags.isDate) {
           exportRow[formatHeaderName(col)] = formatDateValue(value);
         } else {
-          // Check if it's a percentage column or numeric value
-          const isPctCol = isPercentageColumn(col);
+          const isPctCol = isPctColumnForExport(col);
           const isNumeric = isPctCol || colTypeFlags.isNumeric || (typeof value === 'number' && Number.isFinite(value));
 
           if (isNumeric) {
-            // For numeric columns (including percentage columns), ensure we write real numbers
             const numeric = typeof value === 'number' ? value : parseFloat(String(value).replace(/,/g, ''));
             exportRow[formatHeaderName(col)] = Number.isFinite(numeric) ? numeric : String(value);
           } else {
-            // Non-numeric columns: keep as plain string
             exportRow[formatHeaderName(col)] = String(value);
           }
         }
@@ -4053,18 +4152,26 @@ export default function DataProviderNew({
       return exportRow;
     });
 
-    // Create workbook and worksheet
     const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
 
-    // Generate filename with current date
     const dateStr = new Date().toISOString().split('T')[0];
     const filename = `export_${dateStr}.xlsx`;
 
-    // Write file
     XLSX.writeFile(wb, filename);
-  }, [enableBreakdown, reportDataWithDerived, columnGroupBy, sortedData, groupedData, effectiveGroupFields, hasPercentageColumns, percentageColumns, isPercentageColumn, getPercentageColumnValue, formatHeaderName, isTruthyBoolean, formatDateValue, getColumnTypeFlags, effectiveMainConfig, collectSummaryRowsAtLevel, sanitizeSheetName]);
+  }, [
+    enableBreakdown, reportDataWithDerived, columnGroupBy, sortedData, groupedData, effectiveGroupFields,
+    hasPercentageColumns, percentageColumns, effectiveMainConfig?.derivedColumns, effectiveMainConfig?.percentageColumns,
+    derivedColumns, columnTypes,
+    formatHeaderName, isTruthyBoolean, formatDateValue, collectSummaryRowsAtLevel, sanitizeSheetName,
+    setExportDialogGroupFields, setExportGroupSelectorSelectedLevels, setExportGroupSelectorVisible,
+  ]);
+
+  const exportToXLSX = useCallback(
+    (selectedLevelIndices) => runExportToXLSX(selectedLevelIndices, null),
+    [runExportToXLSX]
+  );
 
   // Create slot-scoped context (flat object for each slot; for single-slot, all slots share same data)
   const slotContextData = useMemo(() => {
@@ -4351,7 +4458,16 @@ export default function DataProviderNew({
         formatDateValue,
         formatHeaderName,
         isTruthyBoolean,
-        exportToXLSX,
+        exportToXLSX: (selectedLevelIndices) => runExportToXLSX(selectedLevelIndices, {
+          reportData: slotReportData ?? reportDataWithDerived,
+          sortedData: slotSortedData,
+          groupedData: slotGroupedData,
+          effectiveGroupFields: pSlot.effectiveGroupFields ?? [],
+          derivedColumns: effectiveSlotConfig.derivedColumns,
+          percentageColumns: effectiveSlotConfig.percentageColumns,
+          hasPercentageColumns: meta.hasPercentageColumns ?? hasPercentageColumns,
+          columnTypes: meta.columnTypes ?? columnTypes,
+        }),
         parseNumericFilter,
         applyNumericFilter,
         applyDateFilter,
@@ -4406,7 +4522,7 @@ export default function DataProviderNew({
     drawerVisible, drawerData, activeDrawerTabIndex, clickedDrawerValues,
     openDrawer, openDrawerWithData, openDrawerForOuterGroup, openDrawerForInnerGroup, openDrawerWithJsonTables, openDrawerForRow, openDrawerForNewRow,
     parentHandleAddNestedRowAtZero, selectedRowData, setSelectedRowDataWithFormSync,
-    formatDateValue, formatHeaderName, isTruthyBoolean, exportToXLSX, isNumericValue,
+    formatDateValue, formatHeaderName, isTruthyBoolean, runExportToXLSX, isNumericValue,
     currentQueryDoc, searchTerm, sortConfig, forceEnableWrite, parentColumnName, nestedTableFieldName, nestedTableTabId,
     updateCurrentNestedTableData, getChangedRowsForTab, getAllChangedNestedTableRows, parentHandleDrawerSave,
     handleMainSave, handleMainCancel, handleDrawerCancel, hasMainTableChanges, hasDrawerChanges, updateMainTableEditingData,
@@ -5711,21 +5827,31 @@ export default function DataProviderNew({
           </div>
         </Dialog>
       )}
-      {!parentColumnName && effectiveGroupFields?.length > 0 && (
+      {!parentColumnName && (
         <Dialog
           header="Export grouped data"
           visible={exportGroupSelectorVisible}
           style={{ width: '90vw', maxWidth: '480px' }}
-          onHide={() => setExportGroupSelectorVisible(false)}
+          onHide={() => {
+            setExportGroupSelectorVisible(false);
+            exportGroupOverridesRef.current = null;
+          }}
           footer={
             <>
-              <Button label="Cancel" severity="secondary" onClick={() => setExportGroupSelectorVisible(false)} />
+              <Button
+                label="Cancel"
+                severity="secondary"
+                onClick={() => {
+                  setExportGroupSelectorVisible(false);
+                  exportGroupOverridesRef.current = null;
+                }}
+              />
               <Button
                 label="Export"
                 icon="pi pi-download"
                 onClick={() => {
                   if (exportGroupSelectorSelectedLevels?.length > 0) {
-                    exportToXLSX(exportGroupSelectorSelectedLevels);
+                    runExportToXLSX(exportGroupSelectorSelectedLevels, exportGroupOverridesRef.current);
                   }
                 }}
                 disabled={!exportGroupSelectorSelectedLevels?.length}
@@ -5737,7 +5863,7 @@ export default function DataProviderNew({
           <MultiselectFilter
             value={exportGroupSelectorSelectedLevels}
             onChange={(vals) => setExportGroupSelectorSelectedLevels(vals ?? [])}
-            options={effectiveGroupFields.map((f, i) => ({ value: i, label: formatHeaderName(f) }))}
+            options={exportDialogGroupFields.map((f, i) => ({ value: i, label: formatHeaderName(f) }))}
             placeholder="Select levels"
             fieldName="levels"
             itemLabel="level"
