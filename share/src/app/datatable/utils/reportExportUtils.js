@@ -26,38 +26,194 @@ function getCellAddress(row, col) {
 }
 
 /**
- * Exports report data to Excel with merged headers matching the report structure
- * @param {Object} reportData - Report data with tableData, nestedTableData, timePeriods, metrics, breakdownType
- * @param {string} columnGroupBy - Column grouping mode: 'values', 'sub-columns', 'period-over-period'
- * @param {Array} effectiveGroupFields - Array of group fields for multi-level nesting
- * @param {Function} formatHeaderName - Function to format header names
- * @returns {Object} XLSX workbook ready for XLSX.writeFile
+ * Flatten nested report rows to leaf level (all group dimensions expanded).
  */
-export function exportReportToXLSX(
-  reportData,
-  columnGroupBy,
-  effectiveGroupFields,
-  formatHeaderName
-) {
-  // Ensure effectiveGroupFields is an array
-  const groupFields = Array.isArray(effectiveGroupFields) ? effectiveGroupFields : [];
-  
-  if (!reportData || !reportData.tableData || isEmpty(reportData.tableData)) {
-    // Return empty workbook if no data
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet([{ 'No Data': 'No data available' }]);
-    XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
-    return wb;
+function flattenNestedDataRecursive(tableData, nestedTableData, groupFields, currentLevel = 0, pathValues = []) {
+  if (currentLevel >= groupFields.length) {
+    return tableData.map((row) => {
+      const result = { ...row };
+      groupFields.forEach((field, idx) => {
+        if (idx < pathValues.length && !Object.prototype.hasOwnProperty.call(result, field)) {
+          result[field] = pathValues[idx] === '__null__' ? null : pathValues[idx];
+        }
+      });
+      return result;
+    });
   }
 
-  // Compute column structure
+  const currentField = groupFields[currentLevel];
+  if (!currentField) {
+    return tableData.map((row) => ({ ...row }));
+  }
+
+  const flattened = [];
+
+  tableData.forEach((row) => {
+    const currentValue = getDataValue(row, currentField);
+    const currentKey = isNil(currentValue) ? '__null__' : String(currentValue);
+    const newPath = [...pathValues, currentKey];
+
+    const compositeKey = newPath.join('|');
+    const nestedRows = nestedTableData && nestedTableData[compositeKey];
+
+    if (nestedRows && nestedRows.length > 0 && currentLevel + 1 < groupFields.length) {
+      const nestedFlattened = flattenNestedDataRecursive(
+        nestedRows,
+        nestedTableData,
+        groupFields,
+        currentLevel + 1,
+        newPath
+      );
+      flattened.push(...nestedFlattened);
+    } else {
+      const rowWithPath = { ...row };
+      groupFields.forEach((field, idx) => {
+        if (idx < newPath.length) {
+          rowWithPath[field] = newPath[idx] === '__null__' ? null : newPath[idx];
+        }
+      });
+      flattened.push(rowWithPath);
+    }
+  });
+
+  return flattened;
+}
+
+/**
+ * Collect report rows rolled up to target group level (0 = outer group only).
+ */
+function flattenNestedDataUpToLevel(
+  tableData,
+  nestedTableData,
+  fullGroupFields,
+  targetLevelIndex,
+  currentLevel = 0,
+  pathValues = []
+) {
+  const flattened = [];
+
+  if (currentLevel >= fullGroupFields.length) {
+    return tableData.map((row) => {
+      const result = { ...row };
+      fullGroupFields.forEach((field, idx) => {
+        if (idx < pathValues.length && !Object.prototype.hasOwnProperty.call(result, field)) {
+          result[field] = pathValues[idx] === '__null__' ? null : pathValues[idx];
+        }
+      });
+      return result;
+    });
+  }
+
+  const currentField = fullGroupFields[currentLevel];
+  if (!currentField) {
+    return tableData.map((row) => ({ ...row }));
+  }
+
+  tableData.forEach((row) => {
+    const currentValue = getDataValue(row, currentField);
+    const currentKey = isNil(currentValue) ? '__null__' : String(currentValue);
+    const newPath = [...pathValues, currentKey];
+
+    if (currentLevel === targetLevelIndex) {
+      const rowWithPath = { ...row };
+      fullGroupFields.forEach((field, idx) => {
+        if (idx < newPath.length) {
+          rowWithPath[field] = newPath[idx] === '__null__' ? null : newPath[idx];
+        }
+      });
+      flattened.push(rowWithPath);
+      return;
+    }
+
+    const compositeKey = newPath.join('|');
+    const nestedRows = nestedTableData && nestedTableData[compositeKey];
+
+    if (nestedRows && nestedRows.length > 0 && currentLevel + 1 < fullGroupFields.length) {
+      flattened.push(
+        ...flattenNestedDataUpToLevel(
+          nestedRows,
+          nestedTableData,
+          fullGroupFields,
+          targetLevelIndex,
+          currentLevel + 1,
+          newPath
+        )
+      );
+    } else {
+      const rowWithPath = { ...row };
+      fullGroupFields.forEach((field, idx) => {
+        if (idx < newPath.length) {
+          rowWithPath[field] = newPath[idx] === '__null__' ? null : newPath[idx];
+        }
+      });
+      flattened.push(rowWithPath);
+    }
+  });
+
+  return flattened;
+}
+
+/**
+ * @param {Object} reportData
+ * @param {string[]} fullGroupFields
+ * @param {number} targetLevelIndex — group field index to roll up to (inclusive)
+ * @returns {Array<Object>}
+ */
+export function collectReportDataForGroupLevel(reportData, fullGroupFields, targetLevelIndex) {
+  const groupFields = Array.isArray(fullGroupFields) ? fullGroupFields : [];
+  if (!reportData || isEmpty(reportData.tableData)) {
+    return [];
+  }
+  if (groupFields.length === 0) {
+    return reportData.tableData.map((row) => ({ ...row }));
+  }
+  if (!reportData.nestedTableData) {
+    return targetLevelIndex <= 0 ? reportData.tableData.map((row) => ({ ...row })) : [];
+  }
+
+  const maxLevelIndex = groupFields.length - 1;
+  const target = Math.min(Math.max(0, targetLevelIndex), maxLevelIndex);
+
+  if (target >= maxLevelIndex) {
+    return flattenNestedDataRecursive(
+      reportData.tableData,
+      reportData.nestedTableData,
+      groupFields
+    );
+  }
+
+  return flattenNestedDataUpToLevel(
+    reportData.tableData,
+    reportData.nestedTableData,
+    groupFields,
+    target,
+    0,
+    []
+  );
+}
+
+/**
+ * Build one report worksheet (merged headers + data rows).
+ * @param {Object} reportData
+ * @param {string} columnGroupBy
+ * @param {string[]} headerGroupFields — group columns shown on this sheet (prefix of full fields)
+ * @param {Array<Object>} dataToExport
+ * @param {Function} formatHeaderName
+ * @returns {Object} XLSX worksheet
+ */
+function buildReportWorksheet(
+  reportData,
+  columnGroupBy,
+  headerGroupFields,
+  dataToExport,
+  formatHeaderName,
+  includeGroupColumn = true
+) {
+  const groupFields = Array.isArray(headerGroupFields) ? headerGroupFields : [];
+
   const reportColumnsStructure = computeReportColumnsStructure(reportData, columnGroupBy);
   if (!reportColumnsStructure) {
-    // Fallback to simple export
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(reportData.tableData);
-    XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
-    return wb;
+    return XLSX.utils.json_to_sheet(isEmpty(dataToExport) ? [{ 'No Data': 'No data available' }] : dataToExport);
   }
 
   const { breakdownType } = reportData;
@@ -74,90 +230,16 @@ export function exportReportToXLSX(
   } = reportColumnsStructure;
   const exemptColsArray = Array.isArray(exemptColumns) ? exemptColumns : [];
 
-  // Build export column order (preserves original position when orderedSegments is present)
-  const reportCols = getReportColumns(reportColumnsStructure, outerGroupField);
+  const reportCols = getReportColumns(reportColumnsStructure, outerGroupField, includeGroupColumn);
   const exportColumns = [...groupFields, ...reportCols.filter((c) => !groupFields.includes(c))];
 
-  // Prepare data for export - flatten nested data recursively for all levels
-  let dataToExport = [];
-
-  // Recursive function to flatten nested data for all group levels
-  function flattenNestedDataRecursive(tableData, nestedTableData, groupFields, currentLevel = 0, pathValues = []) {
-    if (currentLevel >= groupFields.length) {
-      // Final level - return the data as-is
-      return tableData.map(row => {
-        const result = { ...row };
-        // Ensure all group field values are set from path
-        groupFields.forEach((field, idx) => {
-          if (idx < pathValues.length && !result.hasOwnProperty(field)) {
-            result[field] = pathValues[idx] === '__null__' ? null : pathValues[idx];
-          }
-        });
-        return result;
-      });
-    }
-
-    const currentField = groupFields[currentLevel];
-    if (!currentField) {
-      return tableData.map(row => ({ ...row }));
-    }
-
-    const flattened = [];
-    
-    tableData.forEach((row) => {
-      const currentValue = getDataValue(row, currentField);
-      const currentKey = isNil(currentValue) ? '__null__' : String(currentValue);
-      const newPath = [...pathValues, currentKey];
-      
-      // Check if there's nested data for this path
-      const compositeKey = newPath.join('|');
-      const nestedRows = nestedTableData && nestedTableData[compositeKey];
-      
-      if (nestedRows && nestedRows.length > 0 && currentLevel + 1 < groupFields.length) {
-        // Recursively flatten nested data
-        const nestedFlattened = flattenNestedDataRecursive(
-          nestedRows,
-          nestedTableData,
-          groupFields,
-          currentLevel + 1,
-          newPath
-        );
-        flattened.push(...nestedFlattened);
-      } else {
-        // No nested data or final level - add current row with all path values
-        const rowWithPath = { ...row };
-        groupFields.forEach((field, idx) => {
-          if (idx < newPath.length) {
-            rowWithPath[field] = newPath[idx] === '__null__' ? null : newPath[idx];
-          }
-        });
-        flattened.push(rowWithPath);
-      }
-    });
-
-    return flattened;
-  }
-
-  if (groupFields.length > 0 && reportData.nestedTableData) {
-    dataToExport = flattenNestedDataRecursive(
-      reportData.tableData,
-      reportData.nestedTableData,
-      groupFields
-    );
-  } else {
-    // No grouping, just use table data
-    dataToExport = reportData.tableData.map(row => ({ ...row }));
-  }
-
-  // Create worksheet - we'll build it manually to have control over headers
   const ws = {};
   const merges = [];
   const headerRowIndex = 0;
-  const dataStartRow = 3; // Data starts at row 4 (0-indexed row 3)
+  const dataStartRow = 3;
 
   let colIndex = 0;
 
-  // Row 1: Group fields
   groupFields.forEach((field) => {
     ws[getCellAddress(headerRowIndex, colIndex)] = { v: formatHeaderName(field), t: 's' };
     merges.push({ s: { r: headerRowIndex, c: colIndex }, e: { r: headerRowIndex + 2, c: colIndex } });
@@ -165,7 +247,6 @@ export function exportReportToXLSX(
   });
 
   if (orderedSegments && orderedSegments.length > 0) {
-    // Interleaved structure: exempt + breakdown segments in original order
     orderedSegments.forEach((seg) => {
       if (seg.type === 'exempt') {
         ws[getCellAddress(headerRowIndex, colIndex)] = { v: formatHeaderName(seg.name), t: 's' };
@@ -195,7 +276,6 @@ export function exportReportToXLSX(
       }
     });
   } else {
-    // Legacy: exempt block, then breakdown block
     exemptColsArray.forEach((col) => {
       ws[getCellAddress(headerRowIndex, colIndex)] = { v: formatHeaderName(col), t: 's' };
       merges.push({ s: { r: headerRowIndex, c: colIndex }, e: { r: headerRowIndex + 2, c: colIndex } });
@@ -244,12 +324,11 @@ export function exportReportToXLSX(
     }
   }
 
-  // Add data rows starting from row 4 (index 3)
   dataToExport.forEach((row, rowIndex) => {
-    exportColumns.forEach((col, colIndex) => {
-      let value = getDataValue(row, col);
-      const cellAddress = getCellAddress(dataStartRow + rowIndex, colIndex);
-      
+    exportColumns.forEach((col, colIdx) => {
+      const value = getDataValue(row, col);
+      const cellAddress = getCellAddress(dataStartRow + rowIndex, colIdx);
+
       if (isNil(value)) {
         ws[cellAddress] = { v: '', t: 's' };
       } else if (isNumber(value)) {
@@ -260,25 +339,21 @@ export function exportReportToXLSX(
     });
   });
 
-  // Set worksheet range
-  const maxRow = dataStartRow + dataToExport.length - 1;
-  const maxCol = exportColumns.length - 1;
+  const maxRow = dataStartRow + Math.max(0, dataToExport.length) - 1;
+  const maxCol = Math.max(0, exportColumns.length - 1);
   ws['!ref'] = XLSX.utils.encode_range({
     s: { r: 0, c: 0 },
     e: { r: maxRow, c: maxCol }
   });
 
-  // Apply merges
   ws['!merges'] = merges;
 
-  // Apply header styling (bold, background color)
   const headerStyle = {
     font: { bold: true },
     fill: { fgColor: { rgb: 'E0E0E0' } },
     alignment: { horizontal: 'center', vertical: 'center' }
   };
 
-  // Style all header cells (rows 0, 1, 2)
   for (let row = 0; row < 3; row++) {
     for (let col = 0; col < exportColumns.length; col++) {
       const cellAddress = getCellAddress(row, col);
@@ -288,9 +363,84 @@ export function exportReportToXLSX(
     }
   }
 
-  // Create workbook
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+  return ws;
+}
 
+/**
+ * Append one report worksheet at a given group rollup level to an existing workbook.
+ * @param {Object} wb — XLSX workbook from book_new()
+ * @param {string} sheetName — sanitized, unique name
+ * @param {Object} reportData
+ * @param {string} columnGroupBy
+ * @param {Array<string>} fullGroupFields — all report group fields (used for tree walk)
+ * @param {number} targetLevelIndex — which group level this sheet represents
+ * @param {Function} formatHeaderName
+ */
+export function appendReportLevelSheet(
+  wb,
+  sheetName,
+  reportData,
+  columnGroupBy,
+  fullGroupFields,
+  targetLevelIndex,
+  formatHeaderName,
+  includeGroupColumn = true
+) {
+  if (!reportData || isEmpty(reportData.tableData)) {
+    const ws = XLSX.utils.json_to_sheet([{ 'No Data': 'No data available' }]);
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    return;
+  }
+
+  const reportColumnsStructure = computeReportColumnsStructure(reportData, columnGroupBy);
+  if (!reportColumnsStructure) {
+    const ws = XLSX.utils.json_to_sheet(reportData.tableData);
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    return;
+  }
+
+  const fullGF = Array.isArray(fullGroupFields) ? fullGroupFields : [];
+  const safeTarget = fullGF.length === 0
+    ? 0
+    : Math.min(Math.max(0, targetLevelIndex), fullGF.length - 1);
+  const headerGroupFields = fullGF.length === 0 ? [] : fullGF.slice(0, safeTarget + 1);
+
+  const dataToExport = collectReportDataForGroupLevel(reportData, fullGF, safeTarget);
+  const ws = buildReportWorksheet(
+    reportData,
+    columnGroupBy,
+    headerGroupFields,
+    dataToExport,
+    formatHeaderName,
+    includeGroupColumn
+  );
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+}
+
+/**
+ * Exports report data to Excel with merged headers matching the report structure
+ * @param {Object} reportData - Report data with tableData, nestedTableData, timePeriods, metrics, breakdownType
+ * @param {string} columnGroupBy - Column grouping mode: 'values', 'sub-columns', 'period-over-period'
+ * @param {Array} effectiveGroupFields - Array of group fields for multi-level nesting
+ * @param {Function} formatHeaderName - Function to format header names
+ * @returns {Object} XLSX workbook ready for XLSX.writeFile
+ */
+export function exportReportToXLSX(
+  reportData,
+  columnGroupBy,
+  effectiveGroupFields,
+  formatHeaderName
+) {
+  const wb = XLSX.utils.book_new();
+  const fullGF = Array.isArray(effectiveGroupFields) ? effectiveGroupFields : [];
+
+  if (!reportData || isEmpty(reportData.tableData)) {
+    const ws = XLSX.utils.json_to_sheet([{ 'No Data': 'No data available' }]);
+    XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+    return wb;
+  }
+
+  const deepest = fullGF.length === 0 ? 0 : fullGF.length - 1;
+  appendReportLevelSheet(wb, 'Sheet1', reportData, columnGroupBy, fullGF, deepest, formatHeaderName);
   return wb;
 }

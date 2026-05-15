@@ -16,7 +16,7 @@ import {
 } from 'lodash';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { getDataKeys, getDataValue, getNestedValue } from '../utils/dataAccessUtils';
-import { applyRowFilters } from '../utils/filterUtils';
+import { applyRowFilters, hasActiveTableFilters } from '../utils/filterUtils';
 import {
   isJsonArrayOfObjectsString,
   isJsonObjectLike,
@@ -24,7 +24,7 @@ import {
 } from '../utils/jsonArrayParser';
 import { detectColumnTypesLikeProvider, inferColumnType, parseToDate } from '../utils/typeDetectionUtils';
 import { applyDerivedColumns, getDerivedColumnNames, getNonAggregatableColumnNames, getOrderedColumnsWithDerived } from '../utils/derivedColumnsUtils';
-import { buildPipelineColumnMeta, aggregateNonNumeric } from '../utils/perSlotPipelineUtils';
+import { buildPipelineColumnMeta, aggregateNonNumeric, flattenToLeafRows } from '../utils/perSlotPipelineUtils';
 import { useDerivedRowsData } from './useDerivedRowsData';
 
 const isNaNNumber = Number.isNaN;
@@ -507,9 +507,19 @@ export function useDataPipeline(options) {
       ...pipelineColumnMeta,
       columns: pipelineColumnMeta.filteredColumns,
     };
-    return lodashFilter(dataSource, (row) =>
+    let rowsToFilter = dataSource;
+    if (
+      hasActiveTableFilters(tableFilters) &&
+      isArray(dataSource) &&
+      dataSource.length > 0 &&
+      dataSource[0]?.__isGroupRow__
+    ) {
+      rowsToFilter = flattenToLeafRows(dataSource);
+    }
+    const filtered = lodashFilter(rowsToFilter, (row) =>
       applyRowFilters(row, { filters: tableFilters, columnMeta })
     );
+    return filtered;
   }, [
     searchSortSortedData,
     tableData,

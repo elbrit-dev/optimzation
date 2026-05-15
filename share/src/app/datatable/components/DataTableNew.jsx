@@ -1,6 +1,16 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback, useRef, useLayoutEffect, forwardRef, useImperativeHandle } from 'react';
+import React, {
+  useState,
+  useMemo,
+  useEffect,
+  useCallback,
+  useRef,
+  useLayoutEffect,
+  forwardRef,
+  useImperativeHandle,
+  memo,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { DataTable } from 'primereact/datatable';
 import { Column } from 'primereact/column';
@@ -45,6 +55,7 @@ import {
 import { getNestedOverridesAtPath } from '../utils/columnTypesOverrideUtils';
 import { getDataKeys, getDataValue } from '../utils/dataAccessUtils';
 import { getOrderedColumnsWithDerived } from '../utils/derivedColumnsUtils';
+import { getOrderedDisplayColumns } from '../utils/columnOrderUtils';
 import { computeRowStyle, computeColumnStyle, getEffectiveRowRules, getEffectiveColumnRules } from '../utils/rowColumnStylesUtils';
 import { isJsonArrayOfObjectsString, parseJsonObject } from '../utils/jsonArrayParser';
 import { useTableOperations } from '../contexts/TableOperationsContext';
@@ -69,6 +80,62 @@ function getGroupDrillFilterValue(row, fieldIndex, fieldName, getDataValueFn) {
   }
   return getDataValueFn(row, fieldName);
 }
+
+/** Controlled header filter text — survives PrimeReact filter cell remounts; debounces parent commits. */
+const ColumnFilterTextInput = memo(function ColumnFilterTextInput({
+  columnField,
+  committedValue,
+  debounceMs,
+  placeholder,
+  title,
+  onCommit,
+}) {
+  const committedStr =
+    committedValue == null || committedValue === '' ? '' : String(committedValue);
+  const [draft, setDraft] = useState(committedStr);
+
+  useEffect(() => {
+    setDraft(committedStr);
+  }, [committedStr]);
+
+  const onCommitRef = useRef(onCommit);
+  onCommitRef.current = onCommit;
+
+  const debouncedCommit = useMemo(
+    () =>
+      debounce((raw) => {
+        onCommitRef.current(columnField, raw === '' ? null : raw);
+      }, debounceMs),
+    [columnField, debounceMs]
+  );
+
+  useEffect(() => () => debouncedCommit.cancel?.(), [debouncedCommit]);
+
+  return (
+    <InputText
+      value={draft}
+      onChange={(e) => {
+        const raw = e.target.value;
+        setDraft(raw);
+        debouncedCommit(raw);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          debouncedCommit.cancel?.();
+          onCommitRef.current(columnField, e.currentTarget.value === '' ? null : e.currentTarget.value);
+        }
+      }}
+      onBlur={(e) => {
+        debouncedCommit.cancel?.();
+        onCommitRef.current(columnField, e.currentTarget.value === '' ? null : e.currentTarget.value);
+      }}
+      placeholder={placeholder}
+      title={title}
+      className="p-column-filter"
+      style={{ width: '100%' }}
+    />
+  );
+});
 
 // Inline Select cell editor - loads options via getOptions(ctx) or uses cachedOptions when available. ctx = { columnName, query } (row-independent)
 function InlineSelectCellEditor({ options: editorOptions, col, getOptions, queryFunction, cachedOptions }) {
@@ -1488,189 +1555,17 @@ export default function DataTableNew({
   // Percentage column helpers come from context - no need to duplicate
 
   /**
-   * Computes the ordered array of columns to display in the table.
-   * Handles percentage column positioning based on the beforeColumn field:
-   * - If beforeColumn is specified and exists, inserts the percentage column before that column
-   * - If beforeColumn is outerGroupField, inserts the percentage column right after outerGroupField (outerGroupField must stay first)
-   * - If beforeColumn is not specified or invalid, uses default positioning (after outerGroupField if exists, otherwise at beginning)
-   * - Percentage columns are excluded from filteredColumns and inserted at their specified positions
+   * Column order matches export: see getOrderedDisplayColumns in columnOrderUtils.js
    */
-  const orderedColumns = useMemo(() => {
-    const isNestedDrawer = !!finalParentColumnName;
-    if (isEmpty(columns)) {
-      return [];
-    }
-
-    const debugPayload = (msg, extra) => {
-      const d = { msg, columns: [...(columns || [])], visibleColumns: visibleColumns ? [...(visibleColumns || [])] : visibleColumns, outerGroupField, innerGroupField, isNestedDrawer, ...extra };
-    };
-
-    let filteredColumns = columns;
-    debugPayload('start', { filteredAfterInit: [...filteredColumns] });
-
-    // When grouping is active, include group fields and all aggregated columns (numeric, string, date, bool)
-    // Inner group field is hidden in main table (only shown in nested table)
-    if (outerGroupField) {
-      filteredColumns = columns.filter(col => {
-        // Always include outer group field (but NOT inner group field in main table)
-        if (col === outerGroupField) {
-          return true;
-        }
-        // Exclude inner group field from main table
-        if (col === innerGroupField) {
-          return false;
-        }
-        // Exclude other group fields from deeper levels (they appear in nested tables)
-        if (effectiveGroupFields && effectiveGroupFields.length > 1 && effectiveGroupFields.indexOf(col) > 0) {
-          return false;
-        }
-        // Include all columns - we now aggregate string, date, bool (oldest-newest, true: N false: M, value x N + more)
-        return true;
-      });
-      // Per-groupField allowedColumns: filter by allowedColumnsByGroupField[outerGroupField] ?? main
-      // Group field is only shown when in allowedSet (no special case - allows hiding brand when not in allowedColumns)
-      const allowedForLevel = getAllowedForGroupField(allowedColumns, outerGroupField) ?? getAllowedForScope(allowedColumns, 'main');
-      if (allowedForLevel && allowedForLevel.length > 0) {
-        const allowedSet = new Set(allowedForLevel);
-        filteredColumns = filteredColumns.filter(col => allowedSet.has(col));
-      }
-      debugPayload('after outerGroupField filter', { filteredColumns: [...filteredColumns], columnTypesSample: columns.slice(0, 3).map(c => ({ col: c, type: columnTypesFlags[c], isNumeric: get(columnTypesFlags[c], 'isNumeric') })) });
-    }
-
-    // Always exclude internal metadata columns (__editingKey__, __groupKey__, __groupRows__, etc.)
-    filteredColumns = filteredColumns.filter(col => !col || typeof col !== 'string' || !col.startsWith('__'));
-
-    // Apply visibleColumns filter if provided (and not empty)
-    if (!isEmpty(visibleColumns) && isArray(visibleColumns)) {
-      debugPayload('applying visibleColumns filter', { visibleSet: [...visibleColumns], beforeFilter: [...filteredColumns] });
-      const visibleSet = new Set(visibleColumns);
-      // Always include outer group field even if not in visibleColumns
-      // Exclude inner group field from main table
-      filteredColumns = filteredColumns.filter(col => {
-        if (col === outerGroupField) {
-          return true;
-        }
-        if (col === innerGroupField) {
-          return false;
-        }
-        return visibleSet.has(col);
-      });
-      debugPayload('after visibleColumns filter', { filteredColumns: [...filteredColumns] });
-    }
-
-    // Get percentage column names and configurations
-    // Use percentageColumnNames from context
-    const percentageColumnNamesLocal = percentageColumnNames || [];
-
-    // Start with filtered columns, excluding percentage columns themselves (they'll be inserted later)
-    const nonPercentageColumns = filteredColumns.filter(
-      col => !includes(percentageColumnNamesLocal, col)
-    );
-
-    // Build ordered array step by step
-    const ordered = [];
-    
-    // Step 1: Add outerGroupField first if it exists (outerGroupField must always be first)
-    // Only include when in filteredColumns OR (grouping active AND allowed by allowedColumns)
-    const allowedForOuter = getAllowedForGroupField(allowedColumns, outerGroupField) ?? getAllowedForScope(allowedColumns, 'main');
-    const outerGroupAllowed = !allowedForOuter || allowedForOuter.length === 0 || includes(allowedForOuter, outerGroupField);
-    if (outerGroupField && (includes(filteredColumns, outerGroupField) || (effectiveGroupFields?.length > 0 && outerGroupAllowed))) {
-      ordered.push(outerGroupField);
-    }
-
-    // Step 2: Create a working array starting with non-percentage columns (excluding outerGroupField)
-    const nonPercentageExcludingOuter = nonPercentageColumns.filter(col => col !== outerGroupField);
-    let workingArray = [...nonPercentageExcludingOuter];
-    
-    // Step 3: Process percentage columns with beforeColumn specified
-    // Insert them at the specified positions in the order they appear in percentageColumns array
-    const percentageColumnsWithBeforeColumn = hasPercentageColumns
-      ? percentageColumns.filter(pc => pc.columnName && pc.beforeColumn && pc.beforeColumn !== pc.columnName)
-      : [];
-    
-    // Track which percentage columns have been inserted via beforeColumn
-    const insertedPercentageColumns = new Set();
-    
-    // Process each percentage column with beforeColumn
-    percentageColumnsWithBeforeColumn.forEach(pc => {
-      const beforeCol = pc.beforeColumn;
-      const pctColName = pc.columnName;
-      
-      // Special case: if beforeColumn is outerGroupField, we'll insert right after outerGroupField
-      // Skip here, handle separately
-      if (beforeCol === outerGroupField) {
-        return;
-      }
-      
-      // Skip if beforeColumn doesn't exist in filteredColumns
-      if (!includes(filteredColumns, beforeCol)) {
-        return;
-      }
-      
-      // Find the index of beforeColumn in workingArray
-      const beforeIndex = workingArray.indexOf(beforeCol);
-      
-      if (beforeIndex !== -1) {
-        // Insert the percentage column before the specified column
-        workingArray.splice(beforeIndex, 0, pctColName);
-        insertedPercentageColumns.add(pctColName);
-      }
-    });
-
-    // Step 4: Handle percentage columns that want to be before outerGroupField
-    // These should go right after outerGroupField (since outerGroupField must stay first)
-    const percentageColumnsBeforeOuterGroup = percentageColumnsWithBeforeColumn.filter(
-      pc => pc.beforeColumn === outerGroupField && outerGroupField && includes(filteredColumns, outerGroupField)
-    );
-    
-    const pctColsAfterOuter = percentageColumnsBeforeOuterGroup
-      .map(pc => pc.columnName)
-      .filter(name => name && !insertedPercentageColumns.has(name));
-    
-    // Insert percentage columns that should be after outerGroupField (before outerGroupField case)
-    // Do this before adding workingArray so they appear right after outerGroupField
-    if (pctColsAfterOuter.length > 0 && outerGroupField && includes(filteredColumns, outerGroupField)) {
-      // Insert right after outerGroupField (index 0, so at index 1)
-      ordered.push(...pctColsAfterOuter);
-      pctColsAfterOuter.forEach(col => insertedPercentageColumns.add(col));
-    }
-    
-    // Step 4b: Add working array to ordered (includes percentage columns with beforeColumn at their positions)
-    ordered.push(...workingArray);
-
-    // Step 5: Process remaining percentage columns (without beforeColumn or with invalid beforeColumn)
-    // These go after outerGroupField if it exists, otherwise at the beginning
-    if (hasPercentageColumns) {
-      const remainingPercentageColumns = percentageColumns
-        .filter(pc => pc.columnName && !insertedPercentageColumns.has(pc.columnName))
-        .map(pc => pc.columnName);
-      
-      if (remainingPercentageColumns.length > 0) {
-        if (outerGroupField && includes(filteredColumns, outerGroupField)) {
-          // Find position after outerGroupField and any percentage columns already inserted after it
-          // Count how many percentage columns are already right after outerGroupField
-          let insertIndex = 1 + pctColsAfterOuter.length;
-          ordered.splice(insertIndex, 0, ...remainingPercentageColumns);
-        } else {
-          // No outerGroupField, add remaining percentage columns at the beginning
-          ordered.unshift(...remainingPercentageColumns);
-        }
-      }
-    }
-
-    // Remove any duplicates that might have been introduced (shouldn't happen, but safety check)
-    const finalResult = [];
-    const seen = new Set();
-    ordered.forEach(col => {
-      if (!seen.has(col)) {
-        seen.add(col);
-        finalResult.push(col);
-      }
-    });
-
-    if (isNestedDrawer) debugPayload('final orderedColumns', { finalResult: [...finalResult] });
-    return finalResult;
-  }, [columns, visibleColumns, outerGroupField, innerGroupField, effectiveGroupFields, columnTypesFlags, hasPercentageColumns, percentageColumns, finalParentColumnName, allowedColumns]);
+  const orderedColumns = useMemo(() => getOrderedDisplayColumns({
+    columns,
+    visibleColumns,
+    effectiveGroupFields,
+    hasPercentageColumns,
+    percentageColumns,
+    percentageColumnNames,
+    allowedColumns,
+  }), [columns, visibleColumns, effectiveGroupFields, hasPercentageColumns, percentageColumns, percentageColumnNames, allowedColumns]);
 
   // Report mode: Pre-compute column structure (shared by header and columns)
   const reportColumnsStructure = useMemo(() => {
@@ -2153,84 +2048,42 @@ export default function DataTableNew({
     return active;
   }, [filters, columns, enableFilter, columnTypes, formatFilterValue, multiselectColumns, hasPercentageColumns, percentageColumnNames]);
 
-  // Debounce for typing-based filters (text/numeric)
-  const DEBOUNCE_MS = 3000;
-  const debouncedMapRef = useRef(new Map());
+  const DEBOUNCE_MS = 400;
 
-  const cancelDebounced = useCallback((col) => {
-    const fn = debouncedMapRef.current.get(col);
-    if (fn && fn.cancel) fn.cancel();
-  }, []);
-
-  const debouncedUpdateFilter = useCallback(
-    (col, value) => {
-      let fn = debouncedMapRef.current.get(col);
-      if (!fn) {
-        fn = debounce((val) => {
-          updateFilter(col, val);
-        }, DEBOUNCE_MS);
-        debouncedMapRef.current.set(col, fn);
-      }
-      fn(value);
+  const textFilterElement = useCallback(
+    (col) => () => {
+      const filterState = get(filters, col);
+      const committed = get(filterState, 'value');
+      return (
+        <ColumnFilterTextInput
+          columnField={col}
+          committedValue={committed}
+          debounceMs={DEBOUNCE_MS}
+          placeholder="Search..."
+          onCommit={updateFilter}
+        />
+      );
     },
-    [updateFilter]
+    [filters, updateFilter]
   );
 
-  useEffect(() => {
-    return () => {
-      debouncedMapRef.current.forEach((fn) => fn?.cancel?.());
-      debouncedMapRef.current.clear();
-    };
-  }, []);
-
-  const textFilterElement = useCallback((col) => (options) => {
-    const filterState = get(filters, col);
-    const value = isNil(get(filterState, 'value')) ? '' : filterState.value;
-    return (
-      <InputText
-        defaultValue={value}
-        onChange={(e) => debouncedUpdateFilter(col, e.target.value === '' ? null : e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            cancelDebounced(col);
-            updateFilter(col, e.currentTarget.value === '' ? null : e.currentTarget.value);
-          }
-        }}
-        onBlur={(e) => {
-          cancelDebounced(col);
-          updateFilter(col, e.currentTarget.value === '' ? null : e.currentTarget.value);
-        }}
-        placeholder="Search..."
-        className="p-column-filter"
-        style={{ width: '100%' }}
-      />
-    );
-  }, [filters, updateFilter, debouncedUpdateFilter, cancelDebounced]);
-
-  const numericFilterElement = useCallback((col) => (options) => {
-    const filterState = get(filters, col);
-    const value = isNil(get(filterState, 'value')) ? '' : filterState.value;
-    return (
-      <InputText
-        defaultValue={value}
-        onChange={(e) => debouncedUpdateFilter(col, e.target.value === '' ? null : e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            cancelDebounced(col);
-            updateFilter(col, e.currentTarget.value === '' ? null : e.currentTarget.value);
-          }
-        }}
-        onBlur={(e) => {
-          cancelDebounced(col);
-          updateFilter(col, e.currentTarget.value === '' ? null : e.currentTarget.value);
-        }}
-        placeholder="<, >, <=, >=, =, <>"
-        className="p-column-filter"
-        style={{ width: '100%' }}
-        title="Numeric filters: <10, >10, <=10, >=10, =10, 10<>20 (range)"
-      />
-    );
-  }, [filters, updateFilter, debouncedUpdateFilter, cancelDebounced]);
+  const numericFilterElement = useCallback(
+    (col) => () => {
+      const filterState = get(filters, col);
+      const committed = get(filterState, 'value');
+      return (
+        <ColumnFilterTextInput
+          columnField={col}
+          committedValue={committed}
+          debounceMs={DEBOUNCE_MS}
+          placeholder="<, >, <=, >=, =, <>"
+          title="Numeric filters: <10, >10, <=10, >=10, =10, 10<>20 (range)"
+          onCommit={updateFilter}
+        />
+      );
+    },
+    [filters, updateFilter]
+  );
 
   const dateFilterElement = useCallback((col) => (options) => {
     const filterState = get(filters, col);

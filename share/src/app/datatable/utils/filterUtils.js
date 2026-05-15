@@ -137,6 +137,15 @@ function matchesColumnFilter(cellValue, filterValue, columnType, isMultiselectCo
   return includes(strCell, strFilter);
 }
 
+/** True if any column filter has a non-empty value (PrimeReact shape: { value }). */
+export function hasActiveTableFilters(tableFilters) {
+  if (!tableFilters || isEmpty(tableFilters)) return false;
+  return Object.keys(tableFilters).some((k) => {
+    const v = get(tableFilters, [k, 'value']);
+    return v != null && v !== '' && !(isArray(v) && isEmpty(v));
+  });
+}
+
 export function applyRowFilters(row, options) {
   if (!row || typeof row !== 'object') return false;
   const { filters, columnMeta } = options;
@@ -154,9 +163,9 @@ export function applyRowFilters(row, options) {
     const filterObj = get(filters, col);
     if (!filterObj || isNil(filterObj.value) || filterObj.value === '') return true;
     if (isArray(filterObj.value) && isEmpty(filterObj.value)) return true;
-    const cellValue = getCellValue(row, col);
     const columnType = columnTypes[col] || 'string';
     const isMultiselectColumn = includes(multiselectColumns, col);
+    const cellValue = getCellValue(row, col);
     return matchesColumnFilter(cellValue, filterObj.value, columnType, isMultiselectColumn);
   });
   if (!regularColumnsPass) return false;

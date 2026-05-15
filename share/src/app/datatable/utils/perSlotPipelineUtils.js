@@ -22,7 +22,13 @@ import {
   uniq,
 } from 'lodash';
 import { getDataKeys, getDataValue, getNestedValue } from './dataAccessUtils';
-import { applyRowFilters, applyDateFilter, applyNumericFilter, parseNumericFilter } from './filterUtils';
+import {
+  applyRowFilters,
+  applyDateFilter,
+  applyNumericFilter,
+  parseNumericFilter,
+  hasActiveTableFilters,
+} from './filterUtils';
 import {
   isJsonArrayOfObjectsString,
   extractJsonNestedTablesRecursive,
@@ -261,6 +267,20 @@ export function aggregateNonNumeric(col, colType, innerData, getCell) {
   }
 
   return { display: vals[0] };
+}
+
+/**
+ * Format grouped value/count breakdown for Excel — one line per entry (`value x count`),
+ * newline-separated (same ordering as the chip popup / aggregateNonNumeric breakdown).
+ * @param {Array<{ value: string, count: number }>|undefined} breakdown
+ * @returns {string}
+ */
+export function formatStringBreakdownForExcel(breakdown) {
+  if (!isArray(breakdown) || breakdown.length === 0) return '';
+  const lines = breakdown
+    .filter((entry) => !isNil(entry?.value) && entry.count > 0)
+    .map((entry) => `${String(entry.value)} x ${entry.count}`);
+  return lines.join('\n');
 }
 
 /**
@@ -600,7 +620,17 @@ export function computeSlotPipeline(baseData, slotConfig, slotState, sharedOptio
   let filteredData = isEmptyData ? [] : dataSource;
   if (!isEmptyData && enableFilter) {
     const columnMeta = { ...pipelineColumnMeta, columns: pipelineColumnMeta.filteredColumns };
-    filteredData = lodashFilter(dataSource, (row) =>
+    let rowsToFilter = dataSource;
+    // Filtering grouped rows by "any descendant matches" keeps whole branches; flatten then filter
+    // leaves so aggregates and visible rows match the filter (same regroup as downstream grouping).
+    if (
+      hasActiveTableFilters(tableFilters) &&
+      dataSource.length > 0 &&
+      dataSource[0]?.__isGroupRow__
+    ) {
+      rowsToFilter = flattenToLeafRows(dataSource);
+    }
+    filteredData = lodashFilter(rowsToFilter, (row) =>
       applyRowFilters(row, { filters: tableFilters, columnMeta })
     );
   }
