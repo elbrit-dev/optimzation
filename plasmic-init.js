@@ -14,21 +14,28 @@ import NovuInbox from "./components/NovuInbox";
 import jsonata from 'jsonata';
 import { db } from "./firebase";
 
-// Validate tag: if deployLive is false,tag must be "dev"
+// Validate tag: only "dev" (test) and "prod" (live) are allowed.
 const plasmicTag = process.env.NEXT_PUBLIC_PLASMIC_TAG;
-// const settings = await db.collection('DevOps').doc('Setting').get().catch(() => null);
-// const isLive = settings?.data()?.deployLive;
 
-if (plasmicTag && plasmicTag !== "dev" ) {
+const allowedTags = ["dev", "prod"];
+if (plasmicTag && !allowedTags.includes(plasmicTag)) {
   throw new Error(`Invalid Plasmic Tag "${plasmicTag}" for current deployment setting.`);
 }
+
+// Resolve which Plasmic version to load:
+// - "prod" (live): only versions published with the "prod" tag, so
+//   live changes ONLY when you publish to "prod" in Plasmic Studio.
+// - "dev" / unset (test): the latest publish regardless of tag, so a
+//   "dev" publish shows on test only, while a "prod" publish shows on
+//   both test and live.
+const plasmicVersion = plasmicTag === "prod" ? "prod" : undefined;
 
 export const PLASMIC = initPlasmicLoader({
   projects: [
     {
       id: "b6mXu8rXhi8fdDd6jwb8oh",
       token: "hKaQFlYDzP6By8Fk45XBc6AhEoXVcAk3jJA5AvDn7lEnJI4Ho97wv9zkcp0LvOnjUhV0wQ6ZeeXBj5V135I9YA",
-      version: process.env.NEXT_PUBLIC_PLASMIC_TAG ,
+      version: plasmicVersion,
     },
   ],
 
