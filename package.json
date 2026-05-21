@@ -7,6 +7,7 @@
     "build": "node scripts/release-guard.js && next build",
     "start": "next start",
     "lint": "next lint",
+    "mcp": "node scripts/mcp-server.js",
     "copy-shared": "npx degit elbrit-dev/playground/share share --force && npx degit elbrit-dev/playground/components components --force && npx degit elbrit-dev/playground/shared shared --force"
   },
   "dependencies": {
@@ -14,6 +15,7 @@
     "@graphiql/react": "^0.37.3",
     "@hookform/resolvers": "^5.2.2",
     "@metrichor/jmespath-plus": "^0.5.3",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@monaco-editor/react": "^4.7.0",
     "@novu/node": "^2.6.6",
     "@novu/react": "^3.13.0",
@@ -53,6 +55,7 @@
     "date-fns": "^4.1.0",
     "dayjs": "^1.11.19",
     "dexie": "^4.0.11",
+    "dotenv": "^17.4.2",
     "embla-carousel-autoplay": "^8.6.0",
     "embla-carousel-react": "^8.6.0",
     "embla-carousel-wheel-gestures": "^8.1.0",
@@ -88,7 +91,7 @@
     "tailwind-merge": "^3.4.0",
     "tailwindcss-animate": "^1.0.7",
     "xlsx": "^0.18.5",
-    "zod": "^4.2.1",
+    "zod": "^4.4.3",
     "zustand": "^5.0.9"
   },
   "devDependencies": {
