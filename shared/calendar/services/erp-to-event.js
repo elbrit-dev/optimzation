@@ -137,16 +137,6 @@ export function mapErpGraphqlEventToCalendar(node) {
     // 👇 UI derived
     participants,
   };
-  if (
-    tag === TAG_IDS.DOCTOR_VISIT_PLAN &&
-    Array.isArray(node.fsl_doctor_item)
-  ) {
-    event.fsl_doctor_item = node.fsl_doctor_item;
-    event.pob_given =
-      event.fsl_doctor_item.length > 0
-        ? "Yes"
-        : "No";
-  }
 
   /* ---------------------------------------------
      VALIDATE AGAINST SCHEMA

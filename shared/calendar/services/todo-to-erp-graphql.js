@@ -74,7 +74,7 @@ export function mapErpTodoToCalendar(todo) {
 
   return {
     erpName: todo.name,
-    title: todo.custom_subject || todo.title,
+    title: todo.custom_subject || todo.title || "Todo List",
     description: normalizeChecklistFromERP(todo.description),
     // description: todo.description,
     startDate: start.toISOString(),

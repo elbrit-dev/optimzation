@@ -32,7 +32,7 @@ export async function fetchItems() {
       first: MAX_ROWS,
       filters: [
         {
-          fieldname: "whg_last_pts",
+          fieldname: "custom_last_mrp",
           operator: "GT",
           value: "0",
         },
@@ -46,7 +46,7 @@ export async function fetchItems() {
         unique.set(node.item_name, {
           value: node.item_name,
           label: node.item_name,
-          rate: Number(node.whg_last_pts),
+          rate: Number(node.custom_last_mrp),
         });
       }
     });
@@ -67,12 +67,12 @@ export async function fetchDoctors() {
       label: node.lead_name,
       kly_lat_long: node.fsl_lat_lon,
       city: node.city,
-      code: node.fsl_ecubix_code,
+      code: node.name,
       fsl_speciality__name: node.fsl_speciality__name,
       email:node.email_id,
-      fsl_category1__name:node.fsl_category1__name,
-       fsl_category2__name:node.fsl_category2__name,
-       fsl_category3__name:node.fsl_category3__name,
+      fsl_category1__name:node.custom_category_3,
+       fsl_category2__name:node.custom_category_2,
+       fsl_category3__name:node.custom_category_3,
       territory__name:node.territory__name,
       notes: (node.notes ?? [])
         .map(n => ({

@@ -69,6 +69,7 @@ export const TAG_FORM_CONFIG = {
       "description", "allocated_to"
     ],
     show: ["startDate",  "hqTerritory","endDate"],
+    // required: ["startDate","endDate"],
     required: ["startDate","endDate", "hqTerritory"],
     forceAllDay: true,
     dateOnly: true,
@@ -210,6 +211,7 @@ export const TAG_FORM_CONFIG = {
       "color", "allocated_to"
     ],
     // show: ["startDate", "doctor"],
+    required: ["startDate"],
     required: ["startDate", "doctor"],
     dateOnly: true,
     labels: {

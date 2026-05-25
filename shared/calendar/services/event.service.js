@@ -79,7 +79,7 @@ mutation UpdateLeaveAttachment(
   setValue(
     doctype: "Leave Application"
     name: $name
-    fieldname: "fsl_attach"
+    fieldname: "custom_attachment"
     value: $value
   ) {
     name
@@ -467,11 +467,6 @@ export async function deleteEventFromErp(erpName,docname) {
     // ❌ real error
     throw error;
   }
-}
-
-export async function deleteLeadNote(noteName) {
-  if (!noteName) return true;
-  return deleteEventFromErp(noteName, "Comment");
 }
 
 // ---------------------------------------------

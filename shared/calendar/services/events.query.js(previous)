@@ -15,13 +15,13 @@ query EventsByRange(
         color
         all_day
         event_category
-        fsl_is_force_visit:custom_is_force_visit
+        fsl_is_force_visit
         custom_force_visit_reason
         reference_doctype {
           name
         }
         reference_docname__name
-        fsl_role_id :custom_role_id {
+        fsl_role_id {
           name
         }
         owner {
@@ -29,16 +29,22 @@ query EventsByRange(
           full_name
           email
         }
-         fsl_territory__name:custom_hq_territory__name
+         fsl_territory__name
           event_participants {
           reference_doctype__name
-          kly_lat_long:custom_lat__long
+          kly_lat_long
           reference_docname__name
           attending
           email
-          kly_role_id:custom_role_id {
-              name
-            }
+          kly_role_id {
+            name
+          }
+        }
+          fsl_doctor_item {
+          amount
+          item__name
+          qty
+          rate
         }
       }
     }
@@ -70,50 +76,20 @@ query ToDoes($first: Int!) {
 }
 `;
 export const ELBRIT_ROLEID = `
-query RoleProfiles($first: Int) {
-  RoleProfiles(first: $first) {
+query ElbritRoleIDS($first: Int) {
+  ElbritRoleIDS(first: $first) {
     edges {
       node {
-      role_profile
-      custom_department {
-        department_name
         lft
         rgt
-        parent_department__name
-      }
-      parent_role_profile {
-        name
+        role_id
+        sales_team__name
+        parent_elbrit_role_id__name
         is_group
       }
     }
-    }
   }
 }`
-export function normalizeRoleProfiles(data) {
-	return {
-		ElbritRoleIDS: {
-			edges:
-				data?.RoleProfiles?.edges?.map(({ node }) => ({
-					node: {
-						lft: node?.custom_department?.lft ?? null,
-
-						rgt: node?.custom_department?.rgt ?? null,
-
-						role_id: node?.role_profile ?? null,
-
-						sales_team__name:
-							node?.custom_department?.department_name ?? null,
-
-						parent_elbrit_role_id__name:
-							node?.parent_role_profile?.name ?? null,
-
-						is_group:
-							node?.parent_role_profile?.is_group ?? false,
-					},
-				})) ?? [],
-		},
-	};
-}
 export const EMPLOYEES_QUERY = `
 query GetEmployees($first: Int!) {
   Employees(
@@ -148,7 +124,7 @@ query Items(
       node {
         item_code
         item_name
-        custom_last_mrp
+        whg_last_pts
       }
     }
     pageInfo {
@@ -167,17 +143,18 @@ query Doctors($first: Int) {
       node {
         name
         lead_name
-        custom_latitude__longitude
+        fsl_lat_lon
         city
-        custom_speciality
+        fsl_speciality__name
+        fsl_ecubix_code
         email_id
         notes {
           note
           creation
         }
-        custom_category_3
-        custom_category_2
-        custom_category_1
+        fsl_category1__name
+        fsl_category2__name
+        fsl_category3__name
         territory__name
       }
     }
@@ -252,7 +229,7 @@ query LeaveApplications($first: Int) {
         description
         posting_date
         status
-        custom_attachement
+        custom_attachment
         leave_approver {
           name
         }

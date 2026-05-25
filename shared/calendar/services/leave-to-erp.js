@@ -33,7 +33,7 @@ export function mapFormToErpLeave(values,options = {}) {
     posting_date: toERPDate(),
     status: "Open",
     follow_via_email: 1,
-    fsl_attach: values.medicalAttachment ?? null,
+    custom_attachment: values.medicalAttachment ?? null,
     leave_approver: values.leave_approver ?? null,
   };
 
@@ -76,7 +76,7 @@ export function mapErpLeaveToCalendar(leave) {
     halfDayDate: leave.half_day_date ?? "",
     description: leave.description,
     color: statusColorMap[leave.status] ?? "red",
-    medicalAttachment: leave.fsl_attach ?? "",
+    medicalAttachment: leave.custom_attachment ?? "",
     employee: leave.employee?.name,
     approvedBy: leave.leave_approver_name ?? "",
     leave_approver:

@@ -517,7 +517,7 @@ PLASMIC.registerFunction(getGlobalState, {
 // Register FirebaseUIComponent
 PLASMIC.registerComponent(FirebaseUIComponent, {
   name: "FirebaseUIComponent",
-  description: "Native Firebase Authentication UI (Microsoft & Phone)",
+  description: "Native Firebase Authentication UI (Google & Phone)",
   isDefaultExport: true,
   importPath: "./components/FirebaseUIComponent",
   props: {

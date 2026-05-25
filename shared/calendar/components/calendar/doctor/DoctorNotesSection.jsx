@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
 import Tiptap from "@calendar/components/ui/TodoWysiwyg";
 
-import { addLeadNote, deleteLeadNote } from "@calendar/services/event.service";
+import { addLeadNote } from "@calendar/services/event.service";
 import { clearParticipantCache } from "@calendar/lib/participants-cache";
 import { fetchDoctors } from "@calendar/services/participants.service";
 

@@ -134,12 +134,12 @@ export function DayCell({
       transition={transition}>
       <DroppableArea
         date={date}
-        className="w-full h-full py-2  pointer-events-none"
+        className="w-full h-full py-0.5 lg:py-2  pointer-events-none"
       >
         <motion.span
           onPointerDown={(e) => e.stopPropagation()}
           className={cn(
-            "h-6 px-1 text-xs font-semibold lg:px-2",
+            "h-6 px-1 text-[8px] lg:text-xs font-semibold lg:px-2",
             !currentMonth && "opacity-20",
             isToday(date) &&
             "flex w-6 translate-x-1 items-center justify-center rounded-full bg-primary px-0 font-bold text-primary-foreground"
@@ -149,7 +149,7 @@ export function DayCell({
         </motion.span>
         <motion.div
           className={cn(
-            "flex gap-1 px-0 mt-1 lg:h-max-content overflow-hidden lg:flex-col lg:gap-1 w-full",
+            "flex gap-0 px-0  lg:h-max-content overflow-hidden lg:flex-col lg:gap-1 w-full",
             !currentMonth && "opacity-50"
           )}>
           {!isPastDate && cellEvents.length === 0 ? (
@@ -198,8 +198,8 @@ export function DayCell({
 
         </motion.div>
 
-        {!isMobile && hiddenEventsCount > 0 && currentMonth && (
-          <div className="px-1 ">
+        {mobileLayer === "month-expanded" && hiddenEventsCount > 0 && currentMonth && (
+          // <div className="px-1 ">
             <button
               type="button"
               onPointerDownCapture={(e) => e.stopPropagation()}  // 🔥 REQUIRED
@@ -208,11 +208,11 @@ export function DayCell({
                 setSelectedDate(date);
                 setEventListDate(date);
               }}
-              className="text-xs font-semibold text-muted-foreground hover:text-foreground pointer-events-auto"
+              className="px-1 text-[8px] leading-[8px] lg:text-xs font-semibold text-muted-foreground hover:text-foreground pointer-events-auto"
             >
               +{hiddenEventsCount} more
             </button>
-          </div>
+          // </div>
         )}
       </DroppableArea>
     </motion.div>

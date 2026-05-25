@@ -90,7 +90,7 @@ export function MonthEventBadge({
         <DraggableEvent event={event}>
             <EventDetailsDialog event={event}>
 				<div role="button" tabIndex={0} className={eventBadgeClasses}>
-					<div className="flex items-center gap-1 md:gap-1.5 truncate">
+					<div className="flex items-center gap-1 md:gap-1 truncate">
 						{!["middle", "last"].includes(position) &&
 							badgeVariant === "dot" && (
 								<EventBullet color={event.color} />

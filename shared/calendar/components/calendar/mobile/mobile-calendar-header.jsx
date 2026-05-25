@@ -27,15 +27,15 @@ const MOBILE_LAYER_MAP = {
 
 export function MobileCalendarHeader() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-
   const {
     view,
     setView,
     setSelectedDate,
     setMobileLayer,
-    events,
+    events, showOnlyApprovedLeaves,
+    setShowOnlyApprovedLeaves,
   } = useCalendar();
-
+  const [prevView, setPrevView] = useState(view);
   const today = new Date();
   const todayDate = format(today, "d");
 
@@ -109,7 +109,35 @@ export function MobileCalendarHeader() {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <Button variant="ghost" size="icon"><CheckSquare /></Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => {
+              setShowOnlyApprovedLeaves((prev) => {
+                const next = !prev;
+
+                if (next) {
+                  // 👉 turning ON
+                  setPrevView(view); // save current view
+                  setView("agenda");
+                  setMobileLayer("agenda");
+                } else {
+                  // 👉 turning OFF
+                  setView(prevView);
+                  setMobileLayer(MOBILE_LAYER_MAP[prevView] ?? "month-expanded");
+                }
+
+                return next;
+              });
+            }}
+          >
+            <CheckSquare
+              className={cn(
+                "h-5 w-5",
+                showOnlyApprovedLeaves && "text-blue-500"
+              )}
+            />
+          </Button>
           <Button variant="ghost" size="icon"><House /></Button>
         </div>
       </header>

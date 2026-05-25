@@ -34,7 +34,7 @@ export async function uploadLeaveMedicalCertificate(values, leaveName,erpUrl,aut
         file: null,
         attached_to_doctype: "Leave Application",
         attached_to_name: leaveName,
-        fieldname: "fsl_attach",
+        fieldname: "custom_attachment",
         is_private: true,
       },
     })

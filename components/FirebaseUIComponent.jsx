@@ -30,10 +30,7 @@ const FirebaseUIComponent = ({ onSuccess, onError, className }) => {
       const uiConfig = {
         signInOptions: [
           {
-            provider: 'microsoft.com',
-            customParameters: {
-              tenant: process.env.NEXT_PUBLIC_AZURE_TENANT_ID
-            }
+            provider: firebase.auth.GoogleAuthProvider.PROVIDER_ID
           },
           {
             provider: 'phone',

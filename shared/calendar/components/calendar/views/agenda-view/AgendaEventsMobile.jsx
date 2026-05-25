@@ -1,16 +1,21 @@
 "use client";
 
-import { format, parseISO } from "date-fns";
+import {
+  format,
+  parseISO,
+  startOfDay,
+  endOfDay,
+  isWithinInterval,
+} from "date-fns";
+
 import { useMemo, useRef, useState } from "react";
 import { cn } from "@calendar/lib/utils";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
+
 import {
   getBgColor,
   getColorClass,
-  getEventsForMonth,
   getFirstLetters,
-  getPriorityClass,
-  getStatusBadgeClass,
   toCapitalize,
 } from "@calendar/components/calendar/helpers";
 
@@ -45,6 +50,7 @@ export const AgendaEventsMobile = () => {
     setView,
     selectedDate,
     setSelectedDate,
+    showOnlyApprovedLeaves,
   } = useCalendar();
 
   const scrollRef = useRef(null);
@@ -55,10 +61,10 @@ export const AgendaEventsMobile = () => {
   const swiping = useRef(false);
 
   const [isAtTop, setIsAtTop] = useState(true);
-  const [doctorAccordionOpen, setDoctorAccordionOpen] = useState(false);
+  const [accordionOpen, setAccordionOpen] = useState({});
 
   /* ===============================
-     SCROLL
+     TOUCH LOGIC (UNCHANGED)
   =============================== */
 
   const handleScroll = () => {
@@ -66,21 +72,12 @@ export const AgendaEventsMobile = () => {
     setIsAtTop(scrollRef.current.scrollTop === 0);
   };
 
-  /* ===============================
-     TOUCH START
-  =============================== */
-
   const onTouchStartCapture = (e) => {
     startY.current = e.touches[0].clientY;
     startX.current = e.touches[0].clientX;
-
     pulling.current = false;
     swiping.current = false;
   };
-
-  /* ===============================
-     TOUCH MOVE
-  =============================== */
 
   const onTouchMoveCapture = (e) => {
     const deltaY = e.touches[0].clientY - startY.current;
@@ -89,10 +86,6 @@ export const AgendaEventsMobile = () => {
     if (isAtTop && deltaY > 10) pulling.current = true;
     if (Math.abs(deltaX) > 10) swiping.current = true;
   };
-
-  /* ===============================
-     TOUCH END
-  =============================== */
 
   const onTouchEndCapture = (e) => {
     const deltaY = e.changedTouches[0].clientY - startY.current;
@@ -114,58 +107,99 @@ export const AgendaEventsMobile = () => {
   };
 
   /* ===============================
-     MONTH EVENTS
+     RANGE FILTER (FIXED)
   =============================== */
 
-  const monthEvents = useMemo(() => {
-    return getEventsForMonth(events, selectedDate);
-  }, [events, selectedDate]);
+  const isEventInRange = (event, date) => {
+    const start = parseISO(event.startDate);
+    const end = parseISO(event.endDate || event.startDate);
+
+    return isWithinInterval(date, {
+      start: startOfDay(start),
+      end: endOfDay(end),
+    });
+  };
+
+  const filteredEvents = useMemo(() => {
+    const startOfCurrentMonth = new Date(
+      selectedDate.getFullYear(),
+      selectedDate.getMonth(),
+      1
+    );
+    
+    const endOfCurrentMonth = new Date(
+      selectedDate.getFullYear(),
+      selectedDate.getMonth() + 1,
+      0
+    );
+    
+    let data = events.filter((event) => {
+      const start = parseISO(event.startDate);
+      const end = parseISO(event.endDate || event.startDate);
+    
+      return (
+        isWithinInterval(start, {
+          start: startOfCurrentMonth,
+          end: endOfCurrentMonth,
+        }) ||
+        isWithinInterval(end, {
+          start: startOfCurrentMonth,
+          end: endOfCurrentMonth,
+        }) ||
+        isWithinInterval(startOfCurrentMonth, {
+          start,
+          end,
+        })
+      );
+    });
+
+    if (showOnlyApprovedLeaves) {
+      console.log("DATA",data.filter(
+        (event) =>
+          event.tags === TAG_IDS.LEAVE &&
+          event.status === "APPROVED"
+      ),data)
+      return data.filter(
+        (event) =>
+          event.tags === TAG_IDS.LEAVE &&
+          event.status === "APPROVED"
+      );
+    }
+
+    return data;
+  }, [events, selectedDate, showOnlyApprovedLeaves]);
 
   /* ===============================
-     SPLIT EVENTS
+     GROUP BY DATE (FIXED)
   =============================== */
 
-  const doctorTourEvents = useMemo(() => {
-    return monthEvents.filter(
-      (event) => event.tags === TAG_IDS.DOCTOR_VISIT_PLAN
-    );
-  }, [monthEvents]);
+  const getEventDisplayDate = (event) => {
+    const start = parseISO(event.startDate);
+    const end = parseISO(event.endDate || event.startDate);
 
-  const normalEvents = useMemo(() => {
-    return monthEvents.filter(
-      (event) => event.tags !== TAG_IDS.DOCTOR_VISIT_PLAN
-    );
-  }, [monthEvents]);
+    if (
+      isWithinInterval(selectedDate, {
+        start: startOfDay(start),
+        end: endOfDay(end),
+      })
+    ) {
+      return format(selectedDate, "yyyy-MM-dd");
+    }
 
-  /* ===============================
-     GROUP NORMAL EVENTS
-  =============================== */
+    return format(start, "yyyy-MM-dd");
+  };
 
   const agendaEvents = useMemo(() => {
-    return Object.groupBy(normalEvents, (event) =>
+    return Object.groupBy(filteredEvents, (event) =>
       agendaModeGroupBy === "date"
-        ? format(parseISO(event.startDate), "yyyy-MM-dd")
+        ? getEventDisplayDate(event)
         : event.color
     );
-  }, [normalEvents, agendaModeGroupBy]);
+  }, [filteredEvents, agendaModeGroupBy, selectedDate]);
 
-  const groupedAndSortedEvents = useMemo(() => {
-    return Object.entries(agendaEvents).sort(
-      (a, b) => new Date(a[0]) - new Date(b[0])
-    );
-  }, [agendaEvents]);
-
-  /* ===============================
-     GROUP DOCTOR EVENTS
-  =============================== */
-
-  const doctorGroups = useMemo(() => {
-    return Object.entries(
-      Object.groupBy(doctorTourEvents, (event) =>
-        format(parseISO(event.startDate), "yyyy-MM-dd")
-      )
-    ).sort((a, b) => new Date(a[0]) - new Date(b[0]));
-  }, [doctorTourEvents]);
+  const groupedAndSortedEvents = Object.entries(agendaEvents).sort(
+    (a, b) => new Date(a[0]) - new Date(b[0])
+  );
 
   /* ===============================
      EVENT CARD
@@ -185,36 +219,28 @@ export const AgendaEventsMobile = () => {
         )}
       >
         <EventDetailsDialog event={event}>
-          <div className="flex justify-between gap-2 w-full">
-            <div className="flex gap-2 items-center w-full">
+          <div className="flex gap-2 items-center w-full">
+            {badgeVariant === "dot" ? (
+              <EventBullet color={event.color} />
+            ) : (
+              <Avatar>
+                <AvatarFallback className={getBgColor(event.color)}>
+                  {getFirstLetters(event.title)}
+                </AvatarFallback>
+              </Avatar>
+            )}
 
-              {badgeVariant === "dot" ? (
-                <EventBullet color={event.color} />
-              ) : (
-                <Avatar>
-                  <AvatarFallback
-                    className={getBgColor(event.color)}
-                  >
-                    {getFirstLetters(event.title)}
-                  </AvatarFallback>
-                </Avatar>
-              )}
-
-              <div className="w-full">
-                <div className="flex items-center gap-2">
-                  {TagIcon && (
-                    <TagIcon className="w-4 h-4 text-muted-foreground" />
-                  )}
-
-                  <p className="font-medium text-sm">
-                    {event.title}
-                  </p>
-                </div>
-
-                <p className="text-xs text-muted-foreground line-clamp-1">
-                  {event.owner?.name}
-                </p>
+            <div className="w-full">
+              <div className="flex items-center gap-2">
+                {TagIcon && (
+                  <TagIcon className="w-4 h-4 text-muted-foreground" />
+                )}
+                <p className="font-medium text-sm">{event.title}</p>
               </div>
+
+              <p className="text-xs text-muted-foreground">
+                {event.owner?.name}
+              </p>
             </div>
           </div>
         </EventDetailsDialog>
@@ -228,7 +254,6 @@ export const AgendaEventsMobile = () => {
 
   return (
     <div
-      className="[&::-webkit-scrollbar]:hidden"
       onTouchStartCapture={onTouchStartCapture}
       onTouchMoveCapture={onTouchMoveCapture}
       onTouchEndCapture={onTouchEndCapture}
@@ -239,65 +264,115 @@ export const AgendaEventsMobile = () => {
         className="overflow-y-scroll py-4 h-[80vh] bg-transparent"
       >
         <div className="mb-4 mx-4">
-          <CommandInput placeholder="Type a command or search..." />
+          <CommandInput placeholder="Search..." />
         </div>
 
         <CommandList className="px-2 border-t max-h-none overflow-visible">
 
-          {/* Doctor Visit Plan Accordion */}
+          {groupedAndSortedEvents.map(([groupKey, groupedEvents]) => {
 
-          {doctorTourEvents.length > 0 && (
-            <>
-              <CommandItem
-                value="doctor-visit-plan"
-                onSelect={() =>
-                  setDoctorAccordionOpen((p) => !p)
+            const hqEvents = groupedEvents.filter(
+              (e) =>
+                e.tags === TAG_IDS.HQ_TOUR_PLAN ||
+                e.tags === TAG_IDS.DOCTOR_VISIT_PLAN
+            );
+
+            const normalEvents = groupedEvents.filter(
+              (e) =>
+                e.tags !== TAG_IDS.HQ_TOUR_PLAN &&
+                e.tags !== TAG_IDS.DOCTOR_VISIT_PLAN
+            );
+
+            /* ✅ Inject HQ */
+            const enhancedHQEvents = [...hqEvents];
+
+            groupedEvents.forEach((event) => {
+              if (event.tags === TAG_IDS.DOCTOR_VISIT_PLAN) {
+                const hqId = event.hqTerritory;
+
+                const exists = enhancedHQEvents.some(
+                  (e) =>
+                    e.tags === TAG_IDS.HQ_TOUR_PLAN &&
+                    e.hqTerritory === hqId
+                );
+
+                if (!exists) {
+                  const hqEvent = events.find(
+                    (e) =>
+                      e.tags === TAG_IDS.HQ_TOUR_PLAN &&
+                      e.hqTerritory === hqId
+                  );
+
+                  if (hqEvent) enhancedHQEvents.push(hqEvent);
                 }
-                className="mb-2 p-2 border rounded-md cursor-pointer font-medium mt-2"
-              >
-                <div className="flex justify-between w-full">
-                  {doctorTourEvents.length} Doctor Visit Plan Events
-                  <ChevronDown
-                    className={cn(
-                      "h-4 w-4 transition",
-                      doctorAccordionOpen && "rotate-180"
-                    )}
-                  />
-                </div>
-              </CommandItem>
-
-              {doctorAccordionOpen &&
-                doctorGroups.map(([date, events]) => (
-                  <CommandGroup
-                    key={date}
-                    heading={format(
-                      parseISO(date),
-                      "EEEE, MMMM d, yyyy"
-                    )}
-                  >
-                    {events.map(renderEventCard)}
-                  </CommandGroup>
-                ))}
-            </>
-          )}
-
-          {/* NORMAL EVENTS */}
-
-          {groupedAndSortedEvents.map(([groupKey, groupedEvents]) => (
-            <CommandGroup
-              key={groupKey}
-              heading={
-                agendaModeGroupBy === "date"
-                  ? format(
-                      parseISO(groupKey),
-                      "EEEE, MMMM d, yyyy"
-                    )
-                  : toCapitalize(groupedEvents[0].color)
               }
-            >
-              {groupedEvents.map(renderEventCard)}
-            </CommandGroup>
-          ))}
+            });
+
+            const groupedByHQ = Object.groupBy(
+              enhancedHQEvents,
+              (e) => e.hqTerritory
+            );
+
+            return (
+              <CommandGroup
+                key={groupKey}
+                heading={format(parseISO(groupKey), "EEEE, MMM d")}
+              >
+
+                {Object.entries(groupedByHQ).map(([hqId, events]) => {
+                  const hqOnly = events.filter(
+                    (e) => e.tags === TAG_IDS.HQ_TOUR_PLAN
+                  );
+
+                  const doctor = events.filter(
+                    (e) => e.tags === TAG_IDS.DOCTOR_VISIT_PLAN
+                  );
+
+                  const key = `${groupKey}-${hqId}`;
+                  const isOpen = accordionOpen[key];
+
+                  const name = hqOnly[0]?.hqName || hqId;
+                  const title =
+                    doctor.length > 0
+                      ? `${name?name:"No-HQ"}-${doctor.length}-Doctor-Plan`
+                      : name;
+
+                  return (
+                    <div key={hqId}>
+                      <CommandItem
+                        onSelect={() =>
+                          setAccordionOpen((p) => ({
+                            ...p,
+                            [key]: !p[key],
+                          }))
+                        }
+                        className="border rounded-md p-2 mb-2"
+                      >
+                        <div className="flex justify-between w-full">
+                          {title}
+                          <ChevronDown
+                            className={cn(
+                              isOpen && "rotate-180"
+                            )}
+                          />
+                        </div>
+                      </CommandItem>
+
+                      {isOpen && (
+                        <div className="ml-4">
+                          {hqOnly.map(renderEventCard)}
+                          {doctor.map(renderEventCard)}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {normalEvents.map(renderEventCard)}
+
+              </CommandGroup>
+            );
+          })}
 
           <CommandEmpty>No results found.</CommandEmpty>
         </CommandList>

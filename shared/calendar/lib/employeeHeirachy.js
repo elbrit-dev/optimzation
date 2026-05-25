@@ -4,7 +4,6 @@ export function resolveVisibleRoleIds(elbritEdges = []) {
     if (!LOGGED_IN_USER?.roleId) return [];
   
     const { roleMap, childrenMap } = buildRoleIndex(elbritEdges);
-  
     const myRoleId = LOGGED_IN_USER.roleId;
     const myNode = roleMap.get(myRoleId);
   

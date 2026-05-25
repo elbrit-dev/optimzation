@@ -42,7 +42,7 @@ export function mapFormToErpEvent(values, options = {}) {
   
           // ✅ ROLE (ERP STRUCTURE)
           ...(empRoleId && {
-            kly_role_id: empRoleId,
+            custom_role_id: empRoleId,
           }),
         };
   
@@ -53,7 +53,7 @@ export function mapFormToErpEvent(values, options = {}) {
           }
   
           if (values.kly_lat_long) {
-            participant.kly_lat_long = values.kly_lat_long;
+            participant.custom_lat__long = values.kly_lat_long;
           }
         }
   
@@ -85,9 +85,9 @@ export function mapFormToErpEvent(values, options = {}) {
         if (
           isObject &&
           doctor.kly_lat_long &&
-          (!isUpdate || !participant.kly_lat_long)
+          (!isUpdate || !participant.custom_lat__long)
         ) {
-          participant.kly_lat_long = doctor.kly_lat_long;
+          participant.custom_lat__long = doctor.kly_lat_long;
         }
   
         participants.push(participant);
@@ -120,39 +120,21 @@ export function mapFormToErpEvent(values, options = {}) {
     attending:values.attending,
     starts_on: format(values.startDate, "yyyy-MM-dd HH:mm:ss"),
     ends_on: format(values.endDate, "yyyy-MM-dd HH:mm:ss"),
-    fsl_role_id: values.roleId,
+    custom_role_id: values.roleId,
     event_category: values.tags,
     custom_force_visit_reason:values.custom_force_visit_reason || "",
     color:
       COLOR_HEX_MAP[resolvedColor] ??
       COLOR_HEX_MAP.blue,
     all_day: isBirthday || values.allDay ? 1 : 0,
-    fsl_is_force_visit: values.forceVisit? 1 :0,
+    custom_is_force_visit: values.forceVisit? 1 :0,
     event_type: "Public",
     status: "Open",
     docstatus: 0,
     event_participants: buildParticipants(values),
-    fsl_territory: values.hqTerritory || "",
+    custom_hq_territory__name: values.hqTerritory || "",
   };
-  // ✅ POB DETAILS (Doctor Visit Plan – Edit only)
-  if (
-    isDoctorVisitPlan &&
-    isUpdate &&
-    values.pob_given === "Yes" &&
-    Array.isArray(values.fsl_doctor_item)
-  ) {
-    doc.fsl_doctor_item = values.fsl_doctor_item.map((row) => ({
-      item:
-        typeof row.item__name === "object"
-          ? row.item__name.value
-          : row.item__name,
-    
-      qty: Number(row.qty) || 0,
-      rate: Number(row.rate) || 0,
-      amount: Number(row.amount) || 0,
-    }));
-    
-  }
+  
 
   /* ------------------------------------
      🎂 Birthday repeat logic (ERP)

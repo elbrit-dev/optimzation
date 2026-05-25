@@ -3,7 +3,7 @@ import { createContext, useContext, useState, useEffect, useMemo } from "react";
 import { useLocalStorage } from "@calendar/components/calendar/hooks";
 import { fetchAllCustomers, fetchEventsByRange } from "@calendar/services/event.service";
 import { resolveCalendarRange } from "@calendar/lib/calendar/range";
-import { ELBRIT_ROLEID, EMPLOYEES_QUERY } from "@calendar/services/events.query";
+import { ELBRIT_ROLEID, EMPLOYEES_QUERY, normalizeRoleProfiles } from "@calendar/services/events.query";
 import { mapEmployeesToCalendarUsers } from "@calendar/services/employee-to-calendar-user";
 import { graphqlRequest } from "@calendar/lib/graphql-client";
 import { enrichEventsWithParticipants } from "@calendar/lib/calendar/enrich-events";
@@ -53,6 +53,7 @@ export function CalendarProvider({
 	const [activeDate, setActiveDate] = useState(null);
 	const isEventListOpen = eventListDate !== null;
 	const [mobileLayer, setMobileLayer] = useState("month-expanded");
+	const [showOnlyApprovedLeaves, setShowOnlyApprovedLeaves] = useState(false);
 	const updateSettings = (newPartialSettings) => {
 		setSettings({
 			...settings,
@@ -219,9 +220,11 @@ export function CalendarProvider({
 
 		async function hydrateElbritRoles() {
 			try {
-				const data = await graphqlRequest(ELBRIT_ROLEID, {
+				const rawData = await graphqlRequest(ELBRIT_ROLEID, {
 					first: 1000,
 				});
+	
+				const data = normalizeRoleProfiles(rawData);
 
 				const edges = data?.ElbritRoleIDS?.edges ?? [];
 				if (!cancelled) {
@@ -264,7 +267,7 @@ export function CalendarProvider({
 		if (event.tags === TAG_IDS.LEAVE) {
 			if (event.employee) {
 				ids.add(event.employee);
-			} 
+			}
 
 			if (event.leave_approver) {
 				const approverId = employeeEmailToId.get(
@@ -273,7 +276,7 @@ export function CalendarProvider({
 
 				if (approverId) {
 					ids.add(approverId);
-				} 
+				}
 			}
 		}
 
@@ -285,30 +288,30 @@ export function CalendarProvider({
 	};
 	useEffect(() => {
 		let cancelled = false;
-	  
+
 		async function hydrateCustomers() {
-		  try {
-			const customers = await fetchAllCustomers();
-	  
-			const normalized = (customers ?? []).map((name) => ({
-			  label: name,
-			  value: name,
-			}));
-	  
-			if (!cancelled) {
-			  setCustomerOptions(normalized);
+			try {
+				const customers = await fetchAllCustomers();
+
+				const normalized = (customers ?? []).map((name) => ({
+					label: name,
+					value: name,
+				}));
+
+				if (!cancelled) {
+					setCustomerOptions(normalized);
+				}
+			} catch (err) {
+				console.error("Failed to fetch customers", err);
 			}
-		  } catch (err) {
-			console.error("Failed to fetch customers", err);
-		  }
 		}
-	  
+
 		hydrateCustomers();
-	  
+
 		return () => {
-		  cancelled = true;
+			cancelled = true;
 		};
-	  }, []);
+	}, []);
 	const visibleRoleIds = useMemo(() => {
 		if (elbritRoleLoading) return [];
 		return resolveVisibleRoleIds(elbritRoleEdges);
@@ -422,8 +425,10 @@ export function CalendarProvider({
 		setEmployeeOptions,
 		setDoctorOptions,
 		setHqTerritoryOptions,
-		elbritRoleEdges,
-		elbritRoleLoading,customerOptions,setCustomerOptions
+		elbritRoleEdges,allowedEmployeeIds,
+		elbritRoleLoading, customerOptions, setCustomerOptions,
+		showOnlyApprovedLeaves,
+		setShowOnlyApprovedLeaves,
 	};
 
 	return (

@@ -46,7 +46,7 @@ import { TAG_IDS } from "../../constants";
 
 const SWIPE_THRESHOLD = 60;
 
-export const AgendaEvents = ({ scope = "all" }) => {
+export const AgendaEvents = ({ scope = "all"}) => {
   const {
     events,
     badgeVariant,
@@ -56,7 +56,7 @@ export const AgendaEvents = ({ scope = "all" }) => {
     activeDate,
     setActiveDate,
     mobileLayer,
-    view,
+    view,showOnlyApprovedLeaves
   } = useCalendar();
 
   const isMobile = useMediaQuery("(max-width: 768px)");
@@ -143,35 +143,80 @@ export const AgendaEvents = ({ scope = "all" }) => {
      FILTER EVENTS
   =============================== */
 
+  const isEventInRange = (event, date) => {
+    const start = parseISO(event.startDate);
+    const end = parseISO(event.endDate || event.startDate);
+
+    return isWithinInterval(date, {
+      start: startOfDay(start),
+      end: endOfDay(end),
+    });
+  };
+
   const scopedEvents = useMemo(() => {
     if (scope === "day") {
       return events.filter((event) =>
-        isWithinInterval(parseISO(event.startDate), {
-          start: startOfDay(selectedDate),
-          end: endOfDay(selectedDate),
-        })
+        isEventInRange(event, selectedDate)
       );
     }
 
     if (scope === "week") {
-      return events.filter((event) =>
-        isWithinInterval(parseISO(event.startDate), {
-          start: startOfWeek(selectedDate),
-          end: endOfWeek(selectedDate),
-        })
-      );
+      return events.filter((event) => {
+        const start = parseISO(event.startDate);
+        const end = parseISO(event.endDate || event.startDate);
+
+        return (
+          isWithinInterval(start, {
+            start: startOfWeek(selectedDate),
+            end: endOfWeek(selectedDate),
+          }) ||
+          isWithinInterval(end, {
+            start: startOfWeek(selectedDate),
+            end: endOfWeek(selectedDate),
+          }) ||
+          isWithinInterval(startOfWeek(selectedDate), {
+            start,
+            end,
+          })
+        );
+      });
     }
 
     return getEventsForMonth(events, selectedDate);
   }, [events, selectedDate, scope]);
+  const filteredEvents = useMemo(() => {
+    if (!showOnlyApprovedLeaves) return scopedEvents;
+  
+    return scopedEvents.filter(
+      (event) =>
+        event.tags === TAG_IDS.LEAVE &&
+        event.status === "Approved"
+    );
+  }, [scopedEvents, showOnlyApprovedLeaves]);
 
   /* ===============================
      GROUP EVENTS
   =============================== */
+  const getEventDisplayDate = (event) => {
+    const start = parseISO(event.startDate);
+    const end = parseISO(event.endDate || event.startDate);
 
-  const agendaEvents = Object.groupBy(scopedEvents, (event) =>
+    // If selectedDate falls inside range → use selectedDate
+    if (
+      isWithinInterval(selectedDate, {
+        start: startOfDay(start),
+        end: endOfDay(end),
+      })
+    ) {
+      return format(selectedDate, "yyyy-MM-dd");
+    }
+
+    // fallback → use startDate
+    return format(start, "yyyy-MM-dd");
+  };
+  const agendaEvents = Object.groupBy(filteredEvents, (event) =>
     agendaModeGroupBy === "date"
-      ? format(parseISO(event.startDate), "yyyy-MM-dd")
+      ? getEventDisplayDate(event)
       : event.color
   );
 
@@ -257,16 +302,50 @@ export const AgendaEvents = ({ scope = "all" }) => {
 
           {groupedAndSortedEvents.map(([groupKey, groupedEvents]) => {
 
-            const doctorEvents = groupedEvents.filter(
-              (event) => event.tags === TAG_IDS.DOCTOR_VISIT_PLAN
+            const hqEvents = groupedEvents.filter(
+              (event) =>
+                event.tags === TAG_IDS.HQ_TOUR_PLAN ||
+                event.tags === TAG_IDS.DOCTOR_VISIT_PLAN
             );
 
             const normalEvents = groupedEvents.filter(
-              (event) => event.tags !== TAG_IDS.DOCTOR_VISIT_PLAN
+              (event) =>
+                event.tags !== TAG_IDS.HQ_TOUR_PLAN &&
+                event.tags !== TAG_IDS.DOCTOR_VISIT_PLAN
             );
+            // 👉 Step 1: Clone existing HQ + Doctor events
+            const enhancedHQEvents = [...hqEvents];
 
-            const isOpen = doctorAccordionOpen[groupKey];
+            // 👉 Step 2: Inject HQ if missing
+            groupedEvents.forEach((event) => {
+              if (event.tags === TAG_IDS.DOCTOR_VISIT_PLAN) {
+                const hqId = event.hqTerritory;
 
+                const alreadyExists = enhancedHQEvents.some(
+                  (e) =>
+                    e.tags === TAG_IDS.HQ_TOUR_PLAN &&
+                    e.hqTerritory === hqId
+                );
+
+                if (!alreadyExists) {
+                  const hqEvent = events.find(
+                    (e) =>
+                      e.tags === TAG_IDS.HQ_TOUR_PLAN &&
+                      e.hqTerritory === hqId
+                  );
+
+                  if (hqEvent) {
+                    enhancedHQEvents.push(hqEvent);
+                  }
+                }
+              }
+            });
+
+            // 👉 Step 3: Now group
+            const groupedByHQ = Object.groupBy(
+              enhancedHQEvents,
+              (event) => event.hqTerritory
+            );
             return (
               <CommandGroup
                 key={groupKey}
@@ -276,38 +355,76 @@ export const AgendaEvents = ({ scope = "all" }) => {
                     : toCapitalize(groupedEvents[0].color)
                 }
               >
-    {/* DOCTOR EVENTS */}
-    {doctorEvents.length > 0 && (
-                  <>
-                    <CommandItem
-                      value={`doctor-${groupKey}`}
-                      onSelect={() =>
-                        setDoctorAccordionOpen((prev) => ({
-                          ...prev,
-                          [groupKey]: !prev[groupKey],
-                        }))
-                      }
-                      className="mb-1 p-2 border rounded-md cursor-pointer font-medium mt-2"
-                    >
-                      <div className="flex justify-between w-full">
-                        {doctorEvents.length} Doctor Visit Plan Events
+                {/* DOCTOR EVENTS */}
+                {Object.entries(groupedByHQ).map(([hqId, events]) => {
+                  const hqOnlyEvents = events.filter(
+                    (e) => e.tags === TAG_IDS.HQ_TOUR_PLAN
+                  );
 
-                        <ChevronDown
-                          className={cn(
-                            "h-4 w-4 transition",
-                            isOpen && "rotate-180"
+                  const doctorEvents = events.filter(
+                    (e) => e.tags === TAG_IDS.DOCTOR_VISIT_PLAN
+                  );
+                  const key = `${groupKey}-${hqId}`;
+                  const isOpen = doctorAccordionOpen[key];
+                  const hqName = hqOnlyEvents[0]?.hqName || hqId;
+                  const doctorCount = doctorEvents.length;
+
+                  const title =
+                    doctorCount > 0
+                      ? `${hqName ? hqName : "No-HQ"}-${doctorCount}-Doctor-Plan`
+                      : hqName;
+                  return (
+                    <div key={hqId} className="mt-2">
+
+                      {/* HQ ACCORDION HEADER */}
+                      <CommandItem
+                        value={`hq-${hqId}`}
+                        onSelect={() =>
+                          setDoctorAccordionOpen((prev) => ({
+                            ...prev,
+                            [key]: !prev[key],
+                          }))
+                        }
+                        className="mb-1 p-2 border rounded-md cursor-pointer font-medium"
+                      >
+                        <div className="flex justify-between w-full">
+                          {title}
+
+                          <ChevronDown
+                            className={cn(
+                              "h-4 w-4 transition",
+                              isOpen && "rotate-180"
+                            )}
+                          />
+                        </div>
+                      </CommandItem>
+
+                      {/* HQ BODY */}
+                      {isOpen && (
+                        <div className="ml-4">
+
+                          {/* HQ EVENTS */}
+                          {hqOnlyEvents.map(renderEventCard)}
+
+                          {/* DOCTOR EVENTS INSIDE HQ */}
+                          {doctorEvents.length > 0 && (
+                            <div className="mt-2">
+                              <p className="text-xs text-muted-foreground mb-1">
+                                Doctor Tour Plans
+                              </p>
+
+                              {doctorEvents.map(renderEventCard)}
+                            </div>
                           )}
-                        />
-                      </div>
-                    </CommandItem>
-
-                    {isOpen && doctorEvents.map(renderEventCard)}
-                  </>
-                )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
 
                 {/* NORMAL EVENTS */}
                 {normalEvents.map(renderEventCard)}
-            
+
               </CommandGroup>
             );
           })}
