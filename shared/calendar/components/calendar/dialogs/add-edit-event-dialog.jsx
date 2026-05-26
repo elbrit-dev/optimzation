@@ -514,9 +514,16 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 
 		if (!tagConfig.employee?.autoSelectLoggedIn) return;
 
-		const value = tagConfig.employee.multiselect
-			? [LOGGED_IN_USER.id]
-			: LOGGED_IN_USER.id;
+		const loggedInEmployee =
+		employeeOptions.find(
+		  (e) => e.value === LOGGED_IN_USER.id
+		);
+	  
+	  if (!loggedInEmployee) return;
+	  
+	  const value = tagConfig.employee.multiselect
+		? [loggedInEmployee]
+		: loggedInEmployee;
 
 		form.setValue("employees", value, { shouldDirty: false });
 	}, [selectedTag]);
@@ -782,7 +789,9 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 
 		const erpDoc = mapFormToErpEvent(values, {
 			erpName: event?.erpName,
-		});
+			employeeResolvers,
+			doctorResolvers,
+		  });
 
 		if (quotationName) {
 			erpDoc.reference_doctype = "Quotation";
@@ -826,9 +835,10 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 				title: computedTitle,
 				doctor,
 			};
-
-			const erpDoc = mapFormToErpEvent(enrichedValues, {});
-
+			const erpDoc = mapFormToErpEvent(enrichedValues, {
+				employeeResolvers,
+				doctorResolvers,
+			  });
 			const savedEvent = await saveEvent(erpDoc);
 
 			const calendarEvent = buildCalendarEvent({
@@ -934,7 +944,6 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 	// FINAL SUBMIT HANDLER (HQ validation guard)
 	// ----------------------------------------------------
 	const onSubmit = async (values) => {
-
 		const handler =
 			submitHandlers[values.tags] || submitHandlers.default;
 

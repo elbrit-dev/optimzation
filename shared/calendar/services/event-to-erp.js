@@ -11,77 +11,93 @@ import { TAG_IDS } from "@calendar/components/calendar/constants";
 
 export function mapFormToErpEvent(values, options = {}) {
 
-  const { erpName } = options;
+  const {
+    erpName,
+    employeeResolvers,
+    doctorResolvers,
+  } = options;
   const isDoctorVisitPlan =
     values.tags === TAG_IDS.DOCTOR_VISIT_PLAN;
 
   const isUpdate = Boolean(erpName);
   function buildParticipants(values) {
     const participants = [];
-  
+
     /* ---------- Employees ---------- */
     if (values.employees) {
       const employeeList = Array.isArray(values.employees)
         ? values.employees
         : [values.employees];
-  
+
       employeeList.forEach((emp) => {
         const isObject = typeof emp === "object" && emp !== null;
-  
+
         const empId = isObject ? emp.value : emp;
-        const empEmail = isObject ? emp.email : undefined;
-        const empRoleId =
-          isObject ? emp.roleId : values.roleId; // fallback
-  
+
+        const empEmail = isObject
+          ? emp.email
+          : employeeResolvers?.getEmployeeFieldById(
+              empId,
+              "email"
+            );
+        
+        const empRoleId = isObject
+          ? emp.roleId
+          : employeeResolvers?.getEmployeeFieldById(
+              empId,
+              "roleId"
+            );
         const participant = {
           reference_doctype: "Employee",
           reference_docname: empId,
-  
-          // ✅ EMAIL
-          ...(empEmail && { email: empEmail }),
-  
+          email: empEmail || "",
           // ✅ ROLE (ERP STRUCTURE)
           ...(empRoleId && {
             custom_role_id: empRoleId,
           }),
         };
-  
+
         // Doctor Visit Edit logic
         if (isDoctorVisitPlan && isUpdate) {
           if (values.attending === "Yes" || values.attending === "No") {
             participant.attending = values.attending;
           }
-  
+
           if (values.kly_lat_long) {
             participant.custom_lat__long = values.kly_lat_long;
           }
         }
-  
+
         participants.push(participant);
       });
     }
-  
+
     /* ---------- Leads ---------- */
     if (values.doctor) {
       const doctors = Array.isArray(values.doctor)
         ? values.doctor
         : [values.doctor];
-  
+
       doctors.forEach((doctor) => {
         const isObject =
           typeof doctor === "object" && doctor !== null;
-  
-        const leadId = isObject ? doctor.value : doctor;
-        const leadEmail = isObject ? doctor.email : undefined;
-  
+
+          const leadId = isObject
+          ? doctor.value
+          : doctor;
+        
+        const leadEmail = isObject
+          ? doctor.email
+          : doctorResolvers?.getDoctorFieldById(
+              leadId,
+              "email"
+            );
         const participant = {
           reference_doctype: "Lead",
           reference_docname: leadId,
-  
-          // ✅ EMAIL ONLY
-          ...(leadEmail && { email: leadEmail }),
+          email: leadEmail || "",
         };
-  
+
         if (
           isObject &&
           doctor.kly_lat_long &&
@@ -89,14 +105,14 @@ export function mapFormToErpEvent(values, options = {}) {
         ) {
           participant.custom_lat__long = doctor.kly_lat_long;
         }
-  
+
         participants.push(participant);
       });
     }
-  
+
     return participants;
   }
-  
+
   const hasEmployee =
     Boolean(values.employees) &&
     (Array.isArray(values.employees)
@@ -117,24 +133,26 @@ export function mapFormToErpEvent(values, options = {}) {
     // doctype: "Event",
     subject: values.title,
     description: values.description,
-    attending:values.attending,
+    attending: values.attending,
     starts_on: format(values.startDate, "yyyy-MM-dd HH:mm:ss"),
     ends_on: format(values.endDate, "yyyy-MM-dd HH:mm:ss"),
     custom_role_id: values.roleId,
     event_category: values.tags,
-    custom_force_visit_reason:values.custom_force_visit_reason || "",
+    custom_force_visit_reason: values.custom_force_visit_reason || "",
     color:
       COLOR_HEX_MAP[resolvedColor] ??
       COLOR_HEX_MAP.blue,
     all_day: isBirthday || values.allDay ? 1 : 0,
-    custom_is_force_visit: values.forceVisit? 1 :0,
+    custom_is_force_visit: values.forceVisit ? 1 : 0,
     event_type: "Public",
     status: "Open",
     docstatus: 0,
     event_participants: buildParticipants(values),
-    custom_hq_territory__name: values.hqTerritory || "",
+    custom_hq_territory: values.hqTerritory || "",
+    sync_with_google_calendar: 1,
+    google_calendar: "IT Elbrit"
   };
-  
+
 
   /* ------------------------------------
      🎂 Birthday repeat logic (ERP)

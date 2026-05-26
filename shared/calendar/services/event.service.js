@@ -36,7 +36,7 @@ mutation SaveEvent($doc: String!) {
   }
 }
 `;
-const SAVE_EVENT_QUOTATION=`
+const SAVE_EVENT_QUOTATION = `
 mutation SaveEvent($doc: String!) {
   saveDoc(doctype: "Quotation", doc: $doc) {
     doc {
@@ -202,55 +202,100 @@ export async function updateLeaveStatus(leaveName, newStatus) {
 
   return true;
 }
-export async function addLeadNote(leadName, newNoteHtml) {
-  if (!leadName || !newNoteHtml) {
-    throw new Error("Invalid note payload");
-  }
-
-  // 1️⃣ Fetch current lead with notes
-  const leadRes = await graphqlRequest(
+async function fetchLeadNotes(leadName) {
+  const res = await graphqlRequest(
     `
     query GetLead($name: String!) {
       Lead(name: $name) {
         name
         notes {
-          note
-        }
+      name
+      note
+      idx
+      parentfield
+      parenttype
+      doctype
+      creation
+      modified
+    }
       }
     }
     `,
     { name: leadName }
   );
 
-  const existingNotes =
-    leadRes?.Lead?.notes?.map(n => ({ note: n.note })) ?? [];
+  if (!res?.Lead) {
+    throw new Error("Lead not found");
+  }
 
-  // 2️⃣ Append new note
+  return res.Lead.notes || [];
+}
+
+async function saveLeadNotes(leadName, notes) {
   const updatedDoc = {
     name: leadName,
-    notes: [
-      ...existingNotes,
-      { note: newNoteHtml }
-    ]
+    notes,
   };
 
-  // 3️⃣ Save Lead
   const saveRes = await graphqlRequest(
     `
     mutation SaveLead($doc: String!) {
       saveDoc(doctype: "Lead", doc: $doc) {
-        doc { name }
+        doc {
+          name
+        }
       }
     }
     `,
-    { doc: JSON.stringify(updatedDoc) }
+    {
+      doc: JSON.stringify(updatedDoc),
+    }
   );
 
   if (!saveRes?.saveDoc?.doc?.name) {
-    throw new Error("Failed to save lead note");
+    throw new Error("Failed to save lead notes");
   }
 
   return true;
+}
+
+export async function addLeadNote(leadName, newNoteHtml) {
+  if (!leadName || !newNoteHtml) {
+    throw new Error("Invalid note payload");
+  }
+
+  const existingNotes = await fetchLeadNotes(leadName);
+
+  return saveLeadNotes(leadName, [
+    ...existingNotes,
+    {
+      note: newNoteHtml,
+    },
+  ]);
+}
+export async function deleteLeadNote(
+  leadName,
+  noteName
+) {
+  if (!leadName || !noteName) {
+    throw new Error(
+      "Invalid delete payload"
+    );
+  }
+
+  const existingNotes =
+    await fetchLeadNotes(leadName);
+
+  const filteredNotes =
+    existingNotes.filter(
+      (note) =>
+        note.name !== noteName
+    );
+
+  return saveLeadNotes(
+    leadName,
+    filteredNotes
+  );
 }
 
 export async function saveDocToErp(doc) {
@@ -312,14 +357,14 @@ export async function fetchAllCustomers() {
 }
 
 export async function fetchAllTodoList() {
-   return getCached("TODO_LIST", async () => {
-       const data = await graphqlRequest(TODO_LIST_QUERY, {
-         first: 500,
-       });
-       return data.ToDoes.edges
-         .map(edge => mapErpTodoToCalendar(edge.node))
-         .filter(Boolean);
-     });
+  return getCached("TODO_LIST", async () => {
+    const data = await graphqlRequest(TODO_LIST_QUERY, {
+      first: 500,
+    });
+    return data.ToDoes.edges
+      .map(edge => mapErpTodoToCalendar(edge.node))
+      .filter(Boolean);
+  });
 }
 
 export async function fetchEventsByRange(startDate, endDate, view) {
@@ -437,8 +482,20 @@ mutation DeleteEvent($doctype: String!, $name: String!) {
   }
 }
 `;
-
-export async function deleteEventFromErp(erpName,docname) {
+const DELETE_LEAD_NOTE_MUTATION = `
+mutation DeleteLeadNote(
+  $doctype: String!,
+  $name: String!
+) {
+  deleteDoc(
+    doctype: $doctype,
+    name: $name
+  ) {
+    name
+  }
+}
+`;
+export async function deleteEventFromErp(erpName, docname) {
   if (!erpName) return true;
 
   try {

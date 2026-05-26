@@ -78,6 +78,11 @@ export async function fetchDoctors() {
         .map(n => ({
           note: n.note,
           creation: n.creation,
+          name:n.name,
+          creation:n.creation,
+          idx:n.idx,
+          doctype:n.doctype,
+          modified:n.modified
         }))
         .sort((a, b) => new Date(b.creation) - new Date(a.creation)),
     })) || []

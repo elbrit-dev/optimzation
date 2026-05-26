@@ -79,7 +79,6 @@ export function EventTodoDialog({
   setOpen,
 }) {
   const { removeEvent, employeeOptions } = useCalendar();
-  console.log("EVENTS", event)
   const employeeResolvers =
     useEmployeeResolvers(employeeOptions);
 
@@ -127,7 +126,6 @@ export function EventTodoDialog({
     removeEvent,
     onClose: () => setOpen(false),
   });
-  console.log("EVENT", event)
 
   /* =====================================================
      RENDER

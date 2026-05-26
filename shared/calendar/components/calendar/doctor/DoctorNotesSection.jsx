@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
 import Tiptap from "@calendar/components/ui/TodoWysiwyg";
 
-import { addLeadNote } from "@calendar/services/event.service";
+import { addLeadNote, deleteLeadNote } from "@calendar/services/event.service";
 import { clearParticipantCache } from "@calendar/lib/participants-cache";
 import { fetchDoctors } from "@calendar/services/participants.service";
 
@@ -46,10 +46,11 @@ export function DoctorNotesSection({
 
   const handleDeleteNote = async (noteName) => {
     try {
-      await deleteLeadNote(noteName);
-
+      console.log("NOTE",doctorId,noteName)
+      await deleteLeadNote(doctorId, noteName);
+  
       toast.success("Note deleted");
-
+  
       await refreshDoctors();
     } catch (err) {
       console.error(err);
@@ -75,7 +76,7 @@ export function DoctorNotesSection({
         const formattedDate = noteObj.creation
           ? new Date(noteObj.creation).toLocaleDateString("en-GB")
           : "";
-
+console.log("NOTE OBJ",noteObj)
         return (
           <div
             key={index}

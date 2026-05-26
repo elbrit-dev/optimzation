@@ -172,8 +172,13 @@ query Doctors($first: Int) {
         custom_speciality
         email_id
         notes {
+          name
           note
           creation
+          idx
+          doctype
+          creation
+          modified
         }
         custom_category_3
         custom_category_2
