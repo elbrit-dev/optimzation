@@ -100,12 +100,25 @@ export const TAG_FORM_CONFIG = {
       { employeeOptions = [] } = {}
     ) => {
       if (!hqTerritory || !employees) return null;
-
-      const empId = Array.isArray(employees) ? employees[0] : employees;
-      const emp = employeeOptions.find(e => e.value === empId);
-
+    
+      const employeeValue = Array.isArray(employees)
+        ? employees[0]
+        : employees;
+    
+      const empId =
+        typeof employeeValue === "object"
+          ? employeeValue?.value
+          : employeeValue;
+    
+      const emp =
+        typeof employeeValue === "object"
+          ? employeeValue
+          : employeeOptions.find(
+              (e) => e.value === empId
+            );
+    
       if (!emp) return null;
-
+    
       return `${hqTerritory}-${emp.label.replace(/\s+/g, "-")}`;
     },
     fixedColor: "purple",

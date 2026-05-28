@@ -797,7 +797,6 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			erpDoc.reference_doctype = "Quotation";
 			erpDoc.reference_docname = quotationName;
 		}
-
 		const savedEvent = await saveEvent(erpDoc);
 
 		const calendarEvent = buildCalendarEvent({

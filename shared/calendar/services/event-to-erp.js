@@ -150,7 +150,8 @@ export function mapFormToErpEvent(values, options = {}) {
     event_participants: buildParticipants(values),
     custom_hq_territory: values.hqTerritory || "",
     sync_with_google_calendar: 1,
-    google_calendar: "IT Elbrit"
+    google_calendar: "IT Elbrit",
+    add_video_conferencing: values.tags === TAG_IDS.MEETING ? 1 : 0,
   };
 
 
