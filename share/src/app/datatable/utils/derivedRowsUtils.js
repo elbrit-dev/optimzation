@@ -5,11 +5,17 @@
 
 import { isArray } from 'lodash';
 
+function mergeBaseAndExtra(data, extra, derivedRows) {
+  if (!isArray(extra) || extra.length === 0) return data;
+  const prepend = derivedRows?.prependMergedRows === true;
+  return prepend ? [...extra, ...data] : [...data, ...extra];
+}
+
 /**
  * Apply derived rows synchronously. Merges base data with rows from compute(ctx).
  * When compute returns a Promise, returns base data (async handled by useDerivedRowsData).
  * @param {Array} data - Base data (rawTableData)
- * @param {Object|null} derivedRows - { compute: (ctx) => Row[] | Promise<Row[]> }
+ * @param {Object|null} derivedRows - { compute: (ctx) => Row[] | Promise<Row[]>, prependMergedRows?: boolean }
  * @param {Object} context - { query, selectedQueryKey, currentQueryDoc }
  * @returns {Array} data with derived rows appended (sync only; async returns data unchanged)
  */
@@ -30,7 +36,7 @@ export function applyDerivedRows(data, derivedRows, context = {}) {
       return data;
     }
     if (isArray(extra) && extra.length > 0) {
-      return [...data, ...extra];
+      return mergeBaseAndExtra(data, extra, derivedRows);
     }
   } catch (err) {
     console.warn('[derivedRows] compute error:', err);
@@ -41,7 +47,7 @@ export function applyDerivedRows(data, derivedRows, context = {}) {
 /**
  * Apply derived rows asynchronously. Returns Promise<Array> with merged data.
  * @param {Array} data - Base data (rawTableData)
- * @param {Object|null} derivedRows - { compute: (ctx) => Row[] | Promise<Row[]> }
+ * @param {Object|null} derivedRows - { compute: (ctx) => Row[] | Promise<Row[]>, prependMergedRows?: boolean }
  * @param {Object} context - { query, selectedQueryKey, currentQueryDoc }
  * @returns {Promise<Array>} Merged data
  */
@@ -59,10 +65,10 @@ export async function applyDerivedRowsAsync(data, derivedRows, context = {}) {
   try {
     const extra = await Promise.resolve(derivedRows.compute(ctx));
     if (isArray(extra) && extra.length > 0) {
-      return [...data, ...extra];
+      return mergeBaseAndExtra(data, extra, derivedRows);
     }
   } catch (err) {
-    console.warn('[derivedRows] compute error:', err);
+    console.warn('[derivedRows] async compute error:', err);
   }
   return data;
 }

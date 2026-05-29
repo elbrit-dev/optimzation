@@ -81,6 +81,46 @@ export function applyNumericFilter(cellValue, parsedFilter) {
   }
 }
 
+/** True when column matches breakdown pivot naming: includes `_metricName`. */
+export function isReportMetricColumn(col, reportMetrics) {
+  if (!col || !isArray(reportMetrics) || reportMetrics.length === 0) return false;
+  return reportMetrics.some((m) => col.includes(`_${m}`));
+}
+
+/**
+ * Narrow report aggregated rows using active metric-column filters (`tableFilters` Prime shape).
+ */
+export function filterReportRowsByMetricFilters(
+  rows,
+  tableFilters,
+  reportMetrics,
+  getCellValue = (row, col) => get(row, col)
+) {
+  if (!isArray(rows) || isEmpty(rows) || !reportMetrics?.length || !tableFilters || isEmpty(tableFilters)) {
+    return isArray(rows) ? rows : [];
+  }
+
+  const metricKeys = Object.keys(tableFilters).filter((col) => {
+    if (!isReportMetricColumn(col, reportMetrics)) return false;
+    const filterObj = get(tableFilters, col);
+    const v = filterObj?.value;
+    if (isNil(v) || v === '') return false;
+    if (isArray(v) && isEmpty(v)) return false;
+    return true;
+  });
+
+  if (metricKeys.length === 0) return rows;
+
+  return filter(rows, (row) =>
+    every(metricKeys, (col) => {
+      const fv = get(tableFilters, [col, 'value']);
+      const parsed = parseNumericFilter(fv);
+      const cellVal = getCellValue(row, col);
+      return applyNumericFilter(cellVal, parsed);
+    })
+  );
+}
+
 const START_OF_DAY_HOURS = 0;
 const START_OF_DAY_MINUTES = 0;
 const START_OF_DAY_SECONDS = 0;
@@ -113,13 +153,6 @@ export function applyDateFilter(cellValue, dateRange) {
 }
 
 function matchesColumnFilter(cellValue, filterValue, columnType, isMultiselectColumn) {
-  if (isMultiselectColumn && isArray(filterValue)) {
-    return filterValue.some((v) => {
-      if (isNil(v) && isNil(cellValue)) return true;
-      if (isNil(v) || isNil(cellValue)) return false;
-      return v === cellValue || String(v) === String(cellValue);
-    });
-  }
   if (columnType === 'boolean') {
     const cellIsTruthy = cellValue === true || cellValue === 1 || cellValue === '1';
     const cellIsFalsy = cellValue === false || cellValue === 0 || cellValue === '0';
@@ -131,6 +164,13 @@ function matchesColumnFilter(cellValue, filterValue, columnType, isMultiselectCo
   if (columnType === 'number') {
     const parsed = parseNumericFilter(filterValue);
     return applyNumericFilter(cellValue, parsed);
+  }
+  if (isMultiselectColumn && isArray(filterValue)) {
+    return filterValue.some((v) => {
+      if (isNil(v) && isNil(cellValue)) return true;
+      if (isNil(v) || isNil(cellValue)) return false;
+      return v === cellValue || String(v) === String(cellValue);
+    });
   }
   const strCell = toLower(String(cellValue ?? ''));
   const strFilter = toLower(String(filterValue));

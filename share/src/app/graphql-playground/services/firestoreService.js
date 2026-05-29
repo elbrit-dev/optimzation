@@ -2,6 +2,8 @@ import { doc, setDoc, getDoc, deleteDoc, updateDoc, deleteField, collection, get
 import { db } from '@/lib/firebase';
 const DEFAULT_COLLECTION = process.env.NEXT_PUBLIC_GQL_COLLECTION || 'gql';
 const GLOBAL_DOC_ID = '#__GLOBAL__#';
+const TOKENS_COLLECTION = 'tokens';
+const REPORTS_COLLECTION = 'reports';
 
 function sanitizeTokenRows(rows) {
   if (!Array.isArray(rows)) return [];
@@ -166,17 +168,32 @@ export const firestoreService = {
   },
 
   async loadGlobalTokens() {
-    const docRef = doc(db, DEFAULT_COLLECTION, GLOBAL_DOC_ID);
-    const docSnap = await getDoc(docRef);
-    if (!docSnap.exists()) return [];
-    const data = docSnap.data();
-    return sanitizeTokenRows(data?.tokens);
+    const snap = await getDocs(collection(db, TOKENS_COLLECTION));
+    const rows = [];
+    snap.forEach((d) => rows.push(d.data()));
+    return sanitizeTokenRows(rows);
   },
 
   async saveGlobalTokens(tokens) {
-    const docRef = doc(db, DEFAULT_COLLECTION, GLOBAL_DOC_ID);
     const sanitized = sanitizeTokenRows(tokens);
-    await setDoc(docRef, { tokens: sanitized }, { merge: true });
+
+    const existing = await getDocs(collection(db, TOKENS_COLLECTION));
+    const existingIds = new Set();
+    existing.forEach((d) => existingIds.add(d.id));
+
+    const batch = writeBatch(db);
+    const newIds = new Set();
+    for (const token of sanitized) {
+      const docRef = doc(collection(db, TOKENS_COLLECTION), token.name);
+      batch.set(docRef, token);
+      newIds.add(token.name);
+    }
+    for (const id of existingIds) {
+      if (!newIds.has(id)) {
+        batch.delete(doc(collection(db, TOKENS_COLLECTION), id));
+      }
+    }
+    await batch.commit();
     return sanitized;
   },
 
@@ -279,6 +296,27 @@ export const firestoreService = {
       await batch.commit();
     }
     return { imported };
+  },
+
+  async loadAllReports() {
+    const snap = await getDocs(collection(db, REPORTS_COLLECTION));
+    const reports = [];
+    snap.forEach((d) => reports.push({ name: d.id }));
+    return reports.sort((a, b) => a.name.localeCompare(b.name));
+  },
+
+  async loadReport(name) {
+    const snap = await getDoc(doc(db, REPORTS_COLLECTION, name));
+    if (!snap.exists()) return '';
+    return snap.data().config ?? '';
+  },
+
+  async saveReport(name, config) {
+    await setDoc(doc(db, REPORTS_COLLECTION, name), { config: config ?? '' });
+  },
+
+  async deleteReport(name) {
+    await deleteDoc(doc(db, REPORTS_COLLECTION, name));
   },
 };
 

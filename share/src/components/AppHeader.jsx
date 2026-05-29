@@ -65,6 +65,14 @@ export default function AppHeader() {
       command: () => {
         router.push('/tokens');
       }
+    },
+    {
+      label: 'Report Table',
+      icon: 'pi pi-file-excel',
+      url: '/report-table',
+      command: () => {
+        router.push('/report-table');
+      }
     }
   ].map(item => ({
     ...item,

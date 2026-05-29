@@ -223,6 +223,8 @@ if (enableReport && reportData) {
 }
 ```
 
+With **Breakdown** enabled, pivot metric filters render **under the period/metric label inside the grouped header** (Prime does not show `filterElement` for columns inside `headerColumnGroup`). Those predicates filter **aggregated** report rows (`reportData.tableData`) after totals are computed.
+
 #### `columnGroupBy`
 String indicating column grouping mode. Can be `'values'` or a date column name.
 

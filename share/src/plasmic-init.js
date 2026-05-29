@@ -6,6 +6,8 @@ import DataTableNew from './app/datatable/components/DataTableNew.jsx';
 import Navigation from './app/navigation/components/Navigation.jsx';
 import EventTimeline from './app/timeline/components/EventTimeline.jsx';
 import { DEFAULT_SAMPLE_EVENTS } from './app/timeline/data/defaultSampleEvents.js';
+import { SmartDataProvider } from './components/SmartDataTable/SmartDataProvider.jsx';
+import { SmartDataTable } from './components/SmartDataTable/SmartDataTable.jsx';
 
 const dataProviderMeta = {
   name: 'DataProvider',
@@ -132,6 +134,48 @@ const eventTimelineMeta = {
   },
 };
 
+const smartDataProviderMeta = {
+  name: 'SmartDataProvider',
+  displayName: 'Elbrit SmartDataProvider',
+  section: 'ElbritCoreLib',
+  providesData: true,
+  importPath: './src/components/SmartDataTable/SmartDataProvider',
+  importName: 'SmartDataProvider',
+  props: {
+    reportConfig: {
+      type: 'object',
+      displayName: 'reportConfig',
+      description: 'Connection config: { urlKey, baseFilters, requestBuilder, controls }. Each SmartDataTable child declares its report view via the view prop.',
+    },
+    children: 'slot',
+  },
+};
+
+const smartDataTableMeta = {
+  name: 'SmartDataTable',
+  displayName: 'Elbrit SmartDataTable',
+  section: 'ElbritCoreLib',
+  importPath: './src/components/SmartDataTable/SmartDataTable',
+  importName: 'SmartDataTable',
+  props: {
+    viewId: {
+      type: 'string',
+      displayName: 'viewId',
+      description: 'Unique identifier for this table\'s Zustand state slice.',
+    },
+    view: {
+      type: 'string',
+      displayName: 'view',
+      description: 'Report view name passed to the API (e.g. "Department HQ"). Used with reportConfig on the parent SmartDataProvider.',
+    },
+    loadingMessage: {
+      type: 'string',
+      displayName: 'loadingMessage',
+      description: 'Message shown while data is loading for this view.',
+    },
+  },
+};
+
 /**
  * Register Elbrit core code components on your Plasmic loader (same loader as your Studio project).
  * @param {import('@plasmicapp/loader-nextjs').PlasmicComponentLoader} loader
@@ -141,6 +185,8 @@ export function registerElbritCoreComponents(loader) {
   loader.registerComponent(DataTableNew, dataTableNewMeta);
   loader.registerComponent(Navigation, navigationMeta);
   loader.registerComponent(EventTimeline, eventTimelineMeta);
+  loader.registerComponent(SmartDataProvider, smartDataProviderMeta);
+  loader.registerComponent(SmartDataTable, smartDataTableMeta);
 }
 
 const ElbritCoreLib = initPlasmicLoader({
@@ -154,7 +200,9 @@ ElbritCoreLib.components = {
   DataTableNew,
   Navigation,
   EventTimeline,
+  SmartDataProvider,
+  SmartDataTable,
 };
 
 export { ElbritCoreLib };
-export { DataProvider, DataTableNew, Navigation, EventTimeline };
+export { DataProvider, DataTableNew, Navigation, EventTimeline, SmartDataProvider, SmartDataTable };

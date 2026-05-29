@@ -69,6 +69,26 @@ import { Row } from 'primereact/row';
 import { getTimePeriodLabel, getTimePeriodLabelShort, reorganizePeriodsForPeriodOverPeriod } from '../utils/timeBreakdownUtils';
 import { computeReportColumnsStructure, generateReportHeaderGroup, getMetricLabel, getReportColumns } from '../utils/reportRenderingUtils';
 import { getAllowedForScope, getAllowedForGroupField, getAllowedForReportGroupField } from '../utils/allowedColumnsUtils';
+import { ReportPivotMetricFilter } from './ReportPivotMetricFilter';
+import { isReportMetricColumn } from '../utils/filterUtils';
+
+/** Filter input debounce (shared by column filters and breakdown pivot header filters). */
+const DATA_TABLE_FILTER_DEBOUNCE_MS = 400;
+
+/**
+ * Resolve which filter UI type `getFilterElement` picks for a column.
+ * Typed columns (boolean/date/numeric) win over multiselect so stale multiselectColumns
+ * cannot override after columnTypes async detection updates.
+ */
+function resolveFilterElementKind(col, { columnTypesFlags, multiselectColumns, isPercentageColumn }) {
+  if (isPercentageColumn(col)) return 'numeric';
+  const colType = get(columnTypesFlags, col);
+  if (get(colType, 'isBoolean')) return 'boolean';
+  if (get(colType, 'isDate')) return 'date';
+  if (get(colType, 'isNumeric')) return 'numeric';
+  if (includes(multiselectColumns, col)) return 'multiselect';
+  return 'text';
+}
 
 /**
  * Drawer drill filters must match raw leaf row fields. Group summary rows may store ancestor
@@ -1251,11 +1271,22 @@ function DataTableNewScrollableTableView({
             const colType = get(columnTypesFlags, col);
             const isNumericCol = isPctCol || get(colType, 'isNumeric', false);
             const isFirstColumn = index === 0;
-            const isReportCol = enableBreakdown && reportData && reportData.metrics.some(m => col.includes(`_${m}`));
+            const isReportCol =
+              enableBreakdown && reportData && reportData.metrics.some((m) => col.includes(`_${m}`));
+            // Breakdown: exempt/metric filters render in header addon row only; body row caused stale multiselect before types settled
+            const includeBodyRowFilters =
+              enableFilter && !isReportCol && (!enableBreakdown || isFirstColumn);
             const isReportNumeric = isReportCol || isNumericCol;
+            const filterTypeKey = get(colType, 'isDate')
+              ? 'date'
+              : get(colType, 'isBoolean')
+                ? 'boolean'
+                : get(colType, 'isNumeric')
+                  ? 'number'
+                  : 'string';
             return (
               <Column
-                key={`frozen-${col}`}
+                key={`frozen-${col}-${filterTypeKey}`}
                 field={col}
                 header={getHeaderTemplate(col) || formatHeaderName(col)}
                 sortable={enableSort}
@@ -1264,8 +1295,8 @@ function DataTableNewScrollableTableView({
                 style={{
                   width: isPctCol ? '130px' : `${get(calculateColumnWidths, col, 120)}px`,
                 }}
-                filter={enableFilter && !isReportCol}
-                filterElement={enableFilter && !isReportCol ? getFilterElement(col) : undefined}
+                filter={includeBodyRowFilters}
+                filterElement={includeBodyRowFilters ? getFilterElement(col) : undefined}
                 showFilterMenu={false}
                 showClearButton={false}
                 footer={footerTemplate(col, isFirstColumn)}
@@ -1285,11 +1316,20 @@ function DataTableNewScrollableTableView({
             const isPctCol = isPercentageColumn(col);
             const colType = get(columnTypesFlags, col);
             const isNumericCol = isPctCol || get(colType, 'isNumeric', false);
-            const isReportCol = enableBreakdown && reportData && reportData.metrics.some(m => col.includes(`_${m}`));
+            const isReportCol =
+              enableBreakdown && reportData && reportData.metrics.some((m) => col.includes(`_${m}`));
+            const includeBodyRowFilters = enableFilter && !isReportCol && !enableBreakdown;
             const isReportNumeric = isReportCol || isNumericCol;
+            const filterTypeKey = get(colType, 'isDate')
+              ? 'date'
+              : get(colType, 'isBoolean')
+                ? 'boolean'
+                : get(colType, 'isNumeric')
+                  ? 'number'
+                  : 'string';
             return (
               <Column
-                key={col}
+                key={`${col}-${filterTypeKey}`}
                 field={col}
                 header={getHeaderTemplate(col) || formatHeaderName(col)}
                 sortable={enableSort}
@@ -1297,8 +1337,8 @@ function DataTableNewScrollableTableView({
                 style={{
                   width: isPctCol ? '130px' : `${get(calculateColumnWidths, col, 120)}px`,
                 }}
-                filter={enableFilter && !isReportCol}
-                filterElement={enableFilter && !isReportCol ? getFilterElement(col) : undefined}
+                filter={includeBodyRowFilters}
+                filterElement={includeBodyRowFilters ? getFilterElement(col) : undefined}
                 showFilterMenu={false}
                 showClearButton={false}
                 footer={footerTemplate(col)}
@@ -1581,14 +1621,6 @@ export default function DataTableNew({
     if (!allowedForReport || allowedForReport.length === 0) return true;
     return new Set(allowedForReport).has(outerGroupField);
   }, [allowedColumns, outerGroupField]);
-
-  // Report mode: Generate header groups and columns
-  const reportHeaderGroup = useMemo(() => {
-    if (!reportColumnsStructure || !reportData) {
-      return null;
-    }
-    return generateReportHeaderGroup(reportColumnsStructure, reportData, outerGroupField, formatHeaderName, enableSort, reportIncludeGroupColumn);
-  }, [reportColumnsStructure, reportData, outerGroupField, formatHeaderName, enableSort, reportIncludeGroupColumn]);
 
   // Report mode: Generate report columns
   const reportColumns = useMemo(() => {
@@ -1951,7 +1983,6 @@ export default function DataTableNew({
     updatePagination(0, rows);
   }, [isFullscreen, contextUpdateFilter, updatePagination, rows]);
 
-  // clearFilter comes from context - no need to duplicate
 
   // clearAllFilters comes from context - use it directly
   // No need to duplicate the logic
@@ -2045,10 +2076,48 @@ export default function DataTableNew({
       });
     }
 
-    return active;
-  }, [filters, columns, enableFilter, columnTypes, formatFilterValue, multiselectColumns, hasPercentageColumns, percentageColumnNames]);
+    // Breakdown pivot metric columns usually not in schema `columns` — include chips from report layout
+    if (
+      enableBreakdown &&
+      !isEmpty(reportColumns) &&
+      reportData &&
+      isArray(reportData.metrics) &&
+      !isEmpty(reportData.metrics)
+    ) {
+      const seen = new Set(active.map((a) => a.column));
+      reportColumns.forEach((col) => {
+        const isPivotMetricCol = reportData.metrics.some((m) => col.includes(`_${m}`));
+        if (!isPivotMetricCol || seen.has(col)) return;
+        const filterObj = get(filters, col);
+        if (filterObj && !isNil(filterObj.value) && filterObj.value !== '') {
+          const formattedValue = formatFilterValue(col, filterObj.value, { isNumeric: true });
+          if (formattedValue !== null) {
+            active.push({
+              column: col,
+              value: filterObj.value,
+              formattedValue,
+              colType: { isNumeric: true },
+            });
+            seen.add(col);
+          }
+        }
+      });
+    }
 
-  const DEBOUNCE_MS = 400;
+    return active;
+  }, [
+    filters,
+    columns,
+    enableFilter,
+    columnTypes,
+    formatFilterValue,
+    multiselectColumns,
+    hasPercentageColumns,
+    percentageColumnNames,
+    enableBreakdown,
+    reportColumns,
+    reportData,
+  ]);
 
   const textFilterElement = useCallback(
     (col) => () => {
@@ -2058,7 +2127,7 @@ export default function DataTableNew({
         <ColumnFilterTextInput
           columnField={col}
           committedValue={committed}
-          debounceMs={DEBOUNCE_MS}
+          debounceMs={DATA_TABLE_FILTER_DEBOUNCE_MS}
           placeholder="Search..."
           onCommit={updateFilter}
         />
@@ -2075,7 +2144,7 @@ export default function DataTableNew({
         <ColumnFilterTextInput
           columnField={col}
           committedValue={committed}
-          debounceMs={DEBOUNCE_MS}
+          debounceMs={DATA_TABLE_FILTER_DEBOUNCE_MS}
           placeholder="<, >, <=, >=, =, <>"
           title="Numeric filters: <10, >10, <=10, >=10, =10, 10<>20 (range)"
           onCommit={updateFilter}
@@ -2126,29 +2195,81 @@ export default function DataTableNew({
   }, [filters, updateFilter, filterOptions, formatHeaderName]);
 
   const getFilterElement = useCallback((col) => {
-    // Percentage columns always use numeric filter
-    if (isPercentageColumn(col)) {
-      return numericFilterElement(col);
+    const filterElementType = resolveFilterElementKind(col, {
+      columnTypesFlags,
+      multiselectColumns,
+      isPercentageColumn,
+    });
+    switch (filterElementType) {
+      case 'numeric':
+        return numericFilterElement(col);
+      case 'multiselect':
+        return multiselectFilterElement(col);
+      case 'boolean':
+        return booleanFilterElement(col);
+      case 'date':
+        return dateFilterElement(col);
+      case 'text':
+      default:
+        return textFilterElement(col);
     }
+  }, [
+    columnTypesFlags,
+    multiselectColumns,
+    booleanFilterElement,
+    dateFilterElement,
+    numericFilterElement,
+    textFilterElement,
+    multiselectFilterElement,
+    isPercentageColumn,
+  ]);
 
-    const colType = get(columnTypesFlags, col);
-    const isMultiselectColumn = includes(multiselectColumns, col);
+  const reportPivotHeaderAddon = useMemo(() => {
+    if (!enableFilter || !enableBreakdown || !reportData) {
+      return null;
+    }
+    const { metrics } = reportData;
+    return (fieldName) => {
+      if (isReportMetricColumn(fieldName, metrics)) {
+        return (
+          <ReportPivotMetricFilter
+            columnField={fieldName}
+            committedValue={get(get(filters, fieldName), 'value')}
+            debounceMs={DATA_TABLE_FILTER_DEBOUNCE_MS}
+            onCommit={updateFilter}
+          />
+        );
+      }
+      const factory = getFilterElement(fieldName);
+      if (!factory || typeof factory !== 'function') return null;
+      return factory({});
+    };
+  }, [enableFilter, enableBreakdown, reportData, filters, updateFilter, getFilterElement]);
 
-    // Multiselect columns get multiselect filter (takes priority)
-    if (isMultiselectColumn) {
-      return multiselectFilterElement(col);
+  const reportHeaderGroup = useMemo(() => {
+    if (!reportColumnsStructure || !reportData) {
+      return null;
     }
-    if (get(colType, 'isBoolean')) {
-      return booleanFilterElement(col);
-    }
-    if (get(colType, 'isDate')) {
-      return dateFilterElement(col);
-    }
-    if (get(colType, 'isNumeric')) {
-      return numericFilterElement(col);
-    }
-    return textFilterElement(col);
-  }, [columnTypes, multiselectColumns, booleanFilterElement, dateFilterElement, numericFilterElement, textFilterElement, multiselectFilterElement, isPercentageColumn]);
+    return generateReportHeaderGroup(
+      reportColumnsStructure,
+      reportData,
+      outerGroupField,
+      formatHeaderName,
+      enableSort,
+      reportIncludeGroupColumn,
+      reportPivotHeaderAddon,
+      { metricFiltersSeparateRow: !!(enableFilter && reportData) }
+    );
+  }, [
+    reportColumnsStructure,
+    reportData,
+    outerGroupField,
+    formatHeaderName,
+    enableSort,
+    reportIncludeGroupColumn,
+    reportPivotHeaderAddon,
+    enableFilter,
+  ]);
 
   const getBodyTemplate = useCallback((col) => {
     // Handle percentage columns
@@ -2616,7 +2737,7 @@ export default function DataTableNew({
     if (!fn) {
       fn = debounce((val) => {
         updateNestedFilter(groupKey, col, val);
-      }, DEBOUNCE_MS);
+      }, DATA_TABLE_FILTER_DEBOUNCE_MS);
       nestedDebouncedMapRef.current.set(key, fn);
     }
     fn(value);

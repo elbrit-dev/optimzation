@@ -84,3 +84,38 @@ export function getAvailableQueryKeys(processedData, dataSource) {
     return value && value.length > 0;
   });
 }
+
+/**
+ * Stable identity for row matching / change detection (ignores volatile __editingKey__).
+ */
+export function getStableRowIdentity(row, index = 0) {
+  if (!row || typeof row !== 'object') return `__idx_${index}`;
+  const id = row.id ?? row.key ?? row.__id__;
+  if (id != null && id !== '') return String(id);
+  if (row.name != null && row.name !== '') return `name:${String(row.name)}`;
+  return `__idx_${index}`;
+}
+
+/**
+ * Overlay cell edits from the editing buffer onto pipeline rows (matched by __editingKey__).
+ * Pipeline input stays preFilteredData; display uses merged pipeline output + edits.
+ */
+export function applyEditingBufferToRows(baseRows, editRows) {
+  if (!baseRows || !Array.isArray(baseRows) || baseRows.length === 0) return baseRows;
+  if (!editRows || !Array.isArray(editRows) || editRows.length === 0) return baseRows;
+
+  const editByKey = new Map();
+  for (let i = 0; i < editRows.length; i++) {
+    const row = editRows[i];
+    if (row && row.__editingKey__ != null) {
+      editByKey.set(row.__editingKey__, row);
+    }
+  }
+  if (editByKey.size === 0) return baseRows;
+
+  return baseRows.map((row) => {
+    if (!row) return row;
+    const edit = editByKey.get(row.__editingKey__);
+    return edit ? { ...row, ...edit } : row;
+  });
+}

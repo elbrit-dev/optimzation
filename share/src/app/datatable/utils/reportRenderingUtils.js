@@ -170,12 +170,25 @@ export function computeReportColumnsStructure(reportData, columnGroupBy, exemptC
  * @param {Function} formatHeaderName - Function to format header names
  * @param {boolean} [enableSort=true] - Whether to show sort option on columns
  * @param {boolean} [includeGroupColumn=true] - When false, omit group column (e.g. when not in allowedColumns)
+ * @param {((fieldName: string) => React.ReactNode) | null} [getPivotHeaderAddon] - Renders pivot metric filter(s). When metricFiltersSeparateRow is true they appear on a dedicated header row below leaf titles instead of stacked in the leaf cell.
+ * @param {{ metricFiltersSeparateRow?: boolean }} [reportHeaderOpts] When metricFiltersSeparateRow, adds a fourth header row for addon cells and bumps rowSpan on pinned/exempt columns to 4.
  * @returns {JSX.Element|null} ColumnGroup element or null
  */
-export function generateReportHeaderGroup(reportColumnsStructure, reportData, outerGroupField, formatHeaderName, enableSort = true, includeGroupColumn = true) {
+export function generateReportHeaderGroup(
+  reportColumnsStructure,
+  reportData,
+  outerGroupField,
+  formatHeaderName,
+  enableSort = true,
+  includeGroupColumn = true,
+  getPivotHeaderAddon = null,
+  reportHeaderOpts = {}
+) {
   if (!reportColumnsStructure || !reportData) {
     return null;
   }
+
+  const { metricFiltersSeparateRow = false } = reportHeaderOpts;
 
   const { breakdownType } = reportData;
   const {
@@ -188,6 +201,65 @@ export function generateReportHeaderGroup(reportColumnsStructure, reportData, ou
     orderedSegments,
     isMergedMode
   } = reportColumnsStructure;
+
+  const hdrSpan = metricFiltersSeparateRow ? 4 : 3;
+  const hasPivotAddonFn = typeof getPivotHeaderAddon === 'function';
+  /** Breakdown exempt columns reserve the bottom header row for filters (match metric columns) */
+  const exemptPrimaryRowSpan =
+    metricFiltersSeparateRow && hasPivotAddonFn ? Math.max(1, hdrSpan - 1) : hdrSpan;
+
+  const leafCombined = (fieldName, labelText) => {
+    const addon = hasPivotAddonFn ? getPivotHeaderAddon(fieldName) : null;
+    if (!addon) return labelText;
+    return (
+      <div className="flex flex-col items-stretch gap-1.5 min-w-0 w-full text-left">
+        <span className="block text-xs leading-tight text-gray-800 truncate">{labelText}</span>
+        <div className="w-full min-w-0">{addon}</div>
+      </div>
+    );
+  };
+
+  const leafTitleOnly = (labelText) => (
+    <span className="block text-xs leading-tight text-gray-800 truncate">{labelText}</span>
+  );
+
+  /** Leaf header content: stacked label + filter, or title-only row when metric filters occupy the row below */
+  const leafHeaderCell = (fieldName, labelText) =>
+    metricFiltersSeparateRow && hasPivotAddonFn ? leafTitleOnly(labelText) : leafCombined(fieldName, labelText);
+
+  /** Fourth row cells for breakdown metric columns — empty string when addon missing */
+  const pivotFilterOnlyHeader = (fieldName) => {
+    if (!(metricFiltersSeparateRow && hasPivotAddonFn)) return null;
+    const addon = getPivotHeaderAddon(fieldName);
+    return addon ? <div className="w-full min-w-0">{addon}</div> : '';
+  };
+
+  /** Filter row cells in same order as `getReportColumns` / body `Column` fields (single orderedSegments pass). */
+  const orderedSegmentFilterRowColumns = () =>
+    orderedSegments.flatMap((seg) => {
+      if (seg.type === 'exempt') {
+        return [
+          <Column
+            key={`filter-exempt-${seg.name}`}
+            sortable={false}
+            header={pivotFilterOnlyHeader(seg.name) ?? ''}
+            field={seg.name}
+          />,
+        ];
+      }
+      return seg.periods.map((period) => {
+        const f = `${period}_${seg.metric}`;
+        return (
+          <Column
+            key={`filter-${f}`}
+            sortable={false}
+            header={pivotFilterOnlyHeader(f) ?? ''}
+            field={f}
+          />
+        );
+      });
+    });
+
   const totalDataCols = columnsWithData.length;
   const exemptColsArray = Array.isArray(exemptColumns) ? exemptColumns : [];
 
@@ -198,11 +270,11 @@ export function generateReportHeaderGroup(reportColumnsStructure, reportData, ou
       return (
         <ColumnGroup>
           <Row>
-            <Column header="" rowSpan={3} style={{ width: '3rem' }} />
-            {includeGroupColumn && <Column header={formatHeaderName(outerGroupField)} rowSpan={3} />}
+            <Column header="" rowSpan={hdrSpan} style={{ width: '3rem' }} />
+            {includeGroupColumn && <Column header={formatHeaderName(outerGroupField)} rowSpan={hdrSpan} />}
             {orderedSegments.map((seg, idx) =>
               seg.type === 'exempt' ? (
-                <Column key={`exempt-${seg.name}`} header={formatHeaderName(seg.name)} rowSpan={3} sortable={enableSort} field={seg.name} />
+                <Column key={`exempt-${seg.name}`} header={formatHeaderName(seg.name)} rowSpan={exemptPrimaryRowSpan} sortable={enableSort} field={seg.name} />
               ) : (
                 <Column key={`breakdown-${seg.metric}-${idx}`} header="" colSpan={seg.periods.length} />
               )
@@ -222,13 +294,19 @@ export function generateReportHeaderGroup(reportColumnsStructure, reportData, ou
                 : seg.periods.map((period) => (
                     <Column
                       key={`${period}_${seg.metric}`}
-                      header={getTimePeriodLabelShort(period, breakdownType)}
+                      header={leafHeaderCell(
+                        `${period}_${seg.metric}`,
+                        getTimePeriodLabelShort(period, breakdownType)
+                      )}
                       sortable={enableSort}
                       field={`${period}_${seg.metric}`}
                     />
                   ))
             )}
           </Row>
+          {metricFiltersSeparateRow && hasPivotAddonFn ? (
+            <Row>{orderedSegmentFilterRowColumns()}</Row>
+          ) : null}
         </ColumnGroup>
       );
     }
@@ -236,11 +314,11 @@ export function generateReportHeaderGroup(reportColumnsStructure, reportData, ou
     return (
       <ColumnGroup>
         <Row>
-          <Column header="" rowSpan={3} style={{ width: '3rem' }} />
-          {includeGroupColumn && <Column header={formatHeaderName(outerGroupField)} rowSpan={3} />}
+          <Column header="" rowSpan={hdrSpan} style={{ width: '3rem' }} />
+          {includeGroupColumn && <Column header={formatHeaderName(outerGroupField)} rowSpan={hdrSpan} />}
           {orderedSegments.map((seg, idx) =>
             seg.type === 'exempt' ? (
-              <Column key={`exempt-${seg.name}`} header={formatHeaderName(seg.name)} rowSpan={3} sortable={enableSort} field={seg.name} />
+              <Column key={`exempt-${seg.name}`} header={formatHeaderName(seg.name)} rowSpan={exemptPrimaryRowSpan} sortable={enableSort} field={seg.name} />
             ) : (
               <Column key={`breakdown-${seg.metric}-${idx}`} header="" colSpan={seg.periods.length} />
             )
@@ -262,13 +340,16 @@ export function generateReportHeaderGroup(reportColumnsStructure, reportData, ou
               : seg.periods.map((period) => (
                   <Column
                     key={`${period}_${seg.metric}`}
-                    header={getMetricLabel(seg.metric)}
+                    header={leafHeaderCell(`${period}_${seg.metric}`, getMetricLabel(seg.metric))}
                     sortable={enableSort}
                     field={`${period}_${seg.metric}`}
                   />
                 ))
           )}
         </Row>
+        {metricFiltersSeparateRow && hasPivotAddonFn ? (
+          <Row>{orderedSegmentFilterRowColumns()}</Row>
+        ) : null}
       </ColumnGroup>
     );
   }
@@ -278,10 +359,10 @@ export function generateReportHeaderGroup(reportColumnsStructure, reportData, ou
     return (
       <ColumnGroup>
         <Row>
-          <Column header="" rowSpan={3} style={{ width: '3rem' }} />
-          {includeGroupColumn && <Column header={formatHeaderName(outerGroupField)} rowSpan={3} />}
+          <Column header="" rowSpan={hdrSpan} style={{ width: '3rem' }} />
+          {includeGroupColumn && <Column header={formatHeaderName(outerGroupField)} rowSpan={hdrSpan} />}
           {exemptColsArray.map((col) => (
-            <Column key={col} header={formatHeaderName(col)} rowSpan={3} sortable={enableSort} field={col} />
+            <Column key={col} header={formatHeaderName(col)} rowSpan={exemptPrimaryRowSpan} sortable={enableSort} field={col} />
           ))}
           {totalDataCols > 0 && (
             <Column header="" colSpan={totalDataCols} />
@@ -296,26 +377,47 @@ export function generateReportHeaderGroup(reportColumnsStructure, reportData, ou
         <Row>
           {metricsWithData.map((metric) =>
             metricGroups[metric].map((period) => (
-            <Column
-              key={`${period}_${metric}`}
-              header={getTimePeriodLabelShort(period, breakdownType)}
-              sortable={enableSort}
-              field={`${period}_${metric}`}
-            />
-          ))
-        )}
-      </Row>
-    </ColumnGroup>
-  );
-}
+              <Column
+                key={`${period}_${metric}`}
+                header={leafHeaderCell(
+                  `${period}_${metric}`,
+                  getTimePeriodLabelShort(period, breakdownType)
+                )}
+                sortable={enableSort}
+                field={`${period}_${metric}`}
+              />
+            ))
+          )}
+        </Row>
+        {metricFiltersSeparateRow && hasPivotAddonFn ? (
+          <Row>
+            {exemptColsArray.map((col) => (
+              <Column
+                key={`filter-exempt-${col}`}
+                sortable={false}
+                header={pivotFilterOnlyHeader(col) ?? ''}
+                field={col}
+              />
+            ))}
+            {metricsWithData.map((metric) =>
+              metricGroups[metric].map((period) => {
+                const f = `${period}_${metric}`;
+                return <Column key={`filter-${f}`} sortable={false} header={pivotFilterOnlyHeader(f) ?? ''} field={f} />;
+              })
+            )}
+          </Row>
+        ) : null}
+      </ColumnGroup>
+    );
+  }
 // Sub-columns mode
   return (
     <ColumnGroup>
       <Row>
-        <Column key="report-expander" header="" rowSpan={3} style={{ width: '3rem' }} />
-        {includeGroupColumn && <Column key={`report-group-${outerGroupField}`} header={formatHeaderName(outerGroupField)} rowSpan={3} />}
+        <Column key="report-expander" header="" rowSpan={hdrSpan} style={{ width: '3rem' }} />
+        {includeGroupColumn && <Column key={`report-group-${outerGroupField}`} header={formatHeaderName(outerGroupField)} rowSpan={hdrSpan} />}
         {exemptColsArray.map((col) => (
-          <Column key={col} header={formatHeaderName(col)} rowSpan={3} sortable={enableSort} field={col} />
+          <Column key={col} header={formatHeaderName(col)} rowSpan={exemptPrimaryRowSpan} sortable={enableSort} field={col} />
         ))}
         {totalDataCols > 0 && <Column header="" colSpan={totalDataCols} />}
       </Row>
@@ -330,10 +432,33 @@ export function generateReportHeaderGroup(reportColumnsStructure, reportData, ou
       <Row>
         {timePeriodsWithData.map((period) =>
           periodGroups[period].map((metric) => (
-            <Column key={`${period}_${metric}`} header={getMetricLabel(metric)} sortable={enableSort} field={`${period}_${metric}`} />
+            <Column
+              key={`${period}_${metric}`}
+              header={leafHeaderCell(`${period}_${metric}`, getMetricLabel(metric))}
+              sortable={enableSort}
+              field={`${period}_${metric}`}
+            />
           ))
         )}
       </Row>
+      {metricFiltersSeparateRow && hasPivotAddonFn ? (
+        <Row>
+          {exemptColsArray.map((col) => (
+            <Column
+              key={`filter-exempt-${col}`}
+              sortable={false}
+              header={pivotFilterOnlyHeader(col) ?? ''}
+              field={col}
+            />
+          ))}
+          {timePeriodsWithData.map((period) =>
+            periodGroups[period].map((metric) => {
+              const f = `${period}_${metric}`;
+              return <Column key={`filter-${f}`} sortable={false} header={pivotFilterOnlyHeader(f) ?? ''} field={f} />;
+            })
+          )}
+        </Row>
+      ) : null}
     </ColumnGroup>
   );
 }

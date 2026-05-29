@@ -47,10 +47,10 @@ import { useSelectOptionsCacheStore } from '../stores/useSelectOptionsCacheStore
 import { useDataPipeline } from '../hooks/useDataPipeline';
 import { useMultiSlotPipeline } from '../hooks/useMultiSlotPipeline';
 import { useQueryExecution } from '../hooks/useQueryExecution';
-import { getDataKeys, getDataValue } from '../utils/dataAccessUtils';
+import { applyEditingBufferToRows, getDataKeys, getDataValue, getStableRowIdentity } from '../utils/dataAccessUtils';
 import { applyDerivedColumns, applyDerivedColumnsForRow, getDerivedColumnNames, getExemptFromBreakdownColumnNames, getNonAggregatableColumnNames, getOrderedColumnsWithDerived } from '../utils/derivedColumnsUtils';
 import { formatDateValue } from '../utils/dateFormatUtils';
-import { applyDateFilter, applyNumericFilter, filterRows, hasActiveTableFilters, parseNumericFilter } from '../utils/filterUtils';
+import { applyDateFilter, applyNumericFilter, filterReportRowsByMetricFilters, filterRows, hasActiveTableFilters, parseNumericFilter } from '../utils/filterUtils';
 import { getMainOverrides, mergeColumnTypesOverride } from '../utils/columnTypesOverrideUtils';
 import {
   buildBulkUpdateVariables,
@@ -123,11 +123,8 @@ function sortedDataInitCursor(sortedData) {
   if (!isArray(sortedData) || sortedData.length === 0) {
     return { ref: sortedData, hash: '0_empty' };
   }
-  const firstKey = sortedData[0]?.__editingKey__ || sortedData[0]?.id || 'no_key';
-  const lastKey =
-    sortedData[sortedData.length - 1]?.__editingKey__ ||
-    sortedData[sortedData.length - 1]?.id ||
-    'no_key';
+  const firstKey = getStableRowIdentity(sortedData[0], 0);
+  const lastKey = getStableRowIdentity(sortedData[sortedData.length - 1], sortedData.length - 1);
   return { ref: sortedData, hash: `${sortedData.length}_${firstKey}_${lastKey}` };
 }
 
@@ -597,6 +594,7 @@ export default function DataProviderNew({
     addEditingKeysToRows,
     mainTableEditingDataRefEarly,
     setTableDataUpdateTrigger,
+    derivedRowsLoading,
     effectiveGroupFields,
     sortFieldType,
     jsonObjectFields,
@@ -838,20 +836,6 @@ export default function DataProviderNew({
   const prevRawDataLogicalHashRef = useRef(null);
   const prevTableDataLogicalHashRef = useRef(null);
 
-  // Initialize mainTableEditingData with preFilteredData when it first loads (if empty)
-  // Skip when sortedData already has data - prevents overwriting buffer with flat data after pipeline produced grouped data
-  useEffect(() => {
-    if (preFilteredData && isArray(preFilteredData) && !isEmpty(preFilteredData)) {
-      const mainEmpty = !mainTableEditingData || !isArray(mainTableEditingData) || isEmpty(mainTableEditingData);
-      const sortedHasData = isArray(sortedData) && sortedData.length > 0;
-      if (mainEmpty && !sortedHasData) {
-        const dataWithKeys = addEditingKeysToRows(preFilteredData);
-        setMainTableEditingData(dataWithKeys);
-        mainTableEditingDataRef.current = dataWithKeys;
-      }
-    }
-  }, [preFilteredData, mainTableEditingData, addEditingKeysToRows, sortedData]);
-
   // Note: onTableDataChange is called later with final sortedData (line 2904)
   // which includes both searchFields/sortFields sorting and tableSortMeta sorting
 
@@ -907,14 +891,33 @@ export default function DataProviderNew({
     }
   ], [handleClearMonthRangeCache]);
 
+  // Pipeline output + in-memory cell edits (buffer is not fed back into tableData).
+  const sortedDataWithEdits = useMemo(
+    () => applyEditingBufferToRows(sortedData, mainTableEditingData),
+    [sortedData, mainTableEditingData],
+  );
+
+  const paginatedDataWithEdits = useMemo(() => {
+    if (!isArray(sortedDataWithEdits) || isEmpty(sortedDataWithEdits)) return [];
+    const first = tablePagination?.first ?? 0;
+    const rowsPerPage = tablePagination?.rows ?? 10;
+    return sortedDataWithEdits.slice(first, first + rowsPerPage);
+  }, [sortedDataWithEdits, tablePagination]);
+
+  const dataForColumnInference = useMemo(() => {
+    if (isArray(sortedDataWithEdits) && !isEmpty(sortedDataWithEdits)) return sortedDataWithEdits;
+    if (isArray(tableData) && !isEmpty(tableData)) return tableData;
+    return [];
+  }, [sortedDataWithEdits, tableData]);
+
   // Column detection and type analysis (moved from DataTable)
   const columns = useMemo(() => {
-    if (!tableData || !Array.isArray(tableData) || isEmpty(tableData)) {
+    if (!dataForColumnInference || !Array.isArray(dataForColumnInference) || isEmpty(dataForColumnInference)) {
       return [];
     }
     // Exclude internal metadata (__nestedTables__, __groupKey__, __groupRows__, etc.) from columns
     const colSet = new Set();
-    tableData.forEach((item) => {
+    dataForColumnInference.forEach((item) => {
       if (item && typeof item === 'object') {
         getDataKeys(item).forEach((key) => {
           if (key && typeof key === 'string' && !key.startsWith('__')) colSet.add(key);
@@ -922,7 +925,7 @@ export default function DataProviderNew({
       }
     });
     return [...colSet];
-  }, [tableData]);
+  }, [dataForColumnInference]);
 
   // Compute array fields separately (will be used to filter columns)
   const arrayFieldsForColumnFilter = useMemo(() => {
@@ -961,15 +964,24 @@ export default function DataProviderNew({
     }
     const allowed = getAllowedForScope(allowedColumns, 'main');
     const derived = effectiveMainConfig.derivedColumns;
-    
-    // Filter by allowedColumns and exclude array fields in a single pass
-    const allowedSet = allowed && allowed.length > 0 ? new Set(allowed) : null;
     const hasArrayFilter = arrayFieldsForColumnFilter.size > 0;
-    result = result.filter((col) => {
-      if (allowedSet && !allowedSet.has(col)) return false;
-      if (hasArrayFilter && arrayFieldsForColumnFilter.has(col)) return false;
-      return true;
-    });
+
+    if (allowed && allowed.length > 0) {
+      // Whitelist from config (e.g. stocktesting allowedColumns.main), not intersection with keys present in
+      // the current row sample — avoids fewer columns when cache/editing buffer/sparse rows omit properties.
+      result = allowed.filter((col) => {
+        if (!col || typeof col !== 'string' || String(col).startsWith('__')) return false;
+        if (hasArrayFilter && arrayFieldsForColumnFilter.has(col)) return false;
+        return true;
+      });
+    } else {
+      const allowedSet = allowed && allowed.length > 0 ? new Set(allowed) : null;
+      result = result.filter((col) => {
+        if (allowedSet && !allowedSet.has(col)) return false;
+        if (hasArrayFilter && arrayFieldsForColumnFilter.has(col)) return false;
+        return true;
+      });
+    }
 
     // Include derived columns at their specified position (position = 0-based index; omit to append at end)
     const mode = derivedColumnsMode ?? 'main';
@@ -988,11 +1000,11 @@ export default function DataProviderNew({
   // Column types computation (NEW FORMAT: { field_name: "boolean" | "number" | "date" | "string" })
   const columnTypes = useMemo(() => {
     const detectedTypes = {};
-    if (isEmpty(tableData)) {
+    if (isEmpty(dataForColumnInference)) {
       return detectedTypes;
     }
 
-    const sampleData = take(tableData, 50);
+    const sampleData = take(dataForColumnInference, 50);
 
     filteredColumns.forEach((col) => {
       let numericCount = 0;
@@ -1061,7 +1073,7 @@ export default function DataProviderNew({
       }
     });
     return mergedTypes;
-  }, [tableData, filteredColumns, isNumericValue, mainColumnTypesOverride, effectiveMainConfig.derivedColumns]);
+  }, [dataForColumnInference, filteredColumns, isNumericValue, mainColumnTypesOverride, effectiveMainConfig.derivedColumns]);
 
   // JSON table columns (columns that have __nestedTables__) - for scalar editable columns filter
   const jsonTableColumns = useMemo(() => {
@@ -1967,6 +1979,18 @@ export default function DataProviderNew({
   // Track previous sortedData to prevent unnecessary re-initialization
   const previousSortedDataRef = useRef(null);
   const previousSortedDataHashRef = useRef(null);
+  const prevPreFilteredLenRef = useRef(0);
+
+  // After async derivedRows merge, preFiltered row count jumps — force sortedData buffer resync.
+  useEffect(() => {
+    const preLen = isArray(preFilteredData) ? preFilteredData.length : 0;
+    const prev = prevPreFilteredLenRef.current;
+    if (prev > 100 && preLen > 100 && Math.abs(preLen - prev) > Math.max(500, prev * 0.05)) {
+      previousSortedDataHashRef.current = null;
+      previousSortedDataRef.current = null;
+    }
+    prevPreFilteredLenRef.current = preLen;
+  }, [preFilteredData]);
   // When we add a new row via drawer, sortedData updates from pipeline - skip re-init so original stays unchanged
   const skipNextInitFromSortedDataRef = useRef(false);
   /**
@@ -4305,8 +4329,8 @@ export default function DataProviderNew({
         jsonObjectColumns,
         filteredData,
         groupedData,
-        sortedData,
-        paginatedData,
+        sortedData: sortedDataWithEdits,
+        paginatedData: paginatedDataWithEdits,
         sums: calculateSums,
         getSums,
         filterOptions: optionColumnValues,
@@ -4341,15 +4365,25 @@ export default function DataProviderNew({
         isApplyingFilterSort,
         chartColumns, // shared
         chartHeight, // shared
-        // Unified loading state (includes "computing groups" for drawer nested when offlineData not yet executed)
+        // Unified loading state (includes query cache + async derivedRows merge before table paints)
         isLoading: (() => {
           const offlineComputing = !dataSource && offlineData?.length > 0 && !offlineDataExecuted;
-          return isComputingReport || isApplyingFilterSort || offlineComputing;
+          return (
+            isComputingReport ||
+            isApplyingFilterSort ||
+            offlineComputing ||
+            derivedRowsLoading ||
+            executingQuery ||
+            loadingFromCache
+          );
         })(),
         loadingText: (() => {
           if (isComputingReport) return 'Computing report...';
           if (isApplyingFilterSort) return 'Applying Filter and Sort...';
           if (!dataSource && offlineData?.length > 0 && !offlineDataExecuted) return 'Computing groups...';
+          if (derivedRowsLoading) return 'Merging related rows...';
+          if (executingQuery) return 'Loading data...';
+          if (loadingFromCache) return 'Loading from cache...';
           return '';
         })(),
         columnGroupBy,
@@ -4444,7 +4478,7 @@ export default function DataProviderNew({
       return {};
     }
   }, [
-    sortedData, columns, columnTypes, filteredData, groupedData, paginatedData,
+    sortedDataWithEdits, columns, columnTypes, filteredData, groupedData, paginatedDataWithEdits,
     calculateSums, getSums, optionColumnValues, multiselectColumns, hasPercentageColumns, percentageColumnNames,
     isPercentageColumn, getPercentageColumnValue, getPercentageColumnSortFunction, tableFilters, tableSortMeta, tablePagination,
     tableExpandedRows, tableVisibleColumns, effectiveGroupFields,
@@ -4452,7 +4486,7 @@ export default function DataProviderNew({
     updateVisibleColumns, drawerVisible, drawerData, activeDrawerTabIndex, clickedDrawerValues,
     openDrawer, openDrawerWithData, openDrawerForOuterGroup, openDrawerForInnerGroup, openDrawerWithJsonTables, openDrawerForRow, openDrawerForNewRow, handleAddNestedRowAtZero, closeDrawer, addDrawerTab, removeDrawerTab, updateDrawerTab,
     selectedRowData, setSelectedRowDataWithFormSync,
-    formatHeaderName, isTruthyBoolean, exportToXLSX, isNumericValue, currentQueryDoc, searchTerm, sortConfig, enableBreakdown, reportData, isComputingReport, isApplyingFilterSort, columnGroupBy, filteredColumns, parentColumnName, nestedTableFieldName, nestedTableTabId,
+    formatHeaderName, isTruthyBoolean, exportToXLSX, isNumericValue, currentQueryDoc, searchTerm, sortConfig, enableBreakdown, reportData, isComputingReport, isApplyingFilterSort, derivedRowsLoading, executingQuery, loadingFromCache, columnGroupBy, filteredColumns, parentColumnName, nestedTableFieldName, nestedTableTabId,
     updateCurrentNestedTableData, getChangedRowsForTab, getAllChangedNestedTableRows, handleDrawerSave, handleMainSave, handleMainCancel, handleDrawerCancel, hasMainTableChanges, hasDrawerChanges, updateMainTableEditingData, forceEnableWrite, parentHandleDrawerSave, parentHandleAddNestedRowAtZero, addEditingKeysToRows, mainTableEditingData,
     queryFunction, effectiveMainConfig, mainColumnTypesOverride, jsonObjectColumns, enableDivideBy1Lakh, enableReport, chartColumns, chartHeight,
     dataSource, offlineData, offlineDataExecuted, formInputOverride, selectOptionsCache,
@@ -4490,13 +4524,27 @@ export default function DataProviderNew({
       let slotSortedData = pSlot.sortedData;
       let slotPaginatedData = pSlot.paginatedData;
       if (slotReportData && slotReportData.tableData && isArray(slotReportData.tableData)) {
-        slotGroupedData = slotReportData.tableData;
-        slotSortedData = !isEmpty(slotSortMeta) && enableBreakdown
-          ? orderBy(slotGroupedData, slotSortMeta.map((s) => s.field), slotSortMeta.map((s) => (s.order === 1 ? 'asc' : 'desc')))
-          : slotGroupedData;
+        let reportRowsForSlot = slotReportData.tableData;
+        reportRowsForSlot = !isEmpty(slotSortMeta) && enableBreakdown
+          ? orderBy(
+              reportRowsForSlot,
+              slotSortMeta.map((s) => s.field),
+              slotSortMeta.map((s) => (s.order === 1 ? 'asc' : 'desc'))
+            )
+          : [...reportRowsForSlot];
+        reportRowsForSlot = filterReportRowsByMetricFilters(
+          reportRowsForSlot,
+          slotFilters,
+          slotReportData.metrics,
+          getDataValue
+        );
+        slotGroupedData = reportRowsForSlot;
+        slotSortedData = reportRowsForSlot;
         const first = slotPagination?.first ?? 0;
-        const rows = slotPagination?.rows ?? 10;
-        slotPaginatedData = isArray(slotSortedData) ? slotSortedData.slice(first, first + rows) : [];
+        const rowsPerPage = slotPagination?.rows ?? 10;
+        slotPaginatedData = isArray(slotSortedData)
+          ? slotSortedData.slice(first, first + rowsPerPage)
+          : [];
       }
       map[slotId] = {
         rawData: mainTableEditingData,
@@ -4545,9 +4593,24 @@ export default function DataProviderNew({
         chartHeight,
         isLoading: (() => {
           const offlineComputing = !dataSource && offlineData?.length > 0 && !offlineDataExecuted;
-          return isComputingReport || isApplyingFilterSort || offlineComputing;
+          return (
+            isComputingReport ||
+            isApplyingFilterSort ||
+            offlineComputing ||
+            derivedRowsLoading ||
+            executingQuery ||
+            loadingFromCache
+          );
         })(),
-        loadingText: isComputingReport ? 'Computing report...' : (isApplyingFilterSort ? 'Applying Filter and Sort...' : (!dataSource && offlineData?.length > 0 && !offlineDataExecuted ? 'Computing groups...' : '')),
+        loadingText: (() => {
+          if (isComputingReport) return 'Computing report...';
+          if (isApplyingFilterSort) return 'Applying Filter and Sort...';
+          if (!dataSource && offlineData?.length > 0 && !offlineDataExecuted) return 'Computing groups...';
+          if (derivedRowsLoading) return 'Merging related rows...';
+          if (executingQuery) return 'Loading data...';
+          if (loadingFromCache) return 'Loading from cache...';
+          return '';
+        })(),
         columnGroupBy,
         updateFilter: (col, val) => updateFilterForSlot(slotId, col, val),
         clearFilter: (col) => clearFilterForSlot(slotId, col),
@@ -4643,7 +4706,7 @@ export default function DataProviderNew({
     tableFiltersBySlot, tableSortMetaBySlot, tablePaginationBySlot, tableExpandedRowsBySlot, tableVisibleColumnsBySlot, tableVisibleColumns,
     updateFilterForSlot, clearFilterForSlot, clearAllFiltersForSlot, updateSortForSlot, updatePaginationForSlot, updateExpandedRowsForSlot, updateVisibleColumnsForSlot,
     getSums, mainTableEditingData, columnTypes, multiselectColumns, hasPercentageColumns, percentageColumnNames, getPercentageColumnValue, getPercentageColumnSortFunction,
-    reportDataWithDerived, isComputingReport, isApplyingFilterSort, chartColumns, chartHeight, columnGroupBy,
+    reportDataWithDerived, isComputingReport, isApplyingFilterSort, derivedRowsLoading, executingQuery, loadingFromCache, chartColumns, chartHeight, columnGroupBy,
     drawerVisible, drawerData, activeDrawerTabIndex, clickedDrawerValues,
     openDrawer, openDrawerWithData, openDrawerForOuterGroup, openDrawerForInnerGroup, openDrawerWithJsonTables, openDrawerForRow, openDrawerForNewRow,
     parentHandleAddNestedRowAtZero, selectedRowData, setSelectedRowDataWithFormSync,

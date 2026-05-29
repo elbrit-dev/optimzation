@@ -262,7 +262,7 @@ body {
 }
 
 .p-datatable .p-column-filter-clear-button.p-hidden-space {
-    visibility: hidden;
+    display: none !important;
 }
 
 .p-column-filter-overlay {
@@ -674,15 +674,24 @@ body {
 .p-datatable-scrollable-wrapper,
 .p-datatable-wrapper,
 .p-scroller,
+.p-virtualscroller,
 .p-datatable .p-datatable-scrollable-body {
     -webkit-overflow-scrolling: touch;
     scrollbar-width: thin;
     scrollbar-color: rgba(99, 102, 241, 0.4) transparent;
 }
 
+/* Virtual scroller: use auto so the bar only appears when content overflows.
+   overscroll-behavior: contain stops the bounce/jump loop when holding at scroll boundaries. */
+.p-virtualscroller {
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
+}
+
 .p-datatable-scrollable-wrapper::-webkit-scrollbar,
 .p-datatable-wrapper::-webkit-scrollbar,
 .p-scroller::-webkit-scrollbar,
+.p-virtualscroller::-webkit-scrollbar,
 .p-datatable .p-datatable-scrollable-body::-webkit-scrollbar {
     width: 10px;
     height: 10px;
@@ -691,6 +700,7 @@ body {
 .p-datatable-scrollable-wrapper::-webkit-scrollbar-track,
 .p-datatable-wrapper::-webkit-scrollbar-track,
 .p-scroller::-webkit-scrollbar-track,
+.p-virtualscroller::-webkit-scrollbar-track,
 .p-datatable .p-datatable-scrollable-body::-webkit-scrollbar-track {
     background: linear-gradient(to right, #f8fafc, #f1f5f9);
     border-radius: 10px;
@@ -701,6 +711,7 @@ body {
 .p-datatable-scrollable-wrapper::-webkit-scrollbar-thumb,
 .p-datatable-wrapper::-webkit-scrollbar-thumb,
 .p-scroller::-webkit-scrollbar-thumb,
+.p-virtualscroller::-webkit-scrollbar-thumb,
 .p-datatable .p-datatable-scrollable-body::-webkit-scrollbar-thumb {
     background: linear-gradient(135deg, #6366f1, #8b5cf6);
     border-radius: 10px;
@@ -713,6 +724,7 @@ body {
 .p-datatable-scrollable-wrapper::-webkit-scrollbar-thumb:hover,
 .p-datatable-wrapper::-webkit-scrollbar-thumb:hover,
 .p-scroller::-webkit-scrollbar-thumb:hover,
+.p-virtualscroller::-webkit-scrollbar-thumb:hover,
 .p-datatable .p-datatable-scrollable-body::-webkit-scrollbar-thumb:hover {
     background: linear-gradient(135deg, #4f46e5, #7c3aed);
 }
@@ -720,6 +732,7 @@ body {
 .p-datatable-scrollable-wrapper::-webkit-scrollbar-thumb:active,
 .p-datatable-wrapper::-webkit-scrollbar-thumb:active,
 .p-scroller::-webkit-scrollbar-thumb:active,
+.p-virtualscroller::-webkit-scrollbar-thumb:active,
 .p-datatable .p-datatable-scrollable-body::-webkit-scrollbar-thumb:active {
     background: linear-gradient(135deg, #4338ca, #6d28d9);
 }
@@ -727,6 +740,7 @@ body {
 .p-datatable-scrollable-wrapper::-webkit-scrollbar-corner,
 .p-datatable-wrapper::-webkit-scrollbar-corner,
 .p-scroller::-webkit-scrollbar-corner,
+.p-virtualscroller::-webkit-scrollbar-corner,
 .p-datatable .p-datatable-scrollable-body::-webkit-scrollbar-corner {
     background: #f1f5f9;
     border-radius: 0 0 8px 0;

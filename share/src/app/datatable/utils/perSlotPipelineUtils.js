@@ -109,10 +109,14 @@ export function buildPipelineColumnMeta(options) {
 
   let filteredColumns = columns;
   if (allowedColumns && isArray(allowedColumns) && allowedColumns.length > 0) {
-    const allowedSet = new Set(allowedColumns);
-    filteredColumns = filteredColumns.filter((col) => allowedSet.has(col));
-  }
-  if (arrayFields.size > 0) {
+    filteredColumns = allowedColumns.filter(
+      (col) =>
+        col &&
+        typeof col === 'string' &&
+        !String(col).startsWith('__') &&
+        !arrayFields.has(col)
+    );
+  } else if (arrayFields.size > 0) {
     filteredColumns = filteredColumns.filter((col) => !arrayFields.has(col));
   }
   const { derivedColumnsMode = 'main', derivedColumnsFieldName = null } = options;

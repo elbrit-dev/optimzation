@@ -1,0 +1,160 @@
+'use client';
+
+import { create } from 'zustand';
+import { subscribeWithSelector } from 'zustand/middleware';
+
+const DEFAULT_VIEW_STATE = {
+  filters: {},
+  sortMeta: [],
+  pagination: { first: 0, rows: 50 },
+  viewParams: {},      // consumer-owned config bag; changes trigger re-fetch like filters do
+  rows: [],
+  allRows: [],         // full pre-filter snapshot for FilterSortSidebar unique-value extraction
+  filterDefs: [],      // filter field metadata from Report API (key, label, fieldtype, options)
+  totalRecords: 0,
+  columns:       null,  // populated by dataSource result; null = use prop
+  columnGroups:  null,  // populated when meta.column_group === true; drives headerColumnGroup
+  expandable:    false, // set to true by groupedReportDataSource
+  hiddenColumns: [],    // field names hidden via eye toggle
+  loading: false,
+  error: null,
+};
+
+export const useSmartDataStore = create(
+  subscribeWithSelector((set, get) => ({
+    views: {},
+
+    registerView(viewId, defaultPageSize) {
+      if (get().views[viewId]) return;
+      set(state => ({
+        views: {
+          ...state.views,
+          [viewId]: {
+            ...DEFAULT_VIEW_STATE,
+            ...(defaultPageSize != null && { pagination: { first: 0, rows: defaultPageSize } }),
+          },
+        },
+      }));
+    },
+
+    unregisterView(viewId) {
+      set(state => {
+        const { [viewId]: _, ...rest } = state.views;
+        return { views: rest };
+      });
+    },
+
+    setFilter(viewId, field, value) {
+      set(state => ({
+        views: {
+          ...state.views,
+          [viewId]: {
+            ...state.views[viewId],
+            filters: { ...state.views[viewId].filters, [field]: value },
+            pagination: { ...state.views[viewId].pagination, first: 0 },
+          },
+        },
+      }));
+    },
+
+    clearFilter(viewId, field) {
+      set(state => {
+        const { [field]: _, ...rest } = state.views[viewId].filters;
+        return {
+          views: {
+            ...state.views,
+            [viewId]: {
+              ...state.views[viewId],
+              filters: rest,
+              pagination: { ...state.views[viewId].pagination, first: 0 },
+            },
+          },
+        };
+      });
+    },
+
+    setSort(viewId, sortMeta) {
+      set(state => ({
+        views: {
+          ...state.views,
+          [viewId]: { ...state.views[viewId], sortMeta },
+        },
+      }));
+    },
+
+    setPage(viewId, first, rows) {
+      set(state => ({
+        views: {
+          ...state.views,
+          [viewId]: {
+            ...state.views[viewId],
+            pagination: { first, rows },
+          },
+        },
+      }));
+    },
+
+    setHiddenColumns(viewId, fields) {
+      set(state => ({
+        views: {
+          ...state.views,
+          [viewId]: { ...state.views[viewId], hiddenColumns: fields },
+        },
+      }));
+    },
+
+    setViewParam(viewId, key, value) {
+      set(state => {
+        if (!state.views[viewId]) return state;
+        return {
+          views: {
+            ...state.views,
+            [viewId]: {
+              ...state.views[viewId],
+              viewParams: { ...state.views[viewId].viewParams, [key]: value },
+              pagination: { ...state.views[viewId].pagination, first: 0 },
+            },
+          },
+        };
+      });
+    },
+
+    _setResult(viewId, { rows, totalRecords, columns, columnGroups, expandable, allRows, filterDefs }) {
+      set(state => ({
+        views: {
+          ...state.views,
+          [viewId]: {
+            ...state.views[viewId],
+            rows,
+            totalRecords,
+            loading: false,
+            error: null,
+            ...(columns      !== undefined && { columns }),
+            ...(columnGroups !== undefined && { columnGroups }),
+            ...(allRows      !== undefined && { allRows }),
+            ...(filterDefs   !== undefined && { filterDefs }),
+            expandable: expandable ?? false,
+          },
+        },
+      }));
+    },
+
+    _setLoading(viewId, loading) {
+      set(state => ({
+        views: {
+          ...state.views,
+          [viewId]: { ...state.views[viewId], loading },
+        },
+      }));
+    },
+
+    _setError(viewId, error) {
+      set(state => ({
+        views: {
+          ...state.views,
+          [viewId]: { ...state.views[viewId], error, loading: false },
+        },
+      }));
+    },
+  }))
+);

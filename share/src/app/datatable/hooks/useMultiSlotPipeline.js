@@ -68,13 +68,10 @@ export function useMultiSlotPipeline(options) {
     } = pipelineOptions;
     const { preFilteredData, addEditingKeysToRows, mainTableEditingDataRefEarly } = singlePipeline;
 
-    const editingData = mainTableEditingDataRefEarly?.current;
     const baseTableData =
-      editingData && isArray(editingData) && !isEmpty(editingData)
-        ? editingData
-        : preFilteredData && isArray(preFilteredData) && !isEmpty(preFilteredData)
-          ? addEditingKeysToRows(preFilteredData)
-          : preFilteredData ?? [];
+      preFilteredData && isArray(preFilteredData) && !isEmpty(preFilteredData)
+        ? addEditingKeysToRows(preFilteredData)
+        : preFilteredData ?? [];
 
     const sharedSearchSortOptions = {
       currentQueryDoc,

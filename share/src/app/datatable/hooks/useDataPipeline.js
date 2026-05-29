@@ -15,8 +15,8 @@ import {
   uniq,
 } from 'lodash';
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { getDataKeys, getDataValue, getNestedValue } from '../utils/dataAccessUtils';
-import { applyRowFilters, hasActiveTableFilters } from '../utils/filterUtils';
+import { getDataKeys, getDataValue, getNestedValue, getStableRowIdentity } from '../utils/dataAccessUtils';
+import { applyRowFilters, filterReportRowsByMetricFilters, hasActiveTableFilters } from '../utils/filterUtils';
 import {
   isJsonArrayOfObjectsString,
   isJsonObjectLike,
@@ -119,7 +119,7 @@ export function useDataPipeline(options) {
     return null;
   }, [dataSource, processedData, selectedQueryKey, offlineData, offlineDataExecuted]);
 
-  const { data: dataWithDerivedRows } = useDerivedRowsData(rawTableData, derivedRows, queryFunction, {
+  const { data: dataWithDerivedRows, isLoading: derivedRowsLoading } = useDerivedRowsData(rawTableData, derivedRows, queryFunction, {
     selectedQueryKey,
     currentQueryDoc,
   });
@@ -134,12 +134,20 @@ export function useDataPipeline(options) {
   const addEditingKeysToRows = useCallback(
     (data) => {
       if (!isArray(data)) return data;
+      const existing = mainTableEditingDataRefEarly.current;
+      const keyByStable = new Map();
+      if (isArray(existing) && !isEmpty(existing)) {
+        existing.forEach((row, i) => {
+          if (!row?.__editingKey__) return;
+          keyByStable.set(getStableRowIdentity(row, i), row.__editingKey__);
+        });
+      }
       return data.map((row, index) => {
         if (!row || typeof row !== 'object') return row;
-        if (!row.__editingKey__) {
-          return { ...row, __editingKey__: generateEditingKey(index) };
-        }
-        return row;
+        if (row.__editingKey__) return row;
+        const stable = getStableRowIdentity(row, index);
+        const preserved = keyByStable.get(stable);
+        return { ...row, __editingKey__: preserved ?? generateEditingKey(index) };
       });
     },
     [generateEditingKey]
@@ -243,17 +251,19 @@ export function useDataPipeline(options) {
   }, [authFilteredData, preFilterSets]);
 
   const tableData = useMemo(() => {
-    const editingData = mainTableEditingDataRefEarly.current;
+    // Pipeline source is always upstream preFilteredData. Cell edits live in the editing buffer
+    // and are merged onto sortedData/paginatedData in DataProvider (applyEditingBufferToRows).
     let base;
     if (useOfflineDataAsTableDataSource) {
+      const editingData = mainTableEditingDataRefEarly.current;
       base =
-        preFilteredData &&
-        isArray(preFilteredData) &&
-        !isEmpty(preFilteredData)
-          ? addEditingKeysToRows(preFilteredData)
-          : preFilteredData;
-    } else if (editingData && isArray(editingData) && !isEmpty(editingData)) {
-      base = editingData;
+        editingData && isArray(editingData) && !isEmpty(editingData)
+          ? editingData
+          : preFilteredData &&
+              isArray(preFilteredData) &&
+              !isEmpty(preFilteredData)
+            ? addEditingKeysToRows(preFilteredData)
+            : preFilteredData;
     } else {
       base =
         preFilteredData &&
@@ -811,6 +821,12 @@ export function useDataPipeline(options) {
             sortedReportData = [...sortedReportData].sort(sortComparator);
           }
         }
+        sortedReportData = filterReportRowsByMetricFilters(
+          sortedReportData,
+          tableFilters,
+          reportData.metrics,
+          getDataValue
+        );
         return sortedReportData;
       }
       // Report mode but report not ready (no/empty tableData): fall through to normal grouping
@@ -878,6 +894,7 @@ export function useDataPipeline(options) {
     enableBreakdown,
     reportData,
     filteredData,
+    tableFilters,
     effectiveGroupFields,
     groupDataRecursive,
     jsonArrayFields,
@@ -1002,5 +1019,6 @@ export function useDataPipeline(options) {
     jsonArrayFields,
     extractJsonNestedTablesFromData,
     filteredDataWithNestedTables,
+    derivedRowsLoading,
   };
 }

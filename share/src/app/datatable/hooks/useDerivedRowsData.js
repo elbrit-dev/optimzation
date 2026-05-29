@@ -1,7 +1,7 @@
 'use client';
 
 import { isArray } from 'lodash';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { applyDerivedRows, applyDerivedRowsAsync } from '../utils/derivedRowsUtils';
 
 /**
@@ -29,38 +29,40 @@ export function useDerivedRowsData(rawTableData, derivedRows, queryFunction, con
   }, [rawTableData, derivedRows, queryFunction, selectedQueryKey, currentQueryDoc, hasDerivedRows]);
 
   const [asyncResult, setAsyncResult] = useState(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [asyncError, setAsyncError] = useState(null);
+  const mergeGenerationRef = useRef(0);
 
   useEffect(() => {
     if (!hasDerivedRows) {
       setAsyncResult(null);
-      setIsLoading(false);
+      setAsyncError(null);
       return;
     }
-    if (!isArray(rawTableData)) {
+    if (!isArray(rawTableData) || rawTableData.length === 0) {
       setAsyncResult(null);
-      setIsLoading(false);
+      setAsyncError(null);
       return;
     }
+
+    const generation = ++mergeGenerationRef.current;
+    setAsyncResult(null);
+    setAsyncError(null);
+
     let cancelled = false;
-    setIsLoading(true);
     applyDerivedRowsAsync(rawTableData, derivedRows, {
       query: queryFunction,
       selectedQueryKey,
       currentQueryDoc,
     })
       .then((merged) => {
-        if (!cancelled) {
-          setAsyncResult(merged);
-          setIsLoading(false);
-        }
+        if (cancelled || generation !== mergeGenerationRef.current) return;
+        setAsyncResult(merged);
       })
       .catch((err) => {
-        if (!cancelled) {
-          console.warn('[useDerivedRowsData] Error:', err);
-          setAsyncResult(rawTableData);
-          setIsLoading(false);
-        }
+        if (cancelled || generation !== mergeGenerationRef.current) return;
+        console.warn('[useDerivedRowsData] Error:', err);
+        setAsyncError(err);
+        setAsyncResult(null);
       });
     return () => {
       cancelled = true;
@@ -71,12 +73,27 @@ export function useDerivedRowsData(rawTableData, derivedRows, queryFunction, con
     if (!hasDerivedRows) {
       return { data: rawTableData ?? [], isLoading: false };
     }
-    if (!isArray(rawTableData)) {
+    if (!isArray(rawTableData) || rawTableData.length === 0) {
       return { data: rawTableData ?? [], isLoading: false };
     }
-    if (isLoading && asyncResult == null) {
-      return { data: syncResult ?? rawTableData, isLoading: true };
+
+    if (asyncResult != null) {
+      return { data: asyncResult, isLoading: false };
     }
-    return { data: asyncResult ?? syncResult ?? rawTableData, isLoading: false };
-  }, [hasDerivedRows, rawTableData, isLoading, asyncResult, syncResult]);
+
+    if (asyncError) {
+      return { data: rawTableData, isLoading: false };
+    }
+
+    const syncMerged = syncResult ?? rawTableData;
+    const syncOnlyReady =
+      syncMerged !== rawTableData ||
+      (isArray(syncMerged) && syncMerged.length !== rawTableData.length);
+    if (syncOnlyReady) {
+      return { data: syncMerged, isLoading: false };
+    }
+
+    // Async merge in flight — never pass primary-only rows to pipeline.
+    return { data: [], isLoading: true };
+  }, [hasDerivedRows, rawTableData, asyncResult, asyncError, syncResult]);
 }
