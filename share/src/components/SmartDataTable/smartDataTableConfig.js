@@ -1,60 +1,74 @@
 'use client';
 
+// ─── Internal config ──────────────────────────────────────────────────────────
+//
+// PrimeReact implementation details and performance tuning knobs.
+// Not part of the public API — component developers only.
+// Import and spread overrides before calling resolveConfig in tests or special builds.
+
+export const __INTERNAL_CONFIG = {
+  size: 'normal',
+  enableMultiSort: true,
+  enableRemovableSort: true,
+  filterDebounceText: 300,
+  filterDebounceNumeric: 400,
+  columnResizeMode: 'expand',   // 'fit' | 'expand'
+  skeletonRows: 10,
+  skeletonColumns: 6,
+};
+
+// ─── User config (public API) ─────────────────────────────────────────────────
+//
+// Keys consumers of SmartDataTable are expected to configure.
+// Pass via SmartDataProvider config prop (provider-level) or per-table config prop (per-view).
+
 export const DEFAULT_CONFIG = {
   // Display
-  stripedRows: true,
-  showGridlines: true,
+  enableStripedRows: true,
+  enableGridlines: true,
   emptyMessage: 'No records found.',
-  size: 'normal',
 
   // Scrolling
   scrollHeight: '600px',
-  virtualScroll: true,
-  virtualScrollItemSize: 50,
-  virtualScrollNumToleratedItems: 10,
 
   // Sorting
-  sortable: true,
-  multiSort: true,
-  removableSort: true,
+  enableSort: true,
 
   // Filtering
-  filterDisplay: 'row',        // 'row' | 'menu' | 'none'
-  filterDebounceText: 300,
-  filterDebounceNumeric: 400,
+  enableFilterRow: true,
+
+  // Footer
+  enableTotalRow: true,
 
   // Pagination
-  paginator: true,
-  defaultPageSize: 25,
-  pageSizeOptions: [25, 50, 100, 200],
+  enablePaginator: true,
+  defaultPageSize: 50,
+  pageSizeOptions: [50, 100, 200, 500],
 
   // Columns
-  resizableColumns: true,
-  columnResizeMode: 'expand',  // 'fit' | 'expand'
-  reorderableColumns: true,
+  enableResizableColumns: true,
+  enableReorderableColumns: true,
 
-  // Toolbar buttons
-  showColumnVisibility: true,
-  showColumnFreeze: true,
-  freezeFirstColumn: false,
-  showExport: true,
-  exportFilename: undefined,   // undefined = auto date-stamped; string or (date) => string
-  showFullscreen: true,
+  // Toolbar
+  enableColumnVisibility: true,
+  enableColumnFreeze: true,
+  enableFreezeFirstColumn: false,
+  enableExport: true,
+  exportFilename: undefined,    // undefined = auto date-stamped; string or (date) => string
+  enableFullscreen: true,
 
-  // Loading / Skeleton
-  skeletonRows: 10,
-  skeletonColumns: 6,
+  // Loading
   loadingMessage: undefined,
 };
 
 /**
- * Merge common (provider-level) config and per-view config on top of defaults.
- * Per-view wins over common; common wins over defaults.
+ * Merge all config tiers. Priority (lowest → highest):
+ * __INTERNAL_CONFIG → DEFAULT_CONFIG → common (provider-level) → perView (per-table)
  *
  * @param {Partial<typeof DEFAULT_CONFIG>} common
  * @param {Partial<typeof DEFAULT_CONFIG>} perView
- * @returns {typeof DEFAULT_CONFIG}
+ * @returns {typeof __INTERNAL_CONFIG & typeof DEFAULT_CONFIG}
  */
 export function resolveConfig(common = {}, perView = {}) {
-  return { ...DEFAULT_CONFIG, ...common, ...perView };
+  return { ...__INTERNAL_CONFIG, ...DEFAULT_CONFIG, ...common, ...perView };
 }

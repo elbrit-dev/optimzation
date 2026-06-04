@@ -1,0 +1,22 @@
+{
+  "columns": [
+    { "fieldname": "label",                "label": "Customer / HQ",        "fieldtype": "Data",     "width": 200 },
+    { "fieldname": "invoice_count",        "label": "Invoice Count",        "fieldtype": "Int" },
+    { "fieldname": "customer_count",       "label": "Customer Count",       "fieldtype": "Int" },
+    { "fieldname": "qty_2026_01",          "label": "2026 01 Qty",          "fieldtype": "Float" },
+    { "fieldname": "amount_2026_01",       "label": "2026 01 Amount",       "fieldtype": "Currency" },
+    { "fieldname": "qty_2026_02",          "label": "2026 02 Qty",          "fieldtype": "Float" },
+    { "fieldname": "amount_2026_02",       "label": "2026 02 Amount",       "fieldtype": "Currency" },
+    { "fieldname": "tax_amount_2026_01",   "label": "2026 01 Tax Amount",   "fieldtype": "Currency" },
+    { "fieldname": "tax_amount_2026_02",   "label": "2026 02 Tax Amount",   "fieldtype": "Currency" },
+    { "fieldname": "total_qty",            "label": "Total Qty",            "fieldtype": "Float" },
+    { "fieldname": "total_amount",         "label": "Total Amount",         "fieldtype": "Currency" }
+  ],
+  "result": [
+    { "label": "HQ-Bangalore",  "invoice_count": 5, "customer_count": 5, "qty_2026_01": 320, "amount_2026_01": 34200, "qty_2026_02": 390, "amount_2026_02": 37331, "tax_amount_2026_01": 6156, "tax_amount_2026_02": 6720, "total_qty": 710, "total_amount": 71531 },
+    { "label": "HQ-Hyderabad",  "invoice_count": 2, "customer_count": 2, "qty_2026_01": 180, "amount_2026_01": 18100, "qty_2026_02": 220, "amount_2026_02": 22450, "tax_amount_2026_01": 3258, "tax_amount_2026_02": 4041, "total_qty": 400, "total_amount": 40550 },
+    { "label": "HQ-Gorakhpur",  "invoice_count": 2, "customer_count": 2, "qty_2026_01":  80, "amount_2026_01":  8050, "qty_2026_02":  80, "amount_2026_02":  7440, "tax_amount_2026_01": 1449, "tax_amount_2026_02": 1339, "total_qty": 160, "total_amount": 15490 },
+    { "label": "HQ-Mysore",     "invoice_count": 2, "customer_count": 2, "qty_2026_01":  45, "amount_2026_01":  4200, "qty_2026_02":  55, "amount_2026_02":  4561, "tax_amount_2026_01":  756, "tax_amount_2026_02":  821, "total_qty": 100, "total_amount":  8761 },
+    { "label": "HQ-Mumbai",     "invoice_count": 2, "customer_count": 2, "qty_2026_01": 140, "amount_2026_01": 13050, "qty_2026_02": 160, "amount_2026_02": 16040, "tax_amount_2026_01": 2349, "tax_amount_2026_02": 2887, "total_qty": 300, "total_amount": 29090 }
+  ]
+}

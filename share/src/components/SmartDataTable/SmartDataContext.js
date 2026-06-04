@@ -1,12 +1,12 @@
 'use client';
 
 import { createContext, useContext } from 'react';
-import { DEFAULT_CONFIG } from './smartDataTableConfig';
+import { resolveConfig } from './smartDataTableConfig';
 
 export const SmartDataContext = createContext(null);
 
 /** Provides the common tableConfig from SmartDataProvider to all SmartDataTable children. */
-export const SmartDataConfigContext = createContext(DEFAULT_CONFIG);
+export const SmartDataConfigContext = createContext(resolveConfig());
 
 /**
  * Returns { providerDataSource, registerView, unregisterView, handleSignal, setViewParam,

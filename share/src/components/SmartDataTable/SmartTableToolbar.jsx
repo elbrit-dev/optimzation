@@ -70,6 +70,126 @@ export function SmartTableToolbar({ leftActions = [], rightActions = [], classNa
   );
 }
 
+// ─── Group-By Reorder ─────────────────────────────────────────────────────────
+
+/**
+ * Pure UI widget. Receives the current group_by order as a string array and
+ * calls onChange with the reordered array after a drag-and-drop swap.
+ * Has no knowledge of viewId, viewParams, or the store.
+ *
+ * @param {{ groups: string[], onChange: (newGroups: string[]) => void }} props
+ */
+export function GroupByReorder({ groups, onChange }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [position, setPosition] = useState({ top: 0, left: 0 });
+  const [dragIdx, setDragIdx] = useState(null);
+  const [overIdx, setOverIdx] = useState(null);
+  const triggerRef = useRef(null);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => { setMounted(true); }, []);
+
+  const updatePosition = useCallback(() => {
+    if (!triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    setPosition({ top: rect.bottom + window.scrollY + 4, left: rect.left + window.scrollX });
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    updatePosition();
+    window.addEventListener('scroll', updatePosition, true);
+    window.addEventListener('resize', updatePosition);
+    return () => {
+      window.removeEventListener('scroll', updatePosition, true);
+      window.removeEventListener('resize', updatePosition);
+    };
+  }, [isOpen, updatePosition]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = (e) => {
+      if (
+        dropdownRef.current && !dropdownRef.current.contains(e.target) &&
+        triggerRef.current && !triggerRef.current.contains(e.target)
+      ) setIsOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [isOpen]);
+
+  const handleDrop = (e, targetIdx) => {
+    e.preventDefault();
+    if (dragIdx === null || dragIdx === targetIdx) { setDragIdx(null); setOverIdx(null); return; }
+    const next = [...groups];
+    const [moved] = next.splice(dragIdx, 1);
+    next.splice(targetIdx, 0, moved);
+    onChange(next);
+    setDragIdx(null);
+    setOverIdx(null);
+  };
+
+  if (!groups.length) return null;
+
+  const dropdownContent = isOpen && mounted ? (
+    <div
+      ref={dropdownRef}
+      className="fixed z-[9999] bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden"
+      style={{ top: `${position.top}px`, left: `${position.left}px`, minWidth: '200px', maxWidth: '320px' }}
+    >
+      <div className="px-3 py-2 border-b border-gray-100 text-[10px] font-medium text-gray-500 uppercase tracking-wide">
+        Group by order — drag to reorder
+      </div>
+      <div className="py-1">
+        {groups.map((group, idx) => (
+          <div
+            key={group}
+            draggable
+            onDragStart={e => { setDragIdx(idx); e.dataTransfer.effectAllowed = 'move'; }}
+            onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setOverIdx(idx); }}
+            onDrop={e => handleDrop(e, idx)}
+            onDragEnd={() => { setDragIdx(null); setOverIdx(null); }}
+            className={`flex items-center gap-2 px-3 py-2 cursor-grab select-none text-sm transition-colors
+              ${dragIdx === idx ? 'opacity-40 bg-gray-50' : ''}
+              ${overIdx === idx && dragIdx !== idx ? 'bg-blue-50 border-t-2 border-blue-400' : 'hover:bg-gray-50'}
+            `}
+          >
+            <i className="pi pi-bars text-gray-400 text-xs flex-none" />
+            <span className="flex-1 truncate text-gray-800">{group}</span>
+            <span className="flex-none w-5 h-5 rounded-full bg-indigo-100 text-indigo-600 text-[10px] font-bold flex items-center justify-center leading-none">
+              {idx + 1}
+            </span>
+          </div>
+        ))}
+      </div>
+      <div className="px-3 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-500">
+        {groups.length} group{groups.length !== 1 ? 's' : ''} active
+      </div>
+    </div>
+  ) : null;
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => { setIsOpen(o => !o); updatePosition(); }}
+        title={`Group by: ${groups.join(' → ')}`}
+        className={`relative p-2 rounded-lg transition-colors flex items-center justify-center ${
+          isOpen ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+        }`}
+      >
+        <i className="pi pi-sort-alt text-base" />
+        <span className="absolute -top-1 -right-1 bg-indigo-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center leading-none">
+          {groups.length}
+        </span>
+      </button>
+      {mounted && createPortal(dropdownContent, document.body)}
+    </>
+  );
+}
+
 // ─── Column Visibility Dropdown ───────────────────────────────────────────────
 
 /**

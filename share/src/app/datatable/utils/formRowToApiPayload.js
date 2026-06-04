@@ -51,7 +51,10 @@ export function stableParentUpdateKey(editRow, bulkUpdateParentField) {
 
 function childRowNestedKey(item, idx) {
   if (!item || typeof item !== 'object') return `__nested_${idx}`;
-  return item.__editingKey__ ?? item.id ?? item.key ?? item.__id__ ?? `__nested_${idx}`;
+  // Include `name` because Frappe uses it as the child-row primary key. When __editingKey__
+  // is absent or mismatched (e.g. drawer opened from display pipeline vs editing buffer),
+  // matching by name prevents false remove+add of every row.
+  return item.__editingKey__ ?? item.name ?? item.id ?? item.key ?? item.__id__ ?? `__nested_${idx}`;
 }
 
 /**
@@ -307,7 +310,7 @@ export function rowToUpdateFields(editRow, changes, schemaStructure, skipKey, bu
   const fields = {};
   const getNestedKey = (item, idx) => {
     if (!item || typeof item !== 'object') return `__nested_${idx}`;
-    return item.__editingKey__ ?? item.id ?? item.key ?? item.__id__ ?? `__nested_${idx}`;
+    return item.__editingKey__ ?? item.name ?? item.id ?? item.key ?? item.__id__ ?? `__nested_${idx}`;
   };
   for (const [k, val] of Object.entries(changes)) {
     if (skipKey(k)) continue;
@@ -402,7 +405,7 @@ export function buildBulkUpdateVariables(doctype, changedRows, schemaStructure, 
 
   const getNestedKey = (item, idx) => {
     if (!item || typeof item !== 'object') return `__nested_${idx}`;
-    return item.__editingKey__ ?? item.id ?? item.key ?? item.__id__ ?? `__nested_${idx}`;
+    return item.__editingKey__ ?? item.name ?? item.id ?? item.key ?? item.__id__ ?? `__nested_${idx}`;
   };
 
   const childTableNames = schemaStructure?.childTables && typeof schemaStructure.childTables === 'object'

@@ -1,0 +1,22 @@
+{
+  "columns": [
+    { "fieldname": "label",         "label": "Customer / HQ",   "fieldtype": "Data",     "width": 200 },
+    { "fieldname": "invoice_count", "label": "Invoice Count",   "fieldtype": "Int" },
+    { "fieldname": "customer_count","label": "Customer Count",  "fieldtype": "Int" },
+    { "fieldname": "qty",           "label": "Total Qty",       "fieldtype": "Float" },
+    { "fieldname": "amount",        "label": "Total Amount",    "fieldtype": "Currency" },
+    { "fieldname": "grand_total",   "label": "Grand Total",     "fieldtype": "Currency" }
+  ],
+  "result": [
+    { "label": "HQ-Bangalore",  "invoice_count": 3, "customer_count": 3, "qty": 710.0, "amount": 71531.8,  "grand_total": 3338816.80 },
+    { "label": "HQ-Hyderabad",  "invoice_count": 1, "customer_count": 1, "qty": 400.0, "amount": 34573.2,  "grand_total":  383347.69 },
+    { "label": "HQ-Gorakhpur",  "invoice_count": 1, "customer_count": 1, "qty": 160.0, "amount": 13489.9,  "grand_total":   70822.00 },
+    { "label": "HQ-Mysore",     "invoice_count": 1, "customer_count": 1, "qty": 100.0, "amount":  8761.7,  "grand_total":  227700.00 },
+    { "label": "HQ-Mumbai",     "invoice_count": 1, "customer_count": 1, "qty": 300.0, "amount": 27090.0,  "grand_total": 1085670.00 },
+    { "label": "HQ-Pune",       "invoice_count": 1, "customer_count": 1, "qty": 230.0, "amount": 20714.2,  "grand_total":  828748.00 },
+    { "label": "HQ-Ahmedabad",  "invoice_count": 1, "customer_count": 1, "qty": 475.0, "amount": 43415.0,  "grand_total": 1741005.00 },
+    { "label": "HQ-Delhi",      "invoice_count": 1, "customer_count": 1, "qty": 220.0, "amount": 34387.5,  "grand_total": 1378284.00 },
+    { "label": "HQ-Noida",      "invoice_count": 1, "customer_count": 1, "qty": 170.0, "amount": 26514.0,  "grand_total": 1062336.00 },
+    { "label": "HQ-Jaipur",     "invoice_count": 1, "customer_count": 1, "qty": 290.0, "amount": 28423.2,  "grand_total":  537516.00 }
+  ]
+}

@@ -27,9 +27,10 @@ function _wrapData(data) {
  */
 export function normalDataSource(data) {
   const wrapped = _wrapData(data);
-  return ({ filters, sortMeta, pagination }) => {
-    const filtered = localFilter(wrapped, filters);
-    const sorted   = localSort(filtered, sortMeta);
+  return ({ filters, sortBy, pagination }) => {
+    const filtered  = localFilter(wrapped, filters);
+    const sortMeta  = Object.entries(sortBy ?? {}).map(([field, dir]) => ({ field, order: dir === 'asc' ? 1 : -1 }));
+    const sorted    = localSort(filtered, sortMeta);
     return _paginate(sorted, pagination);
   };
 }

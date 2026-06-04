@@ -494,6 +494,27 @@ class IndexedDBService {
     }
 
     /**
+     * Drop all client-side query caches: every elbrit-*-db database and the index store.
+     * @returns {Promise<void>}
+     */
+    async clearAllClientCaches() {
+        const cachedIds = [...this.queryDatabases.keys()];
+        for (const queryId of cachedIds) {
+            await this.clearQueryDatabaseCache(queryId);
+        }
+        if (typeof indexedDB !== "undefined" && indexedDB.databases) {
+            const dbs = await indexedDB.databases();
+            await Promise.all(
+                dbs
+                    .map((db) => db.name)
+                    .filter((name) => name && /^elbrit-.+-db$/.test(name))
+                    .map((name) => Dexie.delete(name)),
+            );
+        }
+        await this.clearQueryIndexResults();
+    }
+
+    /**
      * Save pipeline result entries to IndexedDB tables
      * Stores each object from pipeline result arrays as individual entries
      * @param {string} queryId - The query identifier

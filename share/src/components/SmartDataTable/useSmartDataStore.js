@@ -5,7 +5,7 @@ import { subscribeWithSelector } from 'zustand/middleware';
 
 const DEFAULT_VIEW_STATE = {
   filters: {},
-  sortMeta: [],
+  sortBy: {},
   pagination: { first: 0, rows: 50 },
   viewParams: {},      // consumer-owned config bag; changes trigger re-fetch like filters do
   rows: [],
@@ -73,13 +73,49 @@ export const useSmartDataStore = create(
       });
     },
 
-    setSort(viewId, sortMeta) {
+    setSortBy(viewId, sortBy) {
       set(state => ({
         views: {
           ...state.views,
-          [viewId]: { ...state.views[viewId], sortMeta },
+          [viewId]: {
+            ...state.views[viewId],
+            sortBy,
+            pagination: { ...state.views[viewId].pagination, first: 0 },
+          },
         },
       }));
+    },
+
+    applySort(viewId, field, direction) {
+      set(state => {
+        const cur = state.views[viewId];
+        return {
+          views: {
+            ...state.views,
+            [viewId]: {
+              ...cur,
+              sortBy: { ...cur.sortBy, [field]: direction },
+              pagination: { ...cur.pagination, first: 0 },
+            },
+          },
+        };
+      });
+    },
+
+    removeSort(viewId, field) {
+      set(state => {
+        const { [field]: _, ...rest } = state.views[viewId].sortBy;
+        return {
+          views: {
+            ...state.views,
+            [viewId]: {
+              ...state.views[viewId],
+              sortBy: rest,
+              pagination: { ...state.views[viewId].pagination, first: 0 },
+            },
+          },
+        };
+      });
     },
 
     setPage(viewId, first, rows) {
@@ -119,7 +155,24 @@ export const useSmartDataStore = create(
       });
     },
 
-    _setResult(viewId, { rows, totalRecords, columns, columnGroups, expandable, allRows, filterDefs }) {
+    // Batch-set multiple viewParams in a single store update → single subscription fire → single fetch.
+    setViewParams(viewId, params) {
+      set(state => {
+        if (!state.views[viewId]) return state;
+        return {
+          views: {
+            ...state.views,
+            [viewId]: {
+              ...state.views[viewId],
+              viewParams: { ...state.views[viewId].viewParams, ...params },
+              pagination: { ...state.views[viewId].pagination, first: 0 },
+            },
+          },
+        };
+      });
+    },
+
+    _setResult(viewId, { rows, totalRecords, columns, columnGroups, expandable, allRows, filterDefs, labelColDefs }) {
       set(state => ({
         views: {
           ...state.views,
@@ -133,6 +186,7 @@ export const useSmartDataStore = create(
             ...(columnGroups !== undefined && { columnGroups }),
             ...(allRows      !== undefined && { allRows }),
             ...(filterDefs   !== undefined && { filterDefs }),
+            ...(labelColDefs !== undefined && { labelColDefs }),
             expandable: expandable ?? false,
           },
         },

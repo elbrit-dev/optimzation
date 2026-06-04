@@ -8,6 +8,7 @@ import EventTimeline from './app/timeline/components/EventTimeline.jsx';
 import { DEFAULT_SAMPLE_EVENTS } from './app/timeline/data/defaultSampleEvents.js';
 import { SmartDataProvider } from './components/SmartDataTable/SmartDataProvider.jsx';
 import { SmartDataTable } from './components/SmartDataTable/SmartDataTable.jsx';
+import { ReportControls } from './app/report-table/components/ReportControls.jsx';
 
 const dataProviderMeta = {
   name: 'DataProvider',
@@ -142,12 +143,34 @@ const smartDataProviderMeta = {
   importPath: './src/components/SmartDataTable/SmartDataProvider',
   importName: 'SmartDataProvider',
   props: {
-    reportConfig: {
-      type: 'object',
-      displayName: 'reportConfig',
-      description: 'Connection config: { urlKey, baseFilters, requestBuilder, controls }. Each SmartDataTable child declares its report view via the view prop.',
+    config: {
+      type: 'string',
+      displayName: 'Report Name',
+      description: 'Name of a report saved in the Firestore reports collection.',
     },
     children: 'slot',
+  },
+};
+
+const reportControlsMeta = {
+  name: 'ReportControls',
+  displayName: 'Elbrit ReportControls',
+  section: 'ElbritCoreLib',
+  importPath: './src/app/report-table/components/ReportControls',
+  importName: 'ReportControls',
+  props: {
+    controls: {
+      type: 'object',
+      displayName: 'controls',
+      description: 'Array of control definitions. Each item: { type, key, label, defaultValue, … }. Types: toggle, dateRange, filterSort, refresh.',
+      defaultValue: [],
+    },
+    viewIds: {
+      type: 'object',
+      displayName: 'viewIds',
+      description: 'Array of SmartDataTable viewId strings this control bar should target.',
+      defaultValue: [],
+    },
   },
 };
 
@@ -187,6 +210,7 @@ export function registerElbritCoreComponents(loader) {
   loader.registerComponent(EventTimeline, eventTimelineMeta);
   loader.registerComponent(SmartDataProvider, smartDataProviderMeta);
   loader.registerComponent(SmartDataTable, smartDataTableMeta);
+  loader.registerComponent(ReportControls, reportControlsMeta);
 }
 
 const ElbritCoreLib = initPlasmicLoader({
@@ -202,7 +226,8 @@ ElbritCoreLib.components = {
   EventTimeline,
   SmartDataProvider,
   SmartDataTable,
+  ReportControls,
 };
 
 export { ElbritCoreLib };
-export { DataProvider, DataTableNew, Navigation, EventTimeline, SmartDataProvider, SmartDataTable };
+export { DataProvider, DataTableNew, Navigation, EventTimeline, SmartDataProvider, SmartDataTable, ReportControls };

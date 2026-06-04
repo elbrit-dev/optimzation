@@ -10,7 +10,7 @@ import {
   nestStep,
   sortStep,
   paginateStep,
-} from '@/components/SmartDataTable/reportSource.js';
+} from '@/components/SmartDataTable/reportSource.jsx';
 
 const FRAPPE_TYPE_MAP = {
   Int:      { type: 'number',  filterType: 'numeric' },

@@ -1,0 +1,36 @@
+{
+  "columns": [
+    { "fieldname": "label",          "label": "Department / HQ", "fieldtype": "Data",     "width": 250 },
+    { "fieldname": "invoice_count",  "label": "Invoice Count",   "fieldtype": "Int" },
+    { "fieldname": "customer_count", "label": "Customer Count",  "fieldtype": "Int" },
+    { "fieldname": "qty",            "label": "Total Qty",       "fieldtype": "Float" },
+    { "fieldname": "net_amount",     "label": "Net Amount",      "fieldtype": "Currency" },
+    { "fieldname": "tax_amount",     "label": "Tax Amount",      "fieldtype": "Currency" },
+    { "fieldname": "grand_total",    "label": "Grand Total",     "fieldtype": "Currency" },
+    { "fieldname": "_meta",          "fieldtype": "Data",        "label": "",
+      "meta_filter_values": {
+        "hq": [
+          { "value": "HQ-Bangalore",  "label": "HQ-Bangalore" },
+          { "value": "HQ-Hyderabad",  "label": "HQ-Hyderabad" },
+          { "value": "HQ-Gorakhpur",  "label": "HQ-Gorakhpur" },
+          { "value": "HQ-Mumbai",     "label": "HQ-Mumbai" }
+        ]
+      },
+      "meta_totals": {
+        "qty": 2165,
+        "net_amount": 233801,
+        "tax_amount": 427955,
+        "grand_total": 8983548
+      }
+    }
+  ],
+  "result": [
+    { "label": "Aura & Proxima Karnataka - ELPL", "invoice_count": 1, "customer_count": 1, "qty": 120.0, "net_amount": 16909.4, "tax_amount": 35773.02, "grand_total": 751233.78, "indent": 0, "is_group": true },
+    { "label": "HQ-Bangalore",                    "invoice_count": 1, "customer_count": 1, "qty": 120.0, "net_amount": 16909.4, "tax_amount": 35773.02, "grand_total": 751233.78, "indent": 1, "is_group": false },
+    { "label": "Elbrit Bangalore - ELPL",          "invoice_count": 1, "customer_count": 1, "qty": 250.0, "net_amount": 22600.4, "tax_amount": 67571.26, "grand_total": 1418997.14, "indent": 0, "is_group": true },
+    { "label": "HQ-Bangalore",                    "invoice_count": 1, "customer_count": 1, "qty": 250.0, "net_amount": 22600.4, "tax_amount": 67571.26, "grand_total": 1418997.14, "indent": 1, "is_group": false },
+    { "label": "Cipla Maharashtra - ELPL",         "invoice_count": 2, "customer_count": 2, "qty": 530.0, "net_amount": 47804.2, "tax_amount": 91258.00, "grand_total": 1914418.00, "indent": 0, "is_group": true },
+    { "label": "HQ-Mumbai",                       "invoice_count": 1, "customer_count": 1, "qty": 300.0, "net_amount": 27090.0, "tax_amount": 51732.00, "grand_total": 1085670.00, "indent": 1, "is_group": false },
+    { "label": "HQ-Gorakhpur",                    "invoice_count": 1, "customer_count": 1, "qty": 160.0, "net_amount": 13489.9, "tax_amount":  3372.50, "grand_total":   70822.00, "indent": 1, "is_group": false }
+  ]
+}

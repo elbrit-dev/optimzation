@@ -37,6 +37,8 @@ function DataTablePageContent({ onCellEditComplete, config }) {
     rawData,
     isLoading: isLoadingData,
     resolvedConfig,
+    dataSource,
+    selectedQueryKey,
   } = tableOps;
 
   const configSlots = resolvedConfig?.slots;
@@ -49,8 +51,10 @@ function DataTablePageContent({ onCellEditComplete, config }) {
   }, [configSlots]);
 
   const hasData = rawData && Array.isArray(rawData) && rawData.length > 0;
+  // After refresh, processedData can finish before selectedQueryKey is synced into the pipeline.
+  const awaitingDataBind = Boolean(dataSource) && !selectedQueryKey;
 
-  if (isLoadingData) {
+  if (isLoadingData || awaitingDataBind) {
     return (
       <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center">
         <div className="mb-4">

@@ -1,82 +1,58 @@
 'use client';
 
 import ProtectedRoute from '@/components/ProtectedRoute';
-import { SmartDataProvider } from '@/components/SmartDataTable/SmartDataProvider';
+import { SmartDataProviderImpl, deserializeReportConfig } from '@/components/SmartDataTable/SmartDataProvider';
 import { SmartDataTable } from '@/components/SmartDataTable/SmartDataTable';
-import { useSmartDataStore } from '@/components/SmartDataTable/useSmartDataStore';
 import { useSmartDataContext } from '@/components/SmartDataTable/SmartDataContext';
 import { PipelineDebugViewer } from '@/components/SmartDataTable/PipelineDebugViewer';
 import { Splitter, SplitterPanel } from 'primereact/splitter';
 import ReportsConfigSidebar from './components/ReportsConfigSidebar';
 import { ReportControls } from './components/ReportControls';
-import dayjs from 'dayjs';
 import { useCallback, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 
-function deserializeReportConfig(jsString) {
-  if (!jsString?.trim()) return null;
-  try {
-    const code = jsString.trim().replace(/;\s*$/, '').trim();
-    return new Function('return (' + code + ')')();
-  } catch {
-    return null;
-  }
-}
+// Resolves per-view config from context and renders the view section.
+function ViewSection({ viewId, viewCfg }) {
+  const { resolveView } = useSmartDataContext();
+  const { resolvedTable, resolvedControls } = resolveView(viewId);
+  const { name, view } = viewCfg;
 
-function RefreshButton() {
-  const { refresh, lastFetchedAt } = useSmartDataContext();
-  const isLoading = useSmartDataStore(state => Object.values(state.views).some(v => v.loading));
-  const [hovered, setHovered] = useState(false);
-  const label = isLoading
-    ? 'Refreshing'
-    : lastFetchedAt
-      ? dayjs(lastFetchedAt).format('D MMM YY HH:mm')
-      : '';
   return (
-    <button
-      type="button"
-      onClick={refresh}
-      disabled={isLoading}
-      className="flex items-center gap-1.5 px-3 h-8 border rounded-md bg-white text-gray-600"
-      style={{
-        borderColor: hovered && !isLoading ? '#06b6d4' : '#d1d5db',
-        transition: 'border-color 0.2s',
-      }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-    >
-      <i className={isLoading ? 'pi pi-spin pi-spinner' : 'pi pi-refresh'} style={{ fontSize: '0.75rem' }} />
-      {label && <span style={{ fontSize: '0.75rem', whiteSpace: 'nowrap' }}>{label}</span>}
-    </button>
+    <section className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+      <h2 className="text-lg font-medium text-gray-800 mb-4">{name}</h2>
+      {resolvedControls?.length > 0 && (
+        <div className="mb-3">
+          <ReportControls controls={resolvedControls} viewIds={[viewId]} />
+        </div>
+      )}
+      <SmartDataTable viewId={viewId} view={view} loadingMessage={`Fetching ${name}…`} config={resolvedTable} />
+    </section>
   );
 }
 
 function ReportTable({ reportConfig }) {
-  const viewEntries = Object.entries(reportConfig.views ?? {});
-  const viewIds = viewEntries.map(([id]) => id);
+  const viewEntries  = Object.entries(reportConfig.views ?? {});
+  const rootControls = reportConfig.controls ?? [];
+  const rootViewIds  = viewEntries.filter(([, v]) => v.type !== 'drawer').map(([id]) => id);
   const searchParams = useSearchParams();
   const isDebug = searchParams.get('debug') === 'true';
 
   return (
     <div className="min-h-screen bg-gray-50">
       <main className="max-w-[1600px] mx-auto px-4 py-8 flex flex-col gap-8">
-        <SmartDataProvider reportConfig={reportConfig} config={reportConfig.tableConfig}>
+        <SmartDataProviderImpl reportConfig={reportConfig}>
 
-        {isDebug && <PipelineDebugViewer />}
-        
-          <div className="flex items-center gap-4">
-            <ReportControls controls={reportConfig.controls ?? []} viewIds={viewIds} />
-            <RefreshButton />
-          </div>
+          {isDebug && <PipelineDebugViewer />}
 
-          {viewEntries.map(([viewId, { name, view, tableConfig: viewTableConfig }]) => (
-            <section key={viewId} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <h2 className="text-lg font-medium text-gray-800 mb-4">{name}</h2>
-              <SmartDataTable viewId={viewId} view={view} loadingMessage={`Fetching ${name}…`} config={viewTableConfig} />
-            </section>
+          {rootControls.length > 0 && (
+            <ReportControls controls={rootControls} viewIds={rootViewIds} />
+          )}
+
+          {viewEntries.map(([viewId, viewCfg]) => (
+            <ViewSection key={viewId} viewId={viewId} viewCfg={viewCfg} />
           ))}
 
-        </SmartDataProvider>
+        </SmartDataProviderImpl>
       </main>
     </div>
   );

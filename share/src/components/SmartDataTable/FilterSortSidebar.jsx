@@ -68,15 +68,14 @@ export default function FilterSortSidebar({
   onHide,
   filterDefs = [],
   fetchFilterValues,
-  currentSortConfig = null,
+  currentSortBy = {},
   currentFilterValues = {},
   onApply,
   onClear,
 }) {
   // ── Sidebar-level state ───────────────────────────────────────────────────
   const [activeTabIndex, setActiveTabIndex] = useState(0);
-  const [selectedSortField, setSelectedSortField] = useState(currentSortConfig?.field || null);
-  const [selectedSortDirection, setSelectedSortDirection] = useState(currentSortConfig?.direction || 'asc');
+  const [selectedSorts, setSelectedSorts] = useState(currentSortBy ?? {});
   const [selectedFilterValues, setSelectedFilterValues] = useState(currentFilterValues || {});
 
   // ── Per-tab async value state ─────────────────────────────────────────────
@@ -93,8 +92,7 @@ export default function FilterSortSidebar({
   // ── Sync when sidebar opens ───────────────────────────────────────────────
   useEffect(() => {
     if (visible) {
-      setSelectedSortField(currentSortConfig?.field || null);
-      setSelectedSortDirection(currentSortConfig?.direction || 'asc');
+      setSelectedSorts(currentSortBy ?? {});
       setSelectedFilterValues(currentFilterValues || {});
     }
   }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -118,7 +116,7 @@ export default function FilterSortSidebar({
     }));
 
     try {
-      const { items, hasMore } = await fetchFilterValues(key, { page, pageLength: 20, search });
+      const { items, hasMore } = await fetchFilterValues(key, { page, pageLength: 20, search, currentFilters: selectedFilterValues });
       setTabValues(prev => {
         const existing = reset ? [] : (prev[key]?.items ?? []);
         return {
@@ -176,25 +174,21 @@ export default function FilterSortSidebar({
 
   // ── Apply / Clear ─────────────────────────────────────────────────────────
   const handleApply = () => {
-    const sortConfig = selectedSortField
-      ? { field: selectedSortField, direction: selectedSortDirection }
-      : null;
     onHide?.();
-    onApply?.(sortConfig, selectedFilterValues);
+    onApply?.(selectedSorts, selectedFilterValues);
   };
 
   const handleClear = () => {
-    setSelectedSortField(null);
-    setSelectedSortDirection('asc');
+    setSelectedSorts({});
     setSelectedFilterValues({});
     onClear?.();
   };
 
   const hasActiveFilters = useMemo(() => {
-    const hasSort = selectedSortField !== null;
+    const hasSort = Object.keys(selectedSorts).length > 0;
     const hasFilters = Object.values(selectedFilterValues).some(vals => Array.isArray(vals) && vals.length > 0);
     return hasSort || hasFilters;
-  }, [selectedSortField, selectedFilterValues]);
+  }, [selectedSorts, selectedFilterValues]);
 
   const isMobile = useIsMobile();
 
@@ -236,7 +230,7 @@ export default function FilterSortSidebar({
               >
                 <span className="flex items-center justify-between">
                   <span className="text-xs">Sort by</span>
-                  {selectedSortField && <span className="w-2 h-2 bg-blue-600 rounded-full flex-shrink-0" />}
+                  {Object.keys(selectedSorts).length > 0 && <span className="w-2 h-2 bg-blue-600 rounded-full flex-shrink-0" />}
                 </span>
               </button>
 
@@ -279,17 +273,19 @@ export default function FilterSortSidebar({
                     <p className="text-sm text-gray-500 p-2">No sort fields available</p>
                   ) : (
                     sortOptions.map((opt, idx) => {
-                      const isSelected = selectedSortField === opt.value && selectedSortDirection === opt.direction;
+                      const isChecked = selectedSorts[opt.value] === opt.direction;
                       return (
                         <label key={idx} className="flex items-center cursor-pointer p-2 rounded hover:bg-gray-50">
                           <input
-                            type="radio"
-                            name="sortOption"
-                            checked={isSelected}
-                            onChange={() => {
-                              setSelectedSortField(opt.value);
-                              setSelectedSortDirection(opt.direction);
-                            }}
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => setSelectedSorts(prev => {
+                              if (isChecked) {
+                                const { [opt.value]: _, ...rest } = prev;
+                                return rest;
+                              }
+                              return { ...prev, [opt.value]: opt.direction };
+                            })}
                             className="mr-3 w-4 h-4 text-blue-600"
                           />
                           <span className="text-sm text-gray-700 flex-1">{opt.label}</span>

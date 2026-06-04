@@ -5,6 +5,7 @@ import FilterSortSidebar from '@/components/SmartDataTable/FilterSortSidebar';
 import { useSmartDataStore } from '@/components/SmartDataTable/useSmartDataStore';
 import { useSmartDataContext } from '@/components/SmartDataTable/SmartDataContext';
 import { Switch } from 'antd';
+import dayjs from 'dayjs';
 import { useEffect, useMemo, useState } from 'react';
 
 function broadcast(viewIds, paramKey, value) {
@@ -25,7 +26,7 @@ function ToggleControl({ def, viewIds }) {
 
   function handleChange(checked) {
     setValue(checked);
-    broadcast(viewIds, def.paramKey, checked);
+    broadcast(viewIds, def.key, checked);
   }
 
   return (
@@ -39,7 +40,7 @@ function ToggleControl({ def, viewIds }) {
       onMouseLeave={() => setHovered(false)}
     >
       <label className="text-xs sm:text-sm font-medium text-gray-700 whitespace-nowrap select-none">
-        {def.label ?? def.paramKey}
+        {def.label ?? def.key}
       </label>
       <Switch checked={value} onChange={handleChange} size="small" />
     </div>
@@ -61,12 +62,13 @@ function FilterSortControl({ def, viewIds }) {
   }, [allViews, viewIds]);
 
   // Active sidebar state — read from first view (they're kept in sync)
-  const sidebar = allViews[viewIds[0]]?.viewParams?._sidebar ?? {};
+  const sidebar  = allViews[viewIds[0]]?.viewParams?._sidebar ?? {};
+  const sortBy   = allViews[viewIds[0]]?.sortBy ?? {};
 
   const activeCount = useMemo(() => {
     const filterCount = Object.values(sidebar.filters ?? {}).filter(v => v?.length).length;
-    return filterCount + (sidebar.sort ? 1 : 0);
-  }, [sidebar]);
+    return filterCount + Object.keys(sortBy).length;
+  }, [sidebar, sortBy]);
 
   const isActive = activeCount > 0;
 
@@ -96,13 +98,15 @@ function FilterSortControl({ def, viewIds }) {
         filterDefs={filterDefs}
         fetchFilterValues={fetchFilterValues}
         currentFilterValues={sidebar.filters ?? {}}
-        currentSortConfig={sidebar.sort ?? null}
-        onApply={(sort, filters) =>
-          broadcast(viewIds, '_sidebar', { sort, filters })
-        }
-        onClear={() =>
-          broadcast(viewIds, '_sidebar', {})
-        }
+        currentSortBy={sortBy}
+        onApply={(sorts, filters) => {
+          useSmartDataStore.getState().setSortBy(viewIds[0], sorts);
+          broadcast(viewIds, '_sidebar', { filters });
+        }}
+        onClear={() => {
+          useSmartDataStore.getState().setSortBy(viewIds[0], {});
+          broadcast(viewIds, '_sidebar', {});
+        }}
       />
     </>
   );
@@ -113,7 +117,7 @@ function DateRangeControl({ def, viewIds }) {
 
   function handleChange(range) {
     setValue(range);
-    broadcast(viewIds, def.paramKey, range);
+    broadcast(viewIds, def.key, range);
   }
 
   return (
@@ -124,6 +128,96 @@ function DateRangeControl({ def, viewIds }) {
         mode={def.mode ?? 'month'}
         placeholder={['From', 'To']}
       />
+    </div>
+  );
+}
+
+function RefreshControl({ def }) {
+  const { refresh, lastFetchedAt } = useSmartDataContext();
+  const isLoading = useSmartDataStore(state => Object.values(state.views).some(v => v.loading));
+  const [hovered, setHovered] = useState(false);
+  const label = isLoading
+    ? 'Refreshing'
+    : lastFetchedAt
+      ? dayjs(lastFetchedAt).format('D MMM YY HH:mm')
+      : (def.label ?? '');
+  return (
+    <button
+      type="button"
+      onClick={refresh}
+      disabled={isLoading}
+      className="flex items-center gap-1.5 px-3 h-8 border rounded-md bg-white text-gray-600"
+      style={{
+        borderColor: hovered && !isLoading ? '#06b6d4' : '#d1d5db',
+        transition: 'border-color 0.2s',
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      <i className={isLoading ? 'pi pi-spin pi-spinner' : 'pi pi-refresh'} style={{ fontSize: '0.75rem' }} />
+      {label && <span style={{ fontSize: '0.75rem', whiteSpace: 'nowrap' }}>{label}</span>}
+    </button>
+  );
+}
+
+export function FilterChips({ viewIds }) {
+  const allViews = useSmartDataStore(s => s.views);
+
+  const filterDefs = useMemo(() => {
+    for (const id of viewIds) {
+      const defs = allViews[id]?.filterDefs;
+      if (defs?.length) return defs;
+    }
+    return [];
+  }, [allViews, viewIds]);
+
+  const sidebar = allViews[viewIds[0]]?.viewParams?._sidebar ?? {};
+  const activeFilters = useMemo(() =>
+    filterDefs.filter(def => sidebar.filters?.[def.key]?.length),
+    [filterDefs, sidebar.filters]
+  );
+
+  if (!activeFilters.length) return null;
+
+  function clearOne(key) {
+    const filters = { ...(sidebar.filters ?? {}), [key]: [] };
+    broadcast(viewIds, '_sidebar', { ...sidebar, filters });
+  }
+
+  function clearAll() {
+    broadcast(viewIds, '_sidebar', { ...sidebar, filters: {} });
+  }
+
+  return (
+    <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs font-medium text-gray-600 mr-1">Active Filters:</span>
+        {activeFilters.map(def => (
+          <div
+            key={def.key}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-100 text-blue-800 rounded-full text-xs font-medium"
+          >
+            <span>{def.label}: {sidebar.filters[def.key].join(', ')}</span>
+            <button
+              type="button"
+              onClick={() => clearOne(def.key)}
+              className="ml-1 hover:bg-blue-200 rounded-full p-0.5 transition-colors"
+              title="Remove filter"
+            >
+              <i className="pi pi-times text-[10px]" />
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={clearAll}
+          className="inline-flex items-center gap-1 px-3 py-1.5 bg-red-100 text-red-700 rounded-full text-xs font-medium hover:bg-red-200 transition-colors"
+          title="Clear all filters"
+        >
+          <i className="pi pi-times-circle text-xs" />
+          <span>Clear All</span>
+        </button>
+      </div>
     </div>
   );
 }
@@ -141,7 +235,8 @@ export function ReportControls({ controls, viewIds }) {
       const s = useSmartDataStore.getState();
       if (!viewIds.every((id) => s.views[id])) return;
       unsub?.();
-      defaults.forEach((def) => broadcast(viewIds, def.paramKey, parseDefault(def)));
+      const batch = Object.fromEntries(defaults.map((def) => [def.key, parseDefault(def)]));
+      viewIds.forEach((id) => s.setViewParams(id, batch));
     };
 
     unsub = useSmartDataStore.subscribe(trySet);
@@ -150,14 +245,20 @@ export function ReportControls({ controls, viewIds }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const hasFilterSort = controls.some((def) => def.type === 'filterSort');
+
   return (
     <>
-      {controls.map((def, i) => {
-        if (def.type === 'toggle')     return <ToggleControl key={i} def={def} viewIds={viewIds} />;
-        if (def.type === 'dateRange')  return <DateRangeControl key={i} def={def} viewIds={viewIds} />;
-        if (def.type === 'filterSort') return <FilterSortControl key={i} def={def} viewIds={viewIds} />;
-        return null;
-      })}
+      <div className="flex items-center gap-4">
+        {controls.map((def, i) => {
+          if (def.type === 'toggle')     return <ToggleControl key={i} def={def} viewIds={viewIds} />;
+          if (def.type === 'dateRange')  return <DateRangeControl key={i} def={def} viewIds={viewIds} />;
+          if (def.type === 'filterSort') return <FilterSortControl key={i} def={def} viewIds={viewIds} />;
+          if (def.type === 'refresh')    return <RefreshControl key={i} def={def} />;
+          return null;
+        })}
+      </div>
+      {hasFilterSort && <FilterChips viewIds={viewIds} />}
     </>
   );
 }

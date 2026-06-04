@@ -1,0 +1,30 @@
+{
+  "columns": [
+    { "fieldname": "label",               "label": "Brand / Item",        "fieldtype": "Data",     "width": 220 },
+    { "fieldname": "invoice_count",       "label": "Invoice Count",       "fieldtype": "Int" },
+    { "fieldname": "customer_count",      "label": "Customer Count",      "fieldtype": "Int" },
+    { "fieldname": "qty_2026_01",         "label": "2026 01 Qty",         "fieldtype": "Float" },
+    { "fieldname": "amount_2026_01",      "label": "2026 01 Amount",      "fieldtype": "Currency" },
+    { "fieldname": "qty_2026_02",         "label": "2026 02 Qty",         "fieldtype": "Float" },
+    { "fieldname": "amount_2026_02",      "label": "2026 02 Amount",      "fieldtype": "Currency" },
+    { "fieldname": "total_qty",           "label": "Total Qty",           "fieldtype": "Float" },
+    { "fieldname": "total_amount",        "label": "Total Amount",        "fieldtype": "Currency" },
+    { "fieldname": "_meta", "fieldtype": "Data", "label": "",
+      "meta_filter_values": {
+        "brand": [
+          { "value": "Cipla",      "label": "Cipla" },
+          { "value": "Abbott",     "label": "Abbott" },
+          { "value": "Sun Pharma", "label": "Sun Pharma" }
+        ]
+      }
+    }
+  ],
+  "result": [
+    { "label": "Cipla",              "invoice_count": 4, "customer_count": 4, "qty_2026_01": 350, "amount_2026_01": 33010, "qty_2026_02": 380, "amount_2026_02": 35180, "total_qty": 730, "total_amount": 68190, "indent": 0, "is_group": true },
+    { "label": "Azithromycin 500mg", "invoice_count": 2, "customer_count": 2, "qty_2026_01": 210, "amount_2026_01": 19700, "qty_2026_02": 220, "amount_2026_02": 20290, "total_qty": 430, "total_amount": 39990, "indent": 1, "is_group": false },
+    { "label": "Paracetamol 650mg",  "invoice_count": 2, "customer_count": 2, "qty_2026_01": 140, "amount_2026_01": 13310, "qty_2026_02": 160, "amount_2026_02": 14890, "total_qty": 300, "total_amount": 28200, "indent": 1, "is_group": false },
+    { "label": "Abbott",             "invoice_count": 4, "customer_count": 4, "qty_2026_01": 290, "amount_2026_01": 45720, "qty_2026_02": 320, "amount_2026_02": 49569, "total_qty": 610, "total_amount": 95289, "indent": 0, "is_group": true },
+    { "label": "Thyronorm 100mcg",   "invoice_count": 2, "customer_count": 2, "qty_2026_01": 190, "amount_2026_01": 29587, "qty_2026_02": 200, "amount_2026_02": 31315, "total_qty": 390, "total_amount": 60902, "indent": 1, "is_group": false },
+    { "label": "Cremaffin Syrup",    "invoice_count": 2, "customer_count": 2, "qty_2026_01": 100, "amount_2026_01": 16133, "qty_2026_02": 120, "amount_2026_02": 18254, "total_qty": 220, "total_amount": 34387, "indent": 1, "is_group": false }
+  ]
+}

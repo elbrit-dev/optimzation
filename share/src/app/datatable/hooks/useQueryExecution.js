@@ -3,7 +3,7 @@
 import * as Comlink from 'comlink';
 import dayjs from 'dayjs';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getDataKeys, getDataValue } from '../utils/dataAccessUtils';
+import { getAvailableQueryKeys, getDataKeys, getDataValue } from '../utils/dataAccessUtils';
 import { getEndpointAndAuthWithTokenOverride } from '../utils/queryEndpointUtils';
 import { generateMonthRangeArray } from '../utils/dateUtils';
 import { indexedDBService } from '../utils/indexedDBService';
@@ -841,8 +841,20 @@ export function useQueryExecution(options) {
 
   const availableQueryKeys = useMemo(() => {
     const saved = currentQueryDoc?.queryKeys;
-    return (dataSource && Array.isArray(saved)) ? saved : [];
-  }, [dataSource, currentQueryDoc?.queryKeys]);
+    const fromDoc = (dataSource && Array.isArray(saved)) ? saved : [];
+    const fromData = getAvailableQueryKeys(processedData, dataSource);
+    if (fromDoc.length === 0) return fromData;
+    if (fromData.length === 0) return fromDoc;
+    const seen = new Set(fromDoc);
+    const merged = [...fromDoc];
+    for (const k of fromData) {
+      if (!seen.has(k)) {
+        seen.add(k);
+        merged.push(k);
+      }
+    }
+    return merged;
+  }, [dataSource, currentQueryDoc?.queryKeys, processedData]);
 
   useEffect(() => {
     if (onAvailableQueryKeysChange) onAvailableQueryKeysChange(availableQueryKeys);
@@ -862,10 +874,14 @@ export function useQueryExecution(options) {
   useEffect(() => {
     if (!dataSource || !processedData) return;
     const firstAvailableKey = availableQueryKeys.length > 0 ? availableQueryKeys[0] : null;
-    const defaultKeyIsValid = selectedQueryKeyProp && availableQueryKeys.includes(selectedQueryKeyProp);
+    const propKeyHasData = selectedQueryKeyProp
+      && getDataValue(processedData, selectedQueryKeyProp) != null;
+    const defaultKeyIsValid = selectedQueryKeyProp
+      && (availableQueryKeys.includes(selectedQueryKeyProp) || propKeyHasData);
+    const pickKey = () => (defaultKeyIsValid ? selectedQueryKeyProp : null) || selectedQueryKeyProp || firstAvailableKey;
+
     if (queryKeySetForDataSourceRef.current !== dataSource) {
-      // Prefer prop when provided (e.g. from Apply), else first available - availableQueryKeys may not be populated yet
-      const keyToUse = selectedQueryKeyProp || firstAvailableKey;
+      const keyToUse = pickKey();
       if (keyToUse && lastSetQueryKeyRef.current !== keyToUse) {
         queryKeySetForDataSourceRef.current = dataSource;
         lastSetQueryKeyRef.current = keyToUse;
@@ -876,19 +892,19 @@ export function useQueryExecution(options) {
     if (queryKeySetForDataSourceRef.current === dataSource) {
       setSelectedQueryKey((current) => {
         if (current && !availableQueryKeys.includes(current)) {
-          const keyToUse = defaultKeyIsValid ? selectedQueryKeyProp : firstAvailableKey;
+          const keyToUse = pickKey();
           if (keyToUse && lastSetQueryKeyRef.current !== keyToUse) {
             lastSetQueryKeyRef.current = keyToUse;
             return keyToUse;
           }
         }
-        if (!current && defaultKeyIsValid) {
-          if (lastSetQueryKeyRef.current !== selectedQueryKeyProp) {
-            lastSetQueryKeyRef.current = selectedQueryKeyProp;
-            return selectedQueryKeyProp;
+        if (!current) {
+          const keyToUse = pickKey();
+          if (keyToUse && lastSetQueryKeyRef.current !== keyToUse) {
+            lastSetQueryKeyRef.current = keyToUse;
+            return keyToUse;
           }
         }
-        // When selectedQueryKeyProp changes (e.g. from Apply), sync to it - trust parent even if not yet in availableQueryKeys
         if (selectedQueryKeyProp && current !== selectedQueryKeyProp && lastSetQueryKeyRef.current !== selectedQueryKeyProp) {
           lastSetQueryKeyRef.current = selectedQueryKeyProp;
           return selectedQueryKeyProp;

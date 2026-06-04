@@ -438,6 +438,7 @@ export default function DataProviderNew({
     availableQueryKeys,
     formatLastUpdatedDate,
     workerRef,
+    setProcessedData,
   } = queryExecution;
 
   const enableWriteEffective = useMemo(
@@ -856,40 +857,6 @@ export default function DataProviderNew({
       await runQuery(dataSource, true);
     }
   }, [dataSource, hasMonthSupport, monthRange, currentQueryDoc, checkIndexedDBAndLoadData, runQuery]);
-
-  // Handle clearing cached data: drop entire query DB, clear index, and sync
-  const handleClearMonthRangeCache = useCallback(async () => {
-    if (!dataSource) return; // Skip for offline mode
-    if (!currentQueryDoc || currentQueryDoc.clientSave !== true) return;
-
-    try {
-      const queryId = dataSource;
-
-      // Clear the query index
-      await indexedDBService.clearQueryIndexResult(queryId);
-
-      // Clear worker cache so it does not hold an open connection
-      await workerRef.current?.indexedDBService?.clearQueryDatabaseCache?.(queryId);
-
-      // Drop the entire query database
-      await indexedDBService.deleteQueryDatabase(queryId);
-
-      // Sync to reload data
-      await handleSync();
-    } catch (error) {
-      console.error('Error clearing cache:', error);
-    }
-  }, [dataSource, currentQueryDoc, handleSync]);
-
-  const syncButtonModel = useMemo(() => [
-    {
-      label: 'Hard Refresh',
-      icon: 'pi pi-sync',
-      command: () => {
-        handleClearMonthRangeCache();
-      }
-    }
-  ], [handleClearMonthRangeCache]);
 
   // Pipeline output + in-memory cell edits (buffer is not fed back into tableData).
   const sortedDataWithEdits = useMemo(
@@ -2110,14 +2077,21 @@ export default function DataProviderNew({
       dataHash = `error_${sortedData.length}`;
     }
 
+    const editingBufferLen = mainTableEditingDataRef.current?.length ?? 0;
+
     // Only re-initialize if data actually changed (different reference or different hash)
     if (previousSortedDataRef.current === sortedData) {
-      // Same reference, definitely no change
-      return;
+      // Same reference — still re-seed if the editing buffer was cleared (e.g. during cache refresh)
+      if (editingBufferLen > 0 || !sortedData.length) return;
     }
-    
-    if (previousSortedDataHashRef.current === dataHash && sortedData.length === (mainTableOriginalDataRef.current.length || 0)) {
-      // Same hash and length, likely no change - but update ref to current reference
+
+    if (
+      previousSortedDataHashRef.current === dataHash
+      && sortedData.length === (mainTableOriginalDataRef.current.length || 0)
+      && editingBufferLen > 0
+      && editingBufferLen === sortedData.length
+    ) {
+      // Same hash and length with a populated editing buffer — likely no change
       previousSortedDataRef.current = sortedData;
       return;
     }
@@ -2271,6 +2245,48 @@ export default function DataProviderNew({
     setTableFilters(clearedFilters);
     setTablePagination(prev => ({ ...prev, first: 0 }));
   }, [columns, columnTypes, multiselectColumns, hasPercentageColumns, percentageColumnNames]);
+
+  const resetInMemoryTableState = useCallback(() => {
+    setProcessedData(null);
+    mainTableEditingDataRefEarly.current = [];
+    mainTableEditingDataRef.current = [];
+    mainTableOriginalDataRef.current = [];
+    setMainTableEditingData([]);
+    previousSortedDataRef.current = null;
+    previousSortedDataHashRef.current = null;
+    setTableDataUpdateTrigger((t) => t + 1);
+    clearAllFilters();
+    setSearchTerm('');
+    setSortConfig(null);
+    if (isMultiSlot) {
+      setTableFiltersBySlot({});
+      setTableSortMetaBySlot({});
+      setTablePaginationBySlot({});
+    }
+  }, [setProcessedData, clearAllFilters, setTableDataUpdateTrigger, isMultiSlot]);
+
+  const handleHardRefresh = useCallback(async () => {
+    if (!dataSource) return;
+
+    try {
+      await indexedDBService.clearAllClientCaches();
+      await workerRef.current?.indexedDBService?.clearAllClientCaches?.();
+      resetInMemoryTableState();
+      await handleSync();
+    } catch (error) {
+      console.error('Error during hard refresh:', error);
+    }
+  }, [dataSource, resetInMemoryTableState, handleSync, workerRef]);
+
+  const syncButtonModel = useMemo(() => [
+    {
+      label: 'Hard Refresh',
+      icon: 'pi pi-sync',
+      command: () => {
+        handleHardRefresh();
+      },
+    },
+  ], [handleHardRefresh]);
 
   const updateSort = useCallback((sortMeta) => {
     setTableSortMeta(sortMeta || []);
@@ -3704,11 +3720,20 @@ export default function DataProviderNew({
       
       // Extract parent row editing key - CRITICAL: rowData must have __editingKey__ from tableData
       const parentRowEditingKey = rowData?.__editingKey__ || null;
-      
-      // Store original data for change tracking (deep clone to prevent reference issues)
-      // Add __editingKey__ to drawer rows
-      const originalData = nestedTable.data && isArray(nestedTable.data) 
-        ? addEditingKeysToRows(cloneDeep(nestedTable.data))
+
+      // Use items from the editing buffer when available. The display pipeline's nestedTable.data
+      // comes from raw server data (no __editingKey__ on child items), so addEditingKeysToRows
+      // would generate fresh random keys. Those keys won't match the ones in mainTableOriginalDataRef
+      // (assigned by mainTableEditingRowsFromLeafData), causing the diff to see every row as
+      // removed+added → delete-all + recreate-all on save.
+      const parentRowFromBuffer = parentRowEditingKey
+        ? (mainTableEditingDataRef.current || []).find(r => r && r.__editingKey__ === parentRowEditingKey)
+        : null;
+      const itemsFromBuffer = parentRowFromBuffer?.[nestedTable.fieldName];
+      const sourceData = isArray(itemsFromBuffer) ? itemsFromBuffer : nestedTable.data;
+
+      const originalData = sourceData && isArray(sourceData)
+        ? addEditingKeysToRows(cloneDeep(sourceData))
         : [];
       
       originalNestedTableDataRef.current.set(tabId, {

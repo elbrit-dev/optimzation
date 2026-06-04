@@ -18,7 +18,8 @@ import { NumericFilter } from './filters/NumericFilter';
 import { BooleanFilter } from './filters/BooleanFilter';
 import { DateRangeFilter } from './filters/DateRangeFilter';
 import { MultiselectFilter } from './filters/MultiselectFilter';
-import { SmartTableToolbar, ColumnVisibilityDropdown } from './SmartTableToolbar';
+import { SmartTableToolbar, ColumnVisibilityDropdown, GroupByReorder } from './SmartTableToolbar';
+import { useGroupBy } from './SmartDataControls';
 
 // ─── Export utilities (module-scope, no hooks) ───────────────────────────────
 
@@ -105,10 +106,14 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
   );
 
   // ── Sort ──────────────────────────────────────────────────────────────────
-  const onSort = useCallback(
-    e => onSignal({ type: 'sort', payload: e.multiSortMeta ?? [] }),
-    [onSignal]
-  );
+  const onSort = useCallback(e => {
+    const current  = useSmartDataStore.getState().views[viewId]?.sortBy ?? {};
+    const incoming = e.multiSortMeta ?? [];
+    const next = { ...current };
+    incoming.forEach(({ field, order }) => { next[field] = order === 1 ? 'asc' : 'desc'; });
+    Object.keys(current).forEach(f => { if (!incoming.some(m => m.field === f)) delete next[f]; });
+    onSignal({ type: 'sort', payload: next });
+  }, [viewId, onSignal]);
 
   // ── Pagination ────────────────────────────────────────────────────────────
   const onPage = useCallback(
@@ -125,6 +130,7 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
   // columnsProp takes precedence; falls back to columns returned by the dataSource (e.g. reportDataSource)
   const columns = columnsProp ?? viewState?.columns ?? [];
   const columnGroups = viewState?.columnGroups ?? null;
+  const labelColDefs = viewState?.labelColDefs ?? [];
 
   // ── Eye / column visibility ───────────────────────────────────────────────
   const hiddenColumns = viewState?.hiddenColumns ?? [];
@@ -137,31 +143,14 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
     useSmartDataStore.getState().setHiddenColumns(viewId, fields);
   }, [viewId]);
 
+  // ── Group-by reorder ─────────────────────────────────────────────────────────
+  const { groups: groupByGroups, setGroupBy } = useGroupBy(viewId);
+
   // ── Lock / freeze first column ────────────────────────────────────────────
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const [freezeFirstColumn, setFreezeFirstColumn] = useState(() => cfg.freezeFirstColumn);
+  const [freezeFirstColumn, setFreezeFirstColumn] = useState(() => cfg.enableFreezeFirstColumn);
 
-  // ── Virtual scroll row height measurement ────────────────────────────────
-  // Measure the real rendered row height after first data load so itemSize is
-  // always accurate regardless of padding / font-size / breakpoint.
   const containerRef = useRef(null);
-  const [measuredRowHeight, setMeasuredRowHeight] = useState(null);
-
-  // Reset when table size changes (different padding = different row height).
-  useEffect(() => { setMeasuredRowHeight(null); }, [cfg.size]);
-
-  useEffect(() => {
-    if (!cfg.virtualScroll || measuredRowHeight !== null || !viewState?.rows?.length) return;
-    const frame = requestAnimationFrame(() => {
-      const tr = containerRef.current?.querySelector('.p-datatable-tbody tr');
-      if (tr) setMeasuredRowHeight(Math.ceil(tr.getBoundingClientRect().height));
-    });
-    return () => cancelAnimationFrame(frame);
-  // Re-run only when rows first appear, virtualScroll toggles, or size resets measurement.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewState?.rows?.length, cfg.virtualScroll, measuredRowHeight]);
-
-  const effectiveItemSize = measuredRowHeight ?? cfg.virtualScrollItemSize;
 
   // ── Maximize / fullscreen ─────────────────────────────────────────────────
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -206,7 +195,8 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
     if (selectedDepths?.length) {
       // Multi-sheet: one sheet per selected tree depth.
       [...selectedDepths].sort((a, b) => a - b).forEach(depth => {
-        appendSheet(collectAtDepth(rows, depth), `Level ${depth + 1}`);
+        const sheetName = viewState.filterDefs?.[depth]?.label ?? `Level ${depth + 1}`;
+        appendSheet(collectAtDepth(rows, depth), sanitizeSheetName(sheetName));
       });
     } else {
       appendSheet(rows, 'Sheet1');
@@ -245,9 +235,8 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
   const hasData = (viewState?.rows?.length ?? 0) > 0;
 
   const leftActions = useMemo(() => {
-    if (hasGroups) return [];
     const actions = [];
-    if (cfg.showColumnVisibility) {
+    if (!hasGroups && cfg.enableColumnVisibility) {
       actions.push({
         id: 'eye',
         type: 'custom',
@@ -261,7 +250,7 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
         ),
       });
     }
-    if (cfg.showColumnFreeze) {
+    if (!hasGroups && cfg.enableColumnFreeze) {
       actions.push({
         id: 'lock',
         type: 'button',
@@ -272,12 +261,25 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
         onClick: () => setFreezeFirstColumn(v => !v),
       });
     }
+    if (groupByGroups.length > 0) {
+      actions.push({
+        id: 'group-by',
+        type: 'custom',
+        render: () => (
+          <GroupByReorder
+            key="group-by"
+            groups={groupByGroups}
+            onChange={setGroupBy}
+          />
+        ),
+      });
+    }
     return actions;
-  }, [hasGroups, cfg.showColumnVisibility, cfg.showColumnFreeze, columns, hiddenColumns, freezeFirstColumn, onHiddenColumnsChange]);
+  }, [hasGroups, cfg.enableColumnVisibility, cfg.enableColumnFreeze, columns, hiddenColumns, freezeFirstColumn, onHiddenColumnsChange, groupByGroups, setGroupBy]);
 
   const rightActions = useMemo(() => {
     const actions = [];
-    if (cfg.showExport) {
+    if (cfg.enableExport) {
       actions.push({
         id: 'export',
         type: 'button',
@@ -288,7 +290,7 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
         onClick: handleExport,
       });
     }
-    if (cfg.showFullscreen) {
+    if (cfg.enableFullscreen) {
       actions.push({
         id: 'maximize',
         type: 'button',
@@ -299,7 +301,7 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
       });
     }
     return actions;
-  }, [cfg.showExport, cfg.showFullscreen, hasData, exporting, handleExport]);
+  }, [cfg.enableExport, cfg.enableFullscreen, hasData, exporting, handleExport]);
 
   // Dialog-specific right actions: swap maximize for restore+close
   const dialogRightActions = useMemo(() => [
@@ -328,7 +330,8 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
   const columnElements = useMemo(() => {
     if (!visibleColumns?.length) return null;
     const hasGroupedHeader = !!columnGroups?.length;
-    const filtersEnabled = cfg.filterDisplay !== 'none';
+    const filtersEnabled = cfg.enableFilterRow !== false;
+    const totalsEnabled = cfg.enableTotalRow === true;
 
     return visibleColumns.map((col, idx) => {
       const currentFilter = viewState?.filters?.[col.field] ?? null;
@@ -347,20 +350,20 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
           key={col.field}
           field={col.field}
           header={col.header}
-          sortable={cfg.sortable !== false && col.sortable !== false}
+          sortable={cfg.enableSort !== false && col.sortable !== false}
           filter={filtersEnabled && !hasGroupedHeader && col.filterable !== false}
           filterElement={filterElement}
           showFilterMenu={false}
           style={col.width ? { width: col.width, minWidth: col.width } : undefined}
           frozen={isFrozen}
-          footer={col.footer?.repr}
+          footer={totalsEnabled ? col.footer?.repr : undefined}
           body={col.body ?? defaultBody}
         />
       );
     });
     // viewState?.filters intentionally in deps so filter elements reflect active values
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibleColumns, columnGroups, viewState?.filters, onFilter, freezeFirstColumn, cfg.filterDisplay, cfg.sortable, cfg.filterDebounceText, cfg.filterDebounceNumeric]);
+  }, [visibleColumns, columnGroups, viewState?.filters, onFilter, freezeFirstColumn, cfg.enableFilterRow, cfg.enableTotalRow, cfg.enableSort, cfg.filterDebounceText, cfg.filterDebounceNumeric]);
 
   // ── Row expansion (set by groupedReportDataSource via expandable: true) ──────
   const [expandedRows, setExpandedRows] = useState(null);
@@ -370,10 +373,10 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
     if (!rowData._children?.length) return null;
     return (
       <div className="px-6 py-2 bg-gray-50">
-        <InnerDataTable rows={rowData._children} columns={visibleColumns} columnGroups={columnGroups} />
+        <InnerDataTable rows={rowData._children} columns={visibleColumns} columnGroups={columnGroups} labelColDefs={labelColDefs} depth={1} />
       </div>
     );
-  }, [visibleColumns, columnGroups]);
+  }, [visibleColumns, columnGroups, labelColDefs]);
 
   // ── Column group header (built when meta.column_group === true) ────────────
   // Uses visibleColumns so hidden columns are excluded from the group header too.
@@ -382,7 +385,7 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
     const colByField = Object.fromEntries(visibleColumns.map(c => [c.field, c]));
     const filters = viewState?.filters ?? {};
     const visibleFields = new Set(visibleColumns.map(c => c.field));
-    const filtersEnabled = cfg.filterDisplay !== 'none';
+    const filtersEnabled = cfg.enableFilterRow !== false;
     const rowSpan = filtersEnabled ? 3 : 2;
 
     return (
@@ -421,12 +424,30 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
         )}
       </ColumnGroup>
     );
-  }, [columnGroups, visibleColumns, expandable, viewState?.filters, onFilter, cfg.filterDisplay, cfg.filterDebounceText, cfg.filterDebounceNumeric]);
+  }, [columnGroups, visibleColumns, expandable, viewState?.filters, onFilter, cfg.enableFilterRow, cfg.filterDebounceText, cfg.filterDebounceNumeric]);
+
+  // ── Row click → drawer ────────────────────────────────────────────────────
+  const drawerCfg = cfg.drawer ?? null;
+  const onRowClick = useCallback(
+    drawerCfg
+      ? e => onSignal({ type: 'rowClick', payload: { drawerViewId: drawerCfg.viewId, paramMap: drawerCfg.params ?? {}, rowData: e.data } })
+      : null,
+    [drawerCfg, onSignal]
+  );
 
   if (!viewState) return null;
 
-  const { rows, totalRecords, loading } = viewState;
+  const { rows, totalRecords, loading, error } = viewState;
   const { first, rows: perPage } = viewState.pagination;
+
+  if (error && !loading) {
+    return (
+      <div className="flex items-center gap-2 px-4 py-3 rounded-md border border-red-200 bg-red-50 text-red-700 text-sm">
+        <i className="pi pi-exclamation-triangle flex-none" />
+        <span>{error}</span>
+      </div>
+    );
+  }
 
   // Initial load: no rows + still fetching → skeleton with overlay message
   if (loading && rows.length === 0) {
@@ -443,12 +464,12 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
   // ── Shared DataTable props ─────────────────────────────────────────────────
   const sharedTableProps = {
     value: rows,
-    sortMode: cfg.multiSort ? 'multiple' : 'single',
-    multiSortMeta: viewState.sortMeta,
+    sortMode: cfg.enableMultiSort ? 'multiple' : 'single',
+    multiSortMeta: Object.entries(viewState?.sortBy ?? {}).map(([field, direction]) => ({ field, order: direction === 'asc' ? 1 : -1 })),
     onSort,
-    removableSort: cfg.removableSort,
-    ...(cfg.filterDisplay !== 'none' && { filterDisplay: cfg.filterDisplay }),
-    paginator: cfg.paginator,
+    removableSort: cfg.enableRemovableSort,
+    ...(cfg.enableFilterRow !== false && { filterDisplay: 'row' }),
+    paginator: cfg.enablePaginator,
     lazy: true,
     first,
     rows: perPage,
@@ -458,17 +479,18 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
     scrollable: true,
     size: cfg.size === 'normal' ? undefined : cfg.size,
     emptyMessage: cfg.emptyMessage,
-    showGridlines: cfg.showGridlines,
-    stripedRows: cfg.stripedRows,
-    resizableColumns: cfg.resizableColumns,
+    showGridlines: cfg.enableGridlines,
+    stripedRows: cfg.enableStripedRows,
+    resizableColumns: cfg.enableResizableColumns,
     columnResizeMode: cfg.columnResizeMode,
-    reorderableColumns: cfg.reorderableColumns,
+    reorderableColumns: cfg.enableReorderableColumns,
     ...(headerColumnGroup && { headerColumnGroup }),
     ...(expandable && {
       expandedRows,
       onRowToggle: e => setExpandedRows(e.data),
       rowExpansionTemplate,
     }),
+    ...(onRowClick && { onRowClick, selectionMode: 'single' }),
   };
 
   return (
@@ -478,7 +500,6 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
       <DataTable
         {...sharedTableProps}
         scrollHeight={cfg.scrollHeight}
-        virtualScrollerOptions={cfg.virtualScroll ? { itemSize: effectiveItemSize, numToleratedItems: cfg.virtualScrollNumToleratedItems } : undefined}
       >
         {expandable && <Column expander style={{ width: '3rem' }} />}
         {columnElements}
@@ -568,7 +589,7 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
                   }
                   className="w-4 h-4 text-blue-600 rounded"
                 />
-                <span>Level {i + 1}</span>
+                <span>{viewState.filterDefs?.[i]?.label ?? `Level ${i + 1}`}</span>
               </label>
             )
           )}
@@ -582,7 +603,7 @@ export const SmartDataTable = memo(SmartDataTableInner);
 
 // ─── Inner expansion table ───────────────────────────────────────────────────
 
-function InnerDataTable({ rows, columns, columnGroups }) {
+function InnerDataTable({ rows, columns, columnGroups, labelColDefs = [], depth = 0 }) {
   const [filters, setFilters] = useState({});
   const [sortMeta, setSortMeta] = useState([]);
 
@@ -632,10 +653,11 @@ function InnerDataTable({ rows, columns, columnGroups }) {
   const headerColumnGroup = useMemo(() => {
     if (!columnGroups?.length) return null;
     const colByField = Object.fromEntries(columns.map(c => [c.field, c]));
+    const labelHeader = labelColDefs[depth]?.header ?? colByField['label']?.header ?? 'Name';
     return (
       <ColumnGroup>
         <Row>
-          <Column header={colByField['label']?.header ?? 'Name'} rowSpan={2} sortable field="label" />
+          <Column header={labelHeader} rowSpan={2} sortable field="label" />
           {columnGroups.map(g => (
             <Column key={g.id} header={g.label} colSpan={g.fields.length} />
           ))}
@@ -663,7 +685,7 @@ function InnerDataTable({ rows, columns, columnGroups }) {
         </Row>
       </ColumnGroup>
     );
-  }, [columnGroups, columns, filters, onFilter]);
+  }, [columnGroups, columns, filters, onFilter, labelColDefs, depth]);
 
   return (
     <DataTable
