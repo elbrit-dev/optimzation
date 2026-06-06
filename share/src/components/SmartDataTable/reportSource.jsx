@@ -356,10 +356,10 @@ export const nestStep = (state) => {
   return { ...state, rows, expandable: rows.some(r => r._children?.length > 0) };
 };
 
-/** Sets totalRecords from server totalCount. Rows already paged by the server. Terminal step. */
+/** Sets totalRecords from server meta_pagination. Rows already paged by the server. Terminal step. */
 export const paginateStep = (state) => ({
   ...state,
-  totalRecords: state.totalCount ?? state.rows.length,
+  totalRecords: state.metaPagination?.total_roots ?? state.rows.length,
 });
 
 // ─── Pipeline composer ────────────────────────────────────────────────────────
@@ -419,7 +419,6 @@ function buildCustomReportQuery(variables, variableTypes) {
     query CustomReport(${paramDecls}) {
       customReport(${directArgs} run_report: [{ filters: $filters }]) {
         report_meta
-        totalCount
         edges { node }
       }
     }
@@ -457,14 +456,19 @@ const _DEFAULT_VARIABLES_MAP = {
  *   { path, transform } → apply transform(value) before writing
  *   { path, merge:true} → shallow-merge object value into existing path
  */
-function resolveVariablesMap(baseVars, variablesMap, { controls, sortBy, pagination }) {
+function resolveVariablesMap(baseVars, variablesMap, { controls, sortBy, pagination, viewParams = {} }) {
   const page  = Math.floor(pagination.first / pagination.rows) + 1;
   const limit = pagination.rows;
 
-  const sortValue = Object.entries(sortBy ?? {}).map(([f, d]) => `${f}:${d}`);
+  const sortEntries = Object.entries(sortBy ?? {});
+  const sortValue   = sortEntries.map(([f, d]) => `${f}:${d}`).join(',') || undefined;
+  const sortField   = sortEntries[0]?.[0];
+  const sortOrder   = sortEntries[0]?.[1];
 
   const builtInSources = {
-    sort:             sortValue,
+    sort:              sortValue,
+    'sort.field':      sortField,
+    'sort.order':      sortOrder,
     'pagination.page':  page,
     'pagination.limit': limit,
   };
@@ -481,17 +485,19 @@ function resolveVariablesMap(baseVars, variablesMap, { controls, sortBy, paginat
     if (sourceKey.startsWith('controls.')) {
       const rest = sourceKey.slice('controls.'.length);
       value = getPath(controls, rest);
+    } else if (sourceKey.startsWith('viewParam.')) {
+      const rest = sourceKey.slice('viewParam.'.length);
+      value = getPath(viewParams, rest);
     } else {
       value = builtInSources[sourceKey];
     }
 
     if (value === undefined) continue;
-    if (sourceKey === 'sort' && Array.isArray(value) && value.length === 0) continue;
 
     // When using defaults, don't add sort_by / page / limit if not in baseVars.
     if (isDefault) {
       const targetRoot = (typeof mapping === 'string' ? mapping : mapping.path).split('.')[0];
-      if ((sourceKey === 'sort' || sourceKey.startsWith('pagination.')) && !(targetRoot in baseVars)) continue;
+      if ((sourceKey === 'sort' || sourceKey.startsWith('sort.') || sourceKey.startsWith('pagination.')) && !(targetRoot in baseVars)) continue;
     }
 
     const { path, transform, merge } =
@@ -531,12 +537,13 @@ export function graphqlQueryReportDataSource(rawApiConfig) {
       controls,
       sortBy: params.sortBy,
       pagination,
+      viewParams: params.viewParams ?? {},
     });
     const pageCache = params._pageCache;
 
     const cached = pageCache?.get(cacheKey);
     if (cached) {
-      return { ...state, columns: cached.columns, columnGroups: cached.columnGroups, rows: cached.rows, totalCount: cached.totalCount, filterValues: cached.filterValues, filterDefs: cached.filterDefs };
+      return { ...state, columns: cached.columns, columnGroups: cached.columnGroups, rows: cached.rows, filterValues: cached.filterValues, filterDefs: cached.filterDefs, metaTotals: cached.metaTotals, metaTodayTotals: cached.metaTodayTotals, metaPagination: cached.metaPagination, metaCol: cached.metaCol };
     }
 
     const query = buildCustomReportQuery(gqlVars, rawApiConfig.variableTypes);
@@ -550,13 +557,15 @@ export function graphqlQueryReportDataSource(rawApiConfig) {
     const { data, errors } = await res.json();
     if (errors?.length) throw new Error(errors[0].message);
 
-    const { report_meta, edges, totalCount } = data.customReport;
+    const { report_meta, edges } = data.customReport;
     const gqlColumns = report_meta[0]?.columns ?? [];
     const gqlRows    = edges.map(e => e.node).filter(node => !node._is_total_row);
 
-    const metaCol      = gqlColumns.find(c => c.fieldname === '_meta');
-    const filterValues = metaCol?.meta_filter_values ?? {};
-    const metaTotals   = metaCol?.meta_totals ?? {};
+    const metaCol         = gqlColumns.find(c => c.fieldname === '_meta');
+    const filterValues    = metaCol?.meta_filter_values ?? {};
+    const metaTotals      = metaCol?.meta_totals        ?? {};
+    const metaTodayTotals = metaCol?.meta_today_totals  ?? {};
+    const metaPagination  = metaCol?.meta_pagination    ?? null;
 
     const filters = gqlVars.filters ?? {};
     const { columns: rawColumns, columnGroups, rows, labelColDefs } = _parseFrappeResponse(gqlColumns, gqlRows, filters.selected_columns);
@@ -574,9 +583,9 @@ export function graphqlQueryReportDataSource(rawApiConfig) {
         : key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' '),
     }));
 
-    pageCache?.set(cacheKey, { columns, columnGroups, rows, totalCount, filterValues, filterDefs, labelColDefs });
+    pageCache?.set(cacheKey, { columns, columnGroups, rows, filterValues, filterDefs, labelColDefs, metaTotals, metaTodayTotals, metaPagination, metaCol });
 
-    return { ...state, columns, columnGroups, rows, totalCount, filterValues, filterDefs, labelColDefs };
+    return { ...state, columns, columnGroups, rows, filterValues, filterDefs, labelColDefs, metaTotals, metaTodayTotals, metaPagination, metaCol };
   };
   step.stepName = 'graphqlFetch';
 

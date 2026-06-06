@@ -48,7 +48,7 @@ function ReportTable({ reportConfig }) {
             <ReportControls controls={rootControls} viewIds={rootViewIds} />
           )}
 
-          {viewEntries.map(([viewId, viewCfg]) => (
+          {viewEntries.filter(([, v]) => v.type !== 'drawer').map(([viewId, viewCfg]) => (
             <ViewSection key={viewId} viewId={viewId} viewCfg={viewCfg} />
           ))}
 

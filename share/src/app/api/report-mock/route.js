@@ -241,11 +241,15 @@ export function GET(request) {
   }
 
   const { columns, result } = VIEWS[view];
+  const columnsWithMeta = columns.map(c =>
+    c.fieldname === '_meta'
+      ? { ...c, meta_pagination: { page: 1, limit: result.length, total_roots: result.length, total_pages: 1, has_next: false, has_prev: false, sort_by: '', sort_order: 'asc' } }
+      : c
+  );
   return NextResponse.json({
     data: {
       customReport: {
-        report_meta: [{ columns }],
-        totalCount:  result.length,
+        report_meta: [{ columns: columnsWithMeta }],
         edges:       result.map(node => ({ node })),
         pageInfo:    { hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null },
       },

@@ -15,13 +15,17 @@ let _original = global.fetch;
 
 export function mockGraphqlFetch(payload) {
   _original = global.fetch;
+  const columnsWithMeta = payload.columns.map(c =>
+    c.fieldname === '_meta'
+      ? { ...c, meta_pagination: { page: 1, limit: payload.result.length, total_roots: payload.result.length, total_pages: 1, has_next: false, has_prev: false, sort_by: '', sort_order: 'asc' } }
+      : c
+  );
   global.fetch = vi.fn().mockResolvedValue({
     ok: true,
     json: async () => ({
       data: {
         customReport: {
-          report_meta: [{ columns: payload.columns }],
-          totalCount:  payload.result.length,
+          report_meta: [{ columns: columnsWithMeta }],
           edges:       payload.result.map(node => ({ node })),
           pageInfo:    { hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null },
         },

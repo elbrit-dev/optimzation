@@ -148,6 +148,12 @@ const smartDataProviderMeta = {
       displayName: 'Report Name',
       description: 'Name of a report saved in the Firestore reports collection.',
     },
+    overrides: {
+      type: 'object',
+      displayName: 'Config Overrides',
+      description: 'Deep-merged onto the loaded reportConfig. Objects merge recursively; arrays replace.',
+      defaultValue: {},
+    },
     children: 'slot',
   },
 };

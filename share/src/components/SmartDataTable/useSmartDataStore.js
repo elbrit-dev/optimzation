@@ -16,6 +16,9 @@ const DEFAULT_VIEW_STATE = {
   columns:       null,  // populated by dataSource result; null = use prop
   columnGroups:  null,  // populated when meta.column_group === true; drives headerColumnGroup
   expandable:    false, // set to true by groupedReportDataSource
+  metaTotals:      {},  // column totals from API (field → raw value)
+  metaTodayTotals: {},  // today-only totals from API (field → raw value)
+  metaCol:         null, // full _meta column object from API
   hiddenColumns: [],    // field names hidden via eye toggle
   loading: false,
   error: null,
@@ -193,7 +196,7 @@ export const useSmartDataStore = create(
       });
     },
 
-    _setResult(viewId, { rows, totalRecords, columns, columnGroups, expandable, allRows, filterDefs, labelColDefs }) {
+    _setResult(viewId, { rows, totalRecords, columns, columnGroups, expandable, allRows, filterDefs, labelColDefs, metaTotals, metaTodayTotals, metaCol }) {
       set(state => ({
         views: {
           ...state.views,
@@ -208,6 +211,9 @@ export const useSmartDataStore = create(
             ...(allRows      !== undefined && { allRows }),
             ...(filterDefs   !== undefined && { filterDefs }),
             ...(labelColDefs !== undefined && { labelColDefs }),
+            ...(metaTotals      !== undefined && { metaTotals }),
+            ...(metaTodayTotals !== undefined && { metaTodayTotals }),
+            ...(metaCol        !== undefined && { metaCol }),
             expandable: expandable ?? false,
           },
         },

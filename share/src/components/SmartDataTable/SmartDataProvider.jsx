@@ -5,10 +5,12 @@ import { DataProvider as PlasmicDataProvider } from '@plasmicapp/loader-nextjs';
 import { SmartDataContext, SmartDataConfigContext } from './SmartDataContext';
 import { useSmartDataStore } from './useSmartDataStore';
 import { graphqlQueryReportDataSource, graphqlFetchFilterValues } from './reportSource.jsx';
+import { buildViewDataState } from './viewContextHelpers';
 import { firestoreService } from '@/app/graphql-playground/services/firestoreService';
 import { refreshGlobalTokenRows } from '@/app/graphql-playground/constants';
 import { Sidebar } from 'primereact/sidebar';
 import { SmartDataTable } from './SmartDataTable';
+import { DrawerTabBar } from './DrawerTabBar';
 import { ReportControls } from '@/app/report-table/components/ReportControls';
 
 export function deserializeReportConfig(jsString) {
@@ -106,7 +108,9 @@ export function SmartDataProviderImpl({ dataSource: providerDataSource, reportCo
   }, [commonConfig, reportConfig?.table]);
 
   const [lastFetchedAt, setLastFetchedAt] = useState(null);
-  const [drawerVisibility, setDrawerVisibility] = useState({});
+  const [drawerVisible, setDrawerVisible]   = useState(false);
+  const [drawerTabs, setDrawerTabs]         = useState([]);
+  const [drawerActiveId, setDrawerActiveId] = useState(null);
 
   const storeViews = useSmartDataStore(state => state.views);
 
@@ -114,8 +118,7 @@ export function SmartDataProviderImpl({ dataSource: providerDataSource, reportCo
   const viewDataSources      = useRef({});
   const viewActionsRef       = useRef({});
   const pipelineWatchersRef  = useRef({});
-  // Params queued before a drawer view's SmartDataTable mounts and calls registerView.
-  const pendingDrawerParamsRef = useRef({});
+  const pendingDrawerConfigRef = useRef({});
   // Debounce timers: defers the initial fetch by one task so ReportControls can apply
   // its defaults (dateRange, breakdown, etc.) before the first GQL call fires.
   const runTimersRef = useRef({});
@@ -192,17 +195,17 @@ export function SmartDataProviderImpl({ dataSource: providerDataSource, reportCo
       ds = graphqlQueryReportDataSource(resolvedApi);
     }
 
+    const pendingConfig = pendingDrawerConfigRef.current[viewId];
+    if (pendingConfig && reportConfig?.api) {
+      const viewOverride = reportConfig.views?.[viewId] ?? {};
+      const { resolvedApi } = resolveViewConfig(reportConfig, deepMerge(viewOverride, pendingConfig));
+      ds = graphqlQueryReportDataSource(resolvedApi);
+      delete pendingDrawerConfigRef.current[viewId];
+    }
+
     if (ds) viewDataSources.current[viewId] = ds;
 
     useSmartDataStore.getState().registerView(viewId, defaultPageSize);
-
-    // Apply any viewParams queued before this drawer view mounted.
-    const pending = pendingDrawerParamsRef.current[viewId];
-    if (pending) {
-      const s = useSmartDataStore.getState();
-      Object.entries(pending).forEach(([key, val]) => s.setViewParam(viewId, key, val));
-      delete pendingDrawerParamsRef.current[viewId];
-    }
 
     const scheduleRun = () => {
       clearTimeout(runTimersRef.current[viewId]);
@@ -235,26 +238,30 @@ export function SmartDataProviderImpl({ dataSource: providerDataSource, reportCo
     useSmartDataStore.getState().setViewParam(viewId, key, value);
   }, []);
 
-  const openDrawerView = useCallback((viewId, paramMap, rowData) => {
-    if (paramMap && rowData) {
-      const resolved = Object.fromEntries(
-        Object.entries(paramMap).map(([key, field]) => [key, rowData[field]?.value ?? rowData[field]])
-      );
-      const existing = useSmartDataStore.getState().views[viewId];
-      if (existing) {
-        const s = useSmartDataStore.getState();
-        Object.entries(resolved).forEach(([key, val]) => s.setViewParam(viewId, key, val));
-      } else {
-        // Queue for when the SmartDataTable mounts and calls registerView.
-        pendingDrawerParamsRef.current[viewId] = resolved;
+  const openDrawerView = useCallback((tabs) => {
+    const resolvedTabs = tabs.map(({ id, config = {} }) => {
+      if (reportConfig?.views && !(id in reportConfig.views))
+        return { id, config, error: `View "${id}" not found in report config` };
+      const viewOverride = reportConfig?.views?.[id] ?? {};
+      const merged = deepMerge(viewOverride, config);
+      if (reportConfig?.api) {
+        if (viewDataSources.current[id]) {
+          const { resolvedApi } = resolveViewConfig(reportConfig, merged);
+          viewDataSources.current[id] = graphqlQueryReportDataSource(resolvedApi);
+          clearTimeout(runTimersRef.current[id]);
+          runTimersRef.current[id] = setTimeout(() => runDataSource(id), 0);
+        } else {
+          pendingDrawerConfigRef.current[id] = merged;
+        }
       }
-    }
-    setDrawerVisibility(prev => ({ ...prev, [viewId]: true }));
-  }, []);
+      return { id, config: merged };
+    });
+    setDrawerTabs(resolvedTabs);
+    setDrawerActiveId(resolvedTabs[0]?.id ?? null);
+    setDrawerVisible(true);
+  }, [reportConfig, runDataSource]);
 
-  const closeDrawerView = useCallback((viewId) => {
-    setDrawerVisibility(prev => ({ ...prev, [viewId]: false }));
-  }, []);
+  const closeDrawerView = useCallback(() => setDrawerVisible(false), []);
 
   const exportView = useCallback(async (viewId) => {
     const view = useSmartDataStore.getState().views[viewId];
@@ -324,12 +331,15 @@ export function SmartDataProviderImpl({ dataSource: providerDataSource, reportCo
         s.setPage(viewId, signal.payload.first, signal.payload.rows);
         break;
       case 'rowClick': {
-        const { drawerViewId, paramMap, rowData } = signal.payload;
-        openDrawerView(drawerViewId, paramMap, rowData);
+        const handler = reportConfig?.views?.[viewId]?.event?.onRowClick;
+        if (handler) {
+          const controls = useSmartDataStore.getState().views[viewId]?.viewParams?._controls ?? {};
+          handler(signal.payload.event, { openDrawer: openDrawerView, closeDrawer: closeDrawerView, controls });
+        }
         break;
       }
     }
-  }, [openDrawerView]);
+  }, [openDrawerView, closeDrawerView, reportConfig]);
 
   useEffect(() => {
     return () => {
@@ -355,20 +365,7 @@ export function SmartDataProviderImpl({ dataSource: providerDataSource, reportCo
       const s           = () => useSmartDataStore.getState();
 
       views[viewId] = {
-        data: {
-          rows:       (view.rows ?? []).map(_flattenRow),
-          columns:    view.columns ?? null,
-          groups:     view.columnGroups ?? null,
-          total:      view.totalRecords,
-          dimensions: view.filterDefs,
-        },
-        state: {
-          loading: view.loading,
-          error:   view.error,
-          filters: view.filters,
-          sort:    view.sortBy,
-          page:    view.pagination,
-        },
+        ...buildViewDataState(view),
         actions: {
           column: {
             toggle: (field) => s().setHiddenColumns(viewId,
@@ -396,7 +393,7 @@ export function SmartDataProviderImpl({ dataSource: providerDataSource, reportCo
             setSize: (n) => s().setPage(viewId, 0, n),
           },
           drawer: {
-            open:  openDrawerView,
+            open:  (tabs) => openDrawerView(tabs),
             close: closeDrawerView,
           },
           sort: {
@@ -407,11 +404,6 @@ export function SmartDataProviderImpl({ dataSource: providerDataSource, reportCo
     }
     return { views, fetchedAt: lastFetchedAt };
   }, [storeViews, lastFetchedAt, openDrawerView, closeDrawerView]);
-
-  const drawerViewEntries = useMemo(
-    () => Object.entries(reportConfig?.views ?? {}).filter(([, v]) => v.type === 'drawer'),
-    [reportConfig]
-  );
 
   return (
     <SmartDataConfigContext.Provider value={effectiveConfig}>
@@ -430,24 +422,13 @@ export function SmartDataProviderImpl({ dataSource: providerDataSource, reportCo
         <PlasmicDataProvider name="data" data={plasmicData}>
           {children}
         </PlasmicDataProvider>
-        {drawerViewEntries.map(([viewId, viewCfg]) => (
-          <Sidebar
-            key={viewId}
-            visible={drawerVisibility[viewId] ?? false}
-            position={viewCfg.position ?? 'bottom'}
-            style={{ height: viewCfg.height ?? '100dvh' }}
-            onHide={() => closeDrawerView(viewId)}
-            header={viewCfg.title ? <h2 className="text-lg font-semibold">{viewCfg.title}</h2> : undefined}
-            blockScroll
-            appendTo="self"
-            className="smart-drawer-sidebar"
-          >
-            <SmartDataTable
-              viewId={viewId}
-              config={viewCfg.table ?? {}}
-            />
-          </Sidebar>
-        ))}
+        <SmartDrawer
+          visible={drawerVisible}
+          tabs={drawerTabs}
+          activeId={drawerActiveId}
+          onTabSelect={setDrawerActiveId}
+          onHide={closeDrawerView}
+        />
       </SmartDataContext.Provider>
     </SmartDataConfigContext.Provider>
   );
@@ -491,18 +472,37 @@ export function SmartDataProvider({ config, dataSource, overrides, children }) {
   );
 }
 
-function _flattenRow(row) {
-  const out = {};
-  for (const [field, cell] of Object.entries(row)) {
-    if (field === '_children' && Array.isArray(cell)) {
-      out[field] = cell.map(_flattenRow);
-    } else {
-      out[field] = (cell !== null && typeof cell === 'object' && 'value' in cell)
-        ? cell.value
-        : cell;
-    }
-  }
-  return out;
+function SmartDrawer({ visible, tabs, activeId, onTabSelect, onHide }) {
+  return (
+    <Sidebar
+      visible={visible}
+      position="bottom"
+      style={{ height: '100dvh' }}
+      onHide={onHide}
+      header={
+        <DrawerTabBar tabs={tabs} activeId={activeId} onSelect={onTabSelect} />
+      }
+      blockScroll
+      appendTo="self"
+      className="smart-drawer-sidebar"
+    >
+      <div style={{ padding: 20 }}>
+        {tabs.map(({ id, config: tabCfg = {}, error }) => (
+          <div key={id} style={{ display: activeId === id ? 'block' : 'none' }}>
+            {error
+              ? (
+                <div className="flex items-center gap-2 px-4 py-3 rounded-md border border-red-200 bg-red-50 text-red-700 text-sm">
+                  <i className="pi pi-exclamation-triangle flex-none" />
+                  <span>{error}</span>
+                </div>
+              )
+              : <SmartDataTable viewId={id} config={tabCfg.table ?? {}} />
+            }
+          </div>
+        ))}
+      </div>
+    </Sidebar>
+  );
 }
 
 function _getCacheBasis(view) {

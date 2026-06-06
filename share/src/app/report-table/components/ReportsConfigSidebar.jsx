@@ -9,6 +9,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { firestoreService } from '@/app/graphql-playground/services/firestoreService';
 import { deserializeReportConfig } from '@/components/SmartDataTable/SmartDataProvider';
 import { useSmartDataStore } from '@/components/SmartDataTable/useSmartDataStore';
+import { buildViewDataState } from '@/components/SmartDataTable/viewContextHelpers';
 
 const TAB_READ    = 'read';
 const TAB_EDIT    = 'edit';
@@ -419,7 +420,8 @@ function ReportDocsPanel() {
                   ['rows[]',       'Plain value objects — repr stripped, children flattened'],
                   ['columns[]',    'Column definitions (null before first fetch)'],
                   ['groups[]',     'Pivot column group headers or null'],
-                  ['total',        'Total row count (server-side)'],
+                  ['count',        'Total row count (server-side)'],
+                  ['totals{}',     'Column sums from API (field → value)'],
                   ['dimensions[]', 'Filter dimension metadata'],
                 ],
               },
@@ -447,8 +449,8 @@ function ReportDocsPanel() {
                   ['page.first() / last()',         'Jump to first or last page'],
                   ['page.goto(n)',                  'Jump to page n (1-based)'],
                   ['page.setSize(n)',               'Change page size'],
-                  ['drawer.open(id, map, row)',     'Open a drawer view'],
-                  ['drawer.close(id)',              'Close a drawer view'],
+                  ['drawer.open([{id, config}])',   'Open drawer with tabs; each id is a viewId'],
+                  ['drawer.close()',                'Close the drawer'],
                   ['sort.set(sort)',                'Set sort { [field]: dir }'],
                 ],
               },
@@ -503,54 +505,28 @@ function ReportDocsPanel() {
 
 // ─── Context tab ─────────────────────────────────────────────────────────────
 
-function _flattenRowForContext(row) {
-  const out = {};
-  for (const [field, cell] of Object.entries(row)) {
-    if (field === '_children' && Array.isArray(cell)) {
-      out[field] = cell.map(_flattenRowForContext);
-    } else {
-      out[field] = (cell !== null && typeof cell === 'object' && 'value' in cell)
-        ? cell.value
-        : cell;
-    }
-  }
-  return out;
-}
-
 function ContextPanel() {
   const storeViews = useSmartDataStore(state => state.views);
 
   const plasmicData = useMemo(() => {
     const views = {};
     for (const [viewId, view] of Object.entries(storeViews)) {
-      const allRows = (view.rows ?? []).map(_flattenRowForContext);
+      const base = buildViewDataState(view);
       views[viewId] = {
-        data: {
-          rows:       allRows.slice(0, 5),
-          columns:    view.columns ?? null,
-          groups:     view.columnGroups ?? null,
-          total:      view.totalRecords,
-          dimensions: view.filterDefs,
-        },
-        state: {
-          loading: view.loading,
-          error:   view.error,
-          filters: view.filters,
-          sort:    view.sortBy,
-          page:    view.pagination,
-        },
+        ...base,
+        data: { ...base.data, rows: base.data.rows.slice(0, 5) },
         actions: {
           column:  { toggle: '(field) => void', lock: '() => void' },
           group:   { reorder: '(newOrder) => void' },
           export:  { excel: '() => void' },
           display: { fullscreen: '() => void' },
           page:    { next: '() => void', prev: '() => void', first: '() => void', last: '() => void', goto: '(n) => void', setSize: '(n) => void' },
-          drawer:  { open: '(viewId, paramMap, rowData) => void', close: '(viewId) => void' },
+          drawer:  { open: '([{id, config}]) => void', close: '() => void' },
           sort:    { set: '(sort) => void' },
         },
       };
     }
-    return { views, fetchedAt: '…' };
+    return { views };
   }, [storeViews]);
 
   const treeNodes = useMemo(() => configToTreeNodes(plasmicData), [plasmicData]);

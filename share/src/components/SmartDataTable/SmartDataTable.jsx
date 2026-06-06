@@ -384,10 +384,10 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
     if (!rowData._children?.length) return null;
     return (
       <div className="px-6 py-2 bg-gray-50">
-        <InnerDataTable rows={rowData._children} columns={visibleColumns} columnGroups={columnGroups} labelColDefs={labelColDefs} depth={1} />
+        <InnerDataTable rows={rowData._children} columns={visibleColumns} columnGroups={columnGroups} labelColDefs={labelColDefs} depth={1} onSignal={onSignal} _parent={{ data: (({ _children, ...rest }) => rest)(rowData), _parent: null }} />
       </div>
     );
-  }, [visibleColumns, columnGroups, labelColDefs]);
+  }, [visibleColumns, columnGroups, labelColDefs, onSignal]);
 
   // ── Column group header (built when meta.column_group === true) ────────────
   // Uses visibleColumns so hidden columns are excluded from the group header too.
@@ -437,13 +437,10 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
     );
   }, [columnGroups, visibleColumns, expandable, viewState?.filters, onFilter, cfg.enableFilterRow, cfg.filterDebounceText, cfg.filterDebounceNumeric]);
 
-  // ── Row click → drawer ────────────────────────────────────────────────────
-  const drawerCfg = cfg.drawer ?? null;
+  // ── Row click ─────────────────────────────────────────────────────────────
   const onRowClick = useCallback(
-    drawerCfg
-      ? e => onSignal({ type: 'rowClick', payload: { drawerViewId: drawerCfg.viewId, paramMap: drawerCfg.params ?? {}, rowData: e.data } })
-      : null,
-    [drawerCfg, onSignal]
+    e => onSignal({ type: 'rowClick', payload: { event: { ...e, data: { ...(({ _children, ...rest }) => rest)(e.data), _parent: null } } } }),
+    [onSignal]
   );
 
   if (!viewState) return null;
@@ -501,7 +498,8 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
       onRowToggle: e => setExpandedRows(e.data),
       rowExpansionTemplate,
     }),
-    ...(onRowClick && { onRowClick, selectionMode: 'single' }),
+    onRowClick,
+    selectionMode: 'single',
   };
 
   return (
@@ -614,7 +612,7 @@ export const SmartDataTable = memo(SmartDataTableInner);
 
 // ─── Inner expansion table ───────────────────────────────────────────────────
 
-function InnerDataTable({ rows, columns, columnGroups, labelColDefs = [], depth = 0 }) {
+function InnerDataTable({ rows, columns, columnGroups, labelColDefs = [], depth = 0, onSignal, _parent = null }) {
   const [filters, setFilters] = useState({});
   const [sortMeta, setSortMeta] = useState([]);
   const [expandedRows, setExpandedRows] = useState(null);
@@ -640,7 +638,7 @@ function InnerDataTable({ rows, columns, columnGroups, labelColDefs = [], depth 
     if (!rowData._children?.length) return null;
     return (
       <div className="px-6 py-2 bg-gray-50">
-        <InnerDataTable rows={rowData._children} columns={columns} columnGroups={columnGroups} labelColDefs={labelColDefs} depth={depth + 1} />
+        <InnerDataTable rows={rowData._children} columns={columns} columnGroups={columnGroups} labelColDefs={labelColDefs} depth={depth + 1} onSignal={onSignal} _parent={{ data: (({ _children, ...rest }) => rest)(rowData), _parent }} />
       </div>
     );
   }, [columns, columnGroups, labelColDefs, depth]);
@@ -737,6 +735,10 @@ function InnerDataTable({ rows, columns, columnGroups, labelColDefs = [], depth 
         rowExpansionTemplate,
       })}
       {...(headerColumnGroup && { headerColumnGroup })}
+      {...(onSignal && {
+        onRowClick: e => onSignal({ type: 'rowClick', payload: { event: { ...e, data: { ...(({ _children, ...rest }) => rest)(e.data), _parent } } } }),
+        selectionMode: 'single',
+      })}
     >
       {expandable && <Column expander style={{ width: '3rem' }} />}
       {columnElements}

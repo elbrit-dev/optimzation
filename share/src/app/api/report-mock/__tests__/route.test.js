@@ -60,23 +60,23 @@ describe('GET /api/report-mock — all views 200', () => {
 
 describe('GET /api/report-mock — GraphQL envelope', () => {
   VALID_VIEWS.forEach(view => {
-    it(`${view}: response has data.customReport with report_meta, edges, totalCount, pageInfo`, async () => {
+    it(`${view}: response has data.customReport with report_meta, edges, pageInfo`, async () => {
       const { body } = await getView(view);
       const cr = body.data?.customReport;
       expect(cr).toBeDefined();
       expect(cr.report_meta).toBeInstanceOf(Array);
       expect(cr.report_meta[0]).toHaveProperty('columns');
       expect(cr.edges).toBeInstanceOf(Array);
-      expect(typeof cr.totalCount).toBe('number');
       expect(cr.pageInfo).toHaveProperty('hasNextPage');
     });
   });
 
   VALID_VIEWS.forEach(view => {
-    it(`${view}: totalCount matches edges length`, async () => {
+    it(`${view}: _meta column has meta_pagination with total_roots matching edges length`, async () => {
       const { body } = await getView(view);
       const cr = body.data.customReport;
-      expect(cr.totalCount).toBe(cr.edges.length);
+      const metaCol = cr.report_meta[0].columns.find(c => c.fieldname === '_meta');
+      expect(metaCol?.meta_pagination?.total_roots).toBe(cr.edges.length);
     });
   });
 });
@@ -103,7 +103,7 @@ describe('GET /api/report-mock — result non-empty', () => {
   VALID_VIEWS.forEach(view => {
     it(`${view}: result array is non-empty`, async () => {
       const { body } = await getView(view);
-      expect(body.data.customReport.totalCount).toBeGreaterThan(0);
+      expect(body.data.customReport.edges.length).toBeGreaterThan(0);
     });
   });
 });
