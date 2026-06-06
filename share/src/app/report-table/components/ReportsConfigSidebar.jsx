@@ -4,8 +4,16 @@ import Editor from '@monaco-editor/react';
 import { confirmDialog, ConfirmDialog } from 'primereact/confirmdialog';
 import { Dropdown } from 'primereact/dropdown';
 import { Toast } from 'primereact/toast';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Tree } from 'primereact/tree';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { firestoreService } from '@/app/graphql-playground/services/firestoreService';
+import { deserializeReportConfig } from '@/components/SmartDataTable/SmartDataProvider';
+import { useSmartDataStore } from '@/components/SmartDataTable/useSmartDataStore';
+
+const TAB_READ    = 'read';
+const TAB_EDIT    = 'edit';
+const TAB_DOCS    = 'docs';
+const TAB_CONTEXT = 'context';
 
 const EXCLUDED_IDS = new Set(['#__ID__#']);
 
@@ -40,17 +48,632 @@ const EDITOR_OPTIONS = {
   parameterHints: { enabled: false },
 };
 
+// ─── Config Read tab ──────────────────────────────────────────────────────────
+
+function HighlightMatch({ text, query }) {
+  if (!query?.trim()) return <>{text}</>;
+  const q = query.trim();
+  const idx = text.toLowerCase().indexOf(q.toLowerCase());
+  if (idx === -1) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, idx)}
+      <mark className="bg-yellow-200 text-yellow-900 rounded-sm not-italic">{text.slice(idx, idx + q.length)}</mark>
+      {text.slice(idx + q.length)}
+    </>
+  );
+}
+
+function ValueChip({ value, query }) {
+  if (value === null || value === undefined)
+    return <span className="text-[11px] font-mono text-gray-400 italic">null</span>;
+  if (typeof value === 'function') {
+    const code = value.toString();
+    const preview = code.split('\n')[0].slice(0, 48);
+    return (
+      <span className="text-[11px] font-mono text-orange-500 italic" title={code}>
+        {preview}{code.length > 48 ? ' …' : ''}
+      </span>
+    );
+  }
+  if (typeof value === 'boolean')
+    return (
+      <span className={`text-[11px] font-mono font-semibold ${value ? 'text-violet-600' : 'text-slate-400'}`}>
+        <HighlightMatch text={String(value)} query={query} />
+      </span>
+    );
+  if (typeof value === 'number')
+    return (
+      <span className="text-[11px] font-mono text-blue-600">
+        <HighlightMatch text={String(value)} query={query} />
+      </span>
+    );
+  if (typeof value === 'string')
+    return (
+      <span
+        className="text-[11px] font-mono text-emerald-700 max-w-[180px] truncate inline-block align-bottom"
+        title={value}
+      >
+        &quot;<HighlightMatch text={value} query={query} />&quot;
+      </span>
+    );
+  if (Array.isArray(value) && value.length === 0)
+    return <span className="text-[11px] font-mono text-gray-400">[ ]</span>;
+  if (typeof value === 'object' && Object.keys(value).length === 0)
+    return <span className="text-[11px] font-mono text-gray-400">{'{}'}</span>;
+  return null;
+}
+
+function valueToSearchLabel(value) {
+  if (value === null || value === undefined) return 'null';
+  if (typeof value === 'function') return 'fn()';
+  if (typeof value === 'boolean' || typeof value === 'number') return String(value);
+  if (typeof value === 'string') return value;
+  return '';
+}
+
+function configToTreeNodes(obj, parentKey = '') {
+  const entries = Array.isArray(obj)
+    ? obj.map((v, i) => [String(i), v])
+    : Object.entries(obj);
+
+  return entries.map(([key, value]) => {
+    const nodeKey = parentKey ? `${parentKey}.${key}` : key;
+    const isFunc = typeof value === 'function';
+    const isArr = Array.isArray(value);
+    const isObj = !isArr && value !== null && typeof value === 'object';
+    const hasChildren = !isFunc && (isArr ? value.length > 0 : isObj && Object.keys(value).length > 0);
+
+    if (hasChildren) {
+      return {
+        key: nodeKey,
+        label: key,
+        data: { key, value, isArray: isArr },
+        leaf: false,
+        children: configToTreeNodes(value, nodeKey),
+      };
+    }
+
+    // Leaf — embed value in label so built-in filter can match on it
+    return {
+      key: nodeKey,
+      label: `${key} ${valueToSearchLabel(value)}`.trim(),
+      data: { key, value },
+      leaf: true,
+    };
+  });
+}
+
+const REPORT_CONFIG_KEY_ORDER = ['api', 'table', 'controls', 'views'];
+
+function filterTreeNodes(nodes, query) {
+  const q = query.toLowerCase();
+  return nodes.reduce((acc, node) => {
+    if (node.label?.toLowerCase().includes(q)) {
+      acc.push(node);
+    } else if (node.children) {
+      const matched = filterTreeNodes(node.children, q);
+      if (matched.length > 0) acc.push({ ...node, children: matched });
+    }
+    return acc;
+  }, []);
+}
+
+function collectAllBranchKeys(nodes, out = {}) {
+  nodes?.forEach((n) => {
+    if (!n.leaf) { out[n.key] = true; collectAllBranchKeys(n.children, out); }
+  });
+  return out;
+}
+
+function ReportConfigReadableView({ configString }) {
+  const { config, error } = useMemo(() => {
+    if (!configString?.trim()) return { config: null, error: null };
+    try {
+      return { config: deserializeReportConfig(configString), error: null };
+    } catch (err) {
+      return { config: null, error: err?.message ?? 'Invalid config' };
+    }
+  }, [configString]);
+
+  const treeNodes = useMemo(() => {
+    if (!config || typeof config !== 'object') return [];
+    const orderedKeys = [
+      ...REPORT_CONFIG_KEY_ORDER.filter((k) => k in config),
+      ...Object.keys(config).filter((k) => !REPORT_CONFIG_KEY_ORDER.includes(k)),
+    ];
+    return configToTreeNodes(Object.fromEntries(orderedKeys.map((k) => [k, config[k]])));
+  }, [config]);
+
+  const [expandedKeys, setExpandedKeys] = useState({});
+  const [filterValue, setFilterValue] = useState('');
+
+  useEffect(() => {
+    if (!config) return;
+    setExpandedKeys(Object.fromEntries(Object.keys(config).map((k) => [k, true])));
+  }, [config]);
+
+  const displayNodes = useMemo(() => {
+    if (!filterValue.trim()) return treeNodes;
+    return filterTreeNodes(treeNodes, filterValue.trim());
+  }, [treeNodes, filterValue]);
+
+  // Expand all branch nodes while a filter is active
+  useEffect(() => {
+    if (filterValue.trim()) {
+      setExpandedKeys(collectAllBranchKeys(treeNodes));
+    } else if (config) {
+      setExpandedKeys(Object.fromEntries(Object.keys(config).map((k) => [k, true])));
+    }
+  }, [filterValue, treeNodes, config]);
+
+  const nodeTemplate = useCallback((node) => {
+    const { data } = node;
+    if (node.leaf) {
+      return (
+        <span className="flex items-center gap-1.5 min-w-0 overflow-hidden">
+          <span className="text-[11px] font-medium text-gray-600 shrink-0">
+            <HighlightMatch text={data.key} query={filterValue} />
+          </span>
+          <span className="text-[10px] text-gray-300 shrink-0">:</span>
+          <ValueChip value={data.value} query={filterValue} />
+        </span>
+      );
+    }
+    const count = data.isArray ? data.value.length : Object.keys(data.value ?? {}).length;
+    return (
+      <span className="flex items-center gap-1.5">
+        <span className="text-[11px] font-semibold text-gray-800">
+          <HighlightMatch text={data.key} query={filterValue} />
+        </span>
+        <span className="text-[10px] font-mono text-gray-400 bg-gray-100 rounded px-1 py-0.5 leading-none">
+          {data.isArray ? `[${count}]` : `{${count}}`}
+        </span>
+      </span>
+    );
+  }, [filterValue]);
+
+  if (error) {
+    return (
+      <div className="m-3 p-3 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg">
+        <span className="font-semibold">Parse error:</span> {error}
+      </div>
+    );
+  }
+
+  if (!config) {
+    return (
+      <div className="flex items-center justify-center h-full text-xs text-gray-400 px-4 text-center">
+        Select or load a config to view.
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col h-full min-h-0 overflow-hidden">
+      {/* Custom search bar with icon on the left */}
+      <div className="px-3 py-2 border-b border-gray-100 shrink-0">
+        <div className="relative">
+          <i className="pi pi-search absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" style={{ fontSize: '0.7rem' }} />
+          <input
+            value={filterValue}
+            onChange={(e) => setFilterValue(e.target.value)}
+            placeholder="Search keys or values…"
+            className="w-full pl-7 pr-7 py-1.5 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white"
+          />
+          {filterValue && (
+            <button
+              type="button"
+              onClick={() => setFilterValue('')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >
+              <i className="pi pi-times" style={{ fontSize: '0.65rem' }} />
+            </button>
+          )}
+        </div>
+      </div>
+      <Tree
+        value={displayNodes}
+        expandedKeys={expandedKeys}
+        onToggle={(e) => setExpandedKeys(e.value)}
+        nodeTemplate={nodeTemplate}
+        className="config-read-tree w-full border-none text-xs p-0"
+        pt={{
+          root: { className: 'border-none shadow-none rounded-none p-0 h-full flex flex-col' },
+          wrapper: { className: 'flex-1 overflow-y-auto min-h-0 pt-0' },
+          container: { className: 'p-0 m-0' },
+          node: { className: 'py-0' },
+          content: { className: 'py-0.5 px-2 rounded hover:bg-gray-50 transition-colors' },
+          toggler: { className: 'w-5 h-5 shrink-0 text-gray-400 hover:bg-gray-200 rounded transition-colors' },
+          label: { className: 'text-xs' },
+        }}
+      />
+    </div>
+  );
+}
+
+// ─── Docs tab ────────────────────────────────────────────────────────────────
+
+function CodeBlock({ children }) {
+  if (!children?.trim()) return null;
+  return (
+    <pre className="mt-1.5 text-xs font-mono bg-gray-100 text-gray-800 rounded p-2 overflow-x-auto whitespace-pre-wrap break-words border border-gray-200">
+      <code>{children.trim()}</code>
+    </pre>
+  );
+}
+
+function ReportDocsPanel() {
+  return (
+    <div className="flex flex-col h-full min-h-0 text-gray-800">
+      <div className="shrink-0 px-3 py-2 border-b border-gray-200 bg-gray-50">
+        <div className="text-xs font-semibold text-gray-900">reportConfig reference</div>
+        <p className="text-[11px] text-gray-400 mt-0.5">SmartDataProvider + SmartDataTable</p>
+      </div>
+
+      <div className="flex-1 overflow-y-auto min-h-0 px-3 py-3 space-y-3">
+
+        {/* Shape */}
+        <section>
+          <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Shape</div>
+          <CodeBlock>{`{
+  api:      { ... },
+  table:    { ... },
+  controls: [ ... ],
+  views:    { ... },
+}`}</CodeBlock>
+        </section>
+
+        {/* api */}
+        <section>
+          <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">api</div>
+          <CodeBlock>{`api: {
+  urlKey: 'myApi',
+  variables: {
+    report: 'ReportName',
+    filters: {},
+  },
+  variableTypes: {
+    report: 'String',
+    filters: 'JSON',
+  },
+  variablesMap: {
+    'controls.dates.start': 'filters.from_date',
+    'controls.dates.end':   'filters.to_date',
+    'controls.status.value': {
+      path: 'filters.status',
+      transform: (v) => v.toUpperCase(),
+    },
+  },
+}`}</CodeBlock>
+        </section>
+
+        {/* controls */}
+        <section>
+          <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">controls</div>
+          <div className="space-y-1.5">
+            {[
+              { type: 'dateRange',  desc: 'Date range picker → { start, end }',          ex: "{ key: 'dates',   type: 'dateRange',  label: 'Date Range' }" },
+              { type: 'toggle',     desc: 'On/off switch → true | false',                 ex: "{ key: 'active',  type: 'toggle',     label: 'Active only', defaultValue: false }" },
+              { type: 'filterSort', desc: 'Filter + sort sidebar → { filters, sort }',    ex: "{ key: 'filters', type: 'filterSort', label: 'Filters' }" },
+              { type: 'refresh',    desc: 'Refetch button, shows last-fetched time',       ex: "{ key: 'reload',  type: 'refresh' }" },
+            ].map(({ type, desc, ex }) => (
+              <details key={type} className="group border border-gray-100 rounded bg-gray-50/40 open:bg-white open:border-gray-200 open:shadow-sm">
+                <summary className="cursor-pointer select-none px-2.5 py-1.5 list-none flex items-center gap-2 [&::-webkit-details-marker]:hidden">
+                  <i className="pi pi-chevron-right text-[9px] text-gray-400 group-open:rotate-90 transition-transform shrink-0" />
+                  <code className="text-[11px] font-mono text-blue-700 shrink-0">{type}</code>
+                  <span className="text-[11px] text-gray-500 truncate">{desc}</span>
+                </summary>
+                <div className="px-2.5 pb-2 border-t border-gray-100">
+                  <CodeBlock>{ex}</CodeBlock>
+                </div>
+              </details>
+            ))}
+          </div>
+        </section>
+
+        {/* table */}
+        <section>
+          <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">table <span className="normal-case font-normal text-gray-400">(all optional, defaults shown)</span></div>
+          <div className="space-y-0.5">
+            {[
+              ['scrollHeight',           "'600px'",  'Fixed body height; enables scroll'],
+              ['enablePaginator',        'true',      'Page results; use with defaultPageSize, pageSizeOptions'],
+              ['defaultPageSize',        '50',        'Rows per page'],
+              ['enableSort',             'true',      'Column header click to sort'],
+              ['enableFilterRow',        'true',      'Inline filter inputs under headers'],
+              ['enableTotalRow',         'true',      'Sum row for numeric columns'],
+              ['enableResizableColumns', 'true',      'Drag column edges to resize'],
+              ['enableColumnVisibility', 'true',      'Show/hide columns via toolbar'],
+              ['enableColumnFreeze',     'true',      'Pin columns via toolbar'],
+              ['enableExport',           'true',      'CSV/Excel download; pair with exportFilename'],
+              ['enableFullscreen',       'true',      'Expand table to full screen'],
+              ['enableStripedRows',      'true',      'Alternating row shading'],
+              ['enableGridlines',        'true',      'Row/column borders'],
+              ['emptyMessage',           "'No records found.'", 'Empty state text'],
+            ].map(([key, def, note]) => (
+              <div key={key} className="flex items-baseline justify-between gap-2 py-1 px-2 rounded hover:bg-gray-50">
+                <div className="flex items-baseline gap-1.5 shrink-0">
+                  <code className="text-[11px] font-mono text-blue-700">{key}</code>
+                  <code className="text-[11px] font-mono text-gray-400">{def}</code>
+                </div>
+                <span className="text-[11px] text-gray-400 text-right">{note}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* context */}
+        <section>
+          <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Plasmic context</div>
+          <p className="text-[11px] text-gray-500 mb-2">
+            Bind via <code className="font-mono text-blue-700">data.views.[viewId]</code> in Plasmic Studio.
+            Top-level also has <code className="font-mono text-blue-700">fetchedAt</code>.
+          </p>
+          <div className="space-y-1.5">
+            {[
+              {
+                key: 'data',
+                desc: 'Fetched table data',
+                rows: [
+                  ['rows[]',       'Plain value objects — repr stripped, children flattened'],
+                  ['columns[]',    'Column definitions (null before first fetch)'],
+                  ['groups[]',     'Pivot column group headers or null'],
+                  ['total',        'Total row count (server-side)'],
+                  ['dimensions[]', 'Filter dimension metadata'],
+                ],
+              },
+              {
+                key: 'state',
+                desc: 'Current view state',
+                rows: [
+                  ['loading', 'boolean — fetch in progress'],
+                  ['error',   'string | null'],
+                  ['filters', '{ [field]: filterValue }'],
+                  ['sort',    "{ [field]: 'asc' | 'desc' }"],
+                  ['page',    '{ first, rows }'],
+                ],
+              },
+              {
+                key: 'actions',
+                desc: 'Callable from Plasmic event handlers',
+                rows: [
+                  ['column.toggle(field)',          'Show / hide a column'],
+                  ['column.lock()',                 'Toggle freeze first column'],
+                  ['group.reorder(newOrder)',        'Reorder group-by fields'],
+                  ['export.excel()',                'Download XLSX'],
+                  ['display.fullscreen()',          'Open fullscreen dialog'],
+                  ['page.next() / prev()',          'Navigate pages'],
+                  ['page.first() / last()',         'Jump to first or last page'],
+                  ['page.goto(n)',                  'Jump to page n (1-based)'],
+                  ['page.setSize(n)',               'Change page size'],
+                  ['drawer.open(id, map, row)',     'Open a drawer view'],
+                  ['drawer.close(id)',              'Close a drawer view'],
+                  ['sort.set(sort)',                'Set sort { [field]: dir }'],
+                ],
+              },
+            ].map(({ key, desc, rows }) => (
+              <details key={key} className="group border border-gray-100 rounded bg-gray-50/40 open:bg-white open:border-gray-200 open:shadow-sm">
+                <summary className="cursor-pointer select-none px-2.5 py-1.5 list-none flex items-center gap-2 [&::-webkit-details-marker]:hidden">
+                  <i className="pi pi-chevron-right text-[9px] text-gray-400 group-open:rotate-90 transition-transform shrink-0" />
+                  <code className="text-[11px] font-mono text-blue-700 shrink-0">{key}</code>
+                  <span className="text-[11px] text-gray-500 truncate">{desc}</span>
+                </summary>
+                <div className="px-2.5 pb-1.5 border-t border-gray-100 space-y-0">
+                  {rows.map(([k, note]) => (
+                    <div key={k} className="flex items-baseline justify-between gap-2 py-0.5 px-1 rounded hover:bg-gray-50">
+                      <code className="text-[11px] font-mono text-blue-700 shrink-0">{k}</code>
+                      <span className="text-[11px] text-gray-400 text-right">{note}</span>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            ))}
+          </div>
+        </section>
+
+        {/* views */}
+        <section>
+          <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">views</div>
+          <CodeBlock>{`views: {
+  main: {
+    name: 'Orders',
+    type: 'normal',
+    table: {
+      scrollHeight: '400px',
+      drawer: {
+        viewId: 'detail',
+        params: { orderId: 'name' },
+      },
+    },
+  },
+  detail: {
+    name: 'Order Lines',
+    type: 'drawer',
+    position: 'bottom',
+    height: '40vh',
+  },
+}`}</CodeBlock>
+        </section>
+
+      </div>
+    </div>
+  );
+}
+
+// ─── Context tab ─────────────────────────────────────────────────────────────
+
+function _flattenRowForContext(row) {
+  const out = {};
+  for (const [field, cell] of Object.entries(row)) {
+    if (field === '_children' && Array.isArray(cell)) {
+      out[field] = cell.map(_flattenRowForContext);
+    } else {
+      out[field] = (cell !== null && typeof cell === 'object' && 'value' in cell)
+        ? cell.value
+        : cell;
+    }
+  }
+  return out;
+}
+
+function ContextPanel() {
+  const storeViews = useSmartDataStore(state => state.views);
+
+  const plasmicData = useMemo(() => {
+    const views = {};
+    for (const [viewId, view] of Object.entries(storeViews)) {
+      const allRows = (view.rows ?? []).map(_flattenRowForContext);
+      views[viewId] = {
+        data: {
+          rows:       allRows.slice(0, 5),
+          columns:    view.columns ?? null,
+          groups:     view.columnGroups ?? null,
+          total:      view.totalRecords,
+          dimensions: view.filterDefs,
+        },
+        state: {
+          loading: view.loading,
+          error:   view.error,
+          filters: view.filters,
+          sort:    view.sortBy,
+          page:    view.pagination,
+        },
+        actions: {
+          column:  { toggle: '(field) => void', lock: '() => void' },
+          group:   { reorder: '(newOrder) => void' },
+          export:  { excel: '() => void' },
+          display: { fullscreen: '() => void' },
+          page:    { next: '() => void', prev: '() => void', first: '() => void', last: '() => void', goto: '(n) => void', setSize: '(n) => void' },
+          drawer:  { open: '(viewId, paramMap, rowData) => void', close: '(viewId) => void' },
+          sort:    { set: '(sort) => void' },
+        },
+      };
+    }
+    return { views, fetchedAt: '…' };
+  }, [storeViews]);
+
+  const treeNodes = useMemo(() => configToTreeNodes(plasmicData), [plasmicData]);
+
+  const [expandedKeys, setExpandedKeys] = useState({});
+  const [filterValue, setFilterValue] = useState('');
+
+  // Expand only 2 levels deep: root keys + viewId nodes. Never auto-expand rows/columns arrays.
+  useEffect(() => {
+    const keys = {};
+    treeNodes.forEach(n => {
+      if (!n.leaf) {
+        keys[n.key] = true;
+        n.children?.forEach(c => { if (!c.leaf) keys[c.key] = true; });
+      }
+    });
+    setExpandedKeys(keys);
+  }, [treeNodes]);
+
+  const displayNodes = useMemo(() => {
+    if (!filterValue.trim()) return treeNodes;
+    return filterTreeNodes(treeNodes, filterValue.trim());
+  }, [treeNodes, filterValue]);
+
+  useEffect(() => {
+    if (filterValue.trim()) {
+      setExpandedKeys(collectAllBranchKeys(displayNodes));
+    }
+  }, [filterValue, displayNodes]);
+
+  const nodeTemplate = useCallback((node) => {
+    const { data } = node;
+    if (node.leaf) {
+      return (
+        <span className="flex items-center gap-1.5 min-w-0 overflow-hidden">
+          <span className="text-[11px] font-medium text-gray-600 shrink-0">
+            <HighlightMatch text={data.key} query={filterValue} />
+          </span>
+          <span className="text-[10px] text-gray-300 shrink-0">:</span>
+          <ValueChip value={data.value} query={filterValue} />
+        </span>
+      );
+    }
+    const count = data.isArray ? data.value.length : Object.keys(data.value ?? {}).length;
+    return (
+      <span className="flex items-center gap-1.5">
+        <span className="text-[11px] font-semibold text-gray-800">
+          <HighlightMatch text={data.key} query={filterValue} />
+        </span>
+        <span className="text-[10px] font-mono text-gray-400 bg-gray-100 rounded px-1 py-0.5 leading-none">
+          {data.isArray ? `[${count}]` : `{${count}}`}
+        </span>
+      </span>
+    );
+  }, [filterValue]);
+
+  const hasViews = Object.keys(storeViews).length > 0;
+
+  if (!hasViews) {
+    return (
+      <div className="flex items-center justify-center h-full text-xs text-gray-400 px-4 text-center">
+        No views registered yet. Load a report config to see context data.
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col h-full min-h-0 overflow-hidden">
+      <div className="px-3 py-2 border-b border-gray-100 shrink-0">
+        <div className="relative">
+          <i className="pi pi-search absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" style={{ fontSize: '0.7rem' }} />
+          <input
+            value={filterValue}
+            onChange={(e) => setFilterValue(e.target.value)}
+            placeholder="Search keys or values…"
+            className="w-full pl-7 pr-7 py-1.5 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white"
+          />
+          {filterValue && (
+            <button
+              type="button"
+              onClick={() => setFilterValue('')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >
+              <i className="pi pi-times" style={{ fontSize: '0.65rem' }} />
+            </button>
+          )}
+        </div>
+      </div>
+      <Tree
+        value={displayNodes}
+        expandedKeys={expandedKeys}
+        onToggle={(e) => setExpandedKeys(e.value)}
+        nodeTemplate={nodeTemplate}
+        className="config-read-tree w-full border-none text-xs p-0"
+        pt={{
+          root: { className: 'border-none shadow-none rounded-none p-0 h-full flex flex-col' },
+          wrapper: { className: 'flex-1 overflow-y-auto min-h-0 pt-0' },
+          container: { className: 'p-0 m-0' },
+          node: { className: 'py-0' },
+          content: { className: 'py-0.5 px-2 rounded hover:bg-gray-50 transition-colors' },
+          toggler: { className: 'w-5 h-5 shrink-0 text-gray-400 hover:bg-gray-200 rounded transition-colors' },
+          label: { className: 'text-xs' },
+        }}
+      />
+    </div>
+  );
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
 export default function ReportsConfigSidebar({ onConfigLoad }) {
   const toast      = useRef(null);
   const editorRef  = useRef(null);
-  const savedRef   = useRef(''); // tracks last-Firestore value for dirty detection
+  const savedRef   = useRef('');
+  const liveValueRef = useRef('');
 
-  const [configs,       setConfigs]       = useState([]);
-  const [selectedName,  setSelectedName]  = useState(null);
-  const [seedValue,     setSeedValue]     = useState(''); // defaultValue for fresh editor mount
-  const [isDirty,       setIsDirty]       = useState(false);
-  const [saving,        setSaving]        = useState(false);
-  const [loading,       setLoading]       = useState(false);
+  const [configs,      setConfigs]      = useState([]);
+  const [selectedName, setSelectedName] = useState(null);
+  const [seedValue,    setSeedValue]    = useState('');
+  const [isDirty,      setIsDirty]      = useState(false);
+  const [saving,       setSaving]       = useState(false);
+  const [loading,      setLoading]      = useState(false);
+  const [activeTab,    setActiveTab]    = useState(TAB_EDIT);
 
   useEffect(() => {
     firestoreService
@@ -63,14 +686,17 @@ export default function ReportsConfigSidebar({ onConfigLoad }) {
     const editor = editorRef.current;
     if (!editor) return null;
     try { await editor.getAction('editor.action.formatDocument').run(); } catch { /* syntax error */ }
-    return editor.getValue();
+    try { return editor.getValue(); } catch { return null; }
   }
 
   const handleMount = useCallback((editor) => {
     editorRef.current = editor;
-    editor.onDidChangeModelContent(() =>
-      setIsDirty(editor.getValue() !== savedRef.current)
-    );
+    liveValueRef.current = editor.getValue();
+    editor.onDidChangeModelContent(() => {
+      const val = editor.getValue();
+      liveValueRef.current = val;
+      setIsDirty(val !== savedRef.current);
+    });
   }, []);
 
   const handleSelect = useCallback(async (name) => {
@@ -80,7 +706,8 @@ export default function ReportsConfigSidebar({ onConfigLoad }) {
     try {
       const config = await firestoreService.loadReport(name);
       savedRef.current = config;
-      setSeedValue(config); // feeds defaultValue when editor remounts via key change
+      liveValueRef.current = config;
+      setSeedValue(config);
       setIsDirty(false);
       onConfigLoad?.(config);
     } catch {
@@ -109,7 +736,7 @@ export default function ReportsConfigSidebar({ onConfigLoad }) {
   }, [handleSelect]);
 
   const handleApply = useCallback(async () => {
-    const value = await formatEditor() ?? editorRef.current?.getValue() ?? '';
+    const value = await formatEditor() || liveValueRef.current || '';
     onConfigLoad?.(value);
   }, [onConfigLoad]);
 
@@ -120,6 +747,7 @@ export default function ReportsConfigSidebar({ onConfigLoad }) {
       const formatted = await formatEditor() ?? editorRef.current?.getValue() ?? '';
       await firestoreService.saveReport(selectedName, formatted);
       savedRef.current = formatted;
+      liveValueRef.current = formatted;
       setIsDirty(false);
       toast.current?.show({ severity: 'success', summary: 'Saved', detail: `"${selectedName}" saved`, life: 2000 });
     } catch {
@@ -144,6 +772,7 @@ export default function ReportsConfigSidebar({ onConfigLoad }) {
             setSeedValue('');
             setIsDirty(false);
             savedRef.current = '';
+            liveValueRef.current = '';
           }
           toast.current?.show({ severity: 'success', summary: 'Deleted', detail: `"${name}" deleted`, life: 2000 });
         } catch {
@@ -172,6 +801,7 @@ export default function ReportsConfigSidebar({ onConfigLoad }) {
       <Toast ref={toast} />
       <ConfirmDialog />
 
+      {/* Config selector header */}
       <div className="px-3 py-2 border-b border-gray-200 bg-gray-50 space-y-2 shrink-0">
         <div className="flex items-center gap-1.5">
           <i className="pi pi-folder-open text-primary" style={{ fontSize: '0.9rem' }} />
@@ -213,9 +843,53 @@ export default function ReportsConfigSidebar({ onConfigLoad }) {
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 flex flex-col">
-        {selectedName ? (
-          loading ? (
+      {/* Tab buttons */}
+      <div className="flex gap-1 px-3 py-2 border-b border-gray-200 bg-gray-50/50 shrink-0">
+        {[TAB_READ, TAB_EDIT, TAB_DOCS, TAB_CONTEXT].map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setActiveTab(tab)}
+            className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${
+              activeTab === tab ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            {tab === TAB_READ ? 'Config Read' : tab === TAB_EDIT ? 'Config Edit' : tab === TAB_CONTEXT ? 'Context' : 'Docs'}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab content — all panels always mounted, shown/hidden via CSS */}
+      <div className="flex-1 min-h-0 flex flex-col relative">
+
+        <div className={`absolute inset-0 flex flex-col ${activeTab === TAB_CONTEXT ? '' : 'hidden'}`}>
+          <ContextPanel />
+        </div>
+
+        <div className={`absolute inset-0 flex flex-col ${activeTab === TAB_DOCS ? '' : 'hidden'}`}>
+          <ReportDocsPanel />
+        </div>
+
+        <div className={`absolute inset-0 flex flex-col ${activeTab === TAB_READ ? '' : 'hidden'}`}>
+          {!selectedName ? (
+            <div className="flex items-center justify-center flex-1 text-xs text-gray-400 px-4 text-center">
+              Select a config to view
+            </div>
+          ) : loading ? (
+            <div className="flex items-center justify-center flex-1 text-xs text-gray-400">Loading…</div>
+          ) : (
+            <div className="flex-1 overflow-hidden min-h-0">
+              <ReportConfigReadableView configString={liveValueRef.current || seedValue} />
+            </div>
+          )}
+        </div>
+
+        <div className={`absolute inset-0 flex flex-col ${activeTab === TAB_EDIT ? '' : 'hidden'}`}>
+          {!selectedName ? (
+            <div className="flex items-center justify-center flex-1 text-xs text-gray-400 px-4 text-center">
+              Select a config to edit
+            </div>
+          ) : loading ? (
             <div className="flex items-center justify-center flex-1 text-xs text-gray-400">Loading…</div>
           ) : (
             <Editor
@@ -228,12 +902,9 @@ export default function ReportsConfigSidebar({ onConfigLoad }) {
               onMount={handleMount}
               options={EDITOR_OPTIONS}
             />
-          )
-        ) : (
-          <div className="flex items-center justify-center flex-1 text-xs text-gray-400 px-4 text-center">
-            Select a config to edit
-          </div>
-        )}
+          )}
+        </div>
+
       </div>
     </div>
   );

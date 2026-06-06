@@ -1,4 +1,5 @@
 import { resolveApiConfig } from './apiRegistry.js';
+import { deepMerge, setPath, getPath } from './varUtils.js';
 
 // ─── Field type map ───────────────────────────────────────────────────────────
 
@@ -384,62 +385,153 @@ export function buildPipeline(steps, extraResult = {}) {
 
 // ─── GraphQL Custom Report data source ───────────────────────────────────────
 //
-// Calls the customReport GraphQL query.
-// viewParams conventions (set by ReportControls):
-//   dateRange        → filters.from_date, filters.to_date
-//   breakdown        → filters.pivot_by_month: 1
-//   breakdown        → filters.pivot_by_month: 1 (or 0); selected_columns comes from baseVars.filters
-//   _sidebar.filters → dimension filters, 1:1 key mapping, single value
+// All variables are declared explicitly in api.variableTypes.
+// Controls write outputs to viewParams._controls[key] via setControlOutput.
+// api.variablesMap maps 'controls.{key}.{outputKey}' / 'sort' / 'pagination.*' → variable paths.
 
-const _GQL_CUSTOM_REPORT = `
-  query CustomReport($report: String!, $filters: JSON!, $limit: Int, $page: Int, $sort_by: [String]) {
-    customReport(report: $report, run_report: [{ filters: $filters }], limit: $limit, page: $page, sort_by: $sort_by) {
-      report_meta
-      totalCount
-      edges { node }
-    }
-  }
-`;
+// Infer a GQL type from a JS value when variableTypes is not provided.
+function _inferGqlType(value) {
+  if (value === null || value === undefined) return 'JSON';
+  if (Array.isArray(value))               return 'JSON';
+  if (typeof value === 'boolean')         return 'Boolean';
+  if (typeof value === 'number')          return Number.isInteger(value) ? 'Int' : 'Float';
+  if (typeof value === 'string')          return 'String';
+  return 'JSON';
+}
 
 /**
- * @param {{ urlKey?: string, variables: { report: string, filters?: object, [key: string]: any } }} rawApiConfig
- *   urlKey    — registry key (e.g. "DEV"); resolves endpoint + fallback token from Firebase
- *   variables — base GraphQL variables: report name, default filters, and any extra fields
+ * Build a GraphQL query string dynamically from the resolved variables.
+ * When variableTypes is omitted, types are inferred from the variable values.
+ * 'filters' is always routed into run_report[{ filters: $filters }]; all other keys are direct args.
+ */
+function buildCustomReportQuery(variables, variableTypes) {
+  const paramDecls = Object.keys(variables).map(k => {
+    const type = variableTypes?.[k] ?? _inferGqlType(variables[k]);
+    return `$${k}: ${type}`;
+  }).join(', ');
+
+  const directArgs = Object.keys(variables)
+    .filter(k => k !== 'filters')
+    .map(k => `${k}: $${k}`)
+    .join(' ');
+
+  return `
+    query CustomReport(${paramDecls}) {
+      customReport(${directArgs} run_report: [{ filters: $filters }]) {
+        report_meta
+        totalCount
+        edges { node }
+      }
+    }
+  `;
+}
+
+// Applied when api.variablesMap is not provided. Covers the standard control types.
+const _DEFAULT_VARIABLES_MAP = {
+  'controls.dateRange.start':      'filters.from_date',
+  'controls.dateRange.end':        'filters.to_date',
+  'controls.breakdown.value':      { path: 'filters.pivot_by_month', transform: v => v ? 1 : 0 },
+  'controls.filterSort.filters':   { path: 'filters', merge: true },
+  'sort':                          'sort_by',
+  'pagination.page':               'page',
+  'pagination.limit':              'limit',
+};
+
+/**
+ * Resolve the final GQL variables object by applying api.variablesMap entries
+ * on top of api.variables (baseVars).
+ *
+ * When variablesMap is omitted, _DEFAULT_VARIABLES_MAP is used for standard controls.
+ * Default sort/pagination entries (sort_by, page, limit) are only applied when those
+ * keys already exist in baseVars — avoids injecting unexpected variables into the query.
+ *
+ * Source key format:
+ *   'controls.{key}.{outputKey}' → viewParams._controls[key][outputKey]
+ *   'sort'                       → params.sortBy formatted as ['field:dir', ...]
+ *   'pagination.page'            → computed page number
+ *   'pagination.limit'           → pagination row count
+ *
+ * Mapping value:
+ *   string              → dot-path target in variables (direct set)
+ *   { path }            → same, explicit form
+ *   { path, transform } → apply transform(value) before writing
+ *   { path, merge:true} → shallow-merge object value into existing path
+ */
+function resolveVariablesMap(baseVars, variablesMap, { controls, sortBy, pagination }) {
+  const page  = Math.floor(pagination.first / pagination.rows) + 1;
+  const limit = pagination.rows;
+
+  const sortValue = Object.entries(sortBy ?? {}).map(([f, d]) => `${f}:${d}`);
+
+  const builtInSources = {
+    sort:             sortValue,
+    'pagination.page':  page,
+    'pagination.limit': limit,
+  };
+
+  let vars = deepMerge({}, baseVars);
+
+  // When no explicit variablesMap, use defaults but skip sort/pagination entries
+  // unless their target key already exists in baseVars (avoids polluting the query).
+  const effectiveMap = variablesMap ?? _DEFAULT_VARIABLES_MAP;
+  const isDefault    = !variablesMap;
+
+  for (const [sourceKey, mapping] of Object.entries(effectiveMap)) {
+    let value;
+    if (sourceKey.startsWith('controls.')) {
+      const rest = sourceKey.slice('controls.'.length);
+      value = getPath(controls, rest);
+    } else {
+      value = builtInSources[sourceKey];
+    }
+
+    if (value === undefined) continue;
+    if (sourceKey === 'sort' && Array.isArray(value) && value.length === 0) continue;
+
+    // When using defaults, don't add sort_by / page / limit if not in baseVars.
+    if (isDefault) {
+      const targetRoot = (typeof mapping === 'string' ? mapping : mapping.path).split('.')[0];
+      if ((sourceKey === 'sort' || sourceKey.startsWith('pagination.')) && !(targetRoot in baseVars)) continue;
+    }
+
+    const { path, transform, merge } =
+      typeof mapping === 'string' ? { path: mapping } : mapping;
+
+    const finalVal = transform ? transform(value) : value;
+
+    if (merge && finalVal && typeof finalVal === 'object') {
+      vars = setPath(vars, path, { ...(getPath(vars, path) ?? {}), ...finalVal });
+    } else {
+      vars = setPath(vars, path, finalVal);
+    }
+  }
+
+  return vars;
+}
+
+/**
+ * @param {{ urlKey?: string, variables: object, variableTypes?: object, variablesMap?: object }} rawApiConfig
+ *   variables     — base GraphQL variables (report, filters, and any custom fields)
+ *   variableTypes — GQL type per variable key; omit to auto-infer from variable values
+ *   variablesMap  — maps source keys (controls.*, sort, pagination.*) to variable dot-paths;
+ *                   omit to use _DEFAULT_VARIABLES_MAP (dateRange, breakdown, filterSort)
  */
 export function graphqlQueryReportDataSource(rawApiConfig) {
   const step = async (state, params) => {
     const { endpoint, token, variables: baseVars = {} } = await resolveApiConfig(rawApiConfig);
 
-    const vp         = params.viewParams ?? {};
-    const [from, to] = vp.dateRange ?? [];
-    const sf         = vp._sidebar?.filters ?? {};
+    const controls   = params.viewParams?._controls ?? {};
     const pagination = params.pagination ?? { first: 0, rows: 50 };
 
-    // group_by: viewParams override takes precedence over the base api.variables value.
-    // Accepts string, comma-separated string, or array — normalised to array here.
-    const rawGroupBy = vp.group_by !== undefined ? vp.group_by : (baseVars.filters?.group_by ?? null);
-    const resolvedGroupBy = rawGroupBy
-      ? (Array.isArray(rawGroupBy) ? rawGroupBy : String(rawGroupBy).split(',').map(s => s.trim())).filter(Boolean)
-      : [];
-
-    const filters = {
-      ...baseVars.filters,
-      ...(from ? { from_date: from } : {}),
-      ...(to   ? { to_date:   to   } : {}),
-      ...(vp.breakdown
-        ? { pivot_by_month: 1 }
-        : { pivot_by_month: 0 }),
-      ...Object.fromEntries(
-        Object.entries(sf).filter(([, v]) => v?.length).map(([k, v]) => [k, v])
-      ),
-      ...(resolvedGroupBy.length ? { group_by: resolvedGroupBy } : {}),
-    };
-
-    const sortBy   = params.sortBy ?? {};
-    const sort_by  = Object.entries(sortBy).map(([field, direction]) => `${field}:${direction}`);
-    const limit    = pagination.rows;
     const page     = Math.floor(pagination.first / pagination.rows) + 1;
+    const limit    = pagination.rows;
     const cacheKey = `${page}:${limit}`;
+
+    const gqlVars  = resolveVariablesMap(baseVars, rawApiConfig.variablesMap, {
+      controls,
+      sortBy: params.sortBy,
+      pagination,
+    });
     const pageCache = params._pageCache;
 
     const cached = pageCache?.get(cacheKey);
@@ -447,13 +539,12 @@ export function graphqlQueryReportDataSource(rawApiConfig) {
       return { ...state, columns: cached.columns, columnGroups: cached.columnGroups, rows: cached.rows, totalCount: cached.totalCount, filterValues: cached.filterValues, filterDefs: cached.filterDefs };
     }
 
+    const query = buildCustomReportQuery(gqlVars, rawApiConfig.variableTypes);
+
     const res = await fetch(endpoint, {
       method:  'POST',
       headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
-      body:    JSON.stringify({
-        query:     _GQL_CUSTOM_REPORT,
-        variables: { report: baseVars.report, filters, limit, page, ...(sort_by.length && { sort_by }) },
-      }),
+      body:    JSON.stringify({ query, variables: gqlVars }),
     });
     if (!res.ok) throw new Error(`GraphQL report fetch failed: HTTP ${res.status}`);
     const { data, errors } = await res.json();
@@ -467,6 +558,7 @@ export function graphqlQueryReportDataSource(rawApiConfig) {
     const filterValues = metaCol?.meta_filter_values ?? {};
     const metaTotals   = metaCol?.meta_totals ?? {};
 
+    const filters = gqlVars.filters ?? {};
     const { columns: rawColumns, columnGroups, rows, labelColDefs } = _parseFrappeResponse(gqlColumns, gqlRows, filters.selected_columns);
 
     // Attach meta_totals as raw footer values; formatStep() will wrap them into { value, repr }

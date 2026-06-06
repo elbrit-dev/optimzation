@@ -89,7 +89,8 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
   const commonConfig = useSmartDataConfig();
   const cfg = useMemo(() => resolveConfig(commonConfig, perViewConfig), [commonConfig, perViewConfig]);
 
-  const { registerView, unregisterView, handleSignal, exportView } = useSmartDataContext();
+  const { registerView, unregisterView, handleSignal, exportView,
+          registerViewActions, unregisterViewActions } = useSmartDataContext();
 
   // Subscribe only to this view's slice — other views changing won't re-render this.
   const viewState = useSmartDataStore(state => state.views[viewId]);
@@ -99,6 +100,7 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
     return () => unregisterView(viewId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewId]);
+
 
   const onSignal = useCallback(
     signal => handleSignal(viewId, signal),
@@ -229,6 +231,15 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
       setExporting(false);
     }
   }, [exportView, viewId, viewState?.expandable, doExport]);
+
+  useEffect(() => {
+    registerViewActions(viewId, {
+      lockFirstColumn:  () => setFreezeFirstColumn(v => !v),
+      viewInFullscreen: () => { setIsFullscreen(true); setIsMaximized(true); },
+      exportToExcel:    () => handleExport(),
+    });
+    return () => unregisterViewActions(viewId);
+  }, [viewId, registerViewActions, unregisterViewActions, handleExport]);
 
   // ── Toolbar action arrays ─────────────────────────────────────────────────
   const hasGroups = !!columnGroups?.length;
@@ -606,6 +617,7 @@ export const SmartDataTable = memo(SmartDataTableInner);
 function InnerDataTable({ rows, columns, columnGroups, labelColDefs = [], depth = 0 }) {
   const [filters, setFilters] = useState({});
   const [sortMeta, setSortMeta] = useState([]);
+  const [expandedRows, setExpandedRows] = useState(null);
 
   const onFilter = useCallback((field, filterValue) => {
     setFilters(prev => {
@@ -622,6 +634,17 @@ function InnerDataTable({ rows, columns, columnGroups, labelColDefs = [], depth 
     [rows, filters, sortMeta]
   );
 
+  const expandable = useMemo(() => rows.some(r => r._children?.length), [rows]);
+
+  const rowExpansionTemplate = useCallback((rowData) => {
+    if (!rowData._children?.length) return null;
+    return (
+      <div className="px-6 py-2 bg-gray-50">
+        <InnerDataTable rows={rowData._children} columns={columns} columnGroups={columnGroups} labelColDefs={labelColDefs} depth={depth + 1} />
+      </div>
+    );
+  }, [columns, columnGroups, labelColDefs, depth]);
+
   // When columnGroups active, body column filters are in the ColumnGroup filter row.
   const columnElements = useMemo(() => {
     const hasGroupedHeader = !!columnGroups?.length;
@@ -630,6 +653,14 @@ function InnerDataTable({ rows, columns, columnGroups, labelColDefs = [], depth 
         ? buildFilterElement(col, filters[col.field] ?? null, onFilter)
         : null;
       const defaultBody = (rowData) => rowData[col.field]?.repr ?? '';
+
+      // For the label column in inner tables, prefer label{depth+1} if available, fall back to label
+      let body = col.body ?? defaultBody;
+      if (col.field === 'label') {
+        const preferredKey = `label${depth + 1}`;
+        body = (rowData) => rowData[preferredKey] || rowData['label']?.repr || '';
+      }
+
       return (
         <Column
           key={col.field}
@@ -640,14 +671,14 @@ function InnerDataTable({ rows, columns, columnGroups, labelColDefs = [], depth 
           filterElement={filterElement}
           showFilterMenu={false}
           style={col.width ? { width: col.width, minWidth: col.width } : undefined}
-          body={col.body ?? defaultBody}
+          body={body}
         />
       );
     });
-  }, [columns, columnGroups, filters, onFilter]);
+  }, [columns, columnGroups, filters, onFilter, depth]);
 
-  // 3-row header (no expander — inner table is never expandable):
-  //   Row 1: label col (rowSpan=2) + group spanning headers
+  // 3-row header:
+  //   Row 1: (expander col if expandable) + label col (rowSpan=2) + group spanning headers
   //   Row 2: leaf field headers (sortable)
   //   Row 3: filter row
   const headerColumnGroup = useMemo(() => {
@@ -657,6 +688,7 @@ function InnerDataTable({ rows, columns, columnGroups, labelColDefs = [], depth 
     return (
       <ColumnGroup>
         <Row>
+          {expandable && <Column rowSpan={2} style={{ width: '3rem' }} />}
           <Column header={labelHeader} rowSpan={2} sortable field="label" />
           {columnGroups.map(g => (
             <Column key={g.id} header={g.label} colSpan={g.fields.length} />
@@ -670,6 +702,7 @@ function InnerDataTable({ rows, columns, columnGroups, labelColDefs = [], depth 
           )}
         </Row>
         <Row>
+          {expandable && <Column header="" />}
           <Column header={buildFilterElement(colByField['label'], filters['label'] ?? null, onFilter)()} />
           {columnGroups.flatMap(g =>
             g.fields.map(f => {
@@ -685,7 +718,7 @@ function InnerDataTable({ rows, columns, columnGroups, labelColDefs = [], depth 
         </Row>
       </ColumnGroup>
     );
-  }, [columnGroups, columns, filters, onFilter, labelColDefs, depth]);
+  }, [columnGroups, columns, filters, onFilter, labelColDefs, depth, expandable]);
 
   return (
     <DataTable
@@ -698,8 +731,14 @@ function InnerDataTable({ rows, columns, columnGroups, labelColDefs = [], depth 
       onSort={e => setSortMeta(e.multiSortMeta ?? [])}
       removableSort
       filterDisplay="row"
+      {...(expandable && {
+        expandedRows,
+        onRowToggle: e => setExpandedRows(e.data),
+        rowExpansionTemplate,
+      })}
       {...(headerColumnGroup && { headerColumnGroup })}
     >
+      {expandable && <Column expander style={{ width: '3rem' }} />}
       {columnElements}
     </DataTable>
   );

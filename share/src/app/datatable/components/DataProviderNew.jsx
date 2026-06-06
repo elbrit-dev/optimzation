@@ -408,10 +408,15 @@ export default function DataProviderNew({
   const [breakdownType, setBreakdownType] = useState(configBreakdownType ?? 'month');
   const [enableBreakdown, setEnableBreakdown] = useState(forceBreakdown ?? false);
 
+  const stableOfflineData = useMemo(
+    () => (Array.isArray(offlineData) ? offlineData : []),
+    [offlineData],
+  );
+
   const queryExecution = useQueryExecution({
     dataSourceProp: configDataSource,
     selectedQueryKeyProp,
-    offlineData,
+    offlineData: stableOfflineData,
     onError,
     onDataChange,
     variableOverrides,

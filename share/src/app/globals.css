@@ -1,5 +1,14 @@
 @import "tailwindcss";
 
+.config-read-tree.p-tree {
+  padding: 0 !important;
+}
+
+.config-read-tree .p-tree-container {
+  padding: 0;
+  margin: 0;
+}
+
 /* Protect PrimeReact component styles from Tailwind reset */
 @layer base {
     /* Ensure PrimeReact components maintain their default styles */

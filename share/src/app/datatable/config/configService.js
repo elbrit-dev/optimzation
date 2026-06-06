@@ -121,6 +121,8 @@ export function mergeConfig(userConfig = {}, baseConfig = getDefaultConfig()) {
       }
       return userAC ?? baseAC;
     })(),
+    dataSource: userConfig.dataSource ?? base.dataSource,
+    selectedQueryKey: userConfig.selectedQueryKey ?? base.selectedQueryKey,
   };
 }
 
@@ -143,6 +145,41 @@ export function resolveConfig(configProp) {
 }
 
 /**
+ * Find a preset entry by name (exact match, then case-insensitive).
+ * @param {Array<{ name?: string, config?: unknown }>} presets
+ * @param {string} presetName
+ * @returns {object|null}
+ */
+export function findPresetByName(presets, presetName) {
+  if (!Array.isArray(presets) || !presetName) return null;
+  const exact = presets.find((p) => p?.name === presetName);
+  if (exact) return exact;
+  const lower = String(presetName).toLowerCase();
+  return presets.find((p) => String(p?.name ?? '').toLowerCase() === lower) ?? null;
+}
+
+/**
+ * Parse preset config stored as serialized JS, JSON string, or object.
+ * @param {unknown} raw
+ * @returns {Object|null}
+ */
+export function parsePresetConfig(raw) {
+  if (raw == null) return null;
+  if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  if (typeof raw !== 'string' || !raw.trim()) return null;
+  try {
+    return deserializeJsToConfig(raw);
+  } catch {
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+}
+
+/**
  * Fetch and resolve a Firebase preset by name.
  * @param {string} dataSource - Query document ID
  * @param {string} presetName - Preset name
@@ -151,13 +188,10 @@ export function resolveConfig(configProp) {
 export async function resolveFirebaseConfig(dataSource, presetName) {
   if (!dataSource || !presetName) return null;
   const presets = await firestoreService.loadPresetsForQuery(dataSource);
-  const preset = presets?.find((p) => p?.name === presetName);
+  const preset = findPresetByName(presets, presetName);
   if (!preset?.config) return null;
-  try {
-    return deserializeJsToConfig(preset.config);
-  } catch {
-    return null;
-  }
+  const config = parsePresetConfig(preset.config);
+  return config && typeof config === 'object' ? config : null;
 }
 
 /**

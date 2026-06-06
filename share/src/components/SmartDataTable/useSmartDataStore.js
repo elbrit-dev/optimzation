@@ -2,6 +2,7 @@
 
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
+import { deepMerge } from './varUtils';
 
 const DEFAULT_VIEW_STATE = {
   filters: {},
@@ -149,6 +150,26 @@ export const useSmartDataStore = create(
               ...state.views[viewId],
               viewParams: { ...state.views[viewId].viewParams, [key]: value },
               pagination: { ...state.views[viewId].pagination, first: 0 },
+            },
+          },
+        };
+      });
+    },
+
+    // Write a control's output into viewParams._controls[key], reset pagination.
+    // Controls call this instead of setViewParam so control outputs are namespaced.
+    setControlOutput(viewId, key, output) {
+      set(state => {
+        const view = state.views[viewId];
+        if (!view) return state;
+        const prev = view.viewParams?._controls ?? {};
+        return {
+          views: {
+            ...state.views,
+            [viewId]: {
+              ...view,
+              viewParams: { ...view.viewParams, _controls: { ...prev, [key]: output } },
+              pagination: { ...view.pagination, first: 0 },
             },
           },
         };

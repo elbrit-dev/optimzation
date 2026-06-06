@@ -8,9 +8,18 @@ import { Switch } from 'antd';
 import dayjs from 'dayjs';
 import { useEffect, useMemo, useState } from 'react';
 
-function broadcast(viewIds, paramKey, value) {
+/**
+ * Emit a control's output into viewParams._controls[key] for every view.
+ * reportSource.jsx reads _controls and applies api.variablesMap to build GQL variables.
+ */
+function emitControlOutput(viewIds, key, output) {
   const store = useSmartDataStore.getState();
-  viewIds.forEach((id) => store.setViewParam(id, paramKey, value));
+  viewIds.forEach(id => store.setControlOutput(id, key, output));
+}
+
+function formatDateForApi(date) {
+  if (!date) return null;
+  return dayjs(date).format('YYYY-MM-DD');
 }
 
 function parseDefault(def) {
@@ -26,7 +35,7 @@ function ToggleControl({ def, viewIds }) {
 
   function handleChange(checked) {
     setValue(checked);
-    broadcast(viewIds, def.key, checked);
+    emitControlOutput(viewIds, def.key, { value: checked });
   }
 
   return (
@@ -51,7 +60,6 @@ function FilterSortControl({ def, viewIds }) {
   const [visible, setVisible] = useState(false);
   const { fetchFilterValues } = useSmartDataContext();
 
-  // Read filterDefs from the first view that has them (all views share the same report schema)
   const allViews = useSmartDataStore(s => s.views);
   const filterDefs = useMemo(() => {
     for (const id of viewIds) {
@@ -61,14 +69,14 @@ function FilterSortControl({ def, viewIds }) {
     return [];
   }, [allViews, viewIds]);
 
-  // Active sidebar state — read from first view (they're kept in sync)
-  const sidebar  = allViews[viewIds[0]]?.viewParams?._sidebar ?? {};
-  const sortBy   = allViews[viewIds[0]]?.sortBy ?? {};
+  // Active control output lives under _controls[def.key]
+  const controlOutput = allViews[viewIds[0]]?.viewParams?._controls?.[def.key] ?? {};
+  const sortBy        = allViews[viewIds[0]]?.sortBy ?? {};
 
   const activeCount = useMemo(() => {
-    const filterCount = Object.values(sidebar.filters ?? {}).filter(v => v?.length).length;
+    const filterCount = Object.values(controlOutput.filters ?? {}).filter(v => v?.length).length;
     return filterCount + Object.keys(sortBy).length;
-  }, [sidebar, sortBy]);
+  }, [controlOutput, sortBy]);
 
   const isActive = activeCount > 0;
 
@@ -97,15 +105,15 @@ function FilterSortControl({ def, viewIds }) {
         onHide={() => setVisible(false)}
         filterDefs={filterDefs}
         fetchFilterValues={fetchFilterValues}
-        currentFilterValues={sidebar.filters ?? {}}
+        currentFilterValues={controlOutput.filters ?? {}}
         currentSortBy={sortBy}
         onApply={(sorts, filters) => {
           useSmartDataStore.getState().setSortBy(viewIds[0], sorts);
-          broadcast(viewIds, '_sidebar', { filters });
+          emitControlOutput(viewIds, def.key, { ...controlOutput, filters, sort: sorts });
         }}
         onClear={() => {
           useSmartDataStore.getState().setSortBy(viewIds[0], {});
-          broadcast(viewIds, '_sidebar', {});
+          emitControlOutput(viewIds, def.key, {});
         }}
       />
     </>
@@ -117,7 +125,10 @@ function DateRangeControl({ def, viewIds }) {
 
   function handleChange(range) {
     setValue(range);
-    broadcast(viewIds, def.key, range);
+    emitControlOutput(viewIds, def.key, {
+      start: formatDateForApi(range?.[0]),
+      end:   formatDateForApi(range?.[1]),
+    });
   }
 
   return (
@@ -171,21 +182,42 @@ export function FilterChips({ viewIds }) {
     return [];
   }, [allViews, viewIds]);
 
-  const sidebar = allViews[viewIds[0]]?.viewParams?._sidebar ?? {};
+  // Find the filterSort control's output from the first view
+  const filterSortOutput = useMemo(() => {
+    const controls = allViews[viewIds[0]]?.viewParams?._controls ?? {};
+    for (const [, output] of Object.entries(controls)) {
+      if (output?.filters) return output;
+    }
+    return {};
+  }, [allViews, viewIds]);
+
   const activeFilters = useMemo(() =>
-    filterDefs.filter(def => sidebar.filters?.[def.key]?.length),
-    [filterDefs, sidebar.filters]
+    filterDefs.filter(def => filterSortOutput.filters?.[def.key]?.length),
+    [filterDefs, filterSortOutput.filters]
   );
 
   if (!activeFilters.length) return null;
 
+  // Find the filterSort control key to emit the clear
+  function getFilterSortKey() {
+    const controls = allViews[viewIds[0]]?.viewParams?._controls ?? {};
+    for (const [key, output] of Object.entries(controls)) {
+      if (output?.filters !== undefined) return key;
+    }
+    return null;
+  }
+
   function clearOne(key) {
-    const filters = { ...(sidebar.filters ?? {}), [key]: [] };
-    broadcast(viewIds, '_sidebar', { ...sidebar, filters });
+    const fsKey = getFilterSortKey();
+    if (!fsKey) return;
+    const filters = { ...(filterSortOutput.filters ?? {}), [key]: [] };
+    emitControlOutput(viewIds, fsKey, { ...filterSortOutput, filters });
   }
 
   function clearAll() {
-    broadcast(viewIds, '_sidebar', { ...sidebar, filters: {} });
+    const fsKey = getFilterSortKey();
+    if (!fsKey) return;
+    emitControlOutput(viewIds, fsKey, { ...filterSortOutput, filters: {} });
   }
 
   return (
@@ -197,7 +229,7 @@ export function FilterChips({ viewIds }) {
             key={def.key}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-100 text-blue-800 rounded-full text-xs font-medium"
           >
-            <span>{def.label}: {sidebar.filters[def.key].join(', ')}</span>
+            <span>{def.label}: {filterSortOutput.filters[def.key].join(', ')}</span>
             <button
               type="button"
               onClick={() => clearOne(def.key)}
@@ -223,11 +255,10 @@ export function FilterChips({ viewIds }) {
 }
 
 export function ReportControls({ controls, viewIds }) {
-  // SmartDataTable initializes views in its own useEffect, which fires after ours
-  // (sibling order in React's commit phase). Subscribe and wait until all views
-  // exist before pushing defaultValues into the store.
+  // SmartDataTable initializes views in its own useEffect, which fires after ours.
+  // Wait until all views exist before pushing defaultValues into the store.
   useEffect(() => {
-    const defaults = controls.filter((def) => def.defaultValue !== undefined);
+    const defaults = controls.filter((def) => def.key && def.defaultValue !== undefined);
     if (!defaults.length) return;
 
     let unsub;
@@ -235,8 +266,19 @@ export function ReportControls({ controls, viewIds }) {
       const s = useSmartDataStore.getState();
       if (!viewIds.every((id) => s.views[id])) return;
       unsub?.();
-      const batch = Object.fromEntries(defaults.map((def) => [def.key, parseDefault(def)]));
-      viewIds.forEach((id) => s.setViewParams(id, batch));
+      defaults.forEach(def => {
+        let output;
+        if (def.type === 'dateRange') {
+          const parsed = parseDefault(def);
+          output = {
+            start: formatDateForApi(parsed?.[0]),
+            end:   formatDateForApi(parsed?.[1]),
+          };
+        } else {
+          output = { value: parseDefault(def) };
+        }
+        viewIds.forEach(id => s.setControlOutput(id, def.key, output));
+      });
     };
 
     unsub = useSmartDataStore.subscribe(trySet);

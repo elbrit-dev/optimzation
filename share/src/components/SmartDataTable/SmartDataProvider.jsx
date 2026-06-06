@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { DataProvider as PlasmicDataProvider } from '@plasmicapp/loader-nextjs';
 import { SmartDataContext, SmartDataConfigContext } from './SmartDataContext';
 import { useSmartDataStore } from './useSmartDataStore';
 import { graphqlQueryReportDataSource, graphqlFetchFilterValues } from './reportSource.jsx';
@@ -74,12 +75,22 @@ export function resolveViewConfig(rootConfig, viewOverride = {}) {
  * calls the resolved dataSource and writes the result back to the store.
  *
  * reportConfig shape:
- *   api:      { urlKey, variables: { report, filters, ... } }  — passed to graphqlQueryReportDataSource
- *   table:    { ...tableConfig }                               — root table defaults
- *   controls: [{ key, type, label, ... }]                      — root control definitions
+ *   api: {
+ *     urlKey?,        endpoint?, token?,
+ *     variables:     { report, filters, [custom]: value, ... }   — base GQL variables spread as-is
+ *     variableTypes: { [key]: 'GQLType', ... }                   — required for every variable key
+ *     variablesMap:  {                                           — maps sources → variable dot-paths
+ *       'controls.{key}.{outputKey}': 'dot.path' | { path, transform?, merge? },
+ *       'sort':             'sort_by',
+ *       'pagination.page':  'page',
+ *       'pagination.limit': 'limit',
+ *     }
+ *   }
+ *   table:    { ...tableConfig }
+ *   controls: [{ key, type, label, defaultValue? }]   — key is required; controls emit to _controls[key]
  *   views:    { [viewId]: { name, table?, controls?, api? } }
  *
- * Per-view api/table/controls override their root counterparts via deepMerge.
+ * Per-view api/table/controls override their root counterparts via deepMerge (api & table) or replace (controls).
  */
 export function SmartDataProviderImpl({ dataSource: providerDataSource, reportConfig: rawReportConfig, config: commonConfig, overrides, children }) {
   const store = useSmartDataStore;
@@ -97,8 +108,11 @@ export function SmartDataProviderImpl({ dataSource: providerDataSource, reportCo
   const [lastFetchedAt, setLastFetchedAt] = useState(null);
   const [drawerVisibility, setDrawerVisibility] = useState({});
 
+  const storeViews = useSmartDataStore(state => state.views);
+
   const unsubsRef            = useRef({});
   const viewDataSources      = useRef({});
+  const viewActionsRef       = useRef({});
   const pipelineWatchersRef  = useRef({});
   // Params queued before a drawer view's SmartDataTable mounts and calls registerView.
   const pendingDrawerParamsRef = useRef({});
@@ -324,6 +338,76 @@ export function SmartDataProviderImpl({ dataSource: providerDataSource, reportCo
     };
   }, []);
 
+  const registerViewActions = useCallback((viewId, actions) => {
+    viewActionsRef.current[viewId] = actions;
+  }, []);
+
+  const unregisterViewActions = useCallback((viewId) => {
+    delete viewActionsRef.current[viewId];
+  }, []);
+
+  const plasmicData = useMemo(() => {
+    const views = {};
+    for (const [viewId, view] of Object.entries(storeViews)) {
+      const perPage     = view.pagination.rows;
+      const currentPage = Math.floor(view.pagination.first / perPage);
+      const totalPages  = Math.ceil(view.totalRecords / perPage) || 1;
+      const s           = () => useSmartDataStore.getState();
+
+      views[viewId] = {
+        data: {
+          rows:       (view.rows ?? []).map(_flattenRow),
+          columns:    view.columns ?? null,
+          groups:     view.columnGroups ?? null,
+          total:      view.totalRecords,
+          dimensions: view.filterDefs,
+        },
+        state: {
+          loading: view.loading,
+          error:   view.error,
+          filters: view.filters,
+          sort:    view.sortBy,
+          page:    view.pagination,
+        },
+        actions: {
+          column: {
+            toggle: (field) => s().setHiddenColumns(viewId,
+              (view.hiddenColumns ?? []).includes(field)
+                ? (view.hiddenColumns ?? []).filter(f => f !== field)
+                : [...(view.hiddenColumns ?? []), field]
+            ),
+            lock: () => viewActionsRef.current[viewId]?.lockFirstColumn?.(),
+          },
+          group: {
+            reorder: (newOrder) => s().setViewParam(viewId, 'group_by', newOrder),
+          },
+          export: {
+            excel: () => viewActionsRef.current[viewId]?.exportToExcel?.(),
+          },
+          display: {
+            fullscreen: () => viewActionsRef.current[viewId]?.viewInFullscreen?.(),
+          },
+          page: {
+            next:    () => s().setPage(viewId, Math.min((currentPage + 1) * perPage, (totalPages - 1) * perPage), perPage),
+            prev:    () => s().setPage(viewId, Math.max((currentPage - 1) * perPage, 0), perPage),
+            first:   () => s().setPage(viewId, 0, perPage),
+            last:    () => s().setPage(viewId, (totalPages - 1) * perPage, perPage),
+            goto:    (n) => s().setPage(viewId, Math.max(n - 1, 0) * perPage, perPage),
+            setSize: (n) => s().setPage(viewId, 0, n),
+          },
+          drawer: {
+            open:  openDrawerView,
+            close: closeDrawerView,
+          },
+          sort: {
+            set: (sort) => s().setSortBy(viewId, sort),
+          },
+        },
+      };
+    }
+    return { views, fetchedAt: lastFetchedAt };
+  }, [storeViews, lastFetchedAt, openDrawerView, closeDrawerView]);
+
   const drawerViewEntries = useMemo(
     () => Object.entries(reportConfig?.views ?? {}).filter(([, v]) => v.type === 'drawer'),
     [reportConfig]
@@ -341,8 +425,11 @@ export function SmartDataProviderImpl({ dataSource: providerDataSource, reportCo
         fetchFilterValues,
         resolveView,
         openDrawerView, closeDrawerView,
+        registerViewActions, unregisterViewActions,
       }}>
-        {children}
+        <PlasmicDataProvider name="data" data={plasmicData}>
+          {children}
+        </PlasmicDataProvider>
         {drawerViewEntries.map(([viewId, viewCfg]) => (
           <Sidebar
             key={viewId}
@@ -402,6 +489,20 @@ export function SmartDataProvider({ config, dataSource, overrides, children }) {
       {children}
     </SmartDataProviderImpl>
   );
+}
+
+function _flattenRow(row) {
+  const out = {};
+  for (const [field, cell] of Object.entries(row)) {
+    if (field === '_children' && Array.isArray(cell)) {
+      out[field] = cell.map(_flattenRow);
+    } else {
+      out[field] = (cell !== null && typeof cell === 'object' && 'value' in cell)
+        ? cell.value
+        : cell;
+    }
+  }
+  return out;
 }
 
 function _getCacheBasis(view) {

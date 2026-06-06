@@ -15,6 +15,9 @@ import { createExecutionContext } from '@/app/graphql-playground/utils/query-pip
 import { parseGraphQLVariables } from '@/app/graphql-playground/utils/variableParser';
 import { serializeGraphQLField } from '../utils/graphqlSchemaSerialization';
 
+/** Stable empty array for default offlineData (avoids new [] each render in Plasmic). */
+const EMPTY_OFFLINE_DATA = [];
+
 /**
  * Hook: query execution state and runQuery pipeline.
  * Owns: dataSource, selectedQueryKey, savedQueries, executingQuery, processedData, monthRange, hasMonthSupport,
@@ -36,10 +39,10 @@ import { serializeGraphQLField } from '../utils/graphqlSchemaSerialization';
  * @param {string|null} [options.graphqlToken] - When set (non-empty), use as Authorization instead of env tokens
  */
 export function useQueryExecution(options) {
+  const offlineData = options.offlineData ?? EMPTY_OFFLINE_DATA;
   const {
     dataSourceProp = null,
     selectedQueryKeyProp = null,
-    offlineData = [],
     onError,
     onDataChange,
     onVariablesChange,
@@ -84,13 +87,14 @@ export function useQueryExecution(options) {
   const loggedWriteSchemaRef = useRef(new Set());
   const onErrorRef = useRef(onError);
   const runQueryRef = useRef(null);
+  const offlineModeNotifiedRef = useRef(false);
 
   useEffect(() => {
-    setDataSource(dataSourceProp);
-  }, [dataSourceProp, offlineData]);
+    setDataSource((prev) => (prev === dataSourceProp ? prev : dataSourceProp));
+  }, [dataSourceProp]);
 
   useEffect(() => {
-    setSelectedQueryKey(selectedQueryKeyProp);
+    setSelectedQueryKey((prev) => (prev === selectedQueryKeyProp ? prev : selectedQueryKeyProp));
   }, [selectedQueryKeyProp]);
 
   useEffect(() => {
@@ -759,12 +763,15 @@ export function useQueryExecution(options) {
       setQueryVariables({});
       setCurrentQueryDoc(null);
       setIndexFreshnessToken(null);
-      setOfflineDataExecuted(false);
       executionContextRef.current = createExecutionContext();
-      if (onVariablesChange) onVariablesChange({});
       setOfflineDataExecuted(true);
-      if (onDataChange) onDataChange({ severity: 'success', summary: 'Success', detail: 'Data loaded', life: 3000 });
+      if (!offlineModeNotifiedRef.current) {
+        offlineModeNotifiedRef.current = true;
+        if (onVariablesChange) onVariablesChange({});
+        if (onDataChange) onDataChange({ severity: 'success', summary: 'Success', detail: 'Data loaded', life: 3000 });
+      }
     } else {
+      offlineModeNotifiedRef.current = false;
       isInitialLoadRef.current = true;
       const loadQueryMetadata = async () => {
         try {
@@ -874,8 +881,9 @@ export function useQueryExecution(options) {
   useEffect(() => {
     if (!dataSource || !processedData) return;
     const firstAvailableKey = availableQueryKeys.length > 0 ? availableQueryKeys[0] : null;
-    const propKeyHasData = selectedQueryKeyProp
-      && getDataValue(processedData, selectedQueryKeyProp) != null;
+    const propKeyValue = selectedQueryKeyProp ? getDataValue(processedData, selectedQueryKeyProp) : null;
+    const propKeyHasData = selectedQueryKeyProp != null && propKeyValue != null
+      && (!Array.isArray(propKeyValue) || propKeyValue.length > 0);
     const defaultKeyIsValid = selectedQueryKeyProp
       && (availableQueryKeys.includes(selectedQueryKeyProp) || propKeyHasData);
     const pickKey = () => (defaultKeyIsValid ? selectedQueryKeyProp : null) || selectedQueryKeyProp || firstAvailableKey;
