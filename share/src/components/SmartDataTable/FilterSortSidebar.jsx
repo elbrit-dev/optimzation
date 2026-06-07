@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Sidebar } from 'primereact/sidebar';
 import { Button } from 'primereact/button';
 import { InputText } from 'primereact/inputtext';
+import { LoadingOverlay } from './TableSkeleton';
 
 // ─── Mobile hook ─────────────────────────────────────────────────────────────
 
@@ -33,13 +34,13 @@ function getSortLabels(filterDef) {
 
 // ─── Loading skeleton ─────────────────────────────────────────────────────────
 
-function ValueSkeleton({ count = 6 }) {
+function ValueSkeleton() {
   return (
-    <div className="space-y-2 p-2 animate-pulse">
-      {Array.from({ length: count }).map((_, i) => (
+    <div className="absolute inset-0 space-y-2 p-2 animate-pulse overflow-hidden">
+      {Array.from({ length: 100 }).map((_, i) => (
         <div key={i} className="flex items-center gap-3">
-          <div className="w-4 h-4 bg-gray-200 rounded" />
-          <div className="h-3 bg-gray-200 rounded flex-1" style={{ width: `${60 + (i % 3) * 15}%` }} />
+          <div className="w-4 h-4 bg-gray-200 rounded flex-shrink-0" />
+          <div className="h-3 bg-gray-200 rounded" style={{ width: `${60 + (i % 3) * 15}%` }} />
         </div>
       ))}
     </div>
@@ -358,10 +359,11 @@ export default function FilterSortSidebar({
                   </div>
 
                   {/* Value list with infinite scroll */}
-                  <div className="space-y-1 flex-1 overflow-y-auto min-h-0 pr-1">
+                  <div className="relative space-y-1 flex-1 overflow-y-auto min-h-0 pr-1">
 
-                    {/* Initial loading state */}
-                    {!tv && <ValueSkeleton />}
+                    {/* Initial load or search-reset loading state */}
+                    {(!tv || (loading && items.length === 0)) && <ValueSkeleton />}
+                    {(!tv || (loading && items.length === 0)) && <LoadingOverlay message="Fetching values…" />}
 
                     {/* Values */}
                     {items.map((item, idx) => {
@@ -377,6 +379,11 @@ export default function FilterSortSidebar({
                           <span className="text-sm text-gray-700 flex-1 truncate" title={item.label}>
                             {item.label}
                           </span>
+                          {item.count != null && (
+                            <span className="ml-2 px-1.5 py-0.5 text-xs text-gray-500 bg-gray-100 rounded-full flex-shrink-0">
+                              {item.count.toLocaleString()}
+                            </span>
+                          )}
                         </label>
                       );
                     })}

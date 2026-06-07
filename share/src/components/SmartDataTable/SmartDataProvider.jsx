@@ -335,7 +335,7 @@ export function SmartDataProviderImpl({ dataSource: providerDataSource, reportCo
       const all   = filterValuesCacheRef.current[key] ?? [];
       const start = (page - 1) * pageLength;
       return {
-        items:   all.slice(start, start + pageLength).map(item => ({ value: item.value, label: item.value })),
+        items:   all.slice(start, start + pageLength).map(item => ({ value: item.value, label: item.value, count: item.line_count })),
         hasMore: start + pageLength < all.length,
       };
     }

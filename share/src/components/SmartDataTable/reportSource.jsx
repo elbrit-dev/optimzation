@@ -654,7 +654,7 @@ export async function graphqlFetchFilterValues(rawApiConfig, key, { page = 1, pa
 
   const allValues = data.customFilter.values;
   const start = (page - 1) * pageLength;
-  const items = allValues.slice(start, page * pageLength).map(v => ({ value: v.value, label: v.value }));
+  const items = allValues.slice(start, page * pageLength).map(v => ({ value: v.value, label: v.value, count: v.line_count }));
   return { items, hasMore: allValues.length >= page * pageLength };
 }
 
