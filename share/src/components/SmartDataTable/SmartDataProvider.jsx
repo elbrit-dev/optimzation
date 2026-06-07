@@ -119,6 +119,7 @@ export function SmartDataProviderImpl({ dataSource: providerDataSource, reportCo
   const viewActionsRef       = useRef({});
   const pipelineWatchersRef  = useRef({});
   const pendingDrawerConfigRef = useRef({});
+  const providerOwnedViewsRef  = useRef(new Set());
   // Debounce timers: defers the initial fetch by one task so ReportControls can apply
   // its defaults (dateRange, breakdown, etc.) before the first GQL call fires.
   const runTimersRef = useRef({});
@@ -205,6 +206,8 @@ export function SmartDataProviderImpl({ dataSource: providerDataSource, reportCo
 
     if (ds) viewDataSources.current[viewId] = ds;
 
+    if (unsubsRef.current[viewId]) return; // already provider-owned; ds updated above, skip re-sub
+
     useSmartDataStore.getState().registerView(viewId, defaultPageSize);
 
     const scheduleRun = () => {
@@ -226,6 +229,7 @@ export function SmartDataProviderImpl({ dataSource: providerDataSource, reportCo
   }, [runDataSource, reportConfig]);
 
   const unregisterView = useCallback((viewId) => {
+    if (providerOwnedViewsRef.current.has(viewId)) return; // provider outlives table
     clearTimeout(runTimersRef.current[viewId]);
     delete runTimersRef.current[viewId];
     unsubsRef.current[viewId]?.();
@@ -233,6 +237,30 @@ export function SmartDataProviderImpl({ dataSource: providerDataSource, reportCo
     delete viewDataSources.current[viewId];
     useSmartDataStore.getState().unregisterView(viewId);
   }, []);
+
+  useEffect(() => {
+    if (!reportConfig?.views) return;
+    const viewIds = Object.keys(reportConfig.views)
+      .filter(id => reportConfig.views[id].type !== 'drawer');
+
+    viewIds.forEach(id => {
+      providerOwnedViewsRef.current.add(id);
+      registerView(id, null, reportConfig.views[id].name,
+        reportConfig.views[id]?.table?.defaultPageSize);
+    });
+
+    return () => {
+      viewIds.forEach(id => {
+        providerOwnedViewsRef.current.delete(id);
+        clearTimeout(runTimersRef.current[id]);
+        delete runTimersRef.current[id];
+        unsubsRef.current[id]?.();
+        delete unsubsRef.current[id];
+        delete viewDataSources.current[id];
+        useSmartDataStore.getState().unregisterView(id);
+      });
+    };
+  }, [reportConfig, registerView]);
 
   const setViewParam = useCallback((viewId, key, value) => {
     useSmartDataStore.getState().setViewParam(viewId, key, value);
