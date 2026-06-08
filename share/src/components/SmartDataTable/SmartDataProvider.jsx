@@ -128,11 +128,6 @@ export function SmartDataProviderImpl({ dataSource: providerDataSource, reportCo
   const filterValuesCacheRef = useRef({});
   // Raw API config stored so fetchFilterValues can call the customFilter API on search.
   const rawApiConfigRef = useRef(null);
-  // Per-view page cache: viewId → Map<cacheKey, fetchedData>. Keyed by "page:limit".
-  const pageCacheRef  = useRef({});
-  // Tracks the last filters+sort+viewParams basis per view to detect invalidation.
-  const cacheBasisRef = useRef({});
-
   useEffect(() => {
     if (reportConfig?.api?.urlKey) refreshGlobalTokenRows();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -146,13 +141,6 @@ export function SmartDataProviderImpl({ dataSource: providerDataSource, reportCo
     const ds = viewDataSources.current[viewId] ?? providerDataSource;
     if (!ds) return;
 
-    // Invalidate page cache when filters/sort/viewParams change (not on page navigation).
-    const basis = _getCacheBasis(view);
-    if (cacheBasisRef.current[viewId] !== basis) {
-      pageCacheRef.current[viewId] = new Map();
-      cacheBasisRef.current[viewId] = basis;
-    }
-
     state._setLoading(viewId, true);
 
     try {
@@ -163,7 +151,6 @@ export function SmartDataProviderImpl({ dataSource: providerDataSource, reportCo
           pagination:    view.pagination,
           viewParams:    view.viewParams,
           viewId,
-          _pageCache:    pageCacheRef.current[viewId],
           _debugCapture: pipelineWatchersRef.current[viewId],
         })
       );
@@ -178,10 +165,6 @@ export function SmartDataProviderImpl({ dataSource: providerDataSource, reportCo
   const refresh = useCallback(async () => {
     const viewIds = Object.keys(viewDataSources.current);
     if (viewIds.length === 0) return;
-    viewIds.forEach(id => {
-      pageCacheRef.current[id] = new Map();
-      delete cacheBasisRef.current[id];
-    });
     await Promise.all(viewIds.map(id => runDataSource(id)));
   }, [runDataSource]);
 
@@ -197,11 +180,17 @@ export function SmartDataProviderImpl({ dataSource: providerDataSource, reportCo
     }
 
     const pendingConfig = pendingDrawerConfigRef.current[viewId];
+    console.log('[registerView]', viewId, { hasPendingConfig: !!pendingConfig, pendingConfig });
     if (pendingConfig && reportConfig?.api) {
-      const viewOverride = reportConfig.views?.[viewId] ?? {};
-      const { resolvedApi } = resolveViewConfig(reportConfig, deepMerge(viewOverride, pendingConfig));
+      const viewConfig = reportConfig.views?.[viewId] ?? {};
+      // 3-way merge: base ← view ← openDrawer (api + table only, controls excluded)
+      const viewLayered = deepMerge(viewConfig, { api: pendingConfig.api, table: pendingConfig.table });
+      const { resolvedApi } = resolveViewConfig(reportConfig, viewLayered);
+      console.log('[registerView] pendingConfig path resolvedApi.variables:', resolvedApi.variables);
       ds = graphqlQueryReportDataSource(resolvedApi);
-      delete pendingDrawerConfigRef.current[viewId];
+      // Don't delete here — React StrictMode remounts components, so registerView fires
+      // twice. Keeping the config lets the second registration re-apply the openDrawer config.
+      // pendingDrawerConfigRef is cleared in closeDrawerView instead.
     }
 
     if (ds) viewDataSources.current[viewId] = ds;
@@ -270,26 +259,35 @@ export function SmartDataProviderImpl({ dataSource: providerDataSource, reportCo
     const resolvedTabs = tabs.map(({ id, config = {} }) => {
       if (reportConfig?.views && !(id in reportConfig.views))
         return { id, config, error: `View "${id}" not found in report config` };
-      const viewOverride = reportConfig?.views?.[id] ?? {};
-      const merged = deepMerge(viewOverride, config);
+      const viewConfig = reportConfig?.views?.[id] ?? {};
+      console.log('[openDrawerView] tab:', id, { openDrawerConfig: config, viewConfig });
       if (reportConfig?.api) {
+        // 3-way merge: base ← view ← openDrawer (api + table only, controls excluded)
+        const viewLayered = deepMerge(viewConfig, { api: config.api, table: config.table });
+        console.log('[openDrawerView] viewLayered.api.variables:', viewLayered.api?.variables);
         if (viewDataSources.current[id]) {
-          const { resolvedApi } = resolveViewConfig(reportConfig, merged);
+          const { resolvedApi } = resolveViewConfig(reportConfig, viewLayered);
+          console.log('[openDrawerView] live-update path resolvedApi.variables:', resolvedApi.variables);
           viewDataSources.current[id] = graphqlQueryReportDataSource(resolvedApi);
           clearTimeout(runTimersRef.current[id]);
           runTimersRef.current[id] = setTimeout(() => runDataSource(id), 0);
         } else {
-          pendingDrawerConfigRef.current[id] = merged;
+          // Store raw openDrawer config; registerView will perform the 3-way merge
+          console.log('[openDrawerView] storing pendingConfig for:', id);
+          pendingDrawerConfigRef.current[id] = { api: config.api, table: config.table };
         }
       }
-      return { id, config: merged };
+      return { id, config: deepMerge(viewConfig, config) };
     });
     setDrawerTabs(resolvedTabs);
     setDrawerActiveId(resolvedTabs[0]?.id ?? null);
     setDrawerVisible(true);
   }, [reportConfig, runDataSource]);
 
-  const closeDrawerView = useCallback(() => setDrawerVisible(false), []);
+  const closeDrawerView = useCallback(() => {
+    pendingDrawerConfigRef.current = {};
+    setDrawerVisible(false);
+  }, []);
 
   const exportView = useCallback(async (viewId) => {
     const view = useSmartDataStore.getState().views[viewId];
@@ -533,13 +531,6 @@ function SmartDrawer({ visible, tabs, activeId, onTabSelect, onHide }) {
   );
 }
 
-function _getCacheBasis(view) {
-  return JSON.stringify({
-    f: Object.fromEntries(Object.entries(view.filters).sort()),
-    s: view.sortBy,
-    v: view.viewParams,
-  });
-}
 
 function shallowEqualPipelineSlice(a, b) {
   if (a === b) return true;

@@ -529,23 +529,12 @@ export function graphqlQueryReportDataSource(rawApiConfig) {
     const controls   = params.viewParams?._controls ?? {};
     const pagination = params.pagination ?? { first: 0, rows: 50 };
 
-    const page     = Math.floor(pagination.first / pagination.rows) + 1;
-    const limit    = pagination.rows;
-    const cacheKey = `${page}:${limit}`;
-
     const gqlVars  = resolveVariablesMap(baseVars, rawApiConfig.variablesMap, {
       controls,
       sortBy: params.sortBy,
       pagination,
       viewParams: params.viewParams ?? {},
     });
-    const pageCache = params._pageCache;
-
-    const cached = pageCache?.get(cacheKey);
-    if (cached) {
-      return { ...state, columns: cached.columns, columnGroups: cached.columnGroups, rows: cached.rows, filterValues: cached.filterValues, filterDefs: cached.filterDefs, metaTotals: cached.metaTotals, metaTodayTotals: cached.metaTodayTotals, metaPagination: cached.metaPagination, metaCol: cached.metaCol };
-    }
-
     const query = buildCustomReportQuery(gqlVars, rawApiConfig.variableTypes);
 
     const res = await fetch(endpoint, {
@@ -582,8 +571,6 @@ export function graphqlQueryReportDataSource(rawApiConfig) {
         ? key.toUpperCase()
         : key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' '),
     }));
-
-    pageCache?.set(cacheKey, { columns, columnGroups, rows, filterValues, filterDefs, labelColDefs, metaTotals, metaTodayTotals, metaPagination, metaCol });
 
     return { ...state, columns, columnGroups, rows, filterValues, filterDefs, labelColDefs, metaTotals, metaTodayTotals, metaPagination, metaCol };
   };
