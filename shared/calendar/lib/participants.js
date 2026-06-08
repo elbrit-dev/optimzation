@@ -1,8 +1,8 @@
 import { PARTICIPANT_SOURCE_BY_TAG } from "@calendar/components/calendar/constants";
 import {
   fetchEmployees,fetchDoctors,fetchHQTerritories
-} from "@calendar/services/participants.service";
-import { getCached } from "@calendar/lib/participants-cache"
+} from "@calendar/components/calendar/module/event/services/master-data.service";
+import { getCached } from "@calendar/lib/data-cache"
 /**
  * Fetch employee / sales partner options based on selected tag
  */

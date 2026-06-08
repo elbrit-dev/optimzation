@@ -63,7 +63,7 @@ export const eventSchema = z
     approvedBy: z.string().optional(),
     assignedTo:z.any().optional(),
     /* ---------- Todo ---------- */
-    status: z.enum(["Open", "Closed", "Cancelled"]).optional(),
+    status: z.enum(["Open", "Closed", "Cancelled","Completed","Approved","Rejected"]).optional(),
     priority: z.enum(["High", "Medium", "Low"]).optional(),
 
     /* ---------- Doctor Visit ---------- */
@@ -72,7 +72,8 @@ export const eventSchema = z
     roleId: z.string().optional(),
     leave_approver:z.string().optional(),
     attending: z.enum(["Yes", "No","Maybe",""]).optional(),
-    kly_lat_long: z.string().optional(),
+    custom_latitude: z.number().optional(),
+    custom_longitude: z.number().optional(),
   })
   .superRefine((data, ctx) => {
     const config = TAG_FORM_CONFIG[data.tags] ?? TAG_FORM_CONFIG.DEFAULT;
@@ -140,37 +141,14 @@ export const eventSchema = z
     /* ---------------------------------------------
        DOCTOR VISIT PLAN: POB RULES
     --------------------------------------------- */
-    if (data.tags === TAG_IDS.DOCTOR_VISIT_PLAN) {
-      if (data.pob_given === "Yes") {
-        if (!data.fsl_doctor_item || data.fsl_doctor_item.length === 0) {
-          ctx.addIssue({
-            path: ["fsl_doctor_item"],
-            message: "At least one POB item is required",
-            code: z.ZodIssueCode.custom,
-          });
-        }
-      }
-
-      if (data.pob_given === "No" && data.fsl_doctor_item?.length) {
-        ctx.addIssue({
-          path: ["fsl_doctor_item"],
-          message: "POB items must be empty when POB is not given",
-          code: z.ZodIssueCode.custom,
-        });
-      }
-    }
-
-    /* ---------------------------------------------
-    DOCTOR VISIT PLAN: POB RULE
- --------------------------------------------- */
     if (
       data.tags === TAG_IDS.DOCTOR_VISIT_PLAN &&
-      data.pob_given === "Yes" &&
+      data.customer &&
       (!data.fsl_doctor_item || data.fsl_doctor_item.length === 0)
     ) {
       ctx.addIssue({
         path: ["fsl_doctor_item"],
-        message: "At least one POB item is required",
+        message: "At least one item is required",
         code: z.ZodIssueCode.custom,
       });
     }

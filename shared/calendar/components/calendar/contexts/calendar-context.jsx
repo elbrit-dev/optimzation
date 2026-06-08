@@ -1,15 +1,15 @@
 "use client";;
 import { createContext, useContext, useState, useEffect, useMemo } from "react";
 import { useLocalStorage } from "@calendar/components/calendar/hooks";
-import { fetchAllCustomers, fetchEventsByRange } from "@calendar/services/event.service";
+import { fetchAllCustomers, fetchEventsByRange } from "@calendar/components/calendar/module/event/services/event.service";
 import { resolveCalendarRange } from "@calendar/lib/calendar/range";
-import { ELBRIT_ROLEID, EMPLOYEES_QUERY, normalizeRoleProfiles } from "@calendar/services/events.query";
-import { mapEmployeesToCalendarUsers } from "@calendar/services/employee-to-calendar-user";
+import { ELBRIT_ROLEID, EMPLOYEES_QUERY, normalizeRoleProfiles } from "@calendar/components/calendar/module/event/graphql/events.query";
+import { mapEmployeesToCalendarUsers } from "@calendar/components/calendar/module/event/services/employee-to-calendar-user";
 import { graphqlRequest } from "@calendar/lib/graphql-client";
-import { enrichEventsWithParticipants } from "@calendar/lib/calendar/enrich-events";
 import { resolveVisibleEmployeeIds, resolveVisibleRoleIds } from "@calendar/lib/employeeHeirachy";
-import { TAG_IDS, TAGS } from "../constants";
+import { STATUS, TAG_IDS, TAGS } from "@calendar/components/calendar/constants";
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
+import { useEmployeeResolvers } from "@calendar/lib/employeeResolver";
 
 const DEFAULT_SETTINGS = {
 	badgeVariant: "colored",
@@ -39,8 +39,10 @@ export function CalendarProvider({
 	const [selectedDate, setSelectedDate] = useState(new Date());
 	const [selectedUserId, setSelectedUserId] = useState("all");
 	const [selectedColors, setSelectedColors] = useState([]);
+	const [selectedStatuses, setSelectedStatuses] = useState([]);
 	const [allEvents, setAllEvents] = useState(events || []);
 	// const [filteredEvents, setFilteredEvents] = useState(events || []);
+	const [notifications, setNotifications] = useState([]);
 	const [users, setUsers] = useState([]);
 	const [usersLoading, setUsersLoading] = useState(true);
 	const [employeeOptions, setEmployeeOptions] = useState([]);
@@ -101,6 +103,20 @@ export function CalendarProvider({
 
 		setSelectedColors(newColors);
 	};
+	const filterEventsBySelectedStatus = (status) => {
+		const normalized = status.toLowerCase();
+	  
+		const isSelected =
+		  selectedStatuses.includes(normalized);
+	  
+		const newStatuses = isSelected
+		  ? selectedStatuses.filter(
+			  (s) => s !== normalized
+			)
+		  : [...selectedStatuses, normalized];
+	  
+		setSelectedStatuses(newStatuses);
+	  };
 	const filterEventsBySelectedUser = (userId) => {
 		setSelectedUserId(userId);
 	};
@@ -153,6 +169,7 @@ export function CalendarProvider({
 	const clearFilter = () => {
 		// setFilteredEvents(allEvents);
 		setSelectedColors([]);
+		setSelectedStatuses([]);
 		setSelectedUserId("all");
 	};
 	useEffect(() => {
@@ -345,7 +362,13 @@ export function CalendarProvider({
 					selectedColors.includes(event.color || "blue")
 				);
 			}
-
+			if (selectedStatuses.length) {
+				result = result.filter((event) =>
+				  selectedStatuses.includes(
+					event.status?.trim()?.toLowerCase()
+				  )
+				);
+			  }
 			return result;
 		}
 
@@ -378,7 +401,13 @@ export function CalendarProvider({
 				selectedColors.includes(event.color || "blue")
 			);
 		}
-
+		if (selectedStatuses.length) {
+			result = result.filter(event =>
+			  selectedStatuses.includes(
+				event.status?.trim()?.toLowerCase()
+			  )
+			);
+		  }
 		return result;
 
 	}, [
@@ -386,9 +415,31 @@ export function CalendarProvider({
 		visibleRoleIds,
 		allowedEmployeeIds,
 		selectedUserId,
-		selectedColors
+		selectedColors,selectedStatuses
 	]);
-
+	const employeeResolvers = useEmployeeResolvers(employeeOptions);
+	useEffect(() => {
+		const leaveNotifications = filteredEvents
+		  .filter(
+			(event) =>
+			  event.tags === TAG_IDS.LEAVE &&
+			  event.status?.toLowerCase() === STATUS.OPEN.toLowerCase() &&
+			  event.leave_approver === LOGGED_IN_USER.email
+		  )
+		  .map((leave) => ({
+			id: leave.erpName,
+			title: "Leave Approval Pending",
+			message: `${
+			  employeeResolvers.getEmployeeNameById(leave.employee) ??
+			  leave.employee
+			} applied for ${leave.leaveType}`,
+			createdAt: leave.startDate,
+			isRead: false,
+			leave,
+		  }));
+	  
+		setNotifications(leaveNotifications);
+	  }, [filteredEvents, employeeResolvers]);
 	const value = {
 		selectedDate,
 		setSelectedDate: handleSelectDate,
@@ -399,7 +450,11 @@ export function CalendarProvider({
 		users,
 		usersLoading,
 		selectedColors,
+		notifications,
+		setNotifications,
 		filterEventsBySelectedColors,
+		selectedStatuses,
+		filterEventsBySelectedStatus,
 		filterEventsBySelectedUser,
 		events: filteredEvents,
 		view: currentView,

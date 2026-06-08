@@ -19,7 +19,7 @@ function ViewSection({ viewId, viewCfg }) {
   const { name, view } = viewCfg;
 
   return (
-    <section className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+    <section className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-6">
       <h2 className="text-lg font-medium text-gray-800 mb-4">{name}</h2>
       {resolvedControls?.length > 0 && (
         <div className="mb-3">
@@ -65,7 +65,7 @@ function ReportTable({ reportConfig }) {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <main className="max-w-[1600px] mx-auto px-4 py-8 flex flex-col gap-8">
+      <main className="max-w-[1600px] mx-auto px-4 py-4 sm:py-8 flex flex-col gap-6 sm:gap-8">
         <SmartDataProviderImpl
           reportConfig={reportConfig}
           overrides={apiToken ? { api: { token: apiToken } } : undefined}

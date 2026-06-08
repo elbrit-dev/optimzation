@@ -10,11 +10,11 @@ import {
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 import { TAG_IDS } from "@calendar/components/calendar/constants"
 import { buildParticipantsWithDetails } from "@calendar/lib/helper";
-import { EventLeaveDialog } from "./event-details/leave-dialog";
-import { EventDefaultDialog } from "./event-details/default-dialog";
+import { EventLeaveDialog } from "@calendar/components/calendar/module/leave/components/leave-dialog";
 import { Calendar, Clock, Text, User } from "lucide-react";
-import { EventDoctorVisitDialog } from "./event-details/doctor-visit-dialog";
-import { EventTodoDialog } from "./event-details/todo-dialog";
+import { EventDefaultDialog } from "@calendar/components/calendar/module/event/components/event-details/default-dialog";
+import { EventDoctorVisitDialog } from "@calendar/components/calendar/module/event/components/event-details/doctor-visit-dialog";
+import { EventTodoDialog } from "@calendar/components/calendar/module/todo/components/todo-dialog";
 
 export const ICONS = {
 	owner: User,

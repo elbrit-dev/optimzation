@@ -1,5 +1,5 @@
 import { TAG_IDS } from "@calendar/components/calendar/constants";
-import { saveEvent } from "@calendar/services/event.service";
+import { saveEvent } from "@calendar/components/calendar/module/event/services/event.service";
 
 export function resolveDoctorVisitState(event, loggedInUserId) {
   if (event.tags !== TAG_IDS.DOCTOR_VISIT_PLAN) {
@@ -19,13 +19,17 @@ export function resolveDoctorVisitState(event, loggedInUserId) {
 
   const isParticipant = Boolean(participant);
 
+  const hasLocation =
+    !!participant?.custom_latitude &&
+    !!participant?.custom_longitude;
+
   const needsLocation =
-    isParticipant && !participant?.kly_lat_long;
+    isParticipant && !hasLocation;
 
   const hasVisited =
     isParticipant &&
-    participant?.kly_lat_long &&
-    participant?.attending.toLowerCase() === "yes";
+    hasLocation &&
+    participant?.attending?.toLowerCase() === "yes";
 
   return {
     isDoctorVisit: true,
@@ -50,7 +54,8 @@ export async function submitDoctorVisitLocation({
 
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
-        const latLong = `${pos.coords.latitude},${pos.coords.longitude}`;
+        const latitude = parseFloat(pos.coords.latitude);
+        const longitude = parseFloat(pos.coords.longitude);
 
         const updatedParticipants =
           event.event_participants.map((p) =>
@@ -58,7 +63,8 @@ export async function submitDoctorVisitLocation({
             String(p.reference_docname) === String(loggedInUserId)
               ? {
                   ...p,
-                  kly_lat_long: latLong,
+                  custom_latitude: latitude,
+                  custom_longitude: longitude,
                   attending: "Yes",
                 }
               : p
@@ -79,7 +85,8 @@ export async function submitDoctorVisitLocation({
             String(p.id) === String(loggedInUserId)
               ? {
                   ...p,
-                  kly_lat_long: latLong,
+                  custom_latitude: latitude,
+                  custom_longitude: longitude,
                   attending: "Yes",
                 }
               : p

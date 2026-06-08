@@ -18,6 +18,7 @@ const eventBadgeVariants = cva(
 				green:
 					"border-green-200 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300",
 				red: "border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300",
+				indigo: "border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-300",
 				yellow:
 					"border-yellow-200 bg-yellow-50 text-yellow-700 dark:border-yellow-800 dark:bg-yellow-950 dark:text-yellow-300",
 				purple:
@@ -29,6 +30,7 @@ const eventBadgeVariants = cva(
 				"blue-dot": "bg-bg-secondary text-t-primary [&_svg]:fill-blue-600",
 				"green-dot": "bg-bg-secondary text-t-primary [&_svg]:fill-green-600",
 				"red-dot": "bg-bg-secondary text-t-primary [&_svg]:fill-red-600",
+				"indigo-dot": "bg-bg-secondary text-t-primary [&_svg]:fill-indigo-600",
 				"orange-dot": "bg-bg-secondary text-t-primary [&_svg]:fill-orange-600",
 				"purple-dot": "bg-bg-secondary text-t-primary [&_svg]:fill-purple-600",
 				"yellow-dot": "bg-bg-secondary text-t-primary [&_svg]:fill-yellow-600",

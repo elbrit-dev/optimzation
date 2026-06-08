@@ -1,0 +1,104 @@
+import { graphqlRequest } from "@calendar/lib/graphql-client";
+import {
+  EMPLOYEES_QUERY, DOCTOR_QUERY, HQ_TERRITORIES_QUERY,
+  ITEMS_QUERY
+} from "@calendar/components/calendar/module/event/graphql/events.query";
+import { getCached } from "@calendar/lib/data-cache";
+
+const MAX_ROWS = 1000; // safe upper bound
+
+export async function fetchEmployees() {
+  const data = await graphqlRequest(EMPLOYEES_QUERY, {
+    first: MAX_ROWS,
+  });
+
+  return (
+    data?.Employees?.edges.map(({ node }) => ({
+      doctype: "Employee",
+      value: node.name,          // ERP ID → saved
+      label: node.employee_name,
+      email: node.company_email,
+      role: node.designation?.name ?? null,// UI text
+      roleId: node.role_id,
+      leave_approver: node.leave_approver?.name ?? null,
+    })) || []
+  );
+}
+
+export async function fetchItems() {
+  return getCached("POB_ITEMS", async () => {
+    const data = await graphqlRequest(ITEMS_QUERY, {
+      first: MAX_ROWS,
+      filters: [
+        {
+          fieldname: "custom_last_mrp",
+          operator: "GT",
+          value: "0",
+        },
+      ],
+    });
+
+    const unique = new Map();
+
+    data?.Items?.edges.forEach(({ node }) => {
+      if (!unique.has(node.item_name)) {
+        unique.set(node.item_name, {
+          value: node.item_name,
+          label: node.item_name,
+          rate: Number(node.custom_last_mrp),
+        });
+      }
+    });
+
+    return Array.from(unique.values());
+  });
+}
+
+export async function fetchDoctors() {
+  const data = await graphqlRequest(DOCTOR_QUERY, {
+    first: MAX_ROWS,
+  });
+
+  return (
+    data?.Leads?.edges.map(({ node }) => ({
+      doctype: "Lead",
+      value: node.name,
+      label: node.lead_name,
+      custom_latitude: node.custom_latitude ?? null,
+      custom_longitude: node.custom_longitude ?? null,
+      city: node.city,
+      code: node.name,
+      fsl_speciality__name: node.fsl_speciality__name,
+      email:node.email_id,
+      fsl_category1__name:node.custom_category_3,
+       fsl_category2__name:node.custom_category_2,
+       fsl_category3__name:node.custom_category_3,
+      territory__name:node.territory__name,
+      notes: (node.notes ?? [])
+        .map(n => ({
+          note: n.note,
+          creation: n.creation,
+          name:n.name,
+          creation:n.creation,
+          idx:n.idx,
+          doctype:n.doctype,
+          modified:n.modified
+        }))
+        .sort((a, b) => new Date(b.creation) - new Date(a.creation)),
+    })) || []
+  );
+}
+
+export async function fetchHQTerritories() {
+  const data = await graphqlRequest(HQ_TERRITORIES_QUERY, {
+    first: MAX_ROWS,
+  });
+
+  return (
+    data?.Territorys?.edges.map(({ node }) => ({
+      doctype: "Territory",
+      value: node.name, // ERP value
+      label: node.name, // UI label (same)
+    })) || []
+  );
+}

@@ -40,7 +40,7 @@ function ToggleControl({ def, viewIds }) {
 
   return (
     <div
-      className="flex items-center gap-2 px-3 h-8 border rounded-md cursor-default"
+      className="flex items-center gap-2 px-3 h-9 sm:h-8 border rounded-md cursor-default"
       style={{
         borderColor: (value || hovered) ? '#06b6d4' : '#d1d5db',
         transition: 'border-color 0.2s',
@@ -85,7 +85,7 @@ function FilterSortControl({ def, viewIds }) {
       <button
         type="button"
         onClick={() => setVisible(true)}
-        className="flex items-center gap-2 px-3 h-8 border rounded-md bg-white transition-colors"
+        className="flex items-center gap-2 px-3 h-9 sm:h-8 border rounded-md bg-white transition-colors"
         style={{ borderColor: isActive ? '#6366f1' : '#d1d5db' }}
       >
         <i className="pi pi-filter" style={{ fontSize: '0.75rem', color: isActive ? '#6366f1' : '#6b7280' }} />
@@ -132,7 +132,7 @@ function DateRangeControl({ def, viewIds }) {
   }
 
   return (
-    <div className="w-44 flex-none">
+    <div className="w-full sm:w-44 sm:flex-none">
       <RangePicker
         value={value}
         onChange={handleChange}
@@ -157,7 +157,7 @@ function RefreshControl({ def }) {
       type="button"
       onClick={refresh}
       disabled={isLoading}
-      className="flex items-center gap-1.5 px-3 h-8 border rounded-md bg-white text-gray-600"
+      className="flex items-center gap-1.5 px-3 h-9 sm:h-8 border rounded-md bg-white text-gray-600"
       style={{
         borderColor: hovered && !isLoading ? '#06b6d4' : '#d1d5db',
         transition: 'border-color 0.2s',
@@ -291,7 +291,7 @@ export function ReportControls({ controls, viewIds }) {
 
   return (
     <>
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-3 sm:gap-4">
         {controls.map((def, i) => {
           if (def.type === 'toggle')     return <ToggleControl key={i} def={def} viewIds={viewIds} />;
           if (def.type === 'dateRange')  return <DateRangeControl key={i} def={def} viewIds={viewIds} />;

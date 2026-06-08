@@ -5,8 +5,8 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 import { buildEventDefaultValues, TAG_IDS, TAGS } from "@calendar/components/calendar/constants";
-import { mapFormToErpEvent } from "@calendar/services/event-to-erp";
-import { saveDocToErp, saveEvent, fetchEmployeeLeaveBalance, saveLeaveApplication, updateLeaveAttachment, updateLeadDob, saveDocToQuotation } from "@calendar/services/event.service";
+import { mapFormToErpEvent } from "@calendar/components/calendar/module/event/mappers/event-to-erp";
+import { saveEvent, saveDocToQuotation } from "@calendar/components/calendar/module/event/services/event.service";
 import { useWatch } from "react-hook-form";
 import { LeaveTypeCards } from "@calendar/components/calendar/leave/LeaveTypeCards";
 import { Form, FormControl, FormField, } from "@calendar/components/ui/form";
@@ -21,22 +21,24 @@ import { eventSchema } from "@calendar/components/calendar/schemas";
 import { TAG_FORM_CONFIG } from "@calendar/lib/calendar/form-config";
 import { loadParticipantOptionsByTag } from "@calendar/lib/participants";
 import { TimePicker } from "@calendar/components/ui/TimePicker";
-import { mapFormToErpTodo, mapErpTodoToCalendar } from "@calendar/services/todo-to-erp-graphql";
-import { mapErpLeaveToCalendar, mapFormToErpLeave } from "@calendar/services/leave-to-erp";
+import { mapErpTodoToCalendar, mapFormToErpTodo } from "@calendar/components/calendar/module/todo/mappers/todo.mapper";
+import { mapErpLeaveToCalendar, mapFormToErpLeave } from "@calendar/components/calendar/module/leave/mappers/leave.mapper";
 import { useEmployeeResolvers } from "@calendar/lib/employeeResolver";
 import { uploadLeaveMedicalCertificate } from "@calendar/lib/file.service";
-import { fetchItems } from "@calendar/services/participants.service";
+import { fetchItems } from "@calendar/components/calendar/module/event/services/master-data.service";
 import { buildParticipantsWithDetails, getAvailableItems, normalizeMeetingTimes, normalizeNonMeetingDates, resolveLatLong, showFirstFormErrorAsToast, syncPobItemRates, updatePobRow } from "@calendar/lib/helper";
 import { Button } from "@calendar/components/ui/button";
 import { resolveDisplayValueFromEvent } from "@calendar/lib/calendar/resolveDisplay";
 import { useAuth } from "@calendar/components/auth/auth-context";
-import Tiptap from "@calendar/components/ui/TodoWysiwyg";
-import { mapDoctorVisitToQuotation } from "@calendar/services/quotation-to-erp";
+import Tiptap from "@calendar/components/calendar/module/todo/components/TodoWysiwyg";
+import { mapDoctorVisitToQuotation } from "@calendar/components/calendar/module/event/mappers/quotation-to-erp";
 import { calculateDistanceKm, parseLatLong } from "../helpers";
 import { useDoctorResolvers } from "@calendar/lib/doctorResolver";
-import { DoctorNotesSection } from "../doctor/DoctorNotesSection";
-import TodoComments from "@calendar/components/ui/TodoCommentsSection";
+import { DoctorNotesSection } from "../module/event/components/DoctorNotesSection";
+import TodoComments from "@calendar/components/calendar/module/todo/components/TodoCommentsSection";
 import { Textarea } from "@calendar/components/ui/textarea";
+import { fetchEmployeeLeaveBalance, saveLeaveApplication, updateLeaveAttachment } from "@calendar/components/calendar/module/leave/services/leave.service";
+import { saveDocToErp } from "@calendar/components/calendar/module/todo/services/todo.service";
 
 export function AddEditEventDialog({ children, event, defaultTag, forceValues, startDate: initialStartDate }) {
 	const { isOpen, onClose, onToggle } = useDisclosure();
@@ -45,7 +47,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		doctorOptions, events,
 		hqTerritoryOptions,
 		setEmployeeOptions,
-		setDoctorOptions, customerOptions, selectedDate,allowedEmployeeIds,
+		setDoctorOptions, customerOptions, selectedDate, allowedEmployeeIds,
 		setHqTerritoryOptions, } = useCalendar();
 	const isEditing = !!event;
 	const [leaveBalance, setLeaveBalance] = useState(null);
@@ -91,11 +93,13 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		if (tagConfig.hide) return !tagConfig.hide.includes(field);
 		return true;
 	};
-	const currentLocation = form.watch("kly_lat_long");
+	const currentLatitude = form.watch("custom_latitude");
+	const currentLongitude = form.watch("custom_longitude");
 	useEffect(() => {
 		if (!isEditing) return;
 		if (!event?.participants?.length) return;
-		if (!currentLocation) {
+
+		if (!currentLatitude || !currentLongitude) {
 			setDistanceKm(null);
 			setShowReason(false);
 			return;
@@ -103,26 +107,33 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 
 		const doctor = event.participants.find((p) => p.type === "Lead");
 
-		if (!doctor?.kly_lat_long) {
+		if (!doctor?.custom_latitude || !doctor?.custom_longitude) {
 			setDistanceKm(null);
 			setShowReason(false);
 			return;
 		}
 
-		const doctorLoc = parseLatLong(doctor.kly_lat_long);
-		const visitLoc = parseLatLong(currentLocation);
+		const doctorLat = parseFloat(doctor.custom_latitude);
+		const doctorLng = parseFloat(doctor.custom_longitude);
+		const visitLat = parseFloat(currentLatitude);
+		const visitLng = parseFloat(currentLongitude);
 
-		if (!doctorLoc || !visitLoc) {
+		if (
+			isNaN(doctorLat) ||
+			isNaN(doctorLng) ||
+			isNaN(visitLat) ||
+			isNaN(visitLng)
+		) {
 			setDistanceKm(null);
 			setShowReason(false);
 			return;
 		}
 
 		const dist = calculateDistanceKm(
-			doctorLoc.lat,
-			doctorLoc.lng,
-			visitLoc.lat,
-			visitLoc.lng
+			doctorLat,
+			doctorLng,
+			visitLat,
+			visitLng
 		);
 
 		setDistanceKm(dist);
@@ -143,13 +154,17 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			);
 		}
 
-	}, [currentLocation, event, isEditing]);
+	}, [currentLatitude, currentLongitude, event, isEditing]);
+	const hasValidLocation =
+		Number(currentLatitude) !== 0 &&
+		Number(currentLongitude) !== 0 &&
+		currentLatitude != null &&
+		currentLongitude != null;
+
 	const shouldShowRequestLocation =
 		selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN &&
-		!currentLocation &&
+		!hasValidLocation &&
 		!isResolvingLocation;
-
-
 	const getFieldLabel = (field, fallback) => {
 		return tagConfig.labels?.[field] ?? fallback;
 	};
@@ -161,7 +176,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 	const resetFieldsOnTagChange = () => {
 		reset({
 			employees: undefined, doctor: isDoctorMulti ? [] : undefined,
-			status: "Open", priority: "Medium", title: "",
+			status: "Open", priority: "Medium", title: "", description: ""
 		});
 		// ❌ HQ is REQUIRED for this tag — never reset it
 		if (selectedTag !== TAG_IDS.HQ_TOUR_PLAN) {
@@ -321,14 +336,14 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		}
 
 		// existing geo logic (unchanged)
-		resolveLatLong(form, attending, isEditing, toast);
-	}, [attending, isEditing]);
+		resolveLatLong(form, isEditing, toast);
+	}, [isEditing]);
 
 	const handleRequestLocation = async () => {
 		try {
 			setIsResolvingLocation(true);
 
-			resolveLatLong(form, attending, isEditing, toast);
+			resolveLatLong(form, isEditing, toast);
 
 		} finally {
 			setIsResolvingLocation(false);
@@ -477,7 +492,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			tags: selectedTag,
 		});
 	}, [isOpen, selectedTag, isEditing, initialStartDate, selectedDate]);
-	
+
 	/* --------------------------------------------------
 	   AUTO TITLE (SAFE)
 	-------------------------------------------------- */
@@ -515,15 +530,15 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		if (!tagConfig.employee?.autoSelectLoggedIn) return;
 
 		const loggedInEmployee =
-		employeeOptions.find(
-		  (e) => e.value === LOGGED_IN_USER.id
-		);
-	  
-	  if (!loggedInEmployee) return;
-	  
-	  const value = tagConfig.employee.multiselect
-		? [loggedInEmployee]
-		: loggedInEmployee;
+			employeeOptions.find(
+				(e) => e.value === LOGGED_IN_USER.id
+			);
+
+		if (!loggedInEmployee) return;
+
+		const value = tagConfig.employee.multiselect
+			? [loggedInEmployee]
+			: loggedInEmployee;
 
 		form.setValue("employees", value, { shouldDirty: false });
 	}, [selectedTag]);
@@ -571,6 +586,21 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 	};
 	const finalize = (message) => {
 		toast.success(message);
+		reset({
+			title: "", description: "", employees: undefined,
+			doctor: isDoctorMulti ? [] : undefined,
+			status: "Open",
+			priority: "Medium", attending: undefined, customer: undefined,
+			pob_given: undefined,
+			fsl_doctor_item: [], forceVisit: false,
+			custom_force_visit_reason: "", leaveType: undefined,
+			leavePeriod: "Full",
+			halfDayDate: undefined,
+			medicalAttachment: undefined, allocated_to: undefined,
+			assignedTo: [], custom_latitude: undefined, custom_longitude:undefined,
+			hqTerritory: "",
+			allDay: false,
+		});
 		onClose();
 	};
 	function normalizePobItemsForUI(items = []) {
@@ -705,20 +735,20 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			shouldValidate: true,
 		});
 	}, [selectedTag, matchedHqEvent]);
-	
+
 	// ----------------------------------------------------
 	// Disabled dates for HQ Tour Plan (logged-in user only)
 	// Prevent selecting dates where HQ already exists
 	// ----------------------------------------------------
-	
+
 	const disabledHqDates = useMemo(() => {
 		if (!events?.length) return [];
-	
+
 		const disabled = [];
-	
+
 		events.forEach((ev) => {
 			if (ev.tags !== TAG_IDS.HQ_TOUR_PLAN) return;
-	
+
 			// ignore current editing event
 			if (
 				isEditing &&
@@ -726,27 +756,27 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			) {
 				return;
 			}
-	
+
 			const isParticipant = ev.participants?.some(
 				(p) => allowedEmployeeIds.includes(p.id)
 			);
-	
+
 			if (!isParticipant) return;
-	
+
 			let current = startOfDay(
 				new Date(ev.startDate)
 			);
-	
+
 			const end = endOfDay(
 				new Date(ev.endDate)
 			);
-	
+
 			while (current <= end) {
 				disabled.push(new Date(current));
 				current.setDate(current.getDate() + 1);
 			}
 		});
-	
+
 		return disabled;
 	}, [
 		events,
@@ -785,20 +815,20 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 				await saveDocToQuotation(quotationDoc);
 
 			quotationName = savedQuotation.name;
+			// quotationName = "SAL-QTN-2026-00001"
 		}
 
 		const erpDoc = mapFormToErpEvent(values, {
 			erpName: event?.erpName,
 			employeeResolvers,
 			doctorResolvers,
-		  });
+		});
 
 		if (quotationName) {
 			erpDoc.reference_doctype = "Quotation";
 			erpDoc.reference_docname = quotationName;
 		}
 		const savedEvent = await saveEvent(erpDoc);
-
 		const calendarEvent = buildCalendarEvent({
 			event,
 			values,
@@ -837,7 +867,8 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			const erpDoc = mapFormToErpEvent(enrichedValues, {
 				employeeResolvers,
 				doctorResolvers,
-			  });
+			});
+			
 			const savedEvent = await saveEvent(erpDoc);
 
 			const calendarEvent = buildCalendarEvent({
@@ -967,7 +998,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 	}, [event, employeeOptions, doctorOptions]);
 	const shouldHideDateGrid =
 		isEditing && selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN;
-	const isSubmitDisabled =form.formState.isSubmitting;
+	const isSubmitDisabled = form.formState.isSubmitting;
 
 	return (
 		<Modal open={isOpen} onOpenChange={onToggle}>
@@ -1384,7 +1415,9 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 									Location
 								</p>
 								<p className="text-sm text-muted-foreground">
-									{form.watch("kly_lat_long") || "Location not captured"}
+									{form.watch("custom_latitude") && form.watch("custom_longitude")
+										? `${form.watch("custom_latitude")}, ${form.watch("custom_longitude")}`
+										: "Location not captured"}
 								</p>
 							</div>
 						)}

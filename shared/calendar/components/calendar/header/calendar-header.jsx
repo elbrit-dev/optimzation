@@ -1,13 +1,13 @@
 "use client";;
 import { motion } from "framer-motion";
-import { Plus } from "lucide-react";
+import { Plus, Bell } from "lucide-react";
 import { Button } from "@calendar/components/ui/button";
 import {
 	slideFromLeft,
 	slideFromRight,
 	transition,
 } from "@calendar/components/calendar/animations";
-import { startOfDay,isBefore } from "date-fns";
+import { startOfDay, isBefore } from "date-fns";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 import { AddEditEventDialog } from "@calendar/components/calendar/dialogs/add-edit-event-dialog";
 import { DateNavigator } from "@calendar/components/calendar/header/date-navigator";
@@ -16,18 +16,20 @@ import FilterEvents from "@calendar/components/calendar/header/filter";
 import { UserSelect } from "@calendar/components/calendar/header/user-select";
 import { Settings } from "@calendar/components/calendar/settings/settings";
 import Views from "@calendar/components/calendar/header/view-tabs";
+import GoogleCalendarConnect from "../google-auth";
+import { NotificationBell } from "@calendar/components/calendar/notification/NotificationBell";
 
 export function CalendarHeader() {
-	const { view, events,activeDate, selectedDate  } = useCalendar();
+	const { view, events, activeDate, selectedDate } = useCalendar();
 	const today = startOfDay(new Date());
 
-const candidateDate = activeDate ?? selectedDate ?? null;
+	const candidateDate = activeDate ?? selectedDate ?? null;
 
-const isPast =
-  candidateDate &&
-  isBefore(startOfDay(candidateDate), today);
+	const isPast =
+		candidateDate &&
+		isBefore(startOfDay(candidateDate), today);
 
-const startDateForDialog = isPast ? undefined : candidateDate;
+	const startDateForDialog = isPast ? undefined : candidateDate;
 	return (
 		<div
 			className="flex flex-col gap-4 border-b p-4 lg:flex-row lg:items-center lg:justify-between">
@@ -47,6 +49,7 @@ const startDateForDialog = isPast ? undefined : candidateDate;
 				animate="animate"
 				transition={transition}>
 				<div className="options flex-wrap flex items-center gap-4 md:gap-2">
+					<GoogleCalendarConnect />
 					<Views />
 				</div>
 
@@ -60,10 +63,11 @@ const startDateForDialog = isPast ? undefined : candidateDate;
 							</Button>
 						</AddEditEventDialog>
 					</div>
-				<div className="flex gap-2 flex-row lg:items-center lg:gap-1.5">
-					<FilterEvents />
-					<Settings />
-				</div>
+					<div className="flex gap-2 flex-row lg:items-center lg:gap-1.5">
+						<FilterEvents variant={true} />
+						<NotificationBell variant={true}/>
+						<Settings />
+					</div>
 				</div>
 			</motion.div>
 		</div>

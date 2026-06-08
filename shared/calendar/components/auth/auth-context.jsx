@@ -10,7 +10,8 @@ export function AuthProvider({
   erpUrl,
   authToken,
   me,
-  homeUrl,
+  homeUrl, googleClientId,
+  googleRedirectUri,
 }) {
   // 🔁 Redirect if not logged in
   useEffect(() => {
@@ -44,7 +45,7 @@ export function AuthProvider({
   if (!authToken) return null;
 
   return (
-    <AuthContext.Provider value={{ erpUrl, authToken, me }}>
+    <AuthContext.Provider value={{ erpUrl, authToken, me, googleClientId, googleRedirectUri }}>
       {children}
     </AuthContext.Provider>
   );

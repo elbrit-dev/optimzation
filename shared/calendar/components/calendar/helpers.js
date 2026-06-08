@@ -26,6 +26,7 @@ import {
 	subYears,
 } from "date-fns";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
+import { STATUS, STATUS_MAP } from "@calendar/components/calendar/constants";
 
 const FORMAT_STRING = "MMM d, yyyy";
 
@@ -87,8 +88,8 @@ export function getEventsCount(events, date, view) {
 
 export function groupEvents(dayEvents) {
 	const sortedEvents = dayEvents.sort(
-        (a, b) => parseISO(a.startDate).getTime() - parseISO(b.startDate).getTime()
-    );
+		(a, b) => parseISO(a.startDate).getTime() - parseISO(b.startDate).getTime()
+	);
 	const groups = [];
 
 	for (const event of sortedEvents) {
@@ -152,10 +153,10 @@ export function getCalendarCells(selectedDate) {
 	}));
 
 	const nextMonthCells = Array.from({ length: (7 - (totalDays % 7)) % 7 }, (_, i) => ({
-        day: i + 1,
-        currentMonth: false,
-        date: new Date(year, month + 1, i + 1),
-    }));
+		day: i + 1,
+		currentMonth: false,
+		date: new Date(year, month + 1, i + 1),
+	}));
 
 	return [...prevMonthCells, ...currentMonthCells, ...nextMonthCells];
 }
@@ -178,7 +179,7 @@ export function calculateMonthEventPositions(multiDayEvents, singleDayEvents, se
 			return (bDuration - aDuration || parseISO(a.startDate).getTime() - parseISO(b.startDate).getTime());
 		}),
 		...singleDayEvents.sort((a, b) =>
-            parseISO(a.startDate).getTime() - parseISO(b.startDate).getTime()),
+			parseISO(a.startDate).getTime() - parseISO(b.startDate).getTime()),
 	];
 
 	sortedEvents.forEach((event) => {
@@ -225,7 +226,7 @@ export function getMonthCellEvents(
 		const eventStart = parseISO(event.startDate);
 		const eventEnd = parseISO(event.endDate);
 		return ((dayStart >= eventStart && dayStart <= eventEnd) ||
-        isSameDay(dayStart, eventStart) || isSameDay(dayStart, eventEnd));
+			isSameDay(dayStart, eventStart) || isSameDay(dayStart, eventEnd));
 	});
 
 	return eventsForDate
@@ -246,153 +247,74 @@ export function formatTime(date, use24HourFormat) {
 	if (!isValid(parsedDate)) return "";
 	return format(parsedDate, use24HourFormat ? "HH:mm" : "h:mm a");
 }
-export function normalizeChecklistToERP(html = "") {
-	if (!html) return "";
-  
-	const parser = new DOMParser();
-	const doc = parser.parseFromString(html, "text/html");
-	const root = doc.body;
-  
-	// 🔹 Convert task items to Quill format
-	root.querySelectorAll('li[data-type="taskItem"]').forEach((li) => {
-	  const checked = li.getAttribute("data-checked") === "true";
-  
-	  li.removeAttribute("data-type");
-	  li.removeAttribute("data-checked");
-	  li.setAttribute("data-list", checked ? "checked" : "unchecked");
-  
-	  const span = document.createElement("span");
-	  span.className = "ql-ui";
-	  span.setAttribute("contenteditable", "false");
-  
-	  const p = li.querySelector("p");
-  
-	  if (p) {
-		li.innerHTML = "";
-		li.appendChild(span);
-		li.innerHTML += p.innerHTML;
-	  } else {
-		li.prepend(span);
-	  }
-	});
-  
-	// 🔹 Convert UL[data-type="taskList"] → OL
-	root.querySelectorAll('ul[data-type="taskList"]').forEach((ul) => {
-	  const ol = document.createElement("ol");
-	  ol.innerHTML = ul.innerHTML;
-	  ul.replaceWith(ol);
-	});
-  
-	return `<div class="ql-editor read-mode">${root.innerHTML}</div>`;
-  }
-  export function normalizeChecklistFromERP(html = "") {
-	if (!html) return "";
-  
-	const parser = new DOMParser();
-	const doc = parser.parseFromString(html, "text/html");
-  
-	const wrapper = doc.querySelector(".ql-editor");
-	const root = wrapper || doc.body;
-  
-	// 🔹 Convert Quill checklist items
-	root.querySelectorAll("li[data-list]").forEach((li) => {
-	  const checked = li.getAttribute("data-list") === "checked";
-  
-	  li.removeAttribute("data-list");
-	  li.setAttribute("data-type", "taskItem");
-	  li.setAttribute("data-checked", checked ? "true" : "false");
-  
-	  // Remove quill span
-	  const span = li.querySelector(".ql-ui");
-	  if (span) span.remove();
-  
-	  // Wrap content in <p> if needed
-	  if (!li.querySelector("p")) {
-		const p = document.createElement("p");
-		p.innerHTML = li.innerHTML;
-		li.innerHTML = "";
-		li.appendChild(p);
-	  }
-	});
-  
-	// 🔹 Convert OL containing checklist → taskList UL
-	root.querySelectorAll("ol").forEach((ol) => {
-	  if (ol.querySelector('[data-type="taskItem"]')) {
-		const ul = document.createElement("ul");
-		ul.setAttribute("data-type", "taskList");
-		ul.innerHTML = ol.innerHTML;
-		ol.replaceWith(ul);
-	  }
-	});
-  
-	return root.innerHTML;
-  }
 // -----------------------------
 // GEO UTILS
 // -----------------------------
 const toRad = (value) => (value * Math.PI) / 180;
 
 export function calculateDistanceKm(lat1, lon1, lat2, lon2) {
-  const R = 6371; // Earth radius in KM
+	const R = 6371; // Earth radius in KM
 
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
+	const dLat = toRad(lat2 - lat1);
+	const dLon = toRad(lon2 - lon1);
 
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRad(lat1)) *
-      Math.cos(toRad(lat2)) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
+	const a =
+		Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+		Math.cos(toRad(lat1)) *
+		Math.cos(toRad(lat2)) *
+		Math.sin(dLon / 2) *
+		Math.sin(dLon / 2);
 
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+	const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
-  return R * c;
+	return R * c;
 }
 
 export function parseLatLong(value) {
-  if (!value) return null;
+	if (!value) return null;
 
-  try {
-    const parsed =
-      typeof value === "string" ? JSON.parse(value) : value;
+	try {
+		const parsed =
+			typeof value === "string" ? JSON.parse(value) : value;
 
-    if (!parsed || parsed.x == null || parsed.y == null) {
-      return null;
-    }
+		if (!parsed || parsed.x == null || parsed.y == null) {
+			return null;
+		}
 
-    return {
-      lat: Number(parsed.x),
-      lng: Number(parsed.y),
-    };
-  } catch (err) {
-    console.error("Invalid lat long:", err);
-    return null;
-  }
+		return {
+			lat: Number(parsed.x),
+			lng: Number(parsed.y),
+		};
+	} catch (err) {
+		console.error("Invalid lat long:", err);
+		return null;
+	}
 }
 export function getPriorityClass(priority) {
 	switch (priority) {
-	  case "High":
-		return "text-red-600";
-	  case "Medium":
-		return "text-orange-500";
-	  case "Low":
-		return "text-green-600";
-	  default:
-		return "text-muted-foreground";
+		case "High":
+			return "text-red-600";
+		case "Medium":
+			return "text-orange-500";
+		case "Low":
+			return "text-green-600";
+		default:
+			return "text-muted-foreground";
 	}
-  }
-  
- export function getStatusBadgeClass(status) {
+}
+
+export function getStatusBadgeClass(status) {
 	switch (status) {
-	  case "Open":
-		return "bg-orange-400";
-	  case "Closed":
-		return "bg-green-600";
-	  default:
-		return "bg-gray-400";
+		case "Open":
+			return "bg-orange-400";
+		case "Closed":
+			return "bg-green-600";
+		case "Completed":
+			return "bg-green-600";
+		default:
+			return "bg-gray-400";
 	}
-  }
+}
 export const getFirstLetters = str => {
 	if (!str) return "";
 	const words = str.split(" ");
@@ -449,8 +371,8 @@ export const getEventsForWeek = (events, date) => {
 		const eventStart = parseISO(event.startDate);
 		const eventEnd = parseISO(event.endDate);
 		return (isValid(eventStart) &&
-        isValid(eventEnd) &&
-        eventStart <= endOfWeekDate && eventEnd >= startOfWeekDate);
+			isValid(eventEnd) &&
+			eventStart <= endOfWeekDate && eventEnd >= startOfWeekDate);
 	});
 };
 
@@ -462,8 +384,8 @@ export const getEventsForMonth = (events, date) => {
 		const eventStart = parseISO(event.startDate);
 		const eventEnd = parseISO(event.endDate);
 		return (isValid(eventStart) &&
-        isValid(eventEnd) &&
-        eventStart <= endOfMonthDate && eventEnd >= startOfMonthDate);
+			isValid(eventEnd) &&
+			eventStart <= endOfMonthDate && eventEnd >= startOfMonthDate);
 	});
 };
 
@@ -477,8 +399,8 @@ export const getEventsForYear = (events, date) => {
 		const eventStart = parseISO(event.startDate);
 		const eventEnd = parseISO(event.endDate);
 		return (isValid(eventStart) &&
-        isValid(eventEnd) &&
-        eventStart <= endOfYearDate && eventEnd >= startOfYearDate);
+			isValid(eventEnd) &&
+			eventStart <= endOfYearDate && eventEnd >= startOfYearDate);
 	});
 };
 
@@ -506,7 +428,8 @@ export const getBgColor = color => {
 		blue: "bg-blue-400 dark:bg-blue-600",
 		orange: "bg-orange-400 dark:bg-orange-600",
 		purple: "bg-purple-400 dark:bg-purple-600",
-		teal: "bg-teal-400 dark:bg-teal-600", 
+		teal: "bg-teal-400 dark:bg-teal-600",
+		indigo: "bg-indigo-400 dark:bg-indigo-600",
 	};
 	return colorClasses[color] || "";
 };
@@ -533,3 +456,14 @@ export const toCapitalize = str => {
 	if (!str) return "";
 	return str.charAt(0).toUpperCase() + str.slice(1);
 };
+
+export function normalizeStatus(
+	status,
+	fallback = STATUS.OPEN
+  ) {
+	return (
+	  STATUS_MAP[
+		status?.trim()?.toLowerCase()
+	  ] ?? fallback
+	);
+  }

@@ -154,11 +154,6 @@ export const AgendaEventsMobile = () => {
     });
 
     if (showOnlyApprovedLeaves) {
-      console.log("DATA",data.filter(
-        (event) =>
-          event.tags === TAG_IDS.LEAVE &&
-          event.status === "APPROVED"
-      ),data)
       return data.filter(
         (event) =>
           event.tags === TAG_IDS.LEAVE &&

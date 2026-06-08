@@ -1,4 +1,4 @@
-import { TAG_IDS } from "@calendar/components/calendar/constants";
+import { DEFAULT_COLORS, TAG_IDS } from "@calendar/components/calendar/constants";
 import { startOfDay, isBefore } from "date-fns";
 export const TAG_FORM_CONFIG = {
   [TAG_IDS.LEAVE]: {
@@ -10,7 +10,7 @@ export const TAG_FORM_CONFIG = {
     show: ["startDate", "endDate", "description", "leaveType"],
     required: ["startDate", "endDate", "leaveType"],
     dateOnly: true,
-    fixedColor: "yellow",
+    fixedColor: DEFAULT_COLORS.EVENT,
     autoTitle: () => "Leave",
     employee: {
       autoSelectLoggedIn: true,
@@ -121,7 +121,7 @@ export const TAG_FORM_CONFIG = {
     
       return `${hqTerritory}-${emp.label.replace(/\s+/g, "-")}`;
     },
-    fixedColor: "purple",
+    fixedColor: DEFAULT_COLORS.HQ_TOUR_PLAN,
     details: {
       fields: [
         { key: "startDate", label: "Start Date", type: "date" },
@@ -141,7 +141,7 @@ export const TAG_FORM_CONFIG = {
     required: ["title", "startDate", "endDate", "employees"],
     dateRange: true,
 
-    fixedColor: "blue",
+    fixedColor: DEFAULT_COLORS.EVENT,
     ui: {
       lockTagOnEdit: true,
       showTags: false,
@@ -164,57 +164,6 @@ export const TAG_FORM_CONFIG = {
       autoSelectLoggedIn: false,
     },
   },
-
-  // [TAG_IDS.BIRTHDAY]: {
-  //   hide: [
-  //     "title",
-  //     "endDate",
-  //     "description",
-  //     "employees",
-  //     "color", "allocated_to"
-  //   ],
-  //   show: ["startDate", "doctor"],
-  //   required: ["startDate", "doctor"],
-  //   dateOnly: true,
-
-  //   fixedColor: "yellow",
-  //   forceAllDay: true,
-  //   ui: {
-  //     lockTagOnEdit: true,
-  //     showTags: false,
-  //     allowDelete: () => true,
-  //     allowEdit: () => true,
-  //   },
-  //   editReadOnly: {
-  //     fields: [
-  //       { key: "doctor", label: "Doctor", type: "doctor" },
-  //     ],
-  //   },
-  //   details: {
-  //     fields: [
-  //       { key: "startDate", label: "Birthday", type: "date" },
-  //       { key: "doctor", label: "Doctor", type: "doctor" },
-  //     ],
-  //   },
-  //   autoTitle: (
-  //     { doctor } = {},
-  //     { doctorOptions } = {}
-  //   ) => {
-  //     if (!doctor) return "Birthday";
-
-  //     const selectedDoctor = doctorOptions?.find(
-  //       (d) => d.value === doctor
-  //     );
-
-  //     if (!selectedDoctor) return "Birthday";
-
-  //     const doctorName = selectedDoctor.label.replace(/\s+/g, "");
-  //     const doctorCode = selectedDoctor.value;
-
-  //     return `BD-${doctorName}-${doctorCode}`;
-  //   },
-
-  // },
 
   [TAG_IDS.DOCTOR_VISIT_PLAN]: {
     hide: [
@@ -265,7 +214,7 @@ export const TAG_FORM_CONFIG = {
         { key: "startDate", label: "Date", type: "date" },
       ],
     },
-    fixedColor: "blue",
+    fixedColor: DEFAULT_COLORS.EVENT,
     forceAllDay: true,
     employee: {
       autoSelectLoggedIn: true,
@@ -280,12 +229,21 @@ export const TAG_FORM_CONFIG = {
         label: "Visited",
         type: "checkbox",
       },
-      location: {
-        key: "kly_lat_long",
-        label: "Latitude & Longitude",
+    
+      latitude: {
+        key: "custom_latitude",
+        label: "Latitude",
         type: "info",
         dependsOn: "attending",
       },
+    
+      longitude: {
+        key: "custom_longitude",
+        label: "Longitude",
+        type: "info",
+        dependsOn: "attending",
+      },
+    
       pob: {
         question: {
           key: "pob_given",
@@ -293,7 +251,7 @@ export const TAG_FORM_CONFIG = {
           type: "radio",
           options: ["Yes", "No"],
         },
-
+    
         items: {
           key: "fsl_doctor_item",
           multiple: true,
@@ -329,7 +287,7 @@ export const TAG_FORM_CONFIG = {
       allowDelete: () => true,
       allowEdit: () => true,
     },
-    fixedColor: "orange",
+    fixedColor: DEFAULT_COLORS.TODO,
     employee: {
       multiselect: false,
     },
@@ -351,9 +309,9 @@ export const TAG_FORM_CONFIG = {
   Other: {
     hide: ["color", "allocated_to"],
     show: ["title", "startDate", "endDate", "employees", "doctor"],
-    required: ["title", "startDate", "employees"],
+    required: ["title", "startDate"],
     dateOnly: true,
-    fixedColor: "teal",
+    fixedColor: DEFAULT_COLORS.EVENT,
     details: {
       fields: [
         { key: "startDate", label: "Start Date", type: "date" },
@@ -393,6 +351,6 @@ export const TAG_FORM_CONFIG = {
     },
     required: ["title", "startDate"],
 
-    fixedColor: "blue",
+    fixedColor: DEFAULT_COLORS.EVENT,
   },
 };

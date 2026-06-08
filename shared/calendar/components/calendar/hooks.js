@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { TAG_IDS } from "@calendar/components/calendar/constants";
 import { useRef } from "react";
 import { toast } from "sonner";
-import { deleteEventFromErp } from "@calendar/services/event.service";
+import { deleteEventFromErp } from "@calendar/components/calendar/module/event/services/event.service";
 export function useDisclosure({
 	defaultIsOpen = false
 } = {}) {

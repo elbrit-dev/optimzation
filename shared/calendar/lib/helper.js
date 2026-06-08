@@ -1,7 +1,7 @@
 import { toast } from "sonner";
 import { set, addMinutes } from "date-fns";
 import { TAG_IDS } from "@calendar/components/calendar/constants";
-import { saveEvent } from "@calendar/services/event.service";
+import { saveEvent } from "@calendar/components/calendar/module/event/services/event.service";
 export function buildParticipantsWithDetails(
   erpParticipants,
   { employeeOptions, doctorOptions }
@@ -42,7 +42,8 @@ export function buildParticipantsWithDetails(
       id,
       name,
       attending: p.attending ?? null,
-      kly_lat_long: p.kly_lat_long ?? null,
+      custom_latitude: p.custom_latitude ?? null,
+custom_longitude: p.custom_longitude ?? null,
 
       // ✅ NEW
       email,
@@ -131,17 +132,25 @@ export function syncPobItemRates(form, pobItems, itemOptions) {
 /* ---------------------------------------------
    GEO LOCATION HANDLER
 --------------------------------------------- */
-export function resolveLatLong(form, attending, isEditing, toast) {
+export function resolveLatLong(form, isEditing, toast) {
   if (!isEditing) return;
-  if (form.getValues("kly_lat_long")) return;
 
-  const FALLBACK = JSON.stringify({ x: 0, y: 0 });
+  const currentLatitude = form.getValues("custom_latitude");
+  const currentLongitude = form.getValues("custom_longitude");
 
-  const setFallback = () =>
-    form.setValue("kly_lat_long", FALLBACK, {
+  if (currentLatitude && currentLongitude) return;
+
+  const setFallback = () => {
+    form.setValue("custom_latitude", "", {
       shouldDirty: true,
       shouldValidate: false,
     });
+
+    form.setValue("custom_longitude", "", {
+      shouldDirty: true,
+      shouldValidate: false,
+    });
+  };
 
   if (!navigator.geolocation) {
     toast.warning("Location not supported. Using fallback.");
@@ -151,15 +160,20 @@ export function resolveLatLong(form, attending, isEditing, toast) {
 
   navigator.geolocation.getCurrentPosition(
     (pos) => {
-      const location = {
-        x: pos.coords.latitude,
-        y: pos.coords.longitude,
-      };
+      const latitude = parseFloat(pos.coords.latitude);
+      const longitude = parseFloat(pos.coords.longitude);
 
-      // ✅ Set location
+      // ✅ Set latitude
       form.setValue(
-        "kly_lat_long",
-        JSON.stringify(location),
+        "custom_latitude",
+        latitude,
+        { shouldDirty: true }
+      );
+
+      // ✅ Set longitude
+      form.setValue(
+        "custom_longitude",
+        longitude,
         { shouldDirty: true }
       );
 
@@ -176,7 +190,6 @@ export function resolveLatLong(form, attending, isEditing, toast) {
     { timeout: 20000 }
   );
 }
-
 /* ---------------------------------------------
    NON-MEETING DATE NORMALIZATION
 --------------------------------------------- */

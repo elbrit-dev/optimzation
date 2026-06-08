@@ -1,4 +1,5 @@
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
+import { STATUS } from "@calendar/components/calendar/constants";
 /**
  * Normalize email safely
  */
@@ -30,7 +31,7 @@ export function resolveLeavePermissions({
 
   const isApprover = eventApproverEmail === loggedUserEmail;
 
-  const isOpen = event.status === "OPEN";
+  const isOpen = event.status === STATUS.OPEN;
 
   const canEditDelete = isOwner && isOpen;
 

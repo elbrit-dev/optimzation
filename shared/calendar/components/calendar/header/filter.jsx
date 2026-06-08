@@ -9,32 +9,36 @@ import { Separator } from "@calendar/components/ui/separator";
 import { Toggle } from "@calendar/components/ui/toggle";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 
-export default function FilterEvents() {
-	const { selectedColors, filterEventsBySelectedColors, clearFilter } =
+export default function FilterEvents({variant}) {
+	const { selectedColors, filterEventsBySelectedColors, clearFilter, selectedStatuses, filterEventsBySelectedStatus } =
 		useCalendar();
 
 	const colors = [
 		"blue",
 		"green",
 		"red",
-		"yellow",
 		"purple",
 		"orange",
 	];
-
+	const statuses = [
+		"Open",
+		"Approved",
+		"Rejected",
+		"Closed",
+	];
 	return (
-        <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-				<Toggle variant="outline" className="cursor-pointer w-fit">
+		<DropdownMenu>
+			<DropdownMenuTrigger asChild>
+				<Toggle variant={variant ? "outline":""} className="cursor-pointer w-fit">
 					<Filter className="h-4 w-4" />
 				</Toggle>
 			</DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-[150px]">
+			<DropdownMenuContent align="end" className="w-[150px]">
 				{colors.map((color, index) => (
 					<DropdownMenuItem
-                        key={index}
-                        className="flex items-center gap-2 cursor-pointer"
-                        onClick={(e) => {
+						key={index}
+						className="flex items-center gap-2 cursor-pointer"
+						onClick={(e) => {
 							e.preventDefault();
 							filterEventsBySelectedColors(color);
 						}}>
@@ -51,11 +55,35 @@ export default function FilterEvents() {
 						</span>
 					</DropdownMenuItem>
 				))}
+				
+				<Separator className="my-2" />
+
+				<div className="px-2 py-1 text-xs font-medium">
+					Status
+				</div>
+
+				{statuses.map((status) => (
+					<DropdownMenuItem
+						key={status}
+						onClick={(e) => {
+							e.preventDefault();
+							filterEventsBySelectedStatus(status);
+						}}
+					>
+						{status}
+
+						{selectedStatuses.includes(
+							status.toLowerCase()
+						) && (
+								<CheckIcon className="size-4 ml-auto" />
+							)}
+					</DropdownMenuItem>
+				))}
 				<Separator className="my-2" />
 				<DropdownMenuItem
-                    disabled={selectedColors.length === 0}
-                    className="flex gap-2 cursor-pointer"
-                    onClick={(e) => {
+					disabled={selectedColors.length === 0}
+					className="flex gap-2 cursor-pointer"
+					onClick={(e) => {
 						e.preventDefault();
 						clearFilter();
 					}}>
@@ -63,6 +91,6 @@ export default function FilterEvents() {
 					Clear Filter
 				</DropdownMenuItem>
 			</DropdownMenuContent>
-        </DropdownMenu>
-    );
+		</DropdownMenu>
+	);
 }

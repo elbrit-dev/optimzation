@@ -11,6 +11,7 @@ import { useCalendar } from "@calendar/components/calendar/contexts/calendar-con
 import { cn } from "@calendar/lib/utils";
 import { tabs } from "../header/view-tabs";
 import { UserSelect } from "@calendar/components/calendar/header/user-select";
+import GoogleCalendarConnect from "../google-auth";
 const MOBILE_LAYER_MAP = {
   month: "month-expanded",
   week: "week",
@@ -34,7 +35,7 @@ export function CalendarSidebar({ open, onOpenChange }) {
           <SheetTitle>Scheduler</SheetTitle>
         </SheetHeader>
 
-        <nav className="flex flex-col gap-1 p-2">
+        <nav className="flex flex-col gap-3 p-2">
           {tabs
             .filter((tab) => tab.value !== "day")
             .map(({ name, value, icon: Icon }) => {
@@ -56,6 +57,7 @@ export function CalendarSidebar({ open, onOpenChange }) {
               );
             })}
         <UserSelect/>
+        <GoogleCalendarConnect/>
         </nav>
       </SheetContent>
     </Sheet>

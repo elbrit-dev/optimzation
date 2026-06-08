@@ -17,6 +17,7 @@ const calendarWeekEventCardVariants = cva(
 				green:
 					"border-green-200 bg-green-100/50 text-green-700 hover:bg-green-100 dark:border-green-800 dark:bg-green-950/50 dark:text-green-300 dark:hover:bg-green-950",
 				red: "border-red-200 bg-red-100/50 text-red-700 hover:bg-red-100 dark:border-red-800 dark:bg-red-950/50 dark:text-red-300 dark:hover:bg-red-950",
+				indigo: "border-indigo-200 bg-indigo-100/50 text-indigo-700 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/50 dark:text-indigo-300 dark:hover:bg-indigo-950",
 				yellow:
 					"border-yellow-200 bg-yellow-100/50 text-yellow-700 hover:bg-yellow-100 dark:border-yellow-800 dark:bg-yellow-950/50 dark:text-yellow-300 dark:hover:bg-yellow-950",
 				purple:
@@ -31,6 +32,8 @@ const calendarWeekEventCardVariants = cva(
 					"border-border bg-card text-foreground hover:bg-accent [&_svg]:fill-green-600 dark:[&_svg]:fill-green-500",
 				"red-dot":
 					"border-border bg-card text-foreground hover:bg-accent [&_svg]:fill-red-600 dark:[&_svg]:fill-red-500",
+				"indigo-dot":
+					"border-border bg-card text-foreground hover:bg-accent [&_svg]:fill-indigo-600 dark:[&_svg]:fill-indigo-500",
 				"orange-dot":
 					"border-border bg-card text-foreground hover:bg-accent [&_svg]:fill-orange-600 dark:[&_svg]:fill-orange-500",
 				"purple-dot":

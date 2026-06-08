@@ -9,7 +9,7 @@ export default function CalendarPage({
   erpUrl,
   authToken,
   me,
-  homeUrl,
+  homeUrl,googleClientId,googleRedirectUri
 }) {
   return (
     <AuthProvider
@@ -17,6 +17,8 @@ export default function CalendarPage({
       authToken={authToken}
       me={me}
       homeUrl={homeUrl}
+      googleClientId={googleClientId}
+      googleRedirectUri={googleRedirectUri}
     >
       <Suspense fallback={<CalendarSkeleton />}>
         <Calendar />
