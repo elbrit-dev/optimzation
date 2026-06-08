@@ -8,8 +8,9 @@ import { PipelineDebugViewer } from '@/components/SmartDataTable/PipelineDebugVi
 import { Splitter, SplitterPanel } from 'primereact/splitter';
 import ReportsConfigSidebar from './components/ReportsConfigSidebar';
 import { ReportControls } from './components/ReportControls';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { getEndpointConfigFromUrlKeyAsync } from '@/app/graphql-playground/constants';
 
 // Resolves per-view config from context and renders the view section.
 function ViewSection({ viewId, viewCfg }) {
@@ -37,10 +38,38 @@ function ReportTable({ reportConfig }) {
   const searchParams = useSearchParams();
   const isDebug = searchParams.get('debug') === 'true';
 
+  const urlKey = reportConfig?.api?.urlKey;
+  const [apiToken, setApiToken]   = useState(null);
+  const [tokenReady, setTokenReady] = useState(!urlKey);
+
+  useEffect(() => {
+    if (!urlKey) { setTokenReady(true); return; }
+    setTokenReady(false);
+    getEndpointConfigFromUrlKeyAsync(urlKey).then(({ authToken }) => {
+      setApiToken(authToken || null);
+      setTokenReady(true);
+    });
+  }, [urlKey]);
+
+  if (!tokenReady) {
+    return (
+      <div className="flex flex-col items-center justify-center w-full min-h-[400px] gap-3 text-gray-400">
+        <svg className="animate-spin w-8 h-8 text-gray-300" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+        </svg>
+        <span className="text-sm font-medium">Loading report…</span>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <main className="max-w-[1600px] mx-auto px-4 py-8 flex flex-col gap-8">
-        <SmartDataProviderImpl reportConfig={reportConfig}>
+        <SmartDataProviderImpl
+          reportConfig={reportConfig}
+          overrides={apiToken ? { api: { token: apiToken } } : undefined}
+        >
 
           {isDebug && <PipelineDebugViewer />}
 
