@@ -180,13 +180,11 @@ export function SmartDataProviderImpl({ dataSource: providerDataSource, reportCo
     }
 
     const pendingConfig = pendingDrawerConfigRef.current[viewId];
-    console.log('[registerView]', viewId, { hasPendingConfig: !!pendingConfig, pendingConfig });
     if (pendingConfig && reportConfig?.api) {
       const viewConfig = reportConfig.views?.[viewId] ?? {};
       // 3-way merge: base ← view ← openDrawer (api + table only, controls excluded)
       const viewLayered = deepMerge(viewConfig, { api: pendingConfig.api, table: pendingConfig.table });
       const { resolvedApi } = resolveViewConfig(reportConfig, viewLayered);
-      console.log('[registerView] pendingConfig path resolvedApi.variables:', resolvedApi.variables);
       ds = graphqlQueryReportDataSource(resolvedApi);
       // Don't delete here — React StrictMode remounts components, so registerView fires
       // twice. Keeping the config lets the second registration re-apply the openDrawer config.

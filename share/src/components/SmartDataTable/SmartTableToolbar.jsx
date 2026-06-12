@@ -201,7 +201,7 @@ export function GroupByReorder({ groups, onChange }) {
  *   onChange: (hiddenFields: string[]) => void,
  * }} props
  */
-export function ColumnVisibilityDropdown({ columns, hiddenColumns, onChange }) {
+export function ColumnVisibilityDropdown({ columns, columnGroups, hiddenColumns, onChange }) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [mounted, setMounted] = useState(false);
@@ -248,11 +248,31 @@ export function ColumnVisibilityDropdown({ columns, hiddenColumns, onChange }) {
     return () => document.removeEventListener('mousedown', handler);
   }, [isOpen]);
 
+  const colByField = useMemo(() => Object.fromEntries(columns.map(c => [c.field, c])), [columns]);
+
   const filteredColumns = useMemo(() => {
     if (!searchTerm) return columns;
     const term = searchTerm.toLowerCase();
     return columns.filter(c => c.header.toLowerCase().includes(term));
   }, [columns, searchTerm]);
+
+  // Build grouped sections: each group has a label + its filtered columns.
+  // Ungrouped columns (not in any group) fall into a null-label section.
+  const groupedSections = useMemo(() => {
+    if (!columnGroups?.length) return null;
+    const filteredSet = new Set(filteredColumns.map(c => c.field));
+    const sections = columnGroups
+      .map(g => ({
+        id: g.id,
+        label: g.label,
+        cols: g.fields.map(f => colByField[f]).filter(c => c && filteredSet.has(c.field)),
+      }))
+      .filter(s => s.cols.length > 0);
+    const groupedFields = new Set(columnGroups.flatMap(g => g.fields));
+    const ungrouped = filteredColumns.filter(c => !groupedFields.has(c.field));
+    if (ungrouped.length) sections.unshift({ id: '__ungrouped__', label: null, cols: ungrouped });
+    return sections;
+  }, [columnGroups, filteredColumns, colByField]);
 
   const hiddenSet = useMemo(() => new Set(hiddenColumns), [hiddenColumns]);
   const hiddenCount = hiddenColumns.length;
@@ -313,6 +333,36 @@ export function ColumnVisibilityDropdown({ columns, hiddenColumns, onChange }) {
       <div className="max-h-48 overflow-y-auto">
         {filteredColumns.length === 0 ? (
           <div className="px-3 py-3 text-center text-xs text-gray-500">No matches</div>
+        ) : groupedSections ? (
+          groupedSections.map(section => (
+            <div key={section.id}>
+              {section.label && (
+                <div className="px-2 py-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wide bg-gray-50 border-b border-gray-100 sticky top-0">
+                  {section.label}
+                </div>
+              )}
+              {section.cols.map(col => {
+                const isHidden = hiddenSet.has(col.field);
+                return (
+                  <label
+                    key={col.field}
+                    className={`flex items-center gap-2 px-2 py-1.5 cursor-pointer transition-colors text-xs ${isHidden ? 'hover:bg-gray-50' : 'bg-blue-50 hover:bg-blue-100'}`}
+                    onClick={e => e.stopPropagation()}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={!isHidden}
+                      onChange={() => toggleColumn(col.field)}
+                      className="w-3.5 h-3.5 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                    />
+                    <span className={`truncate ${isHidden ? 'text-gray-500' : 'text-blue-900 font-medium'}`}>
+                      {col.header}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          ))
         ) : (
           filteredColumns.map(col => {
             const isHidden = hiddenSet.has(col.field);

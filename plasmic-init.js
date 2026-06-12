@@ -10,6 +10,7 @@ import { registerElbritCoreComponents } from './share/src/plasmic-init'
 import FirebaseUIComponent from "./components/FirebaseUIComponent";
 import CalendarPage from "@calendar/components/CalendarPage";
 import NovuInbox from "./components/NovuInbox";
+import NetworkBanner from "./components/NetworkBanner";
 // import TableDataProvider from "./components/TableDataProvider";
 import jsonata from 'jsonata';
 import { db } from "./firebase";

@@ -41,14 +41,28 @@ function extractExportValue(row, col) {
   return String(cell);
 }
 
-/** Collect all rows that exist at a given tree depth (0 = top-level root rows). */
-function collectAtDepth(rows, targetDepth, currentDepth = 0) {
+/**
+ * Collect all rows at a given tree depth (0 = top-level root rows).
+ * For depth > 0, each collected row is augmented with ancestor label values
+ * stored under `__anc_<depth>` keys so the exporter can prepend prior-level columns.
+ */
+function collectAtDepth(rows, targetDepth, labelColDefs = [], currentDepth = 0, ancestorLabels = {}) {
   if (!rows?.length) return [];
-  if (currentDepth === targetDepth) return rows;
+  if (currentDepth === targetDepth) {
+    return Object.keys(ancestorLabels).length
+      ? rows.map(row => ({ ...ancestorLabels, ...row }))
+      : rows;
+  }
   const result = [];
+  const field  = labelColDefs[currentDepth]?.field  ?? 'label';
+  const header = labelColDefs[currentDepth]?.header ?? `Level ${currentDepth + 1}`;
   for (const row of rows) {
     if (row._children?.length) {
-      result.push(...collectAtDepth(row._children, targetDepth, currentDepth + 1));
+      const next = {
+        ...ancestorLabels,
+        [`__anc_${currentDepth}`]: { field, header, value: row[field] },
+      };
+      result.push(...collectAtDepth(row._children, targetDepth, labelColDefs, currentDepth + 1, next));
     }
   }
   return result;
@@ -64,6 +78,71 @@ function getMaxDepth(rows, currentDepth = 0) {
     }
   }
   return max;
+}
+
+/** Like extractExportValue but honours col._preferField (label2/label3 for inner depths). */
+function resolveExportCellValue(row, col) {
+  if (col._preferField) {
+    const preferred = row[col._preferField];
+    if (preferred != null && preferred !== '') {
+      if (typeof preferred === 'object' && 'repr' in preferred) return preferred.repr ?? preferred.value ?? '';
+      return String(preferred);
+    }
+  }
+  return extractExportValue(row, col);
+}
+
+/**
+ * Build an XLSX worksheet with a two-row grouped header (mirrors the UI ColumnGroup layout).
+ * Columns not in any named group (including the label col and ancCols) span both header rows.
+ * Named groups show the group label merged across their columns in row 1, field headers in row 2.
+ */
+function buildGroupedWorksheet(sheetRows, exportCols, columnGroups) {
+  const fieldToIdx = Object.fromEntries(exportCols.map((c, i) => [c.field, i]));
+  const namedGroupFields = new Set(
+    (columnGroups ?? []).filter(g => g.label).flatMap(g => g.fields)
+  );
+
+  const row1 = exportCols.map(() => '');
+  const row2 = exportCols.map(() => '');
+  const merges = [];
+
+  // Columns outside named groups → header in row 1, merged down to row 2
+  exportCols.forEach((col, i) => {
+    if (!namedGroupFields.has(col.field)) {
+      row1[i] = col.header;
+      merges.push({ s: { r: 0, c: i }, e: { r: 1, c: i } });
+    }
+  });
+
+  // Named groups → group label merged across row 1, field headers in row 2
+  for (const group of (columnGroups ?? [])) {
+    if (!group.label) continue;
+    const visIndices = group.fields
+      .filter(f => fieldToIdx[f] != null)
+      .map(f => fieldToIdx[f]);
+    if (!visIndices.length) continue;
+    const first = Math.min(...visIndices);
+    const last  = Math.max(...visIndices);
+    row1[first] = group.label;
+    if (first < last) merges.push({ s: { r: 0, c: first }, e: { r: 0, c: last } });
+    visIndices.forEach(i => { row2[i] = exportCols[i].header; });
+  }
+
+  const dataRows = sheetRows.map(row =>
+    exportCols.map(col => {
+      if (col._ancKey) {
+        const cell = row[col._ancKey]?.value;
+        return cell != null && typeof cell === 'object' && 'repr' in cell
+          ? (cell.repr ?? cell.value ?? '') : (cell ?? '');
+      }
+      return resolveExportCellValue(row, col);
+    })
+  );
+
+  const ws = XLSX.utils.aoa_to_sheet([row1, row2, ...dataRows]);
+  if (merges.length) ws['!merges'] = merges;
+  return ws;
 }
 
 function sanitizeSheetName(name) {
@@ -167,7 +246,7 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
   const [exporting, setExporting] = useState(false);
   const [exportLevelsVisible, setExportLevelsVisible] = useState(false);
   const [exportSelectedLevels, setExportSelectedLevels] = useState([]);
-  const exportRowsRef = useRef(null);
+  const [exportDialogLoading, setExportDialogLoading] = useState(false);
 
   // Build workbook from per-sheet descriptors and trigger download.
   const doExport = useCallback((rows, selectedDepths) => {
@@ -180,57 +259,97 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
     const wb = XLSX.utils.book_new();
     const usedNames = new Set();
 
-    const appendSheet = (sheetRows, rawName) => {
-      const data = sheetRows.map(row =>
-        cols.reduce((obj, col) => {
-          obj[col.header] = extractExportValue(row, col);
-          return obj;
-        }, {})
-      );
+    const hasGroups = columnGroups?.some(g => g.label);
+
+    const appendSheet = (sheetRows, exportCols, rawName) => {
+      let ws;
+      if (hasGroups) {
+        ws = buildGroupedWorksheet(sheetRows, exportCols, columnGroups);
+      } else {
+        const data = sheetRows.map(row =>
+          exportCols.reduce((obj, col) => {
+            if (col._ancKey) {
+              const cell = row[col._ancKey]?.value;
+              obj[col.header] = cell != null && typeof cell === 'object' && 'repr' in cell
+                ? (cell.repr ?? cell.value ?? '')
+                : (cell ?? '');
+            } else {
+              obj[col.header] = resolveExportCellValue(row, col);
+            }
+            return obj;
+          }, {})
+        );
+        ws = XLSX.utils.json_to_sheet(data);
+      }
       let name = sanitizeSheetName(rawName);
       let n = 1;
       while (usedNames.has(name)) { name = sanitizeSheetName(`${rawName}_${n++}`); }
       usedNames.add(name);
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), name);
+      XLSX.utils.book_append_sheet(wb, ws, name);
     };
 
     if (selectedDepths?.length) {
       // Multi-sheet: one sheet per selected tree depth.
       [...selectedDepths].sort((a, b) => a - b).forEach(depth => {
         const sheetName = viewState.filterDefs?.[depth]?.label ?? `Level ${depth + 1}`;
-        appendSheet(collectAtDepth(rows, depth), sanitizeSheetName(sheetName));
+        const rawRows = collectAtDepth(rows, depth, labelColDefs);
+
+        // Build ancestor columns from __anc_ metadata embedded by collectAtDepth.
+        const ancCols = rawRows.length
+          ? Object.keys(rawRows[0])
+              .filter(k => k.startsWith('__anc_'))
+              .sort()
+              .map(k => ({ header: rawRows[0][k].header, _ancKey: k }))
+          : [];
+
+        // Override the label column header and preferred read-field for the current depth.
+        const depthLabelHeader = labelColDefs[depth]?.header;
+        const depthCols = cols.map(col => {
+          if (col.field !== 'label') return col;
+          return {
+            ...col,
+            ...(depthLabelHeader ? { header: depthLabelHeader } : {}),
+            // At depth > 0 prefer label2/label3/… (mirrors InnerDataTable body logic)
+            ...(depth > 0 ? { _preferField: `label${depth + 1}` } : {}),
+          };
+        });
+
+        appendSheet(rawRows, [...ancCols, ...depthCols], sanitizeSheetName(sheetName));
       });
     } else {
-      appendSheet(rows, 'Sheet1');
+      appendSheet(rows, cols, 'Sheet1');
     }
 
     XLSX.writeFile(wb, filename);
     setExportLevelsVisible(false);
-    exportRowsRef.current = null;
-  }, [visibleColumns]);
+  }, [visibleColumns, labelColDefs, columnGroups]);
 
   const handleExport = useCallback(async () => {
-    setExporting(true);
+    if (viewState?.expandable) {
+      // Show level picker immediately using already-loaded store rows — fetch happens on confirm.
+      const maxDepth = getMaxDepth(viewState.rows);
+      setExportSelectedLevels(Array.from({ length: maxDepth + 1 }, (_, i) => i));
+      setExportLevelsVisible(true);
+    } else {
+      setExporting(true);
+      try {
+        const allRows = await exportView(viewId);
+        if (allRows?.length) doExport(allRows, null);
+      } finally {
+        setExporting(false);
+      }
+    }
+  }, [exportView, viewId, viewState?.expandable, viewState?.rows, doExport]);
+
+  const handleDialogExport = useCallback(async () => {
+    setExportDialogLoading(true);
     try {
       const allRows = await exportView(viewId);
-      if (!allRows?.length) return;
-
-      const isExpandable = viewState?.expandable;
-      const hasChildren = isExpandable && allRows.some(r => r._children?.length);
-
-      if (hasChildren) {
-        // Tree data: show level picker. Pre-select all available depths.
-        const maxDepth = getMaxDepth(allRows);
-        exportRowsRef.current = allRows;
-        setExportSelectedLevels(Array.from({ length: maxDepth + 1 }, (_, i) => i));
-        setExportLevelsVisible(true);
-      } else {
-        doExport(allRows, null);
-      }
+      if (allRows?.length) doExport(allRows, exportSelectedLevels);
     } finally {
-      setExporting(false);
+      setExportDialogLoading(false);
     }
-  }, [exportView, viewId, viewState?.expandable, doExport]);
+  }, [exportView, viewId, exportSelectedLevels, doExport]);
 
   useEffect(() => {
     registerViewActions(viewId, {
@@ -247,7 +366,7 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
 
   const leftActions = useMemo(() => {
     const actions = [];
-    if (!hasGroups && cfg.enableColumnVisibility) {
+    if (cfg.enableColumnVisibility) {
       actions.push({
         id: 'eye',
         type: 'custom',
@@ -255,13 +374,14 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
           <ColumnVisibilityDropdown
             key="eye"
             columns={columns}
+            columnGroups={columnGroups}
             hiddenColumns={hiddenColumns}
             onChange={onHiddenColumnsChange}
           />
         ),
       });
     }
-    if (!hasGroups && cfg.enableColumnFreeze) {
+    if (cfg.enableColumnFreeze) {
       actions.push({
         id: 'lock',
         type: 'button',
@@ -286,7 +406,7 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
       });
     }
     return actions;
-  }, [hasGroups, cfg.enableColumnVisibility, cfg.enableColumnFreeze, columns, hiddenColumns, freezeFirstColumn, onHiddenColumnsChange, groupByGroups, setGroupBy]);
+  }, [cfg.enableColumnVisibility, cfg.enableColumnFreeze, columns, hiddenColumns, freezeFirstColumn, onHiddenColumnsChange, groupByGroups, setGroupBy]);
 
   const rightActions = useMemo(() => {
     const actions = [];
@@ -403,7 +523,7 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
       <ColumnGroup>
         <Row>
           {expandable && <Column rowSpan={rowSpan} style={{ width: '3rem' }} />}
-          <Column header={colByField['label']?.header ?? 'Name'} rowSpan={2} sortable field="label" />
+          <Column header={colByField['label']?.header ?? 'Name'} rowSpan={2} sortable field="label" frozen={freezeFirstColumn} />
           {columnGroups.map(g => {
             const visCount = g.fields.filter(f => visibleFields.has(f)).length;
             if (visCount === 0) return null;
@@ -419,7 +539,7 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
         </Row>
         {filtersEnabled && (
           <Row>
-            <Column header={buildFilterElement(colByField['label'], filters['label'] ?? null, onFilter, cfg.filterDebounceText, cfg.filterDebounceNumeric)()} />
+            <Column header={buildFilterElement(colByField['label'], filters['label'] ?? null, onFilter, cfg.filterDebounceText, cfg.filterDebounceNumeric)()} frozen={freezeFirstColumn} />
             {columnGroups.flatMap(g =>
               g.fields.filter(f => visibleFields.has(f)).map(f => {
                 const col = colByField[f];
@@ -435,7 +555,7 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
         )}
       </ColumnGroup>
     );
-  }, [columnGroups, visibleColumns, expandable, viewState?.filters, onFilter, cfg.enableFilterRow, cfg.filterDebounceText, cfg.filterDebounceNumeric]);
+  }, [columnGroups, visibleColumns, expandable, freezeFirstColumn, viewState?.filters, onFilter, cfg.enableFilterRow, cfg.filterDebounceText, cfg.filterDebounceNumeric]);
 
   // ── Row click ─────────────────────────────────────────────────────────────
   const onRowClick = useCallback(
@@ -559,23 +679,27 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
         header="Export grouped data"
         visible={exportLevelsVisible}
         style={{ width: '90vw', maxWidth: '480px' }}
-        onHide={() => { setExportLevelsVisible(false); exportRowsRef.current = null; }}
+        onHide={() => setExportLevelsVisible(false)}
         footer={
           <div className="flex gap-2 justify-end">
             <button
               type="button"
-              onClick={() => { setExportLevelsVisible(false); exportRowsRef.current = null; }}
-              className="px-4 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+              disabled={exportDialogLoading}
+              onClick={() => setExportLevelsVisible(false)}
+              className="px-4 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Cancel
             </button>
             <button
               type="button"
-              disabled={!exportSelectedLevels.length}
-              onClick={() => doExport(exportRowsRef.current, exportSelectedLevels)}
+              disabled={!exportSelectedLevels.length || exportDialogLoading}
+              onClick={handleDialogExport}
               className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
             >
-              <i className="pi pi-download"></i> Export
+              {exportDialogLoading
+                ? <><i className="pi pi-spin pi-spinner"></i> Exporting…</>
+                : <><i className="pi pi-download"></i> Export</>
+              }
             </button>
           </div>
         }
@@ -584,24 +708,21 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
           Select which levels to export. Each selected level becomes a separate sheet in the Excel file.
         </p>
         <div className="flex flex-col gap-2">
-          {Array.from(
-            { length: exportRowsRef.current ? getMaxDepth(exportRowsRef.current) + 1 : 0 },
-            (_, i) => (
-              <label key={i} className="flex items-center gap-2 cursor-pointer text-sm">
-                <input
-                  type="checkbox"
-                  checked={exportSelectedLevels.includes(i)}
-                  onChange={() =>
-                    setExportSelectedLevels(prev =>
-                      prev.includes(i) ? prev.filter(v => v !== i) : [...prev, i]
-                    )
-                  }
-                  className="w-4 h-4 text-blue-600 rounded"
-                />
-                <span>{viewState.filterDefs?.[i]?.label ?? `Level ${i + 1}`}</span>
-              </label>
-            )
-          )}
+          {exportSelectedLevels.map((_, i) => (
+            <label key={i} className="flex items-center gap-2 cursor-pointer text-sm">
+              <input
+                type="checkbox"
+                checked={exportSelectedLevels.includes(i)}
+                onChange={() =>
+                  setExportSelectedLevels(prev =>
+                    prev.includes(i) ? prev.filter(v => v !== i) : [...prev, i]
+                  )
+                }
+                className="w-4 h-4 text-blue-600 rounded"
+              />
+              <span>{viewState.filterDefs?.[i]?.label ?? `Level ${i + 1}`}</span>
+            </label>
+          ))}
         </div>
       </Dialog>
     </div>
@@ -659,11 +780,15 @@ function InnerDataTable({ rows, columns, columnGroups, labelColDefs = [], depth 
         body = (rowData) => rowData[preferredKey] || rowData['label']?.repr || '';
       }
 
+      const header = (col.field === 'label' && labelColDefs[depth]?.header)
+        ? labelColDefs[depth].header
+        : col.header;
+
       return (
         <Column
           key={col.field}
           field={col.field}
-          header={col.header}
+          header={header}
           sortable={col.sortable !== false}
           filter={!hasGroupedHeader && col.filterable !== false}
           filterElement={filterElement}
@@ -673,7 +798,7 @@ function InnerDataTable({ rows, columns, columnGroups, labelColDefs = [], depth 
         />
       );
     });
-  }, [columns, columnGroups, filters, onFilter, depth]);
+  }, [columns, columnGroups, filters, onFilter, depth, labelColDefs]);
 
   // 3-row header:
   //   Row 1: (expander col if expandable) + label col (rowSpan=2) + group spanning headers

@@ -350,6 +350,32 @@ export const sortStep = (state, { sortMeta }) => ({
   rows: _sort(state.rows, sortMeta),
 });
 
+/**
+ * Fallback for backends that return a single `label` field with slash-separated
+ * ancestor paths (e.g. "Department / HQ / Customer" at indent 2).
+ * Rewrites each row's label to its own segment (last part) and synthesises
+ * labelColDefs entries for every depth so all downstream label/export logic
+ * works identically to the multi-label case.
+ * Must run after graphqlFetch (needs filterDefs) and before formatStep (label still a raw string).
+ */
+/**
+ * When the backend returns a single `label` column whose header is slash-separated
+ * (e.g. "Department / HQ / Customer"), split it into per-depth labelColDefs so all
+ * downstream label-header and export logic works identically to the multi-label case.
+ * Row values are not modified — each row already has its own value in `label`.
+ */
+export const expandSlashLabelsStep = (state) => {
+  if (state.labelColDefs?.length !== 1) return state;
+  const header = state.labelColDefs[0]?.header ?? '';
+  if (!header.includes(' / ')) return state;
+
+  const labelColDefs = header.split(' / ').map(h => ({ field: 'label', header: h.trim() }));
+  const columns = (state.columns ?? []).map(col =>
+    col.field === 'label' ? { ...col, header: labelColDefs[0].header } : col
+  );
+  return { ...state, columns, labelColDefs };
+};
+
 /** Converts flat indent-based rows into a parent→_children tree. Sets expandable based on result. */
 export const nestStep = (state) => {
   const rows = _nestRows(state.rows);
@@ -578,6 +604,7 @@ export function graphqlQueryReportDataSource(rawApiConfig) {
 
   return buildPipeline([
     step,
+    expandSlashLabelsStep,
     formatStep(),
     captureAllRowsStep,
     filterStep,
