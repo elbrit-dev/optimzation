@@ -13,20 +13,19 @@ export function AuthProvider({
   homeUrl, googleClientId,
   googleRedirectUri,
 }) {
+  // 🔁 Sync AUTH CONFIG synchronously during render so it is populated
+  // BEFORE child effects fire (effects run child-first, parent-last).
+  if (authToken) {
+    AUTH_CONFIG.erpUrl = erpUrl;
+    AUTH_CONFIG.authToken = authToken;
+  }
+
   // 🔁 Redirect if not logged in
   useEffect(() => {
     if (!authToken && typeof window !== "undefined") {
       window.location.replace(homeUrl || "/");
     }
   }, [authToken, homeUrl]);
-
-  // 🔁 Sync AUTH CONFIG
-  useEffect(() => {
-    if (!authToken) return;
-
-    AUTH_CONFIG.erpUrl = erpUrl;
-    AUTH_CONFIG.authToken = authToken;
-  }, [erpUrl, authToken]);
 
   // 🔁 Sync LOGGED_IN_USER
   useEffect(() => {
