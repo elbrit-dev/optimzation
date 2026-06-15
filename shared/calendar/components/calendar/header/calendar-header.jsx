@@ -1,6 +1,6 @@
 "use client";;
 import { motion } from "framer-motion";
-import { Plus, Bell } from "lucide-react";
+import { Plus, } from "lucide-react";
 import { Button } from "@calendar/components/ui/button";
 import {
 	slideFromLeft,
@@ -17,10 +17,9 @@ import { UserSelect } from "@calendar/components/calendar/header/user-select";
 import { Settings } from "@calendar/components/calendar/settings/settings";
 import Views from "@calendar/components/calendar/header/view-tabs";
 import GoogleCalendarConnect from "../google-auth";
-import { NotificationBell } from "@calendar/components/calendar/notification/NotificationBell";
 
 export function CalendarHeader() {
-	const { view, events, activeDate, selectedDate } = useCalendar();
+	const { view, events, activeDate, selectedDate, } = useCalendar();
 	const today = startOfDay(new Date());
 
 	const candidateDate = activeDate ?? selectedDate ?? null;
@@ -65,7 +64,6 @@ export function CalendarHeader() {
 					</div>
 					<div className="flex gap-2 flex-row lg:items-center lg:gap-1.5">
 						<FilterEvents variant={true} />
-						<NotificationBell variant={true}/>
 						<Settings />
 					</div>
 				</div>

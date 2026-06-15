@@ -1,14 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { AddEditEventDialog } from "@calendar/components/calendar/dialogs/add-edit-event-dialog";
 import { Button } from "@calendar/components/ui/button";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
-import { isBefore, startOfDay } from "date-fns";
+import { isBefore, startOfDay, endOfDay } from "date-fns";
 import { TAG_IDS, TAGS } from "@calendar/components/calendar/constants";
 import { motion, AnimatePresence } from "framer-motion";
-import {Plus,
-  Building2, Users, Cake,Calendar, Stethoscope, ListChecks, HelpCircle,
+import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
+import {
+  Plus,
+  Building2, Users, Cake, Calendar, Stethoscope, ListChecks, HelpCircle,
 } from "lucide-react";
 
 export const ICON_MAP = {
@@ -22,10 +24,36 @@ export const ICON_MAP = {
 };
 
 export default function MobileAddEventBar({ date: propDate }) {
-  const { selectedDate } = useCalendar();
+  const { selectedDate, events } = useCalendar();
   const [showTags, setShowTags] = useState(false);
 
-  const date = propDate || selectedDate || new Date();
+  const date = useMemo(
+    () => propDate ?? selectedDate ?? new Date(),
+    [propDate, selectedDate]
+  );
+  const matchedHqEvent = useMemo(() => {
+    if (!date || !events?.length) return null;
+
+    const selectedDay = startOfDay(new Date(date));
+
+    return events.find((ev) => {
+      if (ev.tags !== TAG_IDS.HQ_TOUR_PLAN) return false;
+
+      const isParticipant = ev.participants?.some(
+        (p) => p.id === LOGGED_IN_USER.id
+      );
+
+      if (!isParticipant) return false;
+
+      const planStart = startOfDay(new Date(ev.startDate));
+      const planEnd = endOfDay(new Date(ev.endDate));
+
+      return (
+        selectedDay >= planStart &&
+        selectedDay <= planEnd
+      );
+    });
+  }, [events, date]);
 
   const isPastDate = isBefore(
     startOfDay(date),
@@ -34,6 +62,7 @@ export default function MobileAddEventBar({ date: propDate }) {
 
   if (isPastDate) return null;
 
+  const hasValidHqTourPlan = !!matchedHqEvent;
   return (
     <>
       {/* Blur background (BEHIND tags) */}
@@ -74,32 +103,42 @@ export default function MobileAddEventBar({ date: propDate }) {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 10 }}
                 >
-                  {TAGS.map((tag, index) => {
-                    const Icon = ICON_MAP[tag.id];
+                  {TAGS
+                    .filter((tag) => {
+                      if (
+                        tag.id === TAG_IDS.DOCTOR_VISIT_PLAN ||
+                        tag.id === TAG_IDS.TODO_LIST
+                      ) {
+                        return hasValidHqTourPlan;
+                      }
 
-                    return (
-                      <motion.div
-                        key={tag.id}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: index * 0.05 }}
-                      >
-                        <AddEditEventDialog
-                          startDate={date}
-                          defaultTag={tag.id}
+                      return true;
+                    }).map((tag, index) => {
+                      const Icon = ICON_MAP[tag.id];
+
+                      return (
+                        <motion.div
+                          key={tag.id}
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: index * 0.05 }}
                         >
-                          <Button
-                            className="flex items-center gap-3 rounded-full bg-primary px-5 py-3 text-primary-foreground shadow-lg"
-                            onPointerDown={(e) => e.stopPropagation()}
+                          <AddEditEventDialog
+                            startDate={date}
+                            defaultTag={tag.id}
                           >
-                            <Icon className="h-4 w-4" />
-                            {tag.label}
-                          </Button>
-                        </AddEditEventDialog>
+                            <Button
+                              className="flex items-center gap-3 rounded-full bg-primary px-5 py-3 text-primary-foreground shadow-lg"
+                              onPointerDown={(e) => e.stopPropagation()}
+                            >
+                              <Icon className="h-4 w-4" />
+                              {tag.label}
+                            </Button>
+                          </AddEditEventDialog>
 
-                      </motion.div>
-                    );
-                  })}
+                        </motion.div>
+                      );
+                    })}
                 </motion.div>
               )}
             </AnimatePresence>

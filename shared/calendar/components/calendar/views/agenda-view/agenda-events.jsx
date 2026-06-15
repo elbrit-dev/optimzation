@@ -41,8 +41,8 @@ import {
 
 import { Avatar, AvatarFallback } from "@calendar/components/ui/avatar";
 
-import { ICON_MAP } from "../../mobile/MobileAddEventBar";
-import { TAG_IDS } from "../../constants";
+import { ICON_MAP } from "@calendar/components/calendar/mobile/MobileAddEventBar";
+import { STATUS, TAG_IDS } from "@calendar/components/calendar/constants";
 
 const SWIPE_THRESHOLD = 60;
 
@@ -56,7 +56,7 @@ export const AgendaEvents = ({ scope = "all"}) => {
     activeDate,
     setActiveDate,
     mobileLayer,
-    view,showOnlyApprovedLeaves
+    view,showOnlyApprovedLeaves,showOnlyTodoList,
   } = useCalendar();
 
   const isMobile = useMediaQuery("(max-width: 768px)");
@@ -185,14 +185,28 @@ export const AgendaEvents = ({ scope = "all"}) => {
     return getEventsForMonth(events, selectedDate);
   }, [events, selectedDate, scope]);
   const filteredEvents = useMemo(() => {
-    if (!showOnlyApprovedLeaves) return scopedEvents;
+    let result = scopedEvents;
   
-    return scopedEvents.filter(
-      (event) =>
-        event.tags === TAG_IDS.LEAVE &&
-        event.status === "Approved"
-    );
-  }, [scopedEvents, showOnlyApprovedLeaves]);
+    if (showOnlyApprovedLeaves) {
+      result = result.filter(
+        (event) =>
+          event.tags === TAG_IDS.LEAVE &&
+          event.status === STATUS.APPROVED
+      );
+    }
+  
+    if (showOnlyTodoList) {
+      result = result.filter(
+        (event) => event.tags === TAG_IDS.TODO_LIST
+      );
+    }
+  
+    return result;
+  }, [
+    scopedEvents,
+    showOnlyApprovedLeaves,
+    showOnlyTodoList,
+  ]);
 
   /* ===============================
      GROUP EVENTS

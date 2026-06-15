@@ -35,16 +35,14 @@ export const DEFAULT_COLORS = {
 
 export const STATUS = {
   OPEN: "Open",
-  CLOSED: "Closed",
-  CANCELLED: "Cancelled",
-  COMPLETED: "Completed",
   APPROVED: "Approved",
   REJECTED: "Rejected",
+  CLOSED: "Closed",
+  CANCELLED: "Cancelled",
 };
 export const STATUS_MAP = {
   open: STATUS.OPEN,
   closed: STATUS.CLOSED,
-  completed: STATUS.CLOSED,
   cancelled: STATUS.CANCELLED,
   approved: STATUS.APPROVED,
   rejected: STATUS.REJECTED,

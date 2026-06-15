@@ -618,6 +618,39 @@ PLASMIC.registerComponent(NovuInbox, {
   importPath: "./components/NovuInbox",
 });
 
+PLASMIC.registerComponent(NetworkBanner, {
+  name: "NetworkBanner",
+  displayName: "Network Banner",
+  description:
+    "Auto-showing banner that appears when the network is slow or offline, and hides itself when the connection is good. Drop it once near the top of a page (or in a layout).",
+  props: {
+    position: {
+      type: "choice",
+      options: ["top", "bottom"],
+      defaultValue: "top",
+      description: "Stick the banner to the top or bottom of the viewport.",
+    },
+    showWhenFast: {
+      type: "boolean",
+      defaultValue: false,
+      description: "Also show a green banner when the connection is fast.",
+    },
+    forceShow: {
+      type: "boolean",
+      defaultValue: false,
+      description:
+        "Editor preview only: force the banner to render so you can see/style it on the canvas.",
+    },
+    demoSeverity: {
+      type: "choice",
+      options: ["red", "orange", "yellow", "green"],
+      description:
+        "Editor preview only: render a specific state (offline/slow/etc.) on the canvas.",
+    },
+  },
+  importPath: "./components/NetworkBanner",
+});
+
 registerElbritCoreComponents(PLASMIC)
 
 // PLASMIC.registerComponent(DataProvider, {

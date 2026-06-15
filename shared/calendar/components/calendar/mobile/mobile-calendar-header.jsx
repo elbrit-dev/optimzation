@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Menu, CheckSquare, House, Rows2 } from "lucide-react";
+import { Menu, ListChecks, House, Rows2, CircleCheckBig } from "lucide-react";
 import { motion } from "framer-motion";
 import { slideFromLeft, transition } from "@calendar/components/calendar/animations";
 import { Button } from "@calendar/components/ui/button";
@@ -34,7 +34,7 @@ export function MobileCalendarHeader() {
     setView,
     setSelectedDate,
     setMobileLayer,
-    events, showOnlyApprovedLeaves,
+    events, showOnlyApprovedLeaves, showOnlyTodoList, setShowOnlyTodoList,
     setShowOnlyApprovedLeaves,
   } = useCalendar();
   const [prevView, setPrevView] = useState(view);
@@ -120,6 +120,7 @@ export function MobileCalendarHeader() {
 
                 if (next) {
                   // 👉 turning ON
+                  setShowOnlyTodoList(false);
                   setPrevView(view); // save current view
                   setView("agenda");
                   setMobileLayer("agenda");
@@ -133,15 +134,47 @@ export function MobileCalendarHeader() {
               });
             }}
           >
-            <CheckSquare
+            <CircleCheckBig
               className={cn(
                 "h-5 w-5",
                 showOnlyApprovedLeaves && "text-blue-500"
               )}
             />
           </Button>
-          <FilterEvents />
-          <NotificationBell />
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => {
+              setShowOnlyTodoList((prev) => {
+                const next = !prev;
+
+                if (next) {
+                  // disable leave filter
+                  setShowOnlyApprovedLeaves(false);
+
+                  // save current view and switch to agenda
+                  setPrevView(view);
+                  setView("agenda");
+                  setMobileLayer("agenda");
+                } else {
+                  setView(prevView);
+                  setMobileLayer(
+                    MOBILE_LAYER_MAP[prevView] ?? "month-expanded"
+                  );
+                }
+
+                return next;
+              });
+            }}
+          >
+            <ListChecks
+              className={cn(
+                "h-5 w-5",
+                showOnlyTodoList && "text-green-500"
+              )}
+            />
+          </Button>
+         {(view == "agenda" && !showOnlyApprovedLeaves) && <FilterEvents />}
           <Button variant="ghost" size="icon"><House /></Button>
         </div>
       </header>

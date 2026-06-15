@@ -32,9 +32,8 @@ import {
 } from "@calendar/components/ui/command";
 
 import { Avatar, AvatarFallback } from "@calendar/components/ui/avatar";
-
-import { TAG_IDS } from "../../constants";
-import { ICON_MAP } from "../../mobile/MobileAddEventBar";
+import { ICON_MAP } from "@calendar/components/calendar/mobile/MobileAddEventBar";
+import { STATUS, TAG_IDS } from "@calendar/components/calendar/constants";
 import { navigateDate } from "@calendar/components/calendar/helpers";
 import { ChevronDown } from "lucide-react";
 
@@ -50,7 +49,7 @@ export const AgendaEventsMobile = () => {
     setView,
     selectedDate,
     setSelectedDate,
-    showOnlyApprovedLeaves,
+    showOnlyApprovedLeaves,showOnlyTodoList
   } = useCalendar();
 
   const scrollRef = useRef(null);
@@ -157,12 +156,16 @@ export const AgendaEventsMobile = () => {
       return data.filter(
         (event) =>
           event.tags === TAG_IDS.LEAVE &&
-          event.status === "APPROVED"
+          event.status === STATUS.APPROVED
       );
     }
-
+    if (showOnlyTodoList) {
+      return data.filter(
+        (event) => event.tags === TAG_IDS.TODO_LIST
+      );
+    }
     return data;
-  }, [events, selectedDate, showOnlyApprovedLeaves]);
+  }, [events, selectedDate, showOnlyApprovedLeaves,showOnlyTodoList]);
 
   /* ===============================
      GROUP BY DATE (FIXED)

@@ -56,6 +56,7 @@ export function CalendarProvider({
 	const isEventListOpen = eventListDate !== null;
 	const [mobileLayer, setMobileLayer] = useState("month-expanded");
 	const [showOnlyApprovedLeaves, setShowOnlyApprovedLeaves] = useState(false);
+	const [showOnlyTodoList,setShowOnlyTodoList] = useState(false);
 	const updateSettings = (newPartialSettings) => {
 		setSettings({
 			...settings,
@@ -483,7 +484,7 @@ export function CalendarProvider({
 		elbritRoleEdges,allowedEmployeeIds,
 		elbritRoleLoading, customerOptions, setCustomerOptions,
 		showOnlyApprovedLeaves,
-		setShowOnlyApprovedLeaves,
+		setShowOnlyApprovedLeaves,showOnlyTodoList,setShowOnlyTodoList
 	};
 
 	return (
