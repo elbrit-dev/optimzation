@@ -179,6 +179,63 @@ function FormSelectOptionsField({ col, value, label, handleChange, getOptions, c
   );
 }
 
+// Upload is deferred — file is stored via onFilePending and uploaded when the drawer save is confirmed.
+function FormUploadField({ fieldId, docname, value, label, onFilePending }) {
+  const [pendingFile, setPendingFile] = useState(null);
+  const inputRef = useRef(null);
+
+  const handleFileSelect = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setPendingFile(file);
+    onFilePending(fieldId, file);
+    if (inputRef.current) inputRef.current.value = '';
+  };
+
+  const disabled = !docname;
+
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="text-xs font-medium text-gray-700">{label}</label>
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center gap-2 flex-wrap">
+          <input
+            ref={inputRef}
+            type="file"
+            id={`upload-${fieldId}`}
+            className="hidden"
+            disabled={disabled}
+            onChange={handleFileSelect}
+          />
+          <label
+            htmlFor={`upload-${fieldId}`}
+            className={`px-3 py-1.5 text-sm border rounded cursor-pointer select-none ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'}`}
+          >
+            {pendingFile ? 'Change File' : 'Choose File'}
+          </label>
+          {pendingFile && (
+            <span className="text-xs text-amber-600 font-medium">⏳ {pendingFile.name} — will upload on save</span>
+          )}
+          {!docname && (
+            <span className="text-xs text-red-400">docname not available</span>
+          )}
+        </div>
+        {value && !pendingFile && (
+          <a
+            href={value}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-blue-500 hover:underline truncate"
+            title={value}
+          >
+            {value.split('/').pop() || value}
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Quill Editor toolbar for formInputOverride 'Quill' - Headings, font size, formatting, colors, blockquote, code, RTL, link, image, lists, align, indent
 const quillFormToolbar = (
   <>
@@ -678,6 +735,7 @@ export default function DataProviderNew({
   const [formEditingRow, setFormEditingRow] = useState(null);
   const formEditingRowRef = useRef(null);
   formEditingRowRef.current = formEditingRow;
+  const pendingUploadsRef = useRef(new Map()); // fieldId → { file, getAuth }
 
   // Main table save payload dialog (show create/update structure before confirming save)
   const [saveDiffDialogVisible, setSaveDiffDialogVisible] = useState(false);
@@ -2556,6 +2614,7 @@ export default function DataProviderNew({
     setSelectedRowData(null);
     formOriginalRowRef.current = null;
     setFormEditingRow(null);
+    pendingUploadsRef.current.clear();
     // Keep selectOptionsCache - options remain cached for next drawer open
     // Clear change tracking data when drawer closes
     originalNestedTableDataRef.current.clear();
@@ -2974,13 +3033,25 @@ export default function DataProviderNew({
 
   // Handle drawer save - commits form buffer then saves nested table for current active tab
   const handleDrawerSave = useCallback(() => {
+    console.log('[handleDrawerSave] called', {
+      parentOriginalNestedTableDataRef: !!parentOriginalNestedTableDataRef,
+      parentHandleDrawerSave: !!parentHandleDrawerSave,
+      effectiveDrawerTabs: effectiveDrawerTabs?.length,
+      pendingUploadsSize: pendingUploadsRef.current.size,
+    });
     // If we're using parent refs (nested instance), delegate to parent's handleDrawerSave
     if (parentOriginalNestedTableDataRef && parentHandleDrawerSave) {
+      console.log('[handleDrawerSave] delegating to parent (parentOriginalNestedTableDataRef)');
       return parentHandleDrawerSave();
     }
     if ((!effectiveDrawerTabs || effectiveDrawerTabs.length === 0) && parentHandleDrawerSave) {
+      console.log('[handleDrawerSave] delegating to parent (no tabs)');
       return parentHandleDrawerSave();
     }
+
+    // Pending uploads are flushed in the save confirmation callback, not here
+    const hadPendingUploads = pendingUploadsRef.current.size > 0;
+    console.log('[handleDrawerSave] hadPendingUploads:', hadPendingUploads);
 
     // Commit form buffer to main table if form has changes (read latest from ref)
     const currentFormRow = formEditingRowRef.current;
@@ -3024,20 +3095,23 @@ export default function DataProviderNew({
     // Resolve tab for nested save
     let tabId = null;
     let activeTab = null;
+    console.log('[handleDrawerSave] resolving tab', { effectiveDrawerTabsLen: effectiveDrawerTabs?.length, activeDrawerTabIndex, hasFormChanges, hadPendingUploads });
     if (!effectiveDrawerTabs || effectiveDrawerTabs.length === 0) {
       const trackingEntries = Array.from(originalNestedTableDataRef.current.entries());
+      console.log('[handleDrawerSave] no tabs, trackingEntries:', trackingEntries.length);
       if (trackingEntries.length > 0) {
         tabId = trackingEntries[0][0];
       } else {
-        if (hasFormChanges) {
+        if (hasFormChanges || hadPendingUploads || hasMainTableChangesRef.current) {
           openSaveDiffDialog(mainTableEditingDataRef.current);
         }
         return;
       }
     } else {
       activeTab = effectiveDrawerTabs[activeDrawerTabIndex];
+      console.log('[handleDrawerSave] activeTab:', activeTab?.id, 'isJsonTable:', activeTab?.isJsonTable);
       if (!activeTab || !activeTab.isJsonTable) {
-        if (hasFormChanges) {
+        if (hasFormChanges || hadPendingUploads || hasMainTableChangesRef.current) {
           openSaveDiffDialog(mainTableEditingDataRef.current);
         }
         return;
@@ -3045,8 +3119,9 @@ export default function DataProviderNew({
       tabId = activeTab.id;
     }
     const trackingData = originalNestedTableDataRef.current.get(tabId);
+    console.log('[handleDrawerSave] tabId:', tabId, 'trackingData:', !!trackingData);
     if (!trackingData) {
-      if (hasFormChanges) {
+      if (hasFormChanges || hadPendingUploads || hasMainTableChangesRef.current) {
         openSaveDiffDialog(mainTableEditingDataRef.current);
       }
       return;
@@ -3065,8 +3140,9 @@ export default function DataProviderNew({
     } catch (e) {
       hasNestedChanges = true;
     }
+    console.log('[handleDrawerSave] hasFormChanges:', hasFormChanges, 'hasNestedChanges:', hasNestedChanges, 'hadPendingUploads:', hadPendingUploads);
 
-    if (!hasFormChanges && !hasNestedChanges) {
+    if (!hasFormChanges && !hasNestedChanges && !hadPendingUploads && !hasMainTableChangesRef.current) {
       if (onDataChange) {
         onDataChange({
           severity: 'info',
@@ -3114,7 +3190,7 @@ export default function DataProviderNew({
       formOriginalRowRef.current = cloneDeep(currentFormRow);
     }
 
-    if (hasFormChanges || hasNestedChanges) {
+    if (hasFormChanges || hasNestedChanges || hadPendingUploads || hasMainTableChangesRef.current) {
       openSaveDiffDialog(mainTableEditingDataRef.current);
     }
   }, [effectiveDrawerTabs, activeDrawerTabIndex, propagateDrawerSaveToMain, onDataChange, parentHandleDrawerSave, parentOriginalNestedTableDataRef, hasDrawerFormFields, setTableDataUpdateTrigger, openSaveDiffDialog]);
@@ -3338,6 +3414,23 @@ export default function DataProviderNew({
         return;
       }
     }
+    // No data diff, but pending file uploads still need to be flushed — open dialog for confirmation
+    if (pendingUploadsRef.current.size > 0) {
+      setSavePayloadContent({
+        createPayload: null,
+        updatePayload: null,
+        bulkUpdateVariablesPreview: null,
+        removedRows: [],
+        doctype,
+        changedRows: [],
+        schemaStructure,
+        skipKey: (k) => String(k).startsWith('__'),
+        writeOpsNeeded: { needsCreate: false, needsUpdate: false, needsDelete: false },
+        bulkUpdateParentField: null,
+      });
+      setSaveDiffDialogVisible(true);
+      return;
+    }
     if (onDataChange) {
       onDataChange({
         severity: 'info',
@@ -3414,7 +3507,41 @@ export default function DataProviderNew({
         return;
       }
     }
+    // Flush pending file uploads (registered when user selected files in the drawer form)
+    const flushPendingUploads = async () => {
+      if (pendingUploadsRef.current.size === 0) return;
+      const entries = Array.from(pendingUploadsRef.current.entries());
+      await Promise.all(entries.map(async ([fieldId, { file, getAuth, params, docnameCol }]) => {
+        try {
+          const { endpointUrl, authToken } = await getAuth();
+          const baseUrl = endpointUrl ? new URL(endpointUrl).origin : '';
+          const fd = new FormData();
+          for (const [k, v] of Object.entries(params || {})) {
+            fd.append(k, v == null ? '' : String(v));
+          }
+          fd.append('file', file);
+          fd.append('doctype', currentQueryDoc?.writeDocTypeName ?? currentQueryDoc?.writeDocType ?? '');
+          fd.append('docname', String(formEditingRowRef.current?.[docnameCol] ?? ''));
+          fd.append('fieldname', fieldId);
+          const headers = {};
+          if (authToken) headers.Authorization = `token ${authToken}`;
+          const res = await fetch(`${baseUrl}/api/method/upload_to_field`, {
+            method: 'POST',
+            credentials: 'include',
+            headers,
+            body: fd,
+          });
+          const data = await res.json();
+          console.log('[flushPendingUploads] response', fieldId, data);
+        } catch (err) {
+          console.error('[flushPendingUploads] failed for', fieldId, err);
+        }
+      }));
+      pendingUploadsRef.current.clear();
+    };
+
     if (!hasCreate && !hasUpdate) {
+      await flushPendingUploads();
       persistMainSave(mainTableEditingData);
       setSaveDiffDialogVisible(false);
       return;
@@ -3474,6 +3601,8 @@ export default function DataProviderNew({
       }
 
       const options = { endpointUrl, authToken };
+
+      await flushPendingUploads();
 
       if (hasCreate) {
         const res = await fetchGraphQLRequest(bulkCreate, { doctype, fields: createPayload.fields }, options);
@@ -5325,8 +5454,8 @@ export default function DataProviderNew({
       gridItemStyle,
       drawerGridColumnCount,
     } = fieldConfig;
-    const overrideType = typeof override === 'object' && override?.type === 'Select'
-      ? 'Select'
+    const overrideType = typeof override === 'object' && override?.type
+      ? override.type
       : (typeof override === 'string' ? override : null);
 
     const wrapShell = (inner) =>
@@ -5426,6 +5555,27 @@ export default function DataProviderNew({
         />,
       );
     }
+    if (overrideType === 'Upload') {
+      const docnameCol = override?.docname;
+      const formRow = formEditingRow ?? selectedRowData;
+      const resolvedDocname = docnameCol && formRow ? String(formRow[docnameCol] ?? '') : '';
+      return wrapShell(
+        <FormUploadField
+          fieldId={fieldId}
+          docname={resolvedDocname}
+          value={value}
+          label={label}
+          onFilePending={(fid, file) => {
+            pendingUploadsRef.current.set(fid, {
+              file,
+              getAuth: () => getEndpointAndAuthWithTokenOverride(currentQueryDoc, graphqlToken),
+              params: override?.params,
+              docnameCol: override?.docname,
+            });
+          }}
+        />,
+      );
+    }
     if (overrideType === 'Quill') {
       const quillInnerStyle = {};
       let quillInnerClass = 'flex flex-col gap-1';
@@ -5462,7 +5612,7 @@ export default function DataProviderNew({
         />
       </div>,
     );
-  }, [queryFunction, selectOptionsCache, formatDateValue]);
+  }, [queryFunction, selectOptionsCache, formatDateValue, formEditingRow, selectedRowData, currentQueryDoc, graphqlToken]);
 
   // Ensure contextValue is never null/undefined (safeguard)
   if (!contextValue) {
@@ -6042,6 +6192,24 @@ export default function DataProviderNew({
                 </pre>
               </div>
             ) : null}
+            {pendingUploadsRef.current.size > 0 && (
+              <div>
+                <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.875rem', fontWeight: 600 }}>File Uploads (upload_to_field)</h4>
+                <div className="space-y-2">
+                  {Array.from(pendingUploadsRef.current.entries()).map(([fieldId, { file, params, docnameCol }]) => {
+                    const formRow = formEditingRowRef.current ?? selectedRowData;
+                    const docname = docnameCol && formRow ? String(formRow[docnameCol] ?? '') : '';
+                    const doctype = currentQueryDoc?.writeDocTypeName ?? currentQueryDoc?.writeDocType ?? '';
+                    const fd = { doctype, docname, fieldname: fieldId, file: file.name, ...(params || {}) };
+                    return (
+                      <pre key={fieldId} style={{ margin: 0, padding: '0.75rem', background: '#f0fdf4', borderRadius: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: '0.875rem' }}>
+                        {JSON.stringify(fd, null, 2)}
+                      </pre>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </Dialog>
       )}

@@ -2527,7 +2527,12 @@ export default function DataTableNew({
       const override = finalParentColumnName
         ? (formInputOverride?.nested?.[finalParentColumnName]?.[col] ?? formInputOverride?.main?.[col])
         : formInputOverride?.main?.[col];
-      const overrideType = typeof override === 'object' && override?.type === 'Select' ? 'Select' : (typeof override === 'string' ? override : null);
+      const overrideType = typeof override === 'object' && override?.type
+        ? override.type
+        : (typeof override === 'string' ? override : null);
+
+      // Upload fields are drawer-only — no inline cell editor
+      if (overrideType === 'Upload') return null;
 
       // Checkbox: formInputOverride 'Checkbox' or boolean column type
       if (overrideType === 'Checkbox' || override?.type === 'Checkbox' || isBooleanCol) {

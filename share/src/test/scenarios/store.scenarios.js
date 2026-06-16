@@ -13,7 +13,7 @@ export const storeActionCases = [
     assert: (state) => {
       expect(state.views.v1).toBeDefined();
       expect(state.views.v1.filters).toEqual({});
-      expect(state.views.v1.sortMeta).toEqual([]);
+      expect(state.views.v1.sortBy).toEqual({});
       expect(state.views.v1.pagination).toEqual({ first: 0, rows: 50 });
       expect(state.views.v1.rows).toEqual([]);
       expect(state.views.v1.loading).toBe(false);
@@ -86,24 +86,24 @@ export const storeActionCases = [
     },
   },
 
-  // ── setSort ───────────────────────────────────────────────────────────────────
+  // ── setSortBy ─────────────────────────────────────────────────────────────────
   {
     name: 'setSort: replaces sortMeta',
     setup: (store) => store.getState().registerView('v1'),
-    action: (store) => store.getState().setSort('v1', [{ field: 'qty', order: 1 }]),
+    action: (store) => store.getState().setSortBy('v1', { qty: 'asc' }),
     assert: (state) => {
-      expect(state.views.v1.sortMeta).toEqual([{ field: 'qty', order: 1 }]);
+      expect(state.views.v1.sortBy).toEqual({ qty: 'asc' });
     },
   },
   {
     name: 'setSort: clearing with empty array',
     setup: (store) => {
       store.getState().registerView('v1');
-      store.getState().setSort('v1', [{ field: 'qty', order: 1 }]);
+      store.getState().setSortBy('v1', { qty: 'asc' });
     },
-    action: (store) => store.getState().setSort('v1', []),
+    action: (store) => store.getState().setSortBy('v1', {}),
     assert: (state) => {
-      expect(state.views.v1.sortMeta).toEqual([]);
+      expect(state.views.v1.sortBy).toEqual({});
     },
   },
 

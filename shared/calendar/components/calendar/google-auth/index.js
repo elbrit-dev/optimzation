@@ -10,7 +10,6 @@ export default function GoogleCalendarConnect() {
   const { me, googleClientId, googleRedirectUri, } = useAuth();
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
-
   useEffect(() => {
     async function checkCalendar() {
       if (!me?.email) return;
@@ -31,32 +30,39 @@ export default function GoogleCalendarConnect() {
     checkCalendar();
   }, [me]);
 
-  const handleGoogleConnect = () => {
-    const authUrl =
-      "https://accounts.google.com/o/oauth2/v2/auth?" +
-      new URLSearchParams({
-        client_id: googleClientId,
-        redirect_uri: googleRedirectUri,
-        response_type: "code",
-        scope:
-          "https://www.googleapis.com/auth/calendar",
-        access_type: "offline",
-        prompt: "consent",
-
-        // optional - helps identify ERP user
-        state: me?.email || "",
-      });
-
-    window.location.href = authUrl;
+  const handleGoogleConnect = async () => {
+    if (!me?.email) {
+      console.error("User email not found");
+      return;
+    }
+  
+    try {
+      const response = await fetch(
+        `https://erp.elbrit.org/api/method/frappe.integrations.doctype.google_calendar.google_calendar.authorize_access?g_calendar=${encodeURIComponent(
+          me.email
+        )}`,
+        {
+          credentials: "include",
+        }
+      );
+  
+      const data = await response.json();
+  
+      if (data?.message?.url) {
+        window.location.href = data.message.url;
+      } else {
+        console.error("No authorization URL returned", data);
+      }
+    } catch (error) {
+      console.error("Google authorization failed", error);
+    }
   };
 
   if (loading) return null;
 
   if (connected) {
     return (
-      <div className="text-green-600">
-        ✓ Google Calendar Connected
-      </div>
+     null
     );
   }
 

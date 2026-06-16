@@ -260,44 +260,33 @@ export const stepCases = [
   },
 
   // ── paginateStep ──────────────────────────────────────────────────────────────
+  // Server handles pagination; paginateStep only sets totalRecords.
   {
-    name: 'paginateStep: slices first page',
+    name: 'paginateStep: rows pass through unchanged (server-side pagination)',
     step: paginateStep,
-    inputState: { rows: Array.from({ length: 10 }, (_, i) => row({ idx: i })) },
-    params: { pagination: { first: 0, rows: 5 } },
+    inputState: { rows: Array.from({ length: 5 }, (_, i) => row({ idx: i })) },
+    params: {},
     assert(result) {
       expect(result.rows).toHaveLength(5);
-      expect(result.totalRecords).toBe(10);
       expect(result.rows[0].idx.value).toBe(0);
-    },
-  },
-  {
-    name: 'paginateStep: slices second page',
-    step: paginateStep,
-    inputState: { rows: Array.from({ length: 10 }, (_, i) => row({ idx: i })) },
-    params: { pagination: { first: 5, rows: 5 } },
-    assert(result) {
-      expect(result.rows).toHaveLength(5);
-      expect(result.rows[0].idx.value).toBe(5);
     },
   },
   {
     name: 'paginateStep: totalRecords equals full row count before slice',
     step: paginateStep,
     inputState: { rows: Array.from({ length: 7 }, (_, i) => row({ idx: i })) },
-    params: { pagination: { first: 0, rows: 3 } },
+    params: {},
     assert(result) {
       expect(result.totalRecords).toBe(7);
     },
   },
   {
-    name: 'paginateStep: first beyond length returns empty rows',
+    name: 'paginateStep: totalRecords uses metaPagination.total_roots when present',
     step: paginateStep,
-    inputState: { rows: [row({ idx: 0 })] },
-    params: { pagination: { first: 10, rows: 5 } },
+    inputState: { rows: Array.from({ length: 5 }, (_, i) => row({ idx: i })), metaPagination: { total_roots: 42 } },
+    params: {},
     assert(result) {
-      expect(result.rows).toHaveLength(0);
-      expect(result.totalRecords).toBe(1);
+      expect(result.totalRecords).toBe(42);
     },
   },
 
@@ -313,7 +302,7 @@ export const stepCases = [
       const s1 = (state) => { order.push(1); return { ...state, a: 1 }; };
       const s2 = (state) => { order.push(2); return { ...state, b: 2 }; };
       const ds = buildPipeline([s1, s2]);
-      const result = await ds({ filters: {}, sortMeta: [], pagination: { first: 0, rows: 25 }, viewParams: {} });
+      const result = await ds({ filters: {}, sortBy: {}, pagination: { first: 0, rows: 25 }, viewParams: {} });
       expect(order).toEqual([1, 2]);
       expect(result.a).toBe(1);
       expect(result.b).toBe(2);
@@ -329,7 +318,7 @@ export const stepCases = [
       s.stepName = 'myStep';
       const ds = buildPipeline([s]);
       await ds({
-        filters: {}, sortMeta: [], pagination: { first: 0, rows: 25 }, viewParams: {},
+        filters: {}, sortBy: {}, pagination: { first: 0, rows: 25 }, viewParams: {},
         _debugCapture: (name, st) => { captured[name] = st; },
       });
       expect(captured.myStep).toBeDefined();
@@ -343,7 +332,7 @@ export const pipelineScenarios = [
   {
     name: 'flat non-pivot: columns parsed, no columnGroups, rows formatted',
     fixture: 'flat-no-pivot',
-    params: { filters: {}, sortMeta: [], pagination: { first: 0, rows: 25 }, viewParams: {} },
+    params: { filters: {}, sortBy: {}, pagination: { first: 0, rows: 25 }, viewParams: {} },
     assert(result) {
       expect(result.columnGroups).toBeNull();
       expect(result.columns.find(c => c.field === 'label')).toBeDefined();
@@ -355,7 +344,7 @@ export const pipelineScenarios = [
   {
     name: 'flat pivot: columnGroups built with identity, months, totals',
     fixture: 'flat-pivot',
-    params: { filters: {}, sortMeta: [], pagination: { first: 0, rows: 25 }, viewParams: {} },
+    params: { filters: {}, sortBy: {}, pagination: { first: 0, rows: 25 }, viewParams: {} },
     assert(result) {
       expect(result.columnGroups).not.toBeNull();
       const ids = result.columnGroups.map(g => g.id);
@@ -368,7 +357,7 @@ export const pipelineScenarios = [
   {
     name: 'flat pivot: identity group includes flatChildren (invoice_count, customer_count)',
     fixture: 'flat-pivot',
-    params: { filters: {}, sortMeta: [], pagination: { first: 0, rows: 25 }, viewParams: {} },
+    params: { filters: {}, sortBy: {}, pagination: { first: 0, rows: 25 }, viewParams: {} },
     assert(result) {
       const identity = result.columnGroups.find(g => g.id === 'identity');
       expect(identity.fields).toContain('invoice_count');
@@ -379,7 +368,7 @@ export const pipelineScenarios = [
   {
     name: 'flat pivot: totals group has total_qty and total_amount columns',
     fixture: 'flat-pivot',
-    params: { filters: {}, sortMeta: [], pagination: { first: 0, rows: 25 }, viewParams: {} },
+    params: { filters: {}, sortBy: {}, pagination: { first: 0, rows: 25 }, viewParams: {} },
     assert(result) {
       const totals = result.columnGroups.find(g => g.id === 'totals');
       expect(totals.fields).toContain('total_qty');
@@ -389,7 +378,7 @@ export const pipelineScenarios = [
   {
     name: 'tree non-pivot: _nestRows builds _children tree, expandable=true',
     fixture: 'tree-no-pivot',
-    params: { filters: {}, sortMeta: [], pagination: { first: 0, rows: 25 }, viewParams: {} },
+    params: { filters: {}, sortBy: {}, pagination: { first: 0, rows: 25 }, viewParams: {} },
     assert(result) {
       expect(result.expandable).toBe(true);
       const parents = result.rows.filter(r => r._children);
@@ -399,7 +388,7 @@ export const pipelineScenarios = [
   {
     name: 'tree non-pivot: filterValues extracted from _meta',
     fixture: 'tree-no-pivot',
-    params: { filters: {}, sortMeta: [], pagination: { first: 0, rows: 25 }, viewParams: {} },
+    params: { filters: {}, sortBy: {}, pagination: { first: 0, rows: 25 }, viewParams: {} },
     assert(result) {
       expect(result.filterValues).toBeDefined();
       expect(result.filterValues.hq).toBeInstanceOf(Array);
@@ -409,7 +398,7 @@ export const pipelineScenarios = [
   {
     name: 'tree non-pivot: filterDefs auto-derived from filterValues keys',
     fixture: 'tree-no-pivot',
-    params: { filters: {}, sortMeta: [], pagination: { first: 0, rows: 25 }, viewParams: {} },
+    params: { filters: {}, sortBy: {}, pagination: { first: 0, rows: 25 }, viewParams: {} },
     assert(result) {
       expect(result.filterDefs).toBeInstanceOf(Array);
       const hqDef = result.filterDefs.find(d => d.key === 'hq');
@@ -420,7 +409,7 @@ export const pipelineScenarios = [
   {
     name: 'tree non-pivot: meta_totals attached as footer on columns',
     fixture: 'tree-no-pivot',
-    params: { filters: {}, sortMeta: [], pagination: { first: 0, rows: 25 }, viewParams: {} },
+    params: { filters: {}, sortBy: {}, pagination: { first: 0, rows: 25 }, viewParams: {} },
     assert(result) {
       const qtyCol = result.columns.find(c => c.field === 'qty');
       expect(qtyCol.footer).toBeDefined();
@@ -430,7 +419,7 @@ export const pipelineScenarios = [
   {
     name: 'tree pivot: pivot columns grouped, children nested',
     fixture: 'tree-pivot',
-    params: { filters: {}, sortMeta: [], pagination: { first: 0, rows: 25 }, viewParams: {} },
+    params: { filters: {}, sortBy: {}, pagination: { first: 0, rows: 25 }, viewParams: {} },
     assert(result) {
       expect(result.columnGroups).not.toBeNull();
       expect(result.expandable).toBe(true);
@@ -443,7 +432,7 @@ export const pipelineScenarios = [
     fixture: null,
     isErrorCase: true,
     httpStatus: 500,
-    params: { filters: {}, sortMeta: [], pagination: { first: 0, rows: 25 }, viewParams: {} },
+    params: { filters: {}, sortBy: {}, pagination: { first: 0, rows: 25 }, viewParams: {} },
     assert(error) {
       expect(error.message).toContain('500');
     },
@@ -453,7 +442,7 @@ export const pipelineScenarios = [
     fixture: 'flat-no-pivot',
     params: {
       filters: { label: { type: 'text', value: 'Bangalore' } },
-      sortMeta: [],
+      sortBy: {},
       pagination: { first: 0, rows: 25 },
       viewParams: {},
     },
@@ -467,7 +456,7 @@ export const pipelineScenarios = [
     fixture: 'flat-no-pivot',
     params: {
       filters: {},
-      sortMeta: [{ field: 'qty', order: -1 }],
+      sortBy: { qty: 'desc' },
       pagination: { first: 0, rows: 25 },
       viewParams: {},
     },
@@ -481,27 +470,27 @@ export const pipelineScenarios = [
     fixture: null,
     isGqlErrorCase: true,
     gqlErrors: [{ message: 'Report not found' }],
-    params: { filters: {}, sortMeta: [], pagination: { first: 0, rows: 25 }, viewParams: {} },
+    params: { filters: {}, sortBy: {}, pagination: { first: 0, rows: 25 }, viewParams: {} },
   },
   {
     name: 'empty edges → 0 rows and 0 totalRecords',
     fixture: null,
     isEmptyCase: true,
-    params: { filters: {}, sortMeta: [], pagination: { first: 0, rows: 25 }, viewParams: {} },
+    params: { filters: {}, sortBy: {}, pagination: { first: 0, rows: 25 }, viewParams: {} },
     assert(result) {
       expect(result.rows).toHaveLength(0);
       expect(result.totalRecords).toBe(0);
     },
   },
   {
-    name: 'viewParams.dateRange → from_date and to_date in fetch body',
+    name: 'viewParams._controls.dateRange → from_date and to_date in fetch body',
     fixture: 'flat-no-pivot',
     isFetchSpyCase: true,
     params: {
       filters: {},
-      sortMeta: [],
+      sortBy: {},
       pagination: { first: 0, rows: 25 },
-      viewParams: { dateRange: ['2026-01-01', '2026-03-31'] },
+      viewParams: { _controls: { dateRange: { start: '2026-01-01', end: '2026-03-31' } } },
     },
     assert(_result, spy) {
       const body = JSON.parse(spy.mock.calls[0][1].body);
@@ -510,14 +499,14 @@ export const pipelineScenarios = [
     },
   },
   {
-    name: 'viewParams.breakdown → pivot_by_month in fetch body',
+    name: 'viewParams._controls.breakdown → pivot_by_month in fetch body',
     fixture: 'flat-no-pivot',
     isFetchSpyCase: true,
     params: {
       filters: {},
-      sortMeta: [],
+      sortBy: {},
       pagination: { first: 0, rows: 25 },
-      viewParams: { breakdown: true },
+      viewParams: { _controls: { breakdown: { value: true } } },
     },
     assert(_result, spy) {
       const body = JSON.parse(spy.mock.calls[0][1].body);
@@ -525,14 +514,14 @@ export const pipelineScenarios = [
     },
   },
   {
-    name: 'viewParams._sidebar.filters → dimension filter sent in fetch body',
+    name: 'viewParams._controls.filterSort.filters → dimension filter sent in fetch body',
     fixture: 'flat-no-pivot',
     isFetchSpyCase: true,
     params: {
       filters: {},
-      sortMeta: [],
+      sortBy: {},
       pagination: { first: 0, rows: 25 },
-      viewParams: { _sidebar: { filters: { hq: ['HQ-Bangalore'] } } },
+      viewParams: { _controls: { filterSort: { filters: { hq: 'HQ-Bangalore' } } } },
     },
     assert(_result, spy) {
       const body = JSON.parse(spy.mock.calls[0][1].body);

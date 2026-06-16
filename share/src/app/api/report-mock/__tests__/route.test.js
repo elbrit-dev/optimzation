@@ -71,7 +71,9 @@ describe('GET /api/report-mock — GraphQL envelope', () => {
     });
   });
 
-  VALID_VIEWS.forEach(view => {
+  // Only views that include a _meta column have meta_pagination injected by the route
+  const VIEWS_WITH_META = ['department_hq', 'brand_item'];
+  VIEWS_WITH_META.forEach(view => {
     it(`${view}: _meta column has meta_pagination with total_roots matching edges length`, async () => {
       const { body } = await getView(view);
       const cr = body.data.customReport;

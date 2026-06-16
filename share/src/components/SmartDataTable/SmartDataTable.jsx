@@ -169,12 +169,15 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
   const cfg = useMemo(() => resolveConfig(commonConfig, perViewConfig), [commonConfig, perViewConfig]);
 
   const { registerView, unregisterView, handleSignal, exportView,
-          registerViewActions, unregisterViewActions } = useSmartDataContext();
+          registerViewActions, unregisterViewActions, reportConfig } = useSmartDataContext();
 
   // Subscribe only to this view's slice — other views changing won't re-render this.
   const viewState = useSmartDataStore(state => state.views[viewId]);
 
   useEffect(() => {
+    // Provider pre-registers all views declared in reportConfig.views (including drawers).
+    // Only self-register for standalone SmartDataTable usage without a Provider reportConfig.
+    if (reportConfig?.views?.[viewId]) return;
     registerView(viewId, viewDataSource ?? null, view ?? null, cfg.defaultPageSize);
     return () => unregisterView(viewId);
     // eslint-disable-next-line react-hooks/exhaustive-deps

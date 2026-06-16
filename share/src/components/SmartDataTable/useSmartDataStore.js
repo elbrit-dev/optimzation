@@ -197,10 +197,9 @@ export const useSmartDataStore = create(
     },
 
     _setResult(viewId, { rows, totalRecords, columns, columnGroups, expandable, allRows, filterDefs, labelColDefs, metaTotals, metaTodayTotals, metaCol }) {
-      set(state => ({
-        views: {
-          ...state.views,
-          [viewId]: {
+      set(state => {
+        if (!state.views[viewId]) return state; // view unregistered before fetch completed
+        return { views: { ...state.views, [viewId]: {
             ...state.views[viewId],
             rows,
             totalRecords,
@@ -216,26 +215,32 @@ export const useSmartDataStore = create(
             ...(metaCol        !== undefined && { metaCol }),
             expandable: expandable ?? false,
           },
-        },
-      }));
+        } };
+      });
     },
 
     _setLoading(viewId, loading) {
-      set(state => ({
-        views: {
-          ...state.views,
-          [viewId]: { ...state.views[viewId], loading },
-        },
-      }));
+      set(state => {
+        if (!state.views[viewId]) return state; // view unregistered before fetch completed
+        return {
+          views: {
+            ...state.views,
+            [viewId]: { ...state.views[viewId], loading },
+          },
+        };
+      });
     },
 
     _setError(viewId, error) {
-      set(state => ({
-        views: {
-          ...state.views,
-          [viewId]: { ...state.views[viewId], error, loading: false },
-        },
-      }));
+      set(state => {
+        if (!state.views[viewId]) return state; // view unregistered before fetch completed
+        return {
+          views: {
+            ...state.views,
+            [viewId]: { ...state.views[viewId], error, loading: false },
+          },
+        };
+      });
     },
   }))
 );

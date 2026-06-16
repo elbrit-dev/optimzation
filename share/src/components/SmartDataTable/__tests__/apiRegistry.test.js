@@ -26,7 +26,8 @@ describe('resolveApiConfig', () => {
     });
     const result = await resolveApiConfig({ urlKey: 'DEV', variables: { report: 'Sales Summary' } });
     expect(result.endpoint).toBe('https://erp.example.com/api/method/graphql');
-    expect(result.token).toBe('abc123');
+    // Token is NOT pulled from the registry — it must be supplied explicitly
+    expect(result.token).toBe('');
   });
 
   it('urlKey + relative endpoint: builds full URL from baseUrl + path', async () => {
@@ -38,12 +39,12 @@ describe('resolveApiConfig', () => {
     expect(result.endpoint).toBe('https://erp.example.com/api/method/other');
   });
 
-  it('urlKey: strips "token " prefix from registry authToken', async () => {
+  it('urlKey: strips "token " prefix from an explicit token', async () => {
     vi.spyOn(constants, 'getEndpointConfigFromUrlKeyAsync').mockResolvedValueOnce({
       endpointUrl: 'https://erp.example.com/api/method/graphql',
-      authToken: 'token abc123',
+      authToken: 'ignored',
     });
-    const result = await resolveApiConfig({ urlKey: 'DEV' });
+    const result = await resolveApiConfig({ urlKey: 'DEV', token: 'token abc123' });
     expect(result.token).toBe('abc123');
   });
 

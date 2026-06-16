@@ -152,8 +152,10 @@ export function buildEventDefaultValues({ event, defaultTag }) {
     custom_latitude: employeeParticipant?.custom_latitude ?? undefined,
     custom_longitude: employeeParticipant?.custom_longitude ?? undefined,
     pob_given: event?.pob_given ?? "No",
-    roleId: event?.roleId ?? LOGGED_IN_USER.roleId,
-    leave_approver: event?.leave_approver ?? LOGGED_IN_USER.leave_approver,
+    roleId: event?.roleId ?? LOGGED_IN_USER.roleId ?? "",
+    leave_approver:
+      event?.leave_approver ??
+      LOGGED_IN_USER.leave_approver ?? "",
     fsl_doctor_item: event?.fsl_doctor_item ?? [],
   };
 }

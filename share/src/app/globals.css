@@ -1072,6 +1072,16 @@ body {
     box-shadow: none !important;
 }
 
+.app-header-menubar .p-menubar-start {
+    flex: 1;
+}
+
+.app-header-menubar .p-menubar-end {
+    flex: 1;
+    display: flex;
+    justify-content: flex-end;
+}
+
 .app-header-menubar .p-menubar-root-list {
     gap: 0.5rem;
 }

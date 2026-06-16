@@ -13,14 +13,14 @@ function makeRows(count) {
 describe('normalDataSource', () => {
   it('wraps scalar values as { value, repr }', async () => {
     const ds = normalDataSource([{ name: 'Test', qty: 5 }]);
-    const { rows } = await ds({ filters: {}, sortMeta: [], pagination: { first: 0, rows: 25 }, viewParams: {} });
+    const { rows } = await ds({ filters: {}, sortBy: {}, pagination: { first: 0, rows: 25 }, viewParams: {} });
     expect(rows[0].name).toEqual({ value: 'Test', repr: 'Test' });
     expect(rows[0].qty).toEqual({ value: 5, repr: 5 });
   });
 
   it('handles null and undefined cell values', async () => {
     const ds = normalDataSource([{ name: null, qty: undefined }]);
-    const { rows } = await ds({ filters: {}, sortMeta: [], pagination: { first: 0, rows: 25 }, viewParams: {} });
+    const { rows } = await ds({ filters: {}, sortBy: {}, pagination: { first: 0, rows: 25 }, viewParams: {} });
     expect(rows[0].name.value).toBeNull();
   });
 
@@ -28,7 +28,7 @@ describe('normalDataSource', () => {
     const ds = normalDataSource(makeRows(5));
     const { rows, totalRecords } = await ds({
       filters: { name: { type: 'text', value: 'Item 3' } },
-      sortMeta: [],
+      sortBy: {},
       pagination: { first: 0, rows: 25 },
       viewParams: {},
     });
@@ -41,7 +41,7 @@ describe('normalDataSource', () => {
     const ds = normalDataSource(makeRows(5));
     const { rows } = await ds({
       filters: {},
-      sortMeta: [{ field: 'qty', order: -1 }],
+      sortBy: { qty: 'desc' },
       pagination: { first: 0, rows: 25 },
       viewParams: {},
     });
@@ -52,7 +52,7 @@ describe('normalDataSource', () => {
     const ds = normalDataSource(makeRows(10));
     const { rows, totalRecords } = await ds({
       filters: {},
-      sortMeta: [],
+      sortBy: {},
       pagination: { first: 5, rows: 3 },
       viewParams: {},
     });
@@ -65,7 +65,7 @@ describe('normalDataSource', () => {
     const ds = normalDataSource(makeRows(7));
     const { totalRecords } = await ds({
       filters: {},
-      sortMeta: [],
+      sortBy: {},
       pagination: { first: 0, rows: 3 },
       viewParams: {},
     });
@@ -76,7 +76,7 @@ describe('normalDataSource', () => {
     const ds = normalDataSource([]);
     const { rows, totalRecords } = await ds({
       filters: {},
-      sortMeta: [],
+      sortBy: {},
       pagination: { first: 0, rows: 25 },
       viewParams: {},
     });

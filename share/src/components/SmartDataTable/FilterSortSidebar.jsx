@@ -148,10 +148,23 @@ export default function FilterSortSidebar({
   }, [currentKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const searchTerm = tabSearch[currentKey] ?? '';
+  const debounceRef = useRef(null);
 
-  const triggerSearch = useCallback((key) => {
-    loadValues(key, 1, tabSearch[key] ?? '', true);
-  }, [loadValues, tabSearch]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Auto-search: fires 650ms after keystroke when search term is >= 2 chars.
+  // Clears back to full list immediately when term drops to 0.
+  useEffect(() => {
+    if (!currentKey) return;
+    clearTimeout(debounceRef.current);
+    if (searchTerm.length === 0) {
+      loadValues(currentKey, 1, '', true);
+    } else if (searchTerm.length >= 2) {
+      debounceRef.current = setTimeout(() => {
+        loadValues(currentKey, 1, searchTerm, true);
+      }, 650);
+    }
+    return () => clearTimeout(debounceRef.current);
+  }, [searchTerm, currentKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
 
   // ── Infinite scroll via IntersectionObserver ──────────────────────────────
   useEffect(() => {
@@ -317,6 +330,12 @@ export default function FilterSortSidebar({
                     [key]: isSelected ? current.filter(v => v !== value) : [...current, value],
                   };
                 });
+                // Cascade: clear other tabs' caches so they reload with the updated filter applied
+                setTabValues(prev => {
+                  const updated = {};
+                  if (prev[key]) updated[key] = prev[key];
+                  return updated;
+                });
               };
 
 
@@ -329,7 +348,7 @@ export default function FilterSortSidebar({
                       <InputText
                         value={search}
                         onChange={e => setTabSearch(prev => ({ ...prev, [key]: e.target.value }))}
-                        onKeyDown={e => e.key === 'Enter' && triggerSearch(key)}
+                        onKeyDown={e => { if (e.key === 'Enter') { clearTimeout(debounceRef.current); loadValues(key, 1, searchTerm, true); } }}
                         placeholder="Search…"
                         style={{ height: '2rem' }}
                       />
@@ -337,21 +356,11 @@ export default function FilterSortSidebar({
                         <span
                           className="p-inputgroup-addon cursor-pointer hover:bg-gray-100"
                           style={{ height: '2rem' }}
-                          onClick={() => {
-                            setTabSearch(prev => ({ ...prev, [key]: '' }));
-                            loadValues(key, 1, '', true);
-                          }}
+                          onClick={() => setTabSearch(prev => ({ ...prev, [key]: '' }))}
                         >
                           <i className="pi pi-times text-xs text-gray-500" />
                         </span>
                       )}
-                      <span
-                        className="p-inputgroup-addon cursor-pointer hover:bg-blue-50"
-                        style={{ height: '2rem' }}
-                        onClick={() => triggerSearch(key)}
-                      >
-                        <i className="pi pi-search text-xs text-blue-600" />
-                      </span>
                     </div>
                     <span className="text-xs text-gray-500 whitespace-nowrap">
                       {selectedValues.length} selected

@@ -246,38 +246,37 @@ describe('fuzz: formatStep', () => {
 });
 
 // ─── paginateStep invariants ──────────────────────────────────────────────────
+// Server handles pagination; paginateStep only sets totalRecords (no slicing).
 
 describe('fuzz: paginateStep', () => {
-  it('rows.length <= perPage always', () => {
+  it('rows pass through unchanged (server already paginated them)', () => {
     fc.assert(fc.property(
       fc.array(fc.record({ x: fc.integer() }), { maxLength: 200 }),
-      paginationArb,
-      (rows, pagination) => {
-        const result = paginateStep({ rows }, { pagination });
-        expect(result.rows.length).toBeLessThanOrEqual(pagination.rows);
+      (rows) => {
+        const result = paginateStep({ rows });
+        expect(result.rows).toBe(rows); // same reference — not copied or sliced
       }
     ), { numRuns: 300 });
   });
 
-  it('totalRecords === input.length always', () => {
+  it('totalRecords === rows.length when no metaPagination', () => {
     fc.assert(fc.property(
       fc.array(fc.record({ x: fc.integer() }), { maxLength: 200 }),
-      paginationArb,
-      (rows, pagination) => {
-        const result = paginateStep({ rows }, { pagination });
+      (rows) => {
+        const result = paginateStep({ rows });
         expect(result.totalRecords).toBe(rows.length);
       }
     ), { numRuns: 300 });
   });
 
   it('first >= length → empty rows but correct totalRecords', () => {
+    // When metaPagination.total_roots is provided it overrides rows.length
     fc.assert(fc.property(
       fc.array(fc.record({ x: fc.integer() }), { minLength: 0, maxLength: 20 }),
-      fc.integer({ min: 1, max: 50 }),
-      (rows, perPage) => {
-        const result = paginateStep({ rows }, { pagination: { first: rows.length + 100, rows: perPage } });
-        expect(result.rows).toHaveLength(0);
-        expect(result.totalRecords).toBe(rows.length);
+      fc.integer({ min: 1, max: 1000 }),
+      (rows, totalRoots) => {
+        const result = paginateStep({ rows, metaPagination: { total_roots: totalRoots } });
+        expect(result.totalRecords).toBe(totalRoots);
       }
     ), { numRuns: 200 });
   });
