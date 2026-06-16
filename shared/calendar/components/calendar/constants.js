@@ -40,13 +40,6 @@ export const STATUS = {
   CLOSED: "Closed",
   CANCELLED: "Cancelled",
 };
-export const STATUS_MAP = {
-  open: STATUS.OPEN,
-  closed: STATUS.CLOSED,
-  cancelled: STATUS.CANCELLED,
-  approved: STATUS.APPROVED,
-  rejected: STATUS.REJECTED,
-};
 export const TAG_IDS = {
   LEAVE: "Leave",
   HQ_TOUR_PLAN: "HQ Tour Plan",
@@ -55,7 +48,52 @@ export const TAG_IDS = {
   MEETING: "Meeting",
   OTHER: "Other",
 };
+export const STATUS_MAP = {
+  open: STATUS.OPEN,
+  closed: STATUS.CLOSED,
+  cancelled: STATUS.CANCELLED,
+  approved: STATUS.APPROVED,
+  rejected: STATUS.REJECTED,
+};
 
+export const STATUS_BY_TAG = {
+  [TAG_IDS.TODO_LIST]: [
+    STATUS.OPEN,
+    STATUS.CLOSED,
+    STATUS.CANCELLED,
+  ],
+
+  [TAG_IDS.LEAVE]: [
+    STATUS.OPEN,
+    STATUS.APPROVED,
+    STATUS.REJECTED,
+    STATUS.CANCELLED,
+  ],
+
+  [TAG_IDS.HQ_TOUR_PLAN]: [
+    STATUS.OPEN,
+    STATUS.CLOSED,
+    STATUS.CANCELLED,
+  ],
+
+  [TAG_IDS.DOCTOR_VISIT_PLAN]: [
+    STATUS.OPEN,
+    STATUS.CLOSED,
+    STATUS.CANCELLED,
+  ],
+
+  [TAG_IDS.MEETING]: [
+    STATUS.OPEN,
+    STATUS.CLOSED,
+    STATUS.CANCELLED,
+  ],
+
+  [TAG_IDS.OTHER]: [
+    STATUS.OPEN,
+    STATUS.CLOSED,
+    STATUS.CANCELLED,
+  ],
+};
 export const TAGS = [
   { id: TAG_IDS.LEAVE, label: "Leave" },
   { id: TAG_IDS.HQ_TOUR_PLAN, label: "HQ Tour Plan" },

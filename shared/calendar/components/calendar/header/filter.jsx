@@ -11,7 +11,7 @@ import { useCalendar } from "@calendar/components/calendar/contexts/calendar-con
 import { STATUS } from "@calendar/components/calendar/constants";
 
 export default function FilterEvents({ variant }) {
-	const { selectedColors, filterEventsBySelectedColors, clearFilter, selectedStatuses, filterEventsBySelectedStatus, showOnlyTodoList, } =
+	const { selectedColors, filterEventsBySelectedColors, clearFilter, selectedStatuses, filterEventsBySelectedStatus, showOnlyTodoList,showOnlyApprovedLeaves } =
 		useCalendar();
 
 	const colors = [
@@ -22,6 +22,7 @@ export default function FilterEvents({ variant }) {
 		"orange",
 	];
 	const statuses = Object.values(STATUS);
+	const hideFilters = showOnlyTodoList || showOnlyApprovedLeaves;
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
@@ -30,7 +31,7 @@ export default function FilterEvents({ variant }) {
 				</Toggle>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="end" className="w-[150px]">
-				{!showOnlyTodoList && (
+				{!hideFilters && (
 					<>
 						{colors.map((color, index) => (
 							<DropdownMenuItem
@@ -81,7 +82,10 @@ export default function FilterEvents({ variant }) {
 				))}
 				<Separator className="my-2" />
 				<DropdownMenuItem
-					disabled={selectedColors.length === 0}
+					 disabled={
+						selectedColors.length === 0 &&
+						selectedStatuses.length === 0
+					  }
 					className="flex gap-2 cursor-pointer"
 					onClick={(e) => {
 						e.preventDefault();

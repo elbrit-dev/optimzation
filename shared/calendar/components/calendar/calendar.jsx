@@ -9,7 +9,6 @@ import { CalendarHeader } from "@calendar/components/calendar/header/calendar-he
 import { MobileCalendarHeader } from "@calendar/components/calendar/mobile/mobile-calendar-header";
 import { useMediaQuery } from "@calendar/components/calendar/hooks";
 import { AgendaSidebar } from "@calendar/components/calendar/views/agenda-view/agenda-sidebar";
-import { STATUS, TAG_IDS } from "@calendar/components/calendar/constants";
 import NotificationToast from "@calendar/components/calendar/notification/NotificationToast";
 export function Calendar() {
   const isMobile = useMediaQuery("(max-width: 768px)");

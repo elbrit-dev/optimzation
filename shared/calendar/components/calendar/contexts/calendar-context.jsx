@@ -455,6 +455,7 @@ export function CalendarProvider({
 		setNotifications,
 		filterEventsBySelectedColors,
 		selectedStatuses,
+		setSelectedStatuses,
 		filterEventsBySelectedStatus,
 		filterEventsBySelectedUser,
 		events: filteredEvents,

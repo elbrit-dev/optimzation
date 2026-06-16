@@ -190,8 +190,7 @@ export const AgendaEvents = ({ scope = "all"}) => {
     if (showOnlyApprovedLeaves) {
       result = result.filter(
         (event) =>
-          event.tags === TAG_IDS.LEAVE &&
-          event.status === STATUS.APPROVED
+          event.tags === TAG_IDS.LEAVE 
       );
     }
   

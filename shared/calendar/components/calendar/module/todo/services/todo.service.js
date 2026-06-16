@@ -1,8 +1,9 @@
 import { graphqlRequest } from "@calendar/lib/graphql-client";
 import { mapErpTodoToCalendar } from "@calendar/components/calendar/module/todo/mappers/todo.mapper"
 import { getCached } from "@calendar/lib/data-cache";
-import { GET_TODO_COMMENTS, SAVE_COMMENT, TODO_LIST_QUERY } from "@calendar/components/calendar/module/todo/graphql/todo.query";
+import { GET_TODO_COMMENTS, SAVE_COMMENT, SAVE_EVENT_TODO, TODO_LIST_QUERY } from "@calendar/components/calendar/module/todo/graphql/todo.query";
 import { normalizeChecklistFromERP } from "@calendar/components/calendar/module/todo/helpers/checklist.helper";
+import { clearEventCache } from "@calendar/lib/calendar/event-cache";
 
 export async function fetchAllTodoList() {
     return getCached("TODO_LIST", async () => {

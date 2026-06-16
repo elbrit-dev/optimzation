@@ -17,8 +17,7 @@ import { useCalendar } from "@calendar/components/calendar/contexts/calendar-con
 import { cn } from "@calendar/lib/utils";
 import { tabs } from "@calendar/components/calendar/header/view-tabs";
 import { DateNavigator } from "@calendar/components/calendar/header/date-navigator";
-import FilterEvents from "@calendar/components/calendar/header/filter";
-import { NotificationBell } from "@calendar/components/calendar/notification/NotificationBell";
+import { STATUS } from "@calendar/components/calendar/constants";
 
 const MOBILE_LAYER_MAP = {
   month: "month-expanded",
@@ -34,16 +33,14 @@ export function MobileCalendarHeader() {
     setView,
     setSelectedDate,
     setMobileLayer,
-    events, showOnlyApprovedLeaves, showOnlyTodoList, setShowOnlyTodoList,
+    events, showOnlyApprovedLeaves, showOnlyTodoList, setShowOnlyTodoList, setSelectedStatuses,
     setShowOnlyApprovedLeaves,
   } = useCalendar();
-  const [prevView, setPrevView] = useState(view);
   const today = new Date();
   const todayDate = format(today, "d");
 
   const handleTodayClick = () => {
     setSelectedDate(today);
-
     // 👇 keep current semantic view
     setMobileLayer(MOBILE_LAYER_MAP[view] ?? "month-expanded");
   };
@@ -52,7 +49,35 @@ export function MobileCalendarHeader() {
     setView(nextView);
     setMobileLayer(MOBILE_LAYER_MAP[nextView]);
   };
+  const handleAgendaToggle = (
+    setCurrentToggle,
+    setOtherToggle,
+    status
+  ) => {
+    setCurrentToggle((prev) => {
+      const next = !prev;
 
+      if (next) {
+        setOtherToggle(false);
+
+        if (status) {
+          setSelectedStatuses([status.toLowerCase()]);
+        } else {
+          // Todo mode clears status filter
+          setSelectedStatuses([]);
+        }
+
+        setView("agenda");
+        setMobileLayer("agenda");
+      } else {
+        setSelectedStatuses([]);
+        setView("month");
+        setMobileLayer("month-agenda");
+      }
+
+      return next;
+    });
+  };
   return (
     <>
       <header className="flex items-center justify-between border-b px-0 py-2 md:hidden">
@@ -114,25 +139,12 @@ export function MobileCalendarHeader() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => {
-              setShowOnlyApprovedLeaves((prev) => {
-                const next = !prev;
-
-                if (next) {
-                  // 👉 turning ON
-                  setShowOnlyTodoList(false);
-                  setPrevView(view); // save current view
-                  setView("agenda");
-                  setMobileLayer("agenda");
-                } else {
-                  // 👉 turning OFF
-                  setView(prevView);
-                  setMobileLayer(MOBILE_LAYER_MAP[prevView] ?? "month-expanded");
-                }
-
-                return next;
-              });
-            }}
+            onClick={() =>
+              handleAgendaToggle(
+                setShowOnlyApprovedLeaves,
+                setShowOnlyTodoList, STATUS.APPROVED
+              )
+            }
           >
             <CircleCheckBig
               className={cn(
@@ -144,37 +156,20 @@ export function MobileCalendarHeader() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => {
-              setShowOnlyTodoList((prev) => {
-                const next = !prev;
-
-                if (next) {
-                  // disable leave filter
-                  setShowOnlyApprovedLeaves(false);
-
-                  // save current view and switch to agenda
-                  setPrevView(view);
-                  setView("agenda");
-                  setMobileLayer("agenda");
-                } else {
-                  setView(prevView);
-                  setMobileLayer(
-                    MOBILE_LAYER_MAP[prevView] ?? "month-expanded"
-                  );
-                }
-
-                return next;
-              });
-            }}
+            onClick={() =>
+              handleAgendaToggle(
+                setShowOnlyTodoList,
+                setShowOnlyApprovedLeaves
+              )
+            }
           >
             <ListChecks
               className={cn(
                 "h-5 w-5",
-                showOnlyTodoList && "text-green-500"
+                showOnlyTodoList && "text-blue-500"
               )}
             />
           </Button>
-         {(view == "agenda" && !showOnlyApprovedLeaves) && <FilterEvents />}
           <Button variant="ghost" size="icon"><House /></Button>
         </div>
       </header>

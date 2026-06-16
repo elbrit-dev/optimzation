@@ -36,6 +36,7 @@ import { ICON_MAP } from "@calendar/components/calendar/mobile/MobileAddEventBar
 import { STATUS, TAG_IDS } from "@calendar/components/calendar/constants";
 import { navigateDate } from "@calendar/components/calendar/helpers";
 import { ChevronDown } from "lucide-react";
+import FilterEvents from "@calendar/components/calendar/header/filter";
 
 const PULL_THRESHOLD = 70;
 const SWIPE_THRESHOLD = 70;
@@ -109,15 +110,6 @@ export const AgendaEventsMobile = () => {
      RANGE FILTER (FIXED)
   =============================== */
 
-  const isEventInRange = (event, date) => {
-    const start = parseISO(event.startDate);
-    const end = parseISO(event.endDate || event.startDate);
-
-    return isWithinInterval(date, {
-      start: startOfDay(start),
-      end: endOfDay(end),
-    });
-  };
 
   const filteredEvents = useMemo(() => {
     const startOfCurrentMonth = new Date(
@@ -155,8 +147,7 @@ export const AgendaEventsMobile = () => {
     if (showOnlyApprovedLeaves) {
       return data.filter(
         (event) =>
-          event.tags === TAG_IDS.LEAVE &&
-          event.status === STATUS.APPROVED
+          event.tags === TAG_IDS.LEAVE 
       );
     }
     if (showOnlyTodoList) {
@@ -261,8 +252,9 @@ export const AgendaEventsMobile = () => {
         onScroll={handleScroll}
         className="overflow-y-scroll py-4 h-[80vh] bg-transparent"
       >
-        <div className="mb-4 mx-4">
+        <div className="mb-4 mx-4 flex justify-between items-center">
           <CommandInput placeholder="Search..." />
+          <FilterEvents variant={true}/>
         </div>
 
         <CommandList className="px-2 border-t max-h-none overflow-visible">
