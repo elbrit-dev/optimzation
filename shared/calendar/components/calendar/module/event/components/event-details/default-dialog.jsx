@@ -20,7 +20,6 @@ export function EventDefaultDialog({
     removeEvent,
     onClose: () => setOpen(false),
   });
-  const deleteLockRef = useRef(false);
   const tagConfig = TAG_FORM_CONFIG[event.tags] ?? TAG_FORM_CONFIG.DEFAULT;
 
   const canDelete =
@@ -65,9 +64,9 @@ export function EventDefaultDialog({
         )}
 
         {canDelete && (
-         <DeleteEventDialog
-         onConfirm={() => handleDelete(event.erpName)}
-       />
+          <DeleteEventDialog
+            onConfirm={() => handleDelete(event.erpName)}
+          />
         )}
       </div>
     </>
@@ -103,12 +102,11 @@ export function EventDetailsFields({ event, config, use24HourFormat }) {
               )}
 
               {/* 3️⃣ Default Value (only if not description or employee) */}
-              {field.key !== "description" &&
-                field.key !== "employee" && (
-                  <p className="text-sm text-muted-foreground">
-                    {value}
-                  </p>
-                )}
+              {field.key !== "description" && (
+                <p className="text-sm text-muted-foreground">
+                  {value}
+                </p>
+              )}
             </div>
 
           </div>

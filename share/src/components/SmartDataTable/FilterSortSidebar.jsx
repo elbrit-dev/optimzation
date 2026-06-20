@@ -61,6 +61,7 @@ function ValueSkeleton() {
  *                        — from SmartDataProvider via context
  *   currentSortConfig    { field, direction } | null
  *   currentFilterValues  { [key]: string[] }
+ *   dateRange            { start?, end? } — from date-range control; clears cache on change
  *   onApply              (sortConfig, filterValues) => void
  *   onClear              () => void
  */
@@ -71,6 +72,7 @@ export default function FilterSortSidebar({
   fetchFilterValues,
   currentSortBy = {},
   currentFilterValues = {},
+  dateRange,
   onApply,
   onClear,
 }) {
@@ -78,6 +80,8 @@ export default function FilterSortSidebar({
   const [activeTabIndex, setActiveTabIndex] = useState(0);
   const [selectedSorts, setSelectedSorts] = useState(currentSortBy ?? {});
   const [selectedFilterValues, setSelectedFilterValues] = useState(currentFilterValues || {});
+  const selectedFilterValuesRef = useRef(selectedFilterValues);
+  selectedFilterValuesRef.current = selectedFilterValues;
 
   // ── Per-tab async value state ─────────────────────────────────────────────
   // { [key]: { items: [{value,label}], page: number, hasMore: boolean, loading: boolean } }
@@ -89,6 +93,9 @@ export default function FilterSortSidebar({
   const sentinelRef = useRef(null);
   // Track in-flight requests to avoid double-fetches
   const fetchingRef = useRef({});
+  // Per-tab previous search term — detect user clearing search vs tab switch
+  const lastSearchRef = useRef({});
+  const skipFilterInvalidationRef = useRef(true);
 
   // ── Sync when sidebar opens ───────────────────────────────────────────────
   useEffect(() => {
@@ -98,9 +105,28 @@ export default function FilterSortSidebar({
     }
   }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Clear cached values when the report date range changes
+  useEffect(() => {
+    setTabValues({});
+  }, [dateRange?.start, dateRange?.end]);
+
   // ── Current filter key (for the active tab) ───────────────────────────────
   const currentFilterDef = activeTabIndex > 0 ? filterDefs[activeTabIndex - 1] : null;
   const currentKey = currentFilterDef?.key ?? null;
+
+  // Invalidate non-active filter tabs when cascade selections change
+  useEffect(() => {
+    if (skipFilterInvalidationRef.current) {
+      skipFilterInvalidationRef.current = false;
+      return;
+    }
+    if (!currentKey) return;
+    setTabValues(prev => {
+      const updated = {};
+      if (prev[currentKey]) updated[currentKey] = prev[currentKey];
+      return updated;
+    });
+  }, [selectedFilterValues]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Load values helper ────────────────────────────────────────────────────
   const loadValues = useCallback(async (key, page, search, reset) => {
@@ -117,7 +143,7 @@ export default function FilterSortSidebar({
     }));
 
     try {
-      const { items, hasMore } = await fetchFilterValues(key, { page, pageLength: 20, search, currentFilters: selectedFilterValues });
+      const { items, hasMore } = await fetchFilterValues(key, { page, pageLength: 20, search, currentFilters: selectedFilterValuesRef.current });
       setTabValues(prev => {
         const existing = reset ? [] : (prev[key]?.items ?? []);
         return {
@@ -144,24 +170,29 @@ export default function FilterSortSidebar({
   useEffect(() => {
     if (!currentKey) return;
     if (tabValues[currentKey]) return; // already loaded
-    loadValues(currentKey, 1, '', true);
+    loadValues(currentKey, 1, tabSearch[currentKey] ?? '', true);
   }, [currentKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const searchTerm = tabSearch[currentKey] ?? '';
   const debounceRef = useRef(null);
 
-  // Auto-search: fires 650ms after keystroke when search term is >= 2 chars.
-  // Clears back to full list immediately when term drops to 0.
+  // Auto-search: debounced when typing; refetch full list only when user clears an active search.
+  // Tab switches with empty search are handled by the effect above (respects cache).
   useEffect(() => {
     if (!currentKey) return;
     clearTimeout(debounceRef.current);
-    if (searchTerm.length === 0) {
-      loadValues(currentKey, 1, '', true);
-    } else if (searchTerm.length >= 2) {
+
+    const prev = lastSearchRef.current[currentKey] ?? '';
+
+    if (searchTerm.length >= 2) {
       debounceRef.current = setTimeout(() => {
         loadValues(currentKey, 1, searchTerm, true);
       }, 650);
+    } else if (searchTerm.length === 0 && prev.length >= 2) {
+      loadValues(currentKey, 1, '', true);
     }
+
+    lastSearchRef.current[currentKey] = searchTerm;
     return () => clearTimeout(debounceRef.current);
   }, [searchTerm, currentKey]); // eslint-disable-line react-hooks/exhaustive-deps
 

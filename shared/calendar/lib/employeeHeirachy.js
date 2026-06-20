@@ -17,17 +17,11 @@ export function resolveVisibleRoleIds(elbritEdges = []) {
   
     const visible = new Set();
   
-    // BE
+    // BE user -> only self
     if (!myNode.is_group) {
-      const parentId = myNode.parent_elbrit_role_id__name;
-      const siblings = childrenMap.get(parentId) || [];
-  
-      siblings.forEach(id => visible.add(id));
-      visible.add(myRoleId);
-  
-      return [...visible];
+      return [myRoleId];
     }
-  
+    
     const queue = [myRoleId];
     visible.add(myRoleId);
   

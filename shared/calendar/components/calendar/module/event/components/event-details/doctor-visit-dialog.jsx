@@ -71,17 +71,11 @@ export function EventDoctorVisitDialog({
     doctorOptions,
     addEvent, setDoctorOptions
   } = useCalendar();
-  const [showEditor, setShowEditor] = useState(false);
-  const [newNote, setNewNote] = useState("");
 
   const { handleDelete } = useDeleteEvent({
     removeEvent,
     onClose: () => setOpen(false),
   });
-  const handleCancelNote = useCallback(() => {
-    setShowEditor(false);
-    setNewNote("");
-  }, []);
   const doctorResolvers = useDoctorResolvers(doctorOptions);
   const employeeResolvers = useEmployeeResolvers(employeeOptions);
   const employeeMap = useMemo(() => {

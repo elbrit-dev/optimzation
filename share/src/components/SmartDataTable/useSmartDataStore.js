@@ -21,6 +21,7 @@ const DEFAULT_VIEW_STATE = {
   metaCol:         null, // full _meta column object from API
   hiddenColumns: [],    // field names hidden via eye toggle
   loading: false,
+  loadingPhase: null,   // 'index' | 'data' while loading; null when idle
   error: null,
 };
 
@@ -204,6 +205,7 @@ export const useSmartDataStore = create(
             rows,
             totalRecords,
             loading: false,
+            loadingPhase: null,
             error: null,
             ...(columns      !== undefined && { columns }),
             ...(columnGroups !== undefined && { columnGroups }),
@@ -219,13 +221,18 @@ export const useSmartDataStore = create(
       });
     },
 
-    _setLoading(viewId, loading) {
+    /** @param {'index'|'data'} [loadingPhase] — only used when loading is true */
+    _setLoading(viewId, loading, loadingPhase = 'data') {
       set(state => {
         if (!state.views[viewId]) return state; // view unregistered before fetch completed
         return {
           views: {
             ...state.views,
-            [viewId]: { ...state.views[viewId], loading },
+            [viewId]: {
+              ...state.views[viewId],
+              loading,
+              loadingPhase: loading ? loadingPhase : null,
+            },
           },
         };
       });
@@ -237,7 +244,7 @@ export const useSmartDataStore = create(
         return {
           views: {
             ...state.views,
-            [viewId]: { ...state.views[viewId], error, loading: false },
+            [viewId]: { ...state.views[viewId], error, loading: false, loadingPhase: null },
           },
         };
       });

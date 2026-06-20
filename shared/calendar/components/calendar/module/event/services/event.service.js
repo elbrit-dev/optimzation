@@ -249,7 +249,7 @@ export async function fetchEventsByRange(startDate, endDate, view) {
   const quotationNames = rawEventNodes
     .filter(
       (node) =>
-        node.reference_doctype?.name === "Quotation" &&
+        node.reference_doctype__name === "Quotation" &&
         node.reference_docname__name
     )
     .map((node) => node.reference_docname__name);
@@ -267,7 +267,7 @@ export async function fetchEventsByRange(startDate, endDate, view) {
   // --------------------------------------------
   const enrichedNodes = rawEventNodes.map((node) => {
     if (
-      node.reference_doctype?.name === "Quotation" &&
+      node.reference_doctype__name === "Quotation" &&
       quotationMap[node.reference_docname__name]
     ) {
       const quotation =

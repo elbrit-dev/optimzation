@@ -662,7 +662,6 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 				calendarEvent.pob_given = "No";
 			}
 		}
-
 		return calendarEvent;
 	};
 	useEffect(() => {
@@ -999,7 +998,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 	const shouldHideDateGrid =
 		isEditing && selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN;
 	const isSubmitDisabled = form.formState.isSubmitting;
-
+   
 	return (
 		<Modal open={isOpen} onOpenChange={onToggle}>
 			<ModalTrigger asChild>{children}</ModalTrigger>

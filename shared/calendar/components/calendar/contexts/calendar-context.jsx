@@ -56,7 +56,7 @@ export function CalendarProvider({
 	const isEventListOpen = eventListDate !== null;
 	const [mobileLayer, setMobileLayer] = useState("month-expanded");
 	const [showOnlyApprovedLeaves, setShowOnlyApprovedLeaves] = useState(false);
-	const [showOnlyTodoList,setShowOnlyTodoList] = useState(false);
+	const [showOnlyTodoList, setShowOnlyTodoList] = useState(false);
 	const updateSettings = (newPartialSettings) => {
 		setSettings({
 			...settings,
@@ -67,7 +67,7 @@ export function CalendarProvider({
 		const map = new Map();
 		for (const u of users) {
 			if (u.email && u.id) {
-				map.set(u.email, u.id); // email → Employee ID
+				map.set(u.email?.toLowerCase(),u.id ); // email → Employee ID
 			}
 		}
 		return map;
@@ -106,18 +106,18 @@ export function CalendarProvider({
 	};
 	const filterEventsBySelectedStatus = (status) => {
 		const normalized = status.toLowerCase();
-	  
+
 		const isSelected =
-		  selectedStatuses.includes(normalized);
-	  
+			selectedStatuses.includes(normalized);
+
 		const newStatuses = isSelected
-		  ? selectedStatuses.filter(
-			  (s) => s !== normalized
+			? selectedStatuses.filter(
+				(s) => s !== normalized
 			)
-		  : [...selectedStatuses, normalized];
-	  
+			: [...selectedStatuses, normalized];
+
 		setSelectedStatuses(newStatuses);
-	  };
+	};
 	const filterEventsBySelectedUser = (userId) => {
 		setSelectedUserId(userId);
 	};
@@ -241,7 +241,7 @@ export function CalendarProvider({
 				const rawData = await graphqlRequest(ELBRIT_ROLEID, {
 					first: 1000,
 				});
-	
+
 				const data = normalizeRoleProfiles(rawData);
 
 				const edges = data?.ElbritRoleIDS?.edges ?? [];
@@ -263,47 +263,96 @@ export function CalendarProvider({
 	}, []);
 	const getEventEmployeeIds = (event) => {
 		const ids = new Set();
-
-		// 1️⃣ ERP participants
+	  
+		// ERP Events
 		if (event.event_participants?.length) {
-			event.event_participants.forEach(p => {
-				if (
-					p.reference_doctype === "Employee" &&
-					p.reference_docname
-				) {
-					ids.add(p.reference_docname);
-				}
-			});
+		  event.event_participants.forEach((p) => {
+			if (
+			  p.reference_doctype === "Employee" &&
+			  p.reference_docname
+			) {
+			  ids.add(p.reference_docname);
+			}
+		  });
 		}
-
-		// 2️⃣ Fallback
+	  
+		// fallback employees
 		if (event.employees) {
+		  if (Array.isArray(event.employees)) {
+			event.employees.forEach((id) => ids.add(id));
+		  } else {
 			ids.add(event.employees);
+		  }
 		}
-
-		// 3️⃣ Leave
+	  
+		// Leave
 		if (event.tags === TAG_IDS.LEAVE) {
-			if (event.employee) {
-				ids.add(event.employee);
+		  if (event.employee) {
+			ids.add(event.employee);
+		  }
+	  
+		  if (event.leave_approver) {
+			const approverId =
+			  employeeEmailToId.get(
+				event.leave_approver.toLowerCase()
+			  );
+	  
+			if (approverId) {
+			  ids.add(approverId);
 			}
-
-			if (event.leave_approver) {
-				const approverId = employeeEmailToId.get(
-					event.leave_approver
-				);
-
-				if (approverId) {
-					ids.add(approverId);
-				}
-			}
+		  }
 		}
-
-		// 4️⃣ Todo
-		if (event.tags === TAGS.TODO_LIST && event.allocated_to) {
-			ids.add(event.allocated_to);
+	  
+		// Todo allocated_to
+		if (
+		  event.tags === TAG_IDS.TODO_LIST &&
+		  event.allocated_to
+		) {
+		  const allocatedEmployeeId =
+			employeeEmailToId.get(
+			  event.allocated_to.toLowerCase()
+			);
+	  
+		  if (allocatedEmployeeId) {
+			ids.add(allocatedEmployeeId);
+		  }
 		}
-		return Array.from(ids);
-	};
+	  
+		// Todo assignedTo
+		if (
+		  event.tags === TAG_IDS.TODO_LIST &&
+		  event.assignedTo?.length
+		) {
+		  event.assignedTo.forEach((id) => ids.add(id));
+		}
+	  
+		return [...ids];
+	  };
+
+	  const employeeRoleMap = useMemo(() => {
+		const map = new Map();
+	  
+		users.forEach((u) => {
+		  map.set(u.id, u.roleId);
+		});
+	  
+		return map;
+	  }, [users]);
+	  const getEventRoleIds = (event) => {
+		const roleIds = new Set();
+	  
+		const employeeIds = getEventEmployeeIds(event);
+	  
+		employeeIds.forEach((id) => {
+		  const roleId = employeeRoleMap.get(id);
+	  
+		  if (roleId) {
+			roleIds.add(roleId);
+		  }
+		});
+	  
+		return [...roleIds];
+	  };
 	useEffect(() => {
 		let cancelled = false;
 
@@ -365,31 +414,34 @@ export function CalendarProvider({
 			}
 			if (selectedStatuses.length) {
 				result = result.filter((event) =>
-				  selectedStatuses.includes(
-					event.status?.trim()?.toLowerCase()
-				  )
+					selectedStatuses.includes(
+						event.status?.trim()?.toLowerCase()
+					)
 				);
-			  }
+			}
 			return result;
 		}
 
 		// 👇 Non-admin logic below
 		let result = allEvents;
 		result = result.filter(event => {
+			const eventRoleIds = getEventRoleIds(event);
+		  
 			const roleMatch =
-				event.roleId &&
-				visibleRoleIds.includes(event.roleId);
-
-			const eventEmployeeIds = getEventEmployeeIds(event);
-
+			  eventRoleIds.some(roleId =>
+				visibleRoleIds.includes(roleId)
+			  );
+		  
+			const eventEmployeeIds =
+			  getEventEmployeeIds(event);
+		  
 			const employeeMatch =
-				eventEmployeeIds.some(id =>
-					allowedEmployeeIds.includes(id)
-				);
-
+			  eventEmployeeIds.some(id =>
+				allowedEmployeeIds.includes(id)
+			  );
+		  
 			return roleMatch || employeeMatch;
-		});
-
+		  });
 		if (selectedUserId !== "all") {
 			result = result.filter(event => {
 				const eventEmployeeIds = getEventEmployeeIds(event);
@@ -404,11 +456,11 @@ export function CalendarProvider({
 		}
 		if (selectedStatuses.length) {
 			result = result.filter(event =>
-			  selectedStatuses.includes(
-				event.status?.trim()?.toLowerCase()
-			  )
+				selectedStatuses.includes(
+					event.status?.trim()?.toLowerCase()
+				)
 			);
-		  }
+		}
 		return result;
 
 	}, [
@@ -416,31 +468,30 @@ export function CalendarProvider({
 		visibleRoleIds,
 		allowedEmployeeIds,
 		selectedUserId,
-		selectedColors,selectedStatuses
+		selectedColors, selectedStatuses
 	]);
 	const employeeResolvers = useEmployeeResolvers(employeeOptions);
 	useEffect(() => {
 		const leaveNotifications = filteredEvents
-		  .filter(
-			(event) =>
-			  event.tags === TAG_IDS.LEAVE &&
-			  event.status?.toLowerCase() === STATUS.OPEN.toLowerCase() &&
-			  event.leave_approver === LOGGED_IN_USER.email
-		  )
-		  .map((leave) => ({
-			id: leave.erpName,
-			title: "Leave Approval Pending",
-			message: `${
-			  employeeResolvers.getEmployeeNameById(leave.employee) ??
-			  leave.employee
-			} applied for ${leave.leaveType}`,
-			createdAt: leave.startDate,
-			isRead: false,
-			leave,
-		  }));
-	  
+			.filter(
+				(event) =>
+					event.tags === TAG_IDS.LEAVE &&
+					event.status?.toLowerCase() === STATUS.OPEN.toLowerCase() &&
+					event.leave_approver === LOGGED_IN_USER.email
+			)
+			.map((leave) => ({
+				id: leave.erpName,
+				title: "Leave Approval Pending",
+				message: `${employeeResolvers.getEmployeeNameById(leave.employee) ??
+					leave.employee
+					} applied for ${leave.leaveType}`,
+				createdAt: leave.startDate,
+				isRead: false,
+				leave,
+			}));
+
 		setNotifications(leaveNotifications);
-	  }, [filteredEvents, employeeResolvers]);
+	}, [filteredEvents, employeeResolvers]);
 	const value = {
 		selectedDate,
 		setSelectedDate: handleSelectDate,
@@ -482,10 +533,10 @@ export function CalendarProvider({
 		setEmployeeOptions,
 		setDoctorOptions,
 		setHqTerritoryOptions,
-		elbritRoleEdges,allowedEmployeeIds,
+		elbritRoleEdges, allowedEmployeeIds,
 		elbritRoleLoading, customerOptions, setCustomerOptions,
 		showOnlyApprovedLeaves,
-		setShowOnlyApprovedLeaves,showOnlyTodoList,setShowOnlyTodoList
+		setShowOnlyApprovedLeaves, showOnlyTodoList, setShowOnlyTodoList
 	};
 
 	return (

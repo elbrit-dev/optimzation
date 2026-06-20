@@ -7,7 +7,6 @@ export function resolveDisplayValueFromEvent({
   use24HourFormat,
 }) {
   const value = event[field.key];
-
   switch (field.type) {
     case "doctor": {
       return event.event_participants
@@ -22,15 +21,18 @@ export function resolveDisplayValueFromEvent({
     }
 
     case "employee": {
-      return event.event_participants
+      const names = event.event_participants
         ?.filter((p) => p.reference_doctype === "Employee")
         .map((p) => {
           const emp = event._employeeOptions?.find(
             (e) => e.value === p.reference_docname
           );
+    
           return emp?.label ?? p.reference_docname;
         })
         .join(", ");
+    
+      return names;
     }
 
     /* ---------------------------------

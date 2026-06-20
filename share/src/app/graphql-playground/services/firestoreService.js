@@ -311,8 +311,12 @@ export const firestoreService = {
     return snap.data().config ?? '';
   },
 
-  async saveReport(name, config) {
-    await setDoc(doc(db, REPORTS_COLLECTION, name), { config: config ?? '' });
+  async saveReport(name, config, metadata = {}) {
+    await setDoc(
+      doc(db, REPORTS_COLLECTION, name),
+      { config: config ?? '', ...metadata },
+      { merge: true },
+    );
   },
 
   async deleteReport(name) {

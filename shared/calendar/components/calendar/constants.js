@@ -155,7 +155,8 @@ export function buildEventDefaultValues({ event, defaultTag }) {
     roleId: event?.roleId ?? LOGGED_IN_USER.roleId ?? "",
     leave_approver:
       event?.leave_approver ??
-      LOGGED_IN_USER.leave_approver ?? "",
+      LOGGED_IN_USER.leave_approver ??
+      "",
     fsl_doctor_item: event?.fsl_doctor_item ?? [],
   };
 }

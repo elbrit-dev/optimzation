@@ -5,28 +5,22 @@ import { SmartDataCache } from './smartDataCache';
 import { DataProvider as PlasmicDataProvider } from '@plasmicapp/loader-nextjs';
 import { SmartDataContext, SmartDataConfigContext } from './SmartDataContext';
 import { useSmartDataStore } from './useSmartDataStore';
-import { graphqlQueryReportDataSource } from './reportSource.jsx';
-import { fetchElbritFilterValues } from './elbritFilterApi.js';
+import { graphqlQueryReportDataSource, resolveIndexGqlVars } from './reportSource.jsx';
+import { fetchElbritFilterValues, resolveControlDateRange } from './elbritFilterApi.js';
 import { buildViewDataState } from './viewContextHelpers';
-import { firestoreService } from '@/app/graphql-playground/services/firestoreService';
+import { loadReportConfig } from '@/app/report-table/config/reportConfigService';
 import { refreshGlobalTokenRows } from '@/app/graphql-playground/constants';
+import { queryRegistry } from '@/app/graphql-playground/services/queryRegistry';
+import { fetchGraphQLRequest } from '@/app/graphql-playground/utils/query-pipeline';
+import { extractValueFromGraphQLResponse } from '@/app/graphql-playground/utils/queryExtractor';
+import { resolveApiConfig } from './apiRegistry';
 import { Sidebar } from 'primereact/sidebar';
 import { SmartDataTable } from './SmartDataTable';
 import { DrawerTabBar } from './DrawerTabBar';
 import { ReportControls } from '@/app/report-table/components/ReportControls';
 import { SmartDataErrorBoundary } from './SmartDataErrorBoundary';
 
-export function deserializeReportConfig(jsString) {
-  if (!jsString?.trim()) return null;
-  try {
-    const code = jsString.trim().replace(/;\s*$/, '').trim();
-    const result = new Function('return (' + code + ')')();
-    if (result === null || typeof result !== 'object' || Array.isArray(result)) return null;
-    return result;
-  } catch {
-    return null;
-  }
-}
+export { deserializeReportConfig } from '@/app/report-table/config/reportConfigParser';
 
 // ─── Config resolution helpers ────────────────────────────────────────────────
 //
@@ -66,6 +60,43 @@ export function resolveViewConfig(rootConfig, viewOverride = {}) {
   return { resolvedApi, resolvedTable, resolvedControls };
 }
 
+/** Fetch index GQL from saved query; returns extracted string or null. */
+async function fetchApiIndexValue(resolvedApi, view) {
+  const queryId = resolvedApi?.index?.trim();
+  if (!queryId) return null;
+
+  const queryDoc = await queryRegistry.loadQuery(queryId);
+  const indexQuery = queryDoc?.index?.trim();
+  if (!indexQuery) {
+    console.warn(`[SmartDataProvider] api.index "${queryId}": saved query has no index field`);
+    return null;
+  }
+
+  const { endpoint, token } = await resolveApiConfig(resolvedApi);
+  if (!endpoint) {
+    console.warn(`[SmartDataProvider] api.index "${queryId}": no endpoint available`);
+    return null;
+  }
+
+  const gqlVars = resolveIndexGqlVars(resolvedApi, queryDoc, {
+    viewParams: view.viewParams,
+    sortBy: view.sortBy,
+    pagination: view.pagination,
+  });
+
+  const res = await fetchGraphQLRequest(indexQuery, gqlVars, {
+    endpointUrl: endpoint,
+    authToken: token ? `token ${token}` : undefined,
+  });
+  const json = await res.json();
+  if (json.errors?.length) {
+    console.warn('[SmartDataProvider] api.index GraphQL error:', json.errors[0].message);
+    return null;
+  }
+
+  return extractValueFromGraphQLResponse(indexQuery, json);
+}
+
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
 /**
@@ -82,6 +113,10 @@ export function resolveViewConfig(rootConfig, viewOverride = {}) {
  * reportConfig shape:
  *   api: {
  *     urlKey?,        endpoint?, token?,
+ *     index?,         Saved query name; GQL from queryDoc.index. Stored in memory after each
+ *                     full fetch; refresh control compares live index vs memory before refetching.
+ *     indexVariables?, static base vars for index fetch (merged over saved query variables)
+ *     indexVariablesMap?, maps controls/sort/pagination → index variable paths (merged on top)
  *     variables:     { report, filters, [custom]: value, ... }   — base GQL variables spread as-is
  *     variableTypes: { [key]: 'GQLType', ... }                   — required for every variable key
  *     variablesMap:  {                                           — maps sources → variable dot-paths
@@ -130,7 +165,14 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
   const cache          = useRef(new SmartDataCache());
   // Per-view resolved api.variables — component of the cache key.
   const viewApiVarsRef = useRef({});
-  // Per-view generation counter — bumped on every runDataSource call to discard stale responses.
+  // Per-view full resolved api config (for index fetch).
+  const viewResolvedApiRef = useRef({});
+  // Per-view last-known index value keyed by request fingerprint (for refresh gate).
+  const viewIndexRef = useRef({});
+  // Batches view pipeline runs so index phase completes for all views before any data fetch.
+  const scheduledBatchRef = useRef(new Set());
+  const batchFlushTimerRef = useRef(null);
+  // Per-view generation counter — bumped on every data fetch to discard stale responses.
   const fetchGenRef    = useRef({});
 
   // Cache of _meta.meta_filter_values from the most recent fetch.
@@ -142,25 +184,17 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reportConfig?.api?.urlKey]);
 
-  const runDataSource = useCallback(async (viewId) => {
+  const runDataFetch = useCallback(async (viewId) => {
     const state = useSmartDataStore.getState();
     const view  = state.views[viewId];
     const ds    = viewDataSources.current[viewId] ?? providerDataSource;
     if (!view || !ds) return;
 
     const cacheKey = SmartDataCache.buildKey(viewApiVarsRef.current[viewId] ?? {}, view);
-    const cached   = cache.current.get(cacheKey);
+    const gen      = (fetchGenRef.current[viewId] = (fetchGenRef.current[viewId] ?? 0) + 1);
+    const isStale  = () => fetchGenRef.current[viewId] !== gen;
 
-    if (cached) {
-      useSmartDataStore.getState()._setResult(viewId, cached);
-      return; // no loading flash, no network
-    }
-
-    // Bump generation — any in-flight response from a previous network call is now stale.
-    const gen     = (fetchGenRef.current[viewId] = (fetchGenRef.current[viewId] ?? 0) + 1);
-    const isStale = () => fetchGenRef.current[viewId] !== gen;
-
-    state._setLoading(viewId, true);
+    state._setLoading(viewId, true, 'data');
     try {
       const result = await Promise.resolve(
         ds({
@@ -175,25 +209,105 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
       if (isStale()) return;
       if (result.filterValues) filterValuesCacheRef.current = result.filterValues;
       cache.current.set(cacheKey, result);
-      useSmartDataStore.getState()._setResult(viewId, result);
+      state._setResult(viewId, result);
       setLastFetchedAt(new Date());
     } catch (err) {
       if (isStale()) return;
-      useSmartDataStore.getState()._setError(viewId, err?.message ?? 'DataSource error');
+      state._setError(viewId, err?.message ?? 'DataSource error');
     }
   }, [providerDataSource]);
 
+  /** Phase 1: parallel index (deduped). Phase 2: parallel data — for initial load, filter change, and refresh. */
+  const flushViewPipelineBatch = useCallback(async (viewIds, { bypassCache = false, refreshGate = false } = {}) => {
+    if (!viewIds.length) return;
+
+    const store = useSmartDataStore.getState();
+    const dataFetchIds = [];
+    const indexJobs = [];
+
+    for (const viewId of viewIds) {
+      const view = store.views[viewId];
+      if (!view) continue;
+      const ds = viewDataSources.current[viewId] ?? providerDataSource;
+      if (!ds) continue;
+
+      const cacheKey = SmartDataCache.buildKey(viewApiVarsRef.current[viewId] ?? {}, view);
+      if (!bypassCache) {
+        const cached = cache.current.get(cacheKey);
+        if (cached) {
+          store._setResult(viewId, cached);
+          continue;
+        }
+      }
+
+      const resolvedApi = viewResolvedApiRef.current[viewId];
+      if (resolvedApi?.index?.trim()) {
+        indexJobs.push({ viewId, view, resolvedApi, cacheKey });
+        store._setLoading(viewId, true, 'index');
+      } else {
+        dataFetchIds.push(viewId);
+      }
+    }
+
+    if (indexJobs.length > 0) {
+      const needsData = await Promise.all(
+        indexJobs.map(async ({ viewId, view, resolvedApi, cacheKey }) => {
+          try {
+            const indexValue = await fetchApiIndexValue(resolvedApi, view);
+            if (refreshGate) {
+              const stored = viewIndexRef.current[viewId];
+              if (indexValue != null && stored?.key === cacheKey && stored?.value === indexValue) {
+                const cached = cache.current.get(cacheKey);
+                if (cached) store._setResult(viewId, cached);
+                else store._setLoading(viewId, false);
+                return false;
+              }
+            }
+            if (indexValue != null) {
+              viewIndexRef.current[viewId] = { key: cacheKey, value: indexValue };
+            }
+            return true;
+          } catch (err) {
+            console.error('[SmartDataProvider] index check failed:', err);
+            return true;
+          }
+        }),
+      );
+      needsData.forEach((need, i) => {
+        if (need) dataFetchIds.push(indexJobs[i].viewId);
+      });
+    }
+
+    if (dataFetchIds.length > 0) {
+      await Promise.all(dataFetchIds.map(id => runDataFetch(id)));
+    }
+  }, [providerDataSource, runDataFetch]);
+
+  const scheduleViewPipeline = useCallback((viewId) => {
+    scheduledBatchRef.current.add(viewId);
+    clearTimeout(batchFlushTimerRef.current);
+    batchFlushTimerRef.current = setTimeout(() => {
+      const ids = [...scheduledBatchRef.current];
+      scheduledBatchRef.current.clear();
+      flushViewPipelineBatch(ids);
+    }, 0);
+  }, [flushViewPipelineBatch]);
+
+  const runDataSource = useCallback(
+    (viewId, opts) => flushViewPipelineBatch([viewId], opts),
+    [flushViewPipelineBatch],
+  );
+
   const refresh = useCallback(async () => {
-    cache.current.clear();
     const viewIds = Object.keys(viewDataSources.current);
-    if (viewIds.length === 0) return;
-    await Promise.all(viewIds.map(id => runDataSource(id)));
-  }, [runDataSource]);
+    await flushViewPipelineBatch(viewIds, { bypassCache: true, refreshGate: true });
+  }, [flushViewPipelineBatch]);
 
   // Stores resolved api vars + creates a dataSource instance for a view.
   // Called whenever a view's api config is known or updated (register, openDrawer).
   // updateRawApiConfig: set true only for the view whose config the filter sidebar should use.
   const activateView = useCallback((viewId, resolvedApi, updateRawApiConfig = false) => {
+    viewResolvedApiRef.current[viewId] = resolvedApi;
     viewApiVarsRef.current[viewId]  = resolvedApi.variables ?? {};
     viewDataSources.current[viewId] = graphqlQueryReportDataSource(resolvedApi);
     if (updateRawApiConfig) rawApiConfigRef.current = resolvedApi;
@@ -205,7 +319,7 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
 
     const scheduleRun = () => {
       clearTimeout(runTimersRef.current[viewId]);
-      runTimersRef.current[viewId] = setTimeout(() => runDataSource(viewId), 0);
+      runTimersRef.current[viewId] = setTimeout(() => scheduleViewPipeline(viewId), 0);
     };
 
     unsubsRef.current[viewId] = useSmartDataStore.subscribe(
@@ -217,7 +331,7 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
       scheduleRun,
       { equalityFn: shallowEqualPipelineSlice, fireImmediately: true },
     );
-  }, [runDataSource]);
+  }, [scheduleViewPipeline]);
 
   // registerView is only called by standalone SmartDataTable instances (no reportConfig.views).
   // Provider-owned views are registered directly in the useEffect below.
@@ -246,6 +360,8 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
     delete unsubsRef.current[viewId];
     delete viewDataSources.current[viewId];
     delete viewApiVarsRef.current[viewId];
+    delete viewResolvedApiRef.current[viewId];
+    delete viewIndexRef.current[viewId];
     fetchGenRef.current[viewId] = (fetchGenRef.current[viewId] ?? 0) + 1;
     useSmartDataStore.getState().unregisterView(viewId);
   }, []);
@@ -358,8 +474,13 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
    * With search: live customFilter GraphQL call (server-side search + cascade filtering).
    */
   const fetchFilterValues = useCallback(async (key, { page = 1, pageLength = 20, search = '', currentFilters = {} } = {}) => {
-    return fetchElbritFilterValues(rawApiConfigRef.current, key, { page, pageLength, search, currentFilters });
-  }, []);
+    const viewId = Object.entries(reportConfig?.views ?? {})
+      .find(([, v]) => v.type !== 'drawer')?.[0]
+      ?? Object.keys(useSmartDataStore.getState().views)[0];
+    const controls = useSmartDataStore.getState().views[viewId]?.viewParams?._controls ?? {};
+    const dateRange = resolveControlDateRange(controls);
+    return fetchElbritFilterValues(rawApiConfigRef.current, key, { page, pageLength, search, currentFilters, dateRange });
+  }, [reportConfig]);
 
   const handleSignal = useCallback((viewId, signal) => {
     const s = useSmartDataStore.getState();
@@ -504,8 +625,8 @@ export function SmartDataProvider({ config, dataSource, overrides, children }) {
     if (!config) return;
     let cancelled = false;
     setLoading(true);
-    firestoreService.loadReport(config)
-      .then(str => { if (!cancelled) setReportConfig(deserializeReportConfig(str)); })
+    loadReportConfig(config)
+      .then(({ config: migratedConfig }) => { if (!cancelled) setReportConfig(migratedConfig); })
       .catch(() => { if (!cancelled) setReportConfig(null); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };

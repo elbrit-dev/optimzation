@@ -1,4 +1,4 @@
-'use client';
+export const INDEX_LOADING_MESSAGE = 'Checking for updates…';
 
 // ─── Internal config ──────────────────────────────────────────────────────────
 //

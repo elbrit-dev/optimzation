@@ -93,6 +93,7 @@ export const TAG_FORM_CONFIG = {
         { key: "startDate", label: "Start Date", type: "date" },
         { key: "endDate", label: "End Date", type: "date" },
         { key: "hqTerritory", label: "HQTerrioty", type: "hqTerritory" },
+        { key: "description", label: "Description", type: "text" },
       ],
     },
     autoTitle: (
@@ -127,6 +128,7 @@ export const TAG_FORM_CONFIG = {
         { key: "startDate", label: "Start Date", type: "date" },
         { key: "endDate", label: "End Date", type: "date" },
         { key: "hqTerritory", label: "HQ Territory", type: "text" },
+        { key: "description", label: "Description", type: "text" },
       ],
     },
     employee: {
@@ -157,6 +159,7 @@ export const TAG_FORM_CONFIG = {
         { key: "startDate", label: "Start Date", type: "date" },
         { key: "endDate", label: "End Date", type: "date" },
         { key: "employee", label: "Employee", type: "employee" },
+        { key: "description", label: "Description", type: "text" },
       ],
     },
     employee: {
@@ -264,6 +267,7 @@ export const TAG_FORM_CONFIG = {
         { key: "startDate", label: "Start Date", type: "date" },
         { key: "doctor", label: "Doctor", type: "doctor" },
         { key: "employee", label: "Participants", type: "employee" },
+        { key: "description", label: "Description", type: "text" },
       ],
     },
   },
@@ -318,6 +322,7 @@ export const TAG_FORM_CONFIG = {
         { key: "endDate", label: "End Date", type: "date" },
         { key: "doctor", label: "Doctor", type: "doctor" },
         { key: "employee", label: "Participants", type: "employee" },
+        { key: "description", label: "Description", type: "text" },
       ],
     },
     ui: {

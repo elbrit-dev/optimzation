@@ -10,7 +10,7 @@ import * as XLSX from 'xlsx';
 
 import { useSmartDataStore } from './useSmartDataStore';
 import { useSmartDataContext, useSmartDataConfig } from './SmartDataContext';
-import { resolveConfig } from './smartDataTableConfig';
+import { INDEX_LOADING_MESSAGE, resolveConfig } from './smartDataTableConfig';
 import { localFilter, localSort } from './tableUtils';
 import { TableSkeleton, LoadingOverlay } from './TableSkeleton';
 import { TextFilter } from './filters/TextFilter';
@@ -568,8 +568,12 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
 
   if (!viewState) return null;
 
-  const { rows, totalRecords, loading, error } = viewState;
+  const { rows, totalRecords, loading, loadingPhase, error } = viewState;
   const { first, rows: perPage } = viewState.pagination;
+
+  const effectiveLoadingMessage = loadingPhase === 'index'
+    ? INDEX_LOADING_MESSAGE
+    : (loadingMessage ?? cfg.loadingMessage);
 
   if (error && !loading) {
     return (
@@ -587,7 +591,7 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
         columns={visibleColumns}
         rowCount={cfg.skeletonRows}
         colCount={cfg.skeletonColumns}
-        message={loadingMessage ?? cfg.loadingMessage}
+        message={effectiveLoadingMessage}
       />
     );
   }
@@ -637,7 +641,7 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
         {columnElements}
       </DataTable>
 
-      {loading && <LoadingOverlay message={loadingMessage ?? cfg.loadingMessage} />}
+      {loading && <LoadingOverlay message={effectiveLoadingMessage} />}
 
       {/* Fullscreen dialog */}
       <Dialog

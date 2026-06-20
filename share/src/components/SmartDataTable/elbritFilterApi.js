@@ -2,6 +2,16 @@ import { resolveApiConfig } from './apiRegistry.js';
 
 const _dimMapCache = new Map(); // baseUrl → Promise<{ [key]: displayName }>
 
+/** Scan _controls outputs for the first { start, end } date-range control. */
+export function resolveControlDateRange(controls = {}) {
+  for (const output of Object.values(controls)) {
+    if (output && (output.start != null || output.end != null)) {
+      return { from_date: output.start ?? undefined, to_date: output.end ?? undefined };
+    }
+  }
+  return {};
+}
+
 async function getDimensionMap(baseUrl, headers) {
   if (!_dimMapCache.has(baseUrl)) {
     _dimMapCache.set(baseUrl, (async () => {
@@ -27,9 +37,9 @@ async function getDimensionMap(baseUrl, headers) {
  *
  * @param {object} rawApiConfig  — same shape as graphqlQueryReportDataSource (urlKey / endpoint / token)
  * @param {string} key           — dimension key (e.g. "hq", "department", "item_group")
- * @param {{ page?, pageLength?, search?, currentFilters? }} opts
+ * @param {{ page?, pageLength?, search?, currentFilters?, dateRange?: { from_date?, to_date? } }} opts
  */
-export async function fetchElbritFilterValues(rawApiConfig, key, { page = 1, pageLength = 20, search = '', currentFilters = {} } = {}) {
+export async function fetchElbritFilterValues(rawApiConfig, key, { page = 1, pageLength = 20, search = '', currentFilters = {}, dateRange = {} } = {}) {
   const { endpoint, token } = await resolveApiConfig(rawApiConfig);
   const baseUrl = endpoint ? new URL(endpoint).origin : '';
   const headers = token ? { Authorization: `token ${token}` } : {};
@@ -44,6 +54,9 @@ export async function fetchElbritFilterValues(rawApiConfig, key, { page = 1, pag
   for (const [k, v] of Object.entries(currentFilters)) {
     if (k !== key && v?.length) params.set(k, v.join(','));
   }
+
+  if (dateRange.from_date) params.set('from_date', dateRange.from_date);
+  if (dateRange.to_date)   params.set('to_date', dateRange.to_date);
 
   const res = await fetch(`${baseUrl}/api/method/elbrit_sales_filter_api?${params}`, {
     credentials: 'include',

@@ -8,6 +8,12 @@ import { Tree } from 'primereact/tree';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { firestoreService } from '@/app/graphql-playground/services/firestoreService';
 import { deserializeReportConfig } from '@/components/SmartDataTable/SmartDataProvider';
+import {
+  formatReportConfigJs,
+  loadReportConfig,
+  parseAndMigrateReportConfig,
+  saveReportConfig,
+} from '@/app/report-table/config/reportConfigService';
 import { useSmartDataStore } from '@/components/SmartDataTable/useSmartDataStore';
 import { buildViewDataState } from '@/components/SmartDataTable/viewContextHelpers';
 
@@ -25,6 +31,13 @@ function configureMonaco(monaco) {
   });
   monaco.languages.typescript.javascriptDefaults.setCompilerOptions({
     allowNonTsExtensions: true,
+  });
+  monaco.languages.registerDocumentFormattingEditProvider('javascript', {
+    provideDocumentFormattingEdits(model) {
+      const formatted = formatReportConfigJs(model.getValue(), deserializeReportConfig);
+      if (!formatted) return [];
+      return [{ range: model.getFullModelRange(), text: formatted }];
+    },
   });
 }
 
@@ -170,11 +183,9 @@ function collectAllBranchKeys(nodes, out = {}) {
 function ReportConfigReadableView({ configString }) {
   const { config, error } = useMemo(() => {
     if (!configString?.trim()) return { config: null, error: null };
-    try {
-      return { config: deserializeReportConfig(configString), error: null };
-    } catch (err) {
-      return { config: null, error: err?.message ?? 'Invalid config' };
-    }
+    const { config: migrated } = parseAndMigrateReportConfig(configString, deserializeReportConfig);
+    if (!migrated) return { config: null, error: 'Invalid config' };
+    return { config: migrated, error: null };
   }, [configString]);
 
   const treeNodes = useMemo(() => {
@@ -330,6 +341,12 @@ function ReportDocsPanel() {
           <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">api</div>
           <CodeBlock>{`api: {
   urlKey: 'myApi',
+  index: 'Primary',  // Saved tab query name; GQL from that query
+  indexVariables: { startDate: '2026-01-01', endDate: '2026-01-31' },
+  indexVariablesMap: {
+    'controls.dates.start': 'startDate',
+    'controls.dates.end':   'endDate',
+  },
   variables: {
     report: 'ReportName',
     filters: {},
@@ -658,11 +675,14 @@ export default function ReportsConfigSidebar({ onConfigLoad }) {
       .catch(console.error);
   }, []);
 
-  async function formatEditor() {
+  function formatConfigInEditor() {
     const editor = editorRef.current;
-    if (!editor) return null;
-    try { await editor.getAction('editor.action.formatDocument').run(); } catch { /* syntax error */ }
-    try { return editor.getValue(); } catch { return null; }
+    const value = editor?.getValue() ?? liveValueRef.current ?? '';
+    const formatted = formatReportConfigJs(value, deserializeReportConfig);
+    if (!formatted) return null;
+    editor?.setValue(formatted);
+    liveValueRef.current = formatted;
+    return formatted;
   }
 
   const handleMount = useCallback((editor) => {
@@ -680,12 +700,20 @@ export default function ReportsConfigSidebar({ onConfigLoad }) {
     setLoading(true);
     setSelectedName(name);
     try {
-      const config = await firestoreService.loadReport(name);
-      savedRef.current = config;
-      liveValueRef.current = config;
-      setSeedValue(config);
+      const { configString, migrated, fromVersion, toVersion } = await loadReportConfig(name, { autoMigrate: true });
+      savedRef.current = configString;
+      liveValueRef.current = configString;
+      setSeedValue(configString);
       setIsDirty(false);
-      onConfigLoad?.(config);
+      onConfigLoad?.(configString);
+      if (migrated) {
+        toast.current?.show({
+          severity: 'info',
+          summary: 'Config upgraded',
+          detail: `Migrated from v${fromVersion} to v${toVersion}`,
+          life: 3000,
+        });
+      }
     } catch {
       toast.current?.show({ severity: 'error', summary: 'Error', detail: 'Failed to load config', life: 3000 });
     } finally {
@@ -711,19 +739,25 @@ export default function ReportsConfigSidebar({ onConfigLoad }) {
     }
   }, [handleSelect]);
 
-  const handleApply = useCallback(async () => {
-    const value = await formatEditor() || liveValueRef.current || '';
-    onConfigLoad?.(value);
+  const handleApply = useCallback(() => {
+    const formatted = formatConfigInEditor();
+    if (!formatted) {
+      toast.current?.show({ severity: 'error', summary: 'Invalid config', detail: 'Fix syntax errors before applying', life: 3000 });
+      return;
+    }
+    onConfigLoad?.(formatted);
   }, [onConfigLoad]);
 
   const handleSave = useCallback(async () => {
     if (!selectedName) return;
     setSaving(true);
     try {
-      const formatted = await formatEditor() ?? editorRef.current?.getValue() ?? '';
-      await firestoreService.saveReport(selectedName, formatted);
-      savedRef.current = formatted;
-      liveValueRef.current = formatted;
+      const value = editorRef.current?.getValue() ?? liveValueRef.current ?? '';
+      const { configString } = await saveReportConfig(selectedName, value);
+      editorRef.current?.setValue(configString);
+      savedRef.current = configString;
+      liveValueRef.current = configString;
+      setSeedValue(configString);
       setIsDirty(false);
       toast.current?.show({ severity: 'success', summary: 'Saved', detail: `"${selectedName}" saved`, life: 2000 });
     } catch {

@@ -18,9 +18,7 @@ query EventsByRange(
         event_category
         fsl_is_force_visit:custom_is_force_visit
         custom_force_visit_reason
-        reference_doctype {
-          name
-        }
+        reference_doctype__name
         reference_docname__name
         fsl_role_id :custom_role_id {
           name

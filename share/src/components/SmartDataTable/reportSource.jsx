@@ -1,4 +1,5 @@
 import { resolveApiConfig } from './apiRegistry.js';
+import { parseGraphQLVariables } from '@/app/graphql-playground/utils/variableParser';
 import { deepMerge, setPath, getPath } from './varUtils.js';
 
 // ─── Field type map ───────────────────────────────────────────────────────────
@@ -539,6 +540,37 @@ function resolveVariablesMap(baseVars, variablesMap, { controls, sortBy, paginat
   }
 
   return vars;
+}
+
+/** Resolve GQL variables for a report api config (same path as graphqlQueryReportDataSource). */
+export async function resolveReportGqlVars(rawApiConfig, { viewParams, sortBy, pagination }) {
+  const { variables: baseVars = {} } = await resolveApiConfig(rawApiConfig);
+  const controls = viewParams?._controls ?? {};
+  return resolveVariablesMap(baseVars, rawApiConfig.variablesMap, {
+    controls,
+    sortBy,
+    pagination,
+    viewParams: viewParams ?? {},
+  });
+}
+
+/**
+ * Resolve GQL variables for api.index fetch.
+ * Base: saved query doc variables merged with api.indexVariables (api wins on conflict).
+ * Then api.indexVariablesMap is applied on top (controls, sort, pagination).
+ */
+export function resolveIndexGqlVars(rawApiConfig, queryDoc, { viewParams, sortBy, pagination }) {
+  const fromDoc = queryDoc?.variables
+    ? parseGraphQLVariables(queryDoc.variables)
+    : {};
+  const baseVars = deepMerge(fromDoc, rawApiConfig.indexVariables ?? {});
+  const controls = viewParams?._controls ?? {};
+  return resolveVariablesMap(baseVars, rawApiConfig.indexVariablesMap ?? {}, {
+    controls,
+    sortBy,
+    pagination,
+    viewParams: viewParams ?? {},
+  });
 }
 
 /**

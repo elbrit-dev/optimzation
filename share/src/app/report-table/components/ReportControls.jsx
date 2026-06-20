@@ -2,6 +2,7 @@
 
 import RangePicker from '@/components/RangePicker';
 import FilterSortSidebar from '@/components/SmartDataTable/FilterSortSidebar';
+import { resolveControlDateRange } from '@/components/SmartDataTable/elbritFilterApi.js';
 import { useSmartDataStore } from '@/components/SmartDataTable/useSmartDataStore';
 import { useSmartDataContext } from '@/components/SmartDataTable/SmartDataContext';
 import { Switch } from 'antd';
@@ -78,6 +79,12 @@ function FilterSortControl({ def, viewIds }) {
     return filterCount + Object.keys(sortBy).length;
   }, [controlOutput, sortBy]);
 
+  const dateRange = useMemo(() => {
+    const controls = allViews[viewIds[0]]?.viewParams?._controls ?? {};
+    const { from_date, to_date } = resolveControlDateRange(controls);
+    return { start: from_date ?? null, end: to_date ?? null };
+  }, [allViews, viewIds]);
+
   const isActive = activeCount > 0;
 
   return (
@@ -105,6 +112,7 @@ function FilterSortControl({ def, viewIds }) {
         onHide={() => setVisible(false)}
         filterDefs={filterDefs}
         fetchFilterValues={fetchFilterValues}
+        dateRange={dateRange}
         currentFilterValues={controlOutput.filters ?? {}}
         currentSortBy={sortBy}
         onApply={(sorts, filters) => {
@@ -145,13 +153,21 @@ function DateRangeControl({ def, viewIds }) {
 
 function RefreshControl({ def }) {
   const { refresh, lastFetchedAt } = useSmartDataContext();
-  const isLoading = useSmartDataStore(state => Object.values(state.views).some(v => v.loading));
+  const loadingPhase = useSmartDataStore(state => {
+    for (const v of Object.values(state.views)) {
+      if (v.loading) return v.loadingPhase ?? 'data';
+    }
+    return null;
+  });
+  const isLoading = loadingPhase != null;
   const [hovered, setHovered] = useState(false);
-  const label = isLoading
-    ? 'Refreshing'
-    : lastFetchedAt
-      ? dayjs(lastFetchedAt).format('D MMM YY HH:mm')
-      : (def.label ?? '');
+  const label = loadingPhase === 'index'
+    ? 'Checking…'
+    : isLoading
+      ? 'Refreshing'
+      : lastFetchedAt
+        ? dayjs(lastFetchedAt).format('D MMM YY HH:mm')
+        : (def.label ?? '');
   return (
     <button
       type="button"
