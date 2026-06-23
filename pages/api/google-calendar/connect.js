@@ -34,9 +34,14 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { code, email, authToken, erpUrl } = req.body || {};
+    const { code, email, authToken, erpUrl, redirectUri: bodyRedirectUri } =
+      req.body || {};
 
-    const redirectUri = `${process.env.APP_URL}/google-callback`;
+    // Must match the redirect_uri from the authorization request exactly. Prefer
+    // the value sent by the callback page (always the real origin); fall back to
+    // APP_URL only if it's missing.
+    const redirectUri =
+      bodyRedirectUri || `${process.env.APP_URL}/google-callback`;
 
     // Exchange code for tokens
     const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
