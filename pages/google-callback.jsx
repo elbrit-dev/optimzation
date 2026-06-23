@@ -51,7 +51,7 @@ export default function GoogleCallbackPage() {
           throw new Error(data?.message || "Google connection failed");
         }
 
-        router.push("/");
+        router.push("/planner");
       } catch (error) {
         console.error("Google connect error", error);
       }
