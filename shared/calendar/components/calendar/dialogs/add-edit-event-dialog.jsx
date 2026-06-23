@@ -180,7 +180,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		});
 		// ❌ HQ is REQUIRED for this tag — never reset it
 		if (selectedTag !== TAG_IDS.HQ_TOUR_PLAN) {
-			reset({ hqTerritory: "" });
+			reset({ hqTerritory: "",description: "" });
 		}
 
 		if (selectedTag !== TAG_IDS.LEAVE) {
@@ -188,6 +188,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 				leaveType: undefined,
 				leavePeriod: "Full",
 				medicalAttachment: undefined,
+				description: ""
 			});
 		}
 	};
@@ -972,11 +973,25 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 	// ----------------------------------------------------
 	// FINAL SUBMIT HANDLER (HQ validation guard)
 	// ----------------------------------------------------
-	const onSubmit = async (values) => {
-		const handler =
-			submitHandlers[values.tags] || submitHandlers.default;
 
-		await handler(values);
+	const onSubmit = async (values) => {
+		try {
+			const handler =
+				submitHandlers[values.tags] ||
+				submitHandlers.default;
+	
+			await handler(values);
+		} catch (error) {
+			console.error("Submit error:", error);
+	
+			const message =
+				error?.response?.errors?.[0]?.message ||
+				error?.graphQLErrors?.[0]?.message ||
+				error?.message ||
+				"Something went wrong. Please try again.";
+	
+			toast.error(message);
+		}
 	};
 
 	const editReadOnlyKeys = useMemo(() => {
@@ -1032,7 +1047,10 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 												key={tag.id}
 												type="button"
 												disabled={isEditing && tagConfig.ui?.lockTagOnEdit}
-												onClick={() => field.onChange(tag.id)}
+												onClick={() => {
+													form.setValue("description", "");
+													field.onChange(tag.id);
+												}}
 												className={`px-4 py-1 rounded-full ${field.value === tag.id
 													? "bg-primary text-white"
 													: "bg-muted"
@@ -1614,6 +1632,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 								render={({ field }) => (
 									<RHFFieldWrapper label={tagConfig.labels?.description ?? "Description"}>
 										<Tiptap
+									     	key={selectedTag}
 											content={field.value}
 											onChange={field.onChange}
 										/>

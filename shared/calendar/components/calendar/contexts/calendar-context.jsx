@@ -134,7 +134,6 @@ export function CalendarProvider({
 			startDate: new Date(event.startDate).toISOString(),
 			endDate: new Date(event.endDate).toISOString(),
 		};
-
 		setAllEvents((prev) => [...prev, normalized]);
 		// setFilteredEvents((prev) => [...prev, normalized]);
 	};
@@ -393,7 +392,6 @@ export function CalendarProvider({
 		if (usersLoading || elbritRoleLoading) {
 			return allEvents; // temporarily show everything
 		}
-
 		if (!allEvents?.length) return [];
 		// 🔴 HARD BYPASS FOR ADMIN
 		if (LOGGED_IN_USER?.roleId === "Admin") {
