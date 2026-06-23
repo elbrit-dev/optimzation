@@ -9,6 +9,7 @@ import {
 	endOfMonth,
 	endOfWeek,
 	endOfYear,
+	endOfDay,
 	format,
 	isSameDay,
 	isSameMonth,
@@ -26,10 +27,108 @@ import {
 	subYears,
 } from "date-fns";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
-import { STATUS, STATUS_MAP } from "@calendar/components/calendar/constants";
-
+import { STATUS, STATUS_MAP,TAG_IDS } from "@calendar/components/calendar/constants";
 const FORMAT_STRING = "MMM d, yyyy";
-
+/**
+ * Get all HQ Tour Plans visible to the user
+ */
+export function getVisibleHqEvents(
+	events,
+	allowedEmployeeIds = []
+  ) {
+	return events.filter((ev) => {
+	  if (ev.tags !== TAG_IDS.HQ_TOUR_PLAN) {
+		return false;
+	  }
+  
+	  return ev.participants?.some((p) =>
+		allowedEmployeeIds.includes(p.id)
+	  );
+	});
+  }
+  
+  /**
+   * Existing disabled dates helper
+   */
+  export function getDisabledHqDates(
+	events,
+	allowedEmployeeIds = []
+  ) {
+	const disabled = [];
+  
+	const hqEvents = getVisibleHqEvents(
+	  events,
+	  allowedEmployeeIds
+	);
+  
+	hqEvents.forEach((ev) => {
+	  const current = startOfDay(
+		new Date(ev.startDate)
+	  );
+  
+	  const end = endOfDay(
+		new Date(ev.endDate)
+	  );
+  
+	  while (current <= end) {
+		disabled.push(new Date(current));
+  
+		current.setDate(
+		  current.getDate() + 1
+		);
+	  }
+	});
+  
+	return disabled;
+  }
+  
+  /**
+   * NEW:
+   * Used during submit validation
+   */
+  export function findOverlappingHqEvent({
+	events,
+	startDate,
+	endDate,
+	allowedEmployeeIds,
+	currentEventId,
+  }) {
+	const selectedStart = startOfDay(
+	  new Date(startDate)
+	);
+  
+	const selectedEnd = endOfDay(
+	  new Date(endDate)
+	);
+  
+	const hqEvents = getVisibleHqEvents(
+	  events,
+	  allowedEmployeeIds
+	);
+  
+	return hqEvents.find((ev) => {
+	  // Ignore current record during edit
+	  if (
+		currentEventId &&
+		ev.erpName === currentEventId
+	  ) {
+		return false;
+	  }
+  
+	  const eventStart = startOfDay(
+		new Date(ev.startDate)
+	  );
+  
+	  const eventEnd = endOfDay(
+		new Date(ev.endDate)
+	  );
+  
+	  return (
+		selectedStart <= eventEnd &&
+		selectedEnd >= eventStart
+	  );
+	});
+  }
 export function rangeText(view, date) {
 	let start;
 	let end;
@@ -467,3 +566,5 @@ export function normalizeStatus(
 	  ] ?? fallback
 	);
   }
+
+  

@@ -34,7 +34,7 @@ export function UserSelect() {
 
   const toggleAll = () => {
     setCheckedIds([]);
-    filterEventsBySelectedUser("all");
+    filterEventsBySelectedUser([]);
   };
 
   const toggleUser = (id) => {
@@ -47,9 +47,7 @@ export function UserSelect() {
         next = [...prev, id];
       }
 
-      filterEventsBySelectedUser(
-        next.length ? next[next.length - 1] : "all"
-      );
+      filterEventsBySelectedUser(next);
 
       return next;
     });

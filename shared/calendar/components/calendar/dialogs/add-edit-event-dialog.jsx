@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 import { buildEventDefaultValues, TAG_IDS, TAGS } from "@calendar/components/calendar/constants";
 import { mapFormToErpEvent } from "@calendar/components/calendar/module/event/mappers/event-to-erp";
-import { saveEvent, saveDocToQuotation } from "@calendar/components/calendar/module/event/services/event.service";
+import { saveEvent, saveDocToQuotation, fetchGoogleCalendarStatus } from "@calendar/components/calendar/module/event/services/event.service";
 import { useWatch } from "react-hook-form";
 import { LeaveTypeCards } from "@calendar/components/calendar/leave/LeaveTypeCards";
 import { Form, FormControl, FormField, } from "@calendar/components/ui/form";
@@ -32,7 +32,7 @@ import { resolveDisplayValueFromEvent } from "@calendar/lib/calendar/resolveDisp
 import { useAuth } from "@calendar/components/auth/auth-context";
 import Tiptap from "@calendar/components/calendar/module/todo/components/TodoWysiwyg";
 import { mapDoctorVisitToQuotation } from "@calendar/components/calendar/module/event/mappers/quotation-to-erp";
-import { calculateDistanceKm, parseLatLong } from "../helpers";
+import { calculateDistanceKm, findOverlappingHqEvent, getDisabledHqDates } from "@calendar/components/calendar/helpers";
 import { useDoctorResolvers } from "@calendar/lib/doctorResolver";
 import { DoctorNotesSection } from "../module/event/components/DoctorNotesSection";
 import TodoComments from "@calendar/components/calendar/module/todo/components/TodoCommentsSection";
@@ -59,6 +59,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 	const [distanceKm, setDistanceKm] = useState(null);
 	const endDateTouchedRef = useRef(false); // existing
 	const [showReason, setShowReason] = useState(false);
+	const [googleCalendarEnabled, setGoogleCalendarEnabled] = useState(false);
 	const form = useForm({
 		resolver: zodResolver(eventSchema),
 		mode: "onChange",
@@ -71,14 +72,11 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 	const leaveType = useWatch({ control: form.control, name: "leaveType", });
 	const leavePeriod = useWatch({ control: form.control, name: "leavePeriod", });
 	const { doctor, employees, hqTerritory, tags: selectedTag, attending } = useWatch({ control: form.control });
-	const pobGiven = useWatch({
-		control: form.control,
-		name: "pob_given",
-	});
-	const pobItems = useWatch({
-		control: form.control,
-		name: "fsl_doctor_item",
-	});
+	const pobGiven = useWatch({ control: form.control, name: "pob_given", });
+	const customer = useWatch({ control: form.control, name: "customer", });
+	const pobItems = useWatch({ control: form.control, name: "fsl_doctor_item" });
+	const currentLatitude = useWatch({ control: form.control, name: "custom_latitude" });
+	const currentLongitude = useWatch({ control: form.control, name: "custom_longitude" });
 	useEffect(() => {
 		syncPobItemRates(form, pobItems, itemOptions);
 	}, [pobItems, itemOptions]);
@@ -93,8 +91,6 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		if (tagConfig.hide) return !tagConfig.hide.includes(field);
 		return true;
 	};
-	const currentLatitude = form.watch("custom_latitude");
-	const currentLongitude = form.watch("custom_longitude");
 	useEffect(() => {
 		if (!isEditing) return;
 		if (!event?.participants?.length) return;
@@ -154,7 +150,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			);
 		}
 
-	}, [currentLatitude, currentLongitude, event, isEditing]);
+	}, [currentLatitude, currentLongitude, event?.participants, isEditing]);
 	const hasValidLocation =
 		Number(currentLatitude) !== 0 &&
 		Number(currentLongitude) !== 0 &&
@@ -176,11 +172,11 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 	const resetFieldsOnTagChange = () => {
 		reset({
 			employees: undefined, doctor: isDoctorMulti ? [] : undefined,
-			status: "Open", priority: "Medium", title: "", description: ""
+			status: "Open", priority: "Medium", title: "",
 		});
 		// ❌ HQ is REQUIRED for this tag — never reset it
 		if (selectedTag !== TAG_IDS.HQ_TOUR_PLAN) {
-			reset({ hqTerritory: "",description: "" });
+			reset({ hqTerritory: "", });
 		}
 
 		if (selectedTag !== TAG_IDS.LEAVE) {
@@ -188,7 +184,6 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 				leaveType: undefined,
 				leavePeriod: "Full",
 				medicalAttachment: undefined,
-				description: ""
 			});
 		}
 	};
@@ -339,7 +334,24 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		// existing geo logic (unchanged)
 		resolveLatLong(form, isEditing, toast);
 	}, [isEditing]);
+	/* ---------------------------------------------
+	  Load Calendar Google Calendar 
+	--------------------------------------------- */
+	useEffect(() => {
+		async function loadGoogleStatus() {
+			const calendar = await fetchGoogleCalendarStatus(
+				LOGGED_IN_USER.email
+			);
 
+			setGoogleCalendarEnabled(
+				calendar?.enable === 1 &&
+				!!calendar?.refresh_token &&
+				!!calendar?.google_calendar_id
+			);
+		}
+
+		loadGoogleStatus();
+	}, []);
 	const handleRequestLocation = async () => {
 		try {
 			setIsResolvingLocation(true);
@@ -598,7 +610,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			leavePeriod: "Full",
 			halfDayDate: undefined,
 			medicalAttachment: undefined, allocated_to: undefined,
-			assignedTo: [], custom_latitude: undefined, custom_longitude:undefined,
+			assignedTo: [], custom_latitude: undefined, custom_longitude: undefined,
 			hqTerritory: "",
 			allDay: false,
 		});
@@ -722,6 +734,27 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			return selectedDay >= planStart && selectedDay <= planEnd;
 		});
 	}, [events, startDate]);
+	// ----------------------------------------------------
+	// Show only those doctor whose territory matches with the hq 
+	// ----------------------------------------------------
+	const filteredDoctorOptions = useMemo(() => {
+		if (
+			selectedTag !== TAG_IDS.DOCTOR_VISIT_PLAN ||
+			!hqTerritory
+		) {
+			return doctorOptions;
+		}
+
+		return doctorOptions.filter(
+			(doctor) =>
+				doctor.territory__name?.trim() ===
+				hqTerritory?.trim()
+		);
+	}, [
+		doctorOptions,
+		selectedTag,
+		hqTerritory,
+	]);
 	const hasValidHqTourPlan = !!matchedHqEvent;
 	useEffect(() => {
 		if (selectedTag !== TAG_IDS.DOCTOR_VISIT_PLAN) return;
@@ -741,58 +774,21 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 	// Prevent selecting dates where HQ already exists
 	// ----------------------------------------------------
 
-	const disabledHqDates = useMemo(() => {
-		if (!events?.length) return [];
-
-		const disabled = [];
-
-		events.forEach((ev) => {
-			if (ev.tags !== TAG_IDS.HQ_TOUR_PLAN) return;
-
-			// ignore current editing event
-			if (
-				isEditing &&
-				ev.erpName === event?.erpName
-			) {
-				return;
-			}
-
-			const isParticipant = ev.participants?.some(
-				(p) => allowedEmployeeIds.includes(p.id)
-			);
-
-			if (!isParticipant) return;
-
-			let current = startOfDay(
-				new Date(ev.startDate)
-			);
-
-			const end = endOfDay(
-				new Date(ev.endDate)
-			);
-
-			while (current <= end) {
-				disabled.push(new Date(current));
-				current.setDate(current.getDate() + 1);
-			}
-		});
-
-		return disabled;
-	}, [
-		events,
-		allowedEmployeeIds,
-		isEditing,
-		event,
-	]);
+	const disabledHqDates = useMemo(
+		() =>
+			getDisabledHqDates(
+				events,
+				allowedEmployeeIds
+			),
+		[events, allowedEmployeeIds]
+	);
 
 	useEffect(() => {
-		const customer = form.watch("customer");
-
 		if (!customer) {
 			form.setValue("pob_given", undefined, { shouldDirty: true });
 			form.setValue("fsl_doctor_item", [], { shouldDirty: true });
 		}
-	}, [form.watch("customer")]);
+	}, [customer]);
 	const handleDefaultEvent = async (values) => {
 		let quotationName =
 			event?.reference_docname || null;
@@ -817,17 +813,21 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			quotationName = savedQuotation.name;
 			// quotationName = "SAL-QTN-2026-00001"
 		}
-
 		const erpDoc = mapFormToErpEvent(values, {
 			erpName: event?.erpName,
 			employeeResolvers,
 			doctorResolvers,
+			googleCalendar:
+				googleCalendarEnabled
+					? LOGGED_IN_USER.email
+					: "IT Elbrit"
 		});
 
 		if (quotationName) {
 			erpDoc.reference_doctype = "Quotation";
 			erpDoc.reference_docname = quotationName;
 		}
+		// console.log("ERP DOC",erpDoc)
 		const savedEvent = await saveEvent(erpDoc);
 		const calendarEvent = buildCalendarEvent({
 			event,
@@ -867,8 +867,12 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			const erpDoc = mapFormToErpEvent(enrichedValues, {
 				employeeResolvers,
 				doctorResolvers,
+				googleCalendar:
+					googleCalendarEnabled
+						? LOGGED_IN_USER.email
+						: "IT Elbrit"
 			});
-			
+
 			const savedEvent = await saveEvent(erpDoc);
 
 			const calendarEvent = buildCalendarEvent({
@@ -979,17 +983,37 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			const handler =
 				submitHandlers[values.tags] ||
 				submitHandlers.default;
-	
+			if (
+				values.tags === TAG_IDS.HQ_TOUR_PLAN
+			) {
+				const conflict =
+					findOverlappingHqEvent({
+						events,
+						startDate: values.startDate,
+						endDate: values.endDate,
+						allowedEmployeeIds,
+						currentEventId:
+							event?.erpName,
+					});
+
+				if (conflict) {
+					toast.error(
+						"HQ Tour Plan already exists for the selected date range."
+					);
+
+					return;
+				}
+			}
 			await handler(values);
 		} catch (error) {
 			console.error("Submit error:", error);
-	
+
 			const message =
 				error?.response?.errors?.[0]?.message ||
 				error?.graphQLErrors?.[0]?.message ||
 				error?.message ||
 				"Something went wrong. Please try again.";
-	
+
 			toast.error(message);
 		}
 	};
@@ -1013,7 +1037,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 	const shouldHideDateGrid =
 		isEditing && selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN;
 	const isSubmitDisabled = form.formState.isSubmitting;
-   
+
 	return (
 		<Modal open={isOpen} onOpenChange={onToggle}>
 			<ModalTrigger asChild>{children}</ModalTrigger>
@@ -1314,7 +1338,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 											{selectedTag == TAG_IDS.DOCTOR_VISIT_PLAN ? <RHFDoctorCardSelector
 												value={field.value}
 												onChange={field.onChange}
-												options={doctorOptions}
+												options={filteredDoctorOptions}
 												multiple={isDoctorMulti}
 											/> :
 												<RHFComboboxField
@@ -1432,8 +1456,8 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 									Location
 								</p>
 								<p className="text-sm text-muted-foreground">
-									{form.watch("custom_latitude") && form.watch("custom_longitude")
-										? `${form.watch("custom_latitude")}, ${form.watch("custom_longitude")}`
+									{currentLatitude && currentLongitude
+										? `${currentLatitude}, ${currentLongitude}`
 										: "Location not captured"}
 								</p>
 							</div>
@@ -1535,7 +1559,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 						{/* ================= POB ================= */}
 						{isEditing &&
 							selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN &&
-							pobGiven === "Yes" && form.watch("customer") && (
+							pobGiven === "Yes" && customer && (
 								<div className="space-y-4">
 									<h4 className="font-medium">POB Details</h4>
 
@@ -1548,7 +1572,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 									</div>
 
 									{/* ✅ ROWS */}
-									{(form.watch("fsl_doctor_item") ?? []).map((row, index) => (
+									{(pobItems ?? []).map((row, index) => (
 										<div
 											key={index}
 											className="grid grid-cols-[1fr_100px_120px_40px] gap-3 items-end"
@@ -1558,7 +1582,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 												name={`fsl_doctor_item.${index}.item__name`}
 												options={getAvailableItems(
 													itemOptions,
-													form.watch("fsl_doctor_item"),
+													pobItems,
 													row.item__name
 												)}
 												tagsDisplay={false}
@@ -1632,7 +1656,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 								render={({ field }) => (
 									<RHFFieldWrapper label={tagConfig.labels?.description ?? "Description"}>
 										<Tiptap
-									     	key={selectedTag}
+											key={selectedTag}
 											content={field.value}
 											onChange={field.onChange}
 										/>

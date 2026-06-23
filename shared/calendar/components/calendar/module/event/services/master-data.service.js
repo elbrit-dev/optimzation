@@ -58,7 +58,10 @@ export async function fetchDoctors() {
   const data = await graphqlRequest(DOCTOR_QUERY, {
     first: MAX_ROWS,
   });
-
+  // console.log(
+  //   "Leads returned:",
+  //   data?.Leads?.edges?.length,MAX_ROWS
+  // );
   return (
     data?.Leads?.edges.map(({ node }) => ({
       doctype: "Lead",

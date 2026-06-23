@@ -37,7 +37,7 @@ export function CalendarProvider({
 	const [use24HourFormat, setUse24HourFormatState] = useState(settings.use24HourFormat);
 	const [agendaModeGroupBy, setAgendaModeGroupByState] = useState(settings.agendaModeGroupBy);
 	const [selectedDate, setSelectedDate] = useState(new Date());
-	const [selectedUserId, setSelectedUserId] = useState("all");
+	const [selectedUserId, setSelectedUserId] =  useState([]);
 	const [selectedColors, setSelectedColors] = useState([]);
 	const [selectedStatuses, setSelectedStatuses] = useState([]);
 	const [allEvents, setAllEvents] = useState(events || []);
@@ -118,8 +118,8 @@ export function CalendarProvider({
 
 		setSelectedStatuses(newStatuses);
 	};
-	const filterEventsBySelectedUser = (userId) => {
-		setSelectedUserId(userId);
+	const filterEventsBySelectedUser = (userIds) => {
+		setSelectedUserId(userIds);
 	};
 
 
@@ -397,12 +397,16 @@ export function CalendarProvider({
 		if (LOGGED_IN_USER?.roleId === "Admin") {
 			let result = allEvents;
 			// Still apply user dropdown
-			if (selectedUserId !== "all") {
+			if (selectedUserId.length) {
 				result = result.filter(event => {
-					const eventEmployeeIds = getEventEmployeeIds(event);
-					return eventEmployeeIds.includes(selectedUserId);
+				  const eventEmployeeIds =
+					getEventEmployeeIds(event);
+			  
+				  return selectedUserId.some(id =>
+					eventEmployeeIds.includes(id)
+				  );
 				});
-			}
+			  }
 
 			// Still apply color filter
 			if (selectedColors.length) {
@@ -440,12 +444,16 @@ export function CalendarProvider({
 		  
 			return roleMatch || employeeMatch;
 		  });
-		if (selectedUserId !== "all") {
+		  if (selectedUserId.length) {
 			result = result.filter(event => {
-				const eventEmployeeIds = getEventEmployeeIds(event);
-				return eventEmployeeIds.includes(selectedUserId);
+			  const eventEmployeeIds =
+				getEventEmployeeIds(event);
+		  
+			  return selectedUserId.some(id =>
+				eventEmployeeIds.includes(id)
+			  );
 			});
-		}
+		  }
 
 		if (selectedColors.length) {
 			result = result.filter(event =>
