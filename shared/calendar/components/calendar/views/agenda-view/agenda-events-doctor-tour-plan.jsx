@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@calendar/lib/utils";
+import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 import { CommandItem } from "@calendar/components/ui/command";
 import { EventDetailsDialog } from "@calendar/components/calendar/dialogs/event-details-dialog";
 import { Avatar, AvatarFallback } from "@calendar/components/ui/avatar";
@@ -16,6 +17,7 @@ import { ICON_MAP } from "../../mobile/MobileAddEventBar";
 
 export function AgendaEventsDoctorTourPlan({ events }) {
   const [open, setOpen] = useState(false);
+  const { users } = useCalendar();
 
   if (!events?.length) return null;
 
@@ -45,6 +47,9 @@ export function AgendaEventsDoctorTourPlan({ events }) {
       {open &&
         events.map((event) => {
           const TagIcon = ICON_MAP[event.tags];
+          const ownerName =
+            users.find((user) => user.id === event.ownerEmployeeId)?.name ??
+            event.ownerEmployeeId;
 
           return (
             <CommandItem
@@ -80,7 +85,7 @@ export function AgendaEventsDoctorTourPlan({ events }) {
                       </div>
 
                       <p className="text-xs text-muted-foreground line-clamp-1">
-                        {event.owner?.name}
+                        {ownerName}
                       </p>
                     </div>
                   </div>

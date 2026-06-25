@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Check, ChevronsUpDown, X } from "lucide-react";
 import { cn } from "@calendar/lib/utils";
 import { Button } from "@calendar/components/ui/button";
@@ -29,8 +29,21 @@ export function RHFCombobox({
   selectionLabel = "item",
   multiple = false,
   tagsDisplay = true,
+  onSearch,
+  loading = false,
 }) {
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    if (!onSearch || !open) return;
+
+    const timeoutId = setTimeout(() => {
+      onSearch(search);
+    }, 300);
+
+    return () => clearTimeout(timeoutId);
+  }, [onSearch, open, search]);
 
   /* ---------------------------------------
      Normalize incoming value → IDs (DISPLAY ONLY)
@@ -148,8 +161,17 @@ export function RHFCombobox({
           align="start"
         >
           <Command className="h-[180px] overflow-hidden">
-            <CommandInput placeholder={searchPlaceholder} />
+              <CommandInput
+                placeholder={searchPlaceholder}
+                value={search}
+                onValueChange={setSearch}
+              />
             <CommandList className=" overflow-y-auto">
+              {loading && (
+                <div className="px-3 py-2 text-sm text-muted-foreground">
+                  Loading...
+                </div>
+              )}
               <CommandEmpty>No results found.</CommandEmpty>
 
               <CommandGroup>

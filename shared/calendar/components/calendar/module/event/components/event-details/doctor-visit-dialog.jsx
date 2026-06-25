@@ -23,10 +23,9 @@ import { DoctorNotesSection } from "@calendar/components/calendar/module/event/c
 ===================================================== */
 
 function resolveDoctorDetails(event, doctorResolvers) {
-  const doctorRef = event.participants?.find(
-    (p) => p.type === "Lead"
-  );
-  const doctorId = doctorRef?.id;
+  const doctorId = Array.isArray(event.doctor)
+    ? event.doctor[0]
+    : event.doctor;
   if (!doctorId) return null;
 
   return {
@@ -113,7 +112,7 @@ export function EventDoctorVisitDialog({
 
   const employeeParticipants = useMemo(
     () => resolveEmployeeParticipants(event, employeeMap),
-    [event.participants, employeeMap]
+    [event, employeeMap]
   );
   const tagConfig =
     TAG_FORM_CONFIG[event.tags] ?? TAG_FORM_CONFIG.DEFAULT;
@@ -152,16 +151,14 @@ export function EventDoctorVisitDialog({
     isDoctorVisit,
     isEmployeeParticipant,
     tagConfig,
-    event.erpName,
-    event.tags,
-    event.participants,
+    event,
   ]);
 
   /* ================= Doctor Info ================= */
 
   const doctorDetails = useMemo(
     () => resolveDoctorDetails(event, doctorResolvers),
-    [event.participants, doctorResolvers]
+    [event, doctorResolvers]
   );
 
   /* ================= Join Logic ================= */
@@ -481,6 +478,4 @@ const hasLocation =
     </>
   );
 }
-
-
 

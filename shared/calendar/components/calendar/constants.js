@@ -136,6 +136,7 @@ export function buildEventDefaultValues({ event, defaultTag }) {
     doctor: event?.doctor,
     assignedTo: event?.assignedTo,
     forceVisit:event?.forceVisit ?? false,
+    distanceKm: event?.distanceKm ?? undefined,
     customer: event?.customer ?? "",
     custom_force_visit_reason:event?.custom_force_visit_reason ?? "",
     allocated_to: event?.allocated_to ?? "",

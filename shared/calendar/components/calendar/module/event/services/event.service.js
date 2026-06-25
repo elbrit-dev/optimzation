@@ -1,51 +1,92 @@
 import { graphqlRequest } from "@calendar/lib/graphql-client";
 import { serializeEventDoc } from "../mappers/event-to-erp";
-import { CUSTOMER_QUERY, EVENTS_BY_RANGE_QUERY, QUOTATIONS_BY_NAMES_QUERY, SAVE_EVENT_MUTATION,SAVE_EVENT_QUOTATION } from "@calendar/components/calendar/module/event/graphql/events.query";
+import {
+  CUSTOMER_QUERY,
+  EVENTS_BY_RANGE_QUERY,
+  SAVE_EVENT_MUTATION,
+  SAVE_EVENT_QUOTATION,
+} from "@calendar/components/calendar/module/event/graphql/events.query";
 import { mapErpGraphqlEventToCalendar } from "@calendar/components/calendar/module/event/mappers/erp-to-event";
 import { getCachedEvents, setCachedEvents } from "@calendar/lib/calendar/event-cache";
 import { buildRangeCacheKey } from "@calendar/lib/calendar/cache-key";
 import { clearEventCache } from "@calendar/lib/calendar/event-cache";
 import { format } from "date-fns";
-import { getCached } from "@calendar/lib/data-cache";
+import { clearCached, getCached } from "@calendar/lib/data-cache";
 import { GOOGLE_CALENDAR_BY_USER } from "@calendar/components/calendar/google-auth/queries";
 import { fetchAllTodoList } from "@calendar/components/calendar/module/todo/services/todo.service";
 import { fetchAllLeaveApplications } from "@calendar/components/calendar/module/leave/services/leave.service";
+import {
+  enqueueDocShareSync,
+  syncEventDocShares,
+} from "@calendar/components/calendar/module/event/services/docshare.service";
 const PAGE_SIZE = 50;
+const QUOTATION_BATCH_SIZE = 25;
+const pendingEventRequests = new Map();
 
 
 export async function fetchQuotationsByNames(names) {
   if (!names?.length) return {};
 
+  const uniqueNames = [...new Set(names.filter(Boolean))];
   const map = {};
 
-  await Promise.all(
-    names.map(async (name) => {
-      const data = await graphqlRequest(
-        QUOTATIONS_BY_NAMES_QUERY,
-        {
-          first: 1,
-          filters: [
-            {
-              fieldname: "name",
-              operator: "EQ",
-              value: name,
-            },
-          ],
+  for (let index = 0; index < uniqueNames.length; index += QUOTATION_BATCH_SIZE) {
+    const batch = uniqueNames.slice(index, index + QUOTATION_BATCH_SIZE);
+    const variableDefinitions = batch
+      .map((_, batchIndex) => `$filters${batchIndex}: [DBFilterInput!]`)
+      .join(", ");
+    const queryFields = batch
+      .map(
+        (_, batchIndex) => `
+      quotation_${batchIndex}: Quotations(
+        first: 1
+        filter: $filters${batchIndex}
+      ) {
+        edges {
+          node {
+            name
+            items {
+              item_code { name }
+              qty
+              rate
+              amount
+            }
+          }
         }
-      );
+      }`
+      )
+      .join("\n");
 
-      const node =
-        data?.Quotations?.edges?.[0]?.node;
+    const variables = Object.fromEntries(
+      batch.map((name, batchIndex) => [
+        `filters${batchIndex}`,
+        [
+          {
+            fieldname: "name",
+            operator: "EQ",
+            value: name,
+          },
+        ],
+      ])
+    );
 
-      if (node) {
+    const data = await graphqlRequest(
+      `query QuotationsByNames(${variableDefinitions}) {${queryFields}
+      }`,
+      variables
+    );
+
+    Object.values(data ?? {}).forEach((connection) => {
+      const node = connection?.edges?.[0]?.node;
+      if (node?.name) {
         map[node.name] = node;
       }
-    })
-  );
+    });
+  }
 
   return map;
 }
-export async function saveEvent(doc) {
+export async function saveEvent(doc, options = {}) {
   const data = await graphqlRequest(SAVE_EVENT_MUTATION, {
     doc: serializeEventDoc(doc),
   });
@@ -55,6 +96,27 @@ export async function saveEvent(doc) {
   }
   // invalidate cache only after successful write
   clearEventCache();
+
+  if (options.shareWithUserIds?.length) {
+    const shareOptions = {
+      skipExistingCheck: options.skipExistingShareCheck,
+    };
+
+    if (options.deferShareSync !== false) {
+      void enqueueDocShareSync(
+        "Event",
+        data.saveDoc.doc.name,
+        options.shareWithUserIds,
+        shareOptions
+      );
+    } else {
+      await syncEventDocShares(
+        data.saveDoc.doc.name,
+        options.shareWithUserIds,
+        shareOptions
+      );
+    }
+  }
 
   return data.saveDoc.doc;
 }
@@ -180,24 +242,31 @@ export async function fetchAllCustomers() {
 export async function fetchGoogleCalendarStatus(email) {
   if (!email) return null;
 
-  const data = await graphqlRequest(
-    GOOGLE_CALENDAR_BY_USER,
-    {
-      first: 1,
-      filter: [
-        {
-          fieldname: "user",
-          operator: "EQ",
-          value: email,
-        },
-      ],
-    }
-  );
+  return getCached(`GOOGLE_CALENDAR_STATUS:${email.toLowerCase()}`, async () => {
+    const data = await graphqlRequest(
+      GOOGLE_CALENDAR_BY_USER,
+      {
+        first: 1,
+        filter: [
+          {
+            fieldname: "user",
+            operator: "EQ",
+            value: email,
+          },
+        ],
+      }
+    );
 
-  return (
-    data?.GoogleCalendars?.edges?.[0]?.node ||
-    null
-  );
+    return (
+      data?.GoogleCalendars?.edges?.[0]?.node ||
+      null
+    );
+  });
+}
+
+export function clearGoogleCalendarStatusCache(email) {
+  if (!email) return;
+  clearCached([`GOOGLE_CALENDAR_STATUS:${email.toLowerCase()}`]);
 }
 
 export async function fetchEventsByRange(startDate, endDate, view) {
@@ -206,6 +275,28 @@ export async function fetchEventsByRange(startDate, endDate, view) {
   const cached = getCachedEvents(cacheKey);
   if (cached) return cached;
 
+  if (pendingEventRequests.has(cacheKey)) {
+    return pendingEventRequests.get(cacheKey);
+  }
+
+  const request = fetchEventsByRangeUncached(
+    cacheKey,
+    startDate,
+    endDate
+  )
+    .finally(() => {
+      pendingEventRequests.delete(cacheKey);
+    });
+
+  pendingEventRequests.set(cacheKey, request);
+  return request;
+}
+
+async function fetchEventsByRangeUncached(
+  cacheKey,
+  startDate,
+  endDate
+) {
   let after = null;
   let rawEventNodes = [];
 
@@ -214,11 +305,6 @@ export async function fetchEventsByRange(startDate, endDate, view) {
       fieldname: "starts_on",
       operator: "LTE",
       value: endDate.toISOString(),
-    },
-    {
-      fieldname: "ends_on",
-      operator: "GTE",
-      value: startDate.toISOString(),
     },
   ];
 
@@ -229,7 +315,7 @@ export async function fetchEventsByRange(startDate, endDate, view) {
     const data = await graphqlRequest(EVENTS_BY_RANGE_QUERY, {
       first: PAGE_SIZE,
       after,
-      filter,
+      filters: filter,
     });
 
     const connection = data?.Events;
@@ -242,6 +328,10 @@ export async function fetchEventsByRange(startDate, endDate, view) {
     if (!connection.pageInfo?.hasNextPage) break;
     after = connection.pageInfo.endCursor;
   }
+
+  rawEventNodes = rawEventNodes.filter((node) =>
+    doesEventOverlapRange(node, startDate, endDate)
+  );
 
   // --------------------------------------------
   // 2️⃣ COLLECT QUOTATION REFERENCES
@@ -260,8 +350,48 @@ export async function fetchEventsByRange(startDate, endDate, view) {
   // --------------------------------------------
   // 3️⃣ FETCH QUOTATIONS IN BATCH
   // --------------------------------------------
+  const [
+    quotationResult,
+    leavesResult,
+    todoResult,
+  ] = await Promise.allSettled([
+    fetchQuotationsByNames(uniqueQuotationNames),
+    fetchAllLeaveApplications(),
+    fetchAllTodoList(),
+  ]);
   const quotationMap =
-    await fetchQuotationsByNames(uniqueQuotationNames);
+    quotationResult.status === "fulfilled"
+      ? quotationResult.value
+      : {};
+  const leaves =
+    leavesResult.status === "fulfilled"
+      ? leavesResult.value
+      : [];
+  const todolist =
+    todoResult.status === "fulfilled"
+      ? todoResult.value
+      : [];
+
+  if (quotationResult.status === "rejected") {
+    console.error(
+      "Failed to fetch quotation references",
+      quotationResult.reason
+    );
+  }
+
+  if (leavesResult.status === "rejected") {
+    console.error(
+      "Failed to fetch leave applications",
+      leavesResult.reason
+    );
+  }
+
+  if (todoResult.status === "rejected") {
+    console.error(
+      "Failed to fetch todo list",
+      todoResult.reason
+    );
+  }
   // --------------------------------------------
   // 4️⃣ INJECT QUOTATION ITEMS INTO RAW NODES
   // --------------------------------------------
@@ -300,13 +430,34 @@ export async function fetchEventsByRange(startDate, endDate, view) {
   // --------------------------------------------
   // 6️⃣ MERGE LEAVES + TODOS
   // --------------------------------------------
-  const leaves = await fetchAllLeaveApplications();
-  const todolist = await fetchAllTodoList();
   const merged = [...events, ...leaves, ...todolist];
 
   setCachedEvents(cacheKey, merged);
 
   return merged;
+}
+
+function doesEventOverlapRange(node, rangeStart, rangeEnd) {
+  const eventStart = parseErpDateValue(node?.starts_on);
+  if (!eventStart) {
+    return false;
+  }
+
+  const eventEnd =
+    parseErpDateValue(node?.ends_on) ?? eventStart;
+
+  return eventStart <= rangeEnd && eventEnd >= rangeStart;
+}
+
+function parseErpDateValue(value) {
+  if (!value || typeof value !== "string") {
+    return null;
+  }
+
+  const isoLike = value.replace(" ", "T");
+  const date = new Date(isoLike);
+
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 const DELETE_EVENT_MUTATION = `

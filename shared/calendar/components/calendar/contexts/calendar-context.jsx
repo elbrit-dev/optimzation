@@ -1,15 +1,17 @@
 "use client";;
 import { createContext, useContext, useState, useEffect, useMemo } from "react";
 import { useLocalStorage } from "@calendar/components/calendar/hooks";
-import { fetchAllCustomers, fetchEventsByRange } from "@calendar/components/calendar/module/event/services/event.service";
+import { fetchEventsByRange } from "@calendar/components/calendar/module/event/services/event.service";
 import { resolveCalendarRange } from "@calendar/lib/calendar/range";
-import { ELBRIT_ROLEID, EMPLOYEES_QUERY, normalizeRoleProfiles } from "@calendar/components/calendar/module/event/graphql/events.query";
-import { mapEmployeesToCalendarUsers } from "@calendar/components/calendar/module/event/services/employee-to-calendar-user";
-import { graphqlRequest } from "@calendar/lib/graphql-client";
 import { resolveVisibleEmployeeIds, resolveVisibleRoleIds } from "@calendar/lib/employeeHeirachy";
-import { STATUS, TAG_IDS, TAGS } from "@calendar/components/calendar/constants";
-import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 import { useEmployeeResolvers } from "@calendar/lib/employeeResolver";
+import { fetchCalendarBootstrapData } from "@calendar/components/calendar/contexts/calendar-context/bootstrapping";
+import {
+	buildEmployeeEmailToId,
+	buildEmployeeRoleMap,
+	buildLeaveNotifications,
+	filterCalendarEvents,
+} from "@calendar/components/calendar/contexts/calendar-context/selectors";
 
 const DEFAULT_SETTINGS = {
 	badgeVariant: "colored",
@@ -57,6 +59,7 @@ export function CalendarProvider({
 	const [mobileLayer, setMobileLayer] = useState("month-expanded");
 	const [showOnlyApprovedLeaves, setShowOnlyApprovedLeaves] = useState(false);
 	const [showOnlyTodoList, setShowOnlyTodoList] = useState(false);
+	const [territoryDoctors, setTerritoryDoctors] = useState([]);
 	const updateSettings = (newPartialSettings) => {
 		setSettings({
 			...settings,
@@ -64,13 +67,7 @@ export function CalendarProvider({
 		});
 	};
 	const employeeEmailToId = useMemo(() => {
-		const map = new Map();
-		for (const u of users) {
-			if (u.email && u.id) {
-				map.set(u.email?.toLowerCase(),u.id ); // email → Employee ID
-			}
-		}
-		return map;
+		return buildEmployeeEmailToId(users);
 	}, [users]);
 
 
@@ -205,179 +202,48 @@ export function CalendarProvider({
 	useEffect(() => {
 		let cancelled = false;
 
-		async function hydrateEmployees() {
-			try {
-				const data = await graphqlRequest(EMPLOYEES_QUERY, {
-					first: 1000,
-				});
+		async function hydrateBootstrapData() {
+			const {
+				users: nextUsers,
+				employeeOptions: nextEmployeeOptions,
+				elbritRoleEdges: nextRoleEdges,
+				customerOptions: nextCustomerOptions,
+				errors,
+			} = await fetchCalendarBootstrapData();
 
-				const employees =
-					data?.Employees?.edges?.map(e => e.node) ?? [];
+			if (cancelled) {
+				return;
+			}
 
-				const mappedUsers = mapEmployeesToCalendarUsers(employees);
+			setUsers(nextUsers);
+			setEmployeeOptions(nextEmployeeOptions);
+			setElbritRoleEdges(nextRoleEdges);
+			setCustomerOptions(nextCustomerOptions);
+			setUsersLoading(false);
+			setElbritRoleLoading(false);
 
-				if (!cancelled) {
-					setUsers(mappedUsers);
-					setUsersLoading(false);
-				}
+			if (errors.employees) {
+				console.error("Failed to fetch employees", errors.employees);
+			}
 
-			} catch (err) {
-				console.error("Failed to fetch employees", err);
-				setUsersLoading(false);
+			if (errors.roles) {
+				console.error("Failed to fetch ElbritRoleIDS", errors.roles);
+			}
+
+			if (errors.customers) {
+				console.error("Failed to fetch customers", errors.customers);
 			}
 		}
 
-		hydrateEmployees();
-		return () => {
-			cancelled = true;
-		};
-	}, []);
-	useEffect(() => {
-		let cancelled = false;
-
-		async function hydrateElbritRoles() {
-			try {
-				const rawData = await graphqlRequest(ELBRIT_ROLEID, {
-					first: 1000,
-				});
-
-				const data = normalizeRoleProfiles(rawData);
-
-				const edges = data?.ElbritRoleIDS?.edges ?? [];
-				if (!cancelled) {
-					setElbritRoleEdges(edges);
-					setElbritRoleLoading(false);
-				}
-			} catch (err) {
-				console.error("❌ Failed to fetch ElbritRoleIDS", err);
-				setElbritRoleLoading(false);
-			}
-		}
-
-		hydrateElbritRoles();
+		hydrateBootstrapData();
 
 		return () => {
 			cancelled = true;
 		};
 	}, []);
-	const getEventEmployeeIds = (event) => {
-		const ids = new Set();
-	  
-		// ERP Events
-		if (event.event_participants?.length) {
-		  event.event_participants.forEach((p) => {
-			if (
-			  p.reference_doctype === "Employee" &&
-			  p.reference_docname
-			) {
-			  ids.add(p.reference_docname);
-			}
-		  });
-		}
-	  
-		// fallback employees
-		if (event.employees) {
-		  if (Array.isArray(event.employees)) {
-			event.employees.forEach((id) => ids.add(id));
-		  } else {
-			ids.add(event.employees);
-		  }
-		}
-	  
-		// Leave
-		if (event.tags === TAG_IDS.LEAVE) {
-		  if (event.employee) {
-			ids.add(event.employee);
-		  }
-	  
-		  if (event.leave_approver) {
-			const approverId =
-			  employeeEmailToId.get(
-				event.leave_approver.toLowerCase()
-			  );
-	  
-			if (approverId) {
-			  ids.add(approverId);
-			}
-		  }
-		}
-	  
-		// Todo allocated_to
-		if (
-		  event.tags === TAG_IDS.TODO_LIST &&
-		  event.allocated_to
-		) {
-		  const allocatedEmployeeId =
-			employeeEmailToId.get(
-			  event.allocated_to.toLowerCase()
-			);
-	  
-		  if (allocatedEmployeeId) {
-			ids.add(allocatedEmployeeId);
-		  }
-		}
-	  
-		// Todo assignedTo
-		if (
-		  event.tags === TAG_IDS.TODO_LIST &&
-		  event.assignedTo?.length
-		) {
-		  event.assignedTo.forEach((id) => ids.add(id));
-		}
-	  
-		return [...ids];
-	  };
-
-	  const employeeRoleMap = useMemo(() => {
-		const map = new Map();
-	  
-		users.forEach((u) => {
-		  map.set(u.id, u.roleId);
-		});
-	  
-		return map;
-	  }, [users]);
-	  const getEventRoleIds = (event) => {
-		const roleIds = new Set();
-	  
-		const employeeIds = getEventEmployeeIds(event);
-	  
-		employeeIds.forEach((id) => {
-		  const roleId = employeeRoleMap.get(id);
-	  
-		  if (roleId) {
-			roleIds.add(roleId);
-		  }
-		});
-	  
-		return [...roleIds];
-	  };
-	useEffect(() => {
-		let cancelled = false;
-
-		async function hydrateCustomers() {
-			try {
-				const customers = await fetchAllCustomers();
-
-				const normalized = (customers ?? []).map((name) => ({
-					label: name,
-					value: name,
-				}));
-
-				if (!cancelled) {
-					setCustomerOptions(normalized);
-				}
-			} catch (err) {
-				console.error("Failed to fetch customers", err);
-			}
-		}
-
-		hydrateCustomers();
-
-		return () => {
-			cancelled = true;
-		};
-	}, []);
+	const employeeRoleMap = useMemo(() => {
+		return buildEmployeeRoleMap(users);
+	}, [users]);
 	const visibleRoleIds = useMemo(() => {
 		if (elbritRoleLoading) return [];
 		return resolveVisibleRoleIds(elbritRoleEdges);
@@ -387,116 +253,49 @@ export function CalendarProvider({
 		if (usersLoading || elbritRoleLoading) return [];
 		return resolveVisibleEmployeeIds(elbritRoleEdges, users);
 	}, [users, usersLoading, elbritRoleEdges, elbritRoleLoading]);
+	const visibleEmployeeOptions = useMemo(() => {
+		if (!employeeOptions.length) return [];
+		if (!allowedEmployeeIds.length) return employeeOptions;
+
+		const allowedIds = new Set(allowedEmployeeIds);
+		return employeeOptions.filter((employee) =>
+			allowedIds.has(employee.value)
+		);
+	}, [employeeOptions, allowedEmployeeIds]);
 
 	const filteredEvents = useMemo(() => {
-		if (usersLoading || elbritRoleLoading) {
-			return allEvents; // temporarily show everything
-		}
-		if (!allEvents?.length) return [];
-		// 🔴 HARD BYPASS FOR ADMIN
-		if (LOGGED_IN_USER?.roleId === "Admin") {
-			let result = allEvents;
-			// Still apply user dropdown
-			if (selectedUserId.length) {
-				result = result.filter(event => {
-				  const eventEmployeeIds =
-					getEventEmployeeIds(event);
-			  
-				  return selectedUserId.some(id =>
-					eventEmployeeIds.includes(id)
-				  );
-				});
-			  }
-
-			// Still apply color filter
-			if (selectedColors.length) {
-				result = result.filter(event =>
-					selectedColors.includes(event.color || "blue")
-				);
-			}
-			if (selectedStatuses.length) {
-				result = result.filter((event) =>
-					selectedStatuses.includes(
-						event.status?.trim()?.toLowerCase()
-					)
-				);
-			}
-			return result;
-		}
-
-		// 👇 Non-admin logic below
-		let result = allEvents;
-		result = result.filter(event => {
-			const eventRoleIds = getEventRoleIds(event);
-		  
-			const roleMatch =
-			  eventRoleIds.some(roleId =>
-				visibleRoleIds.includes(roleId)
-			  );
-		  
-			const eventEmployeeIds =
-			  getEventEmployeeIds(event);
-		  
-			const employeeMatch =
-			  eventEmployeeIds.some(id =>
-				allowedEmployeeIds.includes(id)
-			  );
-		  
-			return roleMatch || employeeMatch;
-		  });
-		  if (selectedUserId.length) {
-			result = result.filter(event => {
-			  const eventEmployeeIds =
-				getEventEmployeeIds(event);
-		  
-			  return selectedUserId.some(id =>
-				eventEmployeeIds.includes(id)
-			  );
-			});
-		  }
-
-		if (selectedColors.length) {
-			result = result.filter(event =>
-				selectedColors.includes(event.color || "blue")
-			);
-		}
-		if (selectedStatuses.length) {
-			result = result.filter(event =>
-				selectedStatuses.includes(
-					event.status?.trim()?.toLowerCase()
-				)
-			);
-		}
-		return result;
-
+		return filterCalendarEvents({
+			allEvents,
+			selectedUserId,
+			selectedColors,
+			selectedStatuses,
+			visibleRoleIds,
+			allowedEmployeeIds,
+			usersLoading,
+			elbritRoleLoading,
+			employeeRoleMap,
+			employeeEmailToId,
+		});
 	}, [
 		allEvents,
 		visibleRoleIds,
 		allowedEmployeeIds,
 		selectedUserId,
-		selectedColors, selectedStatuses
+		selectedColors,
+		selectedStatuses,
+		usersLoading,
+		elbritRoleLoading,
+		employeeRoleMap,
+		employeeEmailToId,
 	]);
 	const employeeResolvers = useEmployeeResolvers(employeeOptions);
 	useEffect(() => {
-		const leaveNotifications = filteredEvents
-			.filter(
-				(event) =>
-					event.tags === TAG_IDS.LEAVE &&
-					event.status?.toLowerCase() === STATUS.OPEN.toLowerCase() &&
-					event.leave_approver === LOGGED_IN_USER.email
+		setNotifications(
+			buildLeaveNotifications(
+				filteredEvents,
+				employeeResolvers
 			)
-			.map((leave) => ({
-				id: leave.erpName,
-				title: "Leave Approval Pending",
-				message: `${employeeResolvers.getEmployeeNameById(leave.employee) ??
-					leave.employee
-					} applied for ${leave.leaveType}`,
-				createdAt: leave.startDate,
-				isRead: false,
-				leave,
-			}));
-
-		setNotifications(leaveNotifications);
+		);
 	}, [filteredEvents, employeeResolvers]);
 	const value = {
 		selectedDate,
@@ -533,11 +332,14 @@ export function CalendarProvider({
 		isEventListOpen,
 		activeDate, setActiveDate, mobileLayer,
 		setMobileLayer,
-		employeeOptions,
+		employeeOptions: visibleEmployeeOptions,
+		allEmployeeOptions: employeeOptions,
 		doctorOptions,
 		hqTerritoryOptions,
 		setEmployeeOptions,
 		setDoctorOptions,
+		territoryDoctors,
+		setTerritoryDoctors,
 		setHqTerritoryOptions,
 		elbritRoleEdges, allowedEmployeeIds,
 		elbritRoleLoading, customerOptions, setCustomerOptions,

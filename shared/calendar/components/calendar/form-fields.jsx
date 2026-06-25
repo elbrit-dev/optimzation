@@ -140,7 +140,9 @@ export function RHFComboboxField({
   placeholder,
   searchPlaceholder,
   selectionLabel,
-  tagsDisplay
+  tagsDisplay,
+  onSearch,
+  loading,
 }) {
   return (
     <FormField
@@ -161,6 +163,8 @@ export function RHFComboboxField({
               searchPlaceholder={searchPlaceholder}
               selectionLabel={selectionLabel}
               tagsDisplay={tagsDisplay}
+              onSearch={onSearch}
+              loading={loading}
             />
           </FormControl>
         </RHFFieldWrapper>
@@ -266,4 +270,3 @@ export function FormFooter({
     </ModalFooter>
   );
 }
-

@@ -48,6 +48,7 @@ export const eventSchema = z
     description: z.string().optional(),
     color: z.string().optional(),
     forceVisit: z.boolean().optional(),
+    distanceKm: z.number().nullable().optional(),
     employees: z.any().optional(),
     doctor: z.any().optional(),
     allocated_to:z.any().optional(),

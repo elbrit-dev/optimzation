@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Check, X } from "lucide-react";
 import { Input } from "@calendar/components/ui/input";
 import { cn } from "@calendar/lib/utils";
@@ -9,17 +9,49 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@calendar/components/ui/select";
+import { searchDoctors } from "@calendar/components/calendar/module/event/services/master-data.service";
 
 export function RHFDoctorCardSelector({
     value,
-    onChange,
+    onChange,hqTerritory,
     options = [],
     multiple = false,
     tagsDisplay = true,
 }) {
     const [search, setSearch] = useState("");
     const [category, setCategory] = useState("ALL");
-
+    const [searchResults, setSearchResults] = useState([]);
+    const [loading, setLoading] = useState(false);
+    useEffect(() => {
+        setSearchResults(options);
+    }, [options]);
+    useEffect(() => {
+        const timeout = setTimeout(async () => {
+        const term = search.trim();
+        
+        // Show territory doctors initially
+        if (!term) {
+          setSearchResults(options);
+          return;
+        }
+        
+        setLoading(true);
+        
+        try {
+          const doctors = await searchDoctors({
+            search: term,
+            territory: hqTerritory,
+          });
+        
+          setSearchResults(doctors);
+        } finally {
+          setLoading(false);
+        }
+        
+        }, 400);
+        
+        return () => clearTimeout(timeout);
+        }, [search, hqTerritory, options]);
     /* =====================================================
        Normalize value → selected ID array (unchanged logic)
     ===================================================== */
@@ -56,21 +88,13 @@ export function RHFDoctorCardSelector({
        Filtering (optimized slightly)
     ===================================================== */
     const filteredDoctors = useMemo(() => {
-        const searchLower = search.toLowerCase();
-
-        return options.filter((doc) => {
-            const matchesSearch =
-                doc.label?.toLowerCase().includes(searchLower) ||
-                doc.code?.toLowerCase().includes(searchLower);
-
-            const matchesCategory =
+        return searchResults.filter((doc) => {
+            return (
                 category === "ALL" ||
-                doc.fsl_speciality__name === category;
-
-            return matchesSearch && matchesCategory;
+                doc.fsl_speciality__name === category
+            );
         });
-    }, [options, search, category]);
-
+    }, [searchResults, category]);
     /* =====================================================
        Toggle select (unchanged logic)
     ===================================================== */

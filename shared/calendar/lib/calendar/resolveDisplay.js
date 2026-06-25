@@ -9,13 +9,18 @@ export function resolveDisplayValueFromEvent({
   const value = event[field.key];
   switch (field.type) {
     case "doctor": {
-      return event.event_participants
-        ?.filter((p) => p.reference_doctype === "Lead")
-        .map((p) => {
+      if (!event.doctor) return null;
+
+      const doctorIds = Array.isArray(event.doctor)
+        ? event.doctor
+        : [event.doctor];
+
+      return doctorIds
+        .map((doctorId) => {
           const doc = event._doctorOptions?.find(
-            (d) => d.value === p.reference_docname
+            (option) => option.value === doctorId
           );
-          return doc?.label ?? p.reference_docname;
+          return doc?.label ?? doctorId;
         })
         .join(", ");
     }
@@ -50,8 +55,13 @@ export function resolveDisplayValueFromEvent({
     }
 
     case "owner": {
-      return event.employeeResolvers?.getEmployeeNameById(event.employee) 
-        ?? event.employee;
+      if (!event.ownerEmployeeId) return null;
+
+      const owner = event._employeeOptions?.find(
+        (employee) => employee.value === event.ownerEmployeeId
+      );
+
+      return owner?.label ?? event.ownerEmployeeId;
     }
     case "leave_approver": {
       if (!event.leave_approver) return null;

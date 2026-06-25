@@ -77,6 +77,7 @@ export function mapErpLeaveToCalendar(leave) {
     ] ?? DEFAULT_COLORS.LEAVE_OPEN,
     medicalAttachment: leave.custom_attachment ?? "",
     employee: leave.employee?.name,
+    employeeName: leave.employee_name ?? leave.employee?.name ?? "",
     approvedBy: leave.leave_approver_name ?? "",
     leave_approver:
       typeof leave.leave_approver === "object"

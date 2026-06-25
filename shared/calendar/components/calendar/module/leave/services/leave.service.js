@@ -3,15 +3,41 @@ import { getCached } from "@calendar/lib/data-cache";
 import { LEAVE_ALLOCATIONS_QUERY, LEAVE_APPLICATIONS_QUERY, LEAVE_QUERY, SAVE_LEAVE_APPLICATION_MUTATION, UPDATE_LEAVE_ATTACHMENT_MUTATION, UPDATE_LEAVE_STATUS_MUTATION } from "@calendar/components/calendar/module/leave/graphql/leave.query";
 import { clearLeaveCache, getCachedLeaveBalance, getLeaveCacheKey, setCachedLeaveBalance } from "@calendar/components/calendar/module/leave/cache/leave-cache";
 import { mapErpLeaveToCalendar } from "@calendar/components/calendar/module/leave/mappers/leave.mapper";
+import {
+  enqueueDocShareSync,
+  syncDocShares,
+} from "@calendar/components/calendar/module/event/services/docshare.service";
 
 
-export async function saveLeaveApplication(doc) {
+export async function saveLeaveApplication(doc, options = {}) {
     const data = await graphqlRequest(SAVE_LEAVE_APPLICATION_MUTATION, {
       doc: JSON.stringify(doc),
     });
   
     if (!data?.saveDoc?.doc?.name) {
       throw new Error("Failed to create Leave Application");
+    }
+
+    if (options.shareWithUserIds?.length) {
+      const shareOptions = {
+        skipExistingCheck: options.skipExistingShareCheck,
+      };
+
+      if (options.deferShareSync !== false) {
+        void enqueueDocShareSync(
+          "Leave Application",
+          data.saveDoc.doc.name,
+          options.shareWithUserIds,
+          shareOptions
+        );
+      } else {
+        await syncDocShares(
+          "Leave Application",
+          data.saveDoc.doc.name,
+          options.shareWithUserIds,
+          shareOptions
+        );
+      }
     }
   
     clearLeaveCache();

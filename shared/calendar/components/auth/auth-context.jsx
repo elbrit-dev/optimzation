@@ -17,6 +17,16 @@ export function AuthProvider({
     AUTH_CONFIG.erpUrl = erpUrl;
     AUTH_CONFIG.authToken = authToken;
   }
+
+  if (me) {
+    LOGGED_IN_USER.id = me.id || me.name || me.email;
+    LOGGED_IN_USER.name = me.full_name || me.name;
+    LOGGED_IN_USER.email = me.email;
+    LOGGED_IN_USER.role = me.role || "System User";
+    LOGGED_IN_USER.status = me.enabled ? "Active" : "Inactive";
+    LOGGED_IN_USER.roleId = me.roleId;
+    LOGGED_IN_USER.leave_approver = me.leave_approver;
+  }
   
   // 🔁 Redirect if not logged in
   useEffect(() => {
@@ -32,19 +42,6 @@ export function AuthProvider({
   //   AUTH_CONFIG.erpUrl = erpUrl;
   //   AUTH_CONFIG.authToken = authToken;
   // }, [erpUrl, authToken]);
-
-  // 🔁 Sync LOGGED_IN_USER
-  useEffect(() => {
-    if (!me) return;
-
-    LOGGED_IN_USER.id = me.id || me.name || me.email;
-    LOGGED_IN_USER.name = me.full_name || me.name;
-    LOGGED_IN_USER.email = me.email;
-    LOGGED_IN_USER.role = me.role || "System User";
-    LOGGED_IN_USER.status = me.enabled ? "Active" : "Inactive";
-    LOGGED_IN_USER.roleId = me.roleId;
-    LOGGED_IN_USER.leave_approver = me.leave_approver
-  }, [me]);
 
   // 🚫 Don’t render children if unauthenticated
   if (!authToken) return null;

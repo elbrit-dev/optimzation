@@ -1,3 +1,10 @@
+import {
+  ERP_DOCTOR_FIELDS,
+  ERP_EMPLOYEE_FIELDS,
+  ERP_EVENT_FIELDS,
+  ERP_ROLE_PROFILE_FIELDS,
+} from "@calendar/components/calendar/module/event/graphql/field-config";
+
 export const EVENTS_BY_RANGE_QUERY = `
 query EventsByRange(
   $first: Int!
@@ -16,29 +23,29 @@ query EventsByRange(
         all_day
         status
         event_category
-        fsl_is_force_visit:custom_is_force_visit
-        custom_force_visit_reason
+        role_profile:${ERP_EVENT_FIELDS.roleProfileRead}
+        custom_doctor__name:${ERP_EVENT_FIELDS.doctorRead}
+        doctor_latitude:${ERP_EVENT_FIELDS.doctorLatitudeRead}
+        doctor_longitude:${ERP_EVENT_FIELDS.doctorLongitudeRead}
+        custom_employee_id:${ERP_EVENT_FIELDS.ownerEmployeeRead} {
+          name
+        }
         reference_doctype__name
         reference_docname__name
-        fsl_role_id :custom_role_id {
-          name
-        }
-        owner {
-          name
-          full_name
-          email
-        }
-         fsl_territory__name:custom_hq_territory__name
-          event_participants {
+        custom_hq__name:${ERP_EVENT_FIELDS.hqRead}
+        event_participants {
           reference_doctype__name
           custom_latitude
           custom_longitude
+          custom_distance:${ERP_EVENT_FIELDS.participantDistanceRead}
+          custom_is_force_visit:${ERP_EVENT_FIELDS.participantForceVisitRead}
+          custom_force_visit_reason:${ERP_EVENT_FIELDS.participantForceVisitReasonRead}
           reference_docname__name
           attending
           email
-          kly_role_id:custom_role_id {
-              name
-            }
+          role_profile:${ERP_EVENT_FIELDS.participantRoleProfileRead} {
+            name
+          }
         }
       }
     }
@@ -54,14 +61,14 @@ query RoleProfiles($first: Int) {
   RoleProfiles(first: $first) {
     edges {
       node {
-      role_profile
+      role_id:${ERP_ROLE_PROFILE_FIELDS.roleId}
       custom_department {
         department_name
         lft
         rgt
         parent_department__name
       }
-      parent_role_profile {
+      parent_role_id:${ERP_ROLE_PROFILE_FIELDS.parentRole} {
         name
         is_group
       }
@@ -76,28 +83,24 @@ export function normalizeRoleProfiles(data) {
 				data?.RoleProfiles?.edges?.map(({ node }) => ({
 					node: {
 						lft: node?.custom_department?.lft ?? null,
-
 						rgt: node?.custom_department?.rgt ?? null,
-
-						role_id: node?.role_profile ?? null,
-
+						role_id: node?.role_id ?? null,
 						sales_team__name:
 							node?.custom_department?.department_name ?? null,
-
 						parent_elbrit_role_id__name:
-							node?.parent_role_profile?.name ?? null,
-
+							node?.parent_role_id?.name ?? null,
 						is_group:
-							node?.parent_role_profile?.is_group ?? false,
+							node?.parent_role_id?.is_group ?? false,
 					},
 				})) ?? [],
 		},
 	};
 }
 export const EMPLOYEES_QUERY = `
-query GetEmployees($first: Int!) {
+query GetEmployees($first: Int!, $filters: [DBFilterInput!]) {
   Employees(
     first: $first
+    filter: $filters
   ) {
     edges {
       node {
@@ -111,7 +114,7 @@ query GetEmployees($first: Int!) {
         designation{
         name
         }
-        role_id
+        role_id:${ERP_EMPLOYEE_FIELDS.roleId}
       }
     }
   }
@@ -139,8 +142,8 @@ query Items(
 }
 `;
 export const DOCTOR_QUERY = `
-query Doctors($first: Int) {
-  Leads(first: $first) {
+query Doctors($first: Int,$filter: [DBFilterInput]) {
+  Leads(first: $first,filter: $filter) {
     edges {
       node {
         name
@@ -159,15 +162,29 @@ query Doctors($first: Int) {
           creation
           modified
         }
-        custom_category_3
-        custom_category_2
-        custom_category_1
-        territory__name
+        custom_category3__name
+        custom_category2__name
+        custom_category1__name
+        territory__name:${ERP_DOCTOR_FIELDS.territory}
       }
     }
   }
 }
 `
+export const DOC_SHARES_BY_EVENT_QUERY = `
+query DocSharesByEvent($first: Int!, $filters: [DBFilterInput!]) {
+  DocShares(first: $first, filter: $filters) {
+    edges {
+      node {
+        name
+        user {
+          name
+        }
+      }
+    }
+  }
+}
+`;
 export const QUOTATIONS_BY_NAMES_QUERY = `
 query Quotations(
   $first: Int!
@@ -229,4 +246,12 @@ mutation SaveEvent($doc: String!) {
   }
 }
 `
-
+export const SAVE_DOC_SHARE_MUTATION = `
+mutation SaveDocShare($doc: String!) {
+  saveDoc(doctype: "DocShare", doc: $doc) {
+    doc {
+      name
+    }
+  }
+}
+`;

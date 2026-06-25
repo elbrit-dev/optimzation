@@ -311,8 +311,8 @@ export const TAG_FORM_CONFIG = {
     },
   },
   Other: {
-    hide: ["color", "allocated_to"],
-    show: ["title", "startDate", "endDate", "employees", "doctor"],
+    hide: ["color", "allocated_to", "doctor"],
+    show: ["title", "startDate", "endDate", "employees"],
     required: ["title", "startDate"],
     dateOnly: true,
     fixedColor: DEFAULT_COLORS.EVENT,
@@ -320,7 +320,6 @@ export const TAG_FORM_CONFIG = {
       fields: [
         { key: "startDate", label: "Start Date", type: "date" },
         { key: "endDate", label: "End Date", type: "date" },
-        { key: "doctor", label: "Doctor", type: "doctor" },
         { key: "employee", label: "Participants", type: "employee" },
         { key: "description", label: "Description", type: "text" },
       ],
@@ -332,9 +331,6 @@ export const TAG_FORM_CONFIG = {
       allowEdit: () => true,
     },
     employee: {
-      multiselect: true,
-    },
-    doctor: {
       multiselect: true,
     },
   },

@@ -3,22 +3,62 @@ import {
   EMPLOYEES_QUERY, DOCTOR_QUERY, HQ_TERRITORIES_QUERY,
   ITEMS_QUERY
 } from "@calendar/components/calendar/module/event/graphql/events.query";
+import { ERP_DOCTOR_FIELDS } from "@calendar/components/calendar/module/event/graphql/field-config";
 import { getCached } from "@calendar/lib/data-cache";
+import { mapDoctors } from "@calendar/lib/helper";
 
 const MAX_ROWS = 1000; // safe upper bound
 
+export async function fetchEmployeeNodes() {
+  return getCached("EMPLOYEE_RAW", async () => {
+    const data = await graphqlRequest(EMPLOYEES_QUERY, {
+      first: MAX_ROWS,
+    });
+
+    return data?.Employees?.edges?.map(({ node }) => node) || [];
+  });
+}
+
 export async function fetchEmployees() {
+  const employees = await fetchEmployeeNodes();
+
+  return (
+    employees.map((node) => ({
+      doctype: "Employee",
+      value: node.name,
+      label: node.employee_name,
+      email: node.company_email,
+      role: node.designation?.name ?? null,
+      roleId: node.role_id,
+      leave_approver: node.leave_approver?.name ?? null,
+    })) || []
+  );
+}
+
+export async function searchEmployees(search) {
+  const filters = [];
+
+  if (search?.trim()) {
+    const term = `%${search.trim()}%`;
+    filters.push({
+      fieldname: "employee_name",
+      operator: "LIKE",
+      value: term,
+    });
+  }
+
   const data = await graphqlRequest(EMPLOYEES_QUERY, {
     first: MAX_ROWS,
+    filters,
   });
 
   return (
-    data?.Employees?.edges.map(({ node }) => ({
+    data?.Employees?.edges?.map(({ node }) => ({
       doctype: "Employee",
-      value: node.name,          // ERP ID → saved
+      value: node.name,
       label: node.employee_name,
       email: node.company_email,
-      role: node.designation?.name ?? null,// UI text
+      role: node.designation?.name ?? null,
       roleId: node.role_id,
       leave_approver: node.leave_approver?.name ?? null,
     })) || []
@@ -55,39 +95,56 @@ export async function fetchItems() {
 }
 
 export async function fetchDoctors() {
+  console.log(DOCTOR_QUERY);
   const data = await graphqlRequest(DOCTOR_QUERY, {
     first: MAX_ROWS,
   });
-  return (
-    data?.Leads?.edges.map(({ node }) => ({
-      doctype: "Lead",
-      value: node.name,
-      label: node.lead_name,
-      custom_latitude: node.custom_latitude ?? null,
-      custom_longitude: node.custom_longitude ?? null,
-      city: node.city,
-      code: node.name,
-      fsl_speciality__name: node.custom_speciality,
-      email:node.email_id,
-      fsl_category1__name:node.custom_category_3,
-       fsl_category2__name:node.custom_category_2,
-       fsl_category3__name:node.custom_category_3,
-      territory__name:node.territory__name,
-      notes: (node.notes ?? [])
-        .map(n => ({
-          note: n.note,
-          creation: n.creation,
-          name:n.name,
-          creation:n.creation,
-          idx:n.idx,
-          doctype:n.doctype,
-          modified:n.modified
-        }))
-        .sort((a, b) => new Date(b.creation) - new Date(a.creation)),
-    })) || []
-  );
+  
+  return mapDoctors(data);
 }
+export async function fetchDoctorsByTerritory(territory) {
+  const data = await graphqlRequest(DOCTOR_QUERY, {
+    first: MAX_ROWS,
+    filter: [
+      {
+        fieldname: "territory",
+        operator: "EQ",
+        value: territory,
+      },
+    ],
+  });
 
+  return mapDoctors(data);
+}
+export async function searchDoctors({
+  search,
+  territory,
+}) {
+  const filter = [];
+
+  if (territory) {
+    filter.push({
+      fieldname: ERP_DOCTOR_FIELDS.territory,
+      operator: "EQ",
+      value: territory,
+    });
+  }
+
+  if (search?.trim()) {
+    filter.push({
+      fieldname: ERP_DOCTOR_FIELDS.searchName,
+      operator: "LIKE",
+      value: `%${search}%`,
+    });
+  }
+
+  const data = await graphqlRequest(DOCTOR_QUERY, {
+    first: MAX_ROWS,
+    filter,
+  });
+
+  return mapDoctors(data);
+}
 export async function fetchHQTerritories() {
   const data = await graphqlRequest(HQ_TERRITORIES_QUERY, {
     first: MAX_ROWS,

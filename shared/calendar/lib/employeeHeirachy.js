@@ -61,6 +61,80 @@ function buildRoleIndex(elbritEdges = []) {
     return { roleMap, childrenMap };
   }
 
+export function resolveSuperiorRoleIds(
+  elbritEdges = [],
+  roleId
+) {
+  if (!roleId) return [];
+
+  const nodes = elbritEdges.map((edge) => edge.node);
+  const parentByRoleId = new Map();
+
+  nodes.forEach((node) => {
+    parentByRoleId.set(
+      node.role_id,
+      node.parent_elbrit_role_id__name ?? null
+    );
+  });
+
+  const superiors = [];
+  let currentRoleId = parentByRoleId.get(roleId);
+
+  while (currentRoleId) {
+    superiors.push(currentRoleId);
+    currentRoleId = parentByRoleId.get(currentRoleId);
+  }
+
+  return superiors;
+}
+
+export function resolveSuperiorEmployeeIds(
+  elbritEdges = [],
+  users = [],
+  roleId
+) {
+  const superiorRoleIds = new Set(
+    resolveSuperiorRoleIds(elbritEdges, roleId)
+  );
+
+  if (!superiorRoleIds.size) {
+    return [];
+  }
+
+  return users
+    .filter(
+      (user) =>
+        user.id &&
+        user.roleId &&
+        superiorRoleIds.has(user.roleId)
+    )
+    .map((user) => user.id);
+}
+
+export function resolveSuperiorShareUserIds(
+  elbritEdges = [],
+  users = [],
+  roleId
+) {
+  const superiorRoleIds = new Set(
+    resolveSuperiorRoleIds(elbritEdges, roleId)
+  );
+
+  if (!superiorRoleIds.size) {
+    return [];
+  }
+
+  return users
+    .filter(
+      (user) =>
+        user.email &&
+        user.roleId &&
+        superiorRoleIds.has(user.roleId)
+    )
+    .map((user) => user.email)
+    .filter(Boolean);
+}
+
   export function resolveVisibleEmployeeIds(elbritEdges, users) {
     // ✅ ADMIN (roleId === "Admin") → see ALL users
     if (LOGGED_IN_USER?.roleId === "Admin") {
@@ -68,6 +142,9 @@ function buildRoleIndex(elbritEdges = []) {
     }
   
     const visibleRoleIds = resolveVisibleRoleIds(elbritEdges);
+    if (!visibleRoleIds.length) {
+      return users.map((user) => user.id);
+    }
     const allowedRoles = new Set(visibleRoleIds);
   
     return users

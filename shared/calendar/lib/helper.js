@@ -43,14 +43,21 @@ export function buildParticipantsWithDetails(
       name,
       attending: p.attending ?? null,
       custom_latitude: p.custom_latitude ?? null,
-custom_longitude: p.custom_longitude ?? null,
+      custom_longitude: p.custom_longitude ?? null,
+      custom_distance: p.custom_distance ?? null,
+      custom_is_force_visit: p.custom_is_force_visit ?? false,
+      custom_force_visit_reason:
+        p.custom_force_visit_reason ?? "",
 
       // ✅ NEW
       email,
 
       // ✅ Only Employee gets roleId
       ...(type === "Employee" && roleId
-        ? { kly_role_id: roleId }
+        ? {
+            kly_role_id: roleId,
+            role_profile: p.role_profile ?? roleId,
+          }
         : {}),
     };
   });
@@ -190,6 +197,38 @@ export function resolveLatLong(form, isEditing, toast) {
     { timeout: 20000 }
   );
 }
+export function mapDoctors(data) {
+  return (
+    data?.Leads?.edges.map(({ node }) => ({
+      doctype: "Lead",
+      value: node.name,
+      label: node.lead_name,
+      custom_latitude: node.custom_latitude ?? null,
+      custom_longitude: node.custom_longitude ?? null,
+      city: node.city,
+      code: node.name,
+      fsl_speciality__name: node.custom_speciality,
+      email: node.email_id,
+      fsl_category1__name: node.custom_category1__name,
+      fsl_category2__name: node.custom_category2__name,
+      fsl_category3__name: node.custom_category3__name,
+      territory__name: node.territory__name,
+      notes: (node.notes ?? [])
+        .map((n) => ({
+          note: n.note,
+          creation: n.creation,
+          name: n.name,
+          idx: n.idx,
+          doctype: n.doctype,
+          modified: n.modified,
+        }))
+        .sort(
+          (a, b) =>
+            new Date(b.creation) - new Date(a.creation)
+        ),
+    })) || []
+  );
+}
 /* ---------------------------------------------
    NON-MEETING DATE NORMALIZATION
 --------------------------------------------- */
@@ -317,4 +356,3 @@ export async function leaveDoctorVisit({
     ),
   });
 }
-

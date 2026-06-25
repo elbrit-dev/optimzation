@@ -46,6 +46,7 @@ export const AgendaEventsMobile = () => {
     events,
     badgeVariant,
     agendaModeGroupBy,
+    users,
     setMobileLayer,
     setView,
     selectedDate,
@@ -196,6 +197,9 @@ export const AgendaEventsMobile = () => {
 
   const renderEventCard = (event) => {
     const TagIcon = ICON_MAP[event.tags];
+    const ownerName =
+      users.find((user) => user.id === event.ownerEmployeeId)?.name ??
+      event.ownerEmployeeId;
 
     return (
       <CommandItem
@@ -228,7 +232,7 @@ export const AgendaEventsMobile = () => {
               </div>
 
               <p className="text-xs text-muted-foreground">
-                {event.owner?.name}
+                {ownerName}
               </p>
             </div>
           </div>
