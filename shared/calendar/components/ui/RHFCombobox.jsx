@@ -86,15 +86,16 @@ export function RHFCombobox({
 
   const handleSelect = (opt) => {
     if (!multiple) {
-      onChange(opt.value); // ✅ always ID
+      onChange(opt.value);
       setOpen(false);
       return;
     }
-
+  
     if (selectedIds.includes(opt.value)) {
       onChange(selectedIds.filter((v) => v !== opt.value));
     } else {
       onChange([...selectedIds, opt.value]);
+      setOpen(false);
     }
   };
 
@@ -134,7 +135,7 @@ export function RHFCombobox({
           ))}
         </div>
       )}
-      <Popover open={open} onOpenChange={setOpen} modal>
+      <Popover open={open} onOpenChange={setOpen} >
         <PopoverTrigger asChild>
           <Button
             variant="outline"

@@ -3,6 +3,8 @@ import { getCached } from "@calendar/lib/data-cache";
 import { LEAVE_ALLOCATIONS_QUERY, LEAVE_APPLICATIONS_QUERY, LEAVE_QUERY, SAVE_LEAVE_APPLICATION_MUTATION, UPDATE_LEAVE_ATTACHMENT_MUTATION, UPDATE_LEAVE_STATUS_MUTATION } from "@calendar/components/calendar/module/leave/graphql/leave.query";
 import { clearLeaveCache, getCachedLeaveBalance, getLeaveCacheKey, setCachedLeaveBalance } from "@calendar/components/calendar/module/leave/cache/leave-cache";
 import { mapErpLeaveToCalendar } from "@calendar/components/calendar/module/leave/mappers/leave.mapper";
+import { clearEventCache } from "@calendar/lib/calendar/event-cache";
+import { clearCached } from "@calendar/lib/data-cache";
 import {
   enqueueDocShareSync,
   syncDocShares,
@@ -39,7 +41,9 @@ export async function saveLeaveApplication(doc, options = {}) {
         );
       }
     }
-  
+
+    clearEventCache();
+    clearCached(["LEAVE_APPLICATIONS"]);
     clearLeaveCache();
     return data.saveDoc.doc;
   }
@@ -65,12 +69,14 @@ export async function saveLeaveApplication(doc, options = {}) {
       }
     );
   
-    if (!data?.setValue?.name) {
-      throw new Error("Failed to update leave attachment");
-    }
-    clearLeaveCache();
-    return true;
+  if (!data?.setValue?.name) {
+    throw new Error("Failed to update leave attachment");
   }
+  clearEventCache();
+  clearCached(["LEAVE_APPLICATIONS"]);
+  clearLeaveCache();
+  return true;
+}
   export async function updateLeaveStatus(leaveName, newStatus) {
     if (!leaveName || !newStatus) {
       throw new Error("Invalid leave update payload");
@@ -89,6 +95,8 @@ export async function saveLeaveApplication(doc, options = {}) {
     }
   
     // Clear all relevant caches
+    clearEventCache();
+    clearCached(["LEAVE_APPLICATIONS"]);
     clearLeaveCache();
   
     return true;

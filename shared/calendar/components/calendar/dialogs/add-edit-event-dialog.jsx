@@ -53,7 +53,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		allEmployeeOptions,
 		doctorOptions, events,
 		hqTerritoryOptions,
-		setEmployeeOptions,territoryDoctors,setTerritoryDoctors,
+		setEmployeeOptions, territoryDoctors, setTerritoryDoctors,
 		setDoctorOptions, customerOptions, selectedDate, allowedEmployeeIds,
 		setHqTerritoryOptions, users, elbritRoleEdges } = useCalendar();
 	const isEditing = !!event;
@@ -86,6 +86,12 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 	const pobItems = useWatch({ control: form.control, name: "fsl_doctor_item" });
 	const currentLatitude = useWatch({ control: form.control, name: "custom_latitude" });
 	const currentLongitude = useWatch({ control: form.control, name: "custom_longitude" });
+	const initialStartDateTs = initialStartDate
+		? initialStartDate.getTime()
+		: null;
+	const selectedDateTs = selectedDate
+		? new Date(selectedDate).getTime()
+		: null;
 	useEffect(() => {
 		syncPobItemRates(form, pobItems, itemOptions);
 	}, [pobItems, itemOptions]);
@@ -199,6 +205,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		);
 
 	const resetFieldsOnTagChange = () => {
+		endDateTouchedRef.current = false;
 		reset({
 			employees: undefined, doctor: isDoctorMulti ? [] : undefined,
 			status: "Open", priority: "Medium", title: "",
@@ -257,7 +264,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 					doctorId,
 					"notes"
 				) ?? [],
-			};
+		};
 	}, [event?.doctor, doctorResolvers]);
 	const mergeOptionsByValue = (currentOptions, nextOptions) => {
 		const optionMap = new Map();
@@ -330,15 +337,51 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			setDoctorSearchLoading(false);
 		}
 	};
+	const currentUserRoleId = useMemo(() => {
+		if (LOGGED_IN_USER.roleId) {
+			return LOGGED_IN_USER.roleId;
+		}
+
+		return (
+			users.find((user) => user.id === LOGGED_IN_USER.id)?.roleId ??
+			users.find(
+				(user) =>
+					user.email &&
+					LOGGED_IN_USER.email &&
+					user.email.toLowerCase() === LOGGED_IN_USER.email.toLowerCase()
+			)?.roleId ??
+			allEmployeeOptions.find(
+				(employee) => employee.value === LOGGED_IN_USER.id
+			)?.roleId ??
+			allEmployeeOptions.find(
+				(employee) =>
+					employee.email &&
+					LOGGED_IN_USER.email &&
+					employee.email.toLowerCase() === LOGGED_IN_USER.email.toLowerCase()
+			)?.roleId ??
+			null
+		);
+	}, [allEmployeeOptions, users]);
+	const shareUsers = useMemo(() => {
+		if (users.length) {
+			return users;
+		}
+
+		return allEmployeeOptions.map((employee) => ({
+			id: employee.value,
+			email: employee.email ?? null,
+			roleId: employee.roleId ?? null,
+		}));
+	}, [allEmployeeOptions, users]);
 	const superiorUserIds = useMemo(() => {
 		if (isEditing) return [];
-
+		if (!currentUserRoleId) return [];
 		return resolveSuperiorShareUserIds(
 			elbritRoleEdges,
-			users,
-			LOGGED_IN_USER.roleId
+			shareUsers,
+			currentUserRoleId
 		).filter((userId) => userId !== LOGGED_IN_USER.email);
-	}, [elbritRoleEdges, isEditing, users]);
+	}, [currentUserRoleId, elbritRoleEdges, isEditing, shareUsers]);
 	useEffect(() => {
 		if (!startDate || !endDate) return;
 
@@ -513,13 +556,6 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 	}, [selectedTag]);
 
 	/* ---------------------------------------------
-		 RESET MANUAL FLAG ONLY WHEN START DATE CHANGES
-		 ✅ FIX – prevents overwriting manual edits
-	  --------------------------------------------- */
-	useEffect(() => {
-		endDateTouchedRef.current = false;
-	}, [startDate]);
-	/* ---------------------------------------------
 	   LOAD PARTICIPANTS (UNCHANGED)
 	--------------------------------------------- */
 	useEffect(() => {
@@ -597,11 +633,16 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		const now = new Date();
 
 		const baseDate =
-			initialStartDate ??
-			selectedDate ??
+			(initialStartDateTs != null
+				? new Date(initialStartDateTs)
+				: null) ??
+			(selectedDateTs != null
+				? new Date(selectedDateTs)
+				: null) ??
 			now;
 
 		const currentValues = form.getValues();
+		endDateTouchedRef.current = false;
 
 		form.reset({
 			...currentValues,
@@ -611,7 +652,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 				: addMinutes(baseDate, 60),
 			tags: selectedTag,
 		});
-	}, [isOpen, selectedTag, isEditing, initialStartDate, selectedDate]);
+	}, [isOpen, selectedTag, isEditing, initialStartDateTs, selectedDateTs]);
 
 	/* --------------------------------------------------
 	   AUTO TITLE (SAFE)
@@ -668,13 +709,14 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
    ✅ FIX – guarded writes only
 --------------------------------------------- */
 	useEffect(() => {
+		if (isEditing) return;
 		normalizeNonMeetingDates(
 			form,
 			startDate,
 			selectedTag,
 			endDateTouchedRef.current
 		);
-	}, [startDate, selectedTag]);
+	}, [form, isEditing, selectedTag, startDate]);
 	/* ---------------------------------------------
    MEETING TIME LOGIC (MERGED)
 --------------------------------------------- */
@@ -705,6 +747,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		return `${doctorName}-${employeeName}`;
 	};
 	const resetAndCloseDialog = () => {
+		endDateTouchedRef.current = false;
 		reset({
 			title: "", description: "", employees: undefined,
 			doctor: isDoctorMulti ? [] : undefined,
@@ -902,7 +945,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			return selectedDay >= planStart && selectedDay <= planEnd;
 		});
 	}, [events, startDate]);
-	
+
 	const hasValidHqTourPlan = !!matchedHqEvent;
 	useEffect(() => {
 		if (selectedTag !== TAG_IDS.DOCTOR_VISIT_PLAN) return;
@@ -916,21 +959,20 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			shouldValidate: true,
 		});
 	}, [selectedTag, matchedHqEvent]);
-// ----------------------------------------------------
+	// ----------------------------------------------------
 	// Show only those doctor whose territory matches with the hq 
 	// ----------------------------------------------------
 	useEffect(() => {
 		if (
-		  selectedTag !== TAG_IDS.DOCTOR_VISIT_PLAN ||
-		  !hqTerritory
+			selectedTag !== TAG_IDS.DOCTOR_VISIT_PLAN ||
+			!hqTerritory
 		) {
-		  setTerritoryDoctors([]);
-		  return;
+			setTerritoryDoctors([]);
+			return;
 		}
-	  console.log("HQ TERIRROT",hqTerritory)
 		fetchDoctorsByTerritory(hqTerritory)
-		  .then(setTerritoryDoctors);
-	  }, [hqTerritory, selectedTag]);
+			.then(setTerritoryDoctors);
+	}, [hqTerritory, selectedTag]);
 	// ----------------------------------------------------
 	// Disabled dates for HQ Tour Plan (logged-in user only)
 	// Prevent selecting dates where HQ already exists
@@ -1029,7 +1071,6 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			deferShareSync: true,
 			skipExistingShareCheck: !event?.erpName,
 		});
-
 		let savedEvent;
 		if (quotationSavePromise) {
 			[savedQuotation, savedEvent] = await Promise.all([
@@ -1157,12 +1198,12 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			}
 
 			const leaveDoc = mapFormToErpLeave(values);
-			delete leaveDoc.custom_attachment;
+			delete leaveDoc.custom_attachement;
 
 			const savedLeave = await saveLeaveApplication(leaveDoc, {
 				erpName: event?.erpName,
 				shareWithUserIds: superiorUserIds,
-				deferShareSync: true,
+				deferShareSync: false,
 				skipExistingShareCheck: !event?.erpName,
 			});
 
@@ -1174,10 +1215,10 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 
 			if (requiresMedical && values.medicalAttachment) {
 				const uploadResult = await uploadLeaveMedicalCertificate(
-					erpUrl,
-					authToken,
 					values,
-					savedLeave.name
+					savedLeave.name,
+					erpUrl,
+					authToken
 				);
 
 				if (uploadResult?.fileUrl) {
@@ -1191,6 +1232,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			const calendarLeave = mapErpLeaveToCalendar({
 				...leaveDoc,
 				name: savedLeave.name,
+				employee_name: LOGGED_IN_USER.name,
 				color: "#DC2626",
 			});
 
@@ -1722,6 +1764,16 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 												field.onChange(e.target.files?.[0])
 											}
 										/>
+										{typeof field.value === "string" && field.value ? (
+											<a
+												href={field.value}
+												target="_blank"
+												rel="noreferrer"
+												className="mt-2 text-sm text-blue-600 underline break-all"
+											>
+												Current attachment
+											</a>
+										) : null}
 									</RHFFieldWrapper>
 								)}
 							/>

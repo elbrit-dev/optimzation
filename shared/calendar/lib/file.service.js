@@ -34,7 +34,7 @@ export async function uploadLeaveMedicalCertificate(values, leaveName,erpUrl,aut
         file: null,
         attached_to_doctype: "Leave Application",
         attached_to_name: leaveName,
-        fieldname: "custom_attachment",
+        fieldname: "custom_attachement",
         is_private: true,
       },
     })
@@ -57,6 +57,7 @@ export async function uploadLeaveMedicalCertificate(values, leaveName,erpUrl,aut
     body: formData,
   });
   const json = await res.json();
+  console.log("UPLOAD RESPONSE", json);
   if (json.errors?.length) {
     throw new Error(json.errors[0].message);
   }

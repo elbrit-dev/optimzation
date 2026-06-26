@@ -95,7 +95,6 @@ export async function fetchItems() {
 }
 
 export async function fetchDoctors() {
-  console.log(DOCTOR_QUERY);
   const data = await graphqlRequest(DOCTOR_QUERY, {
     first: MAX_ROWS,
   });

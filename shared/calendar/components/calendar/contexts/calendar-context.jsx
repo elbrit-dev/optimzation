@@ -1,5 +1,5 @@
 "use client";;
-import { createContext, useContext, useState, useEffect, useMemo } from "react";
+import { createContext, useContext, useState, useEffect, useMemo, useCallback } from "react";
 import { useLocalStorage } from "@calendar/components/calendar/hooks";
 import { fetchEventsByRange } from "@calendar/components/calendar/module/event/services/event.service";
 import { resolveCalendarRange } from "@calendar/lib/calendar/range";
@@ -162,6 +162,16 @@ export function CalendarProvider({
 		// setFilteredEvents(prev => prev.filter(e => e.erpName !== erpName));
 	};
 
+	const refreshEvents = useCallback(async () => {
+		const { start, end } = resolveCalendarRange(currentView, selectedDate);
+		const nextEvents = await fetchEventsByRange(
+			start,
+			end,
+			currentView
+		);
+		return nextEvents;
+	}, [currentView, selectedDate]);
+
 
 	const clearFilter = () => {
 		// setFilteredEvents(allEvents);
@@ -173,18 +183,10 @@ export function CalendarProvider({
 		let cancelled = false;
 
 		async function hydrateFromGraphql() {
-			const { start, end } = resolveCalendarRange(currentView, selectedDate);
-
 			try {
-				const events = await fetchEventsByRange(
-					start,
-					end,
-					currentView
-				);
+				const events = await refreshEvents();
 				if (!cancelled) {
 					setAllEvents(events);
-					// setFilteredEvents(events);
-
 				}
 			} catch (err) {
 				console.error("Failed to fetch events", err);
@@ -196,7 +198,7 @@ export function CalendarProvider({
 		return () => {
 			cancelled = true;
 		};
-	}, [currentView, selectedDate]);
+	}, [refreshEvents]);
 
 
 	useEffect(() => {
@@ -324,6 +326,11 @@ export function CalendarProvider({
 		addEvent,
 		updateEvent,
 		removeEvent,
+		refreshEvents: async () => {
+			const nextEvents = await refreshEvents();
+			setAllEvents(nextEvents);
+			return nextEvents;
+		},
 		clearFilter,
 		mobileMode,
 		setMobileMode,

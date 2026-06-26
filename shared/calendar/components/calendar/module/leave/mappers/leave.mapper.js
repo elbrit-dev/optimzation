@@ -34,7 +34,7 @@ export function mapFormToErpLeave(values,options = {}) {
     posting_date: toERPDate(),
     status: "Open",
     follow_via_email: 1,
-    custom_attachment: values.medicalAttachment ?? null,
+    custom_attachement: values.medicalAttachment ?? null,
     leave_approver: values.leave_approver ?? null,
   };
 
@@ -57,16 +57,27 @@ export function mapErpLeaveToCalendar(leave) {
   const totalDays =
     leave.total_leave_days ??
     calculateTotalLeaveDays(start, end, isHalfDay);
-    const normalizedStatus = normalizeStatus(leave.status);
+  const normalizedStatus = normalizeStatus(leave.status);
+  const employeeId =
+    typeof leave.employee === "object"
+      ? leave.employee?.name
+      : leave.employee ?? null;
+  const leaveApprover =
+    typeof leave.leave_approver === "object"
+      ? leave.leave_approver?.name
+      : leave.leave_approver ?? null;
+  const leaveTypeName =
+    leave.leave_type__name ?? leave.leave_type ?? TAG_IDS.LEAVE;
+
   return {
     erpName: `${leave.name}`,
     id: `${leave.name}`,
-    title: leave.leave_type__name || TAG_IDS.LEAVE,
+    title: leaveTypeName,
     tags: TAG_IDS.LEAVE,
-    leaveType: leave.leave_type__name,
+    leaveType: leaveTypeName,
     startDate: start.toISOString(), // ✅ normalized
     endDate: end.toISOString(),     // ✅ normalized
-     status: normalizeStatus(leave.status),
+    status: normalizedStatus,
     half_day: isHalfDay ? 1 : 0,
     total_leave_days: totalDays,
     halfDayDate: leave.half_day_date ?? "",
@@ -75,14 +86,11 @@ export function mapErpLeaveToCalendar(leave) {
     DEFAULT_COLORS[
       `LEAVE_${normalizedStatus.toUpperCase()}`
     ] ?? DEFAULT_COLORS.LEAVE_OPEN,
-    medicalAttachment: leave.custom_attachment ?? "",
-    employee: leave.employee?.name,
-    employeeName: leave.employee_name ?? leave.employee?.name ?? "",
+    medicalAttachment: leave.custom_attachement ?? "",
+    employee: employeeId,
+    employeeName: leave.employee_name ?? employeeId ?? "",
     approvedBy: leave.leave_approver_name ?? "",
-    leave_approver:
-      typeof leave.leave_approver === "object"
-        ? leave.leave_approver?.name
-        : leave.leave_approver ?? null,
+    leave_approver: leaveApprover,
   };
 }
 

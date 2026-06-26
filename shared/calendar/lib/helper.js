@@ -248,14 +248,10 @@ export function normalizeNonMeetingDates(
     form.setValue("startDate", normalizedStart, { shouldDirty: false });
   }
 
-  const endDate = form.getValues("endDate");
-  if (!endDate || endDate < startDate) {
-    form.setValue(
-      "endDate",
-      set(startDate, { hours: 23, minutes: 59, seconds: 59 }),
-      { shouldDirty: false }
-    );
-  }
+  form.setValue("endDate", normalizedStart, {
+    shouldDirty: false,
+    shouldValidate: false,
+  });
 }
 
 /* ---------------------------------------------

@@ -76,6 +76,12 @@ export function DateTimePicker({
 			newDate.setMinutes(current.getMinutes());
 			newDate.setSeconds(0);
 		}
+
+		if (typeof field.onChange === "function") {
+			field.onChange(newDate);
+			return;
+		}
+
 		form.setValue(field.name, newDate);
 	}
 
@@ -95,6 +101,11 @@ export function DateTimePicker({
 			} else if (value === "PM" && hours < 12) {
 				newDate.setHours(hours + 12);
 			}
+		}
+
+		if (typeof field.onChange === "function") {
+			field.onChange(newDate);
+			return;
 		}
 
 		form.setValue(field.name, newDate);
