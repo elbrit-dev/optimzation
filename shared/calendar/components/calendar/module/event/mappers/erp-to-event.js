@@ -29,7 +29,12 @@ export function mapErpGraphqlEventToCalendar(node) {
   --------------------------------------------- */
 
   const event_participants =
-    node.event_participants?.map((p) => ({
+    node.event_participants
+      ?.filter(
+        (participant) =>
+          participant.reference_doctype__name === "Employee"
+      )
+      .map((p) => ({
       reference_doctype: p.reference_doctype__name,
       reference_docname: String(p.reference_docname__name),
       attending: p.attending,

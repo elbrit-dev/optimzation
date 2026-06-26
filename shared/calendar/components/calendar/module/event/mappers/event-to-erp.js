@@ -11,11 +11,11 @@ import { ERP_EVENT_FIELDS } from "@calendar/components/calendar/module/event/gra
  */
 
 export function mapFormToErpEvent(values, options = {}) {
-
   const {
     erpName,
     employeeResolvers,
-    doctorResolvers,googleCalendar,
+    doctorResolvers,
+    googleCalendar,
   } = options;
   const isDoctorVisitPlan =
     values.tags === TAG_IDS.DOCTOR_VISIT_PLAN;
@@ -24,7 +24,7 @@ export function mapFormToErpEvent(values, options = {}) {
   function buildParticipants(values) {
     const participants = [];
 
-    /* ---------- Employees ---------- */
+    /* ---------- Employees only ---------- */
     if (values.employees) {
       const employeeList = Array.isArray(values.employees)
         ? values.employees
@@ -90,6 +90,54 @@ export function mapFormToErpEvent(values, options = {}) {
     return participants;
   }
 
+  function resolveDoctorLinkId(doctorValue) {
+    if (!doctorValue) return "";
+
+    if (Array.isArray(doctorValue)) {
+      return resolveDoctorLinkId(doctorValue[0]);
+    }
+
+    if (typeof doctorValue === "object") {
+      return (
+        doctorValue.value ??
+        doctorValue.name ??
+        doctorValue.code ??
+        ""
+      );
+    }
+
+    return String(doctorValue);
+  }
+
+  function resolveDoctorCoordinate(doctorValue, field) {
+    if (!doctorValue) return null;
+
+    if (Array.isArray(doctorValue)) {
+      return resolveDoctorCoordinate(doctorValue[0], field);
+    }
+
+    if (typeof doctorValue === "object") {
+      const value = doctorValue[field];
+      if (value === undefined || value === null || value === "") {
+        return null;
+      }
+      const numericValue = Number(value);
+      return Number.isNaN(numericValue) ? null : numericValue;
+    }
+
+    const doctorId = resolveDoctorLinkId(doctorValue);
+    const resolvedValue = doctorResolvers?.getDoctorFieldById(
+      doctorId,
+      field
+    );
+    if (resolvedValue === undefined || resolvedValue === null || resolvedValue === "") {
+      return null;
+    }
+
+    const numericValue = Number(resolvedValue);
+    return Number.isNaN(numericValue) ? null : numericValue;
+  }
+
   const hasEmployee =
     Boolean(values.employees) &&
     (Array.isArray(values.employees)
@@ -106,16 +154,15 @@ export function mapFormToErpEvent(values, options = {}) {
     : values.color;
 
   const isBirthday = values.tags === "Birthday";
-  const normalizedDoctors = values.doctor
-    ? Array.isArray(values.doctor)
-      ? values.doctor
-      : [values.doctor]
-    : [];
-  const primaryDoctor = normalizedDoctors[0];
-  const doctorId =
-    typeof primaryDoctor === "object"
-      ? primaryDoctor?.value
-      : primaryDoctor;
+  const doctorId = resolveDoctorLinkId(values.doctor);
+  const doctorLatitude = resolveDoctorCoordinate(
+    values.doctor,
+    "custom_latitude"
+  );
+  const doctorLongitude = resolveDoctorCoordinate(
+    values.doctor,
+    "custom_longitude"
+  );
   const doc = {
     // doctype: "Event",
     subject: values.title,
@@ -135,7 +182,9 @@ export function mapFormToErpEvent(values, options = {}) {
     docstatus: 0,
     event_participants: buildParticipants(values),
     [ERP_EVENT_FIELDS.hqWrite]: values.hqTerritory || "",
-    [ERP_EVENT_FIELDS.doctorWrite]: doctorId || "",
+    [ERP_EVENT_FIELDS.doctorWrite]: doctorId,
+    [ERP_EVENT_FIELDS.doctorLatitudeWrite]: doctorLatitude,
+    [ERP_EVENT_FIELDS.doctorLongitudeWrite]: doctorLongitude,
     sync_with_google_calendar: 1,
     google_calendar: googleCalendar || "IT Elbrit",
     add_video_conferencing: values.tags === TAG_IDS.MEETING ? 1 : 0,

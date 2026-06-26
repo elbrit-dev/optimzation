@@ -47,9 +47,9 @@ import { saveDocToErp } from "@calendar/components/calendar/module/todo/services
 import { resolveSuperiorShareUserIds } from "@calendar/lib/employeeHeirachy";
 
 export function AddEditEventDialog({ children, event, defaultTag, forceValues, startDate: initialStartDate }) {
-	const { isOpen, onClose, onToggle } = useDisclosure();
+	const { isOpen, onClose, onOpen } = useDisclosure();
 	const { erpUrl, authToken } = useAuth();
-	const { addEvent, updateEvent, employeeOptions,
+	const { addEvent, updateEvent, removeEvent, employeeOptions,
 		allEmployeeOptions,
 		doctorOptions, events,
 		hqTerritoryOptions,
@@ -269,6 +269,30 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		});
 
 		return Array.from(optionMap.values());
+	};
+	const ensureDoctorOptionsAvailable = (doctorValue) => {
+		if (!doctorValue) return;
+
+		const normalizedDoctors = Array.isArray(doctorValue)
+			? doctorValue
+			: [doctorValue];
+		const doctorRecords = normalizedDoctors
+			.map((doctor) => {
+				if (typeof doctor === "object" && doctor?.value) {
+					return doctor;
+				}
+
+				return doctorOptions.find(
+					(option) => option.value === doctor
+				);
+			})
+			.filter(Boolean);
+
+		if (!doctorRecords.length) return;
+
+		setDoctorOptions((currentOptions) =>
+			mergeOptionsByValue(currentOptions, doctorRecords)
+		);
 	};
 	const handleEmployeeSearch = async (search) => {
 		if (!search?.trim()) return;
@@ -718,6 +742,47 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 	const upsertCalendarEvent = (calendarEvent) => {
 		event ? updateEvent(calendarEvent) : addEvent(calendarEvent);
 	};
+	const normalizeDoctorValueForEvent = (doctorValue, tagConfig) => {
+		if (!doctorValue) return undefined;
+
+		const normalizeOne = (value) => {
+			if (typeof value === "object" && value !== null) {
+				return value.value ?? value.code ?? value.name ?? undefined;
+			}
+			return value;
+		};
+
+		if (tagConfig.doctor?.multiselect) {
+			const values = (Array.isArray(doctorValue)
+				? doctorValue
+				: [doctorValue])
+				.map(normalizeOne)
+				.filter(Boolean);
+			return values.length ? values : undefined;
+		}
+
+		return normalizeOne(
+			Array.isArray(doctorValue) ? doctorValue[0] : doctorValue
+		);
+	};
+	const resolveDoctorCoordinateValue = (doctorValue, field) => {
+		if (!doctorValue) return null;
+
+		const oneDoctor = Array.isArray(doctorValue)
+			? doctorValue[0]
+			: doctorValue;
+
+		if (typeof oneDoctor === "object" && oneDoctor !== null) {
+			const value = oneDoctor[field];
+			const numericValue = Number(value);
+			return Number.isNaN(numericValue) ? null : numericValue;
+		}
+
+		const numericValue = Number(
+			doctorResolvers.getDoctorFieldById(oneDoctor, field)
+		);
+		return Number.isNaN(numericValue) ? null : numericValue;
+	};
 	const buildCalendarEvent = ({
 		event,
 		values,
@@ -746,9 +811,15 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 				? { id: ownerEmployeeIdOverride }
 				: undefined,
 			hqTerritory: values.hqTerritory || "",
-			doctor: values.doctor,
-			doctorLatitude: event?.doctorLatitude ?? null,
-			doctorLongitude: event?.doctorLongitude ?? null,
+			doctor: normalizeDoctorValueForEvent(values.doctor, tagConfig),
+			doctorLatitude:
+				resolveDoctorCoordinateValue(values.doctor, "custom_latitude") ??
+				event?.doctorLatitude ??
+				null,
+			doctorLongitude:
+				resolveDoctorCoordinateValue(values.doctor, "custom_longitude") ??
+				event?.doctorLongitude ??
+				null,
 			roleId: values.roleId,
 			forceVisit: values.forceVisit ?? false,
 			custom_force_visit_reason:
@@ -880,6 +951,29 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			form.setValue("fsl_doctor_item", [], { shouldDirty: true });
 		}
 	}, [customer]);
+	const isMutationPending = form.formState.isSubmitting;
+	useEffect(() => {
+		if (typeof window === "undefined" || !isMutationPending) return;
+
+		const handleBeforeUnload = (browserEvent) => {
+			browserEvent.preventDefault();
+			browserEvent.returnValue = "";
+		};
+
+		window.addEventListener("beforeunload", handleBeforeUnload);
+		return () => {
+			window.removeEventListener("beforeunload", handleBeforeUnload);
+		};
+	}, [isMutationPending]);
+
+	const handleDialogOpenChange = (nextOpen) => {
+		if (!nextOpen && isMutationPending) return;
+		if (nextOpen) {
+			onOpen();
+			return;
+		}
+		onClose();
+	};
 	const handleDefaultEvent = async (values) => {
 		let quotationName =
 			event?.reference_docname || null;
@@ -960,6 +1054,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			ownerEmployeeIdOverride:
 				event?.ownerEmployeeId || LOGGED_IN_USER.id,
 		});
+		ensureDoctorOptionsAvailable(values.doctor);
 		upsertCalendarEvent(calendarEvent);
 
 		finalize("Event updated");
@@ -975,29 +1070,40 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		);
 
 		const totalDoctors = normalizedDoctors.length;
-		resetAndCloseDialog();
+		const results = await Promise.allSettled(
+			normalizedDoctors.map(async (doctor) => {
+				const doctorId =
+					typeof doctor === "object" ? doctor.value : doctor;
+				const computedTitle = buildDoctorVisitTitle(doctorId, values);
 
-		void (async () => {
-			const results = await Promise.allSettled(
-				normalizedDoctors.map(async (doctor) => {
-					const doctorId =
-						typeof doctor === "object" ? doctor.value : doctor;
-					const computedTitle = buildDoctorVisitTitle(doctorId, values);
+				const enrichedValues = {
+					...values,
+					title: computedTitle,
+					doctor,
+				};
+				ensureDoctorOptionsAvailable(doctor);
+				const erpDoc = mapFormToErpEvent(enrichedValues, {
+					employeeResolvers,
+					doctorResolvers,
+					googleCalendar:
+						googleCalendarEnabled
+							? LOGGED_IN_USER.email
+							: "IT Elbrit"
+				});
 
-					const enrichedValues = {
-						...values,
-						title: computedTitle,
-						doctor,
-					};
-					const erpDoc = mapFormToErpEvent(enrichedValues, {
-						employeeResolvers,
-						doctorResolvers,
-						googleCalendar:
-							googleCalendarEnabled
-								? LOGGED_IN_USER.email
-								: "IT Elbrit"
-					});
+				const optimisticEventId = `temp-${Date.now()}-${doctorId}`;
+				const optimisticEvent = buildCalendarEvent({
+					values: enrichedValues,
+					erpDoc,
+					savedName: optimisticEventId,
+					tagConfig,
+					employeeOptions,
+					doctorOptions,
+					ownerEmployeeIdOverride: LOGGED_IN_USER.id,
+				});
+				addEvent(optimisticEvent);
 
+				try {
 					const savedEvent = await saveEvent(erpDoc, {
 						shareWithUserIds: superiorUserIds,
 						deferShareSync: true,
@@ -1013,30 +1119,34 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 						doctorOptions,
 						ownerEmployeeIdOverride: LOGGED_IN_USER.id,
 					});
+					removeEvent(optimisticEventId);
 					addEvent(calendarEvent);
 					return savedEvent;
-				})
+				} catch (error) {
+					removeEvent(optimisticEventId);
+					throw error;
+				}
+			})
+		);
+
+		const successCount = results.filter(
+			(result) => result.status === "fulfilled"
+		).length;
+		const failedCount = totalDoctors - successCount;
+
+		if (failedCount === 0) {
+			finalize(`Created ${successCount} Doctor Visit events`);
+			return;
+		}
+
+		if (successCount > 0) {
+			toast.error(
+				`Created ${successCount} of ${totalDoctors} Doctor Visit events`
 			);
+			return;
+		}
 
-			const successCount = results.filter(
-				(result) => result.status === "fulfilled"
-			).length;
-			const failedCount = totalDoctors - successCount;
-
-			if (failedCount === 0) {
-				toast.success(`Created ${successCount} Doctor Visit events`);
-				return;
-			}
-
-			if (successCount > 0) {
-				toast.error(
-					`Created ${successCount} of ${totalDoctors} Doctor Visit events`
-				);
-				return;
-			}
-
-			toast.error("Failed to create Doctor Visit events");
-		})();
+		toast.error("Failed to create Doctor Visit events");
 	};
 
 	const handleLeave = async (values) => {
@@ -1192,10 +1302,10 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 	}, [event, employeeOptions, doctorOptions]);
 	const shouldHideDateGrid =
 		isEditing && selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN;
-	const isSubmitDisabled = form.formState.isSubmitting;
+	const isSubmitDisabled = isMutationPending;
 
 	return (
-		<Modal open={isOpen} onOpenChange={onToggle}>
+		<Modal open={isOpen} onOpenChange={handleDialogOpenChange}>
 			<ModalTrigger asChild>{children}</ModalTrigger>
 
 			<ModalContent className=" max-h-[90vh] min-h-[70vh] flex flex-col overflow-scroll">

@@ -5,8 +5,10 @@ import { Wifi, WifiOff, SignalLow, SignalMedium } from "lucide-react";
  * NetworkBanner — React/Next.js port of the Frappe "NetworkWatcher" client script.
  *
  * Watches the browser connection (navigator.connection) plus the online/offline
- * events and renders a banner whenever the network is degraded. It mounts/unmounts
- * itself automatically with a smooth slide animation, and is fully responsive.
+ * events and shows a corner toast whenever the network is degraded. Because the
+ * toast is `position: fixed`, it floats over the page and never occupies layout
+ * space. It mounts/unmounts itself automatically with a smooth slide animation,
+ * and is fully responsive (full-width toast on small screens).
  *
  * Registered in Plasmic Studio (see plasmic-init.js), so it can be dragged onto a
  * page. Editor-only props (forceShow / demoSeverity) let designers preview it on
@@ -55,17 +57,17 @@ function ensureStyles() {
   const el = document.createElement("style");
   el.id = STYLE_ID;
   el.textContent = `
+    /* Toast: fixed to a corner, floats over the page, takes no layout space. */
     .esw-banner-wrap {
-      position: sticky; left: 0; right: 0; z-index: 9999;
-      display: flex; justify-content: center;
-      padding: 8px 12px; pointer-events: none;
+      position: fixed; z-index: 9999;
+      display: flex; padding: 16px; pointer-events: none;
     }
-    .esw-banner-wrap[data-pos="top"] { top: 0; }
-    .esw-banner-wrap[data-pos="bottom"] { bottom: 0; }
+    .esw-banner-wrap[data-pos="top"]    { top: 0; right: 0; }
+    .esw-banner-wrap[data-pos="bottom"] { bottom: 0; right: 0; }
     .esw-banner {
       pointer-events: auto;
       display: flex; align-items: center; gap: 10px;
-      width: 100%; max-width: 640px;
+      width: auto; max-width: min(380px, calc(100vw - 32px));
       padding: 10px 14px;
       border: 1px solid var(--esw-border);
       border-radius: 12px;
@@ -95,16 +97,20 @@ function ensureStyles() {
     .esw-anim-enter { animation: esw-slide-in .28s cubic-bezier(.16,1,.3,1); }
     .esw-anim-exit  { animation: esw-slide-out .22s ease-in forwards; }
     @keyframes esw-slide-in {
-      from { opacity: 0; transform: translateY(-12px); }
-      to   { opacity: 1; transform: translateY(0); }
+      from { opacity: 0; transform: translateX(16px); }
+      to   { opacity: 1; transform: translateX(0); }
     }
     @keyframes esw-slide-out {
-      from { opacity: 1; transform: translateY(0); }
-      to   { opacity: 0; transform: translateY(-12px); }
+      from { opacity: 1; transform: translateX(0); }
+      to   { opacity: 0; transform: translateX(16px); }
     }
     @media (max-width: 480px) {
-      .esw-banner-wrap { padding: 6px 8px; }
-      .esw-banner { font-size: 13px; gap: 8px; padding: 9px 11px; border-radius: 10px; }
+      /* Full-width toast on small screens. */
+      .esw-banner-wrap { left: 0; right: 0; padding: 8px; }
+      .esw-banner {
+        width: 100%; max-width: none;
+        font-size: 13px; gap: 8px; padding: 9px 11px; border-radius: 10px;
+      }
       .esw-banner-icon { width: 24px; height: 24px; }
     }
     @media (prefers-reduced-motion: reduce) {

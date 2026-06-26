@@ -4,9 +4,11 @@ import { TAG_IDS } from "@calendar/components/calendar/constants";
 import { saveEvent } from "@calendar/components/calendar/module/event/services/event.service";
 export function buildParticipantsWithDetails(
   erpParticipants,
-  { employeeOptions, doctorOptions }
+  { employeeOptions }
 ) {
-  return erpParticipants.map((p) => {
+  return erpParticipants
+    .filter((participant) => participant.reference_doctype === "Employee")
+    .map((p) => {
     const type = p.reference_doctype;
     const id = String(p.reference_docname);
 
@@ -24,17 +26,6 @@ export function buildParticipantsWithDetails(
       // Prefer ERP truth, fallback to option
       email = p.email ?? emp?.email ?? null;
       roleId = p.kly_role_id ?? emp?.roleId ?? null;
-    }
-
-    if (type === "Lead") {
-      const doc = doctorOptions.find(
-        (d) => d.value === id
-      );
-
-      name = doc?.label ?? id;
-
-      // Lead only email
-      email = p.email ?? doc?.email ?? null;
     }
 
     return {
