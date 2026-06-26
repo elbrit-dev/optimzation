@@ -73,6 +73,17 @@ function ensureStyles() {
       box-shadow: 0 6px 20px rgba(0,0,0,0.08);
       font-size: 14px; font-weight: 500; line-height: 1.35;
       font-family: inherit;
+      cursor: pointer;
+      transition: transform .12s ease, box-shadow .12s ease;
+    }
+    .esw-banner:hover { box-shadow: 0 8px 24px rgba(0,0,0,0.12); }
+    .esw-banner:active { transform: scale(0.99); }
+    .esw-banner:focus-visible {
+      outline: 2px solid var(--esw-accent); outline-offset: 2px;
+    }
+    .esw-banner-hint {
+      flex: 0 0 auto; font-size: 12px; font-weight: 600; opacity: 0.75;
+      white-space: nowrap;
     }
     .esw-banner-icon {
       flex: 0 0 auto; display: flex; align-items: center; justify-content: center;
@@ -109,9 +120,13 @@ export default function NetworkBanner({
   // Editor-only previews (used by Plasmic Studio; ignored at runtime logic):
   forceShow = false,
   demoSeverity, // "red" | "orange" | "yellow" | "green"
+  // Forwarded by Plasmic Studio so the component can be styled/sized from the editor.
+  className,
+  style,
 }) {
   const [state, setState] = React.useState(null);   // [severity, message] | null
   const [leaving, setLeaving] = React.useState(false);
+  const connRef = React.useRef(null); // live connection object, used by the click re-check
 
   React.useEffect(() => {
     ensureStyles();
@@ -120,6 +135,7 @@ export default function NetworkBanner({
       navigator.mozConnection ||
       navigator.webkitConnection ||
       null;
+    connRef.current = conn;
 
     const update = () => {
       if (document.hidden) return;
@@ -145,6 +161,16 @@ export default function NetworkBanner({
 
   // Decide what to display. Editor previews win so designers can see it.
   const isPreview = Boolean(demoSeverity || forceShow);
+
+  // Re-check the network on demand (banner click / keyboard activation).
+  // Reads the live connection state again; if it's now stable the banner stops
+  // showing and unmounts to null, freeing the space it occupied.
+  const recheck = React.useCallback(() => {
+    if (isPreview) return;
+    setLeaving(false); // cancel any in-flight exit so the fresh state wins
+    setState(getStatus(connRef.current));
+  }, [isPreview]);
+
   let severity, message;
   if (isPreview) {
     severity = demoSeverity || "orange";
@@ -174,33 +200,53 @@ export default function NetworkBanner({
     }
   }, [shouldShow, leaving, isPreview]);
 
-  if (!shouldShow && !leaving) return null;
-
-  const [sev, msg] = shouldShow ? [severity, message] : (lastShownRef.current || []);
-  if (!sev) return null;
-
   ensureStyles();
+
+  // When the network is good (nothing to show and no exit animation running) the
+  // root element is collapsed with `display: none` so it is fully removed from the
+  // layout — it occupies zero space rather than just being visually hidden.
+  const visible = shouldShow || leaving;
+  const [sev, msg] = shouldShow ? [severity, message] : (lastShownRef.current || []);
+  const hasContent = visible && Boolean(sev);
+
   const c = PALETTE[sev] || PALETTE.green;
   const Icon = ICONS[sev] || Wifi;
 
   return (
-    <div className="esw-banner-wrap" data-pos={position}>
-      <div
-        role="status"
-        aria-live="polite"
-        className={`esw-banner ${leaving ? "esw-anim-exit" : "esw-anim-enter"}`}
-        style={{
-          "--esw-bg": c.bg,
-          "--esw-fg": c.fg,
-          "--esw-border": c.border,
-          "--esw-accent": c.accent,
-        }}
-      >
-        <span className="esw-banner-icon">
-          <Icon size={18} strokeWidth={2.25} />
-        </span>
-        <span className="esw-banner-msg">{msg}</span>
-      </div>
+    <div
+      className={`esw-banner-wrap${className ? ` ${className}` : ""}`}
+      data-pos={position}
+      aria-hidden={hasContent ? undefined : "true"}
+      style={{ ...style, ...(hasContent ? null : { display: "none" }) }}
+    >
+      {hasContent && (
+        <div
+          role="button"
+          tabIndex={0}
+          aria-live="polite"
+          title="Click to re-check your connection"
+          onClick={recheck}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              recheck();
+            }
+          }}
+          className={`esw-banner ${leaving ? "esw-anim-exit" : "esw-anim-enter"}`}
+          style={{
+            "--esw-bg": c.bg,
+            "--esw-fg": c.fg,
+            "--esw-border": c.border,
+            "--esw-accent": c.accent,
+          }}
+        >
+          <span className="esw-banner-icon">
+            <Icon size={18} strokeWidth={2.25} />
+          </span>
+          <span className="esw-banner-msg">{msg}</span>
+          <span className="esw-banner-hint" aria-hidden="true">Tap to retry</span>
+        </div>
+      )}
     </div>
   );
 }
