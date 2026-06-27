@@ -42,7 +42,7 @@ function ensureStyles() {
   const el = document.createElement("style");
   el.id = STYLE_ID;
   el.textContent = `
-    .esw-banner-wrap { display: block; width: 100%; }
+    .esw-banner-wrap { display: none; width: 100%; }
     .esw-banner {
       display: flex; align-items: center; gap: 10px;
       width: 100%; box-sizing: border-box; padding: 10px 14px;
@@ -152,7 +152,7 @@ export default function NetworkBanner({
     <div
       className={`esw-banner-wrap${className ? ` ${className}` : ""}`}
       aria-hidden={hasContent ? undefined : "true"}
-      style={hasContent ? style : { ...style, display: "none" }}
+      style={{ ...style, display: hasContent ? "block" : "none" }}
     >
       <div
         role="button"
