@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { useRouter } from "next/router";
 import { NovuProvider, Inbox } from "@novu/react";
 import {
   requestPushPermission,
@@ -19,12 +20,33 @@ const NovuInbox = ({
   applicationIdentifier,
   subscriberHash,
   className,
+  onNotificationClick,
   onPrimaryActionClick,
   onSecondaryActionClick,
+  routerPush,
+  fallbackRedirectPath = "/chat",
   ...rest
 }) => {
   const [status, setStatus] = useState("Initializing...");
   const cleanEmail = (email || "").trim().toLowerCase();
+  const router = useRouter();
+
+  // Centralised navigation: prop override → Next.js SPA push → hard redirect.
+  // Novu calls this (via routerPush) with a notification's redirect URL.
+  const navigate = (path) => {
+    if (!path) return;
+    if (typeof routerPush === "function") return routerPush(path);
+    if (router && typeof router.push === "function") return router.push(path);
+    if (typeof window !== "undefined") window.location.href = path;
+  };
+
+  // Fires on notification (body) click, BEFORE Novu's own redirect navigation.
+  // Runs the optional Plasmic interaction, then falls back to /chat only when
+  // the notification itself carries no redirect URL (so we never double-navigate).
+  const handleNotificationClick = (notification) => {
+    if (typeof onNotificationClick === "function") onNotificationClick(notification);
+    if (!notification?.redirect?.url && fallbackRedirectPath) navigate(fallbackRedirectPath);
+  };
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -111,17 +133,19 @@ const NovuInbox = ({
 
   return (
     <div className={className} {...rest}>
-      <NovuProvider 
+      <NovuProvider
         subscriberId={cleanEmail}
-        applicationIdentifier={applicationIdentifier} 
+        applicationIdentifier={applicationIdentifier}
         subscriberHash={subscriberHash}
-        onPrimaryActionClick={onPrimaryActionClick}
-        onSecondaryActionClick={onSecondaryActionClick}
       >
-        <Inbox 
-          position="bottom-end" 
-          offset={8} 
+        <Inbox
+          position="bottom-end"
+          offset={8}
           width="372px"
+          routerPush={navigate}
+          onNotificationClick={handleNotificationClick}
+          onPrimaryActionClick={onPrimaryActionClick}
+          onSecondaryActionClick={onSecondaryActionClick}
           tabs={[
             { label: "All", value: [] },
             { label: "Approval", value: ["approval"] },

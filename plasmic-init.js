@@ -608,6 +608,18 @@ PLASMIC.registerComponent(NovuInbox, {
       type: "string",
       description: "CSS class name for the container",
     },
+    fallbackRedirectPath: {
+      type: "string",
+      description: "Page to open when a clicked notification has no redirect URL of its own.",
+      defaultValue: "/chat",
+    },
+    onNotificationClick: {
+      type: "eventHandler",
+      argTypes: [
+        { name: "notification", type: "object" }
+      ],
+      description: "Called when a notification (body) is clicked. The notification's own redirect URL still navigates automatically.",
+    },
     onPrimaryActionClick: {
       type: "eventHandler",
       argTypes: [
