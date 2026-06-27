@@ -2,8 +2,9 @@ import React from "react";
 import { Wifi, WifiOff, SignalLow, SignalMedium } from "lucide-react";
 
 /**
- * NetworkBanner — corner toast that warns when the browser connection is degraded.
- * Fixed-position (no layout space), auto-mounts with a slide animation, responsive.
+ * NetworkBanner — inline banner that warns when the browser connection is degraded.
+ * Flows in normal document layout (full width of its container), auto-mounts with a
+ * slide-down animation, and collapses to `display: none` when the connection is good.
  * Registered in Plasmic Studio; editor-only props (forceShow / demoSeverity) preview it.
  */
 
@@ -41,19 +42,16 @@ function ensureStyles() {
   const el = document.createElement("style");
   el.id = STYLE_ID;
   el.textContent = `
-    .esw-banner-wrap { position: fixed; z-index: 9999; display: flex; padding: 16px; pointer-events: none; }
-    .esw-banner-wrap[data-pos="top"]    { top: 0; right: 0; }
-    .esw-banner-wrap[data-pos="bottom"] { bottom: 0; right: 0; }
+    .esw-banner-wrap { display: block; width: 100%; }
     .esw-banner {
-      pointer-events: auto; display: flex; align-items: center; gap: 10px;
-      width: auto; max-width: min(380px, calc(100vw - 32px)); padding: 10px 14px;
+      display: flex; align-items: center; gap: 10px;
+      width: 100%; box-sizing: border-box; padding: 10px 14px;
       border: 1px solid var(--esw-border); border-radius: 12px;
       background: var(--esw-bg); color: var(--esw-fg);
-      box-shadow: 0 6px 20px rgba(0,0,0,0.08);
       font: 500 14px/1.35 inherit; cursor: pointer;
       transition: transform .12s ease, box-shadow .12s ease;
     }
-    .esw-banner:hover { box-shadow: 0 8px 24px rgba(0,0,0,0.12); }
+    .esw-banner:hover { box-shadow: 0 4px 14px rgba(0,0,0,0.08); }
     .esw-banner:active { transform: scale(0.99); }
     .esw-banner:focus-visible { outline: 2px solid var(--esw-accent); outline-offset: 2px; }
     .esw-banner-hint { flex: 0 0 auto; font-size: 12px; font-weight: 600; opacity: 0.75; white-space: nowrap; }
@@ -65,11 +63,10 @@ function ensureStyles() {
     .esw-banner-msg { flex: 1 1 auto; min-width: 0; }
     .esw-anim-enter { animation: esw-slide-in .28s cubic-bezier(.16,1,.3,1); }
     .esw-anim-exit  { animation: esw-slide-out .22s ease-in forwards; }
-    @keyframes esw-slide-in  { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: translateX(0); } }
-    @keyframes esw-slide-out { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(16px); } }
+    @keyframes esw-slide-in  { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes esw-slide-out { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-8px); } }
     @media (max-width: 480px) {
-      .esw-banner-wrap { left: 0; right: 0; padding: 8px; }
-      .esw-banner { width: 100%; max-width: none; font-size: 13px; gap: 8px; padding: 9px 11px; border-radius: 10px; }
+      .esw-banner { font-size: 13px; gap: 8px; padding: 9px 11px; border-radius: 10px; }
       .esw-banner-icon { width: 24px; height: 24px; }
     }
     @media (prefers-reduced-motion: reduce) { .esw-anim-enter, .esw-anim-exit { animation: none; } }
@@ -78,7 +75,6 @@ function ensureStyles() {
 }
 
 export default function NetworkBanner({
-  position = "top",
   showWhenFast = false,
   forceShow = false,          // editor-only preview (Plasmic Studio)
   demoSeverity,               // "red" | "orange" | "yellow" | "green"
@@ -148,29 +144,30 @@ export default function NetworkBanner({
   const c = THEME[sev] || THEME.green;
   const Icon = c.Icon;
 
+  // The whole wrapper is hidden with `display: none` when there's nothing to show,
+  // so the entire banner (not just an inner part) is removed from layout. The inner
+  // banner is always rendered; its slide-in animation replays each time the wrapper
+  // goes from `display: none` back to visible.
   return (
     <div
       className={`esw-banner-wrap${className ? ` ${className}` : ""}`}
-      data-pos={position}
       aria-hidden={hasContent ? undefined : "true"}
       style={hasContent ? style : { ...style, display: "none" }}
     >
-      {hasContent && (
-        <div
-          role="button"
-          tabIndex={0}
-          aria-live="polite"
-          title="Click to re-check your connection"
-          onClick={recheck}
-          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); recheck(); } }}
-          className={`esw-banner ${leaving ? "esw-anim-exit" : "esw-anim-enter"}`}
-          style={{ "--esw-bg": c.bg, "--esw-fg": c.fg, "--esw-border": c.border, "--esw-accent": c.accent }}
-        >
-          <span className="esw-banner-icon"><Icon size={18} strokeWidth={2.25} /></span>
-          <span className="esw-banner-msg">{msg}</span>
-          <span className="esw-banner-hint" aria-hidden="true">Tap to retry</span>
-        </div>
-      )}
+      <div
+        role="button"
+        tabIndex={0}
+        aria-live="polite"
+        title="Click to re-check your connection"
+        onClick={recheck}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); recheck(); } }}
+        className={`esw-banner ${leaving ? "esw-anim-exit" : "esw-anim-enter"}`}
+        style={{ "--esw-bg": c.bg, "--esw-fg": c.fg, "--esw-border": c.border, "--esw-accent": c.accent }}
+      >
+        <span className="esw-banner-icon"><Icon size={18} strokeWidth={2.25} /></span>
+        <span className="esw-banner-msg">{msg}</span>
+        <span className="esw-banner-hint" aria-hidden="true">Tap to retry</span>
+      </div>
     </div>
   );
 }
