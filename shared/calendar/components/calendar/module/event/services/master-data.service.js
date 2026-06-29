@@ -123,7 +123,7 @@ export async function searchDoctors({
 
   if (territory) {
     filter.push({
-      fieldname: ERP_DOCTOR_FIELDS.territory,
+      fieldname: "territory",
       operator: "EQ",
       value: territory,
     });
@@ -136,6 +136,7 @@ export async function searchDoctors({
       value: `%${search}%`,
     });
   }
+  
 
   const data = await graphqlRequest(DOCTOR_QUERY, {
     first: MAX_ROWS,

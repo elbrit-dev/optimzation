@@ -8,6 +8,7 @@ query ToDoes($first: Int!) {
         date
         priority
         status
+        assigned_by:assigned_by__name
         allocated_to__name
         custom_subject
         custom_assigned_to {

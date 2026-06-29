@@ -1,6 +1,27 @@
 import { format, parseISO, isValid } from "date-fns";
 import { formatTime } from "@calendar/components/calendar/helpers";
 
+function formatOwnerSummary(event) {
+  const ownerId = event.ownerEmployeeId ?? event.owner?.id ?? null;
+  const ownerName = event.ownerFullName ?? event.owner?.fullName ?? null;
+  const ownerEmail = event.ownerEmail ?? event.owner?.email ?? null;
+
+  const firstLine = [ownerName, ownerId]
+    .filter(Boolean)
+    .filter((part, index, arr) => arr.indexOf(part) === index)
+    .join(" • ");
+
+  if (!firstLine && !ownerEmail) return null;
+
+  return (
+    <>
+      {ownerName} • {ownerId}
+      <br />
+      {ownerEmail}
+    </>
+  )
+}
+
 export function resolveDisplayValueFromEvent({
   event,
   field,
@@ -32,11 +53,11 @@ export function resolveDisplayValueFromEvent({
           const emp = event._employeeOptions?.find(
             (e) => e.value === p.reference_docname
           );
-    
+
           return emp?.label ?? p.reference_docname;
         })
         .join(", ");
-    
+
       return names;
     }
 
@@ -55,26 +76,31 @@ export function resolveDisplayValueFromEvent({
     }
 
     case "owner": {
-      if (!event.ownerEmployeeId) return null;
+      return (
+        formatOwnerSummary(event) ??
+        (() => {
+          if (!event.ownerEmployeeId) return null;
 
-      const owner = event._employeeOptions?.find(
-        (employee) => employee.value === event.ownerEmployeeId
+          const owner = event._employeeOptions?.find(
+            (employee) => employee.value === event.ownerEmployeeId
+          );
+
+          return owner?.label ?? event.ownerEmployeeId;
+        })()
       );
-
-      return owner?.label ?? event.ownerEmployeeId;
     }
     case "leave_approver": {
       if (!event.leave_approver) return null;
-    
+
       const approver = event._employeeOptions?.find(
         (e) =>
           e.email?.toLowerCase() ===
           event.leave_approver.toLowerCase()
       );
-    
+
       return approver?.label ?? event.leave_approver;
     }
-    
+
     case "date": {
       const d =
         typeof value === "string" ? parseISO(value) : new Date(value);

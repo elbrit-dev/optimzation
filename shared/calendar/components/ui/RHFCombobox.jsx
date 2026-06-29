@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronsUpDown, X } from "lucide-react";
 import { cn } from "@calendar/lib/utils";
 import { Button } from "@calendar/components/ui/button";
@@ -34,16 +34,28 @@ export function RHFCombobox({
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const lastSearchRef = useRef("");
 
   useEffect(() => {
     if (!onSearch || !open) return;
 
     const timeoutId = setTimeout(() => {
-      onSearch(search);
+      const normalizedSearch = search.trim();
+      if (!normalizedSearch) {
+        lastSearchRef.current = "";
+      }
+      if (normalizedSearch === lastSearchRef.current) return;
+      lastSearchRef.current = normalizedSearch;
+      onSearch(normalizedSearch);
     }, 300);
 
     return () => clearTimeout(timeoutId);
   }, [onSearch, open, search]);
+
+  useEffect(() => {
+    if (open) return;
+    lastSearchRef.current = "";
+  }, [open]);
 
   /* ---------------------------------------
      Normalize incoming value → IDs (DISPLAY ONLY)
@@ -158,16 +170,16 @@ export function RHFCombobox({
         </PopoverTrigger>
 
         <PopoverContent
-          className="w-[--radix-popover-trigger-width] p-0 "
+          className="w-[--radix-popover-trigger-width] max-h-[320px] overflow-hidden p-0"
           align="start"
         >
-          <Command className="h-[180px] overflow-hidden">
+          <Command className="max-h-[320px] overflow-hidden">
               <CommandInput
                 placeholder={searchPlaceholder}
                 value={search}
                 onValueChange={setSearch}
               />
-            <CommandList className=" overflow-y-auto">
+            <CommandList className="max-h-[260px] overflow-y-auto overscroll-contain">
               {loading && (
                 <div className="px-3 py-2 text-sm text-muted-foreground">
                   Loading...

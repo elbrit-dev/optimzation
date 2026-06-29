@@ -257,13 +257,15 @@ export function CalendarProvider({
 	}, [users, usersLoading, elbritRoleEdges, elbritRoleLoading]);
 	const visibleEmployeeOptions = useMemo(() => {
 		if (!employeeOptions.length) return [];
-		if (!allowedEmployeeIds.length) return employeeOptions;
+		if (!allowedEmployeeIds.length && !visibleRoleIds.length) return employeeOptions;
 
 		const allowedIds = new Set(allowedEmployeeIds);
+		const allowedRoles = new Set(visibleRoleIds);
 		return employeeOptions.filter((employee) =>
-			allowedIds.has(employee.value)
+			allowedIds.has(employee.value) ||
+			(employee.roleId && allowedRoles.has(employee.roleId))
 		);
-	}, [employeeOptions, allowedEmployeeIds]);
+	}, [employeeOptions, allowedEmployeeIds, visibleRoleIds]);
 
 	const filteredEvents = useMemo(() => {
 		return filterCalendarEvents({

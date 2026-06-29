@@ -29,6 +29,10 @@ query EventsByRange(
         doctor_longitude:${ERP_EVENT_FIELDS.doctorLongitudeRead}
         custom_employee_id:${ERP_EVENT_FIELDS.ownerEmployeeRead} {
           name
+          company_email
+          first_name
+          middle_name
+          last_name
         }
         reference_doctype__name
         reference_docname__name
@@ -171,6 +175,7 @@ query Doctors($first: Int,$filter: [DBFilterInput]) {
   }
 }
 `
+
 export const DOC_SHARES_BY_EVENT_QUERY = `
 query DocSharesByEvent($first: Int!, $filters: [DBFilterInput!]) {
   DocShares(first: $first, filter: $filters) {

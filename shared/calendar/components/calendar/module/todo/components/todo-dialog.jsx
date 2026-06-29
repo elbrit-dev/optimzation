@@ -57,6 +57,32 @@ function resolveVisibleTo(event, employeeResolvers) {
   });
 }
 
+function resolveOwner(event, employeeResolvers) {
+  const ownerId = event?.ownerEmployeeId ?? event?.owner?.id;
+  const resolvedEmail =
+    event?.ownerEmail ??
+    event?.owner?.email ??
+    (ownerId
+      ? employeeResolvers.getEmployeeEmailById(ownerId)
+      : null);
+  const resolvedName =
+    event?.ownerFullName ??
+    event?.owner?.fullName ??
+    (ownerId
+      ? employeeResolvers.getEmployeeNameById(ownerId)
+      : null);
+
+  if (!ownerId && !resolvedEmail && !resolvedName) {
+    return null;
+  }
+
+  return {
+    id: ownerId ?? null,
+    email: resolvedEmail ?? null,
+    name: resolvedName ?? ownerId ?? resolvedEmail,
+  };
+}
+
 function getDueDateMeta(startDate) {
   if (!startDate) return null;
 
@@ -78,9 +104,13 @@ export function EventTodoDialog({
   open,
   setOpen,
 }) {
-  const { removeEvent, employeeOptions } = useCalendar();
+  const {
+    removeEvent,
+    employeeOptions,
+    allEmployeeOptions,
+  } = useCalendar();
   const employeeResolvers =
-    useEmployeeResolvers(employeeOptions);
+    useEmployeeResolvers(allEmployeeOptions);
 
   const tagConfig =
     TAG_FORM_CONFIG[event.tags] ??
@@ -90,25 +120,23 @@ export function EventTodoDialog({
 
   const allocatedTo = useMemo(
     () =>
-      resolveAllocatedTo(
-        event,
-        employeeResolvers
-      ),
-    [event.allocated_to, employeeResolvers]
+      resolveAllocatedTo(event, employeeResolvers),
+    [event, employeeResolvers]
   );
 
   const visibleTo = useMemo(
     () =>
-      resolveVisibleTo(
-        event,
-        employeeResolvers
-      ),
-    [event.assignedTo, employeeResolvers]
+      resolveVisibleTo(event, employeeResolvers),
+    [event, employeeResolvers]
   );
 
   const dueDate = useMemo(
     () => getDueDateMeta(event.startDate),
     [event.startDate]
+  );
+  const owner = useMemo(
+    () => resolveOwner(event, employeeResolvers),
+    [event, employeeResolvers]
   );
 
   const permissions = useMemo(() => {
@@ -126,10 +154,10 @@ export function EventTodoDialog({
     removeEvent,
     onClose: () => setOpen(false),
   });
-
   /* =====================================================
      RENDER
   ===================================================== */
+  console.log("EVENT",event)
   return (
     <>
       <ScrollArea className="max-h-[80vh]">
@@ -220,7 +248,19 @@ export function EventTodoDialog({
               )}
             </div>
           </div>
-
+         {/* ================= Created By ================= */}
+          <div>
+            <p className="text-sm font-medium">
+              Created by
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {[owner?.name, owner?.id]
+                .filter(Boolean)
+                .join(" • ") || "-"}
+                <br/>
+                {owner?.email}
+            </p>
+          </div>
           {/* ================= DESCRIPTION ================= */}
           <div>
             <p className="text-sm font-medium mb-2">

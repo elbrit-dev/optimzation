@@ -146,8 +146,13 @@ export function buildEventDefaultValues({ event, defaultTag }) {
     allDay: event?.allDay ?? false,
     status: event?.status,
     priority: event?.priority,
-    leavePeriod: "Full",
-    halfDayDate: event?.halfDayDate ?? "",
+    leavePeriod:
+      event?.half_day || event?.leavePeriod === "Half"
+        ? "Half"
+        : "Full",
+    halfDayDate: event?.halfDayDate
+      ? new Date(event.halfDayDate)
+      : undefined,
     approvedBy: event?.approvedBy ?? "",
     attending: employeeParticipant?.attending ?? "",
     custom_latitude: employeeParticipant?.custom_latitude ?? undefined,

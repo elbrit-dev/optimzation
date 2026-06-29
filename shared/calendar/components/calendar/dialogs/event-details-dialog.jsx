@@ -50,7 +50,6 @@ export function EventDetailsDialog({ event, children }) {
   };
 
   const LayoutComponent = getEventDetailsLayout(event.tags);
-
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>

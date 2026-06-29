@@ -21,6 +21,10 @@ query LeaveApplications($first: Int) {
         employee_name
         employee {
           name
+          company_email
+          first_name
+          middle_name
+          last_name
         }
         leave_type__name
       }

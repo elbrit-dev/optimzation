@@ -76,7 +76,9 @@ export function EventDefaultDialog({
 
 export function EventDetailsFields({ event, config, use24HourFormat }) {
   if (!config?.details?.fields) return null;
+  
   return (
+    
     <div className="space-y-4">
       {config.details.fields.map((field) => {
         const Icon = ICONS[field.type] ?? ICONS["text"];

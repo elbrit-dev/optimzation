@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { addMinutes, differenceInCalendarDays, startOfDay, endOfDay } from "date-fns";
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
@@ -21,7 +21,7 @@ import { eventSchema } from "@calendar/components/calendar/schemas";
 import { TAG_FORM_CONFIG } from "@calendar/lib/calendar/form-config";
 import { loadParticipantOptionsByTag } from "@calendar/lib/participants";
 import { TimePicker } from "@calendar/components/ui/TimePicker";
-import { mapErpTodoToCalendar, mapFormToErpTodo } from "@calendar/components/calendar/module/todo/mappers/todo.mapper";
+import { enrichTodoOwner, mapErpTodoToCalendar, mapFormToErpTodo } from "@calendar/components/calendar/module/todo/mappers/todo.mapper";
 import { mapErpLeaveToCalendar, mapFormToErpLeave } from "@calendar/components/calendar/module/leave/mappers/leave.mapper";
 import { useEmployeeResolvers } from "@calendar/lib/employeeResolver";
 import { uploadLeaveMedicalCertificate } from "@calendar/lib/file.service";
@@ -69,6 +69,9 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 	const [googleCalendarEnabled, setGoogleCalendarEnabled] = useState(false);
 	const [employeeSearchLoading, setEmployeeSearchLoading] = useState(false);
 	const [doctorSearchLoading, setDoctorSearchLoading] = useState(false);
+	const lastEmployeeSearchRef = useRef("");
+	const lastDoctorSearchRef = useRef("");
+	const employeePickerOptions = allEmployeeOptions;
 	const form = useForm({
 		resolver: zodResolver(eventSchema),
 		mode: "onChange",
@@ -301,33 +304,38 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			mergeOptionsByValue(currentOptions, doctorRecords)
 		);
 	};
-	const handleEmployeeSearch = async (search) => {
-		if (!search?.trim()) return;
+	const handleEmployeeSearch = useCallback(async (search) => {
+		const normalizedSearch = search?.trim() ?? "";
+		if (normalizedSearch.length < 2) {
+			lastEmployeeSearchRef.current = "";
+			return;
+		}
+		if (lastEmployeeSearchRef.current === normalizedSearch) return;
+		lastEmployeeSearchRef.current = normalizedSearch;
 
 		setEmployeeSearchLoading(true);
 		try {
-			const results = await searchEmployees(search);
-			const allowedIds = new Set(allowedEmployeeIds);
-			const filteredResults =
-				allowedIds.size > 0
-					? results.filter((employee) =>
-						allowedIds.has(employee.value)
-					)
-					: results;
+			const results = await searchEmployees(normalizedSearch);
 			setEmployeeOptions((currentOptions) =>
-				mergeOptionsByValue(currentOptions, filteredResults)
+				mergeOptionsByValue(currentOptions, results)
 			);
 		} finally {
 			setEmployeeSearchLoading(false);
 		}
-	};
-	const handleDoctorSearch = async (search) => {
-		if (!search?.trim()) return;
+	}, [setEmployeeOptions]);
+	const handleDoctorSearch = useCallback(async (search) => {
+		const normalizedSearch = search?.trim() ?? "";
+		if (normalizedSearch.length < 2) {
+			lastDoctorSearchRef.current = "";
+			return;
+		}
+		if (lastDoctorSearchRef.current === normalizedSearch) return;
+		lastDoctorSearchRef.current = normalizedSearch;
 
 		setDoctorSearchLoading(true);
 		try {
 			const results = await searchDoctors({
-				search,
+				search: normalizedSearch,
 				territory: hqTerritory,
 			});
 			setDoctorOptions((currentOptions) =>
@@ -336,7 +344,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		} finally {
 			setDoctorSearchLoading(false);
 		}
-	};
+	}, [hqTerritory, setDoctorOptions]);
 	const currentUserRoleId = useMemo(() => {
 		if (LOGGED_IN_USER.roleId) {
 			return LOGGED_IN_USER.roleId;
@@ -402,13 +410,13 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		return leaveDays > threshold;
 	}, [selectedTag, leaveType, leaveDays, tagConfig]);
 	useEffect(() => {
-		if (!requiresMedical) {
+		if (!requiresMedical && !isEditing) {
 			form.setValue("medicalAttachment", undefined, {
 				shouldDirty: false,
 				shouldValidate: false,
 			});
 		}
-	}, [requiresMedical]);
+	}, [requiresMedical, isEditing, form]);
 
 	const isDoctorMulti = tagConfig.doctor?.multiselect === true;
 
@@ -466,6 +474,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 
 	useEffect(() => {
 		if (!isEditing) return;
+		endDateTouchedRef.current = true;
 
 		// 📍 Doctor Visit Plan: capture endDate ONCE
 		if (
@@ -560,7 +569,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 	--------------------------------------------- */
 	useEffect(() => {
 		if (!isOpen || !event?.participants?.length) return;
-		if (!employeeOptions.length && !doctorOptions.length) return;
+		if (!employeePickerOptions.length && !doctorOptions.length) return;
 
 		const employeeIds = event.participants
 			.filter(p => p.type === "Employee")
@@ -573,7 +582,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		/* ---------- Employees ---------- */
 		if (employeeIds.length) {
 			const employeeValues = employeeIds
-				.map(id => employeeOptions.find(o => o.value === id))
+				.map(id => employeePickerOptions.find(o => o.value === id))
 				.filter(Boolean);
 
 			form.setValue(
@@ -602,7 +611,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 	}, [
 		isOpen,
 		event?.participants,
-		employeeOptions,
+		employeePickerOptions,
 		doctorOptions,
 	]);
 
@@ -664,7 +673,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		const values = form.getValues();
 		const nextTitle = tagConfig.autoTitle(values, {
 			doctorOptions,
-			employeeOptions,
+			employeeOptions: employeePickerOptions,
 		});
 
 		if (!nextTitle) return;
@@ -675,7 +684,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 				shouldValidate: true, // 🔑 REQUIRED
 			});
 		}
-	}, [selectedTag, hqTerritory, doctor, employees, doctorOptions, employeeOptions, isEditing,]);
+	}, [selectedTag, hqTerritory, doctor, employees, doctorOptions, employeePickerOptions, isEditing,]);
 
 	/* --------------------------------------------------
 	   AUTO SELECT LOGGED IN USER
@@ -683,7 +692,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 	useEffect(() => {
 		if (!selectedTag) return;
 
-		loadParticipantOptionsByTag({ tag: selectedTag, employeeOptions, hqTerritoryOptions, doctorOptions, setEmployeeOptions, setHqTerritoryOptions, setDoctorOptions, });
+		loadParticipantOptionsByTag({ tag: selectedTag, employeeOptions: employeePickerOptions, hqTerritoryOptions, doctorOptions, setEmployeeOptions, setHqTerritoryOptions, setDoctorOptions, });
 
 		// 🔒 ABSOLUTE GUARD
 		if (isEditing) return;
@@ -691,7 +700,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		if (!tagConfig.employee?.autoSelectLoggedIn) return;
 
 		const loggedInEmployee =
-			employeeOptions.find(
+			employeePickerOptions.find(
 				(e) => e.value === LOGGED_IN_USER.id
 			);
 
@@ -702,7 +711,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			: loggedInEmployee;
 
 		form.setValue("employees", value, { shouldDirty: false });
-	}, [selectedTag]);
+	}, [selectedTag, employeePickerOptions]);
 
 	/* ---------------------------------------------
    NON-MEETING DATE LOGIC (MEETING-LIKE)
@@ -733,18 +742,16 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 
 	const buildDoctorVisitTitle = (doctorId, values) => {
 		const doc = doctorOptions.find(d => d.value === doctorId);
-		const empId = Array.isArray(values.employees)
-			? values.employees[0]
-			: values.employees;
-
-		const emp = employeeOptions.find(e => e.value === empId);
-
 		if (!doc) return values.title || "DV";
 
 		const doctorName = doc.label.replace(/\s+/g, "");
-		const employeeName = emp?.label?.replace(/\s+/g, "") ?? "Emp";
+		const ownerName = (
+			event?.ownerFullName ||
+			LOGGED_IN_USER.name ||
+			"Emp"
+		).replace(/\s+/g, "");
 
-		return `${doctorName}-${employeeName}`;
+		return `${doctorName}-Visit-${ownerName}`;
 	};
 	const resetAndCloseDialog = () => {
 		endDateTouchedRef.current = false;
@@ -835,6 +842,8 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		employeeOptions,
 		doctorOptions,
 		ownerEmployeeIdOverride,
+		ownerEmailOverride,
+		ownerFullNameOverride,
 	}) => {
 		const shouldBeGreen =
 			values.tags === TAG_IDS.DOCTOR_VISIT_PLAN &&
@@ -845,13 +854,20 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			erpName: savedName,
 			title: values.title,
 			description: values.description,
-			startDate: erpDoc.starts_on,
-			endDate: erpDoc.ends_on,
+			startDate: (values.startDate ?? new Date()).toISOString(),
+			endDate: (values.endDate ?? values.startDate ?? new Date()).toISOString(),
 			color: shouldBeGreen ? "green" : tagConfig.fixedColor,
 			tags: values.tags,
 			ownerEmployeeId: ownerEmployeeIdOverride,
+			ownerEmail: ownerEmailOverride,
+			ownerFullName: ownerFullNameOverride,
 			owner: ownerEmployeeIdOverride
-				? { id: ownerEmployeeIdOverride }
+				? {
+					id: ownerEmployeeIdOverride,
+					email: ownerEmailOverride,
+					fullName:
+						ownerFullNameOverride ?? ownerEmployeeIdOverride,
+				}
 				: undefined,
 			hqTerritory: values.hqTerritory || "",
 			doctor: normalizeDoctorValueForEvent(values.doctor, tagConfig),
@@ -892,7 +908,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		if (!isOpen) return;
 		if (!isEditing) return;
 		if (!event?.allocated_to) return;
-		if (!employeeOptions.length) return;
+		if (!employeePickerOptions.length) return;
 
 		// allocated_to is EMAIL
 		const email = event.allocated_to.toLowerCase();
@@ -905,7 +921,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 
 		// Find matching option object
 		const employeeOption =
-			employeeOptions.find(
+			employeePickerOptions.find(
 				(opt) => opt.value === employeeId
 			);
 
@@ -919,7 +935,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		isOpen,
 		isEditing,
 		event?.allocated_to,
-		employeeOptions,
+		employeePickerOptions,
 	]);
 	// ----------------------------------------------------
 	// RULE B: Doctor Visit Plan tab only visible
@@ -1068,7 +1084,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 
 		const eventSavePromise = saveEvent(erpDoc, {
 			shareWithUserIds: superiorUserIds,
-			deferShareSync: true,
+			deferShareSync: false,
 			skipExistingShareCheck: !event?.erpName,
 		});
 		let savedEvent;
@@ -1084,16 +1100,20 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		if (savedQuotation?.name && !quotationName) {
 			quotationName = savedQuotation.name;
 		}
-		const calendarEvent = buildCalendarEvent({
-			event,
-			values,
-			erpDoc,
-			savedName: savedEvent.name,
-			tagConfig,
-			employeeOptions,
-			doctorOptions,
-			ownerEmployeeIdOverride:
-				event?.ownerEmployeeId || LOGGED_IN_USER.id,
+			const calendarEvent = buildCalendarEvent({
+				event,
+				values,
+				erpDoc,
+				savedName: savedEvent.name,
+				tagConfig,
+				employeeOptions: employeePickerOptions,
+				doctorOptions,
+				ownerEmployeeIdOverride:
+					event?.ownerEmployeeId || LOGGED_IN_USER.id,
+			ownerEmailOverride:
+				event?.ownerEmail || LOGGED_IN_USER.email,
+			ownerFullNameOverride:
+				event?.ownerFullName || LOGGED_IN_USER.name,
 		});
 		ensureDoctorOptionsAvailable(values.doctor);
 		upsertCalendarEvent(calendarEvent);
@@ -1138,16 +1158,18 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 					erpDoc,
 					savedName: optimisticEventId,
 					tagConfig,
-					employeeOptions,
+					employeeOptions: employeePickerOptions,
 					doctorOptions,
 					ownerEmployeeIdOverride: LOGGED_IN_USER.id,
+					ownerEmailOverride: LOGGED_IN_USER.email,
+					ownerFullNameOverride: LOGGED_IN_USER.name,
 				});
 				addEvent(optimisticEvent);
 
 				try {
 					const savedEvent = await saveEvent(erpDoc, {
 						shareWithUserIds: superiorUserIds,
-						deferShareSync: true,
+						deferShareSync: false,
 						skipExistingShareCheck: true,
 					});
 
@@ -1156,9 +1178,11 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 						erpDoc,
 						savedName: savedEvent.name,
 						tagConfig,
-						employeeOptions,
+						employeeOptions: employeePickerOptions,
 						doctorOptions,
 						ownerEmployeeIdOverride: LOGGED_IN_USER.id,
+						ownerEmailOverride: LOGGED_IN_USER.email,
+						ownerFullNameOverride: LOGGED_IN_USER.name,
 					});
 					removeEvent(optimisticEventId);
 					addEvent(calendarEvent);
@@ -1197,7 +1221,9 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 				return;
 			}
 
-			const leaveDoc = mapFormToErpLeave(values);
+			const leaveDoc = mapFormToErpLeave(values, {
+				erpName: event?.erpName,
+			});
 			delete leaveDoc.custom_attachement;
 
 			const savedLeave = await saveLeaveApplication(leaveDoc, {
@@ -1258,14 +1284,17 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 
 		const savedTodo = await saveDocToErp(todoDoc, {
 			shareWithUserIds: superiorUserIds,
-			deferShareSync: true,
+			deferShareSync: false,
 			skipExistingShareCheck: !event?.erpName,
 		});
 
-		const calendarTodo = mapErpTodoToCalendar({
-			...todoDoc,
-			name: savedTodo.name,
-		});
+		const calendarTodo = enrichTodoOwner(
+			mapErpTodoToCalendar({
+				...todoDoc,
+				name: savedTodo.name,
+			}),
+			employeeResolvers
+		);
 
 		upsertCalendarEvent(calendarTodo);
 
@@ -1675,7 +1704,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 
 									render={({ field }) => (
 										<RHFFieldWrapper label={"Employees"}>
-											<RHFComboboxField {...field} options={employeeOptions} multiple={isMulti} placeholder="Select employees" searchPlaceholder="Search employee"
+											<RHFComboboxField {...field} options={employeePickerOptions} multiple={isMulti} placeholder="Select employees" searchPlaceholder="Search employee"
 												onSearch={handleEmployeeSearch}
 												loading={employeeSearchLoading}
 											/>
@@ -1693,7 +1722,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 
 									render={({ field }) => (
 										<RHFFieldWrapper label={"Assigned To"}>
-											<RHFComboboxField {...field} options={employeeOptions} multiple={isMulti} placeholder="Select employees" searchPlaceholder="Search employee"
+											<RHFComboboxField {...field} options={employeePickerOptions} multiple={isMulti} placeholder="Select employees" searchPlaceholder="Search employee"
 												onSearch={handleEmployeeSearch}
 												loading={employeeSearchLoading}
 											/>
@@ -1709,7 +1738,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 								name="assignedTo"
 								render={({ field }) => (
 									<RHFFieldWrapper label="Visible To">
-										<RHFComboboxField {...field} options={employeeOptions} multiple placeholder="Select employees" searchPlaceholder="Search employee"
+										<RHFComboboxField {...field} options={employeePickerOptions} multiple placeholder="Select employees" searchPlaceholder="Search employee"
 											onSearch={handleEmployeeSearch}
 											loading={employeeSearchLoading}
 										/>

@@ -28,7 +28,6 @@ export function EventLeaveDialog({
 		onClose: () => setOpen(false),
 	});
 	const [leaveBalance, setLeaveBalance] = useState(null);
-console.log("LEAVE EVENT",event)
 	useEffect(() => {
 		let alive = true;
 

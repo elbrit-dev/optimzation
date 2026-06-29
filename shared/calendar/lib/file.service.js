@@ -57,7 +57,6 @@ export async function uploadLeaveMedicalCertificate(values, leaveName,erpUrl,aut
     body: formData,
   });
   const json = await res.json();
-  console.log("UPLOAD RESPONSE", json);
   if (json.errors?.length) {
     throw new Error(json.errors[0].message);
   }

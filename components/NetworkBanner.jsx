@@ -25,15 +25,16 @@ const PREVIEW = {
 };
 
 // [severityKey, humanMessage] for the current connection.
+// We deliberately ignore `downlink`: Chrome reports recently *observed* throughput
+// (often 1–4 Mbps on an idle page) rather than real bandwidth, which produces false
+// "slow network" banners on fast connections. `onLine` and `effectiveType` are stable.
 function getStatus(conn) {
   if (typeof navigator !== "undefined" && !navigator.onLine) return ["red", "You are offline."];
-  if (!conn) return ["green", "Connected."]; // no Network Information API (Safari/Firefox)
-  const mbps = Math.round((conn.downlink ?? 0) * 10) / 10;
-  if (["2g", "slow-2g"].includes(conn.effectiveType))
-    return ["red", `Very slow 2G connection (${mbps} Mbps). The app may struggle.`];
-  if (mbps >= 5)   return ["green",  `Fast connection (${mbps} Mbps).`];
-  if (mbps >= 1.8) return ["yellow", `Slow connection (${mbps} Mbps).`];
-  return ["orange", `Very slow network (${mbps} Mbps). Things may load slowly.`];
+  if (conn && ["2g", "slow-2g"].includes(conn.effectiveType))
+    return ["red", "Very slow connection. The app may struggle."];
+  if (conn && conn.effectiveType === "3g")
+    return ["yellow", "Slow connection. Things may load slowly."];
+  return ["green", "Connected."]; // 4g, or no Network Information API (Safari/Firefox)
 }
 
 // Inject the keyframes/media-query CSS once (inline styles can't do either).

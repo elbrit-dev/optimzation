@@ -248,15 +248,15 @@ export function EventDoctorVisitDialog({
   /* =====================================================
    RENDER
 ===================================================== */
-const lat = Number(currentEmployeeParticipant?.custom_latitude);
-const lng = Number(currentEmployeeParticipant?.custom_longitude);
+  const lat = Number(currentEmployeeParticipant?.custom_latitude);
+  const lng = Number(currentEmployeeParticipant?.custom_longitude);
 
-const hasLocation =
-  lat !== 0 &&
-  lng !== 0 &&
-  !isNaN(lat) &&
-  !isNaN(lng);
-  
+  const hasLocation =
+    lat !== 0 &&
+    lng !== 0 &&
+    !isNaN(lat) &&
+    !isNaN(lng);
+
   const isAttending =
     currentEmployeeParticipant?.attending?.toLowerCase() === "yes";
   const isVisitCompleted = isAttending && hasLocation;
@@ -327,6 +327,16 @@ const hasLocation =
                   {doctorDetails.doctorCity}
                 </p>
               )}
+            </div>
+          )}
+          {event.owner && (
+            <div>
+              <p className="text-sm font-medium mb-[4px]">
+                Created By
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {event.ownerFullName} • {event.ownerEmployeeId} <br /> {event.ownerEmail}
+              </p>
             </div>
           )}
           <p className="text-sm font-medium mb-[4px]">Participants</p>
@@ -470,7 +480,7 @@ const hasLocation =
         )}
 
         {permissions.canDelete && !hasParticipants && (
-            <DeleteEventDialog
+          <DeleteEventDialog
             onConfirm={() => handleDelete(event.erpName)}
           />
         )}

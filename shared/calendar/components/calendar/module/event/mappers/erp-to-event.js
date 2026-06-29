@@ -18,11 +18,43 @@ function normalizeAttending(value) {
   return "No";
 }
 
+function buildOwnerFullName(owner) {
+  if (!owner) return null;
+
+  const parts = [
+    owner.first_name,
+    owner.middle_name,
+    owner.last_name,
+  ].filter(Boolean);
+
+  return parts.length ? parts.join(" ") : null;
+}
+
+function buildDoctorVisitTitle(node, ownerFullName) {
+  const subject = node?.subject ?? "";
+  const doctorNameFromSubject =
+    subject.split("-")[0]?.trim() || subject.trim();
+
+  if (!doctorNameFromSubject) {
+    return subject || "";
+  }
+
+  if (!ownerFullName) {
+    return `${doctorNameFromSubject}-Visit`;
+  }
+
+  return `${doctorNameFromSubject}-Visit-${ownerFullName.replace(/\s+/g, "")}`;
+}
+
 export function mapErpGraphqlEventToCalendar(node) {
   if (!node) return null;
   const tag = normalizeEventTag(node.event_category);
   const tagConfig = TAG_FORM_CONFIG[tag] ?? TAG_FORM_CONFIG.DEFAULT;
   const isBirthday = tag === "Birthday";
+  const ownerFullName =
+    buildOwnerFullName(node.custom_employee_id) ??
+    node.custom_employee_id?.name ??
+    undefined;
 
   /* ---------------------------------------------
      PARTICIPANTS (SOURCE OF TRUTH)
@@ -108,7 +140,10 @@ export function mapErpGraphqlEventToCalendar(node) {
   --------------------------------------------- */
   const event = {
     erpName: node.name,
-    title: node.subject || "",
+    title:
+      tag === TAG_IDS.DOCTOR_VISIT_PLAN
+        ? buildDoctorVisitTitle(node, ownerFullName)
+        : (node.subject || ""),
     description: node.description ?? "",
     status: normalizeStatus(node.status),
     allDay: Boolean(node.all_day),
@@ -138,8 +173,15 @@ export function mapErpGraphqlEventToCalendar(node) {
     doctorLatitude: node.doctor_latitude ?? null,
     doctorLongitude: node.doctor_longitude ?? null,
     ownerEmployeeId: node.custom_employee_id?.name ?? undefined,
+    ownerEmail: node.custom_employee_id?.company_email ?? undefined,
+    ownerFullName:
+      ownerFullName,
     owner: node.custom_employee_id?.name
-      ? { id: node.custom_employee_id.name }
+      ? {
+          id: node.custom_employee_id.name,
+          email: node.custom_employee_id.company_email ?? undefined,
+          fullName: ownerFullName,
+        }
       : undefined,
 
     color,

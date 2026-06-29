@@ -36,8 +36,12 @@ export const TAG_FORM_CONFIG = {
           fields: ["startDate", "status"],
         },
         {
-          columns: 2,
-          fields: ["owner", "leave_approver"],
+          columns: 1,
+          fields: ["owner"],
+        },
+        {
+          columns: 1,
+          fields: ["leave_approver"],
         },
         {
           columns: 1,
@@ -127,6 +131,7 @@ export const TAG_FORM_CONFIG = {
       fields: [
         { key: "startDate", label: "Start Date", type: "date" },
         { key: "endDate", label: "End Date", type: "date" },
+        { key: "owner", label: "Created by", type: "owner" },
         { key: "hqTerritory", label: "HQ Territory", type: "text" },
         { key: "description", label: "Description", type: "text" },
       ],
@@ -158,6 +163,7 @@ export const TAG_FORM_CONFIG = {
       fields: [
         { key: "startDate", label: "Start Date", type: "date" },
         { key: "endDate", label: "End Date", type: "date" },
+        { key: "owner", label: "Created by", type: "owner" },
         { key: "employee", label: "Employee", type: "employee" },
         { key: "description", label: "Description", type: "text" },
       ],
@@ -266,6 +272,7 @@ export const TAG_FORM_CONFIG = {
       fields: [
         { key: "startDate", label: "Start Date", type: "date" },
         { key: "doctor", label: "Doctor", type: "doctor" },
+        { key: "owner", label: "Created by", type: "owner" },
         { key: "employee", label: "Participants", type: "employee" },
         { key: "description", label: "Description", type: "text" },
       ],
@@ -320,6 +327,7 @@ export const TAG_FORM_CONFIG = {
       fields: [
         { key: "startDate", label: "Start Date", type: "date" },
         { key: "endDate", label: "End Date", type: "date" },
+        { key: "owner", label: "Created by", type: "owner" },
         { key: "employee", label: "Participants", type: "employee" },
         { key: "description", label: "Description", type: "text" },
       ],
@@ -353,5 +361,14 @@ export const TAG_FORM_CONFIG = {
     required: ["title", "startDate"],
 
     fixedColor: DEFAULT_COLORS.EVENT,
+    details: {
+      fields: [
+        { key: "startDate", label: "Start Date", type: "date" },
+        { key: "endDate", label: "End Date", type: "date" },
+        { key: "owner", label: "Created by", type: "owner" },
+        { key: "employee", label: "Participants", type: "employee" },
+        { key: "description", label: "Description", type: "text" },
+      ],
+    },
   },
 };

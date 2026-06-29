@@ -5,6 +5,19 @@ import { differenceInCalendarDays, startOfDay, endOfDay, format } from "date-fns
 function toERPDate(date = new Date()) {
   return format(startOfDay(date), "yyyy-MM-dd");
 }
+
+function buildEmployeeFullName(employee) {
+  if (!employee || typeof employee !== "object") return null;
+
+  const parts = [
+    employee.first_name,
+    employee.middle_name,
+    employee.last_name,
+  ].filter(Boolean);
+
+  return parts.length ? parts.join(" ") : null;
+}
+
 export function mapFormToErpLeave(values,options = {}) {
   const { erpName } = options;
   const isHalf = values.leavePeriod === "Half";
@@ -68,11 +81,22 @@ export function mapErpLeaveToCalendar(leave) {
       : leave.leave_approver ?? null;
   const leaveTypeName =
     leave.leave_type__name ?? leave.leave_type ?? TAG_IDS.LEAVE;
+  const ownerFullName =
+    buildEmployeeFullName(leave.employee) ??
+    leave.employee_name ??
+    employeeId ??
+    "";
+  const ownerEmail =
+    typeof leave.employee === "object"
+      ? leave.employee?.company_email ?? null
+      : null;
 
   return {
     erpName: `${leave.name}`,
     id: `${leave.name}`,
-    title: leaveTypeName,
+    title: ownerFullName
+      ? `${leaveTypeName} - ${ownerFullName}`
+      : leaveTypeName,
     tags: TAG_IDS.LEAVE,
     leaveType: leaveTypeName,
     startDate: start.toISOString(), // ✅ normalized
@@ -80,7 +104,9 @@ export function mapErpLeaveToCalendar(leave) {
     status: normalizedStatus,
     half_day: isHalfDay ? 1 : 0,
     total_leave_days: totalDays,
-    halfDayDate: leave.half_day_date ?? "",
+    halfDayDate: leave.half_day_date
+      ? new Date(`${leave.half_day_date}T00:00:00`).toISOString()
+      : "",
     description: leave.description,
     color:
     DEFAULT_COLORS[
@@ -89,6 +115,16 @@ export function mapErpLeaveToCalendar(leave) {
     medicalAttachment: leave.custom_attachement ?? "",
     employee: employeeId,
     employeeName: leave.employee_name ?? employeeId ?? "",
+    ownerEmployeeId: employeeId,
+    ownerFullName,
+    ownerEmail,
+    owner: employeeId
+      ? {
+          id: employeeId,
+          email: ownerEmail ?? undefined,
+          fullName: ownerFullName || employeeId,
+        }
+      : undefined,
     approvedBy: leave.leave_approver_name ?? "",
     leave_approver: leaveApprover,
   };
