@@ -597,8 +597,8 @@ PLASMIC.registerComponent(NovuInbox, {
     applicationIdentifier: {
       type: "string",
       description: "Novu application identifier.",
-      // ✅ Matches your Production environment ID from dashboard
-      defaultValue: "pdnBD6k7fkMq", 
+      // Reads NEXT_PUBLIC_NOVU_APPLICATION_IDENTIFIER (set per Netlify deploy context); falls back to Production.
+      defaultValue: process.env.NEXT_PUBLIC_NOVU_APPLICATION_IDENTIFIER || "pdnBD6k7fkMq",
     },
     subscriberHash: {
       type: "string",
