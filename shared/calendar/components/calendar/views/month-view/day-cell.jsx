@@ -39,7 +39,7 @@ export const dayCellVariants = cva("text-white", {
   },
 });
 
-const MAX_VISIBLE_EVENTS_DESKTOP = 1;
+const MAX_VISIBLE_EVENTS_DESKTOP = 3;
 const MAX_VISIBLE_EVENTS_MOBILE = 1;
 
 
@@ -127,6 +127,7 @@ export function DayCell({
       className={cn(
         "flex h-full flex-col gap-1 border-l border-t transition-colors",
         isSunday(date) && "border-l-0",
+        currentMonth && !isSelected && "lg:hover:bg-muted/40",
         isSelected &&
         "ring-1 ring-inset ring-gray-400 dark:ring-gray-600 bg-gray-50/60 dark:bg-gray-900/40"
       )}

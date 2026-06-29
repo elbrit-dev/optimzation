@@ -15,11 +15,12 @@ import { Button } from "@calendar/components/ui/button";
 
 export default function DeleteEventDialog({
 	onConfirm,
+	className = "",
 }) {
 	return (
 		<AlertDialog>
 			<AlertDialogTrigger asChild>
-				<Button variant="destructive">
+				<Button variant="destructive" className={className}>
 					<TrashIcon />
 					Delete
 				</Button>

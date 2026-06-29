@@ -114,7 +114,7 @@ export function CalendarMonthView({
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.05, ...transition }}
             >
-              <span className="text-xs font-medium text-t-quaternary">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-t-quaternary">
                 {day}
               </span>
             </motion.div>

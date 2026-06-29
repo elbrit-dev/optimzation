@@ -61,9 +61,9 @@ export function EventDetailsDialog({ event, children }) {
           : children}
       </DialogTrigger>
 
-      <DialogContent>
+      <DialogContent className="max-h-[88vh] overflow-y-auto w-[calc(100vw-1.5rem)] sm:w-full">
         <DialogHeader>
-          <DialogTitle>{event.tags == TAG_IDS.TODO_LIST ? event.title:event.tags}</DialogTitle>
+          <DialogTitle className="pr-6 break-words">{event.tags == TAG_IDS.TODO_LIST ? event.title:event.tags}</DialogTitle>
         </DialogHeader>
 
         <LayoutComponent

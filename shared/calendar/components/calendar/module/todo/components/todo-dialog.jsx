@@ -8,11 +8,19 @@ import { useCalendar } from "@calendar/components/calendar/contexts/calendar-con
 import { useEmployeeResolvers } from "@calendar/lib/employeeResolver";
 import { TAG_FORM_CONFIG } from "@calendar/lib/calendar/form-config";
 import { AddEditEventDialog } from "@calendar/components/calendar/dialogs/add-edit-event-dialog";
-import { getPriorityClass, getStatusBadgeClass } from "@calendar/components/calendar/helpers";
+import { getPriorityClass } from "@calendar/components/calendar/helpers";
 import TiptapViewer from "@calendar/components/ui/TiptapViewer";
 import TodoComments from "@calendar/components/calendar/module/todo/components/TodoCommentsSection";
 import { useDeleteEvent } from "@calendar/components/calendar/hooks";
 import DeleteEventDialog from "@calendar/components/calendar/dialogs/delete-event-dialog";
+import { Calendar, Link2, Text, User } from "lucide-react";
+import {
+  DetailSummary,
+  DetailItem,
+  DetailGrid,
+  DetailFooter,
+  PersonChips,
+} from "@calendar/components/calendar/dialogs/event-details/detail-ui";
 
 /* =====================================================
    PURE HELPERS
@@ -157,155 +165,99 @@ export function EventTodoDialog({
   /* =====================================================
      RENDER
   ===================================================== */
-  console.log("EVENT",event)
   return (
     <>
-      <ScrollArea className="max-h-[80vh]">
-        <div className="p-4 space-y-6">
+      <ScrollArea className="max-h-[68vh]">
+        <div className="space-y-5 p-1">
+          <DetailSummary
+            title={event.title || "Todo"}
+            subtitle={
+              dueDate
+                ? `Due ${dueDate.formatted}${
+                    Number.isFinite(dueDate.diffDays)
+                      ? ` · ${
+                          dueDate.diffDays === 0
+                            ? "today"
+                            : dueDate.diffDays > 0
+                            ? `in ${dueDate.diffDays} day${dueDate.diffDays === 1 ? "" : "s"}`
+                            : `${Math.abs(dueDate.diffDays)} day${
+                                Math.abs(dueDate.diffDays) === 1 ? "" : "s"
+                              } overdue`
+                        }`
+                      : ""
+                  }`
+                : null
+            }
+            status={event.status}
+            accentClassName="bg-violet-500"
+          />
 
-          {/* ================= HEADER ================= */}
-          <div className="flex justify-between items-start">
-
-            {/* Due Date */}
-            <div>
-              <p className="text-sm font-medium">
-                Due Date
-              </p>
-              {dueDate ? (
-                <p className="text-sm text-muted-foreground">
-                  {dueDate.formatted} ({dueDate.diffDays} days)
-                </p>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  -
-                </p>
-              )}
-            </div>
-
-            {/* Status */}
-            <div className="text-right">
-              <p className="text-sm font-medium">
-                Status
-              </p>
-              <span
-                className={`text-white text-xs px-3 py-1 rounded-md ${getStatusBadgeClass(
-                  event.status
-                )}`}
-              >
-                {event.status}
+          <DetailGrid>
+            <DetailItem icon={User} label="Allocated To">
+              {allocatedTo?.name ?? "—"}
+            </DetailItem>
+            <DetailItem icon={Calendar} label="Priority">
+              <span className={`font-medium ${getPriorityClass(event.priority)}`}>
+                {event.priority ?? "—"}
               </span>
-            </div>
-          </div>
-
-          {/* ================= ALLOCATED + PRIORITY ================= */}
-          <div className="flex justify-between items-start">
-
-            {/* Allocated To */}
-            <div>
-              <p className="text-sm font-medium">
-                Allocated To
-              </p>
-              <p className="text-sm text-muted-foreground">
-                {allocatedTo?.name ?? "-"}
-              </p>
-            </div>
-
-            {/* Priority */}
-            <div className="text-right">
-              <p className="text-sm font-medium">
-                Priority
-              </p>
-              <p
-                className={`text-sm font-medium ${getPriorityClass(
-                  event.priority
-                )}`}
-              >
-                {event.priority ?? "-"}
-              </p>
-            </div>
-          </div>
-
-          {/* ================= VISIBLE TO ================= */}
-          <div>
-            <p className="text-sm font-medium">
-              Visible To
-            </p>
-
-            <div className="flex gap-2 mt-2 flex-wrap">
-              {visibleTo.length > 0 ? (
-                visibleTo.map((emp) => (
-                  <span
-                    key={emp.id}
-                    className="bg-muted px-2 py-1 rounded text-xs"
-                  >
-                    {emp.name}
-                  </span>
-                ))
-              ) : (
-                <span className="text-sm text-muted-foreground">
-                  -
+            </DetailItem>
+            <DetailItem icon={User} label="Created by">
+              {[owner?.name, owner?.id].filter(Boolean).join(" • ") || "—"}
+              {owner?.email ? (
+                <span className="block text-xs text-muted-foreground">
+                  {owner.email}
                 </span>
-              )}
-            </div>
-          </div>
-         {/* ================= Created By ================= */}
-          <div>
-            <p className="text-sm font-medium">
-              Created by
-            </p>
-            <p className="text-sm text-muted-foreground">
-              {[owner?.name, owner?.id]
-                .filter(Boolean)
-                .join(" • ") || "-"}
-                <br/>
-                {owner?.email}
-            </p>
-          </div>
-          {/* ================= DESCRIPTION ================= */}
-          <div>
-            <p className="text-sm font-medium mb-2">
-              Description
-            </p>
+              ) : null}
+            </DetailItem>
+            <DetailItem icon={User} label="Visible To">
+              <PersonChips people={visibleTo} />
+            </DetailItem>
+            {event.referenceName ? (
+              <DetailItem icon={Link2} label="Linked to">
+                {event.referenceType ? `${event.referenceType} · ` : ""}
+                {event.referenceName}
+              </DetailItem>
+            ) : null}
+          </DetailGrid>
 
+          <DetailItem icon={Text} label="Description">
             {event.description ? (
-              <div className="border rounded-md p-3 text-sm">
+              <div className="prose prose-sm dark:prose-invert max-w-none">
                 <TiptapViewer content={event.description} />
               </div>
             ) : (
-              <div className="border rounded-md p-3 text-sm text-muted-foreground">
-                No description
-              </div>
+              <span className="text-muted-foreground">No description</span>
             )}
-          </div>
+          </DetailItem>
         </div>
+
         {event?.erpName && (
-          <TodoComments todoName={event.erpName} />
+          <div className="mt-4">
+            <TodoComments todoName={event.erpName} />
+          </div>
         )}
       </ScrollArea>
 
       {/* ================= FOOTER ================= */}
-      <div className="flex justify-end gap-2 p-4 border-t">
-
+      <DetailFooter>
         {permissions.canEdit && (
           <AddEditEventDialog
             event={event}
-            forceValues={
-              tagConfig.ui?.primaryEditAction?.setOnEdit
-            }
+            forceValues={tagConfig.ui?.primaryEditAction?.setOnEdit}
           >
-            <Button>
-              {tagConfig.ui?.primaryEditAction?.label ??
-                "Edit"}
+            <Button className="w-full sm:w-auto">
+              {tagConfig.ui?.primaryEditAction?.label ?? "Edit"}
             </Button>
           </AddEditEventDialog>
         )}
 
         {permissions.canDelete && (
-            <DeleteEventDialog
+          <DeleteEventDialog
+            className="w-full sm:w-auto"
             onConfirm={() => handleDelete(event.erpName, "ToDo")}
           />
         )}
-      </div>
+      </DetailFooter>
     </>
   );
 }

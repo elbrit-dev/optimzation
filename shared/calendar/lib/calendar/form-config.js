@@ -45,6 +45,10 @@ export const TAG_FORM_CONFIG = {
         },
         {
           columns: 1,
+          fields: ["postingDate"],
+        },
+        {
+          columns: 1,
           fields: ["description"],
         },
         {
@@ -52,12 +56,13 @@ export const TAG_FORM_CONFIG = {
           fields: ["attachment"],
         },
       ],
-    
+
       fields: {
         // startDate: { label: "Start Date", type: "date" },
         // status: { label: "Status", type: "text" },
         owner: { label: "Request By", type: "owner" },
         leave_approver: { label: "Approved By", type: "leave_approver" },
+        postingDate: { label: "Applied On", type: "date" },
         description: { label: "Reason", type: "text" },
         attachment: { label: "Attached File", type: "file" },
       },

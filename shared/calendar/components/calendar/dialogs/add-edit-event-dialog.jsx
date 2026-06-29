@@ -44,7 +44,22 @@ import TodoComments from "@calendar/components/calendar/module/todo/components/T
 import { Textarea } from "@calendar/components/ui/textarea";
 import { fetchEmployeeLeaveBalance, saveLeaveApplication, updateLeaveAttachment } from "@calendar/components/calendar/module/leave/services/leave.service";
 import { saveDocToErp } from "@calendar/components/calendar/module/todo/services/todo.service";
-import { resolveDepartmentRoleIds, resolveSuperiorShareUserIds } from "@calendar/lib/employeeHeirachy";
+import { resolveDepartmentRoleIds, resolveLoggedInRoleId, resolveSuperiorShareUserIds } from "@calendar/lib/employeeHeirachy";
+
+// Head-office teams that are allowed to apply for Half Day leave. Field-sales
+// users (BE/ABM/RBM/SM role profiles) do not get Half Day. Matched as a whole
+// segment of the role profile name (e.g. "IT-...", "...-HR-..."), so update this
+// list if the HO role-profile naming differs.
+const HEAD_OFFICE_ROLE_KEYWORDS = ["IT", "MIS", "HR", "PMT", "DESIGN"];
+
+function isHeadOfficeRole(roleId) {
+	if (!roleId) return false;
+	const segments = String(roleId)
+		.toUpperCase()
+		.split(/[^A-Z0-9]+/)
+		.filter(Boolean);
+	return segments.some((segment) => HEAD_OFFICE_ROLE_KEYWORDS.includes(segment));
+}
 
 export function AddEditEventDialog({ children, event, defaultTag, forceValues, startDate: initialStartDate }) {
 	const { isOpen, onClose, onOpen } = useDisclosure();
@@ -369,25 +384,49 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			null
 		);
 	}, [allEmployeeOptions, users]);
+	// Half Day leave is only for head-office teams (IT/MIS/HR/PMT/Design).
+	// Use the reliable role (custom_role_profile via the employee list), not the
+	// host-supplied me.roleId which can be stale.
+	const isHeadOfficeUser = useMemo(
+		() => isHeadOfficeRole(resolveLoggedInRoleId(users)),
+		[users]
+	);
 	// Event form picker: all employees under the user's department (not the role hierarchy).
 	const employeePickerOptions = useMemo(() => {
-		if (!currentUserRoleId || currentUserRoleId === "Admin") {
-			return allEmployeeOptions;
-		}
-		const departmentRoleIds = resolveDepartmentRoleIds(
-			elbritRoleEdges,
-			currentUserRoleId
+		const deptOptions =
+			!currentUserRoleId || currentUserRoleId === "Admin"
+				? allEmployeeOptions
+				: (() => {
+						const departmentRoleIds = resolveDepartmentRoleIds(
+							elbritRoleEdges,
+							currentUserRoleId
+						);
+						if (!departmentRoleIds.length) return allEmployeeOptions;
+						const allowedRoleIds = new Set(departmentRoleIds);
+						return allEmployeeOptions.filter(
+							(option) =>
+								option.value === LOGGED_IN_USER.id ||
+								(option.roleId && allowedRoleIds.has(option.roleId))
+						);
+				  })();
+
+		// On edit, keep already-attached participants selectable/visible even if
+		// they fall outside the user's department (older or cross-team events) —
+		// otherwise a required `employees`/`allocated_to` empties out and silently
+		// blocks the Update.
+		if (!isEditing || deptOptions === allEmployeeOptions) return deptOptions;
+
+		const present = new Set(deptOptions.map((option) => option.value));
+		const existingIds = new Set(
+			(event?.participants ?? [])
+				.filter((participant) => participant?.type === "Employee" && participant?.id)
+				.map((participant) => String(participant.id))
 		);
-		if (!departmentRoleIds.length) {
-			return allEmployeeOptions;
-		}
-		const allowedRoleIds = new Set(departmentRoleIds);
-		return allEmployeeOptions.filter(
-			(option) =>
-				option.value === LOGGED_IN_USER.id ||
-				(option.roleId && allowedRoleIds.has(option.roleId))
+		const extras = allEmployeeOptions.filter(
+			(option) => existingIds.has(option.value) && !present.has(option.value)
 		);
-	}, [allEmployeeOptions, currentUserRoleId, elbritRoleEdges]);
+		return extras.length ? [...deptOptions, ...extras] : deptOptions;
+	}, [allEmployeeOptions, currentUserRoleId, elbritRoleEdges, isEditing, event?.participants]);
 	const shareUsers = useMemo(() => {
 		if (users.length) {
 			return users;
@@ -504,6 +543,10 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 	useEffect(() => {
 		if (leavePeriod !== "Half") {
 			form.setValue("halfDayDate", undefined, {
+				shouldDirty: false,
+				shouldValidate: false,
+			});
+			form.setValue("halfDayPosition", "FIRST_DAY", {
 				shouldDirty: false,
 				shouldValidate: false,
 			});
@@ -806,6 +849,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			custom_force_visit_reason: "", leaveType: undefined,
 			leavePeriod: "Full",
 			halfDayDate: undefined,
+			halfDayPosition: "FIRST_DAY",
 			medicalAttachment: undefined, allocated_to: undefined,
 			assignedTo: [], custom_latitude: undefined, custom_longitude: undefined,
 			hqTerritory: "",
@@ -1267,11 +1311,11 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			});
 			delete leaveDoc.custom_attachement;
 
+			// No DocShare for leave — the approval workflow already routes the
+			// application to the leave approver, so sharing is redundant (and the
+			// approver may lack "Share" permission, which would fail the save).
 			const savedLeave = await saveLeaveApplication(leaveDoc, {
 				erpName: event?.erpName,
-				shareWithUserIds: superiorUserIds,
-				deferShareSync: false,
-				skipExistingShareCheck: !event?.erpName,
 			});
 
 			// 🚨 If backend returned null (GraphQL validation error case)
@@ -1788,7 +1832,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 							/>
 						)}
 						{/* ================= HALF DAY ================= */}
-						{selectedTag === TAG_IDS.LEAVE && (
+						{selectedTag === TAG_IDS.LEAVE && isHeadOfficeUser && (
 							<FormField
 								control={form.control}
 								name="leavePeriod"
@@ -1804,17 +1848,33 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 							/>
 						)}
 
-						{selectedTag === TAG_IDS.LEAVE && leavePeriod === "Half" && (
-							<RHFDateTimeField control={form.control} form={form} name="halfDayDate" label="Half Day Date" hideTime minDate={startDate} maxDate={endDate}
-								onChange={(date) => {
-									if (date < startDate || date > endDate) {
-										toast.error(
-											"Half Day date must be between From and To dates"
-										);
-										return;
-									}
-									form.setValue("halfDayDate", date);
-								}}
+						{selectedTag === TAG_IDS.LEAVE && isHeadOfficeUser && leavePeriod === "Half" && (
+							<FormField
+								control={form.control}
+								name="halfDayPosition"
+								render={({ field, fieldState }) => (
+									<RHFFieldWrapper
+										label="Which half day"
+										error={fieldState.error?.message}
+									>
+										<Select
+											value={field.value ?? "FIRST_DAY"}
+											onValueChange={field.onChange}
+										>
+											<SelectTrigger>
+												<SelectValue placeholder="Select half day" />
+											</SelectTrigger>
+											<SelectContent>
+												<SelectItem value="FIRST_DAY">
+													First day — second half
+												</SelectItem>
+												<SelectItem value="LAST_DAY">
+													Last day — first half
+												</SelectItem>
+											</SelectContent>
+										</Select>
+									</RHFFieldWrapper>
+								)}
 							/>
 						)}
 
@@ -2076,6 +2136,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 						showCaptureLocation={shouldShowRequestLocation}
 						onCaptureLocation={handleRequestLocation}
 						isResolvingLocation={isResolvingLocation}
+						onSubmit={form.handleSubmit(onSubmit, onInvalid)}
 					/>
 				</div>
 			</ModalContent>

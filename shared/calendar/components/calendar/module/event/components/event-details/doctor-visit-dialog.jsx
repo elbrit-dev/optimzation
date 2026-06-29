@@ -18,6 +18,11 @@ import { CircleCheck, Copy } from "lucide-react"
 import { useCallback } from "react";
 import DeleteEventDialog from "@calendar/components/calendar/dialogs/delete-event-dialog";
 import { DoctorNotesSection } from "@calendar/components/calendar/module/event/components/DoctorNotesSection";
+import { format, parseISO, isValid } from "date-fns";
+import {
+  DetailSummary,
+  DetailFooter,
+} from "@calendar/components/calendar/dialogs/event-details/detail-ui";
 /* =====================================================
    PURE HELPERS (NO LOGIC CHANGE)
 ===================================================== */
@@ -283,8 +288,18 @@ export function EventDoctorVisitDialog({
 
   return (
     <>
-      <ScrollArea className="max-h-[80vh]">
-        <div className="p-2 space-y-4">
+      <ScrollArea className="max-h-[68vh]">
+        <div className="p-1 space-y-4">
+          <DetailSummary
+            title={doctorDetails?.doctorName || "Doctor Visit"}
+            subtitle={
+              event.startDate && isValid(parseISO(event.startDate))
+                ? format(parseISO(event.startDate), "EEE, d MMM yyyy")
+                : null
+            }
+            status={isVisitCompleted ? "Completed" : event.status}
+            accentClassName="bg-emerald-500"
+          />
           {/* Doctor Section */}
           {doctorDetails?.doctorId && (
             <div className="space-y-1">
@@ -329,13 +344,44 @@ export function EventDoctorVisitDialog({
               )}
             </div>
           )}
+          {(event.hqTerritory ||
+            (event.distanceKm != null && Number(event.distanceKm) > 0)) && (
+            <div className="flex flex-wrap gap-x-6 gap-y-2">
+              {event.hqTerritory && (
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground/80">
+                    HQ Territory
+                  </p>
+                  <p className="text-[13px]">{event.hqTerritory}</p>
+                </div>
+              )}
+              {event.distanceKm != null && Number(event.distanceKm) > 0 && (
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground/80">
+                    Distance from doctor
+                  </p>
+                  <p className="text-[13px]">
+                    {Number(event.distanceKm).toFixed(2)} km
+                    {event.forceVisit ? (
+                      <span className="ml-1.5 rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold text-rose-700">
+                        Force visit
+                      </span>
+                    ) : null}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
           {event.owner && (
             <div>
-              <p className="text-sm font-medium mb-[4px]">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground/80">
                 Created By
               </p>
-              <p className="text-sm text-muted-foreground">
-                {event.ownerFullName} • {event.ownerEmployeeId} <br /> {event.ownerEmail}
+              <p className="text-[13px] text-muted-foreground">
+                {event.ownerFullName} • {event.ownerEmployeeId}
+                {event.ownerEmail ? (
+                  <span className="block text-[11px]">{event.ownerEmail}</span>
+                ) : null}
               </p>
             </div>
           )}
@@ -441,12 +487,13 @@ export function EventDoctorVisitDialog({
       </ScrollArea>
 
       {/* Footer */}
-      <div className="flex justify-end gap-2">
+      <DetailFooter>
         {permissions.canEdit && !isVisitCompleted && (
           <>
             {permissions.canJoin && (
               <Button
                 variant="success"
+                className="w-full sm:w-auto"
                 onClick={handleJoin}
               >
                 Join
@@ -457,6 +504,7 @@ export function EventDoctorVisitDialog({
               <>
                 <Button
                   variant="destructive"
+                  className="w-full sm:w-auto"
                   onClick={handleLeaveVisit}
                 >
                   Remove
@@ -468,7 +516,7 @@ export function EventDoctorVisitDialog({
                       ?.setOnEdit
                   }
                 >
-                  <Button>
+                  <Button className="w-full sm:w-auto">
                     {tagConfig.ui?.primaryEditAction
                       ?.label ?? "Visit"}
                   </Button>
@@ -481,10 +529,11 @@ export function EventDoctorVisitDialog({
 
         {permissions.canDelete && !hasParticipants && (
           <DeleteEventDialog
+            className="w-full sm:w-auto"
             onConfirm={() => handleDelete(event.erpName)}
           />
         )}
-      </div>
+      </DetailFooter>
     </>
   );
 }

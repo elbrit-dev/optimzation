@@ -153,6 +153,17 @@ export function buildEventDefaultValues({ event, defaultTag }) {
     halfDayDate: event?.halfDayDate
       ? new Date(event.halfDayDate)
       : undefined,
+    halfDayPosition:
+      (event?.half_day || event?.leavePeriod === "Half") &&
+      event?.halfDayDate &&
+      event?.endDate &&
+      event?.startDate &&
+      new Date(event.halfDayDate).toDateString() ===
+        new Date(event.endDate).toDateString() &&
+      new Date(event.startDate).toDateString() !==
+        new Date(event.endDate).toDateString()
+        ? "LAST_DAY"
+        : "FIRST_DAY",
     approvedBy: event?.approvedBy ?? "",
     attending: employeeParticipant?.attending ?? "",
     custom_latitude: employeeParticipant?.custom_latitude ?? undefined,

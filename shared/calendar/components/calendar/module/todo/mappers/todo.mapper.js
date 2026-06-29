@@ -63,7 +63,9 @@ export function mapErpTodoToCalendar(todo) {
       : undefined,
     allocated_to:
       todo.allocated_to__name || todo.allocated_to,
-    assignedTo
+    assignedTo,
+    referenceType: todo.reference_type ?? null,
+    referenceName: todo.reference_name ?? null,
   };
 }
 

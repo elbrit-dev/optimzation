@@ -9,7 +9,7 @@ import {EventBullet} from "@calendar/components/calendar/views/month-view/event-
 import { TAG_IDS } from "../../constants";
 
 const eventBadgeVariants = cva(
-    "mx-1 w-full flex size-auto h-3.5 md:h-6.5 select-none items-center justify-between gap-1.5 truncate whitespace-nowrap rounded-md border px-1 md:px-2 text-xs",
+    "mx-1 w-full flex size-auto h-3.5 md:h-6.5 select-none items-center justify-between gap-1.5 truncate whitespace-nowrap rounded-md border px-1 md:px-2 text-xs font-medium shadow-sm cursor-pointer transition-shadow hover:shadow",
     {
 		variants: {
 			color: {

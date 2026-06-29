@@ -98,7 +98,15 @@ export function useDeleteEvent({ removeEvent, onClose }) {
       onClose?.();
       toast.success("Event deleted successfully.");
     } catch (e) {
-      toast.error("Error deleting event.");
+      // Surface the real reason instead of a generic message. Meeting events
+      // carry a Google Calendar event + Meet link, and ERP can fail to tear
+      // that down on trash — showing the message makes it actionable.
+      const message =
+        e?.response?.errors?.[0]?.message ||
+        e?.graphQLErrors?.[0]?.message ||
+        e?.message ||
+        "Error deleting event.";
+      toast.error(message);
     } finally {
       deleteLockRef.current = false;
     }

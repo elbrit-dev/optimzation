@@ -240,6 +240,7 @@ export function FormFooter({
   showCaptureLocation,
   onCaptureLocation,
   isResolvingLocation,
+  onSubmit,
 }) {
   return (
     <ModalFooter className="gap-2 flex flex-row">
@@ -260,9 +261,15 @@ export function FormFooter({
         </Button>
       )}
 
+      {/* Submit programmatically via onClick rather than relying on the
+          form="event-form" association — that link is unreliable when this
+          footer lives outside the <form> and inside a nested modal/portal,
+          which is what broke Update on the edit dialog. The form's onSubmit
+          (Enter key) still works as a fallback. */}
       <Button
-        type="submit"
-        form="event-form"
+        type={onSubmit ? "button" : "submit"}
+        form={onSubmit ? undefined : "event-form"}
+        onClick={onSubmit}
         disabled={disabled || isResolvingLocation}
       >
         {isEditing ? "Update" : "Submit"}

@@ -22,9 +22,15 @@ export function mapFormToErpLeave(values,options = {}) {
   const { erpName } = options;
   const isHalf = values.leavePeriod === "Half";
   const fromDate = toERPDate(values.startDate);
-  const toDate = isHalf
-    ? fromDate
-    : toERPDate(values.endDate);
+  const toDate = toERPDate(values.endDate);
+
+  // The half day is one boundary day only: the first day's second half
+  // (half_day_date = from_date) or the last day's first half (= to_date).
+  const halfDayDate = isHalf
+    ? values.halfDayPosition === "LAST_DAY"
+      ? toDate
+      : fromDate
+    : null;
 
   const totalDays = calculateTotalLeaveDays(
     values.startDate,
@@ -39,9 +45,7 @@ export function mapFormToErpLeave(values,options = {}) {
     from_date: fromDate,
     to_date: toDate,
     half_day: isHalf ? 1 : 0,
-    half_day_date: isHalf
-      ? toERPDate(values.halfDayDate)
-      : null,
+    half_day_date: halfDayDate,
     total_leave_days: totalDays,
     description: values.description ?? "",
     posting_date: toERPDate(),
@@ -104,6 +108,7 @@ export function mapErpLeaveToCalendar(leave) {
     status: normalizedStatus,
     half_day: isHalfDay ? 1 : 0,
     total_leave_days: totalDays,
+    postingDate: leave.posting_date ?? null,
     halfDayDate: leave.half_day_date
       ? new Date(`${leave.half_day_date}T00:00:00`).toISOString()
       : "",

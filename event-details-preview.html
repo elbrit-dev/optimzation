@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Event Details — Final (compact + extras)</title>
+<style>
+  :root{
+    --bg:#eceff3; --surface:#fff; --ink:#111827; --muted:#6b7280; --faint:#9ca3af;
+    --line:#e9ecf1; --soft:#f5f7f9; --primary:#2563eb;
+    --meeting:#4f46e5; --doctor:#0d9488; --leave:#e11d48; --todo:#7c3aed; --hq:#7c3aed; --other:#2563eb;
+    --st-open:#d97706; --st-good:#059669; --st-bad:#e11d48; --st-pending:#4f46e5;
+  }
+  *{box-sizing:border-box} html,body{margin:0}
+  body{background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;line-height:1.45}
+  .wrap{max-width:1120px;margin:0 auto;padding:30px 18px 70px}
+  h1{font-size:21px;font-weight:700;letter-spacing:-.01em;margin:0}
+  .lede{margin:6px 0 22px;color:var(--muted);font-size:13.5px;max-width:72ch}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:22px}
+  @media (max-width:520px){.grid{grid-template-columns:1fr}}
+
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;
+    box-shadow:0 1px 2px rgba(16,24,40,.04),0 10px 26px rgba(16,24,40,.06);overflow:hidden}
+  .top{display:flex;align-items:center;justify-content:space-between;padding:8px 13px;border-bottom:1px solid var(--line);background:var(--soft)}
+  .top .tt{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+  .top .x{color:var(--faint);font-size:14px}
+  .pad{padding:12px}
+
+  .pill{display:inline-flex;align-items:center;border-radius:999px;padding:2px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.02em;color:#fff;white-space:nowrap}
+  .pill.open{background:var(--st-open)} .pill.good{background:var(--st-good)} .pill.bad{background:var(--st-bad)} .pill.pending{background:var(--st-pending)}
+
+  .sum{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);background:var(--soft);border-radius:10px;padding:11px}
+  .sum .bar{width:4px;align-self:stretch;border-radius:999px}
+  .sum .t{font-size:14px;font-weight:650;letter-spacing:-.01em;margin:0;line-height:1.3}
+  .sum .s{font-size:11.5px;color:var(--muted);margin:2px 0 0}
+  .sum .h{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+
+  .meet{display:flex;align-items:center;justify-content:center;gap:7px;margin-top:10px;
+    background:var(--primary);color:#fff;border-radius:9px;padding:8px;font-size:12.5px;font-weight:600;text-decoration:none}
+
+  .rows{display:flex;flex-direction:column;margin-top:6px}
+  .r{display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-top:1px solid var(--line)}
+  .r:first-child{border-top:0}
+  .r .ic{width:26px;height:26px;border-radius:7px;background:var(--soft);color:var(--faint);display:flex;align-items:center;justify-content:center;font-size:12px;flex:0 0 auto;margin-top:1px}
+  .r .lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--faint)}
+  .r .v{font-size:13px;margin-top:1px;line-height:1.4}
+  .r .v .sub{display:block;font-size:11px;color:var(--muted)}
+
+  .chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:2px}
+  .chip{display:inline-flex;align-items:center;gap:5px;background:var(--soft);border:1px solid var(--line);border-radius:999px;padding:2px 8px 2px 2px;font-size:11px;font-weight:500}
+  .chip .av{width:16px;height:16px;border-radius:999px;background:#dde7ff;color:#3457b8;font-size:8.5px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .badge{margin-left:6px;border-radius:999px;background:#ffe4e6;color:#be123c;padding:1px 6px;font-size:9.5px;font-weight:700}
+  .num{font-variant-numeric:tabular-nums}
+  .pob{border:1px solid var(--line);border-radius:8px;overflow:hidden;font-size:11px;margin-top:4px}
+  .pob .pr{display:grid;grid-template-columns:1fr 38px 64px;gap:6px;padding:5px 9px;border-bottom:1px solid var(--line)}
+  .pob .pr:last-child{border-bottom:0}.pob .ph{background:var(--soft);font-weight:650;color:var(--muted)}.pob .pt{background:#fafbfc;font-weight:700}
+  .prio-high{color:#dc2626;font-weight:650}
+
+  .foot{display:flex;gap:7px;justify-content:flex-end;padding:10px 12px;border-top:1px solid var(--line);background:var(--soft)}
+  .foot.split{justify-content:space-between}
+  .btn{font-size:11.5px;font-weight:600;border-radius:8px;padding:6px 13px;border:1px solid var(--line);background:#fff;color:var(--ink)}
+  .btn.pri{background:var(--primary);color:#fff;border-color:var(--primary)}
+  .btn.dan{background:var(--st-bad);color:#fff;border-color:var(--st-bad)}
+  .btn.gho{color:var(--st-bad);border-color:#f1c2cc}
+  .btn.suc{background:var(--st-good);color:#fff;border-color:var(--st-good)}
+  .new{display:inline-block;margin-left:6px;font-size:9px;font-weight:700;color:#0d9488;border:1px solid #99f6e4;border-radius:999px;padding:0 5px;vertical-align:middle}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Event details — final layout</h1>
+  <p class="lede">Compact Format A (single-column rows, small type, thumb-friendly actions) applied to all six types, with the useful extras wired in from ERP — marked <span class="new">NEW</span>.</p>
+
+  <div class="grid">
+
+    <!-- MEETING -->
+    <div class="card">
+      <div class="top"><span class="tt">Meeting</span><span class="x">✕</span></div>
+      <div class="pad">
+        <div class="sum"><span class="bar" style="background:var(--meeting)"></span><div style="flex:1;min-width:0">
+          <div class="h"><p class="t">Meeting to discuss with member</p><span class="pill open">Open</span></div>
+          <p class="s">Wed, 16 Jul 2026 · 9:00 AM – 10:00 AM</p></div></div>
+        <a class="meet" href="#">▶ Join Google Meet <span class="new" style="color:#fff;border-color:#ffffff66">NEW</span></a>
+        <div class="rows">
+          <div class="r"><span class="ic">👤</span><div><div class="lbl">Created by</div><div class="v">VinothKumar • E01044<span class="sub">vinoth1044.be@elbrit.org</span></div></div></div>
+          <div class="r"><span class="ic">👥</span><div><div class="lbl">Participants</div><div class="v"><div class="chips"><span class="chip"><span class="av">V</span>VinothKumar</span></div></div></div></div>
+          <div class="r"><span class="ic">≡</span><div><div class="lbl">Description</div><div class="v">Sync on the Cuddalore plan and next week’s targets.</div></div></div>
+        </div>
+      </div>
+      <div class="foot"><button class="btn">Edit</button><button class="btn dan">🗑 Delete</button></div>
+    </div>
+
+    <!-- OTHER -->
+    <div class="card">
+      <div class="top"><span class="tt">Other</span><span class="x">✕</span></div>
+      <div class="pad">
+        <div class="sum"><span class="bar" style="background:var(--other)"></span><div style="flex:1;min-width:0">
+          <div class="h"><p class="t">Region documentation review</p><span class="pill open">Open</span></div>
+          <p class="s">Mon, 29 Jun 2026</p></div></div>
+        <div class="rows">
+          <div class="r"><span class="ic">👤</span><div><div class="lbl">Created by</div><div class="v">Arokya Christopher L • E01099<span class="sub">christopher.abm@elbrit.org</span></div></div></div>
+          <div class="r"><span class="ic">👥</span><div><div class="lbl">Participants</div><div class="v"><div class="chips"><span class="chip"><span class="av">A</span>Arokya</span><span class="chip"><span class="av">V</span>VinothKumar</span></div></div></div></div>
+          <div class="r"><span class="ic">≡</span><div><div class="lbl">Description</div><div class="v">Collate monthly call reports before review.</div></div></div>
+        </div>
+      </div>
+      <div class="foot"><button class="btn">Edit</button><button class="btn dan">🗑 Delete</button></div>
+    </div>
+
+    <!-- HQ TOUR -->
+    <div class="card">
+      <div class="top"><span class="tt">HQ Tour Plan</span><span class="x">✕</span></div>
+      <div class="pad">
+        <div class="sum"><span class="bar" style="background:var(--hq)"></span><div style="flex:1;min-width:0">
+          <div class="h"><p class="t">HQ-Cuddalore</p><span class="pill open">Open</span></div>
+          <p class="s">Mon, 7 Jul → Wed, 9 Jul 2026</p></div></div>
+        <div class="rows">
+          <div class="r"><span class="ic">📍</span><div><div class="lbl">HQ Territory</div><div class="v">HQ-Cuddalore</div></div></div>
+          <div class="r"><span class="ic">👤</span><div><div class="lbl">Created by</div><div class="v">VinothKumar • E01044</div></div></div>
+        </div>
+      </div>
+      <div class="foot"><button class="btn">Edit</button><button class="btn dan">🗑 Delete</button></div>
+    </div>
+
+    <!-- DOCTOR VISIT -->
+    <div class="card">
+      <div class="top"><span class="tt">Doctor Visit plan</span><span class="x">✕</span></div>
+      <div class="pad">
+        <div class="sum"><span class="bar" style="background:var(--doctor)"></span><div style="flex:1;min-width:0">
+          <div class="h"><p class="t">Dr. Ramesh Babu</p><span class="pill good">Completed</span></div>
+          <p class="s">Tue, 8 Jul 2026 · Cardiology · DOC-1042</p></div></div>
+        <div class="rows">
+          <div class="r"><span class="ic">📍</span><div><div class="lbl">HQ Territory <span class="new">NEW</span></div><div class="v">HQ-Chennai</div></div></div>
+          <div class="r"><span class="ic">🧭</span><div><div class="lbl">Distance from doctor <span class="new">NEW</span></div><div class="v">0.32 km <span class="badge">Force visit</span></div></div></div>
+          <div class="r"><span class="ic">👤</span><div><div class="lbl">Created by</div><div class="v">VinothKumar • E01044</div></div></div>
+          <div class="r"><span class="ic">👥</span><div><div class="lbl">Participants</div><div class="v"><div class="chips"><span class="chip"><span class="av">V</span>VinothKumar · BE ✓</span></div></div></div></div>
+          <div class="r"><span class="ic">💊</span><div style="flex:1"><div class="lbl">POB · Yes</div>
+            <div class="pob"><div class="pr ph"><span>Item</span><span class="num">Qty</span><span class="num">Amt</span></div>
+              <div class="pr"><span>Calpol 500</span><span class="num">10</span><span class="num">450.00</span></div>
+              <div class="pr pt"><span>Total</span><span class="num">10</span><span class="num">450.00</span></div></div></div></div>
+        </div>
+      </div>
+      <div class="foot"><button class="btn pri">Visit</button></div>
+    </div>
+
+    <!-- LEAVE -->
+    <div class="card">
+      <div class="top"><span class="tt">Casual Leave</span><span class="x">✕</span></div>
+      <div class="pad">
+        <div class="sum"><span class="bar" style="background:var(--leave)"></span><div style="flex:1;min-width:0">
+          <div class="h"><p class="t">Casual Leave</p><span class="pill pending">Pending</span></div>
+          <p class="s">1–3 Jul 2026 · 2.5 days · 08 available</p></div></div>
+        <div class="rows">
+          <div class="r"><span class="ic">👤</span><div><div class="lbl">Request by</div><div class="v">VinothKumar<span class="sub">vinoth1044.be@elbrit.org</span></div></div></div>
+          <div class="r"><span class="ic">✓</span><div><div class="lbl">Approved by</div><div class="v">Arokya Christopher L</div></div></div>
+          <div class="r"><span class="ic">🗓</span><div><div class="lbl">Applied on <span class="new">NEW</span></div><div class="v">29 Jun 2026</div></div></div>
+          <div class="r"><span class="ic">≡</span><div><div class="lbl">Reason</div><div class="v">Family function. First-day 2nd half + next full day.</div></div></div>
+        </div>
+      </div>
+      <div class="foot split"><button class="btn gho">Reject</button><button class="btn suc">Approve</button></div>
+    </div>
+
+    <!-- TODO -->
+    <div class="card">
+      <div class="top"><span class="tt">Todo</span><span class="x">✕</span></div>
+      <div class="pad">
+        <div class="sum"><span class="bar" style="background:var(--todo)"></span><div style="flex:1;min-width:0">
+          <div class="h"><p class="t">Follow up with distributor on PO</p><span class="pill open">Open</span></div>
+          <p class="s">Due 5 Jul 2026 · in 3 days</p></div></div>
+        <div class="rows">
+          <div class="r"><span class="ic">👤</span><div><div class="lbl">Allocated to</div><div class="v">VinothKumar</div></div></div>
+          <div class="r"><span class="ic">⚑</span><div><div class="lbl">Priority</div><div class="v prio-high">High</div></div></div>
+          <div class="r"><span class="ic">👤</span><div><div class="lbl">Created by</div><div class="v">Arokya Christopher L • E01099</div></div></div>
+          <div class="r"><span class="ic">👥</span><div><div class="lbl">Visible to</div><div class="v"><div class="chips"><span class="chip"><span class="av">V</span>VinothKumar</span><span class="chip"><span class="av">K</span>Kalidasan P</span></div></div></div></div>
+          <div class="r"><span class="ic">🔗</span><div><div class="lbl">Linked to <span class="new">NEW</span></div><div class="v">Operational Tracker · Doctor Service-DR-00003069</div></div></div>
+          <div class="r"><span class="ic">≡</span><div><div class="lbl">Description</div><div class="v">Confirm dispatch date and share updated quantity.</div></div></div>
+        </div>
+      </div>
+      <div class="foot"><button class="btn pri">Edit</button><button class="btn dan">🗑 Delete</button></div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

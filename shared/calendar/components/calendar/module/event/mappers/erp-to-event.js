@@ -186,6 +186,7 @@ export function mapErpGraphqlEventToCalendar(node) {
 
     color,
     hqTerritory: node.custom_hq__name ?? "",
+    googleMeetLink: node.google_meet_link ?? null,
 
     isMultiDay:
       startDate &&

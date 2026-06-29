@@ -61,6 +61,7 @@ export const eventSchema = z
     leavePeriod: z.enum(["Full", "Half"]).optional(),
     medicalAttachment: z.any().optional(),
     halfDayDate: z.date().optional(),
+    halfDayPosition: z.enum(["FIRST_DAY", "LAST_DAY"]).optional(),
     approvedBy: z.string().optional(),
     assignedTo:z.any().optional(),
     /* ---------- Todo ---------- */
@@ -130,11 +131,11 @@ export const eventSchema = z
     if (
       data.tags === TAG_IDS.LEAVE &&
       data.leavePeriod === "Half" &&
-      !data.halfDayDate
+      !data.halfDayPosition
     ) {
       ctx.addIssue({
-        path: ["halfDayDate"],
-        message: "Half Day Date is required",
+        path: ["halfDayPosition"],
+        message: "Select which day is the half day",
         code: z.ZodIssueCode.custom,
       });
     }

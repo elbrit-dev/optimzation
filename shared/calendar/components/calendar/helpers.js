@@ -403,13 +403,19 @@ export function getPriorityClass(priority) {
 }
 
 export function getStatusBadgeClass(status) {
-	switch (status) {
-		case "Open":
-			return "bg-orange-400";
-		case "Closed":
-			return "bg-green-600";
-		case "Completed":
-			return "bg-green-600";
+	switch (String(status ?? "").trim().toLowerCase()) {
+		case "open":
+			return "bg-amber-500";
+		case "approved":
+		case "closed":
+		case "completed":
+			return "bg-emerald-600";
+		case "rejected":
+		case "cancelled":
+		case "canceled":
+			return "bg-rose-600";
+		case "pending":
+			return "bg-blue-500";
 		default:
 			return "bg-gray-400";
 	}

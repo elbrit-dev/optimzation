@@ -36,6 +36,7 @@ query EventsByRange(
         }
         reference_doctype__name
         reference_docname__name
+        google_meet_link
         custom_hq__name:${ERP_EVENT_FIELDS.hqRead}
         event_participants {
           reference_doctype__name
