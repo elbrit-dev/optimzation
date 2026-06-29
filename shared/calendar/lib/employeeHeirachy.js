@@ -17,10 +17,9 @@ export function resolveVisibleRoleIds(elbritEdges = []) {
 
   const visible = new Set();
 
-  // BE user -> only self + reporting officer (parent role)
+  // BE user -> only self
   if (!myNode.is_group) {
-    const parentId = myNode.parent_elbrit_role_id__name;
-    return parentId ? [myRoleId, parentId] : [myRoleId];
+    return [myRoleId];
   }
 
   const queue = [myRoleId];

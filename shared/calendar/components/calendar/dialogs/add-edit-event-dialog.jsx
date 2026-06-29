@@ -44,7 +44,7 @@ import TodoComments from "@calendar/components/calendar/module/todo/components/T
 import { Textarea } from "@calendar/components/ui/textarea";
 import { fetchEmployeeLeaveBalance, saveLeaveApplication, updateLeaveAttachment } from "@calendar/components/calendar/module/leave/services/leave.service";
 import { saveDocToErp } from "@calendar/components/calendar/module/todo/services/todo.service";
-import { resolveSuperiorShareUserIds } from "@calendar/lib/employeeHeirachy";
+import { resolveSuperiorRoleIds, resolveSuperiorShareUserIds } from "@calendar/lib/employeeHeirachy";
 
 export function AddEditEventDialog({ children, event, defaultTag, forceValues, startDate: initialStartDate }) {
 	const { isOpen, onClose, onOpen } = useDisclosure();
@@ -71,7 +71,6 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 	const [doctorSearchLoading, setDoctorSearchLoading] = useState(false);
 	const lastEmployeeSearchRef = useRef("");
 	const lastDoctorSearchRef = useRef("");
-	const employeePickerOptions = allEmployeeOptions;
 	const form = useForm({
 		resolver: zodResolver(eventSchema),
 		mode: "onChange",
@@ -370,6 +369,22 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			null
 		);
 	}, [allEmployeeOptions, users]);
+	// Event form picker: only the creator + their immediate reporting manager.
+	const employeePickerOptions = useMemo(() => {
+		if (!currentUserRoleId || currentUserRoleId === "Admin") {
+			return allEmployeeOptions;
+		}
+		const reportingManagerRoleId =
+			resolveSuperiorRoleIds(elbritRoleEdges, currentUserRoleId)[0] ?? null;
+		const allowedRoleIds = new Set(
+			[currentUserRoleId, reportingManagerRoleId].filter(Boolean)
+		);
+		return allEmployeeOptions.filter(
+			(option) =>
+				option.value === LOGGED_IN_USER.id ||
+				(option.roleId && allowedRoleIds.has(option.roleId))
+		);
+	}, [allEmployeeOptions, currentUserRoleId, elbritRoleEdges]);
 	const shareUsers = useMemo(() => {
 		if (users.length) {
 			return users;
