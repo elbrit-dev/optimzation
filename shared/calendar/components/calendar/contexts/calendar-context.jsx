@@ -3,7 +3,7 @@ import { createContext, useContext, useState, useEffect, useMemo, useCallback } 
 import { useLocalStorage } from "@calendar/components/calendar/hooks";
 import { fetchEventsByRange } from "@calendar/components/calendar/module/event/services/event.service";
 import { resolveCalendarRange } from "@calendar/lib/calendar/range";
-import { resolveVisibleEmployeeIds, resolveVisibleRoleIds } from "@calendar/lib/employeeHeirachy";
+import { resolveLoggedInRoleId, resolveVisibleEmployeeIds, resolveVisibleRoleIds } from "@calendar/lib/employeeHeirachy";
 import { useEmployeeResolvers } from "@calendar/lib/employeeResolver";
 import { fetchCalendarBootstrapData } from "@calendar/components/calendar/contexts/calendar-context/bootstrapping";
 import {
@@ -247,9 +247,9 @@ export function CalendarProvider({
 		return buildEmployeeRoleMap(users);
 	}, [users]);
 	const visibleRoleIds = useMemo(() => {
-		if (elbritRoleLoading) return [];
-		return resolveVisibleRoleIds(elbritRoleEdges);
-	}, [elbritRoleEdges, elbritRoleLoading]);
+		if (elbritRoleLoading || usersLoading) return [];
+		return resolveVisibleRoleIds(elbritRoleEdges, resolveLoggedInRoleId(users));
+	}, [elbritRoleEdges, elbritRoleLoading, users, usersLoading]);
 
 	const allowedEmployeeIds = useMemo(() => {
 		if (usersLoading || elbritRoleLoading) return [];
