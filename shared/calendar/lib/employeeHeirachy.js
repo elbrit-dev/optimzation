@@ -61,6 +61,30 @@ function buildRoleIndex(elbritEdges = []) {
   return { roleMap, childrenMap };
 }
 
+// All role_ids whose department falls under the given role's department
+// (department nested set: lft/rgt). Used by the event form employee picker.
+export function resolveDepartmentRoleIds(elbritEdges = [], roleId) {
+  if (!roleId) return [];
+
+  const nodes = elbritEdges.map((edge) => edge.node);
+  const myNode = nodes.find((node) => node.role_id === roleId);
+  if (!myNode || myNode.lft == null || myNode.rgt == null) return [];
+
+  const myLft = Number(myNode.lft);
+  const myRgt = Number(myNode.rgt);
+  if (Number.isNaN(myLft) || Number.isNaN(myRgt)) return [];
+
+  return nodes
+    .filter((node) => {
+      if (node.lft == null || node.rgt == null) return false;
+      const lft = Number(node.lft);
+      const rgt = Number(node.rgt);
+      if (Number.isNaN(lft) || Number.isNaN(rgt)) return false;
+      return lft >= myLft && rgt <= myRgt;
+    })
+    .map((node) => node.role_id);
+}
+
 export function resolveSuperiorRoleIds(
   elbritEdges = [],
   roleId
