@@ -40,12 +40,13 @@ const NovuInbox = ({
     if (typeof window !== "undefined") window.location.href = path;
   };
 
-  // Fires on notification (body) click, BEFORE Novu's own redirect navigation.
-  // Runs the optional Plasmic interaction, then falls back to /chat only when
-  // the notification itself carries no redirect URL (so we never double-navigate).
+  // Fires on notification (body) click. Navigation is driven ONLY by the
+  // notification's own redirect URL — Novu calls routerPush={navigate} with it.
+  // Invoice (snapshot) notifications carry redirect "/chat", so they open /chat;
+  // every other notification carries no redirect and simply stays readable in the
+  // inbox (the click just marks it read). No forced fallback redirect.
   const handleNotificationClick = (notification) => {
     if (typeof onNotificationClick === "function") onNotificationClick(notification);
-    if (!notification?.redirect?.url && fallbackRedirectPath) navigate(fallbackRedirectPath);
   };
 
   useEffect(() => {
