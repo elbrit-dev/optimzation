@@ -9,10 +9,20 @@ import { mapDoctors } from "@calendar/lib/helper";
 
 const MAX_ROWS = 1000; // safe upper bound
 
+// Only surface active employees — Left/Inactive employees may still carry stale
+// role profiles (with no ERP User) and would otherwise pollute the dropdowns and
+// break hierarchy-based DocShare (sharing with a user that no longer exists).
+const ACTIVE_EMPLOYEE_FILTER = {
+  fieldname: "status",
+  operator: "EQ",
+  value: "Active",
+};
+
 export async function fetchEmployeeNodes() {
   return getCached("EMPLOYEE_RAW", async () => {
     const data = await graphqlRequest(EMPLOYEES_QUERY, {
       first: MAX_ROWS,
+      filters: [ACTIVE_EMPLOYEE_FILTER],
     });
 
     return data?.Employees?.edges?.map(({ node }) => node) || [];
@@ -36,7 +46,7 @@ export async function fetchEmployees() {
 }
 
 export async function searchEmployees(search) {
-  const filters = [];
+  const filters = [ACTIVE_EMPLOYEE_FILTER];
 
   if (search?.trim()) {
     const term = `%${search.trim()}%`;

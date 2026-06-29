@@ -408,6 +408,29 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			currentUserRoleId
 		).filter((userId) => userId !== LOGGED_IN_USER.email);
 	}, [currentUserRoleId, elbritRoleEdges, isEditing, shareUsers]);
+	// Share basis by tag:
+	// - HQ Tour Plan / Doctor Visit Plan -> hierarchy (share up to superiors).
+	// - Meeting / Todo / Other -> team-based (share with the selected participants).
+	const collectParticipantShareEmails = (values) => {
+		const emails = new Set();
+		["employees", "allocated_to", "assignedTo"].forEach((field) => {
+			const value = values[field];
+			if (!value) return;
+			(Array.isArray(value) ? value : [value]).forEach((emp) => {
+				if (!emp) return;
+				const email =
+					typeof emp === "object"
+						? emp.email
+						: allEmployeeOptions.find((opt) => opt.value === emp)?.email;
+				if (email && email !== LOGGED_IN_USER.email) emails.add(email);
+			});
+		});
+		return [...emails];
+	};
+	const getShareUserIds = (values) =>
+		[TAG_IDS.HQ_TOUR_PLAN, TAG_IDS.DOCTOR_VISIT_PLAN].includes(values.tags)
+			? superiorUserIds
+			: collectParticipantShareEmails(values);
 	useEffect(() => {
 		if (!startDate || !endDate) return;
 
@@ -1101,7 +1124,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		}
 
 		const eventSavePromise = saveEvent(erpDoc, {
-			shareWithUserIds: superiorUserIds,
+			shareWithUserIds: getShareUserIds(values),
 			deferShareSync: false,
 			skipExistingShareCheck: !event?.erpName,
 		});
@@ -1301,7 +1324,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		});
 
 		const savedTodo = await saveDocToErp(todoDoc, {
-			shareWithUserIds: superiorUserIds,
+			shareWithUserIds: getShareUserIds(values),
 			deferShareSync: false,
 			skipExistingShareCheck: !event?.erpName,
 		});
