@@ -18,9 +18,9 @@ const pobItemSchema = z
       ])
       .transform((v) => (typeof v === "string" ? v : v.value)),
 
-    qty: z.number().min(1),
-    rate: z.number().min(0),
-    amount: z.number(),
+    qty: z.coerce.number().min(1),
+    rate: z.coerce.number().min(0),
+    amount: z.coerce.number(),
   })
   .superRefine((row, ctx) => {
     const expected = row.qty * row.rate;
@@ -48,7 +48,7 @@ export const eventSchema = z
     description: z.string().optional(),
     color: z.string().optional(),
     forceVisit: z.boolean().optional(),
-    distanceKm: z.number().nullable().optional(),
+    distanceKm: z.coerce.number().nullable().optional(),
     employees: z.any().optional(),
     doctor: z.any().optional(),
     allocated_to:z.any().optional(),
@@ -74,8 +74,8 @@ export const eventSchema = z
     roleId: z.string().optional(),
     leave_approver:z.string().optional(),
     attending: z.enum(["Yes", "No","Maybe",""]).optional(),
-    custom_latitude: z.number().optional(),
-    custom_longitude: z.number().optional(),
+    custom_latitude: z.coerce.number().nullable().optional(),
+    custom_longitude: z.coerce.number().nullable().optional(),
   })
   .superRefine((data, ctx) => {
     const config = TAG_FORM_CONFIG[data.tags] ?? TAG_FORM_CONFIG.DEFAULT;

@@ -558,6 +558,10 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 
 	useEffect(() => {
 		if (!isEditing) return;
+		// Only act when the edit form is actually open — this dialog also mounts
+		// (closed) behind the event-details popup, and we must not fetch device
+		// location then or it spams a geolocation toast on every detail open.
+		if (!isOpen) return;
 		endDateTouchedRef.current = true;
 
 		// 📍 Doctor Visit Plan: capture endDate ONCE
@@ -574,9 +578,11 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			endDateTouchedRef.current = true;
 		}
 
-		// existing geo logic (unchanged)
-		resolveLatLong(form, isEditing, toast);
-	}, [isEditing]);
+		// Location is only relevant to Doctor Visit Plans (force-visit distance).
+		if (selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN) {
+			resolveLatLong(form, isEditing, toast);
+		}
+	}, [isEditing, isOpen, selectedTag]);
 	/* ---------------------------------------------
 	  Load Calendar Google Calendar 
 	--------------------------------------------- */

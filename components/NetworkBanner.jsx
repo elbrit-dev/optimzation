@@ -32,6 +32,9 @@ const PROBE_BYTES = 500_000;     // background probe payload (~0.5 MB) — enoug
 const PROBE_TIMEOUT = 12_000;    // ms before a background probe is abandoned
 const GOOD_INTERVAL = 5 * 60_000;// re-probe every 5 min while the line is good
 const SLOW_INTERVAL = 60_000;    // re-probe every 60s while slow/offline (catches recovery)
+const FIRST_PROBE_DELAY = 1_500; // let the page finish loading before the very first probe
+const CONFIRM_DELAY = 1_500;     // after one "slow" reading, re-probe fast to confirm before showing
+const AUTO_CLOSE_DELAY = 2_500;  // after a manual test shows a good result, auto-dismiss
 const FULL_BYTES = 100_000_000;  // manual test ceiling (~100 MB); time-cap bounds slow links
 const FULL_TIME_CAP = 10_000;    // manual test runs at most ~10s
 
@@ -120,10 +123,12 @@ function ensureStyles() {
       display: flex; justify-content: center;
       padding: 0 12px; pointer-events: none;
     }
-    .esw-banner {
+    /* Two-class selector (specificity 0,2,0) so a Plasmic layout class on the
+       same element can't stretch the banner to full width. */
+    .esw-portal .esw-banner {
       pointer-events: auto;
       display: flex; align-items: center; gap: 10px;
-      width: 100%; max-width: 680px; box-sizing: border-box;
+      width: 100%; max-width: min(560px, calc(100vw - 32px)); box-sizing: border-box;
       padding: 10px 12px 10px 14px;
       border: 1px solid var(--esw-border); border-radius: 14px;
       background: var(--esw-bg); color: var(--esw-fg);
@@ -160,7 +165,7 @@ function ensureStyles() {
     @keyframes esw-slide-in  { from { opacity: 0; transform: translateY(-12px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes esw-slide-out { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-12px); } }
     @media (max-width: 480px) {
-      .esw-banner { font-size: 13px; gap: 8px; padding: 9px 9px 9px 11px; border-radius: 12px; }
+      .esw-portal .esw-banner { font-size: 13px; gap: 8px; padding: 9px 9px 9px 11px; border-radius: 12px; }
       .esw-icon { width: 26px; height: 26px; }
       .esw-hint { display: none; }
     }
@@ -190,6 +195,8 @@ export default function NetworkBanner({
   const probeCtrlRef = React.useRef(null);
   const testingRef = React.useRef(false);
   const lastShownRef = React.useRef(null);
+  const slowStreakRef = React.useRef(0);     // consecutive "slow" readings (confirmation gate)
+  const autoCloseRef = React.useRef(null);
 
   const isPreview = Boolean(demoSeverity || forceShow);
 
@@ -243,14 +250,31 @@ export default function NetworkBanner({
           : ["green", "Connected."];
       }
       if (!mountedRef.current) return;
-      applyStatus(next);
-      scheduleNext(next[0] === "green" ? GOOD_INTERVAL : SLOW_INTERVAL);
+
+      // Confirmation gate: a SINGLE slow reading is not trusted — the first probe
+      // often runs while the page is still loading (contention + TCP warm-up) and
+      // reads artificially low. Require two slow readings in a row before showing,
+      // and re-probe quickly to confirm. A good reading clears the streak and hides.
+      if (next[0] === "green") {
+        slowStreakRef.current = 0;
+        applyStatus(next);
+        scheduleNext(GOOD_INTERVAL);
+      } else {
+        slowStreakRef.current += 1;
+        if (slowStreakRef.current >= 2) {
+          applyStatus(next);                 // confirmed slow -> show
+          scheduleNext(SLOW_INTERVAL);
+        } else {
+          scheduleNext(CONFIRM_DELAY);       // first slow reading -> stay hidden, re-check soon
+        }
+      }
     }
 
     const kick = () => { clearTimeout(timerRef.current); runCheck(); };
     const onVisible = () => { if (!document.hidden) kick(); };
 
-    runCheck();
+    // Delay the first probe so it doesn't compete with the app's initial load.
+    timerRef.current = setTimeout(runCheck, FIRST_PROBE_DELAY);
     window.addEventListener("online", kick);
     window.addEventListener("offline", kick);
     connRef.current?.addEventListener?.("change", kick);
@@ -259,6 +283,7 @@ export default function NetworkBanner({
     return () => {
       mountedRef.current = false;
       clearTimeout(timerRef.current);
+      clearTimeout(autoCloseRef.current);
       probeCtrlRef.current?.abort();
       window.removeEventListener("online", kick);
       window.removeEventListener("offline", kick);
@@ -272,6 +297,7 @@ export default function NetworkBanner({
     if (testingRef.current || isPreview) return;
     testingRef.current = true;
     probeCtrlRef.current?.abort();            // stop any background probe first
+    clearTimeout(autoCloseRef.current);
     setLeaving(false);
     setTest({ running: true, mbps: 0, done: false });
 
@@ -294,13 +320,19 @@ export default function NetworkBanner({
     }
     testingRef.current = false;
     if (!mountedRef.current) return;
+    const result = mbpsToStatus(final);
+    const good = result[0] === "green";
     setTest({ running: false, mbps: final, done: true });
-    setStatus(mbpsToStatus(final));           // reflect the real result
+    setStatus(result);                        // reflect the real result
+    slowStreakRef.current = good ? 0 : 2;     // keep the background gate in sync with reality
+    // If the connection is actually fine, show the result briefly then close itself.
+    if (good) autoCloseRef.current = setTimeout(() => { if (mountedRef.current) setTest(null); }, AUTO_CLOSE_DELAY);
   }, [isPreview]);
 
   const handleClose = React.useCallback(
     (e) => {
       e?.stopPropagation?.();
+      clearTimeout(autoCloseRef.current);
       setTest(null);
       testingRef.current = false;
       probeCtrlRef.current?.abort();
