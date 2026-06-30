@@ -13,7 +13,7 @@ import TiptapViewer from "@calendar/components/ui/TiptapViewer";
 import TodoComments from "@calendar/components/calendar/module/todo/components/TodoCommentsSection";
 import { useDeleteEvent } from "@calendar/components/calendar/hooks";
 import DeleteEventDialog from "@calendar/components/calendar/dialogs/delete-event-dialog";
-import { Calendar, Link2, Text, User } from "lucide-react";
+import { Calendar, Text, User } from "lucide-react";
 import {
   DetailSummary,
   DetailItem,
@@ -212,12 +212,6 @@ export function EventTodoDialog({
             <DetailItem icon={User} label="Visible To">
               <PersonChips people={visibleTo} />
             </DetailItem>
-            {event.referenceName ? (
-              <DetailItem icon={Link2} label="Linked to">
-                {event.referenceType ? `${event.referenceType} · ` : ""}
-                {event.referenceName}
-              </DetailItem>
-            ) : null}
           </DetailGrid>
 
           <DetailItem icon={Text} label="Description">

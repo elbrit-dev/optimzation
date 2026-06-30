@@ -11,12 +11,6 @@ query ToDoes($first: Int!) {
         assigned_by:assigned_by__name
         allocated_to__name
         custom_subject
-        reference_type {
-          name
-        }
-        reference_name {
-          name
-        }
         custom_assigned_to {
           employee__name
         }

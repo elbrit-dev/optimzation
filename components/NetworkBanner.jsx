@@ -1,14 +1,45 @@
 import React from "react";
-import { Wifi, WifiOff, SignalLow, SignalMedium } from "lucide-react";
+import { createPortal } from "react-dom";
+import { Wifi, WifiOff, SignalLow, SignalMedium, Activity, X } from "lucide-react";
 
 /**
- * NetworkBanner — inline banner that warns when the browser connection is degraded.
- * Flows in normal document layout (full width of its container), auto-mounts with a
- * slide-down animation, and collapses to `display: none` when the connection is good.
- * Registered in Plasmic Studio; editor-only props (forceShow / demoSeverity) preview it.
+ * NetworkBanner — a floating overlay banner that warns when the connection is
+ * genuinely slow or offline.
+ *
+ * Why this exists / what changed:
+ *   The old version trusted `navigator.connection.effectiveType`. Chrome reports
+ *   that as a coarse *estimate* derived from recently-observed RTT, and on an idle
+ *   page it frequently reports "3g" even on a 300–500 Mbps LAN — producing a false
+ *   "Slow connection" banner. We now MEASURE real throughput with a tiny background
+ *   download probe (Cloudflare's public, CORS-enabled speed endpoint). A fast line
+ *   measures fast and the banner never appears.
+ *
+ * Behaviour:
+ *   - Renders into <body> via a portal as a `position: fixed` overlay at `top: 8vh`,
+ *     high z-index, so it floats above everything and takes no layout space.
+ *   - Auto-appears ONLY when a real measurement is slow (or the browser is offline).
+ *   - Click the banner -> runs a full, fast.com-style speed test with a live Mbps
+ *     readout (capped ~10s).
+ *   - The X button fully dismisses it for the session; it re-appears only if the
+ *     connection later degrades to a worse state (and resets once the line is good).
  */
 
 const STYLE_ID = "esw-network-banner-styles";
+
+// --- Measurement endpoint (Cloudflare's public speed test backend; CORS: *). ---
+const PROBE_URL = "https://speed.cloudflare.com/__down";
+const PROBE_BYTES = 500_000;     // background probe payload (~0.5 MB) — enough to classify
+const PROBE_TIMEOUT = 12_000;    // ms before a background probe is abandoned
+const GOOD_INTERVAL = 5 * 60_000;// re-probe every 5 min while the line is good
+const SLOW_INTERVAL = 60_000;    // re-probe every 60s while slow/offline (catches recovery)
+const FULL_BYTES = 100_000_000;  // manual test ceiling (~100 MB); time-cap bounds slow links
+const FULL_TIME_CAP = 10_000;    // manual test runs at most ~10s
+
+// Severity thresholds (Mbps). A 300 Mbps line measures far above these.
+const RED_BELOW = 1.5;
+const YELLOW_BELOW = 5;
+
+const RANK = { green: 0, yellow: 1, orange: 2, red: 3 };
 
 const THEME = {
   red:    { bg: "#fde8e8", fg: "#9b1c1c", border: "#f8b4b4", accent: "#e02424", Icon: WifiOff },
@@ -19,156 +50,357 @@ const THEME = {
 
 const PREVIEW = {
   red: "You are offline.",
-  orange: "Very slow network (0.9 Mbps). Things may load slowly.",
-  yellow: "Slow connection (2.4 Mbps).",
-  green: "Fast connection (12 Mbps).",
+  orange: "Very slow connection · 0.9 Mbps",
+  yellow: "Slow connection · 2.4 Mbps",
+  green: "Fast connection · 305 Mbps",
 };
 
-// [severityKey, humanMessage] for the current connection.
-// We deliberately ignore `downlink`: Chrome reports recently *observed* throughput
-// (often 1–4 Mbps on an idle page) rather than real bandwidth, which produces false
-// "slow network" banners on fast connections. `onLine` and `effectiveType` are stable.
-function getStatus(conn) {
-  if (typeof navigator !== "undefined" && !navigator.onLine) return ["red", "You are offline."];
-  if (conn && ["2g", "slow-2g"].includes(conn.effectiveType))
-    return ["red", "Very slow connection. The app may struggle."];
-  if (conn && conn.effectiveType === "3g")
-    return ["yellow", "Slow connection. Things may load slowly."];
-  return ["green", "Connected."]; // 4g, or no Network Information API (Safari/Firefox)
+function fmtMbps(m) {
+  if (!isFinite(m) || m <= 0) return "0";
+  if (m >= 100) return String(Math.round(m));
+  if (m >= 10) return m.toFixed(0);
+  return m.toFixed(1);
 }
 
-// Inject the keyframes/media-query CSS once (inline styles can't do either).
+// Map a measured throughput to a [severity, message]. Non-positive / NaN means the
+// probe was inconclusive (blocked/aborted) -> treat as good so we never cry wolf.
+function mbpsToStatus(mbps) {
+  if (!isFinite(mbps) || mbps <= 0) return ["green", "Connected."];
+  if (mbps < RED_BELOW) return ["red", `Very slow connection · ${fmtMbps(mbps)} Mbps`];
+  if (mbps < YELLOW_BELOW) return ["yellow", `Slow connection · ${fmtMbps(mbps)} Mbps`];
+  return ["green", `Fast connection · ${fmtMbps(mbps)} Mbps`];
+}
+
+/**
+ * Stream a download from the speed endpoint and measure real throughput in Mbps.
+ * Reports live progress via onProgress(mbps). Aborts on timeout (background) or
+ * time-cap (manual test) and still returns the throughput observed so far.
+ */
+async function measureMbps({ bytes, onProgress, signal, timeoutMs }) {
+  const ctrl = new AbortController();
+  const onAbort = () => ctrl.abort();
+  signal?.addEventListener?.("abort", onAbort);
+  const timer = timeoutMs ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
+
+  const start = performance.now();
+  let loaded = 0;
+  try {
+    const res = await fetch(`${PROBE_URL}?bytes=${bytes}&t=${Date.now()}`, {
+      cache: "no-store",
+      signal: ctrl.signal,
+    });
+    if (!res.ok || !res.body) throw new Error(`probe ${res.status}`);
+    const reader = res.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      loaded += value.byteLength;
+      const elapsed = (performance.now() - start) / 1000;
+      if (elapsed > 0 && onProgress) onProgress((loaded * 8) / (elapsed * 1e6));
+    }
+  } catch (e) {
+    // An abort (timeout / time-cap) is expected: fall through and use what we read.
+    if (e.name !== "AbortError" && loaded === 0) throw e;
+  } finally {
+    if (timer) clearTimeout(timer);
+    signal?.removeEventListener?.("abort", onAbort);
+  }
+  const elapsed = Math.max((performance.now() - start) / 1000, 0.001);
+  return (loaded * 8) / (elapsed * 1e6);
+}
+
 function ensureStyles() {
   if (typeof document === "undefined" || document.getElementById(STYLE_ID)) return;
   const el = document.createElement("style");
   el.id = STYLE_ID;
   el.textContent = `
-    .esw-banner-wrap { display: none; width: 100%; }
+    .esw-portal {
+      position: fixed; left: 0; right: 0; top: var(--esw-top, 8vh);
+      z-index: var(--esw-z, 2000000000);
+      display: flex; justify-content: center;
+      padding: 0 12px; pointer-events: none;
+    }
     .esw-banner {
+      pointer-events: auto;
       display: flex; align-items: center; gap: 10px;
-      width: 100%; box-sizing: border-box; padding: 10px 14px;
-      border: 1px solid var(--esw-border); border-radius: 12px;
+      width: 100%; max-width: 680px; box-sizing: border-box;
+      padding: 10px 12px 10px 14px;
+      border: 1px solid var(--esw-border); border-radius: 14px;
       background: var(--esw-bg); color: var(--esw-fg);
       font: 500 14px/1.35 inherit; cursor: pointer;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.16), 0 2px 8px rgba(0,0,0,0.08);
       transition: transform .12s ease, box-shadow .12s ease;
     }
-    .esw-banner:hover { box-shadow: 0 4px 14px rgba(0,0,0,0.08); }
-    .esw-banner:active { transform: scale(0.99); }
+    .esw-banner:hover { box-shadow: 0 14px 38px rgba(0,0,0,0.20), 0 3px 10px rgba(0,0,0,0.10); }
+    .esw-banner:active { transform: scale(0.995); }
     .esw-banner:focus-visible { outline: 2px solid var(--esw-accent); outline-offset: 2px; }
-    .esw-banner-hint { flex: 0 0 auto; font-size: 12px; font-weight: 600; opacity: 0.75; white-space: nowrap; }
-    .esw-banner-icon {
+    .esw-icon {
       flex: 0 0 auto; display: flex; align-items: center; justify-content: center;
-      width: 28px; height: 28px; border-radius: 8px;
+      width: 30px; height: 30px; border-radius: 9px;
       background: color-mix(in srgb, var(--esw-accent) 16%, transparent); color: var(--esw-accent);
     }
-    .esw-banner-msg { flex: 1 1 auto; min-width: 0; }
+    .esw-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+    .esw-msg { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .esw-sub { font-size: 12px; font-weight: 500; opacity: 0.78; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .esw-num { font-variant-numeric: tabular-nums; }
+    .esw-hint { flex: 0 0 auto; font-size: 12px; font-weight: 600; opacity: 0.7; white-space: nowrap; }
+    .esw-close {
+      flex: 0 0 auto; display: flex; align-items: center; justify-content: center;
+      width: 26px; height: 26px; padding: 0; margin-left: 2px;
+      border: none; border-radius: 8px; cursor: pointer;
+      background: transparent; color: inherit; opacity: 0.6;
+      transition: background .12s ease, opacity .12s ease;
+    }
+    .esw-close:hover { opacity: 1; background: color-mix(in srgb, var(--esw-fg) 12%, transparent); }
+    .esw-close:focus-visible { outline: 2px solid var(--esw-accent); outline-offset: 2px; }
+    .esw-spin { animation: esw-spin 1s linear infinite; }
     .esw-anim-enter { animation: esw-slide-in .28s cubic-bezier(.16,1,.3,1); }
     .esw-anim-exit  { animation: esw-slide-out .22s ease-in forwards; }
-    @keyframes esw-slide-in  { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
-    @keyframes esw-slide-out { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-8px); } }
+    @keyframes esw-spin { to { transform: rotate(360deg); } }
+    @keyframes esw-slide-in  { from { opacity: 0; transform: translateY(-12px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes esw-slide-out { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-12px); } }
     @media (max-width: 480px) {
-      .esw-banner { font-size: 13px; gap: 8px; padding: 9px 11px; border-radius: 10px; }
-      .esw-banner-icon { width: 24px; height: 24px; }
+      .esw-banner { font-size: 13px; gap: 8px; padding: 9px 9px 9px 11px; border-radius: 12px; }
+      .esw-icon { width: 26px; height: 26px; }
+      .esw-hint { display: none; }
     }
-    @media (prefers-reduced-motion: reduce) { .esw-anim-enter, .esw-anim-exit { animation: none; } }
+    @media (prefers-reduced-motion: reduce) { .esw-anim-enter, .esw-anim-exit, .esw-spin { animation: none; } }
   `;
   document.head.appendChild(el);
 }
 
 export default function NetworkBanner({
   showWhenFast = false,
+  topOffset = "8vh",
+  zIndex = 2000000000,
   forceShow = false,          // editor-only preview (Plasmic Studio)
   demoSeverity,               // "red" | "orange" | "yellow" | "green"
   className,
   style,
 }) {
-  const [state, setState] = React.useState(null);   // [severity, message] | null
+  const [mounted, setMounted] = React.useState(false);
+  const [status, setStatus] = React.useState(null);          // [severity, message] | null
   const [leaving, setLeaving] = React.useState(false);
-  const connRef = React.useRef(null);
-  const lastShownRef = React.useRef(null);
+  const [dismissedRank, setDismissedRank] = React.useState(-1);
+  const [test, setTest] = React.useState(null);              // { running, mbps, done } | null
 
-  React.useEffect(() => {
-    ensureStyles();
-    const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection || null;
-    connRef.current = conn;
-    const update = () => { if (!document.hidden) setState(getStatus(conn)); };
-    update();
-    window.addEventListener("online", update);
-    window.addEventListener("offline", update);
-    conn?.addEventListener?.("change", update);
-    document.addEventListener("visibilitychange", update);
-    const poll = setInterval(update, 3000); // catch silent speed drift
-    return () => {
-      window.removeEventListener("online", update);
-      window.removeEventListener("offline", update);
-      conn?.removeEventListener?.("change", update);
-      document.removeEventListener("visibilitychange", update);
-      clearInterval(poll);
-    };
-  }, []);
+  const mountedRef = React.useRef(true);
+  const connRef = React.useRef(null);
+  const timerRef = React.useRef(null);
+  const probeCtrlRef = React.useRef(null);
+  const testingRef = React.useRef(false);
+  const lastShownRef = React.useRef(null);
 
   const isPreview = Boolean(demoSeverity || forceShow);
 
-  // Re-check on click/keyboard; if the network recovered the banner unmounts.
-  const recheck = React.useCallback(() => {
-    if (isPreview) return;
-    setLeaving(false); // cancel any in-flight exit so the fresh state wins
-    setState(getStatus(connRef.current));
+  // ---- background detection loop -------------------------------------------
+  React.useEffect(() => {
+    if (isPreview) return;          // canvas preview: skip live probing
+    mountedRef.current = true;
+    ensureStyles();
+    setMounted(true);
+    connRef.current =
+      (typeof navigator !== "undefined" &&
+        (navigator.connection || navigator.mozConnection || navigator.webkitConnection)) ||
+      null;
+
+    const scheduleNext = (ms) => {
+      clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(runCheck, ms);
+    };
+
+    const applyStatus = (next) => {
+      if (!mountedRef.current) return;
+      setStatus(next);
+      if (next && next[0] === "green") setDismissedRank(-1); // line recovered -> allow future warnings
+    };
+
+    async function runCheck() {
+      if (!mountedRef.current) return;
+      // Don't probe while a manual test runs, or while the tab is hidden.
+      if (testingRef.current) return scheduleNext(SLOW_INTERVAL);
+      if (typeof document !== "undefined" && document.hidden) return scheduleNext(GOOD_INTERVAL);
+
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        applyStatus(["red", "You are offline."]);
+        return scheduleNext(SLOW_INTERVAL);
+      }
+
+      probeCtrlRef.current?.abort();
+      const ctrl = new AbortController();
+      probeCtrlRef.current = ctrl;
+
+      let next;
+      try {
+        const mbps = await measureMbps({ bytes: PROBE_BYTES, signal: ctrl.signal, timeoutMs: PROBE_TIMEOUT });
+        next = mbpsToStatus(mbps);
+      } catch {
+        // Probe blocked/failed (not a speed signal). Only escalate on the cheap 2g hint;
+        // never treat a plain failure or a "3g" guess as slow — that was the original bug.
+        const et = connRef.current?.effectiveType;
+        next = et === "2g" || et === "slow-2g"
+          ? ["red", "Very slow connection. The app may struggle."]
+          : ["green", "Connected."];
+      }
+      if (!mountedRef.current) return;
+      applyStatus(next);
+      scheduleNext(next[0] === "green" ? GOOD_INTERVAL : SLOW_INTERVAL);
+    }
+
+    const kick = () => { clearTimeout(timerRef.current); runCheck(); };
+    const onVisible = () => { if (!document.hidden) kick(); };
+
+    runCheck();
+    window.addEventListener("online", kick);
+    window.addEventListener("offline", kick);
+    connRef.current?.addEventListener?.("change", kick);
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      mountedRef.current = false;
+      clearTimeout(timerRef.current);
+      probeCtrlRef.current?.abort();
+      window.removeEventListener("online", kick);
+      window.removeEventListener("offline", kick);
+      connRef.current?.removeEventListener?.("change", kick);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [isPreview]);
 
+  // ---- manual, fast.com-style speed test (on click) ------------------------
+  const runFullTest = React.useCallback(async () => {
+    if (testingRef.current || isPreview) return;
+    testingRef.current = true;
+    probeCtrlRef.current?.abort();            // stop any background probe first
+    setLeaving(false);
+    setTest({ running: true, mbps: 0, done: false });
+
+    let final = 0;
+    let lastPaint = 0;                        // throttle live repaints to ~8/sec
+    try {
+      final = await measureMbps({
+        bytes: FULL_BYTES,
+        timeoutMs: FULL_TIME_CAP,
+        onProgress: (m) => {
+          const now = performance.now();
+          if (mountedRef.current && now - lastPaint >= 120) {
+            lastPaint = now;
+            setTest({ running: true, mbps: m, done: false });
+          }
+        },
+      });
+    } catch {
+      final = 0;
+    }
+    testingRef.current = false;
+    if (!mountedRef.current) return;
+    setTest({ running: false, mbps: final, done: true });
+    setStatus(mbpsToStatus(final));           // reflect the real result
+  }, [isPreview]);
+
+  const handleClose = React.useCallback(
+    (e) => {
+      e?.stopPropagation?.();
+      setTest(null);
+      testingRef.current = false;
+      probeCtrlRef.current?.abort();
+      const rank = lastShownRef.current ? RANK[lastShownRef.current[0]] ?? 0 : 0;
+      setDismissedRank(rank);                 // hide this (and milder) states for the session
+    },
+    []
+  );
+
+  // ---- derive what to render -----------------------------------------------
   let severity, message;
   if (isPreview) {
-    severity = demoSeverity || "orange";
+    severity = demoSeverity || "yellow";
     message = PREVIEW[severity] || "Network status preview.";
-  } else if (state) {
-    [severity, message] = state;
+  } else if (status) {
+    [severity, message] = status;
   }
-  const shouldShow = isPreview || (Boolean(severity) && !(severity === "green" && !showWhenFast));
 
-  // Remember the last shown content so the exit animation slides *it* out (not the recovered state).
+  const testing = Boolean(test && (test.running || test.done));
+  const sevRank = severity ? RANK[severity] ?? 0 : -1;
+  const statusWantsShow =
+    Boolean(severity) &&
+    !(severity === "green" && !showWhenFast) &&
+    sevRank > dismissedRank;
+  const shouldShow = isPreview || statusWantsShow || testing;
+
   if (shouldShow && severity) lastShownRef.current = [severity, message];
 
-  // Keep mounted briefly to play the exit animation.
+  // Keep mounted briefly to play the slide-out animation when hiding.
   React.useEffect(() => {
     if (!shouldShow && lastShownRef.current && !leaving && !isPreview) {
       setLeaving(true);
-      const t = setTimeout(() => { setLeaving(false); lastShownRef.current = null; }, 220);
+      const t = setTimeout(() => {
+        if (!mountedRef.current) return;
+        setLeaving(false);
+        lastShownRef.current = null;
+      }, 220);
       return () => clearTimeout(t);
     }
   }, [shouldShow, leaving, isPreview]);
 
+  if (!mounted && !isPreview) return null;            // SSR / pre-mount: render nothing
   ensureStyles();
 
-  // When idle, the root collapses with `display: none` so it occupies zero layout space.
   const [sev, msg] = shouldShow ? [severity, message] : (lastShownRef.current || []);
-  const hasContent = (shouldShow || leaving) && Boolean(sev);
-  const c = THEME[sev] || THEME.green;
-  const Icon = c.Icon;
+  const hasContent = (shouldShow || leaving) && Boolean(sev || testing);
+  if (!hasContent) return null;
 
-  // The whole wrapper is hidden with `display: none` when there's nothing to show,
-  // so the entire banner (not just an inner part) is removed from layout. The inner
-  // banner is always rendered; its slide-in animation replays each time the wrapper
-  // goes from `display: none` back to visible.
-  return (
+  // While testing, theme/icon follow the live measurement.
+  const liveSev = testing ? mbpsToStatus(test.mbps || 0)[0] : sev;
+  const c = THEME[(testing ? liveSev : sev)] || THEME.yellow;
+  const Icon = test?.running ? Activity : c.Icon;
+
+  let title, sub;
+  if (test?.running) {
+    title = "Testing your connection…";
+    sub = `${fmtMbps(test.mbps)} Mbps`;
+  } else if (test?.done) {
+    title = "Your connection";
+    const verdict = test.mbps >= YELLOW_BELOW ? "looks good" : test.mbps >= RED_BELOW ? "is a bit slow" : "is very slow";
+    sub = `${fmtMbps(test.mbps)} Mbps · ${verdict}`;
+  } else {
+    title = msg;
+  }
+
+  const banner = (
     <div
-      className={`esw-banner-wrap${className ? ` ${className}` : ""}`}
+      className="esw-portal"
       aria-hidden={hasContent ? undefined : "true"}
-      style={{ ...style, display: hasContent ? "block" : "none" }}
+      style={{ "--esw-top": topOffset, "--esw-z": zIndex }}
     >
       <div
         role="button"
         tabIndex={0}
         aria-live="polite"
-        title="Click to re-check your connection"
-        onClick={recheck}
-        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); recheck(); } }}
-        className={`esw-banner ${leaving ? "esw-anim-exit" : "esw-anim-enter"}`}
-        style={{ "--esw-bg": c.bg, "--esw-fg": c.fg, "--esw-border": c.border, "--esw-accent": c.accent }}
+        title="Click to run a speed test"
+        onClick={() => { if (!test?.running) runFullTest(); }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (!test?.running) runFullTest(); }
+        }}
+        className={`esw-banner ${leaving ? "esw-anim-exit" : "esw-anim-enter"}${className ? ` ${className}` : ""}`}
+        style={{ "--esw-bg": c.bg, "--esw-fg": c.fg, "--esw-border": c.border, "--esw-accent": c.accent, ...style }}
       >
-        <span className="esw-banner-icon"><Icon size={18} strokeWidth={2.25} /></span>
-        <span className="esw-banner-msg">{msg}</span>
-        <span className="esw-banner-hint" aria-hidden="true">Tap to retry</span>
+        <span className="esw-icon">
+          <Icon size={18} strokeWidth={2.25} className={test?.running ? "esw-spin" : undefined} />
+        </span>
+        <span className="esw-body">
+          <span className="esw-msg">{title}</span>
+          {sub ? <span className="esw-sub esw-num">{sub}</span> : null}
+        </span>
+        {!testing ? <span className="esw-hint" aria-hidden="true">Tap to test</span> : null}
+        <button type="button" className="esw-close" aria-label="Dismiss" onClick={handleClose}>
+          <X size={16} strokeWidth={2.5} />
+        </button>
       </div>
     </div>
   );
+
+  // Portal to <body> so the fixed overlay is never clipped by a parent's overflow
+  // or transform, and floats above everything regardless of where it's placed.
+  if (isPreview || typeof document === "undefined") return banner;
+  return createPortal(banner, document.body);
 }
