@@ -41,6 +41,7 @@ import { calculateDistanceKm, findOverlappingHqEvent, getDisabledHqDates } from 
 import { useDoctorResolvers } from "@calendar/lib/doctorResolver";
 import { DoctorNotesSection } from "../module/event/components/DoctorNotesSection";
 import TodoComments from "@calendar/components/calendar/module/todo/components/TodoCommentsSection";
+import { ErrorBoundary } from "@calendar/components/ui/error-boundary";
 import { Textarea } from "@calendar/components/ui/textarea";
 import { fetchEmployeeLeaveBalance, saveLeaveApplication, updateLeaveAttachment } from "@calendar/components/calendar/module/leave/services/leave.service";
 import { saveDocToErp } from "@calendar/components/calendar/module/todo/services/todo.service";
@@ -1330,7 +1331,14 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 				return;
 			}
 
-			if (requiresMedical && values.medicalAttachment) {
+			// Only upload when a NEW file was chosen. On edit, an existing
+			// attachment comes back as a URL string (already on the doc) — trying
+			// to re-upload that string fails with "file_name/file_url must be set".
+			const hasNewMedicalFile =
+				values.medicalAttachment &&
+				typeof values.medicalAttachment !== "string";
+
+			if (requiresMedical && hasNewMedicalFile) {
 				const uploadResult = await uploadLeaveMedicalCertificate(
 					values,
 					savedLeave.name,
@@ -2166,7 +2174,9 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 							/>
 						)}
 						{selectedTag === TAG_IDS.TODO_LIST && event?.erpName && (
-							<TodoComments todoName={event.erpName} />
+							<ErrorBoundary>
+								<TodoComments todoName={event.erpName} />
+							</ErrorBoundary>
 						)}
 					</form>
 				</Form>
