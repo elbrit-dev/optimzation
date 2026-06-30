@@ -329,18 +329,26 @@ export default function NetworkBanner({
 
   if (shouldShow && severity) lastShownRef.current = [severity, message];
 
-  // Keep mounted briefly to play the slide-out animation when hiding.
+  // Toggle the slide-out when we go from shown -> hidden (or cancel it on re-show).
+  // NOTE: this MUST NOT depend on `leaving`, or it would re-run the instant it sets
+  // `leaving`, and its own cleanup would cancel the unmount timer below — leaving the
+  // banner stuck in the DOM at opacity 0 ("invisible but still there").
   React.useEffect(() => {
-    if (!shouldShow && lastShownRef.current && !leaving && !isPreview) {
-      setLeaving(true);
-      const t = setTimeout(() => {
-        if (!mountedRef.current) return;
-        setLeaving(false);
-        lastShownRef.current = null;
-      }, 220);
-      return () => clearTimeout(t);
-    }
-  }, [shouldShow, leaving, isPreview]);
+    if (isPreview) return;
+    if (shouldShow) { setLeaving(false); return; }
+    if (lastShownRef.current) setLeaving(true);
+  }, [shouldShow, isPreview]);
+
+  // Once the slide-out has played, fully unmount by clearing the remembered state.
+  React.useEffect(() => {
+    if (!leaving) return;
+    const t = setTimeout(() => {
+      if (!mountedRef.current) return;
+      setLeaving(false);
+      lastShownRef.current = null;
+    }, 240);
+    return () => clearTimeout(t);
+  }, [leaving]);
 
   if (!mounted && !isPreview) return null;            // SSR / pre-mount: render nothing
   ensureStyles();
