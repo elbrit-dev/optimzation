@@ -26,6 +26,14 @@ export function buildEmployeeRoleMap(users = []) {
 export function getEventEmployeeIds(event, employeeEmailToId) {
   const ids = new Set();
 
+  // The creator/owner must always be able to see their own event, even when
+  // they didn't add themselves as a participant (e.g. a meeting where only a
+  // colleague was invited).
+  const ownerId = event.ownerEmployeeId ?? event.owner?.id ?? null;
+  if (ownerId) {
+    ids.add(ownerId);
+  }
+
   if (event.event_participants?.length) {
     event.event_participants.forEach((participant) => {
       if (

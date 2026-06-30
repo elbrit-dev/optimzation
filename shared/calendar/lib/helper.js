@@ -68,6 +68,7 @@ export function showFirstFormErrorAsToast(errors) {
 
   const message = findError(errors);
   if (message) toast.error(message);
+  return message ?? null;
 }
 
 export function getAvailableItems(allItems, selectedRows, currentValue) {

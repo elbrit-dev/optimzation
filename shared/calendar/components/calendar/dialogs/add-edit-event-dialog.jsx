@@ -1203,7 +1203,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		ensureDoctorOptionsAvailable(values.doctor);
 		upsertCalendarEvent(calendarEvent);
 
-		finalize("Event updated");
+		finalize(isEditing ? "Event updated" : "Event created");
 	};
 	const handleDoctorVisitPlan = async (values) => {
 		const normalizedDoctors = (Array.isArray(values.doctor)
@@ -1348,7 +1348,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			});
 
 			upsertCalendarEvent(calendarLeave);
-			finalize("Leave applied successfully");
+			finalize(isEditing ? "Leave updated successfully" : "Leave applied successfully");
 
 		} catch (error) {
 			console.error("Leave submission error:", error);
@@ -1383,10 +1383,13 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 
 		upsertCalendarEvent(calendarTodo);
 
-		finalize("Todo saved");
+		finalize(isEditing ? "Todo updated" : "Todo created");
 	};
 	const onInvalid = (errors) => {
-		showFirstFormErrorAsToast(errors);
+		const shown = showFirstFormErrorAsToast(errors);
+		if (!shown) {
+			toast.error("Please fill in all required fields before submitting.");
+		}
 	};
 	const submitHandlers = useSubmissionRouter({
 		isEditing,
@@ -1416,16 +1419,49 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 						allowedEmployeeIds,
 						currentEventId:
 							event?.erpName,
+						hqTerritory: values.hqTerritory,
 					});
 
 				if (conflict) {
 					toast.error(
-						"HQ Tour Plan already exists for the selected date range."
+						`An HQ Tour Plan for ${values.hqTerritory || "this HQ"} already exists on the selected date.`
 					);
 
 					return;
 				}
 			}
+
+			// A doctor can't be visited twice on the same day. Different doctors
+			// on the same day, or the same doctor on different days, are fine.
+			if (values.tags === TAG_IDS.DOCTOR_VISIT_PLAN) {
+				const selectedDay = startOfDay(new Date(values.startDate)).getTime();
+				const selectedDoctorIds = (
+					Array.isArray(values.doctor) ? values.doctor : [values.doctor]
+				)
+					.map((d) => (typeof d === "object" ? d?.value : d))
+					.filter(Boolean);
+
+				const clash = events.find((ev) => {
+					if (ev.tags !== TAG_IDS.DOCTOR_VISIT_PLAN) return false;
+					if (event?.erpName && ev.erpName === event.erpName) return false;
+					if (
+						startOfDay(new Date(ev.startDate)).getTime() !== selectedDay
+					)
+						return false;
+					const evDoctorIds = (
+						Array.isArray(ev.doctor) ? ev.doctor : [ev.doctor]
+					).filter(Boolean);
+					return selectedDoctorIds.some((id) => evDoctorIds.includes(id));
+				});
+
+				if (clash) {
+					toast.error(
+						"A visit for this doctor is already planned on the selected day."
+					);
+					return;
+				}
+			}
+
 			await handler(values);
 		} catch (error) {
 			console.error("Submit error:", error);

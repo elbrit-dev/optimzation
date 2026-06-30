@@ -92,20 +92,21 @@ export function getVisibleHqEvents(
 	endDate,
 	allowedEmployeeIds,
 	currentEventId,
+	hqTerritory,
   }) {
 	const selectedStart = startOfDay(
 	  new Date(startDate)
 	);
-  
+
 	const selectedEnd = endOfDay(
 	  new Date(endDate)
 	);
-  
+
 	const hqEvents = getVisibleHqEvents(
 	  events,
 	  allowedEmployeeIds
 	);
-  
+
 	return hqEvents.find((ev) => {
 	  // Ignore current record during edit
 	  if (
@@ -114,15 +115,21 @@ export function getVisibleHqEvents(
 	  ) {
 		return false;
 	  }
-  
+
+	  // Only the SAME HQ on overlapping days is a conflict — a different HQ on
+	  // the same day is allowed.
+	  if (hqTerritory && ev.hqTerritory && ev.hqTerritory !== hqTerritory) {
+		return false;
+	  }
+
 	  const eventStart = startOfDay(
 		new Date(ev.startDate)
 	  );
-  
+
 	  const eventEnd = endOfDay(
 		new Date(ev.endDate)
 	  );
-  
+
 	  return (
 		selectedStart <= eventEnd &&
 		selectedEnd >= eventStart

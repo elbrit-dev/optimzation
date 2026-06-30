@@ -16,7 +16,7 @@ export function Calendar() {
     <CalendarProvider  view="month">
       <NotificationToast />
       <DndProvider showConfirmation={false}>
-        <div className="h-screen w-full overflow-hidden flex flex-col">
+        <div className="h-full min-h-0 w-full overflow-hidden flex flex-col">
           {isMobile ? <MobileCalendarHeader /> : <CalendarHeader />}
           {/* ===== Desktop Split Layout ===== */}
           <div className="flex flex-1 overflow-hidden">

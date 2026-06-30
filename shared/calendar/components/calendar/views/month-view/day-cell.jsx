@@ -39,7 +39,7 @@ export const dayCellVariants = cva("text-white", {
   },
 });
 
-const MAX_VISIBLE_EVENTS_DESKTOP = 3;
+const MAX_VISIBLE_EVENTS_DESKTOP = 2;
 const MAX_VISIBLE_EVENTS_MOBILE = 1;
 
 
