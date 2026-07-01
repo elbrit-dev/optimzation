@@ -150,7 +150,7 @@ export function EventLeaveDialog({
 						</AddEditEventDialog>
 
 						<DeleteEventDialog
-							onConfirm={() => handleDelete(event.erpName, "Leave Application")}
+							onConfirm={() => handleDelete(event.erpName, "Leave Application", event)}
 						/>
 					</>
 				)}

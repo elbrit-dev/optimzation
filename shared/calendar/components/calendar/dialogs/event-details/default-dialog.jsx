@@ -24,10 +24,13 @@ export function EventDefaultDialog({
   const deleteLockRef = useRef(false);
   const tagConfig = TAG_FORM_CONFIG[event.tags] ?? TAG_FORM_CONFIG.DEFAULT;
 
+  const isFailedSync = event?.__syncStatus === "failed";
   const canDelete =
-    tagConfig.ui?.allowDelete?.(event) ?? true;
+    isFailedSync ||
+    (tagConfig.ui?.allowDelete?.(event) ?? true);
   const canEdit =
-    tagConfig.ui?.allowEdit?.(event) ?? true;
+    isFailedSync ||
+    (tagConfig.ui?.allowEdit?.(event) ?? true);
   const editAction = tagConfig.ui?.primaryEditAction;
   const enrichedParticipants = useMemo(() => {
     return buildParticipantsWithDetails(
@@ -67,7 +70,7 @@ export function EventDefaultDialog({
 
         {canDelete && (
          <DeleteEventDialog
-         onConfirm={() => handleDelete(event.erpName)}
+         onConfirm={() => handleDelete(event.erpName, undefined, event)}
        />
         )}
       </div>

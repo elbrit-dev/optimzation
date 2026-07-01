@@ -6,6 +6,7 @@ export function mapDoctorVisitToQuotation({
   values,
   doctorId,
   existingName,
+  eventName,
 }) {
   return {
     doctype: "Quotation",
@@ -13,6 +14,7 @@ export function mapDoctorVisitToQuotation({
 
     quotation_to: "Customer",
     party_name: values.customer,
+    ...(eventName && { custom_event: eventName }),
     custom_doctorvisit:doctorId,
     transaction_date: formatDateForERP(values.startDate),
     valid_till: formatDateForERP(values.endDate),

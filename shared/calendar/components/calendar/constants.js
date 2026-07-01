@@ -88,11 +88,11 @@ export const STATUS_BY_TAG = {
     STATUS.CANCELLED,
   ],
 
-  [TAG_IDS.OTHER]: [
-    STATUS.OPEN,
-    STATUS.CLOSED,
-    STATUS.CANCELLED,
-  ],
+  // [TAG_IDS.OTHER]: [
+  //   STATUS.OPEN,
+  //   STATUS.CLOSED,
+  //   STATUS.CANCELLED,
+  // ],
 };
 export const TAGS = [
   { id: TAG_IDS.LEAVE, label: "Leave" },
@@ -100,7 +100,7 @@ export const TAGS = [
   { id: TAG_IDS.DOCTOR_VISIT_PLAN, label: "DR Tour Plan" },
   { id: TAG_IDS.TODO_LIST, label: "Todo List" },
   { id: TAG_IDS.MEETING, label: "Meeting" },
-  { id: TAG_IDS.OTHER, label: "Other" },
+  // { id: TAG_IDS.OTHER, label: "Other" },
 ];
 export const PARTICIPANT_SOURCE_BY_TAG = {
   [TAG_IDS.LEAVE]: ["EMPLOYEE"],
@@ -108,7 +108,7 @@ export const PARTICIPANT_SOURCE_BY_TAG = {
   [TAG_IDS.MEETING]: ["EMPLOYEE"],
   [TAG_IDS.DOCTOR_VISIT_PLAN]: ["EMPLOYEE", "DOCTOR"],
   [TAG_IDS.TODO_LIST]: ["EMPLOYEE"],
-  [TAG_IDS.OTHER]: ["EMPLOYEE", "DOCTOR"],
+  // [TAG_IDS.OTHER]: ["EMPLOYEE", "DOCTOR"],
 };
 export function buildEventDefaultValues({ event, defaultTag }) {
   const now = new Date();
@@ -144,6 +144,9 @@ export function buildEventDefaultValues({ event, defaultTag }) {
     reportTo: event?.reportTo ?? "",
     medicalAttachment: event?.medicalAttachment ?? "",
     allDay: event?.allDay ?? false,
+    enableGoogleMeet:
+      event?.enableGoogleMeet ??
+      Boolean(event?.googleMeetLink),
     status: event?.status,
     priority: event?.priority,
     leavePeriod:

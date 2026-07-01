@@ -7,6 +7,7 @@ import { DraggableEvent } from "@calendar/components/calendar/dnd/draggable-even
 import { formatTime } from "@calendar/components/calendar/helpers";
 import {EventBullet} from "@calendar/components/calendar/views/month-view/event-bullet";
 import { TAG_IDS } from "../../constants";
+import { SyncStatusBadge } from "@calendar/components/calendar/sync/sync-status-badge";
 
 const eventBadgeVariants = cva(
     "mx-1 w-full flex size-auto h-3.5 md:h-6.5 select-none items-center justify-between gap-1.5 truncate whitespace-nowrap rounded-md border px-1 md:px-2 text-xs font-medium shadow-sm cursor-pointer transition-shadow hover:shadow",
@@ -109,6 +110,8 @@ export function MonthEventBadge({
 							</p>
 						)}
 					</div>
+
+					<SyncStatusBadge event={event} className="hidden md:flex text-[10px]" />
 
 					{/* <div className="hidden sm:block">
 						{renderBadgeTime && (

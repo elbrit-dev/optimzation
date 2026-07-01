@@ -12,6 +12,15 @@ import {
 	buildLeaveNotifications,
 	filterCalendarEvents,
 } from "@calendar/components/calendar/contexts/calendar-context/selectors";
+import {
+	discardQueuedSubmission,
+	mergeServerEventsWithQueuedEvents,
+	processSubmissionQueue,
+	pruneSubmissionQueueOnStartup,
+	subscribeSubmissionQueue,
+} from "@calendar/lib/calendar/submission-queue";
+import { useAuth } from "@calendar/components/auth/auth-context";
+import { toast } from "sonner";
 
 const DEFAULT_SETTINGS = {
 	badgeVariant: "colored",
@@ -28,6 +37,7 @@ export function CalendarProvider({
 	badge = "colored",
 	view = "day"
 }) {
+	const { erpUrl, authToken } = useAuth();
 	const [settings, setSettings] = useLocalStorage("calendar-settings", {
 		...DEFAULT_SETTINGS,
 		badgeVariant: badge,
@@ -42,7 +52,8 @@ export function CalendarProvider({
 	const [selectedUserId, setSelectedUserId] =  useState([]);
 	const [selectedColors, setSelectedColors] = useState([]);
 	const [selectedStatuses, setSelectedStatuses] = useState([]);
-	const [allEvents, setAllEvents] = useState(events || []);
+	const [serverEvents, setServerEvents] = useState(events || []);
+	const [queueEvents, setQueueEvents] = useState([]);
 	// const [filteredEvents, setFilteredEvents] = useState(events || []);
 	const [notifications, setNotifications] = useState([]);
 	const [users, setUsers] = useState([]);
@@ -131,7 +142,7 @@ export function CalendarProvider({
 			startDate: new Date(event.startDate).toISOString(),
 			endDate: new Date(event.endDate).toISOString(),
 		};
-		setAllEvents((prev) => [...prev, normalized]);
+		setServerEvents((prev) => [...prev, normalized]);
 		// setFilteredEvents((prev) => [...prev, normalized]);
 	};
 
@@ -147,7 +158,7 @@ export function CalendarProvider({
 			endDate: new Date(updatedEvent.endDate).toISOString(),
 		};
 
-		setAllEvents((prev) =>
+		setServerEvents((prev) =>
 			prev.map((e) =>
 				e.erpName === normalized.erpName ? normalized : e
 			)
@@ -158,7 +169,7 @@ export function CalendarProvider({
 	const removeEvent = (erpName) => {
 		if (!erpName) return;
 
-		setAllEvents(prev => prev.filter(e => e.erpName !== erpName));
+		setServerEvents(prev => prev.filter(e => e.erpName !== erpName));
 		// setFilteredEvents(prev => prev.filter(e => e.erpName !== erpName));
 	};
 
@@ -186,7 +197,7 @@ export function CalendarProvider({
 			try {
 				const events = await refreshEvents();
 				if (!cancelled) {
-					setAllEvents(events);
+					setServerEvents(events);
 				}
 			} catch (err) {
 				console.error("Failed to fetch events", err);
@@ -199,6 +210,109 @@ export function CalendarProvider({
 			cancelled = true;
 		};
 	}, [refreshEvents]);
+
+	useEffect(() => {
+		if (typeof window === "undefined") return;
+
+		setQueueEvents(pruneSubmissionQueueOnStartup());
+
+		const unsubscribe = subscribeSubmissionQueue((queue) => {
+			setQueueEvents(queue);
+		});
+
+		return unsubscribe;
+	}, []);
+
+	useEffect(() => {
+		if (typeof window === "undefined") return;
+
+		let cancelled = false;
+
+		const runQueue = async () => {
+			const { processedCount } = await processSubmissionQueue({
+				erpUrl,
+				authToken,
+				onSuccess: async (queueItem, result) => {
+					if (cancelled) return;
+
+					if (result?.removed) {
+						setServerEvents((prev) =>
+							prev.filter(
+								(event) =>
+									event.erpName !== result.name &&
+									event.erpName !== queueItem.targetErpName
+							)
+						);
+						return;
+					}
+
+					const syncedEvent =
+						result?.calendarEvent ?? queueItem.optimisticEvent;
+
+					setServerEvents((prev) => {
+						const matchId =
+							queueItem.targetErpName ??
+							queueItem.optimisticEvent?.erpName ??
+							syncedEvent?.erpName;
+						const next = prev.filter(
+							(event) =>
+								event.erpName !== matchId &&
+								event.erpName !== syncedEvent?.erpName
+						);
+						return syncedEvent
+							? [...next, syncedEvent]
+							: next;
+					});
+				},
+				onError: async (queueItem, error, meta) => {
+					if (cancelled) return;
+					if (meta?.retryable) return;
+
+					if (queueItem.targetErpName) {
+						discardQueuedSubmission({
+							queueId: queueItem.id,
+							erpName: queueItem.targetErpName,
+						});
+					}
+
+					toast.error(
+						error?.message ||
+						`${queueItem.kind} sync failed. Item is still local and not saved to ERP.`
+					);
+				},
+			});
+
+			if (!cancelled && processedCount > 0) {
+				try {
+					const nextEvents = await refreshEvents();
+					if (!cancelled) {
+						setServerEvents(nextEvents);
+					}
+				} catch (error) {
+					console.error("Failed to refresh after queue sync", error);
+				}
+			}
+		};
+
+		runQueue();
+
+		const handleOnline = () => {
+			runQueue();
+		};
+
+		window.addEventListener("online", handleOnline);
+		return () => {
+			cancelled = true;
+			window.removeEventListener("online", handleOnline);
+		};
+	}, [authToken, erpUrl, queueEvents, refreshEvents]);
+
+	const allEvents = useMemo(() => {
+		return mergeServerEventsWithQueuedEvents(
+			serverEvents,
+			queueEvents
+		);
+	}, [queueEvents, serverEvents]);
 
 
 	useEffect(() => {

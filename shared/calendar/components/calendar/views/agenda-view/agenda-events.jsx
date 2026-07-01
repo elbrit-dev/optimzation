@@ -29,6 +29,7 @@ import {
 
 import { EventDetailsDialog } from "@calendar/components/calendar/dialogs/event-details-dialog";
 import { EventBullet } from "@calendar/components/calendar/views/month-view/event-bullet";
+import { SyncStatusBadge } from "@calendar/components/calendar/sync/sync-status-badge";
 
 import {
   Command,
@@ -283,6 +284,7 @@ export const AgendaEvents = ({ scope = "all"}) => {
                   <p className="font-medium text-sm">
                     {event.title}
                   </p>
+                  <SyncStatusBadge event={event} className="text-[10px]" />
                 </div>
 
                 <p className="text-xs text-muted-foreground">

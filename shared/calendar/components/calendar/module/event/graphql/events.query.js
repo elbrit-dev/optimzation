@@ -212,11 +212,12 @@ query Quotations(
 }
 `;
 export const CUSTOMER_QUERY = `
-query Customers($first: Int) {
-  Customers(first: $first) {
+query Customers($first: Int, $filters: [DBFilterInput!]) {
+  Customers(first: $first, filter: $filters) {
     edges {
       node {
        name
+       territory__name
       }
     }
   }

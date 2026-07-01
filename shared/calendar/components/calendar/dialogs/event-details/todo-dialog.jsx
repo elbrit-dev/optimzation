@@ -262,7 +262,7 @@ export function EventTodoDialog({
 
         {permissions.canDelete && (
             <DeleteEventDialog
-            onConfirm={() => handleDelete(event.erpName, "ToDo")}
+            onConfirm={() => handleDelete(event.erpName, "ToDo", event)}
           />
         )}
       </div>

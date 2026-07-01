@@ -1,5 +1,12 @@
 import { Button } from "@calendar/components/ui/button";
 
+const ALLOWED_LEAVE_TYPES = [
+  "Casual Leave",
+  "Sick Leave",
+  "Privilege Leave",
+  "Leave Without Pay",
+];
+
 export function LeaveTypeCards({ balance, value, onChange, loading }) {
     if (loading) {
       return (
@@ -9,7 +16,10 @@ export function LeaveTypeCards({ balance, value, onChange, loading }) {
       );
     }
   
-    const entries = Object.entries(balance ?? {});
+    const entries = ALLOWED_LEAVE_TYPES.map((leaveName) => [
+      leaveName,
+      balance?.[leaveName],
+    ]).filter(([, info]) => Boolean(info));
   
     if (!entries.length) {
       return (
@@ -23,7 +33,10 @@ export function LeaveTypeCards({ balance, value, onChange, loading }) {
       <div className="grid grid-cols-3 gap-3">
         {entries.map(([leaveName, info]) => {
           const selected = value === leaveName;
-          const disabled = info.available <= 0;
+          const isLeaveWithoutPay = info.isLeaveWithoutPay === true;
+          const disabled =
+            !isLeaveWithoutPay &&
+            Number(info?.available ?? 0) <= 0;
   
           return (
             <Button
@@ -35,10 +48,12 @@ export function LeaveTypeCards({ balance, value, onChange, loading }) {
               className="h-auto flex flex-col items-center justify-center gap-1 rounded-xl py-4"
             >
               <div className="text-lg font-semibold">
-                {info.available}
-                <span className="text-xs font-normal opacity-70">
-                  /{info.allocated}
-                </span>
+                {isLeaveWithoutPay ? "LWP" : info.available}
+                {!isLeaveWithoutPay && (
+                  <span className="text-xs font-normal opacity-70">
+                    /{info.allocated}
+                  </span>
+                )}
               </div>
   
               <div className="text-xs text-center">

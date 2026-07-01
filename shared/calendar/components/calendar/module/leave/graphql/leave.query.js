@@ -33,6 +33,18 @@ query LeaveApplications($first: Int) {
 }
 `
 
+export const LEAVE_TYPES_QUERY = `
+query LeaveTypes($first: Int!) {
+  LeaveTypes(first: $first) {
+    edges {
+      node {
+        name
+      }
+    }
+  }
+}
+`;
+
 export const LEAVE_ALLOCATIONS_QUERY = `
 query LeaveAllocationsByEmployee(
   $first: Int!

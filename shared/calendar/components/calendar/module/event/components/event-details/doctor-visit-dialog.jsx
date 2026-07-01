@@ -140,6 +140,7 @@ export function EventDoctorVisitDialog({
   }, [event.participants]);
   const isEmployeeParticipant = !!currentEmployeeParticipant;
   const permissions = useMemo(() => {
+    const isFailedSync = event?.__syncStatus === "failed";
     return {
       canJoin:
         isDoctorVisit && !isEmployeeParticipant,
@@ -148,9 +149,9 @@ export function EventDoctorVisitDialog({
       canLeave:
         isDoctorVisit && isEmployeeParticipant,
       canDelete:
-        tagConfig.ui?.allowDelete?.(event) ?? true,
+        isFailedSync || (tagConfig.ui?.allowDelete?.(event) ?? true),
       canEdit:
-        tagConfig.ui?.allowEdit?.(event) ?? true,
+        isFailedSync || (tagConfig.ui?.allowEdit?.(event) ?? true),
     };
   }, [
     isDoctorVisit,
@@ -265,6 +266,7 @@ export function EventDoctorVisitDialog({
   const isAttending =
     currentEmployeeParticipant?.attending?.toLowerCase() === "yes";
   const isVisitCompleted = isAttending && hasLocation;
+  const isFailedSync = event?.__syncStatus === "failed";
   const hasPobItems =
     Array.isArray(event.fsl_doctor_item) &&
     event.fsl_doctor_item.length > 0;
@@ -488,8 +490,22 @@ export function EventDoctorVisitDialog({
 
       {/* Footer */}
       <DetailFooter>
-        {permissions.canEdit && !isVisitCompleted && (
+        {permissions.canEdit && (!isVisitCompleted || isFailedSync) && (
           <>
+            {isFailedSync ? (
+              <AddEditEventDialog
+                event={event}
+                forceValues={
+                  tagConfig.ui?.primaryEditAction
+                    ?.setOnEdit
+                }
+              >
+                <Button className="w-full sm:w-auto">
+                  Edit
+                </Button>
+              </AddEditEventDialog>
+            ) : null}
+
             {permissions.canJoin && (
               <Button
                 variant="success"
@@ -500,7 +516,7 @@ export function EventDoctorVisitDialog({
               </Button>
             )}
 
-            {permissions.canVisitNow && (
+            {permissions.canVisitNow && !isFailedSync && (
               <>
                 <Button
                   variant="destructive"
@@ -527,14 +543,13 @@ export function EventDoctorVisitDialog({
           </>
         )}
 
-        {permissions.canDelete && !hasParticipants && (
+        {permissions.canDelete && (!hasParticipants || isFailedSync) && (
           <DeleteEventDialog
             className="w-full sm:w-auto"
-            onConfirm={() => handleDelete(event.erpName)}
+            onConfirm={() => handleDelete(event.erpName, undefined, event)}
           />
         )}
       </DetailFooter>
     </>
   );
 }
-

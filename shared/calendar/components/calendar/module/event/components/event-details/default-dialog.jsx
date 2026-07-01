@@ -59,6 +59,7 @@ export function EventDefaultDialog({ event, setOpen }) {
 
   const canDelete = tagConfig.ui?.allowDelete?.(event) ?? true;
   const canEdit = tagConfig.ui?.allowEdit?.(event) ?? true;
+  const isFailedSync = event?.__syncStatus === "failed";
   const editAction = tagConfig.ui?.primaryEditAction;
 
   const enrichedParticipants = useMemo(
@@ -107,7 +108,7 @@ export function EventDefaultDialog({ event, setOpen }) {
       </ScrollArea>
 
       <DetailFooter>
-        {canEdit && (
+        {(canEdit || isFailedSync) && (
           <AddEditEventDialog event={event} forceValues={editAction?.setOnEdit}>
             <Button variant="outline" className="w-full sm:w-auto">
               {editAction?.label ?? "Edit"}
@@ -115,10 +116,10 @@ export function EventDefaultDialog({ event, setOpen }) {
           </AddEditEventDialog>
         )}
 
-        {canDelete && (
+        {(canDelete || isFailedSync) && (
           <DeleteEventDialog
             className="w-full sm:w-auto"
-            onConfirm={() => handleDelete(event.erpName)}
+            onConfirm={() => handleDelete(event.erpName, undefined, event)}
           />
         )}
       </DetailFooter>

@@ -187,7 +187,11 @@ export function mapFormToErpEvent(values, options = {}) {
     [ERP_EVENT_FIELDS.doctorLongitudeWrite]: doctorLongitude,
     sync_with_google_calendar: 1,
     google_calendar: googleCalendar || "IT Elbrit",
-    add_video_conferencing: values.tags === TAG_IDS.MEETING ? 1 : 0,
+    add_video_conferencing:
+      values.tags === TAG_IDS.MEETING &&
+      values.enableGoogleMeet
+        ? 1
+        : 0,
   };
 
   /* ------------------------------------

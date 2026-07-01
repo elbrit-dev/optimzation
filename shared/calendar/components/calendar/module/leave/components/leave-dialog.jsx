@@ -86,7 +86,14 @@ export function EventLeaveDialog({
 	const available =
 		leaveBalance?.[leaveType]?.available ?? null;
 	const permissions = useMemo(() => {
-		return resolveLeavePermissions({ event });
+		const resolved = resolveLeavePermissions({ event });
+		if (event?.__syncStatus === "failed") {
+			return {
+				...resolved,
+				canEditDelete: true,
+			};
+		}
+		return resolved;
 	}, [event]);
 	const handleStatusChange = async (newStatus) => {
 		try {
@@ -148,7 +155,7 @@ export function EventLeaveDialog({
 
 						<DeleteEventDialog
 							className="w-full sm:w-auto"
-							onConfirm={() => handleDelete(event.erpName, "Leave Application")}
+							onConfirm={() => handleDelete(event.erpName, "Leave Application", event)}
 						/>
 					</>
 				)}

@@ -148,11 +148,12 @@ export function EventTodoDialog({
   );
 
   const permissions = useMemo(() => {
+    const isFailedSync = event?.__syncStatus === "failed";
     return {
       canDelete:
-        tagConfig.ui?.allowDelete?.(event) ?? true,
+        isFailedSync || (tagConfig.ui?.allowDelete?.(event) ?? true),
       canEdit:
-        tagConfig.ui?.allowEdit?.(event) ?? true,
+        isFailedSync || (tagConfig.ui?.allowEdit?.(event) ?? true),
     };
   }, [tagConfig, event]);
 
@@ -248,7 +249,7 @@ export function EventTodoDialog({
         {permissions.canDelete && (
           <DeleteEventDialog
             className="w-full sm:w-auto"
-            onConfirm={() => handleDelete(event.erpName, "ToDo")}
+            onConfirm={() => handleDelete(event.erpName, "ToDo", event)}
           />
         )}
       </DetailFooter>

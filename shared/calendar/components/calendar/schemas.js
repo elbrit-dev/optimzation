@@ -55,6 +55,7 @@ export const eventSchema = z
     hqTerritory: z.string().optional(),
     customer: z.string().optional(),
     allDay: z.boolean().optional(),
+    enableGoogleMeet: z.boolean().optional(),
 
     /* ---------- Leave ---------- */
     leaveType: z.string().optional(),

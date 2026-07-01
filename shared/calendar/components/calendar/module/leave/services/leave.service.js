@@ -1,6 +1,6 @@
 import { graphqlRequest } from "@calendar/lib/graphql-client";
 import { getCached } from "@calendar/lib/data-cache";
-import { LEAVE_ALLOCATIONS_QUERY, LEAVE_APPLICATIONS_QUERY, LEAVE_QUERY, SAVE_LEAVE_APPLICATION_MUTATION, UPDATE_LEAVE_ATTACHMENT_MUTATION, UPDATE_LEAVE_STATUS_MUTATION } from "@calendar/components/calendar/module/leave/graphql/leave.query";
+import { LEAVE_ALLOCATIONS_QUERY, LEAVE_APPLICATIONS_QUERY, LEAVE_QUERY, LEAVE_TYPES_QUERY, SAVE_LEAVE_APPLICATION_MUTATION, UPDATE_LEAVE_ATTACHMENT_MUTATION, UPDATE_LEAVE_STATUS_MUTATION } from "@calendar/components/calendar/module/leave/graphql/leave.query";
 import { clearLeaveCache, getCachedLeaveBalance, getLeaveCacheKey, setCachedLeaveBalance } from "@calendar/components/calendar/module/leave/cache/leave-cache";
 import { mapErpLeaveToCalendar } from "@calendar/components/calendar/module/leave/mappers/leave.mapper";
 import { clearEventCache } from "@calendar/lib/calendar/event-cache";
@@ -115,10 +115,29 @@ const getLeaveAllocationFilters = (employeeId) => [
     { fieldname: "docstatus", operator: "EQ", value: "1" },
   ];
   
-  const getLeavePendingFilters = (employeeId) => [
+const getLeavePendingFilters = (employeeId) => [
     { fieldname: "employee", operator: "EQ", value: employeeId },
     { fieldname: "status", operator: "EQ", value: "Open" },
   ];
+
+const LEAVE_WITHOUT_PAY_NAMES = new Set([
+  "Leave Without Pay",
+  "LWP",
+]);
+
+export async function fetchLeaveTypes() {
+  return getCached("LEAVE_TYPES", async () => {
+    const data = await graphqlRequest(LEAVE_TYPES_QUERY, {
+      first: 100,
+    });
+
+    return (
+      data?.LeaveTypes?.edges
+        ?.map(({ node }) => node?.name)
+        .filter(Boolean) ?? []
+    );
+  });
+}
   
   /* =====================================================
      EMPLOYEE LEAVE BALANCE (WITH CACHE)
@@ -132,7 +151,7 @@ const getLeaveAllocationFilters = (employeeId) => [
       return cached.data;
     }
   
-    const [allocRes, usedRes, pendingRes] = await Promise.all([
+    const [allocRes, usedRes, pendingRes, leaveTypes] = await Promise.all([
       graphqlRequest(LEAVE_ALLOCATIONS_QUERY, {
         first: 20,
         filters: getLeaveAllocationFilters(employeeId),
@@ -145,25 +164,46 @@ const getLeaveAllocationFilters = (employeeId) => [
         first: 100,
         filters: getLeavePendingFilters(employeeId),
       }),
+      fetchLeaveTypes(),
     ]);
   
     const balance = {};
+    const allocationEdges =
+      allocRes?.LeaveAllocations?.edges ?? [];
+    const usedEdges =
+      usedRes?.LeaveApplications?.edges ?? [];
+    const pendingEdges =
+      pendingRes?.LeaveApplications?.edges ?? [];
+
+    leaveTypes.forEach((leaveTypeName) => {
+      balance[leaveTypeName] = {
+        allocated: 0,
+        used: 0,
+        pending: 0,
+        available: 0,
+        isLeaveWithoutPay:
+          LEAVE_WITHOUT_PAY_NAMES.has(leaveTypeName),
+      };
+    });
   
-    allocRes.LeaveAllocations.edges.forEach(({ node }) => {
+    allocationEdges.forEach(({ node }) => {
       balance[node.leave_type__name] = {
         allocated: node.total_leaves_allocated,
         used: 0,
         pending: 0,
+        available: 0,
+        isLeaveWithoutPay:
+          LEAVE_WITHOUT_PAY_NAMES.has(node.leave_type__name),
       };
     });
   
-    usedRes.LeaveApplications.edges.forEach(({ node }) => {
+    usedEdges.forEach(({ node }) => {
       if (balance[node.leave_type__name]) {
         balance[node.leave_type__name].used += node.total_leave_days;
       }
     });
   
-    pendingRes.LeaveApplications.edges.forEach(({ node }) => {
+    pendingEdges.forEach(({ node }) => {
       if (balance[node.leave_type__name]) {
         balance[node.leave_type__name].pending += node.total_leave_days;
       }
