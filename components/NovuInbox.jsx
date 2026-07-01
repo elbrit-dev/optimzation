@@ -25,6 +25,8 @@ const NovuInbox = ({
   onSecondaryActionClick,
   routerPush,
   fallbackRedirectPath = "/chat",
+  bellSize = 28,
+  bellPadding = "2px",
   ...rest
 }) => {
   const [status, setStatus] = useState("Initializing...");
@@ -143,6 +145,28 @@ const NovuInbox = ({
           position="bottom-end"
           offset={8}
           width="372px"
+          appearance={{
+            elements: {
+              // Tighten the trigger button so its background hugs the bell
+              // instead of leaving empty padding around it.
+              popoverTrigger: {
+                padding: bellPadding,
+                width: "fit-content",
+                height: "fit-content",
+                lineHeight: 0,
+              },
+              // Scale the bell itself. Sizing the container + the SVG icon so
+              // the bell fills the (now tight) trigger.
+              bellContainer: {
+                width: `${bellSize}px`,
+                height: `${bellSize}px`,
+              },
+              bellIcon: {
+                width: `${bellSize}px`,
+                height: `${bellSize}px`,
+              },
+            },
+          }}
           routerPush={navigate}
           onNotificationClick={handleNotificationClick}
           onPrimaryActionClick={onPrimaryActionClick}

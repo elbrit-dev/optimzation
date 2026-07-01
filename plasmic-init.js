@@ -613,6 +613,16 @@ PLASMIC.registerComponent(NovuInbox, {
       description: "Page to open when a clicked notification has no redirect URL of its own.",
       defaultValue: "/chat",
     },
+    bellSize: {
+      type: "number",
+      description: "Size (px) of the notification bell icon.",
+      defaultValue: 28,
+    },
+    bellPadding: {
+      type: "string",
+      description: "Padding around the bell trigger button (any CSS length, e.g. '0', '2px'). Smaller = less background space around the bell.",
+      defaultValue: "2px",
+    },
     onNotificationClick: {
       type: "eventHandler",
       argTypes: [
