@@ -71,6 +71,7 @@ export function EventDoctorVisitDialog({
 }) {
   const {
     removeEvent,
+    updateEvent,
     employeeOptions,
     doctorOptions,
     addEvent, setDoctorOptions
@@ -200,11 +201,9 @@ export function EventDoctorVisitDialog({
         ),
       };
 
-      removeEvent(event.erpName);
-      addEvent(updatedEvent);
+      updateEvent(updatedEvent);
 
       toast.success("You have joined the visit");
-      setOpen(false);
     } catch (err) {
       console.error(err);
       toast.error("Failed to join visit");
@@ -241,11 +240,9 @@ export function EventDoctorVisitDialog({
         ),
       };
 
-      removeEvent(event.erpName);
-      addEvent(updatedEvent);
+      updateEvent(updatedEvent);
 
       toast.success("You have left the visit");
-      setOpen(false);
     } catch (err) {
       console.error(err);
       toast.error("Failed to leave visit");

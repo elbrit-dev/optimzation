@@ -138,6 +138,7 @@ export const TAG_FORM_CONFIG = {
         { key: "endDate", label: "End Date", type: "date" },
         { key: "owner", label: "Created by", type: "owner" },
         { key: "hqTerritory", label: "HQ Territory", type: "text" },
+        { key: "sharedTo", label: "Shared to", type: "text" },
         { key: "description", label: "Description", type: "text" },
       ],
     },
@@ -206,7 +207,7 @@ export const TAG_FORM_CONFIG = {
       
         return !(
           event.attending === "Yes" ||
-          event.pob_given === "Yes" ||
+          Number(event.pob_given) === 1 ||
           (Array.isArray(event.fsl_doctor_item) &&
             event.fsl_doctor_item.length > 0)
         );
@@ -269,7 +270,7 @@ export const TAG_FORM_CONFIG = {
         items: {
           key: "fsl_doctor_item",
           multiple: true,
-          showWhen: (values) => values.pob_given === "Yes",
+          showWhen: (values) => Number(values.pob_given) === 1,
         },
       },
     },

@@ -225,25 +225,41 @@ export function mergeServerEventsWithQueuedEvents(serverEvents = [], queueItems 
   }
 
   const queuedEvents = queueItems
-    .filter((item) => item.status !== "synced")
+    .filter(
+      (item) =>
+        item.status !== "synced" &&
+        item.kind !== "delete"
+    )
     .map((item) => item.optimisticEvent)
     .filter(Boolean);
 
-  if (!queuedEvents.length) {
-    return serverEvents;
-  }
-
   const overriddenIds = new Set();
+  const deletingIds = new Set();
 
   queueItems.forEach((item) => {
     if (item.targetErpName) overriddenIds.add(item.targetErpName);
     if (item.optimisticEvent?.erpName && !String(item.optimisticEvent.erpName).startsWith("local-")) {
       overriddenIds.add(item.optimisticEvent.erpName);
     }
+
+    if (
+      item.kind === "delete" &&
+      item.status !== "failed"
+    ) {
+      const deletingId =
+        item.targetErpName ??
+        item.optimisticEvent?.erpName;
+
+      if (deletingId) {
+        deletingIds.add(deletingId);
+      }
+    }
   });
 
   const filteredServerEvents = serverEvents.filter(
-    (event) => !overriddenIds.has(event.erpName)
+    (event) =>
+      !overriddenIds.has(event.erpName) &&
+      !deletingIds.has(event.erpName)
   );
 
   return [...filteredServerEvents, ...queuedEvents];

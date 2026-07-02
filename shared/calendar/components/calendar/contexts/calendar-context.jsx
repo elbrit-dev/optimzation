@@ -28,6 +28,30 @@ const DEFAULT_SETTINGS = {
 	use24HourFormat: true,
 	agendaModeGroupBy: "date",
 };
+const RECENT_SYNC_GRACE_MS = 30 * 1000;
+
+function mergeFetchedEventsWithRecent(existingEvents = [], fetchedEvents = []) {
+	const fetchedIds = new Set(
+		fetchedEvents
+			.map((event) => event?.erpName)
+			.filter(Boolean)
+	);
+	const now = Date.now();
+	const recentSyncedEvents = existingEvents.filter((event) => {
+		if (!event?.erpName || fetchedIds.has(event.erpName)) {
+			return false;
+		}
+
+		const justSyncedAt = event.__justSyncedAt ?? null;
+		if (!justSyncedAt) {
+			return false;
+		}
+
+		return now - justSyncedAt < RECENT_SYNC_GRACE_MS;
+	});
+
+	return [...fetchedEvents, ...recentSyncedEvents];
+}
 
 const CalendarContext = createContext({});
 
@@ -248,19 +272,25 @@ export function CalendarProvider({
 
 					const syncedEvent =
 						result?.calendarEvent ?? queueItem.optimisticEvent;
+					const syncedEventWithMeta = syncedEvent
+						? {
+							...syncedEvent,
+							__justSyncedAt: Date.now(),
+						}
+						: syncedEvent;
 
 					setServerEvents((prev) => {
 						const matchId =
 							queueItem.targetErpName ??
 							queueItem.optimisticEvent?.erpName ??
-							syncedEvent?.erpName;
+							syncedEventWithMeta?.erpName;
 						const next = prev.filter(
 							(event) =>
 								event.erpName !== matchId &&
-								event.erpName !== syncedEvent?.erpName
+								event.erpName !== syncedEventWithMeta?.erpName
 						);
-						return syncedEvent
-							? [...next, syncedEvent]
+						return syncedEventWithMeta
+							? [...next, syncedEventWithMeta]
 							: next;
 					});
 				},
@@ -286,7 +316,9 @@ export function CalendarProvider({
 				try {
 					const nextEvents = await refreshEvents();
 					if (!cancelled) {
-						setServerEvents(nextEvents);
+						setServerEvents((prev) =>
+							mergeFetchedEventsWithRecent(prev, nextEvents)
+						);
 					}
 				} catch (error) {
 					console.error("Failed to refresh after queue sync", error);

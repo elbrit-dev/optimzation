@@ -170,7 +170,7 @@ export function RHFCombobox({
         </PopoverTrigger>
 
         <PopoverContent
-          className="w-[--radix-popover-trigger-width] max-h-[320px] overflow-hidden p-0"
+          className="w-[var(--radix-popover-trigger-width)] min-w-[var(--radix-popover-trigger-width)] max-h-[320px] overflow-hidden p-0"
           align="start"
         >
           <Command className="max-h-[320px] overflow-hidden">

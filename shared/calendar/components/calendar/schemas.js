@@ -52,6 +52,7 @@ export const eventSchema = z
     employees: z.any().optional(),
     doctor: z.any().optional(),
     allocated_to:z.any().optional(),
+    shareEmployees: z.any().optional(),
     hqTerritory: z.string().optional(),
     customer: z.string().optional(),
     allDay: z.boolean().optional(),
@@ -70,7 +71,9 @@ export const eventSchema = z
     priority: z.enum(["High", "Medium", "Low"]).optional(),
 
     /* ---------- Doctor Visit ---------- */
-    pob_given: z.enum(["Yes", "No"]).optional(),
+    pob_given: z
+      .union([z.literal(1), z.literal(0)])
+      .optional(),
     fsl_doctor_item: z.array(pobItemSchema).optional(),
     roleId: z.string().optional(),
     leave_approver:z.string().optional(),
@@ -146,6 +149,7 @@ export const eventSchema = z
     --------------------------------------------- */
     if (
       data.tags === TAG_IDS.DOCTOR_VISIT_PLAN &&
+      data.pob_given === 1 &&
       data.customer &&
       (!data.fsl_doctor_item || data.fsl_doctor_item.length === 0)
     ) {

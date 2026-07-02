@@ -23,6 +23,7 @@ query EventsByRange(
         all_day
         status
         event_category
+        pob_given
         role_profile:${ERP_EVENT_FIELDS.roleProfileRead}
         custom_doctor__name:${ERP_EVENT_FIELDS.doctorRead}
         doctor_latitude:${ERP_EVENT_FIELDS.doctorLatitudeRead}
@@ -43,6 +44,7 @@ query EventsByRange(
           custom_latitude
           custom_longitude
           custom_distance:${ERP_EVENT_FIELDS.participantDistanceRead}
+          custom_visit_time:${ERP_EVENT_FIELDS.participantVisitTimeRead}
           custom_is_force_visit:${ERP_EVENT_FIELDS.participantForceVisitRead}
           custom_force_visit_reason:${ERP_EVENT_FIELDS.participantForceVisitReasonRead}
           reference_docname__name

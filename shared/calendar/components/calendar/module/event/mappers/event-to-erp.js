@@ -16,24 +16,53 @@ export function mapFormToErpEvent(values, options = {}) {
     employeeResolvers,
     doctorResolvers,
     googleCalendar,
+    existingEventParticipants = [],
   } = options;
   const isDoctorVisitPlan =
     values.tags === TAG_IDS.DOCTOR_VISIT_PLAN;
 
   const isUpdate = Boolean(erpName);
+  const currentVisitTimestamp =
+    isDoctorVisitPlan && values.attending === "Yes"
+      ? format(new Date(), "yyyy-MM-dd HH:mm:ss")
+      : null;
   function buildParticipants(values) {
+    const existingEmployeeParticipants = existingEventParticipants.filter(
+      (participant) =>
+        participant.reference_doctype === "Employee"
+    );
+    const requestedEmployees = values.employees
+      ? Array.isArray(values.employees)
+        ? values.employees
+        : [values.employees]
+      : [];
+    const employeeSource =
+      isDoctorVisitPlan && isUpdate
+        ? existingEmployeeParticipants.map((participant) => ({
+            value: participant.reference_docname,
+            email: participant.email ?? "",
+            roleId:
+              participant[ERP_EVENT_FIELDS.participantRoleProfileWrite] ??
+              participant.role_profile ??
+              null,
+            existingParticipant: participant,
+          }))
+        : requestedEmployees;
     const participants = [];
 
     /* ---------- Employees only ---------- */
-    if (values.employees) {
-      const employeeList = Array.isArray(values.employees)
-        ? values.employees
-        : [values.employees];
-
-      employeeList.forEach((emp) => {
+    if (employeeSource.length) {
+      employeeSource.forEach((emp) => {
         const isObject = typeof emp === "object" && emp !== null;
 
         const empId = isObject ? emp.value : emp;
+        const existingParticipant = isObject
+          ? emp.existingParticipant ?? null
+          : existingEmployeeParticipants.find(
+              (participant) =>
+                String(participant.reference_docname) ===
+                String(empId)
+            ) ?? null;
 
         const empEmail = isObject
           ? emp.email
@@ -49,6 +78,7 @@ export function mapFormToErpEvent(values, options = {}) {
               "roleId"
             );
         const participant = {
+          ...(existingParticipant ?? {}),
           reference_doctype: "Employee",
           reference_docname: empId,
           email: empEmail || "",
@@ -59,24 +89,48 @@ export function mapFormToErpEvent(values, options = {}) {
 
         // Doctor Visit Edit logic
         if (isDoctorVisitPlan) {
-          if (values.attending === "Yes" || values.attending === "No") {
+          if (
+            String(empId) === String(LOGGED_IN_USER.id) &&
+            (values.attending === "Yes" || values.attending === "No")
+          ) {
             participant.attending = values.attending;
           }
 
-          if (values.custom_latitude && values.custom_longitude) {
+          if (
+            String(empId) === String(LOGGED_IN_USER.id) &&
+            values.custom_latitude &&
+            values.custom_longitude
+          ) {
             participant.custom_latitude = parseFloat(values.custom_latitude);
             participant.custom_longitude = parseFloat(values.custom_longitude);
           }
 
-          if (typeof values.distanceKm === "number") {
+          if (
+            String(empId) === String(LOGGED_IN_USER.id) &&
+            typeof values.distanceKm === "number"
+          ) {
             participant[ERP_EVENT_FIELDS.participantDistanceWrite] =
               values.distanceKm;
           }
 
-          participant[ERP_EVENT_FIELDS.participantForceVisitWrite] =
-            values.forceVisit ? 1 : 0;
+          if (String(empId) === String(LOGGED_IN_USER.id)) {
+            participant[ERP_EVENT_FIELDS.participantForceVisitWrite] =
+              values.forceVisit ? 1 : 0;
+          }
 
-          if (values.custom_force_visit_reason) {
+          if (
+            String(empId) === String(LOGGED_IN_USER.id) &&
+            currentVisitTimestamp
+          ) {
+            participant[
+              ERP_EVENT_FIELDS.participantVisitTimeWrite
+            ] = currentVisitTimestamp;
+          }
+
+          if (
+            String(empId) === String(LOGGED_IN_USER.id) &&
+            values.custom_force_visit_reason
+          ) {
             participant[
               ERP_EVENT_FIELDS.participantForceVisitReasonWrite
             ] = values.custom_force_visit_reason;
@@ -138,17 +192,26 @@ export function mapFormToErpEvent(values, options = {}) {
     return Number.isNaN(numericValue) ? null : numericValue;
   }
 
-  const hasEmployee =
-    Boolean(values.employees) &&
-    (Array.isArray(values.employees)
-      ? values.employees.length > 0
-      : true);
-
-  const hasEmployeeAttendingYes =
+  const eventParticipants = buildParticipants(values);
+  const employeeParticipants = eventParticipants.filter(
+    (participant) =>
+      participant.reference_doctype === "Employee"
+  );
+  const allEmployeeParticipantsVisited =
     isDoctorVisitPlan &&
-    isUpdate &&
-    hasEmployee &&
-    values.attending === "Yes";
+    employeeParticipants.length > 0 &&
+    employeeParticipants.every(
+      (participant) =>
+        String(participant.attending ?? "").toLowerCase() ===
+          "yes" &&
+        Boolean(
+          participant[
+            ERP_EVENT_FIELDS.participantVisitTimeWrite
+          ]
+        )
+    );
+  const hasEmployeeAttendingYes =
+    isDoctorVisitPlan && allEmployeeParticipantsVisited;
   const resolvedColor = hasEmployeeAttendingYes
     ? DEFAULT_COLORS.EVENT_COMPLETED
     : values.color;
@@ -177,14 +240,22 @@ export function mapFormToErpEvent(values, options = {}) {
       COLOR_HEX_MAP[resolvedColor] ??
       COLOR_HEX_MAP.blue,
     all_day: isBirthday || values.allDay ? 1 : 0,
-    event_type: "Private",
-    status: "Open",
+    event_type: "Public",
+    status:
+      isDoctorVisitPlan && allEmployeeParticipantsVisited
+        ? "Completed"
+        : "Open",
     docstatus: 0,
-    event_participants: buildParticipants(values),
+    event_participants: eventParticipants,
     [ERP_EVENT_FIELDS.hqWrite]: values.hqTerritory || "",
     [ERP_EVENT_FIELDS.doctorWrite]: doctorId,
     [ERP_EVENT_FIELDS.doctorLatitudeWrite]: doctorLatitude,
     [ERP_EVENT_FIELDS.doctorLongitudeWrite]: doctorLongitude,
+    pob_given:
+      isDoctorVisitPlan &&
+      (Number(values.pob_given) === 1 || Number(values.pob_given) === 0)
+        ? Number(values.pob_given)
+        : undefined,
     sync_with_google_calendar: 1,
     google_calendar: googleCalendar || "IT Elbrit",
     add_video_conferencing:

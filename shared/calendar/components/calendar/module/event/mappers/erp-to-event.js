@@ -73,6 +73,7 @@ export function mapErpGraphqlEventToCalendar(node) {
       custom_latitude: p.custom_latitude ?? null,
       custom_longitude: p.custom_longitude ?? null,
       custom_distance: p.custom_distance ?? null,
+      custom_visit_time: p.custom_visit_time ?? null,
       custom_is_force_visit: Boolean(p.custom_is_force_visit),
       custom_force_visit_reason:
         p.custom_force_visit_reason ?? "",
@@ -90,6 +91,7 @@ export function mapErpGraphqlEventToCalendar(node) {
     custom_latitude: p.custom_latitude,
     custom_longitude: p.custom_longitude,
     custom_distance: p.custom_distance,
+    custom_visit_time: p.custom_visit_time,
     custom_is_force_visit: p.custom_is_force_visit,
     custom_force_visit_reason: p.custom_force_visit_reason,
     email: p.email,
@@ -122,13 +124,21 @@ export function mapErpGraphqlEventToCalendar(node) {
     startDate.setFullYear(currentYear);
     endDate = startDate;
   }
+  const employeeParticipants = participants.filter(
+    (p) => p.type === "Employee"
+  );
   const hasEmployeeAttendingYes =
-    participants.some(
-      (p) => p.type === "Employee" && p.attending === "YES"
+    employeeParticipants.some((p) => p.attending === "YES");
+  const allEmployeeParticipantsVisited =
+    employeeParticipants.length > 0 &&
+    employeeParticipants.every(
+      (p) =>
+        p.attending === "YES" &&
+        Boolean(p.custom_visit_time)
     );
   const color =
     tag === TAG_IDS.DOCTOR_VISIT_PLAN &&
-      hasEmployeeAttendingYes
+      allEmployeeParticipantsVisited
       ? DEFAULT_COLORS.EVENT_COMPLETED
       : tagConfig.fixedColor ??
       mapHexToColor(node.color) ??
@@ -159,6 +169,8 @@ export function mapErpGraphqlEventToCalendar(node) {
       employeeVisitParticipant?.custom_force_visit_reason ?? "",
     distanceKm:
       employeeVisitParticipant?.custom_distance ?? null,
+    visitTime:
+      employeeVisitParticipant?.custom_visit_time ?? null,
 
     // ✅ REQUIRED BY eventSchema
     employees: tagConfig.employee?.multiselect
@@ -199,7 +211,10 @@ export function mapErpGraphqlEventToCalendar(node) {
 
     // 👇 UI derived
     participants,
-    pob_given: node.pob_given ?? "No",
+    pob_given:
+      node.pob_given === undefined || node.pob_given === null
+        ? undefined
+        : Number(node.pob_given),
 
     fsl_doctor_item:
       node.fsl_doctor_item ?? [],

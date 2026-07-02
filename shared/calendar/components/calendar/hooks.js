@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import { TAG_IDS } from "@calendar/components/calendar/constants";
 import { useRef } from "react";
 import { toast } from "sonner";
+import { deleteEventFromErp } from "@calendar/components/calendar/module/event/services/event.service";
 import {
   discardQueuedSubmission,
-  enqueueDeletion,
 } from "@calendar/lib/calendar/submission-queue";
 export function useDisclosure({
 	defaultIsOpen = false
@@ -116,12 +116,13 @@ export function useDeleteEvent({ removeEvent, onClose }) {
         return;
       }
 
-      await enqueueDeletion({
-        event,
-        docname,
+      await deleteEventFromErp(erpName, docname);
+      discardQueuedSubmission({
+        erpName,
       });
+      removeEvent(erpName);
       onClose?.();
-      toast.info("Delete queued for sync.");
+      toast.success("Event deleted.");
     } catch (e) {
       const message =
         e?.response?.errors?.[0]?.message ||

@@ -36,6 +36,7 @@ export function buildParticipantsWithDetails(
       custom_latitude: p.custom_latitude ?? null,
       custom_longitude: p.custom_longitude ?? null,
       custom_distance: p.custom_distance ?? null,
+      custom_visit_time: p.custom_visit_time ?? null,
       custom_is_force_visit: p.custom_is_force_visit ?? false,
       custom_force_visit_reason:
         p.custom_force_visit_reason ?? "",

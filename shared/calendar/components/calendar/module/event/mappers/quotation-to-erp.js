@@ -11,14 +11,13 @@ export function mapDoctorVisitToQuotation({
   return {
     doctype: "Quotation",
     ...(existingName && { name: existingName }),
-
     quotation_to: "Customer",
     party_name: values.customer,
     ...(eventName && { custom_event: eventName }),
-    custom_doctorvisit:doctorId,
+    custom_doctorvisit: doctorId,
     transaction_date: formatDateForERP(values.startDate),
     valid_till: formatDateForERP(values.endDate),
-    company_address:"CFA-Chennai-Billing",
+    company_address: "CFA-Chennai-Billing",
     order_type: "Sales",
     company: "Elbrit Lifesciences Private Limited",
     currency: "INR",
@@ -39,16 +38,16 @@ export function mapDoctorVisitToQuotation({
 // services/erp-to-quotation.js
 
 export function mapErpQuotationToUi(node) {
-    if (!node) return null;
-  
-    return {
-      name: node.name,
-      customer: node.party_name,
-      items: node.items?.map((row) => ({
-        item__name: row.item_code?.name,
-        qty: Number(row.qty) || 0,
-        rate: Number(row.rate) || 0,
-        amount: Number(row.amount) || 0,
-      })) || [],
-    };
-  }
+  if (!node) return null;
+
+  return {
+    name: node.name,
+    customer: node.party_name,
+    items: node.items?.map((row) => ({
+      item__name: row.item_code?.name,
+      qty: Number(row.qty) || 0,
+      rate: Number(row.rate) || 0,
+      amount: Number(row.amount) || 0,
+    })) || [],
+  };
+}

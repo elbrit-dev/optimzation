@@ -19,6 +19,8 @@ export const ERP_EVENT_FIELDS = {
   participantForceVisitReasonWrite: "custom_force_visit_reason",
   participantDistanceRead: "custom_distance",
   participantDistanceWrite: "custom_distance",
+  participantVisitTimeRead: "custom_visit_time",
+  participantVisitTimeWrite: "custom_visit_time",
 };
 
 export const ERP_EMPLOYEE_FIELDS = {

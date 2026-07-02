@@ -19,11 +19,7 @@ import {
   enqueueDocShareSync,
   syncEventDocShares,
 } from "@calendar/components/calendar/module/event/services/docshare.service";
-// Kept high enough that a calendar range fits in a single page. The Frappe
-// GraphQL backend errors ("Filter must be a tuple or list (in a list)") when a
-// cursor (`after`) is combined with a `filter`, so we must avoid triggering a
-// second page. See fetchEventsByRangeUncached below.
-const PAGE_SIZE = 500;
+const PAGE_SIZE = 50;
 const QUOTATION_BATCH_SIZE = 25;
 const pendingEventRequests = new Map();
 
@@ -351,15 +347,7 @@ async function fetchEventsByRangeUncached(
     );
 
     if (!connection.pageInfo?.hasNextPage) break;
-    // The backend rejects a cursor (`after`) combined with a `filter`
-    // ("Filter must be a tuple or list (in a list)"). Rather than fire a
-    // doomed second page that throws and leaves the calendar empty, stop here
-    // and surface a warning. Raise PAGE_SIZE if this fires in practice.
-    console.warn(
-      `[events] more than ${PAGE_SIZE} events in range; showing first page only ` +
-      `(cursor pagination is unsupported alongside filters on this endpoint)`
-    );
-    break;
+    after = connection.pageInfo.endCursor;
   }
 
   rawEventNodes = rawEventNodes.filter((node) =>
