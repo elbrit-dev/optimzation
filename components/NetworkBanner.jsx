@@ -1,6 +1,6 @@
 import React from "react";
 import { createPortal } from "react-dom";
-import { Wifi, WifiOff, SignalLow, SignalMedium, Activity, X } from "lucide-react";
+import { Wifi, WifiOff, SignalLow, SignalMedium, Activity } from "lucide-react";
 
 /**
  * NetworkBanner — a floating overlay banner that warns when the connection is
@@ -20,8 +20,10 @@ import { Wifi, WifiOff, SignalLow, SignalMedium, Activity, X } from "lucide-reac
  *   - Auto-appears ONLY when a real measurement is slow (or the browser is offline).
  *   - Click the banner -> runs a full, fast.com-style speed test with a live Mbps
  *     readout (capped ~10s).
- *   - The X button fully dismisses it for the session; it re-appears only if the
- *     connection later degrades to a worse state (and resets once the line is good).
+ *   - There is no manual dismiss: the banner closes ITSELF when the connection
+ *     recovers (background probe reads good) or when a tap-to-test comes back fast.
+ *     This is deliberate — a slow-network warning shouldn't be dismissable while the
+ *     network is still slow, or the user wouldn't know why things load slowly.
  */
 
 const STYLE_ID = "esw-network-banner-styles";
@@ -41,8 +43,6 @@ const FULL_TIME_CAP = 10_000;    // manual test runs at most ~10s
 // Severity thresholds (Mbps). A 300 Mbps line measures far above these.
 const RED_BELOW = 1.5;
 const YELLOW_BELOW = 5;
-
-const RANK = { green: 0, yellow: 1, orange: 2, red: 3 };
 
 const THEME = {
   red:    { bg: "#fde8e8", fg: "#9b1c1c", border: "#f8b4b4", accent: "#e02424", Icon: WifiOff },
@@ -149,15 +149,6 @@ function ensureStyles() {
     .esw-sub { font-size: 12px; font-weight: 500; opacity: 0.78; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .esw-num { font-variant-numeric: tabular-nums; }
     .esw-hint { flex: 0 0 auto; font-size: 12px; font-weight: 600; opacity: 0.7; white-space: nowrap; }
-    .esw-close {
-      flex: 0 0 auto; display: flex; align-items: center; justify-content: center;
-      width: 26px; height: 26px; padding: 0; margin-left: 2px;
-      border: none; border-radius: 8px; cursor: pointer;
-      background: transparent; color: inherit; opacity: 0.6;
-      transition: background .12s ease, opacity .12s ease;
-    }
-    .esw-close:hover { opacity: 1; background: color-mix(in srgb, var(--esw-fg) 12%, transparent); }
-    .esw-close:focus-visible { outline: 2px solid var(--esw-accent); outline-offset: 2px; }
     .esw-spin { animation: esw-spin 1s linear infinite; }
     .esw-anim-enter { animation: esw-slide-in .28s cubic-bezier(.16,1,.3,1); }
     .esw-anim-exit  { animation: esw-slide-out .22s ease-in forwards; }
@@ -186,7 +177,6 @@ export default function NetworkBanner({
   const [mounted, setMounted] = React.useState(false);
   const [status, setStatus] = React.useState(null);          // [severity, message] | null
   const [leaving, setLeaving] = React.useState(false);
-  const [dismissedRank, setDismissedRank] = React.useState(-1);
   const [test, setTest] = React.useState(null);              // { running, mbps, done } | null
 
   const mountedRef = React.useRef(true);
@@ -219,7 +209,6 @@ export default function NetworkBanner({
     const applyStatus = (next) => {
       if (!mountedRef.current) return;
       setStatus(next);
-      if (next && next[0] === "green") setDismissedRank(-1); // line recovered -> allow future warnings
     };
 
     async function runCheck() {
@@ -325,22 +314,11 @@ export default function NetworkBanner({
     setTest({ running: false, mbps: final, done: true });
     setStatus(result);                        // reflect the real result
     slowStreakRef.current = good ? 0 : 2;     // keep the background gate in sync with reality
-    // If the connection is actually fine, show the result briefly then close itself.
-    if (good) autoCloseRef.current = setTimeout(() => { if (mountedRef.current) setTest(null); }, AUTO_CLOSE_DELAY);
+    // Show the result briefly, then drop back to the live status: if the line is now
+    // fast the banner closes itself; if it's still slow the normal slow banner remains
+    // (and will close on its own once the background probe sees the speed recover).
+    autoCloseRef.current = setTimeout(() => { if (mountedRef.current) setTest(null); }, AUTO_CLOSE_DELAY);
   }, [isPreview]);
-
-  const handleClose = React.useCallback(
-    (e) => {
-      e?.stopPropagation?.();
-      clearTimeout(autoCloseRef.current);
-      setTest(null);
-      testingRef.current = false;
-      probeCtrlRef.current?.abort();
-      const rank = lastShownRef.current ? RANK[lastShownRef.current[0]] ?? 0 : 0;
-      setDismissedRank(rank);                 // hide this (and milder) states for the session
-    },
-    []
-  );
 
   // ---- derive what to render -----------------------------------------------
   let severity, message;
@@ -352,11 +330,8 @@ export default function NetworkBanner({
   }
 
   const testing = Boolean(test && (test.running || test.done));
-  const sevRank = severity ? RANK[severity] ?? 0 : -1;
   const statusWantsShow =
-    Boolean(severity) &&
-    !(severity === "green" && !showWhenFast) &&
-    sevRank > dismissedRank;
+    Boolean(severity) && !(severity === "green" && !showWhenFast);
   const shouldShow = isPreview || statusWantsShow || testing;
 
   if (shouldShow && severity) lastShownRef.current = [severity, message];
@@ -432,9 +407,6 @@ export default function NetworkBanner({
           {sub ? <span className="esw-sub esw-num">{sub}</span> : null}
         </span>
         {!testing ? <span className="esw-hint" aria-hidden="true">Tap to test</span> : null}
-        <button type="button" className="esw-close" aria-label="Dismiss" onClick={handleClose}>
-          <X size={16} strokeWidth={2.5} />
-        </button>
       </div>
     </div>
   );
