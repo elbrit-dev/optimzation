@@ -1,6 +1,6 @@
 "use client";;
 import { motion } from "framer-motion";
-import { Plus, } from "lucide-react";
+import { Plus, RotateCw } from "lucide-react";
 import { Button } from "@calendar/components/ui/button";
 import {
 	slideFromLeft,
@@ -19,7 +19,15 @@ import Views from "@calendar/components/calendar/header/view-tabs";
 import GoogleCalendarConnect from "../google-auth";
 
 export function CalendarHeader() {
-	const { view, events, activeDate, selectedDate, } = useCalendar();
+	const {
+		view,
+		events,
+		activeDate,
+		selectedDate,
+		pendingSyncCount,
+		retryPendingSync,
+		isRetryingSync,
+	} = useCalendar();
 	const today = startOfDay(new Date());
 
 	const candidateDate = activeDate ?? selectedDate ?? null;
@@ -54,6 +62,19 @@ export function CalendarHeader() {
 
 				<div className="flex flex-row gap-4  lg:items-center lg:gap-1.5">
 					<UserSelect />
+					{pendingSyncCount > 0 && (
+						<Button
+							type="button"
+							variant="outline"
+							onClick={retryPendingSync}
+							disabled={isRetryingSync}
+						>
+							<RotateCw className="h-4 w-4" />
+							{isRetryingSync
+								? "Retrying..."
+								: `Retry Sync(${pendingSyncCount})`}
+						</Button>
+					)}
 					<div className="hidden md:block">
 						<AddEditEventDialog startDate={startDateForDialog}>
 							<Button>

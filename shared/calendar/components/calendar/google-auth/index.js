@@ -6,7 +6,7 @@ import { useAuth } from "@calendar/components/auth/auth-context";
 import { Button } from "@calendar/components/ui/button";
 
 
-export default function GoogleCalendarConnect() {
+export default function GoogleCalendarConnect({ className }) {
   const { me, googleClientId, erpUrl, authToken } = useAuth();
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
@@ -73,7 +73,7 @@ export default function GoogleCalendarConnect() {
   }
 
   return (
-    <Button onClick={handleGoogleConnect}>
+    <Button onClick={handleGoogleConnect} className={className}>
       Connect Google Calendar
     </Button>
   );

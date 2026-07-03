@@ -2,6 +2,19 @@ import { toast } from "sonner";
 import { set, addMinutes } from "date-fns";
 import { TAG_IDS } from "@calendar/components/calendar/constants";
 import { saveEvent } from "@calendar/components/calendar/module/event/services/event.service";
+
+function normalizeAttendingChoice(value) {
+  if (typeof value !== "string") return "";
+
+  const normalized = value.trim().toLowerCase();
+
+  if (normalized === "yes") return "Yes";
+  if (normalized === "no") return "No";
+  if (normalized === "maybe") return "Maybe";
+
+  return "";
+}
+
 export function buildParticipantsWithDetails(
   erpParticipants,
   { employeeOptions }
@@ -32,7 +45,7 @@ export function buildParticipantsWithDetails(
       type,
       id,
       name,
-      attending: p.attending ?? null,
+      attending: normalizeAttendingChoice(p.attending),
       custom_latitude: p.custom_latitude ?? null,
       custom_longitude: p.custom_longitude ?? null,
       custom_distance: p.custom_distance ?? null,

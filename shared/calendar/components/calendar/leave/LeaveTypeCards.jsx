@@ -48,7 +48,7 @@ export function LeaveTypeCards({ balance, value, onChange, loading }) {
               className="h-auto flex flex-col items-center justify-center gap-1 rounded-xl py-4"
             >
               <div className="text-lg font-semibold">
-                {isLeaveWithoutPay ? "LWP" : info.available}
+                {isLeaveWithoutPay ? "LOP" : info.available}
                 {!isLeaveWithoutPay && (
                   <span className="text-xs font-normal opacity-70">
                     /{info.allocated}

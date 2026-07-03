@@ -15,7 +15,6 @@ import DeleteEventDialog from "../delete-event-dialog";
 export function EventDefaultDialog({
   event, setOpen
 }) {
-  console.log("EVENT", event)
   const { use24HourFormat, removeEvent, employeeOptions, doctorOptions } = useCalendar();
   const { handleDelete } = useDeleteEvent({
     removeEvent,

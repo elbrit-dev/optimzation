@@ -23,6 +23,7 @@ import {
   DetailSummary,
   DetailFooter,
 } from "@calendar/components/calendar/dialogs/event-details/detail-ui";
+import { SharedToBlock } from "@calendar/components/calendar/dialogs/share-event-dialog";
 /* =====================================================
    PURE HELPERS (NO LOGIC CHANGE)
 ===================================================== */
@@ -384,6 +385,7 @@ export function EventDoctorVisitDialog({
               </p>
             </div>
           )}
+          <SharedToBlock event={event} />
           <p className="text-sm font-medium mb-[4px]">Participants</p>
           {/* Participants */}
           {employeeParticipants.map((p, index) => {
@@ -441,9 +443,8 @@ export function EventDoctorVisitDialog({
                 POB
               </p>
 
-              {/* Yes / No */}
               <p className="text-sm text-muted-foreground">
-                {hasPobItems ? "Yes" : "No"}
+                {Number(event.pob_given) === 1 ? 1 : 0}
               </p>
 
               {/* Table only if items exist */}
@@ -514,7 +515,7 @@ export function EventDoctorVisitDialog({
             )}
 
             {permissions.canVisitNow && !isFailedSync && (
-              <>
+              <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
                 <Button
                   variant="destructive"
                   className="w-full sm:w-auto"
@@ -534,8 +535,7 @@ export function EventDoctorVisitDialog({
                       ?.label ?? "Visit"}
                   </Button>
                 </AddEditEventDialog>
-
-              </>
+              </div>
             )}
           </>
         )}

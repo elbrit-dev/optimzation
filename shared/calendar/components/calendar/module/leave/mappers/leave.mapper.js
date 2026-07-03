@@ -1,11 +1,25 @@
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 import {  DEFAULT_COLORS, TAG_IDS } from "@calendar/components/calendar/constants";
 import { normalizeStatus } from "@calendar/components/calendar/helpers";
-import { differenceInCalendarDays, startOfDay, endOfDay, format } from "date-fns";
+import { differenceInCalendarDays, startOfDay, endOfDay, format,  isSunday,eachDayOfInterval} from "date-fns";
 function toERPDate(date = new Date()) {
   return format(startOfDay(date), "yyyy-MM-dd");
 }
 
+export function calculateTotalLeaveDays(startDate, endDate, isHalfDay) {
+  if (!startDate || !endDate) return 0;
+
+  const days = eachDayOfInterval({
+    start: startOfDay(startDate),
+    end: startOfDay(endDate),
+  });
+
+  const workingDays = days.filter((day) => !isSunday(day)).length;
+
+  if (workingDays === 0) return 0;
+
+  return isHalfDay ? workingDays - 0.5 : workingDays;
+}
 function buildEmployeeFullName(employee) {
   if (!employee || typeof employee !== "object") return null;
 
@@ -135,13 +149,3 @@ export function mapErpLeaveToCalendar(leave) {
   };
 }
 
-
-export function calculateTotalLeaveDays(startDate, endDate, isHalfDay) {
-  const totalDays =
-    differenceInCalendarDays(
-      startOfDay(endDate),
-      startOfDay(startDate)
-    ) + 1;
-
-  return isHalfDay ? totalDays - 0.5 : totalDays;
-}

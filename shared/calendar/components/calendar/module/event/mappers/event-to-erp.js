@@ -17,6 +17,7 @@ export function mapFormToErpEvent(values, options = {}) {
     doctorResolvers,
     googleCalendar,
     existingEventParticipants = [],
+    existingEndDate = null,
   } = options;
   const isDoctorVisitPlan =
     values.tags === TAG_IDS.DOCTOR_VISIT_PLAN;
@@ -36,47 +37,95 @@ export function mapFormToErpEvent(values, options = {}) {
         ? values.employees
         : [values.employees]
       : [];
-    const employeeSource =
-      isDoctorVisitPlan && isUpdate
-        ? existingEmployeeParticipants.map((participant) => ({
-            value: participant.reference_docname,
-            email: participant.email ?? "",
-            roleId:
-              participant[ERP_EVENT_FIELDS.participantRoleProfileWrite] ??
-              participant.role_profile ??
-              null,
-            existingParticipant: participant,
-          }))
-        : requestedEmployees;
+
+    const resolveRequestedEmployeeId = (employee) => {
+      if (!employee) return null;
+      if (typeof employee === "object") {
+        return employee.value ?? employee.id ?? null;
+      }
+      return employee;
+    };
+
+    const resolveExistingParticipantRoleId = (participant) => {
+      return (
+        participant?.[ERP_EVENT_FIELDS.participantRoleProfileWrite] ??
+        participant?.role_profile?.name ??
+        participant?.role_profile ??
+        null
+      );
+    };
+
+    const requestedEmployeeIds = requestedEmployees
+      .map(resolveRequestedEmployeeId)
+      .filter(Boolean);
+    const existingEmployeeIds = existingEmployeeParticipants
+      .map((participant) => participant.reference_docname)
+      .filter(Boolean);
+
+    const employeeIdsToPersist = isUpdate
+      ? [...new Set([...existingEmployeeIds, ...requestedEmployeeIds])]
+      : requestedEmployeeIds;
+
+    const employeeSource = employeeIdsToPersist.map((empId) => {
+      const requestedEmployee =
+        requestedEmployees.find(
+          (employee) =>
+            String(resolveRequestedEmployeeId(employee)) === String(empId)
+        ) ?? null;
+      const existingParticipant =
+        existingEmployeeParticipants.find(
+          (participant) =>
+            String(participant.reference_docname) === String(empId)
+        ) ?? null;
+
+      const requestedEmail =
+        typeof requestedEmployee === "object"
+          ? requestedEmployee?.email ?? null
+          : null;
+      const requestedRoleId =
+        typeof requestedEmployee === "object"
+          ? requestedEmployee?.roleId ?? null
+          : null;
+
+      return {
+        value: empId,
+        email:
+          requestedEmail ??
+          existingParticipant?.email ??
+          employeeResolvers?.getEmployeeFieldById(empId, "email") ??
+          "",
+        roleId:
+          requestedRoleId ??
+          resolveExistingParticipantRoleId(existingParticipant) ??
+          employeeResolvers?.getEmployeeFieldById(empId, "roleId") ??
+          null,
+        existingParticipant,
+      };
+    });
     const participants = [];
 
     /* ---------- Employees only ---------- */
     if (employeeSource.length) {
       employeeSource.forEach((emp) => {
-        const isObject = typeof emp === "object" && emp !== null;
+        const empId = emp?.value ?? null;
+        const existingParticipant = emp?.existingParticipant ?? null;
+        const empEmail =
+          emp?.email ??
+          employeeResolvers?.getEmployeeFieldById(
+            empId,
+            "email"
+          );
+        const empRoleId =
+          emp?.roleId ??
+          employeeResolvers?.getEmployeeFieldById(
+            empId,
+            "roleId"
+          );
 
-        const empId = isObject ? emp.value : emp;
-        const existingParticipant = isObject
-          ? emp.existingParticipant ?? null
-          : existingEmployeeParticipants.find(
-              (participant) =>
-                String(participant.reference_docname) ===
-                String(empId)
-            ) ?? null;
+        if (!empId) {
+          return;
+        }
 
-        const empEmail = isObject
-          ? emp.email
-          : employeeResolvers?.getEmployeeFieldById(
-              empId,
-              "email"
-            );
-        
-        const empRoleId = isObject
-          ? emp.roleId
-          : employeeResolvers?.getEmployeeFieldById(
-              empId,
-              "roleId"
-            );
         const participant = {
           ...(existingParticipant ?? {}),
           reference_doctype: "Employee",
@@ -215,6 +264,14 @@ export function mapFormToErpEvent(values, options = {}) {
   const resolvedColor = hasEmployeeAttendingYes
     ? DEFAULT_COLORS.EVENT_COMPLETED
     : values.color;
+  const fallbackEndDate =
+    existingEndDate != null
+      ? new Date(existingEndDate)
+      : values.endDate;
+  const resolvedEndDate =
+    isDoctorVisitPlan && allEmployeeParticipantsVisited && currentVisitTimestamp
+      ? new Date(currentVisitTimestamp.replace(" ", "T"))
+      : fallbackEndDate;
 
   const isBirthday = values.tags === "Birthday";
   const doctorId = resolveDoctorLinkId(values.doctor);
@@ -232,7 +289,7 @@ export function mapFormToErpEvent(values, options = {}) {
     description: values.description,
     attending: values.attending,
     starts_on: format(values.startDate, "yyyy-MM-dd HH:mm:ss"),
-    ends_on: format(values.endDate, "yyyy-MM-dd HH:mm:ss"),
+    ends_on: format(resolvedEndDate, "yyyy-MM-dd HH:mm:ss"),
     [ERP_EVENT_FIELDS.roleProfileWrite]:
       values.roleId ?? LOGGED_IN_USER.roleId,
     event_category: values.tags,

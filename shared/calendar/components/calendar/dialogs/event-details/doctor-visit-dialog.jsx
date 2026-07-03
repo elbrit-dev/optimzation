@@ -421,9 +421,8 @@ export function EventDoctorVisitDialog({
                 POB
               </p>
 
-              {/* Yes / No */}
               <p className="text-sm text-muted-foreground">
-                {hasPobItems ? "Yes" : "No"}
+                {Number(event.pob_given) === 1 ? 1 : 0}
               </p>
 
               {/* Table only if items exist */}

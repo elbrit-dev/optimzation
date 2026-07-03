@@ -19,7 +19,7 @@ import {
   enqueueDocShareSync,
   syncEventDocShares,
 } from "@calendar/components/calendar/module/event/services/docshare.service";
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 200;
 const QUOTATION_BATCH_SIZE = 25;
 const pendingEventRequests = new Map();
 
@@ -338,7 +338,6 @@ async function fetchEventsByRangeUncached(
       after,
       filters: filter,
     });
-
     const connection = data?.Events;
     if (!connection) break;
 
@@ -349,11 +348,9 @@ async function fetchEventsByRangeUncached(
     if (!connection.pageInfo?.hasNextPage) break;
     after = connection.pageInfo.endCursor;
   }
-
   rawEventNodes = rawEventNodes.filter((node) =>
     doesEventOverlapRange(node, startDate, endDate)
   );
-
   // --------------------------------------------
   // 2️⃣ COLLECT QUOTATION REFERENCES
   // --------------------------------------------
@@ -430,12 +427,12 @@ async function fetchEventsByRangeUncached(
           rate: Number(row.rate) || 0,
           amount: Number(row.amount) || 0,
         })) || [];
-        node.pob_given =
+      node.pob_given =
         quotation.items?.length > 0
-          ? "Yes"
-          : "No";
+          ? 1
+          : 0;
     }
-   
+
     return node;
   });
 
@@ -447,12 +444,10 @@ async function fetchEventsByRangeUncached(
       mapErpGraphqlEventToCalendar(node)
     )
     .filter(Boolean);
-
   // --------------------------------------------
   // 6️⃣ MERGE LEAVES + TODOS
   // --------------------------------------------
   const merged = [...events, ...leaves, ...todolist];
-
   setCachedEvents(cacheKey, merged);
 
   return merged;

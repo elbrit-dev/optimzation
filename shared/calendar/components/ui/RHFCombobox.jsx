@@ -89,6 +89,28 @@ export function RHFCombobox({
       .filter(Boolean);
   }, [selectedIds, options]);
 
+  const filteredOptions = useMemo(() => {
+    const query = search.trim().toLowerCase();
+
+    if (!query) {
+      return options;
+    }
+
+    return options.filter((opt) =>
+      [
+        opt.label,
+        opt.value,
+        opt.email,
+        opt.role,
+        opt.designation,
+      ]
+        .filter(Boolean)
+        .some((fieldValue) =>
+          String(fieldValue).toLowerCase().includes(query)
+        )
+    );
+  }, [options, search]);
+
   const hasSelection = selectedOptions.length > 0;
 
   /* ---------------------------------------
@@ -188,10 +210,17 @@ export function RHFCombobox({
               <CommandEmpty>No results found.</CommandEmpty>
 
               <CommandGroup>
-                {options.map((opt) => (
+                {filteredOptions.map((opt) => (
                   <CommandItem
                     key={opt.value}
                     onSelect={() => handleSelect(opt)}
+                    keywords={[
+                      opt.label,
+                      opt.value,
+                      opt.email,
+                      opt.role,
+                      opt.designation,
+                    ].filter(Boolean)}
                     className="flex items-center"
                   >
                     <Check

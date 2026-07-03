@@ -1,5 +1,5 @@
-"use client";;
-import { useEffect, useState, useMemo } from "react";
+"use client";
+import { useEffect, useMemo, useState } from "react";
 import { format, parseISO, differenceInCalendarDays } from "date-fns";
 import { Button } from "@calendar/components/ui/button";
 import { TAG_FORM_CONFIG } from "@calendar/lib/calendar/form-config";
@@ -23,6 +23,7 @@ import {
 	DetailGrid,
 	DetailFooter,
 } from "@calendar/components/calendar/dialogs/event-details/detail-ui";
+import { SharedToBlock } from "@calendar/components/calendar/dialogs/share-event-dialog";
 
 export function EventLeaveDialog({
 	event, setOpen,
@@ -132,6 +133,7 @@ export function EventLeaveDialog({
 						status={status}
 						accentClassName="bg-rose-500"
 					/>
+					<SharedToBlock event={event} />
 					<EventDetailsFields
 						event={eventWithOptions}
 						config={tagConfig}

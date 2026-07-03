@@ -25,7 +25,7 @@ import { TAG_FORM_CONFIG } from "@calendar/lib/calendar/form-config";
 import { loadParticipantOptionsByTag } from "@calendar/lib/participants";
 import { TimePicker } from "@calendar/components/ui/TimePicker";
 import { enrichTodoOwner, mapErpTodoToCalendar, mapFormToErpTodo } from "@calendar/components/calendar/module/todo/mappers/todo.mapper";
-import { mapErpLeaveToCalendar, mapFormToErpLeave } from "@calendar/components/calendar/module/leave/mappers/leave.mapper";
+import { calculateTotalLeaveDays, mapErpLeaveToCalendar, mapFormToErpLeave } from "@calendar/components/calendar/module/leave/mappers/leave.mapper";
 import { useEmployeeResolvers } from "@calendar/lib/employeeResolver";
 import {
 	fetchDoctorsByTerritory,
@@ -47,6 +47,8 @@ import { Textarea } from "@calendar/components/ui/textarea";
 import { fetchEmployeeLeaveBalance } from "@calendar/components/calendar/module/leave/services/leave.service";
 import { resolveDepartmentRoleIds, resolveLoggedInRoleId, resolveSuperiorShareUserIds } from "@calendar/lib/employeeHeirachy";
 import { enqueueSubmission } from "@calendar/lib/calendar/submission-queue";
+import { fetchDocSharesByDocument } from "@calendar/components/calendar/module/event/services/docshare.service";
+import { cn } from "@calendar/lib/utils";
 
 // Head-office teams that are allowed to apply for Half Day leave. Field-sales
 // users (BE/ABM/RBM/SM role profiles) do not get Half Day. Matched as a whole
@@ -76,6 +78,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 	const [leaveBalance, setLeaveBalance] = useState(null);
 	const [leaveLoading, setLeaveLoading] = useState(false);
 	const employeeResolvers = useEmployeeResolvers(allEmployeeOptions);
+	const { getEmployeeIdByEmail } = useEmployeeResolvers(allEmployeeOptions);
 	const doctorResolvers = useDoctorResolvers(doctorOptions);
 	const [itemOptions, setItemOptions] = useState([]);
 	const [isResolvingLocation, setIsResolvingLocation] = useState(false);
@@ -260,15 +263,11 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		if (selectedTag !== TAG_IDS.LEAVE) return 0;
 		if (!startDate || !endDate) return 0;
 
-		// Half day is always 1 day logically
-		if (leavePeriod === "Half") {
-			const total =
-				differenceInCalendarDays(endDate, startDate) + 1;
-			return total - 0.5;
-		}
-
-
-		return differenceInCalendarDays(endDate, startDate) + 1;
+		return calculateTotalLeaveDays(
+			startDate,
+			endDate,
+			leavePeriod === "Half"
+		);
 	}, [selectedTag, startDate, endDate, leavePeriod]);
 	const selectedLeaveBalance = useMemo(() => {
 		if (!leaveType) return null;
@@ -282,15 +281,6 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		Boolean(selectedLeaveBalance) &&
 		leaveDays > 0 &&
 		Number(selectedLeaveBalance.available ?? 0) < leaveDays;
-	const currentEmployeeParticipant = useMemo(
-		() =>
-			event?.participants?.find(
-				(participant) =>
-					participant.type === "Employee" &&
-					String(participant.id) === String(LOGGED_IN_USER.id)
-			) ?? null,
-		[event?.participants]
-	);
 	const hasExistingPobItems =
 		Array.isArray(event?.fsl_doctor_item) &&
 		event.fsl_doctor_item.length > 0;
@@ -430,18 +420,18 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			!currentUserRoleId || currentUserRoleId === "Admin"
 				? allEmployeeOptions
 				: (() => {
-						const departmentRoleIds = resolveDepartmentRoleIds(
-							elbritRoleEdges,
-							currentUserRoleId
-						);
-						if (!departmentRoleIds.length) return allEmployeeOptions;
-						const allowedRoleIds = new Set(departmentRoleIds);
-						return allEmployeeOptions.filter(
-							(option) =>
-								option.value === LOGGED_IN_USER.id ||
-								(option.roleId && allowedRoleIds.has(option.roleId))
-						);
-				  })();
+					const departmentRoleIds = resolveDepartmentRoleIds(
+						elbritRoleEdges,
+						currentUserRoleId
+					);
+					if (!departmentRoleIds.length) return allEmployeeOptions;
+					const allowedRoleIds = new Set(departmentRoleIds);
+					return allEmployeeOptions.filter(
+						(option) =>
+							option.value === LOGGED_IN_USER.id ||
+							(option.roleId && allowedRoleIds.has(option.roleId))
+					);
+				})();
 
 		// On edit, keep already-attached participants selectable/visible even if
 		// they fall outside the user's department (older or cross-team events) —
@@ -471,6 +461,25 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			roleId: employee.roleId ?? null,
 		}));
 	}, [allEmployeeOptions, users]);
+	useEffect(() => {
+		const isHQTourPlan = event?.tags === TAG_IDS.HQ_TOUR_PLAN;
+		if (!isEditing) return;
+		if (!event?.erpName) return;
+		if (!isHQTourPlan) return;
+
+		const fetchShares = async () => {
+			const shares = await fetchDocSharesByDocument("Event", event.erpName);
+			const shareEmployeeEmail = shares.map(x => x?.user?.name)
+			const shareEmployeeIds = shareEmployeeEmail
+				.map((x) => getEmployeeIdByEmail(x))
+			form.setValue("shareEmployees", shareEmployeeIds, {
+				shouldDirty: false,
+				shouldValidate: true,
+			});
+		};
+
+		fetchShares();
+	}, [event?.erpName, event?.tags, isEditing]);
 	const superiorUserIds = useMemo(() => {
 		if (isEditing) return [];
 		if (!currentUserRoleId) return [];
@@ -624,22 +633,6 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		// (closed) behind the event-details popup, and we must not fetch device
 		// location then or it spams a geolocation toast on every detail open.
 		if (!isOpen) return;
-		endDateTouchedRef.current = true;
-
-		// 📍 Doctor Visit Plan: capture endDate ONCE
-		if (
-			selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN &&
-			attending === "Yes" &&
-			!endDateTouchedRef.current
-		) {
-			form.setValue("endDate", new Date(), {
-				shouldDirty: true,
-				shouldValidate: true,
-			});
-
-			endDateTouchedRef.current = true;
-		}
-
 		// Location is only relevant to Doctor Visit Plans (force-visit distance).
 		if (selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN) {
 			resolveLatLong(form, isEditing, toast);
@@ -748,9 +741,12 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 
 		/* ---------- Doctors ---------- */
 		if (doctorIds.length) {
-			const doctorValues = doctorIds
-				.map(id => doctorOptions.find(o => o.value === id))
-				.filter(Boolean);
+			const doctorValues = doctorIds.map((id) => {
+				return (
+					doctorOptions.find((option) => option.value === id) ??
+					id
+				);
+			});
 
 			form.setValue(
 				"doctor",
@@ -1004,16 +1000,33 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		const shouldBeGreen =
 			values.tags === TAG_IDS.DOCTOR_VISIT_PLAN &&
 			erpDoc.status === "Completed";
+		const normalizedStartDate = new Date(
+			values.startDate ?? event?.startDate ?? new Date()
+		);
+		const fallbackEndDate = new Date(
+			event?.endDate ?? values.endDate ?? values.startDate ?? new Date()
+		);
+		const resolvedEndDate =
+			values.tags === TAG_IDS.DOCTOR_VISIT_PLAN &&
+			erpDoc.status === "Completed"
+				? new Date(String(erpDoc.ends_on).replace(" ", "T"))
+				: fallbackEndDate;
+		const normalizedEndDate =
+			resolvedEndDate < normalizedStartDate
+				? normalizedStartDate
+				: resolvedEndDate;
 
 		const calendarEvent = {
 			...(event ?? {}),
 			erpName: savedName,
+			id: event?.id ?? savedName,
 			title: values.title,
 			description: values.description,
-			startDate: (values.startDate ?? new Date()).toISOString(),
-			endDate: (values.endDate ?? values.startDate ?? new Date()).toISOString(),
+			startDate: normalizedStartDate.toISOString(),
+			endDate: normalizedEndDate.toISOString(),
 			color: shouldBeGreen ? "green" : tagConfig.fixedColor,
 			tags: values.tags,
+			allDay: values.allDay ?? event?.allDay ?? false,
 			ownerEmployeeId: ownerEmployeeIdOverride,
 			ownerEmail: ownerEmailOverride,
 			ownerFullName: ownerFullNameOverride,
@@ -1241,18 +1254,29 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		onClose();
 	};
 	const handleDefaultEvent = async (values) => {
+		const normalizedDoctorValue =
+			values.tags === TAG_IDS.DOCTOR_VISIT_PLAN &&
+				(!values.doctor ||
+					(Array.isArray(values.doctor) && !values.doctor.length))
+				? event?.doctor
+				: values.doctor;
+		const normalizedValues = {
+			...values,
+			doctor: normalizedDoctorValue,
+		};
 		let quotationName =
 			event?.reference_docname || null;
 		let quotationDoc = null;
 
 		// Only for Doctor Visit Plan
 		if (
-			values.tags === TAG_IDS.DOCTOR_VISIT_PLAN &&
-			values.pob_given === "Yes"
+			normalizedValues.tags === TAG_IDS.DOCTOR_VISIT_PLAN &&
+			canCurrentParticipantEditPob &&
+			Number(normalizedValues.pob_given) === 1
 		) {
-			const selectedDoctor = Array.isArray(values.doctor)
-				? values.doctor[0]
-				: values.doctor;
+			const selectedDoctor = Array.isArray(normalizedValues.doctor)
+				? normalizedValues.doctor[0]
+				: normalizedValues.doctor;
 			const doctorId =
 				typeof selectedDoctor === "object"
 					? selectedDoctor?.value
@@ -1260,18 +1284,19 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 
 			quotationDoc =
 				mapDoctorVisitToQuotation({
-					values,
+					values: normalizedValues,
 					doctorId,
 					existingName: quotationName,
 					eventName: event?.erpName,
 				});
 			quotationName = quotationDoc.name ?? quotationName;
 		}
-		const erpDoc = mapFormToErpEvent(values, {
+		const erpDoc = mapFormToErpEvent(normalizedValues, {
 			erpName: event?.erpName,
 			employeeResolvers,
 			doctorResolvers,
 			existingEventParticipants: event?.event_participants ?? [],
+			existingEndDate: event?.endDate ?? null,
 			googleCalendar:
 				googleCalendarEnabled
 					? LOGGED_IN_USER.email
@@ -1283,21 +1308,21 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			erpDoc.reference_docname = quotationName;
 		}
 		const calendarEvent = buildCalendarEvent({
-				event,
-				values,
-				erpDoc,
-				savedName: event?.erpName ?? createLocalEventId("local-event"),
-				tagConfig,
-				employeeOptions: employeePickerOptions,
-				doctorOptions,
-				ownerEmployeeIdOverride:
-					event?.ownerEmployeeId || LOGGED_IN_USER.id,
+			event,
+			values: normalizedValues,
+			erpDoc,
+			savedName: event?.erpName ?? createLocalEventId("local-event"),
+			tagConfig,
+			employeeOptions: employeePickerOptions,
+			doctorOptions,
+			ownerEmployeeIdOverride:
+				event?.ownerEmployeeId || LOGGED_IN_USER.id,
 			ownerEmailOverride:
 				event?.ownerEmail || LOGGED_IN_USER.email,
 			ownerFullNameOverride:
 				event?.ownerFullName || LOGGED_IN_USER.name,
 		});
-		ensureDoctorOptionsAvailable(values.doctor);
+		ensureDoctorOptionsAvailable(normalizedValues.doctor);
 		await enqueueSubmission({
 			kind: "event",
 			replaceQueueId: event?.__localQueueId ?? null,
@@ -1374,9 +1399,9 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 						erpDoc,
 						quotationDoc: null,
 						saveOptions: {
-						shareWithUserIds: superiorUserIds,
-						deferShareSync: false,
-						skipExistingShareCheck: true,
+							shareWithUserIds: superiorUserIds,
+							deferShareSync: false,
+							skipExistingShareCheck: true,
 						},
 					},
 				});
@@ -1408,6 +1433,20 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 
 	const handleLeave = async (values) => {
 		try {
+			const totalLeaveDays = calculateTotalLeaveDays(
+				values.startDate,
+				values.endDate,
+				values.leavePeriod === "Half"
+			);
+
+			if (
+				values.leaveType === "Casual Leave" &&
+				totalLeaveDays > 3
+			) {
+				toast.error("Casual Leave cannot be longer than 3");
+				return;
+			}
+
 			const currentLeaveBalance =
 				leaveBalance?.[values.leaveType] ?? null;
 			const isLeaveWithoutPay =
@@ -1765,37 +1804,46 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 						{/* ================= MEETING ================= */}
 						{selectedTag === TAG_IDS.MEETING ? (
 							<>
-								<RHFDateTimeField
-									control={form.control}
-									form={form}
-									name="startDate"
-									label="Date"
-									hideTime
-								/>
+									<RHFDateTimeField
+										control={form.control}
+										form={form}
+										name="startDate"
+										label="Date"
+										hideTime
+									/>
 
-								<FormField
-									control={form.control}
-									name="allDay"
-									render={({ field }) => (
-										<InlineCheckboxField
-											label="All day"
-											checked={field.value}
-											onChange={field.onChange}
+									<div
+										className={cn(
+											"grid gap-3",
+											!isEditing ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1"
+										)}
+									>
+										<FormField
+											control={form.control}
+											name="allDay"
+											render={({ field }) => (
+												<InlineCheckboxField
+													label="All day"
+													checked={field.value}
+													onChange={field.onChange}
+												/>
+											)}
 										/>
-									)}
-								/>
 
-								<FormField
-									control={form.control}
-									name="enableGoogleMeet"
-									render={({ field }) => (
-										<InlineCheckboxField
-											label="Enable Google Meet"
-											checked={Boolean(field.value)}
-											onChange={field.onChange}
-										/>
-									)}
-								/>
+										{!isEditing && (
+											<FormField
+												control={form.control}
+												name="enableGoogleMeet"
+												render={({ field }) => (
+													<InlineCheckboxField
+														label="Enable Google Meet"
+														checked={Boolean(field.value)}
+														onChange={field.onChange}
+													/>
+												)}
+											/>
+										)}
+									</div>
 
 								{!allDay && (
 									<div className="grid grid-cols-2 gap-3">
@@ -1954,26 +2002,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 									)}
 								/>
 							)}
-						{isEditing &&
-							selectedTag === TAG_IDS.HQ_TOUR_PLAN && (
-								<FormField
-									control={form.control}
-									name="shareEmployees"
-									render={({ field }) => (
-										<RHFFieldWrapper label="Share with">
-											<RHFComboboxField
-												{...field}
-												options={employeePickerOptions}
-												multiple
-												placeholder="Select employees"
-												searchPlaceholder="Search employee"
-												onSearch={handleEmployeeSearch}
-												loading={employeeSearchLoading}
-											/>
-										</RHFFieldWrapper>
-									)}
-								/>
-							)}
+
 						{/* ================= DOCTOR ================= */}
 						{!tagConfig.hide?.includes("doctor") &&
 							!isEditReadOnlyField("doctor") && (
@@ -2197,37 +2226,37 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 												POB has already been captured for this visit. Remaining participants can only mark Visit.
 											</p>
 										)}
-								<FormField
-									control={form.control}
-									name="pob_given"
-									render={({ field }) => (
-										<RHFFieldWrapper label="Did POB Given ?">
-											<div className="flex gap-6">
-												<label className="flex items-center gap-2">
-													<input
-														type="radio"
-														value="1"
-														checked={Number(field.value) === 1}
-														disabled={!canCurrentParticipantEditPob}
-														onChange={() => field.onChange(1)}
-													/>
-													<span>Yes</span>
-												</label>
+									<FormField
+										control={form.control}
+										name="pob_given"
+										render={({ field }) => (
+											<RHFFieldWrapper label="Did POB Given ?">
+												<div className="flex gap-6">
+													<label className="flex items-center gap-2">
+														<input
+															type="radio"
+															value="1"
+															checked={Number(field.value) === 1}
+															disabled={!canCurrentParticipantEditPob}
+															onChange={() => field.onChange(1)}
+														/>
+														<span>1</span>
+													</label>
 
-												<label className="flex items-center gap-2">
-													<input
-														type="radio"
-														value="0"
-														checked={Number(field.value) === 0}
-														disabled={!canCurrentParticipantEditPob}
-														onChange={() => field.onChange(0)}
-													/>
-													<span>No</span>
-												</label>
-											</div>
-										</RHFFieldWrapper>
-									)}
-								/>
+													<label className="flex items-center gap-2">
+														<input
+															type="radio"
+															value="0"
+															checked={Number(field.value) === 0}
+															disabled={!canCurrentParticipantEditPob}
+															onChange={() => field.onChange(0)}
+														/>
+														<span>0</span>
+													</label>
+												</div>
+											</RHFFieldWrapper>
+										)}
+									/>
 								</>
 							)}
 						{/* ================= CUSTOMER ================= */}

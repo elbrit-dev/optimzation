@@ -102,7 +102,6 @@ export const TAG_FORM_CONFIG = {
         { key: "startDate", label: "Start Date", type: "date" },
         { key: "endDate", label: "End Date", type: "date" },
         { key: "hqTerritory", label: "HQTerrioty", type: "hqTerritory" },
-        { key: "description", label: "Description", type: "text" },
       ],
     },
     autoTitle: (
@@ -264,7 +263,7 @@ export const TAG_FORM_CONFIG = {
           key: "pob_given",
           label: "Did POB Given ?",
           type: "radio",
-          options: ["Yes", "No"],
+          options: [1, 0],
         },
     
         items: {

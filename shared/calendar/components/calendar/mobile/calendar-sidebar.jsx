@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@calendar/components/ui/button";
+import { RotateCw } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -20,7 +21,14 @@ const MOBILE_LAYER_MAP = {
 };
 
 export function CalendarSidebar({ open, onOpenChange }) {
-  const { view, setView, setMobileLayer } = useCalendar();
+  const {
+    view,
+    setView,
+    setMobileLayer,
+    pendingSyncCount,
+    retryPendingSync,
+    isRetryingSync,
+  } = useCalendar();
 
   const handleViewChange = (value) => {
     setView(value);
@@ -35,30 +43,57 @@ export function CalendarSidebar({ open, onOpenChange }) {
           <SheetTitle>Scheduler</SheetTitle>
         </SheetHeader>
 
-        <nav className="flex flex-col gap-3 p-2">
-          {tabs
-            .filter((tab) => tab.value !== "day")
-            .map(({ name, value, icon: Icon }) => {
-              const isActive = view === value;
+        <div className="flex h-full flex-col overflow-hidden">
+          <nav className="flex flex-col gap-3 p-2">
+            {tabs
+              .filter((tab) => tab.value !== "day")
+              .map(({ name, value, icon: Icon }) => {
+                const isActive = view === value;
 
-              return (
-                <Button
-                  key={value}
-                  variant={isActive ? "secondary" : "ghost"}
+                return (
+                  <Button
+                    key={value}
+                    variant={isActive ? "secondary" : "ghost"}
+                    className={cn(
+                      "justify-start gap-2",
+                      isActive && "font-medium"
+                    )}
+                    onClick={() => handleViewChange(value)}
+                  >
+                    <Icon className="h-4 w-4" />
+                    {name}
+                  </Button>
+                );
+              })}
+          </nav>
+
+          <div className="border-t space-y-2 px-2 pt-3">
+            <GoogleCalendarConnect className="w-full" />
+            {pendingSyncCount > 0 && (
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={retryPendingSync}
+                disabled={isRetryingSync}
+              >
+                <RotateCw
                   className={cn(
-                    "justify-start gap-2",
-                    isActive && "font-medium"
+                    "mr-2 h-4 w-4",
+                    isRetryingSync && "animate-spin"
                   )}
-                  onClick={() => handleViewChange(value)}
-                >
-                  <Icon className="h-4 w-4" />
-                  {name}
-                </Button>
-              );
-            })}
-        <UserSelect/>
-        <GoogleCalendarConnect/>
-        </nav>
+                />
+                {isRetryingSync
+                  ? "Retrying..."
+                  : `Retry Sync(${pendingSyncCount})`}
+              </Button>
+            )}
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-hidden px-0 pb-3 pt-3">
+            <UserSelect mode="inline" />
+          </div>
+        </div>
       </SheetContent>
     </Sheet>
   );

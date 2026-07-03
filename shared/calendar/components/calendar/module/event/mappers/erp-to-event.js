@@ -3,6 +3,7 @@ import { COLOR_HEX_MAP, DEFAULT_COLORS } from "@calendar/components/calendar/con
 import { TAG_FORM_CONFIG } from "@calendar/lib/calendar/form-config";
 import { TAG_IDS } from "@calendar/components/calendar/constants";
 import { normalizeStatus } from "@calendar/components/calendar/helpers";
+import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 /**
  * ERP GraphQL → Calendar Event
  * Employees & Doctors are derived ONLY from participants
@@ -16,6 +17,18 @@ function normalizeAttending(value) {
   if (v === "no") return "No";
 
   return "No";
+}
+
+function normalizeParticipantAttending(value) {
+  if (typeof value !== "string") return "";
+
+  const v = value.trim().toLowerCase();
+
+  if (v === "yes") return "Yes";
+  if (v === "no") return "No";
+  if (v === "maybe") return "Maybe";
+
+  return "";
 }
 
 function buildOwnerFullName(owner) {
@@ -69,7 +82,7 @@ export function mapErpGraphqlEventToCalendar(node) {
       .map((p) => ({
       reference_doctype: p.reference_doctype__name,
       reference_docname: String(p.reference_docname__name),
-      attending: p.attending,
+      attending: normalizeParticipantAttending(p.attending),
       custom_latitude: p.custom_latitude ?? null,
       custom_longitude: p.custom_longitude ?? null,
       custom_distance: p.custom_distance ?? null,
@@ -87,7 +100,7 @@ export function mapErpGraphqlEventToCalendar(node) {
   const participants = event_participants.map((p) => ({
     type: p.reference_doctype,
     id: p.reference_docname,
-    attending: p.attending,
+    attending: normalizeParticipantAttending(p.attending),
     custom_latitude: p.custom_latitude,
     custom_longitude: p.custom_longitude,
     custom_distance: p.custom_distance,
@@ -107,9 +120,15 @@ export function mapErpGraphqlEventToCalendar(node) {
     .filter((p) => p.type === "Employee")
     .map((p) => p.id);
 
-  const employeeVisitParticipant = participants.find(
-    (participant) => participant.type === "Employee"
-  );
+  const employeeVisitParticipant =
+    participants.find(
+      (participant) =>
+        participant.type === "Employee" &&
+        String(participant.id) === String(LOGGED_IN_USER.id)
+    ) ??
+    participants.find(
+      (participant) => participant.type === "Employee"
+    );
 
   /* ---------------------------------------------
      DATE HANDLING
@@ -124,16 +143,21 @@ export function mapErpGraphqlEventToCalendar(node) {
     startDate.setFullYear(currentYear);
     endDate = startDate;
   }
+  if (startDate && endDate && endDate < startDate) {
+    endDate = startDate;
+  }
   const employeeParticipants = participants.filter(
     (p) => p.type === "Employee"
   );
   const hasEmployeeAttendingYes =
-    employeeParticipants.some((p) => p.attending === "YES");
+    employeeParticipants.some(
+      (p) => String(p.attending).toLowerCase() === "yes"
+    );
   const allEmployeeParticipantsVisited =
     employeeParticipants.length > 0 &&
     employeeParticipants.every(
       (p) =>
-        p.attending === "YES" &&
+        String(p.attending).toLowerCase() === "yes" &&
         Boolean(p.custom_visit_time)
     );
   const color =
@@ -150,6 +174,7 @@ export function mapErpGraphqlEventToCalendar(node) {
   --------------------------------------------- */
   const event = {
     erpName: node.name,
+    id: node.name,
     title:
       tag === TAG_IDS.DOCTOR_VISIT_PLAN
         ? buildDoctorVisitTitle(node, ownerFullName)

@@ -46,24 +46,26 @@ export async function fetchEmployees() {
 }
 
 export async function searchEmployees(search) {
-  const filters = [ACTIVE_EMPLOYEE_FILTER];
+  const query = search?.trim().toLowerCase() ?? "";
+  const employees = await fetchEmployeeNodes();
 
-  if (search?.trim()) {
-    const term = `%${search.trim()}%`;
-    filters.push({
-      fieldname: "employee_name",
-      operator: "LIKE",
-      value: term,
-    });
-  }
-
-  const data = await graphqlRequest(EMPLOYEES_QUERY, {
-    first: MAX_ROWS,
-    filters,
-  });
+  const filteredEmployees = !query
+    ? employees
+    : employees.filter((node) =>
+        [
+          node.employee_name,
+          node.company_email,
+          node.designation?.name,
+          node.name,
+        ]
+          .filter(Boolean)
+          .some((value) =>
+            String(value).toLowerCase().includes(query)
+          )
+      );
 
   return (
-    data?.Employees?.edges?.map(({ node }) => ({
+    filteredEmployees.map((node) => ({
       doctype: "Employee",
       value: node.name,
       label: node.employee_name,

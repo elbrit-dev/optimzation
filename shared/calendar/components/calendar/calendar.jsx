@@ -21,7 +21,7 @@ export function Calendar() {
           {/* ===== Desktop Split Layout ===== */}
           <div className="flex flex-1 overflow-hidden">
             {!isMobile && (
-              <aside className="w-[20%] min-w-[280px] border-r bg-background">
+              <aside className="w-[20%] min-w-[280px] border-r bg-background bg-white">
                 <AgendaSidebar />
               </aside>
             )}

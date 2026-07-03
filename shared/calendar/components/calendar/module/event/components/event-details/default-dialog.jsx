@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { format, parseISO, isValid } from "date-fns";
 import { Button } from "@calendar/components/ui/button";
 import { TAG_FORM_CONFIG } from "@calendar/lib/calendar/form-config";
@@ -19,8 +19,7 @@ import {
   DetailGrid,
   DetailFooter,
 } from "@calendar/components/calendar/dialogs/event-details/detail-ui";
-import { fetchDocSharesByDocument } from "@calendar/components/calendar/module/event/services/docshare.service";
-import { TAG_IDS } from "@calendar/components/calendar/constants";
+import { SharedToBlock } from "@calendar/components/calendar/dialogs/share-event-dialog";
 
 function formatEventRange(event, use24HourFormat) {
   const start = event.startDate ? parseISO(event.startDate) : null;
@@ -56,7 +55,6 @@ export function EventDefaultDialog({ event, setOpen }) {
     removeEvent,
     employeeOptions,
     doctorOptions,
-    users,
   } =
     useCalendar();
   const { handleDelete } = useDeleteEvent({
@@ -79,69 +77,9 @@ export function EventDefaultDialog({ event, setOpen }) {
     [event.event_participants, employeeOptions, doctorOptions]
   );
 
-  const [sharedTo, setSharedTo] = useState("");
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function hydrateSharedTo() {
-      if (
-        event.tags !== TAG_IDS.HQ_TOUR_PLAN ||
-        !event.erpName
-      ) {
-        setSharedTo("");
-        return;
-      }
-
-      try {
-        const shares = await fetchDocSharesByDocument("Event", event.erpName);
-        if (cancelled) return;
-
-        const ownerEmail = event.ownerEmail?.toLowerCase?.() ?? null;
-        const sharedNames = shares
-          .map((share) => share?.user?.name)
-          .filter(Boolean)
-          .filter((email) => email.toLowerCase() !== ownerEmail)
-          .map((email) => {
-            const matchedUser = users.find(
-              (user) =>
-                user.email?.toLowerCase() === email.toLowerCase()
-            );
-            const matchedEmployee = employeeOptions.find(
-              (employee) =>
-                employee.email?.toLowerCase() === email.toLowerCase()
-            );
-
-            return (
-              matchedEmployee?.label ??
-              matchedUser?.name ??
-              matchedUser?.id ??
-              email
-            );
-          });
-
-        setSharedTo(
-          Array.from(new Set(sharedNames)).join(", ")
-        );
-      } catch (error) {
-        if (!cancelled) {
-          console.error("Failed to fetch HQ DocShares", error);
-          setSharedTo("");
-        }
-      }
-    }
-
-    hydrateSharedTo();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [event.erpName, event.ownerEmail, event.tags, employeeOptions, users]);
-
   const eventWithOptions = {
     ...event,
     participants: enrichedParticipants,
-    sharedTo,
     _employeeOptions: employeeOptions,
     _doctorOptions: doctorOptions,
   };
@@ -166,6 +104,7 @@ export function EventDefaultDialog({ event, setOpen }) {
               Join Google Meet
             </a>
           ) : null}
+          <SharedToBlock event={event} />
           <EventDetailsFields
             event={eventWithOptions}
             config={tagConfig}

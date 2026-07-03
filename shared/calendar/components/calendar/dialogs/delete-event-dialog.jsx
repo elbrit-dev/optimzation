@@ -26,7 +26,7 @@ export default function DeleteEventDialog({
 				</Button>
 			</AlertDialogTrigger>
 
-			<AlertDialogContent className="bg-background/95 backdrop-blur-sm">
+			<AlertDialogContent className="bg-background/95 backdrop-blur-sm bg-white">
 				<AlertDialogHeader>
 					<AlertDialogTitle>
 						Are you absolutely sure?

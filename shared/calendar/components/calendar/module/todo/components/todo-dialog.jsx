@@ -21,6 +21,7 @@ import {
   DetailFooter,
   PersonChips,
 } from "@calendar/components/calendar/dialogs/event-details/detail-ui";
+import { SharedToBlock } from "@calendar/components/calendar/dialogs/share-event-dialog";
 
 /* =====================================================
    PURE HELPERS
@@ -192,6 +193,7 @@ export function EventTodoDialog({
             status={event.status}
             accentClassName="bg-violet-500"
           />
+          <SharedToBlock event={event} />
 
           <DetailGrid>
             <DetailItem icon={User} label="Allocated To">

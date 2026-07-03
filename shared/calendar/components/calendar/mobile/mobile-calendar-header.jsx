@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Menu, ListChecks, House, Rows2, CircleCheckBig } from "lucide-react";
+import { Menu, ListChecks, House, Rows2, CircleCheckBig, RotateCw } from "lucide-react";
 import { motion } from "framer-motion";
 import { slideFromLeft, transition } from "@calendar/components/calendar/animations";
 import { Button } from "@calendar/components/ui/button";
@@ -35,6 +35,9 @@ export function MobileCalendarHeader() {
     setMobileLayer,
     events, showOnlyApprovedLeaves, showOnlyTodoList, setShowOnlyTodoList, setSelectedStatuses,
     setShowOnlyApprovedLeaves,
+    pendingSyncCount,
+    retryPendingSync,
+    isRetryingSync,
   } = useCalendar();
   const today = new Date();
   const todayDate = format(today, "d");
@@ -170,6 +173,26 @@ export function MobileCalendarHeader() {
               )}
             />
           </Button>
+          {pendingSyncCount > 0 && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mx-1 gap-1 px-2 text-xs"
+              onClick={retryPendingSync}
+              disabled={isRetryingSync}
+            >
+              <RotateCw
+                className={cn(
+                  "h-3.5 w-3.5",
+                  isRetryingSync && "animate-spin"
+                )}
+              />
+              {isRetryingSync
+                ? "Retrying..."
+                : `Retry Sync(${pendingSyncCount})`}
+            </Button>
+          )}
           <Button variant="ghost" size="icon"><House /></Button>
         </div>
       </header>

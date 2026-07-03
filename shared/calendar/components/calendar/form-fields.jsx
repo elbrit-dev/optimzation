@@ -220,7 +220,7 @@ export function InlineCheckboxField({
 }) {
   return (
     <FormItem className="flex items-center gap-2">
-      <Checkbox
+      <Checkbox className="mb-0"
         checked={checked}
         onCheckedChange={onChange}
       />

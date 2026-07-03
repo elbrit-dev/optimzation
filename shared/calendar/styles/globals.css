@@ -154,3 +154,13 @@
     --ring: 0 0% 83.1% / 1;
   }
 }
+
+/* globals.css */
+.hide-scrollbar {
+  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: none; /* Firefox */
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none; /* Chrome, Safari */
+}

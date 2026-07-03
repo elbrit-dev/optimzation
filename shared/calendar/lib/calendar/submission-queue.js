@@ -343,6 +343,30 @@ export function discardQueuedSubmission(match = {}) {
   writeQueue(nextQueue);
 }
 
+export function requeueFailedSubmissions() {
+  const currentQueue = readQueue();
+  let mutated = false;
+
+  const nextQueue = currentQueue.map((item) => {
+    if (item.status !== "failed") {
+      return item;
+    }
+
+    mutated = true;
+    return {
+      ...item,
+      status: "pending",
+      error: null,
+    };
+  });
+
+  if (mutated) {
+    writeQueue(nextQueue);
+  }
+
+  return nextQueue.map(normalizeQueueItem);
+}
+
 export async function enqueueDeletion({ event, docname }) {
   if (!event) {
     throw new Error("Missing event for delete queue");
