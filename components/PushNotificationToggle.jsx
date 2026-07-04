@@ -35,6 +35,7 @@ const PushNotificationToggle = ({
   email,
   label = "Show notifications",
   deniedMessage = "Notifications are blocked for this site. Enable them from the lock icon in your browser's address bar (Site settings → Notifications → Allow), then try again.",
+  sdkErrorMessage = "The notification service couldn't start on this page — usually the domain isn't authorized in OneSignal (Settings → Push & In-App → Web → Site URL). Check the browser console for a red OneSignal error.",
   hideWhenUnsupported = true,
   activeColor = "#2c5282",
   inactiveColor = "#cbd5e0",
@@ -49,6 +50,8 @@ const PushNotificationToggle = ({
   const [subState, setSubState] = useState(null);
   const [busy, setBusy] = useState(false);
   const [showDeniedHelp, setShowDeniedHelp] = useState(false);
+  const [sdkFailed, setSdkFailed] = useState(false);
+  const stateArrivedRef = useRef(false);
   const cleanEmail = (email || "").trim().toLowerCase();
 
   const enabled = !!subState && subState.permission === "granted" && subState.optedIn;
@@ -57,13 +60,26 @@ const PushNotificationToggle = ({
     let mounted = true;
     const apply = (state) => {
       if (!mounted || !state) return;
+      stateArrivedRef.current = true;
+      setSdkFailed(false);
       setSubState(state);
+      console.log("PushNotificationToggle: state", state);
       if (state.permission === "granted" && state.optedIn) setShowDeniedHelp(false);
     };
     getPushSubscriptionState().then(apply);
     const off = onPushSubscriptionChange(apply);
+    // If the SDK never reports back (init failed — e.g. domain not authorized
+    // in the OneSignal dashboard), surface that instead of a silently
+    // disabled toggle.
+    const failTimer = setTimeout(() => {
+      if (mounted && !stateArrivedRef.current) {
+        console.warn("PushNotificationToggle: OneSignal SDK did not initialize within 8s — is this domain authorized in the OneSignal dashboard?");
+        setSdkFailed(true);
+      }
+    }, 8000);
     return () => {
       mounted = false;
+      clearTimeout(failTimer);
       off();
     };
   }, []);
@@ -203,7 +219,7 @@ const PushNotificationToggle = ({
           <span style={knobStyle} />
         </button>
       </div>
-      {showDeniedHelp && (
+      {(showDeniedHelp || (sdkFailed && !subState)) && (
         <div
           style={{
             padding: "10px 12px",
@@ -216,7 +232,7 @@ const PushNotificationToggle = ({
             maxWidth: "320px",
           }}
         >
-          {deniedMessage}
+          {showDeniedHelp ? deniedMessage : sdkErrorMessage}
         </div>
       )}
     </div>

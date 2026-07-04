@@ -677,6 +677,13 @@ PLASMIC.registerComponent(PushNotificationToggle, {
         "Notifications are blocked for this site. Enable them from the lock icon in your browser's address bar (Site settings → Notifications → Allow), then try again.",
       description: "Help text shown when the browser has notifications blocked.",
     },
+    sdkErrorMessage: {
+      type: "string",
+      defaultValue:
+        "The notification service couldn't start on this page — usually the domain isn't authorized in OneSignal (Settings → Push & In-App → Web → Site URL). Check the browser console for a red OneSignal error.",
+      description:
+        "Warning shown when the OneSignal SDK fails to initialize within 8 seconds (e.g. domain mismatch with the OneSignal dashboard's Site URL).",
+    },
     hideWhenUnsupported: {
       type: "boolean",
       defaultValue: true,
