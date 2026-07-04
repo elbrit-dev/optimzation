@@ -297,7 +297,7 @@ export function mapFormToErpEvent(values, options = {}) {
       COLOR_HEX_MAP[resolvedColor] ??
       COLOR_HEX_MAP.blue,
     all_day: isBirthday || values.allDay ? 1 : 0,
-    event_type: "Public",
+    event_type: "Private",
     status:
       isDoctorVisitPlan && allEmployeeParticipantsVisited
         ? "Completed"

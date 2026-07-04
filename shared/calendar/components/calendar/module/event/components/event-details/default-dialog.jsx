@@ -104,7 +104,6 @@ export function EventDefaultDialog({ event, setOpen }) {
               Join Google Meet
             </a>
           ) : null}
-          <SharedToBlock event={event} />
           <EventDetailsFields
             event={eventWithOptions}
             config={tagConfig}
@@ -114,22 +113,49 @@ export function EventDefaultDialog({ event, setOpen }) {
         </div>
       </ScrollArea>
 
-      <DetailFooter>
-        {(canEdit || isFailedSync) && (
-          <AddEditEventDialog event={event} forceValues={editAction?.setOnEdit}>
-            <Button variant="outline" className="w-full sm:w-auto">
-              {editAction?.label ?? "Edit"}
-            </Button>
-          </AddEditEventDialog>
-        )}
-
-        {(canDelete || isFailedSync) && (
-          <DeleteEventDialog
-            className="w-full sm:w-auto"
-            onConfirm={() => handleDelete(event.erpName, undefined, event)}
+      <div className="mt-1 border-t pt-3 sm:grid sm:grid-cols-2 sm:items-start sm:gap-3">
+        <div className="min-w-0">
+          <SharedToBlock
+            event={event}
+            variant="footer"
+            renderWhenEmpty
+            className="sm:min-h-[52px]"
           />
-        )}
-      </DetailFooter>
+        </div>
+        <DetailFooter className="mt-3 border-t-0 pt-0 sm:mt-0 sm:justify-self-end sm:justify-end">
+          {((canEdit || isFailedSync) && (canDelete || isFailedSync)) ? (
+            <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
+              <AddEditEventDialog event={event} forceValues={editAction?.setOnEdit}>
+                <Button variant="outline" className="w-full sm:w-auto">
+                  {editAction?.label ?? "Edit"}
+                </Button>
+              </AddEditEventDialog>
+
+              <DeleteEventDialog
+                className="w-full sm:w-auto"
+                onConfirm={() => handleDelete(event.erpName, undefined, event)}
+              />
+            </div>
+          ) : (
+            <>
+              {(canEdit || isFailedSync) && (
+                <AddEditEventDialog event={event} forceValues={editAction?.setOnEdit}>
+                  <Button variant="outline" className="w-full sm:w-auto">
+                    {editAction?.label ?? "Edit"}
+                  </Button>
+                </AddEditEventDialog>
+              )}
+
+              {(canDelete || isFailedSync) && (
+                <DeleteEventDialog
+                  className="w-full sm:w-auto"
+                  onConfirm={() => handleDelete(event.erpName, undefined, event)}
+                />
+              )}
+            </>
+          )}
+        </DetailFooter>
+      </div>
     </>
   );
 }

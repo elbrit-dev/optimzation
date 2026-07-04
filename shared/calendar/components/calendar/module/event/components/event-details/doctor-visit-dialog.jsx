@@ -385,7 +385,6 @@ export function EventDoctorVisitDialog({
               </p>
             </div>
           )}
-          <SharedToBlock event={event} />
           <p className="text-sm font-medium mb-[4px]">Participants</p>
           {/* Participants */}
           {employeeParticipants.map((p, index) => {
@@ -398,7 +397,7 @@ export function EventDoctorVisitDialog({
             return (
               <div
                 key={index}
-                className="flex justify-start gap-6 text-sm items-center"
+                className="flex justify-start gap-3 text-sm items-center sm:gap-4"
               >
                 <span className="text-muted-foreground">
                   {p.name}
@@ -487,66 +486,84 @@ export function EventDoctorVisitDialog({
       </ScrollArea>
 
       {/* Footer */}
-      <DetailFooter>
-        {permissions.canEdit && (!isVisitCompleted || isFailedSync) && (
-          <>
-            {isFailedSync ? (
-              <AddEditEventDialog
-                event={event}
-                forceValues={
-                  tagConfig.ui?.primaryEditAction
-                    ?.setOnEdit
-                }
-              >
-                <Button className="w-full sm:w-auto">
-                  Edit
-                </Button>
-              </AddEditEventDialog>
-            ) : null}
-
-            {permissions.canJoin && (
-              <Button
-                variant="success"
-                className="w-full sm:w-auto"
-                onClick={handleJoin}
-              >
-                Join
-              </Button>
-            )}
-
-            {permissions.canVisitNow && !isFailedSync && (
-              <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
-                <Button
-                  variant="destructive"
-                  className="w-full sm:w-auto"
-                  onClick={handleLeaveVisit}
-                >
-                  Remove
-                </Button>
-                <AddEditEventDialog
-                  event={event}
-                  forceValues={
-                    tagConfig.ui?.primaryEditAction
-                      ?.setOnEdit
-                  }
-                >
-                  <Button className="w-full sm:w-auto">
-                    {tagConfig.ui?.primaryEditAction
-                      ?.label ?? "Visit"}
-                  </Button>
-                </AddEditEventDialog>
-              </div>
-            )}
-          </>
-        )}
-
-        {permissions.canDelete && (!hasParticipants || isFailedSync) && (
-          <DeleteEventDialog
-            className="w-full sm:w-auto"
-            onConfirm={() => handleDelete(event.erpName, undefined, event)}
+      <div className="mt-1 border-t pt-3 sm:grid sm:grid-cols-2 sm:items-start sm:gap-3">
+        <div className="min-w-0">
+          <SharedToBlock
+            event={event}
+            variant="footer"
+            renderWhenEmpty
+            className="sm:min-h-[52px]"
           />
-        )}
-      </DetailFooter>
+        </div>
+        <DetailFooter className="mt-3 border-t-0 pt-0 sm:mt-0 sm:justify-self-end sm:justify-end">
+          {permissions.canEdit && (!isVisitCompleted || isFailedSync) && (
+            <>
+              {isFailedSync ? (
+                <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
+                  <AddEditEventDialog
+                    event={event}
+                    forceValues={
+                      tagConfig.ui?.primaryEditAction
+                        ?.setOnEdit
+                    }
+                  >
+                    <Button className="w-full sm:w-auto">
+                      Edit
+                    </Button>
+                  </AddEditEventDialog>
+                  {permissions.canDelete && (
+                    <DeleteEventDialog
+                      className="w-full sm:w-auto"
+                      onConfirm={() => handleDelete(event.erpName, undefined, event)}
+                    />
+                  )}
+                </div>
+              ) : null}
+
+              {permissions.canJoin && (
+                <Button
+                  variant="success"
+                  className="w-full sm:w-auto"
+                  onClick={handleJoin}
+                >
+                  Join
+                </Button>
+              )}
+
+              {permissions.canVisitNow && !isFailedSync && (
+                <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
+                  <Button
+                    variant="destructive"
+                    className="w-full sm:w-auto"
+                    onClick={handleLeaveVisit}
+                  >
+                    Remove
+                  </Button>
+                  <AddEditEventDialog
+                    event={event}
+                    forceValues={
+                      tagConfig.ui?.primaryEditAction
+                        ?.setOnEdit
+                    }
+                  >
+                    <Button className="w-full sm:w-auto">
+                      {tagConfig.ui?.primaryEditAction
+                        ?.label ?? "Visit"}
+                    </Button>
+                  </AddEditEventDialog>
+                </div>
+              )}
+            </>
+          )}
+
+          {permissions.canDelete && !isFailedSync && (!hasParticipants || isFailedSync) && (
+            <DeleteEventDialog
+              className="w-full sm:w-auto"
+              onConfirm={() => handleDelete(event.erpName, undefined, event)}
+            />
+          )}
+        </DetailFooter>
+      </div>
     </>
   );
 }

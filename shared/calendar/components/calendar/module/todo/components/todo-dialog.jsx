@@ -193,7 +193,6 @@ export function EventTodoDialog({
             status={event.status}
             accentClassName="bg-violet-500"
           />
-          <SharedToBlock event={event} />
 
           <DetailGrid>
             <DetailItem icon={User} label="Allocated To">
@@ -236,25 +235,55 @@ export function EventTodoDialog({
       </ScrollArea>
 
       {/* ================= FOOTER ================= */}
-      <DetailFooter>
-        {permissions.canEdit && (
-          <AddEditEventDialog
+      <div className="mt-1 border-t pt-3 sm:grid sm:grid-cols-2 sm:items-start sm:gap-3">
+        <div className="min-w-0">
+          <SharedToBlock
             event={event}
-            forceValues={tagConfig.ui?.primaryEditAction?.setOnEdit}
-          >
-            <Button className="w-full sm:w-auto">
-              {tagConfig.ui?.primaryEditAction?.label ?? "Edit"}
-            </Button>
-          </AddEditEventDialog>
-        )}
-
-        {permissions.canDelete && (
-          <DeleteEventDialog
-            className="w-full sm:w-auto"
-            onConfirm={() => handleDelete(event.erpName, "ToDo", event)}
+            variant="footer"
+            renderWhenEmpty
+            className="sm:min-h-[52px]"
           />
-        )}
-      </DetailFooter>
+        </div>
+        <DetailFooter className="mt-3 border-t-0 pt-0 sm:mt-0 sm:justify-self-end sm:justify-end">
+          {permissions.canEdit && permissions.canDelete ? (
+            <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
+              <AddEditEventDialog
+                event={event}
+                forceValues={tagConfig.ui?.primaryEditAction?.setOnEdit}
+              >
+                <Button className="w-full sm:w-auto">
+                  {tagConfig.ui?.primaryEditAction?.label ?? "Edit"}
+                </Button>
+              </AddEditEventDialog>
+
+              <DeleteEventDialog
+                className="w-full sm:w-auto"
+                onConfirm={() => handleDelete(event.erpName, "ToDo", event)}
+              />
+            </div>
+          ) : (
+            <>
+              {permissions.canEdit && (
+                <AddEditEventDialog
+                  event={event}
+                  forceValues={tagConfig.ui?.primaryEditAction?.setOnEdit}
+                >
+                  <Button className="w-full sm:w-auto">
+                    {tagConfig.ui?.primaryEditAction?.label ?? "Edit"}
+                  </Button>
+                </AddEditEventDialog>
+              )}
+
+              {permissions.canDelete && (
+                <DeleteEventDialog
+                  className="w-full sm:w-auto"
+                  onConfirm={() => handleDelete(event.erpName, "ToDo", event)}
+                />
+              )}
+            </>
+          )}
+        </DetailFooter>
+      </div>
     </>
   );
 }

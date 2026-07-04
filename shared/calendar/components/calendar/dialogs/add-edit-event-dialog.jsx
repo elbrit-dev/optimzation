@@ -1984,6 +1984,26 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 								)}
 							</div>
 						)}
+						{/* ================= HQ SHARED WITH ================= */}
+						{selectedTag === TAG_IDS.HQ_TOUR_PLAN && !isEditing && (
+							<FormField
+								control={form.control}
+								name="shareEmployees"
+								render={({ field }) => (
+									<RHFFieldWrapper label="Shared With">
+										<RHFComboboxField
+											{...field}
+											options={employeePickerOptions}
+											multiple
+											placeholder="Select employees"
+											searchPlaceholder="Search employee"
+											onSearch={handleEmployeeSearch}
+											loading={employeeSearchLoading}
+										/>
+									</RHFFieldWrapper>
+								)}
+							/>
+						)}
 						{/* ================= HQ TERRITORY ================= */}
 						{selectedTag === TAG_IDS.HQ_TOUR_PLAN &&
 							!isEditReadOnlyField("hqTerritory") && (

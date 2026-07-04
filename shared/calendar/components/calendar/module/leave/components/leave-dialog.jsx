@@ -145,7 +145,7 @@ export function EventLeaveDialog({
 			<DetailFooter>
 				{/* OWNER */}
 				{permissions.canEditDelete && (
-					<>
+					<div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
 						<AddEditEventDialog
 							event={event}
 							forceValues={editAction?.setOnEdit}
@@ -159,12 +159,12 @@ export function EventLeaveDialog({
 							className="w-full sm:w-auto"
 							onConfirm={() => handleDelete(event.erpName, "Leave Application", event)}
 						/>
-					</>
+					</div>
 				)}
 
 				{/* MANAGER */}
 				{permissions.canApproveReject && (
-					<>
+					<div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
 						<Button
 							className="w-full sm:w-auto"
 							onClick={() => handleStatusChange("Approved")}
@@ -179,7 +179,7 @@ export function EventLeaveDialog({
 						>
 							Reject
 						</Button>
-					</>
+					</div>
 				)}
 			</DetailFooter>
 		</>
