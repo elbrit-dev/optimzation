@@ -40,6 +40,9 @@ export default function GoogleCallbackPage() {
             email,
             authToken,
             erpUrl,
+            // Token exchange must use the exact redirect_uri from the auth
+            // request, which google-auth builds from window.location.origin.
+            redirectUri: `${window.location.origin}/google-callback`,
           }),
         });
 
