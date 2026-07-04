@@ -684,6 +684,13 @@ PLASMIC.registerComponent(PushNotificationToggle, {
       description:
         "Warning shown when the OneSignal SDK fails to initialize within 8 seconds (e.g. domain mismatch with the OneSignal dashboard's Site URL).",
     },
+    braveErrorMessage: {
+      type: "string",
+      defaultValue:
+        "Brave blocks push notifications by default. Open Brave Settings → Privacy and security → turn ON \"Use Google services for push messaging\", restart Brave, then try again — or use Chrome instead.",
+      description:
+        "Shown instead of the generic SDK error when the browser is Brave, which disables web push unless the user enables Google services for push messaging.",
+    },
     hideWhenUnsupported: {
       type: "boolean",
       defaultValue: true,

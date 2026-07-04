@@ -32,6 +32,19 @@ const nextConfig = {
   async headers() {
     return [
       {
+        source: '/onesignal/OneSignalSDKWorker.js',
+        headers: [
+          {
+            key: 'Content-Type',
+            value: 'application/javascript',
+          },
+          {
+            key: 'Service-Worker-Allowed',
+            value: '/onesignal/',
+          },
+        ],
+      },
+      {
         source: '/OneSignalSDKWorker.js',
         headers: [
           {

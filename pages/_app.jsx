@@ -390,6 +390,11 @@ function MyApp({ Component, pageProps }) {
             OneSignalDeferred.push(async function(OneSignal) {
               await OneSignal.init({
                 appId: "9cc963c3-d3c9-4230-b817-6860109d8f3f",
+                // Own scope so the OneSignal worker coexists with the PWA's
+                // /sw.js (scope "/") instead of fighting it for registration —
+                // that fight left init hanging on mobile browsers and PWAs.
+                serviceWorkerPath: "onesignal/OneSignalSDKWorker.js",
+                serviceWorkerParam: { scope: "/onesignal/" },
               });
             });
           `}

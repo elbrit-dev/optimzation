@@ -1,4 +1,10 @@
 [[headers]]
+  for = "/onesignal/OneSignalSDKWorker.js"
+  [headers.values]
+    Content-Type = "application/javascript"
+    Service-Worker-Allowed = "/onesignal/"
+
+[[headers]]
   for = "/OneSignalSDKWorker.js"
   [headers.values]
     Content-Type = "application/javascript"

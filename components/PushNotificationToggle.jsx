@@ -36,6 +36,7 @@ const PushNotificationToggle = ({
   label = "Show notifications",
   deniedMessage = "Notifications are blocked for this site. Enable them from the lock icon in your browser's address bar (Site settings → Notifications → Allow), then try again.",
   sdkErrorMessage = "The notification service couldn't start on this page — usually the domain isn't authorized in OneSignal (Settings → Push & In-App → Web → Site URL). Check the browser console for a red OneSignal error.",
+  braveErrorMessage = "Brave blocks push notifications by default. Open Brave Settings → Privacy and security → turn ON \"Use Google services for push messaging\", restart Brave, then try again — or use Chrome instead.",
   hideWhenUnsupported = true,
   activeColor = "#2c5282",
   inactiveColor = "#cbd5e0",
@@ -232,7 +233,11 @@ const PushNotificationToggle = ({
             maxWidth: "320px",
           }}
         >
-          {showDeniedHelp ? deniedMessage : sdkErrorMessage}
+          {showDeniedHelp
+            ? deniedMessage
+            : typeof navigator !== "undefined" && navigator.brave
+            ? braveErrorMessage
+            : sdkErrorMessage}
         </div>
       )}
     </div>
