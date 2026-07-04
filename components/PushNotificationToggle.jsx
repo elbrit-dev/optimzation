@@ -165,14 +165,17 @@ const PushNotificationToggle = ({
   return (
     <div
       className={className}
-      style={{ display: "inline-flex", flexDirection: "column", gap: "8px" }}
+      style={{ display: "flex", flexDirection: "column", gap: "8px" }}
       {...rest}
     >
+      {/* space-between so the label stays left and the toggle pins to the
+          right edge at whatever width the container is given in Plasmic. */}
       <div
         onClick={handleToggle}
         style={{
-          display: "inline-flex",
+          display: "flex",
           alignItems: "center",
+          justifyContent: "space-between",
           gap: "12px",
           cursor: disabled ? "default" : "pointer",
           userSelect: "none",

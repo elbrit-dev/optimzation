@@ -624,6 +624,12 @@ PLASMIC.registerComponent(NovuInbox, {
       description: "Padding around the bell trigger button (any CSS length, e.g. '0', '2px'). Smaller = less background space around the bell.",
       defaultValue: "2px",
     },
+    promptGateKey: {
+      type: "string",
+      defaultValue: "token",
+      description:
+        "The automatic notification-permission popup at page open only appears when this localStorage key holds a non-empty value (i.e. the user is logged in). Leave empty to always prompt. The Push Notification Toggle is never gated by this.",
+    },
     onNotificationClick: {
       type: "eventHandler",
       argTypes: [

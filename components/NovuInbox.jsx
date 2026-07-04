@@ -27,6 +27,7 @@ const NovuInbox = ({
   fallbackRedirectPath = "/chat",
   bellSize = 28,
   bellPadding = "2px",
+  promptGateKey = "token",
   ...rest
 }) => {
   const [status, setStatus] = useState("Initializing...");
@@ -95,7 +96,7 @@ const NovuInbox = ({
           phone,
           tags
         });
-        await requestPushPermission();
+        await requestPushPermission({ gateKey: promptGateKey });
     
         const deviceId = await getOneSignalDeviceId();
         if (deviceId) {
