@@ -10,6 +10,7 @@ import { registerElbritCoreComponents } from './share/src/plasmic-init'
 import FirebaseUIComponent from "./components/FirebaseUIComponent";
 import CalendarPage from "@calendar/components/CalendarPage";
 import NovuInbox from "./components/NovuInbox";
+import PushNotificationToggle from "./components/PushNotificationToggle";
 import NetworkBanner from "./components/NetworkBanner";
 // import TableDataProvider from "./components/TableDataProvider";
 import jsonata from 'jsonata';
@@ -646,6 +647,74 @@ PLASMIC.registerComponent(NovuInbox, {
     },
   },
   importPath: "./components/NovuInbox",
+});
+
+PLASMIC.registerComponent(PushNotificationToggle, {
+  name: "PushNotificationToggle",
+  displayName: "Push Notification Toggle",
+  description:
+    "A 'Show notifications' label with a toggle switch that reflects the live push subscription status. Toggling ON re-opens the native browser permission popup for users who skipped it at login, then registers the device for push (Novu/OneSignal). Toggling OFF opts the device out of push. If the user previously clicked Block, it shows instructions to enable notifications in browser settings (browsers never allow re-opening the popup after Block).",
+  props: {
+    email: {
+      type: "string",
+      description:
+        "Bind the SAME email value you bind to NovuInbox (the Novu bell) — the logged-in user's email, used as the Novu subscriberId when registering this device for push. If left unbound, it falls back to the identity NovuInbox already set in OneSignal.",
+    },
+    label: {
+      type: "string",
+      defaultValue: "Show notifications",
+      description: "Text shown next to the toggle.",
+    },
+    deniedMessage: {
+      type: "string",
+      defaultValue:
+        "Notifications are blocked for this site. Enable them from the lock icon in your browser's address bar (Site settings → Notifications → Allow), then try again.",
+      description: "Help text shown when the browser has notifications blocked.",
+    },
+    hideWhenUnsupported: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Hide when the browser doesn't support web push (e.g. iOS Safari not installed as a PWA).",
+    },
+    activeColor: {
+      type: "color",
+      defaultValue: "#2c5282",
+      description: "Toggle track color when notifications are enabled.",
+    },
+    inactiveColor: {
+      type: "color",
+      defaultValue: "#cbd5e0",
+      description: "Toggle track color when notifications are disabled.",
+    },
+    labelColor: {
+      type: "color",
+      description: "Label text color (inherits from the page if unset).",
+    },
+    fontSize: {
+      type: "number",
+      defaultValue: 14,
+      description: "Label font size (px).",
+    },
+    toggleHeight: {
+      type: "number",
+      defaultValue: 24,
+      description: "Height (px) of the toggle switch; width scales with it.",
+    },
+    className: {
+      type: "string",
+      description: "CSS class name for the container",
+    },
+    onChange: {
+      type: "eventHandler",
+      argTypes: [
+        { name: "enabled", type: "boolean" },
+        { name: "deviceId", type: "string" },
+      ],
+      description:
+        "Called when the toggle changes: enabled=true after the user allows notifications and the device is registered; enabled=false after opting out.",
+    },
+  },
+  importPath: "./components/PushNotificationToggle",
 });
 
 PLASMIC.registerComponent(NetworkBanner, {
