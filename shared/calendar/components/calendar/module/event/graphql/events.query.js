@@ -23,7 +23,7 @@ query EventsByRange(
         all_day
         status
         event_category
-        pob_given
+        pob_given:${ERP_EVENT_FIELDS.pobGivenRead}
         role_profile:${ERP_EVENT_FIELDS.roleProfileRead}
         custom_doctor__name:${ERP_EVENT_FIELDS.doctorRead}
         doctor_latitude:${ERP_EVENT_FIELDS.doctorLatitudeRead}

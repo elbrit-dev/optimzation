@@ -11,6 +11,8 @@ export const ERP_EVENT_FIELDS = {
   ownerEmployeeWrite: "custom_employee_id",
   hqRead: "custom_hq__name",
   hqWrite: "custom_hq",
+  pobGivenRead: "custom_pob_given",
+  pobGivenWrite: "custom_pob_given",
   participantRoleProfileRead: "custom_role_profile",
   participantRoleProfileWrite: "custom_role_profile",
   participantForceVisitRead: "custom_is_force_visit",

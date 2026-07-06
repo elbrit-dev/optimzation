@@ -308,7 +308,7 @@ export function mapFormToErpEvent(values, options = {}) {
     [ERP_EVENT_FIELDS.doctorWrite]: doctorId,
     [ERP_EVENT_FIELDS.doctorLatitudeWrite]: doctorLatitude,
     [ERP_EVENT_FIELDS.doctorLongitudeWrite]: doctorLongitude,
-    pob_given:
+    [ERP_EVENT_FIELDS.pobGivenWrite]:
       isDoctorVisitPlan &&
       (Number(values.pob_given) === 1 || Number(values.pob_given) === 0)
         ? Number(values.pob_given)
