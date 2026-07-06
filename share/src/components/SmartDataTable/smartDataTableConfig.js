@@ -59,6 +59,12 @@ export const DEFAULT_CONFIG = {
 
   // Loading
   loadingMessage: undefined,
+
+  // Logging
+  // When true, the SmartData provider buffers structured debug events (fetches,
+  // drawer opens, signals, cache hits, ...) and ships them to the Firestore
+  // `logs` collection. See smartDataLogger.js. Off by default — zero overhead.
+  loggingEnabled: false,
 };
 
 /**

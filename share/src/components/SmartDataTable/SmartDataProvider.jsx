@@ -19,6 +19,8 @@ import { SmartDataTable } from './SmartDataTable';
 import { DrawerTabBar } from './DrawerTabBar';
 import { ReportControls } from '@/app/report-table/components/ReportControls';
 import { SmartDataErrorBoundary } from './SmartDataErrorBoundary';
+import { configureSmartDataLogging, logSmartDataEvent } from './smartDataLogger';
+import isEqual from 'lodash/isEqual';
 
 export { deserializeReportConfig } from '@/app/report-table/config/reportConfigParser';
 
@@ -61,7 +63,7 @@ export function resolveViewConfig(rootConfig, viewOverride = {}) {
 }
 
 /** Fetch index GQL from saved query; returns extracted string or null. */
-async function fetchApiIndexValue(resolvedApi, view) {
+async function fetchApiIndexValue(resolvedApi, view, viewId) {
   const queryId = resolvedApi?.index?.trim();
   if (!queryId) return null;
 
@@ -69,12 +71,14 @@ async function fetchApiIndexValue(resolvedApi, view) {
   const indexQuery = queryDoc?.index?.trim();
   if (!indexQuery) {
     console.warn(`[SmartDataProvider] api.index "${queryId}": saved query has no index field`);
+    logSmartDataEvent('warn', 'index-check', `api.index "${queryId}": saved query has no index field`, { viewId });
     return null;
   }
 
   const { endpoint, token } = await resolveApiConfig(resolvedApi);
   if (!endpoint) {
     console.warn(`[SmartDataProvider] api.index "${queryId}": no endpoint available`);
+    logSmartDataEvent('warn', 'index-check', `api.index "${queryId}": no endpoint available`, { viewId });
     return null;
   }
 
@@ -91,6 +95,7 @@ async function fetchApiIndexValue(resolvedApi, view) {
   const json = await res.json();
   if (json.errors?.length) {
     console.warn('[SmartDataProvider] api.index GraphQL error:', json.errors[0].message);
+    logSmartDataEvent('error', 'index-check', 'api.index GraphQL error', { viewId, error: json.errors[0].message });
     return null;
   }
 
@@ -132,14 +137,28 @@ async function fetchApiIndexValue(resolvedApi, view) {
  *
  * Per-view api/table/controls override their root counterparts via deepMerge (api & table) or replace (controls).
  */
-function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: rawReportConfig, config: commonConfig, overrides, children }) {
+function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: rawReportConfig, config: commonConfig, overrides, reportName, children }) {
   const store = useSmartDataStore;
 
   // Deep-merge overrides on top of reportConfig so every key (api, table, controls, views) is overridable.
-  const reportConfig = useMemo(
+  //
+  // Plasmic re-evaluates prop expressions (e.g. after any interaction-triggered re-render)
+  // and can hand us a brand-new rawReportConfig/overrides object with identical content on
+  // every render. Views are registered/torn down in an effect keyed on reportConfig's
+  // identity (see below) — if that identity changed on every render, an in-flight drawer
+  // open (activateView + wireSubscription + scheduled fetch) gets cancelled and the drawer
+  // view is silently re-registered with its static (unpersonalized) config before it ever
+  // fetches. Preserve the previous reference when the merged content is unchanged so the
+  // registration effect only re-runs when the config actually changes.
+  const mergedReportConfig = useMemo(
     () => (rawReportConfig && overrides) ? deepMerge(rawReportConfig, overrides) : (rawReportConfig ?? null),
     [rawReportConfig, overrides]
   );
+  const reportConfigRef = useRef(null);
+  if (!isEqual(reportConfigRef.current, mergedReportConfig)) {
+    reportConfigRef.current = mergedReportConfig;
+  }
+  const reportConfig = reportConfigRef.current;
 
   const effectiveConfig = useMemo(() => {
     return commonConfig ?? reportConfig?.table ?? {};
@@ -184,6 +203,10 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reportConfig?.api?.urlKey]);
 
+  useEffect(() => {
+    configureSmartDataLogging({ enabled: !!effectiveConfig?.loggingEnabled, source: reportName ?? 'inline' });
+  }, [effectiveConfig?.loggingEnabled, reportName]);
+
   const runDataFetch = useCallback(async (viewId) => {
     const state = useSmartDataStore.getState();
     const view  = state.views[viewId];
@@ -195,6 +218,10 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
     const isStale  = () => fetchGenRef.current[viewId] !== gen;
 
     state._setLoading(viewId, true, 'data');
+    const startedAt = Date.now();
+    logSmartDataEvent('info', 'fetch', 'fetch:start', {
+      viewId, filters: view.filters, sortBy: view.sortBy, pagination: view.pagination,
+    });
     try {
       const result = await Promise.resolve(
         ds({
@@ -206,14 +233,23 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
           _debugCapture: pipelineWatchersRef.current[viewId],
         })
       );
-      if (isStale()) return;
+      if (isStale()) {
+        logSmartDataEvent('debug', 'fetch', 'fetch:stale-discarded', { viewId });
+        return;
+      }
       if (result.filterValues) filterValuesCacheRef.current = result.filterValues;
       cache.current.set(cacheKey, result);
       state._setResult(viewId, result);
       setLastFetchedAt(new Date());
+      logSmartDataEvent('info', 'fetch', 'fetch:success', {
+        viewId, rowCount: result.rows?.length ?? 0, durationMs: Date.now() - startedAt,
+      });
     } catch (err) {
       if (isStale()) return;
       state._setError(viewId, err?.message ?? 'DataSource error');
+      logSmartDataEvent('error', 'fetch', 'fetch:error', {
+        viewId, error: err?.message ?? 'DataSource error', durationMs: Date.now() - startedAt,
+      });
     }
   }, [providerDataSource]);
 
@@ -236,6 +272,7 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
         const cached = cache.current.get(cacheKey);
         if (cached) {
           store._setResult(viewId, cached);
+          logSmartDataEvent('debug', 'fetch', 'cache:hit', { viewId });
           continue;
         }
       }
@@ -253,22 +290,25 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
       const needsData = await Promise.all(
         indexJobs.map(async ({ viewId, view, resolvedApi, cacheKey }) => {
           try {
-            const indexValue = await fetchApiIndexValue(resolvedApi, view);
+            const indexValue = await fetchApiIndexValue(resolvedApi, view, viewId);
             if (refreshGate) {
               const stored = viewIndexRef.current[viewId];
               if (indexValue != null && stored?.key === cacheKey && stored?.value === indexValue) {
                 const cached = cache.current.get(cacheKey);
                 if (cached) store._setResult(viewId, cached);
                 else store._setLoading(viewId, false);
+                logSmartDataEvent('debug', 'index-check', 'index:unchanged-skipped', { viewId });
                 return false;
               }
             }
             if (indexValue != null) {
               viewIndexRef.current[viewId] = { key: cacheKey, value: indexValue };
             }
+            logSmartDataEvent('debug', 'index-check', 'index:changed-or-unknown', { viewId, indexValue });
             return true;
           } catch (err) {
             console.error('[SmartDataProvider] index check failed:', err);
+            logSmartDataEvent('error', 'index-check', 'index:check-failed', { viewId, error: err?.message });
             return true;
           }
         }),
@@ -300,6 +340,8 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
 
   const refresh = useCallback(async () => {
     const viewIds = Object.keys(viewDataSources.current);
+    logSmartDataEvent('info', 'refresh', 'refresh:triggered', { viewIds });
+    cache.current.clear();
     await flushViewPipelineBatch(viewIds, { bypassCache: true, refreshGate: true });
   }, [flushViewPipelineBatch]);
 
@@ -350,6 +392,7 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
 
     useSmartDataStore.getState().registerView(viewId, resolvedPageSize);
     wireSubscription(viewId);
+    logSmartDataEvent('info', 'lifecycle', 'view:registered', { viewId, standalone: true });
   }, [reportConfig, activateView, wireSubscription]);
 
   const unregisterView = useCallback((viewId) => {
@@ -364,6 +407,7 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
     delete viewIndexRef.current[viewId];
     fetchGenRef.current[viewId] = (fetchGenRef.current[viewId] ?? 0) + 1;
     useSmartDataStore.getState().unregisterView(viewId);
+    logSmartDataEvent('info', 'lifecycle', 'view:unregistered', { viewId });
   }, []);
 
   useEffect(() => {
@@ -381,6 +425,7 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
       activateView(id, resolvedApi, !isDrawer && !rawApiConfigSet);
       if (!isDrawer) rawApiConfigSet = true;
       useSmartDataStore.getState().registerView(id, resolvedTable?.defaultPageSize);
+      logSmartDataEvent('info', 'lifecycle', 'view:registered', { viewId: id, isDrawer });
 
       // Drawer views: slot pre-registered but subscription wired lazily in openDrawerView
       // (row-specific variables aren't known until the drawer is actually opened).
@@ -428,16 +473,19 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
     setDrawerTabs(resolvedTabs);
     setDrawerActiveId(resolvedTabs[0]?.id ?? null);
     setDrawerVisible(true);
+    logSmartDataEvent('info', 'drawer', 'drawer:opened', { tabIds: resolvedTabs.map(t => t.id) });
   }, [reportConfig, activateView, wireSubscription, runDataSource]);
 
   const closeDrawerView = useCallback(() => {
     setDrawerVisible(false);
+    logSmartDataEvent('info', 'drawer', 'drawer:closed', {});
   }, []);
 
   const exportView = useCallback(async (viewId) => {
     const view = useSmartDataStore.getState().views[viewId];
     const ds   = viewDataSources.current[viewId] ?? providerDataSource;
     if (!ds || !view) return [];
+    logSmartDataEvent('info', 'export', 'export:start', { viewId });
     try {
       const result = await Promise.resolve(
         ds({
@@ -448,8 +496,10 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
           viewId,
         })
       );
+      logSmartDataEvent('info', 'export', 'export:success', { viewId, rowCount: result?.rows?.length ?? 0 });
       return result?.rows ?? [];
-    } catch {
+    } catch (err) {
+      logSmartDataEvent('error', 'export', 'export:error', { viewId, error: err?.message });
       return [];
     }
   }, [providerDataSource]);
@@ -479,7 +529,11 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
       ?? Object.keys(useSmartDataStore.getState().views)[0];
     const controls = useSmartDataStore.getState().views[viewId]?.viewParams?._controls ?? {};
     const dateRange = resolveControlDateRange(controls);
-    return fetchElbritFilterValues(rawApiConfigRef.current, key, { page, pageLength, search, currentFilters, dateRange });
+    const result = await fetchElbritFilterValues(rawApiConfigRef.current, key, { page, pageLength, search, currentFilters, dateRange });
+    logSmartDataEvent('debug', 'filter-search', 'filter-search:result', {
+      key, search, resultCount: result?.items?.length ?? 0,
+    });
+    return result;
   }, [reportConfig]);
 
   const handleSignal = useCallback((viewId, signal) => {
@@ -487,19 +541,24 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
     switch (signal.type) {
       case 'sort':
         s.setSortBy(viewId, signal.payload);
+        logSmartDataEvent('debug', 'interaction', 'signal:sort', { viewId, sortBy: signal.payload });
         break;
       case 'filter':
         if (signal.payload.value === null || signal.payload.value === undefined || signal.payload.value === '') {
           s.clearFilter(viewId, signal.payload.field);
+          logSmartDataEvent('debug', 'interaction', 'signal:filter-cleared', { viewId, field: signal.payload.field });
         } else {
           s.setFilter(viewId, signal.payload.field, signal.payload.value);
+          logSmartDataEvent('debug', 'interaction', 'signal:filter-set', { viewId, field: signal.payload.field, value: signal.payload.value });
         }
         break;
       case 'page':
         s.setPage(viewId, signal.payload.first, signal.payload.rows);
+        logSmartDataEvent('debug', 'interaction', 'signal:page', { viewId, first: signal.payload.first, rows: signal.payload.rows });
         break;
       case 'rowClick': {
         const handler = reportConfig?.views?.[viewId]?.event?.onRowClick;
+        logSmartDataEvent('debug', 'interaction', 'signal:row-click', { viewId, hasHandler: !!handler });
         if (handler) {
           const controls = useSmartDataStore.getState().views[viewId]?.viewParams?._controls ?? {};
           handler(signal.payload.event, { openDrawer: openDrawerView, closeDrawer: closeDrawerView, controls });
@@ -640,7 +699,7 @@ export function SmartDataProvider({ config, dataSource, overrides, children }) {
     .map(([id]) => id);
 
   return (
-    <SmartDataProviderImpl reportConfig={reportConfig} dataSource={dataSource} overrides={overrides}>
+    <SmartDataProviderImpl reportConfig={reportConfig} dataSource={dataSource} overrides={overrides} reportName={config}>
       {rootControls.length > 0 && (
         <ReportControls controls={rootControls} viewIds={rootViewIds} />
       )}

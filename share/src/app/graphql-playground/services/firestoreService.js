@@ -4,6 +4,7 @@ const DEFAULT_COLLECTION = process.env.NEXT_PUBLIC_GQL_COLLECTION || 'gql';
 const GLOBAL_DOC_ID = '#__GLOBAL__#';
 const TOKENS_COLLECTION = 'tokens';
 const REPORTS_COLLECTION = 'reports';
+const LOGS_COLLECTION = 'logs';
 
 function sanitizeTokenRows(rows) {
   if (!Array.isArray(rows)) return [];
@@ -321,6 +322,20 @@ export const firestoreService = {
 
   async deleteReport(name) {
     await deleteDoc(doc(db, REPORTS_COLLECTION, name));
+  },
+
+  /**
+   * Write a batch of structured log entries to the `logs` collection.
+   * One Firestore doc per entry (auto id), all committed in a single batch.
+   * @param {Array<object>} entries
+   */
+  async writeLogs(entries) {
+    if (!entries?.length) return;
+    const batch = writeBatch(db);
+    for (const entry of entries) {
+      batch.set(doc(collection(db, LOGS_COLLECTION)), entry);
+    }
+    await batch.commit();
   },
 };
 

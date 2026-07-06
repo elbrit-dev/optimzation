@@ -6,4 +6,5 @@ export const firestoreService = {
   getCollection: async () => [],
   subscribeToDocument: () => () => {},
   subscribeToCollection: () => () => {},
+  writeLogs: async () => {},
 };

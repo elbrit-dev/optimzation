@@ -28,4 +28,9 @@ describe('smartDataTableConfig', () => {
     expect(DEFAULT_CONFIG.scrollHeight).toBe('600px');
     expect(resolveConfig().scrollHeight).toBe('600px');
   });
+
+  it('logging is off by default', () => {
+    expect(DEFAULT_CONFIG.loggingEnabled).toBe(false);
+    expect(resolveConfig().loggingEnabled).toBe(false);
+  });
 });
