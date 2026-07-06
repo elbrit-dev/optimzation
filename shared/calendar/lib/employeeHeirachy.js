@@ -65,6 +65,26 @@ export function resolveVisibleRoleIds(
   return [...visible];
 }
 
+// A "leaf" role (is_group = false, e.g. a BE) has no subordinates. ERP already
+// permission-scopes the events it returns to such a user (their own + anything
+// shared with them via DocShare), so the client-side hierarchy filter must not
+// narrow further — otherwise DocShare-shared events (owned by someone outside
+// the user's own role) get dropped even though ERP granted access.
+export function isLeafRole(elbritEdges = [], roleId) {
+  if (!roleId) return false;
+
+  // Admins are handled separately (they see everything); never treat as leaf.
+  if (LOGGED_IN_USER?.role === "Admin" || LOGGED_IN_USER?.roleId === "Admin") {
+    return false;
+  }
+
+  const { roleMap } = buildRoleIndex(elbritEdges);
+  const node = roleMap.get(roleId);
+  if (!node) return false;
+
+  return !node.is_group;
+}
+
 function buildRoleIndex(elbritEdges = []) {
   const nodes = elbritEdges.map(e => e.node);
 

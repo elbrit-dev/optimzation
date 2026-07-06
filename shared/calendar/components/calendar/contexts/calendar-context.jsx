@@ -3,7 +3,7 @@ import { createContext, useContext, useState, useEffect, useMemo, useCallback } 
 import { useLocalStorage } from "@calendar/components/calendar/hooks";
 import { fetchEventsByRange } from "@calendar/components/calendar/module/event/services/event.service";
 import { resolveCalendarRange } from "@calendar/lib/calendar/range";
-import { resolveLoggedInRoleId, resolveVisibleEmployeeIds, resolveVisibleRoleIds } from "@calendar/lib/employeeHeirachy";
+import { isLeafRole, resolveLoggedInRoleId, resolveVisibleEmployeeIds, resolveVisibleRoleIds } from "@calendar/lib/employeeHeirachy";
 import { useEmployeeResolvers } from "@calendar/lib/employeeResolver";
 import { fetchCalendarBootstrapData } from "@calendar/components/calendar/contexts/calendar-context/bootstrapping";
 import {
@@ -440,6 +440,13 @@ export function CalendarProvider({
 		if (usersLoading || elbritRoleLoading) return [];
 		return resolveVisibleEmployeeIds(elbritRoleEdges, users);
 	}, [users, usersLoading, elbritRoleEdges, elbritRoleLoading]);
+	// Leaf-role users (e.g. BEs) have no subordinates; ERP already scopes the
+	// events they receive (own + DocShare-shared), so the hierarchy filter must
+	// not narrow further and hide events shared down to them.
+	const isCurrentUserLeaf = useMemo(() => {
+		if (usersLoading || elbritRoleLoading) return false;
+		return isLeafRole(elbritRoleEdges, resolveLoggedInRoleId(users));
+	}, [elbritRoleEdges, elbritRoleLoading, users, usersLoading]);
 	const visibleEmployeeOptions = useMemo(() => {
 		if (!employeeOptions.length) return [];
 		if (!allowedEmployeeIds.length && !visibleRoleIds.length) return employeeOptions;
@@ -460,6 +467,7 @@ export function CalendarProvider({
 			selectedStatuses,
 			visibleRoleIds,
 			allowedEmployeeIds,
+			isCurrentUserLeaf,
 			usersLoading,
 			elbritRoleLoading,
 			employeeRoleMap,
@@ -469,6 +477,7 @@ export function CalendarProvider({
 		allEvents,
 		visibleRoleIds,
 		allowedEmployeeIds,
+		isCurrentUserLeaf,
 		selectedUserId,
 		selectedColors,
 		selectedStatuses,

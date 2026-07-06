@@ -112,6 +112,7 @@ export function filterCalendarEvents({
   selectedStatuses,
   visibleRoleIds,
   allowedEmployeeIds,
+  isCurrentUserLeaf = false,
   usersLoading,
   elbritRoleLoading,
   employeeRoleMap,
@@ -150,7 +151,11 @@ export function filterCalendarEvents({
 
   let result = allEvents;
 
-  if (LOGGED_IN_USER?.roleId !== "Admin") {
+  // Leaf-role users (e.g. BEs) have no subordinates and ERP already scopes the
+  // events returned to them (their own + anything shared with them via DocShare).
+  // Applying the hierarchy narrowing here would drop legitimately-shared events,
+  // so we trust ERP's scoping and only apply the color/status/user filters below.
+  if (LOGGED_IN_USER?.roleId !== "Admin" && !isCurrentUserLeaf) {
     result = result.filter((event) => {
       // Events explicitly shared with the current user (ERP DocShare) are always
       // visible — the recipient is typically outside the owner's hierarchy (e.g.
