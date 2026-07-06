@@ -13,7 +13,9 @@ function mapEmployeesToOptions(employees = []) {
     doctype: "Employee",
     value: employee.name,
     label: employee.employee_name,
-    email: employee.company_email,
+    // Fall back to user_id (the ERP User) when company_email is empty — many
+    // field employees (BEs) have no company_email, and DocShare targets a User.
+    email: employee.company_email || employee.user_id,
     role: employee.designation?.name ?? null,
     roleId: employee.role_id,
     leave_approver: employee.leave_approver?.name ?? null,

@@ -31,6 +31,7 @@ query EventsByRange(
         custom_employee_id:${ERP_EVENT_FIELDS.ownerEmployeeRead} {
           name
           company_email
+          user_id:user_id__name
           first_name
           middle_name
           last_name
@@ -114,6 +115,7 @@ query GetEmployees($first: Int!, $filters: [DBFilterInput!]) {
         name
         employee_name
         company_email
+        user_id:user_id__name
         idx
         leave_approver {
           name

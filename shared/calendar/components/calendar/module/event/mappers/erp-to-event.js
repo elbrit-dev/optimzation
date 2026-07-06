@@ -210,13 +210,19 @@ export function mapErpGraphqlEventToCalendar(node) {
     doctorLatitude: node.doctor_latitude ?? null,
     doctorLongitude: node.doctor_longitude ?? null,
     ownerEmployeeId: node.custom_employee_id?.name ?? undefined,
-    ownerEmail: node.custom_employee_id?.company_email ?? undefined,
+    ownerEmail:
+      node.custom_employee_id?.company_email ||
+      node.custom_employee_id?.user_id ||
+      undefined,
     ownerFullName:
       ownerFullName,
     owner: node.custom_employee_id?.name
       ? {
           id: node.custom_employee_id.name,
-          email: node.custom_employee_id.company_email ?? undefined,
+          email:
+            node.custom_employee_id.company_email ||
+            node.custom_employee_id.user_id ||
+            undefined,
           fullName: ownerFullName,
         }
       : undefined,

@@ -37,7 +37,7 @@ export async function fetchEmployees() {
       doctype: "Employee",
       value: node.name,
       label: node.employee_name,
-      email: node.company_email,
+      email: node.company_email || node.user_id,
       role: node.designation?.name ?? null,
       roleId: node.role_id,
       leave_approver: node.leave_approver?.name ?? null,
@@ -55,6 +55,7 @@ export async function searchEmployees(search) {
         [
           node.employee_name,
           node.company_email,
+          node.user_id,
           node.designation?.name,
           node.name,
         ]
@@ -69,7 +70,7 @@ export async function searchEmployees(search) {
       doctype: "Employee",
       value: node.name,
       label: node.employee_name,
-      email: node.company_email,
+      email: node.company_email || node.user_id,
       role: node.designation?.name ?? null,
       roleId: node.role_id,
       leave_approver: node.leave_approver?.name ?? null,
