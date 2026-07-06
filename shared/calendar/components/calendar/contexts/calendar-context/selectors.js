@@ -152,6 +152,14 @@ export function filterCalendarEvents({
 
   if (LOGGED_IN_USER?.roleId !== "Admin") {
     result = result.filter((event) => {
+      // Events explicitly shared with the current user (ERP DocShare) are always
+      // visible — the recipient is typically outside the owner's hierarchy (e.g.
+      // an ABM's HQ Tour Plan shared down to a BE), so the role/employee checks
+      // below would otherwise drop them.
+      if (event.isSharedWithCurrentUser) {
+        return true;
+      }
+
       const eventRoleIds = getEventRoleIds(
         event,
         employeeRoleMap,

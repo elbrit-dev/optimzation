@@ -1,9 +1,43 @@
 import { graphqlRequest } from "@calendar/lib/graphql-client";
 import {
   DOC_SHARES_BY_EVENT_QUERY,
+  DOC_SHARES_BY_USER_QUERY,
   SAVE_DOC_SHARE_MUTATION,
 } from "@calendar/components/calendar/module/event/graphql/events.query";
 import { ERP_DOC_SHARE_FIELDS } from "@calendar/components/calendar/module/event/graphql/field-config";
+
+// Names of documents (of `doctype`) that ERP has shared with `userId`. Events are
+// permission-scoped in ERP, so a shared event is returned by the events query but
+// the client-side hierarchy filter would drop it (the recipient is neither owner
+// nor participant). This lets those events be recognised and kept.
+export async function fetchDocShareNamesForUser(userId, doctype = "Event") {
+  if (!userId || !doctype) {
+    return new Set();
+  }
+
+  const data = await graphqlRequest(DOC_SHARES_BY_USER_QUERY, {
+    first: 500,
+    filters: [
+      {
+        fieldname: ERP_DOC_SHARE_FIELDS.shareDoctype,
+        operator: "EQ",
+        value: doctype,
+      },
+      {
+        fieldname: ERP_DOC_SHARE_FIELDS.user,
+        operator: "EQ",
+        value: userId,
+      },
+    ],
+  });
+
+  const names =
+    data?.DocShares?.edges
+      ?.map(({ node }) => node?.share_name)
+      .filter(Boolean) ?? [];
+
+  return new Set(names);
+}
 
 export async function fetchDocSharesByDocument(doctype, name) {
   if (!doctype || !name) {

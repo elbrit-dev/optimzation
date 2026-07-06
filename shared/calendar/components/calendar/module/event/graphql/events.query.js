@@ -195,6 +195,18 @@ query DocSharesByEvent($first: Int!, $filters: [DBFilterInput!]) {
   }
 }
 `;
+export const DOC_SHARES_BY_USER_QUERY = `
+query DocSharesByUser($first: Int!, $filters: [DBFilterInput!]) {
+  DocShares(first: $first, filter: $filters) {
+    edges {
+      node {
+        name
+        share_name
+      }
+    }
+  }
+}
+`;
 export const QUOTATIONS_BY_NAMES_QUERY = `
 query Quotations(
   $first: Int!

@@ -17,8 +17,10 @@ import { fetchAllTodoList } from "@calendar/components/calendar/module/todo/serv
 import { fetchAllLeaveApplications } from "@calendar/components/calendar/module/leave/services/leave.service";
 import {
   enqueueDocShareSync,
+  fetchDocShareNamesForUser,
   syncEventDocShares,
 } from "@calendar/components/calendar/module/event/services/docshare.service";
+import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 const PAGE_SIZE = 200;
 const QUOTATION_BATCH_SIZE = 25;
 const pendingEventRequests = new Map();
@@ -372,10 +374,12 @@ async function fetchEventsByRangeUncached(
     quotationResult,
     leavesResult,
     todoResult,
+    sharedEventNamesResult,
   ] = await Promise.allSettled([
     fetchQuotationsByNames(uniqueQuotationNames),
     fetchAllLeaveApplications(),
     fetchAllTodoList(),
+    fetchDocShareNamesForUser(LOGGED_IN_USER.email),
   ]);
   const quotationMap =
     quotationResult.status === "fulfilled"
@@ -389,6 +393,17 @@ async function fetchEventsByRangeUncached(
     todoResult.status === "fulfilled"
       ? todoResult.value
       : [];
+  const sharedEventNames =
+    sharedEventNamesResult.status === "fulfilled"
+      ? sharedEventNamesResult.value
+      : new Set();
+
+  if (sharedEventNamesResult.status === "rejected") {
+    console.error(
+      "Failed to fetch events shared with current user",
+      sharedEventNamesResult.reason
+    );
+  }
 
   if (quotationResult.status === "rejected") {
     console.error(
@@ -443,7 +458,12 @@ async function fetchEventsByRangeUncached(
     .map((node) =>
       mapErpGraphqlEventToCalendar(node)
     )
-    .filter(Boolean);
+    .filter(Boolean)
+    .map((event) =>
+      event?.erpName && sharedEventNames.has(event.erpName)
+        ? { ...event, isSharedWithCurrentUser: true }
+        : event
+    );
   // --------------------------------------------
   // 6️⃣ MERGE LEAVES + TODOS
   // --------------------------------------------
