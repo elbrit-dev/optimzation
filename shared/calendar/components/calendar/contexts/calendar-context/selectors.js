@@ -151,20 +151,10 @@ export function filterCalendarEvents({
 
   let result = allEvents;
 
-  // Leaf-role users (e.g. BEs) have no subordinates and ERP already scopes the
-  // events returned to them (their own + anything shared with them via DocShare).
-  // Applying the hierarchy narrowing here would drop legitimately-shared events,
-  // so we trust ERP's scoping and only apply the color/status/user filters below.
-  if (LOGGED_IN_USER?.roleId !== "Admin" && !isCurrentUserLeaf) {
+  if (LOGGED_IN_USER?.roleId !== "Admin") {
     result = result.filter((event) => {
-      // Events explicitly shared with the current user (ERP DocShare) are always
-      // visible — the recipient is typically outside the owner's hierarchy (e.g.
-      // an ABM's HQ Tour Plan shared down to a BE), so the role/employee checks
-      // below would otherwise drop them.
-      if (event.isSharedWithCurrentUser) {
-        return true;
-      }
-
+      // Own events, participants, and (for managers) subordinates in the role
+      // hierarchy. This already covers a user's own events, leaves and todos.
       const eventRoleIds = getEventRoleIds(
         event,
         employeeRoleMap,
@@ -181,7 +171,31 @@ export function filterCalendarEvents({
         allowedEmployeeIds.includes(employeeId)
       );
 
-      return roleMatch || employeeMatch;
+      if (roleMatch || employeeMatch) {
+        return true;
+      }
+
+      // Events explicitly shared with the current user (ERP DocShare) are always
+      // visible — the recipient is typically outside the owner's hierarchy (e.g.
+      // an ABM's HQ Tour Plan shared down to a BE).
+      if (event.isSharedWithCurrentUser) {
+        return true;
+      }
+
+      // Leaf-role users (e.g. BEs) have no subordinates. ERP permission-scopes
+      // the events it returns to them to public + own + shared + participant.
+      // Their own/shared/participant events are all "Private", so surface any
+      // Private event ERP returned to them (this is how a BE sees a plan shared
+      // down to them) — but never a "Public" event, which ERP exposes to every
+      // user regardless of ownership.
+      if (
+        isCurrentUserLeaf &&
+        String(event.eventType).toLowerCase() === "private"
+      ) {
+        return true;
+      }
+
+      return false;
     });
   }
 

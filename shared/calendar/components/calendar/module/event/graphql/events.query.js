@@ -22,6 +22,7 @@ query EventsByRange(
         color
         all_day
         status
+        event_type
         event_category
         pob_given:${ERP_EVENT_FIELDS.pobGivenRead}
         role_profile:${ERP_EVENT_FIELDS.roleProfileRead}

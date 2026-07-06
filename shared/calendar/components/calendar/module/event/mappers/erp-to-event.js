@@ -181,6 +181,9 @@ export function mapErpGraphqlEventToCalendar(node) {
         : (node.subject || ""),
     description: node.description ?? "",
     status: normalizeStatus(node.status),
+    // ERP event visibility ("Public" | "Private"). Used by the client visibility
+    // filter to keep Public events from leaking to leaf users (e.g. BEs).
+    eventType: node.event_type ?? null,
     allDay: Boolean(node.all_day),
     forceVisit: Boolean(
       employeeVisitParticipant?.custom_is_force_visit
