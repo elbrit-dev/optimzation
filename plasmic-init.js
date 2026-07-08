@@ -12,6 +12,7 @@ import CalendarPage from "@calendar/components/CalendarPage";
 import NovuInbox from "./components/NovuInbox";
 import PushNotificationToggle from "./components/PushNotificationToggle";
 import NetworkBanner from "./components/NetworkBanner";
+import DevicePrimaryGuard from "./components/DevicePrimaryGuard";
 // import TableDataProvider from "./components/TableDataProvider";
 import jsonata from 'jsonata';
 import { db } from "./firebase";
@@ -772,6 +773,110 @@ PLASMIC.registerComponent(NetworkBanner, {
     },
   },
   importPath: "./components/NetworkBanner",
+});
+
+PLASMIC.registerComponent(DevicePrimaryGuard, {
+  name: "DevicePrimaryGuard",
+  displayName: "Device Primary Guard",
+  description:
+    "One-time capture of the user's attendance device. Shows a modal ONLY when the ERP field attendance_device_id is empty AND the device is a phone or tablet (never on desktop). The user decides: 'Yes, save' persists the id + the complete device JSON to localStorage and fires onSave (wire this to your ERP mutation); 'Not now' saves nothing, leaves the ERP field empty, and the popup returns next time. Correctly treats iPads (which pretend to be desktop) as tablets. Renders nothing when it shouldn't trigger.",
+  props: {
+    storedDeviceId: {
+      type: "string",
+      description:
+        "Bind the employee's current attendance_device_id from ERP. If it has any value, the popup NEVER shows. Empty/None/null => eligible to trigger.",
+    },
+    employeeId: {
+      type: "string",
+      description:
+        "The Employee docname (e.g. 'HR-EMP-0001'). When set, the popup writes attendance_device_id to ERP itself via saveDoc (same as the planner). Leave empty to instead handle the write yourself in the onSave interaction.",
+    },
+    employeeDoctype: {
+      type: "string",
+      defaultValue: "Employee",
+      description: "Doctype to update. Normally 'Employee'.",
+    },
+    deviceIdFieldname: {
+      type: "string",
+      defaultValue: "attendance_device_id",
+      description: "The fieldname on the doctype that stores the device id.",
+    },
+    enabled: {
+      type: "boolean",
+      defaultValue: true,
+      description:
+        "Gate the check until the employee record is loaded — bind to something like !isLoading. While false, the popup can't flash from an initial undefined storedDeviceId.",
+    },
+    localStorageIdKey: {
+      type: "string",
+      defaultValue: "attendance_device_id",
+      description: "localStorage key under which the device id is saved (only on 'Yes').",
+    },
+    localStorageInfoKey: {
+      type: "string",
+      defaultValue: "attendance_device_info",
+      description: "localStorage key under which the COMPLETE device JSON is saved (only on 'Yes').",
+    },
+    allowDesktop: {
+      type: "boolean",
+      defaultValue: false,
+      description: "Testing escape hatch: allow the popup on desktop too. Leave OFF for the mobile/tablet-only rule.",
+    },
+    title: {
+      type: "string",
+      defaultValue: "Register this device?",
+      description: "Popup heading.",
+    },
+    description: {
+      type: "string",
+      defaultValue: "Save this phone/tablet as your attendance device? You'll use it to check in.",
+      description: "Popup body text.",
+    },
+    saveLabel: {
+      type: "string",
+      defaultValue: "Yes, save this device",
+      description: "Confirm button label.",
+    },
+    declineLabel: {
+      type: "string",
+      defaultValue: "Not now",
+      description: "Decline button label.",
+    },
+    accentColor: {
+      type: "color",
+      defaultValue: "#2c5282",
+      description: "Accent color for the icon and the confirm button.",
+    },
+    zIndex: {
+      type: "number",
+      defaultValue: 2000000001,
+      description: "Stacking order of the modal overlay.",
+    },
+    forceShow: {
+      type: "boolean",
+      defaultValue: false,
+      description: "Editor preview only: force the modal to render on the Studio canvas so you can style it.",
+    },
+    className: {
+      type: "string",
+      description: "CSS class for the modal card.",
+    },
+    onSave: {
+      type: "eventHandler",
+      argTypes: [
+        { name: "deviceId", type: "string" },
+        { name: "info", type: "object" },
+      ],
+      description:
+        "Fired after a successful confirm. If employeeId is set, the ERP write already happened automatically — use this only for extra side effects (toast, refetch). If employeeId is empty, do the ERP write here. `info` is the complete device JSON (also saved to localStorage).",
+    },
+    onDecline: {
+      type: "eventHandler",
+      argTypes: [],
+      description: "Fired when the user declines. ERP is left untouched (stays empty).",
+    },
+  },
+  importPath: "./components/DevicePrimaryGuard",
 });
 
 registerElbritCoreComponents(PLASMIC)

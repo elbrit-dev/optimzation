@@ -1765,18 +1765,6 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 														</>
 													)}
 												</div>
-												{field.value && leaveDays > 0 && (
-													<div
-														className={
-															hasInsufficientLeaveBalance
-																? "text-destructive"
-																: undefined
-														}
-													>
-														{field.value} applied for {leaveDays} day
-														{leaveDays === 1 ? "" : "s"}
-													</div>
-												)}
 											</div>
 										)}
 									</RHFFieldWrapper>
@@ -1923,6 +1911,17 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 											form.setValue("endDate", date);
 										}}
 									/>
+								)}
+								{selectedTag === TAG_IDS.LEAVE && leaveType && leaveDays > 0 && (
+									<div
+										className={cn(
+											"col-span-full -mt-1 text-sm text-muted-foreground",
+											hasInsufficientLeaveBalance && "text-destructive"
+										)}
+									>
+										Leave request is for {leaveDays} day
+										{leaveDays === 1 ? "" : "s"} of {leaveType}.
+									</div>
 								)}
 
 								{selectedTag === TAG_IDS.TODO_LIST && (

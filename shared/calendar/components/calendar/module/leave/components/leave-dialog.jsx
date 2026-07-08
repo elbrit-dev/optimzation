@@ -98,17 +98,20 @@ export function EventLeaveDialog({
 	}, [event]);
 	const handleStatusChange = async (newStatus) => {
 		try {
-			await updateLeaveStatus(event.erpName, newStatus);
+			const persistedStatus = await updateLeaveStatus(
+				event.erpName,
+				newStatus
+			);
 
 			// 🔄 Update local calendar state immediately
 			const updatedCalendarLeave = {
 				...event,
-				status: newStatus,
+				status: persistedStatus,
 			};
 
 			updateEvent(updatedCalendarLeave);
 
-			toast.success(`Leave Application ${newStatus}`);
+			toast.success(`Leave Application ${persistedStatus}`);
 
 			setOpen(false);
 

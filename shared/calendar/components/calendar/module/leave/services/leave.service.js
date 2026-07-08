@@ -1,15 +1,134 @@
 import { graphqlRequest } from "@calendar/lib/graphql-client";
+import { AUTH_CONFIG } from "@calendar/components/auth/calendar-users";
 import { getCached } from "@calendar/lib/data-cache";
 import { LEAVE_ALLOCATIONS_QUERY, LEAVE_APPLICATIONS_QUERY, LEAVE_QUERY, LEAVE_TYPES_QUERY, SAVE_LEAVE_APPLICATION_MUTATION, UPDATE_LEAVE_ATTACHMENT_MUTATION, UPDATE_LEAVE_STATUS_MUTATION } from "@calendar/components/calendar/module/leave/graphql/leave.query";
 import { clearLeaveCache, getCachedLeaveBalance, getLeaveCacheKey, setCachedLeaveBalance } from "@calendar/components/calendar/module/leave/cache/leave-cache";
 import { mapErpLeaveToCalendar } from "@calendar/components/calendar/module/leave/mappers/leave.mapper";
 import { clearEventCache } from "@calendar/lib/calendar/event-cache";
 import { clearCached } from "@calendar/lib/data-cache";
+import { normalizeStatus } from "@calendar/components/calendar/helpers";
 import {
   enqueueDocShareSync,
   syncDocShares,
 } from "@calendar/components/calendar/module/event/services/docshare.service";
 
+const ERP_LEAVE_STATUS_MAP = {
+  open: "OPEN",
+  approved: "APPROVED",
+  rejected: "REJECTED",
+  cancelled: "CANCELLED",
+  canceled: "CANCELLED",
+};
+
+function normalizeLeaveStatusValue(status) {
+  const normalized = String(status ?? "").trim().toLowerCase();
+  return ERP_LEAVE_STATUS_MAP[normalized] ?? String(status ?? "").trim().toUpperCase();
+}
+
+function getErpBaseUrl() {
+  const { erpUrl } = AUTH_CONFIG;
+
+  if (!erpUrl) {
+    throw new Error("Missing ERP auth configuration");
+  }
+
+  return erpUrl
+    .replace(/(\/api(?:\/method)?\/graphql|\/graphql)\/?$/i, "")
+    .replace(/\/$/, "");
+}
+
+async function erpJsonRequest(path, { method = "GET", body } = {}) {
+  const { authToken } = AUTH_CONFIG;
+
+  if (!authToken) {
+    throw new Error("Missing ERP auth configuration");
+  }
+
+  const response = await fetch(`${getErpBaseUrl()}${path}`, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `token ${authToken}`,
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  let json = null;
+  try {
+    json = await response.json();
+  } catch {
+    throw new Error("Invalid response from ERP");
+  }
+
+  if (!response.ok) {
+    throw new Error(json?.message || `HTTP ${response.status}`);
+  }
+
+  if (json?.exc || json?.exception) {
+    throw new Error(json?.message || "ERP request failed");
+  }
+
+  return json;
+}
+
+async function fetchLeaveApplicationSnapshot(leaveName) {
+  const response = await erpJsonRequest(
+    `/api/resource/Leave Application/${encodeURIComponent(leaveName)}`
+  );
+
+  return response?.data ?? null;
+}
+
+async function updateLeaveApplicationResource(leaveName, payload) {
+  await erpJsonRequest(
+    `/api/resource/Leave Application/${encodeURIComponent(leaveName)}`,
+    {
+      method: "PUT",
+      body: payload,
+    }
+  );
+}
+
+async function saveLeaveApplicationDoc(doc) {
+  await erpJsonRequest("/api/method/frappe.client.save", {
+    method: "POST",
+    body: {
+      doc: JSON.stringify(doc),
+    },
+  });
+}
+
+async function submitLeaveApplication(doc) {
+  await erpJsonRequest("/api/method/frappe.client.submit", {
+    method: "POST",
+    body: {
+      doc: JSON.stringify(doc),
+    },
+  });
+}
+
+async function readVerifiedLeaveStatus(leaveName) {
+  const snapshot = await fetchLeaveApplicationSnapshot(leaveName);
+
+  return {
+    snapshot,
+    currentStatus: normalizeLeaveStatusValue(snapshot?.status),
+  };
+}
+
+async function attemptGraphqlLeaveStatusUpdate(leaveName, statusValue) {
+  const data = await graphqlRequest(
+    UPDATE_LEAVE_STATUS_MUTATION,
+    {
+      name: leaveName,
+      value: statusValue,
+    }
+  );
+
+  if (!data?.setValue?.name) {
+    throw new Error("Failed to update leave status");
+  }
+}
 
 export async function saveLeaveApplication(doc, options = {}) {
     const data = await graphqlRequest(SAVE_LEAVE_APPLICATION_MUTATION, {
@@ -81,25 +200,95 @@ export async function saveLeaveApplication(doc, options = {}) {
     if (!leaveName || !newStatus) {
       throw new Error("Invalid leave update payload");
     }
-  
-    const data = await graphqlRequest(
-      UPDATE_LEAVE_STATUS_MUTATION,
-      {
-        name: leaveName,
-        value: newStatus,
+
+    const targetStatus = normalizeLeaveStatusValue(newStatus);
+    let lastError = null;
+
+    try {
+      await attemptGraphqlLeaveStatusUpdate(leaveName, targetStatus);
+      const verification = await readVerifiedLeaveStatus(leaveName);
+
+      if (verification.currentStatus === targetStatus) {
+        clearEventCache();
+        clearCached(["LEAVE_APPLICATIONS"]);
+        clearLeaveCache();
+        return normalizeStatus(verification.currentStatus);
       }
-    );
-  
-    if (!data?.setValue?.name) {
-      throw new Error("Failed to update leave status");
+    } catch (error) {
+      lastError = error;
     }
-  
+
+    const verification = await readVerifiedLeaveStatus(leaveName);
+    let snapshot = verification.snapshot;
+
+    if (
+      targetStatus === "APPROVED" &&
+      snapshot &&
+      Number(snapshot.docstatus ?? 0) !== 1
+    ) {
+      try {
+        await submitLeaveApplication(snapshot);
+        const postSubmitVerification =
+          await readVerifiedLeaveStatus(leaveName);
+
+        snapshot = postSubmitVerification.snapshot;
+        if (postSubmitVerification.currentStatus === targetStatus) {
+          clearEventCache();
+          clearCached(["LEAVE_APPLICATIONS"]);
+          clearLeaveCache();
+          return normalizeStatus(postSubmitVerification.currentStatus);
+        }
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    try {
+      await updateLeaveApplicationResource(leaveName, {
+        status: targetStatus,
+      });
+
+      const resourceVerification =
+        await readVerifiedLeaveStatus(leaveName);
+
+      snapshot = resourceVerification.snapshot;
+      if (resourceVerification.currentStatus === targetStatus) {
+        clearEventCache();
+        clearCached(["LEAVE_APPLICATIONS"]);
+        clearLeaveCache();
+        return normalizeStatus(resourceVerification.currentStatus);
+      }
+    } catch (error) {
+      lastError = error;
+    }
+
+    if (snapshot) {
+      try {
+        await saveLeaveApplicationDoc({
+          ...snapshot,
+          status: targetStatus,
+        });
+
+        const savedVerification =
+          await readVerifiedLeaveStatus(leaveName);
+
+        if (savedVerification.currentStatus === targetStatus) {
+          clearEventCache();
+          clearCached(["LEAVE_APPLICATIONS"]);
+          clearLeaveCache();
+          return normalizeStatus(savedVerification.currentStatus);
+        }
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    throw lastError ?? new Error("Failed to update leave status");
+
     // Clear all relevant caches
     clearEventCache();
     clearCached(["LEAVE_APPLICATIONS"]);
     clearLeaveCache();
-  
-    return true;
   }
 // ---------------------------------------------
 // Leave Filters
@@ -109,15 +298,15 @@ const getLeaveAllocationFilters = (employeeId) => [
     { fieldname: "docstatus", operator: "EQ", value: "1" },
   ];
   
-  const getLeaveUsedFilters = (employeeId) => [
+const getLeaveUsedFilters = (employeeId) => [
     { fieldname: "employee", operator: "EQ", value: employeeId },
-    { fieldname: "status", operator: "EQ", value: "Approved" },
+    { fieldname: "status", operator: "EQ", value: "APPROVED" },
     { fieldname: "docstatus", operator: "EQ", value: "1" },
   ];
   
 const getLeavePendingFilters = (employeeId) => [
     { fieldname: "employee", operator: "EQ", value: employeeId },
-    { fieldname: "status", operator: "EQ", value: "Open" },
+    { fieldname: "status", operator: "EQ", value: "OPEN" },
   ];
 
 const LEAVE_WITHOUT_PAY_NAMES = new Set([

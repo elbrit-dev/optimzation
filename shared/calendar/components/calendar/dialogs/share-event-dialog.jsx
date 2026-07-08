@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Share2 } from "lucide-react";
+import { Plus, Share2, Users } from "lucide-react";
 import { toast } from "sonner";
 import { Avatar, AvatarFallback } from "@calendar/components/ui/avatar";
 import { Button } from "@calendar/components/ui/button";
@@ -40,6 +40,7 @@ const SHARED_TO_PASTEL_CLASSES = [
   "bg-violet-100 text-violet-700",
   "bg-fuchsia-100 text-fuchsia-700",
 ];
+const MAX_VISIBLE_SHARED_MEMBERS = 4;
 
 function getInitials(label = "") {
   const cleaned = String(label).trim();
@@ -74,10 +75,16 @@ function resolveSharedPeople(shares, ownerEmail, employeeOptions, users) {
       uniqueByEmail.set(email.toLowerCase(), {
         email,
         name: employee?.label ?? user?.name ?? user?.id ?? email,
+        designation: employee?.role ?? user?.role ?? null,
       });
     });
 
   return [...uniqueByEmail.values()];
+}
+
+function formatSharedPersonTitle(person) {
+  if (!person?.designation) return person?.name ?? "";
+  return `${person.name} - ${person.designation}`;
 }
 
 function resolveSharedEmployeeIds(shares, employeeOptions) {
@@ -102,6 +109,7 @@ export function SharedToBlock({
 }) {
   const { allEmployeeOptions, users } = useCalendar();
   const [sharedTo, setSharedTo] = useState([]);
+  const [isMembersOpen, setIsMembersOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -142,6 +150,10 @@ export function SharedToBlock({
 
   const isFooterVariant = variant === "footer";
   const hasSharedTo = sharedTo.length > 0;
+  const visibleSharedTo = useMemo(
+    () => sharedTo.slice(0, MAX_VISIBLE_SHARED_MEMBERS),
+    [sharedTo]
+  );
 
   if (!hasSharedTo && !renderWhenEmpty) return null;
 
@@ -179,25 +191,31 @@ export function SharedToBlock({
                   : "w-full sm:justify-end"
               )}
             >
-              {sharedTo.map((person, index) => (
+              {visibleSharedTo.map((person, index) => (
                 <Tooltip key={`${person.email}-${index}`}>
                   <TooltipTrigger asChild>
-                    <Avatar className="size-7 cursor-default border border-white/80 shadow-sm">
-                      <AvatarFallback
-                        className={cn(
-                          "text-xs font-semibold",
-                          SHARED_TO_PASTEL_CLASSES[
-                            index % SHARED_TO_PASTEL_CLASSES.length
-                          ]
-                        )}
-                      >
-                        {getInitials(person.name)}
-                      </AvatarFallback>
-                    </Avatar>
+                    <button
+                      type="button"
+                      className="rounded-full"
+                      onClick={() => setIsMembersOpen(true)}
+                    >
+                      <Avatar className="size-7 cursor-pointer border border-white/80 shadow-sm">
+                        <AvatarFallback
+                          className={cn(
+                            "text-xs font-semibold",
+                            SHARED_TO_PASTEL_CLASSES[
+                              index % SHARED_TO_PASTEL_CLASSES.length
+                            ]
+                          )}
+                        >
+                          {getInitials(person.name)}
+                        </AvatarFallback>
+                      </Avatar>
+                    </button>
                   </TooltipTrigger>
                   <TooltipContent className="max-w-[220px] bg-slate-900 text-left text-white">
                     <p className="text-xs font-medium leading-tight">
-                      {person.name}
+                      {formatSharedPersonTitle(person)}
                     </p>
                     {person.email ? (
                       <p className="mt-0.5 text-[11px] text-slate-300">
@@ -207,10 +225,64 @@ export function SharedToBlock({
                   </TooltipContent>
                 </Tooltip>
               ))}
+              <EventShareDialog event={event}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="size-7 rounded-full border-dashed"
+                  aria-label="Add shared members"
+                >
+                  <Plus className="size-3.5" />
+                </Button>
+              </EventShareDialog>
             </div>
           </TooltipProvider>
         </div>
       ) : null}
+
+      <Modal open={isMembersOpen} onOpenChange={setIsMembersOpen}>
+        <ModalContent className="sm:max-w-[420px]">
+          <ModalHeader>
+            <ModalTitle className="flex items-center gap-2">
+              <Users className="size-4" />
+              Shared Members
+            </ModalTitle>
+          </ModalHeader>
+
+          <div className="space-y-2 mt-2">
+            {sharedTo.map((person, index) => (
+              <div
+                key={`${person.email}-${index}`}
+                className="flex items-center gap-3 rounded-lg border px-3 py-2"
+              >
+                <Avatar className="size-9 border border-white/80 shadow-sm">
+                  <AvatarFallback
+                    className={cn(
+                      "text-xs font-semibold",
+                      SHARED_TO_PASTEL_CLASSES[
+                        index % SHARED_TO_PASTEL_CLASSES.length
+                      ]
+                    )}
+                  >
+                    {getInitials(person.name)}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-foreground">
+                    {formatSharedPersonTitle(person)}
+                  </p>
+                  {person.email ? (
+                    <p className="truncate text-xs text-muted-foreground">
+                      {person.email}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        </ModalContent>
+      </Modal>
     </div>
   );
 }

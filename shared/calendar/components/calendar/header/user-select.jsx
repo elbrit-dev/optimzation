@@ -1,38 +1,50 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@calendar/components/ui/avatar";
 import { AvatarGroup } from "@calendar/components/ui/avatar-group";
 import { Checkbox } from "@calendar/components/ui/checkbox";
+import { Input } from "@calendar/components/ui/input";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@calendar/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@calendar/components/ui/select";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 import { useEffect, useState, useMemo } from "react";
 import {resolveVisibleEmployeeIds} from "@calendar/lib/employeeHeirachy";
 import { cn } from "@calendar/lib/utils";
+import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 
 function EmployeeFilterList({
   users,
   checkedIds,
-  isAllChecked,
-  onToggleAll,
   onToggleUser,
   showEmail = false,
   showAvatar = false,
+  showAllOption = true,
+  isAllChecked = false,
+  onToggleAll,
   className,
 }) {
   return (
     <div className={cn("space-y-1", className)}>
-      <button
-        type="button"
-        className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition hover:bg-muted"
-        onClick={onToggleAll}
-      >
-        <Checkbox checked={isAllChecked} />
-        <div className="min-w-0">
-          <p className="text-sm font-medium">All</p>
-        </div>
-      </button>
+      {showAllOption ? (
+        <button
+          type="button"
+          className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition hover:bg-muted"
+          onClick={onToggleAll}
+        >
+          <Checkbox checked={isAllChecked} />
+          <div className="min-w-0">
+            <p className="text-sm font-medium">All</p>
+          </div>
+        </button>
+      ) : null}
 
       {users.map((user) => {
         const checked = checkedIds.includes(user.id);
@@ -92,11 +104,17 @@ export function UserSelect({ mode = "popover" }) {
   // UI-only checkbox state
   const [checkedIds, setCheckedIds] = useState([]);
   const [search, setSearch] = useState("");
+  const [designationFilter, setDesignationFilter] = useState("all");
+  const [departmentFilter, setDepartmentFilter] = useState("all");
 
-  // 🔑 Default = ALL checked
   useEffect(() => {
+    if (mode === "inline" && (!Array.isArray(selectedUserId) || selectedUserId.length === 0)) {
+      filterEventsBySelectedUser([LOGGED_IN_USER.id]);
+      return;
+    }
+
     setCheckedIds(Array.isArray(selectedUserId) ? selectedUserId : []);
-  }, [selectedUserId]);
+  }, [filterEventsBySelectedUser, mode, selectedUserId]);
 
   const isAllChecked = checkedIds.length === 0;
 
@@ -113,6 +131,10 @@ export function UserSelect({ mode = "popover" }) {
         next = prev.filter((v) => v !== id);
       } else {
         next = [...prev, id];
+      }
+
+      if (mode === "inline" && next.length === 0) {
+        next = [LOGGED_IN_USER.id];
       }
 
       filterEventsBySelectedUser(next);
@@ -138,6 +160,34 @@ export function UserSelect({ mode = "popover" }) {
     elbritRoleEdges,
     elbritRoleLoading,
   ]);
+
+  const departmentByRoleId = useMemo(() => {
+    const nextMap = new Map();
+
+    elbritRoleEdges?.forEach(({ node }) => {
+      if (!node?.role_id) return;
+      nextMap.set(node.role_id, node.sales_team__name ?? null);
+    });
+
+    return nextMap;
+  }, [elbritRoleEdges]);
+
+  const enrichedVisibleUsers = useMemo(() => {
+    return visibleUsers.map((user) => ({
+      ...user,
+      department: departmentByRoleId.get(user.roleId) ?? null,
+    }));
+  }, [departmentByRoleId, visibleUsers]);
+
+  const designationOptions = useMemo(() => {
+    return [...new Set(enrichedVisibleUsers.map((user) => user.role).filter(Boolean))]
+      .sort((left, right) => left.localeCompare(right));
+  }, [enrichedVisibleUsers]);
+
+  const departmentOptions = useMemo(() => {
+    return [...new Set(enrichedVisibleUsers.map((user) => user.department).filter(Boolean))]
+      .sort((left, right) => left.localeCompare(right));
+  }, [enrichedVisibleUsers]);
   
   
   // 🔍 Filtered users for popover
@@ -151,17 +201,31 @@ export function UserSelect({ mode = "popover" }) {
   //   );
   // }, [users, search]);
   const filteredUsers = useMemo(() => {
-    if (!search.trim()) return visibleUsers;
-  
-    const q = search.toLowerCase();
-    return visibleUsers.filter(
-      u =>
-        u.name?.toLowerCase().includes(q) ||
-        u.email?.toLowerCase().includes(q) ||
-        u.role?.toLowerCase().includes(q) ||
-        u.roleId?.toLowerCase().includes(q)
-    );
-  }, [visibleUsers, search]);
+    const q = search.trim().toLowerCase();
+
+    return enrichedVisibleUsers.filter((user) => {
+      const matchesSearch =
+        !q ||
+        user.name?.toLowerCase().includes(q) ||
+        user.email?.toLowerCase().includes(q) ||
+        user.role?.toLowerCase().includes(q) ||
+        user.roleId?.toLowerCase().includes(q) ||
+        user.department?.toLowerCase().includes(q);
+
+      const matchesDesignation =
+        designationFilter === "all" || user.role === designationFilter;
+
+      const matchesDepartment =
+        departmentFilter === "all" || user.department === departmentFilter;
+
+      return matchesSearch && matchesDesignation && matchesDepartment;
+    });
+  }, [
+    departmentFilter,
+    designationFilter,
+    enrichedVisibleUsers,
+    search,
+  ]);
 
   if (usersLoading) {
     return (
@@ -174,17 +238,59 @@ export function UserSelect({ mode = "popover" }) {
   if (mode === "inline") {
     return (
       <div className="w-full rounded-lg bg-background">
-        <div className="max-h-[90vh] hide-scrollbar overflow-y-auto p-2">
+        <div className="p-2 pb-1">
+          <Input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search employees..."
+            className="h-9"
+          />
+        </div>
+        <div className="grid grid-cols-1 gap-2 px-2 pb-1 sm:grid-cols-2">
+          <Select
+            value={designationFilter}
+            onValueChange={setDesignationFilter}
+          >
+            <SelectTrigger className="h-9">
+              <SelectValue placeholder="Filter by designation" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All designations</SelectItem>
+              {designationOptions.map((designation) => (
+                <SelectItem key={designation} value={designation}>
+                  {designation}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={departmentFilter}
+            onValueChange={setDepartmentFilter}
+          >
+            <SelectTrigger className="h-9">
+              <SelectValue placeholder="Filter by department" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All departments</SelectItem>
+              {departmentOptions.map((department) => (
+                <SelectItem key={department} value={department}>
+                  {department}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="max-h-[90vh] hide-scrollbar overflow-y-auto p-2 pt-1">
           <EmployeeFilterList
-            users={visibleUsers}
+            users={filteredUsers}
             checkedIds={checkedIds}
-            isAllChecked={isAllChecked}
-            onToggleAll={toggleAll}
             onToggleUser={toggleUser}
             showEmail
+            showAllOption={false}
           />
 
-          {visibleUsers.length === 0 && (
+          {filteredUsers.length === 0 && (
             <p className="px-2 py-2 text-sm text-muted-foreground">
               No employees found
             </p>
@@ -257,6 +363,7 @@ export function UserSelect({ mode = "popover" }) {
             onToggleAll={toggleAll}
             onToggleUser={toggleUser}
             showAvatar
+            showAllOption
           />
 
           {filteredUsers.length === 0 && (

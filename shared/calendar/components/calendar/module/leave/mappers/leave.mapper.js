@@ -63,7 +63,7 @@ export function mapFormToErpLeave(values,options = {}) {
     total_leave_days: totalDays,
     description: values.description ?? "",
     posting_date: toERPDate(),
-    status: "Open",
+    status: "OPEN",
     follow_via_email: 1,
     custom_attachement: values.medicalAttachment ?? null,
     leave_approver: values.leave_approver ?? null,
@@ -148,4 +148,3 @@ export function mapErpLeaveToCalendar(leave) {
     leave_approver: leaveApprover,
   };
 }
-

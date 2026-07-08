@@ -202,7 +202,7 @@ query DocSharesByUser($first: Int!, $filters: [DBFilterInput!]) {
     edges {
       node {
         name
-        share_name
+        share_name:share_name__name
       }
     }
   }

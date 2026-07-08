@@ -18,6 +18,11 @@ import { cn } from "@calendar/lib/utils";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 import { useState, useEffect } from "react";
 
+function isSunday(date) {
+	const day = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+	return day.getDay() === 0;
+}
+
 export function DateTimePicker({
 	form, label,
 	field,
@@ -180,6 +185,10 @@ export function DateTimePicker({
 								if (allowAllDates) return false;
 
 								const day = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+								if (isSunday(day)) {
+									return true;
+								}
 
 								// HQ disabled dates
 								if (normalizedDisabledDates.includes(day.getTime())) {

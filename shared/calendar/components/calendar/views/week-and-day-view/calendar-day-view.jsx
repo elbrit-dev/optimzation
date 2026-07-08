@@ -166,12 +166,16 @@ export function CalendarDayView({
 				</ScrollArea>
 			</div>
 			<div className="hidden w-72 divide-y border-l">
-				<DayPicker
-					className="mx-auto w-fit"
-					mode="single"
-					selected={selectedDate}
-					onSelect={(date) => date && setSelectedDate(date)}
-					initialFocus />
+					<DayPicker
+						className="mx-auto w-fit"
+						mode="single"
+						selected={selectedDate}
+						onSelect={(date) => {
+							if (!date || date.getDay() === 0) return;
+							setSelectedDate(date);
+						}}
+						disabled={(date) => date.getDay() === 0}
+						initialFocus />
 
 				<div className="flex-1 space-y-3">
 					{currentEvents.length > 0 ? (

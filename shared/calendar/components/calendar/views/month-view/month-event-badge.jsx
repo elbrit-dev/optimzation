@@ -82,8 +82,10 @@ export function MonthEventBadge({
 		position = "middle";
 	}
 
-	const renderBadgeText = ["first", "none"].includes(position) ;
-	const renderBadgeTime =  ["last", "none"].includes(position);
+	const renderBadgeText = true;
+	const renderDayProgress =
+		Boolean(eventCurrentDay && eventTotalDays) &&
+		["first", "none"].includes(position);
 
 	const color = (badgeVariant === "dot" ? `${event.color}-dot` : event.color);
 
@@ -93,7 +95,7 @@ export function MonthEventBadge({
         <DraggableEvent event={event}>
             <EventDetailsDialog event={event}>
 				<div role="button" tabIndex={0} className={eventBadgeClasses}>
-					<div className="flex items-center gap-1 md:gap-1 truncate">
+					<div className="flex min-w-0 items-center gap-1 md:gap-1 truncate">
 						{!["middle", "last"].includes(position) &&
 							badgeVariant === "dot" && (
 								<EventBullet color={event.color} />
@@ -101,12 +103,12 @@ export function MonthEventBadge({
 
 						{renderBadgeText && (
 							<p className="flex-1 truncate font-semibold text-[8px] md:text-[12px]">
-								{eventCurrentDay && (
+								{renderDayProgress && (
 									<span className="text-xs">
 										Day {eventCurrentDay} of {eventTotalDays} •{" "}
 									</span>
 								)}
-								{TAG_IDS.TODO_LIST ? (event.title || event.tags) : event.tags}
+								{event.title || event.tags}
 							</p>
 						)}
 					</div>
