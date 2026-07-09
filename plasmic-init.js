@@ -884,7 +884,7 @@ PLASMIC.registerComponent(ApprovalCard, {
   name: "ApprovalCard",
   displayName: "Approval Card",
   description:
-    "Summary card for the secondary approval flow with 3 variants: 'select' (checkbox), 'toggle' (on/off switch), and 'actions' (per-card Reject/Approve buttons). Title + two metric columns (e.g. Sales / Closing, each Qty + Value) and an optional attachments badge (🔗 + count) that fires onLinkClick. `checked` drives the tick (bind it to your control / a Select All boolean). onCheckedChange fires with (checked, value) on a click AND when `checked` is set from outside — wire it to Add element `value` (when checked) / Remove elements `value` (when not) so each card's value flows into your [] array, for any number of cards. For actions, onApprove/onReject fire with `value`.",
+    "Summary card for the secondary approval flow with 3 variants: 'select' (checkbox), 'toggle' (on/off switch), and 'actions' (per-card Reject/Approve buttons). Title + two metric columns (e.g. Sales / Closing, each Qty + Value) and an optional attachments badge (🔗 + count) that fires onLinkClick. `checked` is just true/false — bind it to your control (a Select All boolean, or the card's own checked state). onCheckedChange fires (checked, value) AUTOMATICALLY whenever checked flips — on a click OR when set from outside — so you wire the value handling once: Add element `value` (when checked) / Remove elements `value` (when not) into your [] array (init it to []). Select All only flips the boolean; it never passes a value. For actions, onApprove/onReject fire with `value`.",
   props: {
     variant: {
       type: "choice",
@@ -906,7 +906,7 @@ PLASMIC.registerComponent(ApprovalCard, {
       type: "boolean",
       defaultValue: false,
       description:
-        "select/toggle: whether this card is ticked. Bind it to your control (a per-card flag or a Select All boolean). Setting it true/false — by a click OR from outside — fires onCheckedChange so the value passes.",
+        "Just true/false — whether the card is ticked. Bind it to your control: a Select All boolean, or leave it to the card's own checked state for individual ticking. Changing it (click OR from outside) fires onCheckedChange automatically.",
     },
     onCheckedChange: {
       type: "eventHandler",
@@ -915,7 +915,7 @@ PLASMIC.registerComponent(ApprovalCard, {
         { name: "value", type: "object" },
       ],
       description:
-        "Fires with (checked, value) whenever the tick changes — on a click OR when `checked` is set from outside (e.g. a Select All flipping it). Wire it: when checked -> Update your array, operation 'Add element', value = `value`; when NOT checked -> operation 'Remove elements', value = `value`. This appends/removes into your [] for any number of cards.",
+        "Fires (checked, value) automatically whenever the tick flips — on a click OR when `checked` is set from outside (a Select All). Wire it: when checked -> Update your [] state, operation 'Add element', value = `value`; when NOT checked -> operation 'Remove elements', value = `value`. Initialize that state to [] first (else Add element errors with 'push of undefined').",
     },
     selectOnCardClick: {
       type: "boolean",

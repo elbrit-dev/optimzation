@@ -213,8 +213,12 @@ export default function ApprovalCard({
   const isSelect = !isToggle && !isActions; // default
   const selectable = isSelect || isToggle;
 
-  // `checked` is the single driver. When it's bound (controlled), it drives the tick;
-  // otherwise the card keeps its own internal state (works standalone).
+  // `checked` is just true/false — bind it to your control (a Select All boolean, or the
+  // card's own checked state). The card fires onCheckedChange AUTOMATICALLY whenever
+  // `checked` flips — from a click OR from being set outside (Select All) — so you wire
+  // the value handling ONCE (Add element / Remove elements) and Select All only flips the
+  // boolean; it never passes any value. The ref dedupes so a click + the resulting prop
+  // update don't both fire.
   const controlled = checked !== undefined && checked !== null;
   const [internal, setInternal] = React.useState(Boolean(checked));
   React.useEffect(() => {
@@ -222,11 +226,7 @@ export default function ApprovalCard({
   }, [controlled, checked]);
   const isChecked = controlled ? Boolean(checked) : internal;
 
-  // Emit onCheckedChange once per REAL change — whether from a click OR from `checked`
-  // being set from outside (e.g. a Select All flipping it). Wire it to Add element /
-  // Remove elements so the value passes into your [] on tick, regardless of how many.
-  // The ref dedupes so a click and the resulting prop update don't both fire.
-  const lastEmitted = React.useRef(isChecked);
+  const lastEmitted = React.useRef(Boolean(checked));
   React.useEffect(() => {
     if (!controlled) return;
     const c = Boolean(checked);
