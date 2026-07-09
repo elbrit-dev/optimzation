@@ -149,13 +149,6 @@ function fmtQty(qty, unit) {
   return unit ? `${qty} ${unit}` : String(qty);
 }
 
-// Identity key for membership/dedup. Primitives compare directly; objects (a JSON
-// `value`) compare by their serialized form so add/remove works whether `value` is
-// a plain id string or a whole record object.
-function keyOf(v) {
-  return v && typeof v === "object" ? JSON.stringify(v) : v;
-}
-
 // Format a monetary value: numbers get currency symbol + Indian grouping + 2dp; strings pass through.
 function fmtValue(val, currency) {
   const sym = currency ?? "₹";
@@ -179,11 +172,6 @@ export default function ApprovalCard({
   checked,                     // controlled selected state (Plasmic writable state) — simple single-card use
   onCheckedChange,             // (checked: boolean, value: any) => void
   selectOnCardClick = true,    // click anywhere on the card to toggle (select/toggle only)
-
-  // multi-select (array) API — pass the current list IN, get the full updated list OUT
-  selectedKeys,                // current selection array (bind to page state, e.g. $state.selectedKeys)
-  onSelectedKeysChange,        // (selectedKeys: array) => void — the COMPLETE updated array
-  multiSelect = true,          // false = single-select (returns [value] / [])
 
   // actions variant
   onApprove,                   // (value) => void
@@ -225,51 +213,36 @@ export default function ApprovalCard({
   const isSelect = !isToggle && !isActions; // default
   const selectable = isSelect || isToggle;
 
+  // `checked` is the single driver. When it's bound (controlled), it drives the tick;
+  // otherwise the card keeps its own internal state (works standalone).
+  const controlled = checked !== undefined && checked !== null;
   const [internal, setInternal] = React.useState(Boolean(checked));
   React.useEffect(() => {
-    if (checked !== undefined && checked !== null) setInternal(Boolean(checked));
-  }, [checked]);
+    if (controlled) setInternal(Boolean(checked));
+  }, [controlled, checked]);
+  const isChecked = controlled ? Boolean(checked) : internal;
 
-  // When `selectedKeys` is bound (an array) the card DERIVES its checked state from
-  // whether its `value` is in that list — so you never bind `checked` yourself.
-  // Otherwise it falls back to the `checked` prop / internal state (simple single use).
-  const usingKeys = Array.isArray(selectedKeys);
-  const inKeys = usingKeys && selectedKeys.some((v) => keyOf(v) === keyOf(value));
-  const isChecked = usingKeys
-    ? inKeys
-    : checked !== undefined && checked !== null
-    ? Boolean(checked)
-    : internal;
+  // Emit onCheckedChange once per REAL change — whether from a click OR from `checked`
+  // being set from outside (e.g. a Select All flipping it). Wire it to Add element /
+  // Remove elements so the value passes into your [] on tick, regardless of how many.
+  // The ref dedupes so a click and the resulting prop update don't both fire.
+  const lastEmitted = React.useRef(isChecked);
+  React.useEffect(() => {
+    if (!controlled) return;
+    const c = Boolean(checked);
+    if (c !== lastEmitted.current) {
+      lastEmitted.current = c;
+      onCheckedChange?.(c, value);
+    }
+  }, [controlled, checked, value, onCheckedChange]);
 
   const toggle = React.useCallback(() => {
     if (disabled) return;
-    const nextChecked = !isChecked;
-    setInternal(nextChecked);
-    onCheckedChange?.(nextChecked, value);
-
-    // Emit the FULL updated selection array so Plasmic can store it directly
-    // (Update state -> New value -> this arg), without reading the old state.
-    if (onSelectedKeysChange) {
-      const arr = Array.isArray(selectedKeys) ? selectedKeys : [];
-      const without = arr.filter((v) => keyOf(v) !== keyOf(value));
-      const next = nextChecked
-        ? multiSelect
-          ? [...without, value]
-          : [value]
-        : multiSelect
-        ? without
-        : [];
-      onSelectedKeysChange(next);
-    }
-  }, [
-    disabled,
-    isChecked,
-    value,
-    onCheckedChange,
-    onSelectedKeysChange,
-    selectedKeys,
-    multiSelect,
-  ]);
+    const next = !isChecked;
+    if (!controlled) setInternal(next);
+    lastEmitted.current = next;
+    onCheckedChange?.(next, value);
+  }, [disabled, isChecked, controlled, onCheckedChange, value]);
 
   const onCardClick =
     selectable && selectOnCardClick && !disabled ? () => toggle() : undefined;
