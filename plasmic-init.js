@@ -13,6 +13,7 @@ import NovuInbox from "./components/NovuInbox";
 import PushNotificationToggle from "./components/PushNotificationToggle";
 import NetworkBanner from "./components/NetworkBanner";
 import DevicePrimaryGuard from "./components/DevicePrimaryGuard";
+import ApprovalCard from "./components/ApprovalCard";
 // import TableDataProvider from "./components/TableDataProvider";
 import jsonata from 'jsonata';
 import { db } from "./firebase";
@@ -877,6 +878,171 @@ PLASMIC.registerComponent(DevicePrimaryGuard, {
     },
   },
   importPath: "./components/DevicePrimaryGuard",
+});
+
+PLASMIC.registerComponent(ApprovalCard, {
+  name: "ApprovalCard",
+  displayName: "Approval Card",
+  description:
+    "Summary card for the secondary approval flow with 3 variants: 'select' (checkbox for bulk select-all), 'toggle' (on/off switch for one-at-a-time), and 'actions' (per-card Reject/Approve buttons). Title + two metric columns (e.g. Sales / Closing, each Qty + Value) and an optional attachments badge (🔗 + count) that fires onLinkClick. For select/toggle, `checked` is a writable state you bind to a page variable and `onCheckedChange` returns BOTH the new flag AND this card's `value` (its id) for a selected-items array + 'Select all'. For actions, onApprove/onReject fire with `value`.",
+  props: {
+    variant: {
+      type: "choice",
+      options: [
+        { value: "select", label: "Select (checkbox — bulk)" },
+        { value: "toggle", label: "Toggle (switch — single)" },
+        { value: "actions", label: "Actions (Reject / Approve)" },
+      ],
+      defaultValue: "select",
+      description:
+        "Which control the card shows: 'select' = checkbox (bulk select-all), 'toggle' = on/off switch (single), 'actions' = Reject + Approve buttons.",
+    },
+    value: {
+      type: "object",
+      description:
+        "The id/value handed back with selection AND with approve/reject/attachment events. Bind this to the current row's key (e.g. customer name or docname). This is what you collect into your selected-items list.",
+    },
+    checked: {
+      type: "boolean",
+      defaultValue: false,
+      description:
+        "select/toggle only: whether this card is selected. Bind to a state variable; the card writes it back via onCheckedChange. A page-level 'Select all' can set this per card.",
+    },
+    onCheckedChange: {
+      type: "eventHandler",
+      argTypes: [
+        { name: "checked", type: "boolean" },
+        { name: "value", type: "object" },
+      ],
+      description:
+        "select/toggle only: fired when toggled. `checked` = new state; `value` = this card's id. Use it to add/remove `value` from your selected-items array.",
+    },
+    selectOnCardClick: {
+      type: "boolean",
+      defaultValue: true,
+      description:
+        "select/toggle only: click anywhere on the card to toggle (not just the control). No effect in the actions variant.",
+    },
+    onApprove: {
+      type: "eventHandler",
+      argTypes: [{ name: "value", type: "object" }],
+      description: "actions variant: fired when Approve is clicked, with this card's `value`. Wire to your ERP approve mutation.",
+    },
+    onReject: {
+      type: "eventHandler",
+      argTypes: [{ name: "value", type: "object" }],
+      description: "actions variant: fired when Reject is clicked, with this card's `value`. Wire to your ERP reject mutation.",
+    },
+    approveLabel: {
+      type: "string",
+      defaultValue: "Approve",
+      description: "actions variant: label of the Approve button.",
+    },
+    rejectLabel: {
+      type: "string",
+      defaultValue: "Reject",
+      description: "actions variant: label of the Reject button.",
+    },
+    approveColor: {
+      type: "color",
+      defaultValue: "#2563eb",
+      description: "actions variant: Approve button background color.",
+    },
+    rejectColor: {
+      type: "color",
+      defaultValue: "#ef4444",
+      description: "actions variant: Reject button background color.",
+    },
+    linkCount: {
+      type: "number",
+      description:
+        "Number of attached documents. When > 0, a 🔗 icon + count badge shows in the top-right; hidden when 0/empty. Bind to the count of linked docs from UAT/ERP.",
+    },
+    onLinkClick: {
+      type: "eventHandler",
+      argTypes: [{ name: "value", type: "object" }],
+      description:
+        "Fired when the attachments badge is clicked, with this card's `value`. Use it to fetch/open the list of attached documents from UAT/ERP.",
+    },
+    disabled: {
+      type: "boolean",
+      defaultValue: false,
+      description: "Dim the card and block selection / buttons.",
+    },
+    title: {
+      type: "string",
+      defaultValue: "Sai Radha Pharma",
+      description: "Card heading (e.g. the customer / party name).",
+    },
+    currency: {
+      type: "string",
+      defaultValue: "₹",
+      description: "Currency symbol prefixed to Value figures.",
+    },
+    leftLabel: {
+      type: "string",
+      defaultValue: "Sales",
+      description: "Heading of the left metric column.",
+    },
+    leftQty: {
+      type: "number",
+      defaultValue: 688,
+      description: "Left column quantity. Numbers are grouped (Indian format); strings pass through.",
+    },
+    leftQtyUnit: {
+      type: "string",
+      defaultValue: "Nos",
+      description: "Unit shown after the left quantity (e.g. Nos).",
+    },
+    leftValue: {
+      type: "number",
+      defaultValue: 82780.33,
+      description: "Left column value. Numbers are formatted as currency; strings pass through.",
+    },
+    rightLabel: {
+      type: "string",
+      defaultValue: "Closing",
+      description: "Heading of the right metric column.",
+    },
+    rightQty: {
+      type: "number",
+      defaultValue: 590,
+      description: "Right column quantity.",
+    },
+    rightQtyUnit: {
+      type: "string",
+      defaultValue: "Nos",
+      description: "Unit shown after the right quantity.",
+    },
+    rightValue: {
+      type: "number",
+      defaultValue: 65780.33,
+      description: "Right column value (formatted as currency).",
+    },
+    accentColor: {
+      type: "color",
+      defaultValue: "#2563eb",
+      description: "Checkbox/toggle fill and selected-card border color.",
+    },
+    headingColor: {
+      type: "color",
+      defaultValue: "#2563eb",
+      description: "Color of the column headings (Sales / Closing).",
+    },
+    className: {
+      type: "string",
+      description: "CSS class for the card container.",
+    },
+  },
+  states: {
+    checked: {
+      type: "writable",
+      variableType: "boolean",
+      valueProp: "checked",
+      onChangeProp: "onCheckedChange",
+    },
+  },
+  importPath: "./components/ApprovalCard",
 });
 
 registerElbritCoreComponents(PLASMIC)
