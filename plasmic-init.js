@@ -884,7 +884,7 @@ PLASMIC.registerComponent(ApprovalCard, {
   name: "ApprovalCard",
   displayName: "Approval Card",
   description:
-    "Summary card for the secondary approval flow with 3 variants: 'select' (checkbox for bulk select-all), 'toggle' (on/off switch for one-at-a-time), and 'actions' (per-card Reject/Approve buttons). Title + two metric columns (e.g. Sales / Closing, each Qty + Value) and an optional attachments badge (🔗 + count) that fires onLinkClick. For select/toggle, `checked` is a writable state you bind to a page variable and `onCheckedChange` returns BOTH the new flag AND this card's `value` (its id) for a selected-items array + 'Select all'. For actions, onApprove/onReject fire with `value`.",
+    "Summary card for the secondary approval flow with 3 variants: 'select' (checkbox for bulk select-all), 'toggle' (on/off switch for one-at-a-time), and 'actions' (per-card Reject/Approve buttons). Title + two metric columns (e.g. Sales / Closing, each Qty + Value) and an optional attachments badge (🔗 + count) that fires onLinkClick. RECOMMENDED for multi-select: bind `selectedKeys` to a page-state array and `value` to the row key; the card derives its checked state and onSelectedKeysChange returns the COMPLETE updated array (store it via Update state -> New value, no reading old state). For actions, onApprove/onReject fire with `value`.",
   props: {
     variant: {
       type: "choice",
@@ -915,7 +915,24 @@ PLASMIC.registerComponent(ApprovalCard, {
         { name: "value", type: "object" },
       ],
       description:
-        "select/toggle only: fired when toggled. `checked` = new state; `value` = this card's id. Use it to add/remove `value` from your selected-items array.",
+        "select/toggle: fired when toggled. `checked` = new state; `value` = this card's id. For multi-select prefer onSelectedKeysChange instead (it hands back the full array).",
+    },
+    selectedKeys: {
+      type: "object",
+      description:
+        "MULTI-SELECT: the current selection ARRAY, bound to your page state (e.g. $state.selectedKeys, init []). When set, the card derives its checked state from whether `value` is in this list — you do NOT bind `checked`. Leave unbound for simple single-card boolean use.",
+    },
+    onSelectedKeysChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "selectedKeys", type: "object" }],
+      description:
+        "MULTI-SELECT: fired on toggle with the COMPLETE updated array (this card's `value` already added/removed). In Plasmic wire: Update state -> $state.selectedKeys -> New value -> this `selectedKeys` arg. No need to read the old state.",
+    },
+    multiSelect: {
+      type: "boolean",
+      defaultValue: true,
+      description:
+        "true = accumulate values (['a','b',...]). false = single-select: selecting returns [value], deselecting returns [].",
     },
     selectOnCardClick: {
       type: "boolean",
