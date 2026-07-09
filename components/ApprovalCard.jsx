@@ -37,12 +37,12 @@ function ensureStyles() {
   el.textContent = `
     .eac-card {
       box-sizing: border-box;
-      display: flex; flex-direction: column; gap: 14px;
+      display: flex; flex-direction: column; gap: 12px;
       width: 100%; max-width: 100%;
-      padding: 16px; border-radius: 12px;
+      padding: 14px; border-radius: 12px;
       border: 1px solid var(--eac-border, #e5e7eb);
       background: var(--eac-bg, #ffffff);
-      font: 400 14px/1.4 inherit; color: #1f2937;
+      font: 400 13px/1.4 inherit; color: #1f2937;
       transition: border-color .12s ease, box-shadow .12s ease, background .12s ease;
     }
     .eac-card.eac-clickable { cursor: pointer; }
@@ -57,7 +57,7 @@ function ensureStyles() {
     .eac-header { display: flex; align-items: center; gap: 10px; }
     .eac-title {
       flex: 1 1 auto; min-width: 0;
-      font-weight: 700; font-size: 16px; color: #111827;
+      font-weight: 700; font-size: 15px; color: #111827;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
     .eac-header-right { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; }
@@ -109,12 +109,14 @@ function ensureStyles() {
     }
 
     /* metric columns */
-    .eac-cols { display: flex; align-items: flex-start; gap: 24px; }
-    .eac-col { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
-    .eac-col-head { font-weight: 600; font-size: 14px; color: var(--eac-heading, #2563eb); }
-    .eac-row { display: flex; align-items: baseline; gap: 10px; }
-    .eac-row-label { flex: 0 0 46px; color: #6b7280; font-size: 13px; }
-    .eac-row-value { flex: 1 1 auto; min-width: 0; color: #374151; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .eac-cols { display: flex; align-items: flex-start; gap: 14px; }
+    .eac-col { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+    .eac-col-head { font-weight: 600; font-size: 13px; color: var(--eac-heading, #2563eb); }
+    /* Rows wrap instead of clip: if a value can't fit beside its label it drops to
+       the next line (the number itself stays whole) — values are never hidden. */
+    .eac-row { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 6px; row-gap: 1px; }
+    .eac-row-label { flex: 0 0 auto; color: #6b7280; font-size: 11px; }
+    .eac-row-value { color: #374151; font-size: 12px; font-weight: 500; white-space: nowrap; font-variant-numeric: tabular-nums; }
 
     /* action buttons */
     .eac-hr { height: 1px; background: var(--eac-border, #e5e7eb); margin: 0; }
