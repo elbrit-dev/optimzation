@@ -19,9 +19,10 @@ import { Check, Link } from "lucide-react";
  *   your ERP approve/reject mutation.
  *
  * Attachments badge (top-right):
- *   When `linkCount > 0` a 🔗 icon with a count badge appears; clicking it fires
- *   `onLinkClick(value)`. Use it to fetch/open the list of attached documents from
- *   UAT/ERP for this card.
+ *   Bind `links` to any number of file URLs/paths (bare strings or { label, url }).
+ *   A 🔗 icon appears with a count of the links present (or an explicit `linkCount`).
+ *   Clicking it fires `onLinkClick(links, value)` where `links` is [{ label, url }]
+ *   for each present file — open them, or show them in a dialog.
  *
  * Controlled/uncontrolled:
  *   When `checked` is provided (the normal Plasmic case) the card is controlled;
@@ -108,6 +109,7 @@ function ensureStyles() {
       display: flex; align-items: center; justify-content: center;
     }
 
+
     /* metric columns */
     .eac-cols { display: flex; align-items: flex-start; gap: 14px; }
     .eac-col { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
@@ -149,6 +151,54 @@ function fmtQty(qty, unit) {
   return unit ? `${qty} ${unit}` : String(qty);
 }
 
+// Resolve an ERP file path into an openable URL.
+//  - empty / null            → null (link is hidden)
+//  - already absolute (http) → used as-is
+//  - relative "/private/..." → prefixed with baseUrl (the ERP site origin)
+// encodeURI keeps "/" ":" etc. but turns spaces into %20 so paths like
+// "export_2026-06-13 (3).xlsx" open correctly.
+function resolveFileUrl(path, baseUrl) {
+  if (path === null || path === undefined) return null;
+  const p = String(path).trim();
+  if (!p) return null;
+  if (/^https?:\/\//i.test(p)) return encodeURI(p);
+  const base = (baseUrl || "").replace(/\/+$/, "");
+  const rel = p.startsWith("/") ? p : `/${p}`;
+  return encodeURI(`${base}${rel}`);
+}
+
+// Derive a readable label from a file path/URL: the last path segment, decoded.
+// e.g. "/private/files/export_2026-06-13 (1).xlsx" -> "export_2026-06-13 (1).xlsx"
+function fileLabelFromUrl(u) {
+  const s = String(u).split(/[?#]/)[0];
+  const seg = s.split("/").filter(Boolean).pop() || s;
+  try {
+    return decodeURIComponent(seg);
+  } catch {
+    return seg;
+  }
+}
+
+// Normalize the `links` prop into a clean [{ label, url }] array.
+// Accepts a single value or an array; each entry can be:
+//   - a bare string  ("/private/files/x.xlsx" or "https://...")
+//   - an object      ({ url|href|link|value, label|name|title })
+// Relative paths get merged with baseUrl; empties are dropped; labels fall back
+// to the file name so callers never have to supply one.
+function normalizeLinks(links, baseUrl) {
+  const arr = Array.isArray(links) ? links : links === null || links === undefined ? [] : [links];
+  return arr
+    .map((item) => {
+      const isObj = item && typeof item === "object";
+      const rawUrl = isObj ? item.url ?? item.href ?? item.link ?? item.value : item;
+      const url = resolveFileUrl(rawUrl, baseUrl);
+      if (!url) return null;
+      const label = (isObj ? item.label ?? item.name ?? item.title : null) || fileLabelFromUrl(rawUrl);
+      return { label, url };
+    })
+    .filter(Boolean);
+}
+
 // Format a monetary value: numbers get currency symbol + Indian grouping + 2dp; strings pass through.
 function fmtValue(val, currency) {
   const sym = currency ?? "₹";
@@ -181,9 +231,16 @@ export default function ApprovalCard({
   approveColor = "#2563eb",
   rejectColor = "#ef4444",
 
-  // attachments badge
-  linkCount,                   // number of attached documents; badge hidden when 0/empty
-  onLinkClick,                 // (value) => void — open/fetch the attached docs
+  // attachments badge — `links` holds ANY number of files. Each entry can be a
+  // "/private/files/..." path or full URL, given as a bare string OR { label, url }.
+  // Build it in Plasmic from whatever row fields you have, e.g.
+  //   [currentItem.custom_transformed_data, currentItem.custom_ecubix_data]
+  // The badge holds them all and hands them back on click. Set fileBaseUrl to the
+  // ERP origin so relative paths become openable links.
+  links,
+  fileBaseUrl = "",
+  linkCount,                   // OPTIONAL: force the badge number; auto-counted from `links` if omitted
+  onLinkClick,                 // (links, value) => void — links = [{ label, url }] for each present file
 
   disabled = false,
 
@@ -263,7 +320,14 @@ export default function ApprovalCard({
     ...style,
   };
 
-  const hasBadge = typeof linkCount === "number" && linkCount > 0;
+  // Normalize `links` into [{ label, url }]. This is what the badge click hands back —
+  // clicking the 🔗 passes ALL links plus this card's `value` to onLinkClick.
+  const fileLinks = normalizeLinks(links, fileBaseUrl);
+
+  // Badge count: an explicit numeric linkCount wins; otherwise derive it from the
+  // number of file links present (so you don't have to set a count by hand).
+  const badgeCount = typeof linkCount === "number" ? linkCount : fileLinks.length;
+  const hasBadge = badgeCount > 0;
 
   const column = (label, qty, unit, val) => (
     <div className="eac-col">
@@ -313,14 +377,14 @@ export default function ApprovalCard({
             <button
               type="button"
               className="eac-link"
-              aria-label={`${linkCount} attached document${linkCount === 1 ? "" : "s"}`}
+              aria-label={`${badgeCount} attached document${badgeCount === 1 ? "" : "s"}`}
               onClick={(e) => {
                 e.stopPropagation();
-                onLinkClick?.(value);
+                onLinkClick?.(fileLinks, value);
               }}
             >
               <Link size={17} strokeWidth={2.25} />
-              <span className="eac-badge">{linkCount}</span>
+              <span className="eac-badge">{badgeCount}</span>
             </button>
           ) : null}
 

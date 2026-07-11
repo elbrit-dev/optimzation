@@ -953,16 +953,38 @@ PLASMIC.registerComponent(ApprovalCard, {
       defaultValue: "#ef4444",
       description: "actions variant: Reject button background color.",
     },
+    links: {
+      type: "array",
+      itemType: {
+        type: "object",
+        nameFunc: (item) => item?.label || item?.url,
+        fields: {
+          label: { type: "string" },
+          url: { type: "string" },
+        },
+      },
+      description:
+        "Any number of file links. Bind a dynamic expression that builds the list from whatever row fields you have — bare URL/path strings OR { label, url } objects both work, e.g. [currentItem.custom_transformed_data, currentItem.custom_ecubix_data] or [{ label: 'Transformed', url: currentItem.custom_transformed_data }, ...]. Relative '/private/files/...' paths get merged with fileBaseUrl; empties are dropped; missing labels fall back to the file name. Feeds the 🔗 badge.",
+    },
+    fileBaseUrl: {
+      type: "string",
+      defaultValue: "",
+      description:
+        "Origin prepended to relative '/private/files/...' paths so links open on the ERP host (e.g. 'https://uat.elbrit.org'). Leave blank if the app is served from the same host as ERPNext. Absolute http(s) URLs are used as-is.",
+    },
     linkCount: {
       type: "number",
       description:
-        "Number of attached documents. When > 0, a 🔗 icon + count badge shows in the top-right; hidden when 0/empty. Bind to the count of linked docs from UAT/ERP.",
+        "OPTIONAL override of the badge number. Leave EMPTY to auto-count the entries in `links`. Only set this to force a specific count. Never bind a URL/string here.",
     },
     onLinkClick: {
       type: "eventHandler",
-      argTypes: [{ name: "value", type: "object" }],
+      argTypes: [
+        { name: "links", type: "object" },
+        { name: "value", type: "object" },
+      ],
       description:
-        "Fired when the attachments badge is clicked, with this card's `value`. Use it to fetch/open the list of attached documents from UAT/ERP.",
+        "Fired when the 🔗 badge is clicked. `links` is the resolved array [{ label, url }] of every file present, ready to open. `value` is this card's id. Wire it to open each url, or show them in a dialog.",
     },
     disabled: {
       type: "boolean",
