@@ -977,6 +977,12 @@ PLASMIC.registerComponent(ApprovalCard, {
       description:
         "OPTIONAL override of the badge number. Leave EMPTY to auto-count the entries in `links`. Only set this to force a specific count. Never bind a URL/string here.",
     },
+    openInNewTab: {
+      type: "boolean",
+      defaultValue: true,
+      description:
+        "When ON (default), clicking the 🔗 badge opens the file(s) in a new tab: 1 link opens directly, 2+ links show a dropdown so each opens on its own click (avoids popup-blockers). Turn OFF if you want to handle opening yourself via onLinkClick.",
+    },
     onLinkClick: {
       type: "eventHandler",
       argTypes: [
@@ -984,7 +990,7 @@ PLASMIC.registerComponent(ApprovalCard, {
         { name: "value", type: "object" },
       ],
       description:
-        "Fired when the 🔗 badge is clicked. `links` is the resolved array [{ label, url }] of every file present, ready to open. `value` is this card's id. Wire it to open each url, or show them in a dialog.",
+        "Also fired when the 🔗 badge is clicked (alongside the built-in open). `links` is the resolved array [{ label, url }] of every file present; `value` is this card's id. Use it for extra side-effects, or set openInNewTab OFF and do the opening here.",
     },
     disabled: {
       type: "boolean",

@@ -109,6 +109,29 @@ function ensureStyles() {
       display: flex; align-items: center; justify-content: center;
     }
 
+    /* attachments dropdown (2+ links) */
+    .eac-link-wrap { position: relative; flex: 0 0 auto; }
+    .eac-menu {
+      position: absolute; top: calc(100% + 6px); right: 0; z-index: 20;
+      min-width: 180px; max-width: 280px; box-sizing: border-box;
+      padding: 6px; border-radius: 10px;
+      border: 1px solid var(--eac-border, #e5e7eb); background: #fff;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+      display: flex; flex-direction: column; gap: 2px;
+    }
+    .eac-menu-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 10px; border-radius: 7px;
+      color: #334155; font-size: 12px; font-weight: 500;
+      text-decoration: none; cursor: pointer;
+      transition: background .12s ease, color .12s ease;
+    }
+    .eac-menu-item:hover {
+      background: color-mix(in srgb, var(--eac-accent, #2563eb) 8%, #fff);
+      color: var(--eac-accent, #2563eb);
+    }
+    .eac-menu-item-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 
     /* metric columns */
     .eac-cols { display: flex; align-items: flex-start; gap: 14px; }
@@ -240,7 +263,8 @@ export default function ApprovalCard({
   links,
   fileBaseUrl = "",
   linkCount,                   // OPTIONAL: force the badge number; auto-counted from `links` if omitted
-  onLinkClick,                 // (links, value) => void — links = [{ label, url }] for each present file
+  openInNewTab = true,         // badge click opens the file(s) in a new tab (1 → direct, 2+ → dropdown menu)
+  onLinkClick,                 // (links, value) => void — also fired on badge click for custom wiring
 
   disabled = false,
 
@@ -300,6 +324,25 @@ export default function ApprovalCard({
     lastEmitted.current = next;
     onCheckedChange?.(next, value);
   }, [disabled, isChecked, controlled, onCheckedChange, value]);
+
+  // Attachments dropdown (only used when there are 2+ links). We can't reliably
+  // window.open several tabs from one click — browsers block all but the first —
+  // so for multiple files we show a menu of native <a target="_blank"> links, and
+  // each opens on its own click (never blocked).
+  const [menuOpen, setMenuOpen] = React.useState(false);
+  const linkWrapRef = React.useRef(null);
+  React.useEffect(() => {
+    if (!menuOpen) return;
+    const onDocClick = (e) => {
+      if (linkWrapRef.current && !linkWrapRef.current.contains(e.target)) setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [menuOpen]);
+
+  const openOneLink = React.useCallback((url) => {
+    if (typeof window !== "undefined" && url) window.open(url, "_blank", "noopener,noreferrer");
+  }, []);
 
   const onCardClick =
     selectable && selectOnCardClick && !disabled ? () => toggle() : undefined;
@@ -374,18 +417,48 @@ export default function ApprovalCard({
 
         <div className="eac-header-right">
           {hasBadge ? (
-            <button
-              type="button"
-              className="eac-link"
-              aria-label={`${badgeCount} attached document${badgeCount === 1 ? "" : "s"}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onLinkClick?.(fileLinks, value);
-              }}
-            >
-              <Link size={17} strokeWidth={2.25} />
-              <span className="eac-badge">{badgeCount}</span>
-            </button>
+            <div className="eac-link-wrap" ref={linkWrapRef}>
+              <button
+                type="button"
+                className="eac-link"
+                aria-label={`${badgeCount} attached document${badgeCount === 1 ? "" : "s"}`}
+                aria-haspopup={fileLinks.length > 1 ? "menu" : undefined}
+                aria-expanded={fileLinks.length > 1 ? menuOpen : undefined}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onLinkClick?.(fileLinks, value);
+                  if (!openInNewTab) return;
+                  if (fileLinks.length === 1) {
+                    openOneLink(fileLinks[0].url);
+                  } else if (fileLinks.length > 1) {
+                    setMenuOpen((v) => !v);
+                  }
+                }}
+              >
+                <Link size={17} strokeWidth={2.25} />
+                <span className="eac-badge">{badgeCount}</span>
+              </button>
+
+              {openInNewTab && menuOpen && fileLinks.length > 1 ? (
+                <div className="eac-menu" role="menu" onClick={(e) => e.stopPropagation()}>
+                  {fileLinks.map((l, i) => (
+                    <a
+                      key={i}
+                      role="menuitem"
+                      className="eac-menu-item"
+                      href={l.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={l.label}
+                      onClick={() => setMenuOpen(false)}
+                    >
+                      <Link size={13} strokeWidth={2.25} />
+                      <span className="eac-menu-item-text">{l.label}</span>
+                    </a>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           ) : null}
 
           {isToggle ? (
