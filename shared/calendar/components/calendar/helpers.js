@@ -40,7 +40,6 @@ export function getVisibleHqEvents(
 	  if (ev.tags !== TAG_IDS.HQ_TOUR_PLAN) {
 		return false;
 	  }
-  
 	  return ev.participants?.some((p) =>
 		allowedEmployeeIds.includes(p.id)
 	  );
@@ -546,6 +545,31 @@ export const getBgColor = color => {
 	return colorClasses[color] || "";
 };
 
+const AVATAR_COLOR_CLASSES = [
+	"bg-rose-500 dark:bg-rose-600",
+	"bg-orange-500 dark:bg-orange-600",
+	"bg-amber-500 dark:bg-amber-600",
+	"bg-emerald-500 dark:bg-emerald-600",
+	"bg-teal-500 dark:bg-teal-600",
+	"bg-sky-500 dark:bg-sky-600",
+	"bg-indigo-500 dark:bg-indigo-600",
+	"bg-violet-500 dark:bg-violet-600",
+	"bg-fuchsia-500 dark:bg-fuchsia-600",
+];
+
+export const getAvatarColorBySeed = seed => {
+	if (!seed) return AVATAR_COLOR_CLASSES[0];
+
+	const normalized = String(seed).trim().toLowerCase();
+	let hash = 0;
+
+	for (let index = 0; index < normalized.length; index += 1) {
+		hash = normalized.charCodeAt(index) + ((hash << 5) - hash);
+	}
+
+	return AVATAR_COLOR_CLASSES[Math.abs(hash) % AVATAR_COLOR_CLASSES.length];
+};
+
 export const useGetEventsByMode = (events) => {
 	const { view, selectedDate } = useCalendar();
 
@@ -579,5 +603,3 @@ export function normalizeStatus(
 	  ] ?? fallback
 	);
   }
-
-  

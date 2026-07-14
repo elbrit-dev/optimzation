@@ -14,6 +14,7 @@ import { useCalendar } from "@calendar/components/calendar/contexts/calendar-con
 
 import {
   getBgColor,
+  getAvatarColorBySeed,
   getColorClass,
   getFirstLetters,
   toCapitalize,
@@ -200,6 +201,7 @@ export const AgendaEventsMobile = () => {
     const ownerName =
       users.find((user) => user.id === event.ownerEmployeeId)?.name ??
       event.ownerEmployeeId;
+    const ownerInitials = getFirstLetters(ownerName);
 
     return (
       <CommandItem
@@ -212,29 +214,42 @@ export const AgendaEventsMobile = () => {
         )}
       >
         <EventDetailsDialog event={event}>
-          <div className="flex gap-2 items-center w-full">
-            {badgeVariant === "dot" ? (
-              <EventBullet color={event.color} />
-            ) : (
-              <Avatar>
-                <AvatarFallback className={getBgColor(event.color)}>
-                  {getFirstLetters(event.title)}
-                </AvatarFallback>
-              </Avatar>
-            )}
+          <div className="flex items-center gap-2 w-full">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              {badgeVariant === "dot" ? (
+                <EventBullet color={event.color} />
+              ) : (
+                <Avatar>
+                  <AvatarFallback className={getBgColor(event.color)}>
+                    {getFirstLetters(event.title)}
+                  </AvatarFallback>
+                </Avatar>
+              )}
 
-            <div className="w-full">
-              <div className="flex items-center gap-2">
-                {TagIcon && (
-                  <TagIcon className="w-4 h-4 text-muted-foreground" />
-                )}
-                <p className="font-medium text-sm">{event.title}</p>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  {TagIcon && (
+                    <TagIcon className="w-4 h-4 text-muted-foreground" />
+                  )}
+                  <p className="font-medium text-sm truncate">{event.title}</p>
+                </div>
+
+                <p className="text-xs text-muted-foreground truncate">
+                  {ownerName}
+                </p>
               </div>
-
-              <p className="text-xs text-muted-foreground">
-                {ownerName}
-              </p>
             </div>
+
+            <Avatar className="h-8 w-8 shrink-0">
+              <AvatarFallback
+                className={cn(
+                  "text-[11px] font-semibold text-white",
+                  getAvatarColorBySeed(ownerName || event.ownerEmployeeId || event.id)
+                )}
+              >
+                {ownerInitials}
+              </AvatarFallback>
+            </Avatar>
           </div>
         </EventDetailsDialog>
       </CommandItem>

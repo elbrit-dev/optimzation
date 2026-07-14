@@ -194,62 +194,44 @@ function FormUploadField({ fieldId, docname, value, label, onFilePending }) {
 
   const disabled = !docname;
 
-  const stateIcon = pendingFile ? 'pi-clock text-amber-500' : value ? 'pi-file text-emerald-600' : 'pi-cloud-upload text-gray-400';
-
   return (
-    <div className="flex flex-col gap-1.5">
-      <label className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">{label}</label>
-      <input
-        ref={inputRef}
-        type="file"
-        id={`upload-${fieldId}`}
-        className="hidden"
-        disabled={disabled}
-        onChange={handleFileSelect}
-      />
-      <label
-        htmlFor={`upload-${fieldId}`}
-        className={`flex items-center gap-3 rounded-lg border border-dashed px-3 py-2.5 transition-colors ${
-          disabled
-            ? 'opacity-60 cursor-not-allowed border-gray-200 bg-gray-50'
-            : pendingFile
-              ? 'border-amber-300 bg-amber-50 cursor-pointer hover:border-amber-400'
-              : value
-                ? 'border-emerald-300 bg-emerald-50/60 cursor-pointer hover:border-emerald-400'
-                : 'border-gray-300 bg-white cursor-pointer hover:border-blue-400 hover:bg-blue-50/40'
-        }`}
-      >
-        <i className={`pi ${stateIcon} text-lg shrink-0`} />
-        <div className="flex flex-col min-w-0">
-          {pendingFile ? (
-            <>
-              <span className="text-sm font-medium text-amber-700 truncate">{pendingFile.name}</span>
-              <span className="text-[11px] text-amber-600">Will upload on save · click to change</span>
-            </>
-          ) : value ? (
-            <>
-              <span className="text-sm font-medium text-emerald-700 truncate">{value.split('/').pop() || value}</span>
-              <span className="text-[11px] text-emerald-600">Uploaded · click to replace</span>
-            </>
-          ) : (
-            <>
-              <span className="text-sm font-medium text-gray-700">{disabled ? 'Unavailable' : 'Choose a file'}</span>
-              <span className="text-[11px] text-gray-400">{disabled ? 'docname not available' : 'Click to browse'}</span>
-            </>
+    <div className="flex flex-col gap-1">
+      <label className="text-xs font-medium text-gray-700">{label}</label>
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center gap-2 flex-wrap">
+          <input
+            ref={inputRef}
+            type="file"
+            id={`upload-${fieldId}`}
+            className="hidden"
+            disabled={disabled}
+            onChange={handleFileSelect}
+          />
+          <label
+            htmlFor={`upload-${fieldId}`}
+            className={`px-3 py-1.5 text-sm border rounded cursor-pointer select-none ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'}`}
+          >
+            {pendingFile ? 'Change File' : 'Choose File'}
+          </label>
+          {pendingFile && (
+            <span className="text-xs text-amber-600 font-medium">⏳ {pendingFile.name} — will upload on save</span>
+          )}
+          {!docname && (
+            <span className="text-xs text-red-400">docname not available</span>
           )}
         </div>
-      </label>
-      {value && !pendingFile && (
-        <a
-          href={value}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-[11px] text-blue-500 hover:underline truncate self-start"
-          title={value}
-        >
-          View current file ↗
-        </a>
-      )}
+        {value && !pendingFile && (
+          <a
+            href={value}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-blue-500 hover:underline truncate"
+            title={value}
+          >
+            {value.split('/').pop() || value}
+          </a>
+        )}
+      </div>
     </div>
   );
 }
@@ -5496,9 +5478,9 @@ export default function DataProviderNew({
         return String(value);
       })();
       return wrapShell(
-        <div className="flex flex-col gap-1 rounded-lg border border-gray-200 bg-gray-50/70 px-3 py-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">{label}</span>
-          <span className="text-sm font-medium text-gray-800 min-h-[1.25rem] whitespace-pre-wrap break-words">{displayText}</span>
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-medium text-gray-700">{label}</label>
+          <div className="text-sm text-gray-600 min-h-[1.25rem] whitespace-pre-wrap break-words">{displayText}</div>
         </div>,
       );
     }

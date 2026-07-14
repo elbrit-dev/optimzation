@@ -3,13 +3,13 @@ import 'firebase/compat/auth';
 import 'firebase/compat/firestore';
 
 const firebaseConfig = {
-  apiKey: "AIzaSyCY2qR__9xqrzr2OzCO26cFhoqle4gGYYU",
-  authDomain: "elbrit-sso.firebaseapp.com",
-  databaseURL: "https://elbrit-sso-default-rtdb.firebaseio.com",
-  projectId: "elbrit-sso",
-  storageBucket: "elbrit-sso.firebasestorage.app",
-  messagingSenderId: "998910471029",
-  appId: "1:998910471029:web:d0982d548891d02b89413c"
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "AIzaSyAU7NbYC2FizLMT0HWJLWPTR0XkEn-xBXA",
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "elbrit-sso-d01d9.firebaseapp.com",
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "elbrit-sso-d01d9",
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "elbrit-sso-d01d9.firebasestorage.app",
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "878677132537",
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "1:878677132537:web:c85dd96936d5ed1ecd4e28",
+  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID || "G-2REFK80W2D"
 };
 
 // Initialize Firebase

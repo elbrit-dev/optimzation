@@ -20,6 +20,7 @@ import { useMediaQuery } from "@calendar/components/calendar/hooks";
 
 import {
   getBgColor,
+  getAvatarColorBySeed,
   getColorClass,
   getEventsForMonth,
   getFirstLetters,
@@ -248,6 +249,7 @@ export const AgendaEvents = ({ scope = "all"}) => {
     const ownerName =
       users.find((user) => user.id === event.ownerEmployeeId)?.name ??
       event.ownerEmployeeId;
+    const ownerInitials = getFirstLetters(ownerName);
 
     return (
       <CommandItem
@@ -261,7 +263,7 @@ export const AgendaEvents = ({ scope = "all"}) => {
       >
         <EventDetailsDialog event={event}>
           <div className="flex justify-between gap-2 w-full">
-            <div className="flex gap-2 items-center w-full">
+            <div className="flex gap-2 items-center min-w-0 flex-1">
 
               {badgeVariant === "dot" ? (
                 <EventBullet color={event.color} />
@@ -275,23 +277,34 @@ export const AgendaEvents = ({ scope = "all"}) => {
                 </Avatar>
               )}
 
-              <div className="w-full">
+              <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   {TagIcon && (
                     <TagIcon className="w-4 h-4 text-muted-foreground" />
                   )}
 
-                  <p className="font-medium text-sm">
+                  <p className="font-medium text-sm truncate">
                     {event.title}
                   </p>
                   <SyncStatusBadge event={event} className="text-[10px]" />
                 </div>
 
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-muted-foreground truncate">
                   {ownerName}
                 </p>
               </div>
             </div>
+
+            <Avatar className="h-8 w-8 shrink-0">
+              <AvatarFallback
+                className={cn(
+                  "text-[11px] font-semibold text-white",
+                  getAvatarColorBySeed(ownerName || event.ownerEmployeeId || event.id)
+                )}
+              >
+                {ownerInitials}
+              </AvatarFallback>
+            </Avatar>
           </div>
         </EventDetailsDialog>
       </CommandItem>

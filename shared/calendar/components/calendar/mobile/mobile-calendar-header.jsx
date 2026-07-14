@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Menu, ListChecks, House, Rows2, CircleCheckBig, RotateCw } from "lucide-react";
+import { Menu, ListChecks, Eye, Rows2, CircleCheckBig, RotateCw } from "lucide-react";
 import { motion } from "framer-motion";
 import { slideFromLeft, transition } from "@calendar/components/calendar/animations";
 import { Button } from "@calendar/components/ui/button";
@@ -18,6 +18,12 @@ import { cn } from "@calendar/lib/utils";
 import { tabs } from "@calendar/components/calendar/header/view-tabs";
 import { DateNavigator } from "@calendar/components/calendar/header/date-navigator";
 import { STATUS } from "@calendar/components/calendar/constants";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@calendar/components/ui/popover";
+import { UserSelect } from "@calendar/components/calendar/header/user-select";
 
 const MOBILE_LAYER_MAP = {
   month: "month-expanded",
@@ -38,9 +44,11 @@ export function MobileCalendarHeader() {
     pendingSyncCount,
     retryPendingSync,
     isRetryingSync,
+    selectedUserId,
   } = useCalendar();
   const today = new Date();
   const todayDate = format(today, "d");
+  const selectedViewerCount = Array.isArray(selectedUserId) ? selectedUserId.length : 0;
 
   const handleTodayClick = () => {
     setSelectedDate(today);
@@ -83,7 +91,7 @@ export function MobileCalendarHeader() {
   };
   return (
     <>
-      <header className="flex items-center justify-between border-b px-0 py-2 md:hidden">
+      <header className="flex items-center justify-between border-b px-2 py-2 md:hidden">
         {/* LEFT */}
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(true)}>
@@ -193,7 +201,25 @@ export function MobileCalendarHeader() {
                 : `Retry Sync(${pendingSyncCount})`}
             </Button>
           )}
-          <Button variant="ghost" size="icon"><House /></Button>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="ghost" size="icon" className="relative">
+                <Eye className="h-5 w-5" />
+                {selectedViewerCount > 0 && (
+                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
+                    {selectedViewerCount}
+                  </span>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="end"
+              side="bottom"
+              className="mr-2 w-[min(calc(100vw-1rem),24rem)] p-2"
+            >
+              <UserSelect mode="mobile-viewer" />
+            </PopoverContent>
+          </Popover>
         </div>
       </header>
 

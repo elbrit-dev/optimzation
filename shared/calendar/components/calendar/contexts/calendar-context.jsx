@@ -226,7 +226,7 @@ export function CalendarProvider({
 		// setFilteredEvents(allEvents);
 		setSelectedColors([]);
 		setSelectedStatuses([]);
-		setSelectedUserId("all");
+		setSelectedUserId([]);
 	};
 	useEffect(() => {
 		let cancelled = false;

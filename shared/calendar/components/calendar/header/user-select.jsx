@@ -1,5 +1,6 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@calendar/components/ui/avatar";
 import { AvatarGroup } from "@calendar/components/ui/avatar-group";
+import { Button } from "@calendar/components/ui/button";
 import { Checkbox } from "@calendar/components/ui/checkbox";
 import { Input } from "@calendar/components/ui/input";
 import {
@@ -106,15 +107,16 @@ export function UserSelect({ mode = "popover" }) {
   const [search, setSearch] = useState("");
   const [designationFilter, setDesignationFilter] = useState("all");
   const [departmentFilter, setDepartmentFilter] = useState("all");
+  const shouldForceSingleFallback = mode === "inline";
 
   useEffect(() => {
-    if (mode === "inline" && (!Array.isArray(selectedUserId) || selectedUserId.length === 0)) {
+    if (shouldForceSingleFallback && (!Array.isArray(selectedUserId) || selectedUserId.length === 0)) {
       filterEventsBySelectedUser([LOGGED_IN_USER.id]);
       return;
     }
 
     setCheckedIds(Array.isArray(selectedUserId) ? selectedUserId : []);
-  }, [filterEventsBySelectedUser, mode, selectedUserId]);
+  }, [filterEventsBySelectedUser, selectedUserId, shouldForceSingleFallback]);
 
   const isAllChecked = checkedIds.length === 0;
 
@@ -133,7 +135,7 @@ export function UserSelect({ mode = "popover" }) {
         next = [...prev, id];
       }
 
-      if (mode === "inline" && next.length === 0) {
+      if (shouldForceSingleFallback && next.length === 0) {
         next = [LOGGED_IN_USER.id];
       }
 
@@ -227,6 +229,64 @@ export function UserSelect({ mode = "popover" }) {
     search,
   ]);
 
+  const selectedUsers = useMemo(() => {
+    if (!checkedIds.length) return [];
+
+    const selectedIds = new Set(checkedIds);
+    return enrichedVisibleUsers.filter((user) => selectedIds.has(user.id));
+  }, [checkedIds, enrichedVisibleUsers]);
+
+  const effectiveViewedCount = checkedIds.length || enrichedVisibleUsers.length;
+  const isViewerMode = mode === "mobile-viewer";
+
+  const filterControls = (
+    <>
+      <div className="p-2 pb-1">
+        <Input
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Search employees..."
+          className="h-9"
+        />
+      </div>
+      <div className="grid grid-cols-1 gap-2 px-2 pb-1 sm:grid-cols-2">
+        <Select
+          value={designationFilter}
+          onValueChange={setDesignationFilter}
+        >
+          <SelectTrigger className="h-9">
+            <SelectValue placeholder="Filter by designation" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All designations</SelectItem>
+            {designationOptions.map((designation) => (
+              <SelectItem key={designation} value={designation}>
+                {designation}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={departmentFilter}
+          onValueChange={setDepartmentFilter}
+        >
+          <SelectTrigger className="h-9">
+            <SelectValue placeholder="Filter by department" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All departments</SelectItem>
+            {departmentOptions.map((department) => (
+              <SelectItem key={department} value={department}>
+                {department}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    </>
+  );
+
   if (usersLoading) {
     return (
       <div className="w-full rounded-md border px-3 py-2 text-sm text-muted-foreground">
@@ -238,49 +298,7 @@ export function UserSelect({ mode = "popover" }) {
   if (mode === "inline") {
     return (
       <div className="w-full rounded-lg bg-background">
-        <div className="p-2 pb-1">
-          <Input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search employees..."
-            className="h-9"
-          />
-        </div>
-        <div className="grid grid-cols-1 gap-2 px-2 pb-1 sm:grid-cols-2">
-          <Select
-            value={designationFilter}
-            onValueChange={setDesignationFilter}
-          >
-            <SelectTrigger className="h-9">
-              <SelectValue placeholder="Filter by designation" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All designations</SelectItem>
-              {designationOptions.map((designation) => (
-                <SelectItem key={designation} value={designation}>
-                  {designation}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <Select
-            value={departmentFilter}
-            onValueChange={setDepartmentFilter}
-          >
-            <SelectTrigger className="h-9">
-              <SelectValue placeholder="Filter by department" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All departments</SelectItem>
-              {departmentOptions.map((department) => (
-                <SelectItem key={department} value={department}>
-                  {department}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {filterControls}
         <div className="max-h-[90vh] hide-scrollbar overflow-y-auto p-2 pt-1">
           <EmployeeFilterList
             users={filteredUsers}
@@ -296,6 +314,65 @@ export function UserSelect({ mode = "popover" }) {
             </p>
           )}
         </div>
+      </div>
+    );
+  }
+
+  if (isViewerMode) {
+    return (
+      <div className="w-full rounded-lg bg-background">
+        <div className="flex items-start justify-between gap-3 px-2 pb-2 pt-1">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold">
+              Viewing {effectiveViewedCount} {effectiveViewedCount === 1 ? "calendar" : "calendars"}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {checkedIds.length
+                ? "Selected employees shown below"
+                : "No employee filter applied"}
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8 px-2 text-xs"
+            disabled={checkedIds.length === 0}
+            onClick={toggleAll}
+          >
+            Clear filter
+          </Button>
+        </div>
+
+        {selectedUsers.length > 0 && (
+          <div className="space-y-1 px-2 pb-2">
+            {selectedUsers.map((user) => (
+              <div
+                key={user.id}
+                className="flex items-center gap-3 rounded-md border px-2 py-2"
+              >
+                <Avatar className="size-7">
+                  <AvatarImage
+                    src={user.picturePath ?? undefined}
+                    alt={user.name}
+                  />
+                  <AvatarFallback className="text-xs">
+                    {user.name?.[0]}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">
+                    {user.name}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {user.email}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
       </div>
     );
   }
