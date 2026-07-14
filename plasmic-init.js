@@ -884,7 +884,7 @@ PLASMIC.registerComponent(ApprovalCard, {
   name: "ApprovalCard",
   displayName: "Approval Card",
   description:
-    "Summary card for the secondary approval flow with 3 variants: 'select' (checkbox), 'toggle' (on/off switch), and 'actions' (per-card Reject/Approve buttons). Title + two metric columns (e.g. Sales / Closing, each Qty + Value) and an optional attachments badge (🔗 + count) that fires onLinkClick. `checked` is just true/false — bind it to your control (a Select All boolean, or the card's own checked state). onCheckedChange fires (checked, value) AUTOMATICALLY whenever checked flips — on a click OR when set from outside — so you wire the value handling once: Add element `value` (when checked) / Remove elements `value` (when not) into your [] array (init it to []). Select All only flips the boolean; it never passes a value. For actions, onApprove/onReject fire with `value`.",
+    "Summary card for the secondary approval flow with 4 variants: 'select' (checkbox), 'toggle' (on/off switch), 'actions' (per-card Reject/Approve buttons), and 'select-actions' (checkbox AND Reject/Approve together). Title + a status pill + two metric columns (e.g. Sales / Closing, each Qty + Value) and an optional attachments badge (🔗 + count) that fires onLinkClick. `checked` is just true/false — bind it to your control (a Select All boolean, or the card's own checked state). onCheckedChange fires (checked, value) AUTOMATICALLY whenever checked flips — on a click OR when set from outside — so you wire the value handling once: Add element `value` (when checked) / Remove elements `value` (when not) into your [] array (init it to []). Select All only flips the boolean; it never passes a value. For actions/select-actions, onApprove/onReject fire with `value`. Wire onCardClick to open the slice's detail view; set `locked` on already-decided slices (dim, no controls) and drive the `status`/`statusTone`/`rejectionReason` pill from the tracker's status.",
   props: {
     variant: {
       type: "choice",
@@ -892,10 +892,11 @@ PLASMIC.registerComponent(ApprovalCard, {
         { value: "select", label: "Select (checkbox — bulk)" },
         { value: "toggle", label: "Toggle (switch — single)" },
         { value: "actions", label: "Actions (Reject / Approve)" },
+        { value: "select-actions", label: "Select + Actions (checkbox AND Reject / Approve)" },
       ],
       defaultValue: "select",
       description:
-        "Which control the card shows: 'select' = checkbox (bulk select-all), 'toggle' = on/off switch (single), 'actions' = Reject + Approve buttons.",
+        "Which control(s) the card shows: 'select' = checkbox (bulk select-all), 'toggle' = on/off switch (single), 'actions' = Reject + Approve buttons, 'select-actions' = checkbox AND Reject + Approve together (bulk-select while still allowing per-card decisions).",
     },
     value: {
       type: "object",
@@ -921,17 +922,23 @@ PLASMIC.registerComponent(ApprovalCard, {
       type: "boolean",
       defaultValue: true,
       description:
-        "select/toggle only: click anywhere on the card to toggle (not just the control). No effect in the actions variant.",
+        "select/toggle/select-actions: click anywhere on the card to toggle the tick (not just the control). IGNORED once onCardClick is wired — then the body navigates instead and only the checkbox selects. No effect in the actions variant.",
+    },
+    onCardClick: {
+      type: "eventHandler",
+      argTypes: [{ name: "value", type: "object" }],
+      description:
+        "Fired when the card BODY is clicked, with this card's `value`. Wire it to open the slice's detail view (navigate / redirect / open a drawer). Wiring it turns OFF click-anywhere-to-select — only the checkbox then selects. Fires even on a locked card (but not a disabled one). The checkbox, toggle, Approve/Reject buttons and 🔗 badge all swallow their own clicks, so they never trigger this.",
     },
     onApprove: {
       type: "eventHandler",
       argTypes: [{ name: "value", type: "object" }],
-      description: "actions variant: fired when Approve is clicked, with this card's `value`. Wire to your ERP approve mutation.",
+      description: "actions/select-actions: fired when Approve is clicked, with this card's `value`. Approve is a direct one-tap action — wire it straight to your ERP approve mutation.",
     },
     onReject: {
       type: "eventHandler",
       argTypes: [{ name: "value", type: "object" }],
-      description: "actions variant: fired when Reject is clicked, with this card's `value`. Wire to your ERP reject mutation.",
+      description: "actions/select-actions: fired when Reject is clicked, with this card's `value`. This only SIGNALS reject intent — wire it to open your reason sheet (quick-pick + required note). The status change and the write to reason_for_rejection happen on confirm, not here; the card never writes anything.",
     },
     approveLabel: {
       type: "string",
@@ -995,12 +1002,36 @@ PLASMIC.registerComponent(ApprovalCard, {
     disabled: {
       type: "boolean",
       defaultValue: false,
-      description: "Dim the card and block selection / buttons.",
+      description: "Temporarily block a PENDING card: dim it and block selection, buttons AND navigation. Different from `locked` — use this to freeze a still-pending card (e.g. while a mutation is in flight).",
+    },
+    locked: {
+      type: "boolean",
+      defaultValue: false,
+      description: "Mark an already-DECIDED slice: dim the card and hide the checkbox and Reject/Approve buttons (it can still be tapped to open detail if onCardClick is wired). Set this whenever the status is NOT 'ABM Approval Waiting'. Different from `disabled`, which fully blocks a pending card.",
     },
     title: {
       type: "string",
       defaultValue: "Sai Radha Pharma",
       description: "Card heading (e.g. the customer / party name).",
+    },
+    status: {
+      type: "string",
+      defaultValue: "ABM Approval Waiting",
+      description: "Status pill text shown near the title (e.g. 'ABM Approval Waiting', 'Approved · with MIS', 'ABM Rejected'). Leave empty to hide the pill. Bind to the tracker's approval status.",
+    },
+    statusTone: {
+      type: "choice",
+      options: [
+        { value: "waiting", label: "Waiting (amber)" },
+        { value: "approved", label: "Approved (blue)" },
+        { value: "rejected", label: "Rejected (red)" },
+      ],
+      defaultValue: "waiting",
+      description: "Colour of the status pill. On the page, derive it from the status text (e.g. 'ABM Approval Waiting' → waiting, contains 'Approved' → approved, contains 'Reject' → rejected).",
+    },
+    rejectionReason: {
+      type: "string",
+      description: "Rejection reason shown as a red inline note — appears ONLY when statusTone is 'rejected'. Bind to the tracker's reason_for_rejection.",
     },
     currency: {
       type: "string",

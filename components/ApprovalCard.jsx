@@ -2,21 +2,35 @@ import React from "react";
 import { Check, Link } from "lucide-react";
 
 /**
- * ApprovalCard — a summary card for the secondary approval flow, with 3 variants.
+ * ApprovalCard — a summary card for the secondary approval flow, with 4 variants.
  *
  * Variants (the `variant` prop):
- *   - "select"  : a CHECKBOX for bulk selection (pair with a page-level "Select all").
- *   - "toggle"  : an on/off TOGGLE SWITCH for selecting one at a time.
- *   - "actions" : per-card REJECT / APPROVE buttons for approving one-off.
+ *   - "select"         : a CHECKBOX for bulk selection (pair with a page-level "Select all").
+ *   - "toggle"         : an on/off TOGGLE SWITCH for selecting one at a time.
+ *   - "actions"        : per-card REJECT / APPROVE buttons for approving one-off.
+ *   - "select-actions" : BOTH — a checkbox (bulk select) AND Reject / Approve buttons.
  *
- * Selection ("select" + "toggle" share this):
+ * Selection ("select" + "toggle" + "select-actions" share this):
  *   `checked` is a Plasmic *writable state* bound to a page state variable, and
  *   `onCheckedChange(checked, value)` hands back BOTH the new flag AND this card's
  *   `value` (its id) so you can maintain a selected-items array + a "Select all".
  *
- * Actions ("actions" variant):
- *   `onApprove(value)` / `onReject(value)` fire with this card's id — wire them to
- *   your ERP approve/reject mutation.
+ * Actions ("actions" + "select-actions"):
+ *   `onApprove(value)` / `onReject(value)` fire with this card's id. Approve is a direct
+ *   one-tap action; Reject only SIGNALS intent (the page opens a reason sheet and writes
+ *   the status/reason on confirm — the card itself never writes anything).
+ *
+ * Card-body click (`onCardClick`):
+ *   When wired, clicking the card body fires `onCardClick(value)` — use it to open the
+ *   slice's detail view. Wiring it turns OFF the old click-anywhere-to-select fallback,
+ *   so only the checkbox selects. The checkbox, toggle, buttons and 🔗 badge all swallow
+ *   their own clicks, so they never trigger navigation.
+ *
+ * Status & state:
+ *   `status` + `statusTone` ("waiting" amber / "approved" blue / "rejected" red) render a
+ *   pill near the title. `rejectionReason` shows a red inline note, but only when the tone
+ *   is "rejected". `locked` marks an already-decided slice: dimmed, no checkbox and no
+ *   buttons (still navigable) — distinct from `disabled`, which fully blocks a pending card.
  *
  * Attachments badge (top-right):
  *   Bind `links` to any number of file URLs/paths (bare strings or { label, url }).
@@ -54,6 +68,9 @@ function ensureStyles() {
     }
     .eac-card.eac-disabled { opacity: 0.55; cursor: not-allowed; }
     .eac-card.eac-disabled.eac-clickable:hover { box-shadow: none; }
+    /* locked = already-decided slice: dimmed (lighter than disabled), controls hidden,
+       but the card body stays navigable if onCardClick is wired. */
+    .eac-card.eac-locked { opacity: 0.65; }
 
     .eac-header { display: flex; align-items: center; gap: 10px; }
     .eac-title {
@@ -157,6 +174,28 @@ function ensureStyles() {
     .eac-btn:focus-visible { outline: 2px solid #fff; outline-offset: -3px; }
     .eac-btn:disabled { opacity: 0.5; cursor: not-allowed; filter: none; }
 
+    /* status chip (near the title) — tone drives the colour */
+    .eac-status {
+      align-self: flex-start; box-sizing: border-box;
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 3px 10px 3px 8px; border-radius: 999px;
+      font-size: 11px; font-weight: 600; line-height: 1.3; white-space: nowrap;
+      max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+    }
+    .eac-status-dot { flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+    .eac-status-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .eac-status-waiting  { background: #fef3c7; color: #b45309; }
+    .eac-status-approved { background: #dbeafe; color: #1d4ed8; }
+    .eac-status-rejected { background: #fee2e2; color: #b91c1c; }
+
+    /* inline rejection reason (only when tone = rejected) */
+    .eac-reason {
+      box-sizing: border-box; padding: 9px 11px; border-radius: 8px;
+      background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c;
+      font-size: 12px; line-height: 1.4; word-break: break-word;
+    }
+    .eac-reason-label { font-weight: 700; }
+
     @media (prefers-reduced-motion: reduce) {
       .eac-card, .eac-check, .eac-toggle, .eac-toggle-knob, .eac-link, .eac-btn { transition: none; }
     }
@@ -238,17 +277,18 @@ function fmtValue(val, currency) {
 
 export default function ApprovalCard({
   // variant
-  variant = "select",          // "select" | "toggle" | "actions"
+  variant = "select",          // "select" | "toggle" | "actions" | "select-actions"
 
-  // identity / selection (select + toggle)
+  // identity / selection (select + toggle + select-actions)
   value,                       // id/object handed back on selection / actions (bind to the row's key)
   checked,                     // controlled selected state (Plasmic writable state) — simple single-card use
   onCheckedChange,             // (checked: boolean, value: any) => void
-  selectOnCardClick = true,    // click anywhere on the card to toggle (select/toggle only)
+  selectOnCardClick = true,    // click anywhere on the card to toggle — IGNORED once onCardClick is wired
+  onCardClick,                 // (value) => void — card-body click (open detail). When wired, body no longer selects.
 
-  // actions variant
-  onApprove,                   // (value) => void
-  onReject,                    // (value) => void
+  // actions variant (actions + select-actions)
+  onApprove,                   // (value) => void — direct one-tap approve
+  onReject,                    // (value) => void — SIGNALS reject intent (page opens a reason sheet; card writes nothing)
   approveLabel = "Approve",
   rejectLabel = "Reject",
   approveColor = "#2563eb",
@@ -266,10 +306,14 @@ export default function ApprovalCard({
   openInNewTab = true,         // badge click opens the file(s) in a new tab (1 → direct, 2+ → dropdown menu)
   onLinkClick,                 // (links, value) => void — also fired on badge click for custom wiring
 
-  disabled = false,
+  disabled = false,           // temporarily block a PENDING card (dim, no selection/buttons, no navigation)
+  locked = false,             // already-decided slice: dim, no checkbox, no buttons (still navigable)
 
   // content
   title = "Sai Radha Pharma",
+  status,                     // status chip text (e.g. "ABM Approval Waiting")
+  statusTone = "waiting",     // "waiting" (amber) | "approved" (blue) | "rejected" (red)
+  rejectionReason,            // red inline note — shown only when statusTone === "rejected"
   currency = "₹",
   leftLabel = "Sales",
   leftQty,
@@ -291,8 +335,12 @@ export default function ApprovalCard({
 
   const isToggle = variant === "toggle";
   const isActions = variant === "actions";
-  const isSelect = !isToggle && !isActions; // default
-  const selectable = isSelect || isToggle;
+  const isSelectActions = variant === "select-actions";
+  // checkbox shows for "select" (the default / unknown fallback) AND "select-actions".
+  const showCheckbox = !isToggle && !isActions;
+  // Reject / Approve buttons show for "actions" AND "select-actions".
+  const showActions = isActions || isSelectActions;
+  const selectable = showCheckbox || isToggle;
 
   // `checked` is just true/false — bind it to your control (a Select All boolean, or the
   // card's own checked state). The card fires onCheckedChange AUTOMATICALLY whenever
@@ -318,12 +366,12 @@ export default function ApprovalCard({
   }, [controlled, checked, value, onCheckedChange]);
 
   const toggle = React.useCallback(() => {
-    if (disabled) return;
+    if (disabled || locked) return;
     const next = !isChecked;
     if (!controlled) setInternal(next);
     lastEmitted.current = next;
     onCheckedChange?.(next, value);
-  }, [disabled, isChecked, controlled, onCheckedChange, value]);
+  }, [disabled, locked, isChecked, controlled, onCheckedChange, value]);
 
   // Attachments dropdown (only used when there are 2+ links). We can't reliably
   // window.open several tabs from one click — browsers block all but the first —
@@ -344,14 +392,27 @@ export default function ApprovalCard({
     if (typeof window !== "undefined" && url) window.open(url, "_blank", "noopener,noreferrer");
   }, []);
 
-  const onCardClick =
-    selectable && selectOnCardClick && !disabled ? () => toggle() : undefined;
+  // Card-body click. If onCardClick is wired, the body opens the detail (navigation) and
+  // no longer toggles selection — even on a locked card (disabled still blocks everything).
+  // If it's NOT wired, the body falls back to click-to-select (select/toggle only), which
+  // is suppressed when disabled or locked. The checkbox, toggle, buttons and 🔗 badge all
+  // stopPropagation, so they never trigger this handler.
+  const canNavigate = !!onCardClick && !disabled;
+  const canBodySelect = !onCardClick && selectable && selectOnCardClick && !disabled && !locked;
+  const handleCardBodyClick =
+    canNavigate || canBodySelect
+      ? () => {
+          if (onCardClick) onCardClick(value);
+          else toggle();
+        }
+      : undefined;
 
   const cardClass = [
     "eac-card",
-    onCardClick ? "eac-clickable" : "",
+    handleCardBodyClick ? "eac-clickable" : "",
     selectable && isChecked ? "eac-selected" : "",
     disabled ? "eac-disabled" : "",
+    locked ? "eac-locked" : "",
     className || "",
   ]
     .filter(Boolean)
@@ -387,9 +448,9 @@ export default function ApprovalCard({
   );
 
   return (
-    <div className={cardClass} style={cssVars} onClick={onCardClick}>
+    <div className={cardClass} style={cssVars} onClick={handleCardBodyClick}>
       <div className="eac-header">
-        {isSelect ? (
+        {showCheckbox && !locked ? (
           <span
             role="checkbox"
             aria-checked={isChecked}
@@ -461,7 +522,7 @@ export default function ApprovalCard({
             </div>
           ) : null}
 
-          {isToggle ? (
+          {isToggle && !locked ? (
             <button
               type="button"
               role="switch"
@@ -480,12 +541,25 @@ export default function ApprovalCard({
         </div>
       </div>
 
+      {status ? (
+        <div className={`eac-status eac-status-${statusTone || "waiting"}`}>
+          <span className="eac-status-dot" aria-hidden="true" />
+          <span className="eac-status-text">{status}</span>
+        </div>
+      ) : null}
+
       <div className="eac-cols">
         {column(leftLabel, leftQty, leftQtyUnit, leftValue)}
         {column(rightLabel, rightQty, rightQtyUnit, rightValue)}
       </div>
 
-      {isActions ? (
+      {statusTone === "rejected" && rejectionReason ? (
+        <div className="eac-reason">
+          <span className="eac-reason-label">Reason:</span> {rejectionReason}
+        </div>
+      ) : null}
+
+      {showActions && !locked ? (
         <>
           <div className="eac-hr" aria-hidden="true" />
           <div className="eac-actions">
