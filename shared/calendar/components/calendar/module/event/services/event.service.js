@@ -47,6 +47,7 @@ export async function fetchQuotationsByNames(names) {
         edges {
           node {
             name
+            creation
             items {
               item_code { name }
               qty
@@ -435,6 +436,7 @@ async function fetchEventsByRangeUncached(
     ) {
       const quotation =
         quotationMap[node.reference_docname__name];
+      node.pob_creation = quotation.creation ?? null;
       node.fsl_doctor_item =
         quotation.items?.map((row) => ({
           item__name: row.item_code?.name,

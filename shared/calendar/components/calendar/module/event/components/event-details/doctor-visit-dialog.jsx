@@ -285,6 +285,14 @@ export function EventDoctorVisitDialog({
       { qty: 0, amount: 0 }
     );
   }, [event.fsl_doctor_item, hasPobItems]);
+  const visitDateTime = useMemo(() => {
+    if (!event.pobCreation) return null;
+
+    const parsed = parseISO(event.pobCreation);
+    if (!isValid(parsed)) return null;
+
+    return format(parsed, "dd/MM/yyyy, hh:mm a");
+  }, [event.pobCreation]);
 
   return (
     <>
@@ -443,13 +451,14 @@ export function EventDoctorVisitDialog({
               </p>
 
               <p className="text-sm text-muted-foreground">
-                {Number(event.pob_given) === 1 ? 1 : 0}
+                {Number(event.pob_given) === 1 ? "Yes" : "No"}
               </p>
 
               {/* Table only if items exist */}
               {hasPobItems && (
                 <div className="border rounded-md text-sm mt-2">
-                  <div className="grid grid-cols-3 gap-4 border-b p-2 font-medium">
+                  <div className="grid grid-cols-4 gap-4 border-b p-2 font-medium">
+                    <span>Date</span>
                     <span>Item</span>
                     <span>Qty</span>
                     <span>Amount</span>
@@ -458,8 +467,9 @@ export function EventDoctorVisitDialog({
                   {event.fsl_doctor_item.map((row, index) => (
                     <div
                       key={index}
-                      className="grid grid-cols-3 gap-4 p-2 border-b last:border-0"
+                      className="grid grid-cols-4 gap-4 p-2 border-b last:border-0"
                     >
+                      <span>{visitDateTime ?? "—"}</span>
                       <span>{row.item__name}</span>
                       <span>{row.qty}</span>
                       <span>{(row.amount).toFixed(2)}</span>
@@ -467,8 +477,9 @@ export function EventDoctorVisitDialog({
                   ))}
 
                   {/* Total */}
-                  <div className="grid grid-cols-3 gap-4 p-2 font-semibold bg-muted/40">
+                  <div className="grid grid-cols-4 gap-4 p-2 font-semibold bg-muted/40">
                     <span>Total</span>
+                    <span></span>
                     <span>
                       {pobTotals.qty}
                     </span>

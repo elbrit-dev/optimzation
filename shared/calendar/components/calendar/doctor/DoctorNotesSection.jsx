@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@calendar/components/ui/button";
 import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
+import { format, isValid, parseISO } from "date-fns";
 import Tiptap from "@calendar/components/ui/TodoWysiwyg";
 
 import { addLeadNote, deleteLeadNote } from "@calendar/services/event.service";
@@ -57,6 +58,17 @@ export function DoctorNotesSection({
     }
   };
 
+  const formatNoteDateTime = (value) => {
+    if (!value) return "";
+
+    const parsed =
+      value instanceof Date ? value : parseISO(String(value));
+
+    if (!isValid(parsed)) return "";
+
+    return format(parsed, "dd/MM/yyyy, hh:mm a");
+  };
+
   return (
     <div className="space-y-3">
       <div className="flex justify-between items-center">
@@ -72,9 +84,7 @@ export function DoctorNotesSection({
       </div>
 
       {notes.map((noteObj, index) => {
-        const formattedDate = noteObj.creation
-          ? new Date(noteObj.creation).toLocaleDateString("en-GB")
-          : "";
+        const formattedDate = formatNoteDateTime(noteObj.creation);
         return (
           <div
             key={index}

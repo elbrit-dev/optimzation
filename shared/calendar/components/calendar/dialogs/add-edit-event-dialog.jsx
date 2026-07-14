@@ -29,7 +29,7 @@ import { calculateTotalLeaveDays, mapErpLeaveToCalendar, mapFormToErpLeave } fro
 import { useEmployeeResolvers } from "@calendar/lib/employeeResolver";
 import {
 	fetchDoctorsByTerritory,
-	fetchItems,
+	fetchItemsByDepartment,
 	searchDoctors,
 	searchEmployees,
 } from "@calendar/components/calendar/module/event/services/master-data.service";
@@ -489,6 +489,18 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			currentUserRoleId
 		).filter((userId) => userId !== LOGGED_IN_USER.email);
 	}, [currentUserRoleId, elbritRoleEdges, isEditing, shareUsers]);
+	const currentUserDepartment = useMemo(() => {
+		const resolvedRoleId =
+			resolveLoggedInRoleId(users) ?? currentUserRoleId;
+
+		if (!resolvedRoleId) return null;
+
+		return (
+			elbritRoleEdges?.find(
+				({ node }) => node?.role_id === resolvedRoleId
+			)?.node?.sales_team__name ?? null
+		);
+	}, [currentUserRoleId, elbritRoleEdges, users]);
 	// Share basis by tag:
 	// - HQ Tour Plan / Doctor Visit Plan -> hierarchy (share up to superiors).
 	// - Meeting / Todo / Other -> team-based (share with the selected participants).
@@ -594,8 +606,8 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		if (Number(pobGiven) !== 1) return;
 		if (itemOptions.length) return;
 
-		fetchItems().then(setItemOptions);
-	}, [isEditing, pobGiven, selectedTag]);
+		fetchItemsByDepartment(currentUserDepartment).then(setItemOptions);
+	}, [currentUserDepartment, isEditing, itemOptions.length, pobGiven, selectedTag]);
 
 	/* ---------------------------------------------
 	  RESET POB ITEMS
@@ -1671,6 +1683,10 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 	}, [event, employeeOptions, doctorOptions]);
 	const shouldHideDateGrid =
 		isEditing && selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN;
+	const isDoctorVisitWithoutLocation =
+		isEditing &&
+		selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN &&
+		!hasValidLocation;
 	const isSubmitDisabled = isMutationPending;
 	return (
 		<Modal open={isOpen} onOpenChange={handleDialogOpenChange}>
@@ -2249,7 +2265,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 										control={form.control}
 										name="pob_given"
 										render={({ field }) => (
-											<RHFFieldWrapper label="Did POB Given ?">
+											<RHFFieldWrapper label="Is POB Given ?">
 												<div className="flex gap-6">
 													<label className="flex items-center gap-2">
 														<input
@@ -2259,7 +2275,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 															disabled={!canCurrentParticipantEditPob}
 															onChange={() => field.onChange(1)}
 														/>
-														<span>1</span>
+														<span>Yes</span>
 													</label>
 
 													<label className="flex items-center gap-2">
@@ -2270,7 +2286,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 															disabled={!canCurrentParticipantEditPob}
 															onChange={() => field.onChange(0)}
 														/>
-														<span>0</span>
+														<span>No</span>
 													</label>
 												</div>
 											</RHFFieldWrapper>
@@ -2422,6 +2438,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 						isEditing={isEditing}
 						disabled={isSubmitDisabled}
 						showCaptureLocation={shouldShowRequestLocation}
+						showSubmit={!isDoctorVisitWithoutLocation}
 						onCaptureLocation={handleRequestLocation}
 						isResolvingLocation={isResolvingLocation}
 						onSubmit={form.handleSubmit(onSubmit, onInvalid)}

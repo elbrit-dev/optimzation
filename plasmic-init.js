@@ -920,9 +920,9 @@ PLASMIC.registerComponent(ApprovalCard, {
     },
     selectOnCardClick: {
       type: "boolean",
-      defaultValue: true,
+      defaultValue: false,
       description:
-        "select/toggle/select-actions: click anywhere on the card to toggle the tick (not just the control). IGNORED once onCardClick is wired — then the body navigates instead and only the checkbox selects. No effect in the actions variant.",
+        "OFF by default: only the checkbox/toggle itself selects — clicking the card body does NOT tick it. Turn ON to also toggle when clicking anywhere on the card. IGNORED once onCardClick is wired (the body navigates instead). No effect in the actions variant.",
     },
     onCardClick: {
       type: "eventHandler",

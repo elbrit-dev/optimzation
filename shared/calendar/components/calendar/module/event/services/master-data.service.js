@@ -107,6 +107,128 @@ export async function fetchItems() {
   });
 }
 
+function normalizeDepartmentName(value) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase();
+}
+
+function normalizeDepartmentKey(value) {
+  return normalizeDepartmentName(value).replace(/[^a-z0-9]/g, "");
+}
+
+function departmentsMatch(left, right) {
+  const normalizedLeft = normalizeDepartmentName(left);
+  const normalizedRight = normalizeDepartmentName(right);
+  const keyLeft = normalizeDepartmentKey(left);
+  const keyRight = normalizeDepartmentKey(right);
+
+  if (!normalizedLeft || !normalizedRight) return false;
+
+  return (
+    normalizedLeft === normalizedRight ||
+    keyLeft === keyRight ||
+    normalizedLeft.includes(normalizedRight) ||
+    normalizedRight.includes(normalizedLeft) ||
+    keyLeft.includes(keyRight) ||
+    keyRight.includes(keyLeft)
+  );
+}
+
+function parseBoundaryDate(value, boundary = "start") {
+  if (!value) return null;
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  if (boundary === "end") {
+    parsed.setHours(23, 59, 59, 999);
+  } else {
+    parsed.setHours(0, 0, 0, 0);
+  }
+
+  return parsed;
+}
+
+function isActiveDepartmentMapping(detail) {
+  const validFrom = parseBoundaryDate(detail?.valid_from, "start");
+  const validTo = parseBoundaryDate(detail?.valid_to, "end");
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  if (!detail?.valid_from && !detail?.valid_to) {
+    return true;
+  }
+
+  if (detail?.valid_from && !validFrom) {
+    return false;
+  }
+
+  if (detail?.valid_to && !validTo) {
+    return false;
+  }
+
+  if (validFrom && !validTo) {
+    return today >= validFrom;
+  }
+
+  if (!validFrom && validTo) {
+    return today <= validTo;
+  }
+
+  return today >= validFrom && today <= validTo;
+}
+
+export async function fetchItemsByDepartment(departmentName) {
+  const normalizedDepartment = normalizeDepartmentName(departmentName);
+
+  return getCached(
+    `POB_ITEMS_${normalizedDepartment || "all"}`,
+    async () => {
+      const data = await graphqlRequest(ITEMS_QUERY, {
+        first: MAX_ROWS,
+        filters: [
+          {
+            fieldname: "custom_last_mrp",
+            operator: "GT",
+            value: "0",
+          },
+        ],
+      });
+
+      const unique = new Map();
+
+      data?.Items?.edges.forEach(({ node }) => {
+        const mappings = Array.isArray(node.custom_department_details)
+          ? node.custom_department_details
+          : [];
+
+        const isAllowed = mappings.some((detail) => {
+          return (
+            departmentsMatch(
+              detail?.elbrit_department__name,
+              normalizedDepartment
+            ) &&
+            isActiveDepartmentMapping(detail)
+          );
+        });
+
+        if (!isAllowed) return;
+
+        if (!unique.has(node.item_name)) {
+          unique.set(node.item_name, {
+            value: node.item_name,
+            label: node.item_name,
+            rate: Number(node.custom_last_mrp),
+          });
+        }
+      });
+
+      return Array.from(unique.values());
+    }
+  );
+}
+
 export async function fetchDoctors() {
   const data = await graphqlRequest(DOCTOR_QUERY, {
     first: MAX_ROWS,

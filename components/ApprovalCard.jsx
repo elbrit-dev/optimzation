@@ -283,7 +283,7 @@ export default function ApprovalCard({
   value,                       // id/object handed back on selection / actions (bind to the row's key)
   checked,                     // controlled selected state (Plasmic writable state) — simple single-card use
   onCheckedChange,             // (checked: boolean, value: any) => void
-  selectOnCardClick = true,    // click anywhere on the card to toggle — IGNORED once onCardClick is wired
+  selectOnCardClick = false,   // OFF by default: only the checkbox toggles. Turn ON to also toggle on card-body click (IGNORED once onCardClick is wired)
   onCardClick,                 // (value) => void — card-body click (open detail). When wired, body no longer selects.
 
   // actions variant (actions + select-actions)

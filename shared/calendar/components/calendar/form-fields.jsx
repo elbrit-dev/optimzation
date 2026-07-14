@@ -238,6 +238,7 @@ export function FormFooter({
   isEditing,
   disabled,
   showCaptureLocation,
+  showSubmit = true,
   onCaptureLocation,
   isResolvingLocation,
   onSubmit,
@@ -253,7 +254,7 @@ export function FormFooter({
       {showCaptureLocation && isEditing && (
         <Button
           type="button"
-          variant="secondary"
+          variant="default"
           onClick={onCaptureLocation}
           disabled={isResolvingLocation}
         >
@@ -266,14 +267,16 @@ export function FormFooter({
           footer lives outside the <form> and inside a nested modal/portal,
           which is what broke Update on the edit dialog. The form's onSubmit
           (Enter key) still works as a fallback. */}
-      <Button
-        type={onSubmit ? "button" : "submit"}
-        form={onSubmit ? undefined : "event-form"}
-        onClick={onSubmit}
-        disabled={disabled || isResolvingLocation}
-      >
-        {isEditing ? "Update" : "Submit"}
-      </Button>
+      {showSubmit && (
+        <Button
+          type={onSubmit ? "button" : "submit"}
+          form={onSubmit ? undefined : "event-form"}
+          onClick={onSubmit}
+          disabled={disabled || isResolvingLocation}
+        >
+          {isEditing ? "Update" : "Submit"}
+        </Button>
+      )}
     </ModalFooter>
   );
 }

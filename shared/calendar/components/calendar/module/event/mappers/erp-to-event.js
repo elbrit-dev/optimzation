@@ -252,6 +252,8 @@ export function mapErpGraphqlEventToCalendar(node) {
 
     fsl_doctor_item:
       node.fsl_doctor_item ?? [],
+    pobCreation:
+      node.pob_creation ?? null,
 
     reference_doctype: {
       name: node.reference_doctype__name,

@@ -18,6 +18,7 @@ import {
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 import { useEffect, useState, useMemo } from "react";
 import {resolveVisibleEmployeeIds} from "@calendar/lib/employeeHeirachy";
+import { getAvatarColorBySeed, getFirstLetters } from "@calendar/components/calendar/helpers";
 import { cn } from "@calendar/lib/utils";
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 
@@ -356,8 +357,13 @@ export function UserSelect({ mode = "popover" }) {
                     src={user.picturePath ?? undefined}
                     alt={user.name}
                   />
-                  <AvatarFallback className="text-xs">
-                    {user.name?.[0]}
+                  <AvatarFallback
+                    className={cn(
+                      "text-xs font-semibold text-white",
+                      getAvatarColorBySeed(user.name || user.id)
+                    )}
+                  >
+                    {getFirstLetters(user.name)}
                   </AvatarFallback>
                 </Avatar>
                 <div className="min-w-0">

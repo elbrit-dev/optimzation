@@ -42,6 +42,7 @@ export function mapErpQuotationToUi(node) {
 
   return {
     name: node.name,
+    creation: node.creation ?? null,
     customer: node.party_name,
     items: node.items?.map((row) => ({
       item__name: row.item_code?.name,
