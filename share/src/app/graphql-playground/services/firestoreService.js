@@ -103,7 +103,13 @@ export const firestoreService = {
    * @returns {Promise<Array>} Array of query objects with id
    */
   async getAllQueries() {
-    const querySnapshot = await getDocs(collection(db, DEFAULT_COLLECTION));
+    let querySnapshot;
+    try {
+      querySnapshot = await getDocs(collection(db, DEFAULT_COLLECTION));
+    } catch (err) {
+      console.error(`Firestore getAllQueries failed (db=${db._databaseId?.database}, project=${db._databaseId?.projectId}, collection=${DEFAULT_COLLECTION}):`, err?.code || err?.message, err);
+      throw err;
+    }
     const queries = [];
     querySnapshot.forEach((docSnap) => {
       const data = docSnap.data();

@@ -272,7 +272,10 @@ export default function DataTableControls({
 
   const [savedQueries, setSavedQueries] = useState([]);
   useEffect(() => {
-    queryRegistry.getAllQueries().then(setSavedQueries).catch(() => setSavedQueries([]));
+    queryRegistry.getAllQueries().then(setSavedQueries).catch((err) => {
+      console.error('Failed to load saved queries:', err?.code || err?.message || err, err);
+      setSavedQueries([]);
+    });
   }, []);
   const dataSourceOptions = useMemo(() => savedQueries.filter((q) => !q._offline), [savedQueries]);
   const monacoEditorRef = useRef(null);

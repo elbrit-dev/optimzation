@@ -3524,7 +3524,7 @@ export default function DataProviderNew({
           fd.append('docname', String(formEditingRowRef.current?.[docnameCol] ?? ''));
           fd.append('fieldname', fieldId);
           const headers = {};
-          if (authToken) headers.Authorization = `token ${authToken}`;
+          if (authToken) headers.Authorization = authToken;
           const res = await fetch(`${baseUrl}/api/method/upload_to_field`, {
             method: 'POST',
             credentials: 'include',

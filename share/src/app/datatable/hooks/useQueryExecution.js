@@ -153,8 +153,9 @@ export function useQueryExecution(options) {
         const queries = await queryRegistry.getAllQueries();
         setSavedQueries(queries);
       } catch (err) {
+        console.error('Failed to load saved queries:', err?.code || err?.message || err, err);
         if (onErrorRef.current) {
-          onErrorRef.current({ severity: 'error', summary: 'Error', detail: 'Failed to load saved queries', life: 3000 });
+          onErrorRef.current({ severity: 'error', summary: 'Error', detail: `Failed to load saved queries: ${err?.code || err?.message || 'unknown error'}`, life: 5000 });
         }
       } finally {
         setLoadingQueries(false);
