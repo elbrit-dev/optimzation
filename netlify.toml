@@ -1,3 +1,11 @@
+[build.environment]
+  # The Firebase *web* API key is a public project identifier, not a secret:
+  # it is a NEXT_PUBLIC_* var and Next.js must inline it into the client bundle
+  # for Firebase Auth/Firestore to work in the browser. Firebase security is
+  # enforced by Security Rules + API-key restrictions, not by hiding this value.
+  # Tell Netlify's secrets scanner to stop flagging it (false positive).
+  SECRETS_SCAN_OMIT_KEYS = "NEXT_PUBLIC_FIREBASE_API_KEY"
+
 [[headers]]
   for = "/onesignal/OneSignalSDKWorker.js"
   [headers.values]
