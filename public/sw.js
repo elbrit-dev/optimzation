@@ -16,7 +16,11 @@ const PRE_CACHE_URLS = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(PRE_CACHE_URLS))
+    // Cache each URL independently so one 404 doesn't reject the whole install
+    // and leave the cache empty (which broke the navigation fallback).
+    caches.open(CACHE_NAME).then((cache) =>
+      Promise.allSettled(PRE_CACHE_URLS.map((url) => cache.add(url)))
+    )
   );
   self.skipWaiting();
 });
@@ -38,19 +42,24 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const requestUrl = new URL(request.url);
 
-  // Only handle requests from allowed origins
-  const isAllowedOrigin = ALLOWED_ORIGINS.some(origin => 
-    request.url.startsWith(origin) || requestUrl.origin === self.location.origin
-  );
+  // Never intercept the Plasmic Studio host / editor iframe — it must load
+  // directly. Caching or falling back to '/' breaks the Studio canvas.
+  if (requestUrl.pathname.startsWith('/plasmic-host')) {
+    return; // Let the browser handle it directly
+  }
 
-  if (!isAllowedOrigin) {
-    return; // Let the browser handle external requests
+  // Only handle same-origin GET requests. Everything else (cross-origin,
+  // POST/PUT, etc.) is left to the browser.
+  if (request.method !== 'GET' || requestUrl.origin !== self.location.origin) {
+    return;
   }
 
   // Network-first for navigation requests (pages)
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request).catch(() => caches.match('/'))
+      fetch(request).catch(async () =>
+        (await caches.match('/')) || Response.error()
+      )
     );
     return;
   }
@@ -69,12 +78,12 @@ self.addEventListener('fetch', (event) => {
         return cached;
       }
       return fetch(request).then((response) => {
-        if (response && response.status === 200 && request.method === 'GET') {
+        if (response && response.status === 200) {
           const copy = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
         }
         return response;
-      }).catch(() => cached);
+      }).catch(() => cached || Response.error());
     })
   );
 });
