@@ -27,9 +27,12 @@ import { Check, Link } from "lucide-react";
  *   their own clicks, so they never trigger navigation.
  *
  * Status & state:
- *   `status` + `statusTone` ("waiting" amber / "approved" blue / "rejected" red) render a
- *   pill near the title. `rejectionReason` shows a red inline note, but only when the tone
- *   is "rejected". `locked` marks an already-decided slice: dimmed, no checkbox and no
+ *   `status` + `statusTone` ("waiting" amber / "approved" green / "rejected" red) render a
+ *   pill near the title. `statusTone` defaults to "auto": the tone is derived from the
+ *   status TEXT (contains "reject" → rejected, "approved" → approved, else waiting), so the
+ *   pill colours itself correctly without the page having to wire it. Pass an explicit tone
+ *   to override. `rejectionReason` shows a red inline note, but only when the tone is
+ *   "rejected". `locked` marks an already-decided slice: dimmed, no checkbox and no
  *   buttons (still navigable) — distinct from `disabled`, which fully blocks a pending card.
  *
  * Attachments badge (top-right):
@@ -185,7 +188,7 @@ function ensureStyles() {
     .eac-status-dot { flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
     .eac-status-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
     .eac-status-waiting  { background: #fef3c7; color: #b45309; }
-    .eac-status-approved { background: #dbeafe; color: #1d4ed8; }
+    .eac-status-approved { background: #dcfce7; color: #15803d; }
     .eac-status-rejected { background: #fee2e2; color: #b91c1c; }
 
     /* inline rejection reason (only when tone = rejected) */
@@ -275,6 +278,19 @@ function fmtValue(val, currency) {
   return String(val);
 }
 
+// Derive the status-pill tone from the status TEXT, used when the caller leaves
+// statusTone at "auto" (the default) or empty. Order matters: "reject" wins over
+// "approved", and the completed "Approved" state wins over "Approval Waiting".
+//   "ABM Rejected"                              -> rejected (red)
+//   "ABM Approved and Waiting for Verification" -> approved (green)
+//   "ABM Approval Waiting"                      -> waiting  (amber)
+function deriveTone(status) {
+  const s = String(status || "").toLowerCase();
+  if (s.includes("reject")) return "rejected";
+  if (s.includes("approved")) return "approved";
+  return "waiting"; // "approval waiting", "pending", empty, or anything else
+}
+
 export default function ApprovalCard({
   // variant
   variant = "select",          // "select" | "toggle" | "actions" | "select-actions"
@@ -312,8 +328,8 @@ export default function ApprovalCard({
   // content
   title = "Sai Radha Pharma",
   status,                     // status chip text (e.g. "ABM Approval Waiting")
-  statusTone = "waiting",     // "waiting" (amber) | "approved" (blue) | "rejected" (red)
-  rejectionReason,            // red inline note — shown only when statusTone === "rejected"
+  statusTone = "auto",        // "auto" (derive from status text) | "waiting" (amber) | "approved" (green) | "rejected" (red)
+  rejectionReason,            // red inline note — shown only when the effective tone is "rejected"
   currency = "₹",
   leftLabel = "Sales",
   leftQty,
@@ -332,6 +348,10 @@ export default function ApprovalCard({
   style,
 }) {
   ensureStyles();
+
+  // Effective pill tone: an explicit tone wins; "auto" (default) or empty derives it
+  // from the status text so the colour is always right without page-level wiring.
+  const tone = statusTone && statusTone !== "auto" ? statusTone : deriveTone(status);
 
   const isToggle = variant === "toggle";
   const isActions = variant === "actions";
@@ -542,7 +562,7 @@ export default function ApprovalCard({
       </div>
 
       {status ? (
-        <div className={`eac-status eac-status-${statusTone || "waiting"}`}>
+        <div className={`eac-status eac-status-${tone}`}>
           <span className="eac-status-dot" aria-hidden="true" />
           <span className="eac-status-text">{status}</span>
         </div>
@@ -553,7 +573,7 @@ export default function ApprovalCard({
         {column(rightLabel, rightQty, rightQtyUnit, rightValue)}
       </div>
 
-      {statusTone === "rejected" && rejectionReason ? (
+      {tone === "rejected" && rejectionReason ? (
         <div className="eac-reason">
           <span className="eac-reason-label">Reason:</span> {rejectionReason}
         </div>

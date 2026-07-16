@@ -1022,12 +1022,13 @@ PLASMIC.registerComponent(ApprovalCard, {
     statusTone: {
       type: "choice",
       options: [
+        { value: "auto", label: "Auto (from status text)" },
         { value: "waiting", label: "Waiting (amber)" },
-        { value: "approved", label: "Approved (blue)" },
+        { value: "approved", label: "Approved (green)" },
         { value: "rejected", label: "Rejected (red)" },
       ],
-      defaultValue: "waiting",
-      description: "Colour of the status pill. On the page, derive it from the status text (e.g. 'ABM Approval Waiting' → waiting, contains 'Approved' → approved, contains 'Reject' → rejected).",
+      defaultValue: "auto",
+      description: "Colour of the status pill. Leave on 'Auto' and the tone is derived from the status TEXT automatically (contains 'Reject' → red, 'Approved' → green, e.g. 'ABM Approval Waiting' → amber). Pick a specific tone only to override.",
     },
     rejectionReason: {
       type: "string",
