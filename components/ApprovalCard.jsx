@@ -32,8 +32,11 @@ import { Check, Link } from "lucide-react";
  *   status TEXT (contains "reject" → rejected, "approved" → approved, else waiting), so the
  *   pill colours itself correctly without the page having to wire it. Pass an explicit tone
  *   to override. `rejectionReason` shows a red inline note, but only when the tone is
- *   "rejected". `locked` marks an already-decided slice: dimmed, no checkbox and no
- *   buttons (still navigable) — distinct from `disabled`, which fully blocks a pending card.
+ *   "rejected". A decided card locks ITSELF: whenever the tone is approved/rejected the
+ *   card dims and hides its checkbox and Reject/Approve buttons (still navigable) — driven
+ *   by `lockWhenDecided` (on by default; turn off to keep buttons after a decision). `locked`
+ *   forces that same locked look manually. Both differ from `disabled`, which fully blocks a
+ *   pending card (no navigation either).
  *
  * Attachments badge (top-right):
  *   Bind `links` to any number of file URLs/paths (bare strings or { label, url }).
@@ -324,6 +327,7 @@ export default function ApprovalCard({
 
   disabled = false,           // temporarily block a PENDING card (dim, no selection/buttons, no navigation)
   locked = false,             // already-decided slice: dim, no checkbox, no buttons (still navigable)
+  lockWhenDecided = true,     // auto-lock once the status is decided (tone approved/rejected). Set false to keep buttons after a decision.
 
   // content
   title = "Sai Radha Pharma",
@@ -352,6 +356,12 @@ export default function ApprovalCard({
   // Effective pill tone: an explicit tone wins; "auto" (default) or empty derives it
   // from the status text so the colour is always right without page-level wiring.
   const tone = statusTone && statusTone !== "auto" ? statusTone : deriveTone(status);
+
+  // Effective locked state: an explicit `locked` still wins, but the card also locks
+  // ITSELF once the status is decided (approved/rejected) — so after Approve/Reject the
+  // buttons disappear on their own, no page wiring needed. Only "waiting" stays actionable.
+  const isDecided = tone === "approved" || tone === "rejected";
+  const isLocked = locked || (lockWhenDecided && isDecided);
 
   const isToggle = variant === "toggle";
   const isActions = variant === "actions";
@@ -386,12 +396,12 @@ export default function ApprovalCard({
   }, [controlled, checked, value, onCheckedChange]);
 
   const toggle = React.useCallback(() => {
-    if (disabled || locked) return;
+    if (disabled || isLocked) return;
     const next = !isChecked;
     if (!controlled) setInternal(next);
     lastEmitted.current = next;
     onCheckedChange?.(next, value);
-  }, [disabled, locked, isChecked, controlled, onCheckedChange, value]);
+  }, [disabled, isLocked, isChecked, controlled, onCheckedChange, value]);
 
   // Attachments dropdown (only used when there are 2+ links). We can't reliably
   // window.open several tabs from one click — browsers block all but the first —
@@ -418,7 +428,7 @@ export default function ApprovalCard({
   // is suppressed when disabled or locked. The checkbox, toggle, buttons and 🔗 badge all
   // stopPropagation, so they never trigger this handler.
   const canNavigate = !!onCardClick && !disabled;
-  const canBodySelect = !onCardClick && selectable && selectOnCardClick && !disabled && !locked;
+  const canBodySelect = !onCardClick && selectable && selectOnCardClick && !disabled && !isLocked;
   const handleCardBodyClick =
     canNavigate || canBodySelect
       ? () => {
@@ -432,7 +442,7 @@ export default function ApprovalCard({
     handleCardBodyClick ? "eac-clickable" : "",
     selectable && isChecked ? "eac-selected" : "",
     disabled ? "eac-disabled" : "",
-    locked ? "eac-locked" : "",
+    isLocked ? "eac-locked" : "",
     className || "",
   ]
     .filter(Boolean)
@@ -470,7 +480,7 @@ export default function ApprovalCard({
   return (
     <div className={cardClass} style={cssVars} onClick={handleCardBodyClick}>
       <div className="eac-header">
-        {showCheckbox && !locked ? (
+        {showCheckbox && !isLocked ? (
           <span
             role="checkbox"
             aria-checked={isChecked}
@@ -542,7 +552,7 @@ export default function ApprovalCard({
             </div>
           ) : null}
 
-          {isToggle && !locked ? (
+          {isToggle && !isLocked ? (
             <button
               type="button"
               role="switch"
@@ -579,7 +589,7 @@ export default function ApprovalCard({
         </div>
       ) : null}
 
-      {showActions && !locked ? (
+      {showActions && !isLocked ? (
         <>
           <div className="eac-hr" aria-hidden="true" />
           <div className="eac-actions">

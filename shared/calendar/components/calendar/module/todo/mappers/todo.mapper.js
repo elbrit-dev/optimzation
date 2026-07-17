@@ -4,6 +4,14 @@ import { normalizeChecklistFromERP,normalizeChecklistToERP } from "@calendar/com
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 import { normalizeStatus } from "@calendar/components/calendar/helpers";
 
+function stripHtmlTags(value) {
+  return String(value ?? "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function mapErpTodoToCalendar(todo) {
   const ownerEmployeeId = todo.assigned_by ?? undefined;
   const ownerFullName =
@@ -37,11 +45,14 @@ export function mapErpTodoToCalendar(todo) {
         emp.employee ?? emp.employee__name ?? null
       ).filter(Boolean)
     : [];
+  const normalizedDescription = normalizeChecklistFromERP(todo.description);
+  const cleanDescriptionTitle = stripHtmlTags(normalizedDescription);
+  const cleanSubjectTitle = stripHtmlTags(todo.custom_subject);
 
   return {
     erpName: todo.name,
-    title: todo.custom_subject || todo.title || "Todo List",
-    description: normalizeChecklistFromERP(todo.description),
+    title: cleanSubjectTitle || cleanDescriptionTitle || "Todo List",
+    description: normalizedDescription,
     startDate: start.toISOString(),
     endDate: end.toISOString(),
     tags: TAG_IDS.TODO_LIST,

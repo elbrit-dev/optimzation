@@ -19,7 +19,7 @@ import { Wifi, WifiOff, SignalLow, SignalMedium, Activity } from "lucide-react";
  *     high z-index, so it floats above everything and takes no layout space.
  *   - Auto-appears ONLY when a real measurement is slow (or the browser is offline).
  *   - Click the banner -> runs a full, fast.com-style speed test with a live Mbps
- *     readout (capped under 2s so the check finishes quickly after the tap).
+ *     readout (capped ~10s).
  *   - There is no manual dismiss: the banner closes ITSELF when the connection
  *     recovers (background probe reads good) or when a tap-to-test comes back fast.
  *     This is deliberate — a slow-network warning shouldn't be dismissable while the
@@ -38,7 +38,7 @@ const FIRST_PROBE_DELAY = 1_500; // let the page finish loading before the very 
 const CONFIRM_DELAY = 1_500;     // after one "slow" reading, re-probe fast to confirm before showing
 const AUTO_CLOSE_DELAY = 2_500;  // after a manual test shows a good result, auto-dismiss
 const FULL_BYTES = 100_000_000;  // manual test ceiling (~100 MB); time-cap bounds slow links
-const FULL_TIME_CAP = 1_800;     // manual test completes in under 2s (aborts & uses speed read so far)
+const FULL_TIME_CAP = 10_000;    // manual test runs at most ~10s
 
 // Severity thresholds (Mbps). A 300 Mbps line measures far above these.
 const RED_BELOW = 1.5;

@@ -1007,7 +1007,12 @@ PLASMIC.registerComponent(ApprovalCard, {
     locked: {
       type: "boolean",
       defaultValue: false,
-      description: "Mark an already-DECIDED slice: dim the card and hide the checkbox and Reject/Approve buttons (it can still be tapped to open detail if onCardClick is wired). Set this whenever the status is NOT 'ABM Approval Waiting'. Different from `disabled`, which fully blocks a pending card.",
+      description: "Force an already-DECIDED look: dim the card and hide the checkbox and Reject/Approve buttons (it can still be tapped to open detail if onCardClick is wired). Usually you DON'T need to set this — with lockWhenDecided on (the default) the card locks itself once the status is approved/rejected. Use this only to lock a card manually. Different from `disabled`, which fully blocks a pending card.",
+    },
+    lockWhenDecided: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Auto-lock the card once its status is DECIDED — i.e. the tone resolves to approved or rejected (only 'ABM Approval Waiting' stays actionable). After Approve/Reject flips the status, the buttons disappear on their own. Turn OFF to keep the buttons visible after a decision.",
     },
     title: {
       type: "string",
