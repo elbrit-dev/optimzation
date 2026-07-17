@@ -268,10 +268,20 @@ export function mapFormToErpEvent(values, options = {}) {
     existingEndDate != null
       ? new Date(existingEndDate)
       : values.endDate;
-  const resolvedEndDate =
+  const computedEndDate =
     isDoctorVisitPlan && allEmployeeParticipantsVisited && currentVisitTimestamp
       ? new Date(currentVisitTimestamp.replace(" ", "T"))
       : fallbackEndDate;
+  // ERP rejects an Event whose ends_on is before starts_on ("Ends on must be
+  // after Starts on"). When a doctor visit is force-completed before its planned
+  // date, the visit timestamp used as ends_on can fall before starts_on — clamp
+  // it so the event never ends before it begins. Mirrors the calendar-state
+  // clamp in buildCalendarEvent (add-edit-event-dialog).
+  const startDate = values.startDate ? new Date(values.startDate) : null;
+  const resolvedEndDate =
+    startDate && computedEndDate && computedEndDate < startDate
+      ? startDate
+      : computedEndDate;
 
   const isBirthday = values.tags === "Birthday";
   const doctorId = resolveDoctorLinkId(values.doctor);

@@ -12,17 +12,22 @@ import {
   syncDocShares,
 } from "@calendar/components/calendar/module/event/services/docshare.service";
 
+// ERP's Leave Application `status` field is a Select whose only valid values are
+// the Title-Case options "Open" | "Approved" | "Rejected" | "Cancelled". Sending
+// an upper-cased value (e.g. "REJECTED") is refused by ERP with a ValidationError
+// ("Status cannot be 'REJECTED'. It should be one of ..."), which is exactly why
+// leave rejection was failing. Keep these Title-Case to match the field options.
 const ERP_LEAVE_STATUS_MAP = {
-  open: "OPEN",
-  approved: "APPROVED",
-  rejected: "REJECTED",
-  cancelled: "CANCELLED",
-  canceled: "CANCELLED",
+  open: "Open",
+  approved: "Approved",
+  rejected: "Rejected",
+  cancelled: "Cancelled",
+  canceled: "Cancelled",
 };
 
 function normalizeLeaveStatusValue(status) {
   const normalized = String(status ?? "").trim().toLowerCase();
-  return ERP_LEAVE_STATUS_MAP[normalized] ?? String(status ?? "").trim().toUpperCase();
+  return ERP_LEAVE_STATUS_MAP[normalized] ?? String(status ?? "").trim();
 }
 
 function getErpBaseUrl() {
@@ -208,7 +213,15 @@ export async function saveLeaveApplication(doc, options = {}) {
       await attemptGraphqlLeaveStatusUpdate(leaveName, targetStatus);
       const verification = await readVerifiedLeaveStatus(leaveName);
 
-      if (verification.currentStatus === targetStatus) {
+      // An approval isn't final until the Leave Application is submitted
+      // (docstatus 1) — a draft still needs the submit step below. Rejections
+      // (which stay a draft) and already-submitted approvals are done as soon as
+      // the status field matches.
+      const approvalNeedsSubmit =
+        targetStatus === "Approved" &&
+        Number(verification.snapshot?.docstatus ?? 0) !== 1;
+
+      if (verification.currentStatus === targetStatus && !approvalNeedsSubmit) {
         clearEventCache();
         clearCached(["LEAVE_APPLICATIONS"]);
         clearLeaveCache();
@@ -222,7 +235,7 @@ export async function saveLeaveApplication(doc, options = {}) {
     let snapshot = verification.snapshot;
 
     if (
-      targetStatus === "APPROVED" &&
+      targetStatus === "Approved" &&
       snapshot &&
       Number(snapshot.docstatus ?? 0) !== 1
     ) {

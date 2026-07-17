@@ -14,6 +14,7 @@ import { EventLeaveDialog } from "@calendar/components/calendar/module/leave/com
 import { Calendar, Clock, Share2, Text, User } from "lucide-react";
 import { EventDefaultDialog } from "@calendar/components/calendar/module/event/components/event-details/default-dialog";
 import { EventDoctorVisitDialog } from "@calendar/components/calendar/module/event/components/event-details/doctor-visit-dialog";
+import { EventMeetingDialog } from "@calendar/components/calendar/module/event/components/event-details/meeting-dialog";
 import { EventTodoDialog } from "@calendar/components/calendar/module/todo/components/todo-dialog";
 import { ErrorBoundary } from "@calendar/components/ui/error-boundary";
 import { Button } from "@calendar/components/ui/button";
@@ -34,6 +35,7 @@ export const EVENT_DETAILS_LAYOUTS = {
   [TAG_IDS.LEAVE]: EventLeaveDialog,
   [TAG_IDS.DOCTOR_VISIT_PLAN]: EventDoctorVisitDialog,
   [TAG_IDS.TODO_LIST]: EventTodoDialog,
+  [TAG_IDS.MEETING]: EventMeetingDialog,
 };
 export const getEventDetailsLayout = (tag) =>
   EVENT_DETAILS_LAYOUTS[tag] ?? EventDefaultDialog;
