@@ -55,6 +55,8 @@ query LeaveAllocationsByEmployee(
       node {
         leave_type__name
         total_leaves_allocated
+        from_date
+        to_date
       }
     }
   }
@@ -67,6 +69,7 @@ query LeaveApplications($first: Int!, $filters: [DBFilterInput!]) {
       node {
         leave_type__name
         total_leave_days
+        from_date
       }
     }
   }

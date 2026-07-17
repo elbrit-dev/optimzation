@@ -388,26 +388,70 @@ export async function fetchLeaveTypes() {
       };
     });
   
+    // An employee is re-allocated leave each period, so ERP returns BOTH the
+    // expired allocation and the current one for the same leave type (e.g.
+    // Privilege Leave: 8 for 2025-11..2026-03, then 6 for 2026-04..2027-03).
+    // Only the allocation whose window covers TODAY is valid — otherwise the UI
+    // shows last period's number (8 instead of 6). ERP dates are date-only, so
+    // ISO "YYYY-MM-DD" strings compare correctly with plain <=.
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(
+      now.getMonth() + 1
+    ).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+
+    const isCurrentAllocation = (node) =>
+      node?.from_date &&
+      node?.to_date &&
+      node.from_date <= todayStr &&
+      todayStr <= node.to_date;
+
+    // Current-period window per leave type (summed if several current
+    // allocations overlap), used to both set `allocated` and to scope which
+    // used/pending leaves count toward it.
+    const currentPeriodByType = {};
     allocationEdges.forEach(({ node }) => {
-      balance[node.leave_type__name] = {
-        allocated: node.total_leaves_allocated,
-        used: 0,
-        pending: 0,
-        available: 0,
-        isLeaveWithoutPay:
-          LEAVE_WITHOUT_PAY_NAMES.has(node.leave_type__name),
+      const type = node.leave_type__name;
+      if (!type || !isCurrentAllocation(node)) return;
+
+      const existing = currentPeriodByType[type];
+      currentPeriodByType[type] = {
+        allocated:
+          (existing?.allocated ?? 0) + (node.total_leaves_allocated ?? 0),
+        from:
+          existing && existing.from < node.from_date
+            ? existing.from
+            : node.from_date,
+        to:
+          existing && existing.to > node.to_date ? existing.to : node.to_date,
       };
     });
-  
+
+    Object.entries(currentPeriodByType).forEach(([type, info]) => {
+      if (balance[type]) balance[type].allocated = info.allocated;
+    });
+
+    // A used/pending leave only counts if it falls inside its type's current
+    // allocation window — otherwise last period's approved leaves would be
+    // subtracted from this period's allocation.
+    const fallsInCurrentPeriod = (node) => {
+      const info = currentPeriodByType[node.leave_type__name];
+      return (
+        info &&
+        node.from_date &&
+        node.from_date >= info.from &&
+        node.from_date <= info.to
+      );
+    };
+
     usedEdges.forEach(({ node }) => {
-      if (balance[node.leave_type__name]) {
-        balance[node.leave_type__name].used += node.total_leave_days;
+      if (balance[node.leave_type__name] && fallsInCurrentPeriod(node)) {
+        balance[node.leave_type__name].used += node.total_leave_days ?? 0;
       }
     });
-  
+
     pendingEdges.forEach(({ node }) => {
-      if (balance[node.leave_type__name]) {
-        balance[node.leave_type__name].pending += node.total_leave_days;
+      if (balance[node.leave_type__name] && fallsInCurrentPeriod(node)) {
+        balance[node.leave_type__name].pending += node.total_leave_days ?? 0;
       }
     });
   
