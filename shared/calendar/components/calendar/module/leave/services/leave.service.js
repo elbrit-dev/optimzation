@@ -30,6 +30,47 @@ function normalizeLeaveStatusValue(status) {
   return ERP_LEAVE_STATUS_MAP[normalized] ?? String(status ?? "").trim();
 }
 
+// Frappe returns validation failures as HTTP 417 with the human-readable reason
+// buried in `_server_messages` (a JSON string whose items are themselves JSON
+// strings like {"message": "...", "title": "..."}) or in `exception`. Surfacing
+// only `HTTP 417` hides *why* a leave write was refused (e.g. "Insufficient
+// leave balance for Leave Type Casual Leave"), so pull out the real text.
+function extractErpError(json) {
+  if (!json) return null;
+
+  const stripHtml = (value) =>
+    String(value).replace(/<[^>]*>/g, "").trim();
+
+  const serverMessages = json._server_messages;
+  if (serverMessages) {
+    try {
+      const parsed = JSON.parse(serverMessages);
+      const messages = (Array.isArray(parsed) ? parsed : [parsed])
+        .map((item) => {
+          try {
+            const obj = typeof item === "string" ? JSON.parse(item) : item;
+            return obj?.message ?? (typeof obj === "string" ? obj : null);
+          } catch {
+            return typeof item === "string" ? item : null;
+          }
+        })
+        .map((message) => (message ? stripHtml(message) : null))
+        .filter(Boolean);
+
+      if (messages.length) return messages.join(" ");
+    } catch {
+      /* fall through to other fields */
+    }
+  }
+
+  if (json.exception || json.exc_type) {
+    // e.g. "frappe.exceptions.ValidationError: <reason>"
+    return stripHtml(json.exception || json.exc_type).split("\n")[0];
+  }
+
+  return json.message ? stripHtml(json.message) : null;
+}
+
 function getErpBaseUrl() {
   const { erpUrl } = AUTH_CONFIG;
 
@@ -66,11 +107,13 @@ async function erpJsonRequest(path, { method = "GET", body } = {}) {
   }
 
   if (!response.ok) {
-    throw new Error(json?.message || `HTTP ${response.status}`);
+    throw new Error(
+      extractErpError(json) || `HTTP ${response.status}`
+    );
   }
 
   if (json?.exc || json?.exception) {
-    throw new Error(json?.message || "ERP request failed");
+    throw new Error(extractErpError(json) || "ERP request failed");
   }
 
   return json;
@@ -208,6 +251,22 @@ export async function saveLeaveApplication(doc, options = {}) {
 
     const targetStatus = normalizeLeaveStatusValue(newStatus);
     let lastError = null;
+
+    // Rejection / cancellation / reopen only flips the `status` field — it is NOT
+    // a submission and has nothing to do with leave balance. The GraphQL
+    // `setValue` mutation does exactly that and is the proven path (it works
+    // directly against ERP with the approver's token). Trust it: return as soon
+    // as it succeeds, and let its real error surface if it fails. Do NOT fall
+    // through to the REST read-back + frappe.client.save cascade below — that
+    // re-saves the entire document and was throwing a misleading HTTP 417.
+    // Only "Approved" needs the submit flow (docstatus 1) that follows.
+    if (targetStatus !== "Approved") {
+      await attemptGraphqlLeaveStatusUpdate(leaveName, targetStatus);
+      clearEventCache();
+      clearCached(["LEAVE_APPLICATIONS"]);
+      clearLeaveCache();
+      return normalizeStatus(targetStatus);
+    }
 
     try {
       await attemptGraphqlLeaveStatusUpdate(leaveName, targetStatus);

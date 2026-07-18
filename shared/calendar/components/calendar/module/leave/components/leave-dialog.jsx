@@ -117,7 +117,9 @@ export function EventLeaveDialog({
 
 		} catch (err) {
 			console.error("Failed to update status", err);
-			toast.error("Failed to update leave status");
+			// Show ERPNext's actual reason (e.g. insufficient balance) when it
+			// refused the write, not a generic message that hides the cause.
+			toast.error(err?.message || "Failed to update leave status");
 		}
 	};
 	return (
