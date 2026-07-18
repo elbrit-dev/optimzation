@@ -280,6 +280,26 @@ export async function searchDoctors({
 
   return mapDoctors(data);
 }
+// Fetch a single doctor (Lead) by its id/name, with its notes. Used to
+// guarantee the doctor of an open visit is available for name/notes resolution
+// even when it falls outside the capped `fetchDoctors()` slice (MAX_ROWS).
+export async function fetchDoctorById(doctorName) {
+  if (!doctorName) return [];
+
+  const data = await graphqlRequest(DOCTOR_QUERY, {
+    first: 1,
+    filter: [
+      {
+        fieldname: "name",
+        operator: "EQ",
+        value: doctorName,
+      },
+    ],
+  });
+
+  return mapDoctors(data);
+}
+
 export async function fetchHQTerritories() {
   const data = await graphqlRequest(HQ_TERRITORIES_QUERY, {
     first: MAX_ROWS,

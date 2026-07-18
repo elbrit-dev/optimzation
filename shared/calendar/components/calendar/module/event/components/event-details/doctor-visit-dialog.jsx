@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@calendar/components/ui/button";
 import { TAG_FORM_CONFIG } from "@calendar/lib/calendar/form-config";
@@ -17,6 +17,7 @@ import { CircleCheck, Copy } from "lucide-react"
 import { useCallback } from "react";
 import DeleteEventDialog from "@calendar/components/calendar/dialogs/delete-event-dialog";
 import { DoctorNotesSection } from "@calendar/components/calendar/module/event/components/DoctorNotesSection";
+import { fetchDoctorById } from "@calendar/components/calendar/module/event/services/master-data.service";
 import { format, parseISO, isValid } from "date-fns";
 import {
   DetailSummary,
@@ -206,6 +207,43 @@ export function EventDoctorVisitDialog({
     () => resolveDoctorDetails(event, doctorResolvers),
     [event, doctorResolvers]
   );
+
+  // Doctor name + notes are resolved from the loaded `doctorOptions`, which is
+  // capped (MAX_ROWS) and may not include this visit's doctor — leaving both
+  // blank ("sometimes the name is visible, sometimes not"). When it's missing,
+  // fetch just this doctor by id and merge it in so name and notes render.
+  useEffect(() => {
+    if (!open) return;
+
+    const doctorId = Array.isArray(event.doctor)
+      ? event.doctor[0]
+      : event.doctor;
+    if (!doctorId) return;
+    // Guard on PRESENCE in the options (not on the resolved name) so a doctor
+    // with a blank name doesn't re-fetch every render.
+    if (doctorOptions.some((o) => String(o.value) === String(doctorId))) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const doctors = await fetchDoctorById(doctorId);
+        if (cancelled || !doctors.length) return;
+        setDoctorOptions((current) => {
+          const optionMap = new Map();
+          [...(current ?? []), ...doctors].forEach((option) => {
+            if (option?.value) optionMap.set(option.value, option);
+          });
+          return Array.from(optionMap.values());
+        });
+      } catch (err) {
+        console.error("Failed to load doctor for visit", err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, event.doctor, doctorOptions, setDoctorOptions]);
 
   /* ================= Join Logic ================= */
 

@@ -9,7 +9,7 @@ import Tiptap from "@calendar/components/calendar/module/todo/components/TodoWys
 
 import { addLeadNote, deleteLeadNote } from "@calendar/components/calendar/module/event/services/event.service";
 import { clearParticipantCache } from "@calendar/lib/data-cache";
-import { fetchDoctors } from "@calendar/components/calendar/module/event/services/master-data.service";
+import { fetchDoctorById } from "@calendar/components/calendar/module/event/services/master-data.service";
 
 export function DoctorNotesSection({
   doctorId,
@@ -19,10 +19,21 @@ export function DoctorNotesSection({
   const [showEditor, setShowEditor] = useState(false);
   const [newNote, setNewNote] = useState("");
 
+  // Refresh ONLY this doctor (fresh, with the just-saved/deleted note) and merge
+  // it in — don't replace the whole list with the capped fetchDoctors() slice,
+  // which may not even contain this doctor, leaving the new note invisible.
   const refreshDoctors = async () => {
+    if (!doctorId) return;
     clearParticipantCache("DOCTOR");
-    const doctors = await fetchDoctors();
-    setDoctorOptions(doctors);
+    const doctors = await fetchDoctorById(doctorId);
+    if (!doctors.length) return;
+    setDoctorOptions((current) => {
+      const optionMap = new Map();
+      [...(current ?? []), ...doctors].forEach((option) => {
+        if (option?.value) optionMap.set(option.value, option);
+      });
+      return Array.from(optionMap.values());
+    });
   };
 
   /* ================= ADD NOTE ================= */
