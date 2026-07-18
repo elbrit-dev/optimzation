@@ -155,6 +155,23 @@ async function submitLeaveApplication(doc) {
   });
 }
 
+// Applies a "Leave Approval" workflow transition action (e.g. "Reject"). Unlike
+// a direct status write — which the workflow silently reverts — this is the
+// sanctioned way to move `status`, exactly what the desk does when the approver
+// clicks the action button.
+async function applyLeaveWorkflowAction(snapshot, action) {
+  await erpJsonRequest(
+    "/api/method/frappe.model.workflow.apply_workflow",
+    {
+      method: "POST",
+      body: {
+        doc: JSON.stringify(snapshot),
+        action,
+      },
+    }
+  );
+}
+
 // In the active "Leave Approval" workflow both "Approved" and "Rejected" are
 // SUBMITTED states (docstatus 1). So both are finalised the same, proven way the
 // approval has always worked: set the status, then submit. Rejection used to fail
@@ -256,9 +273,33 @@ export async function saveLeaveApplication(doc, options = {}) {
     }
 
     const targetStatus = normalizeLeaveStatusValue(newStatus);
-    // Approved AND Rejected are both finalised by "set status, then submit" —
-    // the exact flow the approval already uses. Reject just needs the same
-    // submit step the old code only did for approvals.
+
+    // Rejection can't be done by writing the status field: the "Leave Approval"
+    // workflow reverts a direct "Rejected" write (even followed by submit) back
+    // to "Open". It only accepts the move via the workflow's "Reject" ACTION —
+    // exactly what the desk fires. Approval, by contrast, works fine via the
+    // setValue + submit flow below, so it's left untouched.
+    if (targetStatus === "Rejected") {
+      const { snapshot } = await readVerifiedLeaveStatus(leaveName);
+      if (!snapshot) {
+        throw new Error("Leave Application not found");
+      }
+
+      await applyLeaveWorkflowAction(snapshot, "Reject");
+
+      const verification = await readVerifiedLeaveStatus(leaveName);
+      if (verification.currentStatus === "Rejected") {
+        clearEventCache();
+        clearCached(["LEAVE_APPLICATIONS"]);
+        clearLeaveCache();
+        return normalizeStatus(verification.currentStatus);
+      }
+
+      throw new Error('Leave status was not updated to "Rejected".');
+    }
+
+    // Approved is finalised by "set status, then submit" — the proven approval
+    // flow, unchanged.
     const needsSubmit = STATUSES_REQUIRING_SUBMIT.has(targetStatus);
     let lastError = null;
 
