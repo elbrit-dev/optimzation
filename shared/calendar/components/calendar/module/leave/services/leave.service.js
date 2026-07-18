@@ -155,6 +155,12 @@ async function submitLeaveApplication(doc) {
   });
 }
 
+// In the active "Leave Approval" workflow both "Approved" and "Rejected" are
+// SUBMITTED states (docstatus 1). So both are finalised the same, proven way the
+// approval has always worked: set the status, then submit. Rejection used to fail
+// only because it skipped this submit step.
+const STATUSES_REQUIRING_SUBMIT = new Set(["Approved", "Rejected"]);
+
 async function readVerifiedLeaveStatus(leaveName) {
   const snapshot = await fetchLeaveApplicationSnapshot(leaveName);
 
@@ -250,37 +256,22 @@ export async function saveLeaveApplication(doc, options = {}) {
     }
 
     const targetStatus = normalizeLeaveStatusValue(newStatus);
+    // Approved AND Rejected are both finalised by "set status, then submit" —
+    // the exact flow the approval already uses. Reject just needs the same
+    // submit step the old code only did for approvals.
+    const needsSubmit = STATUSES_REQUIRING_SUBMIT.has(targetStatus);
     let lastError = null;
-
-    // Rejection / cancellation / reopen only flips the `status` field — it is NOT
-    // a submission and has nothing to do with leave balance. The GraphQL
-    // `setValue` mutation does exactly that and is the proven path (it works
-    // directly against ERP with the approver's token). Trust it: return as soon
-    // as it succeeds, and let its real error surface if it fails. Do NOT fall
-    // through to the REST read-back + frappe.client.save cascade below — that
-    // re-saves the entire document and was throwing a misleading HTTP 417.
-    // Only "Approved" needs the submit flow (docstatus 1) that follows.
-    if (targetStatus !== "Approved") {
-      await attemptGraphqlLeaveStatusUpdate(leaveName, targetStatus);
-      clearEventCache();
-      clearCached(["LEAVE_APPLICATIONS"]);
-      clearLeaveCache();
-      return normalizeStatus(targetStatus);
-    }
 
     try {
       await attemptGraphqlLeaveStatusUpdate(leaveName, targetStatus);
       const verification = await readVerifiedLeaveStatus(leaveName);
 
-      // An approval isn't final until the Leave Application is submitted
-      // (docstatus 1) — a draft still needs the submit step below. Rejections
-      // (which stay a draft) and already-submitted approvals are done as soon as
-      // the status field matches.
-      const approvalNeedsSubmit =
-        targetStatus === "Approved" &&
+      // Approved/Rejected aren't final until the doc is submitted (docstatus 1).
+      const stillNeedsSubmit =
+        needsSubmit &&
         Number(verification.snapshot?.docstatus ?? 0) !== 1;
 
-      if (verification.currentStatus === targetStatus && !approvalNeedsSubmit) {
+      if (verification.currentStatus === targetStatus && !stillNeedsSubmit) {
         clearEventCache();
         clearCached(["LEAVE_APPLICATIONS"]);
         clearLeaveCache();
@@ -293,13 +284,12 @@ export async function saveLeaveApplication(doc, options = {}) {
     const verification = await readVerifiedLeaveStatus(leaveName);
     let snapshot = verification.snapshot;
 
-    if (
-      targetStatus === "Approved" &&
-      snapshot &&
-      Number(snapshot.docstatus ?? 0) !== 1
-    ) {
+    if (needsSubmit && snapshot && Number(snapshot.docstatus ?? 0) !== 1) {
       try {
-        await submitLeaveApplication(snapshot);
+        // Submit with the target status forced onto the doc so the submit both
+        // moves the workflow state and finalises it (docstatus 1) — identical to
+        // how an approval lands at Approved + docstatus 1.
+        await submitLeaveApplication({ ...snapshot, status: targetStatus });
         const postSubmitVerification =
           await readVerifiedLeaveStatus(leaveName);
 
@@ -356,11 +346,6 @@ export async function saveLeaveApplication(doc, options = {}) {
     }
 
     throw lastError ?? new Error("Failed to update leave status");
-
-    // Clear all relevant caches
-    clearEventCache();
-    clearCached(["LEAVE_APPLICATIONS"]);
-    clearLeaveCache();
   }
 // ---------------------------------------------
 // Leave Filters
