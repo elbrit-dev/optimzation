@@ -283,21 +283,44 @@ export async function searchDoctors({
 // Fetch a single doctor (Lead) by its id/name, with its notes. Used to
 // guarantee the doctor of an open visit is available for name/notes resolution
 // even when it falls outside the capped `fetchDoctors()` slice (MAX_ROWS).
+// NOTE: filtering the `Leads` LIST by `name` returns [] in frappe_graphql — use
+// the single-document `Lead(name:)` query (same shape `fetchLeadNotes` relies on).
 export async function fetchDoctorById(doctorName) {
   if (!doctorName) return [];
 
-  const data = await graphqlRequest(DOCTOR_QUERY, {
-    first: 1,
-    filter: [
-      {
-        fieldname: "name",
-        operator: "EQ",
-        value: doctorName,
-      },
-    ],
-  });
+  const data = await graphqlRequest(
+    `
+    query GetDoctor($name: String!) {
+      Lead(name: $name) {
+        name
+        lead_name
+        city
+        custom_latitude
+        custom_longitude
+        custom_speciality
+        email_id
+        notes {
+          name
+          note
+          creation
+          idx
+          doctype
+          modified
+        }
+        custom_category3__name
+        custom_category2__name
+        custom_category1__name
+        territory__name:${ERP_DOCTOR_FIELDS.territory}
+      }
+    }
+    `,
+    { name: doctorName }
+  );
 
-  return mapDoctors(data);
+  if (!data?.Lead) return [];
+
+  // Reuse mapDoctors by wrapping the single node in the list-query shape.
+  return mapDoctors({ Leads: { edges: [{ node: data.Lead }] } });
 }
 
 export async function fetchHQTerritories() {
