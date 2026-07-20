@@ -107,6 +107,23 @@ export const eventSchema = z
     });
 
     /* ---------------------------------------------
+       LEAVE: NO PAST DATES
+       Can't apply for a previous day. Today is still allowed
+       (difference === 0); only strictly-past start dates are rejected.
+    --------------------------------------------- */
+    if (
+      data.tags === TAG_IDS.LEAVE &&
+      data.startDate &&
+      differenceInCalendarDays(data.startDate, new Date()) < 0
+    ) {
+      ctx.addIssue({
+        path: ["startDate"],
+        message: "Leave can't be applied for a past date",
+        code: z.ZodIssueCode.custom,
+      });
+    }
+
+    /* ---------------------------------------------
        LEAVE: MEDICAL CERTIFICATE RULE
     --------------------------------------------- */
     if (
