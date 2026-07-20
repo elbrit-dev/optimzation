@@ -65,7 +65,17 @@ export const TAG_FORM_CONFIG = {
         // startDate: { label: "Start Date", type: "date" },
         // status: { label: "Status", type: "text" },
         owner: { label: "Request By", type: "owner" },
-        leave_approver: { label: "Approved By", type: "leave_approver" },
+        // Label reflects state: "Approved By" only once actually approved,
+        // "Rejected By" once rejected, otherwise "Approver" (still pending).
+        leave_approver: {
+          label: (event) =>
+            event?.status === "Approved"
+              ? "Approved By"
+              : event?.status === "Rejected"
+              ? "Rejected By"
+              : "Approver",
+          type: "leave_approver",
+        },
         escalation_approver: { label: "Escalation Approver", type: "escalation_approver" },
         postingDate: { label: "Applied On", type: "date" },
         description: { label: "Reason", type: "text" },

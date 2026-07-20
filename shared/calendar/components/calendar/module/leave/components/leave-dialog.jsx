@@ -204,6 +204,11 @@ export function EventDetailsFields({ event, config, use24HourFormat }) {
 	const descriptionField = flatFields.find((field) => field.key === "description");
 	const gridFields = flatFields.filter((field) => field.key !== "description");
 
+	// A field's label may be a function of the event (e.g. the approver label
+	// changes with status: "Approver" while pending vs "Approved By" once done).
+	const resolveLabel = (field) =>
+		typeof field.label === "function" ? field.label(event) : field.label;
+
 	return (
 		<div className="space-y-5">
 			<DetailGrid>
@@ -216,7 +221,7 @@ export function EventDetailsFields({ event, config, use24HourFormat }) {
 					});
 					if (!value) return null;
 					return (
-						<DetailItem key={field.key} icon={Icon} label={field.label}>
+						<DetailItem key={field.key} icon={Icon} label={resolveLabel(field)}>
 							{value}
 						</DetailItem>
 					);
@@ -224,7 +229,7 @@ export function EventDetailsFields({ event, config, use24HourFormat }) {
 			</DetailGrid>
 
 			{descriptionField && event.description ? (
-				<DetailItem icon={ICONS["text"]} label={descriptionField.label}>
+				<DetailItem icon={ICONS["text"]} label={resolveLabel(descriptionField)}>
 					<div className="prose prose-sm dark:prose-invert max-w-none">
 						<TiptapViewer content={event.description} />
 					</div>

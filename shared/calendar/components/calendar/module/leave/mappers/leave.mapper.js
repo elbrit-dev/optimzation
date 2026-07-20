@@ -69,8 +69,8 @@ export function mapFormToErpLeave(values,options = {}) {
     follow_via_email: 1,
     custom_attachement: values.medicalAttachment ?? null,
     leave_approver: values.leave_approver ?? null,
-    // Second-level approver (one extra level above the normal approver) set when
-    // the leave is created, sourced from the applicant's escalation approver.
+    // Second-level approver — set on create exactly like `leave_approver` above,
+    // from the applicant's escalation approver passed in via `me.escalation_approver`.
     custom_escalation_approver: values.escalation_approver ?? null,
   };
 
