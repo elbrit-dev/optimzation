@@ -45,6 +45,10 @@ export const TAG_FORM_CONFIG = {
         },
         {
           columns: 1,
+          fields: ["escalation_approver"],
+        },
+        {
+          columns: 1,
           fields: ["postingDate"],
         },
         {
@@ -62,6 +66,7 @@ export const TAG_FORM_CONFIG = {
         // status: { label: "Status", type: "text" },
         owner: { label: "Request By", type: "owner" },
         leave_approver: { label: "Approved By", type: "leave_approver" },
+        escalation_approver: { label: "Escalation Approver", type: "escalation_approver" },
         postingDate: { label: "Applied On", type: "date" },
         description: { label: "Reason", type: "text" },
         attachment: { label: "Attached File", type: "file" },

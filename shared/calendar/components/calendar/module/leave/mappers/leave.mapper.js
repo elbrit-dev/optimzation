@@ -1,5 +1,5 @@
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
-import {  DEFAULT_COLORS, TAG_IDS } from "@calendar/components/calendar/constants";
+import {  DEFAULT_COLORS, STATUS, TAG_IDS } from "@calendar/components/calendar/constants";
 import { normalizeStatus } from "@calendar/components/calendar/helpers";
 import { differenceInCalendarDays, startOfDay, endOfDay, format,  isSunday,eachDayOfInterval} from "date-fns";
 function toERPDate(date = new Date()) {
@@ -63,10 +63,15 @@ export function mapFormToErpLeave(values,options = {}) {
     total_leave_days: totalDays,
     description: values.description ?? "",
     posting_date: toERPDate(),
-    status: "OPEN",
+    // ERP Leave Application status is a Title-Case Select ("Open"/"Approved"/
+    // "Rejected"/"Canceled") — the workflow rejects an upper-cased "OPEN".
+    status: STATUS.OPEN,
     follow_via_email: 1,
     custom_attachement: values.medicalAttachment ?? null,
     leave_approver: values.leave_approver ?? null,
+    // Second-level approver (one extra level above the normal approver) set when
+    // the leave is created, sourced from the applicant's escalation approver.
+    custom_escalation_approver: values.escalation_approver ?? null,
   };
 
   // 🔥 CRITICAL FOR UPDATE
@@ -97,6 +102,14 @@ export function mapErpLeaveToCalendar(leave) {
     typeof leave.leave_approver === "object"
       ? leave.leave_approver?.name
       : leave.leave_approver ?? null;
+  // Second-level (escalation) approver — one level above the normal approver
+  // (e.g. RBM above the ABM). This user can also approve/reject the leave.
+  const escalationApprover =
+    typeof leave.custom_escalation_approver === "object"
+      ? leave.custom_escalation_approver?.name
+      : leave.custom_escalation_approver__name ??
+        leave.custom_escalation_approver ??
+        null;
   const leaveTypeName =
     leave.leave_type__name ?? leave.leave_type ?? TAG_IDS.LEAVE;
   const ownerFullName =
@@ -146,5 +159,6 @@ export function mapErpLeaveToCalendar(leave) {
       : undefined,
     approvedBy: leave.leave_approver_name ?? "",
     leave_approver: leaveApprover,
+    escalation_approver: escalationApprover,
   };
 }

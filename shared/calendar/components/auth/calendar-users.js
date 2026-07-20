@@ -6,7 +6,8 @@ export const LOGGED_IN_USER = {
   role: null,
   status: null,
   roleId:null,
-  leave_approver:null
+  leave_approver:null,
+  escalation_approver:null
 };
 /**
  * Global ERP auth configuration

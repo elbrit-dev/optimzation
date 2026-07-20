@@ -27,9 +27,18 @@ export function resolveLeavePermissions({
 
   const eventEmployeeId = event.employee;
   const eventApproverEmail = normalizeEmail(event.leave_approver);
+  const eventEscalationApproverEmail = normalizeEmail(
+    event.escalation_approver
+  );
   const isOwner = eventEmployeeId === loggedUserId;
 
-  const isApprover = eventApproverEmail === loggedUserEmail;
+  // The leave can be approved/rejected by EITHER the assigned approver (one level
+  // up — e.g. the ABM) OR the escalation approver (one extra level up — e.g. the
+  // RBM). Match the logged-in user against both.
+  const isApprover =
+    (!!eventApproverEmail && loggedUserEmail === eventApproverEmail) ||
+    (!!eventEscalationApproverEmail &&
+      loggedUserEmail === eventEscalationApproverEmail);
 
   const isOpen = event.status === STATUS.OPEN;
 

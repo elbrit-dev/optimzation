@@ -17,6 +17,7 @@ query LeaveApplications($first: Int) {
           name
         }
         leave_approver_name
+        custom_escalation_approver__name
         leave_balance
         employee_name
         employee {

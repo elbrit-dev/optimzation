@@ -195,6 +195,10 @@ export function buildEventDefaultValues({ event, defaultTag }) {
       event?.leave_approver ??
       LOGGED_IN_USER.leave_approver ??
       "",
+    escalation_approver:
+      event?.escalation_approver ??
+      LOGGED_IN_USER.escalation_approver ??
+      "",
     fsl_doctor_item: event?.fsl_doctor_item ?? [],
   };
 }

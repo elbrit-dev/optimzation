@@ -26,6 +26,7 @@ export function AuthProvider({
     LOGGED_IN_USER.status = me.enabled ? "Active" : "Inactive";
     LOGGED_IN_USER.roleId = me.roleId;
     LOGGED_IN_USER.leave_approver = me.leave_approver;
+    LOGGED_IN_USER.escalation_approver = me.escalation_approver ?? null;
   }
   
   // 🔁 Redirect if not logged in

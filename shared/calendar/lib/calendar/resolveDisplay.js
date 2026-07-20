@@ -101,6 +101,18 @@ export function resolveDisplayValueFromEvent({
       return approver?.label ?? event.leave_approver;
     }
 
+    case "escalation_approver": {
+      if (!event.escalation_approver) return null;
+
+      const approver = event._employeeOptions?.find(
+        (e) =>
+          e.email?.toLowerCase() ===
+          event.escalation_approver.toLowerCase()
+      );
+
+      return approver?.label ?? event.escalation_approver;
+    }
+
     case "date": {
       const d =
         typeof value === "string" ? parseISO(value) : new Date(value);
