@@ -191,6 +191,27 @@ export function UserSelect({ mode = "popover" }) {
     return [...new Set(enrichedVisibleUsers.map((user) => user.department).filter(Boolean))]
       .sort((left, right) => left.localeCompare(right));
   }, [enrichedVisibleUsers]);
+
+  // Picking a department drives the calendar, not just the list: select a
+  // department → show that whole team's events (auto-select all its employees).
+  // "All departments" clears back to everyone (or self, in single-select mode).
+  const handleDepartmentChange = (dept) => {
+    setDepartmentFilter(dept);
+
+    if (dept === "all") {
+      const next = shouldForceSingleFallback ? [LOGGED_IN_USER.id] : [];
+      setCheckedIds(next);
+      filterEventsBySelectedUser(next);
+      return;
+    }
+
+    const deptUserIds = enrichedVisibleUsers
+      .filter((user) => user.department === dept)
+      .map((user) => user.id);
+
+    setCheckedIds(deptUserIds);
+    filterEventsBySelectedUser(deptUserIds);
+  };
   
   
   // 🔍 Filtered users for popover
@@ -270,7 +291,7 @@ export function UserSelect({ mode = "popover" }) {
 
         <Select
           value={departmentFilter}
-          onValueChange={setDepartmentFilter}
+          onValueChange={handleDepartmentChange}
         >
           <SelectTrigger className="h-9">
             <SelectValue placeholder="Filter by department" />
@@ -426,8 +447,8 @@ export function UserSelect({ mode = "popover" }) {
         portalled={false}
         className="p-2 w-[var(--radix-popover-trigger-width)] md:w-[250px]"
       >
-        {/* 🔍 Search (sticky) */}
-        <div className="sticky top-0 z-10 bg-background bg-white pb-2">
+        {/* 🔍 Search + Department filter (sticky) */}
+        <div className="sticky top-0 z-10 space-y-2 bg-background bg-white pb-2">
           <input
             type="text"
             value={search}
@@ -435,6 +456,42 @@ export function UserSelect({ mode = "popover" }) {
             placeholder="Search employees…"
             className="w-full rounded-md border border-input px-2 py-1 text-sm"
           />
+          {designationOptions.length > 0 && (
+            <Select
+              value={designationFilter}
+              onValueChange={setDesignationFilter}
+            >
+              <SelectTrigger className="h-9">
+                <SelectValue placeholder="Filter by designation" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All designations</SelectItem>
+                {designationOptions.map((designation) => (
+                  <SelectItem key={designation} value={designation}>
+                    {designation}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {departmentOptions.length > 0 && (
+            <Select
+              value={departmentFilter}
+              onValueChange={handleDepartmentChange}
+            >
+              <SelectTrigger className="h-9">
+                <SelectValue placeholder="Filter by department" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All departments</SelectItem>
+                {departmentOptions.map((department) => (
+                  <SelectItem key={department} value={department}>
+                    {department}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </div>
 
         {/* 🔽 Scrollable area */}
