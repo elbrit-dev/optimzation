@@ -528,6 +528,7 @@ export function CalendarProvider({
 		filterEventsBySelectedStatus,
 		filterEventsBySelectedUser,
 		events: filteredEvents,
+		allEvents,
 		view: currentView,
 		use24HourFormat,
 		toggleTimeFormat,
