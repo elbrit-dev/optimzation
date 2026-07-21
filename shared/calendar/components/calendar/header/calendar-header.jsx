@@ -1,7 +1,10 @@
 "use client";;
+import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { Plus, RotateCw } from "lucide-react";
 import { Button } from "@calendar/components/ui/button";
+import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
+import { isEmployeeOnApprovedLeave } from "@calendar/lib/calendar/leaveDay";
 import {
 	slideFromLeft,
 	slideFromRight,
@@ -27,7 +30,22 @@ export function CalendarHeader() {
 		pendingSyncCount,
 		retryPendingSync,
 		isRetryingSync,
+		syncCalendar,
+		allEvents,
 	} = useCalendar();
+	const [isSyncing, setIsSyncing] = useState(false);
+
+	const handleSync = async () => {
+		if (isSyncing) return;
+		setIsSyncing(true);
+		try {
+			await syncCalendar();
+		} catch (err) {
+			console.error("Failed to sync calendar", err);
+		} finally {
+			setIsSyncing(false);
+		}
+	};
 	const today = startOfDay(new Date());
 
 	const candidateDate = activeDate ?? selectedDate ?? null;
@@ -37,6 +55,15 @@ export function CalendarHeader() {
 		isBefore(startOfDay(candidateDate), today);
 
 	const startDateForDialog = isPast ? undefined : candidateDate;
+
+	// If the logged-in employee has an APPROVED leave covering the selected day,
+	// they're off — adding an event that day is pointless, so disable it.
+	const isOnLeaveOnSelectedDay = useMemo(
+		() =>
+			isEmployeeOnApprovedLeave(allEvents, LOGGED_IN_USER.id, candidateDate),
+		[allEvents, candidateDate]
+	);
+
 	return (
 		<div
 			className="flex flex-col gap-4 border-b p-4 lg:flex-row lg:items-center lg:justify-between">
@@ -62,6 +89,21 @@ export function CalendarHeader() {
 
 				<div className="flex flex-row gap-4  lg:items-center lg:gap-1.5">
 					<UserSelect />
+					<Button
+						type="button"
+						variant="outline"
+						onClick={handleSync}
+						disabled={isSyncing}
+						aria-label="Sync calendar data"
+						title="Refresh calendar data"
+					>
+						<RotateCw
+							className={`h-4 w-4 ${isSyncing ? "animate-spin" : ""}`}
+						/>
+						<span className="hidden sm:inline">
+							{isSyncing ? "Syncing..." : "Sync"}
+						</span>
+					</Button>
 					{pendingSyncCount > 0 && (
 						<Button
 							type="button"
@@ -77,7 +119,14 @@ export function CalendarHeader() {
 					)}
 					<div className="hidden md:block">
 						<AddEditEventDialog startDate={startDateForDialog}>
-							<Button>
+							<Button
+								disabled={isOnLeaveOnSelectedDay}
+								title={
+									isOnLeaveOnSelectedDay
+										? "You're on leave on this day"
+										: undefined
+								}
+							>
 								<Plus className="h-4 w-4" />
 								Add Event
 							</Button>

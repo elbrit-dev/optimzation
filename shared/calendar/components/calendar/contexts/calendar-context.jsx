@@ -2,6 +2,9 @@
 import { createContext, useContext, useState, useEffect, useMemo, useCallback } from "react";
 import { useLocalStorage } from "@calendar/components/calendar/hooks";
 import { fetchEventsByRange } from "@calendar/components/calendar/module/event/services/event.service";
+import { clearEventCache } from "@calendar/lib/calendar/event-cache";
+import { clearCached } from "@calendar/lib/data-cache";
+import { clearLeaveCache } from "@calendar/components/calendar/module/leave/cache/leave-cache";
 import { resolveCalendarRange } from "@calendar/lib/calendar/range";
 import { isLeafRole, resolveLoggedInRoleId, resolveVisibleEmployeeIds, resolveVisibleRoleIds } from "@calendar/lib/employeeHeirachy";
 import { useEmployeeResolvers } from "@calendar/lib/employeeResolver";
@@ -220,6 +223,18 @@ export function CalendarProvider({
 		);
 		return nextEvents;
 	}, [currentView, selectedDate]);
+
+	// Hard refresh for the manual "Sync" button. `refreshEvents` alone may return
+	// cached data, so drop the events + leave caches first, then re-fetch fresh
+	// from ERP and push into serverEvents — no full-app reload needed.
+	const syncCalendar = useCallback(async () => {
+		clearEventCache();
+		clearLeaveCache();
+		clearCached(["LEAVE_APPLICATIONS"]);
+		const nextEvents = await refreshEvents();
+		setServerEvents(nextEvents);
+		return nextEvents;
+	}, [refreshEvents]);
 
 
 	const clearFilter = () => {
@@ -527,6 +542,7 @@ export function CalendarProvider({
 			setServerEvents(nextEvents);
 			return nextEvents;
 		},
+		syncCalendar,
 		pendingSyncCount,
 		retryPendingSync,
 		isRetryingSync,

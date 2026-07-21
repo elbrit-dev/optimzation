@@ -166,6 +166,12 @@ const NovuInbox = ({
                 width: `${bellSize}px`,
                 height: `${bellSize}px`,
               },
+              // The calendar's month event badges use `z-10` (needed for
+              // multi-day event layering), which was bleeding through the
+              // notification panel. Lift the popover above the calendar grid.
+              popoverContent: {
+                zIndex: 9999,
+              },
             },
           }}
           routerPush={navigate}

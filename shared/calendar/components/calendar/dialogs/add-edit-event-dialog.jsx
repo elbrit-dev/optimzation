@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
+import { isEmployeeOnApprovedLeave } from "@calendar/lib/calendar/leaveDay";
 import { buildEventDefaultValues, TAG_IDS, TAGS } from "@calendar/components/calendar/constants";
 import { mapFormToErpEvent } from "@calendar/components/calendar/module/event/mappers/event-to-erp";
 import {
@@ -69,7 +70,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 	const { isOpen, onClose, onOpen } = useDisclosure();
 	const { employeeOptions,
 		allEmployeeOptions,
-		doctorOptions, events,
+		doctorOptions, events, allEvents,
 		hqTerritoryOptions,
 		setEmployeeOptions, territoryDoctors, setTerritoryDoctors,
 		setDoctorOptions, customerOptions, setCustomerOptions, selectedDate, allowedEmployeeIds,
@@ -1233,6 +1234,20 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 	const handleDialogOpenChange = (nextOpen) => {
 		if (!nextOpen && isMutationPending) return;
 		if (nextOpen) {
+			// Central guard for EVERY entry point that opens this form (header,
+			// day-cell click, mobile add): if the user is on an APPROVED leave on
+			// the target day, don't open — creating an event is pointless then.
+			if (
+				!isEditing &&
+				isEmployeeOnApprovedLeave(
+					allEvents,
+					LOGGED_IN_USER.id,
+					initialStartDate ?? selectedDate
+				)
+			) {
+				toast.error("You're on leave on this day");
+				return;
+			}
 			onOpen();
 			return;
 		}
