@@ -13,14 +13,18 @@ const AvatarGroup = ({
 	const displayedAvatars = React.Children.toArray(children)
 		.slice(0, max)
 		.reverse();
-	const remainingAvatars = max ? Math.max(totalAvatars - max, 1) : 0;
+	const remainingAvatars = max ? Math.max(totalAvatars - max, 0) : 0;
+	const avatarClassName =
+		React.isValidElement(displayedAvatars[0])
+			? displayedAvatars[0].props.className
+			: "";
 
 	return (
         <div
             className={cn("flex items-center flex-row-reverse", className)}
             {...props}>
             {remainingAvatars > 0 && (
-				<Avatar className="-ml-2 hover:z-10 relative ring-2 ring-background">
+				<Avatar className={cn("-ml-2 hover:z-10 relative ring-2 ring-background", avatarClassName)}>
 					<AvatarFallback className="bg-muted-foreground text-white">
 						+{remainingAvatars}
 					</AvatarFallback>
@@ -32,7 +36,7 @@ const AvatarGroup = ({
 				return (
                     <div key={index} className="-ml-2 hover:z-10 relative">
                         {React.cloneElement(avatar, {
-							className: "ring-2 ring-background",
+							className: cn(avatar.props.className, "ring-2 ring-background"),
 						})}
                     </div>
                 );

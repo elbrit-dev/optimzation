@@ -8,6 +8,7 @@ import { isEmployeeOnApprovedLeave } from "@calendar/lib/calendar/leaveDay";
 import { buildEventDefaultValues, TAG_IDS, TAGS } from "@calendar/components/calendar/constants";
 import { mapFormToErpEvent } from "@calendar/components/calendar/module/event/mappers/event-to-erp";
 import {
+	fetchAllCustomers,
 	fetchCustomersByTerritory,
 	fetchGoogleCalendarStatus,
 } from "@calendar/components/calendar/module/event/services/event.service";
@@ -36,6 +37,7 @@ import {
 } from "@calendar/components/calendar/module/event/services/master-data.service";
 import { buildParticipantsWithDetails, getAvailableItems, normalizeMeetingTimes, normalizeNonMeetingDates, resolveLatLong, showFirstFormErrorAsToast, syncPobItemRates, updatePobRow } from "@calendar/lib/helper";
 import { Button } from "@calendar/components/ui/button";
+import { MapPin, Video } from "lucide-react";
 import { resolveDisplayValueFromEvent } from "@calendar/lib/calendar/resolveDisplay";
 import Tiptap from "@calendar/components/calendar/module/todo/components/TodoWysiwyg";
 import { mapDoctorVisitToQuotation } from "@calendar/components/calendar/module/event/mappers/quotation-to-erp";
@@ -46,7 +48,7 @@ import TodoComments from "@calendar/components/calendar/module/todo/components/T
 import { ErrorBoundary } from "@calendar/components/ui/error-boundary";
 import { Textarea } from "@calendar/components/ui/textarea";
 import { fetchEmployeeLeaveBalance } from "@calendar/components/calendar/module/leave/services/leave.service";
-import { resolveLoggedInRoleId, resolveSuperiorShareUserIds } from "@calendar/lib/employeeHeirachy";
+import { isLeafRole, resolveLoggedInRoleId, resolveSuperiorShareUserIds } from "@calendar/lib/employeeHeirachy";
 import { enqueueSubmission } from "@calendar/lib/calendar/submission-queue";
 import { fetchDocSharesByDocument } from "@calendar/components/calendar/module/event/services/docshare.service";
 import { cn } from "@calendar/lib/utils";
@@ -87,6 +89,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 	const endDateTouchedRef = useRef(false); // existing
 	const [showReason, setShowReason] = useState(false);
 	const [googleCalendarEnabled, setGoogleCalendarEnabled] = useState(false);
+	const [meetingMode, setMeetingMode] = useState("physical");
 	const [employeeSearchLoading, setEmployeeSearchLoading] = useState(false);
 	const [doctorSearchLoading, setDoctorSearchLoading] = useState(false);
 	const lastEmployeeSearchRef = useRef("");
@@ -102,7 +105,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 	const allDay = useWatch({ control: form.control, name: "allDay" });
 	const leaveType = useWatch({ control: form.control, name: "leaveType", });
 	const leavePeriod = useWatch({ control: form.control, name: "leavePeriod", });
-	const { doctor, employees, hqTerritory, tags: selectedTag, attending } = useWatch({ control: form.control });
+	const { doctor, employees, hqTerritory, tags: selectedTag, attending, enableGoogleMeet } = useWatch({ control: form.control });
 	const pobGiven = useWatch({ control: form.control, name: "pob_given", });
 	const customer = useWatch({ control: form.control, name: "customer", });
 	const pobItems = useWatch({ control: form.control, name: "fsl_doctor_item" });
@@ -128,6 +131,29 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		if (tagConfig.hide) return !tagConfig.hide.includes(field);
 		return true;
 	};
+	useEffect(() => {
+		if (!isOpen || selectedTag !== TAG_IDS.MEETING) return;
+
+		const nextMode = isEditing
+			? event?.enableGoogleMeet
+				? "virtual"
+				: "physical"
+			: form.getValues("enableGoogleMeet")
+				? "virtual"
+				: "physical";
+
+		setMeetingMode(nextMode);
+	}, [event?.enableGoogleMeet, form, isEditing, isOpen, selectedTag]);
+	useEffect(() => {
+		if (selectedTag !== TAG_IDS.MEETING) return;
+		if (!allDay || !enableGoogleMeet) return;
+
+		form.setValue("enableGoogleMeet", false, {
+			shouldDirty: true,
+			shouldValidate: true,
+		});
+		toast.error("All-day meetings cannot have Google Meet enabled.");
+	}, [allDay, enableGoogleMeet, form, selectedTag]);
 	useEffect(() => {
 		if (!isEditing) return;
 		const doctorId = Array.isArray(event?.doctor)
@@ -408,12 +434,40 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			null
 		);
 	}, [allEmployeeOptions, users]);
+	const resolvedLoggedInRoleId = useMemo(
+		() => resolveLoggedInRoleId(users) ?? currentUserRoleId,
+		[currentUserRoleId, users]
+	);
+	const isLeafHierarchyUser = useMemo(
+		() => isLeafRole(elbritRoleEdges, resolvedLoggedInRoleId),
+		[elbritRoleEdges, resolvedLoggedInRoleId]
+	);
+	const loggedInEmployeeHqTerritory = useMemo(() => {
+		const matchById = allEmployeeOptions.find(
+			(employee) => String(employee.value) === String(LOGGED_IN_USER.id)
+		);
+		if (matchById?.hqTerritory) return matchById.hqTerritory;
+
+		const matchByEmail = allEmployeeOptions.find(
+			(employee) =>
+				employee.email &&
+				LOGGED_IN_USER.email &&
+				employee.email.toLowerCase() === LOGGED_IN_USER.email.toLowerCase()
+		);
+		if (matchByEmail?.hqTerritory) return matchByEmail.hqTerritory;
+
+		if (hqTerritoryOptions.length === 1) {
+			return hqTerritoryOptions[0]?.value ?? null;
+		}
+
+		return null;
+	}, [allEmployeeOptions, hqTerritoryOptions]);
 	// Half Day leave is only for head-office teams (IT/MIS/HR/PMT/Design).
 	// Use the reliable role (custom_role_profile via the employee list), not the
 	// host-supplied me.roleId which can be stale.
 	const isHeadOfficeUser = useMemo(
-		() => isHeadOfficeRole(resolveLoggedInRoleId(users)),
-		[users]
+		() => isHeadOfficeRole(resolvedLoggedInRoleId),
+		[resolvedLoggedInRoleId]
 	);
 	// Meeting/Todo employee picker: show ALL employees, exactly like the Share
 	// dialog (which uses `allEmployeeOptions`). This was previously scoped to the
@@ -421,9 +475,95 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 	// made the picker a smaller list than Share's. The employee query itself is
 	// already unrestricted (active employees only), so no client filter is needed.
 	const employeePickerOptions = useMemo(
-		() => allEmployeeOptions,
-		[allEmployeeOptions]
+		() => {
+			const departmentByRoleId = new Map();
+
+			elbritRoleEdges?.forEach(({ node }) => {
+				if (!node?.role_id) return;
+				departmentByRoleId.set(node.role_id, node.sales_team__name ?? null);
+			});
+
+			return allEmployeeOptions.map((employee) => ({
+				...employee,
+				department: departmentByRoleId.get(employee.roleId) ?? null,
+			}));
+		},
+		[allEmployeeOptions, elbritRoleEdges]
 	);
+	const employeeDesignationOptions = useMemo(
+		() =>
+			[
+				...new Set(
+					employeePickerOptions
+						.map((employee) => employee.role)
+						.filter(Boolean)
+				),
+			].sort((left, right) => left.localeCompare(right)),
+		[employeePickerOptions]
+	);
+	const employeeDepartmentOptions = useMemo(
+		() =>
+			[
+				...new Set(
+					employeePickerOptions
+						.map((employee) => employee.department)
+						.filter(Boolean)
+				),
+			].sort((left, right) => left.localeCompare(right)),
+		[employeePickerOptions]
+	);
+	const employeePickerFilters = useMemo(
+		() => ({
+			facets: [
+				{
+					id: "role",
+					label: "Designation",
+					options: employeeDesignationOptions,
+					getValue: (option) => option.role,
+				},
+				{
+					id: "department",
+					label: "Department",
+					options: employeeDepartmentOptions,
+					getValue: (option) => option.department,
+				},
+			].filter((facet) => facet.options.length > 0),
+		}),
+		[employeeDepartmentOptions, employeeDesignationOptions]
+	);
+	const meetingAttendanceEmployees = useMemo(() => {
+		if (selectedTag !== TAG_IDS.MEETING || !isEditing) return [];
+
+		const selectedEmployeeIds = (
+			Array.isArray(employees) ? employees : employees ? [employees] : []
+		)
+			.map((employee) =>
+				typeof employee === "object"
+					? employee?.value ?? employee?.id ?? null
+					: employee
+			)
+			.filter(Boolean)
+			.map(String);
+
+		const existingParticipants = event?.participants ?? [];
+
+		return selectedEmployeeIds.map((employeeId) => {
+			const employeeOption = employeePickerOptions.find(
+				(option) => String(option.value) === employeeId
+			);
+			const existingParticipant = existingParticipants.find(
+				(participant) =>
+					participant.type === "Employee" &&
+					String(participant.id) === employeeId
+			);
+
+			return {
+				id: employeeId,
+				name: employeeOption?.label ?? existingParticipant?.name ?? employeeId,
+				attending: existingParticipant?.attending ?? "",
+			};
+		});
+	}, [employeePickerOptions, employees, event?.participants, isEditing, selectedTag]);
 	const shareUsers = useMemo(() => {
 		if (users.length) {
 			return users;
@@ -464,36 +604,15 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		).filter((userId) => userId !== LOGGED_IN_USER.email);
 	}, [currentUserRoleId, elbritRoleEdges, isEditing, shareUsers]);
 	const currentUserDepartment = useMemo(() => {
-		const resolvedRoleId =
-			resolveLoggedInRoleId(users) ?? currentUserRoleId;
-
-		if (!resolvedRoleId) return null;
+		if (!resolvedLoggedInRoleId) return null;
 
 		return (
 			elbritRoleEdges?.find(
-				({ node }) => node?.role_id === resolvedRoleId
+				({ node }) => node?.role_id === resolvedLoggedInRoleId
 			)?.node?.sales_team__name ?? null
 		);
-	}, [currentUserRoleId, elbritRoleEdges, users]);
-	// Share basis by tag:
-	// - HQ Tour Plan / Doctor Visit Plan -> hierarchy (share up to superiors).
-	// - Meeting / Todo / Other -> team-based (share with the selected participants).
-	const collectParticipantShareEmails = (values) => {
-		const emails = new Set();
-		["employees", "allocated_to", "assignedTo"].forEach((field) => {
-			const value = values[field];
-			if (!value) return;
-			(Array.isArray(value) ? value : [value]).forEach((emp) => {
-				if (!emp) return;
-				const email =
-					typeof emp === "object"
-						? emp.email
-						: allEmployeeOptions.find((opt) => opt.value === emp)?.email;
-				if (email && email !== LOGGED_IN_USER.email) emails.add(email);
-			});
-		});
-		return [...emails];
-	};
+	}, [elbritRoleEdges, resolvedLoggedInRoleId]);
+	const isAutoShareableTag = (tag) => tag !== TAG_IDS.LEAVE;
 	const collectManualShareEmails = (values) => {
 		const emails = new Set();
 		const value = values.shareEmployees;
@@ -512,21 +631,43 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 
 		return [...emails];
 	};
+	const collectParticipantShareEmails = (values) => {
+		const emails = new Set();
+		const participantValues = values.employees
+			? Array.isArray(values.employees)
+				? values.employees
+				: [values.employees]
+			: [];
+
+		participantValues.forEach((employee) => {
+			if (!employee) return;
+
+			const email =
+				typeof employee === "object"
+					? employee.email
+					: allEmployeeOptions.find((opt) => opt.value === employee)?.email;
+
+			if (email && email !== LOGGED_IN_USER.email) {
+				emails.add(email);
+			}
+		});
+
+		return [...emails];
+	};
 	const getShareUserIds = (values) =>
-		Array.from(
-			new Set(
-				[
-					...[TAG_IDS.HQ_TOUR_PLAN, TAG_IDS.DOCTOR_VISIT_PLAN].includes(
-						values.tags
+		isAutoShareableTag(values.tags)
+			? Array.from(
+					new Set(
+						[
+							...superiorUserIds.filter(Boolean),
+							...collectParticipantShareEmails(values),
+							...(values.tags === TAG_IDS.HQ_TOUR_PLAN
+								? collectManualShareEmails(values)
+								: []),
+						].filter(Boolean)
 					)
-						? superiorUserIds
-						: collectParticipantShareEmails(values),
-					...(values.tags === TAG_IDS.HQ_TOUR_PLAN
-						? collectManualShareEmails(values)
-						: []),
-				].filter(Boolean)
-			)
-		);
+				)
+			: [];
 	useEffect(() => {
 		if (!startDate || !endDate) return;
 
@@ -748,6 +889,36 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		employeePickerOptions,
 		doctorOptions,
 	]);
+	useEffect(() => {
+		if (!isOpen || selectedTag !== TAG_IDS.MEETING || !isEditing) return;
+
+		const currentValues = Array.isArray(form.getValues("meetingAttendance"))
+			? form.getValues("meetingAttendance")
+			: [];
+		const currentMap = new Map(
+			currentValues
+				.filter((entry) => entry?.employeeId)
+				.map((entry) => [String(entry.employeeId), entry.attending ?? ""])
+		);
+
+		const nextAttendance = meetingAttendanceEmployees.map((participant) => ({
+			employeeId: participant.id,
+			attending:
+				currentMap.get(String(participant.id)) ??
+				participant.attending ??
+				"",
+		}));
+
+		const hasChanged =
+			JSON.stringify(currentValues) !== JSON.stringify(nextAttendance);
+
+		if (hasChanged) {
+			form.setValue("meetingAttendance", nextAttendance, {
+				shouldDirty: false,
+				shouldValidate: false,
+			});
+		}
+	}, [form, isEditing, isOpen, meetingAttendanceEmployees, selectedTag]);
 
 	/* ---------------------------------------------
 	   FORCE ALL-DAY CHECKBOX ONLY
@@ -1124,19 +1295,52 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		});
 	}, [events, startDate]);
 
+	const doctorVisitHqTerritory =
+		matchedHqEvent?.hqTerritory ??
+		(isLeafHierarchyUser ? loggedInEmployeeHqTerritory : null);
 	const hasValidHqTourPlan = !!matchedHqEvent;
+	const canCreateDoctorVisitDirectly =
+		isLeafHierarchyUser && Boolean(loggedInEmployeeHqTerritory);
+	const canUseDoctorVisitTag =
+		hasValidHqTourPlan || canCreateDoctorVisitDirectly;
+	const shouldHideHqTourPlanTag = canCreateDoctorVisitDirectly;
+	useEffect(() => {
+		if (!isOpen || isEditing) return;
+
+		if (selectedTag === TAG_IDS.HQ_TOUR_PLAN && shouldHideHqTourPlanTag) {
+			form.setValue("tags", TAG_IDS.DOCTOR_VISIT_PLAN, {
+				shouldDirty: false,
+				shouldValidate: true,
+			});
+			return;
+		}
+
+		if (selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN && !canUseDoctorVisitTag) {
+			form.setValue("tags", TAG_IDS.LEAVE, {
+				shouldDirty: false,
+				shouldValidate: true,
+			});
+		}
+	}, [
+		canUseDoctorVisitTag,
+		form,
+		isEditing,
+		isOpen,
+		selectedTag,
+		shouldHideHqTourPlanTag,
+	]);
 	useEffect(() => {
 		if (selectedTag !== TAG_IDS.DOCTOR_VISIT_PLAN) return;
-		if (!matchedHqEvent) return;
+		if (!doctorVisitHqTerritory) return;
 
 		const currentHq = form.getValues("hqTerritory");
-		if (currentHq) return;
+		if (currentHq === doctorVisitHqTerritory) return;
 
-		form.setValue("hqTerritory", matchedHqEvent.hqTerritory, {
+		form.setValue("hqTerritory", doctorVisitHqTerritory, {
 			shouldDirty: true,
 			shouldValidate: true,
 		});
-	}, [selectedTag, matchedHqEvent]);
+	}, [doctorVisitHqTerritory, form, selectedTag]);
 	// ----------------------------------------------------
 	// Show only those doctor whose territory matches with the hq 
 	// ----------------------------------------------------
@@ -1187,19 +1391,21 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		}
 
 		let cancelled = false;
-
-		fetchCustomersByTerritory(territoryName)
+		fetchAllCustomers()
 			.then((customers) => {
 				if (cancelled) return;
-				setCustomerOptions(
-					customers.map((name) => ({
-						label: name,
-						value: name,
-					}))
-				);
+				const narrowedCustomers = customers
+					.filter((customer) => customer.territory === territoryName)
+					.map((customer) => ({
+						label: customer.name,
+						value: customer.name,
+						territory: customer.territory ?? null,
+					}));
+
+				setCustomerOptions(narrowedCustomers);
 			})
 			.catch((error) => {
-				console.error("Failed to fetch territory customers", error);
+				console.error("Failed to fetch accessible customers", error);
 				if (!cancelled) {
 					setCustomerOptions([]);
 				}
@@ -1700,8 +1906,11 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 								render={({ field }) => (
 									<div className="flex flex-wrap gap-2">
 										{TAGS.filter((tag) => {
+											if (tag.id === TAG_IDS.HQ_TOUR_PLAN) {
+												return !shouldHideHqTourPlanTag;
+											}
 											if (tag.id === TAG_IDS.DOCTOR_VISIT_PLAN) {
-												return hasValidHqTourPlan;
+												return canUseDoctorVisitTag;
 											}
 											return true;
 										}).map((tag) => (
@@ -1806,8 +2015,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 
 									<div
 										className={cn(
-											"grid gap-3",
-											!isEditing ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1"
+											"grid gap-3 grid-cols-1"
 										)}
 									>
 										<FormField
@@ -1821,21 +2029,100 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 												/>
 											)}
 										/>
+									</div>
 
-										{!isEditing && (
-											<FormField
-												control={form.control}
-												name="enableGoogleMeet"
-												render={({ field }) => (
+									<div className="space-y-2">
+										<div className="space-y-2">
+											<p className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+												Meeting type
+											</p>
+											<div className="inline-flex rounded-md border border-input bg-background p-1">
+												<button
+													type="button"
+													className={cn(
+														"inline-flex items-center gap-2 rounded-sm px-4 py-2 text-sm font-medium transition",
+														meetingMode === "physical"
+															? "bg-primary text-primary-foreground"
+															: "text-foreground hover:bg-muted"
+													)}
+													onClick={() => {
+														setMeetingMode("physical");
+														form.setValue("enableGoogleMeet", false, {
+															shouldDirty: true,
+															shouldValidate: false,
+														});
+													}}
+												>
+													<MapPin className="size-4" />
+													Physical
+												</button>
+												<button
+													type="button"
+													className={cn(
+														"inline-flex items-center gap-2 rounded-sm px-4 py-2 text-sm font-medium transition",
+														meetingMode === "virtual"
+															? "bg-primary text-primary-foreground"
+															: "text-foreground hover:bg-muted"
+													)}
+													onClick={() => {
+														setMeetingMode("virtual");
+													}}
+												>
+													<Video className="size-4" />
+													Virtual
+												</button>
+											</div>
+										</div>
+									</div>
+
+									{meetingMode === "physical" && (
+										<FormField
+											control={form.control}
+											name="meetingLocation"
+											render={({ field, fieldState }) => (
+												<RHFFieldWrapper
+													label="Location / venue"
+													error={fieldState.error?.message}
+												>
+													<FormControl>
+														<Input
+															placeholder="Enter meeting location"
+															{...field}
+															value={field.value ?? ""}
+														/>
+													</FormControl>
+												</RHFFieldWrapper>
+											)}
+										/>
+									)}
+
+									{meetingMode === "virtual" && !isEditing && (
+										<FormField
+											control={form.control}
+											name="enableGoogleMeet"
+											render={({ field }) => (
+												<div className="space-y-1">
 													<InlineCheckboxField
 														label="Enable Google Meet"
 														checked={Boolean(field.value)}
-														onChange={field.onChange}
+														onChange={(checked) => {
+															if (allDay && checked) {
+																toast.error("All-day meetings cannot have Google Meet enabled.");
+																field.onChange(false);
+																return;
+															}
+															field.onChange(checked);
+														}}
 													/>
-												)}
-											/>
-										)}
-									</div>
+													{allDay && (
+														<p className="text-xs text-red-600">
+															All-day meetings cannot have Google Meet enabled
+														</p>
+													)}
+												</div>
+											)}
+										/>
+									)}
 
 								{!allDay && (
 									<div className="grid grid-cols-2 gap-3">
@@ -1892,13 +2179,17 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 											hideTime
 											/* Doctor Tour Plan restriction */
 											minDate={
-												selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN && matchedHqEvent
+												selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN &&
+												matchedHqEvent &&
+												!canCreateDoctorVisitDirectly
 													? startOfDay(new Date(matchedHqEvent.startDate))
 													: undefined
 											}
 
 											maxDate={
-												selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN && matchedHqEvent
+												selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN &&
+												matchedHqEvent &&
+												!canCreateDoctorVisitDirectly
 													? endOfDay(new Date(matchedHqEvent.endDate))
 													: undefined
 											}
@@ -1956,10 +2247,10 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 										)}
 									/>
 								)}
-								{selectedTag === TAG_IDS.TODO_LIST && isEditing && (
-									<FormField
-										control={form.control}
-										name="status"
+						{selectedTag === TAG_IDS.TODO_LIST && isEditing && (
+							<FormField
+								control={form.control}
+								name="status"
 										render={({ field, fieldState }) => (
 											<RHFFieldWrapper
 												label="Status"
@@ -1987,7 +2278,6 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 								)}
 							</div>
 						)}
-						{/* ================= HQ SHARED WITH ================= */}
 						{selectedTag === TAG_IDS.HQ_TOUR_PLAN && !isEditing && (
 							<FormField
 								control={form.control}
@@ -2002,6 +2292,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 											searchPlaceholder="Search employee"
 											onSearch={handleEmployeeSearch}
 											loading={employeeSearchLoading}
+											filters={employeePickerFilters}
 										/>
 									</RHFFieldWrapper>
 								)}
@@ -2069,11 +2360,71 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 											<RHFComboboxField {...field} options={employeePickerOptions} multiple={isMulti} placeholder="Select employees" searchPlaceholder="Search employee"
 												onSearch={handleEmployeeSearch}
 												loading={employeeSearchLoading}
+												filters={employeePickerFilters}
 											/>
 										</RHFFieldWrapper>
 									)}
 								/>
 							)}
+						{selectedTag === TAG_IDS.MEETING && isEditing && meetingAttendanceEmployees.length > 0 && (
+							<FormField
+								control={form.control}
+								name="meetingAttendance"
+								render={({ field }) => {
+									const attendanceValues = Array.isArray(field.value) ? field.value : [];
+									const attendanceMap = new Map(
+										attendanceValues
+											.filter((entry) => entry?.employeeId)
+											.map((entry) => [String(entry.employeeId), entry.attending ?? ""])
+									);
+
+									const updateAttendance = (employeeId, attendingValue) => {
+										const nextValue = meetingAttendanceEmployees.map((participant) => ({
+											employeeId: participant.id,
+											attending:
+												String(participant.id) === String(employeeId)
+													? attendingValue
+													: attendanceMap.get(String(participant.id)) ?? "",
+										}));
+										field.onChange(nextValue);
+									};
+
+									return (
+										<RHFFieldWrapper label="Attendance">
+											<div className="space-y-2 rounded-md border p-3">
+												{meetingAttendanceEmployees.map((participant) => (
+													<div
+														key={participant.id}
+														className="flex items-center justify-between gap-3"
+													>
+														<div className="min-w-0">
+															<p className="truncate text-sm font-medium">
+																{participant.name}
+															</p>
+														</div>
+														<Select
+															value={attendanceMap.get(String(participant.id)) ?? ""}
+															onValueChange={(value) =>
+																updateAttendance(participant.id, value)
+															}
+														>
+															<SelectTrigger className="w-[140px]">
+																<SelectValue placeholder="Mark" />
+															</SelectTrigger>
+															<SelectContent>
+																<SelectItem value="Yes">Present</SelectItem>
+																<SelectItem value="No">Absent</SelectItem>
+																<SelectItem value="Maybe">Maybe</SelectItem>
+															</SelectContent>
+														</Select>
+													</div>
+												))}
+											</div>
+										</RHFFieldWrapper>
+									);
+								}}
+							/>
+						)}
 						{/* ================= Allocated ================= */}
 						{!tagConfig.hide?.includes("allocated_to") &&
 							(!tagConfig.employee?.autoSelectLoggedIn ||
@@ -2087,6 +2438,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 											<RHFComboboxField {...field} options={employeePickerOptions} multiple={isMulti} placeholder="Select employees" searchPlaceholder="Search employee"
 												onSearch={handleEmployeeSearch}
 												loading={employeeSearchLoading}
+												filters={employeePickerFilters}
 											/>
 										</RHFFieldWrapper>
 									)}
@@ -2103,6 +2455,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 										<RHFComboboxField {...field} options={employeePickerOptions} multiple placeholder="Select employees" searchPlaceholder="Search employee"
 											onSearch={handleEmployeeSearch}
 											loading={employeeSearchLoading}
+											filters={employeePickerFilters}
 										/>
 									</RHFFieldWrapper>
 								)}
@@ -2124,6 +2477,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 								)}
 							/>
 						)}
+						
 
 						{selectedTag === TAG_IDS.LEAVE && isHeadOfficeUser && leavePeriod === "Half" && (
 							<FormField

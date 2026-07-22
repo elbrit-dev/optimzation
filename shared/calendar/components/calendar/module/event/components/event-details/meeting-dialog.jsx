@@ -1,7 +1,7 @@
 "use client";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { format, parseISO, isValid } from "date-fns";
-import { Crown, Eye, Text, UserCog, Users, Video } from "lucide-react";
+import { Crown, Eye, MapPin, Text, UserCog, Users, Video } from "lucide-react";
 import { Button } from "@calendar/components/ui/button";
 import { TAG_FORM_CONFIG } from "@calendar/lib/calendar/form-config";
 import { ScrollArea } from "@calendar/components/ui/scroll-area";
@@ -11,6 +11,15 @@ import { buildParticipantsWithDetails } from "@calendar/lib/helper";
 import { useDeleteEvent } from "@calendar/components/calendar/hooks";
 import DeleteEventDialog from "@calendar/components/calendar/dialogs/delete-event-dialog";
 import TiptapViewer from "@calendar/components/ui/TiptapViewer";
+import { toast } from "sonner";
+import { saveEvent } from "@calendar/components/calendar/module/event/services/event.service";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@calendar/components/ui/select";
 import {
   DetailSummary,
   DetailItem,
@@ -100,6 +109,21 @@ function TeamRoster({ participants, hostId }) {
             {role ? (
               <span className="shrink-0 text-[11px] text-muted-foreground">{role}</span>
             ) : null}
+            {p.attending === "Yes" ? (
+              <span className="shrink-0 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-200">
+                Present
+              </span>
+            ) : null}
+            {p.attending === "No" ? (
+              <span className="shrink-0 rounded-full bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700 ring-1 ring-rose-200">
+                Absent
+              </span>
+            ) : null}
+            {p.attending === "Maybe" ? (
+              <span className="shrink-0 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-200">
+                Maybe
+              </span>
+            ) : null}
             {isHost ? (
               <span className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-200">
                 <Crown className="size-3" /> Host
@@ -112,13 +136,104 @@ function TeamRoster({ participants, hostId }) {
   );
 }
 
+const ATTENDANCE_OPTIONS = [
+  { value: "Yes", label: "Present" },
+  { value: "No", label: "Absent" },
+  { value: "Maybe", label: "Maybe" },
+];
+
+function buildAttendanceMap(participants) {
+  return Object.fromEntries(
+    participants.map((participant) => [participant.id, participant.attending ?? ""])
+  );
+}
+
+function AttendanceEditor({
+  participants,
+  hostId,
+  editable,
+  attendanceById,
+  onChange,
+}) {
+  if (!participants.length) {
+    return <span className="text-muted-foreground">—</span>;
+  }
+
+  return (
+        <div className="overflow-hidden rounded-lg border">
+      <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.3fr)_112px] gap-2 border-b bg-muted/40 px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+        <span>Name</span>
+        <span>Email</span>
+        <span>Attendance</span>
+      </div>
+      <div className="divide-y">
+        {participants.map((participant) => {
+          const isHost = hostId != null && String(participant.id) === String(hostId);
+
+          return (
+            <div
+              key={participant.id}
+              className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.3fr)_112px] items-center gap-2 px-3 py-2"
+            >
+              <div className="min-w-0 flex items-center gap-2">
+                <span className="truncate text-[12.5px] font-medium text-foreground">
+                  {participant.name}
+                </span>
+                {isHost ? (
+                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-200">
+                    <Crown className="size-3" />
+                  </span>
+                ) : null}
+              </div>
+              <span className="truncate text-[11px] text-muted-foreground">
+                {participant.email || "—"}
+              </span>
+              {editable ? (
+                <Select
+                  value={attendanceById[participant.id] ?? ""}
+                  onValueChange={(value) => onChange(participant.id, value)}
+                >
+                  <SelectTrigger className="h-8 px-2 text-[11px]">
+                    <SelectValue placeholder="Select" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ATTENDANCE_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <span className="text-[11px] font-medium text-foreground">
+                  {ATTENDANCE_OPTIONS.find(
+                    (option) => option.value === (attendanceById[participant.id] ?? "")
+                  )?.label ?? "—"}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function EventMeetingDialog({ event, setOpen }) {
-  const { use24HourFormat, removeEvent, employeeOptions, doctorOptions } =
+  const {
+    use24HourFormat,
+    removeEvent,
+    employeeOptions,
+    doctorOptions,
+    updateEvent,
+  } =
     useCalendar();
   const { handleDelete } = useDeleteEvent({
     removeEvent,
     onClose: () => setOpen(false),
   });
+  const [attendanceById, setAttendanceById] = useState({});
+  const [isSavingAttendance, setIsSavingAttendance] = useState(false);
 
   const tagConfig = TAG_FORM_CONFIG[event.tags] ?? TAG_FORM_CONFIG.DEFAULT;
   const editAction = tagConfig.ui?.primaryEditAction;
@@ -153,6 +268,73 @@ export function EventMeetingDialog({ event, setOpen }) {
   // attendees are read-only. A failed local sync always stays fixable/removable.
   const canEdit = viewerRole === "creator" || viewerRole === "host" || isFailedSync;
   const canDelete = viewerRole === "creator" || isFailedSync;
+  const canManageAttendance = viewerIsConductor && participants.length > 0;
+  const initialAttendanceById = useMemo(
+    () => buildAttendanceMap(participants),
+    [participants]
+  );
+  const hasAttendanceChanges = useMemo(() => {
+    const participantIds = participants.map((participant) => participant.id);
+    return participantIds.some(
+      (participantId) =>
+        (attendanceById[participantId] ?? "") !==
+        (initialAttendanceById[participantId] ?? "")
+    );
+  }, [attendanceById, initialAttendanceById, participants]);
+
+  useEffect(() => {
+    setAttendanceById(initialAttendanceById);
+  }, [initialAttendanceById]);
+
+  const handleAttendanceChange = (participantId, nextValue) => {
+    setAttendanceById((current) => ({
+      ...current,
+      [participantId]: nextValue,
+    }));
+  };
+
+  const handleAttendanceUpdate = async () => {
+    try {
+      setIsSavingAttendance(true);
+
+      const updatedEventParticipants = (event.event_participants ?? []).map(
+        (participant) => {
+          if (participant.reference_doctype !== "Employee") {
+            return participant;
+          }
+
+          const employeeId = String(participant.reference_docname ?? "");
+          const nextAttendance = attendanceById[employeeId] ?? "";
+
+          return {
+            ...participant,
+            attending: nextAttendance || undefined,
+          };
+        }
+      );
+
+      await saveEvent({
+        name: event.erpName,
+        event_participants: updatedEventParticipants,
+      });
+
+      updateEvent({
+        ...event,
+        event_participants: updatedEventParticipants,
+        participants: buildParticipantsWithDetails(updatedEventParticipants, {
+          employeeOptions,
+          doctorOptions,
+        }),
+      });
+
+      toast.success("Attendance updated");
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to update attendance");
+    } finally {
+      setIsSavingAttendance(false);
+    }
+  };
 
   return (
     <>
@@ -201,6 +383,12 @@ export function EventMeetingDialog({ event, setOpen }) {
               </DetailItem>
             ) : null}
 
+            {event.meetingLocation ? (
+              <DetailItem icon={MapPin} label="Location / venue">
+                {event.meetingLocation}
+              </DetailItem>
+            ) : null}
+
             <DetailItem icon={Users} label="Team">
               <TeamRoster participants={participants} hostId={host?.id ?? null} />
             </DetailItem>
@@ -212,6 +400,29 @@ export function EventMeetingDialog({ event, setOpen }) {
                 </div>
               </DetailItem>
             ) : null}
+
+            <DetailItem icon={Users} label="Attendance">
+              <div className="space-y-3">
+                <AttendanceEditor
+                  participants={participants}
+                  hostId={host?.id ?? null}
+                  editable={canManageAttendance}
+                  attendanceById={attendanceById}
+                  onChange={handleAttendanceChange}
+                />
+                {canManageAttendance ? (
+                  <div className="flex justify-end">
+                    <Button
+                      size="sm"
+                      onClick={handleAttendanceUpdate}
+                      disabled={!hasAttendanceChanges || isSavingAttendance}
+                    >
+                      {isSavingAttendance ? "Updating..." : "Update Attendance"}
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            </DetailItem>
           </DetailGrid>
         </div>
       </ScrollArea>

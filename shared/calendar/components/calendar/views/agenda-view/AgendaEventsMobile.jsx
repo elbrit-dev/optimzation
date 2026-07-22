@@ -8,13 +8,12 @@ import {
   isWithinInterval,
 } from "date-fns";
 
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { cn } from "@calendar/lib/utils";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 
 import {
   getBgColor,
-  getAvatarColorBySeed,
   getColorClass,
   getFirstLetters,
   toCapitalize,
@@ -33,6 +32,7 @@ import {
 } from "@calendar/components/ui/command";
 
 import { Avatar, AvatarFallback } from "@calendar/components/ui/avatar";
+import { EventParticipantAvatars } from "@calendar/components/calendar/views/shared/event-participant-avatars";
 import { ICON_MAP } from "@calendar/components/calendar/mobile/MobileAddEventBar";
 import { STATUS, TAG_IDS } from "@calendar/components/calendar/constants";
 import { navigateDate } from "@calendar/components/calendar/helpers";
@@ -164,21 +164,24 @@ export const AgendaEventsMobile = () => {
      GROUP BY DATE (FIXED)
   =============================== */
 
-  const getEventDisplayDate = (event) => {
-    const start = parseISO(event.startDate);
-    const end = parseISO(event.endDate || event.startDate);
+  const getEventDisplayDate = useCallback(
+    (event) => {
+      const start = parseISO(event.startDate);
+      const end = parseISO(event.endDate || event.startDate);
 
-    if (
-      isWithinInterval(selectedDate, {
-        start: startOfDay(start),
-        end: endOfDay(end),
-      })
-    ) {
-      return format(selectedDate, "yyyy-MM-dd");
-    }
+      if (
+        isWithinInterval(selectedDate, {
+          start: startOfDay(start),
+          end: endOfDay(end),
+        })
+      ) {
+        return format(selectedDate, "yyyy-MM-dd");
+      }
 
-    return format(start, "yyyy-MM-dd");
-  };
+      return format(start, "yyyy-MM-dd");
+    },
+    [selectedDate]
+  );
 
   const agendaEvents = useMemo(() => {
     return Object.groupBy(filteredEvents, (event) =>
@@ -186,7 +189,7 @@ export const AgendaEventsMobile = () => {
         ? getEventDisplayDate(event)
         : event.color
     );
-  }, [filteredEvents, agendaModeGroupBy, selectedDate]);
+  }, [filteredEvents, agendaModeGroupBy, getEventDisplayDate]);
 
   const groupedAndSortedEvents = Object.entries(agendaEvents).sort(
     (a, b) => new Date(a[0]) - new Date(b[0])
@@ -201,7 +204,6 @@ export const AgendaEventsMobile = () => {
     const ownerName =
       users.find((user) => user.id === event.ownerEmployeeId)?.name ??
       event.ownerEmployeeId;
-    const ownerInitials = getFirstLetters(ownerName);
 
     return (
       <CommandItem
@@ -240,16 +242,12 @@ export const AgendaEventsMobile = () => {
               </div>
             </div>
 
-            <Avatar className="h-8 w-8 shrink-0">
-              <AvatarFallback
-                className={cn(
-                  "text-[11px] font-semibold text-white",
-                  getAvatarColorBySeed(ownerName || event.ownerEmployeeId || event.id)
-                )}
-              >
-                {ownerInitials}
-              </AvatarFallback>
-            </Avatar>
+            <EventParticipantAvatars
+              event={event}
+              max={2}
+              className="ml-auto"
+              avatarClassName="h-4 w-4 text-[8px]"
+            />
           </div>
         </EventDetailsDialog>
       </CommandItem>

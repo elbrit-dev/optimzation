@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronsUpDown, X } from "lucide-react";
+import { Check, ChevronsUpDown, SlidersHorizontal, X } from "lucide-react";
 import { cn } from "@calendar/lib/utils";
 import { Button } from "@calendar/components/ui/button";
+import { Checkbox } from "@calendar/components/ui/checkbox";
 import {
   Command,
   CommandEmpty,
@@ -31,10 +32,13 @@ export function RHFCombobox({
   tagsDisplay = true,
   onSearch,
   loading = false,
+  filters,
 }) {
   const [open, setOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [search, setSearch] = useState("");
   const lastSearchRef = useRef("");
+  const [activeFilters, setActiveFilters] = useState({});
 
   useEffect(() => {
     if (!onSearch || !open) return;
@@ -89,27 +93,50 @@ export function RHFCombobox({
       .filter(Boolean);
   }, [selectedIds, options]);
 
+  const filterFacets = useMemo(() => filters?.facets ?? [], [filters]);
+  const activeFilterCount = Object.values(activeFilters).reduce(
+    (count, selectedValues) =>
+      count + (Array.isArray(selectedValues) ? selectedValues.length : 0),
+    0
+  );
+
   const filteredOptions = useMemo(() => {
     const query = search.trim().toLowerCase();
 
-    if (!query) {
-      return options;
-    }
+    return options.filter((opt) => {
+      const matchesQuery =
+        !query ||
+        [
+          opt.label,
+          opt.value,
+          opt.email,
+          opt.role,
+          opt.designation,
+          opt.department,
+        ]
+          .filter(Boolean)
+          .some((fieldValue) =>
+            String(fieldValue).toLowerCase().includes(query)
+          );
 
-    return options.filter((opt) =>
-      [
-        opt.label,
-        opt.value,
-        opt.email,
-        opt.role,
-        opt.designation,
-      ]
-        .filter(Boolean)
-        .some((fieldValue) =>
-          String(fieldValue).toLowerCase().includes(query)
-        )
-    );
-  }, [options, search]);
+      if (!matchesQuery) {
+        return false;
+      }
+
+      return filterFacets.every((facet) => {
+        const selectedValues = activeFilters[facet.id] ?? [];
+
+        if (!selectedValues.length) {
+          return true;
+        }
+
+        const facetValue = facet.getValue(opt);
+        return facetValue
+          ? selectedValues.includes(String(facetValue))
+          : false;
+      });
+    });
+  }, [activeFilters, filterFacets, options, search]);
 
   const hasSelection = selectedOptions.length > 0;
 
@@ -139,6 +166,28 @@ export function RHFCombobox({
     } else {
       onChange(selectedIds.filter((v) => v !== optValue));
     }
+  };
+
+  const toggleFilterValue = (facetId, value) => {
+    setActiveFilters((current) => {
+      const currentValues = current[facetId] ?? [];
+      const nextValues = currentValues.includes(value)
+        ? currentValues.filter((item) => item !== value)
+        : [...currentValues, value];
+
+      return {
+        ...current,
+        [facetId]: nextValues,
+      };
+    });
+  };
+
+  const clearFilters = () => {
+    setActiveFilters({});
+  };
+
+  const stopWheelPropagation = (event) => {
+    event.stopPropagation();
   };
 
   /* ---------------------------------------
@@ -194,14 +243,95 @@ export function RHFCombobox({
         <PopoverContent
           className="w-[var(--radix-popover-trigger-width)] min-w-[var(--radix-popover-trigger-width)] max-h-[320px] overflow-hidden p-0"
           align="start"
+          onWheelCapture={stopWheelPropagation}
         >
           <Command className="max-h-[320px] overflow-hidden">
+            <div className="flex items-center gap-2 border-b px-3 py-2">
               <CommandInput
+                className="flex-1"
                 placeholder={searchPlaceholder}
                 value={search}
                 onValueChange={setSearch}
               />
-            <CommandList className="max-h-[260px] overflow-y-auto overscroll-contain">
+              {filterFacets.length > 0 && (
+                <Popover open={filtersOpen} onOpenChange={setFiltersOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 shrink-0 gap-1.5 px-2 text-xs"
+                    >
+                      <SlidersHorizontal className="h-3.5 w-3.5" />
+                      Filters
+                      {activeFilterCount > 0 ? (
+                        <span className="rounded-full bg-primary px-1.5 py-0 text-[10px] text-primary-foreground">
+                          {activeFilterCount}
+                        </span>
+                      ) : null}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    align="end"
+                    className="w-72 p-0"
+                    sideOffset={8}
+                    onWheelCapture={stopWheelPropagation}
+                  >
+                    <div className="flex items-center justify-between border-b px-3 py-2">
+                      <p className="text-sm font-medium">Filters</p>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={clearFilters}
+                      >
+                        Clear
+                      </Button>
+                    </div>
+                    <div
+                      className="max-h-72 overflow-y-auto overscroll-contain px-3 py-2"
+                      onWheelCapture={stopWheelPropagation}
+                    >
+                      {filterFacets.map((facet) => (
+                        <div key={facet.id} className="mb-4 last:mb-0">
+                          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            {facet.label}
+                          </p>
+                          <div className="space-y-2">
+                            {facet.options.map((optionValue) => {
+                              const normalizedValue = String(optionValue);
+                              const checked = (activeFilters[facet.id] ?? []).includes(
+                                normalizedValue
+                              );
+
+                              return (
+                                <label
+                                  key={normalizedValue}
+                                  className="flex cursor-pointer items-center gap-2 text-sm"
+                                >
+                                  <Checkbox
+                                    checked={checked}
+                                    onCheckedChange={() =>
+                                      toggleFilterValue(facet.id, normalizedValue)
+                                    }
+                                  />
+                                  <span className="truncate">{normalizedValue}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              )}
+            </div>
+            <CommandList
+              className="max-h-[260px] overflow-y-auto overscroll-contain"
+              onWheelCapture={stopWheelPropagation}
+            >
               {loading && (
                 <div className="px-3 py-2 text-sm text-muted-foreground">
                   Loading...

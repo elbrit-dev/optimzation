@@ -232,6 +232,7 @@ export function mapErpGraphqlEventToCalendar(node) {
 
     color,
     hqTerritory: node.custom_hq__name ?? "",
+    meetingLocation: node.custom_meeting_location ?? "",
     googleMeetLink: node.google_meet_link ?? null,
     enableGoogleMeet: Boolean(node.google_meet_link),
 

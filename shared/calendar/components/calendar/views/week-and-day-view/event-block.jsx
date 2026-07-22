@@ -6,6 +6,7 @@ import { EventDetailsDialog } from "@calendar/components/calendar/dialogs/event-
 import { DraggableEvent } from "@calendar/components/calendar/dnd/draggable-event";
 import { ResizableEvent } from "@calendar/components/calendar/dnd/resizable-event";
 import { formatTime } from "@calendar/components/calendar/helpers";
+import { EventParticipantAvatars } from "@calendar/components/calendar/views/shared/event-participant-avatars";
 
 const calendarWeekEventCardVariants = cva(
     "flex select-none flex-col gap-0.5 truncate whitespace-nowrap rounded-md border px-2 py-1.5 text-xs focus-visible:outline-offset-2",
@@ -82,7 +83,13 @@ export function EventBlock({
 								</svg>
 							)}
 
-							<p className="truncate font-semibold">{event.title}</p>
+							<p className="flex-1 truncate font-semibold">{event.title}</p>
+							<EventParticipantAvatars
+								event={event}
+								max={2}
+								className="ml-auto"
+								avatarClassName="h-4.5 w-4.5 text-[9px]"
+							/>
 						</div>
 
 						{durationInMinutes > 25 && (

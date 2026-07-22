@@ -40,6 +40,7 @@ export async function fetchEmployees() {
       email: node.company_email || node.user_id,
       role: node.designation?.name ?? null,
       roleId: node.role_id,
+      hqTerritory: node.custom_hq__name ?? null,
       leave_approver: node.leave_approver?.name ?? null,
     })) || []
   );
@@ -73,6 +74,7 @@ export async function searchEmployees(search) {
       email: node.company_email || node.user_id,
       role: node.designation?.name ?? null,
       roleId: node.role_id,
+      hqTerritory: node.custom_hq__name ?? null,
       leave_approver: node.leave_approver?.name ?? null,
     })) || []
   );

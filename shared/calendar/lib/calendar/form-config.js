@@ -164,7 +164,7 @@ export const TAG_FORM_CONFIG = {
 
   [TAG_IDS.MEETING]: {
     hide: ["color", "doctor", "allocated_to"],
-    show: ["title", "startDate", "endDate", "employees", "allDay", "description"],
+    show: ["title", "startDate", "endDate", "employees", "allDay", "meetingLocation", "description"],
     required: ["title", "startDate", "endDate", "employees"],
     dateRange: true,
 
@@ -185,12 +185,13 @@ export const TAG_FORM_CONFIG = {
         { key: "endDate", label: "End Date", type: "date" },
         { key: "owner", label: "Created by", type: "owner" },
         { key: "employee", label: "Employee", type: "employee" },
+        { key: "meetingLocation", label: "Location / venue", type: "text" },
         { key: "description", label: "Description", type: "text" },
       ],
     },
     employee: {
       multiselect: true,
-      autoSelectLoggedIn: false,
+      autoSelectLoggedIn: true,
     },
   },
 
@@ -360,6 +361,7 @@ export const TAG_FORM_CONFIG = {
     },
     employee: {
       multiselect: true,
+      autoSelectLoggedIn: true,
     },
   },
 
@@ -377,6 +379,10 @@ export const TAG_FORM_CONFIG = {
       showTags: false,
       allowEdit: () => true,
       allowDelete: () => true,
+    },
+    employee: {
+      multiselect: true,
+      autoSelectLoggedIn: true,
     },
     required: ["title", "startDate"],
 

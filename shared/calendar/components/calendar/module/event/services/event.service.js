@@ -238,7 +238,11 @@ export async function fetchAllCustomers() {
     });
 
     return data.Customers.edges
-      .map(edge => edge.node.name)  // return only the name of the customer to the UI to show in the calendar as a customer name to select from the calendar
+      .map((edge) => ({
+        name: edge.node?.name ?? "",
+        territory: edge.node?.territory__name ?? null,
+      }))
+      .filter((customer) => customer.name);
   });
 }
 
@@ -258,7 +262,12 @@ export async function fetchCustomersByTerritory(territory) {
     });
 
     return (
-      data?.Customers?.edges?.map((edge) => edge.node?.name).filter(Boolean) ?? []
+      data?.Customers?.edges
+        ?.map((edge) => ({
+          name: edge.node?.name ?? "",
+          territory: edge.node?.territory__name ?? null,
+        }))
+        .filter((customer) => customer.name) ?? []
     );
   });
 }

@@ -24,6 +24,10 @@ import {
   DetailFooter,
 } from "@calendar/components/calendar/dialogs/event-details/detail-ui";
 import { SharedToBlock } from "@calendar/components/calendar/dialogs/share-event-dialog";
+import { Avatar, AvatarFallback, AvatarImage } from "@calendar/components/ui/avatar";
+import { EventParticipantAvatars } from "@calendar/components/calendar/views/shared/event-participant-avatars";
+import { getAvatarColorBySeed, getFirstLetters } from "@calendar/components/calendar/helpers";
+import { cn } from "@calendar/lib/utils";
 /* =====================================================
    PURE HELPERS (NO LOGIC CHANGE)
 ===================================================== */
@@ -150,6 +154,7 @@ export function EventDoctorVisitDialog({
             // Per-participant completion, read from that participant's own ERP
             // attendance — identical for every role that opens this visit.
             visited: isParticipantVisited(p),
+            forceVisit: Boolean(p.custom_is_force_visit),
           };
         })
         .filter(Boolean) ?? []
@@ -468,26 +473,53 @@ export function EventDoctorVisitDialog({
               </p>
             </div>
           )}
-          <p className="text-sm font-medium mb-[4px]">Participants</p>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-medium mb-[2px]">Participants</p>
+            <EventParticipantAvatars
+              event={event}
+              max={3}
+              className="mb-[2px]"
+              avatarClassName="size-5 text-[10px]"
+            />
+          </div>
           {/* Participants */}
           {employeeParticipants.map((p, index) => (
             <div
               key={p.id ?? index}
-              className="flex justify-start gap-3 text-sm items-center sm:gap-4"
+              className="flex flex-wrap items-center gap-2 text-sm"
             >
-              <span className="text-muted-foreground">
+              <Avatar className="size-6 shrink-0">
+                <AvatarImage alt={p.name} />
+                <AvatarFallback
+                  className={cn(
+                    "text-[10px] font-semibold text-white",
+                    getAvatarColorBySeed(p.name || p.id)
+                  )}
+                >
+                  {getFirstLetters(p.name)}
+                </AvatarFallback>
+              </Avatar>
+              <span className="text-muted-foreground leading-none">
                 {p.name}
               </span>
 
-              <span className="text-muted-foreground">
+              <span className="text-muted-foreground leading-none">
                 {p.role}
               </span>
 
-              {/* Green check reflects that participant's own visit — shown to
-                  every viewer, not only when it's the logged-in user. */}
               {p.visited && (
-                <span className="text-green-600 font-medium">
+                <span
+                  className={cn(
+                    "font-medium leading-none",
+                    p.forceVisit ? "text-rose-600" : "text-green-600"
+                  )}
+                >
                   <CircleCheck />
+                </span>
+              )}
+              {p.forceVisit && (
+                <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-700 leading-none">
+                  Force visit
                 </span>
               )}
             </div>

@@ -20,7 +20,6 @@ import { useMediaQuery } from "@calendar/components/calendar/hooks";
 
 import {
   getBgColor,
-  getAvatarColorBySeed,
   getColorClass,
   getEventsForMonth,
   getFirstLetters,
@@ -42,6 +41,7 @@ import {
 } from "@calendar/components/ui/command";
 
 import { Avatar, AvatarFallback } from "@calendar/components/ui/avatar";
+import { EventParticipantAvatars } from "@calendar/components/calendar/views/shared/event-participant-avatars";
 
 import { ICON_MAP } from "@calendar/components/calendar/mobile/MobileAddEventBar";
 import { STATUS, TAG_IDS } from "@calendar/components/calendar/constants";
@@ -249,7 +249,6 @@ export const AgendaEvents = ({ scope = "all"}) => {
     const ownerName =
       users.find((user) => user.id === event.ownerEmployeeId)?.name ??
       event.ownerEmployeeId;
-    const ownerInitials = getFirstLetters(ownerName);
 
     return (
       <CommandItem
@@ -295,16 +294,12 @@ export const AgendaEvents = ({ scope = "all"}) => {
               </div>
             </div>
 
-            <Avatar className="h-8 w-8 shrink-0">
-              <AvatarFallback
-                className={cn(
-                  "text-[11px] font-semibold text-white",
-                  getAvatarColorBySeed(ownerName || event.ownerEmployeeId || event.id)
-                )}
-              >
-                {ownerInitials}
-              </AvatarFallback>
-            </Avatar>
+            <EventParticipantAvatars
+              event={event}
+              max={2}
+              className="ml-auto"
+              avatarClassName="h-4 w-4 text-[8px]"
+            />
           </div>
         </EventDetailsDialog>
       </CommandItem>

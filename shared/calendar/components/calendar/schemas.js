@@ -54,6 +54,7 @@ export const eventSchema = z
     allocated_to:z.any().optional(),
     shareEmployees: z.any().optional(),
     hqTerritory: z.string().optional(),
+    meetingLocation: z.string().optional(),
     customer: z.string().optional(),
     allDay: z.boolean().optional(),
     enableGoogleMeet: z.boolean().optional(),
@@ -66,6 +67,7 @@ export const eventSchema = z
     halfDayPosition: z.enum(["FIRST_DAY", "LAST_DAY"]).optional(),
     approvedBy: z.string().optional(),
     assignedTo:z.any().optional(),
+    meetingAttendance: z.any().optional(),
     /* ---------- Todo ---------- */
     status: z.enum(["Open", "Closed", "Cancelled","Completed","Approved","Rejected"]).optional(),
     priority: z.enum(["High", "Medium", "Low"]).optional(),
@@ -174,6 +176,18 @@ export const eventSchema = z
       ctx.addIssue({
         path: ["fsl_doctor_item"],
         message: "At least one item is required",
+        code: z.ZodIssueCode.custom,
+      });
+    }
+
+    if (
+      data.tags === TAG_IDS.MEETING &&
+      data.allDay &&
+      data.enableGoogleMeet
+    ) {
+      ctx.addIssue({
+        path: ["enableGoogleMeet"],
+        message: "All-day meetings cannot have Google Meet enabled",
         code: z.ZodIssueCode.custom,
       });
     }

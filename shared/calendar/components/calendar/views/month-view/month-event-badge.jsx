@@ -6,6 +6,7 @@ import { EventDetailsDialog } from "@calendar/components/calendar/dialogs/event-
 import { DraggableEvent } from "@calendar/components/calendar/dnd/draggable-event";
 import { formatTime } from "@calendar/components/calendar/helpers";
 import {EventBullet} from "@calendar/components/calendar/views/month-view/event-bullet";
+import { EventParticipantAvatars } from "@calendar/components/calendar/views/shared/event-participant-avatars";
 import { TAG_IDS } from "../../constants";
 import { SyncStatusBadge } from "@calendar/components/calendar/sync/sync-status-badge";
 
@@ -114,6 +115,12 @@ export function MonthEventBadge({
 					</div>
 
 					<SyncStatusBadge event={event} className="hidden md:flex text-[10px]" />
+					<EventParticipantAvatars
+						event={event}
+						max={1}
+						className="ml-auto hidden md:flex"
+						avatarClassName="h-4 w-4 text-[9px]"
+					/>
 
 					{/* <div className="hidden sm:block">
 						{renderBadgeTime && (

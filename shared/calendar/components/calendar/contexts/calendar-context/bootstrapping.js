@@ -18,6 +18,7 @@ function mapEmployeesToOptions(employees = []) {
     email: employee.company_email || employee.user_id,
     role: employee.designation?.name ?? null,
     roleId: employee.role_id,
+    hqTerritory: employee.custom_hq__name ?? null,
     leave_approver: employee.leave_approver?.name ?? null,
   }));
 }
@@ -34,9 +35,10 @@ async function fetchElbritRoleEdges() {
 }
 
 function mapCustomersToOptions(customers = []) {
-  return customers.map((name) => ({
-    label: name,
-    value: name,
+  return customers.map((customer) => ({
+    label: customer.name,
+    value: customer.name,
+    territory: customer.territory ?? null,
   }));
 }
 
@@ -68,6 +70,7 @@ function buildLoggedInUserFallback() {
         email: LOGGED_IN_USER.email ?? null,
         role: LOGGED_IN_USER.role ?? null,
         roleId: LOGGED_IN_USER.roleId ?? null,
+        hqTerritory: null,
         leave_approver: LOGGED_IN_USER.leave_approver ?? null,
       },
     ],

@@ -8,6 +8,7 @@ import { isBefore, startOfDay, endOfDay } from "date-fns";
 import { TAG_IDS, TAGS } from "@calendar/components/calendar/constants";
 import { motion, AnimatePresence } from "framer-motion";
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
+import { isLeafRole, resolveLoggedInRoleId } from "@calendar/lib/employeeHeirachy";
 import {
   Plus,
   Building2, Users, Cake, Calendar, Stethoscope, ListChecks, HelpCircle,
@@ -24,7 +25,14 @@ export const ICON_MAP = {
 };
 
 export default function MobileAddEventBar({ date: propDate }) {
-  const { selectedDate, events } = useCalendar();
+  const {
+    selectedDate,
+    events,
+    users,
+    allEmployeeOptions,
+    elbritRoleEdges,
+    hqTerritoryOptions,
+  } = useCalendar();
   const [showTags, setShowTags] = useState(false);
 
   const date = useMemo(
@@ -54,6 +62,34 @@ export default function MobileAddEventBar({ date: propDate }) {
       );
     });
   }, [events, date]);
+  const resolvedLoggedInRoleId = useMemo(
+    () => resolveLoggedInRoleId(users),
+    [users]
+  );
+  const isLeafHierarchyUser = useMemo(
+    () => isLeafRole(elbritRoleEdges, resolvedLoggedInRoleId),
+    [elbritRoleEdges, resolvedLoggedInRoleId]
+  );
+  const loggedInEmployeeHqTerritory = useMemo(() => {
+    const matchById = allEmployeeOptions.find(
+      (employee) => String(employee.value) === String(LOGGED_IN_USER.id)
+    );
+    if (matchById?.hqTerritory) return matchById.hqTerritory;
+
+    const matchByEmail = allEmployeeOptions.find(
+      (employee) =>
+        employee.email &&
+        LOGGED_IN_USER.email &&
+        employee.email.toLowerCase() === LOGGED_IN_USER.email.toLowerCase()
+    );
+    if (matchByEmail?.hqTerritory) return matchByEmail.hqTerritory;
+
+    if (hqTerritoryOptions.length === 1) {
+      return hqTerritoryOptions[0]?.value ?? null;
+    }
+
+    return null;
+  }, [allEmployeeOptions, hqTerritoryOptions]);
 
   const isPastDate = isBefore(
     startOfDay(date),
@@ -63,6 +99,9 @@ export default function MobileAddEventBar({ date: propDate }) {
   if (isPastDate) return null;
 
   const hasValidHqTourPlan = !!matchedHqEvent;
+  const canCreateDoctorVisitDirectly =
+    isLeafHierarchyUser && Boolean(loggedInEmployeeHqTerritory);
+  const shouldHideHqTourPlanTag = canCreateDoctorVisitDirectly;
   return (
     <>
       {/* Blur background (BEHIND tags) */}
@@ -105,11 +144,11 @@ export default function MobileAddEventBar({ date: propDate }) {
                 >
                   {TAGS
                     .filter((tag) => {
-                      if (
-                        tag.id === TAG_IDS.DOCTOR_VISIT_PLAN ||
-                        tag.id === TAG_IDS.TODO_LIST
-                      ) {
-                        return hasValidHqTourPlan;
+                      if (tag.id === TAG_IDS.HQ_TOUR_PLAN) {
+                        return !shouldHideHqTourPlanTag;
+                      }
+                      if (tag.id === TAG_IDS.DOCTOR_VISIT_PLAN) {
+                        return hasValidHqTourPlan || canCreateDoctorVisitDirectly;
                       }
 
                       return true;

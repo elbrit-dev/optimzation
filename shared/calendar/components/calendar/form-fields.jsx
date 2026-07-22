@@ -143,6 +143,7 @@ export function RHFComboboxField({
   tagsDisplay,
   onSearch,
   loading,
+  filters,
 }) {
   return (
     <FormField
@@ -165,6 +166,7 @@ export function RHFComboboxField({
               tagsDisplay={tagsDisplay}
               onSearch={onSearch}
               loading={loading}
+              filters={filters}
             />
           </FormControl>
         </RHFFieldWrapper>
