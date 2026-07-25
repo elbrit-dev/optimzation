@@ -60,8 +60,7 @@ function ensureStyles() {
     .esum-badge.ok{color:var(--esum-good);background:var(--esum-good-bg);border-color:color-mix(in srgb,var(--esum-good) 25%,transparent);cursor:default}
 
     .esum-kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:9px;margin-top:14px}
-    .esum-kpi{background:var(--esum-surface2);border:1px solid var(--esum-border);border-radius:11px;padding:11px 12px;cursor:pointer;transition:border-color .12s}
-    .esum-kpi:hover{border-color:color-mix(in srgb,var(--esum-ink3) 60%,transparent)}
+    .esum-kpi{background:var(--esum-surface2);border:1px solid var(--esum-border);border-radius:11px;padding:11px 12px}
     .esum-kpi .k{font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--esum-ink3);font-weight:700}
     .esum-kpi .v{font-size:21px;font-weight:700;letter-spacing:-.02em;margin-top:7px;line-height:1.05}
     .esum-kpi .v .c{font-size:11px;color:var(--esum-ink2);font-weight:600}
@@ -374,8 +373,7 @@ export default function SecondaryDataSummary({
               ["Waiting", fmtInt(counts.Waiting), "routes", "w"],
               ["Rejected", fmtInt(counts.Rejected), "routes", "b"],
             ].map(([k, v, s, c], i) => (
-              <div key={i} className={`esum-kpi${c ? " " + c : ""}`} onClick={openModal} role="button" tabIndex={0}
-                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openModal(); } }}>
+              <div key={i} className={`esum-kpi${c ? " " + c : ""}`}>
                 <div className="k">{k}</div>
                 <div className="v num" dangerouslySetInnerHTML={{ __html: v }} />
                 {s ? <div className="s num">{s}</div> : null}
