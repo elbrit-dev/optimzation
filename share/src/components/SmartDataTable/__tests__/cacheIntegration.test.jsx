@@ -221,49 +221,55 @@ describe('SmartDataCache', () => {
     };
 
     it('returns a non-empty string', () => {
-      const key = SmartDataCache.buildKey({}, BASE_VIEW);
+      const key = SmartDataCache.buildKey('v1', {}, BASE_VIEW);
       expect(typeof key).toBe('string');
       expect(key.length).toBeGreaterThan(0);
     });
 
     it('is deterministic — same inputs always produce the same key', () => {
-      const k1 = SmartDataCache.buildKey({ report: 'sales' }, BASE_VIEW);
-      const k2 = SmartDataCache.buildKey({ report: 'sales' }, BASE_VIEW);
+      const k1 = SmartDataCache.buildKey('v1', { report: 'sales' }, BASE_VIEW);
+      const k2 = SmartDataCache.buildKey('v1', { report: 'sales' }, BASE_VIEW);
       expect(k1).toBe(k2);
     });
 
     it('differs when apiVars differ', () => {
-      const k1 = SmartDataCache.buildKey({ report: 'A' }, BASE_VIEW);
-      const k2 = SmartDataCache.buildKey({ report: 'B' }, BASE_VIEW);
+      const k1 = SmartDataCache.buildKey('v1', { report: 'A' }, BASE_VIEW);
+      const k2 = SmartDataCache.buildKey('v1', { report: 'B' }, BASE_VIEW);
+      expect(k1).not.toBe(k2);
+    });
+
+    it('differs when viewId differs, even with identical apiVars/view', () => {
+      const k1 = SmartDataCache.buildKey('view-a', {}, BASE_VIEW);
+      const k2 = SmartDataCache.buildKey('view-b', {}, BASE_VIEW);
       expect(k1).not.toBe(k2);
     });
 
     it('differs when filters differ', () => {
-      const k1 = SmartDataCache.buildKey({}, { ...BASE_VIEW, filters: {} });
-      const k2 = SmartDataCache.buildKey({}, { ...BASE_VIEW, filters: { name: { type: 'text', value: 'x' } } });
+      const k1 = SmartDataCache.buildKey('v1', {}, { ...BASE_VIEW, filters: {} });
+      const k2 = SmartDataCache.buildKey('v1', {}, { ...BASE_VIEW, filters: { name: { type: 'text', value: 'x' } } });
       expect(k1).not.toBe(k2);
     });
 
     it('differs when pagination page offset differs', () => {
-      const k1 = SmartDataCache.buildKey({}, { ...BASE_VIEW, pagination: { first: 0,  rows: 25 } });
-      const k2 = SmartDataCache.buildKey({}, { ...BASE_VIEW, pagination: { first: 25, rows: 25 } });
+      const k1 = SmartDataCache.buildKey('v1', {}, { ...BASE_VIEW, pagination: { first: 0,  rows: 25 } });
+      const k2 = SmartDataCache.buildKey('v1', {}, { ...BASE_VIEW, pagination: { first: 25, rows: 25 } });
       expect(k1).not.toBe(k2);
     });
 
     it('differs when sortBy differs', () => {
-      const k1 = SmartDataCache.buildKey({}, { ...BASE_VIEW, sortBy: {} });
-      const k2 = SmartDataCache.buildKey({}, { ...BASE_VIEW, sortBy: { name: 'asc' } });
+      const k1 = SmartDataCache.buildKey('v1', {}, { ...BASE_VIEW, sortBy: {} });
+      const k2 = SmartDataCache.buildKey('v1', {}, { ...BASE_VIEW, sortBy: { name: 'asc' } });
       expect(k1).not.toBe(k2);
     });
 
     it('differs when viewParams differ', () => {
-      const k1 = SmartDataCache.buildKey({}, { ...BASE_VIEW, viewParams: {} });
-      const k2 = SmartDataCache.buildKey({}, { ...BASE_VIEW, viewParams: { _controls: { date: '2024-01' } } });
+      const k1 = SmartDataCache.buildKey('v1', {}, { ...BASE_VIEW, viewParams: {} });
+      const k2 = SmartDataCache.buildKey('v1', {}, { ...BASE_VIEW, viewParams: { _controls: { date: '2024-01' } } });
       expect(k1).not.toBe(k2);
     });
 
     it('handles empty objects without throwing', () => {
-      expect(() => SmartDataCache.buildKey({}, {})).not.toThrow();
+      expect(() => SmartDataCache.buildKey('v1', {}, {})).not.toThrow();
     });
   });
 });

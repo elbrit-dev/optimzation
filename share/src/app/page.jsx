@@ -214,6 +214,28 @@ function Home() {
             </div>
           </Link>
 
+          {/* Plain <a>, not <Link>: /migration is a Multi-Zone rewrite to a
+              separate app, not a route in this app's client router — Link's
+              client-side navigation interception silently no-ops on it. */}
+          <a
+            href="/migration"
+            className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow duration-200 group"
+          >
+            <div className="flex items-start justify-between">
+              <div className="flex-1">
+                <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors">
+                  Migration
+                </h2>
+                <p className="text-sm text-gray-600">
+                  Ecubix → ERPNext secondary sales data migration workspace
+                </p>
+              </div>
+              <div className="ml-4 text-gray-400 group-hover:text-blue-600 transition-colors">
+                <i className="pi pi-sync text-2xl" aria-hidden />
+              </div>
+            </div>
+          </a>
+
           <Link
             href="/tokens"
             className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow duration-200 group"

@@ -258,6 +258,11 @@ export default function DataTableControls({
   onDeletePreset,
   presetSaving = false,
   isConfigDirty = false,
+  overridesDraft = '',
+  onOverridesDraftChange,
+  providerOverrides = undefined,
+  onApplyOverrides,
+  onClearOverrides,
 }) {
   const slotIdForData = (config?.slots && Object.keys(config.slots)[0]) ?? 'main';
   const tableOps = useTableOperations(slotIdForData);
@@ -327,6 +332,44 @@ export default function DataTableControls({
               disabled={!dataSourceOptions?.length}
             />
           </div>
+          <div className="flex items-center gap-2">
+            <i className="pi pi-sliders-h text-base @3xs:text-lg text-primary"></i>
+            <span className="font-semibold text-sm @3xs:text-base text-primary">Overrides</span>
+            {providerOverrides && Object.keys(providerOverrides).length > 0 && (
+              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-green-100 text-green-700">Active</span>
+            )}
+          </div>
+          <div className="flex items-start gap-2">
+            <textarea
+              value={overridesDraft}
+              onChange={(e) => onOverridesDraftChange?.(e.target.value)}
+              placeholder={'DataProvider overrides — e.g.\n{ "token": "Bearer ...", "variables": { "region": "IN" } }'}
+              className="flex-1 min-w-0 text-xs font-mono border border-gray-300 rounded px-2 py-1.5 resize-y"
+              rows={3}
+              title="Passed as-is to <DataProvider overrides={...}>: token, variables, and (non-preset flows only) config"
+            />
+            <div className="flex flex-col gap-1 shrink-0">
+              <button
+                type="button"
+                onClick={onApplyOverrides}
+                className="flex items-center justify-center w-8 h-8 rounded-md bg-blue-600 hover:bg-blue-700 text-white transition-colors"
+                title="Apply overrides"
+              >
+                <i className="pi pi-check text-sm"></i>
+              </button>
+              {providerOverrides && Object.keys(providerOverrides).length > 0 && (
+                <button
+                  type="button"
+                  onClick={onClearOverrides}
+                  className="flex items-center justify-center w-8 h-8 rounded-md bg-gray-200 hover:bg-gray-300 text-gray-700 transition-colors"
+                  title="Clear overrides"
+                >
+                  <i className="pi pi-times text-sm"></i>
+                </button>
+              )}
+            </div>
+          </div>
+
           <div className="flex items-center gap-2">
             <i className="pi pi-folder-open text-base @3xs:text-lg text-primary"></i>
             <span className="font-semibold text-sm @3xs:text-base text-primary">Config</span>

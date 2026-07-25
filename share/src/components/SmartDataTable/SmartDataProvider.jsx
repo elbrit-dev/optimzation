@@ -213,7 +213,7 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
     const ds    = viewDataSources.current[viewId] ?? providerDataSource;
     if (!view || !ds) return;
 
-    const cacheKey = SmartDataCache.buildKey(viewApiVarsRef.current[viewId] ?? {}, view);
+    const cacheKey = SmartDataCache.buildKey(viewId, viewApiVarsRef.current[viewId] ?? {}, view);
     const gen      = (fetchGenRef.current[viewId] = (fetchGenRef.current[viewId] ?? 0) + 1);
     const isStale  = () => fetchGenRef.current[viewId] !== gen;
 
@@ -267,7 +267,7 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
       const ds = viewDataSources.current[viewId] ?? providerDataSource;
       if (!ds) continue;
 
-      const cacheKey = SmartDataCache.buildKey(viewApiVarsRef.current[viewId] ?? {}, view);
+      const cacheKey = SmartDataCache.buildKey(viewId, viewApiVarsRef.current[viewId] ?? {}, view);
       if (!bypassCache) {
         const cached = cache.current.get(cacheKey);
         if (cached) {

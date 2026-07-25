@@ -248,6 +248,7 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
   // ── Export ────────────────────────────────────────────────────────────────
   const [exporting, setExporting] = useState(false);
   const [exportLevelsVisible, setExportLevelsVisible] = useState(false);
+  const [exportAvailableLevels, setExportAvailableLevels] = useState([]);
   const [exportSelectedLevels, setExportSelectedLevels] = useState([]);
   const [exportDialogLoading, setExportDialogLoading] = useState(false);
 
@@ -294,7 +295,7 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
     if (selectedDepths?.length) {
       // Multi-sheet: one sheet per selected tree depth.
       [...selectedDepths].sort((a, b) => a - b).forEach(depth => {
-        const sheetName = viewState.filterDefs?.[depth]?.label ?? `Level ${depth + 1}`;
+        const sheetName = labelColDefs[depth]?.header ?? `Level ${depth + 1}`;
         const rawRows = collectAtDepth(rows, depth, labelColDefs);
 
         // Build ancestor columns from __anc_ metadata embedded by collectAtDepth.
@@ -331,7 +332,9 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
     if (viewState?.expandable) {
       // Show level picker immediately using already-loaded store rows — fetch happens on confirm.
       const maxDepth = getMaxDepth(viewState.rows);
-      setExportSelectedLevels(Array.from({ length: maxDepth + 1 }, (_, i) => i));
+      const allLevels = Array.from({ length: maxDepth + 1 }, (_, i) => i);
+      setExportAvailableLevels(allLevels);
+      setExportSelectedLevels(allLevels);
       setExportLevelsVisible(true);
     } else {
       setExporting(true);
@@ -715,7 +718,7 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
           Select which levels to export. Each selected level becomes a separate sheet in the Excel file.
         </p>
         <div className="flex flex-col gap-2">
-          {exportSelectedLevels.map((_, i) => (
+          {exportAvailableLevels.map((i) => (
             <label key={i} className="flex items-center gap-2 cursor-pointer text-sm">
               <input
                 type="checkbox"
@@ -727,7 +730,7 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
                 }
                 className="w-4 h-4 text-blue-600 rounded"
               />
-              <span>{viewState.filterDefs?.[i]?.label ?? `Level ${i + 1}`}</span>
+              <span>{labelColDefs[i]?.header ?? `Level ${i + 1}`}</span>
             </label>
           ))}
         </div>

@@ -1,14 +1,36 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useCallback, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
+import { getSafeRedirect } from '@/lib/safeRedirect';
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { loginWithEmail, loginWithPhone, verifyPhoneCode, loginWithMicrosoft, isAuthenticated, setupRecaptcha } = useAuth();
-  
+
+  // Cross-app sign-in: /login?redirect=<url> bounces back to another
+  // Multi-Zone-split app (e.g. the migration app) once auth completes here.
+  // Allowlisted in getSafeRedirect to prevent an open redirect.
+  const safeRedirect = getSafeRedirect(searchParams.get('redirect'));
+  const goToDestination = useCallback(() => {
+    if (safeRedirect) {
+      window.location.href = safeRedirect;
+    } else {
+      router.push('/');
+    }
+  }, [safeRedirect, router]);
+
   const [activeTab, setActiveTab] = useState('email'); // 'email', 'phone', 'microsoft'
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -27,9 +49,9 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (isAuthenticated) {
-      router.push('/');
+      goToDestination();
     }
-  }, [isAuthenticated, router]);
+  }, [isAuthenticated, goToDestination]);
 
   // Clean up reCAPTCHA when switching away from phone tab
   useEffect(() => {
@@ -51,7 +73,7 @@ export default function LoginPage() {
     
     if (result.success) {
       setSuccess('Login successful! Redirecting...');
-      setTimeout(() => router.push('/'), 1000);
+      setTimeout(goToDestination, 1000);
     } else {
       setError(result.error || 'Login failed. Please check your credentials.');
     }
@@ -101,7 +123,7 @@ export default function LoginPage() {
     
     if (result.success) {
       setSuccess('Login successful! Redirecting...');
-      setTimeout(() => router.push('/'), 1000);
+      setTimeout(goToDestination, 1000);
     } else {
       setError(result.error || 'Invalid verification code.');
     }
@@ -118,7 +140,7 @@ export default function LoginPage() {
     
     if (result.success) {
       setSuccess('Login successful! Redirecting...');
-      setTimeout(() => router.push('/'), 1000);
+      setTimeout(goToDestination, 1000);
     } else {
       setError(result.error || 'Microsoft login failed.');
       setLoading(false);

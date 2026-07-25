@@ -132,6 +132,37 @@ function DataTablePage() {
   });
   const [presetJsValue, setPresetJsValue] = useState('');
   const [presetSaving, setPresetSaving] = useState(false);
+
+  // Override testing (DataProvider `overrides` prop: { token?, variables?, config? }) — draft is
+  // what's typed, applied is what's actually passed down so retyping doesn't refetch on every keystroke.
+  const [overridesDraft, setOverridesDraft] = useState('');
+  const [providerOverrides, setProviderOverrides] = useState(undefined);
+  // Bumped on every Apply/Clear so <DataProvider> remounts and refetches with the new overrides
+  // (overrides.token has no reactive effect on its own — the pipeline only re-runs on data/variable changes).
+  const [overridesApplyKey, setOverridesApplyKey] = useState(0);
+  const handleApplyOverrides = useCallback(() => {
+    const trimmed = overridesDraft.trim();
+    if (!trimmed) {
+      setProviderOverrides(undefined);
+      setOverridesApplyKey((k) => k + 1);
+      return;
+    }
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('Overrides must be a JSON object, e.g. {"token": "...", "variables": {"region": "IN"}}');
+      }
+      setProviderOverrides(parsed);
+      setOverridesApplyKey((k) => k + 1);
+    } catch (err) {
+      toast.current?.show({ severity: 'error', summary: 'Invalid overrides JSON', detail: err.message, life: 4000 });
+    }
+  }, [overridesDraft]);
+  const handleClearOverrides = useCallback(() => {
+    setOverridesDraft('');
+    setProviderOverrides(undefined);
+    setOverridesApplyKey((k) => k + 1);
+  }, []);
   const [saveLocalAsFirebaseDialogVisible, setSaveLocalAsFirebaseDialogVisible] = useState(false);
   const [saveLocalAsFirebaseName, setSaveLocalAsFirebaseName] = useState('');
   const saveLocalAsFirebaseContextRef = useRef(null);
@@ -396,11 +427,12 @@ function DataTablePage() {
           </div>
         ) : (
           <DataProvider
-            key={configApplyKey}
+            key={`${configApplyKey}-${overridesApplyKey}`}
             __internal={{ config: configState }}
             offlineData={offlineData}
             onDataChange={handleDataChange}
             onError={handleError}
+            overrides={providerOverrides}
           >
             {isDebugTableContext ? (
               <div className="flex-1 min-h-0 flex flex-col overflow-auto">
@@ -437,6 +469,11 @@ function DataTablePage() {
                       onDeletePreset={handleDeletePreset}
                       presetSaving={presetSaving}
                       isConfigDirty={isConfigDirty}
+                      overridesDraft={overridesDraft}
+                      onOverridesDraftChange={setOverridesDraft}
+                      providerOverrides={providerOverrides}
+                      onApplyOverrides={handleApplyOverrides}
+                      onClearOverrides={handleClearOverrides}
                     />
                   </SplitterPanel>
                 </Splitter>

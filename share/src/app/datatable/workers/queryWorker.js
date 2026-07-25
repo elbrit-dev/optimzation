@@ -129,7 +129,7 @@ async function executeIndexQuery(queryId, queryDoc, endpointUrl, authToken, mont
         let finalEndpointUrl = endpointUrl;
         let finalAuthToken = authToken;
 
-        if (queryDoc.urlKey) {
+        if (!finalEndpointUrl && queryDoc.urlKey) {
             const config = await getEndpointConfigFromUrlKey(queryDoc.urlKey);
             if (config.endpointUrl) {
                 finalEndpointUrl = config.endpointUrl;
@@ -310,7 +310,7 @@ async function executeIndexQueryForSingleMonth(queryId, queryDoc, endpointUrl, a
         let finalEndpointUrl = endpointUrl;
         let finalAuthToken = authToken;
 
-        if (queryDoc.urlKey) {
+        if (!finalEndpointUrl && queryDoc.urlKey) {
             const config = await getEndpointConfigFromUrlKey(queryDoc.urlKey);
             if (config.endpointUrl) {
                 finalEndpointUrl = config.endpointUrl;
@@ -396,7 +396,7 @@ async function executeMonthIndexQueryAndExtractYearMonth(monthIndexQuery, queryD
         let finalEndpointUrl = endpointUrl;
         let finalAuthToken = authToken;
 
-        if (queryDoc?.urlKey) {
+        if (!finalEndpointUrl && queryDoc?.urlKey) {
             const config = await getEndpointConfigFromUrlKey(queryDoc.urlKey);
             if (config.endpointUrl) {
                 finalEndpointUrl = config.endpointUrl;
@@ -407,6 +407,7 @@ async function executeMonthIndexQueryAndExtractYearMonth(monthIndexQuery, queryD
         if (!finalEndpointUrl) {
             const defaultEndpoint = await getInitialEndpoint();
             finalEndpointUrl = defaultEndpoint?.endpointUrl || null;
+            finalAuthToken = defaultEndpoint?.authToken || null;
         }
 
         if (!finalEndpointUrl) {
@@ -470,7 +471,7 @@ async function executeMonthIndexQueryWithDateRange(monthIndexQuery, queryDoc, en
         let finalEndpointUrl = endpointUrl;
         let finalAuthToken = authToken;
 
-        if (queryDoc?.urlKey) {
+        if (!finalEndpointUrl && queryDoc?.urlKey) {
             const config = await getEndpointConfigFromUrlKey(queryDoc.urlKey);
             if (config.endpointUrl) {
                 finalEndpointUrl = config.endpointUrl;
@@ -530,7 +531,7 @@ async function executeMonthIndexQueryWithDateRange(monthIndexQuery, queryDoc, en
 /**
  * Execute full pipeline and cache result to IndexedDB
  */
-async function executePipeline(queryId, queryDoc, endpointUrl, authToken, monthRange, variableOverrides = {}, allQueryDocs = {}) {
+async function executePipeline(queryId, queryDoc, endpointUrl, authToken, monthRange, variableOverrides = {}, allQueryDocs = {}, tokenOverride = null) {
     if (!queryId || !queryDoc) {
         throw new Error('queryId and queryDoc are required');
     }
@@ -566,7 +567,7 @@ async function executePipeline(queryId, queryDoc, endpointUrl, authToken, monthR
     let finalAuthToken = authToken;
 
     if (!isOffline) {
-        if (queryDoc.urlKey) {
+        if (!finalEndpointUrl && queryDoc.urlKey) {
             const config = await getEndpointConfigFromUrlKey(queryDoc.urlKey);
             if (config.endpointUrl) {
                 finalEndpointUrl = config.endpointUrl;
@@ -630,7 +631,8 @@ async function executePipeline(queryId, queryDoc, endpointUrl, authToken, monthR
         authToken: finalAuthToken,
         monthRange: monthRangeDates || monthRangeForPipeline,
         variableOverrides,
-        allQueryDocs
+        allQueryDocs,
+        tokenOverride
     });
 
     // Cache result if clientSave is true (skip for offline - data is in json)
@@ -649,7 +651,7 @@ async function executePipeline(queryId, queryDoc, endpointUrl, authToken, monthR
  * Execute pipeline worker (internal function with query doc provided)
  */
 async function executePipelineWorkerInternal(queryId, queryDoc, context, options = {}) {
-    const { endpointUrl, authToken, monthRange, variableOverrides: externalOverrides = {}, allQueryDocs = {} } = options;
+    const { endpointUrl, authToken, monthRange, variableOverrides: externalOverrides = {}, allQueryDocs = {}, tokenOverride = null } = options;
 
     // Guardrail: Check for circular dependencies
     if (context.dependencyStack.includes(queryId)) {
@@ -676,6 +678,8 @@ async function executePipelineWorkerInternal(queryId, queryDoc, context, options
     let finalAuthToken = authToken;
 
     if (!isOffline) {
+        // Resolve from this query's own urlKey first (nested queries may target a different
+        // environment than their parent), falling back to the endpoint/token passed by the caller.
         if (queryDoc.urlKey) {
             const urlKeyConfig = await getEndpointConfigFromUrlKey(queryDoc.urlKey);
             if (urlKeyConfig.endpointUrl) {
@@ -691,6 +695,13 @@ async function executePipelineWorkerInternal(queryId, queryDoc, context, options
             if (!finalEndpointUrl) {
                 throw new Error("GraphQL endpoint URL is not set");
             }
+        }
+
+        // Explicit token override (DataProvider `overrides.token`) always wins, for this query
+        // and every nested query it depends on, regardless of whose urlKey resolved the endpoint.
+        const trimmedTokenOverride = tokenOverride != null && typeof tokenOverride === 'string' ? tokenOverride.trim() : '';
+        if (trimmedTokenOverride) {
+            finalAuthToken = trimmedTokenOverride;
         }
     } else {
         finalEndpointUrl = finalEndpointUrl || 'offline';
@@ -765,7 +776,8 @@ async function executePipelineWorkerInternal(queryId, queryDoc, context, options
             return executePipelineWorkerInternal(nestedQueryId, nestedQueryDoc, context, {
                 endpointUrl: finalEndpointUrl,  // Fallback to parent endpoint
                 authToken: finalAuthToken,      // Fallback to parent auth token
-                allQueryDocs                    // Nested query's urlKey will override if present
+                allQueryDocs,                   // Nested query's urlKey will override if present
+                tokenOverride                   // Explicit override always wins, even for nested queries
             });
         };
 
@@ -952,7 +964,7 @@ async function executeIndexQueryForMonthRange(queryId, queryDoc, endpointUrl, au
         let finalEndpointUrl = endpointUrl;
         let finalAuthToken = authToken;
 
-        if (queryDoc.urlKey) {
+        if (!finalEndpointUrl && queryDoc.urlKey) {
             const config = await getEndpointConfigFromUrlKey(queryDoc.urlKey);
             if (config.endpointUrl) {
                 finalEndpointUrl = config.endpointUrl;
@@ -1033,10 +1045,12 @@ async function executeIndexQueryForMonthRange(queryId, queryDoc, endpointUrl, au
  * Batch execute and cache index queries
  * Note: Endpoint config getter should be set via setEndpointConfigGetter before calling this
  */
-async function executeAndCacheIndexQueries(queries) {
+async function executeAndCacheIndexQueries(queries, tokenOverride = null) {
     if (!queries || queries.length === 0) {
         return;
     }
+
+    const trimmedTokenOverride = tokenOverride != null && typeof tokenOverride === 'string' ? tokenOverride.trim() : '';
 
     // Execute index queries for each query that has an index field and clientSave === true
     // For both month == true and month == false queries, require index query
@@ -1065,6 +1079,10 @@ async function executeAndCacheIndexQueries(queries) {
                 const defaultEndpoint = await getInitialEndpoint();
                 endpointUrl = defaultEndpoint?.endpointUrl || null;
                 authToken = defaultEndpoint?.authToken || null;
+            }
+
+            if (trimmedTokenOverride) {
+                authToken = trimmedTokenOverride;
             }
 
             return executeIndexQuery(query.id, query, endpointUrl, authToken);

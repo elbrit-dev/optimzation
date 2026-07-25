@@ -258,6 +258,9 @@ export function useQueryExecution(options) {
       try {
         const { endpointUrl, authToken } = await getEndpointAndAuthWithTokenOverride(queryDoc, graphqlToken);
         if (!endpointUrl) return;
+        // This prefetches the rest of the currently active query's month range, so the active
+        // provider's variable overrides apply the same way they do to the initial runQuery call.
+        const { startDate: _s, endDate: _e, ...mergedVariables } = { ...queryVariablesRef.current, ...variableOverrides };
         for (const prefix of monthPrefixes) {
           try {
             const [year, month] = prefix.split('-').map(Number);
@@ -269,7 +272,7 @@ export function useQueryExecution(options) {
               { year: monthEndDate.getFullYear(), month: monthEndDate.getMonth(), day: monthEndDate.getDate() },
             ];
             if (!workerRef.current) continue;
-            await workerRef.current.executePipeline(queryId, queryDoc, endpointUrl, authToken, monthRangeSerialized, {}, allQueryDocsRef.current);
+            await workerRef.current.executePipeline(queryId, queryDoc, endpointUrl, authToken, monthRangeSerialized, mergedVariables, allQueryDocsRef.current, graphqlToken);
           } catch (e) {
             console.error(`Error fetching month ${prefix}:`, e);
           }
@@ -287,9 +290,9 @@ export function useQueryExecution(options) {
     };
     if (typeof requestIdleCallback !== 'undefined') requestIdleCallback(doFetch, { timeout: 5000 });
     else setTimeout(doFetch, 0);
-  }, [graphqlToken]);
+  }, [graphqlToken, variableOverrides]);
 
-  const executeAndCacheMonthRange = useCallback(async (queryId, queryDoc, monthRangeValue, endpointUrl, authToken, mergedVariables) => {
+  const executeAndCacheMonthRange = useCallback(async (queryId, queryDoc, monthRangeValue, endpointUrl, authToken, mergedVariables, tokenOverride = null) => {
     if (!queryId || !queryDoc || !monthRangeValue || !Array.isArray(monthRangeValue) || monthRangeValue.length !== 2) {
       throw new Error('Invalid parameters for executeAndCacheMonthRange');
     }
@@ -317,7 +320,7 @@ export function useQueryExecution(options) {
         { year: monthStartDate.getFullYear(), month: monthStartDate.getMonth(), day: monthStartDate.getDate() },
         { year: monthEndDate.getFullYear(), month: monthEndDate.getMonth(), day: monthEndDate.getDate() },
       ];
-      await workerRef.current.executePipeline(queryId, queryDoc, endpointUrl, authToken, monthRangeSerialized, mergedVariables, allQueryDocsRef.current);
+      await workerRef.current.executePipeline(queryId, queryDoc, endpointUrl, authToken, monthRangeSerialized, mergedVariables, allQueryDocsRef.current, tokenOverride);
     });
     const results = await Promise.allSettled(pipelinePromises);
     const successfulExecutions = results.filter((r) => r.status === 'fulfilled').length;
@@ -500,7 +503,11 @@ export function useQueryExecution(options) {
         const run = async () => {
           try {
             if (!workerRef.current) return;
-            await workerRef.current.executePipeline(queryId, queryDocToUse, endpointUrl, authToken, null, {}, allQueryDocsRef.current);
+            // {} not the active provider's variableOverrides: this watcher reacts to IndexedDB
+            // changes for every clientSave query in the app, not just the one this provider
+            // renders, so the active query's ad-hoc variables aren't valid for an arbitrary
+            // other query here. The token override is still a blanket credential, so it applies.
+            await workerRef.current.executePipeline(queryId, queryDocToUse, endpointUrl, authToken, null, {}, allQueryDocsRef.current, graphqlToken);
           } finally {
             pipelineExecutionInFlightRef.current.delete(queryId);
           }
@@ -513,7 +520,7 @@ export function useQueryExecution(options) {
       }
     });
     try {
-      await workerRef.current.executeAndCacheIndexQueries(queries);
+      await workerRef.current.executeAndCacheIndexQueries(queries, graphqlToken);
     } catch (e) {
       console.error('Error executing index queries:', e);
     }
@@ -575,7 +582,7 @@ export function useQueryExecution(options) {
       }
       if (!workerRef.current) throw new Error('Worker is not available.');
       if (!isOffline && queryDocToUse.month === true && monthRange?.length === 2) {
-        const finalData = await executeAndCacheMonthRange(queryId, queryDocToUse, monthRange, finalEndpointUrl, finalAuthToken, mergedVariables);
+        const finalData = await executeAndCacheMonthRange(queryId, queryDocToUse, monthRange, finalEndpointUrl, finalAuthToken, mergedVariables, graphqlToken);
         setProcessedData(finalData);
         if (queryDocToUse.index?.trim() && queryDocToUse.clientSave === true) {
           const latestIndexResult = await indexedDBService.getQueryIndexResult(queryId);
@@ -610,7 +617,8 @@ export function useQueryExecution(options) {
           finalAuthToken,
           monthRangeToPass,
           mergedVariables,
-          allQueryDocsRef.current
+          allQueryDocsRef.current,
+          graphqlToken
         );
         setProcessedData(finalData);
         if (queryDocToUse.index?.trim() && queryDocToUse.clientSave === true) {
@@ -695,7 +703,7 @@ export function useQueryExecution(options) {
         ]
       : undefined;
     if (queryDocToUse.month === true && monthRange?.length === 2) {
-      return executeAndCacheMonthRange(queryId, queryDocToUse, monthRange, finalEndpointUrl, finalAuthToken, mergedVariables);
+      return executeAndCacheMonthRange(queryId, queryDocToUse, monthRange, finalEndpointUrl, finalAuthToken, mergedVariables, graphqlToken);
     }
     return workerRef.current.executePipeline(
       queryId,
@@ -704,7 +712,8 @@ export function useQueryExecution(options) {
       finalAuthToken,
       monthRangeToPass,
       mergedVariables,
-      allQueryDocsRef.current
+      allQueryDocsRef.current,
+      graphqlToken
     );
   }, [variableOverrides, monthRange, searchTerm, sortConfig, executeAndCacheMonthRange, graphqlToken]);
 

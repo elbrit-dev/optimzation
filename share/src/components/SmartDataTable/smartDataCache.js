@@ -9,8 +9,8 @@ export class SmartDataCache {
   }
 
   /** Stable string key from the full request fingerprint. */
-  static buildKey(apiVars, { filters, sortBy, pagination, viewParams }) {
-    return JSON.stringify({ apiVars, filters, sortBy, pagination, viewParams });
+  static buildKey(viewId, apiVars, { filters, sortBy, pagination, viewParams }) {
+    return JSON.stringify({ viewId, apiVars, filters, sortBy, pagination, viewParams });
   }
 
   /** Returns cached result or null (miss or expired). Promotes hit to MRU position. */
