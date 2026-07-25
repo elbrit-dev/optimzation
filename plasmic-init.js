@@ -1120,7 +1120,7 @@ PLASMIC.registerComponent(SecondaryDataSummary, {
     data: {
       type: "object",
       description:
-        "The Secondary Data Entry rows for the selected period. Bind to the query's `secondary` field, e.g. $queries.writeTest.secondary. Accepts the full query object { secondary: { edges:[{node}] } }, the connection { edges:[{node}] }, an array of edges, or an array of nodes. Each node needs items[] (sales_qty/sales_value/closing_qty/closing_balance + custom_role_profile__name/custom_hq__name/custom_department__name + item{item_name}) and custom_status_tracker[] (status__name, tracker__name).",
+        "The Secondary Data Entry rows for the selected period. Bind to the flat array on the page, e.g. $ctx.data.main.rawData (or a query's `secondary` field). Tolerant of shape — accepts an array of nodes (rawData), an array of edges, the { edges:[{node}] } connection, or the whole query object { secondary: {...} }. Each node uses: total_sales_qty/total_sales_value/total_closing_qty/total_closing_balance (header totals; custom_total_* also accepted), distributor.customer_name (or distributor_customer_name/distributor__name), date, items[] (sales_qty/sales_value/closing_qty/closing_balance + custom_role_profile__name/custom_hq__name/custom_department__name + item__name + flat custom_last_pts/ptr/mrp), and custom_status_tracker[] (status__name, tracker__name).",
       defaultValue: {
         edges: [
           {

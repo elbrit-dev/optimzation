@@ -130,7 +130,7 @@ function ensureStyles() {
     .esum-seat .ap{color:var(--esum-ink2)}.esum-seat .ap b{color:var(--esum-ink);font-weight:600}
     .esum-seat .amt{font-weight:650}
     .esum-items{margin-top:10px;overflow-x:auto}
-    .esum-items table{border-collapse:collapse;width:100%;font-size:11.5px;min-width:470px}
+    .esum-items table{border-collapse:collapse;width:100%;font-size:11.5px;min-width:600px}
     .esum-items th{text-align:right;font-size:9px;letter-spacing:.03em;text-transform:uppercase;color:var(--esum-ink3);font-weight:700;padding:5px 8px;border-bottom:1px solid var(--esum-border)}
     .esum-items th:first-child,.esum-items td:first-child{text-align:left}
     .esum-items td{padding:6px 8px;border-bottom:1px solid var(--esum-border);text-align:right;color:var(--esum-ink2)}
@@ -213,11 +213,20 @@ function buildCustomer(node) {
       employee: s.employee || (tr && tr.custom_employee_nmae__name) || "",
     };
   });
-  const tot = seats.reduce((a, s) => ({ sq: a.sq + s.sq, sv: a.sv + s.sv, cq: a.cq + s.cq, cv: a.cv + s.cv }), { sq: 0, sv: 0, cq: 0, cv: 0 });
+  const summed = seats.reduce((a, s) => ({ sq: a.sq + s.sq, sv: a.sv + s.sv, cq: a.cq + s.cq, cv: a.cv + s.cv }), { sq: 0, sv: 0, cq: 0, cv: 0 });
+  // Prefer the entry's own HEADER totals when present — `total_*` (the shape in
+  // $ctx.data.main.rawData) or `custom_total_*` (the raw doctype fields) — else sum the lines.
+  const hv = (a, b) => (node[a] !== undefined && node[a] !== null ? node[a] : node[b]);
+  const hSq = hv("total_sales_qty", "custom_total_sales_qty");
+  const hSv = hv("total_sales_value", "custom_total_sales_value");
+  const hCq = hv("total_closing_qty", "custom_total_closing_qty");
+  const hCv = hv("total_closing_balance", "custom_total_closing_value");
+  const hasHeader = [hSq, hSv, hCq, hCv].some((v) => v !== undefined && v !== null);
+  const tot = hasHeader ? { sq: toNum(hSq), sv: toNum(hSv), cq: toNum(hCq), cv: toNum(hCv) } : summed;
   const rollup = seats.some((s) => s.bucket === "Rejected") ? "Rejected" : seats.length && seats.every((s) => s.bucket === "Approved") ? "Approved" : "Waiting";
   return {
     id: node.name,
-    name: (node.distributor && node.distributor.customer_name) || node.distributor__name || node.name,
+    name: (node.distributor && node.distributor.customer_name) || node.distributor_customer_name || node.distributor__name || node.name,
     date: node.date,
     seats,
     items,
@@ -225,6 +234,13 @@ function buildCustomer(node) {
     rollup,
   };
 }
+
+// A line's Last PTS / PTR / MRP live flat on the row in rawData, or nested under `item`.
+const lineField = (it, key) => {
+  const v = it[key] !== undefined && it[key] !== null ? it[key] : it.item && it.item[key];
+  return v;
+};
+const itemName = (it) => (it.item && it.item.item_name) || it.item__name || "—";
 
 const TAG = { Approved: "g", Waiting: "w", Rejected: "b" };
 
@@ -264,8 +280,10 @@ export default function SecondaryDataSummary({
     const split = (key) => ({ Approved: by("Approved", key), Waiting: by("Waiting", key), Rejected: by("Rejected", key), total: routes.reduce((a, r) => a + r[key], 0) });
     const cnt = (bucket) => routes.filter((r) => r.bucket === bucket).length;
     const hqs = new Set(routes.map((r) => r.hq).filter(Boolean));
+    // Headline totals from each entry's header (authoritative), summed across customers.
+    const headline = customers.reduce((a, c) => ({ sq: a.sq + c.tot.sq, sv: a.sv + c.tot.sv, cq: a.cq + c.tot.cq, cv: a.cv + c.tot.cv }), { sq: 0, sv: 0, cq: 0, cv: 0 });
     return {
-      customers, routes,
+      customers, routes, headline,
       nHq: hqs.size,
       counts: { Approved: cnt("Approved"), Waiting: cnt("Waiting"), Rejected: cnt("Rejected") },
       sv: split("sv"), sq: split("sq"), cv: split("cv"), cq: split("cq"),
@@ -287,8 +305,8 @@ export default function SecondaryDataSummary({
     return () => document.removeEventListener("keydown", onKey);
   }, [open, closeModal]);
 
-  const { customers, routes, counts, nHq, sv, sq, cv, cq } = model;
-  const isEmpty = routes.length === 0;
+  const { customers, routes, counts, nHq, sv, sq, cv, cq, headline } = model;
+  const isEmpty = customers.length === 0;
 
   const cssVars = { "--esum-accent": accentColor, "--esum-cols": showClosingCards ? 4 : 2, ...style };
 
@@ -306,7 +324,7 @@ export default function SecondaryDataSummary({
   // top products by secondary value
   const prodMap = {};
   customers.forEach((c) => c.items.forEach((it) => {
-    const nm = (it.item && it.item.item_name) || it.item__name || "—";
+    const nm = itemName(it);
     prodMap[nm] = (prodMap[nm] || 0) + toNum(it.sales_value);
   }));
   const prods = Object.entries(prodMap).sort((a, b) => b[1] - a[1]).slice(0, 8);
@@ -340,8 +358,8 @@ export default function SecondaryDataSummary({
           <div className="esum-kpis">
             {[
               ["Customers", fmtInt(customers.length), "", ""],
-              ["Secondary sales", `<span class="c">${currency}</span>${new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(sv.total)}`, `${fmtInt(sq.total)} units`, ""],
-              ["Closing stock", `<span class="c">${currency}</span>${new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(cv.total)}`, `${fmtInt(cq.total)} units`, ""],
+              ["Secondary sales", `<span class="c">${currency}</span>${new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(headline.sv)}`, `${fmtInt(headline.sq)} units`, ""],
+              ["Closing stock", `<span class="c">${currency}</span>${new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(headline.cv)}`, `${fmtInt(headline.cq)} units`, ""],
               ["Approved", fmtInt(counts.Approved), "routes", "g"],
               ["Waiting", fmtInt(counts.Waiting), "routes", "w"],
               ["Rejected", fmtInt(counts.Rejected), "routes", "b"],
@@ -450,16 +468,19 @@ export default function SecondaryDataSummary({
                         {showItems && c.items.length > 0 && (
                           <div className="esum-items">
                             <table>
-                              <thead><tr><th>Item</th><th>Seat</th><th>Sec qty</th><th>Sec val</th><th>Clos qty</th><th>Clos val</th></tr></thead>
+                              <thead><tr><th>Item</th><th>Seat</th><th>Sec qty</th><th>Sec val</th><th>Clos qty</th><th>Clos val</th><th>PTS</th><th>PTR</th><th>MRP</th></tr></thead>
                               <tbody>
                                 {c.items.map((it, ii) => (
                                   <tr key={ii}>
-                                    <td>{(it.item && it.item.item_name) || it.item__name || "—"}</td>
+                                    <td>{itemName(it)}</td>
                                     <td>{it.custom_role_profile__name || "—"}</td>
                                     <td className="num">{fmtInt(it.sales_qty)}</td>
                                     <td className="num">{fmtMoney(it.sales_value)}</td>
                                     <td className="num">{fmtInt(it.closing_qty)}</td>
                                     <td className="num">{fmtMoney(it.closing_balance)}</td>
+                                    <td className="num">{fmtMoney(lineField(it, "custom_last_pts"))}</td>
+                                    <td className="num">{fmtMoney(lineField(it, "custom_last_ptr"))}</td>
+                                    <td className="num">{fmtMoney(lineField(it, "custom_last_mrp"))}</td>
                                   </tr>
                                 ))}
                               </tbody>
