@@ -14,6 +14,7 @@ import PushNotificationToggle from "./components/PushNotificationToggle";
 import NetworkBanner from "./components/NetworkBanner";
 import DevicePrimaryGuard from "./components/DevicePrimaryGuard";
 import ApprovalCard from "./components/ApprovalCard";
+import SecondaryDataSummary from "./components/SecondaryDataSummary";
 // import TableDataProvider from "./components/TableDataProvider";
 import jsonata from 'jsonata';
 import { db } from "./firebase";
@@ -1108,6 +1109,122 @@ PLASMIC.registerComponent(ApprovalCard, {
     },
   },
   importPath: "./components/ApprovalCard",
+});
+
+PLASMIC.registerComponent(SecondaryDataSummary, {
+  name: "SecondaryDataSummary",
+  displayName: "Secondary Summary Card",
+  description:
+    "A single summary card for the Secondary Data Entry page — sits beside the Approval Cards. Shows the entrant's (BE / covering manager) whole period at a glance: total secondary sales & closing, customer count, and how many SEAT ROUTES are Approved / Waiting / Rejected, plus four status-split cards (Secondary Value/Qty, Closing Value/Qty). Clicking the card, a KPI, the badge or a split card opens a POPUP with the rejections to fix, a customer-by-customer breakdown (seat routes + item lines) and top products. Bind `data` to the `secondary` result of the page query ($queries.<query>.secondary) — it accepts the whole query object, the connection ({edges}), an array of edges, or an array of nodes. One entry can span several seats (custom_role_profile); each seat's numbers are summed from its item lines and its status (single-level approval — the status text names the approver) comes from the matching custom_status_tracker row.",
+  props: {
+    data: {
+      type: "object",
+      description:
+        "The Secondary Data Entry rows for the selected period. Bind to the query's `secondary` field, e.g. $queries.writeTest.secondary. Accepts the full query object { secondary: { edges:[{node}] } }, the connection { edges:[{node}] }, an array of edges, or an array of nodes. Each node needs items[] (sales_qty/sales_value/closing_qty/closing_balance + custom_role_profile__name/custom_hq__name/custom_department__name + item{item_name}) and custom_status_tracker[] (status__name, tracker__name).",
+      defaultValue: {
+        edges: [
+          {
+            node: {
+              name: "Sujith Pharma-2027-09-13",
+              distributor: { customer_name: "Sujith Pharma" },
+              distributor__name: "Sujith Pharma",
+              date: "2027-09-13",
+              items: [
+                { item__name: "CARDI Q", item: { item_name: "CARDI Q" }, sales_qty: 11, sales_value: 1650, closing_qty: 5, closing_balance: 750, custom_role_profile__name: "BE7-VASC-CO-NAG", custom_hq__name: "HQ-Nagercoil", custom_department__name: "Vasco Coimbatore - ELPL" },
+                { item__name: "CARDI Q", item: { item_name: "CARDI Q" }, sales_qty: 5, sales_value: 750, closing_qty: 3, closing_balance: 450, custom_role_profile__name: "ABM1-ELBR-CO-COI", custom_hq__name: "HQ-Coimbatore", custom_department__name: "Elbrit Coimbatore - ELPL" },
+                { item__name: "CARDI Q", item: { item_name: "CARDI Q" }, sales_qty: 4, sales_value: 600, closing_qty: 1, closing_balance: 150, custom_role_profile__name: "BE8-ELBR-RA-JOD", custom_hq__name: "HQ-Jodhpur", custom_department__name: "Elbrit Rajasthan - ELPL" },
+              ],
+              custom_status_tracker: [
+                { status__name: "ABM Rejected", tracker__name: "Secondary Data Entry-Sujith Pharma-2027-09-13-BE7-VASC-CO-NAG" },
+                { status__name: "RBM Approval Waiting", tracker__name: "Secondary Data Entry-Sujith Pharma-2027-09-13-ABM1-ELBR-CO-COI" },
+                { status__name: "ABM Approval Waiting", tracker__name: "Secondary Data Entry-Sujith Pharma-2027-09-13-BE8-ELBR-RA-JOD" },
+              ],
+            },
+          },
+          {
+            node: {
+              name: "Amrutha Agencies-2027-08-27",
+              distributor: { customer_name: "Amrutha Agencies" },
+              distributor__name: "Amrutha Agencies",
+              date: "2027-08-27",
+              items: [
+                { item__name: "SITADOC 50", item: { item_name: "SITADOC 50" }, sales_qty: 66, sales_value: 8427.54, closing_qty: 20, closing_balance: 2553.8, custom_role_profile__name: "BE16-ELBR-PR-ALI", custom_hq__name: "HQ-Aligharh", custom_department__name: "Elbrit West Uttar Pradesh - ELPL" },
+                { item__name: "TELBRIT NB 40/2.5", item: { item_name: "TELBRIT NB 40/2.5" }, sales_qty: 43, sales_value: 3631.78, closing_qty: 5, closing_balance: 422.3, custom_role_profile__name: "BE16-ELBR-PR-ALI", custom_hq__name: "HQ-Aligharh", custom_department__name: "Elbrit West Uttar Pradesh - ELPL" },
+              ],
+              custom_status_tracker: [
+                { status__name: "ABM Approval Waiting", tracker__name: "Secondary Data Entry-Amrutha Agencies-2027-08-27-BE16-ELBR-PR-ALI" },
+              ],
+            },
+          },
+        ],
+      },
+    },
+    title: {
+      type: "string",
+      defaultValue: "Secondary summary",
+      description: "Card heading.",
+    },
+    periodLabel: {
+      type: "string",
+      defaultValue: "",
+      description: "Optional period shown before the title (e.g. 'Sep 2027'). Bind to the selected month/report label. Leave empty to show just the title.",
+    },
+    currency: {
+      type: "string",
+      defaultValue: "₹",
+      description: "Currency symbol prefixed to value figures.",
+    },
+    locale: {
+      type: "string",
+      defaultValue: "en-IN",
+      description: "Intl locale for number grouping (Indian grouping by default).",
+    },
+    showClosingCards: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Show all four status-split cards (Secondary Value/Qty + Closing Value/Qty). Turn OFF to show only the two Secondary cards.",
+    },
+    showProducts: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Show the 'Top products · secondary value' list inside the popup.",
+    },
+    showItems: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Show the item-line table inside each expanded customer in the popup.",
+    },
+    openByDefault: {
+      type: "boolean",
+      defaultValue: false,
+      description: "Open the detail popup on load. Handy for previewing the popup on the Studio canvas; leave OFF in production.",
+    },
+    emptyText: {
+      type: "string",
+      defaultValue: "No secondary entries for this period.",
+      description: "Message shown when `data` has no rows.",
+    },
+    accentColor: {
+      type: "color",
+      defaultValue: "#2f43c9",
+      description: "Accent used for card hover/focus and product bars.",
+    },
+    onCustomerClick: {
+      type: "eventHandler",
+      argTypes: [{ name: "customer", type: "object" }],
+      description: "Fires with the customer's docname when a customer row in the popup is clicked. Wire it to open that Secondary Data Entry if you want.",
+    },
+    onFixRejected: {
+      type: "eventHandler",
+      argTypes: [{ name: "route", type: "object" }],
+      description: "Fires when 'Fix & resubmit' is clicked on a rejected route, with { customer, roleProfile, hq }. Wire it to open that entry for re-entry. If left unwired, the button is hidden.",
+    },
+    className: {
+      type: "string",
+      description: "CSS class for the card container.",
+    },
+  },
+  importPath: "./components/SecondaryDataSummary",
 });
 
 registerElbritCoreComponents(PLASMIC)
