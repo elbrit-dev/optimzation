@@ -125,12 +125,21 @@ function ensureStyles() {
     .esum-chev{color:var(--esum-ink3);transition:transform .16s;justify-self:end}
     .esum-drow[aria-expanded="true"] .esum-chev{transform:rotate(90deg)}
     .esum-det{padding:0 12px 12px;background:var(--esum-surface2);border-top:1px solid var(--esum-border)}
-    .esum-seat{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:9px 10px;border:1px solid var(--esum-border);border-radius:9px;margin-top:9px;background:var(--esum-surface);font-size:12px}
-    .esum-seat .sid{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;background:var(--esum-inset);color:var(--esum-ink2);padding:2px 7px;border-radius:6px}
-    .esum-seat .ap{color:var(--esum-ink2)}.esum-seat .ap b{color:var(--esum-ink);font-weight:600}
-    .esum-seat .amt{font-weight:650}
-    .esum-items{margin-top:10px;overflow-x:auto}
-    .esum-items table{border-collapse:collapse;width:100%;font-size:11.5px;min-width:600px}
+    .esum-seatblock{border:1px solid var(--esum-border);border-radius:10px;overflow:hidden;margin-top:10px;background:var(--esum-surface)}
+    .esum-seathd{display:flex;align-items:center;gap:6px 12px;flex-wrap:wrap;padding:10px 12px;background:var(--esum-surface2);border-bottom:1px solid var(--esum-border);font-size:12px}
+    .esum-seathd.nb{border-bottom:none}
+    .esum-seathd .who{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+    .esum-seathd .sid{font-weight:660;color:var(--esum-ink);font-size:12.5px}
+    .esum-seathd .hq{color:var(--esum-ink3);font-size:11px}
+    .esum-seathd .ap{color:var(--esum-ink2);font-size:11.5px}.esum-seathd .ap b{color:var(--esum-ink);font-weight:600}
+    .esum-seathd .amt{font-weight:680;margin-left:auto;white-space:nowrap}
+    .esum-seathd.clk{cursor:pointer}
+    .esum-seathd.clk:hover{background:var(--esum-inset)}
+    .esum-seathd .esum-chev{margin-left:4px;flex:none;color:var(--esum-ink3);transition:transform .16s}
+    .esum-seathd[aria-expanded="true"] .esum-chev{transform:rotate(90deg)}
+    .esum-items{overflow-x:auto}
+    .esum-seatblock .esum-items{padding:4px 12px 11px}
+    .esum-items table{border-collapse:collapse;width:100%;font-size:11.5px;min-width:540px}
     .esum-items th{text-align:right;font-size:9px;letter-spacing:.03em;text-transform:uppercase;color:var(--esum-ink3);font-weight:700;padding:5px 8px;border-bottom:1px solid var(--esum-border)}
     .esum-items th:first-child,.esum-items td:first-child{text-align:left}
     .esum-items td{padding:6px 8px;border-bottom:1px solid var(--esum-border);text-align:right;color:var(--esum-ink2)}
@@ -265,6 +274,7 @@ export default function SecondaryDataSummary({
   ensureStyles();
   const [open, setOpen] = React.useState(Boolean(openByDefault));
   const [expanded, setExpanded] = React.useState(() => ({}));
+  const [seatOpen, setSeatOpen] = React.useState(() => ({}));
   const lastFocus = React.useRef(null);
 
   const fmtMoney = React.useCallback(
@@ -421,7 +431,7 @@ export default function SecondaryDataSummary({
                     <div key={i} className="esum-rej">
                       <div>
                         <div className="rn">{r.cust.name}</div>
-                        <div className="rs">seat <code>{r.roleProfile}</code>{r.approver ? ` · rejected by ${r.approver}` : ""}{r.hq ? ` · ${r.hq}` : ""}</div>
+                        <div className="rs"><code>{r.employee || r.roleProfile}</code>{r.approver ? ` · rejected by ${r.approver}` : ""}{r.hq ? ` · ${r.hq}` : ""}</div>
                         {r.reason ? <div className="rr">Reason: <span className="q">“{r.reason}”</span></div> : null}
                       </div>
                       <div className="right">
@@ -450,43 +460,60 @@ export default function SecondaryDataSummary({
                     </div>
                     {isOpen && (
                       <div className="esum-det">
-                        {c.seats.map((s, si) => (
-                          <div key={si} className="esum-seat">
-                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                              <span className="sid">{s.roleProfile}</span>
-                              <span className={`esum-tag ${TAG[s.bucket]}`}>{s.bucket}</span>
-                              {s.hq ? <span style={{ color: "var(--esum-ink3)", fontSize: 11 }}>{s.hq}</span> : null}
+                        {c.seats.map((s, si) => {
+                          const withItems = showItems && s.items.length > 0;
+                          const sKey = `${c.id}::${si}`;
+                          const sOpen = withItems && (seatOpen[sKey] !== undefined ? seatOpen[sKey] : c.seats.length === 1);
+                          const toggleSeat = () => setSeatOpen((m) => ({ ...m, [sKey]: !(m[sKey] !== undefined ? m[sKey] : c.seats.length === 1) }));
+                          return (
+                            <div key={si} className="esum-seatblock">
+                              <div
+                                className={`esum-seathd${sOpen ? "" : " nb"}${withItems ? " clk" : ""}`}
+                                role={withItems ? "button" : undefined}
+                                tabIndex={withItems ? 0 : undefined}
+                                aria-expanded={withItems ? sOpen : undefined}
+                                onClick={withItems ? toggleSeat : undefined}
+                                onKeyDown={withItems ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSeat(); } } : undefined}
+                              >
+                                <div className="who">
+                                  <span className="sid" title={s.roleProfile}>{s.employee || s.roleProfile}</span>
+                                  <span className={`esum-tag ${TAG[s.bucket]}`}>{s.bucket}</span>
+                                  {s.hq ? <span className="hq">{s.hq}</span> : null}
+                                </div>
+                                <span className="ap">
+                                  {s.bucket === "Rejected" ? <>rejected by <b>{s.approver || "approver"}</b>{s.reason ? ` — “${s.reason}”` : ""}</>
+                                    : s.bucket === "Approved" ? <>approved{s.approver ? <> by <b>{s.approver}</b></> : null}</>
+                                    : <>waiting for <b>{s.approver || "approver"}</b> approval</>}
+                                </span>
+                                <span className="amt num">{fmtMoney(s.sv)}</span>
+                                {withItems ? (
+                                  <svg className="esum-chev" width="13" height="13" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                                ) : null}
+                              </div>
+                              {sOpen && (
+                                <div className="esum-items">
+                                  <table>
+                                    <thead><tr><th>Item</th><th>Sec qty</th><th>Sec val</th><th>Clos qty</th><th>Clos val</th><th>PTS</th><th>PTR</th><th>MRP</th></tr></thead>
+                                    <tbody>
+                                      {s.items.map((it, ii) => (
+                                        <tr key={ii}>
+                                          <td>{itemName(it)}</td>
+                                          <td className="num">{fmtInt(it.sales_qty)}</td>
+                                          <td className="num">{fmtMoney(it.sales_value)}</td>
+                                          <td className="num">{fmtInt(it.closing_qty)}</td>
+                                          <td className="num">{fmtMoney(it.closing_balance)}</td>
+                                          <td className="num">{fmtMoney(lineField(it, "custom_last_pts"))}</td>
+                                          <td className="num">{fmtMoney(lineField(it, "custom_last_ptr"))}</td>
+                                          <td className="num">{fmtMoney(lineField(it, "custom_last_mrp"))}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
                             </div>
-                            <span className="ap">
-                              {s.bucket === "Rejected" ? <>rejected by <b>{s.approver || "approver"}</b>{s.reason ? ` — “${s.reason}”` : ""}</>
-                                : s.bucket === "Approved" ? <>approved{s.approver ? <> by <b>{s.approver}</b></> : null}</>
-                                : <>waiting for <b>{s.approver || "approver"}</b> approval</>}
-                            </span>
-                            <span className="amt num">{fmtMoney(s.sv)}</span>
-                          </div>
-                        ))}
-                        {showItems && c.items.length > 0 && (
-                          <div className="esum-items">
-                            <table>
-                              <thead><tr><th>Item</th><th>Seat</th><th>Sec qty</th><th>Sec val</th><th>Clos qty</th><th>Clos val</th><th>PTS</th><th>PTR</th><th>MRP</th></tr></thead>
-                              <tbody>
-                                {c.items.map((it, ii) => (
-                                  <tr key={ii}>
-                                    <td>{itemName(it)}</td>
-                                    <td>{it.custom_role_profile__name || "—"}</td>
-                                    <td className="num">{fmtInt(it.sales_qty)}</td>
-                                    <td className="num">{fmtMoney(it.sales_value)}</td>
-                                    <td className="num">{fmtInt(it.closing_qty)}</td>
-                                    <td className="num">{fmtMoney(it.closing_balance)}</td>
-                                    <td className="num">{fmtMoney(lineField(it, "custom_last_pts"))}</td>
-                                    <td className="num">{fmtMoney(lineField(it, "custom_last_ptr"))}</td>
-                                    <td className="num">{fmtMoney(lineField(it, "custom_last_mrp"))}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        )}
+                          );
+                        })}
                       </div>
                     )}
                   </div>
