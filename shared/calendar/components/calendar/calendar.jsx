@@ -10,10 +10,13 @@ import { MobileCalendarHeader } from "@calendar/components/calendar/mobile/mobil
 import { useMediaQuery } from "@calendar/components/calendar/hooks";
 import { AgendaSidebar } from "@calendar/components/calendar/views/agenda-view/agenda-sidebar";
 import NotificationToast from "@calendar/components/calendar/notification/NotificationToast";
-export function Calendar() {
+export function Calendar({ enableGoogleCalendarSync = false }) {
   const isMobile = useMediaQuery("(max-width: 768px)");
   return (
-    <CalendarProvider  view="month">
+    <CalendarProvider
+      view="month"
+      enableGoogleCalendarSync={enableGoogleCalendarSync}
+    >
       <NotificationToast />
       <DndProvider showConfirmation={false}>
         <div className="h-full min-h-0 w-full overflow-hidden flex flex-col">

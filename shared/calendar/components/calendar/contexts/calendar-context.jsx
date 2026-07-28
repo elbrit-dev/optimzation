@@ -84,7 +84,8 @@ export function CalendarProvider({
 	children,
 	events,
 	badge = "colored",
-	view = "day"
+	view = "day",
+	enableGoogleCalendarSync = false,
 }) {
 	const { erpUrl, authToken } = useAuth();
 	const [settings, setSettings] = useLocalStorage("calendar-settings", {
@@ -600,7 +601,8 @@ export function CalendarProvider({
 		elbritRoleEdges, allowedEmployeeIds,
 		elbritRoleLoading, customerOptions, setCustomerOptions,
 		showOnlyApprovedLeaves,
-		setShowOnlyApprovedLeaves, showOnlyTodoList, setShowOnlyTodoList
+		setShowOnlyApprovedLeaves, showOnlyTodoList, setShowOnlyTodoList,
+		enableGoogleCalendarSync,
 	};
 
 	return (

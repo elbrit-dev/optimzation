@@ -569,6 +569,12 @@ PLASMIC.registerComponent(CalendarPage, {
       type: "string",
       helpText: "Google Redirect URI",
     },
+    enableGoogleCalendarSync: {
+      type: "boolean",
+      defaultValue: false,
+      helpText:
+        "Enable Google Calendar sync for non-meeting events. Virtual meetings with Google Meet still sync automatically when enabled.",
+    },
   },
 });
 

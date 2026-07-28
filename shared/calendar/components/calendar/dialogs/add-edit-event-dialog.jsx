@@ -68,7 +68,13 @@ function isHeadOfficeRole(roleId) {
 	return segments.some((segment) => HEAD_OFFICE_ROLE_KEYWORDS.includes(segment));
 }
 
-export function AddEditEventDialog({ children, event, defaultTag, forceValues, startDate: initialStartDate }) {
+export function AddEditEventDialog({
+	children,
+	event,
+	defaultTag,
+	forceValues,
+	startDate: initialStartDate,
+}) {
 	const { isOpen, onClose, onOpen } = useDisclosure();
 	const { employeeOptions,
 		allEmployeeOptions,
@@ -76,7 +82,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		hqTerritoryOptions,
 		setEmployeeOptions, territoryDoctors, setTerritoryDoctors,
 		setDoctorOptions, customerOptions, setCustomerOptions, selectedDate, allowedEmployeeIds,
-		setHqTerritoryOptions, users, elbritRoleEdges } = useCalendar();
+		setHqTerritoryOptions, users, elbritRoleEdges, enableGoogleCalendarSync: calendarSyncEnabled } = useCalendar();
 	const isEditing = !!event;
 	const [leaveBalance, setLeaveBalance] = useState(null);
 	const [leaveLoading, setLeaveLoading] = useState(false);
@@ -1460,6 +1466,10 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		onClose();
 	};
 	const handleDefaultEvent = async (values) => {
+		const shouldSyncGoogleCalendar =
+			values.tags === TAG_IDS.MEETING
+				? (Boolean(values.enableGoogleMeet) && !values.allDay) || calendarSyncEnabled
+				: calendarSyncEnabled;
 		const normalizedDoctorValue =
 			values.tags === TAG_IDS.DOCTOR_VISIT_PLAN &&
 				(!values.doctor ||
@@ -1503,8 +1513,9 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 			doctorResolvers,
 			existingEventParticipants: event?.event_participants ?? [],
 			existingEndDate: event?.endDate ?? null,
+			enableGoogleCalendarSync: shouldSyncGoogleCalendar,
 			googleCalendar:
-				googleCalendarEnabled
+				shouldSyncGoogleCalendar && googleCalendarEnabled
 					? LOGGED_IN_USER.email
 					: "IT Elbrit"
 		});
@@ -1552,6 +1563,7 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 		);
 	};
 	const handleDoctorVisitPlan = async (values) => {
+		const shouldSyncGoogleCalendar = calendarSyncEnabled;
 		const normalizedDoctors = (Array.isArray(values.doctor)
 			? values.doctor
 			: [values.doctor]
@@ -1577,8 +1589,9 @@ export function AddEditEventDialog({ children, event, defaultTag, forceValues, s
 				const erpDoc = mapFormToErpEvent(enrichedValues, {
 					employeeResolvers,
 					doctorResolvers,
+					enableGoogleCalendarSync: shouldSyncGoogleCalendar,
 					googleCalendar:
-						googleCalendarEnabled
+						shouldSyncGoogleCalendar && googleCalendarEnabled
 							? LOGGED_IN_USER.email
 							: "IT Elbrit"
 				});

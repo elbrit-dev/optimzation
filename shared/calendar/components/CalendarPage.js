@@ -10,7 +10,10 @@ export default function CalendarPage({
   erpUrl,
   authToken,
   me,
-  homeUrl,googleClientId,googleRedirectUri
+  homeUrl,
+  googleClientId,
+  googleRedirectUri,
+  enableGoogleCalendarSync = false,
 }) {
   return (
     <AuthProvider
@@ -25,7 +28,7 @@ export default function CalendarPage({
           (the host Plasmic app doesn't render Sonner's Toaster). */}
       <Toaster richColors position="top-right" />
       <Suspense fallback={<CalendarSkeleton />}>
-        <Calendar />
+        <Calendar enableGoogleCalendarSync={enableGoogleCalendarSync} />
       </Suspense>
     </AuthProvider>
   );

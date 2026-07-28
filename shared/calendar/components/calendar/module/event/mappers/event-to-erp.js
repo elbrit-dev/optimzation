@@ -16,6 +16,7 @@ export function mapFormToErpEvent(values, options = {}) {
     employeeResolvers,
     doctorResolvers,
     googleCalendar,
+    enableGoogleCalendarSync = false,
     existingEventParticipants = [],
     existingEndDate = null,
   } = options;
@@ -325,6 +326,11 @@ export function mapFormToErpEvent(values, options = {}) {
     values.doctor,
     "custom_longitude"
   );
+  const shouldSyncWithGoogleCalendar =
+    values.tags === TAG_IDS.MEETING
+      ? (Boolean(values.enableGoogleMeet) && !values.allDay) ||
+        Boolean(enableGoogleCalendarSync)
+      : Boolean(enableGoogleCalendarSync);
   const doc = {
     // doctype: "Event",
     subject: values.title,
@@ -359,9 +365,12 @@ export function mapFormToErpEvent(values, options = {}) {
       (Number(values.pob_given) === 1 || Number(values.pob_given) === 0)
         ? Number(values.pob_given)
         : undefined,
-    sync_with_google_calendar: 1,
-    google_calendar: googleCalendar || "IT Elbrit",
+    sync_with_google_calendar: shouldSyncWithGoogleCalendar ? 1 : 0,
+    google_calendar: shouldSyncWithGoogleCalendar
+      ? googleCalendar || "IT Elbrit"
+      : "",
     add_video_conferencing:
+      shouldSyncWithGoogleCalendar &&
       values.tags === TAG_IDS.MEETING &&
       values.enableGoogleMeet &&
       !values.allDay
