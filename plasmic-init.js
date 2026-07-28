@@ -608,12 +608,23 @@ PLASMIC.registerComponent(NovuInbox, {
     applicationIdentifier: {
       type: "string",
       description: "Novu application identifier.",
-      // Reads NEXT_PUBLIC_NOVU_APPLICATION_IDENTIFIER (set per Netlify deploy context); falls back to Production.
-      defaultValue: process.env.NEXT_PUBLIC_NOVU_APPLICATION_IDENTIFIER || "pdnBD6k7fkMq",
+      // Reads NEXT_PUBLIC_NOVU_APPLICATION_IDENTIFIER (set per Netlify deploy context);
+      // falls back to the self-hosted (notify.elbrit.org) Production env identifier.
+      defaultValue: process.env.NEXT_PUBLIC_NOVU_APPLICATION_IDENTIFIER || "K3rsfIP_eYvg",
     },
     subscriberHash: {
       type: "string",
       description: "Optional subscriber hash for HMAC.",
+    },
+    apiUrl: {
+      type: "string",
+      description: "Novu API base URL. Self-hosted; without it the widget hits Novu Cloud.",
+      defaultValue: process.env.NEXT_PUBLIC_NOVU_BACKEND_URL || "https://api.notify.elbrit.org",
+    },
+    socketUrl: {
+      type: "string",
+      description: "Novu WebSocket URL for live inbox updates (self-hosted).",
+      defaultValue: process.env.NEXT_PUBLIC_NOVU_SOCKET_URL || "https://ws.notify.elbrit.org",
     },
     className: {
       type: "string",

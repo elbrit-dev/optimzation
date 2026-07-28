@@ -19,6 +19,9 @@ const NovuInbox = ({
   meta = {},
   applicationIdentifier,
   subscriberHash,
+  // Self-hosted Novu endpoints. Without these the widget connects to Novu Cloud.
+  apiUrl,
+  socketUrl,
   className,
   onNotificationClick,
   onPrimaryActionClick,
@@ -83,8 +86,16 @@ const NovuInbox = ({
         });
     
         if (!identifyRes.ok) {
-            const errorData = await identifyRes.json();
-            throw new Error(errorData.details || errorData.error);
+          // `details` is often an object (e.g. Novu's 401 body); stringify it so
+          // the console shows the real reason instead of "[object Object]".
+          const errorData = await identifyRes.json().catch(() => ({}));
+          const detail =
+            typeof errorData.details === "string"
+              ? errorData.details
+              : errorData.details
+              ? JSON.stringify(errorData.details)
+              : errorData.error;
+          throw new Error(detail || `identify failed (HTTP ${identifyRes.status})`);
         }
     
         console.log("NovuInbox: Identification successful.");
@@ -141,6 +152,8 @@ const NovuInbox = ({
         subscriberId={cleanEmail}
         applicationIdentifier={applicationIdentifier}
         subscriberHash={subscriberHash}
+        apiUrl={apiUrl}
+        socketUrl={socketUrl}
       >
         <Inbox
           position="bottom-end"
@@ -181,7 +194,9 @@ const NovuInbox = ({
           tabs={[
             { label: "All", value: [] },
             { label: "Approval", value: ["approval"] },
-            { label: "Announcement", value: ["announcement"] }
+            { label: "Announcement", value: ["announcement"] },
+            // Matches the snapshot-invoice workflow's "Invoice" tag (case-sensitive).
+            { label: "Invoice", value: ["Invoice"] }
           ]}
         />
       </NovuProvider>

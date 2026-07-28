@@ -1,5 +1,15 @@
 import { Novu } from "@novu/node";
-const novu = new Novu(process.env.NOVU_API_KEY);
+
+// Lazy construction: `new Novu(undefined)` throws at construction, which at
+// module scope would crash the route with a bare 500 instead of clean JSON.
+function getNovu() {
+  const key = (process.env.NOVU_API_KEY || "").trim();
+  if (!key) throw new Error("NOVU_API_KEY is not set on this deployment");
+  // Self-hosted Novu (notify.elbrit.org). Without backendUrl the SDK hits Novu
+  // Cloud (api.novu.co) and every key 401s with "API Key not found".
+  const backendUrl = (process.env.NOVU_BACKEND_URL || "https://api.notify.elbrit.org").trim();
+  return new Novu(key, { backendUrl });
+}
 
 /**
  * Triggers a Novu workflow. Designed to be called by ERPNext (UAT) Webhooks /
@@ -56,6 +66,7 @@ export default async function handler(req, res) {
   }
 
   try {
+    const novu = getNovu();
     // Novu creates the subscriber on the fly if it doesn't exist yet, so this
     // works even for users who have never opened the inbox. Existing subscribers
     // (with their OneSignal push credential) are reused.
