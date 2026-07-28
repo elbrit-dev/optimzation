@@ -15,6 +15,7 @@ import NetworkBanner from "./components/NetworkBanner";
 import DevicePrimaryGuard from "./components/DevicePrimaryGuard";
 import ApprovalCard from "./components/ApprovalCard";
 import SecondaryDataSummary from "./components/SecondaryDataSummary";
+import SecondaryApprovalSummary from "./components/SecondaryApprovalSummary";
 // import TableDataProvider from "./components/TableDataProvider";
 import jsonata from 'jsonata';
 import { db } from "./firebase";
@@ -1225,6 +1226,153 @@ PLASMIC.registerComponent(SecondaryDataSummary, {
     },
   },
   importPath: "./components/SecondaryDataSummary",
+});
+
+PLASMIC.registerComponent(SecondaryApprovalSummary, {
+  name: "SecondaryApprovalSummary",
+  displayName: "Secondary Approval Summary Card",
+  description:
+    "A single approver-facing summary card for the Secondary APPROVAL page — sits ABOVE the per-employee approval groups. Shows the approver (ABM / RBM) their whole queue at a glance: team members, submissions, total secondary sales & closing, and how many submissions are Waiting / Rejected, plus a per-employee roster (who's waiting on you) with each member's status split and total value. Clicking a member (or the badge) opens a READ-ONLY popup with the rejected-and-sent-back list, an employee-by-employee → customer → item-line breakdown, and top products. Bind `data` to the grouped-by-employee array the page already builds from the Operational Tracker query (Object.values(byEmp)) — it also accepts { edges:[{node}] } / { employees } / a single employee, or (fallback) a flat array of Operational Tracker nodes, which it groups by role_profile itself.",
+  props: {
+    data: {
+      type: "object",
+      description:
+        "The approval queue grouped by employee/seat. Bind to the page's grouped array (Object.values(byEmp)). Each element: { avatar, employee_name, role_profile, department, hq, customers:[{ distributor, entry, tracker, role_profile, date, status, workflow_state, next_role, reason, transformed, ecubix, summary, items:[{ item__name, opening_qty, sales_qty, sales_value, closing_qty, closing_balance, rate }], sales_qty, sales_value, closing_qty, closing_value }] }. Tolerant of shape — also accepts the array wrapped in { edges:[{node}] } or { employees }, a single employee object, or a flat array of Operational Tracker nodes (grouped by role_profile automatically). Status buckets are derived from the status text (reject → Rejected, approved → Approved, else Waiting).",
+      defaultValue: [
+        {
+          avatar: "V",
+          employee_name: "Velraj S",
+          role_profile: "BE7-VASC-CO-NAG",
+          department: "Vasco Coimbatore - ELPL",
+          hq: "HQ-Nagercoil",
+          customers: [
+            {
+              distributor: "Prakas Pharmacy Private Limited",
+              entry: "Prakas Pharmacy Private Limited-2026-08-31",
+              tracker: "Secondary Data Entry-Prakas Pharmacy Private Limited-2026-08-31-BE7-VASC-CO-NAG",
+              role_profile: "BE7-VASC-CO-NAG",
+              date: "2026-08-31",
+              status: "ABM Rejected",
+              workflow_state: "ABM Rejected",
+              next_role: "—",
+              reason: "Closing stock looks high — recheck.",
+              items: [
+                { item__name: "CARDI Q", opening_qty: 51, sales_qty: 39, sales_value: 5850, closing_qty: 66, closing_balance: 9900, rate: 150 },
+              ],
+              sales_qty: 39, sales_value: 5850, closing_qty: 66, closing_value: 9900,
+            },
+            {
+              distributor: "Optival Health Solutions Private Limited",
+              entry: "Optival Health Solutions Private Limited-2026-08-31",
+              tracker: "Secondary Data Entry-Optival Health Solutions Private Limited-2026-08-31-BE7-VASC-CO-NAG",
+              role_profile: "BE7-VASC-CO-NAG",
+              date: "2026-08-31",
+              status: "ABM Approval Waiting",
+              workflow_state: "ABM Approval Waiting",
+              next_role: "ABM",
+              items: [
+                { item__name: "NERO PG 50", opening_qty: 58, sales_qty: 25, sales_value: 3000, closing_qty: 104, closing_balance: 12480, rate: 120 },
+              ],
+              sales_qty: 25, sales_value: 3000, closing_qty: 104, closing_value: 12480,
+            },
+          ],
+        },
+        {
+          avatar: "K",
+          employee_name: "Karthick A R",
+          role_profile: "BE6-VASC-CO-MAD",
+          department: "Vasco Coimbatore - ELPL",
+          hq: "HQ-Madurai",
+          customers: [
+            {
+              distributor: "Palepu Pharma Dist Pvt Ltd Tambaram",
+              entry: "Palepu Pharma Dist Pvt Ltd Tambaram-2026-08-31",
+              tracker: "Secondary Data Entry-Palepu Pharma Dist Pvt Ltd Tambaram-2026-08-31-BE6-VASC-CO-MAD",
+              role_profile: "BE6-VASC-CO-MAD",
+              date: "2026-08-31",
+              status: "ABM Approval Waiting",
+              workflow_state: "ABM Approval Waiting",
+              next_role: "ABM",
+              items: [
+                { item__name: "ROZULA 10 F", opening_qty: 65, sales_qty: 13, sales_value: 754, closing_qty: 132, closing_balance: 7656, rate: 58 },
+              ],
+              sales_qty: 13, sales_value: 754, closing_qty: 132, closing_value: 7656,
+            },
+          ],
+        },
+      ],
+    },
+    title: {
+      type: "string",
+      defaultValue: "Approval queue",
+      description: "Card heading.",
+    },
+    periodLabel: {
+      type: "string",
+      defaultValue: "",
+      description: "Optional period shown before the title (e.g. 'Sep 2026'). Leave empty to show just the title.",
+    },
+    currency: {
+      type: "string",
+      defaultValue: "₹",
+      description: "Currency symbol prefixed to value figures.",
+    },
+    locale: {
+      type: "string",
+      defaultValue: "en-IN",
+      description: "Intl locale for number grouping (Indian grouping by default).",
+    },
+    showProducts: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Show the 'Top products · secondary value' list inside the popup.",
+    },
+    showItems: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Show the item-line table inside each expanded submission in the popup.",
+    },
+    openByDefault: {
+      type: "boolean",
+      defaultValue: false,
+      description: "Open the detail popup on load. Handy for previewing the popup on the Studio canvas; leave OFF in production.",
+    },
+    emptyText: {
+      type: "string",
+      defaultValue: "Nothing is waiting for your approval.",
+      description: "Message shown when `data` has no rows.",
+    },
+    accentColor: {
+      type: "color",
+      defaultValue: "#2f43c9",
+      description: "Accent used for avatars, hover/focus and product bars.",
+    },
+    fileBaseUrl: {
+      type: "string",
+      defaultValue: "",
+      description: "ERP site origin, prefixed to relative attachment paths (transformed/ecubix/summary) so they open as links in the popup.",
+    },
+    onEmployeeClick: {
+      type: "eventHandler",
+      argTypes: [{ name: "roleProfile", type: "string" }],
+      description: "Fires with the employee's role_profile when a roster member is clicked (before the popup opens). Wire it if you want the page to react (e.g. scroll to that group).",
+    },
+    onCustomerClick: {
+      type: "eventHandler",
+      argTypes: [{ name: "submission", type: "object" }],
+      description: "Fires with { entry, tracker, roleProfile } when a submission row in the popup is clicked. Wire it to open that Secondary Data Entry / Operational Tracker.",
+    },
+    onOpenEntry: {
+      type: "eventHandler",
+      argTypes: [{ name: "submission", type: "object" }],
+      description: "Fires when 'Open entry' is clicked on a rejected submission, with { entry, tracker, roleProfile }. If left unwired, the button is hidden.",
+    },
+    className: {
+      type: "string",
+      description: "CSS class for the card container.",
+    },
+  },
+  importPath: "./components/SecondaryApprovalSummary",
 });
 
 registerElbritCoreComponents(PLASMIC)

@@ -44,8 +44,10 @@ export function MobileCalendarHeader() {
     pendingSyncCount,
     retryPendingSync,
     isRetryingSync,
+    syncCalendar,
     selectedUserId,
   } = useCalendar();
+  const [isSyncing, setIsSyncing] = useState(false);
   const today = new Date();
   const todayDate = format(today, "d");
   const selectedViewerCount = Array.isArray(selectedUserId) ? selectedUserId.length : 0;
@@ -54,6 +56,18 @@ export function MobileCalendarHeader() {
     setSelectedDate(today);
     // 👇 keep current semantic view
     setMobileLayer(MOBILE_LAYER_MAP[view] ?? "month-expanded");
+  };
+
+  const handleSync = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    try {
+      await syncCalendar();
+    } catch (err) {
+      console.error("Failed to sync calendar", err);
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const handleViewChange = (nextView) => {
@@ -180,6 +194,17 @@ export function MobileCalendarHeader() {
                 showOnlyTodoList && "text-blue-500"
               )}
             />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={handleSync}
+            disabled={isSyncing}
+            aria-label="Sync calendar data"
+            title="Refresh calendar data"
+          >
+            <RotateCw className={cn("h-5 w-5", isSyncing && "animate-spin")} />
           </Button>
           {pendingSyncCount > 0 && (
             <Button
