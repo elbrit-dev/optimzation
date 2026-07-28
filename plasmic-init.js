@@ -1249,12 +1249,12 @@ PLASMIC.registerComponent(SecondaryApprovalSummary, {
   name: "SecondaryApprovalSummary",
   displayName: "Secondary Approval Summary Card",
   description:
-    "A single approver-facing summary card for the Secondary APPROVAL page — sits ABOVE the per-employee approval groups. Shows the approver (ABM / RBM) their whole queue at a glance: team members, submissions, total secondary sales & closing, and how many submissions are Waiting / Rejected, plus a per-employee roster (who's waiting on you) with each member's status split and total value. Clicking a member (or the badge) opens a READ-ONLY popup with the rejected-and-sent-back list, an employee-by-employee → customer → item-line breakdown, and top products. Bind `data` to the grouped-by-employee array the page already builds from the Operational Tracker query (Object.values(byEmp)) — it also accepts { edges:[{node}] } / { employees } / a single employee, or (fallback) a flat array of Operational Tracker nodes, which it groups by role_profile itself.",
+    "A compact, self-contained SUMMARY card for the Secondary APPROVAL page — sits ABOVE the per-employee approval groups. It's a summary only (no click-through / no employee drill-down): a COUNTS row (Employees, Customers, Waiting, Approved, Rejected) and a VALUE TRACKING section — Secondary Value/Qty and Closing Value/Qty, each split by approval bucket (Waiting / Approved / Rejected) with a proportion bar. Fixed size regardless of team size. Bind `data` to the grouped-by-employee array the page already builds from the Operational Tracker query (Object.values(byEmp)) — it also accepts { edges:[{node}] } / { employees } / a single employee, or (fallback) a flat array of Operational Tracker nodes, which it groups by role_profile itself.",
   props: {
     data: {
       type: "object",
       description:
-        "The approval queue grouped by employee/seat. Bind to the page's grouped array (Object.values(byEmp)). Each element: { avatar, employee_name, role_profile, department, hq, customers:[{ distributor, entry, tracker, role_profile, date, status, workflow_state, next_role, reason, transformed, ecubix, summary, items:[{ item__name, opening_qty, sales_qty, sales_value, closing_qty, closing_balance, rate }], sales_qty, sales_value, closing_qty, closing_value }] }. Tolerant of shape — also accepts the array wrapped in { edges:[{node}] } or { employees }, a single employee object, or a flat array of Operational Tracker nodes (grouped by role_profile automatically). Status buckets are derived from the status text (reject → Rejected, approved → Approved, else Waiting).",
+        "The approval queue grouped by employee/seat. Bind to the page's grouped array (Object.values(byEmp)). Each element: { avatar, employee_name, role_profile, hq, customers:[{ status (or workflow_state), sales_value }] } — only the status (for the bucket) and sales_value (for the total) are read off each customer; extra fields are ignored. Tolerant of shape — also accepts the array wrapped in { edges:[{node}] } or { employees }, a single employee object, or a flat array of Operational Tracker nodes (grouped by role_profile automatically). Status buckets come from the status text (reject → Rejected, approved → Approved, else Waiting).",
       defaultValue: [
         {
           avatar: "V",
@@ -1284,9 +1284,9 @@ PLASMIC.registerComponent(SecondaryApprovalSummary, {
               tracker: "Secondary Data Entry-Optival Health Solutions Private Limited-2026-08-31-BE7-VASC-CO-NAG",
               role_profile: "BE7-VASC-CO-NAG",
               date: "2026-08-31",
-              status: "ABM Approval Waiting",
-              workflow_state: "ABM Approval Waiting",
-              next_role: "ABM",
+              status: "ABM Approved and Waiting for Verification",
+              workflow_state: "ABM Approved and Waiting for Verification",
+              next_role: "",
               items: [
                 { item__name: "NERO PG 50", opening_qty: 58, sales_qty: 25, sales_value: 3000, closing_qty: 104, closing_balance: 12480, rate: 120 },
               ],
@@ -1321,7 +1321,7 @@ PLASMIC.registerComponent(SecondaryApprovalSummary, {
     },
     title: {
       type: "string",
-      defaultValue: "Approval queue",
+      defaultValue: "Approval summary",
       description: "Card heading.",
     },
     periodLabel: {
@@ -1339,20 +1339,10 @@ PLASMIC.registerComponent(SecondaryApprovalSummary, {
       defaultValue: "en-IN",
       description: "Intl locale for number grouping (Indian grouping by default).",
     },
-    showProducts: {
+    showClosingCards: {
       type: "boolean",
       defaultValue: true,
-      description: "Show the 'Top products · secondary value' list inside the popup.",
-    },
-    showItems: {
-      type: "boolean",
-      defaultValue: true,
-      description: "Show the item-line table inside each expanded submission in the popup.",
-    },
-    openByDefault: {
-      type: "boolean",
-      defaultValue: false,
-      description: "Open the detail popup on load. Handy for previewing the popup on the Studio canvas; leave OFF in production.",
+      description: "Show all four Value Tracking cards (Secondary Value/Qty + Closing Value/Qty). Turn OFF to show only the two Secondary cards.",
     },
     emptyText: {
       type: "string",
@@ -1362,27 +1352,7 @@ PLASMIC.registerComponent(SecondaryApprovalSummary, {
     accentColor: {
       type: "color",
       defaultValue: "#2f43c9",
-      description: "Accent used for avatars, hover/focus and product bars.",
-    },
-    fileBaseUrl: {
-      type: "string",
-      defaultValue: "",
-      description: "ERP site origin, prefixed to relative attachment paths (transformed/ecubix/summary) so they open as links in the popup.",
-    },
-    onEmployeeClick: {
-      type: "eventHandler",
-      argTypes: [{ name: "roleProfile", type: "string" }],
-      description: "Fires with the employee's role_profile when a roster member is clicked (before the popup opens). Wire it if you want the page to react (e.g. scroll to that group).",
-    },
-    onCustomerClick: {
-      type: "eventHandler",
-      argTypes: [{ name: "submission", type: "object" }],
-      description: "Fires with { entry, tracker, roleProfile } when a submission row in the popup is clicked. Wire it to open that Secondary Data Entry / Operational Tracker.",
-    },
-    onOpenEntry: {
-      type: "eventHandler",
-      argTypes: [{ name: "submission", type: "object" }],
-      description: "Fires when 'Open entry' is clicked on a rejected submission, with { entry, tracker, roleProfile }. If left unwired, the button is hidden.",
+      description: "Accent used for the card's icon and focus outlines.",
     },
     className: {
       type: "string",
