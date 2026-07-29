@@ -45,16 +45,55 @@ function getDataValue(data, key) {
 }
 
 /**
+ * Walk a path through an object, transparently iterating over arrays.
+ * When the current value is an Array, the SAME remaining parts are applied
+ * to every item (this also handles arrays-of-arrays, since re-entering this
+ * function on an array item hits the Array branch again).
+ */
+function walkPath(current, parts) {
+  if (current == null) return [];
+  if (parts.length === 0) return [current];
+  if (isArray(current)) {
+    return current.flatMap((item) => walkPath(item, parts));
+  }
+  const [part, ...rest] = parts;
+  const next = getDataValue(current, part);
+  return next == null ? [] : walkPath(next, rest);
+}
+
+/**
+ * Resolve a nested path against a row, returning ALL matching leaf values.
+ * Array-aware: if the path passes through a list field (e.g. a list of
+ * department objects), it resolves the remaining path against every item.
+ */
+function resolveNestedValues(row, topLevelKey, nestedPath) {
+  if (!topLevelKey) return [];
+  const top = getDataValue(row, topLevelKey);
+
+  if (!nestedPath) {
+    if (top == null) return [];
+    return isArray(top) ? top.filter((v) => v != null) : [top];
+  }
+
+  if (top != null) {
+    const results = walkPath(top, nestedPath.split('.'));
+    if (results.length > 0) return results;
+  }
+
+  // Fallback: topLevelKey doesn't exist on this row (rows are already
+  // flat/unwrapped items) - resolve nestedPath directly against the row.
+  const directResults = walkPath(row, nestedPath.split('.'));
+  if (directResults.length > 0) return directResults;
+
+  return top != null ? [top] : [];
+}
+
+/**
  * Get nested value for sorting
  */
 function getNestedValue(row, topLevelKey, nestedPath) {
-  if (!topLevelKey) return undefined;
-  if (!nestedPath) {
-    return getDataValue(row, topLevelKey);
-  }
-  const topLevelData = getDataValue(row, topLevelKey);
-  if (!topLevelData || typeof topLevelData !== 'object') return undefined;
-  return getDataValue(topLevelData, nestedPath);
+  const [first] = resolveNestedValues(row, topLevelKey, nestedPath);
+  return first;
 }
 
 /**
@@ -279,16 +318,14 @@ async function computeFilterSortGrouped(
       return some(Object.keys(searchFields), (topLevelKey) => {
         const nestedPaths = searchFields[topLevelKey];
         if (!isArray(nestedPaths) || isEmpty(nestedPaths)) {
-          // Search in top-level key directly
-          const value = getDataValue(row, topLevelKey);
-          return includes(toLower(String(value ?? '')), searchLower);
+          // Search in top-level key directly (array-aware: matches if ANY item matches)
+          const values = resolveNestedValues(row, topLevelKey, null);
+          return some(values, (value) => includes(toLower(String(value ?? '')), searchLower));
         }
-        // Search in nested paths
-        const topLevelData = getDataValue(row, topLevelKey);
-        if (!topLevelData || typeof topLevelData !== 'object') return false;
+        // Search in nested paths (array-aware: matches if ANY resolved item matches)
         return some(nestedPaths, (nestedPath) => {
-          const value = getDataValue(topLevelData, nestedPath);
-          return includes(toLower(String(value ?? '')), searchLower);
+          const values = resolveNestedValues(row, topLevelKey, nestedPath);
+          return some(values, (value) => includes(toLower(String(value ?? '')), searchLower));
         });
       });
     });

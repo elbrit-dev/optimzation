@@ -15,7 +15,7 @@ import {
   uniq,
 } from 'lodash';
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { getDataKeys, getDataValue, getNestedValue, getStableRowIdentity } from '../utils/dataAccessUtils';
+import { getDataKeys, getDataValue, getNestedValue, resolveNestedValues, getStableRowIdentity } from '../utils/dataAccessUtils';
 import { applyRowFilters, filterReportRowsByMetricFilters, hasActiveTableFilters } from '../utils/filterUtils';
 import {
   isJsonArrayOfObjectsString,
@@ -164,6 +164,23 @@ export function useDataPipeline(options) {
     return sets;
   }, [preFilterValues]);
 
+  // Map from fieldKey (nestedPath || topLevelKey, as used by preFilterValues)
+  // to its {topLevelKey, nestedPath} pair, so preFilteredData can resolve
+  // through nested/array fields (e.g. a field inside a list field) instead
+  // of doing a plain flat property lookup.
+  const searchFieldPathMap = useMemo(() => {
+    const map = {};
+    const searchFieldsObj = currentQueryDoc?.searchFields || {};
+    Object.keys(searchFieldsObj).forEach((topLevelKey) => {
+      const nestedPaths = searchFieldsObj[topLevelKey];
+      if (!isArray(nestedPaths)) return;
+      nestedPaths.forEach((nestedPath) => {
+        map[nestedPath || topLevelKey] = { topLevelKey, nestedPath };
+      });
+    });
+    return map;
+  }, [currentQueryDoc?.searchFields]);
+
   const authFilteredData = useMemo(() => {
     const dataSourceForAuth = dataWithDerivedRows ?? rawTableData;
     if (!dataSourceForAuth || !isArray(dataSourceForAuth) || isEmpty(dataSourceForAuth)) {
@@ -231,24 +248,25 @@ export function useDataPipeline(options) {
         const fieldKey = filterKeys[i];
         const filterSet = preFilterSets[fieldKey];
         if (!filterSet || filterSet.size === 0) continue;
-        const cellValue = getDataValue(row, fieldKey);
-        const cellStr = isNil(cellValue) ? null : String(cellValue);
-        if (cellStr === null) {
-          if (
-            !filterSet.has('null') &&
-            !filterSet.has('') &&
-            !filterSet.has('undefined')
-          ) {
-            return false;
-          }
-          continue;
-        }
-        if (!filterSet.has(cellStr)) return false;
+
+        const path = searchFieldPathMap[fieldKey];
+        // Array-aware: resolve through nested/array fields (e.g. a field
+        // inside a list field); matches if ANY resolved value is in the set.
+        const cellValues = path
+          ? resolveNestedValues(row, path.topLevelKey, path.nestedPath)
+          : [getDataValue(row, fieldKey)];
+
+        const hasNullMatch =
+          cellValues.every((v) => isNil(v)) &&
+          (filterSet.has('null') || filterSet.has('') || filterSet.has('undefined'));
+        const hasValueMatch = cellValues.some((v) => !isNil(v) && filterSet.has(String(v)));
+
+        if (!hasNullMatch && !hasValueMatch) return false;
       }
       return true;
     });
     return out;
-  }, [authFilteredData, preFilterSets]);
+  }, [authFilteredData, preFilterSets, searchFieldPathMap]);
 
   const tableData = useMemo(() => {
     // Pipeline source is always upstream preFilteredData. Cell edits live in the editing buffer

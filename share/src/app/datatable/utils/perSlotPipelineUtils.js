@@ -21,7 +21,7 @@ import {
   toNumber,
   uniq,
 } from 'lodash';
-import { getDataKeys, getDataValue, getNestedValue } from './dataAccessUtils';
+import { getDataKeys, getDataValue, getNestedValue, resolveNestedValues } from './dataAccessUtils';
 import {
   applyRowFilters,
   applyDateFilter,
@@ -457,9 +457,10 @@ export function computeSearchSortSortedData(tableData, sharedOptions) {
         const nestedPaths = searchFieldsObj[topLevelKey];
         if (!isArray(nestedPaths) || nestedPaths.length === 0) return false;
         return nestedPaths.some((nestedPath) => {
-          const value = getNestedValue(row, topLevelKey, nestedPath);
-          if (value == null) return false;
-          return String(value).toLowerCase().includes(searchLower);
+          // Array-aware: matches if ANY resolved item's value matches (e.g. a
+          // field nested inside a list-typed field like department details).
+          const values = resolveNestedValues(row, topLevelKey, nestedPath);
+          return values.some((value) => value != null && String(value).toLowerCase().includes(searchLower));
         });
       })
     );

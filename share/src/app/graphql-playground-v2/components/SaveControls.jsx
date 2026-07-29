@@ -822,337 +822,146 @@ export function SaveControls() {
     return buildTreeFromProcessedData(processedData);
   }, [processedData]);
 
-  // Helper to filter tree nodes to only 1 depth level (direct children only)
-  const filterTreeToSingleDepth = useCallback((nodes) => {
-    if (!Array.isArray(nodes)) return [];
+  // Search/Sort Fields pickers use the full, unmodified tree — any depth,
+  // including fields nested inside list-typed fields, is selectable.
+  const searchFieldsTreeNodes = processedDataTreeNodesMemo;
+  const sortFieldsTreeNodes = processedDataTreeNodesMemo;
 
-    return nodes.map(node => {
-      // Create a copy of the node, keeping only direct children (1 depth)
-      // Remove nested children but keep the direct children structure
-      const filteredNode = {
-        ...node,
-        children: node.children ? node.children.map(child => {
-          // For each direct child, remove its children (nested grandchildren)
-          const filteredChild = { ...child };
-          // Remove nested children but keep the node structure
-          if (filteredChild.children) {
-            delete filteredChild.children;
-            filteredChild.leaf = true; // Mark as leaf since we removed its children
-          }
-          return filteredChild;
-        }) : undefined,
-        leaf: false // Top-level nodes are not leaves (they have direct children)
-      };
-
-      return filteredNode;
-    });
-  }, []);
-
-  // Create filtered tree nodes for search/sort fields (only 1 depth level)
-  const searchFieldsTreeNodes = useMemo(() => {
-    return filterTreeToSingleDepth(processedDataTreeNodesMemo);
-  }, [processedDataTreeNodesMemo, filterTreeToSingleDepth]);
-
-  const sortFieldsTreeNodes = useMemo(() => {
-    return filterTreeToSingleDepth(processedDataTreeNodesMemo);
-  }, [processedDataTreeNodesMemo, filterTreeToSingleDepth]);
-
-  // Helper to collect only direct children (1 depth) of a node - treating them as leaves
-  const collectDirectChildren = useCallback((node, parentPath = '') => {
-    if (!node || !node.children || node.children.length === 0) {
-      return [];
+  // Recursively collect the dot-path of every LEAF descendant of a node, at any depth.
+  const collectLeafPaths = useCallback((node, parentPath = '') => {
+    if (!node) return [];
+    const isLeaf = !node.children || node.children.length === 0;
+    if (isLeaf) {
+      return parentPath ? [parentPath] : [];
     }
-    // Only collect direct children, not nested children
-    const paths = [];
-    node.children.forEach(child => {
+    return node.children.flatMap(child => {
       const nodeName = child.data?.name || child.key?.split('.').pop() || '';
       const childPath = parentPath ? `${parentPath}.${nodeName}` : nodeName;
-      paths.push(childPath);
+      return collectLeafPaths(child, childPath);
     });
-
-    return paths;
   }, []);
 
   // Helper to convert object of field groups to checkbox selection object
   // Input: {user: ["profile.name"], postingDetails: ["id"]}
-  // Output: Includes both selected leaf nodes AND parent nodes with partialChecked states
+  // Output: Includes both selected leaf nodes AND parent nodes with partialChecked states,
+  // computed recursively so any depth (including fields inside list fields) works.
   const fieldGroupsToSelectionKeys = useCallback((fieldGroups, treeNodesToUse = null) => {
     if (!fieldGroups || typeof fieldGroups !== 'object') {
       return {};
     }
-    // Use provided tree nodes, or fall back to processedDataTreeNodesMemo
     const treeNodes = treeNodesToUse || processedDataTreeNodesMemo;
     const selectionKeys = {};
 
     Object.keys(fieldGroups).forEach(topLevelKey => {
       const nestedPaths = fieldGroups[topLevelKey];
-      if (Array.isArray(nestedPaths)) {
-        // Find top-level node to get all possible paths
-        const topLevelNode = findNodeByKey(treeNodes, topLevelKey);
-        if (topLevelNode) {
-          // Collect only direct children (1 depth) - treating them as leaves
-          const allPossiblePaths = collectDirectChildren(topLevelNode, topLevelKey);
-          const allPossibleNested = allPossiblePaths.map(path => {
-            const parts = path.split('.');
-            return parts.slice(1).join('.'); // Remove top-level key prefix
-          }).filter(p => p); // Remove empty strings
+      if (!Array.isArray(nestedPaths)) return;
+      const topLevelNode = findNodeByKey(treeNodes, topLevelKey);
+      if (!topLevelNode) return;
 
-          // Set state for top-level key based on selection
-          const selectedCount = nestedPaths.length;
-          const totalCount = allPossibleNested.length;
-
-          // Check if all selected paths exist in allPossibleNested
-          const allSelectedExist = nestedPaths.every(path => allPossibleNested.includes(path));
-          const allPossibleSelected = allPossibleNested.every(path => nestedPaths.includes(path));
-
-          if (selectedCount === totalCount && totalCount > 0 && allSelectedExist && allPossibleSelected) {
-            // All children selected
-            selectionKeys[topLevelKey] = {
-              checked: true,
-              partialChecked: false
-            };
-          } else if (selectedCount > 0) {
-            // Some (but not all) children selected
-            selectionKeys[topLevelKey] = {
-              checked: false,
-              partialChecked: true
-            };
+      // Recursively walk the subtree, computing checked/partialChecked for
+      // every node (leaf or group) from whether all/some of its leaf
+      // descendants are in the saved nestedPaths array.
+      const walk = (node, fullPath) => {
+        const isLeaf = !node.children || node.children.length === 0;
+        if (isLeaf) {
+          const nodeNestedPath = fullPath.split('.').slice(1).join('.');
+          if (nestedPaths.includes(nodeNestedPath)) {
+            selectionKeys[fullPath] = { checked: true, partialChecked: false };
           }
-          // If selectedCount === 0, don't add to selectionKeys
-
-          // Set state for selected leaf nodes
-          nestedPaths.forEach(nestedPath => {
-            const fullPath = nestedPath
-              ? `${topLevelKey}.${nestedPath}`
-              : topLevelKey;
-            selectionKeys[fullPath] = {
-              checked: true,
-              partialChecked: false
-            };
-          });
+          return;
         }
-      }
+
+        const leavesUnder = collectLeafPaths(node, fullPath).map(p => p.split('.').slice(1).join('.'));
+        const someSelected = leavesUnder.some(p => nestedPaths.includes(p));
+        const allSelected = leavesUnder.length > 0 && leavesUnder.every(p => nestedPaths.includes(p));
+
+        if (allSelected) {
+          selectionKeys[fullPath] = { checked: true, partialChecked: false };
+        } else if (someSelected) {
+          selectionKeys[fullPath] = { checked: false, partialChecked: true };
+        }
+
+        node.children.forEach(child => {
+          const nodeName = child.data?.name || child.key?.split('.').pop() || '';
+          walk(child, fullPath ? `${fullPath}.${nodeName}` : nodeName);
+        });
+      };
+
+      walk(topLevelNode, topLevelKey);
     });
 
     return selectionKeys;
-  }, [processedDataTreeNodesMemo, collectDirectChildren]);
+  }, [processedDataTreeNodesMemo, collectLeafPaths]);
 
   // Use in Tree components - pass filtered tree nodes for consistent comparison
   const searchFieldsSelectionKeys = useMemo(() => fieldGroupsToSelectionKeys(searchFields, searchFieldsTreeNodes), [searchFields, fieldGroupsToSelectionKeys, searchFieldsTreeNodes]);
   const sortFieldsSelectionKeys = useMemo(() => fieldGroupsToSelectionKeys(sortFields, sortFieldsTreeNodes), [sortFields, fieldGroupsToSelectionKeys, sortFieldsTreeNodes]);
 
   // Handlers for searchFields
+  // e.value contains ALL selected node keys (any depth) in PrimeReact checkbox
+  // format: {fullPath: {checked, partialChecked}}. Only LEAF nodes are ever
+  // persisted (group/intermediate node paths are never valid leaves), so we
+  // just keep the checked leaves and group them by top-level key.
   const handleSearchFieldsSelect = useCallback((e) => {
-    // e.value contains all selected keys in format: {key: {checked: true, partialChecked: false}}
-    // Convert to object: {topLevelKey: ["nested.path", ...], ...}
     const selected = e.value || {};
     const fieldGroups = {};
 
-    // First pass: process all checked items
     Object.keys(selected).forEach(fullPath => {
-      // Check if this key is checked (PrimeReact checkbox format)
       const selectionState = selected[fullPath];
       const isChecked = selectionState && typeof selectionState === 'object' && selectionState.checked === true;
+      if (!isChecked) return;
 
-      // Use full tree nodes to collect direct children (filtered tree has no children)
       const node = findNodeByKey(processedDataTreeNodesMemo, fullPath);
       if (!node) return;
+      const isLeaf = !node.children || node.children.length === 0;
+      if (!isLeaf) return; // group/intermediate node - its leaves are covered by their own entries
 
-      // Split full path into top-level key and nested path
       const parts = fullPath.split('.');
       const topLevelKey = parts[0];
       const nestedPath = parts.slice(1).join('.');
 
-      // Group by top-level key
-      if (!fieldGroups[topLevelKey]) {
-        fieldGroups[topLevelKey] = [];
-      }
-
-      if (isChecked) {
-        // If this is a top-level key (no nested path), collect all direct children (1 depth)
-        if (!nestedPath) {
-          // Top-level selection - get all direct children from this node (treat as leaves)
-          const nestedPaths = collectDirectChildren(node, topLevelKey);
-          nestedPaths.forEach(path => {
-            // Extract nested part (remove top-level key prefix)
-            const pathParts = path.split('.');
-            const nestedPart = pathParts.slice(1).join('.');
-            if (nestedPart && !fieldGroups[topLevelKey].includes(nestedPart)) {
-              fieldGroups[topLevelKey].push(nestedPart);
-            }
-          });
-        } else {
-          // Check if this is a direct child (only 1 level deep from top-level)
-          const pathDepth = nestedPath.split('.').length;
-          if (pathDepth === 1) {
-            // Direct child (1 depth) - treat as leaf and add it
-            if (!fieldGroups[topLevelKey].includes(nestedPath)) {
-              fieldGroups[topLevelKey].push(nestedPath);
-            }
-          }
-          // If pathDepth > 1, it's a nested child (deeper than 1 level) - ignore it
-        }
-      }
-      // Skip unchecked items in first pass - will handle in second pass
-    });
-
-    // Second pass: process unchecked items (only clear if no checked children exist)
-    Object.keys(selected).forEach(fullPath => {
-      const selectionState = selected[fullPath];
-      const isChecked = selectionState && typeof selectionState === 'object' && selectionState.checked === true;
-
-      if (!isChecked) {
-        const node = findNodeByKey(processedDataTreeNodesMemo, fullPath);
-        if (!node) return;
-
-        const parts = fullPath.split('.');
-        const topLevelKey = parts[0];
-        const nestedPath = parts.slice(1).join('.');
-
-        // Group by top-level key if not exists
-        if (!fieldGroups[topLevelKey]) {
-          fieldGroups[topLevelKey] = [];
-        }
-
-        if (!nestedPath) {
-          // Top-level key unchecked - check if any checked children exist in this event
-          const hasCheckedChildren = Object.keys(selected).some(otherPath => {
-            if (otherPath === fullPath) return false;
-            const otherState = selected[otherPath];
-            const otherIsChecked = otherState && typeof otherState === 'object' && otherState.checked === true;
-            if (!otherIsChecked) return false;
-            // Check if otherPath is a child of this top-level key
-            return otherPath.startsWith(topLevelKey + '.') && otherPath.split('.').length === 2;
-          });
-
-          // Only clear if no checked children are being processed in this event
-          if (!hasCheckedChildren) {
-            fieldGroups[topLevelKey] = [];
-          }
-        } else {
-          // Remove this specific nested path from the top-level key
-          if (fieldGroups[topLevelKey]) {
-            fieldGroups[topLevelKey] = fieldGroups[topLevelKey].filter(path => path !== nestedPath);
-            // If no nested paths left, remove the top-level key entry
-            if (fieldGroups[topLevelKey].length === 0) {
-              delete fieldGroups[topLevelKey];
-            }
-          }
-        }
+      if (!fieldGroups[topLevelKey]) fieldGroups[topLevelKey] = [];
+      if (!fieldGroups[topLevelKey].includes(nestedPath)) {
+        fieldGroups[topLevelKey].push(nestedPath);
       }
     });
 
     setSearchFields(fieldGroups);
     // Don't hide overlay - let user continue selecting
-  }, [processedDataTreeNodesMemo, setSearchFields, collectDirectChildren]);
+  }, [processedDataTreeNodesMemo, setSearchFields]);
 
   const handleSearchFieldsToggle = useCallback((event) => {
     setSearchFieldsExpandedKeys(event.value);
   }, [setSearchFieldsExpandedKeys]);
 
-  // Handlers for sortFields
+  // Handlers for sortFields - same pattern as handleSearchFieldsSelect
   const handleSortFieldsSelect = useCallback((e) => {
-    // Same logic as handleSearchFieldsSelect
     const selected = e.value || {};
     const fieldGroups = {};
 
-    // First pass: process all checked items
     Object.keys(selected).forEach(fullPath => {
-      // Check if this key is checked (PrimeReact checkbox format)
       const selectionState = selected[fullPath];
       const isChecked = selectionState && typeof selectionState === 'object' && selectionState.checked === true;
+      if (!isChecked) return;
 
-      // Use full tree nodes to collect direct children (filtered tree has no children)
       const node = findNodeByKey(processedDataTreeNodesMemo, fullPath);
       if (!node) return;
+      const isLeaf = !node.children || node.children.length === 0;
+      if (!isLeaf) return;
 
-      // Split full path into top-level key and nested path
       const parts = fullPath.split('.');
       const topLevelKey = parts[0];
       const nestedPath = parts.slice(1).join('.');
 
-      // Group by top-level key
-      if (!fieldGroups[topLevelKey]) {
-        fieldGroups[topLevelKey] = [];
-      }
-
-      if (isChecked) {
-        // If this is a top-level key (no nested path), collect all direct children (1 depth)
-        if (!nestedPath) {
-          // Top-level selection - get all direct children from this node (treat as leaves)
-          const nestedPaths = collectDirectChildren(node, topLevelKey);
-          nestedPaths.forEach(path => {
-            // Extract nested part (remove top-level key prefix)
-            const pathParts = path.split('.');
-            const nestedPart = pathParts.slice(1).join('.');
-            if (nestedPart && !fieldGroups[topLevelKey].includes(nestedPart)) {
-              fieldGroups[topLevelKey].push(nestedPart);
-            }
-          });
-        } else {
-          // Check if this is a direct child (only 1 level deep from top-level)
-          const pathDepth = nestedPath.split('.').length;
-          if (pathDepth === 1) {
-            // Direct child (1 depth) - treat as leaf and add it
-            if (!fieldGroups[topLevelKey].includes(nestedPath)) {
-              fieldGroups[topLevelKey].push(nestedPath);
-            }
-          }
-          // If pathDepth > 1, it's a nested child (deeper than 1 level) - ignore it
-        }
-      }
-      // Skip unchecked items in first pass - will handle in second pass
-    });
-
-    // Second pass: process unchecked items (only clear if no checked children exist)
-    Object.keys(selected).forEach(fullPath => {
-      const selectionState = selected[fullPath];
-      const isChecked = selectionState && typeof selectionState === 'object' && selectionState.checked === true;
-
-      if (!isChecked) {
-        const node = findNodeByKey(processedDataTreeNodesMemo, fullPath);
-        if (!node) return;
-
-        const parts = fullPath.split('.');
-        const topLevelKey = parts[0];
-        const nestedPath = parts.slice(1).join('.');
-
-        // Group by top-level key if not exists
-        if (!fieldGroups[topLevelKey]) {
-          fieldGroups[topLevelKey] = [];
-        }
-
-        if (!nestedPath) {
-          // Top-level key unchecked - check if any checked children exist in this event
-          const hasCheckedChildren = Object.keys(selected).some(otherPath => {
-            if (otherPath === fullPath) return false;
-            const otherState = selected[otherPath];
-            const otherIsChecked = otherState && typeof otherState === 'object' && otherState.checked === true;
-            if (!otherIsChecked) return false;
-            // Check if otherPath is a child of this top-level key
-            return otherPath.startsWith(topLevelKey + '.') && otherPath.split('.').length === 2;
-          });
-
-          // Only clear if no checked children are being processed in this event
-          if (!hasCheckedChildren) {
-            fieldGroups[topLevelKey] = [];
-          }
-        } else {
-          // Remove this specific nested path from the top-level key
-          if (fieldGroups[topLevelKey]) {
-            fieldGroups[topLevelKey] = fieldGroups[topLevelKey].filter(path => path !== nestedPath);
-            // If no nested paths left, remove the top-level key entry
-            if (fieldGroups[topLevelKey].length === 0) {
-              delete fieldGroups[topLevelKey];
-            }
-          }
-        }
+      if (!fieldGroups[topLevelKey]) fieldGroups[topLevelKey] = [];
+      if (!fieldGroups[topLevelKey].includes(nestedPath)) {
+        fieldGroups[topLevelKey].push(nestedPath);
       }
     });
 
     setSortFields(fieldGroups);
     // Don't hide overlay - let user continue selecting
-  }, [processedDataTreeNodesMemo, setSortFields, collectDirectChildren]);
+  }, [processedDataTreeNodesMemo, setSortFields]);
 
   const handleSortFieldsToggle = useCallback((event) => {
     setSortFieldsExpandedKeys(event.value);

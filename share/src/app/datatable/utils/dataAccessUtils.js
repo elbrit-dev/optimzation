@@ -31,6 +31,62 @@ export function getDataValue(data, key) {
 }
 
 /**
+ * Walk a path through an object, transparently iterating over arrays.
+ * When the current value is an Array, the SAME remaining parts are applied
+ * to every item (this also handles arrays-of-arrays, since re-entering this
+ * function on an array item hits the Array branch again).
+ * @param {*} current - Current value being walked
+ * @param {Array<string>} parts - Remaining path segments to resolve
+ * @returns {Array<*>} Flat array of resolved leaf values (null/undefined items skipped)
+ */
+function walkPath(current, parts) {
+  if (current == null) return [];
+  if (parts.length === 0) return [current];
+  if (Array.isArray(current)) {
+    return current.flatMap((item) => walkPath(item, parts));
+  }
+  const [part, ...rest] = parts;
+  const next = getDataValue(current, part);
+  return next == null ? [] : walkPath(next, rest);
+}
+
+/**
+ * Resolve a nested path against a row, returning ALL matching leaf values.
+ * Unlike getNestedValue (which returns a single value), this is array-aware:
+ * if the path passes through a list field (e.g. custom_department_details),
+ * it resolves the remaining path against every item in that list.
+ * @param {Object} row - Row object
+ * @param {string} topLevelKey - Top-level key (e.g., "custom_department_details")
+ * @param {string} [nestedPath] - Nested path (e.g., "elbrit_department__name")
+ * @returns {Array<*>} Array of resolved values (may be empty, or have more than 1 entry)
+ */
+export function resolveNestedValues(row, topLevelKey, nestedPath) {
+  if (!row || !topLevelKey) return [];
+  const top = getDataValue(row, topLevelKey);
+
+  if (!nestedPath) {
+    if (top == null) return [];
+    return Array.isArray(top) ? top.filter((v) => v != null) : [top];
+  }
+
+  if (top != null) {
+    const results = walkPath(top, nestedPath.split('.'));
+    if (results.length > 0) return results;
+  }
+
+  // Fallback: topLevelKey doesn't exist on this row (e.g. rows are already
+  // flat/unwrapped items rather than nested under the query root key) -
+  // resolve nestedPath directly against the row itself. This also handles
+  // array-typed fields reached this way (e.g. "custom_department_details.x").
+  const directResults = walkPath(row, nestedPath.split('.'));
+  if (directResults.length > 0) return directResults;
+
+  // Last resort: match getNestedValue's original behavior of returning the
+  // top-level value itself when nested access fully fails.
+  return top != null ? [top] : [];
+}
+
+/**
  * Get nested value from row using top-level key and nested path
  * @param {Object} row - Row object
  * @param {string} topLevelKey - Top-level key (e.g., "user")
@@ -39,36 +95,8 @@ export function getDataValue(data, key) {
  */
 export function getNestedValue(row, topLevelKey, nestedPath) {
   if (!row || !topLevelKey) return undefined;
-  const topLevelValue = getDataValue(row, topLevelKey);
-  
-  // If top-level key exists and has a value, try nested access
-  if (topLevelValue != null && nestedPath) {
-    // Split nested path and traverse
-    const parts = nestedPath.split('.');
-    let current = topLevelValue;
-    for (const part of parts) {
-      if (current == null) {
-        break;
-      }
-      current = getDataValue(current, part);
-    }
-    // If we got a value, return it
-    if (current != null) {
-      return current;
-    }
-  }
-  
-  // Fallback: if top-level key doesn't exist or nested access failed,
-  // try accessing nestedPath directly on the row (for flat data structures)
-  if (nestedPath) {
-    const directValue = getDataValue(row, nestedPath);
-    if (directValue != null) {
-      return directValue;
-    }
-  }
-  
-  // If no nestedPath, return top-level value (or undefined if it doesn't exist)
-  return topLevelValue;
+  const [first] = resolveNestedValues(row, topLevelKey, nestedPath);
+  return first;
 }
 
 /**

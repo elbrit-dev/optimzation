@@ -4900,7 +4900,11 @@ export default function DataProviderNew({
       if (Array.isArray(nestedPaths)) {
         for (const nestedPath of nestedPaths) {
           const key = nestedPath || topLevelKey;
-          names[key] = startCase(nestedPath || topLevelKey);
+          // Use only the last path segment for the label — a multi-level
+          // nested path (e.g. a field inside a list field) shouldn't render
+          // its full dotted string.
+          const lastSegment = nestedPath ? nestedPath.split('.').pop() : topLevelKey;
+          names[key] = startCase(lastSegment);
         }
       }
     }
@@ -4976,437 +4980,211 @@ export default function DataProviderNew({
   // Render selectors JSX with enhanced responsive classes
   const selectorsJSX = (
     <>
-      <div className="flex flex-col gap-2 sm:gap-3 md:gap-4 w-full min-w-0">
-        {/* Desktop Layout - Keep existing flex-wrap behavior */}
-        <div className="hidden sm:flex flex-row items-end justify-between w-full gap-2 sm:gap-3 md:gap-4">
-          <div className="flex flex-row items-end gap-2 sm:gap-3 md:gap-4 flex-wrap">
-            <div className='flex flex-row gap-2 sm:gap-3 md:gap-4 w-auto'>
-              <div className='flex flex-wrap items-center gap-2 sm:gap-3 md:gap-4'>
-                {/* Breakdown Toggle - Only show when report is enabled */}
-                {showBreakdownToggle && (
-                  <div className="flex items-center gap-2">
-                    <label className="block text-xs sm:text-sm font-medium text-gray-700 whitespace-nowrap">
-                      Report
-                    </label>
-                    <Switch
-                      checked={enableBreakdown}
-                      onChange={(checked) => {
-                        setEnableBreakdown(checked);
-                      }}
-                      size={isMobile ? 'small' : 'default'}
-                      disabled={isComputingReport}
-                    />
-                  </div>
-                )}
-
-                {/* Breakdown By - Only show when report is enabled, breakdown toggle is on, and date column is set */}
-                {showBreakdownControls && (
-                  <div className="w-auto min-w-[120px]">
-                    <Dropdown
-                      value={breakdownType}
-                      onChange={(e) => setBreakdownType(e.value)}
-                      options={[
-                        { label: 'Month', value: 'month' },
-                        { label: 'Week', value: 'week' },
-                        { label: 'Day', value: 'day' },
-                        { label: 'Quarter', value: 'quarter' },
-                        { label: 'Year', value: 'annual' }
-                      ]}
-                      optionLabel="label"
-                      optionValue="value"
-                      className="w-full items-center"
-                      disabled={executingQuery}
-                      style={{
-                        fontSize: '0.875rem',
-                        height: '2rem',
-                      }}
-                    />
-                  </div>
-                )}
-
-                {/* Column Group By - Only show when report is enabled and date column is set */}
-                {showBreakdownControls && (
-                  <div className="w-auto min-w-[120px]">
-                    <Dropdown
-                      value={columnGroupBy}
-                      onChange={(e) => setColumnGroupBy(e.value)}
-                      options={[
-                        { label: 'Values', value: 'values' },
-                        { label: startCase(dateColumn.split('__').join(' ').split('_').join(' ')), value: dateColumn },
-                        { label: 'Period-over-Period', value: 'period-over-period' }
-                      ]}
-                      optionLabel="label"
-                      optionValue="value"
-                      className="w-full items-center"
-                      disabled={executingQuery}
-                      style={{
-                        fontSize: '0.875rem',
-                        height: '2rem',
-                      }}
-                    />
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Range Picker - Only show when using saved query that supports month filtering */}
-            {showMonthRangePicker && (
-              <div className="w-64 md:w-72 lg:w-80 min-w-0 shrink-0">
-                <RangePicker
-                  key={`${dataSource}-${pickerMode}`} // Force re-render when data source or mode changes
-                  value={monthRange}
-                  onChange={handleMonthRangeChange}
-                  placeholder={getPickerPlaceholder()}
-                  format="MM/YY"
-                  mode={pickerMode}
-                  disabled={executingQuery}
-                  className="w-full"
-                  style={{
-                    width: '100%',
-                    fontSize: '0.875rem',
-                    height: '2rem',
-                  }}
-                />
-              </div>
-            )}
-            {/* Last Updated at with Sync button - Show when using saved query, in a new row below Data Source */}
-            {showSyncButton && (
-              <div className="flex-1 min-w-0">
-                <SplitButton
-                  outlined
-                  severity="secondary"
-                  label={<span style={{ fontSize: '0.75rem', whiteSpace: 'nowrap' }}>{lastUpdatedText}</span>}
-                  icon={syncIconClass}
-                  onClick={handleSync}
-                  model={syncButtonModel}
-                  disabled={isSyncDisabled}
-                  style={{ height: '2rem', minWidth: 'fit-content' }}
-                />
-              </div>
-            )}
-            {/* Filter and Sort Button - Only show when clientSave === true */}
-            {currentQueryDoc?.clientSave === true &&
-              (Object.keys(currentQueryDoc?.searchFields || {}).length > 0 || currentQueryDoc?.sortFields) && (
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Button
-                    icon="pi pi-sliders-h"
-                    label="Filter / Sort"
-                    onClick={() => setFilterSortSidebarVisible(true)}
-                    className="p-button-outlined"
-                    severity="secondary"
-                    style={{ height: '2rem', fontSize: '0.875rem' }}
-                  >
-                    {(() => {
-                      // Calculate active filter count
-                      let count = 0;
-                      if (sortConfig && sortConfig.field) count += 1;
-                      Object.values(preFilterValues).forEach(vals => {
-                        if (Array.isArray(vals) && vals.length > 0) {
-                          count += vals.length;
-                        }
-                      });
-                      return count > 0 ? <span className="ml-2 px-2 py-0.5 bg-blue-600 text-white text-xs rounded-full">{count}</span> : null;
-                    })()}
-                  </Button>
-
-                  {/* Applied Sort Button */}
-                  {sortConfig && sortConfig.field && (() => {
-                    const fieldName = sortConfig.field.split('.').pop();
-                    const displayName = startCase(fieldName);
-                    const fieldType = columnTypes[fieldName] || 'string';
-                    let directionLabel = '';
-                    if (fieldType === 'date') {
-                      directionLabel = sortConfig.direction === 'asc' ? 'Oldest to Latest' : 'Latest to Oldest';
-                    } else if (fieldType === 'number') {
-                      directionLabel = sortConfig.direction === 'asc' ? 'Low to High' : 'High to Low';
-                    } else {
-                      directionLabel = sortConfig.direction === 'asc' ? 'A to Z' : 'Z to A';
-                    }
-                    return (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsApplyingFilterSort(true);
-                          setSortConfig(null);
-                        }}
-                        className="inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-md hover:opacity-80 transition-opacity border"
-                        style={{
-                          height: '2rem',
-                          backgroundColor: '#db2d27',
-                          color: 'white',
-                          borderColor: '#db2d27'
-                        }}
-                        title="Remove sort"
-                      >
-                        <i className="pi pi-sort text-xs"></i>
-                        <span>{displayName} - {directionLabel}</span>
-                        <i className="pi pi-times text-xs"></i>
-                      </button>
-                    );
-                  })()}
-
-                  {/* Applied Filter Value Buttons */}
-                  {Object.entries(preFilterValues).map(([fieldKey, values]) => {
-                    if (!Array.isArray(values) || values.length === 0) return null;
-
-                    // Get display name for field (use memoized map or fallback to startCase)
-                    const fieldDisplayName = fieldDisplayNames[fieldKey] || startCase(fieldKey);
-
-                    return values.map((value, idx) => (
-                      <button
-                        key={`${fieldKey}-${value}-${idx}`}
-                        type="button"
-                        onClick={() => {
-                          setIsApplyingFilterSort(true);
-                          setPreFilterValues(prev => {
-                            const newValues = { ...prev };
-                            if (newValues[fieldKey]) {
-                              newValues[fieldKey] = newValues[fieldKey].filter(v => v !== value);
-                              if (newValues[fieldKey].length === 0) {
-                                delete newValues[fieldKey];
-                              }
-                            }
-                            return newValues;
-                          });
-                        }}
-                        className="inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-md hover:opacity-80 transition-opacity border"
-                        style={{
-                          height: '2rem',
-                          backgroundColor: '#db2d27',
-                          color: 'white',
-                          borderColor: '#db2d27'
-                        }}
-                        title="Remove filter"
-                      >
-                        <i className="pi pi-filter text-xs"></i>
-                        <span>{fieldDisplayName}: {value}</span>
-                        <i className="pi pi-times text-xs"></i>
-                      </button>
-                    ));
-                  })}
-                </div>
-              )}
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3 md:gap-4 w-full min-w-0">
+        {/* Breakdown Toggle - Only show when report is enabled */}
+        {showBreakdownToggle && (
+          <div className="flex items-center gap-2">
+            <label className="block text-xs sm:text-sm font-medium text-gray-700 whitespace-nowrap">
+              Report
+            </label>
+            <Switch
+              checked={enableBreakdown}
+              onChange={(checked) => {
+                setEnableBreakdown(checked);
+              }}
+              size={isMobile ? 'small' : 'default'}
+              disabled={isComputingReport}
+            />
           </div>
-        </div>
+        )}
 
-        {/* Mobile Layout - 3 distinct rows */}
-        <div className="flex sm:hidden flex-col gap-4 w-full">
-          {/* Row 1: Report toggle, Breakdown type, Grouping */}
-          {(showBreakdownToggle || showBreakdownControls) && (
-            <div className="flex items-center gap-2 flex-wrap">
-              {/* Breakdown Toggle - Only show when report is enabled */}
-              {showBreakdownToggle && (
-                <div className="flex items-center gap-2">
-                  <label className="block text-xs font-medium text-gray-700 whitespace-nowrap">
-                    Report
-                  </label>
-                  <Switch
-                    checked={enableBreakdown}
-                    onChange={(checked) => {
-                      setEnableBreakdown(checked);
+        {/* Breakdown By - Only show when report is enabled, breakdown toggle is on, and date column is set */}
+        {showBreakdownControls && (
+          <div className="w-auto min-w-[120px]">
+            <Dropdown
+              value={breakdownType}
+              onChange={(e) => setBreakdownType(e.value)}
+              options={[
+                { label: 'Month', value: 'month' },
+                { label: 'Week', value: 'week' },
+                { label: 'Day', value: 'day' },
+                { label: 'Quarter', value: 'quarter' },
+                { label: 'Year', value: 'annual' }
+              ]}
+              optionLabel="label"
+              optionValue="value"
+              className="w-full items-center"
+              disabled={executingQuery}
+              style={{
+                fontSize: '0.875rem',
+                height: '2rem',
+              }}
+            />
+          </div>
+        )}
+
+        {/* Column Group By - Only show when report is enabled and date column is set */}
+        {showBreakdownControls && (
+          <div className="w-auto min-w-[120px]">
+            <Dropdown
+              value={columnGroupBy}
+              onChange={(e) => setColumnGroupBy(e.value)}
+              options={[
+                { label: 'Values', value: 'values' },
+                { label: startCase(dateColumn.split('__').join(' ').split('_').join(' ')), value: dateColumn },
+                { label: 'Period-over-Period', value: 'period-over-period' }
+              ]}
+              optionLabel="label"
+              optionValue="value"
+              className="w-full items-center"
+              disabled={executingQuery}
+              style={{
+                fontSize: '0.875rem',
+                height: '2rem',
+              }}
+            />
+          </div>
+        )}
+
+        {/* Filter and Sort button + applied filter buttons */}
+        {currentQueryDoc?.clientSave === true &&
+          (Object.keys(currentQueryDoc?.searchFields || {}).length > 0 || currentQueryDoc?.sortFields) && (
+            <>
+              <Button
+                icon="pi pi-sliders-h"
+                label="Filter / Sort"
+                onClick={() => setFilterSortSidebarVisible(true)}
+                className="p-button-outlined"
+                severity="secondary"
+                style={{ height: '2rem', fontSize: '0.875rem' }}
+              >
+                {(() => {
+                  // Calculate active filter count
+                  let count = 0;
+                  if (sortConfig && sortConfig.field) count += 1;
+                  Object.values(preFilterValues).forEach(vals => {
+                    if (Array.isArray(vals) && vals.length > 0) {
+                      count += vals.length;
+                    }
+                  });
+                  return count > 0 ? <span className="ml-2 px-2 py-0.5 bg-blue-600 text-white text-xs rounded-full">{count}</span> : null;
+                })()}
+              </Button>
+
+              {/* Applied Sort Button */}
+              {sortConfig && sortConfig.field && (() => {
+                const fieldName = sortConfig.field.split('.').pop();
+                const displayName = startCase(fieldName);
+                const fieldType = columnTypes[fieldName] || 'string';
+                let directionLabel = '';
+                if (fieldType === 'date') {
+                  directionLabel = sortConfig.direction === 'asc' ? 'Oldest to Latest' : 'Latest to Oldest';
+                } else if (fieldType === 'number') {
+                  directionLabel = sortConfig.direction === 'asc' ? 'Low to High' : 'High to Low';
+                } else {
+                  directionLabel = sortConfig.direction === 'asc' ? 'A to Z' : 'Z to A';
+                }
+                return (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsApplyingFilterSort(true);
+                      setSortConfig(null);
                     }}
-                    size="small"
-                    disabled={isComputingReport}
-                  />
-                </div>
-              )}
-
-              {/* Breakdown By - Only show when report is enabled, breakdown toggle is on, and date column is set */}
-              {showBreakdownControls && (
-                <div className="flex-1">
-                  <Dropdown
-                    value={breakdownType}
-                    onChange={(e) => setBreakdownType(e.value)}
-                    options={[
-                      { label: 'Month', value: 'month' },
-                      { label: 'Week', value: 'week' },
-                      { label: 'Day', value: 'day' },
-                      { label: 'Quarter', value: 'quarter' },
-                      { label: 'Year', value: 'annual' }
-                    ]}
-                    optionLabel="label"
-                    optionValue="value"
-                    className="w-full items-center"
-                    disabled={executingQuery}
+                    className="inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-md hover:opacity-80 transition-opacity border"
                     style={{
-                      fontSize: '0.875rem',
                       height: '2rem',
+                      backgroundColor: '#db2d27',
+                      color: 'white',
+                      borderColor: '#db2d27'
                     }}
-                  />
-                </div>
-              )}
+                    title="Remove sort"
+                  >
+                    <i className="pi pi-sort text-xs"></i>
+                    <span>{displayName} - {directionLabel}</span>
+                    <i className="pi pi-times text-xs"></i>
+                  </button>
+                );
+              })()}
 
-              {/* Column Group By - Only show when report is enabled and date column is set */}
-              {showBreakdownControls && (
-                <div className="flex-1">
-                  <Dropdown
-                    value={columnGroupBy}
-                    onChange={(e) => setColumnGroupBy(e.value)}
-                    options={[
-                      { label: 'Values', value: 'values' },
-                      { label: startCase(dateColumn.split('__').join(' ').split('_').join(' ')), value: dateColumn },
-                      { label: 'Period-over-Period', value: 'period-over-period' }
-                    ]}
-                    optionLabel="label"
-                    optionValue="value"
-                    className="w-full items-center"
-                    disabled={executingQuery}
-                    style={{
-                      fontSize: '0.875rem',
-                      height: '2rem',
+              {/* Applied Filter Value Buttons */}
+              {Object.entries(preFilterValues).map(([fieldKey, values]) => {
+                if (!Array.isArray(values) || values.length === 0) return null;
+
+                // Get display name for field (use memoized map or fallback to startCase)
+                const fieldDisplayName = fieldDisplayNames[fieldKey] || startCase(fieldKey);
+
+                return values.map((value, idx) => (
+                  <button
+                    key={`${fieldKey}-${value}-${idx}`}
+                    type="button"
+                    onClick={() => {
+                      setIsApplyingFilterSort(true);
+                      setPreFilterValues(prev => {
+                        const newValues = { ...prev };
+                        if (newValues[fieldKey]) {
+                          newValues[fieldKey] = newValues[fieldKey].filter(v => v !== value);
+                          if (newValues[fieldKey].length === 0) {
+                            delete newValues[fieldKey];
+                          }
+                        }
+                        return newValues;
+                      });
                     }}
-                  />
-                </div>
-              )}
-            </div>
+                    className="inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-md hover:opacity-80 transition-opacity border"
+                    style={{
+                      height: '2rem',
+                      backgroundColor: '#db2d27',
+                      color: 'white',
+                      borderColor: '#db2d27'
+                    }}
+                    title="Remove filter"
+                  >
+                    <i className="pi pi-filter text-xs"></i>
+                    <span>{fieldDisplayName}: {value}</span>
+                    <i className="pi pi-times text-xs"></i>
+                  </button>
+                ));
+              })}
+            </>
           )}
 
-          {/* Row 2: Range picker, Sync button */}
-          {(showMonthRangePicker || showSyncButton) && (
-            <div className="flex items-center gap-2">
-              {/* Range Picker - Only show when using saved query that supports month filtering */}
-              {showMonthRangePicker && (
-                <RangePicker
-                  key={`${dataSource}-${pickerMode}`} // Force re-render when data source or mode changes
-                  value={monthRange}
-                  onChange={handleMonthRangeChange}
-                  placeholder={getPickerPlaceholder()}
-                  format="MM/YY"
-                  mode={pickerMode}
-                  disabled={executingQuery}
-                  className="w-full"
-                  style={{
-                    fontSize: '0.875rem',
-                    height: '2rem',
-                  }}
-                />
-              )}
-              {/* Last Updated at with Sync button - Show when using saved query */}
-              {showSyncButton && (
-                <div className="w-full">
-                  <SplitButton
-                    outlined
-                    severity="secondary"
-                    label={<span style={{ fontSize: '0.75rem', whiteSpace: 'nowrap' }}>{lastUpdatedText}</span>}
-                    icon={syncIconClass}
-                    onClick={handleSync}
-                    model={syncButtonModel}
-                    disabled={isSyncDisabled}
-                    style={{ height: '2rem', minWidth: 'fit-content' }}
-                  />
-                </div>
-              )}
-            </div>
-          )}
+        {/* Range Picker - Only show when using saved query that supports month filtering */}
+        {showMonthRangePicker && (
+          <div className="w-full sm:w-64 md:w-72 lg:w-80 min-w-0 shrink-0">
+            <RangePicker
+              key={`${dataSource}-${pickerMode}`} // Force re-render when data source or mode changes
+              value={monthRange}
+              onChange={handleMonthRangeChange}
+              placeholder={getPickerPlaceholder()}
+              format="MM/YY"
+              mode={pickerMode}
+              disabled={executingQuery}
+              className="w-full"
+              style={{
+                width: '100%',
+                fontSize: '0.875rem',
+                height: '2rem',
+              }}
+            />
+          </div>
+        )}
 
-          {/* Row 3: Filter and Sort button + applied filter buttons (with horizontal scroll) */}
-          {currentQueryDoc?.clientSave === true &&
-            (Object.keys(currentQueryDoc?.searchFields || {}).length > 0 || currentQueryDoc?.sortFields) && (
-              <div className="flex items-center gap-2 w-full min-w-0">
-                <Button
-                  icon="pi pi-sliders-h"
-                  label="Filter and Sort"
-                  onClick={() => setFilterSortSidebarVisible(true)}
-                  className="p-button-outlined shrink-0"
-                  severity="secondary"
-                  style={{ height: '2rem', fontSize: '0.875rem' }}
-                >
-                  {(() => {
-                    // Calculate active filter count
-                    let count = 0;
-                    if (sortConfig && sortConfig.field) count += 1;
-                    Object.values(preFilterValues).forEach(vals => {
-                      if (Array.isArray(vals) && vals.length > 0) {
-                        count += vals.length;
-                      }
-                    });
-                    return count > 0 ? <span className="ml-2 px-2 py-0.5 bg-blue-600 text-white text-xs rounded-full">{count}</span> : null;
-                  })()}
-                </Button>
-
-                {/* Scrollable container for applied filters */}
-                <div className="flex-1 min-w-0 overflow-x-auto">
-                  <div className="flex items-center gap-2 flex-nowrap">
-                    {/* Applied Sort Button */}
-                    {sortConfig && sortConfig.field && (() => {
-                      const fieldName = sortConfig.field.split('.').pop();
-                      const displayName = startCase(fieldName);
-                      const fieldType = columnTypes[fieldName] || 'string';
-                      let directionLabel = '';
-                      if (fieldType === 'date') {
-                        directionLabel = sortConfig.direction === 'asc' ? 'Oldest to Latest' : 'Latest to Oldest';
-                      } else if (fieldType === 'number') {
-                        directionLabel = sortConfig.direction === 'asc' ? 'Low to High' : 'High to Low';
-                      } else {
-                        directionLabel = sortConfig.direction === 'asc' ? 'A to Z' : 'Z to A';
-                      }
-                      return (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsApplyingFilterSort(true);
-                            setSortConfig(null);
-                          }}
-                          className="inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-md hover:opacity-80 transition-opacity border shrink-0"
-                          style={{
-                            height: '2rem',
-                            backgroundColor: '#db2d27',
-                            color: 'white',
-                            borderColor: '#db2d27'
-                          }}
-                          title="Remove sort"
-                        >
-                          <i className="pi pi-sort text-xs"></i>
-                          <span>{displayName} - {directionLabel}</span>
-                          <i className="pi pi-times text-xs"></i>
-                        </button>
-                      );
-                    })()}
-
-                    {/* Applied Filter Value Buttons */}
-                    {Object.entries(preFilterValues).map(([fieldKey, values]) => {
-                      if (!Array.isArray(values) || values.length === 0) return null;
-
-                      // Get display name for field (use memoized map or fallback to startCase)
-                      const fieldDisplayName = fieldDisplayNames[fieldKey] || startCase(fieldKey);
-
-                      return values.map((value, idx) => (
-                        <button
-                          key={`${fieldKey}-${value}-${idx}`}
-                          type="button"
-                          onClick={() => {
-                            setIsApplyingFilterSort(true);
-                            setPreFilterValues(prev => {
-                              const newValues = { ...prev };
-                              if (newValues[fieldKey]) {
-                                newValues[fieldKey] = newValues[fieldKey].filter(v => v !== value);
-                                if (newValues[fieldKey].length === 0) {
-                                  delete newValues[fieldKey];
-                                }
-                              }
-                              return newValues;
-                            });
-                          }}
-                          className="inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-md hover:opacity-80 transition-opacity border shrink-0"
-                          style={{
-                            height: '2rem',
-                            backgroundColor: '#db2d27',
-                            color: 'white',
-                            borderColor: '#db2d27'
-                          }}
-                          title="Remove filter"
-                        >
-                          <i className="pi pi-filter text-xs"></i>
-                          <span>{fieldDisplayName}: {value}</span>
-                          <i className="pi pi-times text-xs"></i>
-                        </button>
-                      ));
-                    })}
-                  </div>
-                </div>
-              </div>
-            )}
-        </div>
+        {/* Last Updated at with Sync button - Show when using saved query */}
+        {showSyncButton && (
+          <div className="w-full sm:w-auto sm:flex-1 min-w-0">
+            <SplitButton
+              outlined
+              severity="secondary"
+              label={<span style={{ fontSize: '0.75rem', whiteSpace: 'nowrap' }}>{lastUpdatedText}</span>}
+              icon={syncIconClass}
+              onClick={handleSync}
+              model={syncButtonModel}
+              disabled={isSyncDisabled}
+              style={{ height: '2rem', minWidth: 'fit-content' }}
+            />
+          </div>
+        )}
       </div>
     </>
   );

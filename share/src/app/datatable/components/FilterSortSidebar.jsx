@@ -6,7 +6,7 @@ import { Button } from 'primereact/button';
 import { InputText } from 'primereact/inputtext';
 import { Checkbox } from 'primereact/checkbox';
 import { startCase, uniq, filter as lodashFilter, toLower, isNil } from 'lodash';
-import { getNestedValue, getDataValue } from '../utils/dataAccessUtils';
+import { getDataValue, resolveNestedValues } from '../utils/dataAccessUtils';
 
 // Hook to detect mobile viewport
 function useIsMobile() {
@@ -60,6 +60,20 @@ export default function FilterSortSidebar({
     }
   }, [visible]); // Only sync when sidebar opens/closes
 
+  // Map from fieldKey (nestedPath || topLevelKey) to its {topLevelKey, nestedPath} pair,
+  // so filters can resolve through nested/array fields, not just flat row properties.
+  const fieldKeyToPath = useMemo(() => {
+    const map = {};
+    Object.keys(searchFields).forEach(topLevelKey => {
+      const nestedPaths = searchFields[topLevelKey];
+      if (!Array.isArray(nestedPaths)) return;
+      nestedPaths.forEach(nestedPath => {
+        map[nestedPath || topLevelKey] = { topLevelKey, nestedPath };
+      });
+    });
+    return map;
+  }, [searchFields]);
+
   // Helper function to filter data by selectedFilterValues, excluding a specific field
   const filterDataExcludingField = (data, filterValues, excludeFieldKey) => {
     if (!data || !Array.isArray(data) || data.length === 0) {
@@ -92,23 +106,19 @@ export default function FilterSortSidebar({
         const filterSet = filterSets[fieldKey];
         if (!filterSet || filterSet.size === 0) continue;
 
-        // Extract cell value
-        const cellValue = getDataValue(row, fieldKey);
+        const path = fieldKeyToPath[fieldKey];
+        // Array-aware: resolve through nested/array fields; matches if ANY
+        // resolved value (e.g. any list item) is in the filter set.
+        const cellValues = path
+          ? resolveNestedValues(row, path.topLevelKey, path.nestedPath)
+          : [getDataValue(row, fieldKey)];
 
-        // Convert to string for comparison
-        const cellStr = isNil(cellValue) ? null : String(cellValue);
+        const hasNullMatch = cellValues.every(v => isNil(v))
+          && (filterSet.has('null') || filterSet.has('') || filterSet.has('undefined'));
+        const hasValueMatch = cellValues.some(v => !isNil(v) && filterSet.has(String(v)));
 
-        // Check null/undefined handling
-        if (cellStr === null) {
-          if (!filterSet.has('null') && !filterSet.has('') && !filterSet.has('undefined')) {
-            return false; // Early exit if null not in filter
-          }
-          continue; // Null matches, check next filter
-        }
-
-        // O(1) Set lookup
-        if (!filterSet.has(cellStr)) {
-          return false; // Early exit on first mismatch
+        if (!hasNullMatch && !hasValueMatch) {
+          return false; // Early exit on mismatch
         }
       }
 
@@ -140,11 +150,11 @@ export default function FilterSortSidebar({
         const filteredData = filterDataExcludingField(tableData, selectedFilterValues, fieldKey);
         
         const allValues = filteredData
-          .map(row => {
-            if (!row || typeof row !== 'object') return null;
-            // Use getNestedValue which handles both nested and flat structures
-            const value = getNestedValue(row, topLevelKey, nestedPath);
-            return value;
+          .flatMap(row => {
+            if (!row || typeof row !== 'object') return [];
+            // Array-aware: resolves through nested/array fields, returning
+            // every matching value (e.g. one per list item).
+            return resolveNestedValues(row, topLevelKey, nestedPath);
           })
           .filter(val => val !== null && val !== undefined && val !== '')
           .map(val => String(val));
@@ -195,9 +205,10 @@ export default function FilterSortSidebar({
 
       nestedPaths.forEach(nestedPath => {
         const fullPath = nestedPath ? `${topLevelKey}.${nestedPath}` : topLevelKey;
-        const displayName = nestedPath
-          ? startCase(nestedPath.split('__').join(' ').split('_').join(' '))
-          : startCase(topLevelKey.split('__').join(' ').split('_').join(' '));
+        // Use only the last path segment for the label — a multi-level nested
+        // path (e.g. inside a list field) shouldn't render its full dotted string.
+        const lastSegment = nestedPath ? nestedPath.split('.').pop() : topLevelKey;
+        const displayName = startCase(lastSegment.split('__').join(' ').split('_').join(' '));
 
         options.push({
           label: displayName,
@@ -278,7 +289,7 @@ export default function FilterSortSidebar({
       <div className="flex flex-col h-full">
         <div className="flex-1 overflow-hidden flex min-h-0">
           {/* Left Sidebar - Tab Navigation */}
-          <div className="w-24 border-r border-gray-200 bg-gray-50 overflow-y-auto flex-shrink-0">
+          <div className="w-32 border-r border-gray-200 bg-gray-50 overflow-y-auto overflow-x-hidden flex-shrink-0">
             <div className="p-2">
               <button
                 onClick={() => setActiveTabIndex(0)}
@@ -287,10 +298,10 @@ export default function FilterSortSidebar({
                     : 'text-gray-700 hover:bg-gray-100'
                   }`}
               >
-                <span className="flex items-center justify-between">
-                  <span className='text-xs'>Sort by</span>
+                <span className="flex items-start justify-between gap-1 min-w-0">
+                  <span className="text-xs break-words">Sort by</span>
                   {selectedSortField && (
-                    <span className="w-2 h-2 bg-blue-600 rounded-full"></span>
+                    <span className="w-2 h-2 mt-1 bg-blue-600 rounded-full flex-shrink-0"></span>
                   )}
                 </span>
               </button>
@@ -308,9 +319,9 @@ export default function FilterSortSidebar({
                     // Only show tabs with >1 unique value
                     if (uniqueValues.length <= 1) return null;
 
-                    const displayName = nestedPath
-                      ? startCase(nestedPath.split('__').join(' ').split('_').join(' '))
-                      : startCase(topLevelKey.split('__').join(' ').split('_').join(' '));
+                    // Use only the last path segment for the label — same rationale as sortFieldOptions above.
+                    const lastSegment = nestedPath ? nestedPath.split('.').pop() : topLevelKey;
+                    const displayName = startCase(lastSegment.split('__').join(' ').split('_').join(' '));
                     const currentTabIndex = tabCounter++;
                     const tabKey = `${topLevelKey}-${nestedPath}`;
                     const selectedCount = Array.isArray(selectedFilterValues[fieldKey]) 
@@ -326,10 +337,10 @@ export default function FilterSortSidebar({
                             : 'text-gray-700 hover:bg-gray-100'
                           }`}
                       >
-                        <span className="flex items-center justify-between">
-                          <span className='text-xs'>{displayName}</span>
+                        <span className="flex items-start justify-between gap-1 min-w-0">
+                          <span className="text-xs break-words">{displayName}</span>
                           {selectedCount > 0 && (
-                            <span className="ml-2 px-1.5 py-0.5 text-xs font-medium bg-blue-600 text-white rounded-full min-w-[1.25rem] text-center">
+                            <span className="ml-1 px-1.5 py-0.5 text-xs font-medium bg-blue-600 text-white rounded-full min-w-[1.25rem] text-center flex-shrink-0">
                               {selectedCount}
                             </span>
                           )}
@@ -343,7 +354,7 @@ export default function FilterSortSidebar({
           </div>
 
           {/* Right Content Area - Full Height */}
-          <div className="flex-1 overflow-hidden bg-white min-h-0 flex flex-col">
+          <div className="flex-1 overflow-hidden bg-white min-h-0 min-w-0 flex flex-col">
             {activeTabIndex === 0 && (
               <div className="pl-4 flex-1 overflow-y-auto min-h-0">
                 <div className="space-y-1">
@@ -475,14 +486,15 @@ export default function FilterSortSidebar({
               };
 
               return (
-                <div className="pl-4 flex-1 overflow-hidden flex flex-col min-h-0">
+                <div className="pl-4 pr-2 flex-1 overflow-hidden flex flex-col min-h-0 min-w-0">
                   {uniqueValues.length > 0 && (
                     <>
-                      <div className="mb-3 flex items-center gap-2 flex-shrink-0">
-                        <div className="p-inputgroup flex-1">
-                          <span style={{ height: '2rem' }} className="p-inputgroup-addon">
+                      <div className="mb-3 flex items-center gap-2 flex-shrink-0 min-w-0">
+                        <div className="p-inputgroup flex-1 min-w-0">
+                          <span style={{ height: '2rem' }} className="p-inputgroup-addon flex-shrink-0">
                             <input
                               type="checkbox"
+                              title="Select all"
                               checked={filteredValues.length > 0 && filteredValues.every(val => selectedValues.includes(val))}
                               onChange={(e) => {
                                 if (e.target.checked) {
@@ -498,14 +510,15 @@ export default function FilterSortSidebar({
                             value={searchTerm}
                             onChange={(e) => handleSearchChange(e.target.value)}
                             placeholder="Search"
-                            style={{ height: '2rem' }}
+                            style={{ height: '2rem', minWidth: 0 }}
+                            className="w-full"
                           />
                         </div>
-                        <span className="text-xs text-gray-500 ml-auto whitespace-nowrap">
+                        <span className="text-xs text-gray-500 ml-auto whitespace-nowrap flex-shrink-0">
                           {selectedValues.length}/{filteredValues.length}
                         </span>
                       </div>
-                      <div className="space-y-1 flex-1 overflow-y-auto min-h-0">
+                      <div className="space-y-1 flex-1 overflow-y-auto overflow-x-hidden min-h-0 min-w-0">
                         {filteredValues.length > 0 ? (
                           filteredValues.map((value, idx) => {
                             const isSelected = selectedValues.includes(value);
@@ -513,16 +526,16 @@ export default function FilterSortSidebar({
                             return (
                               <label
                                 key={idx}
-                                className="flex items-center cursor-pointer p-2 rounded hover:bg-gray-50"
+                                className="flex items-start cursor-pointer p-2 rounded hover:bg-gray-50 min-w-0 gap-2"
                               >
                                 <input
                                   type="checkbox"
                                   checked={isSelected}
                                   onChange={() => toggleValue(value)}
-                                  className="mr-3 w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                  className="mt-0.5 w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 flex-shrink-0"
                                 />
-                                <span className="text-sm text-gray-700 flex-1">{value}</span>
-                                <span className="text-xs text-gray-500 ml-2 text-right min-w-[2rem]">{count}</span>
+                                <span className="text-sm text-gray-700 flex-1 break-words min-w-0">{value}</span>
+                                <span className="text-xs text-gray-500 text-right min-w-[2rem] flex-shrink-0">{count}</span>
                               </label>
                             );
                           })

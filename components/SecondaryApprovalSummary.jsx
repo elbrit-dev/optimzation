@@ -51,6 +51,7 @@ function ensureStyles() {
     .eapr-kpi{border:1px solid var(--eapr-border);border-radius:11px;padding:11px 13px;background:var(--eapr-surface2)}
     .eapr-kpi .k{font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--eapr-ink3);font-weight:700}
     .eapr-kpi .v{font-size:23px;font-weight:800;letter-spacing:-.02em;margin-top:6px;line-height:1;color:var(--eapr-ink)}
+    .eapr-kpi .v .q{font-size:12px;font-weight:600;letter-spacing:0;opacity:.72;margin-left:2px}
     .eapr-kpi.w{background:var(--eapr-warn-bg);border-color:color-mix(in srgb,var(--eapr-warn) 24%,transparent)} .eapr-kpi.w .v,.eapr-kpi.w .k{color:var(--eapr-warn)}
     .eapr-kpi.g{background:var(--eapr-good-bg);border-color:color-mix(in srgb,var(--eapr-good) 22%,transparent)} .eapr-kpi.g .v,.eapr-kpi.g .k{color:var(--eapr-good)}
     .eapr-kpi.b{background:var(--eapr-bad-bg);border-color:color-mix(in srgb,var(--eapr-bad) 24%,transparent)} .eapr-kpi.b .v,.eapr-kpi.b .k{color:var(--eapr-bad)}
@@ -215,15 +216,15 @@ export default function SecondaryApprovalSummary({
         <>
           <div className="eapr-kpis">
             {[
-              ["Employees", fmtInt(nEmployees), ""],
-              ["Customers", fmtInt(nCustomers), ""],
-              ["Waiting", fmtInt(counts.Waiting), "w"],
-              ["Approved", fmtInt(counts.Approved), "g"],
-              ["Rejected", fmtInt(counts.Rejected), "b"],
-            ].map(([k, v, c], i) => (
+              ["Employees", fmtInt(nEmployees), null, ""],
+              ["Customers", fmtInt(nCustomers), null, ""],
+              ["Waiting", fmtInt(counts.Waiting), fmtInt(sq.Waiting), "w"],
+              ["Approved", fmtInt(counts.Approved), fmtInt(sq.Approved), "g"],
+              ["Rejected", fmtInt(counts.Rejected), fmtInt(sq.Rejected), "b"],
+            ].map(([k, v, qty, c], i) => (
               <div key={i} className={`eapr-kpi${c ? " " + c : ""}`}>
                 <div className="k">{k}</div>
-                <div className="v num">{v}</div>
+                <div className="v num">{v}{qty != null ? <span className="q">({qty})</span> : null}</div>
               </div>
             ))}
           </div>
