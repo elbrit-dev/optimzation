@@ -1230,7 +1230,7 @@ PLASMIC.registerComponent(SecondaryDataSummary, {
     onCustomerClick: {
       type: "eventHandler",
       argTypes: [{ name: "customer", type: "object" }],
-      description: "Fires with the customer's docname when a customer row in the popup is clicked. Wire it to open that Secondary Data Entry if you want.",
+      description: "Fires with the customer's docname when a customer's group title in the popup is clicked (only while grouped by Customer). Wire it to open that Secondary Data Entry if you want; leave unwired and the title is plain text.",
     },
     onFixRejected: {
       type: "eventHandler",
@@ -1249,7 +1249,7 @@ PLASMIC.registerComponent(SecondaryApprovalSummary, {
   name: "SecondaryApprovalSummary",
   displayName: "Secondary Approval Summary Card",
   description:
-    "A compact, self-contained SUMMARY card for the Secondary APPROVAL page — sits ABOVE the per-employee approval groups. It's a summary only (no click-through / no employee drill-down): a COUNTS row (Employees, Customers, Waiting, Approved, Rejected) and a VALUE TRACKING section — Secondary Value/Qty and Closing Value/Qty, each split by approval bucket (Waiting / Approved / Rejected) with a proportion bar. Fixed size regardless of team size. Bind `data` to the grouped-by-employee array the page already builds from the Operational Tracker query (Object.values(byEmp)) — it also accepts { edges:[{node}] } / { employees } / a single employee, or (fallback) a flat array of Operational Tracker nodes, which it groups by role_profile itself.",
+    "The summary card for the Secondary APPROVAL page — sits ABOVE the per-employee approval groups. FACE: a COUNTS row (Employees, Customers, Waiting, Approved, Rejected — the three status tiles also show SQ = Secondary Qty and CQ = Closing Qty for that bucket) and a VALUE TRACKING section (Secondary Value/Qty + Closing Value/Qty, each split Waiting/Approved/Rejected with a proportion bar). SCOPED DRILL-DOWN: every tile and every value card is clickable and opens a read-only popup with ONLY that slice (e.g. Waiting → only waiting submissions; Closing Value → the closing view), broken down BY HQ / BY CUSTOMER / BY EMPLOYEE (toggle). Bind `data` to the grouped-by-employee array the page already builds from the Operational Tracker query (Object.values(byEmp)) — it also accepts { edges:[{node}] } / { employees } / a single employee, or (fallback) a flat array of Operational Tracker nodes, which it groups by role_profile itself. Each customer's HQ falls back to the employee's hq or the item's custom_hq__name; the customer name comes from `distributor`.",
   props: {
     data: {
       type: "object",

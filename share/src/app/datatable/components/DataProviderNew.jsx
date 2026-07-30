@@ -5054,7 +5054,7 @@ export default function DataProviderNew({
                 icon="pi pi-sliders-h"
                 label="Filter / Sort"
                 onClick={() => setFilterSortSidebarVisible(true)}
-                className="p-button-outlined"
+                className="p-button-outlined shrink-0 whitespace-nowrap"
                 severity="secondary"
                 style={{ height: '2rem', fontSize: '0.875rem' }}
               >
@@ -5151,7 +5151,7 @@ export default function DataProviderNew({
 
         {/* Range Picker - Only show when using saved query that supports month filtering */}
         {showMonthRangePicker && (
-          <div className="w-full sm:w-64 md:w-72 lg:w-80 min-w-0 shrink-0">
+          <div className="flex-1 min-w-[160px] max-w-full sm:flex-none sm:w-64 md:w-72 lg:w-80">
             <RangePicker
               key={`${dataSource}-${pickerMode}`} // Force re-render when data source or mode changes
               value={monthRange}
@@ -5172,7 +5172,7 @@ export default function DataProviderNew({
 
         {/* Last Updated at with Sync button - Show when using saved query */}
         {showSyncButton && (
-          <div className="w-full sm:w-auto sm:flex-1 min-w-0">
+          <div className="flex-1 min-w-[140px] max-w-full sm:flex-none sm:w-auto">
             <SplitButton
               outlined
               severity="secondary"
