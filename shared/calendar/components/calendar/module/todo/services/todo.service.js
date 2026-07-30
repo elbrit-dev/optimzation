@@ -3,7 +3,7 @@ import { mapErpTodoToCalendar } from "@calendar/components/calendar/module/todo/
 import { getCached } from "@calendar/lib/data-cache";
 import { GET_TODO_COMMENTS, SAVE_COMMENT, SAVE_EVENT_TODO, TODO_LIST_QUERY } from "@calendar/components/calendar/module/todo/graphql/todo.query";
 import { normalizeChecklistFromERP } from "@calendar/components/calendar/module/todo/helpers/checklist.helper";
-import { clearEventCache } from "@calendar/lib/calendar/event-cache";
+import { invalidateCalendarData } from "@calendar/lib/calendar/invalidate";
 import {
   enqueueDocShareSync,
   syncDocShares,
@@ -78,6 +78,9 @@ export async function saveDocToErp(doc, options = {}) {
     }
   }
 
-  clearEventCache();
+  // Must drop TODO_LIST too, not just the range cache — the range cache is
+  // rebuilt from it, so clearing only the outer layer re-merged the same stale
+  // todo list and a new/edited todo never showed up until a page reload.
+  invalidateCalendarData({ reason: "todo:save" });
   return data.saveDoc.doc;
 }

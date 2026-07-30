@@ -7,9 +7,13 @@ import {
   SAVE_EVENT_QUOTATION,
 } from "@calendar/components/calendar/module/event/graphql/events.query";
 import { mapErpGraphqlEventToCalendar } from "@calendar/components/calendar/module/event/mappers/erp-to-event";
-import { getCachedEvents, setCachedEvents } from "@calendar/lib/calendar/event-cache";
+import {
+  getCachedEvents,
+  getEventCacheGeneration,
+  setCachedEvents,
+} from "@calendar/lib/calendar/event-cache";
 import { buildRangeCacheKey } from "@calendar/lib/calendar/cache-key";
-import { clearEventCache } from "@calendar/lib/calendar/event-cache";
+import { invalidateCalendarData } from "@calendar/lib/calendar/invalidate";
 import { format } from "date-fns";
 import { clearCached, getCached } from "@calendar/lib/data-cache";
 import { GOOGLE_CALENDAR_BY_USER } from "@calendar/components/calendar/google-auth/queries";
@@ -98,7 +102,7 @@ export async function saveEvent(doc, options = {}) {
     throw new Error("ERP did not return Event name");
   }
   // invalidate cache only after successful write
-  clearEventCache();
+  invalidateCalendarData({ reason: "event:save" });
 
   if (options.shareWithUserIds?.length) {
     const shareOptions = {
@@ -228,7 +232,7 @@ export async function saveDocToQuotation(doc) {
     throw new Error("ERP did not return document name");
   }
 
-  clearEventCache();
+  invalidateCalendarData({ reason: "quotation:save" });
   return data.saveDoc.doc;
 }
 export async function fetchAllCustomers() {
@@ -302,23 +306,37 @@ export function clearGoogleCalendarStatusCache(email) {
   clearCached([`GOOGLE_CALENDAR_STATUS:${email.toLowerCase()}`]);
 }
 
-export async function fetchEventsByRange(startDate, endDate, view) {
+/**
+ * @param {{ force?: boolean }} [options] `force` skips both the range cache and
+ *   the in-flight dedupe. A request that started before the caches were dropped
+ *   already resolved its leaves/todos/doc-shares from the *old* caches, so
+ *   handing that promise back to a Sync click is what made Sync look broken.
+ */
+export async function fetchEventsByRange(startDate, endDate, view, options = {}) {
+  const { force = false } = options;
   const cacheKey = buildRangeCacheKey(view, startDate, endDate);
 
-  const cached = getCachedEvents(cacheKey);
-  if (cached) return cached;
+  if (!force) {
+    const cached = getCachedEvents(cacheKey);
+    if (cached) return cached;
 
-  if (pendingEventRequests.has(cacheKey)) {
-    return pendingEventRequests.get(cacheKey);
+    const inFlight = pendingEventRequests.get(cacheKey);
+    if (inFlight) return inFlight;
   }
+
+  const generation = getEventCacheGeneration();
 
   const request = fetchEventsByRangeUncached(
     cacheKey,
     startDate,
-    endDate
+    endDate,
+    generation
   )
     .finally(() => {
-      pendingEventRequests.delete(cacheKey);
+      // A forced fetch may have replaced this entry — only clear our own.
+      if (pendingEventRequests.get(cacheKey) === request) {
+        pendingEventRequests.delete(cacheKey);
+      }
     });
 
   pendingEventRequests.set(cacheKey, request);
@@ -328,7 +346,8 @@ export async function fetchEventsByRange(startDate, endDate, view) {
 async function fetchEventsByRangeUncached(
   cacheKey,
   startDate,
-  endDate
+  endDate,
+  generation
 ) {
   let after = null;
   let rawEventNodes = [];
@@ -479,7 +498,7 @@ async function fetchEventsByRangeUncached(
   // 6️⃣ MERGE LEAVES + TODOS
   // --------------------------------------------
   const merged = [...events, ...leaves, ...todolist];
-  setCachedEvents(cacheKey, merged);
+  setCachedEvents(cacheKey, merged, generation);
 
   return merged;
 }
@@ -524,7 +543,7 @@ export async function deleteEventFromErp(erpName, docname) {
     });
 
     // Success path
-    clearEventCache();
+    invalidateCalendarData({ reason: "event:delete" });
     return true;
 
   } catch (error) {
@@ -536,7 +555,7 @@ export async function deleteEventFromErp(erpName, docname) {
       message.includes("does not exist") ||
       message.includes("Missing document")
     ) {
-      clearEventCache();
+      invalidateCalendarData({ reason: "event:delete" });
       return true;
     }
 

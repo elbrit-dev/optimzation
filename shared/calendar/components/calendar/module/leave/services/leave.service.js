@@ -2,10 +2,9 @@ import { graphqlRequest } from "@calendar/lib/graphql-client";
 import { AUTH_CONFIG } from "@calendar/components/auth/calendar-users";
 import { getCached } from "@calendar/lib/data-cache";
 import { LEAVE_ALLOCATIONS_QUERY, LEAVE_APPLICATIONS_QUERY, LEAVE_QUERY, LEAVE_TYPES_QUERY, SAVE_LEAVE_APPLICATION_MUTATION, UPDATE_LEAVE_ATTACHMENT_MUTATION, UPDATE_LEAVE_STATUS_MUTATION } from "@calendar/components/calendar/module/leave/graphql/leave.query";
-import { clearLeaveCache, getCachedLeaveBalance, getLeaveCacheKey, setCachedLeaveBalance } from "@calendar/components/calendar/module/leave/cache/leave-cache";
+import { getCachedLeaveBalance, getLeaveCacheKey, setCachedLeaveBalance } from "@calendar/components/calendar/module/leave/cache/leave-cache";
 import { mapErpLeaveToCalendar } from "@calendar/components/calendar/module/leave/mappers/leave.mapper";
-import { clearEventCache } from "@calendar/lib/calendar/event-cache";
-import { clearCached } from "@calendar/lib/data-cache";
+import { invalidateCalendarData } from "@calendar/lib/calendar/invalidate";
 import { normalizeStatus } from "@calendar/components/calendar/helpers";
 import {
   enqueueDocShareSync,
@@ -232,9 +231,7 @@ export async function saveLeaveApplication(doc, options = {}) {
       }
     }
 
-    clearEventCache();
-    clearCached(["LEAVE_APPLICATIONS"]);
-    clearLeaveCache();
+    invalidateCalendarData({ reason: "leave:write" });
     return data.saveDoc.doc;
   }
   export async function fetchAllLeaveApplications() {
@@ -262,9 +259,7 @@ export async function saveLeaveApplication(doc, options = {}) {
   if (!data?.setValue?.name) {
     throw new Error("Failed to update leave attachment");
   }
-  clearEventCache();
-  clearCached(["LEAVE_APPLICATIONS"]);
-  clearLeaveCache();
+  invalidateCalendarData({ reason: "leave:write" });
   return true;
 }
   export async function updateLeaveStatus(leaveName, newStatus) {
@@ -289,9 +284,7 @@ export async function saveLeaveApplication(doc, options = {}) {
 
       const verification = await readVerifiedLeaveStatus(leaveName);
       if (verification.currentStatus === "Rejected") {
-        clearEventCache();
-        clearCached(["LEAVE_APPLICATIONS"]);
-        clearLeaveCache();
+        invalidateCalendarData({ reason: "leave:write" });
         return normalizeStatus(verification.currentStatus);
       }
 
@@ -313,9 +306,7 @@ export async function saveLeaveApplication(doc, options = {}) {
         Number(verification.snapshot?.docstatus ?? 0) !== 1;
 
       if (verification.currentStatus === targetStatus && !stillNeedsSubmit) {
-        clearEventCache();
-        clearCached(["LEAVE_APPLICATIONS"]);
-        clearLeaveCache();
+        invalidateCalendarData({ reason: "leave:write" });
         return normalizeStatus(verification.currentStatus);
       }
     } catch (error) {
@@ -336,9 +327,7 @@ export async function saveLeaveApplication(doc, options = {}) {
 
         snapshot = postSubmitVerification.snapshot;
         if (postSubmitVerification.currentStatus === targetStatus) {
-          clearEventCache();
-          clearCached(["LEAVE_APPLICATIONS"]);
-          clearLeaveCache();
+          invalidateCalendarData({ reason: "leave:write" });
           return normalizeStatus(postSubmitVerification.currentStatus);
         }
       } catch (error) {
@@ -356,9 +345,7 @@ export async function saveLeaveApplication(doc, options = {}) {
 
       snapshot = resourceVerification.snapshot;
       if (resourceVerification.currentStatus === targetStatus) {
-        clearEventCache();
-        clearCached(["LEAVE_APPLICATIONS"]);
-        clearLeaveCache();
+        invalidateCalendarData({ reason: "leave:write" });
         return normalizeStatus(resourceVerification.currentStatus);
       }
     } catch (error) {
@@ -376,9 +363,7 @@ export async function saveLeaveApplication(doc, options = {}) {
           await readVerifiedLeaveStatus(leaveName);
 
         if (savedVerification.currentStatus === targetStatus) {
-          clearEventCache();
-          clearCached(["LEAVE_APPLICATIONS"]);
-          clearLeaveCache();
+          invalidateCalendarData({ reason: "leave:write" });
           return normalizeStatus(savedVerification.currentStatus);
         }
       } catch (error) {

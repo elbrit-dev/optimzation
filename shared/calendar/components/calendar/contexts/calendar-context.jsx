@@ -1,10 +1,9 @@
 "use client";;
-import { createContext, useContext, useState, useEffect, useMemo, useCallback } from "react";
+import { createContext, useContext, useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useLocalStorage } from "@calendar/components/calendar/hooks";
 import { fetchEventsByRange } from "@calendar/components/calendar/module/event/services/event.service";
-import { clearEventCache } from "@calendar/lib/calendar/event-cache";
-import { clearCached } from "@calendar/lib/data-cache";
-import { clearLeaveCache } from "@calendar/components/calendar/module/leave/cache/leave-cache";
+import { invalidateCalendarData } from "@calendar/lib/calendar/invalidate";
+import { useCalendarLiveSync } from "@calendar/lib/calendar/useCalendarLiveSync";
 import { resolveCalendarRange } from "@calendar/lib/calendar/range";
 import { isLeafRole, resolveLoggedInRoleId, resolveVisibleEmployeeIds, resolveVisibleRoleIds } from "@calendar/lib/employeeHeirachy";
 import { useEmployeeResolvers } from "@calendar/lib/employeeResolver";
@@ -221,27 +220,59 @@ export function CalendarProvider({
 		// setFilteredEvents(prev => prev.filter(e => e.erpName !== erpName));
 	};
 
-	const refreshEvents = useCallback(async () => {
+	const refreshEvents = useCallback(async ({ force = false } = {}) => {
 		const { start, end } = resolveCalendarRange(currentView, selectedDate);
 		const nextEvents = await fetchEventsByRange(
 			start,
 			end,
-			currentView
+			currentView,
+			{ force }
 		);
 		return nextEvents;
 	}, [currentView, selectedDate]);
 
-	// Hard refresh for the manual "Sync" button. `refreshEvents` alone may return
-	// cached data, so drop the events + leave caches first, then re-fetch fresh
-	// from ERP and push into serverEvents — no full-app reload needed.
-	const syncCalendar = useCallback(async () => {
-		clearEventCache();
-		clearLeaveCache();
-		clearCached(["LEAVE_APPLICATIONS"]);
-		const nextEvents = await refreshEvents();
-		setServerEvents(nextEvents);
+	// Guards against an older, slower fetch landing after a newer one and
+	// clobbering the current range's events.
+	const reloadTokenRef = useRef(0);
+
+	// The one way events get written into state. Every caller — mount hydration,
+	// the Sync button, the background live refresh — goes through here so they
+	// can't disagree about how results are merged.
+	const reloadEvents = useCallback(async ({ force = false } = {}) => {
+		const token = ++reloadTokenRef.current;
+		const nextEvents = await refreshEvents({ force });
+
+		if (token !== reloadTokenRef.current) {
+			// A newer reload has already started; its result wins.
+			return nextEvents;
+		}
+
+		setServerEvents((prev) =>
+			mergeFetchedEventsWithRecent(prev, nextEvents)
+		);
 		return nextEvents;
 	}, [refreshEvents]);
+
+	// Hard refresh for the manual "Sync" button. Drops every derived cache
+	// (events, leave applications, todos, leave balances) and forces the fetch
+	// past the in-flight dedupe, so one click always reaches ERP — no full-app
+	// reload needed. `broadcast: false` because we refetch right here.
+	const syncCalendar = useCallback(async () => {
+		invalidateCalendarData({ broadcast: false, reason: "manual-sync" });
+		return reloadEvents({ force: true });
+	}, [reloadEvents]);
+
+	const liveRefresh = useCallback(
+		() => reloadEvents({ force: true }),
+		[reloadEvents]
+	);
+
+	// Keeps this calendar in step with ERP with no user action: writes from this
+	// browser land immediately, other users' writes within one probe interval.
+	useCalendarLiveSync({
+		refresh: liveRefresh,
+		enabled: Boolean(erpUrl && authToken),
+	});
 
 
 	const clearFilter = () => {
@@ -251,25 +282,10 @@ export function CalendarProvider({
 		setSelectedUserId([]);
 	};
 	useEffect(() => {
-		let cancelled = false;
-
-		async function hydrateFromGraphql() {
-			try {
-				const events = await refreshEvents();
-				if (!cancelled) {
-					setServerEvents(events);
-				}
-			} catch (err) {
-				console.error("Failed to fetch events", err);
-			}
-		}
-
-		hydrateFromGraphql();
-
-		return () => {
-			cancelled = true;
-		};
-	}, [refreshEvents]);
+		reloadEvents().catch((err) => {
+			console.error("Failed to fetch events", err);
+		});
+	}, [reloadEvents]);
 
 	useEffect(() => {
 		if (typeof window === "undefined") return;
@@ -342,17 +358,17 @@ export function CalendarProvider({
 
 		if (processedCount > 0) {
 			try {
-				const nextEvents = await refreshEvents();
-				setServerEvents((prev) =>
-					mergeFetchedEventsWithRecent(prev, nextEvents)
-				);
+				// The writes above already invalidated the caches; force past the
+				// in-flight dedupe so this reads ERP rather than a request that
+				// started before them.
+				await reloadEvents({ force: true });
 			} catch (error) {
 				console.error("Failed to refresh after queue sync", error);
 			}
 		}
 
 		return processedCount;
-	}, [authToken, erpUrl, refreshEvents]);
+	}, [authToken, erpUrl, reloadEvents]);
 
 	const retryPendingSync = useCallback(async () => {
 		setIsRetryingSync(true);
@@ -572,11 +588,7 @@ export function CalendarProvider({
 		addEvent,
 		updateEvent,
 		removeEvent,
-		refreshEvents: async () => {
-			const nextEvents = await refreshEvents();
-			setServerEvents(nextEvents);
-			return nextEvents;
-		},
+		refreshEvents: reloadEvents,
 		syncCalendar,
 		pendingSyncCount,
 		retryPendingSync,

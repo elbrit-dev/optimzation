@@ -11,6 +11,7 @@ import {
 	transition,
 } from "@calendar/components/calendar/animations";
 import { startOfDay, isBefore } from "date-fns";
+import { toast } from "sonner";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 import { AddEditEventDialog } from "@calendar/components/calendar/dialogs/add-edit-event-dialog";
 import { DateNavigator } from "@calendar/components/calendar/header/date-navigator";
@@ -40,8 +41,12 @@ export function CalendarHeader() {
 		setIsSyncing(true);
 		try {
 			await syncCalendar();
+			toast.success("Calendar up to date");
 		} catch (err) {
 			console.error("Failed to sync calendar", err);
+			// Without this a failed sync is indistinguishable from a successful
+			// one that found nothing new.
+			toast.error(err?.message || "Couldn't sync the calendar");
 		} finally {
 			setIsSyncing(false);
 		}

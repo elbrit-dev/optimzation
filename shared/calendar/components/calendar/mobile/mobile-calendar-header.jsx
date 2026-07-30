@@ -24,6 +24,7 @@ import {
   PopoverTrigger,
 } from "@calendar/components/ui/popover";
 import { UserSelect } from "@calendar/components/calendar/header/user-select";
+import { toast } from "sonner";
 
 const MOBILE_LAYER_MAP = {
   month: "month-expanded",
@@ -63,8 +64,12 @@ export function MobileCalendarHeader() {
     setIsSyncing(true);
     try {
       await syncCalendar();
+      toast.success("Calendar up to date");
     } catch (err) {
       console.error("Failed to sync calendar", err);
+      // Without this a failed sync is indistinguishable from a successful one
+      // that found nothing new.
+      toast.error(err?.message || "Couldn't sync the calendar");
     } finally {
       setIsSyncing(false);
     }
