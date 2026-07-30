@@ -8,13 +8,17 @@ import {
 import { invalidateCalendarData } from "@calendar/lib/calendar/invalidate";
 import { subscribeCalendarDataChanged } from "@calendar/lib/calendar/realtime";
 
-const DEFAULT_PROBE_INTERVAL_MS = 20 * 1000;
+// Worst-case delay before one user sees another user's change. Each probe is 4
+// aggregate rows (~250 bytes total) and only runs while the tab is visible, so
+// this is cheap — but it is per open calendar, so raise it if ERP load becomes a
+// concern rather than reaching for a longer full refetch.
+const DEFAULT_PROBE_INTERVAL_MS = 10 * 1000;
 // A single save can fire several notifications (the write itself, then the
 // DocShare sync that follows it). Collapse them into one refetch.
 const LOCAL_CHANGE_DEBOUNCE_MS = 400;
 // Focus / visibility / reconnect all probe on arrival. Alt-tabbing repeatedly
 // would otherwise hammer ERP, so hold a floor between consecutive probes.
-const MIN_PROBE_GAP_MS = 5 * 1000;
+const MIN_PROBE_GAP_MS = 3 * 1000;
 
 /**
  * Keeps the calendar in step with ERP without the user having to press Sync.

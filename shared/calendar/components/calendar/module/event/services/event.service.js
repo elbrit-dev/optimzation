@@ -25,7 +25,6 @@ import {
   syncEventDocShares,
 } from "@calendar/components/calendar/module/event/services/docshare.service";
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
-const PAGE_SIZE = 200;
 const QUOTATION_BATCH_SIZE = 25;
 const pendingEventRequests = new Map();
 
@@ -343,15 +342,69 @@ export async function fetchEventsByRange(startDate, endDate, view, options = {})
   return request;
 }
 
+// ERP refuses cursor pagination when an `after` cursor is combined with a
+// `filter` — it answers "Filter must be a tuple or list (in a list)". Because
+// `graphqlRequest` throws on GraphQL errors, that killed the *entire* fetch on
+// page 2, so any user whose visible event count crossed one page had a calendar
+// that never loaded or refreshed at all (page 1's rows were discarded with the
+// exception). Rather than walk cursors, ask for a window large enough to hold
+// the whole answer and widen it if ERP reports there is more.
+const INITIAL_EVENT_WINDOW = 500;
+const MAX_EVENT_WINDOW = 8000;
+
+async function fetchRawEventNodes(filter) {
+  let windowSize = INITIAL_EVENT_WINDOW;
+  let nodes = null;
+
+  while (true) {
+    let connection;
+
+    try {
+      // `after` is deliberately left unprovided rather than passed as null —
+      // absent is what tells ERP "no cursor" without going near the broken
+      // cursor+filter path.
+      const data = await graphqlRequest(EVENTS_BY_RANGE_QUERY, {
+        first: windowSize,
+        filters: filter,
+      });
+      connection = data?.Events;
+    } catch (error) {
+      // The widened window was refused. Showing the rows we already hold beats
+      // failing the whole calendar.
+      if (nodes) {
+        console.warn(
+          `Event fetch capped at ${nodes.length} rows — ERP refused a larger window.`,
+          error
+        );
+        return nodes;
+      }
+
+      throw error;
+    }
+
+    if (!connection) return nodes ?? [];
+
+    nodes = connection.edges.map((edge) => edge.node);
+
+    if (!connection.pageInfo?.hasNextPage) return nodes;
+
+    if (windowSize >= MAX_EVENT_WINDOW) {
+      console.warn(
+        `Event fetch truncated at ${MAX_EVENT_WINDOW} rows — some events are not being shown.`
+      );
+      return nodes;
+    }
+
+    windowSize = Math.min(windowSize * 2, MAX_EVENT_WINDOW);
+  }
+}
+
 async function fetchEventsByRangeUncached(
   cacheKey,
   startDate,
   endDate,
   generation
 ) {
-  let after = null;
-  let rawEventNodes = [];
-
   const filter = [
     {
       fieldname: "starts_on",
@@ -363,23 +416,7 @@ async function fetchEventsByRangeUncached(
   // --------------------------------------------
   // 1️⃣ FETCH RAW EVENT NODES (NO MAPPING YET)
   // --------------------------------------------
-  while (true) {
-    const data = await graphqlRequest(EVENTS_BY_RANGE_QUERY, {
-      first: PAGE_SIZE,
-      after,
-      filters: filter,
-    });
-    const connection = data?.Events;
-    if (!connection) break;
-
-    rawEventNodes.push(
-      ...connection.edges.map((edge) => edge.node)
-    );
-
-    if (!connection.pageInfo?.hasNextPage) break;
-    after = connection.pageInfo.endCursor;
-  }
-  rawEventNodes = rawEventNodes.filter((node) =>
+  let rawEventNodes = (await fetchRawEventNodes(filter)).filter((node) =>
     doesEventOverlapRange(node, startDate, endDate)
   );
   // --------------------------------------------

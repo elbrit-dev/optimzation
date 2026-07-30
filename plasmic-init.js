@@ -762,22 +762,12 @@ PLASMIC.registerComponent(NetworkBanner, {
   name: "NetworkBanner",
   displayName: "Network Banner",
   description:
-    "Floating overlay banner that measures real download speed and appears at the top of the screen only when the connection is genuinely slow or offline. Clicking it runs a fast.com-style speed test; an X dismisses it. It portals to <body> and floats above everything, so it takes no layout space — placing it once anywhere in the tree is enough.",
+    "Inline banner that measures real download speed and appears only when the connection is genuinely slow or offline. Place it anywhere in the tree (page top, inside a header, above a table) and it renders right there, filling the width of its slot. Clicking it runs a fast.com-style speed test with a live Mbps readout; it then closes itself once the connection reads good. When there is nothing to report it renders nothing at all, so it takes up zero space — no gap or empty box in your layout.",
   props: {
     showWhenFast: {
       type: "boolean",
       defaultValue: false,
       description: "Also show a green banner when the connection is fast.",
-    },
-    topOffset: {
-      type: "string",
-      defaultValue: "8vh",
-      description: "Distance from the top of the screen (any CSS length, e.g. 8vh, 64px).",
-    },
-    zIndex: {
-      type: "number",
-      defaultValue: 2000000000,
-      description: "Stacking order. Kept very high so the banner stays in front of everything.",
     },
     forceShow: {
       type: "boolean",

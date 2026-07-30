@@ -1,10 +1,9 @@
 import React from "react";
-import { createPortal } from "react-dom";
 import { Wifi, WifiOff, SignalLow, SignalMedium, Activity } from "lucide-react";
 
 /**
- * NetworkBanner — a floating overlay banner that warns when the connection is
- * genuinely slow or offline.
+ * NetworkBanner — an inline banner that warns when the connection is genuinely
+ * slow or offline.
  *
  * Why this exists / what changed:
  *   The old version trusted `navigator.connection.effectiveType`. Chrome reports
@@ -14,9 +13,14 @@ import { Wifi, WifiOff, SignalLow, SignalMedium, Activity } from "lucide-react";
  *   download probe (Cloudflare's public, CORS-enabled speed endpoint). A fast line
  *   measures fast and the banner never appears.
  *
- * Behaviour:
- *   - Renders into <body> via a portal as a `position: fixed` overlay at `top: 8vh`,
- *     high z-index, so it floats above everything and takes no layout space.
+ * Placement:
+ *   This is a NORMAL in-flow component, not a fixed/portaled toast — drop it
+ *   anywhere in the tree (top of a page, inside a header, above a table) and it
+ *   renders exactly there, filling the width of its slot. When it has nothing to
+ *   say it returns `null`, so it occupies ZERO layout space: no gap, no empty box,
+ *   no reserved height. Wrap it yourself if you want it fixed/sticky.
+ *
+ * Behaviour (unchanged):
  *   - Auto-appears ONLY when a real measurement is slow (or the browser is offline).
  *   - Click the banner -> runs a full, fast.com-style speed test with a live Mbps
  *     readout (capped under 2s so the check finishes quickly after the tap).
@@ -24,6 +28,7 @@ import { Wifi, WifiOff, SignalLow, SignalMedium, Activity } from "lucide-react";
  *     recovers (background probe reads good) or when a tap-to-test comes back fast.
  *     This is deliberate — a slow-network warning shouldn't be dismissable while the
  *     network is still slow, or the user wouldn't know why things load slowly.
+ *   - Closing plays a short slide-out, then the element unmounts completely.
  */
 
 const STYLE_ID = "esw-network-banner-styles";
@@ -117,26 +122,19 @@ function ensureStyles() {
   const el = document.createElement("style");
   el.id = STYLE_ID;
   el.textContent = `
-    .esw-portal {
-      position: fixed; left: 0; right: 0; top: var(--esw-top, 8vh);
-      z-index: var(--esw-z, 2000000000);
-      display: flex; justify-content: center;
-      padding: 0 12px; pointer-events: none;
-    }
-    /* Two-class selector (specificity 0,2,0) so a Plasmic layout class on the
-       same element can't stretch the banner to full width. */
-    .esw-portal .esw-banner {
-      pointer-events: auto;
+    /* In-flow banner: single class only, so a Plasmic layout/style class on the
+       same element wins and the host controls width, margin and alignment. */
+    .esw-banner {
       display: flex; align-items: center; gap: 10px;
-      width: 100%; max-width: min(560px, calc(100vw - 32px)); box-sizing: border-box;
+      width: 100%; box-sizing: border-box;
       padding: 10px 12px 10px 14px;
       border: 1px solid var(--esw-border); border-radius: 14px;
       background: var(--esw-bg); color: var(--esw-fg);
-      font: 500 14px/1.35 inherit; cursor: pointer;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.16), 0 2px 8px rgba(0,0,0,0.08);
+      font: 500 14px/1.35 inherit; text-align: left; cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
       transition: transform .12s ease, box-shadow .12s ease;
     }
-    .esw-banner:hover { box-shadow: 0 14px 38px rgba(0,0,0,0.20), 0 3px 10px rgba(0,0,0,0.10); }
+    .esw-banner:hover { box-shadow: 0 4px 14px rgba(0,0,0,0.10); }
     .esw-banner:active { transform: scale(0.995); }
     .esw-banner:focus-visible { outline: 2px solid var(--esw-accent); outline-offset: 2px; }
     .esw-icon {
@@ -156,7 +154,7 @@ function ensureStyles() {
     @keyframes esw-slide-in  { from { opacity: 0; transform: translateY(-12px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes esw-slide-out { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-12px); } }
     @media (max-width: 480px) {
-      .esw-portal .esw-banner { font-size: 13px; gap: 8px; padding: 9px 9px 9px 11px; border-radius: 12px; }
+      .esw-banner { font-size: 13px; gap: 8px; padding: 9px 9px 9px 11px; border-radius: 12px; }
       .esw-icon { width: 26px; height: 26px; }
       .esw-hint { display: none; }
     }
@@ -167,8 +165,6 @@ function ensureStyles() {
 
 export default function NetworkBanner({
   showWhenFast = false,
-  topOffset = "8vh",
-  zIndex = 2000000000,
   forceShow = false,          // editor-only preview (Plasmic Studio)
   demoSeverity,               // "red" | "orange" | "yellow" | "green"
   className,
@@ -381,38 +377,29 @@ export default function NetworkBanner({
     title = msg;
   }
 
-  const banner = (
+  // Rendered in place, as a single in-flow element. Nothing to say -> `null` above,
+  // so the component contributes no box, no height and no margin to the layout.
+  return (
     <div
-      className="esw-portal"
-      aria-hidden={hasContent ? undefined : "true"}
-      style={{ "--esw-top": topOffset, "--esw-z": zIndex }}
+      role="button"
+      tabIndex={0}
+      aria-live="polite"
+      title="Click to run a speed test"
+      onClick={() => { if (!test?.running) runFullTest(); }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (!test?.running) runFullTest(); }
+      }}
+      className={`esw-banner ${leaving ? "esw-anim-exit" : "esw-anim-enter"}${className ? ` ${className}` : ""}`}
+      style={{ "--esw-bg": c.bg, "--esw-fg": c.fg, "--esw-border": c.border, "--esw-accent": c.accent, ...style }}
     >
-      <div
-        role="button"
-        tabIndex={0}
-        aria-live="polite"
-        title="Click to run a speed test"
-        onClick={() => { if (!test?.running) runFullTest(); }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (!test?.running) runFullTest(); }
-        }}
-        className={`esw-banner ${leaving ? "esw-anim-exit" : "esw-anim-enter"}${className ? ` ${className}` : ""}`}
-        style={{ "--esw-bg": c.bg, "--esw-fg": c.fg, "--esw-border": c.border, "--esw-accent": c.accent, ...style }}
-      >
-        <span className="esw-icon">
-          <Icon size={18} strokeWidth={2.25} className={test?.running ? "esw-spin" : undefined} />
-        </span>
-        <span className="esw-body">
-          <span className="esw-msg">{title}</span>
-          {sub ? <span className="esw-sub esw-num">{sub}</span> : null}
-        </span>
-        {!testing ? <span className="esw-hint" aria-hidden="true">Tap to test</span> : null}
-      </div>
+      <span className="esw-icon">
+        <Icon size={18} strokeWidth={2.25} className={test?.running ? "esw-spin" : undefined} />
+      </span>
+      <span className="esw-body">
+        <span className="esw-msg">{title}</span>
+        {sub ? <span className="esw-sub esw-num">{sub}</span> : null}
+      </span>
+      {!testing ? <span className="esw-hint" aria-hidden="true">Tap to test</span> : null}
     </div>
   );
-
-  // Portal to <body> so the fixed overlay is never clipped by a parent's overflow
-  // or transform, and floats above everything regardless of where it's placed.
-  if (isPreview || typeof document === "undefined") return banner;
-  return createPortal(banner, document.body);
 }
