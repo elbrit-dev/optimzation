@@ -600,15 +600,22 @@ export function AddEditEventDialog({
 
 		fetchShares();
 	}, [event?.erpName, event?.tags, isEditing]);
+	// Must walk from `resolvedLoggedInRoleId`, not `currentUserRoleId`: the latter
+	// prefers the host-supplied LOGGED_IN_USER.roleId, which comes from Employee
+	// `role_id` and routinely disagrees with `custom_role_profile` — the field the
+	// role hierarchy and users[].roleId are actually keyed on (e.g. an ABM whose
+	// role_id still reads BE8-…, an RBM whose role_id still reads ABM2-…). Rooting
+	// the walk at that stale value found no parent at all, so the auto-share to
+	// the reporting officer and above silently produced an empty list.
 	const superiorUserIds = useMemo(() => {
 		if (isEditing) return [];
-		if (!currentUserRoleId) return [];
+		if (!resolvedLoggedInRoleId) return [];
 		return resolveSuperiorShareUserIds(
 			elbritRoleEdges,
 			shareUsers,
-			currentUserRoleId
+			resolvedLoggedInRoleId
 		).filter((userId) => userId !== LOGGED_IN_USER.email);
-	}, [currentUserRoleId, elbritRoleEdges, isEditing, shareUsers]);
+	}, [resolvedLoggedInRoleId, elbritRoleEdges, isEditing, shareUsers]);
 	const currentUserDepartment = useMemo(() => {
 		if (!resolvedLoggedInRoleId) return null;
 
