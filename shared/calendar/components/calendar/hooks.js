@@ -33,7 +33,19 @@ export const useLocalStorage = (key, initialValue) => {
 		}
 	};
 
-	const [storedValue, setStoredValue] = useState(readValue);
+	const [storedValue, setStoredValue] = useState(initialValue);
+
+	useEffect(() => {
+		if (typeof window === "undefined") return;
+
+		try {
+			const item = window.localStorage.getItem(key);
+			setStoredValue(item ? JSON.parse(item) : initialValue);
+		} catch (error) {
+			console.warn(`Error reading localStorage key "${key}":`, error);
+			setStoredValue(initialValue);
+		}
+	}, [initialValue, key]);
 
 	const setValue = (value) => {
 		try {

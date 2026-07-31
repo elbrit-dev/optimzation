@@ -20,30 +20,48 @@ import { Wifi, WifiOff, SignalLow, SignalMedium, Activity } from "lucide-react";
  *   say it returns `null`, so it occupies ZERO layout space: no gap, no empty box,
  *   no reserved height. Wrap it yourself if you want it fixed/sticky.
  *
- * Behaviour (unchanged):
+ * Behaviour:
  *   - Auto-appears ONLY when a real measurement is slow (or the browser is offline).
  *   - Click the banner -> runs a full, fast.com-style speed test with a live Mbps
- *     readout (capped under 2s so the check finishes quickly after the tap).
+ *     readout, then closes itself. Tap to gone is ~1.8s.
  *   - There is no manual dismiss: the banner closes ITSELF when the connection
  *     recovers (background probe reads good) or when a tap-to-test comes back fast.
  *     This is deliberate — a slow-network warning shouldn't be dismissable while the
  *     network is still slow, or the user wouldn't know why things load slowly.
  *   - Closing plays a short slide-out, then the element unmounts completely.
+ *   - Everything is fast by construction: every measurement is hard time-capped, so
+ *     no verdict can outlast its cap however bad the line is. See "Timing budget".
  */
 
 const STYLE_ID = "esw-network-banner-styles";
 
 // --- Measurement endpoint (Cloudflare's public speed test backend; CORS: *). ---
 const PROBE_URL = "https://speed.cloudflare.com/__down";
-const PROBE_BYTES = 500_000;     // background probe payload (~0.5 MB) — enough to classify
-const PROBE_TIMEOUT = 12_000;    // ms before a background probe is abandoned
-const GOOD_INTERVAL = 5 * 60_000;// re-probe every 5 min while the line is good
-const SLOW_INTERVAL = 60_000;    // re-probe every 60s while slow/offline (catches recovery)
-const FIRST_PROBE_DELAY = 1_500; // let the page finish loading before the very first probe
-const CONFIRM_DELAY = 1_500;     // after one "slow" reading, re-probe fast to confirm before showing
-const AUTO_CLOSE_DELAY = 2_500;  // after a manual test shows a good result, auto-dismiss
-const FULL_BYTES = 100_000_000;  // manual test ceiling (~100 MB); time-cap bounds slow links
-const FULL_TIME_CAP = 1_800;     // manual test completes in under 2s (aborts & uses speed read so far)
+
+// --- Timing budget ----------------------------------------------------------
+// EVERY measurement is hard time-capped: when the cap fires we abort the download
+// and score the bytes that actually arrived. So a verdict costs the cap, never
+// more, no matter how slow the line is (the old 12s timeout meant a slow link
+// could stall the decision for seconds — that was the "takes so long" problem).
+//
+// Worst case, first paint of a slow banner:
+//   FIRST_PROBE_DELAY + PROBE_TIME_CAP + CONFIRM_DELAY + PROBE_TIME_CAP ≈ 1.8s
+// Worst case, tap to test -> banner gone:
+//   FULL_TIME_CAP + AUTO_CLOSE_DELAY ≈ 1.8s
+const PROBE_BYTES = 250_000;      // background probe payload (~0.25 MB) — enough to classify
+const PROBE_TIME_CAP = 650;       // hard cap per background probe
+const FIRST_PROBE_DELAY = 300;    // first probe fires almost immediately after mount
+const CONFIRM_DELAY = 200;        // one slow reading -> re-probe this fast to confirm
+const GOOD_INTERVAL = 120_000;    // idle re-probe cadence while the line reads good
+// While slow we re-probe on a doubling backoff: quick at first, so a line that
+// recovers right away closes the banner within ~1.5s, then easing off so we
+// aren't stealing bandwidth from an app that is already struggling.
+const SLOW_INTERVAL_MIN = 1_500;
+const SLOW_INTERVAL_MAX = 10_000;
+const AUTO_CLOSE_DELAY = 900;     // how long a manual-test result stays on screen
+const FULL_BYTES = 20_000_000;    // manual test payload ceiling (~20 MB)
+const FULL_TIME_CAP = 900;        // manual test hard cap
+const PAINT_THROTTLE = 80;        // ms between live Mbps repaints during a manual test
 
 // Severity thresholds (Mbps). A 300 Mbps line measures far above these.
 const RED_BELOW = 1.5;
@@ -80,15 +98,34 @@ function mbpsToStatus(mbps) {
 }
 
 /**
- * Stream a download from the speed endpoint and measure real throughput in Mbps.
- * Reports live progress via onProgress(mbps). Aborts on timeout (background) or
- * time-cap (manual test) and still returns the throughput observed so far.
+ * Score a reading from measureMbps(). The zero-byte case is ambiguous and the two
+ * halves mean opposite things, so it can't be folded into mbpsToStatus():
+ *   - 0 bytes because the request was blocked/failed -> NOT a speed signal
+ *     (corporate proxy, adblocker, endpoint down) -> stay quiet, report good.
+ *   - 0 bytes because the clock ran out -> the line could not move a single packet
+ *     inside the cap window. That IS very slow, and it's the case a short cap makes
+ *     common on bad links, so it must not be scored as green.
+ */
+function readingToStatus({ mbps, bytes, timedOut }) {
+  if (bytes > 0) return mbpsToStatus(mbps);
+  return timedOut ? ["red", "Very slow connection."] : ["green", "Connected."];
+}
+
+/**
+ * Stream a download from the speed endpoint and measure real throughput.
+ * Reports live progress via onProgress(mbps). Always resolves — a time-cap abort
+ * is a normal outcome, and the bytes that did arrive are the measurement.
+ * Returns { mbps, bytes, timedOut }; `timedOut` distinguishes "too slow to finish"
+ * from an external abort (unmount / superseded probe) or an outright failure.
  */
 async function measureMbps({ bytes, onProgress, signal, timeoutMs }) {
   const ctrl = new AbortController();
   const onAbort = () => ctrl.abort();
   signal?.addEventListener?.("abort", onAbort);
-  const timer = timeoutMs ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
+  let timedOut = false;
+  const timer = timeoutMs
+    ? setTimeout(() => { timedOut = true; ctrl.abort(); }, timeoutMs)
+    : null;
 
   const start = performance.now();
   let loaded = 0;
@@ -107,14 +144,14 @@ async function measureMbps({ bytes, onProgress, signal, timeoutMs }) {
       if (elapsed > 0 && onProgress) onProgress((loaded * 8) / (elapsed * 1e6));
     }
   } catch (e) {
-    // An abort (timeout / time-cap) is expected: fall through and use what we read.
+    // An abort (time-cap / unmount) is expected: fall through and use what we read.
     if (e.name !== "AbortError" && loaded === 0) throw e;
   } finally {
     if (timer) clearTimeout(timer);
     signal?.removeEventListener?.("abort", onAbort);
   }
   const elapsed = Math.max((performance.now() - start) / 1000, 0.001);
-  return (loaded * 8) / (elapsed * 1e6);
+  return { mbps: (loaded * 8) / (elapsed * 1e6), bytes: loaded, timedOut };
 }
 
 function ensureStyles() {
@@ -182,7 +219,9 @@ export default function NetworkBanner({
   const testingRef = React.useRef(false);
   const lastShownRef = React.useRef(null);
   const slowStreakRef = React.useRef(0);     // consecutive "slow" readings (confirmation gate)
+  const slowStepRef = React.useRef(0);       // recovery-recheck backoff step while slow
   const autoCloseRef = React.useRef(null);
+  const kickRef = React.useRef(null);        // lets the manual test restart the loop at once
 
   const isPreview = Boolean(demoSeverity || forceShow);
 
@@ -202,6 +241,15 @@ export default function NetworkBanner({
       timerRef.current = setTimeout(runCheck, ms);
     };
 
+    // Recovery cadence while slow/offline: 1.5s, 3s, 6s, then 10s forever. The first
+    // couple of checks are quick so a line that comes good closes the banner almost
+    // at once; the backoff stops us hogging a link the app still needs.
+    const scheduleRecheck = () => {
+      const ms = Math.min(SLOW_INTERVAL_MIN * 2 ** slowStepRef.current, SLOW_INTERVAL_MAX);
+      slowStepRef.current += 1;
+      scheduleNext(ms);
+    };
+
     const applyStatus = (next) => {
       if (!mountedRef.current) return;
       setStatus(next);
@@ -210,12 +258,12 @@ export default function NetworkBanner({
     async function runCheck() {
       if (!mountedRef.current) return;
       // Don't probe while a manual test runs, or while the tab is hidden.
-      if (testingRef.current) return scheduleNext(SLOW_INTERVAL);
+      if (testingRef.current) return scheduleNext(SLOW_INTERVAL_MIN);
       if (typeof document !== "undefined" && document.hidden) return scheduleNext(GOOD_INTERVAL);
 
       if (typeof navigator !== "undefined" && !navigator.onLine) {
         applyStatus(["red", "You are offline."]);
-        return scheduleNext(SLOW_INTERVAL);
+        return scheduleRecheck();
       }
 
       probeCtrlRef.current?.abort();
@@ -224,8 +272,17 @@ export default function NetworkBanner({
 
       let next;
       try {
-        const mbps = await measureMbps({ bytes: PROBE_BYTES, signal: ctrl.signal, timeoutMs: PROBE_TIMEOUT });
-        next = mbpsToStatus(mbps);
+        const reading = await measureMbps({
+          bytes: PROBE_BYTES,
+          signal: ctrl.signal,
+          timeoutMs: PROBE_TIME_CAP,
+        });
+        // Aborted, but NOT by our own time cap -> a newer probe or a tap-to-test cut
+        // this one short. Its partial bytes are not a speed measurement (they'd read
+        // artificially low and flash a false "slow"), so drop the reading. Still
+        // reschedule, or the loop would die with nothing pending.
+        if (ctrl.signal.aborted && !reading.timedOut) return scheduleNext(SLOW_INTERVAL_MIN);
+        next = readingToStatus(reading);
       } catch {
         // Probe blocked/failed (not a speed signal). Only escalate on the cheap 2g hint;
         // never treat a plain failure or a "3g" guess as slow — that was the original bug.
@@ -242,23 +299,30 @@ export default function NetworkBanner({
       // and re-probe quickly to confirm. A good reading clears the streak and hides.
       if (next[0] === "green") {
         slowStreakRef.current = 0;
+        slowStepRef.current = 0;             // back to good -> reset the recovery backoff
         applyStatus(next);
         scheduleNext(GOOD_INTERVAL);
       } else {
         slowStreakRef.current += 1;
         if (slowStreakRef.current >= 2) {
           applyStatus(next);                 // confirmed slow -> show
-          scheduleNext(SLOW_INTERVAL);
+          scheduleRecheck();                 // ...and start watching for recovery
         } else {
           scheduleNext(CONFIRM_DELAY);       // first slow reading -> stay hidden, re-check soon
         }
       }
     }
 
-    const kick = () => { clearTimeout(timerRef.current); runCheck(); };
+    // Any explicit signal (came online, went offline, tab refocused) is a reason to
+    // measure NOW and to restart the recovery cadence from its quickest step.
+    const kick = () => { clearTimeout(timerRef.current); slowStepRef.current = 0; runCheck(); };
     const onVisible = () => { if (!document.hidden) kick(); };
+    kickRef.current = kick;                  // runFullTest() uses this to resume instantly
 
-    // Delay the first probe so it doesn't compete with the app's initial load.
+    // Only a token delay before the first probe — just enough to let the mount settle.
+    // It DOES now measure while the app is still loading, so a busy boot can read low;
+    // the two-reading confirmation gate absorbs most of that, and anything that slips
+    // through clears itself on the next recheck ~1.5s later.
     timerRef.current = setTimeout(runCheck, FIRST_PROBE_DELAY);
     window.addEventListener("online", kick);
     window.addEventListener("offline", kick);
@@ -274,6 +338,7 @@ export default function NetworkBanner({
       window.removeEventListener("offline", kick);
       connRef.current?.removeEventListener?.("change", kick);
       document.removeEventListener("visibilitychange", onVisible);
+      kickRef.current = null;
     };
   }, [isPreview]);
 
@@ -286,34 +351,41 @@ export default function NetworkBanner({
     setLeaving(false);
     setTest({ running: true, mbps: 0, done: false });
 
-    let final = 0;
-    let lastPaint = 0;                        // throttle live repaints to ~8/sec
+    let reading = { mbps: 0, bytes: 0, timedOut: false };
+    let lastPaint = 0;                        // throttle live repaints during the test
     try {
-      final = await measureMbps({
+      reading = await measureMbps({
         bytes: FULL_BYTES,
         timeoutMs: FULL_TIME_CAP,
         onProgress: (m) => {
           const now = performance.now();
-          if (mountedRef.current && now - lastPaint >= 120) {
+          if (mountedRef.current && now - lastPaint >= PAINT_THROTTLE) {
             lastPaint = now;
             setTest({ running: true, mbps: m, done: false });
           }
         },
       });
     } catch {
-      final = 0;
+      reading = { mbps: 0, bytes: 0, timedOut: false };
     }
     testingRef.current = false;
     if (!mountedRef.current) return;
-    const result = mbpsToStatus(final);
+    const result = readingToStatus(reading);
     const good = result[0] === "green";
-    setTest({ running: false, mbps: final, done: true });
+    setTest({ running: false, mbps: reading.mbps, done: true });
     setStatus(result);                        // reflect the real result
     slowStreakRef.current = good ? 0 : 2;     // keep the background gate in sync with reality
+    slowStepRef.current = 0;                  // and re-check quickly from here
     // Show the result briefly, then drop back to the live status: if the line is now
-    // fast the banner closes itself; if it's still slow the normal slow banner remains
-    // (and will close on its own once the background probe sees the speed recover).
-    autoCloseRef.current = setTimeout(() => { if (mountedRef.current) setTest(null); }, AUTO_CLOSE_DELAY);
+    // fast the banner closes itself; if it's still slow the normal slow banner remains.
+    // Kicking the loop here matters — without it a tap made while the loop was asleep
+    // on GOOD_INTERVAL would leave the next recovery check up to 2 min away, so a
+    // banner would sit there long after the line came good.
+    autoCloseRef.current = setTimeout(() => {
+      if (!mountedRef.current) return;
+      setTest(null);
+      kickRef.current?.();
+    }, AUTO_CLOSE_DELAY);
   }, [isPreview]);
 
   // ---- derive what to render -----------------------------------------------

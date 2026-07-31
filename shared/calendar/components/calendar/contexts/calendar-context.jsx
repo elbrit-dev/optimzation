@@ -1,5 +1,6 @@
 "use client";;
 import { createContext, useContext, useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { endOfYear, startOfYear } from "date-fns";
 import { useLocalStorage } from "@calendar/components/calendar/hooks";
 import { fetchEventsByRange } from "@calendar/components/calendar/module/event/services/event.service";
 import { invalidateCalendarData } from "@calendar/lib/calendar/invalidate";
@@ -256,11 +257,30 @@ export function CalendarProvider({
 	// Hard refresh for the manual "Sync" button. Drops every derived cache
 	// (events, leave applications, todos, leave balances) and forces the fetch
 	// past the in-flight dedupe, so one click always reaches ERP — no full-app
-	// reload needed. `broadcast: false` because we refetch right here.
+	// reload needed. Sync should refresh the full selected year so moving across
+	// months inside that year reflects the latest ERP state immediately.
+	// `broadcast: false` because we refetch right here.
 	const syncCalendar = useCallback(async () => {
 		invalidateCalendarData({ broadcast: false, reason: "manual-sync" });
-		return reloadEvents({ force: true });
-	}, [reloadEvents]);
+		const token = ++reloadTokenRef.current;
+		const anchorDate = selectedDate ?? new Date();
+
+		const nextEvents = await fetchEventsByRange(
+			startOfYear(anchorDate),
+			endOfYear(anchorDate),
+			"year",
+			{ force: true }
+		);
+
+		if (token !== reloadTokenRef.current) {
+			return nextEvents;
+		}
+
+		setServerEvents((prev) =>
+			mergeFetchedEventsWithRecent(prev, nextEvents)
+		);
+		return nextEvents;
+	}, [selectedDate]);
 
 	const liveRefresh = useCallback(
 		() => reloadEvents({ force: true }),
