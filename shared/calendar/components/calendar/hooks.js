@@ -19,33 +19,34 @@ export function useDisclosure({
 }
 
 export const useLocalStorage = (key, initialValue) => {
-	const readValue = () => {
-		if (typeof window === "undefined") {
-			return initialValue;
-		}
+	// `initialValue` arrives as a fresh object literal on every render at the call
+	// sites (see "calendar-settings" in calendar-context), so it must never reach a
+	// dependency array. Pin the mount-time value in a ref instead: it is the very
+	// object `useState` captured below, so writing it back is an Object.is bail-out
+	// rather than a new identity that would re-render.
+	const initialValueRef = useRef(initialValue);
 
-		try {
-			const item = window.localStorage.getItem(key);
-			return item ? (JSON.parse(item)) : initialValue;
-		} catch (error) {
-			console.warn(`Error reading localStorage key "${key}":`, error);
-			return initialValue;
-		}
-	};
-
+	// The first render has to match the server HTML, so state starts at
+	// `initialValue` and the persisted value is adopted in the effect below.
+	// Reading localStorage in the `useState` initialiser instead would hydrate-mismatch.
 	const [storedValue, setStoredValue] = useState(initialValue);
 
+	// Keyed on `key` ALONE — this reads once per key, never once per render.
+	// Depending on `initialValue` here was an infinite loop: each run stored a
+	// freshly parsed object, that re-rendered, the re-render produced a new literal,
+	// the new literal re-armed the effect, until React gave up with
+	// "Maximum update depth exceeded" (minified React error #185) and the page died.
 	useEffect(() => {
 		if (typeof window === "undefined") return;
 
 		try {
 			const item = window.localStorage.getItem(key);
-			setStoredValue(item ? JSON.parse(item) : initialValue);
+			setStoredValue(item ? JSON.parse(item) : initialValueRef.current);
 		} catch (error) {
 			console.warn(`Error reading localStorage key "${key}":`, error);
-			setStoredValue(initialValue);
+			setStoredValue(initialValueRef.current);
 		}
-	}, [initialValue, key]);
+	}, [key]);
 
 	const setValue = (value) => {
 		try {
