@@ -16,6 +16,8 @@ import DevicePrimaryGuard from "./components/DevicePrimaryGuard";
 import ApprovalCard from "./components/ApprovalCard";
 import SecondaryDataSummary from "./components/SecondaryDataSummary";
 import SecondaryApprovalSummary from "./components/SecondaryApprovalSummary";
+import HomeNavRings from "./components/HomeNavRings";
+import ProgressRing from "./components/ProgressRing";
 // import TableDataProvider from "./components/TableDataProvider";
 import jsonata from 'jsonata';
 import { db } from "./firebase";
@@ -1350,6 +1352,241 @@ PLASMIC.registerComponent(SecondaryApprovalSummary, {
     },
   },
   importPath: "./components/SecondaryApprovalSummary",
+});
+
+PLASMIC.registerComponent(HomeNavRings, {
+  name: "HomeNavRings",
+  displayName: "Home Nav Rings",
+  description:
+    "The home-screen quick-action nav row, as Instagram-style story rings. One tile per action category (Approval / Visit / Secondary / Gift / Service). The RING is split into one SEGMENT PER EVENT — green = done, red = pending — so the progress is countable at a glance; a category with no work draws a solid green 'all clear' ring. The red BADGE is the pending count, and the SUB-LABEL is when the next one is due, with red reserved for the single most urgent category. Tiles are auto-ordered by soonest deadline, and cleared categories sink to the end and mute (still tappable). Self-contained — drop it on the page and bind `data`; there is nothing to assemble in Studio. Wire `onSelect` to route to the category's page.",
+  props: {
+    data: {
+      type: "object",
+      description:
+        "The action categories for today. Tolerant of shape — accepts an array of categories, a { edges:[{node}] } connection, a { categories|items|rows } wrapper, or an object keyed by category id. Per category (first alias wins): key|id|code|type, label|name|title, icon (approval|visit|secondary|gift|service), and the work itself as EITHER events|items|tasks (done-ness read from done|completed|is_done or a status containing done/complete/approved), OR segments|done as plain booleans, OR total + pending counts. Deadline from dueAt|due|due_date|next_due (ISO or Date) drives the ordering; pass dueLabel|sub to override the computed 'due ...' text.",
+      defaultValue: [
+        {
+          key: "apr",
+          label: "Approval",
+          events: [{ done: false }, { done: false }, { done: false }],
+          dueLabel: "due 4:00 pm",
+        },
+        {
+          key: "vis",
+          label: "Visit",
+          events: [{ done: true }, { done: false }, { done: false }],
+          dueLabel: "due 5:30 pm",
+        },
+        {
+          key: "sec",
+          label: "Secondary",
+          events: [{ done: true }, { done: true }, { done: false }, { done: false }],
+          dueLabel: "due tomorrow",
+        },
+        { key: "gift", label: "Gift", events: [{ done: false }], dueLabel: "due Fri" },
+        { key: "srv", label: "Service", events: [] },
+      ],
+    },
+    sortByDue: {
+      type: "boolean",
+      defaultValue: true,
+      description:
+        "Order tiles by soonest deadline, with cleared categories last. Turn OFF to keep the order of your data exactly as given.",
+    },
+    showBadge: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Show the red pending-count badge on the ring.",
+    },
+    showDue: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Show the due / 'all clear' sub-label under each tile.",
+    },
+    dimCleared: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Mute categories that have nothing pending. They stay tappable either way.",
+    },
+    size: {
+      type: "number",
+      defaultValue: 62,
+      description: "Ring diameter in px. The icon scales with it.",
+    },
+    thickness: {
+      type: "number",
+      defaultValue: 5,
+      description: "Ring stroke thickness in px.",
+    },
+    gapDeg: {
+      type: "number",
+      defaultValue: 5,
+      description:
+        "Gap between ring segments, in degrees. Automatically shrinks when a category has many events so the segments stay visible.",
+    },
+    accentColor: {
+      type: "color",
+      defaultValue: "#2563eb",
+      description: "Icon colour for categories with pending work.",
+    },
+    accentBg: {
+      type: "color",
+      defaultValue: "#eff6ff",
+      description: "Inner disc colour for categories with pending work.",
+    },
+    doneColor: {
+      type: "color",
+      defaultValue: "#16a34a",
+      description: "Colour of completed ring segments, and of the whole 'all clear' ring.",
+    },
+    pendingColor: {
+      type: "color",
+      defaultValue: "#dc2626",
+      description: "Colour of pending ring segments, the count badge, and the most-urgent sub-label.",
+    },
+    allClearText: {
+      type: "string",
+      defaultValue: "all clear",
+      description: "Sub-label for a category with no events at all today.",
+    },
+    allDoneText: {
+      type: "string",
+      defaultValue: "all done",
+      description: "Sub-label for a category whose events are all completed.",
+    },
+    emptyText: {
+      type: "string",
+      defaultValue: "Nothing queued for today.",
+      description: "Shown in place of the row when `data` has no categories.",
+    },
+    locale: {
+      type: "string",
+      defaultValue: "en-IN",
+      description: "Intl locale used to format due times and weekdays.",
+    },
+    onSelect: {
+      type: "eventHandler",
+      argTypes: [{ name: "category", type: "object" }],
+      description:
+        "Fires when a tile is tapped, with the normalised category { key, label, segments, total, pending, cleared, dueAt, href, raw }. Wire it to navigate. If left unwired, the tiles render but are not interactive.",
+    },
+    className: {
+      type: "string",
+      description: "CSS class for the row container.",
+    },
+  },
+  importPath: "./components/HomeNavRings",
+});
+
+PLASMIC.registerComponent(ProgressRing, {
+  name: "ProgressRing",
+  displayName: "Progress Ring",
+  description:
+    "Just the story-style ring — a CONTAINER you build the rest of the tile around in Studio. Use this when you want to design the tile yourself; use 'Home Nav Rings' instead if you want the whole nav row ready-made. Two slots: the middle of the ring (drop an Icon / Image / Text) and a top-right corner (drop a box for the count badge — nothing renders if you leave it empty). Assemble the tile as a vertical stack: this ring, then your own Text elements for the label and sub-label. MODE 'segments' draws one segment per event (green = done, red = pending) so the ring stays countable and can never disagree with your badge; an empty array means 'all clear' and draws a solid unbroken ring. MODE 'progress' draws one continuous arc from a 0..1 or 0..100 number, with an optional blue→violet→pink Instagram sweep. Drawn with a CSS conic-gradient, so unlike an SVG gradient several rings on one page never collide.",
+  props: {
+    mode: {
+      type: "choice",
+      options: ["segments", "progress"],
+      defaultValue: "segments",
+      description:
+        "'segments' = one segment per event, driven by `segments` (or `total` + `pending`). 'progress' = one continuous arc, driven by `progress`.",
+    },
+    segments: {
+      type: "array",
+      description:
+        "SEGMENTS MODE. One entry per event: true = done (green), false = pending (red). Bind to your data, e.g. currentItem.segments. An EMPTY array means there is no work at all and draws a solid green 'all clear' ring. Leave this unset to use `total` + `pending` instead.",
+      defaultValue: [true, true, false, false],
+      hidden: (props) => props.mode === "progress",
+    },
+    total: {
+      type: "number",
+      description:
+        "SEGMENTS MODE, counts fallback. Total events. Only used when `segments` is not set — the component builds the segment array for you, completed ones first.",
+      hidden: (props) => props.mode === "progress" || Array.isArray(props.segments),
+    },
+    pending: {
+      type: "number",
+      description: "SEGMENTS MODE, counts fallback. How many of `total` are still pending.",
+      hidden: (props) => props.mode === "progress" || Array.isArray(props.segments),
+    },
+    progress: {
+      type: "number",
+      defaultValue: 0.4,
+      description:
+        "PROGRESS MODE. How much of the ring is filled — 0..1, or 0..100 (anything above 1 is read as a percentage).",
+      hidden: (props) => props.mode !== "progress",
+    },
+    useGradient: {
+      type: "boolean",
+      defaultValue: false,
+      description:
+        "PROGRESS MODE. Sweep the filled arc through a colour ramp instead of one flat colour — the original Instagram-story look.",
+      hidden: (props) => props.mode !== "progress",
+    },
+    gradientColors: {
+      type: "array",
+      description:
+        "PROGRESS MODE. Two or more colours for the sweep. Defaults to blue → violet → pink (#2563eb, #7c3aed, #db2777).",
+      hidden: (props) => props.mode !== "progress" || !props.useGradient,
+    },
+    size: { type: "number", defaultValue: 62, description: "Outer diameter in px." },
+    thickness: { type: "number", defaultValue: 5, description: "Ring thickness in px." },
+    gapDeg: {
+      type: "number",
+      defaultValue: 5,
+      description:
+        "SEGMENTS MODE. Gap between segments, in degrees. Shrinks automatically when there are many events so the segments stay visible.",
+      hidden: (props) => props.mode === "progress",
+    },
+    discPadding: {
+      type: "number",
+      defaultValue: 2,
+      description: "Gap in px between the ring and the inner disc.",
+    },
+    doneColor: {
+      type: "color",
+      defaultValue: "#16a34a",
+      description: "SEGMENTS MODE. Completed segments, and the whole 'all clear' ring.",
+      hidden: (props) => props.mode === "progress",
+    },
+    pendingColor: {
+      type: "color",
+      defaultValue: "#dc2626",
+      description: "SEGMENTS MODE. Pending segments.",
+      hidden: (props) => props.mode === "progress",
+    },
+    fillColor: {
+      type: "color",
+      defaultValue: "#2563eb",
+      description: "PROGRESS MODE. The filled arc, when no gradient is used.",
+      hidden: (props) => props.mode !== "progress",
+    },
+    trackColor: {
+      type: "color",
+      defaultValue: "#f1f5f9",
+      description: "PROGRESS MODE. The unfilled remainder of the ring.",
+      hidden: (props) => props.mode !== "progress",
+    },
+    discColor: {
+      type: "color",
+      defaultValue: "#eff6ff",
+      description: "Background of the disc inside the ring, behind the slot content.",
+    },
+    children: {
+      type: "slot",
+      displayName: "Center",
+      description: "Goes in the middle of the ring — usually the category icon.",
+      defaultValue: { type: "text", value: "★" },
+    },
+    badge: {
+      type: "slot",
+      displayName: "Corner badge",
+      description:
+        "Pinned to the top-right of the ring — usually a small box with the pending count. Leave empty and nothing renders.",
+    },
+    className: { type: "string", description: "CSS class for the ring container." },
+  },
+  importPath: "./components/ProgressRing",
 });
 
 registerElbritCoreComponents(PLASMIC)
