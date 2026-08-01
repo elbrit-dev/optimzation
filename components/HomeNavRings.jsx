@@ -58,14 +58,18 @@ function ensureStyles() {
       position:relative;width:100%;box-sizing:border-box;
       font:400 13px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;}
     .enav *{box-sizing:border-box}
-    .enav-scroll{display:flex;align-items:flex-start;gap:2px;padding:2px 12px 12px;
+    /* Centred while everything fits, left-aligned once it scrolls — a stretched row of three
+       tiles reads as a broken layout, and a centred row you can scroll hides its first tile. */
+    .enav-scroll{display:flex;align-items:flex-start;justify-content:center;gap:18px;
+      padding:2px 12px 12px;
       overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-webkit-overflow-scrolling:touch}
     .enav-scroll::-webkit-scrollbar{display:none}
     /* Only fades when there is genuinely more to reach — see the overflow observer below. */
-    .enav.is-overflowing .enav-scroll{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 28px),transparent);
+    .enav.is-overflowing .enav-scroll{justify-content:flex-start;
+      -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 28px),transparent);
       mask-image:linear-gradient(90deg,#000 calc(100% - 28px),transparent)}
 
-    .enav-tile{flex:1 0 auto;min-width:70px;display:flex;flex-direction:column;align-items:center;gap:5px;
+    .enav-tile{flex:0 0 auto;min-width:70px;display:flex;flex-direction:column;align-items:center;gap:5px;
       padding:2px 0 0;background:none;border:0;cursor:pointer;font-family:inherit;color:inherit;
       border-radius:14px;transition:opacity .12s,transform .12s}
     .enav-tile:hover{transform:translateY(-1px)}
@@ -244,6 +248,8 @@ function formatDue(date, locale) {
 
   if (days < 0) return "overdue";
   if (days === 0) {
+    // All-day work lands on 00:00:00, and "due 12:00 am" reads as a bug rather than a deadline.
+    if (date.getHours() === 0 && date.getMinutes() === 0) return "due today";
     const t = date
       .toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" })
       .toLowerCase()
@@ -266,6 +272,7 @@ export default function HomeNavRings({
   size = 62,
   thickness = 5,
   gapDeg = 5,
+  maxSegments = 10,
   accentColor = "#2563eb",
   accentBg = "#eff6ff",
   doneColor = "#16a34a",
@@ -377,7 +384,14 @@ export default function HomeNavRings({
               <span className="enav-ringwrap">
                 <span
                   className="enav-ring"
-                  style={{ background: segmentRing(c.segments, { doneColor, pendingColor, gapDeg }) }}
+                  style={{
+                    background: segmentRing(c.segments, {
+                      doneColor,
+                      pendingColor,
+                      gapDeg,
+                      maxSegments,
+                    }),
+                  }}
                 />
                 <span className="enav-disc">
                   <svg
@@ -394,7 +408,9 @@ export default function HomeNavRings({
                     {pickIcon(c.icon)}
                   </svg>
                 </span>
-                {showBadge && c.pending > 0 && <span className="enav-badge">{c.pending}</span>}
+                {showBadge && c.pending > 0 && (
+                  <span className="enav-badge">{c.pending > 99 ? "99+" : c.pending}</span>
+                )}
               </span>
               <span className="enav-label">{c.label}</span>
               {showDue && sub && <span className={["enav-sub", subClass].filter(Boolean).join(" ")}>{sub}</span>}

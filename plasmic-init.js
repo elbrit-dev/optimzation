@@ -1462,6 +1462,12 @@ PLASMIC.registerComponent(HomeNavRings, {
       description:
         "Gap between ring segments, in degrees. Automatically shrinks when a category has many events so the segments stay visible.",
     },
+    maxSegments: {
+      type: "number",
+      defaultValue: 10,
+      description:
+        "Above this many events the ring stops slicing per event and draws ONE two-tone arc instead — the done fraction in green, the rest in red. Past ~10 slices the gaps are wider than the segments and the ring reads as dashed noise, while the exact number is already on the badge. Raise it if you want countable ticks for longer lists, lower it to switch to the arc sooner.",
+    },
     accentColor: {
       type: "color",
       defaultValue: "#2563eb",

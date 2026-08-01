@@ -23,18 +23,41 @@ const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
  * @param {string}    opts.doneColor     colour of completed segments
  * @param {string}    opts.pendingColor  colour of pending segments
  * @param {number}    opts.gapDeg        gap between segments, in degrees
+ * @param {number}    opts.maxSegments   above this count, collapse to one two-tone arc
  * @returns {string}  a CSS `background` value
  *
  * An empty array means there is no work at all, which draws a solid unbroken ring in
  * `doneColor` — the "all clear" state. The gap shrinks automatically when a category has
  * many events, so the segments stay visible instead of collapsing into the gaps.
  */
-export function segmentRing(segments, { doneColor, pendingColor, gapDeg = 5 }) {
+export function segmentRing(segments, { doneColor, pendingColor, gapDeg = 5, maxSegments = 10 }) {
   const n = Array.isArray(segments) ? segments.length : 0;
   if (!n) return doneColor;
 
+  // Past a certain count, each slice is thinner than the gap beside it and the ring reads as
+  // dashed noise — nobody counts 34 ticks anyway. Collapse to a single two-tone arc: how much
+  // is done, how much is left. The badge already carries the exact number.
+  if (n > Math.max(1, maxSegments)) {
+    const doneCount = segments.filter(Boolean).length;
+    if (doneCount === 0) return pendingColor;
+    if (doneCount === n) return doneColor;
+
+    const deg = (doneCount / n) * 360;
+    const g = 3; // a hairline break at each junction, so the two arcs stay legible
+    const a = Math.max(0, deg - g).toFixed(2);
+    const b = deg.toFixed(2);
+    return (
+      `conic-gradient(from -90deg,${doneColor} 0deg ${a}deg,` +
+      `transparent ${a}deg ${b}deg,` +
+      `${pendingColor} ${b}deg ${360 - g}deg,` +
+      `transparent ${360 - g}deg 360deg)`
+    );
+  }
+
   const step = 360 / n;
-  const gap = n > 1 ? clamp(gapDeg, 0, step / 3) : 0;
+  // Tighten the gap as the count climbs, so a 7–10 event ring still reads as a ring
+  // rather than a dashed outline.
+  const gap = n > 1 ? clamp(gapDeg * (n > 6 ? 0.5 : 1), 0, step / 4) : 0;
   const stops = [];
 
   segments.forEach((done, i) => {
