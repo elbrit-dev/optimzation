@@ -895,7 +895,7 @@ PLASMIC.registerComponent(ApprovalCard, {
   name: "ApprovalCard",
   displayName: "Approval Card",
   description:
-    "Summary card for the secondary approval flow with 4 variants: 'select' (checkbox), 'toggle' (on/off switch), 'actions' (per-card Reject/Approve buttons), and 'select-actions' (checkbox AND Reject/Approve together). Title + a status pill + two metric columns (e.g. Sales / Closing, each Qty + Value) and an optional attachments badge (🔗 + count) that fires onLinkClick. `checked` is just true/false — bind it to your control (a Select All boolean, or the card's own checked state). onCheckedChange fires (checked, value) AUTOMATICALLY whenever checked flips — on a click OR when set from outside — so you wire the value handling once: Add element `value` (when checked) / Remove elements `value` (when not) into your [] array (init it to []). Select All only flips the boolean; it never passes a value. For actions/select-actions, onApprove/onReject fire with `value`. Wire onCardClick to open the slice's detail view; set `locked` on already-decided slices (dim, no controls) and drive the `status`/`statusTone`/`rejectionReason` pill from the tracker's status.",
+    "Summary card for the secondary approval flow with 4 variants: 'select' (checkbox), 'toggle' (on/off switch), 'actions' (per-card Reject/Approve buttons), and 'select-actions' (checkbox AND Reject/Approve together). Title + a status pill + two metric columns (e.g. Sales / Closing, each Qty + Value) and an optional attachments badge (🔗 + count) that fires onLinkClick. `checked` is just true/false — bind it to your control (a Select All boolean, or the card's own checked state). onCheckedChange fires (checked, value) AUTOMATICALLY whenever checked flips — on a click OR when set from outside — so you wire the value handling once: Add element `value` (when checked) / Remove elements `value` (when not) into your [] array (init it to []). Select All only flips the boolean; it never passes a value. For actions/select-actions, onApprove/onReject fire with `value`, and turning on `showRevisit` adds the ERP's third action (Reject | Revisit | Approve) — Revisit sends the slice back to the start of the chain, stays available while the slice awaits verification, and must be committed through the ERP method operational_tracker_decision, never a plain status write. Wire onCardClick to open the slice's detail view; set `locked` on already-decided slices (dim, no controls) and drive the `status`/`statusTone`/`rejectionReason` pill from the tracker's status.",
   props: {
     variant: {
       type: "choice",
@@ -971,6 +971,43 @@ PLASMIC.registerComponent(ApprovalCard, {
       defaultValue: "#ef4444",
       description: "actions variant: Reject button background color.",
     },
+    showRevisit: {
+      type: "boolean",
+      defaultValue: false,
+      description:
+        "actions/select-actions: add the THIRD button — Revisit — which sends the slice back to the start of the approval chain. The row becomes Reject | Revisit | Approve (equal columns, so it still fits a phone). Turn this on wherever the approver acts on Operational Tracker slices.",
+    },
+    onRevisit: {
+      type: "eventHandler",
+      argTypes: [{ name: "value", type: "object" }],
+      description:
+        "Fired when Revisit is clicked, with this card's `value`. Like Reject this only SIGNALS intent — wire it to open your reason sheet, then on confirm call the ERP method `operational_tracker_decision` with { name, action: 'revisit', reason_for_revisit } (the reason is REQUIRED). Do NOT just write the status: the server only restarts the chain when the previous state ended in 'Rejected', which that method stages for you.",
+    },
+    revisitLabel: {
+      type: "string",
+      defaultValue: "Revisit",
+      description: "Label of the Revisit button.",
+    },
+    revisitColor: {
+      type: "color",
+      defaultValue: "#7c3aed",
+      description: "Revisit button background color (violet by default, to read as neither approve nor reject).",
+    },
+    canRevisit: {
+      type: "boolean",
+      description:
+        "OPTIONAL hard override for whether Revisit is allowed. Leave EMPTY (the normal case) and the card derives it from `status`: allowed while the status ends with 'Approval Waiting' OR with 'Approved and Waiting for Verification'. Set true/false only to drive the rule from the page yourself.",
+    },
+    viewerRole: {
+      type: "string",
+      description:
+        "OPTIONAL role of the logged-in user ('ABM' / 'RBM' / 'SM' / 'GM' / 'CEO' / 'MIS'). When set, Revisit shows only if it matches the role that owns the current state (the first word of `status`) — per the ERP workflow only that role may revisit, and MIS (who verifies) may not. IMPORTANT: the ERP method does NOT enforce this server-side, so this or `canRevisit` is the only thing holding the rule. Leave empty if the page already gates the card.",
+    },
+    revisitReason: {
+      type: "string",
+      description:
+        "OPTIONAL explicit revisit note. Normally leave EMPTY — after a revisit the ERP writes the reason back onto reason_for_rejection prefixed 'Revisit (from <state>): …', and the card detects that prefix on `rejectionReason` by itself.",
+    },
     links: {
       type: "array",
       itemType: {
@@ -1018,12 +1055,12 @@ PLASMIC.registerComponent(ApprovalCard, {
     locked: {
       type: "boolean",
       defaultValue: false,
-      description: "Force an already-DECIDED look: dim the card and hide the checkbox and Reject/Approve buttons (it can still be tapped to open detail if onCardClick is wired). Usually you DON'T need to set this — with lockWhenDecided on (the default) the card locks itself once the status is approved/rejected. Use this only to lock a card manually. Different from `disabled`, which fully blocks a pending card.",
+      description: "Force an already-DECIDED look: dim the card and hide the checkbox and Reject/Approve buttons (it can still be tapped to open detail if onCardClick is wired). Usually you DON'T need to set this — with lockWhenDecided on (the default) the card locks itself once the status is approved/rejected. Use this only to lock a card manually. Different from `disabled`, which fully blocks a pending card. NOTE: locking never hides a legal Revisit — that button follows its own rule.",
     },
     lockWhenDecided: {
       type: "boolean",
       defaultValue: true,
-      description: "Auto-lock the card once its status is DECIDED — i.e. the tone resolves to approved or rejected (only 'ABM Approval Waiting' stays actionable). After Approve/Reject flips the status, the buttons disappear on their own. Turn OFF to keep the buttons visible after a decision.",
+      description: "Auto-lock the card once its status is DECIDED — i.e. the tone resolves to approved or rejected (only 'ABM Approval Waiting' stays actionable). After Approve/Reject flips the status, those two buttons disappear on their own. Turn OFF to keep them visible after a decision. Revisit is exempt: a card sitting in 'ABM Approved and Waiting for Verification' still shows Revisit alone, because ERP still allows it there.",
     },
     title: {
       type: "string",
@@ -1048,7 +1085,8 @@ PLASMIC.registerComponent(ApprovalCard, {
     },
     rejectionReason: {
       type: "string",
-      description: "Rejection reason shown as a red inline note — appears ONLY when statusTone is 'rejected'. Bind to the tracker's reason_for_rejection.",
+      description:
+        "Bind to the tracker's reason_for_rejection. Shown as a red inline note when the tone is 'rejected'. If the text carries the ERP revisit prefix ('Revisit (from <state>): …') it instead renders as a VIOLET 'Sent back for revisit' note plus a 'Revisited' chip, and stays visible in the waiting tone a revisited slice returns to. Make sure your query actually fetches reason_for_rejection — it's the only field carrying the revisit note.",
     },
     currency: {
       type: "string",

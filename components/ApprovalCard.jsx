@@ -1,5 +1,5 @@
 import React from "react";
-import { Check, Link } from "lucide-react";
+import { Check, Link, RotateCcw } from "lucide-react";
 
 /**
  * ApprovalCard — a summary card for the secondary approval flow, with 4 variants.
@@ -20,6 +20,24 @@ import { Check, Link } from "lucide-react";
  *   one-tap action; Reject only SIGNALS intent (the page opens a reason sheet and writes
  *   the status/reason on confirm — the card itself never writes anything).
  *
+ * Revisit (`showRevisit`) — the ERP's third action:
+ *   Turn `showRevisit` on to add a third button that sends the slice BACK to the start of
+ *   the chain. Like Reject it only SIGNALS intent — `onRevisit(value)` fires and the page
+ *   collects the required reason, then calls the ERP `operational_tracker_decision` method
+ *   with action "revisit" (a plain status write does NOT work — the server only restarts
+ *   the chain when the previous state ended in "Rejected", which that method stages).
+ *   ERP allows Revisit from TWO states, so the button has its own availability rule, wider
+ *   than Approve/Reject's: status ends with "Approval Waiting" OR with "Approved and
+ *   Waiting for Verification". That second state is APPROVED-toned, so a decided card that
+ *   is merely awaiting verification stays dimmed but KEEPS its Revisit button — only
+ *   Approve/Reject go away. Per the ERP workflow only the state's OWN role may revisit
+ *   (MIS, who verifies, may not) — set `viewerRole` to have the card enforce that, or drive
+ *   it yourself with `canRevisit` (true/false wins over every derived rule).
+ *   The server records the reason back onto `reason_for_rejection`, prefixed
+ *   "Revisit (from <state>): …" — pass that same field as `rejectionReason` and the card
+ *   recognises the prefix, shows a violet "Revisited" chip and renders the note in the
+ *   waiting state (where a plain rejection note would be hidden).
+ *
  * Card-body click (`onCardClick`):
  *   When wired, clicking the card body fires `onCardClick(value)` — use it to open the
  *   slice's detail view. Wiring it turns OFF the old click-anywhere-to-select fallback,
@@ -28,7 +46,8 @@ import { Check, Link } from "lucide-react";
  *
  * Status & state:
  *   `status` + `statusTone` ("waiting" amber / "approved" green / "rejected" red) render a
- *   pill near the title. `statusTone` defaults to "auto": the tone is derived from the
+ *   pill near the title (plus a "Revisited" chip when the reason carries the revisit
+ *   prefix). `statusTone` defaults to "auto": the tone is derived from the
  *   status TEXT (contains "reject" → rejected, "approved" → approved, else waiting), so the
  *   pill colours itself correctly without the page having to wire it. Pass an explicit tone
  *   to override. `rejectionReason` shows a red inline note, but only when the tone is
@@ -180,6 +199,17 @@ function ensureStyles() {
     .eac-btn:focus-visible { outline: 2px solid #fff; outline-offset: -3px; }
     .eac-btn:disabled { opacity: 0.5; cursor: not-allowed; filter: none; }
 
+    /* three actions (Reject | Revisit | Approve): equal columns instead of
+       space-between, so they still fit a ~360px phone. The two-button row is
+       left exactly as it was. */
+    .eac-actions.eac-actions-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .eac-actions-3 .eac-btn {
+      min-width: 0; padding: 9px 8px; font-size: 13px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    /* a lone Revisit (card already approved, awaiting verification) sits right */
+    .eac-actions.eac-actions-1 { justify-content: flex-end; }
+
     /* status chip (near the title) — tone drives the colour */
     .eac-status {
       align-self: flex-start; box-sizing: border-box;
@@ -194,6 +224,15 @@ function ensureStyles() {
     .eac-status-approved { background: #dcfce7; color: #15803d; }
     .eac-status-rejected { background: #fee2e2; color: #b91c1c; }
 
+    /* status row: the pill + the "Revisited" chip sit side by side and wrap */
+    .eac-status-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+    .eac-chip-revisit {
+      box-sizing: border-box; display: inline-flex; align-items: center; gap: 5px;
+      padding: 3px 9px; border-radius: 999px;
+      background: #ede9fe; color: #6d28d9;
+      font-size: 11px; font-weight: 600; line-height: 1.3; white-space: nowrap;
+    }
+
     /* inline rejection reason (only when tone = rejected) */
     .eac-reason {
       box-sizing: border-box; padding: 9px 11px; border-radius: 8px;
@@ -201,6 +240,9 @@ function ensureStyles() {
       font-size: 12px; line-height: 1.4; word-break: break-word;
     }
     .eac-reason-label { font-weight: 700; }
+    /* revisit note — shown in ANY tone (a revisited slice is back to "waiting") */
+    .eac-reason-revisit { background: #f5f3ff; border-color: #ddd6fe; color: #5b21b6; }
+    .eac-reason-from { display: block; margin-top: 3px; font-size: 11px; opacity: 0.85; }
 
     @media (prefers-reduced-motion: reduce) {
       .eac-card, .eac-check, .eac-toggle, .eac-toggle-knob, .eac-link, .eac-btn { transition: none; }
@@ -294,6 +336,35 @@ function deriveTone(status) {
   return "waiting"; // "approval waiting", "pending", empty, or anything else
 }
 
+// The two ERP states a slice can be revisited FROM. Approve/Reject only apply to the
+// first; Revisit also applies while the slice sits with MIS for verification.
+const AWAITING_APPROVAL = "approval waiting";
+const AWAITING_VERIFICATION = "approved and waiting for verification";
+
+// The role that OWNS a state — the first word of the status text.
+//   "ABM Approval Waiting"                      -> "ABM"
+//   "ABM Approved and Waiting for Verification" -> "ABM"
+// Per the ERP workflow, only this role may Revisit (the MIS verifier may not), so it's
+// what `viewerRole` is checked against.
+function stateRole(status) {
+  const s = String(status || "").trim();
+  return s ? s.split(/\s+/)[0] : "";
+}
+
+// Recognise the note the ERP writes back onto reason_for_rejection after a revisit:
+//   "Revisit (from ABM Approved and Waiting for Verification): fix the closing qty"
+// Returns { fromState, text } so the card can show the note (and a chip) even though the
+// slice is back to a "waiting" tone, where a plain rejection note stays hidden.
+const REVISIT_NOTE = /^\s*revisit\s*\(\s*from\s+([^)]*)\)\s*:\s*/i;
+
+function parseRevisitNote(reason) {
+  if (reason === null || reason === undefined) return null;
+  const s = String(reason);
+  const m = s.match(REVISIT_NOTE);
+  if (!m) return null;
+  return { fromState: (m[1] || "").trim(), text: s.slice(m[0].length).trim() };
+}
+
 export default function ApprovalCard({
   // variant
   variant = "select",          // "select" | "toggle" | "actions" | "select-actions"
@@ -313,6 +384,17 @@ export default function ApprovalCard({
   approveColor = "#2563eb",
   rejectColor = "#ef4444",
 
+  // revisit — the ERP's third action: send the slice back to the start of the chain.
+  // Availability is WIDER than approve/reject (see the header note), so it survives the
+  // auto-lock on an approved-and-awaiting-verification card.
+  showRevisit = false,         // add the third button (actions + select-actions)
+  onRevisit,                   // (value) => void — SIGNALS revisit intent; the page collects the required reason and calls operational_tracker_decision
+  revisitLabel = "Revisit",
+  revisitColor = "#7c3aed",
+  canRevisit,                  // OPTIONAL hard override (true/false). Leave unset to derive from `status` (+ `viewerRole`).
+  viewerRole,                  // OPTIONAL role of the logged-in user ("ABM"/"RBM"/"MIS"…). When set, Revisit shows only if it matches the state's own role — ERP does NOT enforce this server-side.
+  revisitReason,               // OPTIONAL explicit revisit note. Normally leave empty: the card detects the "Revisit (from …):" prefix on `rejectionReason`.
+
   // attachments badge — `links` holds ANY number of files. Each entry can be a
   // "/private/files/..." path or full URL, given as a bare string OR { label, url }.
   // Build it in Plasmic from whatever row fields you have, e.g.
@@ -326,14 +408,14 @@ export default function ApprovalCard({
   onLinkClick,                 // (links, value) => void — also fired on badge click for custom wiring
 
   disabled = false,           // temporarily block a PENDING card (dim, no selection/buttons, no navigation)
-  locked = false,             // already-decided slice: dim, no checkbox, no buttons (still navigable)
+  locked = false,             // already-decided slice: dim, no checkbox, no Approve/Reject (still navigable; a legal Revisit survives)
   lockWhenDecided = true,     // auto-lock once the status is decided (tone approved/rejected). Set false to keep buttons after a decision.
 
   // content
   title = "Sai Radha Pharma",
   status,                     // status chip text (e.g. "ABM Approval Waiting")
   statusTone = "auto",        // "auto" (derive from status text) | "waiting" (amber) | "approved" (green) | "rejected" (red)
-  rejectionReason,            // red inline note — shown only when the effective tone is "rejected"
+  rejectionReason,            // ERP reason_for_rejection. Red inline note when the tone is "rejected"; if it carries the "Revisit (from …):" prefix it renders as a violet revisit note in ANY tone
   currency = "₹",
   leftLabel = "Sales",
   leftQty,
@@ -368,9 +450,40 @@ export default function ApprovalCard({
   const isSelectActions = variant === "select-actions";
   // checkbox shows for "select" (the default / unknown fallback) AND "select-actions".
   const showCheckbox = !isToggle && !isActions;
-  // Reject / Approve buttons show for "actions" AND "select-actions".
+  // Reject / Approve / Revisit buttons show for "actions" AND "select-actions".
   const showActions = isActions || isSelectActions;
   const selectable = showCheckbox || isToggle;
+
+  // Per-action availability. Approve/Reject keep the original rule (visible until the card
+  // locks). Revisit gets its own, WIDER rule because ERP allows it from two states — one of
+  // which ("… Approved and Waiting for Verification") reads as approved and would otherwise
+  // be locked away. An explicit `canRevisit` beats every derived rule.
+  const lowerStatus = String(status || "").trim().toLowerCase();
+  const awaitingApproval = lowerStatus.endsWith(AWAITING_APPROVAL);
+  const awaitingVerification = lowerStatus.endsWith(AWAITING_VERIFICATION);
+  // No status text to go on (standalone / Studio preview): fall back to the lock.
+  const revisitableState = lowerStatus ? awaitingApproval || awaitingVerification : !isLocked;
+  // Only the state's OWN role may revisit; the MIS verifier may not. Unset viewerRole =
+  // the page is doing the gating, so don't second-guess it.
+  const revisitRoleOk =
+    !viewerRole || !lowerStatus ||
+    String(viewerRole).trim().toUpperCase() === stateRole(status).toUpperCase();
+  const revisitAllowed =
+    canRevisit === undefined || canRevisit === null
+      ? revisitableState && revisitRoleOk
+      : Boolean(canRevisit);
+
+  // `disabled` greys the buttons out rather than removing them (as it always has for
+  // Approve/Reject), so Revisit follows the same rule and stays visible-but-dead.
+  const showApproveReject = showActions && !isLocked;
+  const showRevisitBtn = showActions && showRevisit && revisitAllowed;
+  const actionCount = (showApproveReject ? 2 : 0) + (showRevisitBtn ? 1 : 0);
+
+  // The revisit note ERP leaves behind on reason_for_rejection (or an explicit override).
+  // Its presence is also what marks the card "Revisited" — there is no ERP status for it.
+  const revisitNote = revisitReason
+    ? { fromState: "", text: String(revisitReason) }
+    : parseRevisitNote(rejectionReason);
 
   // `checked` is just true/false — bind it to your control (a Select All boolean, or the
   // card's own checked state). The card fires onCheckedChange AUTOMATICALLY whenever
@@ -571,10 +684,23 @@ export default function ApprovalCard({
         </div>
       </div>
 
-      {status ? (
-        <div className={`eac-status eac-status-${tone}`}>
-          <span className="eac-status-dot" aria-hidden="true" />
-          <span className="eac-status-text">{status}</span>
+      {status || revisitNote ? (
+        <div className="eac-status-row">
+          {status ? (
+            <div className={`eac-status eac-status-${tone}`}>
+              <span className="eac-status-dot" aria-hidden="true" />
+              <span className="eac-status-text">{status}</span>
+            </div>
+          ) : null}
+          {revisitNote ? (
+            <span
+              className="eac-chip-revisit"
+              title={revisitNote.fromState ? `Sent back from ${revisitNote.fromState}` : undefined}
+            >
+              <RotateCcw size={11} strokeWidth={2.5} />
+              Revisited
+            </span>
+          ) : null}
         </div>
       ) : null}
 
@@ -583,40 +709,67 @@ export default function ApprovalCard({
         {column(rightLabel, rightQty, rightQtyUnit, rightValue)}
       </div>
 
-      {tone === "rejected" && rejectionReason ? (
+      {/* A revisit note wins over the plain rejection note and shows in ANY tone — a
+          revisited slice is back to "waiting", where the red note would be hidden. */}
+      {revisitNote ? (
+        <div className="eac-reason eac-reason-revisit">
+          <span className="eac-reason-label">Sent back for revisit:</span> {revisitNote.text}
+          {revisitNote.fromState ? (
+            <span className="eac-reason-from">from {revisitNote.fromState}</span>
+          ) : null}
+        </div>
+      ) : tone === "rejected" && rejectionReason ? (
         <div className="eac-reason">
           <span className="eac-reason-label">Reason:</span> {rejectionReason}
         </div>
       ) : null}
 
-      {showActions && !isLocked ? (
+      {actionCount > 0 ? (
         <>
           <div className="eac-hr" aria-hidden="true" />
-          <div className="eac-actions">
-            <button
-              type="button"
-              className="eac-btn eac-btn-reject"
-              style={{ background: rejectColor }}
-              disabled={disabled}
-              onClick={(e) => {
-                e.stopPropagation();
-                onReject?.(value);
-              }}
-            >
-              {rejectLabel}
-            </button>
-            <button
-              type="button"
-              className="eac-btn eac-btn-approve"
-              style={{ background: approveColor }}
-              disabled={disabled}
-              onClick={(e) => {
-                e.stopPropagation();
-                onApprove?.(value);
-              }}
-            >
-              {approveLabel}
-            </button>
+          <div className={`eac-actions eac-actions-${actionCount}`}>
+            {showApproveReject ? (
+              <button
+                type="button"
+                className="eac-btn eac-btn-reject"
+                style={{ background: rejectColor }}
+                disabled={disabled}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onReject?.(value);
+                }}
+              >
+                {rejectLabel}
+              </button>
+            ) : null}
+            {showRevisitBtn ? (
+              <button
+                type="button"
+                className="eac-btn eac-btn-revisit"
+                style={{ background: revisitColor }}
+                disabled={disabled}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRevisit?.(value);
+                }}
+              >
+                {revisitLabel}
+              </button>
+            ) : null}
+            {showApproveReject ? (
+              <button
+                type="button"
+                className="eac-btn eac-btn-approve"
+                style={{ background: approveColor }}
+                disabled={disabled}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onApprove?.(value);
+                }}
+              >
+                {approveLabel}
+              </button>
+            ) : null}
           </div>
         </>
       ) : null}
