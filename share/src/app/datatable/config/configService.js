@@ -244,6 +244,7 @@ export function extractStateFromConfig(config, baseConfig = {}) {
     selectedQueryKey: config.selectedQueryKey ?? base.selectedQueryKey ?? null,
     slots: 'slots' in config ? config.slots : undefined,
     writePermissions: config.writePermissions ?? base.writePermissions,
+    groupDrawerAccess: config.groupDrawerAccess ?? base.groupDrawerAccess ?? true,
   };
 }
 

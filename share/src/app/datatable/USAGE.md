@@ -1216,6 +1216,33 @@ writePermissions: { create: true, update: true, delete: true },
 
 ---
 
+## Group drawer access (`groupDrawerAccess`)
+
+Group-by columns (the fields listed in `groupFields`) render as clickable text that opens the row-detail drawer when clicked. By default every level of every group column is clickable. **`groupDrawerAccess`** on the **datatable config** (preset / `DataProviderNew` `config`) lets you restrict that per level and/or per field.
+
+- **Shape:** `boolean | (field: string, level: number) => boolean`
+  - `boolean` — applies globally to every group column (`true` = current default behavior, `false` = disable click-to-open-drawer on all group cells).
+  - function — called per cell with the group field name (`field`, e.g. `'brand'`) and its nesting level (`level`, `0` = outermost group column, `1` = next level in, etc.). Return `true` to allow that cell to open the drawer, `false` to render it as plain (non-clickable, non-underlined) text.
+- **Default:** `true` (unrestricted, same as before this option existed).
+- This check is combined with the existing gates — it does **not** override them: the cell is still blocked while already nested inside a drawer, and still respects `writePermissions.update` when `enableWrite` is on.
+
+### Config examples
+
+```javascript
+// Only the outermost group level opens the drawer
+groupDrawerAccess: (field, level) => level === 0,
+
+// Block one specific group field from opening the drawer, allow the rest
+groupDrawerAccess: (field) => field !== 'brand',
+
+// Disable click-to-open-drawer on every group column
+groupDrawerAccess: false,
+```
+
+`groupDrawerAccess` is exposed on **`useTableOperations()`** as `groupDrawerAccess` (raw value as configured — boolean or function).
+
+---
+
 ## Export Operations
 
 ### `exportToXLSX()`

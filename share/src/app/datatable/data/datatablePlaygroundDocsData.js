@@ -73,6 +73,13 @@ allowedColumns: {
     body: 'Fine-grained create/update/delete flags for write flows.',
     example: `writePermissions: { create: true, update: true, delete: false }`,
   },
+  groupDrawerAccess: {
+    body: 'Controls whether group-by column cells open the row-detail drawer on click. Boolean applies to every level; a (field, level) => boolean function decides per group field/level. Combined with (does not override) the existing nested-drawer and writePermissions.update checks.',
+    example: `// Only the outermost group level is clickable
+groupDrawerAccess: (field, level) => level === 0,
+// or disable entirely
+groupDrawerAccess: false,`,
+  },
   enableDivideBy1Lakh: {
     body: 'Display large numbers divided by 100,000.',
     example: `enableDivideBy1Lakh: true`,
@@ -387,8 +394,8 @@ openDrawerForRow(row);`,
     blocks: [
       {
         title: 'Flags and permissions',
-        body: 'enableWrite (from query or force in nested drawer), writePermissions, enableCellEdit.',
-        example: `const { enableWrite, writePermissions, handleMainSave } = useTableOperations();`,
+        body: 'enableWrite (from query or force in nested drawer), writePermissions, groupDrawerAccess (gates group-cell click-to-open-drawer), enableCellEdit.',
+        example: `const { enableWrite, writePermissions, groupDrawerAccess, handleMainSave } = useTableOperations();`,
       },
       {
         title: 'Main table buffer',

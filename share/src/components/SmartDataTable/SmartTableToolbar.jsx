@@ -130,6 +130,14 @@ export function GroupByReorder({ groups, onChange }) {
     setOverIdx(null);
   };
 
+  const moveItem = (idx, direction) => {
+    const targetIdx = idx + direction;
+    if (targetIdx < 0 || targetIdx >= groups.length) return;
+    const next = [...groups];
+    [next[idx], next[targetIdx]] = [next[targetIdx], next[idx]];
+    onChange(next);
+  };
+
   if (!groups.length) return null;
 
   const dropdownContent = isOpen && mounted ? (
@@ -160,6 +168,26 @@ export function GroupByReorder({ groups, onChange }) {
             <span className="flex-none w-5 h-5 rounded-full bg-indigo-100 text-indigo-600 text-[10px] font-bold flex items-center justify-center leading-none">
               {idx + 1}
             </span>
+            <div className="flex-none flex flex-col">
+              <button
+                type="button"
+                onClick={() => moveItem(idx, -1)}
+                disabled={idx === 0}
+                title="Move up"
+                className="w-4 h-3.5 flex items-center justify-center text-gray-400 hover:text-indigo-600 disabled:opacity-30 disabled:hover:text-gray-400 leading-none"
+              >
+                <i className="pi pi-chevron-up text-[9px]" />
+              </button>
+              <button
+                type="button"
+                onClick={() => moveItem(idx, 1)}
+                disabled={idx === groups.length - 1}
+                title="Move down"
+                className="w-4 h-3.5 flex items-center justify-center text-gray-400 hover:text-indigo-600 disabled:opacity-30 disabled:hover:text-gray-400 leading-none"
+              >
+                <i className="pi pi-chevron-down text-[9px]" />
+              </button>
+            </div>
           </div>
         ))}
       </div>

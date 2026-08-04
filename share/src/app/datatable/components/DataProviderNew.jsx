@@ -348,6 +348,7 @@ export default function DataProviderNew({
     rowsPerPageOptions, defaultRows, tableHeight, scrollable, enableFullscreenDialog,
     slots: configSlots,
     writePermissions: configWritePermissions,
+    groupDrawerAccess: configGroupDrawerAccess,
   } = configValues;
 
   const variableOverrides = useMemo(() => ({
@@ -399,9 +400,10 @@ export default function DataProviderNew({
         enableCellEdit,
         drawerTabs, enableReport, dateColumn, chartColumns, chartHeight,
         writePermissions: configWritePermissions,
+        groupDrawerAccess: configGroupDrawerAccess,
       }),
     };
-  }, [configSlots, enableSort, enableFilter, enableSummation, enableGrouping, textFilterColumns, allowedColumns, percentageColumns, derivedColumns, derivedRows, groupFields, redFields, greenFields, rowColumnStyles, enableDivideBy1Lakh, enableCellEdit, drawerTabs, enableReport, dateColumn, chartColumns, chartHeight, configWritePermissions, rootWriteForm, rootColumnTypesOverride]);
+  }, [configSlots, enableSort, enableFilter, enableSummation, enableGrouping, textFilterColumns, allowedColumns, percentageColumns, derivedColumns, derivedRows, groupFields, redFields, greenFields, rowColumnStyles, enableDivideBy1Lakh, enableCellEdit, drawerTabs, enableReport, dateColumn, chartColumns, chartHeight, configWritePermissions, configGroupDrawerAccess, rootWriteForm, rootColumnTypesOverride]);
 
   const slotIds = useMemo(() => Object.keys(slots), [slots]);
   const mainSlotConfig = useMemo(() => slots[slotIds[0]] || {}, [slots, slotIds]);
@@ -422,7 +424,8 @@ export default function DataProviderNew({
     writeForm: mainSlotConfig.writeForm ?? rootWriteForm,
     drawerTabs: mainSlotConfig.drawerTabs ?? drawerTabs,
     writePermissions: mainSlotConfig.writePermissions ?? configWritePermissions,
-  }), [mainSlotConfig, enableSort, enableFilter, enableSummation, enableGrouping, textFilterColumns, percentageColumns, derivedColumns, derivedRows, groupFields, redFields, greenFields, rowColumnStyles, enableCellEdit, rootWriteForm, drawerTabs, configWritePermissions]);
+    groupDrawerAccess: mainSlotConfig.groupDrawerAccess ?? configGroupDrawerAccess,
+  }), [mainSlotConfig, enableSort, enableFilter, enableSummation, enableGrouping, textFilterColumns, percentageColumns, derivedColumns, derivedRows, groupFields, redFields, greenFields, rowColumnStyles, enableCellEdit, rootWriteForm, drawerTabs, configWritePermissions, configGroupDrawerAccess]);
 
   const effectiveMainWriteForm = useMemo(
     () => normalizeWriteForm(
@@ -4592,6 +4595,7 @@ export default function DataProviderNew({
         // Enable write flag - use forceEnableWrite if provided (for nested drawer tables), otherwise use currentQueryDoc
         enableWrite: forceEnableWrite !== undefined ? forceEnableWrite : (currentQueryDoc?.enableWrite || false),
         writePermissions: resolvedWritePermissions,
+        groupDrawerAccess: effectiveMainConfig.groupDrawerAccess,
         // Nested table context for editable columns lookup
         parentColumnName,
         nestedTableFieldName,
@@ -4828,6 +4832,7 @@ export default function DataProviderNew({
         setSortConfig,
         enableWrite: forceEnableWrite !== undefined ? forceEnableWrite : (currentQueryDoc?.enableWrite || false),
         writePermissions: resolveWritePermissions(enableWriteEffective, effectiveSlotConfig.writePermissions ?? resolvedConfig.writePermissions),
+        groupDrawerAccess: effectiveSlotConfig.groupDrawerAccess,
         parentColumnName,
         nestedTableFieldName,
         nestedTableTabId,
@@ -5835,6 +5840,7 @@ export default function DataProviderNew({
                                     ? nestedProviderTableProps.enableCellEdit
                                     : false,
                                 writePermissions: resolvedWritePermissions,
+                                groupDrawerAccess: nestedProviderTableProps.groupDrawerAccess ?? effectiveMainConfig.groupDrawerAccess,
                                 enableReport: nestedProviderTableProps.enableReport,
                                 dateColumn: nestedProviderTableProps.dateColumn,
                                 breakdownType: nestedProviderTableProps.breakdownType,

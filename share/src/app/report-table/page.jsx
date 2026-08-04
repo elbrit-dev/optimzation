@@ -15,7 +15,7 @@ import { getEndpointConfigFromUrlKeyAsync } from '@/app/graphql-playground/const
 // Resolves per-view config from context and renders the view section.
 function ViewSection({ viewId, viewCfg }) {
   const { resolveView } = useSmartDataContext();
-  const { resolvedTable, resolvedControls } = resolveView(viewId);
+  const { resolvedTable, resolvedControls, resolvedApi } = resolveView(viewId);
   const { name, view } = viewCfg;
 
   return (
@@ -23,7 +23,7 @@ function ViewSection({ viewId, viewCfg }) {
       <h2 className="text-lg font-medium text-gray-800 mb-4">{name}</h2>
       {resolvedControls?.length > 0 && (
         <div className="mb-3">
-          <ReportControls controls={resolvedControls} viewIds={[viewId]} />
+          <ReportControls controls={resolvedControls} viewIds={[viewId]} apiFilters={resolvedApi?.variables?.filters} />
         </div>
       )}
       <SmartDataTable viewId={viewId} view={view} loadingMessage={`Fetching ${name}…`} config={resolvedTable} />
@@ -74,7 +74,7 @@ function ReportTable({ reportConfig }) {
           {isDebug && <PipelineDebugViewer />}
 
           {rootControls.length > 0 && (
-            <ReportControls controls={rootControls} viewIds={rootViewIds} />
+            <ReportControls controls={rootControls} viewIds={rootViewIds} apiFilters={reportConfig?.api?.variables?.filters} />
           )}
 
           {viewEntries.filter(([, v]) => v.type !== 'drawer').map(([viewId, viewCfg]) => (

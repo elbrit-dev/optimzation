@@ -1425,6 +1425,7 @@ export default function DataTableNew({
     handleAddNestedRowAtZero,
     enableWrite,
     writePermissions = { create: true, update: true, delete: true },
+    groupDrawerAccess = true,
     handleMainSave,
     handleDrawerSave,
     handleMainCancel,
@@ -2326,10 +2327,13 @@ export default function DataTableNew({
           : 'hover:bg-purple-50';
         
         const isNestedInDrawer = !!finalParentColumnName;
-        const allowGroupDrawerOpen = !isNestedInDrawer && (!enableWrite || writePermissions.update);
+        const drawerAccessAllowed = typeof groupDrawerAccess === 'function'
+          ? groupDrawerAccess(col, groupFieldIndex)
+          : groupDrawerAccess;
+        const allowGroupDrawerOpen = !isNestedInDrawer && (!enableWrite || writePermissions.update) && drawerAccessAllowed;
         return (
           <div
-            className={`text-xs sm:text-sm truncate px-1 py-0.5 rounded transition-colors ${isNumericCol ? 'text-right' : 'text-left'} ${colorClass} ${allowGroupDrawerOpen ? `cursor-pointer ${hoverColorClass}` : ''}`}
+            className={`text-xs sm:text-sm truncate px-1 py-0.5 rounded transition-colors ${isNumericCol ? 'text-right' : 'text-left'} ${colorClass} ${allowGroupDrawerOpen ? `cursor-pointer underline ${hoverColorClass}` : ''}`}
             title={cellValue}
             onClick={allowGroupDrawerOpen ? (e) => {
               e.stopPropagation();
@@ -2408,7 +2412,7 @@ export default function DataTableNew({
         const title = canOpenJsonTables ? `${cellValue} (Click to view nested tables)` : cellValue;
         return (
           <div
-            className={`text-xs sm:text-sm truncate cursor-pointer hover:bg-blue-50 px-1 py-0.5 rounded transition-colors ${isNumericCol ? 'text-right' : 'text-left'} ${colorClass}`}
+            className={`text-xs sm:text-sm truncate cursor-pointer underline hover:bg-blue-50 px-1 py-0.5 rounded transition-colors ${isNumericCol ? 'text-right' : 'text-left'} ${colorClass}`}
             title={title}
             onClick={(e) => {
               e.stopPropagation();
@@ -2449,7 +2453,7 @@ export default function DataTableNew({
         </div>
       );
     };
-  }, [columnTypesFlags, effectiveGroupFields, booleanBodyTemplate, dateBodyTemplate, formatCellValue, isPercentageColumn, getPercentageColumnValue, getColumnColorClass, openDrawer, orderedColumns, enableWrite, writePermissions.update, openDrawerWithJsonTables, openDrawerForRow, contextFilteredData, drawerTabs, finalParentColumnName, formatHeaderName, allowedColumns]);
+  }, [columnTypesFlags, effectiveGroupFields, booleanBodyTemplate, dateBodyTemplate, formatCellValue, isPercentageColumn, getPercentageColumnValue, getColumnColorClass, openDrawer, orderedColumns, enableWrite, writePermissions.update, groupDrawerAccess, openDrawerWithJsonTables, openDrawerForRow, contextFilteredData, drawerTabs, finalParentColumnName, formatHeaderName, allowedColumns]);
 
   // Helper to check if a column (top-level key) is in sortFields
 

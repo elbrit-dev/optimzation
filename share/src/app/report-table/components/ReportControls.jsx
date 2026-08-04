@@ -23,10 +23,23 @@ function formatDateForApi(date) {
   return dayjs(date).format('YYYY-MM-DD');
 }
 
-function parseDefault(def) {
-  if (def.type === 'dateRange' && Array.isArray(def.defaultValue)) {
-    return def.defaultValue.map((d) => new Date(d));
+// Priority for a dateRange control's initial value:
+//   P1. `def.value`        — explicit prop override passed in by the caller
+//   P2. `apiFilters`       — the API's current from_date/to_date (e.g. current period)
+//   P3. `def.defaultValue` — static default from the report config
+//   P4. current month      — final fallback so the picker never opens empty
+function parseDateRangeDefault(def, apiFilters) {
+  if (Array.isArray(def.value)) return def.value.map((d) => new Date(d));
+  if (apiFilters?.from_date && apiFilters?.to_date) {
+    return [new Date(apiFilters.from_date), new Date(apiFilters.to_date)];
   }
+  if (Array.isArray(def.defaultValue)) return def.defaultValue.map((d) => new Date(d));
+  return [dayjs().startOf('month').toDate(), dayjs().endOf('month').toDate()];
+}
+
+function parseDefault(def, apiFilters) {
+  if (def.type === 'dateRange') return parseDateRangeDefault(def, apiFilters);
+  if (def.value !== undefined) return def.value;
   return def.defaultValue ?? (def.type === 'toggle' ? false : null);
 }
 
@@ -128,8 +141,8 @@ function FilterSortControl({ def, viewIds }) {
   );
 }
 
-function DateRangeControl({ def, viewIds }) {
-  const [value, setValue] = useState(parseDefault(def));
+function DateRangeControl({ def, viewIds, apiFilters }) {
+  const [value, setValue] = useState(() => parseDefault(def, apiFilters));
 
   function handleChange(range) {
     setValue(range);
@@ -270,11 +283,15 @@ export function FilterChips({ viewIds }) {
   );
 }
 
-export function ReportControls({ controls, viewIds }) {
+export function ReportControls({ controls, viewIds, apiFilters }) {
   // SmartDataTable initializes views in its own useEffect, which fires after ours.
   // Wait until all views exist before pushing defaultValues into the store.
   useEffect(() => {
-    const defaults = controls.filter((def) => def.key && def.defaultValue !== undefined);
+    const defaults = controls.filter((def) => {
+      if (!def.key) return false;
+      // dateRange always resolves to a value (P1-P4), other types only push when explicitly set.
+      return def.type === 'dateRange' || def.value !== undefined || def.defaultValue !== undefined;
+    });
     if (!defaults.length) return;
 
     let unsub;
@@ -285,7 +302,7 @@ export function ReportControls({ controls, viewIds }) {
       defaults.forEach(def => {
         let output;
         if (def.type === 'dateRange') {
-          const parsed = parseDefault(def);
+          const parsed = parseDefault(def, apiFilters);
           output = {
             start: formatDateForApi(parsed?.[0]),
             end:   formatDateForApi(parsed?.[1]),
@@ -310,7 +327,7 @@ export function ReportControls({ controls, viewIds }) {
       <div className="flex flex-wrap items-center gap-3 sm:gap-4">
         {controls.map((def, i) => {
           if (def.type === 'toggle')     return <ToggleControl key={i} def={def} viewIds={viewIds} />;
-          if (def.type === 'dateRange')  return <DateRangeControl key={i} def={def} viewIds={viewIds} />;
+          if (def.type === 'dateRange')  return <DateRangeControl key={i} def={def} viewIds={viewIds} apiFilters={apiFilters} />;
           if (def.type === 'filterSort') return <FilterSortControl key={i} def={def} viewIds={viewIds} />;
           if (def.type === 'refresh')    return <RefreshControl key={i} def={def} />;
           return null;
