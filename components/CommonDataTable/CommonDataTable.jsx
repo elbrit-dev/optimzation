@@ -3,70 +3,27 @@
 /**
  * CommonDataTable — a simple, standalone data table.
  *
- * Takes rows as a prop and owns its pipeline in local state, so unlike the
- * provider-backed table in `share/src/app/datatable` it works anywhere with no context
- * above it. Deliberately small: grouping, sorting, totals and export — nothing else.
+ * Takes rows as a prop and shapes them itself, so unlike the provider-backed table in
+ * `share/src/app/datatable` it works anywhere with no context above it. Deliberately
+ * small: grouping, filtering, sorting, totals and export — nothing else.
  *
- * Grouping renders as a header row per group with that group's totals, followed by the
- * group's rows directly beneath it — click a header to close or open it. One continuous
- * table throughout: collapsing hides rows, it never swaps in a nested sub-table.
+ * Grouping is a drill-down. Each group is a row with an expander; opening it reveals the
+ * next level as its own table, with its own headers, filter row, sort and totals, showing
+ * the columns that level can actually fill.
  *
  * Nothing in this folder imports from `share/`; copy the folder and it still runs.
  *
  * @example
- * <CommonDataTable data={rows} title="Secondary sales" groupFields={['hq']} enableSummation />
+ * <CommonDataTable data={rows} title="Secondary sales" groupFields={['region', 'hq']} enableSummation />
  */
 
-import { memo, useCallback, useMemo, useState } from 'react';
-import { isEmpty, isNil, take } from 'lodash';
-import { DataTable } from 'primereact/datatable';
-import { Column } from 'primereact/column';
+import { memo, useCallback, useState } from 'react';
 import { Button } from 'primereact/button';
 
 import useCommonTablePipeline from './hooks/useCommonTablePipeline';
-import { formatDateValue, isTruthyBoolean } from './utils/typeUtils';
+import GroupTable from './GroupTable';
 import { exportRows } from './utils/exportUtils';
-import { formatHeaderName, formatNumber, getDataValue } from './utils/valueUtils';
-
-const WIDTH_SAMPLE_ROWS = 100;
-const CHAR_PX = 9;
-const SORT_PADDING_PX = 26;
-
-/** Content-aware column widths, so 20 columns don't all render at the same size. */
-function computeColumnWidths(rows, columns, { columnTypes, columnLabels, enableSort }) {
-  const widths = {};
-  if (isEmpty(columns)) return widths;
-  const sample = take(rows, WIDTH_SAMPLE_ROWS);
-
-  columns.forEach((col) => {
-    const headerLength = String(columnLabels?.[col] || formatHeaderName(col)).length;
-    const headerWidth = headerLength * CHAR_PX;
-    const type = columnTypes[col] || 'string';
-
-    let base;
-    if (type === 'boolean') base = Math.max(headerWidth, 60);
-    else if (type === 'date') base = Math.max(headerWidth, 120);
-    else if (type === 'number') base = Math.max(headerWidth, 80);
-    else {
-      const lengths = [];
-      sample.forEach((row) => {
-        const value = getDataValue(row, col);
-        if (!isNil(value)) lengths.push(String(value).length);
-      });
-      let contentLength = headerLength;
-      if (lengths.length > 0) {
-        lengths.sort((a, b) => a - b);
-        const median = lengths[Math.floor(lengths.length / 2)];
-        const p95 = lengths[Math.floor(lengths.length * 0.95)];
-        contentLength = Math.min(Math.max(median, lengths[Math.floor(lengths.length * 0.75)]), p95);
-      }
-      base = Math.max(contentLength * CHAR_PX, headerWidth);
-    }
-    widths[col] = Math.round(base + (enableSort ? SORT_PADDING_PX : 0));
-  });
-
-  return widths;
-}
+import { getDataValue } from './utils/valueUtils';
 
 function CommonDataTable({
   /* data */
@@ -79,17 +36,16 @@ function CommonDataTable({
   hiddenColumns,
   columnLabels,
   columnTypes: columnTypeOverrides,
-  columnWidths: columnWidthOverrides,
+  columnWidths,
 
   /* grouping */
   groupFields,
   childField,
   parentFields,
-  collapsibleGroups = true,
-  initiallyCollapsed = false,
 
   /* features */
   enableSort = true,
+  enableFilter = true,
   enableSummation = false,
   enableExport = true,
   exportFileName = 'table-export',
@@ -106,10 +62,7 @@ function CommonDataTable({
   style,
 }) {
   const {
-    displayColumns, columnTypes, isGrouped,
-    leafRows, visibleRows, groupCount, columnTotals,
-    sort, toggleSortForColumn,
-    toggleGroup, toggleAllGroups, allCollapsed,
+    rootRows, leafRows, levelColumns, columnsForDepth, columnTypes, isGrouped, groupCount,
   } = useCommonTablePipeline({
     data,
     columns: columnsProp,
@@ -118,123 +71,18 @@ function CommonDataTable({
     groupFields,
     childField,
     parentFields,
-    enableSort,
-    initialSort,
-    initiallyCollapsed: collapsibleGroups && initiallyCollapsed,
   });
 
-  const canCollapse = isGrouped && collapsibleGroups;
-
   const [isExporting, setIsExporting] = useState(false);
-
-  const getLabel = useCallback(
-    (col) => columnLabels?.[col] || formatHeaderName(col),
-    [columnLabels],
-  );
-
-  const autoWidths = useMemo(
-    () => computeColumnWidths(leafRows, displayColumns, { columnTypes, columnLabels, enableSort }),
-    [leafRows, displayColumns, columnTypes, columnLabels, enableSort],
-  );
-
-  /* ---------------------------------- cells ------------------------------- */
-
-  const formatCell = useCallback((value, type) => {
-    if (isNil(value) || value === '') return '';
-    if (type === 'number') return formatNumber(value);
-    if (type === 'date') return formatDateValue(value);
-    if (type === 'boolean') return isTruthyBoolean(value) ? 'Yes' : 'No';
-    if (typeof value === 'object') return JSON.stringify(value);
-    return String(value);
-  }, []);
-
-  const buildBody = useCallback((col) => {
-    const type = columnTypes[col] || 'string';
-    const isNumeric = type === 'number';
-
-    return function bodyTemplate(row) {
-      const text = formatCell(getDataValue(row, col), type);
-      const isGroupName = row?.__isGroupRow__ && col === row.__groupField__;
-      const isClosed = isGroupName && row.__collapsed__ === true;
-
-      return (
-        <div
-          className={`flex items-center gap-1 truncate ${isNumeric ? 'justify-end tabular-nums' : 'justify-start'}`}
-          style={isGroupName ? { paddingLeft: `${(row.__groupLevel__ ?? 0) * 0.85}rem` } : undefined}
-          title={text || undefined}
-        >
-          {isGroupName && canCollapse && (
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                toggleGroup(row.__rowKey__);
-              }}
-              className="shrink-0 text-gray-500 hover:text-gray-800"
-              aria-expanded={!isClosed}
-              aria-label={`${isClosed ? 'Open' : 'Close'} ${text || 'group'}`}
-            >
-              <i className={`pi ${isClosed ? 'pi-chevron-right' : 'pi-chevron-down'} text-[10px]`} />
-            </button>
-          )}
-          <span className="truncate">{text}</span>
-          {isGroupName && row.__groupCount__ > 0 && (
-            <span className="shrink-0 text-[10px] font-normal text-gray-500">
-              ({row.__groupCount__.toLocaleString('en-US')})
-            </span>
-          )}
-        </div>
-      );
-    };
-  }, [columnTypes, formatCell, canCollapse, toggleGroup]);
-
-  /* --------------------------------- headers ------------------------------ */
-
-  const buildHeader = useCallback((col) => {
-    const label = getLabel(col);
-    const alignment = (columnTypes[col] || 'string') === 'number' ? 'justify-end' : 'justify-start';
-
-    if (!enableSort) {
-      return <span className={`flex ${alignment} w-full truncate font-semibold`}>{label}</span>;
-    }
-
-    const order = sort?.field === col ? sort.order : 0;
-    const icon = order === 1 ? 'pi-sort-amount-up-alt' : order === -1 ? 'pi-sort-amount-down' : 'pi-sort-alt';
-
-    return (
-      <button
-        type="button"
-        onClick={() => toggleSortForColumn(col)}
-        className={`flex items-center gap-1 w-full ${alignment} font-semibold cursor-pointer select-none`}
-        title={`Sort by ${label}`}
-      >
-        <span className="truncate">{label}</span>
-        <i className={`pi ${icon} text-[10px] ${order ? 'text-blue-600' : 'text-gray-400'}`} />
-      </button>
-    );
-  }, [getLabel, columnTypes, enableSort, sort, toggleSortForColumn]);
-
-  const buildFooter = useCallback((col, isFirst) => {
-    if (!enableSummation) return undefined;
-    if ((columnTypes[col] || 'string') !== 'number') {
-      return isFirst ? <strong className="text-xs">Total</strong> : null;
-    }
-    return (
-      <strong className="block text-right tabular-nums text-xs">
-        {formatNumber(columnTotals[col] ?? 0)}
-      </strong>
-    );
-  }, [enableSummation, columnTypes, columnTotals]);
-
-  /* --------------------------------- export ------------------------------- */
+  const [expandAllSignal, setExpandAllSignal] = useState(null);
 
   const handleExport = useCallback(async () => {
     setIsExporting(true);
     try {
-      // Group header rows are totals, not records, so only the leaves go to the file.
+      // The records, with the columns the deepest level shows — group rows are totals.
       await exportRows({
         rows: leafRows,
-        columns: displayColumns,
+        columns: levelColumns[levelColumns.length - 1],
         columnLabels,
         columnTypes,
         getCell: getDataValue,
@@ -244,19 +92,10 @@ function CommonDataTable({
     } finally {
       setIsExporting(false);
     }
-  }, [leafRows, displayColumns, columnLabels, columnTypes, exportFileName, title]);
+  }, [leafRows, levelColumns, columnLabels, columnTypes, exportFileName, title]);
 
-  /* ---------------------------------- render ------------------------------ */
-
-  const rowClassName = useCallback((row) => {
-    if (!row?.__isGroupRow__) return '';
-    const base = row.__groupLevel__ === 0
-      ? 'font-semibold bg-blue-50/60'
-      : 'font-medium bg-gray-50';
-    return canCollapse ? `${base} cursor-pointer` : base;
-  }, [canCollapse]);
-
-  const showHeaderBar = Boolean(title) || enableExport || canCollapse;
+  const isExpanded = expandAllSignal?.expanded === true;
+  const showHeaderBar = Boolean(title) || enableExport || isGrouped;
 
   return (
     <div
@@ -273,15 +112,17 @@ function CommonDataTable({
                 : `${leafRows.length.toLocaleString('en-US')} ${leafRows.length === 1 ? 'row' : 'rows'}`}
             </span>
           </div>
-          {canCollapse && (
+
+          {isGrouped && (
             <Button
               type="button"
-              icon={allCollapsed ? 'pi pi-plus-circle' : 'pi pi-minus-circle'}
-              label={allCollapsed ? 'Open all' : 'Close all'}
-              onClick={toggleAllGroups}
+              icon={isExpanded ? 'pi pi-minus-circle' : 'pi pi-plus-circle'}
+              label={isExpanded ? 'Collapse all' : 'Expand all'}
+              onClick={() => setExpandAllSignal({ expanded: !isExpanded })}
               className="p-button-sm p-button-text p-button-secondary"
             />
           )}
+
           {enableExport && (
             <Button
               type="button"
@@ -295,43 +136,26 @@ function CommonDataTable({
         </div>
       )}
 
-      <DataTable
-        value={visibleRows}
-        /**
-         * Rows must be keyed by identity, not position. Without `dataKey` PrimeReact keys
-         * them by index, so collapsing a group left the header that stayed at index 0
-         * showing a stale open chevron while every row that shifted position re-rendered
-         * correctly.
-         */
-        dataKey={isGrouped ? '__rowKey__' : undefined}
-        loading={loading}
+      <GroupTable
+        rows={rootRows}
+        depth={0}
+        columnsForDepth={columnsForDepth}
+        columnTypes={columnTypes}
+        columnLabels={columnLabels}
+        columnWidths={columnWidths}
+        enableSort={enableSort}
+        enableFilter={enableFilter}
+        enableSummation={enableSummation}
         emptyMessage={emptyMessage}
+        loading={loading}
         scrollable={scrollable}
-        scrollHeight={scrollable ? tableHeight : undefined}
-        resizableColumns
-        columnResizeMode="expand"
+        tableHeight={tableHeight}
         showGridlines={showGridlines}
         stripedRows={stripedRows}
-        rowClassName={rowClassName}
-        onRowClick={canCollapse ? (event) => {
-          if (event.data?.__isGroupRow__) toggleGroup(event.data.__rowKey__);
-        } : undefined}
-        className={`${size === 'small' ? 'p-datatable-sm' : size === 'large' ? 'p-datatable-lg' : ''} w-full`}
-        style={{ minWidth: '100%' }}
-      >
-        {displayColumns.map((col, index) => (
-          <Column
-            key={col}
-            field={col}
-            header={buildHeader(col)}
-            headerClassName="text-xs whitespace-nowrap"
-            bodyClassName="text-xs"
-            style={{ width: columnWidthOverrides?.[col] ?? `${autoWidths[col] ?? 120}px`, minWidth: '4rem' }}
-            body={buildBody(col)}
-            footer={buildFooter(col, index === 0)}
-          />
-        ))}
-      </DataTable>
+        size={size}
+        initialSort={initialSort}
+        expandAllSignal={expandAllSignal}
+      />
     </div>
   );
 }

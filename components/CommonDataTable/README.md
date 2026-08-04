@@ -3,8 +3,8 @@
 A simple table that needs no provider above it. Bind an array to `data` and it works
 anywhere.
 
-Deliberately small — **grouping, sorting, totals and export**. Nothing else. If you need
-filtering, cell editing, selection or report pivots, use the provider-backed
+Deliberately small — **grouping, filtering, sorting, totals and export**. Nothing else. If
+you need cell editing, selection, pagination or report pivots, use the provider-backed
 `DataTableNew` in `share/src/app/datatable` instead.
 
 ## Why this exists alongside the other table
@@ -18,7 +18,7 @@ reads ~90 values out of `useTableOperations()`, which throws outright without a
 | Data | from the provider's pipeline | from the `data` prop |
 | Needs a provider | yes — throws without one | no |
 | Fetching / GraphQL / presets | yes | no, you bring the rows |
-| Filtering, editing, selection, pivots | yes | no |
+| Editing, selection, pivots | yes | no |
 | Usable in any tree | no | yes |
 
 **Nothing in this folder imports from `share/`.** Copy the folder into another app and it still
@@ -33,7 +33,7 @@ import CommonDataTable from '../components/CommonDataTable/CommonDataTable'
 ```
 
 ```jsx
-// grouped, with totals
+// drill down: region → HQ → the records
 <CommonDataTable
   data={rows}
   title="Secondary sales"
@@ -47,48 +47,40 @@ import CommonDataTable from '../components/CommonDataTable/CommonDataTable'
 A playground is at `/common-datatable-demo`
 ([pages/common-datatable-demo.jsx](../../pages/common-datatable-demo.jsx)).
 
-## What grouping looks like
+## Grouping is a drill-down
 
-Set `groupFields` and each group gets a header row carrying its name, its row count and the
-total of every numeric column — with that group's rows listed directly beneath it. It reads
-as one continuous table: no expand arrows, no nested tables.
+Each group is a row with an expander. Opening it reveals **the next level as its own table** —
+its own header row, its own filter row, its own sort, its own totals.
 
 ```
-Region    Doctor         Code       HQ        Visits     Target      Sales
-South (22)                                       223  3,629,219  3,408,242   ← group header
-South     Dr. Chitra 43  DOC-1042   Madurai        1    110,910     55,611
-South     Dr. Farhan 54  DOC-1053   Madurai       20    106,620     89,149
-West (30)                                        306  3,644,484  3,463,212   ← group header
-West      Dr. Elena 5    DOC-1004   Mumbai        18    241,000    265,400
-…
-Total                                          1,339 17,800,733 17,433,073   ← enableSummation
+    Region ↑↓        Visits ↑↓      Target ↑↓       Sales ↑↓
+    [Search…   ]     [<, >, =]      [<, >, =]       [<, >, =]
+ ⌄  North (35)            372      5,750,777       5,537,127
+    ┌──────────────────────────────────────────────────────────┐
+    │   Headquarters ↑↓   Visits ↑↓   Target ↑↓     Sales ↑↓   │
+    │   [Search…      ]   [<, >, =]   [<, >, =]     [<, >, =]  │
+    │ ⌄ Delhi (15)             105   2,675,770    2,291,298    │
+    │   ┌────────────────────────────────────────────────────┐ │
+    │   │ Doctor        Code       Visits   Target    Sales  │ │
+    │   │ Dr. Anand 1   DOC-1000       10  215,082  122,873  │ │
+    │   └────────────────────────────────────────────────────┘ │
+    └──────────────────────────────────────────────────────────┘
+    Total                  1,339     17,800,733    17,433,073
 ```
 
-Pass more than one field — `['region', 'hq']` — and you get a second tier of header rows,
-indented under the first. Still one flat table.
+**Each level shows only the columns it can fill.** A group level shows its own dimension plus
+the numeric totals; the deepest level shows the records with their own columns. `Doctor` and
+`Code` never appear on a region row, and `Region` never repeats on a doctor row — so there are
+no blank cells anywhere.
 
-Groups **close and open**: every header carries a chevron, clicking anywhere on the header
-row toggles it, and a **Close all / Open all** button sits in the header bar. Closing an
-outer group takes its inner headers with it. Set `initiallyCollapsed` to open on group
-totals alone, or `collapsibleGroups={false}` for a table that stays fully expanded.
-
-Collapsing only hides rows — **totals and export always cover every row**, whatever is open.
-
-A group header row only claims what a group actually has:
-
-| Column | Group header shows |
-| --- | --- |
-| number | the sum |
-| text that is ≥80% numeric | the sum — a numeric column detection read as text still totals |
-| any other text or date | **blank** |
-| the group's own field | the group value, with its row count beside it |
-| an outer group field | that value plainly — it's constant inside the group |
-| a deeper group field | blank — not decided yet at this level |
+**Filtering and sorting are local.** Filter the HQ table inside North and only that table
+narrows; its totals follow, and every other region is untouched. `Expand all` in the header
+bar opens the outermost level.
 
 ## Data that arrives already grouped
 
-`groupFields` groups a flat array. When the grouping is already in the data — each row
-carrying its own rows in an array field — name that field with `childField` instead:
+`groupFields` groups a flat array. When the grouping is already in the data — each row carrying
+its own rows in an array field — name that field with `childField` instead:
 
 ```js
 [
@@ -108,28 +100,25 @@ carrying its own rows in an array field — name that field with `childField` in
 />
 ```
 
-```
-Warehouse   Total qty  Batches  Item           Batch    Qty     Mfg
-Chennai (3)     7,219        3                         7,219            ← the parent object
-Chennai                              ROZULA CV 10  RZ2401  2,362  2025-03
-Chennai                              BRITVIT       BV2312  3,916  2025-01
-Kolkata (2)     4,180        2                         4,180            ← the parent object
-Kolkata                              ROZULA ASP 10 RA2409  1,265  2024-09
-Total          11,399        5                        11,399
-```
+The top level shows exactly the outer object's own fields — `Warehouse`, `Total qty`,
+`Batches`. Expanding one shows exactly the child fields — `Item`, `Batch`, `Qty`, `Mfg`,
+`Expiry`. Nothing is copied between levels; set `parentFields={['warehouse']}` if you do want
+the parent's identity repeated on every child row and in the export.
 
-- **Columns** are the parent's fields followed by the children's.
-- **The parent keeps its own aggregates** (`total_qty`, `batch_count`), and any numeric column
-  it doesn't define is summed from its children — that's the `7,219` under Qty.
-- **`warehouse` is copied onto each child row** so every row says where it belongs and the
-  export is self-contained. `total_qty` and `batch_count` are not, since repeating an
-  aggregate on every row reads as a per-row value. The rule is *non-numeric parent fields
-  carry down*; override it with `parentFields={['warehouse']}`.
-- **Sorting works on the computed totals** — sorting by Qty reorders the warehouses.
-- **Groups close and open** here too, same as with `groupFields`.
-- **Nests to any depth**: a child holding its own `childField` array becomes a header in turn.
-- `childField` and `groupFields` are alternatives. Set `childField` and `groupFields` is
-  ignored.
+Nests to any depth: a child carrying its own `childField` array becomes an expandable row in
+turn. `childField` and `groupFields` are alternatives — set `childField` and `groupFields` is
+ignored.
+
+## Filter inputs
+
+Under each header:
+
+| Column type | Input | Accepts |
+| --- | --- | --- |
+| number | operator box | `>100` `>=100` `<100` `<=100` `=100` `10<>50` (range). A bare `21` is a substring match, so it also finds 210 and 1,210. |
+| anything else | search box | case-insensitive "contains" |
+
+`Esc` clears a box. Filtering a group level matches against the totals that level displays.
 
 ## Props
 
@@ -139,22 +128,21 @@ Total          11,399        5                        11,399
 | `title` | `string` | — | Shown in the header bar; also the export sheet name. |
 | `loading` | `boolean` | `false` | Shows the loading overlay. |
 | `emptyMessage` | `string` | `No records found.` | Shown when there are no rows. |
-| `columns` | `string[]` | every key found | Which columns, in what order. |
+| `columns` | `string[]` | every key found | Which columns, in what order — applied at every level. |
 | `hiddenColumns` | `string[]` | `[]` | Columns dropped entirely. |
 | `columnLabels` | `Object` | — | `{ field: 'Label' }`. Unlisted fields are title-cased. |
 | `columnTypes` | `Object` | detected | Force a type: `'number' \| 'date' \| 'boolean' \| 'string'`. |
 | `columnWidths` | `Object` | from content | `{ field: '220px' }`. All columns stay drag-resizable. |
-| `groupFields` | `string[]` | `[]` | Group a flat array by these, outermost first. Empty = flat table. |
+| `groupFields` | `string[]` | `[]` | Drill-down levels for a flat array, outermost first. |
 | `childField` | `string` | — | For already-nested data: the field holding each row's child rows. Overrides `groupFields`. |
-| `parentFields` | `string[]` | non-numeric | Which parent fields copy onto child rows. |
-| `collapsibleGroups` | `boolean` | `true` | Group headers close and open. |
-| `initiallyCollapsed` | `boolean` | `false` | Start with every group closed. |
+| `parentFields` | `string[]` | `[]` | Parent fields to repeat on child rows. |
+| `enableFilter` | `boolean` | `true` | The filter row under the headers, on every level. |
 | `enableSort` | `boolean` | `true` | Click a header: ascending → descending → off. |
-| `initialSort` | `Object` | — | `{ field: 'sales', order: -1 }` — order `1` asc, `-1` desc. |
-| `enableSummation` | `boolean` | `false` | Footer row totalling the numeric columns. |
+| `initialSort` | `Object` | — | `{ field: 'sales', order: -1 }` — order `1` asc, `-1` desc. Outermost level only. |
+| `enableSummation` | `boolean` | `false` | Footer row totalling the numeric columns, on every level. |
 | `enableExport` | `boolean` | `true` | The Export button. |
 | `exportFileName` | `string` | `table-export` | Without the extension. |
-| `scrollable` | `boolean` | `true` | Fixed header, scrolling body. |
+| `scrollable` | `boolean` | `true` | Fixed header, scrolling body — outermost level only. |
 | `tableHeight` | `string` | `520px` | Body height when scrollable. |
 | `size` | `small \| normal \| large` | `small` | Row density. |
 | `showGridlines` | `boolean` | `true` | Cell borders. |
@@ -163,15 +151,18 @@ Total          11,399        5                        11,399
 
 ## Watch out
 
-- **No pagination.** Every row renders. That is fine for hundreds of rows; for tens of
-  thousands, page or narrow the data before handing it over.
-- **Export is the real rows.** Group header rows are totals, not records, so they are dropped
-  from the file. Booleans go out as Yes/No, dates as displayed, numbers as numbers.
+- **No pagination.** Every row renders. Fine for hundreds; for tens of thousands, narrow the
+  data before handing it over. Grouping helps — only expanded levels render.
+- **Export is the records, always all of them.** Group rows are totals, not records, so they
+  are dropped; per-level filters narrow the view, not the file. Booleans go out as Yes/No,
+  dates as displayed, numbers as numbers.
 - **Type detection is a sample** — 100 rows, with 70% thresholds for boolean and date and 80%
   for number. A column of nothing but 0 and 1 reads as a flag; mix in any other number and it
   reads as numeric. When it guesses wrong, `columnTypes` is the fix.
-- **Sorting is one column at a time,** and blank cells always sink to the bottom in both
-  directions.
+- **Sorting is one column at a time,** per level, and blank cells always sink to the bottom in
+  both directions.
+- **A group level shows only numeric columns** besides its own dimension, because those are the
+  only ones a group can total. A text column you need at group level belongs in `groupFields`.
 
 ## Plasmic
 
@@ -184,19 +175,22 @@ anything.
 
 ```
 components/CommonDataTable/
-├─ CommonDataTable.jsx          the component (header bar included)
-├─ index.js                     barrel: component, hook, and the utils
-├─ hooks/useCommonTablePipeline.js   columns/types → sort → group → flatten
+├─ CommonDataTable.jsx               header bar + the outermost level
+├─ GroupTable.jsx                    one level, and every level below it
+├─ index.js                          barrel: components, hook, and the utils
+├─ filters/ColumnFilterInput.jsx     the debounced input under a header
+├─ hooks/useCommonTablePipeline.js   columns, types, and the drill-down tree
 └─ utils/
-   ├─ valueUtils.js             cell access, number formatting
-   ├─ typeUtils.js              type detection, date display
-   ├─ sortUtils.js              typed comparator, sort cycle
-   ├─ groupUtils.js             grouping, per-group totals, nested-data expansion
-   └─ exportUtils.js            XLSX / CSV
+   ├─ valueUtils.js                  cell access, number formatting
+   ├─ typeUtils.js                   type detection, date display
+   ├─ filterUtils.js                 operator parsing, row matching
+   ├─ sortUtils.js                   typed comparator, sort cycle
+   ├─ groupUtils.js                  the tree, and per-group totals
+   └─ exportUtils.js                 XLSX / CSV
 ```
 
-The pipeline hook is exported on its own, for when you want the same sort/group semantics
-behind your own markup:
+The pipeline hook is exported on its own, for when you want the same grouping semantics behind
+your own markup:
 
 ```js
 import { useCommonTablePipeline, groupRows, exportRows } from '../components/CommonDataTable'

@@ -1,32 +1,28 @@
 'use client';
 
 /**
- * The data pipeline for CommonDataTable, held in local state.
+ * Shapes the data for CommonDataTable: columns and their types, and the tree the table
+ * drills down through.
  *
- *   data → columns/types → sort → group → flatten for display
- *
- * This is the piece the provider-backed table gets from context; keeping it in a hook is
- * what lets the table run standalone. Each stage is memoized separately, so re-sorting
- * never re-runs column type detection.
+ * Sorting and filtering are NOT here — each level of the table owns its own, so filtering
+ * a nested table narrows only that table. This hook is the part that has to look at the
+ * whole dataset once.
  *
  * Groups come from one of two places, never both:
  *  - `groupFields` groups a flat array by one or more fields.
  *  - `childField` reads data that arrives already nested, each row carrying its own rows.
  */
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef } from 'react';
 import { isArray, isEmpty, take, uniq } from 'lodash';
 import { detectColumnTypes } from '../utils/typeUtils';
-import { applyCollapse, expandNestedRows, flattenGroupsForDisplay, groupRows } from '../utils/groupUtils';
-import { sortRows, toggleSort } from '../utils/sortUtils';
-import { getDataKeys, getDataValue, isInternalKey, sumColumn, toPlainRow } from '../utils/valueUtils';
+import { buildNestedTree, flattenLeaves, groupRows } from '../utils/groupUtils';
+import { getDataKeys, getDataValue, isInternalKey, toPlainRow } from '../utils/valueUtils';
 
 /** Rows scanned when unioning keys — enough to catch fields missing from row 0. */
 const COLUMN_SCAN_ROWS = 50;
 /** Child rows folded into the type-detection sample when data arrives nested. */
 const CHILD_TYPE_SAMPLE = 200;
-/** Shared empty set, so "nothing collapsed" keeps a stable identity across renders. */
-const EMPTY_KEYS = new Set();
 
 /**
  * Hold a config array/object stable across renders while its contents are unchanged.
@@ -58,26 +54,18 @@ function normalizeRows(data) {
 const usableKeys = (row, childField) =>
   getDataKeys(row).filter((key) => !isInternalKey(key) && key !== childField);
 
-/**
- * Union of keys across a sample, so sparse rows still contribute their columns.
- * With nested data the parent's own fields lead, then the child fields.
- */
-function deriveColumns(rows, childField) {
-  if (isEmpty(rows)) return [];
+/** Keys carried by the outer objects, and keys carried by their children, kept apart. */
+function deriveKeysByLevel(rows, childField) {
   const parentKeys = [];
   const childKeys = [];
-
   take(rows, COLUMN_SCAN_ROWS).forEach((row) => {
     parentKeys.push(...usableKeys(row, childField));
     if (!childField) return;
     const kids = getDataValue(row, childField);
     if (!isArray(kids)) return;
-    take(kids, COLUMN_SCAN_ROWS).forEach((child) => {
-      childKeys.push(...usableKeys(child, childField));
-    });
+    take(kids, COLUMN_SCAN_ROWS).forEach((child) => childKeys.push(...usableKeys(child, childField)));
   });
-
-  return uniq([...parentKeys, ...childKeys]);
+  return { parentKeys: uniq(parentKeys), childKeys: uniq(childKeys) };
 }
 
 /** Parents plus a slice of their children — a column only the children carry still gets typed. */
@@ -95,14 +83,12 @@ function buildTypeSample(rows, childField) {
 /**
  * @param {Object} params
  * @param {Array<Object>} params.data source rows
- * @param {Array<string>} [params.columns] explicit column list + order; defaults to detected keys
+ * @param {Array<string>} [params.columns] explicit column list + order
  * @param {Array<string>} [params.hiddenColumns] columns dropped entirely
  * @param {Object} [params.columnTypeOverrides] column → `'number'|'date'|'boolean'|'string'`
  * @param {Array<string>} [params.groupFields] group-by fields, outermost first
  * @param {string} [params.childField] field holding child rows, for already-nested data
- * @param {Array<string>} [params.parentFields] parent fields carried onto child rows
- * @param {{field: string, order: number}} [params.initialSort]
- * @param {boolean} [params.initiallyCollapsed] start with every group closed
+ * @param {Array<string>} [params.parentFields] parent fields repeated on child rows
  */
 export function useCommonTablePipeline({
   data,
@@ -112,9 +98,6 @@ export function useCommonTablePipeline({
   groupFields: groupFieldsRaw = [],
   childField,
   parentFields: parentFieldsRaw,
-  enableSort = true,
-  initialSort = null,
-  initiallyCollapsed = false,
 }) {
   const columnsProp = useStableConfig(columnsRaw);
   const hiddenColumns = useStableConfig(hiddenColumnsRaw);
@@ -126,15 +109,28 @@ export function useCommonTablePipeline({
 
   /* ------------------------------- columns ------------------------------- */
 
-  const allColumns = useMemo(() => {
-    const base = isArray(columnsProp) && columnsProp.length > 0
-      ? columnsProp
-      : deriveColumns(rows, childField);
+  const keysByLevel = useMemo(() => deriveKeysByLevel(rows, childField), [rows, childField]);
+
+  const isVisibleColumn = useMemo(() => {
     const hidden = new Set(hiddenColumns);
-    return base.filter((col) => (
-      typeof col === 'string' && !isInternalKey(col) && col !== childField && !hidden.has(col)
-    ));
-  }, [columnsProp, rows, hiddenColumns, childField]);
+    return (col) => typeof col === 'string' && !isInternalKey(col) && col !== childField && !hidden.has(col);
+  }, [hiddenColumns, childField]);
+
+  /** `columns` prop, when given, decides both which columns appear and their order. */
+  const orderColumns = useMemo(() => {
+    if (!isArray(columnsProp) || columnsProp.length === 0) {
+      return (cols) => cols.filter(isVisibleColumn);
+    }
+    return (cols) => {
+      const available = new Set(cols);
+      return columnsProp.filter((col) => available.has(col) && isVisibleColumn(col));
+    };
+  }, [columnsProp, isVisibleColumn]);
+
+  const allColumns = useMemo(
+    () => orderColumns([...keysByLevel.parentKeys, ...keysByLevel.childKeys]),
+    [orderColumns, keysByLevel],
+  );
 
   const detectedTypes = useMemo(
     () => detectColumnTypes(buildTypeSample(rows, childField), allColumns, getDataValue),
@@ -152,141 +148,62 @@ export function useCommonTablePipeline({
     return groupFields.filter((field) => typeof field === 'string' && allColumns.includes(field));
   }, [childField, groupFields, allColumns]);
 
-  /** Group fields lead, so a group header's name sits in the first column. */
-  const displayColumns = useMemo(() => {
-    if (effectiveGroupFields.length === 0) return allColumns;
-    const groupSet = new Set(effectiveGroupFields);
-    return [...effectiveGroupFields, ...allColumns.filter((col) => !groupSet.has(col))];
-  }, [allColumns, effectiveGroupFields]);
-
-  /* -------------------------------- sorting ------------------------------ */
-
-  const [sort, setSort] = useState(initialSort);
-  const activeSort = enableSort ? sort : null;
-
-  const sortLeaves = useCallback(
-    (leaves) => sortRows(leaves, activeSort, { columnTypes, getCell: getDataValue }),
-    [activeSort, columnTypes],
-  );
-
-  /* ------------------------ grouping + display rows ---------------------- */
+  const isGrouped = Boolean(childField) || effectiveGroupFields.length > 0;
 
   /**
-   * Leaves are sorted before grouping so rows read in order inside each group; the group
-   * headers are then sorted among themselves. Ungrouped, it is just one sort.
+   * Columns per depth. Each level is its own table, so it shows only what its rows can
+   * fill: a group level shows its own dimension plus the totals, and the deepest level
+   * shows the records.
    */
-  const displayRows = useMemo(() => {
+  const levelColumns = useMemo(() => {
     if (childField) {
-      return expandNestedRows(rows, {
-        childField,
-        columns: displayColumns,
-        columnTypes,
-        parentFields,
-        sortRowsFn: sortLeaves,
-        getCell: getDataValue,
-      });
+      return [orderColumns(keysByLevel.parentKeys), orderColumns(keysByLevel.childKeys)];
     }
-    if (effectiveGroupFields.length === 0) return sortLeaves(rows);
+    if (effectiveGroupFields.length === 0) return [allColumns];
 
-    const grouped = groupRows(sortLeaves(rows), effectiveGroupFields, {
+    const groupSet = new Set(effectiveGroupFields);
+    const totals = allColumns.filter((col) => !groupSet.has(col) && columnTypes[col] === 'number');
+    const recordColumns = allColumns.filter((col) => !groupSet.has(col));
+    return [
+      ...effectiveGroupFields.map((field) => [field, ...totals]),
+      recordColumns,
+    ];
+  }, [childField, orderColumns, keysByLevel, effectiveGroupFields, allColumns, columnTypes]);
+
+  /** Levels beyond the list reuse the last one — nested data can go deeper than two. */
+  const columnsForDepth = useMemo(
+    () => (depth) => levelColumns[Math.min(depth, levelColumns.length - 1)] ?? [],
+    [levelColumns],
+  );
+
+  /* --------------------------------- tree -------------------------------- */
+
+  const rootRows = useMemo(() => {
+    if (childField) return buildNestedTree(rows, { childField, parentFields, getCell: getDataValue });
+    if (effectiveGroupFields.length === 0) return rows;
+    return groupRows(rows, effectiveGroupFields, {
       columns: allColumns,
       columnTypes,
       getCell: getDataValue,
     });
-    return flattenGroupsForDisplay(sortLeaves(grouped));
-  }, [
-    childField, rows, displayColumns, columnTypes, parentFields,
-    effectiveGroupFields, sortLeaves, allColumns,
-  ]);
-
-  const isGrouped = Boolean(childField) || effectiveGroupFields.length > 0;
+  }, [childField, rows, parentFields, effectiveGroupFields, allColumns, columnTypes]);
 
   const leafRows = useMemo(
-    () => (isGrouped ? displayRows.filter((row) => !row?.__isGroupRow__) : displayRows),
-    [isGrouped, displayRows],
-  );
-
-  const groupCount = useMemo(
-    () => (isGrouped ? displayRows.filter((row) => row?.__groupLevel__ === 0).length : 0),
-    [isGrouped, displayRows],
-  );
-
-  /* -------------------------------- totals ------------------------------- */
-
-  /**
-   * Sum a column over the rows that actually carry it. With nested data a parent-only
-   * aggregate like `total_qty` lives on the header rows, while `qty` lives on the children —
-   * summing the wrong set would report zero for one of them.
-   */
-  const columnTotals = useMemo(() => {
-    const headerRows = displayRows.filter((row) => row?.__isGroupRow__);
-    const totals = {};
-    displayColumns.forEach((col) => {
-      if ((columnTypes[col] || 'string') !== 'number') return;
-      const source = leafRows.some((row) => getDataValue(row, col) != null) ? leafRows : headerRows;
-      totals[col] = sumColumn(source, col, getDataValue);
-    });
-    return totals;
-  }, [displayRows, leafRows, displayColumns, columnTypes]);
-
-  const toggleSortForColumn = useCallback((col) => {
-    setSort((current) => toggleSort(current, col));
-  }, []);
-
-  /* ------------------------------ collapsing ----------------------------- */
-
-  const groupKeys = useMemo(
-    () => displayRows.filter((row) => row?.__isGroupRow__).map((row) => row.__rowKey__),
-    [displayRows],
-  );
-
-  // `null` means "nobody has clicked yet", so `initiallyCollapsed` still governs. The first
-  // toggle materializes a real set and takes over from there.
-  const [collapsedOverride, setCollapsedOverride] = useState(null);
-
-  const collapsedKeys = useMemo(() => {
-    if (collapsedOverride) return collapsedOverride;
-    return initiallyCollapsed ? new Set(groupKeys) : EMPTY_KEYS;
-  }, [collapsedOverride, initiallyCollapsed, groupKeys]);
-
-  const toggleGroup = useCallback((key) => {
-    setCollapsedOverride((current) => {
-      const next = new Set(current ?? (initiallyCollapsed ? groupKeys : []));
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, [initiallyCollapsed, groupKeys]);
-
-  const allCollapsed = groupKeys.length > 0 && groupKeys.every((key) => collapsedKeys.has(key));
-
-  const toggleAllGroups = useCallback(() => {
-    setCollapsedOverride(allCollapsed ? new Set() : new Set(groupKeys));
-  }, [allCollapsed, groupKeys]);
-
-  /** What actually renders — collapsing is a view filter, nothing upstream sees it. */
-  const visibleRows = useMemo(
-    () => applyCollapse(displayRows, collapsedKeys),
-    [displayRows, collapsedKeys],
+    () => (isGrouped ? flattenLeaves(rootRows) : rows),
+    [isGrouped, rootRows, rows],
   );
 
   return {
     rows,
+    rootRows,
     leafRows,
-    displayColumns,
+    allColumns,
+    levelColumns,
+    columnsForDepth,
     columnTypes,
     isGrouped,
-    displayRows,
-    visibleRows,
-    groupCount,
-    columnTotals,
-    sort: activeSort,
-    setSort,
-    toggleSortForColumn,
-    collapsedKeys,
-    toggleGroup,
-    toggleAllGroups,
-    allCollapsed,
+    groupCount: isGrouped ? rootRows.length : 0,
+    isEmptyData: isEmpty(rows),
   };
 }
 

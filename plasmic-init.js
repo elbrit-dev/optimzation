@@ -1665,7 +1665,7 @@ PLASMIC.registerComponent(CommonDataTable, {
   name: "CommonDataTable",
   displayName: "Common DataTable",
   description:
-    "A simple table that needs NO provider above it — bind an array to `data` and it works anywhere in Studio. This is the standalone sibling of 'Elbrit DataTable', which only renders inside 'Elbrit DataProvider'. Deliberately small: it reads each column's type from the data (number / date / boolean / text), sorts on a header click, groups rows under a header row carrying that group's totals, can total the numeric columns in a footer, and exports to Excel. No filter row, no editing, no selection — for those, use 'Elbrit DataTable' with its provider.",
+    "A simple table that needs NO provider above it — bind an array to `data` and it works anywhere in Studio. This is the standalone sibling of 'Elbrit DataTable', which only renders inside 'Elbrit DataProvider'. Deliberately small: it reads each column's type from the data (number / date / boolean / text), sorts on a header click, filters from a row of inputs under the headers, totals the numeric columns in a footer, and exports to Excel. Grouping is a drill-down: each group is a row with an expander, and opening it reveals the next level as its own table with its own headers, filters, sort and totals. No editing, no selection, no pagination — for those, use 'Elbrit DataTable' with its provider.",
   importPath: "./components/CommonDataTable/CommonDataTable",
   isDefaultExport: true,
   props: {
@@ -1725,34 +1725,25 @@ PLASMIC.registerComponent(CommonDataTable, {
     groupFields: {
       type: "array",
       description:
-        "Group a FLAT array by these fields, outermost first — e.g. ['region','hq']. Each group gets a header row showing its name, row count and the total of each numeric column, with that group's rows listed underneath. Text and date columns stay blank on the header row. Leave empty for a plain flat table. If your data already arrives nested, use `childField` instead.",
+        "Group a FLAT array by these fields, outermost first — e.g. ['region','hq']. The table opens on the first field: one row per group showing its name, row count and the total of each numeric column. Expanding a group reveals the next field as its own table, and the deepest level shows the records with their own columns. Leave empty for a plain flat table. If your data already arrives nested, use `childField` instead.",
     },
     childField: {
       type: "string",
       description:
-        "For data that ALREADY arrives grouped — each row carrying its own rows in an array field. Name that field here, e.g. 'batches' for [{ warehouse, total_qty, batches: [{ batch_no, qty }, …] }]. The outer object becomes the header row and keeps the aggregates it already carries; any numeric column it doesn't define is summed from its children. Use this OR `groupFields`, not both — when this is set, `groupFields` is ignored.",
+        "For data that ALREADY arrives grouped — each row carrying its own rows in an array field. Name that field here, e.g. 'batches' for [{ warehouse, total_qty, batches: [{ batch_no, qty }, …] }]. The outer objects become the top-level rows showing exactly their own fields; expanding one reveals its children as their own table showing exactly the child fields. Nothing is copied between levels. Use this OR `groupFields`, not both — when this is set, `groupFields` is ignored.",
     },
     parentFields: {
       type: "array",
       description:
-        "Which of the outer object's fields get copied onto its child rows, e.g. ['warehouse']. Leave empty for the automatic rule: its non-numeric fields carry down (so every row still says which warehouse it belongs to, and the export is self-contained) while its numeric aggregates stay on the header, where repeating them would read as a per-row value.",
+        "Parent fields to repeat on the child rows, e.g. ['warehouse']. Empty by default — each level shows only its own fields. Set this when you want the parent's identity on every child row and in the exported file.",
       hidden: (props) => !props.childField,
     },
 
-    collapsibleGroups: {
+    enableFilter: {
       type: "boolean",
       defaultValue: true,
       description:
-        "Group headers get a chevron and can be closed and reopened — clicking anywhere on the header row works too, and a Close all / Open all button appears in the header bar. Closing only hides rows: totals and export always cover every row regardless of what is open. Turn off for a table that is always fully expanded.",
-      hidden: (props) => !props.childField && (!props.groupFields || props.groupFields.length === 0),
-    },
-    initiallyCollapsed: {
-      type: "boolean",
-      defaultValue: false,
-      description:
-        "Open with every group closed, so the table starts as a list of group totals the reader opens as needed. Good for a summary-first view over a lot of rows.",
-      hidden: (props) => props.collapsibleGroups === false
-        || (!props.childField && (!props.groupFields || props.groupFields.length === 0)),
+        "Adds a row of inputs under the headers — a search box for text columns and an operator box for numbers (>100, >=100, <100, <=100, =100, and 10<>50 for a range; a bare number is a substring match). Every level has its own, so filtering a nested table narrows only that table, and that table's totals follow.",
     },
 
     enableSort: {

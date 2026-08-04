@@ -4,11 +4,12 @@
  * CommonDataTable — simple standalone data table, no provider required.
  *
  * The default export is the table. The pipeline hook and utils are exported too, for
- * cases where you want the same sort/group semantics behind your own markup.
+ * cases where you want the same grouping semantics behind your own markup.
  */
 
 export { default } from './CommonDataTable';
 export { default as CommonDataTable } from './CommonDataTable';
+export { default as GroupTable } from './GroupTable';
 export { default as useCommonTablePipeline } from './hooks/useCommonTablePipeline';
 
 export {
@@ -28,5 +29,12 @@ export {
   parseToDate,
 } from './utils/typeUtils';
 export { compareTyped, sortRows, toggleSort } from './utils/sortUtils';
-export { expandNestedRows, flattenGroupsForDisplay, groupRows } from './utils/groupUtils';
+export {
+  applyNumericFilter,
+  filterRows,
+  hasActiveFilters,
+  matchesColumnFilter,
+  parseNumericFilter,
+} from './utils/filterUtils';
+export { buildNestedTree, flattenLeaves, groupRows, sumOver } from './utils/groupUtils';
 export { buildExportMatrix, exportRows } from './utils/exportUtils';

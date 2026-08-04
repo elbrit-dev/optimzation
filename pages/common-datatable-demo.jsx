@@ -158,6 +158,7 @@ export default function CommonDataTableDemo() {
           data={data.slice(0, 5)}
           columns={['doctor', 'hq', 'sales']}
           enableSort={false}
+          enableFilter={false}
           enableExport={false}
           scrollable={false}
         />
