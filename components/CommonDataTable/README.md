@@ -1,20 +1,24 @@
 # CommonDataTable
 
-Every feature of the Elbrit data table, with no provider above it. Hand it an array and it
-works anywhere.
+A simple table that needs no provider above it. Bind an array to `data` and it works
+anywhere.
+
+Deliberately small — **grouping, sorting, totals and export**. Nothing else. If you need
+filtering, cell editing, selection or report pivots, use the provider-backed
+`DataTableNew` in `share/src/app/datatable` instead.
 
 ## Why this exists alongside the other table
 
 `share/src/app/datatable/components/DataTableNew.jsx` is a pure view: it takes four props and
 reads ~90 values out of `useTableOperations()`, which throws outright without a
-`DataProviderNew` above it. That's right for the reporting stack and wrong everywhere else.
+`DataProviderNew` above it.
 
 | | `DataTableNew` (share) | `CommonDataTable` (here) |
 | --- | --- | --- |
 | Data | from the provider's pipeline | from the `data` prop |
 | Needs a provider | yes — throws without one | no |
-| Owns fetching / GraphQL / presets | yes | no, you bring the rows |
-| Report pivots, write-back | yes | no |
+| Fetching / GraphQL / presets | yes | no, you bring the rows |
+| Filtering, editing, selection, pivots | yes | no |
 | Usable in any tree | no | yes |
 
 **Nothing in this folder imports from `share/`.** Copy the folder into another app and it still
@@ -28,207 +32,161 @@ import CommonDataTable from '../components/CommonDataTable/CommonDataTable'
 <CommonDataTable data={rows} title="Doctor performance" />
 ```
 
-That alone gives typed columns, a filter row, global search, multi-sort, a column picker,
-export, fullscreen and paging. Everything below narrows that default rather than building it up.
-
 ```jsx
-// grouped, with totals and money shown in lakhs
+// grouped, with totals
 <CommonDataTable
   data={rows}
   title="Secondary sales"
   columnLabels={{ hq: 'Headquarters' }}
-  enableGrouping
   groupFields={['region', 'hq']}
-  nonAggregatableColumns={['doctor_code']}
   enableSummation
-  showUnitToggle
-  lakhColumns={['target', 'sales']}
-  redFields={['shortfall']}
-  initialSortMeta={[{ field: 'sales', order: -1 }]}
+  initialSort={{ field: 'sales', order: -1 }}
 />
 ```
 
-A live playground is at `/common-datatable-demo` ([pages/common-datatable-demo.jsx](../../pages/common-datatable-demo.jsx))
-— grouping, editing, selection, empty and loading states, and a stripped-down table with no
-toolbar.
+A playground is at `/common-datatable-demo`
+([pages/common-datatable-demo.jsx](../../pages/common-datatable-demo.jsx)).
 
-## Pipeline
+## What grouping looks like
 
-`useCommonTablePipeline` memoizes each stage separately, so typing in a filter never re-runs
-type detection or rebuilds the dropdown options.
+Set `groupFields` and each group gets a header row carrying its name, its row count and the
+total of every numeric column — with that group's rows listed directly beneath it. It reads
+as one continuous table: no expand arrows, no nested tables.
 
 ```
-data → columns + types → filter + search → group → sort → paginate
-                              │              │
-                              │              └→ export (flattened back to leaf rows)
-                              └→ footer totals
+Region    Doctor         Code       HQ        Visits     Target      Sales
+South (22)                                       223  3,629,219  3,408,242   ← group header
+South     Dr. Chitra 43  DOC-1042   Madurai        1    110,910     55,611
+South     Dr. Farhan 54  DOC-1053   Madurai       20    106,620     89,149
+West (30)                                        306  3,644,484  3,463,212   ← group header
+West      Dr. Elena 5    DOC-1004   Mumbai        18    241,000    265,400
+…
+Total                                          1,339 17,800,733 17,433,073   ← enableSummation
 ```
 
-1. **Columns & types** — keys unioned across the first 50 rows, so a field missing from row 0
-   still gets a column. Types from a 100-row sample.
-2. **Filter & search** — column filters and the global box applied together, against leaf rows.
-3. **Group** — only when `enableGrouping` + `groupFields` are set. After filtering, so
-   aggregates reflect what's on screen.
-4. **Sort** — applied to whatever the previous stage produced: group rows when grouped, leaf
-   rows otherwise.
-5. **Paginate** — a plain slice. The pager counts group rows when grouping is on, which is why
-   the toolbar reports groups and rows separately.
+Pass more than one field — `['region', 'hq']` — and you get a second tier of header rows,
+indented under the first. Still one flat table.
 
-## Numeric filter operators
+A group header row only claims what a group actually has:
 
-Typed straight into the column's header input:
-
-| Type | Means |
-| --- | --- |
-| `>100` | greater than 100 |
-| `>=100` | 100 or more |
-| `<100` | less than 100 |
-| `<=100` | 100 or less |
-| `=100` | exactly 100 |
-| `10<>50` | between 10 and 50, inclusive — order doesn't matter |
-| `21` | a bare number is a substring match, so it also finds 210 and 1,210 |
-| anything else | falls back to a case-insensitive text match |
-
-Text columns pick their own UI: a tick-list when the column has at most
-`multiselectMaxOptions` distinct values (50 by default), a search box beyond that. Override
-with `multiselectColumns` or `textFilterColumns`.
-
-## How group cells aggregate
-
-| Column | Group cell shows |
+| Column | Group header shows |
 | --- | --- |
 | number | the sum |
-| text, ≥80% numeric | the sum — a numeric column detection read as text still totals |
-| text, all distinct | `22 values` — a name column has no meaningful "most common" |
-| text, repeating | `Cardiology × 10` plus a `+4 more` link opening the full tally |
+| text that is ≥80% numeric | the sum — a numeric column detection read as text still totals |
+| any other text or date | **blank** |
 | the group's own field | the group value, with its row count beside it |
 | an outer group field | that value plainly — it's constant inside the group |
 | a deeper group field | blank — not decided yet at this level |
-| in `nonAggregatableColumns` | the first row's value, untouched |
+
+## Data that arrives already grouped
+
+`groupFields` groups a flat array. When the grouping is already in the data — each row
+carrying its own rows in an array field — name that field with `childField` instead:
+
+```js
+[
+  { warehouse: 'Chennai', total_qty: 7219, batch_count: 3, batches: [
+      { item_name: 'ROZULA CV 10', batch_no: 'RZ2401', qty: 2362, manufacturing_date: '2025-03' },
+      { item_name: 'BRITVIT',      batch_no: 'BV2312', qty: 3916, manufacturing_date: '2025-01' },
+  ]},
+]
+```
+
+```jsx
+<CommonDataTable
+  data={stock}
+  childField="batches"
+  columnTypes={{ manufacturing_date: 'string', expiry_date: 'string' }}
+  enableSummation
+/>
+```
+
+```
+Warehouse   Total qty  Batches  Item           Batch    Qty     Mfg
+Chennai (3)     7,219        3                         7,219            ← the parent object
+Chennai                              ROZULA CV 10  RZ2401  2,362  2025-03
+Chennai                              BRITVIT       BV2312  3,916  2025-01
+Kolkata (2)     4,180        2                         4,180            ← the parent object
+Kolkata                              ROZULA ASP 10 RA2409  1,265  2024-09
+Total          11,399        5                        11,399
+```
+
+- **Columns** are the parent's fields followed by the children's.
+- **The parent keeps its own aggregates** (`total_qty`, `batch_count`), and any numeric column
+  it doesn't define is summed from its children — that's the `7,219` under Qty.
+- **`warehouse` is copied onto each child row** so every row says where it belongs and the
+  export is self-contained. `total_qty` and `batch_count` are not, since repeating an
+  aggregate on every row reads as a per-row value. The rule is *non-numeric parent fields
+  carry down*; override it with `parentFields={['warehouse']}`.
+- **Sorting works on the computed totals** — sorting by Qty reorders the warehouses.
+- **Nests to any depth**: a child holding its own `childField` array becomes a header in turn.
+- `childField` and `groupFields` are alternatives. Set `childField` and `groupFields` is
+  ignored.
 
 ## Props
 
-### Data & columns
-
-| Prop | Type | What it does |
-| --- | --- | --- |
-| `data` | `Object[]` | The rows. Required. Keys become columns. |
-| `loading` | `boolean` | Shows the loading overlay. |
-| `emptyMessage` | `string` | Default `No records found.` |
-| `columns` | `string[]` | Which columns, in what order. Defaults to every key found. |
-| `hiddenColumns` | `string[]` | Dropped entirely — not in the table, not in the picker. |
-| `columnLabels` | `Object` | `{ field: 'Label' }`. Unlisted fields are title-cased. |
-| `columnTypes` | `Object` | Force a type when detection guesses wrong. |
-| `columnWidths` | `Object` | `{ field: '220px' }`. Others size from content. |
-| `columnBodies` | `Object` | Per-column renderer: `(value, row, ctx) => node`. |
-| `dataKey` | `string` | Unique row field. Only needed for selection. |
-
-### Features
-
-| Prop | Default | What it does |
-| --- | --- | --- |
-| `enableSort` | `true` | Sortable headers; shift-click for multi-sort. |
-| `enableFilter` | `true` | The per-column filter row. |
-| `enableGlobalSearch` | `true` | The toolbar search box. |
-| `enableGrouping` | `false` | Turns `groupFields` on. |
-| `groupFields` | `[]` | Fields to group by, outermost first. |
-| `nonAggregatableColumns` | `[]` | Carry the first row's value instead of aggregating. |
-| `enableSummation` | `false` | Footer totals over all filtered rows. |
-| `enablePagination` | `true` | With `defaultRows` and `rowsPerPageOptions`. |
-| `enableColumnVisibility` | `true` | The column picker. |
-| `enableExport` | `true` | Export button; name the file with `exportFileName`. |
-| `enableFreezeFirstColumn` | `true` | The lock button. |
-| `enableFullscreen` | `true` | The expand button. |
-| `enableCellEdit` | `false` | With `editableColumns`, edit cells in place. |
-| `enableDivideBy1Lakh` | `false` | Start in lakhs; `showUnitToggle` adds a Units/Lakhs button. |
-| `lakhColumns` | — | Scope the lakh scale to these columns. |
-| `multiselectColumns` / `textFilterColumns` | — | Force a filter UI per column. |
-| `multiselectMaxOptions` | `50` | Cardinality ceiling for automatic tick-lists. |
-| `initialSortMeta` | `[]` | `[{ field, order }]` — order `1` asc, `-1` desc. |
-| `selectionMode` | — | `single`, `multiple` or `checkbox`. |
-
-### Styling & chrome
-
-| Prop | Type | What it does |
-| --- | --- | --- |
-| `redFields` / `greenFields` | `string[]` | Colour those columns' values and totals. |
-| `rowColumnStyles` | `Rule[]` | Computed styling — see below. |
-| `scrollable` / `tableHeight` | `boolean` / `string` | Fixed header, scrolling body. Height adapts to the viewport when unset. |
-| `size` | `small \| normal \| large` | Row density. Default `small`. |
-| `showGridlines` / `stripedRows` | `boolean` | Both on by default. |
-| `title` | `string` | Toolbar title; also the export sheet name. |
-| `showToolbar` | `boolean` | Hide the whole toolbar row. |
-| `toolbarActions` | `node` | Your own buttons at the right end of the toolbar. |
-| `className` / `style` | `string` / `Object` | On the outer container. |
-
-### Events
-
-| Prop | Fires with |
-| --- | --- |
-| `onCellEditComplete` | `{ rowData, field, newValue, oldValue, originalEvent }` |
-| `isCellEditable` | `(rowData, field) => boolean` — an extra per-cell gate |
-| `onSelectionChange` | the selected row, or an array of rows |
-| `onRowClick` | the clicked row; group rows are ignored |
-| `onRefresh` | nothing — setting it adds a refresh button |
-
-### `rowColumnStyles`
-
-```jsx
-rowColumnStyles={[
-  { mode: 'cell', columns: ['sales'],
-    compute: (value, row) => (value < row.target ? { color: '#dc2626' } : null) },
-  { mode: 'row',
-    compute: (row) => (row.active === false ? { opacity: 0.6 } : null) },
-]}
-```
-
-Modes are `row` `(row, ctx)`, `column` `(columnData, ctx)` and `cell` `(value, row, ctx)`. When
-two rules set the same property the higher `order` wins. A rule that throws is skipped, never
-fatal.
+| Prop | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `data` | `Object[]` | — | The rows. Required. Keys become columns. |
+| `title` | `string` | — | Shown in the header bar; also the export sheet name. |
+| `loading` | `boolean` | `false` | Shows the loading overlay. |
+| `emptyMessage` | `string` | `No records found.` | Shown when there are no rows. |
+| `columns` | `string[]` | every key found | Which columns, in what order. |
+| `hiddenColumns` | `string[]` | `[]` | Columns dropped entirely. |
+| `columnLabels` | `Object` | — | `{ field: 'Label' }`. Unlisted fields are title-cased. |
+| `columnTypes` | `Object` | detected | Force a type: `'number' \| 'date' \| 'boolean' \| 'string'`. |
+| `columnWidths` | `Object` | from content | `{ field: '220px' }`. All columns stay drag-resizable. |
+| `groupFields` | `string[]` | `[]` | Group a flat array by these, outermost first. Empty = flat table. |
+| `childField` | `string` | — | For already-nested data: the field holding each row's child rows. Overrides `groupFields`. |
+| `parentFields` | `string[]` | non-numeric | Which parent fields copy onto child rows. |
+| `enableSort` | `boolean` | `true` | Click a header: ascending → descending → off. |
+| `initialSort` | `Object` | — | `{ field: 'sales', order: -1 }` — order `1` asc, `-1` desc. |
+| `enableSummation` | `boolean` | `false` | Footer row totalling the numeric columns. |
+| `enableExport` | `boolean` | `true` | The Export button. |
+| `exportFileName` | `string` | `table-export` | Without the extension. |
+| `scrollable` | `boolean` | `true` | Fixed header, scrolling body. |
+| `tableHeight` | `string` | `520px` | Body height when scrollable. |
+| `size` | `small \| normal \| large` | `small` | Row density. |
+| `showGridlines` | `boolean` | `true` | Cell borders. |
+| `stripedRows` | `boolean` | `true` | Alternating row background. |
+| `className` / `style` | `string` / `Object` | — | On the outer container. |
 
 ## Watch out
 
-- **Edits don't persist themselves.** The table never mutates `data`. Handle
-  `onCellEditComplete`, save the change, and feed the new array back in. With no handler
-  attached the edit is reverted rather than silently dropped.
-- **Lakhs apply to every numeric column** unless you set `lakhColumns`. On a table mixing money
-  with counts, a visit count of 10 becomes 0.0001.
-- **Export is leaf rows.** A grouped table exports the underlying rows, not the aggregate
-  strings, still narrowed by the active filters and sort. Booleans go out as Yes/No, dates as
-  displayed, numbers as numbers.
-- **Detection is a sample** — 100 rows, 70% thresholds for boolean and date, 80% for number. A
-  column of nothing but 0 and 1 reads as a flag; mix in any other number and it reads as
-  numeric. When it guesses wrong, `columnTypes` is the fix.
+- **No pagination.** Every row renders. That is fine for hundreds of rows; for tens of
+  thousands, page or narrow the data before handing it over.
+- **Export is the real rows.** Group header rows are totals, not records, so they are dropped
+  from the file. Booleans go out as Yes/No, dates as displayed, numbers as numbers.
+- **Type detection is a sample** — 100 rows, with 70% thresholds for boolean and date and 80%
+  for number. A column of nothing but 0 and 1 reads as a flag; mix in any other number and it
+  reads as numeric. When it guesses wrong, `columnTypes` is the fix.
+- **Sorting is one column at a time,** and blank cells always sink to the bottom in both
+  directions.
 
 ## Plasmic
 
 Registered as **"Common DataTable"** in the root `plasmic-init.js`, alongside ApprovalCard and
 the summary cards — deliberately not in `share/src/plasmic-init.js`, which registers the
 provider-backed pair. It ships with sample rows, so it renders in Studio before you bind
-anything. Props taking functions (`columnBodies`, `rowColumnStyles`, `isCellEditable`) are
-easier to author in code.
+anything.
 
 ## Files
 
 ```
 components/CommonDataTable/
-├─ CommonDataTable.jsx          the component
-├─ CommonTableToolbar.jsx       search, columns, export, view toggles
-├─ index.js                     barrel: component, hook, and every util
-├─ filters/ColumnFilters.jsx    one input per column type
-├─ hooks/useCommonTablePipeline.js
+├─ CommonDataTable.jsx          the component (header bar included)
+├─ index.js                     barrel: component, hook, and the utils
+├─ hooks/useCommonTablePipeline.js   columns/types → sort → group → flatten
 └─ utils/
    ├─ valueUtils.js             cell access, number formatting
    ├─ typeUtils.js              type detection, date display
-   ├─ filterUtils.js            operators, predicates, options
-   ├─ sortUtils.js              typed comparators, multi-sort
-   ├─ groupUtils.js             grouping and aggregation
-   ├─ exportUtils.js            XLSX / CSV
-   └─ styleUtils.js             rowColumnStyles rules
+   ├─ sortUtils.js              typed comparator, sort cycle
+   ├─ groupUtils.js             grouping, per-group totals, nested-data expansion
+   └─ exportUtils.js            XLSX / CSV
 ```
 
-The pipeline hook is exported on its own, for when you want the same filter/sort/group
-semantics behind your own markup:
+The pipeline hook is exported on its own, for when you want the same sort/group semantics
+behind your own markup:
 
 ```js
 import { useCommonTablePipeline, groupRows, exportRows } from '../components/CommonDataTable'

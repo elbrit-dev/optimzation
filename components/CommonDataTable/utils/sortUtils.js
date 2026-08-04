@@ -1,12 +1,12 @@
 /**
- * Type-aware multi-column sorting.
+ * Type-aware single-column sorting.
  *
- * The table sorts its own rows rather than handing `multiSortMeta` to PrimeReact —
- * PrimeReact's built-in comparator is lexicographic, which reorders `dd/mm/yyyy`
- * dates and `1,234`-style numbers incorrectly.
+ * The table sorts its own rows rather than letting PrimeReact do it: PrimeReact's
+ * comparator is lexicographic, which misorders `dd/mm/yyyy` dates and `1,234`-style
+ * numbers.
  */
 
-import { isArray, isEmpty } from 'lodash';
+import { isArray } from 'lodash';
 import { isTruthyBoolean, parseToDate } from './typeUtils';
 import { getDataValue, isBlankValue, toFiniteNumber } from './valueUtils';
 
@@ -39,73 +39,44 @@ export function compareTyped(a, b, type) {
 }
 
 /**
- * Stable multi-column sort. Blank cells always sink to the bottom, in both
- * directions — flipping them with the sort direction makes a descending sort
- * look empty at the top.
+ * Stable sort by one column. Blank cells always sink to the bottom, in both
+ * directions — flipping them with the sort would make a descending sort open on
+ * a screen of empties.
  *
  * @param {Array<Object>} rows
- * @param {Array<{field: string, order: number}>} sortMeta order: 1 asc, -1 desc
+ * @param {{field: string, order: number}|null} sort order: 1 asc, -1 desc
  * @param {Object} options
  * @param {Object} options.columnTypes column → `'number'|'date'|'boolean'|'string'`
  * @param {Function} [options.getCell]
  */
-export function sortRows(rows, sortMeta, { columnTypes = {}, getCell = getDataValue } = {}) {
+export function sortRows(rows, sort, { columnTypes = {}, getCell = getDataValue } = {}) {
   if (!isArray(rows) || rows.length < 2) return isArray(rows) ? rows : [];
-  if (!isArray(sortMeta) || isEmpty(sortMeta)) return rows;
+  if (!sort?.field) return rows;
+
+  const { field, order } = sort;
+  const type = columnTypes[field] || 'string';
 
   // Decorate with the original index so equal rows keep input order on every engine.
   return rows
     .map((row, index) => ({ row, index }))
     .sort((left, right) => {
-      for (const meta of sortMeta) {
-        const field = meta?.field;
-        if (!field) continue;
-        const a = getCell(left.row, field);
-        const b = getCell(right.row, field);
-        const aBlank = isBlankValue(a);
-        const bBlank = isBlankValue(b);
-        if (aBlank || bBlank) {
-          if (aBlank && bBlank) continue;
-          return aBlank ? 1 : -1;
-        }
-        const result = compareTyped(a, b, columnTypes[field] || 'string');
-        if (result !== 0) return meta.order === -1 ? -result : result;
+      const a = getCell(left.row, field);
+      const b = getCell(right.row, field);
+      const aBlank = isBlankValue(a);
+      const bBlank = isBlankValue(b);
+      if (aBlank || bBlank) {
+        if (aBlank && bBlank) return left.index - right.index;
+        return aBlank ? 1 : -1;
       }
-      return left.index - right.index;
+      const result = compareTyped(a, b, type);
+      return result !== 0 ? (order === -1 ? -result : result) : left.index - right.index;
     })
     .map((entry) => entry.row);
 }
 
-/**
- * Cycle one column through asc → desc → off within an existing multi-sort list.
- * `additive` (shift-click) keeps the other columns; otherwise the column becomes
- * the only sort.
- */
-export function toggleSort(sortMeta, field, { additive = false } = {}) {
-  const current = isArray(sortMeta) ? sortMeta : [];
-  const existing = current.find((meta) => meta.field === field);
-
-  if (!additive) {
-    if (!existing) return [{ field, order: 1 }];
-    if (existing.order === 1) return [{ field, order: -1 }];
-    return [];
-  }
-
-  if (!existing) return [...current, { field, order: 1 }];
-  if (existing.order === 1) {
-    return current.map((meta) => (meta.field === field ? { field, order: -1 } : meta));
-  }
-  return current.filter((meta) => meta.field !== field);
-}
-
-/** Position of `field` in the sort list (1-based), or 0 when unsorted. */
-export function getSortIndex(sortMeta, field) {
-  if (!isArray(sortMeta)) return 0;
-  return sortMeta.findIndex((meta) => meta.field === field) + 1;
-}
-
-/** Sort direction for `field`: 1, -1, or 0 when unsorted. */
-export function getSortOrder(sortMeta, field) {
-  if (!isArray(sortMeta)) return 0;
-  return sortMeta.find((meta) => meta.field === field)?.order ?? 0;
+/** Cycle a column through ascending → descending → unsorted. */
+export function toggleSort(sort, field) {
+  if (sort?.field !== field) return { field, order: 1 };
+  if (sort.order === 1) return { field, order: -1 };
+  return null;
 }

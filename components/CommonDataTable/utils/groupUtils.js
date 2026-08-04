@@ -1,92 +1,33 @@
 /**
- * Multi-level grouping with per-group aggregation.
+ * Grouping with per-group totals.
  *
- * A group becomes one summary row carrying its children on `__groupRows__`, so the
- * table can render groups as expandable rows and recurse for deeper levels:
+ * Each group becomes one header row carrying its children on `__groupRows__`:
  *
- *   { hq: 'Chennai', amount: 91200, __isGroupRow__: true, __groupLevel__: 0,
- *     __groupField__: 'hq', __groupPath__: ['Chennai'], __groupCount__: 14,
+ *   { region: 'South', sales: 3408242, __isGroupRow__: true, __groupLevel__: 0,
+ *     __groupField__: 'region', __groupPath__: ['South'], __groupCount__: 22,
  *     __groupRows__: [ …leaf rows or deeper group rows… ] }
  *
- * Numeric columns sum. Non-numeric columns collapse to their most common value
- * (`Chennai x 9 +2 more`) with the full tally kept on `__stringBreakdown__` for the
- * breakdown popup.
+ * A header row shows only what a group can honestly claim: its own name, the names of the
+ * groups above it, and the sum of each numeric column. Text and date columns are left
+ * blank rather than collapsed into a "most common value" tally — that reads as data the
+ * group doesn't actually have.
+ *
+ * {@link flattenGroupsForDisplay} then interleaves headers with their rows for display.
  */
 
 import { isArray, isEmpty, isNil } from 'lodash';
-import { formatDateValue, parseToDate } from './typeUtils';
-import { getDataValue, isInternalKey, toFiniteNumber } from './valueUtils';
+import { getDataKeys, getDataValue, isInternalKey, toFiniteNumber, toPlainRow } from './valueUtils';
 
 const NULL_GROUP_KEY = '__null__';
-/** A string column still sums when this share of its non-empty cells parse as numbers. */
+/** A text column still totals when this share of its non-empty cells parse as numbers. */
 const NUMERIC_COERCION_THRESHOLD = 0.8;
 
-/** Sort value tallies by count desc, then label, and render `top x n +k more`. */
-function buildDisplayAndBreakdown(entries) {
-  const sorted = entries
-    .filter((entry) => !isNil(entry?.value) && entry.count > 0)
-    .sort((a, b) => (b.count !== a.count ? b.count - a.count : String(a.value).localeCompare(String(b.value))));
-  if (sorted.length === 0) return { display: null, breakdown: [] };
-
-  const totalCount = sorted.reduce((sum, entry) => sum + entry.count, 0);
-  // Every value distinct (a name or code column): "Dr. Anand x 1 +21 more" tells the
-  // reader nothing, so report the cardinality instead. The tally still drives the popup.
-  if (sorted.length > 1 && sorted.length === totalCount) {
-    return { display: `${totalCount.toLocaleString('en-US')} values`, breakdown: sorted };
-  }
-
-  const [first] = sorted;
-  const moreCount = sorted.length - 1;
-  const base = `${first.value} x ${first.count}`;
-  return {
-    display: moreCount > 0 ? `${base} +${moreCount} more` : base,
-    breakdown: sorted,
-  };
-}
-
-/** Collapse a non-numeric column across a group into one display string + tally. */
-export function aggregateNonNumeric(col, colType, rows, getCell = getDataValue) {
-  if (!isArray(rows) || rows.length === 0) return { display: null, breakdown: [] };
-  const values = rows.map((row) => getCell(row, col)).filter((v) => !isNil(v) && v !== '');
-  if (values.length === 0) return { display: null, breakdown: [] };
-
-  if (colType === 'date') {
-    const counts = new Map();
-    values.forEach((value) => {
-      // Tally the raw value, not a parsed Date: `formatDateValue(new Date('2026-07-03'))`
-      // reads the UTC-midnight Date as having a time and would print "05:30" on a
-      // date-only column.
-      if (!parseToDate(value)) return;
-      const key = formatDateValue(value);
-      counts.set(key, (counts.get(key) || 0) + 1);
-    });
-    if (counts.size === 0) return { display: null, breakdown: [] };
-    return buildDisplayAndBreakdown(Array.from(counts, ([value, count]) => ({ value, count })));
-  }
-
-  if (colType === 'boolean') {
-    const isTruthy = (v) => v === true || v === 'true' || v === 1 || v === '1' || v === 'yes' || v === 'y';
-    const truthy = values.filter(isTruthy).length;
-    return buildDisplayAndBreakdown([
-      { value: 'true', count: truthy },
-      { value: 'false', count: values.length - truthy },
-    ]);
-  }
-
-  const counts = new Map();
-  values.forEach((value) => {
-    const key = String(value);
-    counts.set(key, (counts.get(key) || 0) + 1);
-  });
-  return buildDisplayAndBreakdown(Array.from(counts, ([value, count]) => ({ value, count })));
-}
-
 /**
- * True when enough of a *string* column's cells are numeric to be worth summing —
- * a numeric column that detection read as text still gets its total.
+ * True when enough of a *text* column's cells are numeric to be worth totalling — a numeric
+ * column that type detection read as text still gets its sum.
  *
- * Deliberately limited to string columns: booleans coerce to 1/0, so letting this run
- * on them would replace a `true × 18` tally with the meaningless number 18.
+ * Limited to text columns on purpose: booleans coerce to 1/0, so running this on them would
+ * put a meaningless count where a blank belongs.
  */
 function shouldCoerceToSum(colType, rows, col, getCell) {
   if (colType !== 'string') return false;
@@ -124,20 +65,13 @@ function countLeaves(rows) {
  * @param {Array<Object>} data leaf rows (existing group rows are ignored)
  * @param {Array<string>} fields group-by fields, outermost first
  * @param {Object} options
- * @param {Array<string>} options.columns columns to aggregate
+ * @param {Array<string>} options.columns columns to total
  * @param {Object} options.columnTypes column → type
  * @param {Function} [options.getCell]
- * @param {Array<string>} [options.nonAggregatableColumns] carry the first row's value instead of aggregating
- * @returns {Array<Object>} group summary rows
+ * @returns {Array<Object>} group header rows
  */
 export function groupRows(data, fields, options = {}) {
-  const {
-    columns = [],
-    columnTypes = {},
-    getCell = getDataValue,
-    nonAggregatableColumns = [],
-  } = options;
-  const nonAggregatable = new Set(nonAggregatableColumns);
+  const { columns = [], columnTypes = {}, getCell = getDataValue } = options;
 
   const build = (rows, level, parentPath) => {
     if (level >= fields.length || isEmpty(rows)) return rows;
@@ -164,40 +98,20 @@ export function groupRows(data, fields, options = {}) {
       summary[field] = keyValue;
 
       columns.forEach((col) => {
-        if (isInternalKey(col)) return;
-        if (col === field) {
-          summary[col] = keyValue;
-          return;
-        }
+        if (isInternalKey(col) || col === field) return;
+
         const groupFieldIndex = fields.indexOf(col);
         if (groupFieldIndex > -1) {
-          // An ancestor group field is constant inside this group — show the value
-          // itself rather than tallying it into "South × 9". A deeper group field is
-          // still ambiguous here, so it stays blank.
+          // An outer group field is constant inside this group, so show it. A deeper one
+          // isn't decided yet at this level, so leave it blank.
           summary[col] = groupFieldIndex < level ? path[groupFieldIndex] : null;
-          return;
-        }
-        if (nonAggregatable.has(col)) {
-          summary[col] = getCell(leafRows[0], col);
           return;
         }
 
         const colType = columnTypes[col] || 'string';
-        if (colType === 'number' || shouldCoerceToSum(colType, leafRows, col, getCell)) {
-          summary[col] = sumOver(leafRows, col, getCell);
-          return;
-        }
-
-        const { display, breakdown } = aggregateNonNumeric(col, colType, leafRows, getCell);
-        if (display != null) {
-          summary[col] = display;
-          if (breakdown.length > 0) {
-            if (!summary.__stringBreakdown__) summary.__stringBreakdown__ = {};
-            summary.__stringBreakdown__[col] = breakdown;
-          }
-        } else {
-          summary[col] = null;
-        }
+        summary[col] = colType === 'number' || shouldCoerceToSum(colType, leafRows, col, getCell)
+          ? sumOver(leafRows, col, getCell)
+          : null;
       });
 
       summary.__isGroupRow__ = true;
@@ -207,7 +121,6 @@ export function groupRows(data, fields, options = {}) {
       summary.__groupPath__ = path;
       summary.__groupRows__ = children;
       summary.__groupCount__ = countLeaves(children);
-      summary.__rowKey__ = `g${level}:${path.map((p) => String(p ?? '∅')).join('›')}`;
       result.push(summary);
     });
 
@@ -220,14 +133,141 @@ export function groupRows(data, fields, options = {}) {
   return build(data, 0, []);
 }
 
-/** Walk group rows back down to their leaf rows (used by export). */
-export function flattenGroupRows(rows) {
+/* ------------------------------------------------- already-nested source data */
+
+/**
+ * Which of a parent's own fields get copied onto its child rows.
+ *
+ * Automatic rule: its non-numeric fields. On `{ warehouse, total_qty, batch_count, batches }`
+ * that carries `warehouse` down — so each row still says which warehouse it belongs to, and
+ * the export is self-contained — while leaving `total_qty` and `batch_count` on the header
+ * where they belong. Repeating an aggregate on every row would read as a per-row value.
+ */
+function resolveCarriedFields(parent, childField, columnTypes, parentFields) {
+  if (isArray(parentFields)) return parentFields;
+  return getDataKeys(parent).filter((key) => {
+    if (key === childField || isInternalKey(key)) return false;
+    if (isArray(getDataValue(parent, key))) return false;
+    return (columnTypes[key] || 'string') !== 'number';
+  });
+}
+
+/**
+ * Expand data that arrives already nested — each row carrying its own rows in an array
+ * field — into the same header-then-rows list {@link flattenGroupsForDisplay} produces.
+ *
+ *   [{ warehouse: 'Chennai', total_qty: 7219, batches: [{ batch_no, qty, … }, …] }]
+ *
+ * The parent becomes the header row and keeps whatever aggregates it already carries; any
+ * numeric column it does *not* define is summed from its children, so a `qty` column still
+ * totals on the header even though only the children have it.
+ *
+ * Nests to any depth: a child holding its own `childField` array becomes a header in turn.
+ *
+ * @param {Array<Object>} data parent rows
+ * @param {Object} options
+ * @param {string} options.childField field holding the child array, e.g. `'batches'`
+ * @param {Array<string>} options.columns display columns
+ * @param {Object} options.columnTypes column → type
+ * @param {Array<string>} [options.parentFields] override which parent fields carry down
+ * @param {Function} [options.sortRowsFn] (rows) => rows, applied at every level
+ * @param {Function} [options.getCell]
+ */
+export function expandNestedRows(data, options = {}) {
+  const {
+    childField,
+    columns = [],
+    columnTypes = {},
+    parentFields,
+    sortRowsFn,
+    getCell = getDataValue,
+  } = options;
+
+  if (!isArray(data) || isEmpty(data) || !childField) return isArray(data) ? data : [];
+
+  const numericColumns = columns.filter((col) => (columnTypes[col] || 'string') === 'number');
+
+  const countLeaves = (rows) => rows.reduce((acc, row) => {
+    const kids = getCell(row, childField);
+    return acc + (isArray(kids) && kids.length > 0 ? countLeaves(kids) : 1);
+  }, 0);
+
+  const out = [];
+
+  const visit = (rows, level) => {
+    // Header rows are built before sorting so a parent can be ordered by a total that only
+    // exists once its children have been summed.
+    const entryByRow = new Map();
+
+    rows.forEach((row) => {
+      if (!row || typeof row !== 'object') return;
+      const kids = getCell(row, childField);
+      if (!isArray(kids) || kids.length === 0) {
+        entryByRow.set(toPlainRow(row), null);
+        return;
+      }
+
+      const carried = {};
+      resolveCarriedFields(row, childField, columnTypes, parentFields).forEach((key) => {
+        const value = getCell(row, key);
+        if (!isNil(value)) carried[key] = value;
+      });
+
+      const children = kids
+        .filter((child) => child && typeof child === 'object')
+        .map((child) => ({ ...carried, ...toPlainRow(child) }));
+
+      const header = { ...toPlainRow(row) };
+      delete header[childField];
+      numericColumns.forEach((col) => {
+        if (!isNil(header[col])) return;
+        if (!children.some((child) => !isNil(getCell(child, col)))) return;
+        header[col] = sumOver(children, col, getCell);
+      });
+
+      header.__isGroupRow__ = true;
+      header.__groupLevel__ = level;
+      header.__groupCount__ = countLeaves(kids);
+      // The name badge hangs off the first column this parent actually names itself in.
+      header.__groupField__ =
+        columns.find((col) => !isNil(header[col]) && (columnTypes[col] || 'string') !== 'number')
+        ?? columns[0];
+
+      entryByRow.set(header, children);
+    });
+
+    const ordered = sortRowsFn ? sortRowsFn([...entryByRow.keys()]) : [...entryByRow.keys()];
+    ordered.forEach((row) => {
+      out.push(row);
+      const children = entryByRow.get(row);
+      if (children) visit(children, level + 1);
+    });
+  };
+
+  visit(data, 0);
+  return out;
+}
+
+/**
+ * Interleave groups into one flat list for display: each group's header row, then that
+ * group's rows directly beneath it.
+ *
+ *   [ South header, …South rows…, West header, …West rows… ]
+ *
+ * The table renders this as one continuous body — group headers are ordinary rows wearing
+ * a heavier style, so their totals stay aligned to the columns above them and there is no
+ * expand/collapse or nested table anywhere.
+ *
+ * @param {Array<Object>} rows output of {@link groupRows}
+ */
+export function flattenGroupsForDisplay(rows) {
   if (!isArray(rows)) return [];
   const out = [];
   const visit = (list) => {
     list.forEach((row) => {
-      if (row?.__isGroupRow__ && isArray(row.__groupRows__)) visit(row.__groupRows__);
-      else if (row) out.push(row);
+      if (!row) return;
+      out.push(row);
+      if (row.__isGroupRow__ && isArray(row.__groupRows__)) visit(row.__groupRows__);
     });
   };
   visit(rows);

@@ -1,24 +1,22 @@
 /**
  * XLSX / CSV export.
  *
- * `xlsx` is imported dynamically so the ~400kB writer only loads when someone
- * actually clicks Export.
+ * `xlsx` is imported dynamically so the writer only loads when someone clicks Export.
  */
 
 import { isNil } from 'lodash';
 import { formatDateValue, isTruthyBoolean } from './typeUtils';
-import { formatHeaderName, getDataValue, ONE_LAKH, toFiniteNumber } from './valueUtils';
+import { formatHeaderName, getDataValue, toFiniteNumber } from './valueUtils';
 
 /**
  * Convert a cell for the sheet: numbers stay numeric so Excel can total them,
  * dates become the same string the table shows.
  */
-function toExportValue(value, colType, { divideBy1Lakh }) {
+function toExportValue(value, colType) {
   if (isNil(value) || value === '') return '';
   if (colType === 'number') {
     const num = toFiniteNumber(value);
-    if (num == null) return String(value);
-    return divideBy1Lakh ? num / ONE_LAKH : num;
+    return num == null ? String(value) : num;
   }
   if (colType === 'date') return formatDateValue(value);
   if (colType === 'boolean') return isTruthyBoolean(value) ? 'Yes' : 'No';
@@ -33,7 +31,6 @@ function toExportValue(value, colType, { divideBy1Lakh }) {
  * @param {Array<string>} params.columns visible columns, in display order
  * @param {Object} [params.columnLabels]
  * @param {Object} [params.columnTypes]
- * @param {Function} [params.isDivided] (col) => boolean — which columns are shown in lakhs
  * @param {Function} [params.getCell]
  * @returns {Array<Array<*>>}
  */
@@ -42,13 +39,11 @@ export function buildExportMatrix({
   columns,
   columnLabels = {},
   columnTypes = {},
-  isDivided = () => false,
   getCell = getDataValue,
 }) {
   const header = columns.map((col) => columnLabels[col] || formatHeaderName(col));
   const body = (Array.isArray(rows) ? rows : []).map((row) =>
-    columns.map((col) =>
-      toExportValue(getCell(row, col), columnTypes[col] || 'string', { divideBy1Lakh: isDivided(col) })));
+    columns.map((col) => toExportValue(getCell(row, col), columnTypes[col] || 'string')));
   return [header, ...body];
 }
 
@@ -90,13 +85,12 @@ export async function exportRows({
   columns,
   columnLabels,
   columnTypes,
-  isDivided,
   getCell,
   format = 'xlsx',
   fileName = 'table-export',
   sheetName = 'Sheet1',
 }) {
-  const matrix = buildExportMatrix({ rows, columns, columnLabels, columnTypes, isDivided, getCell });
+  const matrix = buildExportMatrix({ rows, columns, columnLabels, columnTypes, getCell });
   const XLSX = await import('xlsx');
   const sheet = XLSX.utils.aoa_to_sheet(matrix);
   sheet['!cols'] = computeSheetColumnWidths(matrix);
