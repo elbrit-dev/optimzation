@@ -16,28 +16,78 @@
 const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
 
 /**
- * A ring divided into one segment per event.
+ * The three states a ring segment can be in. A segment is either a whole SECTION of a page
+ * (one per sub-tab — Secondary / Service / Support) or a single event, and both reduce to:
  *
- * @param {boolean[]} segments  one entry per event; true = done
- * @param {object}    opts
- * @param {string}    opts.doneColor     colour of completed segments
- * @param {string}    opts.pendingColor  colour of pending segments
- * @param {number}    opts.gapDeg        gap between segments, in degrees
- * @param {number}    opts.maxSegments   above this count, collapse to one two-tone arc
- * @returns {string}  a CSS `background` value
+ *   done     finished          green
+ *   waiting  started, open     amber
+ *   none     nothing there     red
+ *
+ * `rejected` is recognised too and paints as `none` unless you override it via `stateColors`,
+ * because "has rejections" means different things per page.
+ */
+export function readSegmentState(value) {
+  if (value === true) return "done";
+  if (value === false || value == null) return "none";
+
+  if (typeof value === "object") {
+    if (typeof value.done === "boolean") return value.done ? "done" : "none";
+    return readSegmentState(value.state ?? value.status ?? value.bucket ?? null);
+  }
+
+  const t = String(value).trim().toLowerCase();
+  if (!t) return "none";
+  if (/^(done|complete|completed|approved|closed|submitted|verified|green|ok)$/.test(t)) return "done";
+  if (/^(none|empty|missing|red|not[\s_-]?started|no[\s_-]?data)$/.test(t)) return "none";
+  if (/^(reject|rejected)$/.test(t)) return "rejected";
+  // Anything else that names a live state — waiting, pending, in progress, partial, draft.
+  if (/reject/.test(t)) return "rejected";
+  if (/waiting|pending|progress|partial|open|draft|amber|orange/.test(t)) return "waiting";
+  if (/done|complete|approved|closed|submitted|verified/.test(t)) return "done";
+  return "waiting";
+}
+
+/**
+ * A ring divided into one segment per section (or per event).
+ *
+ * @param {Array}  segments  one entry per section/event — a state string, a { state } object,
+ *                           or a plain boolean for the legacy done/not-done form
+ * @param {object} opts
+ * @param {string} opts.doneColor      colour of `done` segments
+ * @param {string} opts.pendingColor   colour of `none` segments (and legacy `false`)
+ * @param {string} opts.waitingColor   colour of `waiting` segments
+ * @param {object} opts.stateColors    per-state overrides, e.g. { rejected: "#b91c1c" }
+ * @param {number} opts.gapDeg         gap between segments, in degrees
+ * @param {number} opts.maxSegments    above this count, boolean rings collapse to one arc
+ * @returns {string} a CSS `background` value
  *
  * An empty array means there is no work at all, which draws a solid unbroken ring in
- * `doneColor` — the "all clear" state. The gap shrinks automatically when a category has
- * many events, so the segments stay visible instead of collapsing into the gaps.
+ * `doneColor` — the "all clear" state. The gap shrinks automatically when there are many
+ * segments, so they stay visible instead of collapsing into the gaps.
  */
-export function segmentRing(segments, { doneColor, pendingColor, gapDeg = 5, maxSegments = 10 }) {
+export function segmentRing(
+  segments,
+  { doneColor, pendingColor, waitingColor = "#f59e0b", stateColors, gapDeg = 5, maxSegments = 10 }
+) {
   const n = Array.isArray(segments) ? segments.length : 0;
   if (!n) return doneColor;
+
+  const palette = {
+    done: doneColor,
+    waiting: waitingColor,
+    none: pendingColor,
+    rejected: pendingColor,
+    ...(stateColors || {}),
+  };
+  const states = segments.map(readSegmentState);
+  // Only the legacy per-event form collapses. Section rings are 3–4 segments by construction,
+  // and collapsing them would throw away the very distinction they exist to draw.
+  const perEvent = segments.every((s) => typeof s === "boolean");
 
   // Past a certain count, each slice is thinner than the gap beside it and the ring reads as
   // dashed noise — nobody counts 34 ticks anyway. Collapse to a single two-tone arc: how much
   // is done, how much is left. The badge already carries the exact number.
-  if (n > Math.max(1, maxSegments)) {
+  if (perEvent && n > Math.max(1, maxSegments)) {
     const doneCount = segments.filter(Boolean).length;
     if (doneCount === 0) return pendingColor;
     if (doneCount === n) return doneColor;
@@ -60,9 +110,9 @@ export function segmentRing(segments, { doneColor, pendingColor, gapDeg = 5, max
   const gap = n > 1 ? clamp(gapDeg * (n > 6 ? 0.5 : 1), 0, step / 4) : 0;
   const stops = [];
 
-  segments.forEach((done, i) => {
+  states.forEach((state, i) => {
     const a = i * step;
-    const color = done ? doneColor : pendingColor;
+    const color = palette[state] || palette.none;
     if (gap) stops.push(`transparent ${a}deg ${a + gap}deg`);
     stops.push(`${color} ${a + gap}deg ${a + step - gap}deg`);
     if (gap) stops.push(`transparent ${a + step - gap}deg ${a + step}deg`);

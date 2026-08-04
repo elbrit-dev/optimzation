@@ -1,5 +1,5 @@
 import React from "react";
-import { segmentRing } from "./ringGeometry";
+import { readSegmentState, segmentRing } from "./ringGeometry";
 
 /**
  * HomeNavRings — the home-screen quick-action nav row, as Instagram-style story rings.
@@ -46,6 +46,14 @@ import { segmentRing } from "./ringGeometry";
  */
 
 const STYLE_ID = "elbrit-home-nav-rings-styles";
+
+// Spoken form of each segment state, for the tile's aria-label.
+const STATE_WORDS = {
+  done: "complete",
+  waiting: "in progress",
+  none: "not started",
+  rejected: "rejected",
+};
 
 function ensureStyles() {
   if (typeof document === "undefined" || document.getElementById(STYLE_ID)) return;
@@ -202,11 +210,24 @@ function normalise(row, index) {
   const key = String(first(row, ["key", "id", "code", "type"]) ?? `c${index}`);
   const label = String(first(row, ["label", "name", "title"]) ?? key);
 
-  // Segments, in order of preference: explicit booleans -> events[] -> total/pending counts.
+  // Segments, in order of preference:
+  //   sections[]  one per sub-tab, tri-state    <- the primary shape
+  //   segments[] / events[]  one per record, done/not-done   (legacy)
+  //   total + pending counts
   let segments;
+  let sections = null;
+  const sectionRows = first(row, ["sections", "tabs", "groups"]);
   const explicit = first(row, ["segments", "done"]);
   const events = first(row, ["events", "items", "tasks"]);
-  if (Array.isArray(explicit)) {
+
+  if (Array.isArray(sectionRows)) {
+    sections = sectionRows.map((s, i) => ({
+      label: String(first(s || {}, ["label", "name", "title", "key"]) ?? `s${i + 1}`),
+      state: readSegmentState(s),
+      count: Number(first(s || {}, ["count", "pending", "total"]) ?? 0) || 0,
+    }));
+    segments = sections.map((s) => s.state);
+  } else if (Array.isArray(explicit)) {
     segments = explicit.map(isDone);
   } else if (Array.isArray(events)) {
     segments = events.map(isDone);
@@ -217,7 +238,21 @@ function normalise(row, index) {
     segments = n > 0 ? Array.from({ length: n }, (_, i) => i < n - pending) : [];
   }
 
-  const pending = segments.filter((d) => !d).length;
+  // Anything that isn't finished counts as outstanding — amber sections included, since
+  // "waiting on someone" is still work in the queue.
+  const unfinished = segments.filter((s) => readSegmentState(s) !== "done").length;
+  // A section ring's badge is a record count, not a section count: three amber tabs are not
+  // "3 to do". Take the counts the mapper supplied, and fall back to the section count only
+  // when it gave none.
+  const badgeOverride = first(row, ["badge", "pendingCount", "count"]);
+  const sectionCount = sections ? sections.reduce((a, s) => a + s.count, 0) : 0;
+  const pending =
+    badgeOverride !== undefined
+      ? Number(badgeOverride) || 0
+      : sections
+      ? sectionCount || unfinished
+      : unfinished;
+
   const dueRaw = first(row, ["dueAt", "due", "due_date", "dueDate", "next_due", "nextDue"]);
   const dueAt = dueRaw ? new Date(dueRaw) : null;
   const validDue = dueAt && !isNaN(dueAt.getTime()) ? dueAt : null;
@@ -227,10 +262,11 @@ function normalise(row, index) {
     label,
     icon: first(row, ["icon"]) ?? key,
     segments,
+    sections,
     total: segments.length,
     pending,
     hasWork: segments.length > 0,
-    cleared: pending === 0,
+    cleared: unfinished === 0,
     dueAt: validDue,
     dueLabel: first(row, ["dueLabel", "sub", "subLabel"]),
     href: first(row, ["href", "link", "route", "url"]),
@@ -277,6 +313,8 @@ export default function HomeNavRings({
   accentBg = "#eff6ff",
   doneColor = "#16a34a",
   pendingColor = "#dc2626",
+  waitingColor = "#f59e0b",
+  stateColors,
   allClearText = "all clear",
   allDoneText = "all done",
   emptyText = "Nothing queued for today.",
@@ -379,7 +417,19 @@ export default function HomeNavRings({
                 .join(" ")}
               disabled={!tappable}
               onClick={tappable ? () => onSelect(c) : undefined}
-              aria-label={`${c.label}. ${c.cleared ? sub : `${c.pending} pending, ${sub}`}`}
+              // Colour is the only carrier of a section's state, so spell it out for anyone
+              // who can't see it.
+              aria-label={[
+                c.label,
+                c.cleared ? sub : `${c.pending} pending, ${sub}`,
+                c.sections
+                  ? c.sections
+                      .map((s) => `${s.label} ${STATE_WORDS[s.state] || s.state}`)
+                      .join(", ")
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(". ")}
             >
               <span className="enav-ringwrap">
                 <span
@@ -388,6 +438,8 @@ export default function HomeNavRings({
                     background: segmentRing(c.segments, {
                       doneColor,
                       pendingColor,
+                      waitingColor,
+                      stateColors,
                       gapDeg,
                       maxSegments,
                     }),

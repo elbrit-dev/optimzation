@@ -18,6 +18,7 @@ import SecondaryDataSummary from "./components/SecondaryDataSummary";
 import SecondaryApprovalSummary from "./components/SecondaryApprovalSummary";
 import HomeNavRings from "./components/HomeNavRings";
 import ProgressRing from "./components/ProgressRing";
+import CommonDataTable from "./components/CommonDataTable/CommonDataTable";
 // import TableDataProvider from "./components/TableDataProvider";
 import jsonata from 'jsonata';
 import { db } from "./firebase";
@@ -1401,28 +1402,43 @@ PLASMIC.registerComponent(HomeNavRings, {
     data: {
       type: "object",
       description:
-        "The action categories for today. Tolerant of shape — accepts an array of categories, a { edges:[{node}] } connection, a { categories|items|rows } wrapper, or an object keyed by category id. Per category (first alias wins): key|id|code|type, label|name|title, icon (approval|visit|secondary|gift|service), and the work itself as EITHER events|items|tasks (done-ness read from done|completed|is_done or a status containing done/complete/approved), OR segments|done as plain booleans, OR total + pending counts. Deadline from dueAt|due|due_date|next_due (ISO or Date) drives the ordering; pass dueLabel|sub to override the computed 'due ...' text.",
+        "The action categories for today. Tolerant of shape — accepts an array of categories, a { edges:[{node}] } connection, a { categories|items|rows } wrapper, or an object keyed by category id. Per category (first alias wins): key|id|code|type, label|name|title, icon (approval|visit|secondary|gift|service), and the work as EITHER sections|tabs|groups — ONE PER SUB-TAB of that page, each { label, state } where state is done (green) / waiting (amber) / none (red) — OR the legacy per-record forms events|items|tasks, segments|done booleans, or total + pending counts. With sections, set `badge` to the record count you want on the badge, since three amber tabs are not '3 to do'. Deadline from dueAt|due|due_date|next_due (ISO or Date) drives the ordering; pass dueLabel|sub to override the computed 'due ...' text.",
       defaultValue: [
         {
           key: "apr",
           label: "Approval",
-          events: [{ done: false }, { done: false }, { done: false }],
+          sections: [
+            { label: "Secondary", state: "waiting" },
+            { label: "Service", state: "none" },
+            { label: "Support", state: "none" },
+          ],
+          badge: 6,
           dueLabel: "due 4:00 pm",
         },
         {
           key: "vis",
           label: "Visit",
-          events: [{ done: true }, { done: false }, { done: false }],
+          sections: [
+            { label: "Doctor", state: "done" },
+            { label: "Chemist", state: "waiting" },
+            { label: "Stockist", state: "none" },
+          ],
+          badge: 2,
           dueLabel: "due 5:30 pm",
         },
         {
           key: "sec",
           label: "Secondary",
-          events: [{ done: true }, { done: true }, { done: false }, { done: false }],
+          sections: [
+            { label: "Draft", state: "done" },
+            { label: "Waiting", state: "waiting" },
+            { label: "Approved", state: "done" },
+            { label: "Rejected", state: "none" },
+          ],
+          badge: 4,
           dueLabel: "due tomorrow",
         },
-        { key: "gift", label: "Gift", events: [{ done: false }], dueLabel: "due Fri" },
-        { key: "srv", label: "Service", events: [] },
+        { key: "srv", label: "Service", sections: [] },
       ],
     },
     sortByDue: {
@@ -1486,7 +1502,19 @@ PLASMIC.registerComponent(HomeNavRings, {
     pendingColor: {
       type: "color",
       defaultValue: "#dc2626",
-      description: "Colour of pending ring segments, the count badge, and the most-urgent sub-label.",
+      description:
+        "Colour of 'none' segments — a tab with no data at all — plus the count badge and the most-urgent sub-label.",
+    },
+    waitingColor: {
+      type: "color",
+      defaultValue: "#f59e0b",
+      description:
+        "Colour of 'waiting' segments — a tab that is started but not finished (awaiting approval, partially entered).",
+    },
+    stateColors: {
+      type: "object",
+      description:
+        "Per-state colour overrides, e.g. { rejected: '#b91c1c' }. Keys: done | waiting | none | rejected. 'rejected' paints as 'none' unless overridden, because 'has rejections' means different things on different pages.",
     },
     allClearText: {
       type: "string",
@@ -1631,6 +1659,296 @@ PLASMIC.registerComponent(ProgressRing, {
     className: { type: "string", description: "CSS class for the ring container." },
   },
   importPath: "./components/ProgressRing",
+});
+
+PLASMIC.registerComponent(CommonDataTable, {
+  name: "CommonDataTable",
+  displayName: "Common DataTable",
+  description:
+    "A complete data table that needs NO provider above it — bind an array to `data` and it works anywhere in Studio. This is the standalone sibling of 'Elbrit DataTable', which only renders inside 'Elbrit DataProvider'. Use this one when the rows already exist as a Plasmic query, a page state, or a code-component output. It detects each column's type from the data (number / date / boolean / text) and from there gives you: a filter row in the header (multiselect for low-cardinality text, operator input for numbers like >100 or 10<>50, range picker for dates, tri-state for booleans), a global search box, multi-column sorting (shift-click to add a column), multi-level grouping with per-group sums, footer totals, a column picker, a frozen first column, XLSX/CSV export, fullscreen, and inline cell editing. Everything is optional — turn the features you don't want off and it degrades to a plain table.",
+  importPath: "./components/CommonDataTable/CommonDataTable",
+  isDefaultExport: true,
+  props: {
+    data: {
+      type: "array",
+      displayName: "data",
+      description:
+        "The rows. An array of flat objects — one object per row, keys become columns. Bind this to a query result or page state.",
+      defaultValue: [
+        { region: "South", hq: "Chennai", doctor: "Dr. Anand", visits: 14, sales: 182000, active: true, last_visit: "2026-07-28" },
+        { region: "South", hq: "Chennai", doctor: "Dr. Bhaskar", visits: 9, sales: 96500, active: true, last_visit: "2026-07-21" },
+        { region: "South", hq: "Madurai", doctor: "Dr. Chitra", visits: 11, sales: 143200, active: false, last_visit: "2026-07-14" },
+        { region: "West", hq: "Pune", doctor: "Dr. Deshmukh", visits: 6, sales: 71800, active: true, last_visit: "2026-07-30" },
+        { region: "West", hq: "Mumbai", doctor: "Dr. Elena", visits: 18, sales: 265400, active: true, last_visit: "2026-08-01" },
+      ],
+    },
+    title: {
+      type: "string",
+      description: "Shown at the left of the toolbar, next to the row count. Also used as the export sheet name.",
+    },
+    loading: {
+      type: "boolean",
+      defaultValue: false,
+      description: "Shows the table's own loading overlay. Bind to your query's loading state.",
+    },
+    emptyMessage: {
+      type: "string",
+      defaultValue: "No records found.",
+      description: "Shown in place of rows when there is nothing to display (no data, or filters matched nothing).",
+    },
+
+    columns: {
+      type: "array",
+      displayName: "columns",
+      description:
+        "Which columns to show and in what order, e.g. ['doctor','hq','sales']. Leave empty and every key found in the data is used, in the order the first rows define.",
+    },
+    hiddenColumns: {
+      type: "array",
+      description:
+        "Columns to drop entirely — they don't appear in the table OR in the column picker. Use this for ids and internal fields. To let the user re-enable a column instead, leave it here empty and just untick it in the picker.",
+    },
+    columnLabels: {
+      type: "object",
+      description:
+        "Nicer headers, as { field: 'Label' } — e.g. { hq: 'Headquarters', custom_doctor_code: 'Doctor code' }. Anything not listed is title-cased from the field name.",
+    },
+    columnTypes: {
+      type: "object",
+      description:
+        "Force a column's type when detection guesses wrong, as { field: 'number' | 'date' | 'boolean' | 'string' }. Type drives the filter UI, alignment, sorting, group aggregation and totals — so this is the first knob to reach for if a column misbehaves.",
+    },
+    columnWidths: {
+      type: "object",
+      description:
+        "Pin specific widths, as { field: '220px' }. Unlisted columns are sized from their content. Columns stay drag-resizable either way.",
+    },
+    dataKey: {
+      type: "string",
+      description:
+        "Field that uniquely identifies a row (e.g. 'name' or 'id'). Only needed for row selection — grouping supplies its own key.",
+    },
+
+    enableSort: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Click a header to sort; shift-click a second header to sort by both. Sorting is type-aware, so 1,234 and 09/08/2026 order correctly.",
+    },
+    enableFilter: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Adds the filter row under the headers, with an input matched to each column's type.",
+    },
+    enableGlobalSearch: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Adds the toolbar search box — matches text anywhere in any visible column.",
+    },
+
+    enableGrouping: {
+      type: "boolean",
+      defaultValue: false,
+      description: "Collapse rows into expandable groups using `groupFields`. Numbers sum per group; text collapses to its most common value with a clickable breakdown.",
+    },
+    groupFields: {
+      type: "array",
+      description:
+        "Fields to group by, outermost first, e.g. ['region','hq'] gives regions that open into HQs that open into rows. Needs `enableGrouping` on.",
+      hidden: (props) => !props.enableGrouping,
+    },
+    nonAggregatableColumns: {
+      type: "array",
+      description:
+        "Columns that must NOT be summed or tallied in a group row — the first row's value is carried up as-is instead. Use for codes and ids that would otherwise show a meaningless total.",
+      hidden: (props) => !props.enableGrouping,
+    },
+    enableSummation: {
+      type: "boolean",
+      defaultValue: false,
+      description: "Adds a footer row totalling every numeric column across ALL filtered rows, not just the current page.",
+    },
+
+    enablePagination: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Show the pager. Turn off to render every row in one scrolling table.",
+    },
+    defaultRows: {
+      type: "number",
+      defaultValue: 10,
+      description: "Rows per page on first render.",
+      hidden: (props) => props.enablePagination === false,
+    },
+    rowsPerPageOptions: {
+      type: "array",
+      defaultValue: [10, 25, 50, 100],
+      description: "Choices in the rows-per-page dropdown.",
+      hidden: (props) => props.enablePagination === false,
+    },
+
+    enableColumnVisibility: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Adds the toolbar column picker so the user can tick columns on and off.",
+    },
+    enableExport: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Adds the export button (Excel and CSV). Exports what's currently filtered and sorted; grouped views export the underlying rows, not the aggregates.",
+    },
+    exportFileName: {
+      type: "string",
+      defaultValue: "table-export",
+      description: "File name without the extension.",
+      hidden: (props) => props.enableExport === false,
+    },
+    enableFreezeFirstColumn: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Adds the lock button, which pins the first column while the rest scrolls sideways.",
+    },
+    enableFullscreen: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Adds the expand button, which reopens the table in a full-screen dialog.",
+    },
+
+    enableDivideBy1Lakh: {
+      type: "boolean",
+      defaultValue: false,
+      description: "Start with every numeric value divided by 100,000 — the usual way to read Indian sales figures.",
+    },
+    showUnitToggle: {
+      type: "boolean",
+      defaultValue: false,
+      description: "Adds a Units/Lakhs button so the reader can switch scale themselves.",
+    },
+    lakhColumns: {
+      type: "array",
+      description:
+        "Which columns the lakh scale applies to, e.g. ['target','sales']. Leave empty and EVERY numeric column is divided — which turns a visit count of 10 into 0.0001, so list your money columns here whenever the table mixes amounts with counts.",
+      hidden: (props) => !props.enableDivideBy1Lakh && !props.showUnitToggle,
+    },
+
+    multiselectColumns: {
+      type: "array",
+      description:
+        "Force these text columns to filter with a tick-list dropdown. Leave empty for the automatic rule: a text column gets a dropdown when it has at most `multiselectMaxOptions` distinct values, otherwise a search box.",
+      hidden: (props) => props.enableFilter === false,
+    },
+    textFilterColumns: {
+      type: "array",
+      description: "Force these columns to filter with a plain search box even if they'd qualify for a dropdown.",
+      hidden: (props) => props.enableFilter === false,
+    },
+    multiselectMaxOptions: {
+      type: "number",
+      defaultValue: 50,
+      description: "Distinct-value ceiling for the automatic dropdown rule above.",
+      hidden: (props) => props.enableFilter === false,
+    },
+    initialSortMeta: {
+      type: "array",
+      description:
+        "Sort order on first render, as [{ field: 'sales', order: -1 }] — order 1 is ascending, -1 descending. Several entries sort by several columns.",
+      hidden: (props) => props.enableSort === false,
+    },
+
+    enableCellEdit: {
+      type: "boolean",
+      defaultValue: false,
+      description: "Let the user click a cell and edit it in place. Only columns listed in `editableColumns` become editable, and the editor matches the column type.",
+    },
+    editableColumns: {
+      type: "array",
+      description: "Which fields are editable, e.g. ['visits','sales']. Nothing is editable until it's listed here.",
+      hidden: (props) => !props.enableCellEdit,
+    },
+    isCellEditable: {
+      type: "function",
+      description: "Optional extra gate: (rowData, field) => boolean. Return false and that one cell stays read-only.",
+      hidden: (props) => !props.enableCellEdit,
+    },
+    onCellEditComplete: {
+      type: "eventHandler",
+      description:
+        "Fires when an edit is committed, with { rowData, field, newValue, oldValue, originalEvent }. The table does NOT mutate your data — persist the change yourself and feed the new array back into `data`.",
+      argTypes: [{ name: "payload", type: "object" }],
+      hidden: (props) => !props.enableCellEdit,
+    },
+
+    selectionMode: {
+      type: "choice",
+      options: ["single", "multiple", "checkbox"],
+      description:
+        "Off by default. 'single' selects one row on click, 'multiple' allows ctrl/shift-click, 'checkbox' adds a tick column. Group rows are never selectable.",
+    },
+    onSelectionChange: {
+      type: "eventHandler",
+      description: "Fires with the selected row (single) or array of rows (multiple/checkbox).",
+      argTypes: [{ name: "selection", type: "object" }],
+    },
+    onRowClick: {
+      type: "eventHandler",
+      description: "Fires with the clicked row. Group rows are ignored, so this only ever gives you real data rows.",
+      argTypes: [{ name: "rowData", type: "object" }],
+    },
+    onRefresh: {
+      type: "eventHandler",
+      description: "Set this and a refresh button appears in the toolbar. Re-run your query here.",
+      argTypes: [],
+    },
+
+    redFields: {
+      type: "array",
+      description: "Columns whose values (and totals) render in red — e.g. shortfalls.",
+    },
+    greenFields: {
+      type: "array",
+      description: "Columns whose values (and totals) render in green — e.g. achievements.",
+    },
+    rowColumnStyles: {
+      type: "object",
+      description:
+        "Code-level conditional styling: an array of rules, each { mode: 'row' | 'column' | 'cell', order, compute }. `compute` returns a React style object — row mode gets (row, ctx), column mode gets (columnData, ctx), cell mode gets (value, row, ctx) and takes a `columns` list. Higher `order` wins on conflicts. Easier to author in code than in Studio.",
+    },
+
+    scrollable: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Keep the header fixed and scroll the body. Turn off to let the table grow to its full height.",
+    },
+    tableHeight: {
+      type: "string",
+      description: "Body height, e.g. '480px' or '60vh'. Left empty it adapts to the viewport (400/500/600px).",
+      hidden: (props) => props.scrollable === false,
+    },
+    size: {
+      type: "choice",
+      options: ["small", "normal", "large"],
+      defaultValue: "small",
+      description: "Row density.",
+    },
+    showGridlines: { type: "boolean", defaultValue: true, description: "Draw cell borders." },
+    stripedRows: { type: "boolean", defaultValue: true, description: "Alternate row background." },
+    showToolbar: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Hide the whole toolbar row — search, column picker, export and the view toggles go with it.",
+    },
+    searchPlaceholder: {
+      type: "string",
+      description: "Placeholder for the global search box.",
+      hidden: (props) => props.enableGlobalSearch === false || props.showToolbar === false,
+    },
+    toolbarActions: {
+      type: "slot",
+      displayName: "Toolbar actions",
+      description: "Drop your own buttons at the right end of the toolbar.",
+      hidden: (props) => props.showToolbar === false,
+    },
+    className: { type: "string", description: "CSS class on the table's outer container." },
+  },
 });
 
 registerElbritCoreComponents(PLASMIC)
