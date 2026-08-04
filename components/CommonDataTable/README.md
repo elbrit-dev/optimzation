@@ -67,6 +67,13 @@ Total                                          1,339 17,800,733 17,433,073   ←
 Pass more than one field — `['region', 'hq']` — and you get a second tier of header rows,
 indented under the first. Still one flat table.
 
+Groups **close and open**: every header carries a chevron, clicking anywhere on the header
+row toggles it, and a **Close all / Open all** button sits in the header bar. Closing an
+outer group takes its inner headers with it. Set `initiallyCollapsed` to open on group
+totals alone, or `collapsibleGroups={false}` for a table that stays fully expanded.
+
+Collapsing only hides rows — **totals and export always cover every row**, whatever is open.
+
 A group header row only claims what a group actually has:
 
 | Column | Group header shows |
@@ -119,6 +126,7 @@ Total          11,399        5                        11,399
   aggregate on every row reads as a per-row value. The rule is *non-numeric parent fields
   carry down*; override it with `parentFields={['warehouse']}`.
 - **Sorting works on the computed totals** — sorting by Qty reorders the warehouses.
+- **Groups close and open** here too, same as with `groupFields`.
 - **Nests to any depth**: a child holding its own `childField` array becomes a header in turn.
 - `childField` and `groupFields` are alternatives. Set `childField` and `groupFields` is
   ignored.
@@ -139,6 +147,8 @@ Total          11,399        5                        11,399
 | `groupFields` | `string[]` | `[]` | Group a flat array by these, outermost first. Empty = flat table. |
 | `childField` | `string` | — | For already-nested data: the field holding each row's child rows. Overrides `groupFields`. |
 | `parentFields` | `string[]` | non-numeric | Which parent fields copy onto child rows. |
+| `collapsibleGroups` | `boolean` | `true` | Group headers close and open. |
+| `initiallyCollapsed` | `boolean` | `false` | Start with every group closed. |
 | `enableSort` | `boolean` | `true` | Click a header: ascending → descending → off. |
 | `initialSort` | `Object` | — | `{ field: 'sales', order: -1 }` — order `1` asc, `-1` desc. |
 | `enableSummation` | `boolean` | `false` | Footer row totalling the numeric columns. |

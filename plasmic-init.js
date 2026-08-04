@@ -1739,6 +1739,22 @@ PLASMIC.registerComponent(CommonDataTable, {
       hidden: (props) => !props.childField,
     },
 
+    collapsibleGroups: {
+      type: "boolean",
+      defaultValue: true,
+      description:
+        "Group headers get a chevron and can be closed and reopened — clicking anywhere on the header row works too, and a Close all / Open all button appears in the header bar. Closing only hides rows: totals and export always cover every row regardless of what is open. Turn off for a table that is always fully expanded.",
+      hidden: (props) => !props.childField && (!props.groupFields || props.groupFields.length === 0),
+    },
+    initiallyCollapsed: {
+      type: "boolean",
+      defaultValue: false,
+      description:
+        "Open with every group closed, so the table starts as a list of group totals the reader opens as needed. Good for a summary-first view over a lot of rows.",
+      hidden: (props) => props.collapsibleGroups === false
+        || (!props.childField && (!props.groupFields || props.groupFields.length === 0)),
+    },
+
     enableSort: {
       type: "boolean",
       defaultValue: true,

@@ -17,7 +17,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { isArray, isEmpty, take, uniq } from 'lodash';
 import { detectColumnTypes } from '../utils/typeUtils';
-import { expandNestedRows, flattenGroupsForDisplay, groupRows } from '../utils/groupUtils';
+import { applyCollapse, expandNestedRows, flattenGroupsForDisplay, groupRows } from '../utils/groupUtils';
 import { sortRows, toggleSort } from '../utils/sortUtils';
 import { getDataKeys, getDataValue, isInternalKey, sumColumn, toPlainRow } from '../utils/valueUtils';
 
@@ -25,6 +25,8 @@ import { getDataKeys, getDataValue, isInternalKey, sumColumn, toPlainRow } from 
 const COLUMN_SCAN_ROWS = 50;
 /** Child rows folded into the type-detection sample when data arrives nested. */
 const CHILD_TYPE_SAMPLE = 200;
+/** Shared empty set, so "nothing collapsed" keeps a stable identity across renders. */
+const EMPTY_KEYS = new Set();
 
 /**
  * Hold a config array/object stable across renders while its contents are unchanged.
@@ -100,6 +102,7 @@ function buildTypeSample(rows, childField) {
  * @param {string} [params.childField] field holding child rows, for already-nested data
  * @param {Array<string>} [params.parentFields] parent fields carried onto child rows
  * @param {{field: string, order: number}} [params.initialSort]
+ * @param {boolean} [params.initiallyCollapsed] start with every group closed
  */
 export function useCommonTablePipeline({
   data,
@@ -111,6 +114,7 @@ export function useCommonTablePipeline({
   parentFields: parentFieldsRaw,
   enableSort = true,
   initialSort = null,
+  initiallyCollapsed = false,
 }) {
   const columnsProp = useStableConfig(columnsRaw);
   const hiddenColumns = useStableConfig(hiddenColumnsRaw);
@@ -229,6 +233,43 @@ export function useCommonTablePipeline({
     setSort((current) => toggleSort(current, col));
   }, []);
 
+  /* ------------------------------ collapsing ----------------------------- */
+
+  const groupKeys = useMemo(
+    () => displayRows.filter((row) => row?.__isGroupRow__).map((row) => row.__rowKey__),
+    [displayRows],
+  );
+
+  // `null` means "nobody has clicked yet", so `initiallyCollapsed` still governs. The first
+  // toggle materializes a real set and takes over from there.
+  const [collapsedOverride, setCollapsedOverride] = useState(null);
+
+  const collapsedKeys = useMemo(() => {
+    if (collapsedOverride) return collapsedOverride;
+    return initiallyCollapsed ? new Set(groupKeys) : EMPTY_KEYS;
+  }, [collapsedOverride, initiallyCollapsed, groupKeys]);
+
+  const toggleGroup = useCallback((key) => {
+    setCollapsedOverride((current) => {
+      const next = new Set(current ?? (initiallyCollapsed ? groupKeys : []));
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, [initiallyCollapsed, groupKeys]);
+
+  const allCollapsed = groupKeys.length > 0 && groupKeys.every((key) => collapsedKeys.has(key));
+
+  const toggleAllGroups = useCallback(() => {
+    setCollapsedOverride(allCollapsed ? new Set() : new Set(groupKeys));
+  }, [allCollapsed, groupKeys]);
+
+  /** What actually renders — collapsing is a view filter, nothing upstream sees it. */
+  const visibleRows = useMemo(
+    () => applyCollapse(displayRows, collapsedKeys),
+    [displayRows, collapsedKeys],
+  );
+
   return {
     rows,
     leafRows,
@@ -236,11 +277,16 @@ export function useCommonTablePipeline({
     columnTypes,
     isGrouped,
     displayRows,
+    visibleRows,
     groupCount,
     columnTotals,
     sort: activeSort,
     setSort,
     toggleSortForColumn,
+    collapsedKeys,
+    toggleGroup,
+    toggleAllGroups,
+    allCollapsed,
   };
 }
 

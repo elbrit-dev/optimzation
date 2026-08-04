@@ -121,6 +121,7 @@ export function groupRows(data, fields, options = {}) {
       summary.__groupPath__ = path;
       summary.__groupRows__ = children;
       summary.__groupCount__ = countLeaves(children);
+      summary.__rowKey__ = `g${level}:${path.map((part) => String(part ?? '∅')).join('›')}`;
       result.push(summary);
     });
 
@@ -194,12 +195,12 @@ export function expandNestedRows(data, options = {}) {
 
   const out = [];
 
-  const visit = (rows, level) => {
+  const visit = (rows, level, keyPrefix) => {
     // Header rows are built before sorting so a parent can be ordered by a total that only
     // exists once its children have been summed.
     const entryByRow = new Map();
 
-    rows.forEach((row) => {
+    rows.forEach((row, index) => {
       if (!row || typeof row !== 'object') return;
       const kids = getCell(row, childField);
       if (!isArray(kids) || kids.length === 0) {
@@ -215,7 +216,11 @@ export function expandNestedRows(data, options = {}) {
 
       const children = kids
         .filter((child) => child && typeof child === 'object')
-        .map((child) => ({ ...carried, ...toPlainRow(child) }));
+        .map((child, childIndex) => ({
+          ...carried,
+          ...toPlainRow(child),
+          __rowKey__: `${keyPrefix}${index}.${childIndex}`,
+        }));
 
       const header = { ...toPlainRow(row) };
       delete header[childField];
@@ -228,23 +233,24 @@ export function expandNestedRows(data, options = {}) {
       header.__isGroupRow__ = true;
       header.__groupLevel__ = level;
       header.__groupCount__ = countLeaves(kids);
+      header.__rowKey__ = `${keyPrefix}${index}`;
       // The name badge hangs off the first column this parent actually names itself in.
       header.__groupField__ =
         columns.find((col) => !isNil(header[col]) && (columnTypes[col] || 'string') !== 'number')
         ?? columns[0];
 
-      entryByRow.set(header, children);
+      entryByRow.set(header, { children, keyPrefix: `${header.__rowKey__}.` });
     });
 
     const ordered = sortRowsFn ? sortRowsFn([...entryByRow.keys()]) : [...entryByRow.keys()];
     ordered.forEach((row) => {
       out.push(row);
-      const children = entryByRow.get(row);
-      if (children) visit(children, level + 1);
+      const entry = entryByRow.get(row);
+      if (entry) visit(entry.children, level + 1, entry.keyPrefix);
     });
   };
 
-  visit(data, 0);
+  visit(data, 0, 'n');
   return out;
 }
 
@@ -263,13 +269,65 @@ export function expandNestedRows(data, options = {}) {
 export function flattenGroupsForDisplay(rows) {
   if (!isArray(rows)) return [];
   const out = [];
+  let leafIndex = 0;
+
   const visit = (list) => {
     list.forEach((row) => {
       if (!row) return;
-      out.push(row);
-      if (row.__isGroupRow__ && isArray(row.__groupRows__)) visit(row.__groupRows__);
+      if (row.__isGroupRow__) {
+        out.push(row);
+        if (isArray(row.__groupRows__)) visit(row.__groupRows__);
+        return;
+      }
+      // Every display row needs a stable key of its own — see the note on `__rowKey__`
+      // in CommonDataTable. Copied rather than mutated: these are the caller's objects.
+      out.push(row.__rowKey__ ? row : { ...row, __rowKey__: `r${leafIndex++}` });
     });
   };
+
   visit(rows);
+  return out;
+}
+
+/**
+ * Hide the rows underneath collapsed group headers.
+ *
+ * Applied last, as a pure view filter over the already-built display list, so opening and
+ * closing a group never re-groups, re-sorts or re-totals anything — and export still sees
+ * every row regardless of what is open on screen.
+ *
+ * @param {Array<Object>} rows display rows from {@link flattenGroupsForDisplay} or
+ *   {@link expandNestedRows}
+ * @param {Set<string>} collapsedKeys `__rowKey__` of every collapsed header
+ */
+export function applyCollapse(rows, collapsedKeys) {
+  if (!isArray(rows) || !collapsedKeys || collapsedKeys.size === 0) return rows;
+
+  const out = [];
+  let hiddenBelowLevel = null;
+
+  for (const row of rows) {
+    const level = row?.__isGroupRow__ ? row.__groupLevel__ : null;
+
+    if (hiddenBelowLevel !== null) {
+      // A header at the same depth or shallower closes out the hidden run.
+      if (level !== null && level <= hiddenBelowLevel) hiddenBelowLevel = null;
+      else continue;
+    }
+
+    if (level === null) {
+      out.push(row);
+      continue;
+    }
+
+    // Headers are re-emitted as new objects carrying their own open/closed flag.
+    // PrimeReact's BodyCell is React.memo with a shallow compare, so a header that keeps
+    // both its row object and its row index — the one that never moves — would otherwise
+    // render a stale chevron while its rows correctly disappear.
+    const closed = collapsedKeys.has(row.__rowKey__);
+    out.push({ ...row, __collapsed__: closed });
+    if (closed) hiddenBelowLevel = row.__groupLevel__;
+  }
+
   return out;
 }

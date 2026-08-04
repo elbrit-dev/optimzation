@@ -8,7 +8,8 @@
  * above it. Deliberately small: grouping, sorting, totals and export — nothing else.
  *
  * Grouping renders as a header row per group with that group's totals, followed by the
- * group's rows directly beneath it. No expanding, no nested tables.
+ * group's rows directly beneath it — click a header to close or open it. One continuous
+ * table throughout: collapsing hides rows, it never swaps in a nested sub-table.
  *
  * Nothing in this folder imports from `share/`; copy the folder and it still runs.
  *
@@ -84,6 +85,8 @@ function CommonDataTable({
   groupFields,
   childField,
   parentFields,
+  collapsibleGroups = true,
+  initiallyCollapsed = false,
 
   /* features */
   enableSort = true,
@@ -104,8 +107,9 @@ function CommonDataTable({
 }) {
   const {
     displayColumns, columnTypes, isGrouped,
-    leafRows, displayRows, groupCount, columnTotals,
+    leafRows, visibleRows, groupCount, columnTotals,
     sort, toggleSortForColumn,
+    toggleGroup, toggleAllGroups, allCollapsed,
   } = useCommonTablePipeline({
     data,
     columns: columnsProp,
@@ -116,7 +120,10 @@ function CommonDataTable({
     parentFields,
     enableSort,
     initialSort,
+    initiallyCollapsed: collapsibleGroups && initiallyCollapsed,
   });
+
+  const canCollapse = isGrouped && collapsibleGroups;
 
   const [isExporting, setIsExporting] = useState(false);
 
@@ -148,23 +155,38 @@ function CommonDataTable({
     return function bodyTemplate(row) {
       const text = formatCell(getDataValue(row, col), type);
       const isGroupName = row?.__isGroupRow__ && col === row.__groupField__;
+      const isClosed = isGroupName && row.__collapsed__ === true;
 
       return (
         <div
-          className={`truncate ${isNumeric ? 'text-right tabular-nums' : 'text-left'}`}
+          className={`flex items-center gap-1 truncate ${isNumeric ? 'justify-end tabular-nums' : 'justify-start'}`}
           style={isGroupName ? { paddingLeft: `${(row.__groupLevel__ ?? 0) * 0.85}rem` } : undefined}
           title={text || undefined}
         >
-          {text}
+          {isGroupName && canCollapse && (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                toggleGroup(row.__rowKey__);
+              }}
+              className="shrink-0 text-gray-500 hover:text-gray-800"
+              aria-expanded={!isClosed}
+              aria-label={`${isClosed ? 'Open' : 'Close'} ${text || 'group'}`}
+            >
+              <i className={`pi ${isClosed ? 'pi-chevron-right' : 'pi-chevron-down'} text-[10px]`} />
+            </button>
+          )}
+          <span className="truncate">{text}</span>
           {isGroupName && row.__groupCount__ > 0 && (
-            <span className="ml-1.5 text-[10px] font-normal text-gray-500">
+            <span className="shrink-0 text-[10px] font-normal text-gray-500">
               ({row.__groupCount__.toLocaleString('en-US')})
             </span>
           )}
         </div>
       );
     };
-  }, [columnTypes, formatCell]);
+  }, [columnTypes, formatCell, canCollapse, toggleGroup]);
 
   /* --------------------------------- headers ------------------------------ */
 
@@ -228,12 +250,13 @@ function CommonDataTable({
 
   const rowClassName = useCallback((row) => {
     if (!row?.__isGroupRow__) return '';
-    return row.__groupLevel__ === 0
+    const base = row.__groupLevel__ === 0
       ? 'font-semibold bg-blue-50/60'
       : 'font-medium bg-gray-50';
-  }, []);
+    return canCollapse ? `${base} cursor-pointer` : base;
+  }, [canCollapse]);
 
-  const showHeaderBar = Boolean(title) || enableExport;
+  const showHeaderBar = Boolean(title) || enableExport || canCollapse;
 
   return (
     <div
@@ -250,6 +273,15 @@ function CommonDataTable({
                 : `${leafRows.length.toLocaleString('en-US')} ${leafRows.length === 1 ? 'row' : 'rows'}`}
             </span>
           </div>
+          {canCollapse && (
+            <Button
+              type="button"
+              icon={allCollapsed ? 'pi pi-plus-circle' : 'pi pi-minus-circle'}
+              label={allCollapsed ? 'Open all' : 'Close all'}
+              onClick={toggleAllGroups}
+              className="p-button-sm p-button-text p-button-secondary"
+            />
+          )}
           {enableExport && (
             <Button
               type="button"
@@ -264,7 +296,14 @@ function CommonDataTable({
       )}
 
       <DataTable
-        value={displayRows}
+        value={visibleRows}
+        /**
+         * Rows must be keyed by identity, not position. Without `dataKey` PrimeReact keys
+         * them by index, so collapsing a group left the header that stayed at index 0
+         * showing a stale open chevron while every row that shifted position re-rendered
+         * correctly.
+         */
+        dataKey={isGrouped ? '__rowKey__' : undefined}
         loading={loading}
         emptyMessage={emptyMessage}
         scrollable={scrollable}
@@ -274,6 +313,9 @@ function CommonDataTable({
         showGridlines={showGridlines}
         stripedRows={stripedRows}
         rowClassName={rowClassName}
+        onRowClick={canCollapse ? (event) => {
+          if (event.data?.__isGroupRow__) toggleGroup(event.data.__rowKey__);
+        } : undefined}
         className={`${size === 'small' ? 'p-datatable-sm' : size === 'large' ? 'p-datatable-lg' : ''} w-full`}
         style={{ minWidth: '100%' }}
       >
