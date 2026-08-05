@@ -3,6 +3,7 @@
 import { DataProvider as PlasmicDataProvider } from '@plasmicapp/loader-nextjs';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import DataProvider from './DataProvider';
+import AlphabetRail from './views/AlphabetRail';
 import ProductSearchBar from './views/ProductSearchBar';
 import SortSheet from './views/SortSheet';
 import { DataViewContext } from '../contexts/ViewContext';
@@ -100,6 +101,9 @@ export default function DataProviderViews({
   sortOptions,
   sortSheetTitle = 'Sort products',
   hideNativeFilterSort = false,
+  // --- A–Z letter rail (provider-owned; jumps to [data-letter] sections in the slot) ---
+  showLetterRail = false,
+  letterRailField = '',
   // --- passthrough to DataProvider ---
   presetDataSource,
   presetName,
@@ -217,7 +221,14 @@ export default function DataProviderViews({
         <PlasmicDataProvider name="view" data={viewCtx}>
           <div className={className ?? 'flex flex-col min-h-0 flex-1'}>
             {viewSwitcherPosition === 'top' ? standaloneSwitcher : null}
-            {children}
+            {showLetterRail ? (
+              <div className="flex min-h-0 flex-1 gap-1">
+                <div className="min-w-0 flex-1">{children}</div>
+                <AlphabetRail field={letterRailField || undefined} />
+              </div>
+            ) : (
+              children
+            )}
             {viewSwitcherPosition === 'bottom' ? standaloneSwitcher : null}
           </div>
         </PlasmicDataProvider>

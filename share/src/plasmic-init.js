@@ -142,6 +142,18 @@ const dataProviderViewsMeta = {
       description:
         'Hide the built-in Filter / Sort button even without sortOptions. Applied-filter chips stay visible either way.',
     },
+    // --- A–Z letter rail ---
+    showLetterRail: {
+      type: 'boolean',
+      defaultValue: false,
+      description:
+        'A–Z jump rail down the right edge, owned by the provider. Clicking a letter scrolls to the element with a matching data-letter attribute in the slot (Product Catalog Cards renders these; any custom layout can add data-letter="A" to its sections). Letters with no data are dimmed; the active letter tracks scrolling.',
+    },
+    letterRailField: {
+      type: 'string',
+      description:
+        'Column that feeds the rail\'s letters, e.g. "brand__name" — connect this and search/filter dim letters live from the provider\'s own data. Leave empty to let the rail learn its letters from the rendered data-letter sections instead.',
+    },
     // --- identical to Elbrit DataProvider ---
     presetDataSource: {
       type: 'string',
