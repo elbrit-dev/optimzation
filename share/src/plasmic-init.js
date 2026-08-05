@@ -2,6 +2,8 @@
 
 import { initPlasmicLoader } from '@plasmicapp/loader-nextjs';
 import DataProvider from './app/datatable/components/DataProvider.jsx';
+import DataProviderViews from './app/datatable/components/DataProviderViews.jsx';
+import DataView from './app/datatable/components/DataView.jsx';
 import DataTableNew from './app/datatable/components/DataTableNew.jsx';
 import Navigation from './app/navigation/components/Navigation.jsx';
 import EventTimeline from './app/timeline/components/EventTimeline.jsx';
@@ -43,6 +45,139 @@ const dataProviderMeta = {
       type: 'eventHandler',
       argTypes: [{ name: 'error', type: 'object' }],
     },
+    children: 'slot',
+  },
+};
+
+const dataProviderViewsMeta = {
+  name: 'DataProviderViews',
+  displayName: 'Elbrit DataProvider (Views)',
+  section: 'ElbritCoreLib',
+  providesData: true,
+  importPath: './src/app/datatable/components/DataProviderViews',
+  isDefaultExport: true,
+  description:
+    'Same data engine as Elbrit DataProvider — one fetch, one filter/sort state — but its single slot is tabbed. Drop an Elbrit DataView per tab and build each layout in Studio against $ctx.data. View state is on $ctx.view.',
+  props: {
+    // --- view/tab surface (this is what differs from Elbrit DataProvider) ---
+    views: {
+      type: 'object',
+      displayName: 'views',
+      description:
+        'Tabs to offer. Either ["Cards","Table"] or [{ id, label, icon }]. `icon` is a PrimeReact class, e.g. "pi pi-th-large". Each id must match a DataView viewId.',
+      defaultValue: [
+        { id: 'cards', label: 'Cards', icon: 'pi pi-th-large' },
+        { id: 'table', label: 'Table', icon: 'pi pi-table' },
+      ],
+    },
+    defaultView: {
+      type: 'string',
+      displayName: 'defaultView',
+      description: 'View id shown first. Defaults to the first entry in views.',
+    },
+    activeView: {
+      type: 'string',
+      displayName: 'activeView',
+      description: 'Leave unset for the provider to own the selection. Set it to drive the tabs from your own state.',
+    },
+    onViewChange: {
+      type: 'eventHandler',
+      argTypes: [{ name: 'viewId', type: 'string' }],
+    },
+    showViewSwitcher: {
+      type: 'boolean',
+      defaultValue: true,
+      description: 'Turn off to build your own switcher in Studio and call $ctx.view.setActiveView(id).',
+    },
+    viewSwitcherPosition: {
+      type: 'choice',
+      options: ['top', 'bottom'],
+      defaultValue: 'top',
+    },
+    viewSwitcherAlign: {
+      type: 'choice',
+      options: ['left', 'center', 'right'],
+      defaultValue: 'right',
+    },
+    viewSwitcherClassName: { type: 'string' },
+    keepInactiveMounted: {
+      type: 'boolean',
+      defaultValue: true,
+      description:
+        'Keep hidden views mounted so a table keeps its scroll/expanded rows when you tab away. Turn off to unmount them.',
+    },
+    className: { type: 'string' },
+    // --- identical to Elbrit DataProvider ---
+    presetDataSource: {
+      type: 'string',
+      displayName: 'presetDataSource',
+      description: 'When set with presetName, loads config from Firebase via resolveFirebaseConfig.',
+    },
+    presetName: {
+      type: 'string',
+      displayName: 'presetName',
+      description: 'Firebase preset name; used with presetDataSource.',
+    },
+    offlineData: 'object',
+    overrides: {
+      type: 'object',
+      displayName: 'overrides',
+      description:
+        'Optional { variables?, token?, config? }. GraphQL variables + Authorization; config is a partial preset overlay merged in DataProvider (not read by DataProviderNew). Full table config is not a Studio prop — use presets or code with __internal.config.',
+    },
+    onDataChange: {
+      type: 'eventHandler',
+      argTypes: [{ name: 'notification', type: 'object' }],
+    },
+    onError: {
+      type: 'eventHandler',
+      argTypes: [{ name: 'error', type: 'object' }],
+    },
+    children: {
+      type: 'slot',
+      defaultValue: [
+        { type: 'component', name: 'DataView', props: { viewId: 'cards' } },
+        {
+          type: 'component',
+          name: 'DataView',
+          props: {
+            viewId: 'table',
+            children: [{ type: 'component', name: 'DataTableNew' }],
+          },
+        },
+      ],
+    },
+  },
+  states: {
+    activeView: {
+      type: 'writable',
+      variableType: 'text',
+      valueProp: 'activeView',
+      onChangeProp: 'onViewChange',
+    },
+  },
+};
+
+const dataViewMeta = {
+  name: 'DataView',
+  displayName: 'Elbrit DataView',
+  section: 'ElbritCoreLib',
+  importPath: './src/app/datatable/components/DataView',
+  isDefaultExport: true,
+  parentComponentName: 'DataProviderViews',
+  description:
+    'One tab of an Elbrit DataProvider (Views). Shows its children only while its viewId is the active view. Layout-transparent by default, so it will not break a table\'s height chain.',
+  props: {
+    viewId: {
+      type: 'string',
+      displayName: 'viewId',
+      description: 'Must match an id in the parent provider\'s `views` list.',
+    },
+    keepMounted: {
+      type: 'boolean',
+      description: 'Overrides the parent\'s keepInactiveMounted for this one view.',
+    },
+    className: { type: 'string' },
     children: 'slot',
   },
 };
@@ -212,6 +347,8 @@ const smartDataTableMeta = {
 export function registerElbritCoreComponents(loader) {
   loader.registerComponent(DataProvider, dataProviderMeta);
   loader.registerComponent(DataTableNew, dataTableNewMeta);
+  loader.registerComponent(DataProviderViews, dataProviderViewsMeta);
+  loader.registerComponent(DataView, dataViewMeta);
   loader.registerComponent(Navigation, navigationMeta);
   loader.registerComponent(EventTimeline, eventTimelineMeta);
   loader.registerComponent(SmartDataProvider, smartDataProviderMeta);
@@ -227,6 +364,8 @@ registerElbritCoreComponents(ElbritCoreLib);
 
 ElbritCoreLib.components = {
   DataProvider,
+  DataProviderViews,
+  DataView,
   DataTableNew,
   Navigation,
   EventTimeline,
@@ -236,4 +375,4 @@ ElbritCoreLib.components = {
 };
 
 export { ElbritCoreLib };
-export { DataProvider, DataTableNew, Navigation, EventTimeline, SmartDataProvider, SmartDataTable, ReportControls };
+export { DataProvider, DataProviderViews, DataView, DataTableNew, Navigation, EventTimeline, SmartDataProvider, SmartDataTable, ReportControls };
