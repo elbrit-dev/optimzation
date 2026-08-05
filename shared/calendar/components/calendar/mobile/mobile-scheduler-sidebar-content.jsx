@@ -193,17 +193,17 @@ export function MobileSchedulerSidebarContent({ open, onClose }) {
       return;
     }
 
-    setDraftSelectedIds((prev) => {
-      let nextIds;
-      if (prev.includes(userId)) {
-        nextIds = prev.filter((id) => id !== userId);
-      } else {
-        nextIds = [...prev, userId];
-      }
+    // Kept out of the updater below: a state updater must stay pure. Calling
+    // setActiveRoleTab from inside it queues an update while React is mid-render,
+    // and React may invoke the updater more than once, so it fired repeatedly.
+    setActiveRoleTab("everyone");
 
-      if (nextIds.length === 0) nextIds = [LOGGED_IN_USER.id];
-      setActiveRoleTab("everyone");
-      return nextIds;
+    setDraftSelectedIds((prev) => {
+      const nextIds = prev.includes(userId)
+        ? prev.filter((id) => id !== userId)
+        : [...prev, userId];
+
+      return nextIds.length > 0 ? nextIds : [LOGGED_IN_USER.id];
     });
   };
 
