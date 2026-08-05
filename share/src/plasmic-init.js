@@ -91,13 +91,16 @@ const dataProviderViewsMeta = {
     },
     viewSwitcherPosition: {
       type: 'choice',
-      options: ['top', 'bottom'],
-      defaultValue: 'top',
+      options: ['header', 'top', 'bottom'],
+      defaultValue: 'header',
+      description:
+        '"header" sits it on the provider control row, right of Filter / Sort and the sync button. "top"/"bottom" give it its own row inside the slot.',
     },
     viewSwitcherAlign: {
       type: 'choice',
       options: ['left', 'center', 'right'],
       defaultValue: 'right',
+      description: 'Only applies to the "top"/"bottom" positions; in the header it is always right-aligned.',
     },
     viewSwitcherClassName: { type: 'string' },
     keepInactiveMounted: {
@@ -107,6 +110,38 @@ const dataProviderViewsMeta = {
         'Keep hidden views mounted so a table keeps its scroll/expanded rows when you tab away. Turn off to unmount them.',
     },
     className: { type: 'string' },
+    // --- search bar ---
+    showSearch: {
+      type: 'boolean',
+      defaultValue: false,
+      description:
+        'Full-width search bar above the control row, with a recent-searches panel. Drives the provider\'s own multi-field search, so cards and table filter together. Requires the query doc to have clientSave: true and a searchFields map.',
+    },
+    searchPlaceholder: { type: 'string', defaultValue: 'Search product or brand…' },
+    showRecentSearches: {
+      type: 'boolean',
+      defaultValue: true,
+      description: 'Show previously used searches when the input is focused (kept in localStorage).',
+    },
+    recentSearchLimit: { type: 'number', defaultValue: 5 },
+    recentSearchStorageKey: {
+      type: 'string',
+      description: 'Set a distinct key to keep one page\'s recent searches separate from another\'s.',
+    },
+    // --- sort sheet ---
+    sortOptions: {
+      type: 'object',
+      displayName: 'sortOptions',
+      description:
+        'Named sort presets shown in a bottom sheet, e.g. [{ label: "Name A → Z", field: "item_name", order: 1 }, { label: "MRP, high → low", field: "mrp", order: -1 }]. order 1 = ascending, -1 = descending ("direction": "asc"/"desc" also accepted). Supplying any preset replaces the built-in Filter / Sort button.',
+    },
+    sortSheetTitle: { type: 'string', defaultValue: 'Sort products' },
+    hideNativeFilterSort: {
+      type: 'boolean',
+      defaultValue: false,
+      description:
+        'Hide the built-in Filter / Sort button even without sortOptions. Applied-filter chips stay visible either way.',
+    },
     // --- identical to Elbrit DataProvider ---
     presetDataSource: {
       type: 'string',

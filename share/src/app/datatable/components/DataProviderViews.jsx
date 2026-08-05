@@ -3,11 +3,13 @@
 import { DataProvider as PlasmicDataProvider } from '@plasmicapp/loader-nextjs';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import DataProvider from './DataProvider';
+import ProductSearchBar from './views/ProductSearchBar';
+import SortSheet from './views/SortSheet';
 import { DataViewContext } from '../contexts/ViewContext';
 
 const DEFAULT_VIEWS = [
   { id: 'cards', label: 'Cards', icon: 'pi pi-th-large' },
-  { id: 'table', label: 'Table', icon: 'pi pi-table' },
+  { id: 'table', label: 'Table', icon: 'pi pi-bars' },
 ];
 
 /** Accepts ['Cards', 'Table'] or [{ id, label, icon }] and returns a normalized, de-duped list. */
@@ -28,34 +30,41 @@ function normalizeViews(views) {
 
 const ALIGN_CLASS = { left: 'justify-start', center: 'justify-center', right: 'justify-end' };
 
-function ViewSwitcher({ views, activeView, onSelect, align, className }) {
+/**
+ * Segmented Cards/Table control. Sized to 2rem to line up with the header's
+ * other controls (Filter / Sort, sync SplitButton) which all set height: '2rem'.
+ */
+function ViewSwitcher({ views, activeView, onSelect, className }) {
   if (views.length < 2) return null;
   return (
-    <div className={`flex ${ALIGN_CLASS[align] ?? ALIGN_CLASS.right} px-2 py-2 sm:px-3 ${className ?? ''}`}>
-      <div role="tablist" aria-label="View" className="inline-flex items-center gap-1 rounded-lg bg-gray-100 p-1">
-        {views.map((view) => {
-          const active = view.id === activeView;
-          return (
-            <button
-              key={view.id}
-              type="button"
-              role="tab"
-              id={`dataview-tab-${view.id}`}
-              aria-selected={active}
-              aria-controls={`dataview-panel-${view.id}`}
-              onClick={() => onSelect(view.id)}
-              className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                active
-                  ? 'bg-white text-gray-900 shadow-sm ring-1 ring-gray-200'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              {view.icon ? <i className={`${view.icon} text-xs`} aria-hidden="true" /> : null}
-              {view.label}
-            </button>
-          );
-        })}
-      </div>
+    <div
+      role="tablist"
+      aria-label="View"
+      className={`inline-flex items-center gap-0.5 rounded-md border border-gray-200 bg-gray-50 p-0.5 ${className ?? ''}`}
+      style={{ height: '2rem' }}
+    >
+      {views.map((view) => {
+        const active = view.id === activeView;
+        return (
+          <button
+            key={view.id}
+            type="button"
+            role="tab"
+            id={`dataview-tab-${view.id}`}
+            aria-selected={active}
+            aria-controls={`dataview-panel-${view.id}`}
+            onClick={() => onSelect(view.id)}
+            className={`inline-flex h-full items-center gap-1.5 whitespace-nowrap rounded px-2.5 text-sm font-medium transition-colors ${
+              active
+                ? 'bg-white text-slate-800 shadow-sm ring-1 ring-gray-200'
+                : 'text-gray-400 hover:text-gray-600'
+            }`}
+          >
+            {view.icon ? <i className={`${view.icon} text-xs`} aria-hidden="true" /> : null}
+            {view.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -76,11 +85,21 @@ export default function DataProviderViews({
   activeView: activeViewProp,
   onViewChange,
   showViewSwitcher = true,
-  viewSwitcherPosition = 'top',
+  viewSwitcherPosition = 'header',
   viewSwitcherAlign = 'right',
   viewSwitcherClassName,
   keepInactiveMounted = true,
   className,
+  // --- search bar (drives the provider's own multi-field searchTerm) ---
+  showSearch = false,
+  searchPlaceholder = 'Search product or brand…',
+  showRecentSearches = true,
+  recentSearchLimit = 5,
+  recentSearchStorageKey,
+  // --- sort sheet (named presets instead of the built-in Filter / Sort sidebar) ---
+  sortOptions,
+  sortSheetTitle = 'Sort products',
+  hideNativeFilterSort = false,
   // --- passthrough to DataProvider ---
   presetDataSource,
   presetName,
@@ -134,15 +153,55 @@ export default function DataProviderViews({
     keepInactiveMounted,
   }), [normalizedViews, resolvedActiveView, setActiveView, keepInactiveMounted]);
 
-  const switcher = showViewSwitcher ? (
+  // Each header element is memoized so `__internal` keeps a stable identity between
+  // renders — inline JSX would change every time and defeat the memo below.
+  const switcher = useMemo(() => (showViewSwitcher ? (
     <ViewSwitcher
       views={normalizedViews}
       activeView={resolvedActiveView}
       onSelect={setActiveView}
-      align={viewSwitcherAlign}
       className={viewSwitcherClassName}
     />
+  ) : null), [showViewSwitcher, normalizedViews, resolvedActiveView, setActiveView, viewSwitcherClassName]);
+
+  // 'header' puts it on the provider's own control row, right of Filter / Sort and
+  // the sync button. 'top'/'bottom' give it a standalone row inside the slot instead.
+  const inHeader = viewSwitcherPosition === 'header';
+  const standaloneSwitcher = switcher && !inHeader ? (
+    <div className={`flex ${ALIGN_CLASS[viewSwitcherAlign] ?? ALIGN_CLASS.right} px-2 py-2 sm:px-3`}>
+      {switcher}
+    </div>
   ) : null;
+
+  const hasSortOptions = Array.isArray(sortOptions) && sortOptions.length > 0;
+
+  // These render inside DataProviderNew's header, which sits within
+  // TableOperationsContext.Provider — so useTableOperations() resolves for them.
+  const sortSheet = useMemo(() => (hasSortOptions ? (
+    <SortSheet options={sortOptions} title={sortSheetTitle} />
+  ) : null), [hasSortOptions, sortOptions, sortSheetTitle]);
+
+  const headerTop = useMemo(() => (showSearch ? (
+    <ProductSearchBar
+      placeholder={searchPlaceholder}
+      showRecents={showRecentSearches}
+      recentLimit={recentSearchLimit}
+      storageKey={recentSearchStorageKey || undefined}
+    />
+  ) : null), [showSearch, searchPlaceholder, showRecentSearches, recentSearchLimit, recentSearchStorageKey]);
+
+  // Sort pill goes left of the sync button; the view switcher stays hard right.
+  const headerRight = inHeader ? switcher : null;
+
+  const internalForProvider = useMemo(() => {
+    const next = { ...__internal };
+    if (headerTop || sortSheet || headerRight) {
+      next.headerSlots = { top: headerTop, left: sortSheet, right: headerRight };
+    }
+    // Only suppress the built-in button when this provider offers a replacement.
+    if (hideNativeFilterSort || hasSortOptions) next.hideNativeFilterSort = true;
+    return next;
+  }, [__internal, headerTop, sortSheet, headerRight, hideNativeFilterSort, hasSortOptions]);
 
   return (
     <DataProvider
@@ -152,14 +211,14 @@ export default function DataProviderViews({
       onDataChange={onDataChange}
       onError={onError}
       overrides={overrides}
-      __internal={__internal}
+      __internal={internalForProvider}
     >
       <DataViewContext.Provider value={viewCtx}>
         <PlasmicDataProvider name="view" data={viewCtx}>
           <div className={className ?? 'flex flex-col min-h-0 flex-1'}>
-            {viewSwitcherPosition === 'top' ? switcher : null}
+            {viewSwitcherPosition === 'top' ? standaloneSwitcher : null}
             {children}
-            {viewSwitcherPosition === 'bottom' ? switcher : null}
+            {viewSwitcherPosition === 'bottom' ? standaloneSwitcher : null}
           </div>
         </PlasmicDataProvider>
       </DataViewContext.Provider>

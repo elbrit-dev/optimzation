@@ -310,6 +310,14 @@ export default function DataProviderNew({
   const {
     skipConfirmDialog = false,
     showProviderHeader = true,
+    // Optional caller-supplied header content: { top, left, right }. `top` is a
+    // full-width row above the control row (e.g. a search bar); `left`/`right`
+    // bracket selectorsJSX inside its existing justify-between row.
+    // Null by default, so callers that don't pass it render exactly as before.
+    headerSlots = null,
+    // Drop the built-in "Filter / Sort" button when the caller supplies its own
+    // sort UI. Applied-filter chips are kept either way.
+    hideNativeFilterSort = false,
     reportDataOverride = null,
     forceBreakdown = null,
     parentColumnName,
@@ -4982,6 +4990,11 @@ export default function DataProviderNew({
   const hasHeaderContent = headerEnabled && (showMonthRangePicker || showBreakdownToggle || showBreakdownControls ||
     showSyncButton);
 
+  // Caller-supplied header content (see the headerSlots prop).
+  const headerSlotTop = headerSlots?.top ?? null;
+  const headerSlotLeft = headerSlots?.left ?? null;
+  const headerSlotRight = headerSlots?.right ?? null;
+
   // Render selectors JSX with enhanced responsive classes
   const selectorsJSX = (
     <>
@@ -5055,6 +5068,7 @@ export default function DataProviderNew({
         {currentQueryDoc?.clientSave === true &&
           (Object.keys(currentQueryDoc?.searchFields || {}).length > 0 || currentQueryDoc?.sortFields) && (
             <>
+              {!hideNativeFilterSort && (
               <Button
                 icon="pi pi-sliders-h"
                 label="Filter / Sort"
@@ -5075,6 +5089,7 @@ export default function DataProviderNew({
                   return count > 0 ? <span className="ml-2 px-2 py-0.5 bg-blue-600 text-white text-xs rounded-full">{count}</span> : null;
                 })()}
               </Button>
+              )}
 
               {/* Applied Sort Button */}
               {sortConfig && sortConfig.field && (() => {
@@ -5406,12 +5421,17 @@ export default function DataProviderNew({
     <>
       <TableOperationsContext.Provider value={contextValue || {}}>
         {/* Header Controls - Responsive container */}
-        {hasHeaderContent && (
+        {(hasHeaderContent || headerSlotTop || headerSlotLeft || headerSlotRight) && (
           <div className="px-2 sm:px-3 md:px-4 lg:px-6 xl:px-8 py-2 sm:py-3 md:py-4 border-b border-gray-200 shrink-0 bg-white min-w-0 overflow-x-auto">
+            {headerSlotTop ? <div className="w-full min-w-0 mb-2 sm:mb-3">{headerSlotTop}</div> : null}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-3 md:gap-4 min-w-0 w-full">
-              <div className="flex-1 min-w-0 w-full">
-                {selectorsJSX}
+              <div className={`flex-1 min-w-0 w-full${headerSlotLeft ? ' flex flex-wrap items-center gap-2 sm:gap-3' : ''}`}>
+                {headerSlotLeft}
+                {hasHeaderContent ? selectorsJSX : null}
               </div>
+              {headerSlotRight ? (
+                <div className="shrink-0 self-end sm:self-auto">{headerSlotRight}</div>
+              ) : null}
             </div>
           </div>
         )}
