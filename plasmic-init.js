@@ -16,6 +16,7 @@ import DevicePrimaryGuard from "./components/DevicePrimaryGuard";
 import ApprovalCard from "./components/ApprovalCard";
 import SecondaryDataSummary from "./components/SecondaryDataSummary";
 import SecondaryApprovalSummary from "./components/SecondaryApprovalSummary";
+import ProductCatalogCards from "./components/ProductCatalogCards";
 import HomeNavRings from "./components/HomeNavRings";
 import ProgressRing from "./components/ProgressRing";
 import CommonDataTable from "./components/CommonDataTable/CommonDataTable";
@@ -1274,6 +1275,69 @@ PLASMIC.registerComponent(SecondaryDataSummary, {
     },
   },
   importPath: "./components/SecondaryDataSummary",
+});
+
+PLASMIC.registerComponent(ProductCatalogCards, {
+  name: "ProductCatalogCards",
+  displayName: "Product Catalog Cards",
+  description:
+    "The A–Z product catalogue card list. One card per BRAND (ACIBRIT, AMLOBRIT, …) with its items as selectable variant pills (10 / 20 / 40); picking a pill swaps the MRP / PTR / PTS row to that item's prices. Cards are grouped into A–Z sections with a letter rail for jumping. Per-warehouse stock is NOT rendered — only the optional GLOBAL STOCK total, and only if `totalStockField` names a column already holding the total. Bind `data` to the item rows, e.g. $ctx.data.main.sortedData when sitting inside Elbrit DataProvider (Views) so search and sort apply.",
+  props: {
+    data: {
+      type: "object",
+      description:
+        "The item rows. Bind to $ctx.data.main.sortedData (or .rawData) inside a provider, or to a query result. Tolerant of shape — accepts an array of nodes, an array of edges, the { edges:[{node}] } connection, or the whole query object. Each node uses brand__name, item_name and custom_last_mrp / custom_last_ptr / custom_last_pts by default.",
+      defaultValue: [
+        { brand__name: "ACIBRIT", item_name: "ACIBRIT 10", custom_last_mrp: 466.45, custom_last_ptr: 355.39, custom_last_pts: 319.85, total_stock: 23780 },
+        { brand__name: "ACIBRIT", item_name: "ACIBRIT 20", custom_last_mrp: 512.1, custom_last_ptr: 390.2, custom_last_pts: 351.18, total_stock: 23780 },
+        { brand__name: "ACIBRIT", item_name: "ACIBRIT 40", custom_last_mrp: 133.29, custom_last_ptr: 101.55, custom_last_pts: 91.4, total_stock: 23780 },
+        { brand__name: "AMLOBRIT", item_name: "AMLOBRIT 10", custom_last_mrp: 126.8, custom_last_ptr: 96.61, custom_last_pts: 86.95, total_stock: 24754 },
+        { brand__name: "AMLOBRIT", item_name: "AMLOBRIT 2.5", custom_last_mrp: 74.5, custom_last_ptr: 56.8, custom_last_pts: 51.1, total_stock: 24754 },
+        { brand__name: "BISOBRIT", item_name: "BISOBRIT 1.25", custom_last_mrp: 232.95, custom_last_ptr: 177.49, custom_last_pts: 159.74, total_stock: 14462 },
+      ],
+    },
+    brandField: {
+      type: "string",
+      defaultValue: "brand__name",
+      description: "Column holding the brand — the card title and the grouping key. Reads flattened (\"brand__name\") or nested ({ brand: { name } }) shapes.",
+    },
+    variantNameField: {
+      type: "string",
+      defaultValue: "item_name",
+      description: "Column holding the item name. The variant pill strips the brand prefix, so \"ROZULA CV 10\" under brand \"ROZULA\" shows as \"CV 10\".",
+    },
+    priceFields: {
+      type: "object",
+      description: "The price row, in order. Defaults to [{ field: \"custom_last_mrp\", label: \"MRP\" }, { field: \"custom_last_ptr\", label: \"PTR\" }, { field: \"custom_last_pts\", label: \"PTS\" }]. Pass fewer or different entries to change the row.",
+    },
+    totalStockField: {
+      type: "string",
+      description: "Column already holding the stock TOTAL, shown as GLOBAL STOCK. Leave empty to hide that block. This component does not sum anything — if your stock is a nested per-warehouse list, add a derivedColumn that totals it and name it here.",
+    },
+    groupByInitial: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Group cards into A–Z sections with the letter rail. Turn OFF when the data is under a non-alphabetical sort (e.g. \"MRP, high → low\"), where letter headings would be meaningless — cards then render as one flat list in the incoming order.",
+    },
+    showLetterRail: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Show the A–Z rail on the right. Letters with no products are dimmed and inert.",
+    },
+    clickable: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Make each card clickable (fires onCardClick). Variant pills always stay independently clickable.",
+    },
+    onCardClick: {
+      type: "eventHandler",
+      description: "Fires when a card is clicked, with { brand, variant, row, variants } — `row` is the currently selected variant's full data row.",
+      argTypes: [{ name: "payload", type: "object" }],
+    },
+    emptyText: { type: "string", defaultValue: "No products to show" },
+    className: { type: "string", description: "CSS class for the outer container." },
+  },
+  importPath: "./components/ProductCatalogCards",
 });
 
 PLASMIC.registerComponent(SecondaryApprovalSummary, {
