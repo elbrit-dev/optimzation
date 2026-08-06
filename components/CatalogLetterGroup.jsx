@@ -176,7 +176,7 @@ export default function CatalogLetterGroup({
     >
       <div className="space-y-3">
         {brands.map(({ brand, rows }) => (
-          <div key={brand} className="mx-auto w-full" style={cardWidth ? { maxWidth: cardWidth } : undefined}>
+          <div key={brand} className="mx-auto w-full" style={cardWidth ? { width: cardWidth, maxWidth: "100%" } : undefined}>
             <ProductCard
               data={rows}
               brand={brand}
