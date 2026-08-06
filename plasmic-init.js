@@ -1475,6 +1475,7 @@ PLASMIC.registerComponent(ProductStockSheet, {
 PLASMIC.registerComponent(CatalogLetterGroup, {
   name: "CatalogLetterGroup",
   displayName: "Catalog Letter Group",
+  defaultStyles: { width: "stretch" },
   description:
     "ONE letter, MANY brand cards — the combined letter + Product Card component. Bind a letter group and every brand in it renders as its own card under a single red letter, instead of repeating Letter Section per brand and duplicating the letter. The letter is STICKY: pinned while its cards scroll, pushed away by the next group (repeat this over the letter-grouped array). Warehouse chips (KA – 3,978 / CB – 0) are built in from the selected variant's warehouses[] and swap when a pill is picked: zero = red, at/below lowStockThreshold = amber. The section carries data-letter, so the provider's A–Z rail works unchanged.",
   props: {

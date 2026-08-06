@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { usePlasmicCanvasContext } from "@plasmicapp/loader-nextjs";
 import ProductCard from "./ProductCard";
 
 /**
@@ -216,11 +217,18 @@ function resolveOffsetPx(value) {
 function LetterSection({ resolvedLetter, showLetter, stickyLetter, stickyOffset, letterClassName, className, children }) {
   const sectionRef = useRef(null);
   const letterRef = useRef(null);
-  // mode: 'static' (in flow) | 'pinned' (fixed at top) | 'bottom' (being pushed out)
+  // mode: 'static' (in flow, at the TOP of its section) | 'pinned' (fixed below
+  // the header while the section scrolls past). There is deliberately no
+  // "pushed out at the bottom" phase — that parked the letter over the last
+  // card. When the section's end approaches, the letter simply unpins and the
+  // next section's letter takes over once it reaches the top.
   const [pin, setPin] = useState({ mode: "static", left: 0, width: 0, height: 0 });
+  // Inside Plasmic Studio the artboard pans instead of scrolling, so viewport
+  // math is meaningless — always render the letter in flow at the top there.
+  const inCanvas = usePlasmicCanvasContext();
 
   useEffect(() => {
-    if (!showLetter || !stickyLetter) return undefined;
+    if (!showLetter || !stickyLetter || inCanvas) return undefined;
     let frame = null;
     const update = () => {
       frame = null;
@@ -230,9 +238,7 @@ function LetterSection({ resolvedLetter, showLetter, stickyLetter, stickyOffset,
       const offset = resolveOffsetPx(stickyOffset);
       const rect = section.getBoundingClientRect();
       const height = letterEl.offsetHeight || 0;
-      let mode = "static";
-      if (rect.top < offset && rect.bottom > offset + height) mode = "pinned";
-      else if (rect.top < offset && rect.bottom <= offset + height) mode = "bottom";
+      const mode = rect.top < offset && rect.bottom > offset + height ? "pinned" : "static";
       setPin((prev) =>
         prev.mode === mode && prev.left === rect.left && prev.width === rect.width && prev.height === height
           ? prev
@@ -251,14 +257,12 @@ function LetterSection({ resolvedLetter, showLetter, stickyLetter, stickyOffset,
       window.removeEventListener("resize", onScroll);
       if (frame != null) window.cancelAnimationFrame(frame);
     };
-  }, [showLetter, stickyLetter, stickyOffset]);
+  }, [showLetter, stickyLetter, stickyOffset, inCanvas]);
 
   const pinnedStyle =
-    pin.mode === "pinned"
+    pin.mode === "pinned" && !inCanvas
       ? { position: "fixed", top: resolveOffsetPx(stickyOffset), left: pin.left, width: pin.width, zIndex: 20 }
-      : pin.mode === "bottom"
-        ? { position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 20 }
-        : undefined;
+      : undefined;
 
   // The heading is EXACTLY CatalogLetterSection's — a plain small red letter,
   // no background, in every state. Pinning only changes its position.
