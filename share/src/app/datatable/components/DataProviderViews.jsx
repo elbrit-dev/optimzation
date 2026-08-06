@@ -108,6 +108,9 @@ export default function DataProviderViews({
   // --- A–Z letter rail (provider-owned; jumps to [data-letter] sections in the slot) ---
   showLetterRail = false,
   letterRailField = '',
+  // Views (by id) where the rail is shown — the table has no letter sections,
+  // so it defaults to the cards view only. Empty array = every view.
+  letterRailViews = ['cards'],
   // --- cache: paint last session's data instantly, refresh behind it.
   // Variant-only (StaleDataBridge): the underlying DataProvider's loading flow
   // is untouched — this only re-provides the published context while it loads. ---
@@ -248,7 +251,12 @@ export default function DataProviderViews({
                 {showLetterRail ? (
                   <div className="flex min-h-0 flex-1 gap-1">
                     <div className="min-w-0 flex-1">{children}</div>
-                    <AlphabetRail field={letterRailField || undefined} />
+                    {/* Rail only on the views that have letter sections (cards).
+                        The wrapper row stays constant so toggling views never
+                        remounts the slot content. */}
+                    {!Array.isArray(letterRailViews) || letterRailViews.length === 0 || letterRailViews.includes(resolvedActiveView) ? (
+                      <AlphabetRail field={letterRailField || undefined} />
+                    ) : null}
                   </div>
                 ) : (
                   children

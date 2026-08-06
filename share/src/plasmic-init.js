@@ -151,6 +151,12 @@ const dataProviderViewsMeta = {
       description:
         'Column that feeds the rail\'s letters, e.g. "brand__name" — connect this and search/filter dim letters live from the provider\'s own data. Leave empty to let the rail learn its letters from the rendered data-letter sections instead.',
     },
+    letterRailViews: {
+      type: 'object',
+      defaultValue: ['cards'],
+      description:
+        'View ids where the rail shows. Defaults to ["cards"] — the table view has no letter sections, so the rail hides there. Empty array = show on every view.',
+    },
     // --- cache ---
     staleWhileRevalidate: {
       type: 'boolean',

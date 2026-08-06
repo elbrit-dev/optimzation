@@ -134,6 +134,12 @@ export default function CatalogLetterGroup({
   // Fixed card width — 320px is the mobile standard. Cards are centered and
   // never exceed the viewport (max-width caps at 100%).
   cardWidth = "320px",
+  // Bind to $ctx.data.main.sortConfig ({ field, direction }) so the sidebar's
+  // sort reorders the brand CARDS within this letter. The provider's own sort
+  // only reaches its top-level rows — it can't see inside the nested
+  // letter→brands→items structure, so the group applies it here. Numeric
+  // fields rank each brand by its best variant's value; otherwise by name.
+  sortBy,
   className,
 }) {
   // One entry per brand, preserving the order brands first appear.
@@ -152,6 +158,34 @@ export default function CatalogLetterGroup({
     const resolved = (letter ? String(letter).trim().charAt(0).toUpperCase() : null) || firstLetter || fallbackLetter;
     return { resolvedLetter: /[A-Z]/.test(resolved) ? resolved : "#", brands: groups };
   }, [data, letter, brandField]);
+
+  // Apply the bound sort to the brand groups inside this letter. Numeric field:
+  // a brand ranks by its BEST variant's value (nulls last). Non-numeric field:
+  // brands sort by name in the requested direction.
+  const sortedBrands = useMemo(() => {
+    const field = sortBy?.field ? String(sortBy.field) : null;
+    if (!field || brands.length < 2) return brands;
+    const dir = String(sortBy.direction ?? "asc").toLowerCase() === "desc" ? -1 : 1;
+    const keyed = brands.map((group) => {
+      let num = null;
+      group.rows.forEach((row) => {
+        const v = toNumber(readField(row, field));
+        if (v != null) num = num == null ? v : Math.max(num, v);
+      });
+      return { group, num };
+    });
+    const numeric = keyed.some((k) => k.num != null);
+    keyed.sort((a, b) => {
+      if (numeric) {
+        if (a.num == null && b.num == null) return 0;
+        if (a.num == null) return 1;
+        if (b.num == null) return -1;
+        return (a.num - b.num) * dir;
+      }
+      return a.group.brand.localeCompare(b.group.brand) * dir;
+    });
+    return keyed.map((k) => k.group);
+  }, [brands, sortBy]);
 
   const renderChips = useMemo(() => {
     if (!showWarehouseChips) return undefined;
@@ -175,7 +209,7 @@ export default function CatalogLetterGroup({
       className={className}
     >
       <div className="space-y-3">
-        {brands.map(({ brand, rows }) => (
+        {sortedBrands.map(({ brand, rows }) => (
           <div key={brand} className="mx-auto w-full" style={cardWidth ? { width: cardWidth, maxWidth: "100%" } : undefined}>
             <ProductCard
               data={rows}

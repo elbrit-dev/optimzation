@@ -1545,6 +1545,11 @@ PLASMIC.registerComponent(CatalogLetterGroup, {
       defaultValue: "320px",
       description: "Fixed card width (the mobile standard). Cards are centered and shrink on viewports narrower than this. Set empty to let cards fill the component's width.",
     },
+    sortBy: {
+      type: "object",
+      description:
+        "Bind to $ctx.data.main.sortConfig so the Sort sidebar reorders the brand cards WITHIN this letter ({ field, direction }). Numeric fields (custom_last_mrp, total_stock, …) rank each brand by its best variant's value; other fields sort brands by name. Letters themselves keep the order of your repeated data.",
+    },
     className: { type: "string" },
   },
   importPath: "./components/CatalogLetterGroup",
