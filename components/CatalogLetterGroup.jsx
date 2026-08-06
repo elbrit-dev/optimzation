@@ -18,10 +18,12 @@ import ProductCard from "./ProductCard";
  * at/below lowStockThreshold = amber.
  *
  * DATA (`data` prop) — tolerant of shape:
+ *   { letter: "A", brands: [{ brand__name, items }] }   letter group with brand
+ *       grouping inside (the recommended transformer shape — repeat this
+ *       component per letter and bind currentItem)
  *   { letter: "A", items: [rows across brands] }        rows grouped by brandField
- *   [{ letter, brand__name, items }, ...]               per-brand entries (your
- *       transformer's shape) — pass one letter's entries, or the whole dataset
- *       plus the `letter` prop to select
+ *   [{ letter, brand__name, items }, ...]               per-brand entries — pass one
+ *       letter's entries, or the whole dataset plus the `letter` prop to select
  *   [rows]                                              flat rows, grouped by brandField
  * Rows use the same fields as Product Card, plus warehouses[{ code, qty }] and
  * total_stock. Rows with a null brand fall back to their entry's brand__name.
@@ -58,8 +60,19 @@ function collectRows(data, letterFilter) {
   const wanted = letterFilter ? String(letterFilter).trim().charAt(0).toUpperCase() : null;
   const pushEntry = (entry) => {
     if (!entry || typeof entry !== "object") return;
+    const entryLetter = entry.letter != null ? String(entry.letter).trim().charAt(0).toUpperCase() : null;
+    // Letter group with brand grouping inside: { letter, brands: [{ brand__name, items }] }
+    if (Array.isArray(entry.brands)) {
+      if (wanted && entryLetter && entryLetter !== wanted) return;
+      entry.brands.forEach((brandEntry) => {
+        if (!brandEntry || typeof brandEntry !== "object" || !Array.isArray(brandEntry.items)) return;
+        brandEntry.items.filter(Boolean).forEach((row) =>
+          out.push({ row, entryBrand: brandEntry.brand__name ?? brandEntry.brand ?? null, entryLetter }),
+        );
+      });
+      return;
+    }
     if (Array.isArray(entry.items)) {
-      const entryLetter = entry.letter != null ? String(entry.letter).trim().charAt(0).toUpperCase() : null;
       if (wanted && entryLetter && entryLetter !== wanted) return;
       entry.items.filter(Boolean).forEach((row) =>
         out.push({ row, entryBrand: entry.brand__name ?? entry.brand ?? null, entryLetter }),
@@ -108,11 +121,6 @@ export default function CatalogLetterGroup({
   stickyLetter = true,
   stickyOffset = "0px",
   letterClassName,
-  // 'vertical' = one card per row (mobile). 'horizontal' = responsive grid: as
-  // many cards per row as fit at minCardWidth (desktop). Set per screen variant
-  // in Studio to switch between them by breakpoint.
-  direction = "vertical",
-  minCardWidth = "320px",
   brandField = "brand__name",
   variantNameField = "item_name",
   priceFields,
@@ -166,14 +174,7 @@ export default function CatalogLetterGroup({
           {resolvedLetter}
         </h2>
       ) : null}
-      <div
-        className={direction === "horizontal" ? "grid gap-3" : "space-y-3"}
-        style={
-          direction === "horizontal"
-            ? { gridTemplateColumns: `repeat(auto-fill, minmax(min(${minCardWidth}, 100%), 1fr))` }
-            : undefined
-        }
-      >
+      <div className="space-y-3">
         {brands.map(({ brand, rows }) => (
           <ProductCard
             key={brand}

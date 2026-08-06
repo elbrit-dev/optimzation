@@ -1504,17 +1504,6 @@ PLASMIC.registerComponent(CatalogLetterGroup, {
       defaultValue: "0px",
       description: "Top offset for the pinned letter — set to your sticky header's height (e.g. \"56px\") so the letter pins below it.",
     },
-    direction: {
-      type: "choice",
-      options: ["vertical", "horizontal"],
-      defaultValue: "vertical",
-      description: "vertical = one card per row (mobile). horizontal = responsive grid: as many cards per row as fit at minCardWidth (desktop). Set this per screen variant in Studio to stack on mobile and grid on desktop.",
-    },
-    minCardWidth: {
-      type: "string",
-      defaultValue: "320px",
-      description: "horizontal only: minimum card width — cards per row = however many fit. Narrow screens fall back to one column automatically.",
-    },
     letterClassName: {
       type: "string",
       description: "Replaces the letter's default classes entirely (default: sticky red letter on a translucent page-colored strip).",

@@ -84,29 +84,57 @@ export default function AlphabetRail({ field, className }) {
   const presentLetters = useMemo(() => dataLetters ?? domLetters ?? new Set(), [dataLetters, domLetters]);
   const presentKey = useMemo(() => [...presentLetters].sort().join(''), [presentLetters]);
 
-  // Track which section is in view so the active bubble follows the scroll.
+  // Track which section sits under the probe line (20% down the viewport) so the
+  // active bubble follows the scroll. A rAF-throttled scroll listener that
+  // re-queries [data-letter] sections each frame is deterministic where
+  // IntersectionObserver is not: it keeps working with very tall sections,
+  // several sections per letter, and sections that mount after the rail.
   useEffect(() => {
-    const container = getContainer();
-    if (!container) return undefined;
-    const sections = Array.from(container.querySelectorAll('[data-letter]'));
-    if (sections.length === 0) return undefined;
-    setActiveLetter((current) =>
-      current && presentLetters.has(current) ? current : (sections[0]?.dataset?.letter ?? null),
-    );
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries
-          .filter((e) => e.isIntersecting)
-          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
-        if (visible[0]?.target?.dataset?.letter) setActiveLetter(visible[0].target.dataset.letter);
-      },
-      { rootMargin: '-8% 0px -80% 0px', threshold: 0 },
-    );
-    sections.forEach((el) => observer.observe(el));
-    return () => observer.disconnect();
-    // presentKey re-arms the observer when sections appear/disappear (filtering).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [presentKey, rows.length, getContainer]);
+    let frame = null;
+    const updateActive = () => {
+      frame = null;
+      const container = getContainer();
+      if (!container) return;
+      const sections = container.querySelectorAll('[data-letter]');
+      if (sections.length === 0) return;
+      const probeY = window.innerHeight * 0.2;
+      // The section spanning the probe line owns it…
+      let current = null;
+      for (const el of sections) {
+        const rect = el.getBoundingClientRect();
+        if (rect.top <= probeY && rect.bottom > probeY) {
+          current = el.dataset.letter;
+          break;
+        }
+      }
+      // …otherwise the nearest section top above it (or the first section).
+      if (current == null) {
+        let bestTop = -Infinity;
+        for (const el of sections) {
+          const rect = el.getBoundingClientRect();
+          if (rect.top <= probeY && rect.top > bestTop) {
+            bestTop = rect.top;
+            current = el.dataset.letter;
+          }
+        }
+        if (current == null) current = sections[0].dataset.letter;
+      }
+      if (current) setActiveLetter((prev) => (prev === current ? prev : current));
+    };
+    const onScroll = () => {
+      if (frame == null) frame = window.requestAnimationFrame(updateActive);
+    };
+    updateActive();
+    // Capture phase catches scrolls of nested containers, not just the window.
+    document.addEventListener('scroll', onScroll, { capture: true, passive: true });
+    window.addEventListener('resize', onScroll);
+    return () => {
+      document.removeEventListener('scroll', onScroll, { capture: true });
+      window.removeEventListener('resize', onScroll);
+      if (frame != null) window.cancelAnimationFrame(frame);
+    };
+    // presentKey / rows re-run the initial compute when the data set changes.
+  }, [getContainer, presentKey, rows.length]);
 
   const jumpTo = useCallback((letter, behavior = 'smooth') => {
     const el = getContainer()?.querySelector(`[data-letter="${letter}"]`);
