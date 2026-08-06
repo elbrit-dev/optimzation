@@ -42,6 +42,18 @@ function formatInt(value) {
   return Math.round(n).toLocaleString("en-IN");
 }
 
+/**
+ * "/product/{code}" -> "/product/ROZULA%20CV%2010": {placeholders} come from the
+ * active item's fields, with {brand} / {variant} available as extras. Unknown
+ * placeholders resolve to an empty string.
+ */
+function resolveHrefTemplate(template, item, extras) {
+  return String(template).replace(/\{([\w.]+)\}/g, (match, key) => {
+    const value = extras?.[key] !== undefined ? extras[key] : item ? item[key] : undefined;
+    return value == null ? "" : encodeURIComponent(String(value));
+  });
+}
+
 /** "CLAVBRIT 375" with brand "CLAVBRIT" -> "375"; falls back to the full name. */
 function variantLabel(itemName, brand) {
   const name = String(itemName ?? "").trim();
@@ -114,6 +126,12 @@ export default function ProductStockSheet({
   totalLabel = "Total across warehouses",
   showCta = true,
   ctaLabel = "View full product page",
+  // URL template for the CTA, e.g. "/product/{code}" or "/product?item={item_name}".
+  // {placeholders} are filled from the ACTIVE item's fields plus {brand} and
+  // {variant}, URL-encoded. When set, the CTA navigates directly — no Studio
+  // interaction needed. onCtaClick still fires either way.
+  ctaHref = "",
+  ctaTarget = "_self",
   onCtaClick,
   onVariantChange,
   sheetHeight = "85vh",
@@ -350,24 +368,34 @@ export default function ProductStockSheet({
             <span className="text-sm font-semibold text-slate-700">{totalLabel}</span>
             <span className="text-lg font-extrabold text-[#1e2a5a]">{formatInt(total)}</span>
           </div>
-          {showCta ? (
-            <button
-              type="button"
-              onClick={() => {
-                if (onCtaClick) {
-                  onCtaClick({
-                    brand: brandName,
-                    variant: active ? variantLabel(active?.[variantNameField], brandName) : null,
-                    item: active,
-                  });
-                }
-              }}
-              className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-[#1e2a5a] py-3 text-sm font-semibold text-white transition-colors hover:bg-[#27356e]"
-            >
-              {ctaLabel}
-              <i className="pi pi-arrow-right text-xs" aria-hidden="true" />
-            </button>
-          ) : null}
+          {showCta ? (() => {
+            const payload = {
+              brand: brandName,
+              variant: active ? variantLabel(active?.[variantNameField], brandName) : null,
+              item: active,
+            };
+            const href = ctaHref
+              ? resolveHrefTemplate(ctaHref, active, { brand: brandName, variant: payload.variant ?? "" })
+              : "";
+            const ctaClasses =
+              "mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-[#1e2a5a] py-3 text-sm font-semibold text-white transition-colors hover:bg-[#27356e]";
+            const fire = () => {
+              if (onCtaClick) onCtaClick(payload);
+            };
+            // With a URL template, render a real link — navigation with no Studio
+            // interaction required. onCtaClick still fires before the browser follows it.
+            return href ? (
+              <a href={href} target={ctaTarget} rel={ctaTarget === "_blank" ? "noopener noreferrer" : undefined} onClick={fire} className={ctaClasses}>
+                {ctaLabel}
+                <i className="pi pi-arrow-right text-xs" aria-hidden="true" />
+              </a>
+            ) : (
+              <button type="button" onClick={fire} className={ctaClasses}>
+                {ctaLabel}
+                <i className="pi pi-arrow-right text-xs" aria-hidden="true" />
+              </button>
+            );
+          })() : null}
         </div>
       </div>
     </Sidebar>

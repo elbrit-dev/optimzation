@@ -260,19 +260,22 @@ function LetterSection({ resolvedLetter, showLetter, stickyLetter, stickyOffset,
         ? { position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 20 }
         : undefined;
 
+  // The heading is EXACTLY CatalogLetterSection's — a plain small red letter,
+  // no background, in every state. Pinning only changes its position.
+  const letterClasses = "px-1 text-sm font-bold text-red-600";
+
   return (
-    <section ref={sectionRef} data-letter={resolvedLetter} className={`relative scroll-mt-4 ${className ?? ""}`}>
+    <section
+      ref={sectionRef}
+      data-letter={resolvedLetter}
+      className={`relative scroll-mt-4 space-y-3 ${className ?? ""}`}
+    >
       {showLetter ? (
         // The placeholder keeps the row's space when the heading leaves the flow.
         <div style={pin.mode !== "static" && pin.height ? { height: pin.height } : undefined}>
           <h2
             ref={letterRef}
-            className={
-              letterClassName ??
-              `bg-gray-50/95 px-3 py-2 text-base font-bold text-red-600 backdrop-blur-sm ${
-                pin.mode === "pinned" ? "border-b border-gray-200/70 shadow-sm" : ""
-              }`
-            }
+            className={letterClassName ?? letterClasses}
             style={pinnedStyle}
           >
             {resolvedLetter}

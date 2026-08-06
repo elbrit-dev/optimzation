@@ -1437,9 +1437,20 @@ PLASMIC.registerComponent(ProductStockSheet, {
     totalLabel: { type: "string", defaultValue: "Total across warehouses" },
     showCta: { type: "boolean", defaultValue: true },
     ctaLabel: { type: "string", defaultValue: "View full product page" },
+    ctaHref: {
+      type: "string",
+      description:
+        "URL template for the CTA — the no-interaction way to navigate. {placeholders} fill from the ACTIVE item's fields plus {brand} and {variant}, URL-encoded. E.g. \"/product/{code}\" or \"/product?item={item_name}\". Leave empty to handle navigation yourself via onCtaClick.",
+    },
+    ctaTarget: {
+      type: "choice",
+      options: ["_self", "_blank"],
+      defaultValue: "_self",
+      description: "Where the ctaHref link opens.",
+    },
     onCtaClick: {
       type: "eventHandler",
-      description: "Wire the navigation here — the target URL is not part of the data. Payload: { brand, variant, item }.",
+      description: "Fires on CTA click (also when ctaHref is set, before navigation). Payload: { brand, variant, item }.",
       argTypes: [{ name: "payload", type: "object" }],
     },
     onVariantChange: {
