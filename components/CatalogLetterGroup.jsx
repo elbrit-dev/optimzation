@@ -108,6 +108,11 @@ export default function CatalogLetterGroup({
   stickyLetter = true,
   stickyOffset = "0px",
   letterClassName,
+  // 'vertical' = one card per row (mobile). 'horizontal' = responsive grid: as
+  // many cards per row as fit at minCardWidth (desktop). Set per screen variant
+  // in Studio to switch between them by breakpoint.
+  direction = "vertical",
+  minCardWidth = "320px",
   brandField = "brand__name",
   variantNameField = "item_name",
   priceFields,
@@ -161,7 +166,14 @@ export default function CatalogLetterGroup({
           {resolvedLetter}
         </h2>
       ) : null}
-      <div className="space-y-3">
+      <div
+        className={direction === "horizontal" ? "grid gap-3" : "space-y-3"}
+        style={
+          direction === "horizontal"
+            ? { gridTemplateColumns: `repeat(auto-fill, minmax(min(${minCardWidth}, 100%), 1fr))` }
+            : undefined
+        }
+      >
         {brands.map(({ brand, rows }) => (
           <ProductCard
             key={brand}

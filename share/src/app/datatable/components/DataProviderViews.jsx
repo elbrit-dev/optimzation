@@ -4,8 +4,8 @@ import { DataProvider as PlasmicDataProvider } from '@plasmicapp/loader-nextjs';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import DataProvider from './DataProvider';
 import AlphabetRail from './views/AlphabetRail';
+import FilterSortPill from './views/FilterSortPill';
 import ProductSearchBar from './views/ProductSearchBar';
-import SortSheet from './views/SortSheet';
 import StaleDataBridge from './views/StaleDataBridge';
 import SyncPill from './views/SyncPill';
 import { DataViewContext } from '../contexts/ViewContext';
@@ -99,14 +99,11 @@ export default function DataProviderViews({
   showRecentSearches = true,
   recentSearchLimit = 5,
   recentSearchStorageKey,
-  // --- sort sheet (named presets instead of the built-in Filter / Sort sidebar) ---
-  sortOptions,
-  sortSheetTitle = 'Sort products',
   hideNativeFilterSort = false,
   // Compact control row: hides the engine's own header controls and renders
-  // [sort pill] [⟳ short-date] … [Cards | Table] on one line, mobile-sized.
-  // Defaults to on when the search bar is enabled (search replaces the native
-  // Filter / Sort, so only sort + refresh remain).
+  // [⛭ sort pill] [⟳ short-date] … [Cards | Table] on one line, mobile-sized.
+  // The pill opens the ORIGINAL Filter/Sort sidebar — only the button is
+  // restyled. Defaults to on when the search bar is enabled.
   compactHeader,
   // --- A–Z letter rail (provider-owned; jumps to [data-letter] sections in the slot) ---
   showLetterRail = false,
@@ -189,14 +186,6 @@ export default function DataProviderViews({
     </div>
   ) : null;
 
-  const hasSortOptions = Array.isArray(sortOptions) && sortOptions.length > 0;
-
-  // These render inside DataProviderNew's header, which sits within
-  // TableOperationsContext.Provider — so useTableOperations() resolves for them.
-  const sortSheet = useMemo(() => (hasSortOptions ? (
-    <SortSheet options={sortOptions} title={sortSheetTitle} />
-  ) : null), [hasSortOptions, sortOptions, sortSheetTitle]);
-
   const headerTop = useMemo(() => (showSearch ? (
     <ProductSearchBar
       placeholder={searchPlaceholder}
@@ -206,26 +195,26 @@ export default function DataProviderViews({
     />
   ) : null), [showSearch, searchPlaceholder, showRecentSearches, recentSearchLimit, recentSearchStorageKey]);
 
-  // Compact mode replaces the engine's controls with the variant's own pills.
-  // Auto-enabled with the search bar: search takes the filter role, so the header
-  // reduces to [sort] [refresh] … [view switcher] on a single line.
+  // Compact mode replaces the engine's controls with the variant's own pills —
+  // same behaviors underneath (the sort pill opens the native Filter/Sort sidebar,
+  // the refresh pill calls handleSync). Auto-enabled with the search bar.
   const compact = compactHeader ?? showSearch;
 
   // In compact mode everything lives in the LEFT slot as one justify-between row,
   // so mobile keeps a single line (the engine's own header row stacks left/right
   // slots vertically below the sm breakpoint).
   const headerLeft = useMemo(() => {
-    if (!compact) return sortSheet;
+    if (!compact) return null;
     return (
       <div className="flex w-full min-w-0 items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          {sortSheet}
+          <FilterSortPill />
           <SyncPill />
         </div>
         {inHeader ? switcher : null}
       </div>
     );
-  }, [compact, sortSheet, inHeader, switcher]);
+  }, [compact, inHeader, switcher]);
 
   const headerRight = !compact && inHeader ? switcher : null;
 
@@ -234,12 +223,11 @@ export default function DataProviderViews({
     if (headerTop || headerLeft || headerRight) {
       next.headerSlots = { top: headerTop, left: headerLeft, right: headerRight };
     }
-    // Hide the engine's controls entirely in compact mode (the pills replace them);
-    // otherwise only suppress Filter / Sort when this provider offers a replacement.
+    // Hide the engine's controls entirely in compact mode (the pills replace them).
     if (compact) next.showProviderHeader = false;
-    if (hideNativeFilterSort || hasSortOptions || showSearch) next.hideNativeFilterSort = true;
+    if (hideNativeFilterSort) next.hideNativeFilterSort = true;
     return next;
-  }, [__internal, headerTop, headerLeft, headerRight, compact, hideNativeFilterSort, hasSortOptions, showSearch]);
+  }, [__internal, headerTop, headerLeft, headerRight, compact, hideNativeFilterSort]);
 
   return (
     <DataProvider

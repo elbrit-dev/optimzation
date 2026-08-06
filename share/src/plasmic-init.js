@@ -128,18 +128,10 @@ const dataProviderViewsMeta = {
       type: 'string',
       description: 'Set a distinct key to keep one page\'s recent searches separate from another\'s.',
     },
-    // --- sort sheet ---
-    sortOptions: {
-      type: 'object',
-      displayName: 'sortOptions',
-      description:
-        'Named sort presets shown in a bottom sheet, e.g. [{ label: "Name A → Z", shortLabel: "A → Z", field: "item_name", order: 1 }, { label: "MRP, high → low", field: "mrp", order: -1 }]. order 1 = ascending, -1 = descending ("direction": "asc"/"desc" also accepted). shortLabel is the compact trigger-pill text; label is used inside the sheet. Supplying any preset replaces the built-in Filter / Sort button.',
-    },
-    sortSheetTitle: { type: 'string', defaultValue: 'Sort products' },
     compactHeader: {
       type: 'boolean',
       description:
-        'Compact control row: hides the engine\'s own header controls (Filter / Sort, the wide sync SplitButton, month picker, report toggles) and renders [sort pill] [⟳ 5 Aug, 11:25] … [Cards | Table] on one line, mobile-sized. Defaults to ON whenever showSearch is on; set false to keep the engine header alongside the search bar. Note: month-range queries need the engine header for the month picker — keep this off for those.',
+        'Compact control row: hides the engine\'s own header controls and renders [⛭ sort pill] [⟳ 5 Aug, 11:25] … [Cards | Table] on one line, mobile-sized. Only the buttons are restyled — the sort pill opens the ORIGINAL Filter/Sort sidebar (searchFields/sortFields from the query doc) and the refresh pill runs the same sync. Defaults to ON whenever showSearch is on; set false to keep the engine header alongside the search bar. Note: month-range queries need the engine header for the month picker — keep this off for those.',
     },
     hideNativeFilterSort: {
       type: 'boolean',

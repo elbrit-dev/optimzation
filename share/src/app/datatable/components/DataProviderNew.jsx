@@ -469,6 +469,13 @@ export default function DataProviderNew({
   /** Previous sidebarActiveFilterSig; allows reseed when clearing to empty (would otherwise idle-skip forever). */
   const sidebarFilterSigPrevRef = useRef('');
   const [filterSortSidebarVisible, setFilterSortSidebarVisible] = useState(false);
+  // Sort-only presentation of the sidebar (used by the Views variant's compact
+  // pill, where the search bar owns filtering). The native button always opens full.
+  const [filterSortSidebarSortOnly, setFilterSortSidebarSortOnly] = useState(false);
+  const openFilterSortSidebar = useCallback((options) => {
+    setFilterSortSidebarSortOnly(options?.sortOnly === true);
+    setFilterSortSidebarVisible(true);
+  }, []);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortConfig, setSortConfig] = useState(null);
   const [isApplyingFilterSort, setIsApplyingFilterSort] = useState(false);
@@ -4605,6 +4612,10 @@ export default function DataProviderNew({
         handleHardRefresh,
         lastUpdatedAt,
         formatLastUpdatedDate,
+        // Opens the native Filter/Sort sidebar (the Views variant's compact pill uses this).
+        // openFilterSortSidebar({ sortOnly: true }) shows just the Sort pane.
+        setFilterSortSidebarVisible,
+        openFilterSortSidebar,
         // Enable write flag - use forceEnableWrite if provided (for nested drawer tables), otherwise use currentQueryDoc
         enableWrite: forceEnableWrite !== undefined ? forceEnableWrite : (currentQueryDoc?.enableWrite || false),
         writePermissions: resolvedWritePermissions,
@@ -4667,7 +4678,7 @@ export default function DataProviderNew({
     queryFunction, effectiveMainConfig, mainColumnTypesOverride, jsonObjectColumns, enableDivideBy1Lakh, enableReport, chartColumns, chartHeight,
     dataSource, offlineData, offlineDataExecuted, formInputOverride, selectOptionsCache,
     selectedQueryKey, executingQuery, availableQueryKeys, resolvedConfig,
-    handleSync, handleHardRefresh, lastUpdatedAt,
+    handleSync, handleHardRefresh, lastUpdatedAt, openFilterSortSidebar,
     rowsPerPageOptions, defaultRows, tableHeight, scrollable, enableFullscreenDialog,
     resolvedWritePermissions,
   ]);
@@ -4848,6 +4859,8 @@ export default function DataProviderNew({
         handleHardRefresh,
         lastUpdatedAt,
         formatLastUpdatedDate,
+        setFilterSortSidebarVisible,
+        openFilterSortSidebar,
         enableWrite: forceEnableWrite !== undefined ? forceEnableWrite : (currentQueryDoc?.enableWrite || false),
         writePermissions: resolveWritePermissions(enableWriteEffective, effectiveSlotConfig.writePermissions ?? resolvedConfig.writePermissions),
         groupDrawerAccess: effectiveSlotConfig.groupDrawerAccess,
@@ -4900,7 +4913,7 @@ export default function DataProviderNew({
     dataSource, offlineData, offlineDataExecuted,
     selectOptionsCache,
     selectedQueryKey, executingQuery, availableQueryKeys, resolvedConfig,
-    handleSync, handleHardRefresh, lastUpdatedAt,
+    handleSync, handleHardRefresh, lastUpdatedAt, openFilterSortSidebar,
     rowsPerPageOptions, defaultRows, tableHeight, scrollable, enableFullscreenDialog,
     enableWriteEffective, resolvedWritePermissions,
   ]);
@@ -5083,7 +5096,10 @@ export default function DataProviderNew({
               <Button
                 icon="pi pi-sliders-h"
                 label="Filter / Sort"
-                onClick={() => setFilterSortSidebarVisible(true)}
+                onClick={() => {
+                  setFilterSortSidebarSortOnly(false);
+                  setFilterSortSidebarVisible(true);
+                }}
                 className="p-button-outlined shrink-0 whitespace-nowrap"
                 severity="secondary"
                 style={{ height: '2rem', fontSize: '0.875rem' }}
@@ -5457,6 +5473,7 @@ export default function DataProviderNew({
       {currentQueryDoc?.clientSave === true && (
         <FilterSortSidebar
           visible={filterSortSidebarVisible}
+          sortOnly={filterSortSidebarSortOnly}
           onHide={() => {
             setFilterSortSidebarVisible(false);
           }}

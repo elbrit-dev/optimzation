@@ -36,6 +36,10 @@ export default function FilterSortSidebar({
   currentFilterValues = {},
   onApply,
   onClear,
+  // Sort-only mode: hides the filter tabs and shows just the "Sort by" pane.
+  // Apply passes the existing filter values through untouched; Clear resets only
+  // the sort. Default false — the original Filter and Sort behavior.
+  sortOnly = false,
 }) {
   const [activeTabIndex, setActiveTabIndex] = useState(0);
   const [selectedSortField, setSelectedSortField] = useState(currentSortConfig?.field || null);
@@ -59,6 +63,11 @@ export default function FilterSortSidebar({
       setSelectedFilterValues(currentFilterValues || {});
     }
   }, [visible]); // Only sync when sidebar opens/closes
+
+  // Sort-only mode has a single pane — make sure it's the one showing.
+  useEffect(() => {
+    if (visible && sortOnly) setActiveTabIndex(0);
+  }, [visible, sortOnly]);
 
   // Map from fieldKey (nestedPath || topLevelKey) to its {topLevelKey, nestedPath} pair,
   // so filters can resolve through nested/array fields, not just flat row properties.
@@ -259,17 +268,19 @@ export default function FilterSortSidebar({
   const handleClear = () => {
     setSelectedSortField(null);
     setSelectedSortDirection('asc');
+    if (sortOnly) return; // sort-only: leave the filter selections alone
     setSelectedFilterValues({});
     onClear?.();
   };
 
   const hasActiveFilters = useMemo(() => {
     const hasSort = selectedSortField !== null;
+    if (sortOnly) return hasSort;
     const hasFilters = Object.values(selectedFilterValues).some(
       vals => Array.isArray(vals) && vals.length > 0
     );
     return hasSort || hasFilters;
-  }, [selectedSortField, selectedFilterValues]);
+  }, [selectedSortField, selectedFilterValues, sortOnly]);
 
   // Determine if mobile (for responsive positioning)
   const isMobile = useIsMobile();
@@ -283,12 +294,13 @@ export default function FilterSortSidebar({
       className={isMobile ? 'w-full' : ''}
       style={isMobile ? { height: '80vh' } : { width: '600px', maxWidth: '90vw' }}
       header={
-        <h2 className="text-lg font-semibold text-gray-800 m-0">Filter and Sort</h2>
+        <h2 className="text-lg font-semibold text-gray-800 m-0">{sortOnly ? 'Sort' : 'Filter and Sort'}</h2>
       }
     >
       <div className="flex flex-col h-full">
         <div className="flex-1 overflow-hidden flex min-h-0">
-          {/* Left Sidebar - Tab Navigation */}
+          {/* Left Sidebar - Tab Navigation (hidden in sort-only mode: single pane) */}
+          {!sortOnly && (
           <div className="w-32 border-r border-gray-200 bg-gray-50 overflow-y-auto overflow-x-hidden flex-shrink-0">
             <div className="p-2">
               <button
@@ -352,6 +364,7 @@ export default function FilterSortSidebar({
               })()}
             </div>
           </div>
+          )}
 
           {/* Right Content Area - Full Height */}
           <div className="flex-1 overflow-hidden bg-white min-h-0 min-w-0 flex flex-col">
