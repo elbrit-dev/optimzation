@@ -1,4 +1,5 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { usePlasmicCanvasContext } from "@plasmicapp/loader-nextjs";
 import ProductCard from "./ProductCard";
 
 /**
@@ -9,11 +10,9 @@ import ProductCard from "./ProductCard";
  * own card beneath one shared letter — instead of repeating Letter Section per
  * brand and getting a red "A" above every card.
  *
- * The letter is a plain in-flow heading on its OWN ROW, at the left of the
- * group; the cards start on the next row, centered at `cardWidth`. It
- * deliberately does NOT pin/float while the cards scroll — the old JS-pinned
- * (position:fixed) letter rode on top of the first card and read as "letter
- * and card in the same row".
+ * The letter is STICKY: it pins to the top while its cards scroll past and is
+ * pushed away when the next letter group arrives (repeat this component over
+ * the letter-grouped array and the handoff works automatically).
  *
  * Warehouse chips (KA – 3,978 / CB – 0 …) are built in, rendered from the
  * SELECTED variant's warehouses[] — they swap when a pill is picked. Zero = red,
@@ -120,6 +119,8 @@ export default function CatalogLetterGroup({
   data,
   letter,
   showLetter = true,
+  stickyLetter = true,
+  stickyOffset = "0px",
   letterClassName,
   brandField = "brand__name",
   variantNameField = "item_name",
@@ -165,29 +166,131 @@ export default function CatalogLetterGroup({
   if (brands.length === 0) return null;
 
   return (
-    <section data-letter={resolvedLetter} className={`scroll-mt-4 space-y-3 ${className ?? ""}`}>
+    <LetterSection
+      resolvedLetter={resolvedLetter}
+      showLetter={showLetter}
+      stickyLetter={stickyLetter}
+      stickyOffset={stickyOffset}
+      letterClassName={letterClassName}
+      className={className}
+    >
+      <div className="space-y-3">
+        {brands.map(({ brand, rows }) => (
+          <div key={brand} className="mx-auto w-full" style={cardWidth ? { width: cardWidth, maxWidth: "100%" } : undefined}>
+            <ProductCard
+              data={rows}
+              brand={brand}
+              brandField={brandField}
+              variantNameField={variantNameField}
+              priceFields={priceFields}
+              totalStockField={totalStockField}
+              clickable={clickable}
+              onCardClick={onCardClick}
+              renderExtras={renderChips}
+            />
+          </div>
+        ))}
+      </div>
+    </LetterSection>
+  );
+}
+
+/** stickyOffset -> pixels. Supports px (or unitless), vh, vw and rem. */
+function resolveOffsetPx(value) {
+  if (typeof value === "number") return value;
+  const s = String(value ?? "").trim();
+  const n = parseFloat(s);
+  if (!Number.isFinite(n)) return 0;
+  if (typeof window === "undefined") return n;
+  if (s.endsWith("vh")) return (n / 100) * window.innerHeight;
+  if (s.endsWith("vw")) return (n / 100) * window.innerWidth;
+  if (s.endsWith("rem")) {
+    const rootSize = parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
+    return n * rootSize;
+  }
+  return n; // px or unitless
+}
+
+/**
+ * Section wrapper with a JS-pinned letter heading (contacts-app style):
+ * the letter rides in flow, PINS below `stickyOffset` while its section
+ * scrolls past, and is pushed out by the next section. Implemented with a
+ * scroll-driven fixed/absolute swap instead of CSS position:sticky, because
+ * sticky silently dies inside page-builder sections that have overflow set.
+ */
+function LetterSection({ resolvedLetter, showLetter, stickyLetter, stickyOffset, letterClassName, className, children }) {
+  const sectionRef = useRef(null);
+  const letterRef = useRef(null);
+  // mode: 'static' (in flow, at the TOP of its section) | 'pinned' (fixed below
+  // the header while the section scrolls past). There is deliberately no
+  // "pushed out at the bottom" phase — that parked the letter over the last
+  // card. When the section's end approaches, the letter simply unpins and the
+  // next section's letter takes over once it reaches the top.
+  const [pin, setPin] = useState({ mode: "static", left: 0, width: 0, height: 0 });
+  // Inside Plasmic Studio the artboard pans instead of scrolling, so viewport
+  // math is meaningless — always render the letter in flow at the top there.
+  const inCanvas = usePlasmicCanvasContext();
+
+  useEffect(() => {
+    if (!showLetter || !stickyLetter || inCanvas) return undefined;
+    let frame = null;
+    const update = () => {
+      frame = null;
+      const section = sectionRef.current;
+      const letterEl = letterRef.current;
+      if (!section || !letterEl) return;
+      const offset = resolveOffsetPx(stickyOffset);
+      const rect = section.getBoundingClientRect();
+      const height = letterEl.offsetHeight || 0;
+      const mode = rect.top < offset && rect.bottom > offset + height ? "pinned" : "static";
+      setPin((prev) =>
+        prev.mode === mode && prev.left === rect.left && prev.width === rect.width && prev.height === height
+          ? prev
+          : { mode, left: rect.left, width: rect.width, height },
+      );
+    };
+    const onScroll = () => {
+      if (frame == null) frame = window.requestAnimationFrame(update);
+    };
+    update();
+    // Capture phase catches window scrolls AND nested scroll containers.
+    document.addEventListener("scroll", onScroll, { capture: true, passive: true });
+    window.addEventListener("resize", onScroll);
+    return () => {
+      document.removeEventListener("scroll", onScroll, { capture: true });
+      window.removeEventListener("resize", onScroll);
+      if (frame != null) window.cancelAnimationFrame(frame);
+    };
+  }, [showLetter, stickyLetter, stickyOffset, inCanvas]);
+
+  const pinnedStyle =
+    pin.mode === "pinned" && !inCanvas
+      ? { position: "fixed", top: resolveOffsetPx(stickyOffset), left: pin.left, width: pin.width, zIndex: 20 }
+      : undefined;
+
+  // The heading is EXACTLY CatalogLetterSection's — a plain small red letter,
+  // no background, in every state. Pinning only changes its position.
+  const letterClasses = "px-1 text-sm font-bold text-red-600";
+
+  return (
+    <section
+      ref={sectionRef}
+      data-letter={resolvedLetter}
+      className={`relative scroll-mt-4 space-y-3 ${className ?? ""}`}
+    >
       {showLetter ? (
-        <h2 className={letterClassName ?? "px-1 text-sm font-bold text-red-600"}>{resolvedLetter}</h2>
-      ) : null}
-      {brands.map(({ brand, rows }) => (
-        <div
-          key={brand}
-          className="mx-auto w-full"
-          style={cardWidth ? { width: cardWidth, maxWidth: "100%" } : undefined}
-        >
-          <ProductCard
-            data={rows}
-            brand={brand}
-            brandField={brandField}
-            variantNameField={variantNameField}
-            priceFields={priceFields}
-            totalStockField={totalStockField}
-            clickable={clickable}
-            onCardClick={onCardClick}
-            renderExtras={renderChips}
-          />
+        // The placeholder keeps the row's space when the heading leaves the flow.
+        <div style={pin.mode !== "static" && pin.height ? { height: pin.height } : undefined}>
+          <h2
+            ref={letterRef}
+            className={letterClassName ?? letterClasses}
+            style={pinnedStyle}
+          >
+            {resolvedLetter}
+          </h2>
         </div>
-      ))}
+      ) : null}
+      {children}
     </section>
   );
 }

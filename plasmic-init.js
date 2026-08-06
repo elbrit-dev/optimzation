@@ -1477,7 +1477,7 @@ PLASMIC.registerComponent(CatalogLetterGroup, {
   displayName: "Catalog Letter Group",
   defaultStyles: { width: "stretch" },
   description:
-    "ONE letter, MANY brand cards — the combined letter + Product Card component. Bind a letter group and every brand in it renders as its own card under a single red letter, instead of repeating Letter Section per brand and duplicating the letter. The letter sits in flow on its own row at the left; the cards follow on the next rows, centered at Card width. Warehouse chips (KA – 3,978 / CB – 0) are built in from the selected variant's warehouses[] and swap when a pill is picked: zero = red, at/below lowStockThreshold = amber. The section carries data-letter, so the provider's A–Z rail works unchanged.",
+    "ONE letter, MANY brand cards — the combined letter + Product Card component. Bind a letter group and every brand in it renders as its own card under a single red letter, instead of repeating Letter Section per brand and duplicating the letter. The letter is STICKY: pinned while its cards scroll, pushed away by the next group (repeat this over the letter-grouped array). Warehouse chips (KA – 3,978 / CB – 0) are built in from the selected variant's warehouses[] and swap when a pill is picked: zero = red, at/below lowStockThreshold = amber. The section carries data-letter, so the provider's A–Z rail works unchanged.",
   props: {
     data: {
       type: "object",
@@ -1506,9 +1506,19 @@ PLASMIC.registerComponent(CatalogLetterGroup, {
       description: "Letter override / selector. With the whole per-brand dataset bound to data, this picks only that letter's entries. Leave empty when data is already one letter's group.",
     },
     showLetter: { type: "boolean", defaultValue: true },
+    stickyLetter: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Pin the letter to the top while its cards scroll; the next group's letter pushes it away. JS-driven (fixed-position while pinned), so it works even inside page sections whose overflow breaks CSS sticky.",
+    },
+    stickyOffset: {
+      type: "string",
+      defaultValue: "0px",
+      description: "How far from the top of the SCREEN the letter pins — set this to your fixed app header's height (e.g. \"8vh\" or \"56px\"; px, vh, vw and rem all work) or the letter will pin underneath it and look like it disappeared.",
+    },
     letterClassName: {
       type: "string",
-      description: "Replaces the letter's default classes entirely (default: small red letter on its own row).",
+      description: "Replaces the letter's default classes entirely (default: sticky red letter on a translucent page-colored strip).",
     },
     brandField: { type: "string", defaultValue: "brand__name" },
     variantNameField: { type: "string", defaultValue: "item_name" },
