@@ -1540,6 +1540,11 @@ PLASMIC.registerComponent(CatalogLetterGroup, {
       description: "Same payload as Product Card: { brand, variant, row, variants } — variants is that brand's rows, ready to hand to Product Stock Sheet.",
       argTypes: [{ name: "payload", type: "object" }],
     },
+    cardWidth: {
+      type: "string",
+      defaultValue: "320px",
+      description: "Fixed card width (the mobile standard). Cards are centered and shrink on viewports narrower than this. Set empty to let cards fill the component's width.",
+    },
     className: { type: "string" },
   },
   importPath: "./components/CatalogLetterGroup",

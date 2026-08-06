@@ -131,6 +131,9 @@ export default function CatalogLetterGroup({
   lowStockThreshold = 100,
   clickable = true,
   onCardClick,
+  // Fixed card width — 320px is the mobile standard. Cards are centered and
+  // never exceed the viewport (max-width caps at 100%).
+  cardWidth = "320px",
   className,
 }) {
   // One entry per brand, preserving the order brands first appear.
@@ -173,18 +176,19 @@ export default function CatalogLetterGroup({
     >
       <div className="space-y-3">
         {brands.map(({ brand, rows }) => (
-          <ProductCard
-            key={brand}
-            data={rows}
-            brand={brand}
-            brandField={brandField}
-            variantNameField={variantNameField}
-            priceFields={priceFields}
-            totalStockField={totalStockField}
-            clickable={clickable}
-            onCardClick={onCardClick}
-            renderExtras={renderChips}
-          />
+          <div key={brand} className="mx-auto w-full" style={cardWidth ? { maxWidth: cardWidth } : undefined}>
+            <ProductCard
+              data={rows}
+              brand={brand}
+              brandField={brandField}
+              variantNameField={variantNameField}
+              priceFields={priceFields}
+              totalStockField={totalStockField}
+              clickable={clickable}
+              onCardClick={onCardClick}
+              renderExtras={renderChips}
+            />
+          </div>
         ))}
       </div>
     </LetterSection>
