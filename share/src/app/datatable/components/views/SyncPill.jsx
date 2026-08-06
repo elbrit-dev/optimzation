@@ -23,17 +23,38 @@ export default function SyncPill({ className }) {
   } = useTableOperations();
 
   const [menuOpen, setMenuOpen] = useState(false);
+  // Anchor rect for the menu. The provider header sets overflow-x-auto, which
+  // makes the cross axis clip too — so an absolutely positioned menu gets cut
+  // off. Rendering it fixed at the button's rect escapes the clip entirely.
+  const [anchor, setAnchor] = useState(null);
   const wrapRef = useRef(null);
 
-  // Close the menu on any outside click.
+  // Close the menu on any outside click; also close on scroll/resize so the
+  // fixed-position menu can never drift away from its button.
   useEffect(() => {
     if (!menuOpen) return undefined;
     const onDocClick = (e) => {
       if (wrapRef.current && !wrapRef.current.contains(e.target)) setMenuOpen(false);
     };
+    const close = () => setMenuOpen(false);
     document.addEventListener('mousedown', onDocClick);
-    return () => document.removeEventListener('mousedown', onDocClick);
+    document.addEventListener('scroll', close, { capture: true, passive: true });
+    window.addEventListener('resize', close);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('scroll', close, { capture: true });
+      window.removeEventListener('resize', close);
+    };
   }, [menuOpen]);
+
+  const toggleMenu = useCallback(() => {
+    setMenuOpen((open) => {
+      if (open) return false;
+      const rect = wrapRef.current?.getBoundingClientRect();
+      if (rect) setAnchor({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+      return true;
+    });
+  }, []);
 
   const runHardRefresh = useCallback(() => {
     setMenuOpen(false);
@@ -71,7 +92,7 @@ export default function SyncPill({ className }) {
         {hasHardRefresh ? (
           <button
             type="button"
-            onClick={() => setMenuOpen((v) => !v)}
+            onClick={toggleMenu}
             disabled={busy}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
@@ -83,10 +104,11 @@ export default function SyncPill({ className }) {
         ) : null}
       </div>
 
-      {menuOpen && hasHardRefresh ? (
+      {menuOpen && hasHardRefresh && anchor ? (
         <div
           role="menu"
-          className="absolute right-0 top-full z-30 mt-1 min-w-[11rem] overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
+          style={{ position: 'fixed', top: anchor.top, right: anchor.right, zIndex: 2000 }}
+          className="min-w-[11rem] overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-xl"
         >
           <button
             type="button"

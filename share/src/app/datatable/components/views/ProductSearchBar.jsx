@@ -47,6 +47,10 @@ export default function ProductSearchBar({
   const [text, setText] = useState(searchTerm ?? '');
   const [open, setOpen] = useState(false);
   const [recents, setRecents] = useState([]);
+  // Anchor rect for the recents panel. The provider header sets overflow-x-auto,
+  // which clips the cross axis too, so an absolutely positioned panel gets cut
+  // off — rendering it fixed at the input's rect escapes the clip.
+  const [anchor, setAnchor] = useState(null);
   const wrapRef = useRef(null);
   const debounceRef = useRef(null);
   const setSearchTermRef = useRef(setSearchTerm);
@@ -92,14 +96,26 @@ export default function ProductSearchBar({
     setOpen(false);
   }, [commitRecent]);
 
-  // Close the recents panel on any outside click.
+  // Close the recents panel on any outside click, and keep its fixed position
+  // in step with the input (recompute on scroll/resize).
   useEffect(() => {
     if (!open) return undefined;
     const onDocClick = (e) => {
       if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
     };
+    const reposition = () => {
+      const rect = wrapRef.current?.getBoundingClientRect();
+      if (rect) setAnchor({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+    };
+    reposition();
     document.addEventListener('mousedown', onDocClick);
-    return () => document.removeEventListener('mousedown', onDocClick);
+    document.addEventListener('scroll', reposition, { capture: true, passive: true });
+    window.addEventListener('resize', reposition);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('scroll', reposition, { capture: true });
+      window.removeEventListener('resize', reposition);
+    };
   }, [open]);
 
   const searchUnavailable = useMemo(
@@ -145,8 +161,11 @@ export default function ProductSearchBar({
         ) : null}
       </div>
 
-      {panelOpen ? (
-        <div className="absolute left-0 right-0 top-full z-30 mt-1 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg">
+      {panelOpen && anchor ? (
+        <div
+          style={{ position: 'fixed', top: anchor.top, left: anchor.left, width: anchor.width, zIndex: 2000 }}
+          className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl"
+        >
           <div className="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
             Recent searches
           </div>
