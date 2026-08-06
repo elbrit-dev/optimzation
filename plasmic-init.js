@@ -1497,12 +1497,12 @@ PLASMIC.registerComponent(CatalogLetterGroup, {
     stickyLetter: {
       type: "boolean",
       defaultValue: true,
-      description: "Pin the letter to the top while its cards scroll; the next group's letter pushes it away.",
+      description: "Pin the letter to the top while its cards scroll; the next group's letter pushes it away. JS-driven (fixed-position while pinned), so it works even inside page sections whose overflow breaks CSS sticky.",
     },
     stickyOffset: {
       type: "string",
       defaultValue: "0px",
-      description: "Top offset for the pinned letter — set to your sticky header's height (e.g. \"56px\") so the letter pins below it.",
+      description: "How far from the top of the SCREEN the letter pins — set this to your fixed app header's height (e.g. \"8vh\" or \"56px\"; px, vh, vw and rem all work) or the letter will pin underneath it and look like it disappeared.",
     },
     letterClassName: {
       type: "string",

@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import ProductCard from "./ProductCard";
 
 /**
@@ -162,18 +162,14 @@ export default function CatalogLetterGroup({
   if (brands.length === 0) return null;
 
   return (
-    <section data-letter={resolvedLetter} className={`scroll-mt-4 ${className ?? ""}`}>
-      {showLetter ? (
-        <h2
-          className={
-            letterClassName ??
-            `${stickyLetter ? "sticky z-10" : ""} -mx-1 bg-gray-50/95 px-1 py-1.5 text-sm font-bold text-red-600 backdrop-blur-sm`
-          }
-          style={stickyLetter ? { top: stickyOffset } : undefined}
-        >
-          {resolvedLetter}
-        </h2>
-      ) : null}
+    <LetterSection
+      resolvedLetter={resolvedLetter}
+      showLetter={showLetter}
+      stickyLetter={stickyLetter}
+      stickyOffset={stickyOffset}
+      letterClassName={letterClassName}
+      className={className}
+    >
       <div className="space-y-3">
         {brands.map(({ brand, rows }) => (
           <ProductCard
@@ -190,6 +186,95 @@ export default function CatalogLetterGroup({
           />
         ))}
       </div>
+    </LetterSection>
+  );
+}
+
+/** stickyOffset -> pixels. Supports px (or unitless), vh, vw and rem. */
+function resolveOffsetPx(value) {
+  if (typeof value === "number") return value;
+  const s = String(value ?? "").trim();
+  const n = parseFloat(s);
+  if (!Number.isFinite(n)) return 0;
+  if (typeof window === "undefined") return n;
+  if (s.endsWith("vh")) return (n / 100) * window.innerHeight;
+  if (s.endsWith("vw")) return (n / 100) * window.innerWidth;
+  if (s.endsWith("rem")) {
+    const rootSize = parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
+    return n * rootSize;
+  }
+  return n; // px or unitless
+}
+
+/**
+ * Section wrapper with a JS-pinned letter heading (contacts-app style):
+ * the letter rides in flow, PINS below `stickyOffset` while its section
+ * scrolls past, and is pushed out by the next section. Implemented with a
+ * scroll-driven fixed/absolute swap instead of CSS position:sticky, because
+ * sticky silently dies inside page-builder sections that have overflow set.
+ */
+function LetterSection({ resolvedLetter, showLetter, stickyLetter, stickyOffset, letterClassName, className, children }) {
+  const sectionRef = useRef(null);
+  const letterRef = useRef(null);
+  // mode: 'static' (in flow) | 'pinned' (fixed at top) | 'bottom' (being pushed out)
+  const [pin, setPin] = useState({ mode: "static", left: 0, width: 0, height: 0 });
+
+  useEffect(() => {
+    if (!showLetter || !stickyLetter) return undefined;
+    let frame = null;
+    const update = () => {
+      frame = null;
+      const section = sectionRef.current;
+      const letterEl = letterRef.current;
+      if (!section || !letterEl) return;
+      const offset = resolveOffsetPx(stickyOffset);
+      const rect = section.getBoundingClientRect();
+      const height = letterEl.offsetHeight || 0;
+      let mode = "static";
+      if (rect.top < offset && rect.bottom > offset + height) mode = "pinned";
+      else if (rect.top < offset && rect.bottom <= offset + height) mode = "bottom";
+      setPin((prev) =>
+        prev.mode === mode && prev.left === rect.left && prev.width === rect.width && prev.height === height
+          ? prev
+          : { mode, left: rect.left, width: rect.width, height },
+      );
+    };
+    const onScroll = () => {
+      if (frame == null) frame = window.requestAnimationFrame(update);
+    };
+    update();
+    // Capture phase catches window scrolls AND nested scroll containers.
+    document.addEventListener("scroll", onScroll, { capture: true, passive: true });
+    window.addEventListener("resize", onScroll);
+    return () => {
+      document.removeEventListener("scroll", onScroll, { capture: true });
+      window.removeEventListener("resize", onScroll);
+      if (frame != null) window.cancelAnimationFrame(frame);
+    };
+  }, [showLetter, stickyLetter, stickyOffset]);
+
+  const pinnedStyle =
+    pin.mode === "pinned"
+      ? { position: "fixed", top: resolveOffsetPx(stickyOffset), left: pin.left, width: pin.width, zIndex: 20 }
+      : pin.mode === "bottom"
+        ? { position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 20 }
+        : undefined;
+
+  return (
+    <section ref={sectionRef} data-letter={resolvedLetter} className={`relative scroll-mt-4 ${className ?? ""}`}>
+      {showLetter ? (
+        // The placeholder keeps the row's space when the heading leaves the flow.
+        <div style={pin.mode !== "static" && pin.height ? { height: pin.height } : undefined}>
+          <h2
+            ref={letterRef}
+            className={letterClassName ?? "bg-gray-50/95 px-1 py-1.5 text-sm font-bold text-red-600 backdrop-blur-sm"}
+            style={pinnedStyle}
+          >
+            {resolvedLetter}
+          </h2>
+        </div>
+      ) : null}
+      {children}
     </section>
   );
 }
