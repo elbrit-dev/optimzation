@@ -267,7 +267,12 @@ function LetterSection({ resolvedLetter, showLetter, stickyLetter, stickyOffset,
         <div style={pin.mode !== "static" && pin.height ? { height: pin.height } : undefined}>
           <h2
             ref={letterRef}
-            className={letterClassName ?? "bg-gray-50/95 px-1 py-1.5 text-sm font-bold text-red-600 backdrop-blur-sm"}
+            className={
+              letterClassName ??
+              `bg-gray-50/95 px-3 py-2 text-base font-bold text-red-600 backdrop-blur-sm ${
+                pin.mode === "pinned" ? "border-b border-gray-200/70 shadow-sm" : ""
+              }`
+            }
             style={pinnedStyle}
           >
             {resolvedLetter}
