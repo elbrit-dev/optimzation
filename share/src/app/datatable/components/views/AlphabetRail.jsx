@@ -108,20 +108,67 @@ export default function AlphabetRail({ field, className }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [presentKey, rows.length, getContainer]);
 
-  const jumpTo = useCallback((letter) => {
+  const jumpTo = useCallback((letter, behavior = 'smooth') => {
     const el = getContainer()?.querySelector(`[data-letter="${letter}"]`);
     if (el) {
       setActiveLetter(letter);
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      el.scrollIntoView({ behavior, block: 'start' });
     }
   }, [getContainer]);
+
+  // --- Scrubbing: drag along the rail (touch or mouse) and the list follows, ---
+  // --- iOS-contacts style. Taps keep working through the buttons' onClick.   ---
+  const [scrub, setScrub] = useState(null); // { letter, top } while a drag is active
+  const scrubbingRef = useRef(false);
+  const lastScrubLetterRef = useRef(null);
+
+  const moveScrub = useCallback((e) => {
+    if (!scrubbingRef.current) return;
+    const hit = document.elementFromPoint(e.clientX, e.clientY);
+    const letter = hit?.closest?.('[data-rail-letter]')?.dataset?.railLetter ?? null;
+    if (!letter) return;
+    const railBox = railRef.current?.getBoundingClientRect();
+    setScrub({ letter, top: railBox ? e.clientY - railBox.top : 0 });
+    if (!presentLetters.has(letter)) return;
+    if (lastScrubLetterRef.current === letter) return;
+    lastScrubLetterRef.current = letter;
+    // Instant jumps while dragging — smooth scrolling can't keep up with the finger.
+    jumpTo(letter, 'auto');
+  }, [presentLetters, jumpTo]);
+
+  const startScrub = useCallback((e) => {
+    scrubbingRef.current = true;
+    try { railRef.current?.setPointerCapture?.(e.pointerId); } catch { /* older browsers */ }
+    moveScrub(e);
+  }, [moveScrub]);
+
+  const endScrub = useCallback(() => {
+    scrubbingRef.current = false;
+    lastScrubLetterRef.current = null;
+    setScrub(null);
+  }, []);
 
   return (
     <nav
       ref={railRef}
       aria-label="Jump to letter"
-      className={`sticky top-2 flex h-fit shrink-0 flex-col items-center gap-0.5 self-start py-1 ${className ?? ''}`}
+      onPointerDown={startScrub}
+      onPointerMove={moveScrub}
+      onPointerUp={endScrub}
+      onPointerCancel={endScrub}
+      // touch-action none stops the page from panning while the finger rides the rail.
+      style={{ touchAction: 'none' }}
+      className={`relative sticky top-2 flex h-fit shrink-0 select-none flex-col items-center gap-0.5 self-start py-1 ${className ?? ''}`}
     >
+      {scrub ? (
+        <div
+          className="pointer-events-none absolute right-full mr-2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-slate-800/90 text-base font-bold text-white shadow-lg"
+          style={{ top: scrub.top }}
+          aria-hidden="true"
+        >
+          {scrub.letter}
+        </div>
+      ) : null}
       {ALPHABET.map((letter) => {
         const present = presentLetters.has(letter);
         const isActive = activeLetter === letter;
@@ -129,6 +176,7 @@ export default function AlphabetRail({ field, className }) {
           <button
             key={letter}
             type="button"
+            data-rail-letter={letter}
             disabled={!present}
             aria-current={isActive ? 'true' : undefined}
             onClick={() => jumpTo(letter)}

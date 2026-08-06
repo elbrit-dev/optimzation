@@ -90,6 +90,10 @@ export default function ProductCard({
   clickable = true,
   onCardClick,
   onVariantChange,
+  // Code-only render hook (not a Studio prop): receives the SELECTED variant's row
+  // and renders below the price row — used by CatalogLetterGroup for warehouse
+  // chips that follow the active pill. The children slot stays static below it.
+  renderExtras,
   children,
   className,
 }) {
@@ -165,7 +169,9 @@ export default function ProductCard({
           : undefined
       }
       className={`rounded-2xl border border-gray-100 bg-white p-4 shadow-sm ${
-        clickable ? "cursor-pointer transition-shadow hover:shadow-md focus:outline-none focus:ring-2 focus:ring-indigo-200" : ""
+        clickable
+          ? "cursor-pointer transition-all duration-150 ease-out hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-lg active:translate-y-0 active:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200"
+          : ""
       } ${className ?? ""}`}
     >
       <div className="flex items-start justify-between gap-3">
@@ -233,6 +239,10 @@ export default function ProductCard({
             </div>
           ))}
         </div>
+      ) : null}
+
+      {typeof renderExtras === "function" && active ? (
+        <div className="mt-3">{renderExtras(active)}</div>
       ) : null}
 
       {children ? <div className="mt-3">{children}</div> : null}

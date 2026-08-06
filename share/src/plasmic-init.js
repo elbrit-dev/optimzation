@@ -133,9 +133,14 @@ const dataProviderViewsMeta = {
       type: 'object',
       displayName: 'sortOptions',
       description:
-        'Named sort presets shown in a bottom sheet, e.g. [{ label: "Name A → Z", field: "item_name", order: 1 }, { label: "MRP, high → low", field: "mrp", order: -1 }]. order 1 = ascending, -1 = descending ("direction": "asc"/"desc" also accepted). Supplying any preset replaces the built-in Filter / Sort button.',
+        'Named sort presets shown in a bottom sheet, e.g. [{ label: "Name A → Z", shortLabel: "A → Z", field: "item_name", order: 1 }, { label: "MRP, high → low", field: "mrp", order: -1 }]. order 1 = ascending, -1 = descending ("direction": "asc"/"desc" also accepted). shortLabel is the compact trigger-pill text; label is used inside the sheet. Supplying any preset replaces the built-in Filter / Sort button.',
     },
     sortSheetTitle: { type: 'string', defaultValue: 'Sort products' },
+    compactHeader: {
+      type: 'boolean',
+      description:
+        'Compact control row: hides the engine\'s own header controls (Filter / Sort, the wide sync SplitButton, month picker, report toggles) and renders [sort pill] [⟳ 5 Aug, 11:25] … [Cards | Table] on one line, mobile-sized. Defaults to ON whenever showSearch is on; set false to keep the engine header alongside the search bar. Note: month-range queries need the engine header for the month picker — keep this off for those.',
+    },
     hideNativeFilterSort: {
       type: 'boolean',
       defaultValue: false,
@@ -153,6 +158,18 @@ const dataProviderViewsMeta = {
       type: 'string',
       description:
         'Column that feeds the rail\'s letters, e.g. "brand__name" — connect this and search/filter dim letters live from the provider\'s own data. Leave empty to let the rail learn its letters from the rendered data-letter sections instead.',
+    },
+    // --- cache ---
+    staleWhileRevalidate: {
+      type: 'boolean',
+      defaultValue: false,
+      description:
+        'Show last session\'s data instantly while the provider loads, then swap in the fresh result. VARIANT-ONLY: the underlying DataProvider\'s loading flow is untouched — a bridge snapshots the published data after each load and re-provides it during the next load ($ctx.data.main.isRevalidating is true during the stale window). First-ever visit still shows the normal spinner. Avoid on tables where users EDIT rows.',
+    },
+    cacheKey: {
+      type: 'string',
+      description:
+        'Storage key for the stale-data snapshot. Defaults to presetDataSource + presetName — set it explicitly when two pages share the same preset but should not share snapshots.',
     },
     // --- identical to Elbrit DataProvider ---
     presetDataSource: {

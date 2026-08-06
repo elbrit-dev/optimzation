@@ -12,7 +12,7 @@ import { useTableOperations } from '../../contexts/TableOperationsContext';
  * table stay in the same order.
  */
 
-/** Accepts { label, field, order|direction } and normalizes order to 1 / -1. */
+/** Accepts { label, shortLabel?, field, order|direction } and normalizes order to 1 / -1. */
 function normalizeOptions(options) {
   const list = Array.isArray(options) ? options : [];
   const out = [];
@@ -28,6 +28,8 @@ function normalizeOptions(options) {
     out.push({
       id: String(entry.id ?? `${field}:${order}`),
       label: String(entry.label ?? `${field} ${order === 1 ? '↑' : '↓'}`),
+      // Compact text for the trigger pill (e.g. "A → Z"); label is used in the sheet.
+      shortLabel: entry.shortLabel != null ? String(entry.shortLabel) : null,
       field,
       order,
       index,
@@ -61,9 +63,11 @@ export default function SortSheet({
 
   if (normalized.length === 0) return null;
 
-  // Falls back to the first preset's label so the pill reads like the design
-  // ("A → Z") before the user has picked anything.
-  const pillLabel = triggerLabel ?? activeOption?.label ?? normalized[0].label;
+  // Compact pill text ("A → Z"): explicit triggerLabel wins, then the active
+  // option's shortLabel, then its full label, then the first preset.
+  const pillLabel = triggerLabel
+    ?? activeOption?.shortLabel ?? activeOption?.label
+    ?? normalized[0].shortLabel ?? normalized[0].label;
 
   return (
     <>
@@ -72,10 +76,10 @@ export default function SortSheet({
         onClick={() => setVisible(true)}
         aria-haspopup="dialog"
         aria-expanded={visible}
-        className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg border border-gray-200 bg-white px-3 text-sm font-semibold text-slate-800 hover:bg-gray-50"
+        className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-gray-200 bg-white px-2.5 text-xs font-semibold text-slate-800 hover:bg-gray-50 sm:px-3 sm:text-sm"
         style={{ height: '2rem' }}
       >
-        <i className="pi pi-sort-alt text-xs text-gray-400" aria-hidden="true" />
+        <i className="pi pi-sliders-h text-xs text-gray-500" aria-hidden="true" />
         {pillLabel}
       </button>
 

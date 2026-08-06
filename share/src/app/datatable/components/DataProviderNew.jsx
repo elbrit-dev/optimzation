@@ -4600,6 +4600,11 @@ export default function DataProviderNew({
         setSearchTerm,
         sortConfig,
         setSortConfig,
+        // Sync / freshness (exposed for custom header controls, e.g. the Views variant's refresh pill)
+        handleSync,
+        handleHardRefresh,
+        lastUpdatedAt,
+        formatLastUpdatedDate,
         // Enable write flag - use forceEnableWrite if provided (for nested drawer tables), otherwise use currentQueryDoc
         enableWrite: forceEnableWrite !== undefined ? forceEnableWrite : (currentQueryDoc?.enableWrite || false),
         writePermissions: resolvedWritePermissions,
@@ -4662,6 +4667,7 @@ export default function DataProviderNew({
     queryFunction, effectiveMainConfig, mainColumnTypesOverride, jsonObjectColumns, enableDivideBy1Lakh, enableReport, chartColumns, chartHeight,
     dataSource, offlineData, offlineDataExecuted, formInputOverride, selectOptionsCache,
     selectedQueryKey, executingQuery, availableQueryKeys, resolvedConfig,
+    handleSync, handleHardRefresh, lastUpdatedAt,
     rowsPerPageOptions, defaultRows, tableHeight, scrollable, enableFullscreenDialog,
     resolvedWritePermissions,
   ]);
@@ -4838,6 +4844,10 @@ export default function DataProviderNew({
         setSearchTerm,
         sortConfig,
         setSortConfig,
+        handleSync,
+        handleHardRefresh,
+        lastUpdatedAt,
+        formatLastUpdatedDate,
         enableWrite: forceEnableWrite !== undefined ? forceEnableWrite : (currentQueryDoc?.enableWrite || false),
         writePermissions: resolveWritePermissions(enableWriteEffective, effectiveSlotConfig.writePermissions ?? resolvedConfig.writePermissions),
         groupDrawerAccess: effectiveSlotConfig.groupDrawerAccess,
@@ -4890,6 +4900,7 @@ export default function DataProviderNew({
     dataSource, offlineData, offlineDataExecuted,
     selectOptionsCache,
     selectedQueryKey, executingQuery, availableQueryKeys, resolvedConfig,
+    handleSync, handleHardRefresh, lastUpdatedAt,
     rowsPerPageOptions, defaultRows, tableHeight, scrollable, enableFullscreenDialog,
     enableWriteEffective, resolvedWritePermissions,
   ]);

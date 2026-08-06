@@ -17,7 +17,9 @@ import ApprovalCard from "./components/ApprovalCard";
 import SecondaryDataSummary from "./components/SecondaryDataSummary";
 import SecondaryApprovalSummary from "./components/SecondaryApprovalSummary";
 import ProductCard from "./components/ProductCard";
+import ProductStockSheet from "./components/ProductStockSheet";
 import CatalogLetterSection from "./components/CatalogLetterSection";
+import CatalogLetterGroup from "./components/CatalogLetterGroup";
 import HomeNavRings from "./components/HomeNavRings";
 import ProgressRing from "./components/ProgressRing";
 import CommonDataTable from "./components/CommonDataTable/CommonDataTable";
@@ -1367,6 +1369,168 @@ PLASMIC.registerComponent(CatalogLetterSection, {
     className: { type: "string", description: "CSS class for the section container." },
   },
   importPath: "./components/CatalogLetterSection",
+});
+
+PLASMIC.registerComponent(ProductStockSheet, {
+  name: "ProductStockSheet",
+  displayName: "Product Stock Sheet",
+  description:
+    "The product-detail bottom sheet: title + Brand line, the brand's variants as pills, MRP/PTR/PTS tiles, STOCK BY WAREHOUSE rows (code chip, level bar, qty) that expand into per-batch rows (batch no, months to expire, qty), Total across warehouses, and a full-width CTA. Open it from a Product Card's onCardClick: set visible=true, bind items to the brand's rows and initialItemName to the clicked row's item_name. Zero-stock warehouses show red, low stock amber (lowStockThreshold).",
+  props: {
+    visible: {
+      type: "boolean",
+      defaultValue: false,
+      description: "Sheet visibility. Registered as writable state — set true in an interaction (e.g. Product Card onCardClick), the sheet sets it false on close. Toggle true in Studio to style it.",
+    },
+    onVisibleChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "visible", type: "boolean" }],
+    },
+    onClose: { type: "eventHandler", argTypes: [] },
+    items: {
+      type: "object",
+      description:
+        "The brand's items. Accepts the brand group ({ brand__name, items:[...] }), a plain array of items, a single item, or the WHOLE letter-grouped dataset (array of groups) — in that case `brand` selects the group. Item fields: item_name, custom_last_mrp/ptr/pts, package, divison[{company__name}], total_stock, warehouses[{ code, warehouse, qty, batches[{ batch_no, qty, expire_text, months_to_expire }] }].",
+      defaultValue: {
+        brand__name: "CLAVBRIT",
+        items: [
+          {
+            item_name: "CLAVBRIT 375",
+            custom_last_mrp: 272.55,
+            custom_last_ptr: 207.66,
+            custom_last_pts: 186.89,
+            total_stock: 9917,
+            warehouses: [
+              { code: "KE", warehouse: "Kerala", qty: 0, batches: [] },
+              { code: "KA", warehouse: "Karnataka", qty: 5, batches: [{ batch_no: "LGQ04/052/10", qty: 5, expire_text: "19 months to expire", months_to_expire: 19 }] },
+              { code: "TG", warehouse: "Telangana", qty: 911, batches: [{ batch_no: "EET-2504062", qty: 911, expire_text: "7 months to expire", months_to_expire: 7 }] },
+              { code: "SW", warehouse: "Stores – SW", qty: 731, batches: [{ batch_no: "LGP11/201/05", qty: 731, expire_text: "14 months to expire", months_to_expire: 14 }] },
+              { code: "M", warehouse: "Mother WH", qty: 8270, batches: [{ batch_no: "LGQ04/052/10", qty: 8270, expire_text: "19 months to expire", months_to_expire: 19 }] },
+            ],
+          },
+          { item_name: "CLAVBRIT 625", custom_last_mrp: 310, custom_last_ptr: 236.19, custom_last_pts: 212.57, total_stock: 4210, warehouses: [] },
+          { item_name: "CLAVBRIT DUO SYP", custom_last_mrp: 118, custom_last_ptr: 89.9, custom_last_pts: 80.91, total_stock: 1830, warehouses: [] },
+        ],
+      },
+    },
+    brand: {
+      type: "string",
+      description: "Brand for the header line; also selects the group when items is the whole letter-grouped dataset.",
+    },
+    initialItemName: {
+      type: "string",
+      description: "Which variant is selected when the sheet opens — bind to the clicked card's row.item_name.",
+    },
+    variantNameField: { type: "string", defaultValue: "item_name" },
+    priceFields: {
+      type: "object",
+      description: "Same as Product Card: [{ field, label }], defaults to custom_last_mrp/ptr/pts as MRP/PTR/PTS.",
+    },
+    showPrices: { type: "boolean", defaultValue: true },
+    showPackage: { type: "boolean", defaultValue: false, description: "Show the item's package line (e.g. \"10 x 10 Tablets\") under the brand." },
+    showDivisions: { type: "boolean", defaultValue: false, description: "Show division/company chips (from divison[].company__name)." },
+    showStockBars: { type: "boolean", defaultValue: true, description: "The little stock-level bar per warehouse, scaled to the largest warehouse." },
+    expandableBatches: { type: "boolean", defaultValue: true, description: "Warehouse rows with batches expand on tap to show batch no / expiry / qty." },
+    hideZeroStockWarehouses: { type: "boolean", defaultValue: false },
+    lowStockThreshold: { type: "number", defaultValue: 10, description: "Qty at or below shows amber; zero always shows red." },
+    stockLabel: { type: "string", defaultValue: "Stock by warehouse" },
+    totalLabel: { type: "string", defaultValue: "Total across warehouses" },
+    showCta: { type: "boolean", defaultValue: true },
+    ctaLabel: { type: "string", defaultValue: "View full product page" },
+    onCtaClick: {
+      type: "eventHandler",
+      description: "Wire the navigation here — the target URL is not part of the data. Payload: { brand, variant, item }.",
+      argTypes: [{ name: "payload", type: "object" }],
+    },
+    onVariantChange: {
+      type: "eventHandler",
+      description: "Fires when a variant pill is picked in the sheet. Payload: { brand, variant, item }.",
+      argTypes: [{ name: "payload", type: "object" }],
+    },
+    sheetHeight: { type: "string", defaultValue: "85vh" },
+    className: { type: "string" },
+  },
+  states: {
+    visible: {
+      type: "writable",
+      variableType: "boolean",
+      valueProp: "visible",
+      onChangeProp: "onVisibleChange",
+    },
+  },
+  importPath: "./components/ProductStockSheet",
+});
+
+PLASMIC.registerComponent(CatalogLetterGroup, {
+  name: "CatalogLetterGroup",
+  displayName: "Catalog Letter Group",
+  description:
+    "ONE letter, MANY brand cards — the combined letter + Product Card component. Bind a letter group and every brand in it renders as its own card under a single red letter, instead of repeating Letter Section per brand and duplicating the letter. The letter is STICKY: pinned while its cards scroll, pushed away by the next group (repeat this over the letter-grouped array). Warehouse chips (KA – 3,978 / CB – 0) are built in from the selected variant's warehouses[] and swap when a pill is picked: zero = red, at/below lowStockThreshold = amber. The section carries data-letter, so the provider's A–Z rail works unchanged.",
+  props: {
+    data: {
+      type: "object",
+      description:
+        "The letter's data. Accepts { letter, items:[rows across brands] }, per-brand entries [{ letter, brand__name, items }] (pass one letter's entries — or the whole dataset plus the `letter` prop to select), or a flat rows array. Rows: item_name, custom_last_mrp/ptr/pts, total_stock, warehouses[{ code, qty }]. Rows with null brand__name fall back to their entry's brand__name.",
+      defaultValue: [
+        {
+          letter: "A",
+          brand__name: "ACEBRIT",
+          items: [
+            { item_name: "ACEBRIT P", custom_last_mrp: 87.19, custom_last_ptr: 66.43, custom_last_pts: 59.79, total_stock: 2939, warehouses: [{ code: "CH", warehouse: "Chennai", qty: 586 }, { code: "KA", warehouse: "Karnataka", qty: 376 }, { code: "KE", warehouse: "Kerala", qty: 8 }, { code: "M", warehouse: "Mother WH", qty: 1568 }] },
+            { item_name: "ACEBRIT MR", custom_last_mrp: 225, custom_last_ptr: 171.43, custom_last_pts: 154.29, total_stock: 6372, warehouses: [{ code: "CH", warehouse: "Chennai", qty: 1509 }, { code: "CB", warehouse: "Coimbatore", qty: 0 }, { code: "KA", warehouse: "Karnataka", qty: 927 }, { code: "M", warehouse: "Mother WH", qty: 2940 }] },
+          ],
+        },
+        {
+          letter: "A",
+          brand__name: "AMOXIBRIT",
+          items: [
+            { item_name: "AMOXIBRIT 625", custom_last_mrp: 171.36, custom_last_ptr: 130.56, custom_last_pts: 117.5, total_stock: 19477, warehouses: [{ code: "KA", warehouse: "Karnataka", qty: 3978 }, { code: "CB", warehouse: "Coimbatore", qty: 0 }, { code: "TG", warehouse: "Telangana", qty: 4136 }, { code: "M", warehouse: "Mother WH", qty: 10593 }] },
+          ],
+        },
+      ],
+    },
+    letter: {
+      type: "string",
+      description: "Letter override / selector. With the whole per-brand dataset bound to data, this picks only that letter's entries. Leave empty when data is already one letter's group.",
+    },
+    showLetter: { type: "boolean", defaultValue: true },
+    stickyLetter: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Pin the letter to the top while its cards scroll; the next group's letter pushes it away.",
+    },
+    stickyOffset: {
+      type: "string",
+      defaultValue: "0px",
+      description: "Top offset for the pinned letter — set to your sticky header's height (e.g. \"56px\") so the letter pins below it.",
+    },
+    letterClassName: {
+      type: "string",
+      description: "Replaces the letter's default classes entirely (default: sticky red letter on a translucent page-colored strip).",
+    },
+    brandField: { type: "string", defaultValue: "brand__name" },
+    variantNameField: { type: "string", defaultValue: "item_name" },
+    priceFields: {
+      type: "object",
+      description: "Same as Product Card: [{ field, label }], defaults to custom_last_mrp/ptr/pts as MRP/PTR/PTS.",
+    },
+    totalStockField: { type: "string", defaultValue: "total_stock" },
+    showWarehouseChips: { type: "boolean", defaultValue: true },
+    warehousesField: { type: "string", defaultValue: "warehouses" },
+    lowStockThreshold: {
+      type: "number",
+      defaultValue: 100,
+      description: "Chip qty at or below shows amber; zero always shows red.",
+    },
+    clickable: { type: "boolean", defaultValue: true },
+    onCardClick: {
+      type: "eventHandler",
+      description: "Same payload as Product Card: { brand, variant, row, variants } — variants is that brand's rows, ready to hand to Product Stock Sheet.",
+      argTypes: [{ name: "payload", type: "object" }],
+    },
+    className: { type: "string" },
+  },
+  importPath: "./components/CatalogLetterGroup",
 });
 
 PLASMIC.registerComponent(SecondaryApprovalSummary, {

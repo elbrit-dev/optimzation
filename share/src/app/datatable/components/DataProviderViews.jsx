@@ -6,6 +6,8 @@ import DataProvider from './DataProvider';
 import AlphabetRail from './views/AlphabetRail';
 import ProductSearchBar from './views/ProductSearchBar';
 import SortSheet from './views/SortSheet';
+import StaleDataBridge from './views/StaleDataBridge';
+import SyncPill from './views/SyncPill';
 import { DataViewContext } from '../contexts/ViewContext';
 
 const DEFAULT_VIEWS = [
@@ -55,7 +57,7 @@ function ViewSwitcher({ views, activeView, onSelect, className }) {
             aria-selected={active}
             aria-controls={`dataview-panel-${view.id}`}
             onClick={() => onSelect(view.id)}
-            className={`inline-flex h-full items-center gap-1.5 whitespace-nowrap rounded px-2.5 text-sm font-medium transition-colors ${
+            className={`inline-flex h-full items-center gap-1.5 whitespace-nowrap rounded px-2 text-xs font-medium transition-colors sm:px-2.5 sm:text-sm ${
               active
                 ? 'bg-white text-slate-800 shadow-sm ring-1 ring-gray-200'
                 : 'text-gray-400 hover:text-gray-600'
@@ -101,9 +103,19 @@ export default function DataProviderViews({
   sortOptions,
   sortSheetTitle = 'Sort products',
   hideNativeFilterSort = false,
+  // Compact control row: hides the engine's own header controls and renders
+  // [sort pill] [⟳ short-date] … [Cards | Table] on one line, mobile-sized.
+  // Defaults to on when the search bar is enabled (search replaces the native
+  // Filter / Sort, so only sort + refresh remain).
+  compactHeader,
   // --- A–Z letter rail (provider-owned; jumps to [data-letter] sections in the slot) ---
   showLetterRail = false,
   letterRailField = '',
+  // --- cache: paint last session's data instantly, refresh behind it.
+  // Variant-only (StaleDataBridge): the underlying DataProvider's loading flow
+  // is untouched — this only re-provides the published context while it loads. ---
+  staleWhileRevalidate = false,
+  cacheKey,
   // --- passthrough to DataProvider ---
   presetDataSource,
   presetName,
@@ -194,18 +206,40 @@ export default function DataProviderViews({
     />
   ) : null), [showSearch, searchPlaceholder, showRecentSearches, recentSearchLimit, recentSearchStorageKey]);
 
-  // Sort pill goes left of the sync button; the view switcher stays hard right.
-  const headerRight = inHeader ? switcher : null;
+  // Compact mode replaces the engine's controls with the variant's own pills.
+  // Auto-enabled with the search bar: search takes the filter role, so the header
+  // reduces to [sort] [refresh] … [view switcher] on a single line.
+  const compact = compactHeader ?? showSearch;
+
+  // In compact mode everything lives in the LEFT slot as one justify-between row,
+  // so mobile keeps a single line (the engine's own header row stacks left/right
+  // slots vertically below the sm breakpoint).
+  const headerLeft = useMemo(() => {
+    if (!compact) return sortSheet;
+    return (
+      <div className="flex w-full min-w-0 items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          {sortSheet}
+          <SyncPill />
+        </div>
+        {inHeader ? switcher : null}
+      </div>
+    );
+  }, [compact, sortSheet, inHeader, switcher]);
+
+  const headerRight = !compact && inHeader ? switcher : null;
 
   const internalForProvider = useMemo(() => {
     const next = { ...__internal };
-    if (headerTop || sortSheet || headerRight) {
-      next.headerSlots = { top: headerTop, left: sortSheet, right: headerRight };
+    if (headerTop || headerLeft || headerRight) {
+      next.headerSlots = { top: headerTop, left: headerLeft, right: headerRight };
     }
-    // Only suppress the built-in button when this provider offers a replacement.
-    if (hideNativeFilterSort || hasSortOptions) next.hideNativeFilterSort = true;
+    // Hide the engine's controls entirely in compact mode (the pills replace them);
+    // otherwise only suppress Filter / Sort when this provider offers a replacement.
+    if (compact) next.showProviderHeader = false;
+    if (hideNativeFilterSort || hasSortOptions || showSearch) next.hideNativeFilterSort = true;
     return next;
-  }, [__internal, headerTop, sortSheet, headerRight, hideNativeFilterSort, hasSortOptions]);
+  }, [__internal, headerTop, headerLeft, headerRight, compact, hideNativeFilterSort, hasSortOptions, showSearch]);
 
   return (
     <DataProvider
@@ -219,18 +253,26 @@ export default function DataProviderViews({
     >
       <DataViewContext.Provider value={viewCtx}>
         <PlasmicDataProvider name="view" data={viewCtx}>
-          <div className={className ?? 'flex flex-col min-h-0 flex-1'}>
-            {viewSwitcherPosition === 'top' ? standaloneSwitcher : null}
-            {showLetterRail ? (
-              <div className="flex min-h-0 flex-1 gap-1">
-                <div className="min-w-0 flex-1">{children}</div>
-                <AlphabetRail field={letterRailField || undefined} />
+          {(() => {
+            const content = (
+              <div className={className ?? 'flex flex-col min-h-0 flex-1'}>
+                {viewSwitcherPosition === 'top' ? standaloneSwitcher : null}
+                {showLetterRail ? (
+                  <div className="flex min-h-0 flex-1 gap-1">
+                    <div className="min-w-0 flex-1">{children}</div>
+                    <AlphabetRail field={letterRailField || undefined} />
+                  </div>
+                ) : (
+                  children
+                )}
+                {viewSwitcherPosition === 'bottom' ? standaloneSwitcher : null}
               </div>
-            ) : (
-              children
-            )}
-            {viewSwitcherPosition === 'bottom' ? standaloneSwitcher : null}
-          </div>
+            );
+            if (!staleWhileRevalidate) return content;
+            const snapshotKey = cacheKey
+              || (presetDataSource ? `preset:${presetDataSource}:${presetName ?? ''}` : 'dataprovider-views:default');
+            return <StaleDataBridge cacheKey={snapshotKey}>{content}</StaleDataBridge>;
+          })()}
         </PlasmicDataProvider>
       </DataViewContext.Provider>
     </DataProvider>
