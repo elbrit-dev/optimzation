@@ -33,6 +33,13 @@ function normalizeViews(views) {
 
 const ALIGN_CLASS = { left: 'justify-start', center: 'justify-center', right: 'justify-end' };
 
+// Breathing room around the slot content — the engine's header is shared with the
+// original provider, so the variant adds its own spacing here instead of touching it.
+const DEFAULT_CONTENT_PADDING = 'px-3 pt-3 pb-4 sm:px-4 sm:pt-4';
+// Same reason for the header: the engine wraps it in px-2 (8px on mobile), which
+// reads as cramped, so the variant insets its OWN header slots a little further.
+const HEADER_SLOT_PADDING = 'px-1 sm:px-1.5';
+
 /**
  * Segmented Cards/Table control. Sized to 2rem to line up with the header's
  * other controls (Filter / Sort, sync SplitButton) which all set height: '2rem'.
@@ -93,6 +100,8 @@ export default function DataProviderViews({
   viewSwitcherClassName,
   keepInactiveMounted = true,
   className,
+  // Padding around the slot content (variant-only; the engine header is shared).
+  contentClassName,
   // --- search bar (drives the provider's own multi-field searchTerm) ---
   showSearch = false,
   searchPlaceholder = 'Search product or brand…',
@@ -190,12 +199,14 @@ export default function DataProviderViews({
   ) : null;
 
   const headerTop = useMemo(() => (showSearch ? (
-    <ProductSearchBar
-      placeholder={searchPlaceholder}
-      showRecents={showRecentSearches}
-      recentLimit={recentSearchLimit}
-      storageKey={recentSearchStorageKey || undefined}
-    />
+    <div className={HEADER_SLOT_PADDING}>
+      <ProductSearchBar
+        placeholder={searchPlaceholder}
+        showRecents={showRecentSearches}
+        recentLimit={recentSearchLimit}
+        storageKey={recentSearchStorageKey || undefined}
+      />
+    </div>
   ) : null), [showSearch, searchPlaceholder, showRecentSearches, recentSearchLimit, recentSearchStorageKey]);
 
   // Compact mode replaces the engine's controls with the variant's own pills —
@@ -209,7 +220,7 @@ export default function DataProviderViews({
   const headerLeft = useMemo(() => {
     if (!compact) return null;
     return (
-      <div className="flex w-full min-w-0 items-center justify-between gap-2">
+      <div className={`flex w-full min-w-0 items-center justify-between gap-2 ${HEADER_SLOT_PADDING}`}>
         <div className="flex min-w-0 items-center gap-2">
           <FilterSortPill />
           <SyncPill />
@@ -249,7 +260,7 @@ export default function DataProviderViews({
               <div className={className ?? 'flex flex-col min-h-0 flex-1'}>
                 {viewSwitcherPosition === 'top' ? standaloneSwitcher : null}
                 {showLetterRail ? (
-                  <div className="flex min-h-0 flex-1 gap-1">
+                  <div className={`flex min-h-0 flex-1 gap-2 sm:gap-3 ${contentClassName ?? DEFAULT_CONTENT_PADDING}`}>
                     <div className="min-w-0 flex-1">{children}</div>
                     {/* Rail only on the views that have letter sections (cards).
                         The wrapper row stays constant so toggling views never
@@ -259,7 +270,7 @@ export default function DataProviderViews({
                     ) : null}
                   </div>
                 ) : (
-                  children
+                  <div className={contentClassName ?? DEFAULT_CONTENT_PADDING}>{children}</div>
                 )}
                 {viewSwitcherPosition === 'bottom' ? standaloneSwitcher : null}
               </div>

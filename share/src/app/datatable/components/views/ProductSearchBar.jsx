@@ -147,7 +147,7 @@ export default function ProductSearchBar({
             if (e.key === 'Enter') applyNow(text);
             else if (e.key === 'Escape') setOpen(false);
           }}
-          className="w-full rounded-xl border border-transparent bg-gray-100 py-2 pl-10 pr-10 text-sm text-slate-800 placeholder:text-gray-400 focus:border-gray-300 focus:bg-white focus:outline-none sm:py-2.5"
+          className="w-full rounded-xl border border-transparent bg-gray-100 py-2.5 pl-10 pr-10 text-sm text-slate-800 placeholder:text-gray-400 focus:border-gray-300 focus:bg-white focus:outline-none sm:py-3"
         />
         {text ? (
           <button
