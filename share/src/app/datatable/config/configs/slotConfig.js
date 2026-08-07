@@ -18,9 +18,9 @@ export const defaultDataTableConfig = {
       enableSummation: true,
       textFilterColumns: [],
       percentageColumns: [
-        { columnName: 'Target %', valueField: 'inc_primary', targetField: 'target', beforeColumn: 'target' },
-        { columnName: 'Prod %', valueField: 'prod_offer', targetField: 'target', beforeColumn: 'prod_offer' },
-        { columnName: 'Inv %', valueField: 'inv_offer', targetField: 'target', beforeColumn: 'inv_offer' },
+        { columnName: 'Target %', valueField: 'inc_primary', targetField: 'target_value', beforeColumn: 'target_value' },
+        { columnName: 'Prod %',   valueField: 'prod_offer',  targetField: 'net_primary',  beforeColumn: 'prod_offer' },
+        { columnName: 'Inv %',    valueField: 'inv_offer',   targetField: 'net_primary',  beforeColumn: 'inv_offer' },
       ],
       derivedColumns: [],
       derivedRows: null,
