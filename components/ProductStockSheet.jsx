@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Sidebar } from "primereact/sidebar";
 
 /**
@@ -132,6 +132,12 @@ export default function ProductStockSheet({
   // interaction needed. onCtaClick still fires either way.
   ctaHref = "",
   ctaTarget = "_self",
+  // After a CTA click the button shows a filling progress bar for this long, so
+  // the tap has visible feedback while the product page opens. It is TIME-BASED
+  // (we can't know real navigation progress) — set it near how long that page
+  // actually takes. 0 disables the busy state entirely.
+  ctaBusyMs = 6000,
+  ctaBusyLabel = "Opening…",
   onCtaClick,
   onVariantChange,
   sheetHeight = "85vh",
@@ -158,6 +164,50 @@ export default function ProductStockSheet({
 
   const [activeName, setActiveName] = useState(initialItemName ?? null);
   const [expanded, setExpanded] = useState(() => new Set());
+
+  // CTA busy state: a time-based progress fill so the tap has feedback while the
+  // product page opens. rAF-driven so it stays smooth and self-cancels.
+  const [ctaBusy, setCtaBusy] = useState(false);
+  const [ctaProgress, setCtaProgress] = useState(0);
+  const ctaFrameRef = useRef(null);
+
+  const stopCtaProgress = useCallback(() => {
+    if (ctaFrameRef.current != null) {
+      cancelAnimationFrame(ctaFrameRef.current);
+      ctaFrameRef.current = null;
+    }
+    setCtaBusy(false);
+    setCtaProgress(0);
+  }, []);
+
+  const startCtaProgress = useCallback(() => {
+    const duration = Number(ctaBusyMs);
+    if (!Number.isFinite(duration) || duration <= 0) return;
+    if (ctaFrameRef.current != null) cancelAnimationFrame(ctaFrameRef.current);
+    setCtaBusy(true);
+    setCtaProgress(0);
+    const started = performance.now();
+    const tick = (now) => {
+      const pct = Math.min(100, ((now - started) / duration) * 100);
+      setCtaProgress(pct);
+      if (pct < 100) {
+        ctaFrameRef.current = requestAnimationFrame(tick);
+      } else {
+        ctaFrameRef.current = null;
+        setCtaBusy(false);
+        setCtaProgress(0);
+      }
+    };
+    ctaFrameRef.current = requestAnimationFrame(tick);
+  }, [ctaBusyMs]);
+
+  // Never leave the animation running after the sheet closes or unmounts.
+  useEffect(() => {
+    if (!visible) stopCtaProgress();
+  }, [visible, stopCtaProgress]);
+  useEffect(() => () => {
+    if (ctaFrameRef.current != null) cancelAnimationFrame(ctaFrameRef.current);
+  }, []);
 
   // Re-sync the selected variant when the sheet targets a new product.
   useEffect(() => {
@@ -378,21 +428,60 @@ export default function ProductStockSheet({
               ? resolveHrefTemplate(ctaHref, active, { brand: brandName, variant: payload.variant ?? "" })
               : "";
             const ctaClasses =
-              "mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-[#1e2a5a] py-3 text-sm font-semibold text-white transition-colors hover:bg-[#27356e]";
+              `relative mt-3 flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-[#1e2a5a] py-3 text-sm font-semibold text-white transition-all duration-150 hover:bg-[#27356e] active:scale-[0.985] ${
+                ctaBusy ? "cursor-progress" : ""
+              }`;
             const fire = () => {
+              startCtaProgress();
               if (onCtaClick) onCtaClick(payload);
             };
+            const inner = (
+              <>
+                {/* Progress fill — a lighter overlay sweeping left→right beneath the label. */}
+                {ctaBusy ? (
+                  <span
+                    aria-hidden="true"
+                    className="absolute inset-y-0 left-0 bg-white/20 transition-[width] duration-100 ease-linear"
+                    style={{ width: `${ctaProgress}%` }}
+                  />
+                ) : null}
+                <span className="relative z-10 flex items-center gap-2">
+                  {ctaBusy ? (
+                    <>
+                      <i className="pi pi-spin pi-spinner text-xs" aria-hidden="true" />
+                      {ctaBusyLabel}
+                    </>
+                  ) : (
+                    <>
+                      {ctaLabel}
+                      <i className="pi pi-arrow-right text-xs" aria-hidden="true" />
+                    </>
+                  )}
+                </span>
+              </>
+            );
             // With a URL template, render a real link — navigation with no Studio
             // interaction required. onCtaClick still fires before the browser follows it.
             return href ? (
-              <a href={href} target={ctaTarget} rel={ctaTarget === "_blank" ? "noopener noreferrer" : undefined} onClick={fire} className={ctaClasses}>
-                {ctaLabel}
-                <i className="pi pi-arrow-right text-xs" aria-hidden="true" />
+              <a
+                href={href}
+                target={ctaTarget}
+                rel={ctaTarget === "_blank" ? "noopener noreferrer" : undefined}
+                onClick={fire}
+                aria-busy={ctaBusy || undefined}
+                className={ctaClasses}
+              >
+                {inner}
               </a>
             ) : (
-              <button type="button" onClick={fire} className={ctaClasses}>
-                {ctaLabel}
-                <i className="pi pi-arrow-right text-xs" aria-hidden="true" />
+              <button
+                type="button"
+                onClick={fire}
+                disabled={ctaBusy}
+                aria-busy={ctaBusy || undefined}
+                className={ctaClasses}
+              >
+                {inner}
               </button>
             );
           })() : null}

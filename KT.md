@@ -580,33 +580,45 @@ at build time — changing one requires a redeploy, not a restart.**
 > Copy it to `.env.local` and fill it in. The summary below is the same list in
 > prose.
 
-**Firebase (client)** — `NEXT_PUBLIC_FIREBASE_API_KEY`, `_AUTH_DOMAIN`,
-`_PROJECT_ID`, `_STORAGE_BUCKET`, `_MESSAGING_SENDER_ID`, `_APP_ID`,
-`_MEASUREMENT_ID`; `NEXT_PUBLIC_RECAPTCHA_SITE_KEY` (phone auth).
-The web API key is public by design — `netlify.toml` tells Netlify's secret
-scanner to stop flagging it via `SECRETS_SCAN_OMIT_KEYS`.
+Every key below is read by real code; nothing else in the repo consumes an env
+var. `shared/` (the calendar) reads **none** — it gets its ERP url and token as
+Plasmic props.
 
-**Plasmic** — `NEXT_PUBLIC_PLASMIC_TAG` (`dev`|`prod`, validated),
-`RELEASE_CHANNEL` / `NEXT_PUBLIC_RELEASE_CHANNEL` / `PLASMIC_SITE_TAG` (release
-guard), `NEXT_PUBLIC_PLASMIC_PROJECT_ID`, `NEXT_PUBLIC_PLASMIC_PROJECT_TOKEN`,
-`PLASMIC_CMS_ID`, `PLASMIC_CMS_PUBLIC_TOKEN`, `PLASMIC_CMS_SECRET_TOKEN` (MCP
-server only).
+**Required**
 
-**Novu** — `NOVU_API_KEY` (**required**, server), `NOVU_BACKEND_URL`,
-`NOVU_TRIGGER_SECRET` (webhook auth),
-`NEXT_PUBLIC_NOVU_APPLICATION_IDENTIFIER`, `NEXT_PUBLIC_NOVU_BACKEND_URL`,
-`NEXT_PUBLIC_NOVU_SOCKET_URL`.
+| Key | Read by | Note |
+| --- | --- | --- |
+| `NEXT_PUBLIC_FIREBASE_API_KEY`, `_AUTH_DOMAIN`, `_PROJECT_ID`, `_STORAGE_BUCKET`, `_MESSAGING_SENDER_ID`, `_APP_ID` | `firebase.js`, `lib/firebase.js`, `share/src/lib/firebase.js` | root files have hardcoded fallbacks; **`share/`'s does not** — blank breaks every share page. API key is public by design (`netlify.toml` exempts it from Netlify's scanner). |
+| `NEXT_PUBLIC_FIRESTORE_DATABASE_ID` | `share/src/lib/firebase.js` | must be **`elbrit`**. The root files force that DB name in code; share falls back to `(default)`, which is empty. |
+| `NEXT_PUBLIC_PLASMIC_TAG` | `plasmic-init.js`, release guard | `dev` \| `prod`, validated (anything else throws). |
+| `RELEASE_CHANNEL` | `scripts/release-guard.js` | production deploys only — `prod` arms the build. |
+| `NOVU_API_KEY` | all three Novu API routes | server-only. |
+| `NOVU_TRIGGER_SECRET` | `/api/novu/trigger` | ERPNext sends it as `x-webhook-secret`. |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | `/api/google-calendar/connect` | only if Calendar sync is on. Secret is server-only. |
 
-**Google Calendar** — `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `APP_URL`
-(fallback for the OAuth `redirect_uri`; the callback page sends the real origin).
+**Optional (code defaults exist)** — `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID`
+(analytics), `NOVU_BACKEND_URL`, `NEXT_PUBLIC_NOVU_APPLICATION_IDENTIFIER`,
+`NEXT_PUBLIC_NOVU_BACKEND_URL`, `NEXT_PUBLIC_NOVU_SOCKET_URL`, `APP_URL`,
+`NEXT_PUBLIC_GQL_COLLECTION` (share), `NEXT_PUBLIC_ALLOWED_REDIRECT_ORIGINS`
+(share), `NEXT_PUBLIC_DEBUG_TABLE_CONTEXT` (share), `PORT`.
 
-**GraphQL (convention, currently unused)** —
-`NEXT_PUBLIC_GRAPHQL_ENDPOINT_<KEY>`, `NEXT_PUBLIC_GRAPHQL_AUTH_TOKEN_<KEY>`,
-`NEXT_PUBLIC_GRAPHQL_DEFAULT_ENDPOINT`.
+**Local tooling only** — `NEXT_PUBLIC_PLASMIC_PROJECT_ID`,
+`NEXT_PUBLIC_PLASMIC_PROJECT_TOKEN` (for `npm run mcp`).
 
-**Misc** — `PORT`, `SECRETS_SCAN_ENABLED`, `NEXT_PUBLIC_GQL_COLLECTION`,
-`NEXT_PUBLIC_ALLOWED_REDIRECT_ORIGINS`, `NEXT_PUBLIC_FIRESTORE_DATABASE_ID`,
-`NEXT_PUBLIC_DEBUG_TABLE_CONTEXT` (last four consumed by `share/`).
+**Set in Netlify, not in `.env.local`** — `SECRETS_SCAN_ENABLED`;
+`SECRETS_SCAN_OMIT_KEYS` is already declared in `netlify.toml`.
+
+**Not env vars** (so nobody hunts for them) — the OneSignal app id (hardcoded in
+`_app.jsx`; its REST key lives in Novu's integration), the ERP GraphQL url +
+token (Plasmic props), and the Plasmic project id + token (hardcoded in
+`plasmic-init.js`).
+
+**Dropped as dead** — `NEXT_PUBLIC_RECAPTCHA_SITE_KEY` (no reader),
+`NEXT_PUBLIC_GRAPHQL_ENDPOINT_*` / `_AUTH_TOKEN_*` / `_DEFAULT_ENDPOINT`
+(`lib/graphql-endpoints.js` has no importers), `FB_EMAIL` / `FB_PASSWORD`
+(migration script with its sign-in block commented out), `PLASMIC_CMS_*` (CMS
+unused), and the aliases `PLASMIC_PROJECT_ID` / `PLASMIC_PROJECT_TOKEN` /
+`PLASMIC_SITE_TAG` / `NEXT_PUBLIC_RELEASE_CHANNEL`.
 
 `.env` and `.env.local` are both **gitignored**. `.env.local` overrides `.env`
 in Next.js and is currently **UTF-16 encoded** — edit it with an editor that

@@ -122,6 +122,10 @@ export default function CatalogLetterGroup({
   stickyLetter = true,
   stickyOffset = "0px",
   letterClassName,
+  // Background for the letter row WHILE PINNED, so cards slide underneath it
+  // instead of showing through. At rest the letter stays transparent.
+  // Must match the page background — set it if your page isn't gray-50.
+  pinnedLetterClassName = "bg-gray-50",
   brandField = "brand__name",
   variantNameField = "item_name",
   priceFields,
@@ -206,6 +210,7 @@ export default function CatalogLetterGroup({
       stickyLetter={stickyLetter}
       stickyOffset={stickyOffset}
       letterClassName={letterClassName}
+      pinnedLetterClassName={pinnedLetterClassName}
       className={className}
     >
       <div className="space-y-3">
@@ -252,7 +257,7 @@ function resolveOffsetPx(value) {
  * scroll-driven fixed/absolute swap instead of CSS position:sticky, because
  * sticky silently dies inside page-builder sections that have overflow set.
  */
-function LetterSection({ resolvedLetter, showLetter, stickyLetter, stickyOffset, letterClassName, className, children }) {
+function LetterSection({ resolvedLetter, showLetter, stickyLetter, stickyOffset, letterClassName, pinnedLetterClassName, className, children }) {
   const sectionRef = useRef(null);
   const letterRef = useRef(null);
   // mode: 'static' (in flow, at the TOP of its section) | 'pinned' (fixed below
@@ -301,10 +306,18 @@ function LetterSection({ resolvedLetter, showLetter, stickyLetter, stickyOffset,
     pin.mode === "pinned" && !inCanvas
       ? { position: "fixed", top: resolveOffsetPx(stickyOffset), left: pin.left, width: pin.width, zIndex: 20 }
       : undefined;
+  // Placeholder must reserve the PINNED height (which includes the band padding),
+  // otherwise the row collapses by a few px the moment the letter pins.
+  const placeholderHeight = pin.mode !== "static" && pin.height ? pin.height : undefined;
 
-  // The heading is EXACTLY CatalogLetterSection's — a plain small red letter,
-  // no background, in every state. Pinning only changes its position.
-  const letterClasses = "px-1 text-sm font-bold text-red-600";
+  // At rest the heading is EXACTLY CatalogLetterSection's — a plain small red
+  // letter with no background. While PINNED it also gets an opaque band (padded
+  // a little top/bottom) so the cards scroll underneath it rather than showing
+  // through the letter.
+  const isPinned = pin.mode === "pinned" && !inCanvas;
+  const letterClasses = `px-1 text-sm font-bold text-red-600${
+    isPinned ? ` py-1.5 ${pinnedLetterClassName ?? ""}` : ""
+  }`;
 
   return (
     <section
@@ -314,7 +327,7 @@ function LetterSection({ resolvedLetter, showLetter, stickyLetter, stickyOffset,
     >
       {showLetter ? (
         // The placeholder keeps the row's space when the heading leaves the flow.
-        <div style={pin.mode !== "static" && pin.height ? { height: pin.height } : undefined}>
+        <div style={placeholderHeight ? { height: placeholderHeight } : undefined}>
           <h2
             ref={letterRef}
             className={letterClassName ?? letterClasses}

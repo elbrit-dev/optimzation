@@ -1322,6 +1322,16 @@ PLASMIC.registerComponent(ProductCard, {
       type: "string",
       description: "Column on the selected variant's row already holding the stock TOTAL. The card does not sum a nested per-warehouse list — total it upstream (derivedColumn) and name it here.",
     },
+    singleProduct: {
+      type: "boolean",
+      defaultValue: false,
+      description: "Switches the card to its SINGLE-PRODUCT variant: it represents one product instead of a brand with several variants. The title becomes the item name, the variant pills and the \"N variants\" count are dropped, and the brand shows as a small line beneath. Prices, stock, extras and the click payload are unchanged, so the same onCardClick handler works in both modes. Bind `data` to a single row (or the first row is used).",
+    },
+    showBrandLine: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Single-product mode only: show the brand as a small line under the product name.",
+    },
     clickable: {
       type: "boolean",
       defaultValue: true,
@@ -1448,6 +1458,16 @@ PLASMIC.registerComponent(ProductStockSheet, {
       defaultValue: "_self",
       description: "Where the ctaHref link opens.",
     },
+    ctaBusyMs: {
+      type: "number",
+      defaultValue: 6000,
+      description: "After a CTA tap the button presses in and fills a progress bar for this many milliseconds, giving the tap feedback while the product page opens. TIME-BASED, not real progress — set it near how long that page actually takes (5000–8000 is typical). 0 disables the busy state.",
+    },
+    ctaBusyLabel: {
+      type: "string",
+      defaultValue: "Opening…",
+      description: "Label shown on the CTA while the progress bar is running.",
+    },
     onCtaClick: {
       type: "eventHandler",
       description: "Fires on CTA click (also when ctaHref is set, before navigation). Payload: { brand, variant, item }.",
@@ -1518,7 +1538,12 @@ PLASMIC.registerComponent(CatalogLetterGroup, {
     },
     letterClassName: {
       type: "string",
-      description: "Replaces the letter's default classes entirely (default: sticky red letter on a translucent page-colored strip).",
+      description: "Replaces the letter's default classes entirely (default: plain small red letter, no background at rest).",
+    },
+    pinnedLetterClassName: {
+      type: "string",
+      defaultValue: "bg-gray-50",
+      description: "Background applied to the letter row ONLY while it is pinned, so cards scroll underneath instead of showing through it. Set this to match your page background (e.g. \"bg-white\") — a transparent value brings the see-through look back.",
     },
     brandField: { type: "string", defaultValue: "brand__name" },
     variantNameField: { type: "string", defaultValue: "item_name" },

@@ -90,6 +90,13 @@ export default function ProductCard({
   clickable = true,
   onCardClick,
   onVariantChange,
+  // Single-product variant of the same card: the card is ONE product instead of
+  // a brand with several variants. Title becomes the item name, the variant
+  // pills and the "N variants" count disappear, and the brand moves to a small
+  // line underneath. Everything else (prices, stock, extras, click) is the same.
+  // Off by default — the brand-based card is untouched.
+  singleProduct = false,
+  showBrandLine = true,
   // Code-only render hook (not a Studio prop): receives the SELECTED variant's row
   // and renders below the price row — used by CatalogLetterGroup for warehouse
   // chips that follow the active pill. The children slot stays static below it.
@@ -115,14 +122,25 @@ export default function ProductCard({
       .filter(Boolean);
   }, [priceFields]);
 
-  const title = useMemo(() => {
+  // The brand this card belongs to — the heading in brand mode, the small line
+  // under the product name in single-product mode.
+  const brandName = useMemo(() => {
     const explicit = String(brand ?? "").trim();
     if (explicit) return explicit;
     return String(readField(rows[0], brandField) ?? "—").trim() || "—";
   }, [brand, rows, brandField]);
 
   const [activeIndex, setActiveIndex] = useState(0);
-  const active = rows[Math.min(activeIndex, Math.max(rows.length - 1, 0))] ?? null;
+  // Single-product mode always shows the first row; there are no pills to pick.
+  const active = singleProduct
+    ? (rows[0] ?? null)
+    : (rows[Math.min(activeIndex, Math.max(rows.length - 1, 0))] ?? null);
+
+  const title = useMemo(() => {
+    if (!singleProduct) return brandName;
+    const name = String(readField(active, variantNameField) ?? "").trim();
+    return name || brandName;
+  }, [singleProduct, brandName, active, variantNameField]);
 
   // Direct value wins over reading a column off the selected variant.
   const totalValue = totalStock ?? (totalStockField && active ? readField(active, totalStockField) : null);
@@ -135,23 +153,25 @@ export default function ProductCard({
         const row = rows[index];
         onVariantChange({
           index,
-          variant: variantLabel(readField(row, variantNameField), title),
+          variant: variantLabel(readField(row, variantNameField), brandName),
           row,
         });
       }
     },
-    [onVariantChange, rows, variantNameField, title],
+    [onVariantChange, rows, variantNameField, brandName],
   );
 
   const fire = useCallback(() => {
     if (!clickable || !onCardClick) return;
+    // Payload shape is identical in both modes, so the same handler (e.g. opening
+    // the Product Stock Sheet) works either way. `brand` is always the brand.
     onCardClick({
-      brand: title,
-      variant: active ? variantLabel(readField(active, variantNameField), title) : null,
+      brand: brandName,
+      variant: active ? variantLabel(readField(active, variantNameField), brandName) : null,
       row: active,
       variants: rows,
     });
-  }, [clickable, onCardClick, title, active, variantNameField, rows]);
+  }, [clickable, onCardClick, brandName, active, variantNameField, rows]);
 
   return (
     <div
@@ -179,7 +199,11 @@ export default function ProductCard({
           <h3 className="truncate text-lg font-extrabold uppercase tracking-tight text-[#1e2a5a]">
             {title}
           </h3>
-          {rows.length > 0 ? (
+          {singleProduct ? (
+            showBrandLine && brandName && brandName !== title ? (
+              <p className="mt-0.5 truncate text-xs text-gray-400">{brandName}</p>
+            ) : null
+          ) : rows.length > 0 ? (
             <p className="mt-0.5 text-xs text-gray-400">
               {rows.length} {rows.length === 1 ? "variant" : "variants"}
             </p>
@@ -195,10 +219,11 @@ export default function ProductCard({
         ) : null}
       </div>
 
-      {rows.length > 0 ? (
+      {/* No variant pills in single-product mode — the card IS one product. */}
+      {!singleProduct && rows.length > 0 ? (
         <div className="mt-3 flex flex-wrap gap-2">
           {rows.map((row, index) => {
-            const label = variantLabel(readField(row, variantNameField), title);
+            const label = variantLabel(readField(row, variantNameField), brandName);
             const selected = index === Math.min(activeIndex, rows.length - 1);
             return (
               <button
