@@ -74,17 +74,17 @@ export default function SyncPill({ className }) {
     <div ref={wrapRef} className={`relative inline-flex shrink-0 ${className ?? ''}`}>
       <div
         className="inline-flex items-stretch overflow-hidden rounded-lg border border-gray-200 bg-white"
-        style={{ height: '2rem' }}
+        style={{ height: '1.75rem' }}
       >
         <button
           type="button"
           onClick={() => handleSync()}
           disabled={busy}
           title="Refresh data"
-          className="inline-flex items-center gap-1.5 whitespace-nowrap px-2.5 text-xs font-semibold text-slate-800 hover:bg-gray-50 disabled:opacity-60 sm:px-3 sm:text-sm"
+          className="inline-flex items-center gap-1 whitespace-nowrap px-2 text-[11px] font-semibold text-slate-800 hover:bg-gray-50 disabled:opacity-60 sm:gap-1.5 sm:px-2.5 sm:text-xs"
         >
           <i
-            className={`${busy ? 'pi pi-spin pi-spinner' : 'pi pi-refresh'} text-xs text-gray-500`}
+            className={`${busy ? 'pi pi-spin pi-spinner' : 'pi pi-refresh'} text-[10px] text-gray-500`}
             aria-hidden="true"
           />
           {label}
@@ -97,9 +97,9 @@ export default function SyncPill({ className }) {
             aria-haspopup="menu"
             aria-expanded={menuOpen}
             aria-label="More refresh options"
-            className="inline-flex items-center border-l border-gray-200 px-1.5 text-gray-500 hover:bg-gray-50 disabled:opacity-60"
+            className="inline-flex items-center border-l border-gray-200 px-1 text-gray-500 hover:bg-gray-50 disabled:opacity-60"
           >
-            <i className="pi pi-chevron-down text-[10px]" aria-hidden="true" />
+            <i className="pi pi-chevron-down text-[9px]" aria-hidden="true" />
           </button>
         ) : null}
       </div>

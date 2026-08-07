@@ -50,8 +50,8 @@ function ViewSwitcher({ views, activeView, onSelect, className }) {
     <div
       role="tablist"
       aria-label="View"
-      className={`inline-flex items-center gap-0.5 rounded-md border border-gray-200 bg-gray-50 p-0.5 ${className ?? ''}`}
-      style={{ height: '2rem' }}
+      className={`inline-flex shrink-0 items-center gap-0.5 rounded-md border border-gray-200 bg-gray-50 p-0.5 ${className ?? ''}`}
+      style={{ height: '1.75rem' }}
     >
       {views.map((view) => {
         const active = view.id === activeView;
@@ -64,7 +64,7 @@ function ViewSwitcher({ views, activeView, onSelect, className }) {
             aria-selected={active}
             aria-controls={`dataview-panel-${view.id}`}
             onClick={() => onSelect(view.id)}
-            className={`inline-flex h-full items-center gap-1.5 whitespace-nowrap rounded px-2 text-xs font-medium transition-colors sm:px-2.5 sm:text-sm ${
+            className={`inline-flex h-full items-center gap-1 whitespace-nowrap rounded px-1.5 text-[11px] font-medium transition-colors sm:gap-1.5 sm:px-2 sm:text-xs ${
               active
                 ? 'bg-white text-slate-800 shadow-sm ring-1 ring-gray-200'
                 : 'text-gray-400 hover:text-gray-600'
@@ -220,8 +220,10 @@ export default function DataProviderViews({
   const headerLeft = useMemo(() => {
     if (!compact) return null;
     return (
-      <div className={`flex w-full min-w-0 items-center justify-between gap-2 ${HEADER_SLOT_PADDING}`}>
-        <div className="flex min-w-0 items-center gap-2">
+      // flex-nowrap + min-w-0 keeps this a single row; the gaps guarantee the
+      // pills can never sit flush against each other.
+      <div className={`flex w-full min-w-0 flex-nowrap items-center justify-between gap-2 sm:gap-3 ${HEADER_SLOT_PADDING}`}>
+        <div className="flex min-w-0 flex-nowrap items-center gap-1.5 sm:gap-2">
           <FilterSortPill />
           <SyncPill />
         </div>
@@ -260,7 +262,7 @@ export default function DataProviderViews({
               <div className={className ?? 'flex flex-col min-h-0 flex-1'}>
                 {viewSwitcherPosition === 'top' ? standaloneSwitcher : null}
                 {showLetterRail ? (
-                  <div className={`flex min-h-0 flex-1 gap-2 sm:gap-3 ${contentClassName ?? DEFAULT_CONTENT_PADDING}`}>
+                  <div className={`flex min-h-0 flex-1 gap-1 ${contentClassName ?? DEFAULT_CONTENT_PADDING}`}>
                     <div className="min-w-0 flex-1">{children}</div>
                     {/* Rail only on the views that have letter sections (cards).
                         The wrapper row stays constant so toggling views never

@@ -186,7 +186,7 @@ export default function AlphabetRail({ field, className }) {
       onPointerCancel={endScrub}
       // touch-action none stops the page from panning while the finger rides the rail.
       style={{ touchAction: 'none' }}
-      className={`relative sticky top-2 flex h-fit shrink-0 select-none flex-col items-center gap-1 self-start px-0.5 py-2 ${className ?? ''}`}
+      className={`relative sticky top-2 flex h-fit shrink-0 select-none flex-col items-center gap-0.5 self-start py-1 ${className ?? ''}`}
     >
       {scrub ? (
         <div

@@ -51,10 +51,10 @@ export default function FilterSortPill({ defaultLabel = 'Sort', sortOnly = true,
       type="button"
       onClick={open}
       title={sortOnly ? 'Sort' : 'Filter / Sort'}
-      className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-gray-200 bg-white px-2.5 text-xs font-semibold text-slate-800 hover:bg-gray-50 sm:px-3 sm:text-sm ${className ?? ''}`}
-      style={{ height: '2rem' }}
+      className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-lg border border-gray-200 bg-white px-2 text-[11px] font-semibold text-slate-800 hover:bg-gray-50 sm:gap-1.5 sm:px-2.5 sm:text-xs ${className ?? ''}`}
+      style={{ height: '1.75rem' }}
     >
-      <i className="pi pi-sliders-h text-xs text-gray-500" aria-hidden="true" />
+      <i className="pi pi-sliders-h text-[10px] text-gray-500" aria-hidden="true" />
       {label}
     </button>
   );
