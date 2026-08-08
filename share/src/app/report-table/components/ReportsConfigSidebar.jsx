@@ -14,7 +14,7 @@ import {
   parseAndMigrateReportConfig,
   saveReportConfig,
 } from '@/app/report-table/config/reportConfigService';
-import { useSmartDataStore } from '@/components/SmartDataTable/useSmartDataStore';
+import { getLiveStores, subscribeToStoreRegistry } from '@/components/SmartDataTable/useSmartDataStore';
 import { buildViewDataState } from '@/components/SmartDataTable/viewContextHelpers';
 
 const TAB_READ    = 'read';
@@ -522,8 +522,44 @@ function ReportDocsPanel() {
 
 // ─── Context tab ─────────────────────────────────────────────────────────────
 
+/**
+ * Merged `views` across every mounted SmartDataProvider.
+ *
+ * This panel renders in the sibling splitter pane, outside the provider tree, so it
+ * reads the instance registry instead of a store from context. Re-subscribes whenever
+ * a provider mounts or unmounts.
+ */
+function useAllProviderViews() {
+  const [storeViews, setStoreViews] = useState({});
+
+  useEffect(() => {
+    let storeUnsubs = [];
+
+    const collect = () => {
+      const merged = {};
+      for (const store of getLiveStores()) Object.assign(merged, store.getState().views);
+      setStoreViews(merged);
+    };
+
+    const rewire = () => {
+      storeUnsubs.forEach(unsub => unsub());
+      storeUnsubs = getLiveStores().map(store => store.subscribe(collect));
+      collect();
+    };
+
+    const unsubRegistry = subscribeToStoreRegistry(rewire);
+    rewire();
+    return () => {
+      unsubRegistry();
+      storeUnsubs.forEach(unsub => unsub());
+    };
+  }, []);
+
+  return storeViews;
+}
+
 function ContextPanel() {
-  const storeViews = useSmartDataStore(state => state.views);
+  const storeViews = useAllProviderViews();
 
   const plasmicData = useMemo(() => {
     const views = {};

@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SmartDataCache } from './smartDataCache';
 import { DataProvider as PlasmicDataProvider } from '@plasmicapp/loader-nextjs';
+import { useStore } from 'zustand';
 import { SmartDataContext, SmartDataConfigContext } from './SmartDataContext';
-import { useSmartDataStore } from './useSmartDataStore';
+import { createSmartDataStore, registerStoreInstance } from './useSmartDataStore';
 import { graphqlQueryReportDataSource, resolveIndexGqlVars } from './reportSource.jsx';
 import { fetchElbritFilterValues, resolveControlDateRange } from './elbritFilterApi.js';
 import { buildViewDataState } from './viewContextHelpers';
@@ -138,7 +139,10 @@ async function fetchApiIndexValue(resolvedApi, view, viewId) {
  * Per-view api/table/controls override their root counterparts via deepMerge (api & table) or replace (controls).
  */
 function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: rawReportConfig, config: commonConfig, overrides, reportName, children }) {
-  const store = useSmartDataStore;
+  // One store per provider instance. View ids are only unique within a report config,
+  // so two providers on the same page (e.g. Primary/Secondary tabs) would otherwise
+  // share — and overwrite — each other's `main`/`drawer1`/… view state.
+  const [store] = useState(() => createSmartDataStore());
 
   // Deep-merge overrides on top of reportConfig so every key (api, table, controls, views) is overridable.
   //
@@ -169,7 +173,7 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
   const [drawerTabs, setDrawerTabs]         = useState([]);
   const [drawerActiveId, setDrawerActiveId] = useState(null);
 
-  const storeViews = useSmartDataStore(state => state.views);
+  const storeViews = useStore(store, state => state.views);
 
   const unsubsRef           = useRef({});
   const viewDataSources     = useRef({});
@@ -203,12 +207,15 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reportConfig?.api?.urlKey]);
 
+  // Exposes this instance to out-of-tree debug tooling only.
+  useEffect(() => registerStoreInstance(store), [store]);
+
   useEffect(() => {
     configureSmartDataLogging({ enabled: !!effectiveConfig?.loggingEnabled, source: reportName ?? 'inline' });
   }, [effectiveConfig?.loggingEnabled, reportName]);
 
   const runDataFetch = useCallback(async (viewId) => {
-    const state = useSmartDataStore.getState();
+    const state = store.getState();
     const view  = state.views[viewId];
     const ds    = viewDataSources.current[viewId] ?? providerDataSource;
     if (!view || !ds) return;
@@ -251,18 +258,18 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
         viewId, error: err?.message ?? 'DataSource error', durationMs: Date.now() - startedAt,
       });
     }
-  }, [providerDataSource]);
+  }, [providerDataSource, store]);
 
   /** Phase 1: parallel index (deduped). Phase 2: parallel data — for initial load, filter change, and refresh. */
   const flushViewPipelineBatch = useCallback(async (viewIds, { bypassCache = false, refreshGate = false } = {}) => {
     if (!viewIds.length) return;
 
-    const store = useSmartDataStore.getState();
+    const state = store.getState();
     const dataFetchIds = [];
     const indexJobs = [];
 
     for (const viewId of viewIds) {
-      const view = store.views[viewId];
+      const view = state.views[viewId];
       if (!view) continue;
       const ds = viewDataSources.current[viewId] ?? providerDataSource;
       if (!ds) continue;
@@ -271,7 +278,7 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
       if (!bypassCache) {
         const cached = cache.current.get(cacheKey);
         if (cached) {
-          store._setResult(viewId, cached);
+          state._setResult(viewId, cached);
           logSmartDataEvent('debug', 'fetch', 'cache:hit', { viewId });
           continue;
         }
@@ -280,7 +287,7 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
       const resolvedApi = viewResolvedApiRef.current[viewId];
       if (resolvedApi?.index?.trim()) {
         indexJobs.push({ viewId, view, resolvedApi, cacheKey });
-        store._setLoading(viewId, true, 'index');
+        state._setLoading(viewId, true, 'index');
       } else {
         dataFetchIds.push(viewId);
       }
@@ -295,8 +302,8 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
               const stored = viewIndexRef.current[viewId];
               if (indexValue != null && stored?.key === cacheKey && stored?.value === indexValue) {
                 const cached = cache.current.get(cacheKey);
-                if (cached) store._setResult(viewId, cached);
-                else store._setLoading(viewId, false);
+                if (cached) state._setResult(viewId, cached);
+                else state._setLoading(viewId, false);
                 logSmartDataEvent('debug', 'index-check', 'index:unchanged-skipped', { viewId });
                 return false;
               }
@@ -321,7 +328,7 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
     if (dataFetchIds.length > 0) {
       await Promise.all(dataFetchIds.map(id => runDataFetch(id)));
     }
-  }, [providerDataSource, runDataFetch]);
+  }, [providerDataSource, runDataFetch, store]);
 
   const scheduleViewPipeline = useCallback((viewId) => {
     scheduledBatchRef.current.add(viewId);
@@ -364,7 +371,7 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
       runTimersRef.current[viewId] = setTimeout(() => scheduleViewPipeline(viewId), 0);
     };
 
-    unsubsRef.current[viewId] = useSmartDataStore.subscribe(
+    unsubsRef.current[viewId] = store.subscribe(
       state => {
         const v = state.views[viewId];
         if (!v) return null;
@@ -373,7 +380,7 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
       scheduleRun,
       { equalityFn: shallowEqualPipelineSlice, fireImmediately: true },
     );
-  }, [scheduleViewPipeline]);
+  }, [scheduleViewPipeline, store]);
 
   // registerView is only called by standalone SmartDataTable instances (no reportConfig.views).
   // Provider-owned views are registered directly in the useEffect below.
@@ -390,10 +397,10 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
       resolvedPageSize ??= resolvedTable?.defaultPageSize;
     }
 
-    useSmartDataStore.getState().registerView(viewId, resolvedPageSize);
+    store.getState().registerView(viewId, resolvedPageSize);
     wireSubscription(viewId);
     logSmartDataEvent('info', 'lifecycle', 'view:registered', { viewId, standalone: true });
-  }, [reportConfig, activateView, wireSubscription]);
+  }, [reportConfig, activateView, wireSubscription, store]);
 
   const unregisterView = useCallback((viewId) => {
     if (providerOwnedViewsRef.current.has(viewId)) return; // provider outlives table
@@ -406,9 +413,9 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
     delete viewResolvedApiRef.current[viewId];
     delete viewIndexRef.current[viewId];
     fetchGenRef.current[viewId] = (fetchGenRef.current[viewId] ?? 0) + 1;
-    useSmartDataStore.getState().unregisterView(viewId);
+    store.getState().unregisterView(viewId);
     logSmartDataEvent('info', 'lifecycle', 'view:unregistered', { viewId });
-  }, []);
+  }, [store]);
 
   useEffect(() => {
     if (!reportConfig?.views) return;
@@ -424,7 +431,7 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
       // rawApiConfigRef is used by the filter sidebar — set it from the first non-drawer view.
       activateView(id, resolvedApi, !isDrawer && !rawApiConfigSet);
       if (!isDrawer) rawApiConfigSet = true;
-      useSmartDataStore.getState().registerView(id, resolvedTable?.defaultPageSize);
+      store.getState().registerView(id, resolvedTable?.defaultPageSize);
       logSmartDataEvent('info', 'lifecycle', 'view:registered', { viewId: id, isDrawer });
 
       // Drawer views: slot pre-registered but subscription wired lazily in openDrawerView
@@ -444,14 +451,14 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
         delete viewDataSources.current[id];
         delete viewApiVarsRef.current[id];
         fetchGenRef.current[id] = (fetchGenRef.current[id] ?? 0) + 1;
-        useSmartDataStore.getState().unregisterView(id);
+        store.getState().unregisterView(id);
       });
     };
-  }, [reportConfig, activateView, wireSubscription]);
+  }, [reportConfig, activateView, wireSubscription, store]);
 
   const setViewParam = useCallback((viewId, key, value) => {
-    useSmartDataStore.getState().setViewParam(viewId, key, value);
-  }, []);
+    store.getState().setViewParam(viewId, key, value);
+  }, [store]);
 
   const openDrawerView = useCallback((tabs) => {
     const resolvedTabs = tabs.map(({ id, config = {} }) => {
@@ -482,7 +489,7 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
   }, []);
 
   const exportView = useCallback(async (viewId) => {
-    const view = useSmartDataStore.getState().views[viewId];
+    const view = store.getState().views[viewId];
     const ds   = viewDataSources.current[viewId] ?? providerDataSource;
     if (!ds || !view) return [];
     logSmartDataEvent('info', 'export', 'export:start', { viewId });
@@ -502,7 +509,7 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
       logSmartDataEvent('error', 'export', 'export:error', { viewId, error: err?.message });
       return [];
     }
-  }, [providerDataSource]);
+  }, [providerDataSource, store]);
 
   const registerPipelineWatcher   = useCallback((viewId, fn) => { pipelineWatchersRef.current[viewId] = fn; }, []);
   const unregisterPipelineWatcher = useCallback((viewId)     => { delete pipelineWatchersRef.current[viewId]; }, []);
@@ -526,18 +533,18 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
   const fetchFilterValues = useCallback(async (key, { page = 1, pageLength = 20, search = '', currentFilters = {} } = {}) => {
     const viewId = Object.entries(reportConfig?.views ?? {})
       .find(([, v]) => v.type !== 'drawer')?.[0]
-      ?? Object.keys(useSmartDataStore.getState().views)[0];
-    const controls = useSmartDataStore.getState().views[viewId]?.viewParams?._controls ?? {};
+      ?? Object.keys(store.getState().views)[0];
+    const controls = store.getState().views[viewId]?.viewParams?._controls ?? {};
     const dateRange = resolveControlDateRange(controls);
     const result = await fetchElbritFilterValues(rawApiConfigRef.current, key, { page, pageLength, search, currentFilters, dateRange });
     logSmartDataEvent('debug', 'filter-search', 'filter-search:result', {
       key, search, resultCount: result?.items?.length ?? 0,
     });
     return result;
-  }, [reportConfig]);
+  }, [reportConfig, store]);
 
   const handleSignal = useCallback((viewId, signal) => {
-    const s = useSmartDataStore.getState();
+    const s = store.getState();
     switch (signal.type) {
       case 'sort':
         s.setSortBy(viewId, signal.payload);
@@ -560,13 +567,13 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
         const handler = reportConfig?.views?.[viewId]?.event?.onRowClick;
         logSmartDataEvent('debug', 'interaction', 'signal:row-click', { viewId, hasHandler: !!handler });
         if (handler) {
-          const controls = useSmartDataStore.getState().views[viewId]?.viewParams?._controls ?? {};
+          const controls = store.getState().views[viewId]?.viewParams?._controls ?? {};
           handler(signal.payload.event, { openDrawer: openDrawerView, closeDrawer: closeDrawerView, controls });
         }
         break;
       }
     }
-  }, [openDrawerView, closeDrawerView, reportConfig]);
+  }, [openDrawerView, closeDrawerView, reportConfig, store]);
 
   useEffect(() => {
     return () => {
@@ -590,7 +597,7 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
       const perPage     = view.pagination.rows;
       const currentPage = Math.floor(view.pagination.first / perPage);
       const totalPages  = Math.ceil(view.totalRecords / perPage) || 1;
-      const s           = () => useSmartDataStore.getState();
+      const s           = () => store.getState();
 
       views[viewId] = {
         ...buildViewDataState(view),
@@ -631,11 +638,12 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
       };
     }
     return { views, fetchedAt: lastFetchedAt };
-  }, [storeViews, lastFetchedAt, openDrawerView, closeDrawerView]);
+  }, [storeViews, lastFetchedAt, openDrawerView, closeDrawerView, store]);
 
   return (
     <SmartDataConfigContext.Provider value={effectiveConfig}>
       <SmartDataContext.Provider value={{
+        store,
         providerDataSource, reportConfig,
         registerView, unregisterView,
         handleSignal, setViewParam,

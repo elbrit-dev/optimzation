@@ -1,8 +1,7 @@
 'use client';
 
 import { createContext, useCallback, useContext, useMemo } from 'react';
-import { useSmartDataStore } from './useSmartDataStore';
-import { useSmartDataContext } from './SmartDataContext';
+import { useSmartDataContext, useSmartDataStoreApi, useSmartDataSelector } from './SmartDataContext';
 
 const SmartDataControlsContext = createContext(null);
 const EMPTY_PARAMS = {};
@@ -39,11 +38,12 @@ export function useSmartDataControls(explicitViewId) {
   const viewId = explicitViewId ?? contextViewId;
   if (!viewId) throw new Error('useSmartDataControls: provide a viewId or use inside <SmartDataControls>');
 
-  const viewParams = useSmartDataStore(state => state.views[viewId]?.viewParams ?? EMPTY_PARAMS);
+  const store      = useSmartDataStoreApi();
+  const viewParams = useSmartDataSelector(state => state.views[viewId]?.viewParams ?? EMPTY_PARAMS);
 
   const setViewParam = useCallback((key, value) => {
-    useSmartDataStore.getState().setViewParam(viewId, key, value);
-  }, [viewId]);
+    store.getState().setViewParam(viewId, key, value);
+  }, [viewId, store]);
 
   return { viewParams, setViewParam };
 }
@@ -72,7 +72,8 @@ function _parseGroupBy(value) {
  */
 export function useGroupBy(viewId) {
   const { resolveView } = useSmartDataContext();
-  const viewParams = useSmartDataStore(state => state.views[viewId]?.viewParams ?? EMPTY_PARAMS);
+  const store      = useSmartDataStoreApi();
+  const viewParams = useSmartDataSelector(state => state.views[viewId]?.viewParams ?? EMPTY_PARAMS);
 
   const baseGroupBy = useMemo(() => {
     const { resolvedApi } = resolveView(viewId);
@@ -86,8 +87,8 @@ export function useGroupBy(viewId) {
   }, [viewParams.group_by, baseGroupBy]);
 
   const setGroupBy = useCallback((newOrder) => {
-    useSmartDataStore.getState().setViewParam(viewId, 'group_by', newOrder);
-  }, [viewId]);
+    store.getState().setViewParam(viewId, 'group_by', newOrder);
+  }, [viewId, store]);
 
   return { groups, setGroupBy };
 }

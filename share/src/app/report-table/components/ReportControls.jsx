@@ -3,8 +3,11 @@
 import RangePicker from '@/components/RangePicker';
 import FilterSortSidebar from '@/components/SmartDataTable/FilterSortSidebar';
 import { resolveControlDateRange } from '@/components/SmartDataTable/elbritFilterApi.js';
-import { useSmartDataStore } from '@/components/SmartDataTable/useSmartDataStore';
-import { useSmartDataContext } from '@/components/SmartDataTable/SmartDataContext';
+import {
+  useSmartDataContext,
+  useSmartDataSelector,
+  useSmartDataStoreApi,
+} from '@/components/SmartDataTable/SmartDataContext';
 import { Switch } from 'antd';
 import dayjs from 'dayjs';
 import { useEffect, useMemo, useState } from 'react';
@@ -12,10 +15,14 @@ import { useEffect, useMemo, useState } from 'react';
 /**
  * Emit a control's output into viewParams._controls[key] for every view.
  * reportSource.jsx reads _controls and applies api.variablesMap to build GQL variables.
+ *
+ * `store` is the provider-scoped store, so a control only ever writes to views owned by
+ * its own SmartDataProvider — two report tabs sharing control keys (`dateRange`, `lakhs`)
+ * and view ids (`main`) no longer overwrite each other.
  */
-function emitControlOutput(viewIds, key, output) {
-  const store = useSmartDataStore.getState();
-  viewIds.forEach(id => store.setControlOutput(id, key, output));
+function emitControlOutput(store, viewIds, key, output) {
+  const state = store.getState();
+  viewIds.forEach(id => state.setControlOutput(id, key, output));
 }
 
 function formatDateForApi(date) {
@@ -46,10 +53,11 @@ function parseDefault(def, apiFilters) {
 function ToggleControl({ def, viewIds }) {
   const [value, setValue] = useState(parseDefault(def));
   const [hovered, setHovered] = useState(false);
+  const store = useSmartDataStoreApi();
 
   function handleChange(checked) {
     setValue(checked);
-    emitControlOutput(viewIds, def.key, { value: checked });
+    emitControlOutput(store, viewIds, def.key, { value: checked });
   }
 
   return (
@@ -73,8 +81,9 @@ function ToggleControl({ def, viewIds }) {
 function FilterSortControl({ def, viewIds }) {
   const [visible, setVisible] = useState(false);
   const { fetchFilterValues } = useSmartDataContext();
+  const store = useSmartDataStoreApi();
 
-  const allViews = useSmartDataStore(s => s.views);
+  const allViews = useSmartDataSelector(s => s.views);
   const filterDefs = useMemo(() => {
     for (const id of viewIds) {
       const defs = allViews[id]?.filterDefs;
@@ -129,12 +138,12 @@ function FilterSortControl({ def, viewIds }) {
         currentFilterValues={controlOutput.filters ?? {}}
         currentSortBy={sortBy}
         onApply={(sorts, filters) => {
-          useSmartDataStore.getState().setSortBy(viewIds[0], sorts);
-          emitControlOutput(viewIds, def.key, { ...controlOutput, filters, sort: sorts });
+          store.getState().setSortBy(viewIds[0], sorts);
+          emitControlOutput(store, viewIds, def.key, { ...controlOutput, filters, sort: sorts });
         }}
         onClear={() => {
-          useSmartDataStore.getState().setSortBy(viewIds[0], {});
-          emitControlOutput(viewIds, def.key, {});
+          store.getState().setSortBy(viewIds[0], {});
+          emitControlOutput(store, viewIds, def.key, {});
         }}
       />
     </>
@@ -143,10 +152,11 @@ function FilterSortControl({ def, viewIds }) {
 
 function DateRangeControl({ def, viewIds, apiFilters }) {
   const [value, setValue] = useState(() => parseDefault(def, apiFilters));
+  const store = useSmartDataStoreApi();
 
   function handleChange(range) {
     setValue(range);
-    emitControlOutput(viewIds, def.key, {
+    emitControlOutput(store, viewIds, def.key, {
       start: formatDateForApi(range?.[0]),
       end:   formatDateForApi(range?.[1]),
     });
@@ -166,7 +176,8 @@ function DateRangeControl({ def, viewIds, apiFilters }) {
 
 function RefreshControl({ def }) {
   const { refresh, lastFetchedAt } = useSmartDataContext();
-  const loadingPhase = useSmartDataStore(state => {
+  // Scoped to this provider's views, so the other report tab's fetches don't spin this button.
+  const loadingPhase = useSmartDataSelector(state => {
     for (const v of Object.values(state.views)) {
       if (v.loading) return v.loadingPhase ?? 'data';
     }
@@ -201,7 +212,8 @@ function RefreshControl({ def }) {
 }
 
 export function FilterChips({ viewIds }) {
-  const allViews = useSmartDataStore(s => s.views);
+  const store    = useSmartDataStoreApi();
+  const allViews = useSmartDataSelector(s => s.views);
 
   const filterDefs = useMemo(() => {
     for (const id of viewIds) {
@@ -240,13 +252,13 @@ export function FilterChips({ viewIds }) {
     const fsKey = getFilterSortKey();
     if (!fsKey) return;
     const filters = { ...(filterSortOutput.filters ?? {}), [key]: [] };
-    emitControlOutput(viewIds, fsKey, { ...filterSortOutput, filters });
+    emitControlOutput(store, viewIds, fsKey, { ...filterSortOutput, filters });
   }
 
   function clearAll() {
     const fsKey = getFilterSortKey();
     if (!fsKey) return;
-    emitControlOutput(viewIds, fsKey, { ...filterSortOutput, filters: {} });
+    emitControlOutput(store, viewIds, fsKey, { ...filterSortOutput, filters: {} });
   }
 
   return (
@@ -284,6 +296,8 @@ export function FilterChips({ viewIds }) {
 }
 
 export function ReportControls({ controls, viewIds, apiFilters }) {
+  const store = useSmartDataStoreApi();
+
   // SmartDataTable initializes views in its own useEffect, which fires after ours.
   // Wait until all views exist before pushing defaultValues into the store.
   useEffect(() => {
@@ -296,7 +310,7 @@ export function ReportControls({ controls, viewIds, apiFilters }) {
 
     let unsub;
     const trySet = () => {
-      const s = useSmartDataStore.getState();
+      const s = store.getState();
       if (!viewIds.every((id) => s.views[id])) return;
       unsub?.();
       defaults.forEach(def => {
@@ -314,7 +328,7 @@ export function ReportControls({ controls, viewIds, apiFilters }) {
       });
     };
 
-    unsub = useSmartDataStore.subscribe(trySet);
+    unsub = store.subscribe(trySet);
     trySet();
     return () => unsub?.();
   // eslint-disable-next-line react-hooks/exhaustive-deps

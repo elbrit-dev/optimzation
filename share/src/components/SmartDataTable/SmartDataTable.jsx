@@ -8,8 +8,7 @@ import { Row } from 'primereact/row';
 import { Dialog } from 'primereact/dialog';
 import * as XLSX from 'xlsx';
 
-import { useSmartDataStore } from './useSmartDataStore';
-import { useSmartDataContext, useSmartDataConfig } from './SmartDataContext';
+import { useSmartDataContext, useSmartDataConfig, useSmartDataStoreApi, useSmartDataSelector } from './SmartDataContext';
 import { INDEX_LOADING_MESSAGE, resolveConfig } from './smartDataTableConfig';
 import { localFilter, localSort } from './tableUtils';
 import { TableSkeleton, LoadingOverlay } from './TableSkeleton';
@@ -172,7 +171,9 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
           registerViewActions, unregisterViewActions, reportConfig } = useSmartDataContext();
 
   // Subscribe only to this view's slice — other views changing won't re-render this.
-  const viewState = useSmartDataStore(state => state.views[viewId]);
+  // Store is provider-scoped: a same-named viewId under a different provider is a different slice.
+  const store     = useSmartDataStoreApi();
+  const viewState = useSmartDataSelector(state => state.views[viewId]);
 
   useEffect(() => {
     // Provider pre-registers all views declared in reportConfig.views (including drawers).
@@ -191,13 +192,13 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
 
   // ── Sort ──────────────────────────────────────────────────────────────────
   const onSort = useCallback(e => {
-    const current  = useSmartDataStore.getState().views[viewId]?.sortBy ?? {};
+    const current  = store.getState().views[viewId]?.sortBy ?? {};
     const incoming = e.multiSortMeta ?? [];
     const next = { ...current };
     incoming.forEach(({ field, order }) => { next[field] = order === 1 ? 'asc' : 'desc'; });
     Object.keys(current).forEach(f => { if (!incoming.some(m => m.field === f)) delete next[f]; });
     onSignal({ type: 'sort', payload: next });
-  }, [viewId, onSignal]);
+  }, [viewId, onSignal, store]);
 
   // ── Pagination ────────────────────────────────────────────────────────────
   const onPage = useCallback(
@@ -224,8 +225,8 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
   );
 
   const onHiddenColumnsChange = useCallback((fields) => {
-    useSmartDataStore.getState().setHiddenColumns(viewId, fields);
-  }, [viewId]);
+    store.getState().setHiddenColumns(viewId, fields);
+  }, [viewId, store]);
 
   // ── Group-by reorder ─────────────────────────────────────────────────────────
   const { groups: groupByGroups, setGroupBy } = useGroupBy(viewId);

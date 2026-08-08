@@ -4,8 +4,11 @@ import { useEffect } from 'react';
 import { SmartDataCache } from '../smartDataCache.js';
 import { SmartDataProviderImpl } from '../SmartDataProvider.jsx';
 import { useSmartDataContext } from '../SmartDataContext.js';
-import { useSmartDataStore } from '../useSmartDataStore.js';
-import { createFreshStore } from '@/test/helpers/storeFactory.js';
+
+// Each SmartDataProvider owns its own store instance, so tests reach it through the
+// context captured at render time rather than importing a module-level store.
+let activeStore = null;
+const providerStore = () => activeStore;
 
 // ─── Module mocks ─────────────────────────────────────────────────────────────
 
@@ -282,7 +285,7 @@ describe('SmartDataProvider cache integration', () => {
   const VIEW_ID = 'test-view';
 
   beforeEach(() => {
-    createFreshStore();
+    activeStore = null;
     vi.useFakeTimers();
   });
 
@@ -304,6 +307,7 @@ describe('SmartDataProvider cache integration', () => {
     function ViewRegistrar() {
       const ctx = useSmartDataContext();
       capturedCtx = ctx;
+      activeStore = ctx.store;
       useEffect(() => {
         ctx.registerView(viewId, null, 'Test View', defaultPageSize);
         return () => ctx.unregisterView(viewId);
@@ -320,7 +324,7 @@ describe('SmartDataProvider cache integration', () => {
 
     return {
       ctx:  () => capturedCtx,
-      view: () => useSmartDataStore.getState().views[viewId],
+      view: () => providerStore().getState().views[viewId],
     };
   }
 
@@ -363,11 +367,11 @@ describe('SmartDataProvider cache integration', () => {
       await flush(); // page 1 fetched and cached
 
       // Navigate to page 2 (cache miss) then back to page 1 (cache hit)
-      useSmartDataStore.getState().setPage(VIEW_ID, 25, 25);
+      providerStore().getState().setPage(VIEW_ID, 25, 25);
       await flush();
       expect(ds).toHaveBeenCalledTimes(2);
 
-      useSmartDataStore.getState().setPage(VIEW_ID, 0, 25); // back to page 1
+      providerStore().getState().setPage(VIEW_ID, 0, 25); // back to page 1
       await flush();
       expect(ds).toHaveBeenCalledTimes(2); // no 3rd call — served from cache
     });
@@ -377,16 +381,16 @@ describe('SmartDataProvider cache integration', () => {
       mountProvider(ds);
       await flush(); // page 1 cached
 
-      useSmartDataStore.getState().setPage(VIEW_ID, 25, 25);
+      providerStore().getState().setPage(VIEW_ID, 25, 25);
       await flush(); // page 2 cached
 
       const loadingHistory = [];
-      const unsub = useSmartDataStore.subscribe(
+      const unsub = providerStore().subscribe(
         state => state.views[VIEW_ID]?.loading,
         v => loadingHistory.push(v),
       );
 
-      useSmartDataStore.getState().setPage(VIEW_ID, 0, 25); // revisit page 1 → cache hit
+      providerStore().getState().setPage(VIEW_ID, 0, 25); // revisit page 1 → cache hit
       await flush();
       unsub();
 
@@ -398,10 +402,10 @@ describe('SmartDataProvider cache integration', () => {
       const { view } = mountProvider(ds);
       await flush(); // page 1 → RESULT_A cached
 
-      useSmartDataStore.getState().setPage(VIEW_ID, 25, 25);
+      providerStore().getState().setPage(VIEW_ID, 25, 25);
       await flush();
 
-      useSmartDataStore.getState().setPage(VIEW_ID, 0, 25); // revisit page 1
+      providerStore().getState().setPage(VIEW_ID, 0, 25); // revisit page 1
       await flush();
 
       expect(view().rows).toEqual(RESULT_A.rows);
@@ -416,7 +420,7 @@ describe('SmartDataProvider cache integration', () => {
       mountProvider(ds);
       await flush();
 
-      useSmartDataStore.getState().setPage(VIEW_ID, 25, 25);
+      providerStore().getState().setPage(VIEW_ID, 25, 25);
       await flush();
       expect(ds).toHaveBeenCalledTimes(2);
     });
@@ -426,7 +430,7 @@ describe('SmartDataProvider cache integration', () => {
       mountProvider(ds);
       await flush();
 
-      useSmartDataStore.getState().setFilter(VIEW_ID, 'name', { type: 'text', value: 'alpha' });
+      providerStore().getState().setFilter(VIEW_ID, 'name', { type: 'text', value: 'alpha' });
       await flush();
       expect(ds).toHaveBeenCalledTimes(2);
     });
@@ -436,7 +440,7 @@ describe('SmartDataProvider cache integration', () => {
       mountProvider(ds);
       await flush();
 
-      useSmartDataStore.getState().setSortBy(VIEW_ID, { name: 'asc' });
+      providerStore().getState().setSortBy(VIEW_ID, { name: 'asc' });
       await flush();
       expect(ds).toHaveBeenCalledTimes(2);
     });
@@ -446,7 +450,7 @@ describe('SmartDataProvider cache integration', () => {
       mountProvider(ds);
       await flush();
 
-      useSmartDataStore.getState().setViewParam(VIEW_ID, 'group_by', 'category');
+      providerStore().getState().setViewParam(VIEW_ID, 'group_by', 'category');
       await flush();
       expect(ds).toHaveBeenCalledTimes(2);
     });
@@ -461,14 +465,14 @@ describe('SmartDataProvider cache integration', () => {
       await flush(); // page-1 entry cached
 
       // Navigate to page 2 and back with a time jump in between
-      useSmartDataStore.getState().setPage(VIEW_ID, 25, 25);
+      providerStore().getState().setPage(VIEW_ID, 25, 25);
       await flush(); // page-2 fetched (different key — no expiry concern)
 
       // Advance time past the default TTL while on page 2
       vi.advanceTimersByTime(5 * 60 * 1000 + 1);
 
       // Return to page 1 — cache entry from the original page-1 fetch is now expired
-      useSmartDataStore.getState().setPage(VIEW_ID, 0, 25);
+      providerStore().getState().setPage(VIEW_ID, 0, 25);
       await flush();
 
       expect(ds).toHaveBeenCalledTimes(3); // 3rd fetch: TTL expired on the page-1 entry
@@ -484,9 +488,9 @@ describe('SmartDataProvider cache integration', () => {
       await flush(); // page 1 cached
 
       // Navigate to page 2 and back to prove cache hit is working before refresh
-      useSmartDataStore.getState().setPage(VIEW_ID, 25, 25);
+      providerStore().getState().setPage(VIEW_ID, 25, 25);
       await flush(); // page 2 cached
-      useSmartDataStore.getState().setPage(VIEW_ID, 0, 25);
+      providerStore().getState().setPage(VIEW_ID, 0, 25);
       await flush(); // page 1 → cache hit (still 2 calls total)
       expect(ds).toHaveBeenCalledTimes(2);
 
@@ -494,7 +498,7 @@ describe('SmartDataProvider cache integration', () => {
       await act(() => ctx().refresh());
 
       // Navigate to page 2 — its cache entry was cleared, must re-fetch
-      useSmartDataStore.getState().setPage(VIEW_ID, 25, 25);
+      providerStore().getState().setPage(VIEW_ID, 25, 25);
       await flush();
       expect(ds).toHaveBeenCalledTimes(3); // 3rd call because cache was cleared
     });
@@ -508,14 +512,14 @@ describe('SmartDataProvider cache integration', () => {
       expect(view().rows).toEqual(RESULT_A.rows); // original data
 
       // Navigate away so we can return with a cache miss after refresh
-      useSmartDataStore.getState().setPage(VIEW_ID, 25, 25);
+      providerStore().getState().setPage(VIEW_ID, 25, 25);
       await flush(); // page-2 fetched → RESULT_B
 
       // Clear the cache
       await act(() => ctx().refresh());
 
       // Return to page 1 — stale entry cleared, fresh RESULT_B returned
-      useSmartDataStore.getState().setPage(VIEW_ID, 0, 25);
+      providerStore().getState().setPage(VIEW_ID, 0, 25);
       await flush();
       expect(view().rows).toEqual(RESULT_B.rows);
     });
@@ -537,7 +541,7 @@ describe('SmartDataProvider cache integration', () => {
       expect(ds).toHaveBeenCalledTimes(1);
 
       // Trigger second fetch while first is still in-flight
-      useSmartDataStore.getState().setFilter(VIEW_ID, 'name', { type: 'text', value: 'x' });
+      providerStore().getState().setFilter(VIEW_ID, 'name', { type: 'text', value: 'x' });
       await flush(); // second fetch completes with RESULT_B
       expect(ds).toHaveBeenCalledTimes(2);
       expect(view().rows).toEqual(RESULT_B.rows);
@@ -564,7 +568,7 @@ describe('SmartDataProvider cache integration', () => {
       await flush(); // first fetch pending
 
       // Second fetch resolves before the first rejects
-      useSmartDataStore.getState().setFilter(VIEW_ID, 'name', { type: 'text', value: 'x' });
+      providerStore().getState().setFilter(VIEW_ID, 'name', { type: 'text', value: 'x' });
       await flush();
       expect(view().rows).toEqual(RESULT_B.rows);
 
@@ -598,7 +602,7 @@ describe('SmartDataProvider cache integration', () => {
       await flush(); // first fetch fails
       expect(view().error).toBeTruthy();
 
-      useSmartDataStore.getState().setPage(VIEW_ID, 25, 25); // trigger new fetch
+      providerStore().getState().setPage(VIEW_ID, 25, 25); // trigger new fetch
       await flush(); // second fetch succeeds
       expect(view().error).toBeNull();
       expect(view().rows).toEqual(RESULT_A.rows);
@@ -612,9 +616,9 @@ describe('SmartDataProvider cache integration', () => {
       await flush(); // first fetch fails → not cached
 
       // Trigger the same key again via page reset
-      useSmartDataStore.getState().setPage(VIEW_ID, 25, 25);
+      providerStore().getState().setPage(VIEW_ID, 25, 25);
       await flush();
-      useSmartDataStore.getState().setPage(VIEW_ID, 0, 25); // back to original key
+      providerStore().getState().setPage(VIEW_ID, 0, 25); // back to original key
       await flush(); // should re-fetch (error was never cached)
       expect(ds).toHaveBeenCalledTimes(3);
       expect(view().rows).toEqual(RESULT_A.rows);
@@ -632,6 +636,7 @@ describe('SmartDataProvider cache integration', () => {
       function TwoViewRegistrar() {
         const ctx = useSmartDataContext();
         capturedCtx = ctx;
+        activeStore = ctx.store;
         useEffect(() => {
           // Different defaultPageSize → different pagination in state → different cache keys
           ctx.registerView(VIEW_ID, null, 'View A', 25);
@@ -653,8 +658,8 @@ describe('SmartDataProvider cache integration', () => {
 
       return {
         ctx:   () => capturedCtx,
-        viewA: () => useSmartDataStore.getState().views[VIEW_ID],
-        viewB: () => useSmartDataStore.getState().views[VIEW_B],
+        viewA: () => providerStore().getState().views[VIEW_ID],
+        viewB: () => providerStore().getState().views[VIEW_B],
       };
     }
 
@@ -674,7 +679,7 @@ describe('SmartDataProvider cache integration', () => {
       await flush();
       const callsAfterMount = ds.mock.calls.length; // both views fetched
 
-      useSmartDataStore.getState().setPage(VIEW_ID, 25, 25); // only view A changes
+      providerStore().getState().setPage(VIEW_ID, 25, 25); // only view A changes
       await flush();
 
       // Exactly one more call (for view A only)
@@ -691,15 +696,152 @@ describe('SmartDataProvider cache integration', () => {
       const totalCalls = ds.mock.calls.length;
 
       // Navigate view A back and forth — view B untouched
-      useSmartDataStore.getState().setPage(VIEW_ID, 25, 25);
+      providerStore().getState().setPage(VIEW_ID, 25, 25);
       await flush();
-      useSmartDataStore.getState().setPage(VIEW_ID, 0, 25);
+      providerStore().getState().setPage(VIEW_ID, 0, 25);
       await flush();
 
       // View B should NOT have been re-fetched
       const viewBCalls = ds.mock.calls.filter(([{ viewId }]) => viewId === VIEW_B);
       expect(viewBCalls.length).toBe(1); // only the initial fetch
       expect(viewB().rows).toEqual(RESULT_B.rows); // still has its original data
+    });
+  });
+
+  // ── Provider isolation ──────────────────────────────────────────────────────
+  //
+  // View ids are only unique *within* a report config. Two reports rendered side by
+  // side (e.g. Primary/Secondary tabs) routinely declare the same ids — `main`,
+  // `drawer1`. Each provider must own its view state or the second provider's
+  // registerView() no-ops onto the first's slot and both fetch pipelines write it.
+
+  describe('provider isolation', () => {
+    const SHARED_ID = 'main';
+
+    /** Mounts two sibling providers that each register the same viewId. */
+    function mountTwoProviders(dsA, dsB) {
+      const stores = {};
+
+      function Registrar({ name }) {
+        const ctx = useSmartDataContext();
+        stores[name] = ctx.store;
+        useEffect(() => {
+          ctx.registerView(SHARED_ID, null, 'Shared View', 25);
+          return () => ctx.unregisterView(SHARED_ID);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, []);
+        return null;
+      }
+
+      render(
+        <>
+          <SmartDataProviderImpl dataSource={dsA}>
+            <Registrar name="a" />
+          </SmartDataProviderImpl>
+          <SmartDataProviderImpl dataSource={dsB}>
+            <Registrar name="b" />
+          </SmartDataProviderImpl>
+        </>
+      );
+
+      return {
+        storeA: () => stores.a,
+        storeB: () => stores.b,
+        viewA:  () => stores.a.getState().views[SHARED_ID],
+        viewB:  () => stores.b.getState().views[SHARED_ID],
+      };
+    }
+
+    it('gives each provider its own store instance', () => {
+      const { storeA, storeB } = mountTwoProviders(
+        vi.fn().mockResolvedValue(RESULT_A),
+        vi.fn().mockResolvedValue(RESULT_B),
+      );
+      expect(storeA()).not.toBe(storeB());
+    });
+
+    it('both providers fetch, even though they share a viewId', async () => {
+      const dsA = vi.fn().mockResolvedValue(RESULT_A);
+      const dsB = vi.fn().mockResolvedValue(RESULT_B);
+      mountTwoProviders(dsA, dsB);
+      await flush();
+      expect(dsA).toHaveBeenCalledTimes(1);
+      expect(dsB).toHaveBeenCalledTimes(1);
+    });
+
+    it('each provider keeps its own rows for the shared viewId', async () => {
+      const { viewA, viewB } = mountTwoProviders(
+        vi.fn().mockResolvedValue(RESULT_A),
+        vi.fn().mockResolvedValue(RESULT_B),
+      );
+      await flush();
+      expect(viewA().rows).toEqual(RESULT_A.rows);
+      expect(viewB().rows).toEqual(RESULT_B.rows);
+    });
+
+    it('a control write in one provider does not leak into the other', async () => {
+      const { storeA, storeB, viewA, viewB } = mountTwoProviders(
+        vi.fn().mockResolvedValue(RESULT_A),
+        vi.fn().mockResolvedValue(RESULT_B),
+      );
+      await flush();
+
+      // Mirrors two date pickers sharing the `dateRange` control key.
+      storeA().getState().setControlOutput(SHARED_ID, 'dateRange', { start: '2026-08-01' });
+      storeB().getState().setControlOutput(SHARED_ID, 'dateRange', { start: '2026-06-01' });
+
+      expect(viewA().viewParams._controls.dateRange.start).toBe('2026-08-01');
+      expect(viewB().viewParams._controls.dateRange.start).toBe('2026-06-01');
+    });
+
+    it('a pagination change in one provider does not re-fetch the other', async () => {
+      const dsA = vi.fn().mockResolvedValue(RESULT_A);
+      const dsB = vi.fn().mockResolvedValue(RESULT_B);
+      const { storeA } = mountTwoProviders(dsA, dsB);
+      await flush();
+
+      storeA().getState().setPage(SHARED_ID, 25, 25);
+      await flush();
+
+      expect(dsA).toHaveBeenCalledTimes(2);
+      expect(dsB).toHaveBeenCalledTimes(1);
+    });
+
+    it('unmounting one provider leaves the other provider’s view intact', async () => {
+      const dsA = vi.fn().mockResolvedValue(RESULT_A);
+      const dsB = vi.fn().mockResolvedValue(RESULT_B);
+      let unmountB;
+
+      function Registrar({ capture }) {
+        const ctx = useSmartDataContext();
+        capture(ctx.store);
+        useEffect(() => {
+          ctx.registerView(SHARED_ID, null, 'Shared View', 25);
+          return () => ctx.unregisterView(SHARED_ID);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, []);
+        return null;
+      }
+
+      let storeA = null, storeB = null;
+      render(
+        <SmartDataProviderImpl dataSource={dsA}>
+          <Registrar capture={s => { storeA = s; }} />
+        </SmartDataProviderImpl>
+      );
+      const b = render(
+        <SmartDataProviderImpl dataSource={dsB}>
+          <Registrar capture={s => { storeB = s; }} />
+        </SmartDataProviderImpl>
+      );
+      unmountB = b.unmount;
+      await flush();
+
+      unmountB();
+      await flush();
+
+      expect(storeA.getState().views[SHARED_ID].rows).toEqual(RESULT_A.rows);
+      expect(storeB).not.toBe(storeA);
     });
   });
 });
