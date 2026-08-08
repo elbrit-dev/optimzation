@@ -12,11 +12,13 @@ import { useConsoleCapture } from "../lib/consoleCapture";
  *           employee) — see lib/loginDiagnostics.js.
  *
  * "in-app"  "Something looks wrong? Report it", for use INSIDE the app — someone
- *           on the home page seeing blanks or zeros. Adds a required problem
- *           type, ships the browser console errors and page context with the
- *           report, and files to BUGS - IT for MIS. It says SUPPORT, never HR:
- *           the person looking at a blank screen has no reason to think about
- *           HR, and HR is not who fixes it.
+ *           on the home page seeing blanks or zeros. Asks ONE question and
+ *           nothing else: identity comes from the `employee` prop (they're
+ *           signed in — making them retype their own details would be absurd),
+ *           and the browser console errors and page context are attached on
+ *           send. Files to BUGS - IT for MIS. It says SUPPORT, never HR: the
+ *           person looking at a blank screen has no reason to think about HR,
+ *           and HR is not who fixes it.
  *
  * Both are deliberately plain forms: nothing is validated against ERP in front
  * of the person. Someone already stuck shouldn't also be told they typed their
@@ -28,6 +30,27 @@ import { useConsoleCapture } from "../lib/consoleCapture";
  */
 
 const digitsOnly = (s) => String(s ?? "").replace(/\D/g, "");
+
+/**
+ * Flattens whatever the page binds to `employee` into the four values we need.
+ *
+ * Accepts a RAW ERP Employee doc as-is, which is the usual thing to have to
+ * hand: there `name` is the Employee ID (E01271) and `employee_name` is the
+ * person — a collision worth handling here rather than making every page
+ * remap it. Plain {id, name, designation, phone} works too.
+ */
+function normalizeEmployee(employee) {
+  const e = employee && typeof employee === "object" ? employee : {};
+  const str = (v) => String(v ?? "").trim();
+
+  return {
+    id: str(e.employeeId ?? e.employee ?? e.id ?? e.name),
+    // e.name is the ID on an ERP doc, so it is deliberately NOT a fallback here.
+    fullName: str(e.employeeName ?? e.employee_name ?? e.fullName ?? e.full_name),
+    designation: str(e.designation),
+    phone: str(e.phone ?? e.cell_number ?? e.mobile ?? e.mobile_no),
+  };
+}
 
 // Copy defaults per variant. Any of these can still be overridden by a prop;
 // leaving a prop empty falls back to whichever variant is active.
@@ -62,16 +85,6 @@ const VARIANT_COPY = {
   },
 };
 
-// What kind of problem it is — asked only on the in-app variant. Worth its own
-// field rather than leaving it buried in free text: it lands in the ticket
-// subject, so support can triage the ERP list without opening each one.
-const PROBLEM_TYPES = [
-  "Data looks wrong or missing",
-  "Page won't load",
-  "Something is slow",
-  "Can't complete an action",
-  "Something else",
-];
 
 /**
  * Searchable designation picker. ERP has ~85 designations, which is far too
@@ -204,12 +217,11 @@ export default function LoginHelpForm({
   submitEndpoint = "/api/hr/login-help",
   designationsEndpoint = "/api/hr/designations",
   showNoteField = true,
-  problemTypes,
 
-  // Prefill, for the in-app variant where the signed-in user is already known.
-  defaultEmployeeId = "",
-  defaultDesignation = "",
-  defaultPhone = "",
+  // Who is reporting — ONE object, not four strings. In-app the person is
+  // already signed in, so the page passes this down and the form asks for none
+  // of it. Bind a raw ERP Employee doc straight to it; see normalizeEmployee.
+  employee,
 
   // Console capture. Defaults on for in-app, off for login (where there is no
   // app running yet to produce anything worth capturing).
@@ -236,18 +248,17 @@ export default function LoginHelpForm({
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
 
-  const typeOptions = useMemo(() => {
-    const supplied = Array.isArray(problemTypes)
-      ? problemTypes.map((t) => String(t ?? "").trim()).filter(Boolean)
-      : [];
-    return supplied.length ? supplied : PROBLEM_TYPES;
-  }, [problemTypes]);
+  const who = useMemo(() => normalizeEmployee(employee), [employee]);
 
-  const [employeeId, setEmployeeId] = useState(defaultEmployeeId);
-  const [designation, setDesignation] = useState(defaultDesignation);
-  const [phone, setPhone] = useState(defaultPhone);
+  // In-app, identity comes from the prop and is never asked for. The one case
+  // that still needs a field is a page that didn't pass an Employee ID — better
+  // a visible input than a report nobody can trace back to a person.
+  const identityFromProps = isInApp && Boolean(who.id);
+
+  const [employeeId, setEmployeeId] = useState(who.id);
+  const [designation, setDesignation] = useState(who.designation);
+  const [phone, setPhone] = useState(who.phone);
   const [note, setNote] = useState("");
-  const [problemType, setProblemType] = useState("");
 
   const [submitState, setSubmitState] = useState("idle"); // idle | sending | done | error
   const [result, setResult] = useState(null);
@@ -261,15 +272,19 @@ export default function LoginHelpForm({
 
   useEffect(() => setMounted(true), []);
 
-  // Keep prefills in sync if the page resolves the signed-in user after mount.
-  useEffect(() => setEmployeeId((v) => v || defaultEmployeeId), [defaultEmployeeId]);
-  useEffect(() => setDesignation((v) => v || defaultDesignation), [defaultDesignation]);
-  useEffect(() => setPhone((v) => v || defaultPhone), [defaultPhone]);
+  // The page usually resolves the signed-in user AFTER mount, so adopt those
+  // values when they land — but never overwrite something already typed.
+  useEffect(() => {
+    setEmployeeId((v) => v || who.id);
+    setDesignation((v) => v || who.designation);
+    setPhone((v) => v || who.phone);
+  }, [who]);
 
   // Fetched when the sheet first opens, not on page load — most visitors never
-  // touch it. Once per session; the route caches server-side too.
+  // touch it. Once per session; the route caches server-side too. Skipped
+  // entirely in-app, where there is no designation field to fill.
   useEffect(() => {
-    if (!open || designationsLoaded.current) return undefined;
+    if (isInApp || !open || designationsLoaded.current) return undefined;
     designationsLoaded.current = true;
 
     let cancelled = false;
@@ -295,18 +310,17 @@ export default function LoginHelpForm({
     return () => {
       cancelled = true;
     };
-  }, [open, designationsEndpoint, erpTarget, erpUrl, authToken]);
+  }, [isInApp, open, designationsEndpoint, erpTarget, erpUrl, authToken]);
 
   const reset = useCallback(() => {
-    setEmployeeId(defaultEmployeeId);
-    setDesignation(defaultDesignation);
-    setPhone(defaultPhone);
+    setEmployeeId(who.id);
+    setDesignation(who.designation);
+    setPhone(who.phone);
     setNote("");
-    setProblemType("");
     setSubmitState("idle");
     setResult(null);
     setError("");
-  }, [defaultEmployeeId, defaultDesignation, defaultPhone]);
+  }, [who]);
 
   const close = useCallback(() => {
     setOpen(false);
@@ -329,13 +343,13 @@ export default function LoginHelpForm({
     };
   }, [open, close]);
 
+  // In-app asks for one thing — what looks wrong. Identity rides along from the
+  // prop, so requiring designation or a phone there would be asking the person
+  // to retype what we already know.
   const canSubmit =
-    employeeId.trim() &&
-    designation.trim() &&
-    digitsOnly(phone).length >= 10 &&
-    // A bug report with no type or description is unactionable; a login
-    // request is perfectly actionable with just the identity fields.
-    (!isInApp || (note.trim() && problemType)) &&
+    (isInApp
+      ? note.trim() && employeeId.trim()
+      : employeeId.trim() && designation.trim() && digitsOnly(phone).length >= 10) &&
     submitState !== "sending";
 
   async function handleSubmit(e) {
@@ -352,10 +366,10 @@ export default function LoginHelpForm({
         body: JSON.stringify({
           variant: mode,
           employeeId: employeeId.trim(),
+          employeeName: who.fullName,
           designation: designation.trim(),
           phone: phone.trim(),
           note: note.trim(),
-          problemType: isInApp ? problemType : "",
           diagnostics: shouldCapture ? collectDiagnostics() : null,
           project,
           assignee,
@@ -450,35 +464,111 @@ export default function LoginHelpForm({
             {/* The description leads for a bug report: it's the part only the
                 person reporting can supply. For a login request the identity
                 fields lead, because the diagnosis keys off them. */}
-            {isInApp && (
+            {/* IN-APP: one question. Everything else is either already known
+                from the prop or captured automatically. */}
+            {isInApp ? (
               <>
                 <div>
-                  <label htmlFor="lh-type" className="mb-1.5 block text-[13px] font-medium text-gray-700">
-                    What kind of problem?
+                  <label htmlFor="lh-note" className="mb-1.5 block text-[13px] font-medium text-gray-700">
+                    {copy.noteLabel}
                   </label>
-                  {/* A native select on purpose — five options, and the OS
-                      picker beats anything custom on a phone. */}
-                  <select
-                    id="lh-type"
+                  <textarea
+                    id="lh-note"
                     ref={firstFieldRef}
-                    value={problemType}
-                    onChange={(e) => setProblemType(e.target.value)}
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    rows={4}
+                    maxLength={1000}
+                    placeholder={copy.notePlaceholder}
+                    className={`${field} resize-none`}
+                    style={{ "--tw-ring-color": accentColor }}
+                  />
+                </div>
+
+                {identityFromProps ? (
+                  // Not a field — just so they can see who it's being sent as.
+                  <p className="text-[12px] text-gray-500">
+                    Sending as{" "}
+                    <span className="font-medium text-gray-700">
+                      {who.fullName ? `${who.fullName} · ${employeeId}` : employeeId}
+                    </span>
+                  </p>
+                ) : (
+                  // The page didn't pass an employee, so ask — a report nobody
+                  // can trace back to a person is close to useless.
+                  <div>
+                    <label htmlFor="lh-empid" className="mb-1.5 block text-[13px] font-medium text-gray-700">
+                      Employee ID
+                    </label>
+                    <input
+                      id="lh-empid"
+                      value={employeeId}
+                      onChange={(e) => setEmployeeId(e.target.value.toUpperCase())}
+                      placeholder="E01288"
+                      autoComplete="off"
+                      autoCapitalize="characters"
+                      className={field}
+                      style={{ "--tw-ring-color": accentColor }}
+                    />
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <div>
+                  <label htmlFor="lh-empid" className="mb-1.5 block text-[13px] font-medium text-gray-700">
+                    Employee ID
+                  </label>
+                  <input
+                    id="lh-empid"
+                    ref={firstFieldRef}
+                    value={employeeId}
+                    onChange={(e) => setEmployeeId(e.target.value.toUpperCase())}
+                    placeholder="E01288"
+                    autoComplete="off"
+                    autoCapitalize="characters"
                     className={field}
                     style={{ "--tw-ring-color": accentColor }}
-                  >
-                    <option value="">Choose one…</option>
-                    {typeOptions.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="lh-desig" className="mb-1.5 block text-[13px] font-medium text-gray-700">
+                    Designation
+                  </label>
+                  <DesignationPicker
+                    value={designation}
+                    onChange={setDesignation}
+                    options={designations}
+                    loading={designationsLoading}
+                    accentColor={accentColor}
+                    fieldClass={field}
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="lh-phone" className="mb-1.5 block text-[13px] font-medium text-gray-700">
+                    Mobile number
+                  </label>
+                  <input
+                    id="lh-phone"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="9876543210"
+                    inputMode="numeric"
+                    autoComplete="tel"
+                    className={field}
+                    style={{ "--tw-ring-color": accentColor }}
+                  />
+                  <p className="mt-1.5 text-[12px] text-gray-500">
+                    The number you're trying to sign in with.
+                  </p>
                 </div>
 
                 {showNoteField && (
                   <div>
                     <label htmlFor="lh-note" className="mb-1.5 block text-[13px] font-medium text-gray-700">
-                      {copy.noteLabel}
+                      {copy.noteLabel} <span className="font-normal text-gray-400">(optional)</span>
                     </label>
                     <textarea
                       id="lh-note"
@@ -493,76 +583,6 @@ export default function LoginHelpForm({
                   </div>
                 )}
               </>
-            )}
-
-            <div>
-              <label htmlFor="lh-empid" className="mb-1.5 block text-[13px] font-medium text-gray-700">
-                Employee ID
-              </label>
-              <input
-                id="lh-empid"
-                ref={isInApp ? undefined : firstFieldRef}
-                value={employeeId}
-                onChange={(e) => setEmployeeId(e.target.value.toUpperCase())}
-                placeholder="E01288"
-                autoComplete="off"
-                autoCapitalize="characters"
-                className={field}
-                style={{ "--tw-ring-color": accentColor }}
-              />
-            </div>
-
-            <div>
-              <label htmlFor="lh-desig" className="mb-1.5 block text-[13px] font-medium text-gray-700">
-                Designation
-              </label>
-              <DesignationPicker
-                value={designation}
-                onChange={setDesignation}
-                options={designations}
-                loading={designationsLoading}
-                accentColor={accentColor}
-                fieldClass={field}
-              />
-            </div>
-
-            <div>
-              <label htmlFor="lh-phone" className="mb-1.5 block text-[13px] font-medium text-gray-700">
-                Mobile number
-              </label>
-              <input
-                id="lh-phone"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="9876543210"
-                inputMode="numeric"
-                autoComplete="tel"
-                className={field}
-                style={{ "--tw-ring-color": accentColor }}
-              />
-              {!isInApp && (
-                <p className="mt-1.5 text-[12px] text-gray-500">
-                  The number you're trying to sign in with.
-                </p>
-              )}
-            </div>
-
-            {!isInApp && showNoteField && (
-              <div>
-                <label htmlFor="lh-note" className="mb-1.5 block text-[13px] font-medium text-gray-700">
-                  {copy.noteLabel} <span className="font-normal text-gray-400">(optional)</span>
-                </label>
-                <textarea
-                  id="lh-note"
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  rows={3}
-                  maxLength={1000}
-                  placeholder={copy.notePlaceholder}
-                  className={`${field} resize-none`}
-                  style={{ "--tw-ring-color": accentColor }}
-                />
-              </div>
             )}
 
             {/* Say what's being sent. Attaching console output silently would

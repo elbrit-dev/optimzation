@@ -32,9 +32,12 @@ const VARIANT_DEFAULTS = {
     // errors are swallowed so they can't lose the ticket), leaving reports
     // filed but unassigned and unnoticed.
     assignee: "vishnuk.mis@elbrit.org",
-    // The problem type leads the subject so support can triage the ERP list
-    // view without opening each ticket.
-    subject: (id, who, type) => `${type || "App issue"} — ${id}${who}`,
+    // The person's own words lead the subject so support can triage the ERP
+    // list view without opening each ticket.
+    subject: (id, who, note) => {
+      const gist = String(note || "").replace(/\s+/g, " ").trim().slice(0, 70);
+      return gist ? `${gist} — ${id}${who}` : `App issue — ${id}${who}`;
+    },
     // One person can hit several unrelated bugs — collapsing them onto one
     // ticket would silently lose reports.
     dedupe: false,
@@ -184,13 +187,21 @@ export default async function handler(req, res) {
   const phoneRaw = String(req.body?.phone ?? "").trim();
   const phone = normalizePhone(phoneRaw);
   const note = String(req.body?.note ?? "").trim().slice(0, 1000);
-  const problemType = String(req.body?.problemType ?? "").trim().slice(0, 80);
   const diagnostics = sanitizeDiagnostics(req.body?.diagnostics);
 
   if (!employeeId) return res.status(400).json({ error: "Employee ID is required" });
-  if (!designation) return res.status(400).json({ error: "Designation is required" });
-  if (phone.length < 10) {
-    return res.status(400).json({ error: "Enter a valid 10-digit mobile number" });
+
+  if (variant === "in-app") {
+    // The only thing in-app asks for. Identity rides along from the page's
+    // employee prop, and designation/phone are read off ERP below anyway.
+    if (!note) {
+      return res.status(400).json({ error: "Tell us what looks wrong" });
+    }
+  } else {
+    if (!designation) return res.status(400).json({ error: "Designation is required" });
+    if (phone.length < 10) {
+      return res.status(400).json({ error: "Enter a valid 10-digit mobile number" });
+    }
   }
 
   // Prop → env → this variant's default, for each knob. Note the env vars are
@@ -239,7 +250,7 @@ export default async function handler(req, res) {
     }
 
     const who = employee?.employee_name ? ` — ${employee.employee_name}` : "";
-    const subject = defaults.subject(employeeId, who, problemType).slice(0, 140);
+    const subject = defaults.subject(employeeId, who, note).slice(0, 140);
 
     const created = await erpFetch("/api/resource/Task", {
       method: "POST",
@@ -263,7 +274,6 @@ export default async function handler(req, res) {
           designation,
           phone: phoneRaw,
           note,
-          problemType,
           diagnostics,
         }),
       },

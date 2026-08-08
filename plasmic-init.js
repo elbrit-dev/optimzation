@@ -565,7 +565,7 @@ PLASMIC.registerComponent(LoginHelpForm, {
       ],
       defaultValue: "login",
       description:
-        "Which job this instance does. 'login' is the escape hatch for the LOGIN page: a quiet \"Can't log in? Click here\" text link, a bottom sheet on mobile, and it names HR throughout — filed to HR under LoginIssue, with repeat taps reusing the open ticket. 'in-app' is for use INSIDE the app — someone on the home page seeing blanks or zeros: the trigger reads \"Something looks wrong? Report it\", it's a centred dialog, and it says SUPPORT rather than HR everywhere (the person reporting a blank screen has no reason to think about HR). It adds a required \"What kind of problem?\" type, the description leads and is required too, browser console errors + page context are attached automatically, and it files to BUGS - IT for vishnuk.mis@elbrit.org. Repeats are NOT deduped there, since one person can hit several unrelated bugs. Everything below overrides the variant's own defaults; leave a field empty to keep them.",
+        "Which job this instance does. 'login' is the escape hatch for the LOGIN page: a quiet \"Can't log in? Click here\" text link, a bottom sheet on mobile, three fields (Employee ID, Designation, Mobile), and it names HR throughout — filed to HR under LoginIssue, with repeat taps reusing the open ticket. 'in-app' is for use INSIDE the app — someone on the home page seeing blanks or zeros. It asks ONE question, \"What looks wrong?\", and nothing else: identity comes from the `employee` prop, and the browser's console errors + page context are attached on send. It says SUPPORT rather than HR everywhere (the person reporting a blank screen has no reason to think about HR), and files to BUGS - IT for vishnuk.mis@elbrit.org, using their own words as the ticket subject. Repeats are NOT deduped there, since one person can hit several unrelated bugs. Everything below overrides the variant's own defaults; leave a field empty to keep them.",
     },
     triggerLabel: {
       type: "string",
@@ -595,31 +595,15 @@ PLASMIC.registerComponent(LoginHelpForm, {
       defaultValue: "",
       description: "Label on the submit button. Leave empty for the variant's own wording.",
     },
-    problemTypes: {
-      type: "array",
+    employee: {
+      type: "object",
       description:
-        "IN-APP ONLY: the options in \"What kind of problem?\", a required field whose value leads the ERP ticket subject so support can triage the list view without opening each one. Leave EMPTY for the built-in set: Data looks wrong or missing / Page won't load / Something is slow / Can't complete an action / Something else. Pass an array of plain strings to replace it. Keep the list short — it's a native picker on a phone, and a long list defeats the point.",
+        "WHO is reporting — ONE object, for the in-app variant. Bind a raw ERP Employee record straight to it: it reads `name` (or employeeId/employee/id) as the Employee ID, `employee_name` as the person, plus `designation` and `cell_number`. Give it this and the in-app form asks for NO personal details at all — just \"What looks wrong?\" and a send button, with a quiet \"Sending as …\" line so they can see who it goes as. Values arriving after mount are picked up. If it's missing an Employee ID the form falls back to asking for one, since a report nobody can trace to a person is close to useless. The login variant ignores this — nobody is signed in there yet.",
     },
     captureConsole: {
       type: "boolean",
       description:
         "Attach recent browser console errors/warnings, uncaught exceptions, the page URL and device details to the report. Defaults ON for the in-app variant and OFF for login (nothing is running there yet worth capturing). Capture starts when the component MOUNTS, so put it high on the page — anything thrown before that is missed. The form always tells the person what's being attached; it is never silent.",
-    },
-    defaultEmployeeId: {
-      type: "string",
-      defaultValue: "",
-      description:
-        "Prefills the Employee ID. For the in-app variant, bind this to the signed-in user so they don't retype it. Left empty the field starts blank. Still editable either way.",
-    },
-    defaultDesignation: {
-      type: "string",
-      defaultValue: "",
-      description: "Prefills the Designation. Bind to the signed-in user's designation.",
-    },
-    defaultPhone: {
-      type: "string",
-      defaultValue: "",
-      description: "Prefills the Mobile number. Bind to the signed-in user's mobile.",
     },
     accentColor: {
       type: "color",
@@ -674,7 +658,7 @@ PLASMIC.registerComponent(LoginHelpForm, {
       type: "string",
       defaultValue: "/api/hr/designations",
       description:
-        "Supplies the Designation dropdown from ERP's Designation doctype (~85 entries), fetched the first time the modal opens rather than on page load. Only change this if the API route is moved. If it fails, the field silently degrades to free text — the form is never blocked on it.",
+        "LOGIN VARIANT ONLY: supplies the Designation dropdown from ERP's Designation doctype (~85 entries), fetched the first time the modal opens rather than on page load. In-app has no designation field, so it never calls this. Only change it if the API route is moved. If it fails, the field silently degrades to free text — the form is never blocked on it.",
     },
     onSubmitted: {
       type: "eventHandler",
