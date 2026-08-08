@@ -715,16 +715,19 @@ export function SmartDataProvider({ config, dataSource, overrides, children }) {
   if (loading || !mergedConfig) return null;
 
   const rootControls = mergedConfig.controls ?? [];
-  const rootViewIds  = Object.entries(mergedConfig.views ?? {})
-    .filter(([, v]) => v.type !== 'drawer')
-    .map(([id]) => id);
+  // Drawer views are included: their _controls must carry the same date range / toggles as
+  // the root views, or api.variablesMap ('controls.dateRange.start' → 'filters.from_date')
+  // finds nothing and the drawer silently falls back to the config's static
+  // api.variables.filters dates instead of the period the user is looking at.
+  // Writing to a closed drawer is inert — drawer subscriptions are wired on open.
+  const controlViewIds = Object.keys(mergedConfig.views ?? {});
 
   return (
     <SmartDataProviderImpl reportConfig={mergedConfig} dataSource={dataSource} reportName={config}>
       {rootControls.length > 0 && (
         <ReportControls
           controls={rootControls}
-          viewIds={rootViewIds}
+          viewIds={controlViewIds}
           apiFilters={mergedConfig.api?.variables?.filters}
         />
       )}
