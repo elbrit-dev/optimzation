@@ -553,7 +553,7 @@ PLASMIC.registerComponent(LoginHelpForm, {
   name: "LoginHelpForm",
   displayName: "Login Help Form",
   description:
-    "The \"Can't log in?\" escape hatch for the LOGIN page — a small trigger link plus the modal it opens. Drop it under the FirebaseUIComponent sign-in widget; it needs no props to work. The employee enters Employee ID + mobile + designation and it raises an ERP Task assigned to HR. Two things it does that a plain form wouldn't: (1) it confirms the ID/mobile pair against the ERP Employee record and auto-fills their name + designation, and (2) the ticket HR receives carries an automatic diagnosis of WHY the login is failing — empty user_id, phone not matching cell_number, inactive employee — read off the Employee doc. A non-matching phone is NOT treated as an error (that mismatch is usually the bug being reported); the form stays submittable and says so. Repeat submits reuse the existing open ticket instead of spamming HR. Because this runs BEFORE login there is no user ERP token, so it posts to /api/hr/* routes that read ERP credentials server-side — by default the NEXT_PUBLIC_GRAPHQL_ENDPOINT_/_AUTH_TOKEN_ pair already on Netlify (ERP_TARGET picks ERP vs UAT). The only setup left is ERP_LOGIN_HELP_PROJECT.",
+    "The \"Can't log in?\" escape hatch for the LOGIN page — a small trigger link plus the modal it opens. Drop it under the FirebaseUIComponent sign-in widget; it needs no props to work. The employee enters Employee ID + designation + mobile, and it raises an ERP Task assigned to HR. Deliberately a PLAIN form: it does not check the details as they type — someone already locked out shouldn't be argued with by a form. The diagnosis happens out of sight instead: the API route reads the Employee record AND the ERP User it links to, then writes the actual cause into the ticket HR receives (empty user_id, a stale user_id pointing at nothing, a disabled ERP User, a non-Active employee) with the specific fix for each, and raises the priority to High when it finds one. The phone is recorded but never verified — User.mobile_no is empty on all but a couple of Users, so checking it would flag nearly everyone. Repeat submits reuse the existing open ticket instead of spamming HR. Because this runs BEFORE login there is no user ERP token, so it posts to /api/hr/login-help, which reads ERP credentials server-side — by default the NEXT_PUBLIC_GRAPHQL_ENDPOINT_/_AUTH_TOKEN_ pair already on Netlify (erpTarget picks ERP vs UAT). Nothing needs adding to Netlify to make it work.",
   isDefaultExport: true,
   importPath: "./components/LoginHelpForm",
   props: {
@@ -573,6 +573,12 @@ PLASMIC.registerComponent(LoginHelpForm, {
       defaultValue:
         "Fill this in and HR will get a ticket with your details straight away.",
       description: "Supporting line under the heading. Hidden on the success screen.",
+    },
+    reassurance: {
+      type: "string",
+      defaultValue: "HR will check your account and get back to you.",
+      description:
+        "The general line under the submit button. It stands in for the per-field checking the form deliberately doesn't do — tells them what happens next instead of judging what they typed. Clear it to hide the line.",
     },
     submitLabel: {
       type: "string",
@@ -622,17 +628,11 @@ PLASMIC.registerComponent(LoginHelpForm, {
       description:
         "ADVANCED — normally leave empty, and prefer erpTarget. ⚠️ A token typed here is PUBLIC: this component sits on the LOGIN page, so the value ships to every visitor's browser and is readable in devtools by anyone, signed in or not. Left empty, the token is read server-side from env and never reaches the browser at all. Only use this for a throwaway/narrow credential you'd be comfortable publishing. Must be set together with ERP URL.",
     },
-    lookupEndpoint: {
-      type: "string",
-      defaultValue: "/api/hr/employee-lookup",
-      description:
-        "Verify/auto-fill endpoint. Only change this if the API routes are moved.",
-    },
     submitEndpoint: {
       type: "string",
       defaultValue: "/api/hr/login-help",
       description:
-        "Ticket-raising endpoint. Only change this if the API routes are moved.",
+        "Ticket-raising endpoint. Only change this if the API route is moved.",
     },
     onSubmitted: {
       type: "eventHandler",

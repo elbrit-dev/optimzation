@@ -1,6 +1,7 @@
 import {
   erpFetch,
   fetchEmployee,
+  fetchUser,
   normalizeEmployeeId,
   normalizePhone,
   rateLimit,
@@ -162,10 +163,11 @@ export default async function handler(req, res) {
       target: req.body?.erpTarget,
     });
 
-    // The record is the source of truth — never trust the posted designation
-    // for the diagnosis, only for showing HR what the person believed.
+    // The records are the source of truth — the posted designation is only
+    // shown to HR as what the person believed, never used for the diagnosis.
     const employee = await fetchEmployee(employeeId, creds);
-    const diagnosis = diagnose(employee, phone);
+    const user = await fetchUser(employee?.user_id, creds);
+    const diagnosis = diagnose(employee, user);
 
     const project = await resolveProject(projectSetting, creds);
 

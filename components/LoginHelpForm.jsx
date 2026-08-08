@@ -8,23 +8,21 @@ import { CheckCircle2, HelpCircle, Loader2, X } from "lucide-react";
  * Renders a small trigger link plus the modal it opens. Drop it on the login
  * page in Plasmic, next to the sign-in widget; it needs no props to work.
  *
- * Flow:
- *   Employee ID + mobile  ->  POST /api/hr/employee-lookup  (confirms the pair
- *                             and auto-fills name + designation)
- *   Submit                ->  POST /api/hr/login-help       (creates an ERP
- *                             Task, assigned to HR, with a diagnosis of WHY
- *                             the login is failing)
+ * Deliberately a plain form: three fields, submit, done. It does NOT check the
+ * employee's details as they type. Nobody who is already locked out should be
+ * argued with by a form, and the checks that would matter aren't reliable
+ * anyway — `User.mobile_no` is empty on all but a couple of ERP Users, so
+ * verifying the phone would flag nearly everyone as wrong.
  *
- * Why the endpoints and not a direct ERP call: this form runs BEFORE login, so
- * the per-user ERP token the rest of the app uses doesn't exist yet. The routes
- * hold a server-side service account instead — see lib/erpServer.js.
+ * The diagnosis still happens, just out of sight: POST /api/hr/login-help
+ * reads the Employee record and the ERP User it links to, and puts the actual
+ * cause (no user_id, User disabled, employee not Active) into the ticket HR
+ * receives. See lib/loginDiagnostics.js.
  *
- * Auto-fill is deliberately gated on the phone matching `cell_number` in ERP.
- * An unverified pair is NOT an error — it's usually the bug itself — so the
- * form stays fully submittable either way.
+ * Why an endpoint and not a direct ERP call: this form runs BEFORE login, so
+ * the per-user ERP token the rest of the app uses doesn't exist yet. The route
+ * holds the credentials server-side — see lib/erpServer.js.
  */
-
-const LOOKUP_DEBOUNCE_MS = 600;
 
 const digitsOnly = (s) => String(s ?? "").replace(/\D/g, "");
 
@@ -33,9 +31,9 @@ export default function LoginHelpForm({
   triggerLabel = "Can't log in? Click here",
   title = "Tell HR you can't log in",
   subtitle = "Fill this in and HR will get a ticket with your details straight away.",
+  reassurance = "HR will check your account and get back to you.",
   submitLabel = "Send to HR",
   accentColor = "#2563eb",
-  lookupEndpoint = "/api/hr/employee-lookup",
   submitEndpoint = "/api/hr/login-help",
   showNoteField = true,
   // ERP routing. Every one of these is optional — left empty, the API route
@@ -49,9 +47,6 @@ export default function LoginHelpForm({
   authToken = "",
   onSubmitted,
 }) {
-  // Sent with both requests. Empty strings are dropped server-side by the
-  // prop → env → default chain, so passing them through is always safe.
-  const erpRouting = { erpTarget, erpUrl, authToken };
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
 
@@ -60,14 +55,11 @@ export default function LoginHelpForm({
   const [phone, setPhone] = useState("");
   const [note, setNote] = useState("");
 
-  const [lookup, setLookup] = useState({ state: "idle", employeeName: "" });
   const [submitState, setSubmitState] = useState("idle"); // idle | sending | done | error
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
 
   const firstFieldRef = useRef(null);
-  // Guards against a slow lookup landing after a newer one and overwriting it.
-  const lookupSeq = useRef(0);
 
   useEffect(() => setMounted(true), []);
 
@@ -76,7 +68,6 @@ export default function LoginHelpForm({
     setDesignation("");
     setPhone("");
     setNote("");
-    setLookup({ state: "idle", employeeName: "" });
     setSubmitState("idle");
     setResult(null);
     setError("");
@@ -103,47 +94,6 @@ export default function LoginHelpForm({
     };
   }, [open, close]);
 
-  // Confirm the ID/phone pair once both look complete.
-  useEffect(() => {
-    const id = employeeId.trim();
-    const mobile = digitsOnly(phone).slice(-10);
-
-    if (!id || mobile.length < 10) {
-      setLookup({ state: "idle", employeeName: "" });
-      return;
-    }
-
-    const seq = ++lookupSeq.current;
-    setLookup({ state: "checking", employeeName: "" });
-
-    const timer = setTimeout(async () => {
-      try {
-        const res = await fetch(lookupEndpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ employeeId: id, phone: mobile, ...erpRouting }),
-        });
-        const data = await res.json();
-        if (seq !== lookupSeq.current) return; // a newer keystroke already won
-
-        if (data?.verified) {
-          setLookup({ state: "verified", employeeName: data.employeeName || "" });
-          // Only fill what they haven't typed themselves.
-          setDesignation((current) => current.trim() || data.designation || "");
-        } else {
-          setLookup({ state: "unverified", employeeName: "" });
-        }
-      } catch {
-        if (seq !== lookupSeq.current) return;
-        setLookup({ state: "idle", employeeName: "" });
-      }
-    }, LOOKUP_DEBOUNCE_MS);
-
-    return () => clearTimeout(timer);
-    // Depend on the routing primitives, not the `erpRouting` object — that's a
-    // fresh reference each render and would re-fire the lookup on every keystroke.
-  }, [employeeId, phone, lookupEndpoint, erpTarget, erpUrl, authToken]);
-
   const canSubmit =
     employeeId.trim() &&
     designation.trim() &&
@@ -168,7 +118,9 @@ export default function LoginHelpForm({
           note: note.trim(),
           project,
           assignee,
-          ...erpRouting,
+          erpTarget,
+          erpUrl,
+          authToken,
         }),
       });
       const data = await res.json();
@@ -225,8 +177,8 @@ export default function LoginHelpForm({
             </p>
             <p className="mt-1.5 text-[13px] leading-relaxed text-gray-500">
               {result?.duplicate
-                ? "We found an open ticket for you, so we didn't raise a duplicate."
-                : "HR has been assigned your request and will get back to you."}
+                ? "We found an open request for you, so we didn't send a second one."
+                : "HR will check your account and get back to you."}
             </p>
             {result?.ticket && (
               <p className="mt-3 inline-block rounded-md bg-gray-100 px-2.5 py-1 font-mono text-[13px] text-gray-700">
@@ -253,9 +205,23 @@ export default function LoginHelpForm({
                 ref={firstFieldRef}
                 value={employeeId}
                 onChange={(e) => setEmployeeId(e.target.value.toUpperCase())}
-                placeholder="E01271"
+                placeholder="E01288"
                 autoComplete="off"
                 autoCapitalize="characters"
+                className={field}
+                style={{ "--tw-ring-color": accentColor }}
+              />
+            </div>
+
+            <div>
+              <label htmlFor="lh-desig" className="mb-1.5 block text-[13px] font-medium text-gray-700">
+                Designation
+              </label>
+              <input
+                id="lh-desig"
+                value={designation}
+                onChange={(e) => setDesignation(e.target.value)}
+                placeholder="Business Executive"
                 className={field}
                 style={{ "--tw-ring-color": accentColor }}
               />
@@ -275,39 +241,9 @@ export default function LoginHelpForm({
                 className={field}
                 style={{ "--tw-ring-color": accentColor }}
               />
-              {/* The unverified case is usually the bug being reported, so it
-                  reads as information, not as a validation failure. */}
-              {lookup.state === "checking" && (
-                <p className="mt-1.5 flex items-center gap-1.5 text-[12px] text-gray-500">
-                  <Loader2 size={13} className="animate-spin" /> Checking your details…
-                </p>
-              )}
-              {lookup.state === "verified" && (
-                <p className="mt-1.5 flex items-center gap-1.5 text-[12px] text-green-600">
-                  <CheckCircle2 size={13} />
-                  {lookup.employeeName ? `Found you — ${lookup.employeeName}` : "Details confirmed"}
-                </p>
-              )}
-              {lookup.state === "unverified" && (
-                <p className="mt-1.5 text-[12px] text-amber-600">
-                  This number doesn't match the one HR has for that Employee ID — which may well be
-                  why you can't log in. Send it anyway and HR will sort it out.
-                </p>
-              )}
-            </div>
-
-            <div>
-              <label htmlFor="lh-desig" className="mb-1.5 block text-[13px] font-medium text-gray-700">
-                Designation
-              </label>
-              <input
-                id="lh-desig"
-                value={designation}
-                onChange={(e) => setDesignation(e.target.value)}
-                placeholder="Business Executive"
-                className={field}
-                style={{ "--tw-ring-color": accentColor }}
-              />
+              <p className="mt-1.5 text-[12px] text-gray-500">
+                The number you're trying to sign in with.
+              </p>
             </div>
 
             {showNoteField && (
@@ -341,6 +277,10 @@ export default function LoginHelpForm({
               {submitState === "sending" && <Loader2 size={16} className="animate-spin" />}
               {submitState === "sending" ? "Sending…" : submitLabel}
             </button>
+
+            {reassurance && (
+              <p className="text-center text-[12px] leading-snug text-gray-500">{reassurance}</p>
+            )}
           </form>
         )}
       </div>
