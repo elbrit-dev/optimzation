@@ -699,17 +699,34 @@ export function SmartDataProvider({ config, dataSource, overrides, children }) {
     return () => { cancelled = true; };
   }, [config]);
 
-  if (loading || !reportConfig) return null;
+  // Apply overrides here rather than leaving it to SmartDataProviderImpl, because the
+  // controls rendered below are derived from this config. A control seeds its initial
+  // value from the resolved api filters (parseDateRangeDefault: def.value → apiFilters
+  // → def.defaultValue → current month) and that seed is written back over
+  // api.variables by api.variablesMap — e.g. 'controls.dateRange.start' targets
+  // 'filters.from_date'. Deriving controls from the unmerged config meant an override
+  // of a control-mapped variable was silently replaced by the config's static
+  // defaultValue on the very first fetch.
+  const mergedConfig = useMemo(
+    () => (reportConfig && overrides) ? deepMerge(reportConfig, overrides) : reportConfig,
+    [reportConfig, overrides],
+  );
 
-  const rootControls = reportConfig.controls ?? [];
-  const rootViewIds  = Object.entries(reportConfig.views ?? {})
+  if (loading || !mergedConfig) return null;
+
+  const rootControls = mergedConfig.controls ?? [];
+  const rootViewIds  = Object.entries(mergedConfig.views ?? {})
     .filter(([, v]) => v.type !== 'drawer')
     .map(([id]) => id);
 
   return (
-    <SmartDataProviderImpl reportConfig={reportConfig} dataSource={dataSource} overrides={overrides} reportName={config}>
+    <SmartDataProviderImpl reportConfig={mergedConfig} dataSource={dataSource} reportName={config}>
       {rootControls.length > 0 && (
-        <ReportControls controls={rootControls} viewIds={rootViewIds} />
+        <ReportControls
+          controls={rootControls}
+          viewIds={rootViewIds}
+          apiFilters={mergedConfig.api?.variables?.filters}
+        />
       )}
       {children}
     </SmartDataProviderImpl>
