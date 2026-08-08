@@ -620,13 +620,13 @@ PLASMIC.registerComponent(LoginHelpForm, {
       type: "string",
       defaultValue: "",
       description:
-        "ADVANCED — normally leave empty. Overrides the ERP origin. Must be set TOGETHER with Auth Token (either alone is rejected, since a URL from one environment married to a token from another is how prod tickets get written with a UAT credential), and its host must already appear in NEXT_PUBLIC_GRAPHQL_ENDPOINT_ERP/_UAT or ERP_BASE_URL — an unrestricted URL here would let anyone point our server at a host of their choosing.",
+        "The ERP origin. Just the scheme + host, no path and no trailing slash: https://erp.elbrit.org for production, https://uat.elbrit.org for UAT. (A /api/method/graphql suffix is tolerated and stripped, so pasting the GraphQL endpoint works too.) Must be set TOGETHER with Auth Token — either alone is rejected, because a URL from one environment married to a token from another is how prod tickets get written with a UAT credential. Only those two hosts plus whatever is in NEXT_PUBLIC_GRAPHQL_ENDPOINT_ERP/_UAT or ERP_BASE_URL are accepted; an unrestricted URL here would let anyone point our server at a host of their choosing.",
     },
     authToken: {
       type: "string",
       defaultValue: "",
       description:
-        "ADVANCED — normally leave empty, and prefer erpTarget. ⚠️ A token typed here is PUBLIC: this component sits on the LOGIN page, so the value ships to every visitor's browser and is readable in devtools by anyone, signed in or not. Left empty, the token is read server-side from env and never reaches the browser at all. Only use this for a throwaway/narrow credential you'd be comfortable publishing. Must be set together with ERP URL.",
+        "A Frappe API key + secret joined by a colon: <api_key>:<api_secret> — generate it in ERP under User → API Access → Generate Keys. Do NOT include the word \"token\" (it's tolerated if you do). The account needs read on Employee and User, and create on Task. ⚠️ A token typed here is PUBLIC: this component sits on the LOGIN page, so the value ships to every visitor's browser and is readable in devtools by anyone, signed in or not. Left empty, the token is read server-side from env and never reaches the browser at all — so prefer erpTarget, and only put a value here if it's a narrow credential you'd be comfortable publishing. Must be set together with ERP URL.",
     },
     submitEndpoint: {
       type: "string",
