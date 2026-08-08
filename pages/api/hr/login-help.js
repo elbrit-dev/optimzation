@@ -220,10 +220,28 @@ export default async function handler(req, res) {
       assigned,
     });
   } catch (err) {
-    console.error("[hr/login-help]", err);
+    // A misconfigured deployment and an ERP rejection both surface as "it
+    // 500'd", but the fixes are in different places — so name which it was.
+    const isConfig = err?.name === "ErpConfigError";
+
+    console.error(
+      `[hr/login-help] ${isConfig ? "CONFIG" : "ERP"} failure:`,
+      err?.message,
+      err?.status ? `(HTTP ${err.status})` : "",
+      err?.stack
+    );
+
     return res.status(500).json({
       error:
         "We couldn't reach HR just now. Please try again in a few minutes, or call your manager.",
+      // Safe to expose: says WHERE the fault is, never what the values are.
+      code: isConfig ? "config" : "erp",
+      // Opt-in only. Set LOGIN_HELP_DEBUG=1 on Netlify to see the real reason
+      // in the response while wiring this up, then remove it — the endpoint is
+      // public, and ERP's messages name doctypes and permissions.
+      ...(process.env.LOGIN_HELP_DEBUG === "1"
+        ? { debug: err?.message, status: err?.status ?? null }
+        : {}),
     });
   }
 }
