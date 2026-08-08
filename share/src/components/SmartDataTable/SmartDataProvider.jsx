@@ -565,10 +565,14 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
         break;
       case 'rowClick': {
         const handler = reportConfig?.views?.[viewId]?.event?.onRowClick;
-        logSmartDataEvent('debug', 'interaction', 'signal:row-click', { viewId, hasHandler: !!handler });
+        // depth = tree level of the clicked row (0 = first group_by field). The table
+        // already suppresses clicks past config.rowClickLevels; this lets a handler
+        // branch further (e.g. a different drawer per level).
+        const depth = signal.payload.depth ?? 0;
+        logSmartDataEvent('debug', 'interaction', 'signal:row-click', { viewId, depth, hasHandler: !!handler });
         if (handler) {
           const controls = store.getState().views[viewId]?.viewParams?._controls ?? {};
-          handler(signal.payload.event, { openDrawer: openDrawerView, closeDrawer: closeDrawerView, controls });
+          handler(signal.payload.event, { openDrawer: openDrawerView, closeDrawer: closeDrawerView, controls, depth });
         }
         break;
       }

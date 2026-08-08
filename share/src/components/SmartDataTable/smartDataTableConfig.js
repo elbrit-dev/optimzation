@@ -57,6 +57,15 @@ export const DEFAULT_CONFIG = {
   exportFilename: undefined,    // undefined = auto date-stamped; string or (date) => string
   enableFullscreen: true,
 
+  // Row click / drawer
+  // How many top tree levels fire the rowClick signal (the signal that opens a drawer).
+  // Grouped data nests one level per group_by field, e.g. group_by
+  // ['department', 'HQ', 'Item', 'customer'] → depth 0 = department, 1 = HQ, 2 = Item, …
+  // 2  → only department and HQ rows are clickable; Item/customer rows are inert,
+  //      regardless of how many group_by fields there are.
+  // Accepts: number (top N levels) | true (every level) | false (none) | (depth) => boolean
+  rowClickLevels: 2,
+
   // Loading
   loadingMessage: undefined,
 
@@ -77,4 +86,20 @@ export const DEFAULT_CONFIG = {
  */
 export function resolveConfig(common = {}, perView = {}) {
   return { ...__INTERNAL_CONFIG, ...DEFAULT_CONFIG, ...common, ...perView };
+}
+
+/**
+ * Resolve `rowClickLevels` for a given tree depth (0 = top-level rows).
+ * See DEFAULT_CONFIG.rowClickLevels for the accepted shapes.
+ *
+ * @param {number|boolean|((depth: number) => boolean)|null|undefined} rowClickLevels
+ * @param {number} depth
+ * @returns {boolean} whether rows at this depth should fire the rowClick signal
+ */
+export function isRowClickEnabledAtDepth(rowClickLevels, depth) {
+  if (typeof rowClickLevels === 'function') return !!rowClickLevels(depth);
+  if (rowClickLevels === true || rowClickLevels === null || rowClickLevels === undefined) return true;
+  if (rowClickLevels === false) return false;
+  const levels = Number(rowClickLevels);
+  return Number.isFinite(levels) && depth < levels;
 }

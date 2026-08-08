@@ -9,7 +9,7 @@ import { Dialog } from 'primereact/dialog';
 import * as XLSX from 'xlsx';
 
 import { useSmartDataContext, useSmartDataConfig, useSmartDataStoreApi, useSmartDataSelector } from './SmartDataContext';
-import { INDEX_LOADING_MESSAGE, resolveConfig } from './smartDataTableConfig';
+import { INDEX_LOADING_MESSAGE, resolveConfig, isRowClickEnabledAtDepth } from './smartDataTableConfig';
 import { localFilter, localSort } from './tableUtils';
 import { TableSkeleton, LoadingOverlay } from './TableSkeleton';
 import { TextFilter } from './filters/TextFilter';
@@ -142,6 +142,25 @@ function buildGroupedWorksheet(sheetRows, exportCols, columnGroups) {
   const ws = XLSX.utils.aoa_to_sheet([row1, row2, ...dataRows]);
   if (merges.length) ws['!merges'] = merges;
   return ws;
+}
+
+// ─── Row-click affordance ────────────────────────────────────────────────────
+
+/**
+ * Wrap a column body so its text is underlined on levels where a click actually
+ * opens a drawer. Only the first (label) column is wrapped — that is the cell
+ * users read to identify the row — so clickable top levels are visually distinct
+ * from the inert deeper ones cfg.rowClickLevels filters out.
+ */
+function withRowClickAffordance(body) {
+  return (rowData, options) => (
+    <span className="cursor-pointer underline underline-offset-2">{body(rowData, options)}</span>
+  );
+}
+
+/** The column carrying the row's name: the grouped-data `label` column, else the first one. */
+function findLabelField(columns) {
+  return columns?.some(c => c.field === 'label') ? 'label' : columns?.[0]?.field;
 }
 
 function sanitizeSheetName(name) {
@@ -462,6 +481,18 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
     },
   ], [rightActions, isMaximized]);
 
+  // ── Row-click gating ──────────────────────────────────────────────────────
+  // cfg.rowClickLevels decides which tree levels fire the signal: rows deeper than
+  // the configured level count never fire it, so no drawer opens (and PrimeReact's
+  // clickable row affordance is dropped along with onRowClick/selectionMode below).
+  //
+  // A click is only ever meaningful when the report wires an onRowClick handler —
+  // without one there is nothing to open, so nothing should be underlined either.
+  const effectiveRowClickLevels = reportConfig?.views?.[viewId]?.event?.onRowClick
+    ? cfg.rowClickLevels
+    : false;
+  const rowClickEnabled = isRowClickEnabledAtDepth(effectiveRowClickLevels, 0);
+
   // ── Column JSX (memoized — only rebuilt when columns prop changes) ─────────
   // When columnGroups is active, filters live in the ColumnGroup filter row (Row 3).
   // Body columns must have filter=false so PrimeReact doesn't render a conflicting filter row.
@@ -470,6 +501,7 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
     const hasGroupedHeader = !!columnGroups?.length;
     const filtersEnabled = cfg.enableFilterRow !== false;
     const totalsEnabled = cfg.enableTotalRow === true;
+    const labelField = findLabelField(visibleColumns);
 
     return visibleColumns.map((col, idx) => {
       const currentFilter = viewState?.filters?.[col.field] ?? null;
@@ -479,6 +511,12 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
         : null;
 
       const defaultBody = (rowData) => rowData[col.field]?.repr ?? '';
+
+      // Underline the label column when top-level rows open a drawer on click.
+      const baseBody = col.body ?? defaultBody;
+      const body = (col.field === labelField && rowClickEnabled)
+        ? withRowClickAffordance(baseBody)
+        : baseBody;
 
       // Dynamic freeze: first visible column frozen when lock is engaged
       const isFrozen = (freezeFirstColumn && idx === 0) ? true : (col.frozen ?? false);
@@ -495,13 +533,13 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
           style={col.width ? { width: col.width, minWidth: col.width } : undefined}
           frozen={isFrozen}
           footer={totalsEnabled ? col.footer?.repr : undefined}
-          body={col.body ?? defaultBody}
+          body={body}
         />
       );
     });
     // viewState?.filters intentionally in deps so filter elements reflect active values
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibleColumns, columnGroups, viewState?.filters, onFilter, freezeFirstColumn, cfg.enableFilterRow, cfg.enableTotalRow, cfg.enableSort, cfg.filterDebounceText, cfg.filterDebounceNumeric]);
+  }, [visibleColumns, columnGroups, viewState?.filters, onFilter, freezeFirstColumn, rowClickEnabled, cfg.enableFilterRow, cfg.enableTotalRow, cfg.enableSort, cfg.filterDebounceText, cfg.filterDebounceNumeric]);
 
   // ── Row expansion (set by groupedReportDataSource via expandable: true) ──────
   const [expandedRows, setExpandedRows] = useState(null);
@@ -511,10 +549,10 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
     if (!rowData._children?.length) return null;
     return (
       <div className="px-6 py-2 bg-gray-50">
-        <InnerDataTable rows={rowData._children} columns={visibleColumns} columnGroups={columnGroups} labelColDefs={labelColDefs} depth={1} onSignal={onSignal} _parent={{ data: (({ _children, ...rest }) => rest)(rowData), _parent: null }} />
+        <InnerDataTable rows={rowData._children} columns={visibleColumns} columnGroups={columnGroups} labelColDefs={labelColDefs} depth={1} onSignal={onSignal} rowClickLevels={effectiveRowClickLevels} _parent={{ data: (({ _children, ...rest }) => rest)(rowData), _parent: null }} />
       </div>
     );
-  }, [visibleColumns, columnGroups, labelColDefs, onSignal]);
+  }, [visibleColumns, columnGroups, labelColDefs, onSignal, effectiveRowClickLevels]);
 
   // ── Column group header (built when meta.column_group === true) ────────────
   // Uses visibleColumns so hidden columns are excluded from the group header too.
@@ -564,9 +602,8 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
     );
   }, [columnGroups, visibleColumns, expandable, freezeFirstColumn, viewState?.filters, onFilter, cfg.enableFilterRow, cfg.filterDebounceText, cfg.filterDebounceNumeric]);
 
-  // ── Row click ─────────────────────────────────────────────────────────────
   const onRowClick = useCallback(
-    e => onSignal({ type: 'rowClick', payload: { event: { ...e, data: { ...(({ _children, ...rest }) => rest)(e.data), _parent: null } } } }),
+    e => onSignal({ type: 'rowClick', payload: { depth: 0, event: { ...e, data: { ...(({ _children, ...rest }) => rest)(e.data), _parent: null } } } }),
     [onSignal]
   );
 
@@ -629,8 +666,7 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
       onRowToggle: e => setExpandedRows(e.data),
       rowExpansionTemplate,
     }),
-    onRowClick,
-    selectionMode: 'single',
+    ...(rowClickEnabled && { onRowClick, selectionMode: 'single' }),
   };
 
   return (
@@ -744,7 +780,7 @@ export const SmartDataTable = memo(SmartDataTableInner);
 
 // ─── Inner expansion table ───────────────────────────────────────────────────
 
-function InnerDataTable({ rows, columns, columnGroups, labelColDefs = [], depth = 0, onSignal, _parent = null }) {
+function InnerDataTable({ rows, columns, columnGroups, labelColDefs = [], depth = 0, onSignal, rowClickLevels, _parent = null }) {
   const [filters, setFilters] = useState({});
   const [sortMeta, setSortMeta] = useState([]);
   const [expandedRows, setExpandedRows] = useState(null);
@@ -770,14 +806,17 @@ function InnerDataTable({ rows, columns, columnGroups, labelColDefs = [], depth 
     if (!rowData._children?.length) return null;
     return (
       <div className="px-6 py-2 bg-gray-50">
-        <InnerDataTable rows={rowData._children} columns={columns} columnGroups={columnGroups} labelColDefs={labelColDefs} depth={depth + 1} onSignal={onSignal} _parent={{ data: (({ _children, ...rest }) => rest)(rowData), _parent }} />
+        <InnerDataTable rows={rowData._children} columns={columns} columnGroups={columnGroups} labelColDefs={labelColDefs} depth={depth + 1} onSignal={onSignal} rowClickLevels={rowClickLevels} _parent={{ data: (({ _children, ...rest }) => rest)(rowData), _parent }} />
       </div>
     );
-  }, [columns, columnGroups, labelColDefs, depth]);
+  }, [columns, columnGroups, labelColDefs, depth, onSignal, rowClickLevels, _parent]);
+
+  const rowClickEnabled = !!onSignal && isRowClickEnabledAtDepth(rowClickLevels, depth);
 
   // When columnGroups active, body column filters are in the ColumnGroup filter row.
   const columnElements = useMemo(() => {
     const hasGroupedHeader = !!columnGroups?.length;
+    const labelField = findLabelField(columns);
     return columns.map(col => {
       const filterElement = (!hasGroupedHeader && col.filterable !== false)
         ? buildFilterElement(col, filters[col.field] ?? null, onFilter)
@@ -790,6 +829,8 @@ function InnerDataTable({ rows, columns, columnGroups, labelColDefs = [], depth 
         const preferredKey = `label${depth + 1}`;
         body = (rowData) => rowData[preferredKey] || rowData['label']?.repr || '';
       }
+      // Underline the label column only on levels that still open a drawer.
+      if (col.field === labelField && rowClickEnabled) body = withRowClickAffordance(body);
 
       const header = (col.field === 'label' && labelColDefs[depth]?.header)
         ? labelColDefs[depth].header
@@ -809,7 +850,7 @@ function InnerDataTable({ rows, columns, columnGroups, labelColDefs = [], depth 
         />
       );
     });
-  }, [columns, columnGroups, filters, onFilter, depth, labelColDefs]);
+  }, [columns, columnGroups, filters, onFilter, depth, labelColDefs, rowClickEnabled]);
 
   // 3-row header:
   //   Row 1: (expander col if expandable) + label col (rowSpan=2) + group spanning headers
@@ -871,8 +912,8 @@ function InnerDataTable({ rows, columns, columnGroups, labelColDefs = [], depth 
         rowExpansionTemplate,
       })}
       {...(headerColumnGroup && { headerColumnGroup })}
-      {...(onSignal && {
-        onRowClick: e => onSignal({ type: 'rowClick', payload: { event: { ...e, data: { ...(({ _children, ...rest }) => rest)(e.data), _parent } } } }),
+      {...(rowClickEnabled && {
+        onRowClick: e => onSignal({ type: 'rowClick', payload: { depth, event: { ...e, data: { ...(({ _children, ...rest }) => rest)(e.data), _parent } } } }),
         selectionMode: 'single',
       })}
     >

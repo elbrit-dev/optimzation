@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 // import Navigation from "./share/src/app/navigation/components/Navigation";
 import { registerElbritCoreComponents } from './share/src/plasmic-init'
 import FirebaseUIComponent from "./components/FirebaseUIComponent";
+import LoginHelpForm from "./components/LoginHelpForm";
 import CalendarPage from "@calendar/components/CalendarPage";
 import NovuInbox from "./components/NovuInbox";
 import PushNotificationToggle from "./components/PushNotificationToggle";
@@ -545,6 +546,104 @@ PLASMIC.registerComponent(FirebaseUIComponent, {
       type: "eventHandler",
       argTypes: [{ name: "error", type: "object" }],
     },
+  },
+});
+
+PLASMIC.registerComponent(LoginHelpForm, {
+  name: "LoginHelpForm",
+  displayName: "Login Help Form",
+  description:
+    "The \"Can't log in?\" escape hatch for the LOGIN page — a small trigger link plus the modal it opens. Drop it under the FirebaseUIComponent sign-in widget; it needs no props to work. The employee enters Employee ID + mobile + designation and it raises an ERP Task assigned to HR. Two things it does that a plain form wouldn't: (1) it confirms the ID/mobile pair against the ERP Employee record and auto-fills their name + designation, and (2) the ticket HR receives carries an automatic diagnosis of WHY the login is failing — empty user_id, phone not matching cell_number, inactive employee — read off the Employee doc. A non-matching phone is NOT treated as an error (that mismatch is usually the bug being reported); the form stays submittable and says so. Repeat submits reuse the existing open ticket instead of spamming HR. Because this runs BEFORE login there is no user ERP token, so it posts to /api/hr/* routes that read ERP credentials server-side — by default the NEXT_PUBLIC_GRAPHQL_ENDPOINT_/_AUTH_TOKEN_ pair already on Netlify (ERP_TARGET picks ERP vs UAT). The only setup left is ERP_LOGIN_HELP_PROJECT.",
+  isDefaultExport: true,
+  importPath: "./components/LoginHelpForm",
+  props: {
+    triggerLabel: {
+      type: "string",
+      defaultValue: "Can't log in? Click here",
+      description:
+        "The text on the trigger link that sits on the login page. Keep it plain — the people who need it are already stuck.",
+    },
+    title: {
+      type: "string",
+      defaultValue: "Tell HR you can't log in",
+      description: "Heading inside the modal.",
+    },
+    subtitle: {
+      type: "string",
+      defaultValue:
+        "Fill this in and HR will get a ticket with your details straight away.",
+      description: "Supporting line under the heading. Hidden on the success screen.",
+    },
+    submitLabel: {
+      type: "string",
+      defaultValue: "Send to HR",
+      description: "Label on the submit button.",
+    },
+    accentColor: {
+      type: "color",
+      defaultValue: "#2563eb",
+      description:
+        "Drives the trigger link, focus rings and the submit button. Match it to the login page's primary colour.",
+    },
+    showNoteField: {
+      type: "boolean",
+      defaultValue: true,
+      description:
+        "Keeps the optional \"What happens when you try?\" box. Worth leaving on — free-text symptoms ('I never get the OTP') are what tell HR apart the cases the automatic diagnosis can't see.",
+    },
+    project: {
+      type: "string",
+      defaultValue: "",
+      description:
+        "ERP project the tickets are filed under. Accepts the project ID (BUG-0002) or the name (LoginIssue). LEAVE EMPTY to use the default, which is already LoginIssue — set it only to move the queue elsewhere. If it doesn't resolve, the ticket is still created and assigned, just unfiled.",
+    },
+    assignee: {
+      type: "string",
+      defaultValue: "",
+      description:
+        "ERP user the tickets are assigned to. LEAVE EMPTY for the default, hr@elbrit.org. Must be an @elbrit.org address — the endpoint is public, so anything else is rejected rather than letting a stranger direct ERP mail at an outside address.",
+    },
+    erpTarget: {
+      type: "choice",
+      options: ["", "ERP", "UAT"],
+      defaultValue: "",
+      description:
+        "Which ERP the tickets go to — picks the NEXT_PUBLIC_GRAPHQL_ENDPOINT_/_AUTH_TOKEN_ pair by suffix. LEAVE EMPTY for the deployment's own setting (ERP_TARGET, defaulting to ERP/production). Set UAT on a test page so its tickets don't land in live ERP.",
+    },
+    erpUrl: {
+      type: "string",
+      defaultValue: "",
+      description:
+        "ADVANCED — normally leave empty. Overrides the ERP origin. Must be set TOGETHER with Auth Token (either alone is rejected, since a URL from one environment married to a token from another is how prod tickets get written with a UAT credential), and its host must already appear in NEXT_PUBLIC_GRAPHQL_ENDPOINT_ERP/_UAT or ERP_BASE_URL — an unrestricted URL here would let anyone point our server at a host of their choosing.",
+    },
+    authToken: {
+      type: "string",
+      defaultValue: "",
+      description:
+        "ADVANCED — normally leave empty, and prefer erpTarget. ⚠️ A token typed here is PUBLIC: this component sits on the LOGIN page, so the value ships to every visitor's browser and is readable in devtools by anyone, signed in or not. Left empty, the token is read server-side from env and never reaches the browser at all. Only use this for a throwaway/narrow credential you'd be comfortable publishing. Must be set together with ERP URL.",
+    },
+    lookupEndpoint: {
+      type: "string",
+      defaultValue: "/api/hr/employee-lookup",
+      description:
+        "Verify/auto-fill endpoint. Only change this if the API routes are moved.",
+    },
+    submitEndpoint: {
+      type: "string",
+      defaultValue: "/api/hr/login-help",
+      description:
+        "Ticket-raising endpoint. Only change this if the API routes are moved.",
+    },
+    onSubmitted: {
+      type: "eventHandler",
+      argTypes: [
+        { name: "ticket", type: "string" },
+        { name: "duplicate", type: "boolean" },
+      ],
+      description:
+        "Fires (ticket, duplicate) once the ERP Task exists — `ticket` is the Task ID (TASK-2026-00234), `duplicate` is true when an open ticket already existed and was reused. Optional: the modal already shows its own confirmation, so wire this only if the page needs to react too.",
+    },
+    className: { type: "string" },
   },
 });
 
