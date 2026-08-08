@@ -1,45 +1,222 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { CheckCircle2, HelpCircle, Loader2, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronDown, HelpCircle, Loader2, X } from "lucide-react";
+import { useConsoleCapture } from "../lib/consoleCapture";
 
 /**
- * LoginHelpForm — the "Can't log in?" escape hatch for the login screen.
+ * LoginHelpForm — one component, two jobs, switched by `variant`.
  *
- * Renders a small trigger link plus the modal it opens. Drop it on the login
- * page in Plasmic, next to the sign-in widget; it needs no props to work.
+ * "login"   The "Can't log in?" escape hatch for the LOGIN page. Runs before
+ *           anyone is signed in. Raises an HR ticket that already says WHY the
+ *           login is failing (empty user_id, disabled ERP User, inactive
+ *           employee) — see lib/loginDiagnostics.js.
  *
- * Deliberately a plain form: three fields, submit, done. It does NOT check the
- * employee's details as they type. Nobody who is already locked out should be
- * argued with by a form, and the checks that would matter aren't reliable
- * anyway — `User.mobile_no` is empty on all but a couple of ERP Users, so
- * verifying the phone would flag nearly everyone as wrong.
+ * "in-app"  "Something looks wrong? Report it", for use INSIDE the app — someone
+ *           on the home page seeing blanks or zeros. Adds a required problem
+ *           type, ships the browser console errors and page context with the
+ *           report, and files to BUGS - IT for MIS. It says SUPPORT, never HR:
+ *           the person looking at a blank screen has no reason to think about
+ *           HR, and HR is not who fixes it.
  *
- * The diagnosis still happens, just out of sight: POST /api/hr/login-help
- * reads the Employee record and the ERP User it links to, and puts the actual
- * cause (no user_id, User disabled, employee not Active) into the ticket HR
- * receives. See lib/loginDiagnostics.js.
+ * Both are deliberately plain forms: nothing is validated against ERP in front
+ * of the person. Someone already stuck shouldn't also be told they typed their
+ * own details wrong.
  *
- * Why an endpoint and not a direct ERP call: this form runs BEFORE login, so
- * the per-user ERP token the rest of the app uses doesn't exist yet. The route
- * holds the credentials server-side — see lib/erpServer.js.
+ * Why an endpoint and not a direct ERP call: the login variant runs before
+ * login, so the per-user ERP token the rest of the app uses doesn't exist yet.
+ * The route holds the credentials server-side — see lib/erpServer.js.
  */
 
 const digitsOnly = (s) => String(s ?? "").replace(/\D/g, "");
 
+// Copy defaults per variant. Any of these can still be overridden by a prop;
+// leaving a prop empty falls back to whichever variant is active.
+const VARIANT_COPY = {
+  login: {
+    triggerLabel: "Can't log in? Click here",
+    title: "Tell HR you can't log in",
+    subtitle: "Fill this in and HR will get a ticket with your details straight away.",
+    submitLabel: "Send to HR",
+    reassurance: "HR will check your account and get back to you.",
+    noteLabel: "What happens when you try?",
+    notePlaceholder: "e.g. I never receive the OTP",
+    doneTitle: "Sent to HR",
+    doneBody: "HR will check your account and get back to you.",
+    duplicateTitle: "HR already has your request",
+    duplicateBody: "We found an open request for you, so we didn't send a second one.",
+  },
+  // Nothing here says "HR" — this variant goes to support, not to HR, and the
+  // person reporting a blank screen has no reason to think about either.
+  "in-app": {
+    triggerLabel: "Something looks wrong? Report it",
+    title: "Report a problem",
+    subtitle: "Tell us what looks wrong and we'll send it to support with the technical details.",
+    submitLabel: "Send to support",
+    reassurance: "Support will look into it and get back to you.",
+    noteLabel: "What looks wrong?",
+    notePlaceholder: "e.g. My home page shows 0 for everything",
+    doneTitle: "Sent to support",
+    doneBody: "Thanks — support has what they need to look into it.",
+    duplicateTitle: "Already reported",
+    duplicateBody: "There's an open report for this already, so we didn't send a duplicate.",
+  },
+};
+
+// What kind of problem it is — asked only on the in-app variant. Worth its own
+// field rather than leaving it buried in free text: it lands in the ticket
+// subject, so support can triage the ERP list without opening each one.
+const PROBLEM_TYPES = [
+  "Data looks wrong or missing",
+  "Page won't load",
+  "Something is slow",
+  "Can't complete an action",
+  "Something else",
+];
+
+/**
+ * Searchable designation picker. ERP has ~85 designations, which is far too
+ * many for a plain <select> on a phone, so this is a combobox: type to filter,
+ * arrows + Enter to pick.
+ *
+ * It accepts free text on purpose. If ERP is unreachable the list arrives empty
+ * and this quietly becomes a normal text input — the whole point of the form is
+ * that it still works when things are broken.
+ */
+function DesignationPicker({ value, onChange, options, loading, accentColor, fieldClass }) {
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const boxRef = useRef(null);
+
+  const matches = useMemo(() => {
+    const q = value.trim().toLowerCase();
+    // An exact hit means they've already chosen — show the full list again
+    // rather than a single row they can't escape from.
+    if (!q || options.some((o) => o.toLowerCase() === q)) return options;
+    return options.filter((o) => o.toLowerCase().includes(q));
+  }, [value, options]);
+
+  useEffect(() => setActive(0), [value]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e) => {
+      if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  const choose = (option) => {
+    onChange(option);
+    setOpen(false);
+  };
+
+  const onKeyDown = (e) => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!open) return setOpen(true);
+      if (!matches.length) return;
+      return setActive((i) => {
+        const next = e.key === "ArrowDown" ? i + 1 : i - 1;
+        return (next + matches.length) % matches.length;
+      });
+    }
+    if (e.key === "Enter" && open && matches[active]) {
+      e.preventDefault();
+      return choose(matches[active]);
+    }
+    if (e.key === "Escape" && open) {
+      // Swallow it so the whole modal doesn't close along with the menu.
+      e.stopPropagation();
+      setOpen(false);
+    }
+    return undefined;
+  };
+
+  return (
+    <div className="relative" ref={boxRef}>
+      <input
+        id="lh-desig"
+        value={value}
+        onChange={(e) => {
+          onChange(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={onKeyDown}
+        placeholder={loading ? "Loading designations…" : "Start typing, e.g. Business Executive"}
+        autoComplete="off"
+        role="combobox"
+        aria-expanded={open}
+        aria-controls="lh-desig-list"
+        aria-autocomplete="list"
+        className={`${fieldClass} pr-9`}
+        style={{ "--tw-ring-color": accentColor }}
+      />
+
+      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
+        {loading ? <Loader2 size={15} className="animate-spin" /> : <ChevronDown size={16} />}
+      </span>
+
+      {open && matches.length > 0 && (
+        <ul
+          id="lh-desig-list"
+          role="listbox"
+          className="absolute z-10 mt-1 max-h-52 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
+        >
+          {matches.map((option, i) => (
+            <li
+              key={option}
+              role="option"
+              aria-selected={i === active}
+              onMouseDown={(e) => {
+                // mousedown, not click — the input's blur would tear the list
+                // down before a click ever landed.
+                e.preventDefault();
+                choose(option);
+              }}
+              onMouseEnter={() => setActive(i)}
+              className={`cursor-pointer px-3 py-2 text-[14px] ${
+                i === active ? "bg-gray-100 text-gray-900" : "text-gray-700"
+              }`}
+            >
+              {option}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export default function LoginHelpForm({
   className,
-  triggerLabel = "Can't log in? Click here",
-  title = "Tell HR you can't log in",
-  subtitle = "Fill this in and HR will get a ticket with your details straight away.",
-  reassurance = "HR will check your account and get back to you.",
-  submitLabel = "Send to HR",
+  variant = "login",
+
+  // Copy — leave empty to use the active variant's wording.
+  triggerLabel = "",
+  title = "",
+  subtitle = "",
+  submitLabel = "",
+  reassurance = "",
+
   accentColor = "#2563eb",
   submitEndpoint = "/api/hr/login-help",
+  designationsEndpoint = "/api/hr/designations",
   showNoteField = true,
+  problemTypes,
+
+  // Prefill, for the in-app variant where the signed-in user is already known.
+  defaultEmployeeId = "",
+  defaultDesignation = "",
+  defaultPhone = "",
+
+  // Console capture. Defaults on for in-app, off for login (where there is no
+  // app running yet to produce anything worth capturing).
+  captureConsole,
+
   // ERP routing. Every one of these is optional — left empty, the API route
-  // falls back to its env var and then to a baked-in default (project
-  // "LoginIssue", assignee hr@elbrit.org, target ERP). They exist so the page
-  // can be retuned from Studio without a Netlify change + redeploy.
+  // falls back to its env var and then to the active variant's default.
   project = "",
   assignee = "",
   erpTarget = "",
@@ -47,31 +224,89 @@ export default function LoginHelpForm({
   authToken = "",
   onSubmitted,
 }) {
+  const mode = variant === "in-app" ? "in-app" : "login";
+  const copy = VARIANT_COPY[mode];
+  const isInApp = mode === "in-app";
+
+  const text = (prop, key) => (String(prop ?? "").trim() ? prop : copy[key]);
+
+  const shouldCapture = captureConsole === undefined ? isInApp : Boolean(captureConsole);
+  const collectDiagnostics = useConsoleCapture(shouldCapture);
+
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
 
-  const [employeeId, setEmployeeId] = useState("");
-  const [designation, setDesignation] = useState("");
-  const [phone, setPhone] = useState("");
+  const typeOptions = useMemo(() => {
+    const supplied = Array.isArray(problemTypes)
+      ? problemTypes.map((t) => String(t ?? "").trim()).filter(Boolean)
+      : [];
+    return supplied.length ? supplied : PROBLEM_TYPES;
+  }, [problemTypes]);
+
+  const [employeeId, setEmployeeId] = useState(defaultEmployeeId);
+  const [designation, setDesignation] = useState(defaultDesignation);
+  const [phone, setPhone] = useState(defaultPhone);
   const [note, setNote] = useState("");
+  const [problemType, setProblemType] = useState("");
 
   const [submitState, setSubmitState] = useState("idle"); // idle | sending | done | error
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
 
+  const [designations, setDesignations] = useState([]);
+  const [designationsLoading, setDesignationsLoading] = useState(false);
+
   const firstFieldRef = useRef(null);
+  const designationsLoaded = useRef(false);
 
   useEffect(() => setMounted(true), []);
 
+  // Keep prefills in sync if the page resolves the signed-in user after mount.
+  useEffect(() => setEmployeeId((v) => v || defaultEmployeeId), [defaultEmployeeId]);
+  useEffect(() => setDesignation((v) => v || defaultDesignation), [defaultDesignation]);
+  useEffect(() => setPhone((v) => v || defaultPhone), [defaultPhone]);
+
+  // Fetched when the sheet first opens, not on page load — most visitors never
+  // touch it. Once per session; the route caches server-side too.
+  useEffect(() => {
+    if (!open || designationsLoaded.current) return undefined;
+    designationsLoaded.current = true;
+
+    let cancelled = false;
+    setDesignationsLoading(true);
+
+    fetch(designationsEndpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ erpTarget, erpUrl, authToken }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (!cancelled) setDesignations(data?.designations ?? []);
+      })
+      .catch(() => {
+        // Falls back to free text — never block the form on this.
+        if (!cancelled) setDesignations([]);
+      })
+      .finally(() => {
+        if (!cancelled) setDesignationsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, designationsEndpoint, erpTarget, erpUrl, authToken]);
+
   const reset = useCallback(() => {
-    setEmployeeId("");
-    setDesignation("");
-    setPhone("");
+    setEmployeeId(defaultEmployeeId);
+    setDesignation(defaultDesignation);
+    setPhone(defaultPhone);
     setNote("");
+    setProblemType("");
     setSubmitState("idle");
     setResult(null);
     setError("");
-  }, []);
+  }, [defaultEmployeeId, defaultDesignation, defaultPhone]);
 
   const close = useCallback(() => {
     setOpen(false);
@@ -82,7 +317,7 @@ export default function LoginHelpForm({
 
   // Esc to close + lock background scroll while the sheet is up.
   useEffect(() => {
-    if (!open) return;
+    if (!open) return undefined;
     const onKey = (e) => e.key === "Escape" && close();
     document.addEventListener("keydown", onKey);
     const previousOverflow = document.body.style.overflow;
@@ -98,6 +333,9 @@ export default function LoginHelpForm({
     employeeId.trim() &&
     designation.trim() &&
     digitsOnly(phone).length >= 10 &&
+    // A bug report with no type or description is unactionable; a login
+    // request is perfectly actionable with just the identity fields.
+    (!isInApp || (note.trim() && problemType)) &&
     submitState !== "sending";
 
   async function handleSubmit(e) {
@@ -112,10 +350,13 @@ export default function LoginHelpForm({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          variant: mode,
           employeeId: employeeId.trim(),
           designation: designation.trim(),
           phone: phone.trim(),
           note: note.trim(),
+          problemType: isInApp ? problemType : "",
+          diagnostics: shouldCapture ? collectDiagnostics() : null,
           project,
           assignee,
           erpTarget,
@@ -141,22 +382,34 @@ export default function LoginHelpForm({
   const field =
     "w-full rounded-lg border border-gray-300 px-3 py-2.5 text-[15px] outline-none focus:border-transparent focus:ring-2 disabled:bg-gray-50";
 
+  // The login variant is a bottom sheet — it's reached one-handed on a phone at
+  // the moment of failure. The in-app variant is a centred dialog, which is the
+  // ordinary shape for a deliberate action taken mid-session.
+  const overlayClass = isInApp
+    ? "fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4"
+    : "fixed inset-0 z-[9999] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4";
+  const panelClass = isInApp
+    ? "max-h-[92vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-xl"
+    : "max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-white shadow-xl sm:rounded-2xl";
+
   const sheet = (
     <div
-      className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4"
+      className={overlayClass}
       onMouseDown={(e) => e.target === e.currentTarget && close()}
     >
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={title}
-        className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-white shadow-xl sm:rounded-2xl"
+        aria-label={text(title, "title")}
+        className={panelClass}
       >
         <div className="flex items-start justify-between gap-3 border-b border-gray-100 px-5 py-4">
           <div>
-            <h2 className="text-base font-semibold text-gray-900">{title}</h2>
-            {subtitle && submitState !== "done" && (
-              <p className="mt-1 text-[13px] leading-snug text-gray-500">{subtitle}</p>
+            <h2 className="text-base font-semibold text-gray-900">{text(title, "title")}</h2>
+            {submitState !== "done" && (
+              <p className="mt-1 text-[13px] leading-snug text-gray-500">
+                {text(subtitle, "subtitle")}
+              </p>
             )}
           </div>
           <button
@@ -173,12 +426,10 @@ export default function LoginHelpForm({
           <div className="px-5 py-8 text-center">
             <CheckCircle2 size={44} className="mx-auto text-green-500" />
             <p className="mt-3 text-[15px] font-semibold text-gray-900">
-              {result?.duplicate ? "HR already has your request" : "Sent to HR"}
+              {result?.duplicate ? copy.duplicateTitle : copy.doneTitle}
             </p>
             <p className="mt-1.5 text-[13px] leading-relaxed text-gray-500">
-              {result?.duplicate
-                ? "We found an open request for you, so we didn't send a second one."
-                : "HR will check your account and get back to you."}
+              {result?.duplicate ? copy.duplicateBody : copy.doneBody}
             </p>
             {result?.ticket && (
               <p className="mt-3 inline-block rounded-md bg-gray-100 px-2.5 py-1 font-mono text-[13px] text-gray-700">
@@ -196,13 +447,61 @@ export default function LoginHelpForm({
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4 px-5 py-4">
+            {/* The description leads for a bug report: it's the part only the
+                person reporting can supply. For a login request the identity
+                fields lead, because the diagnosis keys off them. */}
+            {isInApp && (
+              <>
+                <div>
+                  <label htmlFor="lh-type" className="mb-1.5 block text-[13px] font-medium text-gray-700">
+                    What kind of problem?
+                  </label>
+                  {/* A native select on purpose — five options, and the OS
+                      picker beats anything custom on a phone. */}
+                  <select
+                    id="lh-type"
+                    ref={firstFieldRef}
+                    value={problemType}
+                    onChange={(e) => setProblemType(e.target.value)}
+                    className={field}
+                    style={{ "--tw-ring-color": accentColor }}
+                  >
+                    <option value="">Choose one…</option>
+                    {typeOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {showNoteField && (
+                  <div>
+                    <label htmlFor="lh-note" className="mb-1.5 block text-[13px] font-medium text-gray-700">
+                      {copy.noteLabel}
+                    </label>
+                    <textarea
+                      id="lh-note"
+                      value={note}
+                      onChange={(e) => setNote(e.target.value)}
+                      rows={3}
+                      maxLength={1000}
+                      placeholder={copy.notePlaceholder}
+                      className={`${field} resize-none`}
+                      style={{ "--tw-ring-color": accentColor }}
+                    />
+                  </div>
+                )}
+              </>
+            )}
+
             <div>
               <label htmlFor="lh-empid" className="mb-1.5 block text-[13px] font-medium text-gray-700">
                 Employee ID
               </label>
               <input
                 id="lh-empid"
-                ref={firstFieldRef}
+                ref={isInApp ? undefined : firstFieldRef}
                 value={employeeId}
                 onChange={(e) => setEmployeeId(e.target.value.toUpperCase())}
                 placeholder="E01288"
@@ -217,13 +516,13 @@ export default function LoginHelpForm({
               <label htmlFor="lh-desig" className="mb-1.5 block text-[13px] font-medium text-gray-700">
                 Designation
               </label>
-              <input
-                id="lh-desig"
+              <DesignationPicker
                 value={designation}
-                onChange={(e) => setDesignation(e.target.value)}
-                placeholder="Business Executive"
-                className={field}
-                style={{ "--tw-ring-color": accentColor }}
+                onChange={setDesignation}
+                options={designations}
+                loading={designationsLoading}
+                accentColor={accentColor}
+                fieldClass={field}
               />
             </div>
 
@@ -241,15 +540,17 @@ export default function LoginHelpForm({
                 className={field}
                 style={{ "--tw-ring-color": accentColor }}
               />
-              <p className="mt-1.5 text-[12px] text-gray-500">
-                The number you're trying to sign in with.
-              </p>
+              {!isInApp && (
+                <p className="mt-1.5 text-[12px] text-gray-500">
+                  The number you're trying to sign in with.
+                </p>
+              )}
             </div>
 
-            {showNoteField && (
+            {!isInApp && showNoteField && (
               <div>
                 <label htmlFor="lh-note" className="mb-1.5 block text-[13px] font-medium text-gray-700">
-                  What happens when you try? <span className="font-normal text-gray-400">(optional)</span>
+                  {copy.noteLabel} <span className="font-normal text-gray-400">(optional)</span>
                 </label>
                 <textarea
                   id="lh-note"
@@ -257,11 +558,21 @@ export default function LoginHelpForm({
                   onChange={(e) => setNote(e.target.value)}
                   rows={3}
                   maxLength={1000}
-                  placeholder="e.g. I never receive the OTP"
+                  placeholder={copy.notePlaceholder}
                   className={`${field} resize-none`}
                   style={{ "--tw-ring-color": accentColor }}
                 />
               </div>
+            )}
+
+            {/* Say what's being sent. Attaching console output silently would
+                be a surprise, and people should know before they hit send. */}
+            {shouldCapture && (
+              <p className="flex items-start gap-2 rounded-lg bg-gray-50 px-3 py-2 text-[12px] leading-snug text-gray-500">
+                <AlertTriangle size={13} className="mt-0.5 flex-none text-gray-400" />
+                Recent error messages from the app, the page you're on and your device details are
+                attached automatically, so support can see what went wrong.
+              </p>
             )}
 
             {error && (
@@ -275,29 +586,45 @@ export default function LoginHelpForm({
               style={{ backgroundColor: accentColor }}
             >
               {submitState === "sending" && <Loader2 size={16} className="animate-spin" />}
-              {submitState === "sending" ? "Sending…" : submitLabel}
+              {submitState === "sending" ? "Sending…" : text(submitLabel, "submitLabel")}
             </button>
 
-            {reassurance && (
-              <p className="text-center text-[12px] leading-snug text-gray-500">{reassurance}</p>
-            )}
+            <p className="text-center text-[12px] leading-snug text-gray-500">
+              {text(reassurance, "reassurance")}
+            </p>
           </form>
         )}
       </div>
     </div>
   );
 
+  // The login trigger is a quiet text link under the sign-in buttons; the
+  // in-app one is a real button, because it's a deliberate action rather than
+  // a last resort.
+  const trigger = isInApp ? (
+    <button
+      type="button"
+      onClick={() => setOpen(true)}
+      className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-[13px] font-medium text-gray-700 hover:bg-gray-50"
+    >
+      <AlertTriangle size={14} style={{ color: accentColor }} />
+      {text(triggerLabel, "triggerLabel")}
+    </button>
+  ) : (
+    <button
+      type="button"
+      onClick={() => setOpen(true)}
+      className="inline-flex items-center gap-1.5 text-[13px] font-medium underline-offset-2 hover:underline"
+      style={{ color: accentColor }}
+    >
+      <HelpCircle size={15} />
+      {text(triggerLabel, "triggerLabel")}
+    </button>
+  );
+
   return (
     <div className={className}>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-1.5 text-[13px] font-medium underline-offset-2 hover:underline"
-        style={{ color: accentColor }}
-      >
-        <HelpCircle size={15} />
-        {triggerLabel}
-      </button>
+      {trigger}
       {mounted && open && createPortal(sheet, document.body)}
     </div>
   );

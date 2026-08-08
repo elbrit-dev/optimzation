@@ -10,17 +10,66 @@ import {
 } from "../../../lib/erpServer";
 import { diagnose, renderTaskDescription } from "../../../lib/loginDiagnostics";
 
-// Baked-in defaults, confirmed against ERP: project "LoginIssue" exists as
-// BUG-0002, and hr@elbrit.org ("Elbrit HR") is an enabled User. Both are
-// overridable per-page from Plasmic, then by env, so neither needs a Netlify
-// change to work.
-const DEFAULT_PROJECT = "LoginIssue";
-const DEFAULT_ASSIGNEE = "hr@elbrit.org";
+// Per-variant defaults, all confirmed against ERP: "LoginIssue" exists as
+// BUG-0002 and hr@elbrit.org ("Elbrit HR") is an enabled User; "BUGS - IT" is
+// PROJ-0011, where the Elbrit One app tasks already live. Overridable per-page
+// from Plasmic, then by env, so neither needs a Netlify change to work.
+//
+// The two variants go to different teams on purpose: a login failure is an HR
+// account problem, a blank home page is an IT bug.
+const VARIANT_DEFAULTS = {
+  login: {
+    project: "LoginIssue",
+    assignee: "hr@elbrit.org",
+    subject: (id, who) => `Cannot log in: ${id}${who}`,
+    // Repeat taps mean the same stuck login, so reuse the open ticket.
+    dedupe: true,
+  },
+  "in-app": {
+    project: "BUGS - IT",
+    // NOTE: vishnuk.mis@elbrit.org, with the k — "vishnu.mis@elbrit.org" does
+    // not exist as an ERP User. A wrong address here fails quietly (assignment
+    // errors are swallowed so they can't lose the ticket), leaving reports
+    // filed but unassigned and unnoticed.
+    assignee: "vishnuk.mis@elbrit.org",
+    // The problem type leads the subject so support can triage the ERP list
+    // view without opening each ticket.
+    subject: (id, who, type) => `${type || "App issue"} — ${id}${who}`,
+    // One person can hit several unrelated bugs — collapsing them onto one
+    // ticket would silently lose reports.
+    dedupe: false,
+  },
+};
 
 // Tickets may only be assigned inside the company. The assignee arrives from a
 // PUBLIC page, so without this anyone could POST an arbitrary address and have
 // ERP mail strangers on our behalf.
 const ASSIGNEE_DOMAIN = "@elbrit.org";
+
+/**
+ * The console capture arrives from the browser, so treat it as hostile input:
+ * cap the shape and the size before any of it reaches an ERP document. The
+ * client already trims, but nothing stops a crafted POST.
+ */
+function sanitizeDiagnostics(raw) {
+  if (!raw || typeof raw !== "object") return null;
+
+  const str = (v, max) => String(v ?? "").slice(0, max);
+  const logs = Array.isArray(raw.logs) ? raw.logs.slice(-60) : [];
+
+  return {
+    url: str(raw.url, 400),
+    userAgent: str(raw.userAgent, 300),
+    viewport: str(raw.viewport, 40),
+    online: raw.online !== false,
+    at: str(raw.at, 40),
+    logs: logs.map((entry) => ({
+      level: str(entry?.level, 24),
+      at: str(entry?.at, 40),
+      text: str(entry?.text, 400),
+    })),
+  };
+}
 
 function pick(...values) {
   for (const value of values) {
@@ -127,11 +176,16 @@ export default async function handler(req, res) {
       .json({ error: "You've already sent this a few times. HR has it — please wait." });
   }
 
+  const variant = req.body?.variant === "in-app" ? "in-app" : "login";
+  const defaults = VARIANT_DEFAULTS[variant];
+
   const employeeId = normalizeEmployeeId(req.body?.employeeId);
   const designation = String(req.body?.designation ?? "").trim().slice(0, 140);
   const phoneRaw = String(req.body?.phone ?? "").trim();
   const phone = normalizePhone(phoneRaw);
   const note = String(req.body?.note ?? "").trim().slice(0, 1000);
+  const problemType = String(req.body?.problemType ?? "").trim().slice(0, 80);
+  const diagnostics = sanitizeDiagnostics(req.body?.diagnostics);
 
   if (!employeeId) return res.status(400).json({ error: "Employee ID is required" });
   if (!designation) return res.status(400).json({ error: "Designation is required" });
@@ -139,16 +193,17 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Enter a valid 10-digit mobile number" });
   }
 
-  // Prop → env → baked-in default, for each knob.
+  // Prop → env → this variant's default, for each knob. Note the env vars are
+  // GLOBAL: setting one overrides both variants. Use the props to differentiate.
   const projectSetting = pick(
     req.body?.project,
     process.env.ERP_LOGIN_HELP_PROJECT,
-    DEFAULT_PROJECT
+    defaults.project
   );
   const assignee = pick(
     req.body?.assignee,
     process.env.ERP_LOGIN_HELP_ASSIGNEE,
-    DEFAULT_ASSIGNEE
+    defaults.assignee
   ).toLowerCase();
 
   if (!assignee.endsWith(ASSIGNEE_DOMAIN)) {
@@ -171,18 +226,20 @@ export default async function handler(req, res) {
 
     const project = await resolveProject(projectSetting, creds);
 
-    const existing = await findOpenTicket(project, employeeId, creds);
-    if (existing) {
-      return res.status(200).json({
-        success: true,
-        ticket: existing,
-        duplicate: true,
-        assigned: true,
-      });
+    if (defaults.dedupe) {
+      const existing = await findOpenTicket(project, employeeId, creds);
+      if (existing) {
+        return res.status(200).json({
+          success: true,
+          ticket: existing,
+          duplicate: true,
+          assigned: true,
+        });
+      }
     }
 
     const who = employee?.employee_name ? ` — ${employee.employee_name}` : "";
-    const subject = `Cannot log in: ${employeeId}${who}`.slice(0, 140);
+    const subject = defaults.subject(employeeId, who, problemType).slice(0, 140);
 
     const created = await erpFetch("/api/resource/Task", {
       method: "POST",
@@ -191,13 +248,23 @@ export default async function handler(req, res) {
         subject,
         project: project || undefined,
         status: "Open",
-        priority: diagnosis.severity === "high" ? "High" : "Medium",
+        // For a bug report the ERP account diagnosis says nothing about how bad
+        // the bug is, so don't let it drive priority.
+        priority:
+          variant === "in-app"
+            ? "Medium"
+            : diagnosis.severity === "high"
+            ? "High"
+            : "Medium",
         description: renderTaskDescription({
+          variant,
           diagnosis,
           employeeId,
           designation,
           phone: phoneRaw,
           note,
+          problemType,
+          diagnostics,
         }),
       },
     });

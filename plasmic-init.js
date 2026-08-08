@@ -551,39 +551,75 @@ PLASMIC.registerComponent(FirebaseUIComponent, {
 
 PLASMIC.registerComponent(LoginHelpForm, {
   name: "LoginHelpForm",
-  displayName: "Login Help Form",
+  displayName: "Help / Report Form",
   description:
-    "The \"Can't log in?\" escape hatch for the LOGIN page — a small trigger link plus the modal it opens. Drop it under the FirebaseUIComponent sign-in widget; it needs no props to work. The employee enters Employee ID + designation + mobile, and it raises an ERP Task assigned to HR. Deliberately a PLAIN form: it does not check the details as they type — someone already locked out shouldn't be argued with by a form. The diagnosis happens out of sight instead: the API route reads the Employee record AND the ERP User it links to, then writes the actual cause into the ticket HR receives (empty user_id, a stale user_id pointing at nothing, a disabled ERP User, a non-Active employee) with the specific fix for each, and raises the priority to High when it finds one. The phone is recorded but never verified — User.mobile_no is empty on all but a couple of Users, so checking it would flag nearly everyone. Repeat submits reuse the existing open ticket instead of spamming HR. Because this runs BEFORE login there is no user ERP token, so it posts to /api/hr/login-help, which reads ERP credentials server-side — by default the NEXT_PUBLIC_GRAPHQL_ENDPOINT_/_AUTH_TOKEN_ pair already on Netlify (erpTarget picks ERP vs UAT). Nothing needs adding to Netlify to make it work.",
+    "ONE component, TWO jobs — pick with `variant`. LOGIN: the \"Can't log in?\" escape hatch for the login page, which talks about HR. IN-APP: a \"Something looks wrong? Report it\" button for use inside the app, which talks about SUPPORT instead, asks what kind of problem it is, attaches the browser console errors and page context, and files to BUGS - IT for vishnuk.mis@elbrit.org. Everything below describes the login variant; see the `variant` prop for how in-app differs. Original description: the \"Can't log in?\" escape hatch for the LOGIN page — a small trigger link plus the modal it opens. Drop it under the FirebaseUIComponent sign-in widget; it needs no props to work. The employee enters Employee ID + designation + mobile, and it raises an ERP Task assigned to HR. Designation is a SEARCHABLE dropdown fed live from ERP's Designation doctype (type to filter, arrows + Enter to pick) that falls back to plain free text if ERP can't be reached. Otherwise deliberately a PLAIN form: it does not check the details as they type — someone already locked out shouldn't be argued with by a form. The diagnosis happens out of sight instead: the API route reads the Employee record AND the ERP User it links to, then writes the actual cause into the ticket HR receives (empty user_id, a stale user_id pointing at nothing, a disabled ERP User, a non-Active employee) with the specific fix for each, and raises the priority to High when it finds one. The phone is recorded but never verified — User.mobile_no is empty on all but a couple of Users, so checking it would flag nearly everyone. Repeat submits reuse the existing open ticket instead of spamming HR. Because this runs BEFORE login there is no user ERP token, so it posts to /api/hr/login-help, which reads ERP credentials server-side — by default the NEXT_PUBLIC_GRAPHQL_ENDPOINT_/_AUTH_TOKEN_ pair already on Netlify (erpTarget picks ERP vs UAT). Nothing needs adding to Netlify to make it work.",
   isDefaultExport: true,
   importPath: "./components/LoginHelpForm",
   props: {
+    variant: {
+      type: "choice",
+      options: [
+        { value: "login", label: "Login — can't sign in (login page)" },
+        { value: "in-app", label: "In-app — report a problem (inside the app)" },
+      ],
+      defaultValue: "login",
+      description:
+        "Which job this instance does. 'login' is the escape hatch for the LOGIN page: a quiet \"Can't log in? Click here\" text link, a bottom sheet on mobile, and it names HR throughout — filed to HR under LoginIssue, with repeat taps reusing the open ticket. 'in-app' is for use INSIDE the app — someone on the home page seeing blanks or zeros: the trigger reads \"Something looks wrong? Report it\", it's a centred dialog, and it says SUPPORT rather than HR everywhere (the person reporting a blank screen has no reason to think about HR). It adds a required \"What kind of problem?\" type, the description leads and is required too, browser console errors + page context are attached automatically, and it files to BUGS - IT for vishnuk.mis@elbrit.org. Repeats are NOT deduped there, since one person can hit several unrelated bugs. Everything below overrides the variant's own defaults; leave a field empty to keep them.",
+    },
     triggerLabel: {
       type: "string",
-      defaultValue: "Can't log in? Click here",
+      defaultValue: "",
       description:
-        "The text on the trigger link that sits on the login page. Keep it plain — the people who need it are already stuck.",
+        "Text on the trigger. Leave EMPTY for the variant's own wording — \"Can't log in? Click here\" on login, \"Something looks wrong? Report it\" in-app. Keep it plain; the people who need it are already stuck.",
     },
     title: {
       type: "string",
-      defaultValue: "Tell HR you can't log in",
-      description: "Heading inside the modal.",
+      defaultValue: "",
+      description: "Heading inside the modal. Leave empty for the variant's own wording.",
     },
     subtitle: {
       type: "string",
-      defaultValue:
-        "Fill this in and HR will get a ticket with your details straight away.",
-      description: "Supporting line under the heading. Hidden on the success screen.",
+      defaultValue: "",
+      description:
+        "Supporting line under the heading, hidden on the success screen. Leave empty for the variant's own wording.",
     },
     reassurance: {
       type: "string",
-      defaultValue: "HR will check your account and get back to you.",
+      defaultValue: "",
       description:
-        "The general line under the submit button. It stands in for the per-field checking the form deliberately doesn't do — tells them what happens next instead of judging what they typed. Clear it to hide the line.",
+        "The general line under the submit button. It stands in for the per-field checking the form deliberately doesn't do — it tells them what happens next instead of judging what they typed. Leave empty for the variant's own wording.",
     },
     submitLabel: {
       type: "string",
-      defaultValue: "Send to HR",
-      description: "Label on the submit button.",
+      defaultValue: "",
+      description: "Label on the submit button. Leave empty for the variant's own wording.",
+    },
+    problemTypes: {
+      type: "array",
+      description:
+        "IN-APP ONLY: the options in \"What kind of problem?\", a required field whose value leads the ERP ticket subject so support can triage the list view without opening each one. Leave EMPTY for the built-in set: Data looks wrong or missing / Page won't load / Something is slow / Can't complete an action / Something else. Pass an array of plain strings to replace it. Keep the list short — it's a native picker on a phone, and a long list defeats the point.",
+    },
+    captureConsole: {
+      type: "boolean",
+      description:
+        "Attach recent browser console errors/warnings, uncaught exceptions, the page URL and device details to the report. Defaults ON for the in-app variant and OFF for login (nothing is running there yet worth capturing). Capture starts when the component MOUNTS, so put it high on the page — anything thrown before that is missed. The form always tells the person what's being attached; it is never silent.",
+    },
+    defaultEmployeeId: {
+      type: "string",
+      defaultValue: "",
+      description:
+        "Prefills the Employee ID. For the in-app variant, bind this to the signed-in user so they don't retype it. Left empty the field starts blank. Still editable either way.",
+    },
+    defaultDesignation: {
+      type: "string",
+      defaultValue: "",
+      description: "Prefills the Designation. Bind to the signed-in user's designation.",
+    },
+    defaultPhone: {
+      type: "string",
+      defaultValue: "",
+      description: "Prefills the Mobile number. Bind to the signed-in user's mobile.",
     },
     accentColor: {
       type: "color",
@@ -601,13 +637,13 @@ PLASMIC.registerComponent(LoginHelpForm, {
       type: "string",
       defaultValue: "",
       description:
-        "ERP project the tickets are filed under. Accepts the project ID (BUG-0002) or the name (LoginIssue). LEAVE EMPTY to use the default, which is already LoginIssue — set it only to move the queue elsewhere. If it doesn't resolve, the ticket is still created and assigned, just unfiled.",
+        "ERP project the tickets are filed under. Accepts the project ID (BUG-0002) or the name (LoginIssue). LEAVE EMPTY to use the variant's default — LoginIssue for login, BUGS - IT for in-app — which is normally what you want. If it doesn't resolve, the ticket is still created and assigned, just unfiled.",
     },
     assignee: {
       type: "string",
       defaultValue: "",
       description:
-        "ERP user the tickets are assigned to. LEAVE EMPTY for the default, hr@elbrit.org. Must be an @elbrit.org address — the endpoint is public, so anything else is rejected rather than letting a stranger direct ERP mail at an outside address.",
+        "ERP user the tickets are assigned to. LEAVE EMPTY for the variant's default: hr@elbrit.org for login, vishnuk.mis@elbrit.org for in-app. Whatever you put here must be a REAL ERP User — assignment failures are swallowed so they can never lose the ticket, which means a typo leaves reports filed but silently unassigned. (There is no vishnu.mis@elbrit.org; the account is vishnuk.mis, with the k.) Must be an @elbrit.org address — the endpoint is public, so anything else is rejected rather than letting a stranger direct ERP mail at an outside address.",
     },
     erpTarget: {
       type: "choice",
@@ -633,6 +669,12 @@ PLASMIC.registerComponent(LoginHelpForm, {
       defaultValue: "/api/hr/login-help",
       description:
         "Ticket-raising endpoint. Only change this if the API route is moved.",
+    },
+    designationsEndpoint: {
+      type: "string",
+      defaultValue: "/api/hr/designations",
+      description:
+        "Supplies the Designation dropdown from ERP's Designation doctype (~85 entries), fetched the first time the modal opens rather than on page load. Only change this if the API route is moved. If it fails, the field silently degrades to free text — the form is never blocked on it.",
     },
     onSubmitted: {
       type: "eventHandler",
