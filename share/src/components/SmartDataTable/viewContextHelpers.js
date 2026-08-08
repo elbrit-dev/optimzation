@@ -36,6 +36,10 @@ export function buildViewDataState(view) {
       filters: view.filters,
       sort:    view.sortBy,
       page:    view.pagination,
+      // Raw control outputs, keyed by the control's `key` in the report config
+      // (e.g. controls.dateRange = { start, end }, controls.lakhs = { value }).
+      // `filters` above is the table's column filter row — a different thing.
+      controls: view.viewParams?._controls ?? {},
     },
   };
 }
