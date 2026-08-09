@@ -11,6 +11,7 @@ import { DEFAULT_SAMPLE_EVENTS } from './app/timeline/data/defaultSampleEvents.j
 import { SmartDataProvider } from './components/SmartDataTable/SmartDataProvider.jsx';
 import { SmartDataTable } from './components/SmartDataTable/SmartDataTable.jsx';
 import { ReportControls } from './app/report-table/components/ReportControls.jsx';
+import { ViewSwitcher } from './components/ViewSwitcher.jsx';
 
 const dataProviderMeta = {
   name: 'DataProvider',
@@ -408,6 +409,51 @@ const smartDataTableMeta = {
   },
 };
 
+const viewSwitcherMeta = {
+  name: 'ViewSwitcher',
+  displayName: 'Elbrit View Switcher',
+  section: 'ElbritCoreLib',
+  importPath: './src/components/ViewSwitcher',
+  importName: 'ViewSwitcher',
+  description:
+    'Standalone segmented control (e.g. Cards / Table). Not tied to any provider — drop it anywhere and bind its value to a Plasmic variable to drive which layout shows. Also used internally by Elbrit DataProvider (Views) for its built-in view switcher.',
+  props: {
+    views: {
+      type: 'object',
+      displayName: 'views',
+      description:
+        'Options to offer. Either ["Cards","Table"] or [{ id, label, icon }]. `icon` is a PrimeReact class, e.g. "pi pi-th-large".',
+      defaultValue: [
+        { id: 'cards', label: 'Cards', icon: 'pi pi-th-large' },
+        { id: 'table', label: 'Table', icon: 'pi pi-bars' },
+      ],
+    },
+    value: {
+      type: 'string',
+      displayName: 'value',
+      description: 'Leave unset for the component to own its own selection. Set it to drive the toggle from your own state.',
+    },
+    defaultValue: {
+      type: 'string',
+      displayName: 'defaultValue',
+      description: 'Initial selected id when uncontrolled. Defaults to the first entry in views.',
+    },
+    onChange: {
+      type: 'eventHandler',
+      argTypes: [{ name: 'viewId', type: 'string' }],
+    },
+    className: { type: 'string' },
+  },
+  states: {
+    value: {
+      type: 'writable',
+      variableType: 'text',
+      valueProp: 'value',
+      onChangeProp: 'onChange',
+    },
+  },
+};
+
 /**
  * Register Elbrit core code components on your Plasmic loader (same loader as your Studio project).
  * @param {import('@plasmicapp/loader-nextjs').PlasmicComponentLoader} loader
@@ -422,6 +468,7 @@ export function registerElbritCoreComponents(loader) {
   loader.registerComponent(SmartDataProvider, smartDataProviderMeta);
   loader.registerComponent(SmartDataTable, smartDataTableMeta);
   loader.registerComponent(ReportControls, reportControlsMeta);
+  loader.registerComponent(ViewSwitcher, viewSwitcherMeta);
 }
 
 const ElbritCoreLib = initPlasmicLoader({
@@ -440,7 +487,8 @@ ElbritCoreLib.components = {
   SmartDataProvider,
   SmartDataTable,
   ReportControls,
+  ViewSwitcher,
 };
 
 export { ElbritCoreLib };
-export { DataProvider, DataProviderViews, DataView, DataTableNew, Navigation, EventTimeline, SmartDataProvider, SmartDataTable, ReportControls };
+export { DataProvider, DataProviderViews, DataView, DataTableNew, Navigation, EventTimeline, SmartDataProvider, SmartDataTable, ReportControls, ViewSwitcher };
