@@ -79,6 +79,39 @@ function variantLabel(itemName, brand) {
   return name;
 }
 
+/**
+ * Sort key for a human-pleasing variant pill order.
+ *
+ * Primary grouping: variants that lead with the number ("10", "10F", "100")
+ * all come before variants that lead with a word ("CV 10", "Combo 10") — the
+ * alpha-prefixed group sits together at the end rather than interleaving by
+ * size. Within each group, sort by pack size ascending, and within the same
+ * size, plain number ("10") before letter-suffixed ("10F").
+ *
+ * Doesn't assume any fixed prefix/suffix length or wording: it just takes the
+ * first number in the label and looks at what's around it.
+ */
+function parseVariantSortKey(label) {
+  const s = String(label ?? "").trim();
+  const match = s.match(/\d+/);
+  if (!match) return { group: 2, size: Infinity, kind: 3, label: s };
+
+  const size = Number(match[0]);
+  const before = s.slice(0, match.index).trim();
+  const after = s.slice(match.index + match[0].length).trim();
+
+  const group = before ? 1 : 0;               // 0 = numeric-leading, 1 = alpha-leading
+  const kind = before ? 2 : (after ? 1 : 0);  // tie-break within the same group+size
+  return { group, size, kind, label: s };
+}
+
+function compareVariantSortKeys(a, b) {
+  if (a.group !== b.group) return a.group - b.group;
+  if (a.size !== b.size) return a.size - b.size;
+  if (a.kind !== b.kind) return a.kind - b.kind;
+  return a.label.localeCompare(b.label);
+}
+
 export default function ProductCard({
   data,
   brand,
@@ -145,6 +178,18 @@ export default function ProductCard({
   // Direct value wins over reading a column off the selected variant.
   const totalValue = totalStock ?? (totalStockField && active ? readField(active, totalStockField) : null);
   const showTotal = toNumber(totalValue) != null;
+
+  // Display order for the pills only — indices still point into `rows`, so
+  // activeIndex/selectVariant/active are all untouched by the reorder.
+  const sortedVariants = useMemo(() => {
+    return rows
+      .map((row, index) => ({
+        row,
+        index,
+        label: variantLabel(readField(row, variantNameField), brandName),
+      }))
+      .sort((a, b) => compareVariantSortKeys(parseVariantSortKey(a.label), parseVariantSortKey(b.label)));
+  }, [rows, variantNameField, brandName]);
 
   const selectVariant = useCallback(
     (index) => {
@@ -222,8 +267,7 @@ export default function ProductCard({
       {/* No variant pills in single-product mode — the card IS one product. */}
       {!singleProduct && rows.length > 0 ? (
         <div className="mt-3 flex flex-wrap gap-2">
-          {rows.map((row, index) => {
-            const label = variantLabel(readField(row, variantNameField), brandName);
+          {sortedVariants.map(({ index, label }) => {
             const selected = index === Math.min(activeIndex, rows.length - 1);
             return (
               <button
