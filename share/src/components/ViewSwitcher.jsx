@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 const DEFAULT_VIEWS = [
   { id: 'cards', label: 'Cards', icon: 'pi pi-th-large' },
@@ -40,6 +40,14 @@ export function ViewSwitcher({ views, value, defaultValue, onChange, height = '1
 
   const isControlled = value != null && value !== '';
   const active = isControlled ? value : internal;
+
+  // onChange otherwise only fires on click — without this, a Plasmic $state
+  // binding reading this component's value stays undefined until the first
+  // click, even with defaultValue set.
+  useEffect(() => {
+    if (!isControlled) onChange?.(internal);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (normalized.length < 2) return null;
 
