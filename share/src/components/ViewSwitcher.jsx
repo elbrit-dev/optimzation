@@ -30,10 +30,11 @@ function normalizeViews(views) {
  * Uncontrolled by default (owns its own selection internally) or controlled
  * via `value` + `onChange` — bind `value` to a Plasmic variable/state and
  * wire visibility on your Cards/Table blocks to that same variable to switch
- * layouts. Sized to 1.75rem to line up with SmartDataProvider's other
- * toolbar controls (Pivot, Display in Lakhs, Filter & Sort).
+ * layouts. Defaults to 1.75rem to line up with SmartDataProvider's other
+ * toolbar controls (Pivot, Display in Lakhs, Filter & Sort) — pass `height`
+ * to override.
  */
-export function ViewSwitcher({ views, value, defaultValue, onChange, className }) {
+export function ViewSwitcher({ views, value, defaultValue, onChange, height = '1.75rem', className }) {
   const normalized = normalizeViews(views);
   const [internal, setInternal] = useState(defaultValue ?? normalized[0]?.id);
 
@@ -52,7 +53,7 @@ export function ViewSwitcher({ views, value, defaultValue, onChange, className }
       role="tablist"
       aria-label="View"
       className={`inline-flex shrink-0 items-center gap-0.5 rounded-md border border-gray-200 bg-gray-50 p-0.5 ${className ?? ''}`}
-      style={{ height: '1.75rem' }}
+      style={{ height }}
     >
       {normalized.map((view) => {
         const isActive = view.id === active;

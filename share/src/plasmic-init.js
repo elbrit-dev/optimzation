@@ -442,6 +442,12 @@ const viewSwitcherMeta = {
       type: 'eventHandler',
       argTypes: [{ name: 'viewId', type: 'string' }],
     },
+    height: {
+      type: 'string',
+      displayName: 'height',
+      defaultValue: '1.75rem',
+      description: 'CSS height of the control, e.g. "1.75rem" or "32px". Defaults to 1.75rem to line up with SmartDataProvider\'s other toolbar controls.',
+    },
     className: { type: 'string' },
   },
   states: {
