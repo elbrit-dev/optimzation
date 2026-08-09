@@ -352,6 +352,12 @@ const smartDataProviderMeta = {
       defaultValue: {},
     },
     children: 'slot',
+    toolbarExtra: {
+      type: 'slot',
+      displayName: 'Toolbar Extra',
+      description:
+        'Rendered inline inside the built-in controls row (next to Pivot / Display in Lakhs / Filter & Sort), instead of appended below like the main slot.',
+    },
   },
 };
 
