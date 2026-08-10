@@ -2,6 +2,7 @@ import '../styles/globals.css';
 import 'primeicons/primeicons.css';
 import '../firebase'; // Initialize Firebase
 import { DataProvider } from '@plasmicapp/host';
+import { startConsoleCapture } from '../lib/consoleCapture';
 import { useEffect, useState, useCallback } from 'react';
 import Head from 'next/head';
 import Script from 'next/script';
@@ -248,6 +249,11 @@ const a = {
 };
 
 if (typeof window !== 'undefined') {
+  // First thing on the client, before the handlers below start logging: the
+  // errors people report happen during page load, so capture has to be running
+  // before then — not when the report form mounts. See lib/consoleCapture.js.
+  startConsoleCapture();
+
   window.addEventListener('unhandledrejection', (event) => {
     console.error('Unhandled promise rejection:', event.reason);
     

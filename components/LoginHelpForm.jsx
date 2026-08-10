@@ -590,8 +590,8 @@ export default function LoginHelpForm({
             {shouldCapture && (
               <p className="flex items-start gap-2 rounded-lg bg-gray-50 px-3 py-2 text-[12px] leading-snug text-gray-500">
                 <AlertTriangle size={13} className="mt-0.5 flex-none text-gray-400" />
-                Recent error messages from the app, the page you're on and your device details are
-                attached automatically, so support can see what went wrong.
+                Recent error messages and failed requests from the app, the page you're on and your
+                device details are attached automatically, so support can see what went wrong.
               </p>
             )}
 

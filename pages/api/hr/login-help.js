@@ -60,7 +60,9 @@ function sanitizeDiagnostics(raw) {
   if (!raw || typeof raw !== "object") return null;
 
   const str = (v, max) => String(v ?? "").slice(0, max);
-  const logs = Array.isArray(raw.logs) ? raw.logs.slice(-60) : [];
+  // Matches LOG_LIMIT in lib/consoleCapture.js. One GraphQL failure is a whole
+  // console group — six or seven lines — so 60 held only a handful of them.
+  const logs = Array.isArray(raw.logs) ? raw.logs.slice(-120) : [];
 
   return {
     url: str(raw.url, 400),
@@ -71,7 +73,9 @@ function sanitizeDiagnostics(raw) {
     logs: logs.map((entry) => ({
       level: str(entry?.level, 24),
       at: str(entry?.at, 40),
-      text: str(entry?.text, 400),
+      // Slightly above the client's 400 so a trailing "(×12)" repeat marker
+      // isn't the thing that gets cut.
+      text: str(entry?.text, 440),
     })),
   };
 }
