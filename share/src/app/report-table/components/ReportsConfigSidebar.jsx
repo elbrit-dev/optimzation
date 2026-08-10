@@ -440,6 +440,8 @@ function ReportDocsPanel() {
                   ['count',        'Total row count (server-side)'],
                   ['totals{}',     'Column sums from API (field → value)'],
                   ['dimensions[]', 'Filter dimension metadata'],
+                  ['loading',      'boolean — fetch in progress'],
+                  ['status',       "'idle' | 'loading' | 'success' | 'error'"],
                 ],
               },
               {
@@ -447,6 +449,7 @@ function ReportDocsPanel() {
                 desc: 'Current view state',
                 rows: [
                   ['loading', 'boolean — fetch in progress'],
+                  ['status',  "'idle' | 'loading' | 'success' | 'error'"],
                   ['error',   'string | null'],
                   ['filters', '{ [field]: filterValue }'],
                   ['sort',    "{ [field]: 'asc' | 'desc' }"],

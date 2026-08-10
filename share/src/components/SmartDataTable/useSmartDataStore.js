@@ -22,6 +22,7 @@ const DEFAULT_VIEW_STATE = {
   hiddenColumns: [],    // field names hidden via eye toggle
   loading: false,
   loadingPhase: null,   // 'index' | 'data' while loading; null when idle
+  loaded: false,        // true once a fetch has settled (result or error) at least once
   error: null,
 };
 
@@ -219,6 +220,7 @@ export function createSmartDataStore() {
             totalRecords,
             loading: false,
             loadingPhase: null,
+            loaded: true,
             error: null,
             ...(columns      !== undefined && { columns }),
             ...(columnGroups !== undefined && { columnGroups }),
@@ -257,7 +259,7 @@ export function createSmartDataStore() {
         return {
           views: {
             ...state.views,
-            [viewId]: { ...state.views[viewId], error, loading: false, loadingPhase: null },
+            [viewId]: { ...state.views[viewId], error, loading: false, loadingPhase: null, loaded: true },
           },
         };
       });
