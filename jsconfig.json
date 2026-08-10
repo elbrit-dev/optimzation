@@ -5,7 +5,14 @@
       "@/app/*": ["./share/src/app/*"],
       "@/components/*": ["./share/src/components/*"],
       "@/resource/*": ["./share/src/resource/*"],
-      // "@/lib/*": ["./share/src/lib/*"],
+      // NOTE: "@/lib/*" is deliberately NOT wildcarded to ./share/src/lib/*.
+      // Root ./lib and ./share/src/lib both contain a firebase.js, but they are
+      // different modules (root inits a named "playground" app; share uses the
+      // default app), and ./lib/onesignal.js has no share counterpart.
+      // So "@/lib/*" keeps falling through to "@/*" -> ./lib/*, and only the
+      // share-only modules are aliased explicitly below.
+      "@/lib/graphqlErrorReport": ["./share/src/lib/graphqlErrorReport.js"],
+      "@/lib/safeRedirect": ["./share/src/lib/safeRedirect.js"],
       "@/*": ["./*"],
       "@shared/*": ["./shared/components/src/*"],
       "@calendar/*": ["./shared/calendar/*"]
