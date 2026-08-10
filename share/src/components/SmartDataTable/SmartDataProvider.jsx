@@ -688,7 +688,7 @@ export function SmartDataProviderImpl(props) {
  * deserializes it, then renders SmartDataProviderImpl.
  * Automatically prepends ReportControls when the report config has root-level controls.
  */
-export function SmartDataProvider({ config, dataSource, overrides, children }) {
+export function SmartDataProvider({ config, dataSource, overrides, toolbarExtra, children }) {
   const [reportConfig, setReportConfig] = useState(null);
   const [loading, setLoading] = useState(false);
 
@@ -728,11 +728,12 @@ export function SmartDataProvider({ config, dataSource, overrides, children }) {
 
   return (
     <SmartDataProviderImpl reportConfig={mergedConfig} dataSource={dataSource} reportName={config}>
-      {rootControls.length > 0 && (
+      {(rootControls.length > 0 || toolbarExtra) && (
         <ReportControls
           controls={rootControls}
           viewIds={controlViewIds}
           apiFilters={mergedConfig.api?.variables?.filters}
+          extra={toolbarExtra}
         />
       )}
       {children}

@@ -8,6 +8,7 @@ import FilterSortPill from './views/FilterSortPill';
 import ProductSearchBar from './views/ProductSearchBar';
 import StaleDataBridge from './views/StaleDataBridge';
 import SyncPill from './views/SyncPill';
+import { ViewSwitcher } from '../../../components/ViewSwitcher';
 import { DataViewContext } from '../contexts/ViewContext';
 
 const DEFAULT_VIEWS = [
@@ -39,45 +40,6 @@ const DEFAULT_CONTENT_PADDING = 'px-3 pt-3 pb-4 sm:px-4 sm:pt-4';
 // Same reason for the header: the engine wraps it in px-2 (8px on mobile), which
 // reads as cramped, so the variant insets its OWN header slots a little further.
 const HEADER_SLOT_PADDING = 'px-1 sm:px-1.5';
-
-/**
- * Segmented Cards/Table control. Sized to 2rem to line up with the header's
- * other controls (Filter / Sort, sync SplitButton) which all set height: '2rem'.
- */
-function ViewSwitcher({ views, activeView, onSelect, className }) {
-  if (views.length < 2) return null;
-  return (
-    <div
-      role="tablist"
-      aria-label="View"
-      className={`inline-flex shrink-0 items-center gap-0.5 rounded-md border border-gray-200 bg-gray-50 p-0.5 ${className ?? ''}`}
-      style={{ height: '1.75rem' }}
-    >
-      {views.map((view) => {
-        const active = view.id === activeView;
-        return (
-          <button
-            key={view.id}
-            type="button"
-            role="tab"
-            id={`dataview-tab-${view.id}`}
-            aria-selected={active}
-            aria-controls={`dataview-panel-${view.id}`}
-            onClick={() => onSelect(view.id)}
-            className={`inline-flex h-full items-center gap-1 whitespace-nowrap rounded px-1.5 text-[11px] font-medium transition-colors sm:gap-1.5 sm:px-2 sm:text-xs ${
-              active
-                ? 'bg-white text-slate-800 shadow-sm ring-1 ring-gray-200'
-                : 'text-gray-400 hover:text-gray-600'
-            }`}
-          >
-            {view.icon ? <i className={`${view.icon} text-xs`} aria-hidden="true" /> : null}
-            {view.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
 
 /**
  * DataProvider variant that turns its single children slot into tabbed views.
@@ -183,8 +145,8 @@ export default function DataProviderViews({
   const switcher = useMemo(() => (showViewSwitcher ? (
     <ViewSwitcher
       views={normalizedViews}
-      activeView={resolvedActiveView}
-      onSelect={setActiveView}
+      value={resolvedActiveView}
+      onChange={setActiveView}
       className={viewSwitcherClassName}
     />
   ) : null), [showViewSwitcher, normalizedViews, resolvedActiveView, setActiveView, viewSwitcherClassName]);

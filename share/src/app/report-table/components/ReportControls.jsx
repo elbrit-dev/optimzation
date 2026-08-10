@@ -295,7 +295,7 @@ export function FilterChips({ viewIds }) {
   );
 }
 
-export function ReportControls({ controls, viewIds, apiFilters }) {
+export function ReportControls({ controls, viewIds, apiFilters, extra }) {
   const store = useSmartDataStoreApi();
 
   // SmartDataTable initializes views in its own useEffect, which fires after ours.
@@ -346,6 +346,7 @@ export function ReportControls({ controls, viewIds, apiFilters }) {
           if (def.type === 'refresh')    return <RefreshControl key={i} def={def} />;
           return null;
         })}
+        {extra}
       </div>
       {hasFilterSort && <FilterChips viewIds={viewIds} />}
     </>
