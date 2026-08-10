@@ -6,6 +6,7 @@ import _ from "lodash";
 import { parse as parseJsonc, stripComments } from "jsonc-parser";
 import { extractDataFromResponse } from "./data-extractor";
 import { removeIndexKeys } from "./data-flattener";
+import { reportGraphQLFailure, reportGraphQLErrors } from "../../../../lib/graphqlErrorReport";
 
 const DEFAULT_AUTH_TOKEN = '';
 
@@ -102,43 +103,15 @@ export async function fetchGraphQLRequest(query, variables = {}, options = {}) {
         );
     }
 
-    // Handle HTTP errors (500, 404, etc.)
+    // Handle HTTP errors (400, 404, 500, ...). reportGraphQLFailure logs the
+    // response body as a structured console group and returns the Error to throw.
     if (!response.ok) {
-        let errorMessage = `GraphQL request failed: ${response.status} ${response.statusText}`;
-
-        // Try to extract error details from response body
-        try {
-            const responseClone = response.clone();
-            const errorBody = await responseClone.text();
-            if (errorBody) {
-                try {
-                    const errorJson = JSON.parse(errorBody);
-                    if (errorJson.message) {
-                        errorMessage = errorJson.message;
-                    } else if (errorJson.error) {
-                        errorMessage = errorJson.error;
-                    } else if (Array.isArray(errorJson.errors) && errorJson.errors.length > 0) {
-                        errorMessage = errorJson.errors.map((e) => e.message || JSON.stringify(e)).join("; ");
-                    } else {
-                        errorMessage = errorBody.substring(0, 200); // Use first 200 chars of response
-                    }
-                } catch {
-                    // If JSON parsing fails, use the text response (truncated)
-                    errorMessage = errorBody.substring(0, 200);
-                }
-            }
-        } catch (parseError) {
-            // If we can't read the response body, use the status text
-            console.warn("Could not parse error response body:", parseError);
-        }
-
-        console.error(`GraphQL request failed: ${response.status} ${response.statusText}`, errorMessage);
-
-        // Throw a meaningful error that can be caught upstream
-        const httpError = new Error(`HTTP ${response.status}: ${errorMessage}`);
-        httpError.status = response.status;
-        httpError.statusText = response.statusText;
-        throw httpError;
+        throw await reportGraphQLFailure(response, {
+            source: "fetchGraphQLRequest (worker)",
+            endpoint: finalEndpointUrl,
+            query,
+            variables,
+        });
     }
 
     return response;
@@ -206,9 +179,12 @@ export async function executeGraphQLQuery(queryDoc, options = {}) {
     }
 
     if (jsonResponse.errors) {
-        console.error("GraphQL errors:", jsonResponse.errors);
-        const errorMessages = jsonResponse.errors.map((err) => err.message || JSON.stringify(err)).join("; ");
-        throw new Error(`GraphQL errors: ${errorMessages}`);
+        throw reportGraphQLErrors(jsonResponse.errors, {
+            source: "executeGraphQLQuery (worker)",
+            endpoint: options.endpointUrl,
+            query: body,
+            variables: parsedVariables,
+        });
     }
 
     // Extract data using the abstracted utility function

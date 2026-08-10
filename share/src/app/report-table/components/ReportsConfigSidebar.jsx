@@ -442,6 +442,7 @@ function ReportDocsPanel() {
                   ['dimensions[]', 'Filter dimension metadata'],
                   ['loading',      'boolean — fetch in progress'],
                   ['status',       "'idle' | 'loading' | 'success' | 'error'"],
+                  ['error',        'string | null — message when status is error'],
                 ],
               },
               {

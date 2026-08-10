@@ -1,6 +1,7 @@
 import { resolveApiConfig } from './apiRegistry.js';
 import { parseGraphQLVariables } from '@/app/graphql-playground/utils/variableParser';
 import { deepMerge, setPath, getPath } from './varUtils.js';
+import { reportGraphQLFailure, reportGraphQLErrors } from '@/lib/graphqlErrorReport';
 
 // ─── Field type map ───────────────────────────────────────────────────────────
 
@@ -600,9 +601,10 @@ export function graphqlQueryReportDataSource(rawApiConfig) {
       headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
       body:    JSON.stringify({ query, variables: gqlVars }),
     });
-    if (!res.ok) throw new Error(`GraphQL report fetch failed: HTTP ${res.status}`);
+    const errCtx = { source: 'graphqlQueryReportDataSource', operation: 'CustomReport', endpoint, query, variables: gqlVars };
+    if (!res.ok) throw await reportGraphQLFailure(res, errCtx);
     const { data, errors } = await res.json();
-    if (errors?.length) throw new Error(errors[0].message);
+    if (errors?.length) throw reportGraphQLErrors(errors, errCtx);
 
     const { report_meta, edges } = data.customReport;
     const gqlColumns = report_meta[0]?.columns ?? [];
@@ -694,9 +696,10 @@ export async function graphqlFetchFilterValues(rawApiConfig, key, { page = 1, pa
     headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
     body:    JSON.stringify({ query: _GQL_CUSTOM_FILTER, variables: { filters: filter } }),
   });
-  if (!res.ok) throw new Error(`customFilter fetch failed: HTTP ${res.status}`);
+  const errCtx = { source: 'graphqlFetchFilterValues', operation: `CustomFilter(${key})`, endpoint, query: _GQL_CUSTOM_FILTER, variables: { filters: filter } };
+  if (!res.ok) throw await reportGraphQLFailure(res, errCtx);
   const { data, errors } = await res.json();
-  if (errors?.length) throw new Error(errors[0].message);
+  if (errors?.length) throw reportGraphQLErrors(errors, errCtx);
 
   const allValues = data.customFilter.values;
   const start = (page - 1) * pageLength;

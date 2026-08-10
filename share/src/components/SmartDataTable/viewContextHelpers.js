@@ -43,10 +43,12 @@ export function buildViewDataState(view) {
       totals:     view.metaTotals      ?? {},
       todayTotals: view.metaTodayTotals ?? {},
       dimensions: view.filterDefs,
-      // Two extras so a binding on `data` alone can tell what the rows mean:
-      // `loading` for the spinner, `status` for what happened once it stops.
+      // So a binding on `data` alone can tell what the rows mean: `loading` for the
+      // spinner, `status` for what happened once it stops, `error` for the message
+      // when that outcome was a failure (null in every other status).
       loading: !!view.loading,
       status:  resolveStatus(view),
+      error:   view.error ?? null,
     },
     state: {
       loading: !!view.loading,

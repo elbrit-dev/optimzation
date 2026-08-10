@@ -1510,7 +1510,7 @@ PLASMIC.registerComponent(ProductStockSheet, {
   name: "ProductStockSheet",
   displayName: "Product Stock Sheet",
   description:
-    "The product-detail bottom sheet: title + Brand line, the brand's variants as pills, MRP/PTR/PTS tiles, STOCK BY WAREHOUSE rows (code chip, level bar, qty) that expand into per-batch rows (batch no, months to expire, qty), Total across warehouses, and a full-width CTA. Open it from a Product Card's onCardClick: set visible=true, bind items to the brand's rows and initialItemName to the clicked row's item_name. Zero-stock warehouses show red, low stock amber (lowStockThreshold).",
+    "The product-detail sheet: title + Brand line, the brand's variants as pills, MRP/PTR/PTS tiles, STOCK BY WAREHOUSE rows (code chip, level bar, qty) that expand into per-batch rows (batch no, months to expire, qty), Total across warehouses, and a full-width CTA. RESPONSIVE: a bottom sheet on mobile, a centred two-column dialog (meta + total + CTA left, warehouses scrolling right) on desktop — see `layout`. Open it from a Product Card's onCardClick: set visible=true, bind items to the brand's rows and initialItemName to the clicked row's item_name. Zero-stock warehouses show red, low stock amber (lowStockThreshold).",
   props: {
     visible: {
       type: "boolean",
@@ -1603,7 +1603,29 @@ PLASMIC.registerComponent(ProductStockSheet, {
       description: "Fires when a variant pill is picked in the sheet. Payload: { brand, variant, item }.",
       argTypes: [{ name: "payload", type: "object" }],
     },
-    sheetHeight: { type: "string", defaultValue: "85vh" },
+    sheetHeight: { type: "string", defaultValue: "85vh", description: "Height of the MOBILE bottom sheet. Desktop uses desktopHeight." },
+    layout: {
+      type: "choice",
+      options: ["auto", "sheet", "dialog"],
+      defaultValue: "auto",
+      description:
+        "Which shell to render. \"auto\" = bottom sheet below desktopBreakpoint, centred dialog at or above it. \"sheet\" / \"dialog\" pin one everywhere — use these to style each layout in Studio, where the canvas width isn't the real device width.",
+    },
+    desktopBreakpoint: {
+      type: "number",
+      defaultValue: 1024,
+      description: "Viewport width (px) at which \"auto\" switches from the bottom sheet to the desktop dialog.",
+    },
+    desktopWidth: {
+      type: "string",
+      defaultValue: "58rem",
+      description: "Width of the desktop dialog (capped at 95vw). Ignored on mobile.",
+    },
+    desktopHeight: {
+      type: "string",
+      defaultValue: "min(80vh, 640px)",
+      description: "Height of the desktop dialog. Ignored on mobile.",
+    },
     className: { type: "string" },
   },
   states: {

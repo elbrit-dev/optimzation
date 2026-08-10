@@ -13,6 +13,7 @@ import { loadReportConfig } from '@/app/report-table/config/reportConfigService'
 import { refreshGlobalTokenRows } from '@/app/graphql-playground/constants';
 import { queryRegistry } from '@/app/graphql-playground/services/queryRegistry';
 import { fetchGraphQLRequest } from '@/app/graphql-playground/utils/query-pipeline';
+import { reportGraphQLErrors } from '@/lib/graphqlErrorReport';
 import { extractValueFromGraphQLResponse } from '@/app/graphql-playground/utils/queryExtractor';
 import { resolveApiConfig } from './apiRegistry';
 import { Sidebar } from 'primereact/sidebar';
@@ -95,8 +96,13 @@ async function fetchApiIndexValue(resolvedApi, view, viewId) {
   });
   const json = await res.json();
   if (json.errors?.length) {
-    console.warn('[SmartDataProvider] api.index GraphQL error:', json.errors[0].message);
-    logSmartDataEvent('error', 'index-check', 'api.index GraphQL error', { viewId, error: json.errors[0].message });
+    const err = reportGraphQLErrors(json.errors, {
+      source: `SmartDataProvider api.index "${queryId}"`,
+      endpoint,
+      query: indexQuery,
+      variables: gqlVars,
+    });
+    logSmartDataEvent('error', 'index-check', 'api.index GraphQL error', { viewId, error: err.message });
     return null;
   }
 

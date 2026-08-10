@@ -21,7 +21,7 @@ const VARIANT_DEFAULTS = {
   login: {
     project: "LoginIssue",
     assignee: "hr@elbrit.org",
-    subject: (id, who) => `Cannot log in: ${id}${who}`,
+    subject: (id, name) => `Cannot log in: ${id}${name ? ` — ${name}` : ""}`,
     // Repeat taps mean the same stuck login, so reuse the open ticket.
     dedupe: true,
   },
@@ -33,10 +33,12 @@ const VARIANT_DEFAULTS = {
     // filed but unassigned and unnoticed.
     assignee: "vishnuk.mis@elbrit.org",
     // The person's own words lead the subject so support can triage the ERP
-    // list view without opening each ticket.
-    subject: (id, who, note) => {
+    // list view without opening each ticket; the reporter trails it in one
+    // bracketed piece, so the line doesn't read as three separate headings.
+    subject: (id, name, note) => {
       const gist = String(note || "").replace(/\s+/g, " ").trim().slice(0, 70);
-      return gist ? `${gist} — ${id}${who}` : `App issue — ${id}${who}`;
+      const who = name ? `${name} (${id})` : id;
+      return `${gist || "App issue"} — ${who}`;
     },
     // One person can hit several unrelated bugs — collapsing them onto one
     // ticket would silently lose reports.
@@ -249,8 +251,8 @@ export default async function handler(req, res) {
       }
     }
 
-    const who = employee?.employee_name ? ` — ${employee.employee_name}` : "";
-    const subject = defaults.subject(employeeId, who, note).slice(0, 140);
+    const employeeName = String(employee?.employee_name || "").trim();
+    const subject = defaults.subject(employeeId, employeeName, note).slice(0, 140);
 
     const created = await erpFetch("/api/resource/Task", {
       method: "POST",
