@@ -608,7 +608,9 @@ export function graphqlQueryReportDataSource(rawApiConfig) {
 
     const { report_meta, edges } = data.customReport;
     const gqlColumns = report_meta[0]?.columns ?? [];
-    const gqlRows    = edges.map(e => e.node).filter(node => !node._is_total_row);
+    const allNodes   = edges.map(e => e.node);
+    const totalRow   = allNodes.find(node => node._is_total_row) ?? null;
+    const gqlRows    = allNodes.filter(node => !node._is_total_row);
 
     const metaCol         = gqlColumns.find(c => c.fieldname === '_meta');
     const filterValues    = metaCol?.meta_filter_values ?? {};
@@ -619,9 +621,19 @@ export function graphqlQueryReportDataSource(rawApiConfig) {
     const filters = gqlVars.filters ?? {};
     const { columns: rawColumns, columnGroups, rows, labelColDefs } = _parseFrappeResponse(gqlColumns, gqlRows, filters.selected_columns);
 
-    // Attach meta_totals as raw footer values; formatStep() will wrap them into { value, repr }
-    const columns = Object.keys(metaTotals).length > 0
-      ? rawColumns.map(col => (metaTotals[col.field] != null ? { ...col, footer: metaTotals[col.field] } : col))
+    // Attach raw footer values; formatStep() will wrap them into { value, repr }.
+    //
+    // The report's own total row wins over meta_totals: it carries the value the report
+    // itself computed for every column, so ratio columns (Target %, Prod %, …) come
+    // through as-is instead of being re-derived from summed columns. meta_totals is the
+    // fallback for fields the total row does not carry.
+    const footerFor = (field) => totalRow?.[field] ?? metaTotals[field] ?? null;
+    const hasFooters = totalRow != null || Object.keys(metaTotals).length > 0;
+    const columns = hasFooters
+      ? rawColumns.map((col) => {
+          const footer = footerFor(col.field);
+          return footer != null ? { ...col, footer } : col;
+        })
       : rawColumns;
 
     // Auto-derive filterDefs from _meta keys — label each key (hq → HQ, others capitalised)
