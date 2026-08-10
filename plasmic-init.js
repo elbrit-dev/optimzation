@@ -658,7 +658,7 @@ PLASMIC.registerComponent(LoginHelpForm, {
       type: "string",
       defaultValue: "/api/hr/ticket-status",
       description:
-        "Looks up whether this employee already has an open ticket, called every time the modal opens (not cached — the status changes while they wait, and seeing it move is the reassurance they came back for). If it fails, the form just offers to send; the submit route dedupes server-side regardless, so the worst case is a wasted tap rather than a duplicate. Only change this if the API route is moved.",
+        "Looks up whether this employee already has an open ticket. PREFETCHED on mount, not on click, and cached in localStorage per variant+employee, so the modal opens with the answer already in hand instead of waiting on ERP. The cached answer renders immediately and is refreshed behind it (stale-while-revalidate, 5-minute TTL) — a ticket resolved since it was stored self-corrects, so nobody is left stuck looking at a closed ticket. If the call fails, the form just offers to send; the submit route dedupes server-side regardless, so the worst case is a wasted tap rather than a duplicate. Only change this if the API route is moved.",
     },
     designationsEndpoint: {
       type: "string",

@@ -10,6 +10,12 @@ import {
   X,
 } from "lucide-react";
 import { useConsoleCapture } from "../lib/consoleCapture";
+import {
+  ticketCacheKey,
+  readTicketCache,
+  writeTicketCache,
+  isFresh,
+} from "../lib/ticketCache";
 
 /**
  * LoginHelpForm — one component, two jobs, switched by `variant`.
@@ -336,44 +342,72 @@ export default function LoginHelpForm({
 
   useEffect(() => setMounted(true), []);
 
-  // Ask ERP whether they already have one open, every time the sheet opens —
-  // not once per session, because its status changes while they wait and
-  // "Working" is exactly the reassurance they came back for.
+  const cacheKey = employeeId ? ticketCacheKey(mode, employeeId) : "";
+
+  /**
+   * Asks ERP whether they already have a ticket open, and caches the answer.
+   * `silent` skips the spinner — used when we already have something on screen
+   * from cache, so a refresh never blanks out a ticket they're reading.
+   */
+  const refreshTicket = useCallback(
+    async ({ silent } = {}) => {
+      if (!employeeId) return;
+      if (!silent) setCheckingTicket(true);
+
+      try {
+        const res = await fetch(ticketStatusEndpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            variant: mode,
+            employeeId,
+            project,
+            erpTarget,
+            erpUrl,
+            authToken,
+          }),
+        });
+        const data = await res.json();
+        const ticket = data?.ticket ?? null;
+
+        setOpenTicket(ticket);
+        // Cache "none" too — that's a real answer, and not caching it would
+        // mean a fresh ERP call on every open for everyone with no ticket,
+        // which is almost everyone.
+        writeTicketCache(cacheKey, ticket);
+      } catch {
+        // Leave whatever is on screen and let them send. The submit route
+        // dedupes anyway, so the worst case is a wasted tap, not a lost report.
+      } finally {
+        if (!silent) setCheckingTicket(false);
+      }
+    },
+    [employeeId, mode, ticketStatusEndpoint, project, erpTarget, erpUrl, authToken, cacheKey]
+  );
+
+  // PREFETCH, on mount rather than on click: the whole point is that the sheet
+  // opens with an answer already in hand. Hydrates from localStorage first (so
+  // there is something to show even offline), then refreshes only if that
+  // answer has gone stale — which bounds this to one ERP call per TTL per
+  // device, not one per page load.
   useEffect(() => {
-    if (!open || !employeeId) return undefined;
+    if (!mounted || !employeeId) return;
 
-    let cancelled = false;
-    setCheckingTicket(true);
+    const cached = readTicketCache(cacheKey);
+    if (cached) setOpenTicket(cached.ticket);
+    if (!isFresh(cached)) refreshTicket({ silent: Boolean(cached) });
+  }, [mounted, employeeId, cacheKey, refreshTicket]);
 
-    fetch(ticketStatusEndpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        variant: mode,
-        employeeId,
-        project,
-        erpTarget,
-        erpUrl,
-        authToken,
-      }),
-    })
-      .then((r) => r.json())
-      .then((data) => {
-        if (!cancelled) setOpenTicket(data?.ticket ?? null);
-      })
-      .catch(() => {
-        // Let them send. The submit route dedupes anyway, so the worst case is
-        // one wasted tap rather than a lost report.
-        if (!cancelled) setOpenTicket(null);
-      })
-      .finally(() => {
-        if (!cancelled) setCheckingTicket(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [open, employeeId, mode, ticketStatusEndpoint, project, erpTarget, erpUrl, authToken]);
+  // Revalidate on open. A cached ticket may have been resolved since it was
+  // stored, and someone whose problem is fixed must not be left staring at a
+  // closed ticket with no way to report the next one. Silent when we already
+  // have something to show.
+  useEffect(() => {
+    if (!open || !employeeId) return;
+    const cached = readTicketCache(cacheKey);
+    if (isFresh(cached)) return; // opened again seconds later — nothing to gain
+    refreshTicket({ silent: Boolean(cached) });
+  }, [open, employeeId, cacheKey, refreshTicket]);
 
   // The page usually resolves the signed-in user AFTER mount, so adopt those
   // values when they land — but never overwrite something already typed.
@@ -488,6 +522,14 @@ export default function LoginHelpForm({
 
       setResult(data);
       setSubmitState("done");
+
+      // Seed the cache with the ticket we just raised, so reopening shows it
+      // instantly instead of going back to ERP for something we already know.
+      if (data.ticketInfo?.id) {
+        setOpenTicket(data.ticketInfo);
+        writeTicketCache(cacheKey, data.ticketInfo);
+      }
+
       onSubmitted?.(data.ticket, Boolean(data.duplicate));
     } catch (err) {
       setError(err.message || "Something went wrong. Please try again.");
