@@ -1,6 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle, CheckCircle2, ChevronDown, HelpCircle, Loader2, X } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronDown,
+  ClipboardCheck,
+  HelpCircle,
+  Loader2,
+  X,
+} from "lucide-react";
 import { useConsoleCapture } from "../lib/consoleCapture";
 
 /**
@@ -67,13 +75,15 @@ const VARIANT_COPY = {
     doneBody: "HR will check your account and get back to you.",
     duplicateTitle: "HR already has your request",
     duplicateBody: "We found an open request for you, so we didn't send a second one.",
+    existingTitle: "HR is already on it",
+    existingBody: "You've already told us about this. Here's where it's got to.",
   },
   // Nothing here says "HR" — this variant goes to support, not to HR, and the
   // person reporting a blank screen has no reason to think about either.
   "in-app": {
     triggerLabel: "Something looks wrong? Report it",
     title: "Report a problem",
-    subtitle: "Tell us what looks wrong and we'll send it to support with the technical details.",
+    subtitle: "Send this and support gets the error details from your screen automatically.",
     submitLabel: "Send to support",
     reassurance: "Support will look into it and get back to you.",
     noteLabel: "What looks wrong?",
@@ -82,6 +92,8 @@ const VARIANT_COPY = {
     doneBody: "Thanks — support has what they need to look into it.",
     duplicateTitle: "Already reported",
     duplicateBody: "There's an open report for this already, so we didn't send a duplicate.",
+    existingTitle: "Support is already on it",
+    existingBody: "You've already reported this. Here's where it's got to.",
   },
 };
 
@@ -202,6 +214,53 @@ function DesignationPicker({ value, onChange, options, loading, accentColor, fie
   );
 }
 
+/** ERP Task statuses, in words that mean something outside ERP. */
+const STATUS_COPY = {
+  Open: { label: "Received", tone: "bg-amber-50 text-amber-700" },
+  Working: { label: "Being looked at", tone: "bg-blue-50 text-blue-700" },
+  "Pending Review": { label: "Being checked", tone: "bg-blue-50 text-blue-700" },
+  Overdue: { label: "Being looked at", tone: "bg-amber-50 text-amber-700" },
+  Completed: { label: "Resolved", tone: "bg-green-50 text-green-700" },
+  Cancelled: { label: "Closed", tone: "bg-gray-100 text-gray-600" },
+};
+
+/** ERP hands back "2026-08-08 10:47:59.123456"; nobody needs the microseconds. */
+function formatRaisedAt(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return "";
+  const d = new Date(s.replace(" ", "T"));
+  if (Number.isNaN(d.getTime())) return "";
+  try {
+    return new Intl.DateTimeFormat("en-IN", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(d);
+  } catch {
+    return "";
+  }
+}
+
+function TicketCard({ ticket }) {
+  if (!ticket?.id) return null;
+  const status = STATUS_COPY[ticket.status] || STATUS_COPY.Open;
+  const raisedAt = formatRaisedAt(ticket.raisedAt);
+
+  return (
+    <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 px-3.5 py-3 text-left">
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-mono text-[12.5px] text-gray-600">{ticket.id}</span>
+        <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${status.tone}`}>
+          {status.label}
+        </span>
+      </div>
+      {ticket.subject && (
+        <p className="mt-1.5 text-[13px] leading-snug text-gray-700">{ticket.subject}</p>
+      )}
+      {raisedAt && <p className="mt-1.5 text-[11.5px] text-gray-400">Reported {raisedAt}</p>}
+    </div>
+  );
+}
+
 export default function LoginHelpForm({
   className,
   variant = "login",
@@ -216,6 +275,7 @@ export default function LoginHelpForm({
   accentColor = "#2563eb",
   submitEndpoint = "/api/hr/login-help",
   designationsEndpoint = "/api/hr/designations",
+  ticketStatusEndpoint = "/api/hr/ticket-status",
   showNoteField = true,
 
   // Who is reporting — ONE object, not four strings. In-app the person is
@@ -267,10 +327,53 @@ export default function LoginHelpForm({
   const [designations, setDesignations] = useState([]);
   const [designationsLoading, setDesignationsLoading] = useState(false);
 
+  // An already-open ticket, looked up before we offer to raise another.
+  const [openTicket, setOpenTicket] = useState(null);
+  const [checkingTicket, setCheckingTicket] = useState(false);
+
   const firstFieldRef = useRef(null);
   const designationsLoaded = useRef(false);
 
   useEffect(() => setMounted(true), []);
+
+  // Ask ERP whether they already have one open, every time the sheet opens —
+  // not once per session, because its status changes while they wait and
+  // "Working" is exactly the reassurance they came back for.
+  useEffect(() => {
+    if (!open || !employeeId) return undefined;
+
+    let cancelled = false;
+    setCheckingTicket(true);
+
+    fetch(ticketStatusEndpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        variant: mode,
+        employeeId,
+        project,
+        erpTarget,
+        erpUrl,
+        authToken,
+      }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (!cancelled) setOpenTicket(data?.ticket ?? null);
+      })
+      .catch(() => {
+        // Let them send. The submit route dedupes anyway, so the worst case is
+        // one wasted tap rather than a lost report.
+        if (!cancelled) setOpenTicket(null);
+      })
+      .finally(() => {
+        if (!cancelled) setCheckingTicket(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, employeeId, mode, ticketStatusEndpoint, project, erpTarget, erpUrl, authToken]);
 
   // The page usually resolves the signed-in user AFTER mount, so adopt those
   // values when they land — but never overwrite something already typed.
@@ -343,12 +446,11 @@ export default function LoginHelpForm({
     };
   }, [open, close]);
 
-  // In-app asks for one thing — what looks wrong. Identity rides along from the
-  // prop, so requiring designation or a phone there would be asking the person
-  // to retype what we already know.
+  // In-app asks for nothing at all — identity comes from the prop and the
+  // console capture is the report, so the only control is the button itself.
   const canSubmit =
     (isInApp
-      ? note.trim() && employeeId.trim()
+      ? Boolean(employeeId.trim())
       : employeeId.trim() && designation.trim() && digitsOnly(phone).length >= 10) &&
     submitState !== "sending";
 
@@ -446,9 +548,7 @@ export default function LoginHelpForm({
               {result?.duplicate ? copy.duplicateBody : copy.doneBody}
             </p>
             {result?.ticket && (
-              <p className="mt-3 inline-block rounded-md bg-gray-100 px-2.5 py-1 font-mono text-[13px] text-gray-700">
-                {result.ticket}
-              </p>
+              <TicketCard ticket={result.ticketInfo || { id: result.ticket }} />
             )}
             <button
               type="button"
@@ -459,40 +559,45 @@ export default function LoginHelpForm({
               Done
             </button>
           </div>
+        ) : checkingTicket ? (
+          <div className="flex items-center justify-center gap-2 px-5 py-14 text-[13px] text-gray-500">
+            <Loader2 size={15} className="animate-spin" />
+            Checking your reports…
+          </div>
+        ) : openTicket ? (
+          // Already reported. Showing the ticket and its progress is the whole
+          // point — otherwise they tap send, are told "already reported", and
+          // learn nothing they could not have been told before tapping.
+          <div className="px-5 py-7 text-center">
+            <ClipboardCheck size={40} className="mx-auto" style={{ color: accentColor }} />
+            <p className="mt-3 text-[15px] font-semibold text-gray-900">{copy.existingTitle}</p>
+            <p className="mt-1.5 text-[13px] leading-relaxed text-gray-500">{copy.existingBody}</p>
+            <TicketCard ticket={openTicket} />
+            <button
+              type="button"
+              onClick={close}
+              className="mt-6 w-full rounded-lg py-2.5 text-[15px] font-medium text-white"
+              style={{ backgroundColor: accentColor }}
+            >
+              Close
+            </button>
+          </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4 px-5 py-4">
             {/* The description leads for a bug report: it's the part only the
                 person reporting can supply. For a login request the identity
                 fields lead, because the diagnosis keys off them. */}
-            {/* IN-APP: one question. Everything else is either already known
-                from the prop or captured automatically. */}
+            {/* IN-APP: no inputs at all. Who they are comes from the prop, the
+                console capture is the report, and the button is the whole UI. */}
             {isInApp ? (
               <>
-                <div>
-                  <label htmlFor="lh-note" className="mb-1.5 block text-[13px] font-medium text-gray-700">
-                    {copy.noteLabel}
-                  </label>
-                  <textarea
-                    id="lh-note"
-                    ref={firstFieldRef}
-                    value={note}
-                    onChange={(e) => setNote(e.target.value)}
-                    rows={4}
-                    maxLength={1000}
-                    placeholder={copy.notePlaceholder}
-                    className={`${field} resize-none`}
-                    style={{ "--tw-ring-color": accentColor }}
-                  />
-                </div>
-
                 {identityFromProps ? (
-                  // Not a field — just so they can see who it's being sent as.
-                  <p className="text-[12px] text-gray-500">
-                    Sending as{" "}
-                    <span className="font-medium text-gray-700">
+                  <div className="rounded-lg bg-gray-50 px-3 py-2.5">
+                    <p className="text-[12px] text-gray-500">Reporting as</p>
+                    <p className="mt-0.5 text-[14px] font-medium text-gray-800">
                       {who.fullName ? `${who.fullName} · ${employeeId}` : employeeId}
-                    </span>
-                  </p>
+                    </p>
+                  </div>
                 ) : (
                   // The page didn't pass an employee, so ask — a report nobody
                   // can trace back to a person is close to useless.
@@ -502,6 +607,7 @@ export default function LoginHelpForm({
                     </label>
                     <input
                       id="lh-empid"
+                      ref={firstFieldRef}
                       value={employeeId}
                       onChange={(e) => setEmployeeId(e.target.value.toUpperCase())}
                       placeholder="E01288"

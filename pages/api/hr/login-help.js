@@ -9,42 +9,13 @@ import {
   resolveErpCredentials,
 } from "../../../lib/erpServer";
 import { diagnose, renderTaskDescription } from "../../../lib/loginDiagnostics";
-
-// Per-variant defaults, all confirmed against ERP: "LoginIssue" exists as
-// BUG-0002 and hr@elbrit.org ("Elbrit HR") is an enabled User; "BUGS - IT" is
-// PROJ-0011, where the Elbrit One app tasks already live. Overridable per-page
-// from Plasmic, then by env, so neither needs a Netlify change to work.
-//
-// The two variants go to different teams on purpose: a login failure is an HR
-// account problem, a blank home page is an IT bug.
-const VARIANT_DEFAULTS = {
-  login: {
-    project: "LoginIssue",
-    assignee: "hr@elbrit.org",
-    subject: (id, name) => `Cannot log in: ${id}${name ? ` — ${name}` : ""}`,
-    // Repeat taps mean the same stuck login, so reuse the open ticket.
-    dedupe: true,
-  },
-  "in-app": {
-    project: "BUGS - IT",
-    // NOTE: vishnuk.mis@elbrit.org, with the k — "vishnu.mis@elbrit.org" does
-    // not exist as an ERP User. A wrong address here fails quietly (assignment
-    // errors are swallowed so they can't lose the ticket), leaving reports
-    // filed but unassigned and unnoticed.
-    assignee: "vishnuk.mis@elbrit.org",
-    // The person's own words lead the subject so support can triage the ERP
-    // list view without opening each ticket; the reporter trails it in one
-    // bracketed piece, so the line doesn't read as three separate headings.
-    subject: (id, name, note) => {
-      const gist = String(note || "").replace(/\s+/g, " ").trim().slice(0, 70);
-      const who = name ? `${name} (${id})` : id;
-      return `${gist || "App issue"} — ${who}`;
-    },
-    // One person can hit several unrelated bugs — collapsing them onto one
-    // ticket would silently lose reports.
-    dedupe: false,
-  },
-};
+import { findOpenTicket, publicTicket } from "../../../lib/erpTickets";
+import {
+  variantDefaults,
+  resolveProject,
+  summarizeProblem,
+  pick,
+} from "../../../lib/loginHelpConfig";
 
 // Tickets may only be assigned inside the company. The assignee arrives from a
 // PUBLIC page, so without this anyone could POST an arbitrary address and have
@@ -80,65 +51,7 @@ function sanitizeDiagnostics(raw) {
   };
 }
 
-function pick(...values) {
-  for (const value of values) {
-    const trimmed = String(value ?? "").trim();
-    if (trimmed) return trimmed;
-  }
-  return "";
-}
-
-/**
- * Accepts a project ID ("BUG-0002") or a human project_name ("LoginIssue") so
- * the prop can hold whichever HR quotes. Returns null if it can't be resolved
- * — the Task is still created, just unfiled, because losing the ticket is
- * worse than misfiling it.
- */
-async function resolveProject(setting, creds) {
-  if (!setting) return null;
-
-  try {
-    if (/^(PROJ|BUG)-/i.test(setting)) return setting;
-
-    const json = await erpFetch("/api/resource/Project", {
-      creds,
-      query: {
-        filters: [["project_name", "=", setting]],
-        fields: ["name"],
-        limit_page_length: 1,
-      },
-    });
-    return json?.data?.[0]?.name ?? null;
-  } catch (err) {
-    console.error("[hr/login-help] project resolve failed", err);
-    return null;
-  }
-}
-
-/**
- * A field employee who can't log in will tap Submit more than once. Reuse any
- * still-open ticket for the same employee rather than handing HR five copies.
- */
-async function findOpenTicket(project, employeeId, creds) {
-  try {
-    const filters = [
-      ["status", "in", ["Open", "Working", "Pending Review"]],
-      ["subject", "like", `%${employeeId}%`],
-    ];
-    if (project) filters.push(["project", "=", project]);
-
-    const json = await erpFetch("/api/resource/Task", {
-      creds,
-      query: { filters, fields: ["name"], limit_page_length: 1, order_by: "creation desc" },
-    });
-    return json?.data?.[0]?.name ?? null;
-  } catch (err) {
-    console.error("[hr/login-help] duplicate check failed", err);
-    return null; // fall through to creating one — a dupe beats a dropped ticket
-  }
-}
-
-/** Assignment is what puts the task in HR's queue; a Task nobody owns is invisible. */
+/** Assignment is what puts the task in someone's queue; a Task nobody owns is invisible. */
 async function assignToHr(taskName, subject, assignee, creds) {
   if (!assignee) return false;
   try {
@@ -186,7 +99,7 @@ export default async function handler(req, res) {
   }
 
   const variant = req.body?.variant === "in-app" ? "in-app" : "login";
-  const defaults = VARIANT_DEFAULTS[variant];
+  const defaults = variantDefaults(variant);
 
   const employeeId = normalizeEmployeeId(req.body?.employeeId);
   const designation = String(req.body?.designation ?? "").trim().slice(0, 140);
@@ -197,13 +110,10 @@ export default async function handler(req, res) {
 
   if (!employeeId) return res.status(400).json({ error: "Employee ID is required" });
 
-  if (variant === "in-app") {
-    // The only thing in-app asks for. Identity rides along from the page's
-    // employee prop, and designation/phone are read off ERP below anyway.
-    if (!note) {
-      return res.status(400).json({ error: "Tell us what looks wrong" });
-    }
-  } else {
+  // In-app asks for NOTHING beyond the tap: identity rides along from the
+  // page's employee prop, and the console capture is the report. A description
+  // is accepted if a page still sends one, but never required.
+  if (variant === "login") {
     if (!designation) return res.status(400).json({ error: "Designation is required" });
     if (phone.length < 10) {
       return res.status(400).json({ error: "Enter a valid 10-digit mobile number" });
@@ -243,20 +153,32 @@ export default async function handler(req, res) {
 
     const project = await resolveProject(projectSetting, creds);
 
-    if (defaults.dedupe) {
-      const existing = await findOpenTicket(project, employeeId, creds);
-      if (existing) {
-        return res.status(200).json({
-          success: true,
-          ticket: existing,
-          duplicate: true,
-          assigned: true,
-        });
-      }
+    // Both variants dedupe. Without it, a form whose only control is a Send
+    // button turns one frustrated person into a dozen identical tickets — and
+    // the person gets no sense that anything happened the first time.
+    let existing = null;
+    try {
+      existing = await findOpenTicket(project, employeeId, creds);
+    } catch (err) {
+      // A dupe beats a dropped report, so a failed lookup falls through to
+      // creating one rather than refusing.
+      console.error("[hr/login-help] duplicate check failed:", err?.message);
+    }
+
+    if (existing) {
+      return res.status(200).json({
+        success: true,
+        ticket: existing.name,
+        ticketInfo: publicTicket(existing),
+        duplicate: true,
+        assigned: true,
+      });
     }
 
     const employeeName = String(employee?.employee_name || "").trim();
-    const subject = defaults.subject(employeeId, employeeName, note).slice(0, 140);
+    const subject = defaults
+      .subject(employeeId, employeeName, summarizeProblem(note, diagnostics))
+      .slice(0, 140);
 
     const created = await erpFetch("/api/resource/Task", {
       method: "POST",
@@ -299,6 +221,7 @@ export default async function handler(req, res) {
     return res.status(200).json({
       success: true,
       ticket: taskName,
+      ticketInfo: { id: taskName, subject, status: "Open", raisedAt: "" },
       duplicate: false,
       assigned,
     });

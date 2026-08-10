@@ -565,7 +565,7 @@ PLASMIC.registerComponent(LoginHelpForm, {
       ],
       defaultValue: "login",
       description:
-        "Which job this instance does. 'login' is the escape hatch for the LOGIN page: a quiet \"Can't log in? Click here\" text link, a bottom sheet on mobile, three fields (Employee ID, Designation, Mobile), and it names HR throughout — filed to HR under LoginIssue, with repeat taps reusing the open ticket. 'in-app' is for use INSIDE the app — someone on the home page seeing blanks or zeros. It asks ONE question, \"What looks wrong?\", and nothing else: identity comes from the `employee` prop, and the browser's console errors + page context are attached on send. It says SUPPORT rather than HR everywhere (the person reporting a blank screen has no reason to think about HR), and files to BUGS - IT for vishnuk.mis@elbrit.org, using their own words as the ticket subject. Repeats are NOT deduped there, since one person can hit several unrelated bugs. Everything below overrides the variant's own defaults; leave a field empty to keep them.",
+        "Which job this instance does. 'login' is the escape hatch for the LOGIN page: a quiet \"Can't log in? Click here\" text link, a bottom sheet on mobile, three fields (Employee ID, Designation, Mobile), and it names HR throughout — filed to HR under LoginIssue. 'in-app' is for use INSIDE the app — someone on the home page seeing blanks or zeros. It has NO input fields at all: it shows who they're reporting as (from the `employee` prop) and a single send button, and the browser's console errors + page context are the report. It says SUPPORT rather than HR everywhere (the person reporting a blank screen has no reason to think about HR), and files to BUGS - IT for vishnuk.mis@elbrit.org, using the first console error as the ticket subject. BOTH variants check ERP on open: if that employee already has a ticket open, the form shows that ticket and its progress INSTEAD of a send button, so nobody can raise the same thing twice. Everything below overrides the variant's own defaults; leave a field empty to keep them.",
     },
     triggerLabel: {
       type: "string",
@@ -653,6 +653,12 @@ PLASMIC.registerComponent(LoginHelpForm, {
       defaultValue: "/api/hr/login-help",
       description:
         "Ticket-raising endpoint. Only change this if the API route is moved.",
+    },
+    ticketStatusEndpoint: {
+      type: "string",
+      defaultValue: "/api/hr/ticket-status",
+      description:
+        "Looks up whether this employee already has an open ticket, called every time the modal opens (not cached — the status changes while they wait, and seeing it move is the reassurance they came back for). If it fails, the form just offers to send; the submit route dedupes server-side regardless, so the worst case is a wasted tap rather than a duplicate. Only change this if the API route is moved.",
     },
     designationsEndpoint: {
       type: "string",
