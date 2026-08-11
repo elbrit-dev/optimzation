@@ -10,6 +10,14 @@ import {
   logoutOneSignal,
 } from "@/lib/onesignal";
 
+// Stacking floor for the notification panel. Every Novu surface is portaled to
+// <body>, so they only stack correctly relative to each other if set together.
+const POPOVER_Z = 9999;
+
+// Wide enough for all five tabs to sit inline instead of collapsing into the
+// overflow menu; capped to the viewport so it still fits a phone screen.
+const PANEL_WIDTH = "min(480px, calc(100vw - 16px))";
+
 const NovuInbox = ({
   email,
   firstName,
@@ -156,9 +164,10 @@ const NovuInbox = ({
         socketUrl={socketUrl}
       >
         <Inbox
-          position="bottom-end"
-          offset={8}
-          width="372px"
+          // NOT `position` / `offset` — those aren't props in @novu/react and
+          // were being silently dropped. The real names are placement/placementOffset.
+          placement="bottom-end"
+          placementOffset={8}
           appearance={{
             elements: {
               // Tighten the trigger button so its background hugs the bell
@@ -183,7 +192,23 @@ const NovuInbox = ({
               // multi-day event layering), which was bleeding through the
               // notification panel. Lift the popover above the calendar grid.
               popoverContent: {
-                zIndex: 9999,
+                zIndex: POPOVER_Z,
+                // Novu defaults the panel to 400px. Its tab bar is `gap-6` + `px-4`,
+                // so five tabs need ~410px — and any tab that doesn't FULLY fit is
+                // moved into the "..." overflow menu (Novu also hides one extra tab
+                // to make room for that trigger). At 400px that swallowed
+                // Announcement + Invoice. Widen so all five stay inline, while
+                // never exceeding the viewport on mobile.
+                width: PANEL_WIDTH,
+              },
+              // Novu portals each dropdown (Inbox status, ..., tab overflow,
+              // snooze) to <body> as a SIBLING of the popover, styled `z-10`.
+              // Once the popover was lifted to POPOVER_Z those menus opened
+              // *behind* it. Keying off the base `dropdownContent` covers every
+              // variant — appearance keys cascade over their `__` suffix, so
+              // `inboxStatus__dropdownContent` et al. inherit this too.
+              dropdownContent: {
+                zIndex: POPOVER_Z + 1,
               },
             },
           }}
@@ -191,16 +216,21 @@ const NovuInbox = ({
           onNotificationClick={handleNotificationClick}
           onPrimaryActionClick={onPrimaryActionClick}
           onSecondaryActionClick={onSecondaryActionClick}
-          // Every tab is tag-scoped (tags are case-sensitive and must match the
-          // workflow's tags in Novu exactly). "All" is deliberately NOT a catch-all:
-          // it shows only "General"-tagged notifications, so untagged/other-tagged
-          // workflows never leak into it.
+          // Every tab is tag-scoped. Tags live on the WORKFLOW in Novu (not on the
+          // individual trigger) and match case-sensitively, so each string below
+          // must equal the workflow's tag exactly. "All" is deliberately NOT a
+          // catch-all: it shows only "General"-tagged notifications, so untagged
+          // or other-tagged workflows never leak into it.
+          //
+          // Live tags on notify.elbrit.org (Production): approval-flow → "Approval",
+          // erp-notification → "General", snapshot-invoice → "Invoice".
+          // "Chat" and "announcement" have no workflow yet, so those tabs read empty
+          // until one is tagged accordingly in Novu.
           tabs={[
             { label: "All", filter: { tags: ["General"] } },
             { label: "Chat", filter: { tags: ["Chat"] } },
-            { label: "Approval", filter: { tags: ["approval"] } },
+            { label: "Approval", filter: { tags: ["Approval"] } },
             { label: "Announcement", filter: { tags: ["announcement"] } },
-            // Matches the snapshot-invoice workflow's "Invoice" tag.
             { label: "Invoice", filter: { tags: ["Invoice"] } }
           ]}
         />
