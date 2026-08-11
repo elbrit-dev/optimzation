@@ -191,12 +191,17 @@ const NovuInbox = ({
           onNotificationClick={handleNotificationClick}
           onPrimaryActionClick={onPrimaryActionClick}
           onSecondaryActionClick={onSecondaryActionClick}
+          // Every tab is tag-scoped (tags are case-sensitive and must match the
+          // workflow's tags in Novu exactly). "All" is deliberately NOT a catch-all:
+          // it shows only "General"-tagged notifications, so untagged/other-tagged
+          // workflows never leak into it.
           tabs={[
-            { label: "All", value: [] },
-            { label: "Approval", value: ["approval"] },
-            { label: "Announcement", value: ["announcement"] },
-            // Matches the snapshot-invoice workflow's "Invoice" tag (case-sensitive).
-            { label: "Invoice", value: ["Invoice"] }
+            { label: "All", filter: { tags: ["General"] } },
+            { label: "Chat", filter: { tags: ["Chat"] } },
+            { label: "Approval", filter: { tags: ["approval"] } },
+            { label: "Announcement", filter: { tags: ["announcement"] } },
+            // Matches the snapshot-invoice workflow's "Invoice" tag.
+            { label: "Invoice", filter: { tags: ["Invoice"] } }
           ]}
         />
       </NovuProvider>
