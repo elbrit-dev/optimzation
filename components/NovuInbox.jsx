@@ -196,16 +196,21 @@ const NovuInbox = ({
           // catch-all: it shows only "General"-tagged notifications, so untagged
           // or other-tagged workflows never leak into it.
           //
-          // Live tags on notify.elbrit.org (Production): approval-flow → "Approval",
-          // erp-notification → "General", snapshot-invoice → "Invoice".
+          // Live tags on notify.elbrit.org (Production): erp-notification → "General",
+          // snapshot-invoice → "Invoice", approval-flow → "Approval".
           // "Chat" and "announcement" have no workflow yet, so those tabs read empty
           // until one is tagged accordingly in Novu.
+          //
+          // Approval is removed for now — re-add { label: "Approval",
+          // filter: { tags: ["Approval"] } } to bring it back (capital A: the
+          // approval-flow workflow's tag is still live and case must match).
           tabs={[
+            // Order matters: the row wraps after four, so a 5th tab would drop to
+            // a second line. Announcement stays last — least used, longest label.
             { label: "All", filter: { tags: ["General"] } },
             { label: "Chat", filter: { tags: ["Chat"] } },
-            { label: "Approval", filter: { tags: ["Approval"] } },
-            { label: "Announcement", filter: { tags: ["announcement"] } },
-            { label: "Invoice", filter: { tags: ["Invoice"] } }
+            { label: "Invoice", filter: { tags: ["Invoice"] } },
+            { label: "Announcement", filter: { tags: ["announcement"] } }
           ]}
         />
       </NovuProvider>

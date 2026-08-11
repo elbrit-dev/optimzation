@@ -1252,21 +1252,29 @@ body {
     z-index: 10000 !important;
 }
 
-/* Mobile: keep the bell anchoring, just size the panel so it cannot reach the
-   screen edge. A fixed 440px would overhang a 360-390px phone and clip the
-   right-hand side of every row. `100vw - 32px` leaves a 16px gutter on both
-   sides: the panel is right-aligned to the bell, which itself sits ~16px in,
-   so the left gutter lands at ~16px too. floating-ui's own shift(padding: 8)
-   still backstops this if the bell ever sits closer to the edge.
-   Height is capped so the panel always ends above the bottom nav bar. */
+/* Mobile ONLY — desktop above is untouched.
+   Pinned in place rather than tethered to the bell. Letting floating-ui anchor
+   it meant its shift/flip pass kept nudging the panel to keep it on screen,
+   which is what caused the edge clipping. A fixed box cannot be nudged, so the
+   position is stable and the gutters are exact.
+   `top: 7vh` sits it directly under the app header (7vh on every mobile size).
+   Horizontally centred with a 12px gutter each side; `left/transform` beat the
+   inline top/left/transform floating-ui writes, hence !important throughout. */
 @media (max-width: 640px) {
     .nv-inbox__popoverContent {
-        width: calc(100vw - 32px) !important;
-        max-width: 420px !important;
-        height: min(70vh, 560px) !important;
+        position: fixed !important;
+        top: 7vh !important;
+        left: 50% !important;
+        transform: translateX(-50%) !important;
+        width: calc(100vw - 24px) !important;
+        max-width: 460px !important;
+        /* 7vh header + 80vh panel = 87vh, clearing the bottom nav bar. */
+        height: min(80vh, 640px) !important;
     }
 
-    /* Two comfortable rows beats five cramped columns on a ~330px panel. */
+    /* Four tabs on the first row, the fifth wrapping below — see the tab-bar
+       note above for why wrapping (not the overflow menu) is what keeps every
+       tab reachable. */
     .nv-notificationsTabs__tabsList {
         padding: 0.5rem 0.75rem !important;
     }
