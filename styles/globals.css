@@ -1210,7 +1210,68 @@ body {
     padding: 0;
 }
 
-/* Novu Inbox Width Override */
-.nt-w-\[400px\] {
-    width: 374px !important;
+/* ── Novu Inbox ───────────────────────────────────────────────────────────
+   Novu stamps a stable `nv-<appearanceKey>` class on every element it renders,
+   so these target the widget by name. The rules live here rather than in the
+   component's `appearance` prop because that prop only accepts flat style
+   objects — it cannot express media queries or !important, and Novu injects
+   its own stylesheet at runtime (i.e. after this file), so it otherwise wins.
+
+   This replaces an earlier override that hijacked the `.nt-w-[400px]` Tailwind
+   utility to force the panel to 374px. That was too narrow for five tabs and,
+   being an internal utility class, silently overrode anything set in JS. */
+
+/* Panel. Sits above the calendar's z-10 month-event badges, which used to
+   bleed through it. Width is what keeps all five tabs inline — see below. */
+.nv-inbox__popoverContent {
+    width: 440px !important;
+    z-index: 9999 !important;
+}
+
+/* Tab bar. Novu ships 14px labels with a 24px gap; once unread badges appear
+   that overflows even a 440px panel. Any tab that does not FULLY fit is moved
+   into the "..." overflow menu — and Novu hides one *extra* tab to make room
+   for that trigger — which is what was swallowing Announcement and Invoice. */
+.nv-notificationsTabs__tabsList {
+    gap: 1rem !important;
+}
+.nv-notificationsTabsTriggerLabel {
+    font-size: 0.75rem !important;
+}
+
+/* Novu portals the panel and every dropdown into the same #novu-root wrapper,
+   all at z-10 by default. Now that the panel is lifted, its own menus (Inbox
+   status, "...", tab overflow, snooze) would otherwise open behind it. */
+.nv-dropdownContent {
+    z-index: 10000 !important;
+}
+
+/* Mobile: centre the panel on screen. Anchored under the bell it would hang
+   off the right edge. Overrides the inline position/top/left/transform that
+   floating-ui writes on the element, hence !important throughout. */
+@media (max-width: 640px) {
+    .nv-inbox__popoverContent {
+        position: fixed !important;
+        top: 50% !important;
+        left: 50% !important;
+        transform: translate(-50%, -50%) !important;
+        /* 350px caps it at a consistent size on big phones (390-430px wide),
+           while 92vw keeps a margin on the narrowest ones (320px -> 294px). */
+        width: min(92vw, 350px) !important;
+        height: min(80vh, 600px) !important;
+    }
+
+    /* No phone is 415px wide, so the desktop tab sizing above cannot fit five
+       tabs here. Tighten further: 11px labels, an 8px gap and half the side
+       padding bring five tabs to ~344px, which clears 350px — but only just.
+       A third digit on any unread badge (e.g. "690") will push one tab back
+       into the "..." menu, which is the correct fallback rather than clipping. */
+    .nv-notificationsTabs__tabsList {
+        gap: 0.5rem !important;
+        padding-left: 0.5rem !important;
+        padding-right: 0.5rem !important;
+    }
+    .nv-notificationsTabsTriggerLabel {
+        font-size: 0.6875rem !important;
+    }
 }

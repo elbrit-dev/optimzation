@@ -10,14 +10,6 @@ import {
   logoutOneSignal,
 } from "@/lib/onesignal";
 
-// Stacking floor for the notification panel. Every Novu surface is portaled to
-// <body>, so they only stack correctly relative to each other if set together.
-const POPOVER_Z = 9999;
-
-// Wide enough for all five tabs to sit inline instead of collapsing into the
-// overflow menu; capped to the viewport so it still fits a phone screen.
-const PANEL_WIDTH = "min(480px, calc(100vw - 16px))";
-
 const NovuInbox = ({
   email,
   firstName,
@@ -188,28 +180,10 @@ const NovuInbox = ({
                 width: `${bellSize}px`,
                 height: `${bellSize}px`,
               },
-              // The calendar's month event badges use `z-10` (needed for
-              // multi-day event layering), which was bleeding through the
-              // notification panel. Lift the popover above the calendar grid.
-              popoverContent: {
-                zIndex: POPOVER_Z,
-                // Novu defaults the panel to 400px. Its tab bar is `gap-6` + `px-4`,
-                // so five tabs need ~410px — and any tab that doesn't FULLY fit is
-                // moved into the "..." overflow menu (Novu also hides one extra tab
-                // to make room for that trigger). At 400px that swallowed
-                // Announcement + Invoice. Widen so all five stay inline, while
-                // never exceeding the viewport on mobile.
-                width: PANEL_WIDTH,
-              },
-              // Novu portals each dropdown (Inbox status, ..., tab overflow,
-              // snooze) to <body> as a SIBLING of the popover, styled `z-10`.
-              // Once the popover was lifted to POPOVER_Z those menus opened
-              // *behind* it. Keying off the base `dropdownContent` covers every
-              // variant — appearance keys cascade over their `__` suffix, so
-              // `inboxStatus__dropdownContent` et al. inherit this too.
-              dropdownContent: {
-                zIndex: POPOVER_Z + 1,
-              },
+              // Panel size, stacking order, tab-bar density and the mobile
+              // centring all live in styles/globals.css under "Novu Inbox".
+              // They need media queries / !important, which this prop can't
+              // express — keep them in one place rather than split across both.
             },
           }}
           routerPush={navigate}
