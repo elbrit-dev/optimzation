@@ -1278,4 +1278,26 @@ body {
     .nv-notificationsTabs__tabsList {
         padding: 0.5rem 0.75rem !important;
     }
+
+    /* Backdrop, so "tap outside to close" actually has somewhere to tap.
+       At this size the panel leaves only a 12px strip either side and a band
+       top and bottom, and the bottom band is the nav bar — so a tap meant to
+       dismiss usually landed either on the panel itself (ignored) or on a nav
+       button (navigates). The scrim covers everything behind the panel.
+
+       It is a pseudo-element of the Novu ROOT, not of the panel: a click
+       targets .nv-root, which is the panel's ancestor rather than a descendant,
+       so Novu's own outside-click handler sees it as outside and closes — no
+       extra JS and no taking over the widget's open state.
+
+       :has() is the "is the inbox open" test — Novu only renders the panel into
+       the root while open, so its presence IS the open state. */
+    .nv-root:has(.nv-inbox__popoverContent)::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.45);
+        /* Below the panel (9999), above everything on the page. */
+        z-index: 9998;
+    }
 }
