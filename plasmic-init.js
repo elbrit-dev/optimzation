@@ -12,6 +12,7 @@ import LoginHelpForm from "./components/LoginHelpForm";
 import CalendarPage from "@calendar/components/CalendarPage";
 import NovuInbox from "./components/NovuInbox";
 import PushNotificationToggle from "./components/PushNotificationToggle";
+import HelpSupport from "./features/help-support/HelpSupportExperience";
 import NetworkBanner from "./components/NetworkBanner";
 import DevicePrimaryGuard from "./components/DevicePrimaryGuard";
 import ApprovalCard from "./components/ApprovalCard";
@@ -812,6 +813,22 @@ PLASMIC.registerComponent(NovuInbox, {
     },
   },
   importPath: "./components/NovuInbox",
+});
+
+PLASMIC.registerComponent(HelpSupport, {
+  name: "HelpSupport",
+  displayName: "Help & Support",
+  section: "ElbritCoreLib",
+  isDefaultExport: true,
+  description:
+    "Responsive Help & Support workspace with demo tickets, article cards, create-ticket form, and desktop ticket table. Drop this inside the app content section.",
+  props: {
+    className: {
+      type: "string",
+      description: "Optional wrapper class name.",
+    },
+  },
+  importPath: "./features/help-support/HelpSupportExperience",
 });
 
 PLASMIC.registerComponent(PushNotificationToggle, {
