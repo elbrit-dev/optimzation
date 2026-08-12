@@ -545,20 +545,60 @@ PLASMIC.registerFunction(getGlobalState, {
 // Register FirebaseUIComponent
 PLASMIC.registerComponent(FirebaseUIComponent, {
   name: "FirebaseUIComponent",
-  description: "Native Firebase Authentication UI (Google & Phone)",
+  description:
+    "Native Firebase Authentication UI (Google & Phone). Shows a busy overlay for the whole sign-in — including your own onSuccess work — and toasts the result.",
   isDefaultExport: true,
   importPath: "./components/FirebaseUIComponent",
   props: {
     className: {
       type: "string",
     },
+    showToasts: {
+      type: "boolean",
+      defaultValue: true,
+      description:
+        "Toast the outcome: success names who signed in, failure shows a readable reason instead of a raw Firebase code.",
+    },
+    renderToaster: {
+      type: "boolean",
+      defaultValue: true,
+      description:
+        "Render this component's own Sonner <Toaster>. Turn OFF only if the page already renders one, or toasts appear twice.",
+    },
+    toastPosition: {
+      type: "choice",
+      options: [
+        "top-right",
+        "top-center",
+        "top-left",
+        "bottom-right",
+        "bottom-center",
+        "bottom-left",
+      ],
+      defaultValue: "top-right",
+      description: "Where the toasts appear. Ignored when \"Render toaster\" is off.",
+    },
+    finishingLabel: {
+      type: "string",
+      defaultValue: "Setting up your account…",
+      description:
+        "Overlay text while YOUR onSuccess handler runs (the ERP login / redirect step) — the slow part users used to see nothing during.",
+    },
     onSuccess: {
       type: "eventHandler",
       argTypes: [{ name: "data", type: "object" }],
+      description:
+        "Runs after Firebase authenticates. The overlay stays up until this finishes, so if it fails the user gets an error toast and the sign-in form back.",
     },
     onError: {
       type: "eventHandler",
       argTypes: [{ name: "error", type: "object" }],
+    },
+    onLoadingChange: {
+      type: "eventHandler",
+      argTypes: [{ name: "loading", type: "boolean" }],
+      description:
+        "Fires whenever the overlay opens or closes — bind it to page state to disable your own buttons while signing in.",
     },
   },
 });
@@ -672,7 +712,7 @@ PLASMIC.registerComponent(LoginHelpForm, {
       type: "string",
       defaultValue: "/api/hr/ticket-status",
       description:
-        "Looks up whether this employee already has an open ticket. PREFETCHED on mount, not on click, and cached in localStorage per variant+employee, so the modal opens with the answer already in hand instead of waiting on ERP. The cached answer renders immediately and is refreshed behind it (stale-while-revalidate, 5-minute TTL) — a ticket resolved since it was stored self-corrects, so nobody is left stuck looking at a closed ticket. If the call fails, the form just offers to send; the submit route dedupes server-side regardless, so the worst case is a wasted tap rather than a duplicate. Only change this if the API route is moved.",
+        "IN-APP ONLY. Looks up whether this employee already has an open ticket. PREFETCHED on mount, not on click, and cached in localStorage per variant+employee, so the modal opens with the answer already in hand instead of waiting on ERP. The cached answer renders immediately and is refreshed behind it (stale-while-revalidate, 5-minute TTL) — a ticket resolved since it was stored self-corrects, so nobody is left stuck looking at a closed ticket. The login variant never calls this: its Employee ID is typed by hand, so a lookup would fire on every keystroke; it waits for Submit instead, and the submit route reports an existing ticket back. If the call fails, the form just offers to send; the submit route dedupes server-side regardless, so the worst case is a wasted tap rather than a duplicate. Only change this if the API route is moved.",
     },
     designationsEndpoint: {
       type: "string",

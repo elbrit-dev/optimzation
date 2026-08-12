@@ -311,6 +311,17 @@ export default function LoginHelpForm({
   const shouldCapture = captureConsole === undefined ? isInApp : Boolean(captureConsole);
   const collectDiagnostics = useConsoleCapture(shouldCapture);
 
+  // Only the in-app variant looks a ticket up BEFORE the person submits. There
+  // the Employee ID arrives whole, from the prop — one known ID, one lookup.
+  //
+  // On the login page it is typed by hand, so a pre-check would fire against
+  // "E", then "E0", then "E01"… — searching for people who don't exist while
+  // someone is still mid-ID, and flipping the form to an "already reported"
+  // screen out from under them if a prefix ever happened to match. So login
+  // waits for Submit and lets the route answer: it dedupes server-side anyway
+  // and hands back the open ticket when there is one.
+  const prechecksTicket = isInApp;
+
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
 
@@ -333,7 +344,8 @@ export default function LoginHelpForm({
   const [designations, setDesignations] = useState([]);
   const [designationsLoading, setDesignationsLoading] = useState(false);
 
-  // An already-open ticket, looked up before we offer to raise another.
+  // An already-open ticket, looked up before we offer to raise another. Stays
+  // null for login, which finds out at submit time instead — see below.
   const [openTicket, setOpenTicket] = useState(null);
   const [checkingTicket, setCheckingTicket] = useState(false);
 
@@ -342,7 +354,9 @@ export default function LoginHelpForm({
 
   useEffect(() => setMounted(true), []);
 
-  const cacheKey = employeeId ? ticketCacheKey(mode, employeeId) : "";
+  // Empty for login — nothing to read, and nothing worth storing against an ID
+  // that was never checked. Every cache call already no-ops on a blank key.
+  const cacheKey = prechecksTicket && employeeId ? ticketCacheKey(mode, employeeId) : "";
 
   /**
    * Asks ERP whether they already have a ticket open, and caches the answer.
@@ -351,7 +365,7 @@ export default function LoginHelpForm({
    */
   const refreshTicket = useCallback(
     async ({ silent } = {}) => {
-      if (!employeeId) return;
+      if (!prechecksTicket || !employeeId) return;
       if (!silent) setCheckingTicket(true);
 
       try {
@@ -382,7 +396,17 @@ export default function LoginHelpForm({
         if (!silent) setCheckingTicket(false);
       }
     },
-    [employeeId, mode, ticketStatusEndpoint, project, erpTarget, erpUrl, authToken, cacheKey]
+    [
+      prechecksTicket,
+      employeeId,
+      mode,
+      ticketStatusEndpoint,
+      project,
+      erpTarget,
+      erpUrl,
+      authToken,
+      cacheKey,
+    ]
   );
 
   // PREFETCH, on mount rather than on click: the whole point is that the sheet
@@ -391,23 +415,23 @@ export default function LoginHelpForm({
   // answer has gone stale — which bounds this to one ERP call per TTL per
   // device, not one per page load.
   useEffect(() => {
-    if (!mounted || !employeeId) return;
+    if (!prechecksTicket || !mounted || !employeeId) return;
 
     const cached = readTicketCache(cacheKey);
     if (cached) setOpenTicket(cached.ticket);
     if (!isFresh(cached)) refreshTicket({ silent: Boolean(cached) });
-  }, [mounted, employeeId, cacheKey, refreshTicket]);
+  }, [prechecksTicket, mounted, employeeId, cacheKey, refreshTicket]);
 
   // Revalidate on open. A cached ticket may have been resolved since it was
   // stored, and someone whose problem is fixed must not be left staring at a
   // closed ticket with no way to report the next one. Silent when we already
   // have something to show.
   useEffect(() => {
-    if (!open || !employeeId) return;
+    if (!prechecksTicket || !open || !employeeId) return;
     const cached = readTicketCache(cacheKey);
     if (isFresh(cached)) return; // opened again seconds later — nothing to gain
     refreshTicket({ silent: Boolean(cached) });
-  }, [open, employeeId, cacheKey, refreshTicket]);
+  }, [prechecksTicket, open, employeeId, cacheKey, refreshTicket]);
 
   // The page usually resolves the signed-in user AFTER mount, so adopt those
   // values when they land — but never overwrite something already typed.
@@ -525,7 +549,12 @@ export default function LoginHelpForm({
 
       // Seed the cache with the ticket we just raised, so reopening shows it
       // instantly instead of going back to ERP for something we already know.
-      if (data.ticketInfo?.id) {
+      //
+      // Login keeps none of it. The result screen below already shows the
+      // ticket, and holding it any longer would mean the next person to open
+      // the form on a shared handset — these get passed around in the field —
+      // lands on someone else's ticket with no way past it.
+      if (prechecksTicket && data.ticketInfo?.id) {
         setOpenTicket(data.ticketInfo);
         writeTicketCache(cacheKey, data.ticketInfo);
       }
@@ -582,7 +611,13 @@ export default function LoginHelpForm({
 
         {submitState === "done" ? (
           <div className="px-5 py-8 text-center">
-            <CheckCircle2 size={44} className="mx-auto text-green-500" />
+            {/* "We already have this" is not the same news as "sent", and a
+                green tick for both reads as a second ticket being raised. */}
+            {result?.duplicate ? (
+              <ClipboardCheck size={44} className="mx-auto" style={{ color: accentColor }} />
+            ) : (
+              <CheckCircle2 size={44} className="mx-auto text-green-500" />
+            )}
             <p className="mt-3 text-[15px] font-semibold text-gray-900">
               {result?.duplicate ? copy.duplicateTitle : copy.doneTitle}
             </p>

@@ -34,12 +34,16 @@ const firebaseUsers = await fetchFirebaseUsers()
 // data that actually exists rather than data invented to pass.
 const realGoogle = firebaseUsers.find((u) => u.email?.endsWith('@elbrit.org'))
 const realGmail = firebaseUsers.find((u) => u.email?.endsWith('@gmail.com'))
-const realPhone = firebaseUsers.find((u) => u.phoneNumber && !u.email)
-if (!realGoogle || !realGmail || !realPhone) {
+// Three distinct phone accounts: one for the clean user-record match, one to be
+// fought over by a recycled login, one behind a placeholder login.
+const phoneAccounts = firebaseUsers.filter((u) => u.phoneNumber && !u.email)
+const [realPhone, realPhone2, realPhone3] = phoneAccounts
+if (!realGoogle || !realGmail || phoneAccounts.length < 3) {
   console.error('Could not find one of each account shape in Firebase — aborting.')
   process.exit(1)
 }
-console.log(`  using: ${realGoogle.email} / ${realGmail.email} / ${realPhone.phoneNumber}\n`)
+console.log(`  using: ${realGoogle.email} / ${realGmail.email} / ${realPhone.phoneNumber}`)
+console.log(`         + ${realPhone2.phoneNumber} / ${realPhone3.phoneNumber}\n`)
 
 const employees = [
   // 1. matches on user_id, with the case mangled
@@ -54,11 +58,33 @@ const employees = [
   { name: 'T003', employee_name: 'Personal Email Match', user_id: 'nobody.t003@elbrit.org',
     company_email: '', personal_email: realGmail.email, cell_number: '',
     designation: 'Business Executive', department: 'Elbrit Kerala - ELPL', status: 'Active', branch: 'Field Sales' },
+  // 1b. THE DUPLICATE-LOGIN FAULT: a second employee record carrying the SAME
+  //     user_id, which is what ERP leaves behind when a login is handed to a
+  //     replacement (DE068 Boopathiraja C on jananikas.mis@elbrit.org). Both rows
+  //     must be flagged, and only one of them may be credited with the account.
+  { name: 'T001B', employee_name: 'Duplicate Login Holder', user_id: realGoogle.email,
+    company_email: '', personal_email: '', cell_number: '9444444444', designation: 'Manager',
+    department: 'Sales - ELPL', status: 'Active', branch: 'HO' },
   // 4. phone match — the number lives on the LINKED USER record (see erpUsers
-  //    below), NOT on cell_number, which deliberately holds a different number
-  //    to prove the employee field is no longer consulted for matching.
+  //    below) and nowhere else, so this is the clean "the user record is the only
+  //    number we hold" case.
   { name: 'T004', employee_name: 'Phone Match', user_id: 'phone.t004@elbrit.org',
-    company_email: '', personal_email: '', cell_number: '9111111111',
+    company_email: '', personal_email: '', cell_number: '',
+    designation: 'Business Executive', department: 'Elbrit Mysore - ELPL', status: 'Active', branch: 'Field Sales' },
+  // 4d. THE INHERITED-PHONE FAULT: the linked User record carries a number that
+  //     disagrees with the cell HR holds, because the login came from whoever
+  //     left. The account under that number is the predecessor's, so this person
+  //     must NOT be reported as logged in — live cases E01157 Ezaz Ahmed Mulla
+  //     (on Aravind's 7702574254) and E01249 Atul Yadav (on Akhilesh's number).
+  { name: 'T004D', employee_name: 'Inherited User Phone', user_id: 'inherited.t004d@elbrit.org',
+    company_email: '', personal_email: '', cell_number: '9222222222',
+    designation: 'Business Executive', department: 'Elbrit Mysore - ELPL', status: 'Active', branch: 'Field Sales' },
+  // 4e. THE PLACEHOLDER-LOGIN FAULT: user_id is the `vacant…` login left over
+  //     from the previous holder of the territory (E01215 Harsh on
+  //     vacantjaiprakash@elbrit.org). Nothing reached through it is their own
+  //     identity, even with no second claimant to give the fault away.
+  { name: 'T004E', employee_name: 'Placeholder Login', user_id: 'vacantpredecessor@elbrit.org',
+    company_email: '', personal_email: '', cell_number: '',
     designation: 'Business Executive', department: 'Elbrit Mysore - ELPL', status: 'Active', branch: 'Field Sales' },
   // 4b. the Firebase number sits on cell_number but there is NO user_id — the
   //     signup is found, yet there is no ERP account for it to land on.
@@ -107,7 +133,15 @@ const erpUsers = [
   // mobile_no null but phone populated — the dominant real shape, and the reason
   // reading mobile_no alone would miss most numbers
   { name: 'phone.t004@elbrit.org', enabled: 1, user_type: 'System User', full_name: 'Phone Match',
-    mobile_no: null, phone: normPhone(realPhone.phoneNumber), last_login: '' },
+    mobile_no: null, phone: normPhone(realPhone2.phoneNumber), last_login: '' },
+  // the recycled login: same number as phone.t004 above, because ERP cloned the
+  // User record when the territory changed hands
+  { name: 'inherited.t004d@elbrit.org', enabled: 1, user_type: 'System User',
+    full_name: 'Inherited User Phone', mobile_no: normPhone(realPhone2.phoneNumber),
+    phone: null, last_login: '2026-02-02 09:00:00' },
+  { name: 'vacantpredecessor@elbrit.org', enabled: 1, user_type: 'System User',
+    full_name: 'Placeholder Login', mobile_no: normPhone(realPhone3.phoneNumber),
+    phone: null, last_login: '' },
   { name: 'left.t007@elbrit.org', enabled: 1, user_type: 'System User', full_name: 'Left But Enabled',
     mobile_no: '9000000003', phone: '9000000003', last_login: '2026-06-28 10:00:00' },
   { name: 'left.t008@elbrit.org', enabled: 0, user_type: 'System User', full_name: 'Left And Revoked',
@@ -163,8 +197,8 @@ check('T001 user_id (case-insensitive)', [byId.T001.hasAccount, byId.T001.matche
 check('T002 company_email (trailing space)', [byId.T002.hasAccount, byId.T002.matchedVia], [true, 'Company email'])
 check('T003 personal gmail', [byId.T003.hasAccount, byId.T003.matchedVia], [true, 'Personal email'])
 check('T004 matches on the LINKED USER phone', [byId.T004.hasAccount, byId.T004.matchedVia], [true, 'ERP user phone'])
-check('T004 phone shown is the user record, not cell_number',
-  [byId.T004.phone, byId.T004.employeeCell], [normPhone(realPhone.phoneNumber), '9111111111'])
+check('T004 phone comes from the user record',
+  [byId.T004.phone, byId.T004.employeeCell], [normPhone(realPhone2.phoneNumber), ''])
 // A cell_number signup IS found, but without a user_id there is no ERP account
 // for it to land on, so it does not count as a working login.
 check('cell match with no user_id: found, but not a usable login',
@@ -179,7 +213,55 @@ check('  and the stale number is what the User record held',
   ['9899999999', normPhone(realPhone.phoneNumber)])
 check('linked-User phone still wins when it is correct', byId.T004.matchedVia, 'ERP user phone')
 check('user phone reads mobile_no when phone is null', byId.T009.phone, '9659824225')
-check('user phone falls back to phone when mobile_no is null', byId.T004.phone, normPhone(realPhone.phoneNumber))
+check('user phone falls back to phone when mobile_no is null', byId.T004.phone, normPhone(realPhone2.phoneNumber))
+
+// ── ERP identity faults ───────────────────────────────────────────────
+// These are the regressions behind "the coverage number is wrong": ERP recycles
+// logins, so several employees resolve to one Firebase account and every one of
+// them used to be counted as logged in.
+console.log('\nERP identity faults')
+check('inherited user phone is not accepted as their own login',
+  [byId.T004D.hasAccount, byId.T004D.loginUsable, byId.T004D.identityFault],
+  [true, false, 'inheritedPhone'])
+check('  and the account is credited to the person whose number it is',
+  byId.T004D.creditedTo, 'T004 Phone Match')
+check('  while the rightful holder keeps it', [byId.T004.loginUsable, byId.T004.creditedTo], [true, ''])
+check('placeholder vacant… login is not an identity, even unopposed',
+  [byId.T004E.hasAccount, byId.T004E.loginUsable, byId.T004E.identityFault],
+  [true, false, 'placeholderLogin'])
+check('duplicate user_id flagged on BOTH employee records',
+  [byId.T001.identityFault, byId.T001B.identityFault],
+  ['duplicateLogin', 'duplicateLogin'])
+check('  and only one of them is credited with the account',
+  [byId.T001.loginUsable, byId.T001B.loginUsable], [true, false])
+check('  naming the other record', byId.T001.duplicateLoginWith, 'T001B Duplicate Login Holder (Active)')
+check('every fault carries a plain-English reason',
+  report.identityConflicts.every((r) => r.note && r.note.length > 20), true)
+check('conflicts KPI matches the tab', report.kpis.identityConflicts, report.identityConflicts.length)
+// The pending page shows these three as a breakdown, so they must be exhaustive
+// and non-overlapping — a subtraction here silently went negative on live data.
+check('the three pending reasons add up to the total',
+  report.kpis.neverSignedUp + report.kpis.pendingUnconfirmed + report.kpis.blockedByFault,
+  report.kpis.stillNeedLogin)
+check('each pending reason counted from rows, never subtracted', [
+  report.kpis.neverSignedUp, report.kpis.pendingUnconfirmed, report.kpis.blockedByFault,
+].every((n) => n >= 0), true)
+check('fault breakdown adds up', report.kpis.inheritedPhone + report.kpis.placeholderLogin
+  + report.kpis.duplicateLogin + report.kpis.claimedByOther, report.kpis.identityConflicts)
+// The whole point: a demoted claim must land in the follow-up list, not vanish.
+check('every conflicted person appears in "still need to login"',
+  report.identityConflicts.filter((r) => !r.loginUsable)
+    .every((r) => report.stillNeedLogin.some((p) => p.employeeId === r.employeeId)), true)
+check('no Firebase account is credited to two employees',
+  (() => {
+    const seen = new Set()
+    for (const r of report.employees) {
+      if (!r.uid || r.creditedTo) continue
+      if (seen.has(r.uid)) return `duplicate credit on ${r.uid}`
+      seen.add(r.uid)
+    }
+    return 'unique'
+  })(), 'unique')
 check('whitespace-only user number counts as missing',
   [byId.T005.phone, byId.T005.noPhone], ['', true])
 check('no linked user -> phone falls back to the employee cell',
@@ -205,14 +287,14 @@ for (const [nm, want] of [
 
 console.log('\nBuckets')
 // Working = Active only. T007/T008 are Left, so they leave the denominator.
-check('working employees', report.kpis.workingEmployees, 10)
-check('total incl. left', report.kpis.totalEmployees, 12)
-// Only T001 (user_id) and T004 (linked-user phone) are usable logins now.
-// T001 (user_id), T004 (linked-user phone), T004C (employee cell).
+check('working employees', report.kpis.workingEmployees, 13)
+check('total incl. left', report.kpis.totalEmployees, 15)
+// T001 (user_id), T004 (linked-user phone), T004C (employee cell). T001B,
+// T004D and T004E all matched something, but not an identity of their own.
 check('registered counts usable logins only', report.kpis.registered, 3)
 // +T002 and +T003: they signed up, but with identities that cannot log in.
-check('still need to login', report.kpis.stillNeedLogin, 7)
-check('coverage % over working only', report.kpis.coverage, 30)
+check('still need to login', report.kpis.stillNeedLogin, 10)
+check('coverage % over working only', report.kpis.coverage, 23)
 check('vacant count passed through', report.vacantExcluded, 42)
 
 // Both T002 and T006 have an empty user_id. T002 already signed in (matched on
@@ -262,16 +344,16 @@ check('left employees excluded from contact tab',
 
 console.log('\nFirebase side')
 check('firebase total passes through', report.kpis.firebaseTotal, firebaseUsers.length)
-// T001 and T002 deliberately resolve to the SAME account, so 4 matches claim
-// only 3 distinct UIDs.
-check('unlinked = total minus distinct matches', report.kpis.firebaseUnlinked, firebaseUsers.length - 3)
+// T001/T001B/T002 resolve to one Google account, T004B/T004C to one phone
+// account and T004/T004D to another, so 9 matches claim only 5 distinct UIDs.
+check('unlinked = total minus distinct matches', report.kpis.firebaseUnlinked, firebaseUsers.length - 5)
 check('every account appears exactly once', report.firebaseAll.length, firebaseUsers.length)
 check('linked accounts carry employee identity',
-  report.firebaseAll.filter((u) => u.linked).length, 3)
+  report.firebaseAll.filter((u) => u.linked).length, 5)
 check("today's tab is a subset of all accounts",
   report.createdToday.every((u) => report.firebaseAll.some((a) => a.uid === u.uid)), true)
-// T001+T002 share one Google account; T004+T004B+T004C share one phone account.
-check('shared login detected', [report.kpis.sharedAccounts, byId.T001.sharedAccount, byId.T003.sharedAccount], [5, true, false])
+// Three clusters: T001+T001B+T002, T004B+T004C, T004+T004D — 7 rows in total.
+check('shared login detected', [report.kpis.sharedAccounts, byId.T001.sharedAccount, byId.T003.sharedAccount], [7, true, false])
 
 console.log('\nCoverage pivots')
 // Assert the property, not the sort order: no group keeps its ' - ELPL' suffix.
@@ -279,14 +361,14 @@ check('department suffix stripped everywhere',
   report.coverage.department.filter((d) => / - [A-Z]{2,6}$/.test(d.group)).length, 0)
 check('dept rollup', report.coverage.department.find((d) => d.group === 'Elbrit Delhi'),
   { group: 'Elbrit Delhi', total: 2, pending: 2, done: 0, pct: 0 })
-// T001 usable, T002 an unusable signup -> half the Managers still pending.
+// T001 usable; T002 and T001B both resolve to T001's account -> 1 of 3 done.
 check('role pivot', report.coverage.role.find((d) => d.group === 'Manager'),
-  { group: 'Manager', total: 2, pending: 1, done: 1, pct: 50 })
+  { group: 'Manager', total: 3, pending: 2, done: 1, pct: 33 })
 check('branch pivot totals match headcount',
-  report.coverage.branch.reduce((n, b) => n + b.total, 0), 10)
+  report.coverage.branch.reduce((n, b) => n + b.total, 0), 13)
 check('every pivot sums to the same pending total',
   ['department', 'role', 'branch'].map((k) => report.coverage[k].reduce((n, g) => n + g.pending, 0)),
-  [7, 7, 7])
+  [10, 10, 10])
 
 console.log(failures ? `\n${failures} FAILED\n` : '\nAll checks passed\n')
 process.exit(failures ? 1 : 0)

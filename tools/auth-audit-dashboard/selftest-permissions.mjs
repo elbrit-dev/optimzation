@@ -45,6 +45,10 @@ const perms = [
   { name: 'p6', user: 'arunkumar893.be@elbrit.org', allow: 'Company', for_value: 'Elbrit Lifesciences Private Limited', apply_to_all_doctypes: 1 },
   { name: 'p7', user: 'someone.else@elbrit.org', allow: 'Employee', for_value: 'E99999', apply_to_all_doctypes: 1 },
   { name: 'p8', user: 'arunkumar893.be@elbrit.org', allow: 'Department', for_value: 'Sales - ELPL', apply_to_all_doctypes: 0, applicable_for: 'Sales Order' },
+  // p9: the holder has NO Employee record, but the target exists and belongs to
+  // someone else's address. Unjudgeable — and it must not read as "self", which is
+  // what 35 live rows did, showing a green tick beside another person's name.
+  { name: 'p9', user: 'nobodys.record@elbrit.org', allow: 'Employee', for_value: 'E01154', apply_to_all_doctypes: 1 },
 ]
 
 const { rows, kpis } = analysePermissions(perms, employees)
@@ -72,17 +76,26 @@ check('target record does not exist -> dangling, not mismatch',
   [by.p7.ownership, by.p7.danglingTarget, by.p7.mismatch], ['missing', true, false])
 check('non-Employee permission has no ownership verdict',
   [by.p6.ownership, by.p6.mismatch], [null, false])
+// The state that used to be rendered as a green "self".
+check('holder with no Employee record -> unverified, not self',
+  [by.p9.ownership, by.p9.unverified, by.p9.mismatch], ['unknown', true, false])
+check('  and it is not counted as a mismatch to act on', by.p9.mismatch, false)
+check('  while a judgeable row is not marked unverified',
+  [by.p1.unverified, by.p2.unverified], [false, false])
+check('the three Employee verdicts are mutually exclusive',
+  rows.filter((r) => [r.mismatch, r.unverified, r.danglingTarget].filter(Boolean).length > 1).length, 0)
 check('applicable_for is carried through', by.p8.applicableFor, 'Sales Order')
 check('applyToAll reflects the flag', [by.p6.applyToAll, by.p8.applyToAll], [true, false])
 
 console.log('\nAggregates')
-check('total', kpis.total, 8)
-// arunkumar893, ajay959, birat, lavkush990, someone.else
-check('distinct users', kpis.users, 5)
+check('total', kpis.total, 9)
+// arunkumar893, ajay959, birat, lavkush990, someone.else, nobodys.record
+check('distinct users', kpis.users, 6)
 check('mismatched', kpis.mismatched, 2)
 check('dangling', kpis.dangling, 1)
-// p1 p2 p3 p4 p5 p7 — p7's target is missing but it is still Employee-scoped
-check('employee-scoped', kpis.employeePerms, 6)
+check('unverified', kpis.unverified, 1)
+// p1 p2 p3 p4 p5 p7 p9 — p7's target is missing but it is still Employee-scoped
+check('employee-scoped', kpis.employeePerms, 7)
 // someone.else@ has only an Employee perm; the others all have one too, so none
 // are missing it here — the count must still be computed, not assumed.
 check('users with no employee permission', kpis.usersWithoutEmployeePerm, 0)

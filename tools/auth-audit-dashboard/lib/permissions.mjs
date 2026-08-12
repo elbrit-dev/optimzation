@@ -12,7 +12,7 @@
  * ask it to "delete everything matching X".
  */
 
-import { erpFetch, normEmail } from './audit.mjs'
+import { erpFetch, normEmail, cleanDept } from './audit.mjs'
 
 const PERMISSION_FIELDS = [
   'name', 'user', 'allow', 'for_value', 'apply_to_all_doctypes',
@@ -118,12 +118,34 @@ export function analysePermissions(permissions, employees) {
 
       ownEmployeeId: own?.name || '',
       ownEmployeeName: own?.employee_name || '',
+      /**
+       * Role and department of the person the permission belongs to, so this page
+       * can be narrowed the same way the audit views are ("every BE in Elbrit
+       * Chennai") instead of only by exact user address. Blank when no Employee
+       * record carries this user_id — an ERP fault in its own right.
+       */
+      role: own?.designation || '',
+      department: own?.department ? cleanDept(own.department) : '',
       targetEmployeeName: target?.employee_name || '',
       targetEmployeeUser: target?.user_id || '',
+      // Where the permission points, for the export — a mismatch is easier to
+      // judge when you can see it crosses a department boundary.
+      targetRole: target?.designation || '',
+      targetDepartment: target?.department ? cleanDept(target.department) : '',
       ownership,
       /** The one to act on: this user is permitted onto another person's record. */
       mismatch: ownership === 'other',
       danglingTarget: ownership === 'missing',
+      /**
+       * Cannot be judged either way: no Employee record carries the permission
+       * holder's address, so there is nothing to compare the target against. It
+       * must NOT read as "self" — 35 rows did on live data, showing a green tick
+       * next to somebody else's name. `adhithan1011.be@elbrit.org` → E01263
+       * "Sujith" is a different person; `arunkumar817.be@elbrit.org` → E00817
+       * "Arunkumar M" is the same person on a since-renamed login
+       * (`arunkumar.abm@`). Only a human can tell those apart.
+       */
+      unverified: ownership === 'unknown',
     }
   })
 
@@ -141,6 +163,7 @@ export function analysePermissions(permissions, employees) {
       total: rows.length,
       users: byUser.size,
       mismatched: rows.filter((r) => r.mismatch).length,
+      unverified: rows.filter((r) => r.unverified).length,
       dangling: rows.filter((r) => r.danglingTarget).length,
       employeePerms: rows.filter((r) => r.allow === 'Employee').length,
       // A user with no Employee permission at all often cannot see their own

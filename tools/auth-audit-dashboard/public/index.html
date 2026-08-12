@@ -5,14 +5,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Account Audit — ERP vs Firebase</title>
 <style>
+  /**
+   * Colours are measured, not eyeballed: every foreground/background pair below
+   * clears WCAG AA (4.5:1) for small text, in BOTH schemes. The originals did not
+   * — `--ink-3` was 2.83:1 on white, which is what made the KPI hints and field
+   * labels look faded, and `--accent` on `--accent-soft` (the selected nav item)
+   * was 4.04:1, hence the separate `--accent-ink` for text.
+   */
   :root {
     --bg: #f6f7f9;
     --panel: #ffffff;
     --ink: #14181f;
     --ink-2: #5b6472;
-    --ink-3: #8b95a4;
+    --ink-3: #66707c;      /* 5.03:1 on panel, 4.69:1 on bg */
     --line: #e3e7ec;
     --accent: #1f6feb;
+    --accent-ink: #1657b8; /* 5.93:1 on --accent-soft */
     --accent-soft: #e8f0fe;
     --bad: #c0362c;
     --bad-soft: #fdeceb;
@@ -24,8 +32,9 @@
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #0f1216; --panel: #171b21; --ink: #e8ecf1; --ink-2: #9aa5b3; --ink-3: #6b7583;
-      --line: #262c35; --accent: #58a6ff; --accent-soft: #14243b;
+      --bg: #0f1216; --panel: #171b21; --ink: #e8ecf1; --ink-2: #9aa5b3;
+      --ink-3: #8d96a4;      /* 5.79:1 on panel — was 3.7:1 */
+      --line: #262c35; --accent: #58a6ff; --accent-ink: #79baff; --accent-soft: #14243b;
       --bad: #ff8880; --bad-soft: #2e1a19; --good: #56d4ab; --good-soft: #12261f;
       --warn: #e3b341; --warn-soft: #2a2313;
     }
@@ -43,10 +52,23 @@
    */
   html, body { height: 100%; }
   body { overflow: hidden; }
-  .shell { display: grid; grid-template-columns: 232px minmax(0, 1fr); height: 100vh; }
+  .shell { display: grid; grid-template-columns: 232px minmax(0, 1fr); height: 100dvh; }
+  /**
+   * `width: 100%`, NOT `margin: 0 auto` alone.
+   *
+   * This is the bug behind "horizontal scroll doesn't work". An auto margin turns
+   * OFF a grid item's stretch alignment, so the item is sized by `fit-content` —
+   * which is `max(min-content, available)`. The table's cells are `nowrap`, so its
+   * min-content was 1436px, and the wrap grew to 1486px inside a 1208px track:
+   * 278px of table hanging outside the viewport, clipped by `overflow: hidden`
+   * with nothing able to scroll it. The last columns simply could not be reached.
+   *
+   * An explicit width resolves against the track instead, so the wrap stays 1208,
+   * the table overflows its own `.scroll` box, and that box scrolls.
+   */
   .wrap {
-    max-width: 1560px; margin: 0 auto; padding: 16px 24px 20px; min-width: 0;
-    height: 100vh; overflow: auto;
+    width: 100%; max-width: 1560px; margin-inline: auto;
+    padding: 16px 24px 20px; min-width: 0; height: 100dvh;
   }
 
   aside.side {
@@ -67,7 +89,7 @@
     margin-bottom: 1px; cursor: pointer;
   }
   aside.side a:hover { background: var(--bg); color: var(--ink); }
-  aside.side a.sel { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  aside.side a.sel { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
   aside.side a .n {
     margin-left: auto; font-size: 11px; font-variant-numeric: tabular-nums;
     background: var(--bg); color: var(--ink-2); border-radius: 20px; padding: 1px 7px;
@@ -77,17 +99,34 @@
   aside.side .side-foot { margin-top: 22px; padding: 12px 10px 0; border-top: 1px solid var(--line); }
   aside.side .side-foot button { width: 100%; margin-bottom: 6px; font-size: 12.5px; }
 
+  /* A narrower rail before dropping it: 232px of chrome is a lot of a 900px
+     window, and the tables are the point of the page. */
+  @media (max-width: 1180px) and (min-width: 861px) {
+    .shell { grid-template-columns: 188px minmax(0, 1fr); }
+    .wrap { padding: 14px 16px 16px; }
+  }
+
   /* Sidebar collapses to a horizontal strip on narrow screens; the whole page
      becomes one scroll region again since a fixed rail would eat the width. */
   @media (max-width: 860px) {
     body { overflow: auto; }
-    .shell { grid-template-columns: 1fr; height: auto; }
-    aside.side { height: auto; overflow: visible; border-right: 0; border-bottom: 1px solid var(--line); }
-    .wrap { height: auto; overflow: visible; padding: 16px 16px 48px; }
+    .shell { grid-template-columns: minmax(0, 1fr); height: auto; }
+    aside.side {
+      height: auto; overflow: visible; border-right: 0;
+      border-bottom: 1px solid var(--line); padding: 12px;
+      position: sticky; top: 0; z-index: 5;
+    }
+    .wrap { height: auto; padding: 14px 14px 40px; }
     aside.side nav { display: flex; flex-wrap: wrap; gap: 4px; }
     aside.side .grp { display: none; }
+    /* 44px min so a nav item is a real touch target, not a mouse-sized link. */
+    aside.side a { min-height: 44px; padding: 10px 12px; }
     aside.side .side-foot { display: flex; gap: 6px; border-top: 0; margin-top: 8px; }
-    aside.side .side-foot button { width: auto; margin: 0; }
+    aside.side .side-foot button { width: auto; margin: 0; min-height: 44px; }
+    nav.tabs button { min-height: 44px; }
+    input[type=search] { min-width: 0; width: 100%; }
+    .fld { flex: 1 1 160px; }
+    header { gap: 8px; }
   }
 
   /* ── header ─────────────────────────────────────────────── */
@@ -107,11 +146,11 @@
   button.primary:hover:not(:disabled) { filter: brightness(1.08); color: #fff; }
 
   /* ── kpis ───────────────────────────────────────────────── */
-  /* 140px min keeps all eight cards on one row at ~1250px wide, and degrades to
-     4-then-2 columns as the window narrows. */
-  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 14px 0 6px; }
-  /* 9 cards land as 5+4 rather than 8 and a lone orphan on the second row. */
-  @media (min-width: 1100px) { .kpis { grid-template-columns: repeat(5, 1fr); } }
+  /* Each page carries only the numbers that belong to it — 4 or 5, not the same
+     9 everywhere — so one auto-fit row holds them at any desktop width and they
+     fold to 2 columns on a phone without an orphan. */
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: 8px; margin: 12px 0 4px; }
+  @media (max-width: 520px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   .kpi {
     background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
     padding: 9px 12px; position: relative; overflow: hidden;
@@ -120,7 +159,9 @@
   .kpi .l { color: var(--ink-2); font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; margin-top: 1px; }
   .kpi .h { color: var(--ink-3); font-size: 11px; margin-top: 3px; }
   .kpi.hero { border-color: var(--bad); background: var(--bad-soft); }
-  .kpi.hero .n, .kpi.hero .l { color: var(--bad); }
+  /* The hint too: --ink-3 is 4.4:1 on the hero card's tinted background, just
+     under AA, while --bad clears it at 4.83:1 and reads as deliberate. */
+  .kpi.hero .n, .kpi.hero .l, .kpi.hero .h { color: var(--bad); }
   .kpi.ok .n { color: var(--good); }
   .kpi.clickable { cursor: pointer; }
   .kpi.clickable:hover { border-color: var(--accent); }
@@ -129,7 +170,17 @@
   .bar > i { display: block; height: 100%; background: var(--good); }
 
   /* ── tabs ───────────────────────────────────────────────── */
-  nav.tabs { display: flex; gap: 3px; margin: 20px 0 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  nav.tabs { display: flex; gap: 3px; margin: 16px 0 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  /* One scrolling row on a phone rather than three wrapped ones — the wrapped
+     strip pushed the table most of a screen down. */
+  @media (max-width: 700px) {
+    nav.tabs {
+      flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
+      -webkit-overflow-scrolling: touch;
+    }
+    nav.tabs::-webkit-scrollbar { height: 0; }
+    nav.tabs button { flex: 0 0 auto; }
+  }
   nav.tabs button {
     border: 0; background: none; border-bottom: 2px solid transparent;
     border-radius: 0; padding: 9px 13px; color: var(--ink-2); font-size: 13.5px;
@@ -140,7 +191,7 @@
     font-size: 11px; font-variant-numeric: tabular-nums; background: var(--line);
     color: var(--ink-2); border-radius: 20px; padding: 1px 7px; margin-left: 6px;
   }
-  nav.tabs button[aria-selected="true"] .cnt { background: var(--accent-soft); color: var(--accent); }
+  nav.tabs button[aria-selected="true"] .cnt { background: var(--accent-soft); color: var(--accent-ink); }
 
   /* ── filter toolbar ─────────────────────────────────────── */
   .controls {
@@ -148,38 +199,69 @@
     margin: 10px 0 10px; background: var(--panel); border: 1px solid var(--line);
     border-radius: var(--radius); padding: 12px 14px;
   }
-  .fld { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  /* Fields share the row evenly instead of each claiming a min-width and pushing
+     the buttons onto a second, mostly-empty line. */
+  .fld { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1 1 148px; max-width: 260px; }
+  .fld.act { flex: 0 0 auto; max-width: none; }
   .fld > span {
     font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-3);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   input[type=search], select {
     font: inherit; font-size: 13px; padding: 7px 10px; border-radius: 7px;
-    border: 1px solid var(--line); background: var(--bg); color: var(--ink); max-width: 100%;
+    border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+    width: 100%; min-width: 0; max-width: 100%;
   }
-  select { min-width: 150px; }
-  .fld.wide select { min-width: 190px; }
-  input[type=search] { min-width: 250px; }
+  .fld.wide { flex: 1.4 1 190px; max-width: 320px; }
+  .controls .fld:first-child { flex: 1.6 1 200px; max-width: 340px; }
   input:focus, select:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
   .hint { color: var(--ink-3); font-size: 12px; }
   .count { font-size: 12.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
   .count b { color: var(--ink); }
 
   /* ── tables ─────────────────────────────────────────────── */
-  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
 
   /**
-   * The content column is the ONE scroll region and it scrolls normally — no inner
-   * box and no height traps. Both earlier attempts were worse: a 68vh inner box
-   * gave two competing scrollbars, and flexing the table to fill the viewport
-   * squeezed it to a handful of rows once the pinned KPIs and filters took their
-   * share.
+   * THE TABLE owns both scrollbars, and the page itself never scrolls.
    *
-   * The consequence to respect: for the sticky <thead> to stick to the column,
-   * nothing between it and `.wrap` may be a scroll container or clip its
-   * overflow. Hence `visible` on both, and the column owns horizontal scrolling.
+   * This is the third arrangement and the reasons the others failed matter:
+   *   - a fixed 68vh inner box scrolled while the page ALSO scrolled → two
+   *     competing scrollbars
+   *   - letting the content column scroll instead killed horizontal scrolling
+   *     (the whole layout slid sideways, dragging the KPIs with it) and left a
+   *     16px band above the sticky header where rows showed through
+   *
+   * Scrolling inside the table fixes all three: horizontal scroll moves only the
+   * rows, the sticky <thead> has a proper scroll container to stick to with no
+   * gap, and there is exactly one scrollbar. The chrome above is kept short so
+   * the table gets most of the height.
    */
-  .scroll { overflow: visible; }
-  #view > .panel, #perms .panel { overflow: visible; }
+  .wrap { overflow: hidden; display: flex; flex-direction: column; }
+  /**
+   * `min-width: 0` all the way down, for the same reason: a flex item's automatic
+   * minimum size is its min-content width, so without this every box in the chain
+   * refuses to be narrower than the widest table row and pushes the overflow back
+   * up to the page.
+   */
+  .wrap > main, #audit, #view, #view > .panel, #view .scroll, #perms {
+    min-width: 0;
+  }
+  .wrap > main { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  #audit { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  #view { flex: 1 1 auto; min-height: 0; display: flex; }
+  #view > .panel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  #view .scroll { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+  /* The permissions page is form-heavy, so it scrolls as a column instead. */
+  #perms { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+  #perms .scroll { overflow: auto; }
+
+  @media (max-width: 860px) {
+    /* One page-level scroll again — a flexed table would be only a few rows tall.
+       The table keeps its own horizontal scroll so it can't widen the page. */
+    .wrap { overflow-x: hidden; overflow-y: auto; display: block; height: auto; }
+    #view .scroll, #perms { overflow: auto; min-height: 0; max-width: 100%; }
+  }
   /* `separate` rather than `collapse`: a sticky <th> does not stay put inside a
      collapsed-border table in Chrome, which loses the header as soon as you
      scroll. Borders move onto the cells to keep the same look. */
@@ -210,6 +292,10 @@
   tbody tr:last-child td { border-bottom: 0; }
   td.mono, .mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 12px; }
   td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  /* Explanatory sentences are the content, so they wrap instead of truncating.
+     NOT called `.wrap` — that is the app shell's class, and a cell inheriting
+     `height: 100dvh` from it gave one 800px-tall blank row per sentence. */
+  th.sentence, td.sentence { white-space: normal; max-width: 420px; min-width: 240px; line-height: 1.45; }
   .muted { color: var(--ink-3); }
 
   .tag {
@@ -219,7 +305,7 @@
   .tag.bad { color: var(--bad); background: var(--bad-soft); border-color: transparent; }
   .tag.good { color: var(--good); background: var(--good-soft); border-color: transparent; }
   .tag.warn { color: var(--warn); background: var(--warn-soft); border-color: transparent; }
-  .tag.info { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+  .tag.info { color: var(--accent-ink); background: var(--accent-soft); border-color: transparent; }
 
   /* ── misc ───────────────────────────────────────────────── */
   .split { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
@@ -250,7 +336,7 @@
   #adv .cond button.x:hover { color: var(--bad); border-color: var(--bad); }
   #adv .foot { display: flex; gap: 8px; align-items: center; margin-top: 4px; flex-wrap: wrap; }
   #adv .none { color: var(--ink-3); font-size: 12.5px; margin: 0 0 9px; }
-  button.on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  button.on { border-color: var(--accent); color: var(--accent-ink); background: var(--accent-soft); }
   .pill {
     font-size: 11px; background: var(--accent); color: #fff; border-radius: 20px;
     padding: 0 6px; margin-left: 6px; font-variant-numeric: tabular-nums;
@@ -278,6 +364,23 @@
   [hidden] { display: none !important; }
   .spin { display: inline-block; width: 11px; height: 11px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: sp .7s linear infinite; vertical-align: -1px; }
   @keyframes sp { to { transform: rotate(360deg); } }
+
+  /* ── accessibility ────────────────────────────────────────── */
+  /* A visible focus ring on everything keyboard-reachable. The default outline is
+     removed by the custom backgrounds above, so it has to be put back. */
+  :is(button, a, input, select, textarea, [tabindex]):focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px;
+  }
+  thead th:focus-visible { outline-offset: -2px; }
+  /* The sort arrow is a glyph, so the state does not depend on colour alone. */
+  @media (prefers-reduced-motion: reduce) {
+    .spin { animation-duration: 2.4s; }
+    * { transition-duration: .01ms !important; }
+  }
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
 </style>
 </head>
 <body>
@@ -285,7 +388,7 @@
 
   <aside class="side" id="side" hidden>
     <div class="brand">Account Audit<small>ERP · Firebase</small></div>
-    <nav id="nav"></nav>
+    <nav id="nav" aria-label="Sections"></nav>
     <div class="side-foot">
       <button id="refresh" class="primary">Refresh</button>
       <button id="signout" title="Edit the stored ERP and Firebase credentials" hidden>Credentials</button>
@@ -368,8 +471,9 @@
   <main id="app" hidden>
     <!-- audit pages -->
     <div id="audit">
+      <nav class="tabs" id="tabs" role="tablist" aria-label="Views"></nav>
       <section class="kpis" id="kpis"></section>
-      <div class="controls" id="controls"></div>
+      <div class="controls" id="controls" role="search" aria-label="Filters"></div>
       <div id="adv" hidden></div>
       <div id="view"></div>
     </div>
@@ -378,7 +482,7 @@
     <div id="perms" hidden></div>
   </main>
 
-  <section id="state" class="panel"><div class="msg"><span class="spin"></span> Loading Firebase accounts and ERP employees…</div></section>
+  <section id="state" class="panel" role="status" aria-live="polite"><div class="msg"><span class="spin"></span> Loading Firebase accounts and ERP employees…</div></section>
 
   </div><!-- /wrap -->
 </div><!-- /shell -->
@@ -399,7 +503,49 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 // ───────────────────────────────────────────── tab definitions
 // Each tab is: which rows, which columns, and which extra filter applies.
 const TABS = {
-  // 1 ── today's Firebase signups
+  // 1 ── every Firebase account, with today's signups as a filter rather than a
+  //      separate page — they are the same rows either way.
+  firebase: {
+    label: 'Firebase accounts',
+    count: (r) => r.kpis.firebaseTotal,
+    rows: () => REPORT.firebaseAll,
+    facets: false,
+    extra: [
+      ['', 'All accounts'],
+      ['today', 'Created today'],
+      ['linked', 'Linked to an employee'],
+      ['unconfirmedLink', 'Matched a non-login address'],
+      ['unlinked', 'No employee match'],
+      ['internal', '@elbrit.org only'],
+      ['neverSignedIn', 'Never signed in'],
+      ['disabled', 'Disabled accounts'],
+    ],
+    cols: [
+      ['accountCreated', 'Created', 'mono', (r) =>
+        `${esc(r.accountCreated)}${r.createdToday ? ' <span class="tag info">today</span>' : ''}`],
+      ['email', 'Email', 'mono', (r) => r.email
+        ? `${esc(r.email)}${!r.linked && r.internal ? ' <span class="tag warn">internal</span>' : ''}`
+        : '<span class="muted">—</span>'],
+      ['phone', 'Phone', 'mono', (r) => esc(r.phone) || '<span class="muted">—</span>'],
+      // Three states, not two: an account can be tied to an employee yet have
+      // matched a non-login address, which is not the same as "linked".
+      ['employeeId', 'Emp ID', 'mono', (r) => !r.linked
+        ? '<span class="tag warn">no match</span>'
+        : r.linkUsable
+          ? esc(r.employeeId)
+          : `${esc(r.employeeId)} <span class="tag warn" title="Matched a non-login address on this employee&apos;s record">other email</span>`],
+      ['employeeName', 'Name', '', (r) => esc(r.employeeName || r.displayName) || '<span class="muted">—</span>'],
+      ['department', 'Department'],
+      ['providers', 'Provider', '', (r) => (r.providers || []).map((p) =>
+        `<span class="tag">${esc(p.replace('.com', ''))}</span>`).join(' ')],
+      ['lastActive', 'Last active', 'mono', (r) => r.lastActive
+        ? esc(r.lastActive)
+        : r.signedIn ? '<span class="muted">—</span>' : '<span class="tag warn">never signed in</span>'],
+      ['disabled', 'State', '', (r) => r.disabled
+        ? '<span class="tag bad">disabled</span>' : '<span class="tag good">active</span>'],
+    ],
+  },
+
   // 2 ── employee <-> ERP user link faults
   links: {
     label: 'Employee / user link',
@@ -425,10 +571,66 @@ const TABS = {
       ['relieved', 'Relieved', 'mono', (r) => esc(r.relieved) || '<span class="muted">—</span>'],
       ['loginEmail', 'ERP login email', 'mono', (r) => r.loginEmail
         ? esc(r.loginEmail) : '<span class="tag bad">missing</span>'],
+      // This view is about ERP login state, so these two earn their place here
+      // even though they are dropped from the pending list.
+      ['erpUserEnabled', 'ERP login', '', (r) => r.erpUserExists === null
+        ? '<span class="muted">n/a</span>'
+        : !r.loginEmail ? '<span class="muted">—</span>'
+        : !r.erpUserExists ? '<span class="tag warn">no ERP user</span>'
+        : r.erpUserEnabled ? '<span class="tag bad">enabled</span>'
+        : '<span class="tag good">disabled</span>'],
+      ['erpLastLogin', 'Last ERP login', 'mono', (r) => esc(r.erpLastLogin) || '<span class="muted">never</span>'],
     ],
   },
 
-  // 5 ── missing contact details
+  // 3 ── the actionable follow-up list
+  pending: {
+    label: 'Still need to login',
+    count: (r) => r.kpis.stillNeedLogin,
+    rows: () => REPORT.stillNeedLogin,
+    facets: true,
+    extra: [
+      ['', 'Everyone pending'],
+      ['noAccountAtAll', 'Never signed up'],
+      ['unconfirmedSignup', 'Signed up under a non-login address'],
+      ['anyFault', 'Blocked by an ERP identity fault'],
+      ['noLink', 'Blocked — no ERP user link'],
+      ['noPhone', 'No phone number on record'],
+    ],
+    cols: [
+      // Why this person is pending. Three different follow-ups: an ERP data fault
+      // to fix, an account under an address that is not their login, or nothing at
+      // all yet. The fault has to come first — it is the one you cannot resolve by
+      // talking to the person.
+      ['identityFault', 'Status', '', (r) => {
+        if (r.identityFault) {
+          const label = {
+            inheritedPhone: 'inherited number',
+            placeholderLogin: 'placeholder login',
+            duplicateLogin: 'duplicate login',
+            claimedByOther: "colleague's account",
+          }[r.identityFault] || r.identityFault;
+          return `<span class="tag bad" title="${esc(r.identityNote)}">${esc(label)}</span>`;
+        }
+        return r.accountUnconfirmed
+          ? `<span class="tag warn" title="A Firebase account exists matching their ${esc(r.matchedVia).toLowerCase()}, but not their ERP login (user_id). Whether it can use the app is unverified — ask the person.">signed up, unconfirmed</span>`
+          : '<span class="tag bad">never signed up</span>';
+      }],
+      ['employeeId', 'Emp ID', 'mono'],
+      ['name', 'Name', '', (r) => `${esc(r.name)}${r.noUserLink
+        ? ' <span class="tag bad" title="No user_id in ERP — cannot log in until this is set">no user link</span>' : ''}`
+        + (r.crossLinkedTo ? ` <span class="tag bad" title="Matched ${esc(r.crossLinkedTo)}, which is another employee&apos;s ERP login">cross-linked</span>` : '')],
+      ['role', 'Role'],
+      ['department', 'Department'],
+      ['loginEmail', 'ERP login email', 'mono', (r) => r.loginEmail
+        ? esc(r.loginEmail) : '<span class="tag bad">missing</span>'],
+      ['phone', 'Phone', 'mono', (r) => r.phone
+        ? esc(r.phone) : '<span class="muted">—</span>'],
+      ['joined', 'Joined', 'mono'],
+    ],
+  },
+
+  // 4 ── missing contact details
   contact: {
     label: 'Missing phone / email',
     count: (r) => r.kpis.missingContact,
@@ -464,7 +666,50 @@ const TABS = {
     ],
   },
 
-  // 6 ── coverage rollup, pivotable
+  /**
+   * 6 ── ERP identity faults.
+   *
+   * The reason a login state can be reported wrongly, so it gets its own view
+   * rather than a footnote: ERP hands a departed person's login to their
+   * replacement, and the replacement then matches the predecessor's Firebase
+   * account. Each row says what is wrong and who the account really belongs to.
+   */
+  conflicts: {
+    label: 'ERP identity faults',
+    count: (r) => r.kpis.identityConflicts,
+    rows: () => REPORT.identityConflicts,
+    facets: true,
+    extra: [
+      ['', 'Every fault'],
+      ['inheritedPhone', 'Number belongs to the previous holder'],
+      ['placeholderLogin', 'Login is a vacant… placeholder'],
+      ['duplicateLogin', 'Login shared with another record'],
+      ['claimedByOther', "Account is a colleague's"],
+    ],
+    cols: [
+      ['fault', 'Fault', '', (r) => {
+        const label = {
+          inheritedPhone: 'inherited number',
+          placeholderLogin: 'placeholder login',
+          duplicateLogin: 'duplicate login',
+          claimedByOther: "colleague's account",
+        }[r.fault] || r.fault;
+        return `<span class="tag bad">${esc(label)}</span>`;
+      }],
+      ['employeeId', 'Emp ID', 'mono'],
+      ['name', 'Name'],
+      ['role', 'Role'],
+      ['department', 'Department'],
+      ['loginEmail', 'ERP login', 'mono', (r) => r.loginEmail
+        ? esc(r.loginEmail) : '<span class="tag bad">missing</span>'],
+      // The whole point of the view: the sentence that says what to fix.
+      ['note', 'What is wrong', 'sentence', (r) => `<span title="${esc(r.note)}">${esc(r.note)}</span>`],
+      ['creditedTo', 'Account credited to', '', (r) => r.creditedTo
+        ? esc(r.creditedTo) : '<span class="muted">—</span>'],
+    ],
+  },
+
+  // 7 ── coverage rollup, pivotable
   coverage: {
     label: 'Total coverage',
     count: (r) => r.coverage[groupBy].length,
@@ -677,6 +922,7 @@ function render() {
   $('#export-all').hidden = !audit;
 
   if (audit) {
+    renderTabs();
     renderKpis();
     renderControls();
     renderAdv();
@@ -691,41 +937,97 @@ function render() {
 
 function renderMeta() {
   const k = REPORT.kpis;
-  $('#meta').innerHTML =
-    `<code>${esc(REPORT.erpBaseUrl.replace('https://', ''))}</code> ${k.workingEmployees} ${REPORT.workingStatuses.join('/').toLowerCase()} employees
-     <span class="hint">(${k.totalEmployees} incl. left, ${REPORT.vacantExcluded} vacant excluded)</span> ·
-     <code>${esc(REPORT.project)}</code> ${k.firebaseTotal} accounts ·
-     ${esc(REPORT.generatedAt)} ${esc(REPORT.timezone)}${REPORT.cached ? ' <span class="tag">cached</span>' : ''}
-     ${REPORT.erpUsersAvailable ? '' : ' <span class="tag warn">ERP User doctype unreadable — link tab partial</span>'}`;
+  // Short and wrappable: this line used to be one long unbreakable run that was
+  // the first thing to be pushed off a narrow window.
+  $('#meta').innerHTML = [
+    `${k.workingEmployees} ${REPORT.workingStatuses.join('/').toLowerCase()} staff`
+      + ` <span class="hint">of ${k.totalEmployees}, ${REPORT.vacantExcluded} vacant excluded</span>`,
+    `${k.firebaseTotal} accounts`,
+    `${esc(REPORT.generatedAt)}${REPORT.cached ? ' <span class="tag">cached</span>' : ''}`,
+    REPORT.erpUsersAvailable ? '' : '<span class="tag warn">ERP User doctype unreadable</span>',
+  ].filter(Boolean).join(' <span class="muted">·</span> ');
+  $('#meta').title = `${REPORT.erpBaseUrl} · Firebase ${REPORT.project} · ${REPORT.timezone}`;
 }
 
 function kpi({ n, l, h, cls = '', tab, bar, pre }) {
-  return `<div class="kpi ${cls} ${tab ? 'clickable' : ''}" ${tab ? `data-tab="${tab}"` : ''} ${pre ? `data-pre="${pre}"` : ''}>
+  // Clickable when it can narrow or navigate; then it must also be focusable and
+  // announce itself as a button, not look like one.
+  const act = Boolean(tab || pre);
+  return `<div class="kpi ${cls} ${act ? 'clickable' : ''}"
+    ${act ? `role="button" tabindex="0" aria-label="${esc(`${n} ${l} — open`)}"` : ''}
+    ${tab ? `data-tab="${tab}"` : ''} ${pre ? `data-pre="${pre}"` : ''}>
     <div class="n">${n}</div><div class="l">${l}</div>
     ${bar !== undefined ? `<div class="bar"><i style="width:${bar}%"></i></div>` : ''}
     ${h ? `<div class="h">${h}</div>` : ''}</div>`;
 }
 
+/**
+ * Which numbers belong on which page.
+ *
+ * Previously all nine cards appeared on every page, so the Firebase page led with
+ * "missing company email" and no page had a headline. Each view now carries the
+ * numbers that answer ITS question, and the rest are one click away.
+ */
+const KPI_SETS = {
+  overview: (k) => [
+    { n: `${k.coverage}%`, l: 'Total coverage', h: `${k.registered} of ${k.workingEmployees} working staff`, cls: 'ok', bar: k.coverage },
+    // pendingUnconfirmed, not unconfirmedSignups: the latter also counts someone
+    // whose row is already explained by an ERP fault, so the two cards would show
+    // different numbers for what reads as the same thing.
+    { n: k.stillNeedLogin, l: 'Still need to login', h: `${k.pendingUnconfirmed} signed up under another address`, cls: 'hero', tab: 'pending' },
+    { n: k.identityConflicts, l: 'ERP identity faults', h: 'their login state cannot be trusted', cls: k.identityConflicts ? 'hero' : '', tab: 'conflicts' },
+    { n: k.firebaseTotal, l: 'Firebase accounts', h: `${k.createdToday} created today`, tab: 'firebase' },
+    { n: k.linkIssues, l: 'Link problems', h: `${k.noUserLink} no link · ${k.leftWithActiveUser} left, still active`, tab: 'links' },
+  ],
+  // These three add up to `stillNeedLogin`, and each is counted from the rows
+  // rather than subtracted from the total.
+  pending: (k) => [
+    { n: k.stillNeedLogin, l: 'Still need to login', h: `of ${k.workingEmployees} working staff`, cls: 'hero' },
+    { n: k.neverSignedUp, l: 'Never signed up', h: 'no account under any address we hold', pre: 'noAccountAtAll' },
+    { n: k.pendingUnconfirmed, l: 'Unconfirmed', h: 'signed up, but not their ERP login', pre: 'unconfirmedSignup' },
+    { n: k.blockedByFault, l: 'Blocked by ERP', h: `of ${k.identityConflicts} identity faults`, pre: 'anyFault' },
+    { n: `${k.coverage}%`, l: 'Coverage', h: `${k.registered} logged in`, cls: 'ok', bar: k.coverage, tab: 'coverage' },
+  ],
+  conflicts: (k) => [
+    { n: k.identityConflicts, l: 'Identity faults', h: 'working staff whose ERP identity is wrong', cls: k.identityConflicts ? 'hero' : 'ok' },
+    { n: k.placeholderLogin, l: 'Placeholder login', h: 'user_id is a vacant… address', pre: 'placeholderLogin' },
+    { n: k.inheritedPhone, l: 'Inherited number', h: "user record holds a predecessor's phone", pre: 'inheritedPhone' },
+    { n: k.duplicateLogin, l: 'Duplicate login', h: 'same user_id on two employee records', pre: 'duplicateLogin' },
+    { n: k.accountsCreditedToNobody, l: 'Re-credited accounts', h: 'moved to their rightful owner' },
+  ],
+  links: (k) => [
+    { n: k.linkIssues, l: 'Link problems', h: 'both faults together', cls: 'hero' },
+    { n: k.noUserLink, l: 'No ERP user link', h: 'no user_id — cannot be onboarded', pre: 'noLink' },
+    { n: k.leftWithActiveUser, l: 'Left, login active', h: 'should have been revoked', pre: 'leftActive' },
+    { n: k.duplicateLogin, l: 'Duplicate logins', h: 'one user_id on two records', tab: 'conflicts', pre: 'duplicateLogin' },
+  ],
+  contact: (k) => [
+    { n: k.missingContact, l: 'Missing contact', h: 'either field empty', cls: 'hero' },
+    { n: k.noCompanyEmail, l: 'No company email', h: 'pervasive across field staff', pre: 'noCompanyEmail' },
+    { n: k.noPhone, l: 'No phone anywhere', h: 'not on the user record nor the employee', pre: 'noPhone' },
+    { n: k.missingBothContacts, l: 'Missing both', h: 'no route in at all', pre: 'missingBoth' },
+    { n: k.phoneOnEmployeeOnly, l: 'Phone not copied', h: 'on the employee, not the ERP user' },
+  ],
+  firebase: (k) => [
+    { n: k.firebaseTotal, l: 'Firebase accounts', h: `${k.registered} are working staff logins` },
+    { n: k.createdToday, l: 'Created today', h: `${k.createdTodayLinked} matched an employee`, pre: 'today' },
+    { n: k.firebaseUnlinked, l: 'No employee match', h: 'doctors, external, or personal signups', pre: 'unlinked' },
+    { n: k.firebaseLinkedUnconfirmed, l: 'Other email', h: 'matched an address that is not their login', pre: 'unconfirmedLink' },
+  ],
+};
+
 function renderKpis() {
   const k = REPORT.kpis;
-  // One card per tab, same order as the tabs. `pre` is the filter the card's
-  // question implies, so clicking a KPI lands on the answer already narrowed.
-  $('#kpis').innerHTML = [
-    kpi({ n: k.createdToday, l: 'Created today', h: `${k.createdTodayLinked} matched an employee`, tab: 'firebase', pre: 'today' }),
-    kpi({ n: k.linkIssues, l: 'Link problems', h: `${k.noUserLink} no link · ${k.leftWithActiveUser} left, still active`, tab: 'links' }),
-    kpi({ n: k.firebaseTotal, l: 'Firebase accounts', h: `${k.firebaseUnlinked} no employee · ${k.firebaseLinkedUnconfirmed} other email`, tab: 'firebase' }),
-    kpi({ n: k.stillNeedLogin, l: 'Still need to login', h: `of ${k.workingEmployees} working · ${k.unconfirmedSignups} unconfirmed`, cls: 'hero', tab: 'pending' }),
-    kpi({ n: k.missingContact, l: 'Missing contact', h: `${k.noCompanyEmail} no co. email · ${k.noPhone} no phone`, tab: 'contact' }),
-    kpi({ n: `${k.coverage}%`, l: 'Total coverage', h: `${k.registered} logged in`, cls: 'ok', bar: k.coverage, tab: 'coverage' }),
-    kpi({ n: k.leftWithActiveUser, l: 'Left, login active', h: 'should be revoked', tab: 'links', pre: 'leftActive' }),
-    kpi({ n: k.unconfirmedSignups, l: 'Unconfirmed', h: 'signed up, not their ERP login', tab: 'pending', pre: 'unconfirmedSignup' }),
-    kpi({ n: k.missingBothContacts, l: 'Missing both', h: 'no phone and no company email', tab: 'contact', pre: 'missingBoth' }),
-  ].join('');
-  $('#kpis').querySelectorAll('[data-tab]').forEach((el) => {
+  const set = KPI_SETS[PAGE === 'employees' ? empView : PAGE] || KPI_SETS.overview;
+  // `pre` without `tab` narrows the page you are already on; with `tab` it jumps.
+  $('#kpis').innerHTML = set(k).map((c) => kpi(c)).join('');
+  $('#kpis').querySelectorAll('.kpi.clickable').forEach((el) => {
     el.onclick = () => {
       filters.extra = el.dataset.pre || '';
-      setTab(el.dataset.tab, { keepExtra: true });
+      if (el.dataset.tab) return setTab(el.dataset.tab, { keepExtra: true });
+      renderControls(); renderTabs(); renderTable();
     };
+    el.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.click(); } };
   });
 }
 
@@ -752,10 +1054,52 @@ const PAGE_TITLES = {
  */
 const EMP_VIEWS = [
   ["pending", "Still need to login"],
+  ["conflicts", "ERP identity faults"],
   ["links", "Employee / user link problems"],
   ["contact", "Missing phone or email"],
 ];
 let empView = "pending";
+
+/**
+ * The visible tab strip for a page. Sidebar for pages, tabs for the views inside
+ * one — the views were getting lost in a dropdown, which is why they came back.
+ *
+ * Employees tabs switch which rows are shown; Firebase tabs are subsets of the
+ * same rows, so they drive the `extra` filter instead. Both read as tabs.
+ */
+const PAGE_TABS = {
+  employees: () => EMP_VIEWS.map(([v, label]) => ({
+    key: v, label, count: TABS[v].count(REPORT), on: empView === v,
+    go: () => goto('employees', { view: v }),
+  })),
+  firebase: () => [
+    ['', 'All accounts'],
+    ['today', 'Created today'],
+    ['unlinked', 'No employee match'],
+    ['unconfirmedLink', 'Other email'],
+    ['neverSignedIn', 'Never signed in'],
+    ['disabled', 'Disabled'],
+  ].map(([v, label]) => ({
+    key: v || 'all',
+    label,
+    count: v ? REPORT.firebaseAll.filter((r) => passesExtra(r, v)).length : REPORT.firebaseAll.length,
+    on: (filters.extra || '') === v,
+    go: () => { filters.extra = v; renderControls(); renderTabs(); renderTable(); },
+  })),
+};
+
+function renderTabs() {
+  const build = PAGE_TABS[PAGE];
+  const el = $('#tabs');
+  if (!build) { el.hidden = true; el.innerHTML = ''; return; }
+  const tabs = build();
+  el.hidden = false;
+  el.innerHTML = tabs.map((t, i) =>
+    `<button data-i="${i}" role="tab" aria-selected="${t.on}"`
+    + ` aria-label="${esc(`${t.label} — ${t.count}`)}">${esc(t.label)}`
+    + `<span class="cnt" aria-hidden="true">${t.count}</span></button>`).join('');
+  el.querySelectorAll('button').forEach((b) => { b.onclick = () => tabs[Number(b.dataset.i)].go(); });
+}
 
 /** Which TABS entry backs the current page. */
 function tabForPage(page) {
@@ -774,16 +1118,22 @@ function renderNav() {
     const items = keys.map((k) => {
       let badge = '';
       const t = tabForPage(k);
-      if (k === 'employees' && REPORT) {
+      if (k === 'overview' && REPORT) {
+        // Coverage, not the number of departments — a bare "35" next to Overview
+        // read as a count of something wrong.
+        badge = `<span class="n">${REPORT.kpis.coverage}%</span>`;
+      } else if (k === 'employees' && REPORT) {
         // The page's headline number is the actionable one, not the current view's.
-        badge = `<span class="n">${REPORT.kpis.stillNeedLogin}</span>`;
+        badge = `<span class="n alert">${REPORT.kpis.stillNeedLogin}</span>`;
       } else if (t && REPORT) {
         badge = `<span class="n">${TABS[t].count(REPORT)}</span>`;
       } else if (k === 'permissions' && PERMS) {
         const bad = PERMS.kpis.mismatched;
         badge = `<span class="n${bad ? ' alert' : ''}">${bad || PERMS.kpis.total}</span>`;
       }
-      return `<a href="#/${k}" class="${PAGE === k ? 'sel' : ''}">${esc(PAGE_TITLES[k])}${badge}</a>`;
+      const on = PAGE === k;
+      return `<a href="#/${k}" class="${on ? 'sel' : ''}" ${on ? 'aria-current="page"' : ''}>`
+        + `${esc(PAGE_TITLES[k])}${badge}</a>`;
     }).join('');
     return `<div class="grp">${esc(group)}</div>${items}`;
   }).join('');
@@ -859,13 +1209,6 @@ function renderControls() {
 
   // The Employees page hosts three views over the same rows; this is what used to
   // be three separate sidebar entries.
-  if (PAGE === 'employees') {
-    html += `<div class="fld wide"><span>View</span><select id="empView">`
-      + EMP_VIEWS.map(([v, label]) =>
-        `<option value="${v}" ${empView === v ? 'selected' : ''}>${esc(label)} (${TABS[v].count(REPORT)})</option>`).join('')
-      + `</select></div>`;
-  }
-
   if (TAB !== 'coverage') {
     html += `<div class="fld"><span>Search</span>` +
       `<input type="search" id="q" placeholder="Name, ID, email, phone…" value="${esc(filters.q)}"></div>`;
@@ -881,7 +1224,8 @@ function renderControls() {
         `</select>`);
     }
   }
-  if (def.extra?.length) {
+  // Firebase's subsets are the tab strip, so the dropdown would duplicate it.
+  if (def.extra?.length && PAGE !== 'firebase') {
     html += `<div class="fld wide"><span>Show</span><select data-f="extra">` + def.extra.map(([v, label]) =>
       `<option value="${v}" ${filters.extra === v ? 'selected' : ''}>${esc(label)}</option>`).join('') + `</select></div>`;
   }
@@ -893,15 +1237,13 @@ function renderControls() {
   }
 
   const n = advActive();
-  html += `<div class="fld"><span>&nbsp;</span>`
-    + `<button id="adv-toggle" class="${ADV_OPEN || n ? 'on' : ''}">Advanced${n ? `<span class="pill">${n}</span>` : ''}</button></div>`;
-  html += `<div class="fld" id="clear-wrap" ${anyFilterActive() ? "" : "hidden"}>`
+  html += `<div class="fld act"><span>&nbsp;</span>`
+    + `<button id="adv-toggle" class="${ADV_OPEN || n ? 'on' : ''}" aria-expanded="${ADV_OPEN}">`
+    + `Advanced${n ? `<span class="pill">${n}</span>` : ''}</button></div>`;
+  html += `<div class="fld act" id="clear-wrap" ${anyFilterActive() ? "" : "hidden"}>`
     + `<span>&nbsp;</span><button id="clear-filters">Clear filters</button></div>`;
   html += `<span class="spacer" style="flex:1"></span><span class="count" id="shown"></span>`;
   $('#controls').innerHTML = html;
-
-  const ev = $('#empView');
-  if (ev) ev.onchange = () => goto('employees', { view: ev.value });
 
   const clear = $('#clear-filters');
   if (clear) clear.onclick = () => {
@@ -965,6 +1307,9 @@ const FIELD_LABELS = {
   accountCreated: 'Account created', lastLogin: 'Last login', lastActive: 'Last active',
   employeeId: 'Emp ID', employeeName: 'Employee name', displayName: 'Firebase name',
   missing: 'Missing', missingBoth: 'Missing both', issue: 'Problem',
+  identityFault: 'ERP identity fault', identityNote: 'Fault explanation',
+  creditedTo: 'Account credited to', duplicateLoginWith: 'Login also on',
+  alsoClaimedBy: 'Also claimed by', matchedValue: 'Matched value',
 };
 
 function advFields() {
@@ -1124,8 +1469,15 @@ function renderAdv() {
 
 let ADV_OPEN = false;
 
-function passesExtra(r) {
-  switch (filters.extra) {
+/**
+ * Pure on purpose: `key` defaults to the live filter, but the tab strip passes
+ * each subset explicitly. It used to set `filters.extra` to count a subset, and
+ * because object properties evaluate top-down, the `on` flag below it then
+ * compared the filter against the value that line had just written — so every
+ * Firebase tab rendered as the selected one.
+ */
+function passesExtra(r, key = filters.extra) {
+  switch (key) {
     case 'linked': return r.linked;
     case 'unconfirmedLink': return r.linked && !r.linkUsable;
     case 'unlinked': return !r.linked;
@@ -1144,6 +1496,12 @@ function passesExtra(r) {
     case 'neverSignedIn': return !r.signedIn;
     case 'disabled': return r.disabled ?? r.accountDisabled;
     case 'shared': return r.sharedAccount;
+    // ERP identity faults, filterable individually
+    case 'inheritedPhone':
+    case 'placeholderLogin':
+    case 'duplicateLogin':
+    case 'claimedByOther': return r.identityFault === key;
+    case 'anyFault': return Boolean(r.identityFault);
     default: return true;
   }
 }
@@ -1156,8 +1514,11 @@ function currentRows() {
       if (filters[key]) rows = rows.filter((r) => r[key] === filters[key]);
     }
   }
-  if (filters.extra) rows = rows.filter(passesExtra);
-  if (advActive()) rows = rows.filter(passesAdvanced);
+  // Arrow wrappers, not bare references: `filter` passes (item, index, array),
+  // and the index landed in passesExtra's `key` parameter — which silently turned
+  // every subset filter into a no-op.
+  if (filters.extra) rows = rows.filter((r) => passesExtra(r));
+  if (advActive()) rows = rows.filter((r) => passesAdvanced(r));
   if (filters.q.trim()) {
     const needle = filters.q.trim().toLowerCase();
     const digits = needle.replace(/\D/g, '');
@@ -1207,7 +1568,9 @@ function renderTable() {
 
   const s = sortState[TAB] || {};
   const head = def.cols.map(([key, label, cls]) =>
-    `<th data-k="${key}" class="${cls || ''}">${esc(colLabel(label))}${s.key === key ? ` <span class="arrow">${s.dir === 'desc' ? '↓' : '↑'}</span>` : ''}</th>`).join('');
+    `<th data-k="${key}" class="${cls || ''}" scope="col" tabindex="0" role="columnheader"`
+    + ` aria-sort="${s.key === key ? (s.dir === 'desc' ? 'descending' : 'ascending') : 'none'}">`
+    + `${esc(colLabel(label))}${s.key === key ? ` <span class="arrow" aria-hidden="true">${s.dir === 'desc' ? '↓' : '↑'}</span>` : ''}</th>`).join('');
 
   const body = rows.map((r) => '<tr>' + def.cols.map(([key, , cls, fmt]) => {
     const v = fmt ? fmt(r) : esc(r[key] ?? '') || '<span class="muted">—</span>';
@@ -1224,7 +1587,7 @@ function renderTable() {
     if (t && t !== "—" && td.scrollWidth > td.clientWidth) td.title = t;
   });
   $('#view').querySelectorAll('th[data-k]').forEach((th) => {
-    th.onclick = () => {
+    const sort = () => {
       // Read the live sort state rather than the one captured when this header
       // was rendered — otherwise the toggle depends on which render generation
       // of the header got clicked.
@@ -1232,7 +1595,11 @@ function renderTable() {
       const cur = sortState[TAB] || {};
       sortState[TAB] = { key: k, dir: cur.key === k && cur.dir === 'asc' ? 'desc' : 'asc' };
       renderTable();
+      // Keep the keyboard where it was, so sorting twice does not need a re-tab.
+      $(`#view th[data-k="${k}"]`)?.focus();
     };
+    th.onclick = sort;
+    th.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); sort(); } };
   });
 }
 
@@ -1302,7 +1669,7 @@ $('#export-all').onclick = () => exportCsv({ allFields: true });
 // ───────────────────────────────────────────── user permissions
 let PERMS = null;
 let permsLoading = false;
-const permFilters = { user: '', q: '', only: '' };
+const permFilters = { user: '', q: '', only: '', role: '', department: '' };
 let permNotice = null; // { kind, text }
 
 const permApi = async (method, { qs = '', body } = {}) => {
@@ -1330,16 +1697,45 @@ async function loadPermissions() {
   }
 }
 
+const permFiltered = () => Boolean(
+  permFilters.q.trim() || permFilters.user || permFilters.only
+  || permFilters.role || permFilters.department,
+);
+
+/**
+ * Values offered by a facet dropdown, narrowed by the OTHER active filters — so
+ * picking a department leaves only the roles that exist in it, and no combination
+ * can be chosen that yields an empty table. Rows whose holder has no Employee
+ * record contribute nothing, since there is no role or department to filter on.
+ */
+function permFacet(key) {
+  if (!PERMS) return [];
+  const rows = PERMS.rows.filter((r) =>
+    (!permFilters.user || r.user === permFilters.user)
+    && (key === 'role' || !permFilters.role || r.role === permFilters.role)
+    && (key === 'department' || !permFilters.department || r.department === permFilters.department));
+  return [...new Set(rows.map((r) => r[key]).filter(Boolean))].sort();
+}
+
 function permRows() {
   if (!PERMS) return [];
   let rows = PERMS.rows;
   if (permFilters.user) rows = rows.filter((r) => r.user === permFilters.user);
+  // Role and department come from the permission holder's own Employee record.
+  if (permFilters.role) rows = rows.filter((r) => r.role === permFilters.role);
+  if (permFilters.department) rows = rows.filter((r) => r.department === permFilters.department);
   if (permFilters.only === 'mismatch') rows = rows.filter((r) => r.mismatch);
   if (permFilters.only === 'employee') rows = rows.filter((r) => r.allow === 'Employee');
   if (permFilters.only === 'dangling') rows = rows.filter((r) => r.danglingTarget);
+  if (permFilters.only === 'unverified') rows = rows.filter((r) => r.unverified);
+  // The 229 rows the role/department filters can never reach: no Employee record
+  // carries this user's address, so there is nothing to check the permission
+  // against. Reachable on its own rather than only as a "—" in two columns.
+  if (permFilters.only === 'noOwnRecord') rows = rows.filter((r) => !r.ownEmployeeId);
   if (permFilters.q.trim()) {
     const n = permFilters.q.trim().toLowerCase();
-    rows = rows.filter((r) => [r.user, r.allow, r.forValue, r.targetEmployeeName, r.ownEmployeeId]
+    rows = rows.filter((r) => [r.user, r.allow, r.forValue, r.targetEmployeeName,
+      r.ownEmployeeId, r.ownEmployeeName, r.role, r.department]
       .filter(Boolean).join(' ').toLowerCase().includes(n));
   }
   return rows;
@@ -1368,6 +1764,7 @@ function renderPermissions() {
     <section class="kpis">
       ${kpi({ n: k.total, l: 'Permissions', h: `across ${k.users} users` })}
       ${kpi({ n: k.mismatched, l: 'Wrong employee', h: 'points at someone else', cls: k.mismatched ? 'hero' : '' })}
+      ${kpi({ n: k.unverified, l: "Can't tell", h: 'holder has no Employee record' })}
       ${kpi({ n: k.employeePerms, l: 'Employee scoped', h: 'of all permissions' })}
       ${kpi({ n: k.usersWithoutEmployeePerm, l: 'No employee perm', h: 'may not see own data' })}
       ${kpi({ n: k.dangling, l: 'Dangling target', h: 'record no longer exists' })}
@@ -1379,6 +1776,8 @@ function renderPermissions() {
       <b>${k.mismatched}</b> permission(s) let a user onto another person's Employee record.
       Filter to <b>Wrong employee</b> below. A vacant placeholder or a duplicate record
       carrying the same <code>user_id</code> is not counted — only genuinely different people.
+      ${k.unverified ? `A further <b>${k.unverified}</b> can't be judged at all: no Employee record
+      carries the holder's address, so there is nothing to compare the target against.` : ''}
     </div>` : ''}
 
     <div class="panel" style="margin-bottom:14px">
@@ -1422,14 +1821,23 @@ function renderPermissions() {
       <div class="fld wide"><span>User</span>
         <select id="pf-user"><option value="">All users</option>
           ${users.map((u) => `<option value="${esc(u)}" ${permFilters.user === u ? 'selected' : ''}>${esc(u)}</option>`).join('')}</select></div>
+      <div class="fld"><span>Department</span>
+        <select id="pf-dept"><option value="">All departments</option>
+          ${permFacet('department').map((v) => `<option value="${esc(v)}" ${permFilters.department === v ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></div>
+      <div class="fld"><span>Role</span>
+        <select id="pf-role"><option value="">All roles</option>
+          ${permFacet('role').map((v) => `<option value="${esc(v)}" ${permFilters.role === v ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></div>
       <div class="fld wide"><span>Show</span>
         <select id="pf-only">
           <option value="">All permissions</option>
           <option value="mismatch" ${permFilters.only === 'mismatch' ? 'selected' : ''}>Wrong employee</option>
           <option value="employee" ${permFilters.only === 'employee' ? 'selected' : ''}>Employee scoped</option>
+          <option value="unverified" ${permFilters.only === 'unverified' ? 'selected' : ''}>Can't tell whose record</option>
           <option value="dangling" ${permFilters.only === 'dangling' ? 'selected' : ''}>Dangling target</option>
+          <option value="noOwnRecord" ${permFilters.only === 'noOwnRecord' ? 'selected' : ''}>Holder has no Employee record</option>
         </select></div>
-      <div class="fld"><span>&nbsp;</span><button id="pf-export">Export CSV</button></div>
+      <div class="fld act"><span>&nbsp;</span><button id="pf-export">Export CSV</button></div>
+      ${permFiltered() ? '<div class="fld act"><span>&nbsp;</span><button id="pf-clear">Clear filters</button></div>' : ''}
       <span class="spacer" style="flex:1"></span>
       <span class="count">${rows.length === PERMS.rows.length
         ? `<b>${rows.length}</b> permissions`
@@ -1438,32 +1846,44 @@ function renderPermissions() {
 
     <div class="panel"><div class="scroll">
       <table><thead><tr>
-        <th>User</th><th>Restrict on</th><th>Value</th><th>Points at</th>
-        <th>Own record</th><th>Applies to</th><th>Created</th><th></th>
+        <th>User</th><th>Role</th><th>Department</th><th>Restrict on</th><th>Value</th>
+        <th>Points at</th><th>Own record</th><th>Applies to</th><th>Created</th><th></th>
       </tr></thead><tbody>
         ${rows.length ? rows.map((r) => `<tr data-name="${esc(r.name)}">
           <td class="mono">${esc(r.user)}</td>
+          <td>${esc(r.role) || '<span class="muted">—</span>'}</td>
+          <td>${esc(r.department) || '<span class="muted">—</span>'}</td>
           <td>${esc(r.allow)}</td>
           <td class="mono">${esc(r.forValue)}</td>
           <td>${r.allow !== 'Employee' ? '<span class="muted">—</span>'
             : r.danglingTarget ? '<span class="tag bad">no such record</span>'
             : `${esc(r.targetEmployeeName)}${r.mismatch
               ? ' <span class="tag bad" title="This is another person&apos;s record">wrong person</span>'
-              : ' <span class="tag good">self</span>'}`}</td>
+              : r.unverified
+                ? ' <span class="tag warn" title="No Employee record carries this user&apos;s address, so whether this is their own record cannot be determined here. Often the same person on a renamed login — but not always.">can&apos;t tell</span>'
+                : ' <span class="tag good">self</span>'}`}</td>
           <td class="mono">${esc(r.ownEmployeeId) || '<span class="muted">—</span>'}</td>
           <td>${r.applyToAll ? '<span class="tag">all doctypes</span>' : `<span class="tag warn">${esc(r.applicableFor || 'one doctype')}</span>`}</td>
           <td class="mono">${esc(r.created)}</td>
           <td><button class="tiny danger" data-del="${esc(r.name)}">Delete</button></td>
         </tr>`).join('')
-        : '<tr><td colspan="8"><div class="msg">No permissions match these filters.</div></td></tr>'}
+        : '<tr><td colspan="10"><div class="msg">No permissions match these filters.</div></td></tr>'}
       </tbody></table>
     </div></div>`;
 
   // ── wiring ──
   $('#pf-q').oninput = (e) => { permFilters.q = e.target.value; renderPermissions(); };
   $('#pf-user').onchange = (e) => { permFilters.user = e.target.value; renderPermissions(); };
+  $('#pf-dept').onchange = (e) => { permFilters.department = e.target.value; renderPermissions(); };
+  $('#pf-role').onchange = (e) => { permFilters.role = e.target.value; renderPermissions(); };
   $('#pf-only').onchange = (e) => { permFilters.only = e.target.value; renderPermissions(); };
   $('#pf-export').onclick = () => exportPermissions(rows);
+  const pfClear = $('#pf-clear');
+  if (pfClear) pfClear.onclick = () => {
+    permFilters.q = ''; permFilters.user = ''; permFilters.only = '';
+    permFilters.role = ''; permFilters.department = '';
+    renderPermissions();
+  };
 
   const loadValues = async () => {
     const dt = $('#np-allow').value;
@@ -1537,8 +1957,10 @@ function exportPermissions(rows) {
   const cols = [
     ['user', 'User'], ['allow', 'Restrict on'], ['forValue', 'Value'],
     ['targetEmployeeName', 'Points at'], ['targetEmployeeUser', 'Target belongs to'],
+    ['targetRole', 'Target role'], ['targetDepartment', 'Target department'],
     ['ownEmployeeId', 'Own record'], ['ownEmployeeName', 'Own name'],
-    ['ownership', 'Ownership'], ['mismatch', 'Wrong employee'],
+    ['role', 'Role'], ['department', 'Department'],
+    ['ownership', 'Ownership'], ['mismatch', 'Wrong employee'], ['unverified', "Can't tell"],
     ['applyToAll', 'All doctypes'], ['applicableFor', 'Applicable for'],
     ['isDefault', 'Is default'], ['created', 'Created'], ['createdBy', 'Created by'],
     ['name', 'Permission id'],
@@ -1552,7 +1974,7 @@ function exportPermissions(rows) {
   const csv = [cols.map(([, l]) => cell(l)).join(',')]
     .concat(rows.map((r) => cols.map(([k]) => cell(r[k])).join(',')))
     .join('\r\n');
-  const filtered = permFilters.user || permFilters.only || permFilters.q.trim();
+  const filtered = permFiltered();
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([String.fromCharCode(0xFEFF) + csv], { type: 'text/csv;charset=utf-8' }));
   a.download = `user-permissions${filtered ? '-filtered' : ''}-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.csv`;

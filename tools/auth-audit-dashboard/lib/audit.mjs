@@ -134,6 +134,20 @@ const EMPLOYEE_FIELDS = [
  */
 const isVacant = (e) => /^vacant\b|^vacant[_-]/i.test(String(e.employee_name ?? '').trim())
 
+/**
+ * A `vacant…@elbrit.org` login parked on a REAL employee's record — E01215
+ * "Harsh" carries `vacantjaiprakash@elbrit.org`, E01213 "Hari Babu" carries
+ * `vacantramesh@elbrit.org`. Distinct from `isVacant`, which is about the
+ * employee record itself: these are working people whose ERP login is the
+ * placeholder left behind by whoever held the territory before them.
+ *
+ * It matters because that placeholder User record still carries the PREVIOUS
+ * holder's phone number, so an account under that number is not evidence that
+ * this person signed up. Treating it as their identity credited them with a
+ * predecessor's login and reported them as covered.
+ */
+const isPlaceholderLogin = (userId) => /^vacant/i.test(String(userId ?? '').trim())
+
 // ════════════════════════════════════════════════════════════════════
 //  helpers
 // ════════════════════════════════════════════════════════════════════
@@ -531,9 +545,35 @@ const userPhoneOf = (erpUser) => {
  * only on a non-login address, 11 of them personal gmail addresses.
  */
 function matchCandidates(e, erpUser) {
+  const ownCell = normPhone(e.cell_number)
+  const userPhone = userPhoneOf(erpUser)
+  /**
+   * When a person leaves, ERP hands their login to the replacement but the User
+   * record keeps the departed holder's phone. So a User-record number that
+   * DISAGREES with the cell HR holds for this person is the previous holder's,
+   * and a Firebase account under it says nothing about this person. Live data:
+   * 9 working employees, 7 of them provably credited with an account the real
+   * owner also claims (E01157 Ezaz on Aravind's 7702574254, E01219 Kamal on
+   * Nickson's 9176764071, E01249 Atul on Akhilesh's 9198874232 …).
+   *
+   * Only a disagreement demotes it. A blank cell leaves the User record as the
+   * only number we have, and it is still the person's own until contradicted.
+   */
+  const inheritedPhone = Boolean(userPhone && ownCell && userPhone !== ownCell)
+  // A placeholder login is nobody's identity, so nothing reached through it is
+  // authoritative — not the address, not the number on that User record.
+  const placeholder = isPlaceholderLogin(e.user_id)
   return [
-    { value: normEmail(e.user_id), kind: 'email', label: 'ERP login email', authoritative: true },
-    { value: userPhoneOf(erpUser), kind: 'phone', label: 'ERP user phone', authoritative: true },
+    {
+      value: normEmail(e.user_id), kind: 'email', label: 'ERP login email',
+      authoritative: !placeholder,
+      fault: placeholder ? 'placeholderLogin' : '',
+    },
+    {
+      value: userPhone, kind: 'phone', label: 'ERP user phone',
+      authoritative: !inheritedPhone && !placeholder,
+      fault: placeholder ? 'placeholderLogin' : inheritedPhone ? 'inheritedPhone' : '',
+    },
     /**
      * Employee.cell_number is ALSO authoritative for a phone signup, and it has
      * to be checked — reading the phone only off the linked User record missed 18
@@ -556,11 +596,108 @@ function matchCandidates(e, erpUser) {
       // to land on. Without a user_id this is the same "signed up but ERP has
       // nowhere to map them" case as a personal-email match — and it shows up on
       // the link tab as `no user link`, which is the thing to fix first.
-      authoritative: Boolean(normEmail(e.user_id)),
+      authoritative: Boolean(normEmail(e.user_id)) && !placeholder,
+      fault: placeholder ? 'placeholderLogin' : '',
+      // HR keeps this field; a match on it is the person's own number.
+      own: true,
     },
     { value: normEmail(e.company_email), kind: 'email', label: 'Company email', authoritative: false },
     { value: normEmail(e.personal_email), kind: 'email', label: 'Personal email', authoritative: false },
   ].filter((c) => c.value)
+}
+
+/**
+ * How strong an employee's claim on a Firebase account is, so that when two
+ * employees resolve to the SAME account exactly one of them is credited with it.
+ *
+ * Descending: their ERP login address, a number they own, a number only the User
+ * record carries, an address we merely hold for them, and finally anything
+ * reached through an inherited or placeholder identity.
+ */
+const CLAIM_RANK = {
+  'ERP login email': 5,
+  'Employee cell': 4,
+  'ERP user phone': 3,
+  'Company email': 2,
+  'Personal email': 1,
+}
+const claimStrength = (row) =>
+  // Authoritativeness dominates: a claim on the person's own ERP identity beats
+  // any claim that merely found an address we hold for someone. Without this,
+  // an employee with no user_id whose cell matched (rank 4) outranked the person
+  // whose actual ERP login it was (rank 5 → but reached by phone, rank 3).
+  (row.loginUsable ? 100 : 0) +
+  (row.identityFault ? 0 : (CLAIM_RANK[row.matchedVia] || 0) * 10) +
+  (row.working ? 5 : 0) +
+  (row.status === 'Active' ? 2 : 0)
+
+/**
+ * One Firebase account belongs to at most one person.
+ *
+ * ERP recycles logins and duplicates phone numbers across User records, so
+ * several employees can match one account. Crediting all of them overstated
+ * coverage and — worse — reported people as done who had never signed in:
+ * 10 accounts were each claimed by 2 employees on live data.
+ *
+ * The strongest claim keeps the account. Every other claimant keeps the evidence
+ * (so the row can explain itself) but loses `loginUsable`, which is what
+ * coverage and the pending list are built on.
+ */
+function arbitrateAccountClaims(rows) {
+  const byUid = new Map()
+  for (const r of rows) {
+    if (!r.uid) continue
+    const list = byUid.get(r.uid)
+    if (list) list.push(r)
+    else byUid.set(r.uid, [r])
+  }
+  let conflicts = 0
+  for (const [, claimants] of byUid) {
+    if (claimants.length < 2) continue
+    // employeeId last so the winner never depends on ERP's row order
+    const ranked = [...claimants].sort((a, b) =>
+      claimStrength(b) - claimStrength(a) || a.employeeId.localeCompare(b.employeeId))
+    const [winner, ...losers] = ranked
+    winner.sharedAccount = true
+    winner.alsoClaimedBy = losers.map((l) => `${l.employeeId} ${l.name}`)
+    for (const l of losers) {
+      conflicts += 1
+      l.sharedAccount = true
+      l.loginUsable = false
+      l.accountUnconfirmed = false
+      l.identityFault = l.identityFault || 'claimedByOther'
+      l.creditedTo = `${winner.employeeId} ${winner.name}`
+      l.identityNote =
+        `Matched on ${l.matchedVia.toLowerCase()} (${l.matchedValue}), but that Firebase account is `
+        + `${winner.employeeId} ${winner.name}'s — credited there instead.`
+    }
+  }
+  return conflicts
+}
+
+/** Plain-English reason a row's evidence was not accepted as their own login. */
+function faultNote(r) {
+  if (r.identityNote) return r.identityNote
+  switch (r.identityFault) {
+    case 'inheritedPhone':
+      return `Their ERP user record carries ${r.phone}, but HR has ${r.employeeCell} for them — `
+        + `the user record's number came from whoever held this login before.`
+    case 'placeholderLogin':
+      // Distinguish "signed up, but ERP has nowhere to map them" from "no signup
+      // either" — the follow-up is with ERP in the first case, with the person in
+      // the second.
+      return r.matchedVia === 'Employee cell' && r.matchedValue === r.employeeCell
+        ? `Signed up under their own number ${r.employeeCell}, but their ERP login is the `
+          + `placeholder ${r.loginEmail} — there is no ERP identity for that login to land on `
+          + `until HR issues them one.`
+        : `Their ERP login is the placeholder ${r.loginEmail}, left over from the previous `
+          + `holder of this territory. It is not an identity they can be onboarded under.`
+    case 'duplicateLogin':
+      return `Their ERP login ${r.loginEmail} is also on ${r.duplicateLoginWith} — one of the two `
+        + `employee records is wrong.`
+    default:
+      return ''
+  }
 }
 
 function buildReport({ firebaseUsers, employees, erpUsers, tz, vacantCount = 0 }) {
@@ -590,16 +727,28 @@ function buildReport({ firebaseUsers, employees, erpUsers, tz, vacantCount = 0 }
     const erpUser = erpUserByEmail && loginEmail ? erpUserByEmail.get(loginEmail) : null
     const userPhone = userPhoneOf(erpUser)
 
-    let hit = null
+    /**
+     * Every candidate is tried, then the STRONGEST match wins — not the first.
+     * Stopping at the first match attributed people to a predecessor's account
+     * whenever an inherited number sat above their own cell in the list, and
+     * never looked at the cell that would have found their real signup.
+     */
+    const hits = []
     for (const cand of matchCandidates(e, erpUser)) {
       const found = cand.kind === 'email'
         ? byEmail.get(cand.value)
         : byPhone.get(cand.value)
       if (found) {
-        hit = { account: found, via: cand.label, authoritative: cand.authoritative, value: cand.value }
-        break
+        hits.push({
+          account: found, via: cand.label, authoritative: cand.authoritative,
+          value: cand.value, fault: cand.fault || '',
+        })
       }
     }
+    hits.sort((a, b) =>
+      Number(b.authoritative) - Number(a.authoritative) ||
+      (CLAIM_RANK[b.via] || 0) - (CLAIM_RANK[a.via] || 0))
+    const hit = hits[0] || null
     if (hit) matchedUids.add(hit.account.uid)
 
     // A non-authoritative match on an address that IS somebody's ERP login means
@@ -660,6 +809,18 @@ function buildReport({ firebaseUsers, employees, erpUsers, tz, vacantCount = 0 }
       accountUnconfirmed: Boolean(hit) && !hit.authoritative,
       crossLinkedTo,
       matchedVia: hit?.via || '',
+      matchedValue: hit?.value || '',
+      /**
+       * Why this person's evidence is not accepted as their own login. Set from
+       * the candidate that matched, or by arbitration when the account turned out
+       * to be someone else's. Empty means the row is clean.
+       */
+      identityFault: hit?.fault || (isPlaceholderLogin(e.user_id) ? 'placeholderLogin' : ''),
+      identityNote: '',
+      creditedTo: '',
+      duplicateLoginWith: '',
+      alsoClaimedBy: [],
+      sharedAccount: false,
       uid: hit?.account.uid || '',
       providers: hit?.account.providers || [],
       accountCreated: hit?.account.createdAt || '',
@@ -680,6 +841,36 @@ function buildReport({ firebaseUsers, employees, erpUsers, tz, vacantCount = 0 }
     }
   })
 
+  /**
+   * Two employee records carrying the SAME `user_id`. ERP reassigns a login when
+   * someone leaves, so the replacement ends up holding the departed person's
+   * identity: DE068 Boopathiraja C on `jananikas.mis@elbrit.org`, DE078 Murdhul R
+   * on `birat@elbrit.org`. Named on both rows — which of the two is wrong is an
+   * HR decision, not something this tool can infer.
+   */
+  const byLogin = new Map()
+  for (const r of rows) {
+    const key = normEmail(r.loginEmail)
+    if (!key) continue
+    const list = byLogin.get(key)
+    if (list) list.push(r)
+    else byLogin.set(key, [r])
+  }
+  for (const [, sharing] of byLogin) {
+    if (sharing.length < 2) continue
+    for (const r of sharing) {
+      r.duplicateLoginWith = sharing.filter((o) => o !== r)
+        .map((o) => `${o.employeeId} ${o.name} (${o.status})`).join(', ')
+      // Only fault the row if nothing worse is already on it — the note should
+      // name the reason closest to why they cannot get in.
+      if (!r.identityFault) r.identityFault = 'duplicateLogin'
+    }
+  }
+
+  // Exactly one employee is credited with each Firebase account.
+  const claimConflicts = arbitrateAccountClaims(rows)
+  for (const r of rows) if (r.identityFault) r.identityNote = faultNote(r)
+
   // ── the buckets, one per tab ───────────────────────────────────────
   const working = rows.filter((r) => r.working)
 
@@ -697,6 +888,18 @@ function buildReport({ firebaseUsers, employees, erpUsers, tz, vacantCount = 0 }
    */
   const stillNeedLogin = working.filter((r) => !r.loginUsable)
   const unconfirmedSignups = working.filter((r) => r.accountUnconfirmed)
+
+  /**
+   * Why each pending person is pending, as three mutually exclusive buckets that
+   * add up to `stillNeedLogin` — checked in this order, because an ERP fault is
+   * the reason to act on ERP rather than on the person. Counted rather than
+   * derived by subtraction: `pending − unconfirmed − conflicts` was wrong, since
+   * a conflicted row can still be usable (a duplicated login the person does
+   * hold) and so is not pending at all.
+   */
+  const blockedByFault = stillNeedLogin.filter((r) => r.identityFault)
+  const pendingUnconfirmed = stillNeedLogin.filter((r) => !r.identityFault && r.accountUnconfirmed)
+  const neverSignedUp = stillNeedLogin.filter((r) => !r.identityFault && !r.accountUnconfirmed)
 
   /**
    * Tab: employee ↔ ERP user link problems. Two different faults, both about the
@@ -739,6 +942,9 @@ function buildReport({ firebaseUsers, employees, erpUsers, tz, vacantCount = 0 }
    * belongs to — or that nothing in ERP claims it.
    */
   const employeeByUid = new Map()
+  // The arbitration winner, not whichever row ERP happened to return first —
+  // otherwise the account lists a colleague as its owner.
+  for (const r of rows) if (r.uid && !r.creditedTo) employeeByUid.set(r.uid, r)
   for (const r of rows) if (r.uid && !employeeByUid.has(r.uid)) employeeByUid.set(r.uid, r)
 
   const firebaseAll = fbShaped
@@ -802,13 +1008,21 @@ function buildReport({ firebaseUsers, employees, erpUsers, tz, vacantCount = 0 }
   }
 
   /**
-   * One Firebase account claimed by two or more employees — duplicate employee
-   * records, or a shared login. Surfaced because it makes the headline "missing"
-   * number ambiguous: one of those employees is matched on someone else's login.
+   * Tab: identity faults. Every working person whose ERP identity is wrong in a
+   * way that makes their login state unreportable — a recycled login, a
+   * placeholder login, a duplicated login, or an account that turned out to be a
+   * colleague's. These used to be counted as covered, which is what made the
+   * coverage number and the follow-up list wrong.
    */
-  const uidClaims = new Map()
-  for (const r of rows) if (r.uid) uidClaims.set(r.uid, (uidClaims.get(r.uid) || 0) + 1)
-  for (const r of rows) r.sharedAccount = r.uid ? uidClaims.get(r.uid) > 1 : false
+  const identityConflicts = working
+    .filter((r) => r.identityFault)
+    .map((r) => ({ ...r, fault: r.identityFault, note: r.identityNote }))
+    .sort((a, b) => a.fault.localeCompare(b.fault) || a.name.localeCompare(b.name))
+
+  const faultCounts = identityConflicts.reduce((a, r) => {
+    a[r.fault] = (a[r.fault] || 0) + 1
+    return a
+  }, {})
 
   return {
     generatedAt: localStamp(Date.now(), tz),
@@ -832,6 +1046,10 @@ function buildReport({ firebaseUsers, employees, erpUsers, tz, vacantCount = 0 }
       unconfirmedSignups: unconfirmedSignups.length,
       crossLinked: working.filter((r) => r.crossLinkedTo).length,
       stillNeedLogin: stillNeedLogin.length,
+      // the three reasons, exhaustive and non-overlapping
+      blockedByFault: blockedByFault.length,
+      pendingUnconfirmed: pendingUnconfirmed.length,
+      neverSignedUp: neverSignedUp.length,
       missingContact: missingContact.length,
       noCompanyEmail: working.filter((r) => r.noCompanyEmail).length,
       noPhone: working.filter((r) => r.noPhone === true).length,
@@ -841,12 +1059,20 @@ function buildReport({ firebaseUsers, employees, erpUsers, tz, vacantCount = 0 }
       missingBothContacts: missingContact.filter((r) => r.missingBoth).length,
       coverage: working.length ? Math.round((withAccount.length / working.length) * 100) : 0,
 
+      // ERP identity faults, the reason a login state can be misreported
+      identityConflicts: identityConflicts.length,
+      inheritedPhone: faultCounts.inheritedPhone || 0,
+      placeholderLogin: faultCounts.placeholderLogin || 0,
+      duplicateLogin: faultCounts.duplicateLogin || 0,
+      claimedByOther: faultCounts.claimedByOther || 0,
+
       // supporting counts
       workingEmployees: working.length,
       totalEmployees: rows.length,
       registered: withAccount.length,
       neverSignedIn: withAccount.filter((r) => !r.signedIn).length,
       sharedAccounts: rows.filter((r) => r.sharedAccount).length,
+      accountsCreditedToNobody: claimConflicts,
     },
     coverage: {
       department: coverageBy('department'),
@@ -858,6 +1084,7 @@ function buildReport({ firebaseUsers, employees, erpUsers, tz, vacantCount = 0 }
     firebaseAll,
     stillNeedLogin,
     unconfirmedSignups,
+    identityConflicts,
     missingContact,
     employees: rows,
   }
@@ -929,6 +1156,8 @@ export {
   normEmail,
   normPhone,
   isVacant,
+  isPlaceholderLogin,
+  cleanDept,
   userPhoneOf,
   log,
 }
