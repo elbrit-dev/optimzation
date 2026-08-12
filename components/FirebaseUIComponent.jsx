@@ -118,6 +118,25 @@ function readDomBusy(container) {
   return Boolean(pageKey && BUSY_PAGES.has(pageKey));
 }
 
+/**
+ * Does FirebaseUI currently occupy real space?
+ *
+ * The overlay is sized by `inset: 0`, so it is only ever as big as this component's
+ * box — and that box is sized by its content. While FirebaseUI has painted nothing
+ * (still booting) or nothing but its spent blank screen (after a successful sign-in)
+ * there is no content, the box shrinks to almost nothing, and the overlay's text
+ * wraps to a sliver and spills out over whatever sits above and below. So when there
+ * is no card to measure against, we reserve a box for the loader to sit in.
+ *
+ * Measured on the card's HEIGHT deliberately: the reserve lands on the outer box, and
+ * a block child's height does not follow its parent's min-height, so this cannot feed
+ * back into itself and oscillate. Measuring width would.
+ */
+function readHasContent(container) {
+  const card = container?.querySelector('.firebaseui-container, [class*="firebaseui-id-page-"]');
+  return Boolean(card && card.offsetHeight > 40);
+}
+
 function ensureStyles() {
   if (typeof document === "undefined" || document.getElementById(STYLE_ID)) return;
   const el = document.createElement("style");
@@ -126,21 +145,24 @@ function ensureStyles() {
     /* position:relative also lives inline on the root so a Plasmic layout class
        can't knock the overlay out of its container. */
     .ebfu-root { position: relative; }
-    /* Before FirebaseUI paints, the container is empty and would collapse to zero
-       height — the overlay needs somewhere to sit while it boots. */
-    .ebfu-root--booting { min-height: 220px; }
+    /* No FirebaseUI card to sit on top of — see readHasContent(). The reserve is a
+       little UNDER FirebaseUI's own 360px card so it can never widen the component:
+       whenever there is a card, the card is what sets the size, exactly as before. */
+    .ebfu-root--reserve { min-width: min(320px, 100%); min-height: 220px; }
     .ebfu-overlay {
-      position: absolute; inset: 0; z-index: 20;
+      position: absolute; inset: 0; z-index: 20; overflow: hidden;
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       gap: 10px; padding: 16px; box-sizing: border-box; text-align: center;
-      background: rgba(255,255,255,0.86);
+      background: rgba(255,255,255,0.92);
       backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
       border-radius: 12px;
       animation: ebfu-fade-in .16s ease-out;
     }
     .ebfu-spin { color: #0F87F9; animation: ebfu-spin 1s linear infinite; }
-    .ebfu-label { font: 600 14px/1.35 inherit; color: #18265c; }
-    .ebfu-hint { font: 500 12px/1.4 inherit; color: #64748b; max-width: 30ch; }
+    /* max-width keeps the copy inside the box even if the host slot is narrower
+       than the reserve; overflow:hidden above is the hard stop. */
+    .ebfu-label { font: 600 14px/1.35 inherit; color: #18265c; max-width: 100%; }
+    .ebfu-hint { font: 500 12px/1.4 inherit; color: #64748b; max-width: min(30ch, 100%); }
     @keyframes ebfu-spin { to { transform: rotate(360deg); } }
     @keyframes ebfu-fade-in { from { opacity: 0; } to { opacity: 1; } }
     @media (prefers-reduced-motion: reduce) {
@@ -171,6 +193,7 @@ const FirebaseUIComponent = ({
   const [clickBusy, setClickBusy] = useState(null);   // { label } | null
   const [finishing, setFinishing] = useState(false);  // host onSuccess in flight
   const [settled, setSettled] = useState(null);       // "success" — attempt is over
+  const [hasContent, setHasContent] = useState(false); // is there a card to overlay?
 
   // Plasmic hands us a fresh function identity on every render. Holding the
   // handlers in refs is what stops the init effect below from tearing FirebaseUI
@@ -351,6 +374,7 @@ const FirebaseUIComponent = ({
       if (!mountedRef.current) return;
       const nowBusy = readDomBusy(container);
       setDomBusy(nowBusy);
+      setHasContent(readHasContent(container));
 
       if (clickPageKeyRef.current === null) return; // no optimistic overlay to retire
 
@@ -371,8 +395,18 @@ const FirebaseUIComponent = ({
       attributes: true,
       attributeFilter: ["class", "style"],
     });
+
+    // The card can also change size without any mutation we'd see — the reCAPTCHA
+    // widget settling, a webfont landing — and readHasContent() measures height.
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined" ? new ResizeObserver(sync) : null;
+    resizeObserver?.observe(container);
+
     sync();
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      resizeObserver?.disconnect();
+    };
   }, [isClient, clearClickBusy]);
 
   // ---- signal 2: the click that started an attempt -------------------------
@@ -459,9 +493,14 @@ const FirebaseUIComponent = ({
     </div>
   ) : null;
 
+  // Reserve a box for the loader ONLY when there's no FirebaseUI card to cover.
+  // With a card, the card sizes the component exactly as it did before the overlay
+  // existed — the shape the host laid out is untouched.
+  const reserve = Boolean(overlay) && !hasContent;
+
   return (
     <div
-      className={`ebfu-root${booting ? " ebfu-root--booting" : ""}${className ? ` ${className}` : ""}`}
+      className={`ebfu-root${reserve ? " ebfu-root--reserve" : ""}${className ? ` ${className}` : ""}`}
       style={{ position: "relative", ...style }}
       aria-busy={busy || undefined}
       onClickCapture={handleCapturedClick}
