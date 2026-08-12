@@ -46,7 +46,7 @@
   .shell { display: grid; grid-template-columns: 232px minmax(0, 1fr); height: 100vh; }
   .wrap {
     max-width: 1560px; margin: 0 auto; padding: 16px 24px 20px; min-width: 0;
-    height: 100vh; overflow-y: auto; overflow-x: hidden;
+    height: 100vh; overflow: auto;
   }
 
   aside.side {
@@ -165,35 +165,36 @@
   .count b { color: var(--ink); }
 
   /* ── tables ─────────────────────────────────────────────── */
-  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
-  .scroll { overflow: auto; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
 
   /**
-   * Audit pages pin their chrome and let the TABLE be the scroll region, so the
-   * page title, KPIs, filters and the sticky table header all stay visible while
-   * the rows move. Two earlier attempts were wrong: a 68vh inner box gave two
-   * competing scrollbars, and scrolling the whole column lost the table header
-   * (sticky needs a scroll container to stick inside).
+   * The content column is the ONE scroll region and it scrolls normally — no inner
+   * box and no height traps. Both earlier attempts were worse: a 68vh inner box
+   * gave two competing scrollbars, and flexing the table to fill the viewport
+   * squeezed it to a handful of rows once the pinned KPIs and filters took their
+   * share.
    *
-   * Form-heavy pages like User permissions keep ordinary column scrolling, which
-   * is why this is opt-in via `.app` rather than global.
+   * The consequence to respect: for the sticky <thead> to stick to the column,
+   * nothing between it and `.wrap` may be a scroll container or clip its
+   * overflow. Hence `visible` on both, and the column owns horizontal scrolling.
    */
-  .wrap.app { overflow: hidden; display: flex; flex-direction: column; }
-  .wrap.app > main { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-  .wrap.app #audit { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-  .wrap.app #view { flex: 1 1 auto; min-height: 0; display: flex; }
-  .wrap.app #view > .panel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-  .wrap.app #view .scroll { flex: 1 1 auto; min-height: 0; }
-  @media (max-width: 860px) {
-    /* Back to one page-level scroll; a short flexed table would be unusable. */
-    .wrap.app { overflow: visible; display: block; }
-    .wrap.app #view .scroll { max-height: none; }
-  }
+  .scroll { overflow: visible; }
+  #view > .panel, #perms .panel { overflow: visible; }
   /* `separate` rather than `collapse`: a sticky <th> does not stay put inside a
      collapsed-border table in Chrome, which loses the header as soon as you
      scroll. Borders move onto the cells to keep the same look. */
   table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 13px; }
-  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  /**
+   * Cells truncate rather than letting the table push past the viewport. With
+   * horizontal scrolling living on the content column, an over-wide table would
+   * drag the KPIs and filter bar sideways with it — so long values (emails
+   * especially) get an ellipsis and a `title`, and the CSV still carries the
+   * full text.
+   */
+  th, td {
+    text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line);
+    white-space: nowrap; max-width: 230px; overflow: hidden; text-overflow: ellipsis;
+  }
   thead th {
     position: sticky; top: 0; background: var(--panel); z-index: 2;
     font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-2);
@@ -424,101 +425,6 @@ const TABS = {
       ['relieved', 'Relieved', 'mono', (r) => esc(r.relieved) || '<span class="muted">—</span>'],
       ['loginEmail', 'ERP login email', 'mono', (r) => r.loginEmail
         ? esc(r.loginEmail) : '<span class="tag bad">missing</span>'],
-      ['erpUserEnabled', 'ERP login', '', (r) => r.erpUserExists === null
-        ? '<span class="muted">n/a</span>'
-        : !r.loginEmail ? '<span class="muted">—</span>'
-        : !r.erpUserExists ? '<span class="tag warn">no ERP user</span>'
-        : r.erpUserEnabled ? '<span class="tag bad">enabled</span>'
-        : '<span class="tag good">disabled</span>'],
-      ['erpLastLogin', 'Last ERP login', 'mono', (r) => esc(r.erpLastLogin) || '<span class="muted">never</span>'],
-    ],
-  },
-
-  // 3 ── every Firebase authentication
-  // 1 ── every Firebase account, with today's signups as a filter rather than
-  //      a separate page — they are the same rows either way.
-  firebase: {
-    label: 'Firebase accounts',
-    count: (r) => r.kpis.firebaseTotal,
-    rows: () => REPORT.firebaseAll,
-    facets: false,
-    extra: [
-      ['', 'All accounts'],
-      ['today', 'Created today'],
-      ['linked', 'Linked to an employee'],
-      ['unconfirmedLink', 'Matched a non-login address'],
-      ['unlinked', 'No employee match'],
-      ['internal', '@elbrit.org only'],
-      ['neverSignedIn', 'Never signed in'],
-      ['disabled', 'Disabled accounts'],
-    ],
-    cols: [
-      ['accountCreated', 'Created', 'mono', (r) =>
-        `${esc(r.accountCreated)}${r.createdToday ? ' <span class="tag info">today</span>' : ''}`],
-      ['email', 'Email', 'mono', (r) => r.email
-        ? `${esc(r.email)}${!r.linked && r.internal ? ' <span class="tag warn">internal</span>' : ''}`
-        : '<span class="muted">—</span>'],
-      ['phone', 'Phone', 'mono', (r) => esc(r.phone) || '<span class="muted">—</span>'],
-      ['employeeId', 'Emp ID', 'mono', (r) => !r.linked
-        ? '<span class="tag warn">no match</span>'
-        : r.linkUsable
-          ? esc(r.employeeId)
-          : `${esc(r.employeeId)} <span class="tag warn" title="Matched a non-login address on this employee&apos;s record">other email</span>`],
-      ['employeeName', 'Name', '', (r) => esc(r.employeeName || r.displayName) || '<span class="muted">—</span>'],
-      ['role', 'Role'],
-      ['department', 'Department'],
-      ['providers', 'Provider', '', (r) => (r.providers || []).map((p) =>
-        `<span class="tag">${esc(p.replace('.com', ''))}</span>`).join(' ')],
-      ['lastActive', 'Last active', 'mono', (r) => r.lastActive
-        ? esc(r.lastActive)
-        : r.signedIn ? '<span class="muted">—</span>' : '<span class="tag warn">never signed in</span>'],
-      ['disabled', 'State', '', (r) => r.disabled
-        ? '<span class="tag bad">disabled</span>' : '<span class="tag good">active</span>'],
-    ],
-  },
-
-  // 4 ── the actionable follow-up list
-  pending: {
-    label: 'Still need to login',
-    count: (r) => r.kpis.stillNeedLogin,
-    rows: () => REPORT.stillNeedLogin,
-    facets: true,
-    extra: [
-      ['', 'Everyone pending'],
-      ['noAccountAtAll', 'Never signed up'],
-      ['unconfirmedSignup', 'Signed up under a non-login address'],
-      ['noLink', 'Blocked — no ERP user link'],
-      ['noPhone', 'No phone number on record'],
-    ],
-    cols: [
-      // Why this person is pending. Two different follow-ups: one has never
-      // signed up at all; the other signed up under an address that IS on their
-      // record but is not their ERP login, so it is unconfirmed rather than
-      // proven broken — the app-side resolution is not verifiable from here.
-      ['accountUnconfirmed', 'Status', '', (r) => r.accountUnconfirmed
-        ? `<span class="tag warn" title="A Firebase account exists matching their ${esc(r.matchedVia).toLowerCase()}, but not their ERP login (user_id). Whether it can use the app is unverified — ask the person.">signed up, unconfirmed</span>`
-        : '<span class="tag bad">never signed up</span>'],
-      ['employeeId', 'Emp ID', 'mono'],
-      ['name', 'Name', '', (r) => `${esc(r.name)}${r.noUserLink
-        ? ' <span class="tag bad" title="No user_id in ERP — cannot log in until this is set">no user link</span>' : ''}`
-        + (r.crossLinkedTo ? ` <span class="tag bad" title="Matched ${esc(r.crossLinkedTo)}, which is another employee's ERP login">cross-linked</span>` : '')],
-      ['role', 'Role'],
-      ['department', 'Department'],
-      ['branch', 'Branch'],
-      ['loginEmail', 'ERP login email', 'mono', (r) => r.loginEmail
-        ? esc(r.loginEmail) : '<span class="tag bad">missing</span>'],
-      ['phone', 'Phone (ERP user)', 'mono', (r) => r.phone
-        ? esc(r.phone) : '<span class="muted">—</span>'],
-      ['joined', 'Joined', 'mono'],
-      ['erpUserEnabled', 'ERP login', '', (r) => r.erpUserExists === null
-        ? '<span class="muted">n/a</span>'
-        : !r.loginEmail ? '<span class="muted">—</span>'
-        : !r.erpUserExists ? '<span class="tag warn">no ERP user</span>'
-        : r.erpUserEnabled ? '<span class="tag good">enabled</span>'
-        : '<span class="tag warn">disabled</span>'],
-      // What they actually signed up with, when they did.
-      ['matchedVia', 'Signed up as', '', (r) => r.matchedVia
-        ? `<span class="tag warn">${esc(r.matchedVia)}</span>` : '<span class="muted">—</span>'],
     ],
   },
 
@@ -553,9 +459,6 @@ const TABS = {
         ? `${esc(r.employeeCell)}${r.noPhone === true ? ' <span class="tag warn">copy to user</span>' : ''}`
         : '<span class="muted">—</span>'],
       // Whether they're still reachable/able to log in despite the gap above.
-      ['loginEmail', 'ERP login email', 'mono', (r) => r.loginEmail
-        ? esc(r.loginEmail) : '<span class="tag bad">missing</span>'],
-      ['personalEmail', 'Personal email', 'mono', (r) => esc(r.personalEmail) || '<span class="muted">—</span>'],
       ['hasAccount', 'Logged in', '', (r) => r.hasAccount
         ? '<span class="tag good">yes</span>' : '<span class="tag warn">not yet</span>'],
     ],
@@ -759,14 +662,14 @@ function render() {
   // supplies its own, so there'd be nothing to edit.
   $('#signout').hidden = !(hasCreds() || SERVER_HAS_CREDS);
   $('#side').hidden = false;
-  $('#page-title').textContent = PAGE_TITLES[PAGE] || 'Account Audit';
+  $('#page-title').textContent = PAGE === 'employees'
+    ? (EMP_VIEWS.find(([v]) => v === empView) || [, 'Employees'])[1]
+    : (PAGE_TITLES[PAGE] || 'Account Audit');
   renderNav();
   renderMeta();
 
   const audit = isAuditPage(PAGE);
-  // Audit pages pin their chrome and scroll the table; the permissions page is
-  // form-heavy and scrolls as a whole column.
-  document.querySelector('.wrap').classList.toggle('app', audit);
+  if (audit) TAB = tabForPage(PAGE);
   $('#audit').hidden = !audit;
   $('#perms').hidden = audit;
   // Export applies to a table of report rows; the permissions page has its own.
@@ -832,27 +735,50 @@ function renderKpis() {
  * one page that isn't driven by the report.
  */
 const PAGE_GROUPS = [
-  ['Audit', ['pending', 'firebase', 'links', 'contact', 'coverage']],
-  ['Manage', ['permissions']],
+  ["Audit", ["overview", "employees", "firebase"]],
+  ["Manage", ["permissions"]],
 ];
 const PAGE_TITLES = {
-  pending: 'Still need to login',
-  firebase: 'Firebase accounts',
-  links: 'Employee / user link',
-  contact: 'Missing phone / email',
-  coverage: 'Total coverage',
-  permissions: 'User permissions',
+  overview: "Overview",
+  employees: "Employees",
+  firebase: "Firebase accounts",
+  permissions: "User permissions",
 };
-let PAGE = 'pending';
 
-const isAuditPage = (p) => p in TABS;
+/**
+ * Four pages, not six. The three employee-centric views were separate pages but
+ * they all read the same rows (report.employees) and differ only in which subset
+ * and which columns — so they are one page with a View selector instead.
+ */
+const EMP_VIEWS = [
+  ["pending", "Still need to login"],
+  ["links", "Employee / user link problems"],
+  ["contact", "Missing phone or email"],
+];
+let empView = "pending";
+
+/** Which TABS entry backs the current page. */
+function tabForPage(page) {
+  if (page === "overview") return "coverage";
+  if (page === "employees") return empView;
+  if (page === "firebase") return "firebase";
+  return null;
+}
+
+let PAGE = "employees";
+
+const isAuditPage = (p) => Boolean(tabForPage(p));
 
 function renderNav() {
   const html = PAGE_GROUPS.map(([group, keys]) => {
     const items = keys.map((k) => {
       let badge = '';
-      if (isAuditPage(k) && REPORT) {
-        badge = `<span class="n">${TABS[k].count(REPORT)}</span>`;
+      const t = tabForPage(k);
+      if (k === 'employees' && REPORT) {
+        // The page's headline number is the actionable one, not the current view's.
+        badge = `<span class="n">${REPORT.kpis.stillNeedLogin}</span>`;
+      } else if (t && REPORT) {
+        badge = `<span class="n">${TABS[t].count(REPORT)}</span>`;
       } else if (k === 'permissions' && PERMS) {
         const bad = PERMS.kpis.mismatched;
         badge = `<span class="n${bad ? ' alert' : ''}">${bad || PERMS.kpis.total}</span>`;
@@ -864,16 +790,30 @@ function renderNav() {
   $('#nav').innerHTML = html;
 }
 
+/** Old links from when every view was its own page still resolve. */
+const LEGACY_ROUTES = {
+  today: 'firebase',
+  pending: 'employees',
+  links: 'employees',
+  contact: 'employees',
+  coverage: 'overview',
+};
+
 function routeFromHash() {
   const want = (location.hash || '').replace(/^#\/?/, '').trim();
-  // `today` used to be its own page; keep old links working.
-  if (want === 'today') return 'firebase';
-  return PAGE_TITLES[want] ? want : 'pending';
+  if (PAGE_TITLES[want]) return want;
+  if (LEGACY_ROUTES[want]) {
+    // Land on the right view too, not just the right page.
+    if (LEGACY_ROUTES[want] === 'employees' && want !== 'employees') empView = want;
+    return LEGACY_ROUTES[want];
+  }
+  return 'employees';
 }
 
-function goto(page, { keepExtra = false } = {}) {
-  if (PAGE !== page) {
-    // Facets are per-page vocabularies, so carrying them over would show an empty
+function goto(page, { keepExtra = false, view } = {}) {
+  if (view) empView = view;
+  if (PAGE !== page || view) {
+    // Facets are per-view vocabularies, so carrying them over would show an empty
     // table with a filter whose cause isn't visible.
     filters.q = '';
     filters.department = filters.role = filters.branch = '';
@@ -881,15 +821,23 @@ function goto(page, { keepExtra = false } = {}) {
     ADV_OPEN = false;
   }
   PAGE = page;
-  if (isAuditPage(page)) TAB = page;
+  TAB = tabForPage(page) || TAB;
   if (location.hash !== `#/${page}`) {
     history.replaceState(null, '', `#/${page}`);
   }
   render();
 }
 
-/** Kept for the KPI drill-throughs, which think in tabs. */
-function setTab(t, opts) { goto(t, opts); }
+/**
+ * KPI drill-throughs still name a view (`pending`, `links`, `firebase`…). Map
+ * that onto the page that now hosts it.
+ */
+function setTab(t, opts = {}) {
+  if (t === 'coverage') return goto('overview', opts);
+  if (t === 'firebase') return goto('firebase', opts);
+  if (t === 'permissions') return goto('permissions', opts);
+  return goto('employees', { ...opts, view: t });
+}
 
 window.addEventListener('hashchange', () => {
   const p = routeFromHash();
@@ -908,6 +856,15 @@ function renderControls() {
   const def = TABS[TAB];
   const all = def.rows();
   let html = '';
+
+  // The Employees page hosts three views over the same rows; this is what used to
+  // be three separate sidebar entries.
+  if (PAGE === 'employees') {
+    html += `<div class="fld wide"><span>View</span><select id="empView">`
+      + EMP_VIEWS.map(([v, label]) =>
+        `<option value="${v}" ${empView === v ? 'selected' : ''}>${esc(label)} (${TABS[v].count(REPORT)})</option>`).join('')
+      + `</select></div>`;
+  }
 
   if (TAB !== 'coverage') {
     html += `<div class="fld"><span>Search</span>` +
@@ -942,6 +899,9 @@ function renderControls() {
     + `<span>&nbsp;</span><button id="clear-filters">Clear filters</button></div>`;
   html += `<span class="spacer" style="flex:1"></span><span class="count" id="shown"></span>`;
   $('#controls').innerHTML = html;
+
+  const ev = $('#empView');
+  if (ev) ev.onchange = () => goto('employees', { view: ev.value });
 
   const clear = $('#clear-filters');
   if (clear) clear.onclick = () => {
@@ -1257,6 +1217,12 @@ function renderTable() {
   $('#view').innerHTML = `<div class="panel"><div class="scroll">
     <table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div></div>`;
 
+
+  // A truncated cell must still be readable on hover.
+  $("#view").querySelectorAll("tbody td").forEach((td) => {
+    const t = td.textContent.trim();
+    if (t && t !== "—" && td.scrollWidth > td.clientWidth) td.title = t;
+  });
   $('#view').querySelectorAll('th[data-k]').forEach((th) => {
     th.onclick = () => {
       // Read the live sort state rather than the one captured when this header
@@ -1451,18 +1417,23 @@ function renderPermissions() {
     </div>
 
     <div class="controls">
-      <input type="search" id="pf-q" placeholder="Search user, value, employee…" value="${esc(permFilters.q)}">
-      <select id="pf-user"><option value="">All users</option>
-        ${users.map((u) => `<option value="${esc(u)}" ${permFilters.user === u ? 'selected' : ''}>${esc(u)}</option>`).join('')}</select>
-      <select id="pf-only">
-        <option value="">All permissions</option>
-        <option value="mismatch" ${permFilters.only === 'mismatch' ? 'selected' : ''}>Wrong employee</option>
-        <option value="employee" ${permFilters.only === 'employee' ? 'selected' : ''}>Employee scoped</option>
-        <option value="dangling" ${permFilters.only === 'dangling' ? 'selected' : ''}>Dangling target</option>
-      </select>
-      <button id="pf-export">Export CSV</button>
+      <div class="fld"><span>Search</span>
+        <input type="search" id="pf-q" placeholder="User, value, employee…" value="${esc(permFilters.q)}"></div>
+      <div class="fld wide"><span>User</span>
+        <select id="pf-user"><option value="">All users</option>
+          ${users.map((u) => `<option value="${esc(u)}" ${permFilters.user === u ? 'selected' : ''}>${esc(u)}</option>`).join('')}</select></div>
+      <div class="fld wide"><span>Show</span>
+        <select id="pf-only">
+          <option value="">All permissions</option>
+          <option value="mismatch" ${permFilters.only === 'mismatch' ? 'selected' : ''}>Wrong employee</option>
+          <option value="employee" ${permFilters.only === 'employee' ? 'selected' : ''}>Employee scoped</option>
+          <option value="dangling" ${permFilters.only === 'dangling' ? 'selected' : ''}>Dangling target</option>
+        </select></div>
+      <div class="fld"><span>&nbsp;</span><button id="pf-export">Export CSV</button></div>
       <span class="spacer" style="flex:1"></span>
-      <span class="hint">${rows.length} of ${PERMS.rows.length}</span>
+      <span class="count">${rows.length === PERMS.rows.length
+        ? `<b>${rows.length}</b> permissions`
+        : `<b>${rows.length}</b> of ${PERMS.rows.length} &middot; filtered`}</span>
     </div>
 
     <div class="panel"><div class="scroll">

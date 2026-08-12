@@ -9,6 +9,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { registerElbritCoreComponents } from './share/src/plasmic-init'
 import FirebaseUIComponent from "./components/FirebaseUIComponent";
 import LoginHelpForm from "./components/LoginHelpForm";
+import HelpSupport from "./components/features/help-support";
 import CalendarPage from "@calendar/components/CalendarPage";
 import NovuInbox from "./components/NovuInbox";
 import PushNotificationToggle from "./components/PushNotificationToggle";
@@ -220,6 +221,19 @@ PLASMIC.registerFunction(useEffect, {
     { name: "deps", type: "array", description: "Dependency array", optional: true },
   ],
   returnType: "void",
+});
+
+PLASMIC.registerComponent(HelpSupport, {
+  name: "HelpSupport",
+  displayName: "Help Support",
+  description: "Help desk dashboard, knowledge base, and HD ticket creation flow.",
+  props: {
+    className: {
+      type: "string",
+      description: "Optional wrapper class name.",
+    },
+  },
+  importPath: "./components/features/help-support",
 });
 
 PLASMIC.registerFunction(useCallback, {
