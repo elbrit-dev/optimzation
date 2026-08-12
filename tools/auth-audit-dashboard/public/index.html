@@ -36,7 +36,59 @@
     font: 14px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif;
     -webkit-font-smoothing: antialiased;
   }
-  .wrap { max-width: 1560px; margin: 0 auto; padding: 20px 24px 64px; }
+  /**
+   * App shell: the sidebar never moves and the content is the only scroll region.
+   * Previously the page scrolled AND the table scrolled inside a 68vh box, which
+   * gave two competing scrollbars and made the sidebar feel like it was drifting.
+   */
+  html, body { height: 100%; }
+  body { overflow: hidden; }
+  .shell { display: grid; grid-template-columns: 232px minmax(0, 1fr); height: 100vh; }
+  .wrap {
+    max-width: 1560px; margin: 0 auto; padding: 16px 24px 20px; min-width: 0;
+    height: 100vh; overflow-y: auto; overflow-x: hidden;
+  }
+
+  aside.side {
+    border-right: 1px solid var(--line); background: var(--panel);
+    padding: 18px 12px; height: 100vh; overflow-y: auto;
+    display: flex; flex-direction: column;
+  }
+  aside.side nav { flex: 1 1 auto; }
+  aside.side .brand { font-size: 14px; font-weight: 700; padding: 0 10px 2px; letter-spacing: -0.01em; }
+  aside.side .brand small { display: block; font-weight: 400; font-size: 11px; color: var(--ink-3); letter-spacing: 0; }
+  aside.side .grp {
+    font-size: 10px; text-transform: uppercase; letter-spacing: .09em;
+    color: var(--ink-3); padding: 18px 10px 6px;
+  }
+  aside.side a {
+    display: flex; align-items: center; gap: 8px; text-decoration: none;
+    color: var(--ink-2); font-size: 13px; padding: 7px 10px; border-radius: 7px;
+    margin-bottom: 1px; cursor: pointer;
+  }
+  aside.side a:hover { background: var(--bg); color: var(--ink); }
+  aside.side a.sel { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  aside.side a .n {
+    margin-left: auto; font-size: 11px; font-variant-numeric: tabular-nums;
+    background: var(--bg); color: var(--ink-2); border-radius: 20px; padding: 1px 7px;
+  }
+  aside.side a.sel .n { background: var(--accent); color: #fff; }
+  aside.side a .n.alert { background: var(--bad-soft); color: var(--bad); }
+  aside.side .side-foot { margin-top: 22px; padding: 12px 10px 0; border-top: 1px solid var(--line); }
+  aside.side .side-foot button { width: 100%; margin-bottom: 6px; font-size: 12.5px; }
+
+  /* Sidebar collapses to a horizontal strip on narrow screens; the whole page
+     becomes one scroll region again since a fixed rail would eat the width. */
+  @media (max-width: 860px) {
+    body { overflow: auto; }
+    .shell { grid-template-columns: 1fr; height: auto; }
+    aside.side { height: auto; overflow: visible; border-right: 0; border-bottom: 1px solid var(--line); }
+    .wrap { height: auto; overflow: visible; padding: 16px 16px 48px; }
+    aside.side nav { display: flex; flex-wrap: wrap; gap: 4px; }
+    aside.side .grp { display: none; }
+    aside.side .side-foot { display: flex; gap: 6px; border-top: 0; margin-top: 8px; }
+    aside.side .side-foot button { width: auto; margin: 0; }
+  }
 
   /* ── header ─────────────────────────────────────────────── */
   header { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; margin-bottom: 4px; }
@@ -57,16 +109,16 @@
   /* ── kpis ───────────────────────────────────────────────── */
   /* 140px min keeps all eight cards on one row at ~1250px wide, and degrades to
      4-then-2 columns as the window narrows. */
-  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 18px 0 8px; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 14px 0 6px; }
   /* 9 cards land as 5+4 rather than 8 and a lone orphan on the second row. */
   @media (min-width: 1100px) { .kpis { grid-template-columns: repeat(5, 1fr); } }
   .kpi {
     background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
-    padding: 13px 15px; position: relative; overflow: hidden;
+    padding: 9px 12px; position: relative; overflow: hidden;
   }
-  .kpi .n { font-size: 26px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
-  .kpi .l { color: var(--ink-2); font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; margin-top: 2px; }
-  .kpi .h { color: var(--ink-3); font-size: 11.5px; margin-top: 5px; }
+  .kpi .n { font-size: 21px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .kpi .l { color: var(--ink-2); font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; margin-top: 1px; }
+  .kpi .h { color: var(--ink-3); font-size: 11px; margin-top: 3px; }
   .kpi.hero { border-color: var(--bad); background: var(--bad-soft); }
   .kpi.hero .n, .kpi.hero .l { color: var(--bad); }
   .kpi.ok .n { color: var(--good); }
@@ -90,25 +142,66 @@
   }
   nav.tabs button[aria-selected="true"] .cnt { background: var(--accent-soft); color: var(--accent); }
 
-  /* ── controls ───────────────────────────────────────────── */
-  .controls { display: flex; gap: 9px; flex-wrap: wrap; align-items: center; margin: 16px 0 12px; }
+  /* ── filter toolbar ─────────────────────────────────────── */
+  .controls {
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end;
+    margin: 10px 0 10px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 12px 14px;
+  }
+  .fld { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .fld > span {
+    font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-3);
+  }
   input[type=search], select {
     font: inherit; font-size: 13px; padding: 7px 10px; border-radius: 7px;
-    border: 1px solid var(--line); background: var(--panel); color: var(--ink); max-width: 100%;
+    border: 1px solid var(--line); background: var(--bg); color: var(--ink); max-width: 100%;
   }
-  input[type=search] { min-width: 260px; }
+  select { min-width: 150px; }
+  .fld.wide select { min-width: 190px; }
+  input[type=search] { min-width: 250px; }
   input:focus, select:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
   .hint { color: var(--ink-3); font-size: 12px; }
+  .count { font-size: 12.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .count b { color: var(--ink); }
 
   /* ── tables ─────────────────────────────────────────────── */
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
-  .scroll { overflow-x: auto; max-height: 68vh; overflow-y: auto; }
-  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  .scroll { overflow: auto; }
+
+  /**
+   * Audit pages pin their chrome and let the TABLE be the scroll region, so the
+   * page title, KPIs, filters and the sticky table header all stay visible while
+   * the rows move. Two earlier attempts were wrong: a 68vh inner box gave two
+   * competing scrollbars, and scrolling the whole column lost the table header
+   * (sticky needs a scroll container to stick inside).
+   *
+   * Form-heavy pages like User permissions keep ordinary column scrolling, which
+   * is why this is opt-in via `.app` rather than global.
+   */
+  .wrap.app { overflow: hidden; display: flex; flex-direction: column; }
+  .wrap.app > main { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  .wrap.app #audit { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  .wrap.app #view { flex: 1 1 auto; min-height: 0; display: flex; }
+  .wrap.app #view > .panel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  .wrap.app #view .scroll { flex: 1 1 auto; min-height: 0; }
+  @media (max-width: 860px) {
+    /* Back to one page-level scroll; a short flexed table would be unusable. */
+    .wrap.app { overflow: visible; display: block; }
+    .wrap.app #view .scroll { max-height: none; }
+  }
+  /* `separate` rather than `collapse`: a sticky <th> does not stay put inside a
+     collapsed-border table in Chrome, which loses the header as soon as you
+     scroll. Borders move onto the cells to keep the same look. */
+  table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 13px; }
   th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
   thead th {
     position: sticky; top: 0; background: var(--panel); z-index: 2;
     font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-2);
-    cursor: pointer; user-select: none; border-bottom: 1px solid var(--line);
+    cursor: pointer; user-select: none;
+    /* box-shadow, not border: a collapsed-away border leaves a 1px gap that lets
+       rows show through above the sticky header. */
+    box-shadow: inset 0 -1px 0 var(--line);
+    border-bottom: 0;
   }
   thead th:hover { color: var(--accent); }
   thead th .arrow { color: var(--accent); }
@@ -161,23 +254,52 @@
     font-size: 11px; background: var(--accent); color: #fff; border-radius: 20px;
     padding: 0 6px; margin-left: 6px; font-variant-numeric: tabular-nums;
   }
+
+  /* ── user permissions page ────────────────────────────────── */
+  .page-h { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 0 0 4px; }
+  .page-h h2 { font-size: 17px; margin: 0; letter-spacing: -0.01em; }
+  .form-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 10px; align-items: end;
+  }
+  .form-grid label { display: block; font-size: 11.5px; color: var(--ink-2); margin-bottom: 4px; }
+  .form-grid select, .form-grid input { width: 100%; }
+  button.danger { border-color: var(--bad); color: var(--bad); }
+  button.danger:hover:not(:disabled) { background: var(--bad-soft); border-color: var(--bad); color: var(--bad); }
+  button.tiny { font-size: 11.5px; padding: 3px 9px; }
+  .banner {
+    border-radius: 8px; padding: 9px 12px; font-size: 12.5px; margin: 0 0 12px;
+    border: 1px solid transparent;
+  }
+  .banner.ok { background: var(--good-soft); color: var(--good); }
+  .banner.bad { background: var(--bad-soft); color: var(--bad); }
+  .banner.warn { background: var(--warn-soft); color: var(--warn); }
   [hidden] { display: none !important; }
   .spin { display: inline-block; width: 11px; height: 11px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: sp .7s linear infinite; vertical-align: -1px; }
   @keyframes sp { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="shell">
+
+  <aside class="side" id="side" hidden>
+    <div class="brand">Account Audit<small>ERP · Firebase</small></div>
+    <nav id="nav"></nav>
+    <div class="side-foot">
+      <button id="refresh" class="primary">Refresh</button>
+      <button id="signout" title="Edit the stored ERP and Firebase credentials" hidden>Credentials</button>
+      <button id="logout" title="End this session">Sign out</button>
+    </div>
+  </aside>
+
+  <div class="wrap">
 
   <header>
-    <h1>Account Audit</h1>
+    <h1 id="page-title">Account Audit</h1>
     <span class="sub" id="meta">loading…</span>
     <span class="spacer"></span>
     <button id="export" title="Exactly what the table shows — same rows, same columns, filters included">Export CSV</button>
     <button id="export-all" title="Same rows, but every field rather than only the visible columns">All fields</button>
-    <button id="refresh" class="primary">Refresh</button>
-    <!-- hidden until a password is actually in play; render() decides -->
-    <button id="signout" title="Edit the stored ERP and Firebase credentials" hidden>Credentials</button>
   </header>
 
   <!-- credentials, entered here and kept in this browser only -->
@@ -243,25 +365,27 @@
   </section>
 
   <main id="app" hidden>
-    <section class="kpis" id="kpis"></section>
+    <!-- audit pages -->
+    <div id="audit">
+      <section class="kpis" id="kpis"></section>
+      <div class="controls" id="controls"></div>
+      <div id="adv" hidden></div>
+      <div id="view"></div>
+    </div>
 
-    <nav class="tabs" id="tabs"></nav>
-
-    <div class="controls" id="controls"></div>
-
-    <div id="adv" hidden></div>
-
-    <div id="view"></div>
+    <!-- user permissions page: the only place that writes to ERP -->
+    <div id="perms" hidden></div>
   </main>
 
   <section id="state" class="panel"><div class="msg"><span class="spin"></span> Loading Firebase accounts and ERP employees…</div></section>
 
-</div>
+  </div><!-- /wrap -->
+</div><!-- /shell -->
 
 <script>
 // ───────────────────────────────────────────── state
 let REPORT = null;
-let TAB = 'today';
+let TAB = 'pending';
 let groupBy = 'department';  // coverage tab pivot
 const sortState = {};        // per-tab { key, dir }
 const filters = { q: '', department: '', role: '', branch: '', extra: '' };
@@ -275,38 +399,6 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 // Each tab is: which rows, which columns, and which extra filter applies.
 const TABS = {
   // 1 ── today's Firebase signups
-  today: {
-    label: "Today's created",
-    count: (r) => r.kpis.createdToday,
-    rows: () => REPORT.createdToday,
-    facets: false,
-    extra: [
-      ['', 'All of today'],
-      ['linked', 'Linked to an employee'],
-      ['unconfirmedLink', 'Matched a non-login address'],
-      ['unlinked', 'No employee match'],
-    ],
-    cols: [
-      ['accountCreated', 'Created', 'mono'],
-      // Three states, not two. The middle one says HOW the tie was made rather
-      // than passing judgement on it: the account matched an address we hold for
-      // that person, but not the address ERP knows them by.
-      ['linked', 'Employee', '', (r) => !r.linked
-        ? '<span class="tag warn">no match</span>'
-        : r.linkUsable
-          ? '<span class="tag good">ERP login</span>'
-          : '<span class="tag warn" title="Matched an address on this employee&apos;s record, but not their ERP login (user_id). Whether this account can use the app is unverified.">other email</span>'],
-      ['employeeId', 'Emp ID', 'mono'],
-      ['employeeName', 'Name', '', (r) => esc(r.employeeName || r.displayName) || '<span class="muted">—</span>'],
-      ['role', 'Role'],
-      ['department', 'Department'],
-      ['email', 'Email', 'mono', (r) => esc(r.email) || '<span class="muted">—</span>'],
-      ['phone', 'Phone', 'mono', (r) => esc(r.phone) || '<span class="muted">—</span>'],
-      ['providers', 'Provider', '', (r) => (r.providers || []).map((p) =>
-        `<span class="tag">${esc(p.replace('.com', ''))}</span>`).join(' ')],
-    ],
-  },
-
   // 2 ── employee <-> ERP user link faults
   links: {
     label: 'Employee / user link',
@@ -343,13 +435,16 @@ const TABS = {
   },
 
   // 3 ── every Firebase authentication
+  // 1 ── every Firebase account, with today's signups as a filter rather than
+  //      a separate page — they are the same rows either way.
   firebase: {
-    label: 'Firebase authentications',
+    label: 'Firebase accounts',
     count: (r) => r.kpis.firebaseTotal,
     rows: () => REPORT.firebaseAll,
     facets: false,
     extra: [
       ['', 'All accounts'],
+      ['today', 'Created today'],
       ['linked', 'Linked to an employee'],
       ['unconfirmedLink', 'Matched a non-login address'],
       ['unlinked', 'No employee match'],
@@ -663,12 +758,32 @@ function render() {
   // Only meaningful when credentials came from this browser; the local server
   // supplies its own, so there'd be nothing to edit.
   $('#signout').hidden = !(hasCreds() || SERVER_HAS_CREDS);
+  $('#side').hidden = false;
+  $('#page-title').textContent = PAGE_TITLES[PAGE] || 'Account Audit';
+  renderNav();
   renderMeta();
-  renderKpis();
-  renderTabs();
-  renderControls();
-  renderAdv();
-  renderTable();
+
+  const audit = isAuditPage(PAGE);
+  // Audit pages pin their chrome and scroll the table; the permissions page is
+  // form-heavy and scrolls as a whole column.
+  document.querySelector('.wrap').classList.toggle('app', audit);
+  $('#audit').hidden = !audit;
+  $('#perms').hidden = audit;
+  // Export applies to a table of report rows; the permissions page has its own.
+  $('#export').hidden = !audit;
+  $('#export-all').hidden = !audit;
+
+  if (audit) {
+    renderKpis();
+    renderControls();
+    renderAdv();
+    renderTable();
+  } else if (PAGE === 'permissions') {
+    renderPermissions();
+    // Fetch on first visit rather than making the user press a button — every
+    // other page loads its own data too.
+    if (!PERMS && !permsLoading) loadPermissions();
+  }
 }
 
 function renderMeta() {
@@ -693,7 +808,7 @@ function renderKpis() {
   // One card per tab, same order as the tabs. `pre` is the filter the card's
   // question implies, so clicking a KPI lands on the answer already narrowed.
   $('#kpis').innerHTML = [
-    kpi({ n: k.createdToday, l: "Today's created", h: `${k.createdTodayLinked} matched an employee`, tab: 'today' }),
+    kpi({ n: k.createdToday, l: 'Created today', h: `${k.createdTodayLinked} matched an employee`, tab: 'firebase', pre: 'today' }),
     kpi({ n: k.linkIssues, l: 'Link problems', h: `${k.noUserLink} no link · ${k.leftWithActiveUser} left, still active`, tab: 'links' }),
     kpi({ n: k.firebaseTotal, l: 'Firebase accounts', h: `${k.firebaseUnlinked} no employee · ${k.firebaseLinkedUnconfirmed} other email`, tab: 'firebase' }),
     kpi({ n: k.stillNeedLogin, l: 'Still need to login', h: `of ${k.workingEmployees} working · ${k.unconfirmedSignups} unconfirmed`, cls: 'hero', tab: 'pending' }),
@@ -711,57 +826,131 @@ function renderKpis() {
   });
 }
 
-function renderTabs() {
-  $('#tabs').innerHTML = Object.entries(TABS).map(([key, t]) =>
-    `<button data-t="${key}" aria-selected="${TAB === key}">${t.label}<span class="cnt">${t.count(REPORT)}</span></button>`
-  ).join('');
-  $('#tabs').querySelectorAll('button').forEach((b) => { b.onclick = () => setTab(b.dataset.t); });
+/**
+ * Every audit tab is now its own page, addressable by hash — so a view can be
+ * bookmarked or shared, and a reload lands where you were. `permissions` is the
+ * one page that isn't driven by the report.
+ */
+const PAGE_GROUPS = [
+  ['Audit', ['pending', 'firebase', 'links', 'contact', 'coverage']],
+  ['Manage', ['permissions']],
+];
+const PAGE_TITLES = {
+  pending: 'Still need to login',
+  firebase: 'Firebase accounts',
+  links: 'Employee / user link',
+  contact: 'Missing phone / email',
+  coverage: 'Total coverage',
+  permissions: 'User permissions',
+};
+let PAGE = 'pending';
+
+const isAuditPage = (p) => p in TABS;
+
+function renderNav() {
+  const html = PAGE_GROUPS.map(([group, keys]) => {
+    const items = keys.map((k) => {
+      let badge = '';
+      if (isAuditPage(k) && REPORT) {
+        badge = `<span class="n">${TABS[k].count(REPORT)}</span>`;
+      } else if (k === 'permissions' && PERMS) {
+        const bad = PERMS.kpis.mismatched;
+        badge = `<span class="n${bad ? ' alert' : ''}">${bad || PERMS.kpis.total}</span>`;
+      }
+      return `<a href="#/${k}" class="${PAGE === k ? 'sel' : ''}">${esc(PAGE_TITLES[k])}${badge}</a>`;
+    }).join('');
+    return `<div class="grp">${esc(group)}</div>${items}`;
+  }).join('');
+  $('#nav').innerHTML = html;
 }
 
-function setTab(t, { keepExtra = false } = {}) {
-  if (TAB !== t) {
-    // Facets are per-tab vocabularies, so carrying them across tabs would show
-    // an empty table with a filter the user can't see the reason for.
+function routeFromHash() {
+  const want = (location.hash || '').replace(/^#\/?/, '').trim();
+  // `today` used to be its own page; keep old links working.
+  if (want === 'today') return 'firebase';
+  return PAGE_TITLES[want] ? want : 'pending';
+}
+
+function goto(page, { keepExtra = false } = {}) {
+  if (PAGE !== page) {
+    // Facets are per-page vocabularies, so carrying them over would show an empty
+    // table with a filter whose cause isn't visible.
     filters.q = '';
     filters.department = filters.role = filters.branch = '';
     if (!keepExtra) filters.extra = '';
+    ADV_OPEN = false;
   }
-  TAB = t;
+  PAGE = page;
+  if (isAuditPage(page)) TAB = page;
+  if (location.hash !== `#/${page}`) {
+    history.replaceState(null, '', `#/${page}`);
+  }
   render();
 }
+
+/** Kept for the KPI drill-throughs, which think in tabs. */
+function setTab(t, opts) { goto(t, opts); }
+
+window.addEventListener('hashchange', () => {
+  const p = routeFromHash();
+  if (p !== PAGE) goto(p);
+});
 
 function uniq(rows, key) {
   return [...new Set(rows.map((r) => r[key]).filter(Boolean))].sort();
 }
 
+/** Every control gets a label above it, so nothing relies on guessing what a
+ *  dropdown's current value means. */
+const field = (label, inner) => `<div class="fld"><span>${esc(label)}</span>${inner}</div>`;
+
 function renderControls() {
   const def = TABS[TAB];
   const all = def.rows();
   let html = '';
+
   if (TAB !== 'coverage') {
-    html += `<input type="search" id="q" placeholder="Search name, ID, email, phone…" value="${esc(filters.q)}">`;
+    html += `<div class="fld"><span>Search</span>` +
+      `<input type="search" id="q" placeholder="Name, ID, email, phone…" value="${esc(filters.q)}"></div>`;
   }
   if (def.facets) {
-    for (const [key, label] of [['department', 'All departments'], ['role', 'All roles'], ['branch', 'All branches']]) {
-      html += `<select data-f="${key}"><option value="">${label}</option>` +
+    for (const [key, label, any] of [
+      ['department', 'Department', 'All departments'],
+      ['role', 'Role', 'All roles'],
+      ['branch', 'Branch', 'All branches'],
+    ]) {
+      html += field(label, `<select data-f="${key}"><option value="">${any}</option>` +
         uniq(all, key).map((v) => `<option ${filters[key] === v ? 'selected' : ''}>${esc(v)}</option>`).join('') +
-        `</select>`;
+        `</select>`);
     }
   }
   if (def.extra?.length) {
-    html += `<select data-f="extra">` + def.extra.map(([v, label]) =>
-      `<option value="${v}" ${filters.extra === v ? 'selected' : ''}>${esc(label)}</option>`).join('') + `</select>`;
+    html += `<div class="fld wide"><span>Show</span><select data-f="extra">` + def.extra.map(([v, label]) =>
+      `<option value="${v}" ${filters.extra === v ? 'selected' : ''}>${esc(label)}</option>`).join('') + `</select></div>`;
   }
   if (TAB === 'coverage') {
-    html += `<span class="hint">Group by</span><select id="groupBy">` +
+    html += field('Group by', `<select id="groupBy">` +
       ['department', 'role', 'branch'].map((g) =>
         `<option value="${g}" ${groupBy === g ? 'selected' : ''}>${g[0].toUpperCase()}${g.slice(1)}</option>`).join('') +
-      `</select>`;
+      `</select>`);
   }
+
   const n = advActive();
-  html += `<button id="adv-toggle" class="${ADV_OPEN || n ? 'on' : ''}">Advanced${n ? `<span class="pill">${n}</span>` : ''}</button>`;
-  html += `<span class="spacer" style="flex:1"></span><span class="hint" id="shown"></span>`;
+  html += `<div class="fld"><span>&nbsp;</span>`
+    + `<button id="adv-toggle" class="${ADV_OPEN || n ? 'on' : ''}">Advanced${n ? `<span class="pill">${n}</span>` : ''}</button></div>`;
+  html += `<div class="fld" id="clear-wrap" ${anyFilterActive() ? "" : "hidden"}>`
+    + `<span>&nbsp;</span><button id="clear-filters">Clear filters</button></div>`;
+  html += `<span class="spacer" style="flex:1"></span><span class="count" id="shown"></span>`;
   $('#controls').innerHTML = html;
+
+  const clear = $('#clear-filters');
+  if (clear) clear.onclick = () => {
+    filters.q = '';
+    filters.department = filters.role = filters.branch = filters.extra = '';
+    adv().conds = [];
+    ADV_OPEN = false;
+    renderControls(); renderAdv(); renderTable();
+  };
 
   $('#adv-toggle').onclick = () => {
     ADV_OPEN = !ADV_OPEN;
@@ -781,7 +970,7 @@ function renderControls() {
     s.onchange = () => { filters[s.dataset.f] = s.value; renderTable(); };
   });
   const gb = $('#groupBy');
-  if (gb) gb.onchange = () => { groupBy = gb.value; sortState.coverage = null; renderTabs(); renderTable(); };
+  if (gb) gb.onchange = () => { groupBy = gb.value; sortState.coverage = null; renderNav(); renderTable(); };
 }
 
 // ───────────────────────────────────────────── advanced filters
@@ -1042,7 +1231,13 @@ function renderTable() {
   const rows = currentRows();
   const total = def.rows().length;
   const shown = $('#shown');
-  if (shown) shown.textContent = rows.length === total ? `${total} rows` : `${rows.length} of ${total} rows`;
+  const clearWrap = $("#clear-wrap");
+  if (clearWrap) clearWrap.hidden = !anyFilterActive();
+  if (shown) {
+    shown.innerHTML = rows.length === total
+      ? `<b>${total}</b> rows`
+      : `<b>${rows.length}</b> of ${total} rows &middot; filtered`;
+  }
 
   if (!rows.length) {
     $('#view').innerHTML = `<div class="panel"><div class="msg"><h2>Nothing here</h2>
@@ -1138,7 +1333,272 @@ function exportCsv({ allFields = false } = {}) {
 $('#export').onclick = () => exportCsv();
 $('#export-all').onclick = () => exportCsv({ allFields: true });
 
-$('#refresh').onclick = () => load({ refresh: true });
+// ───────────────────────────────────────────── user permissions
+let PERMS = null;
+let permsLoading = false;
+const permFilters = { user: '', q: '', only: '' };
+let permNotice = null; // { kind, text }
+
+const permApi = async (method, { qs = '', body } = {}) => {
+  const res = await fetch(`/api/permissions${qs}`, {
+    method,
+    headers: body ? { 'content-type': 'application/json' } : {},
+    body: body ? JSON.stringify({ ...body, ...(hasCreds() ? loadCreds() : {}) }) : undefined,
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+  return json;
+};
+
+async function loadPermissions() {
+  permsLoading = true;
+  renderPermissions();
+  try {
+    PERMS = await permApi('GET');
+  } catch (err) {
+    permNotice = { kind: 'bad', text: err.message };
+  } finally {
+    permsLoading = false;
+    renderNav();
+    renderPermissions();
+  }
+}
+
+function permRows() {
+  if (!PERMS) return [];
+  let rows = PERMS.rows;
+  if (permFilters.user) rows = rows.filter((r) => r.user === permFilters.user);
+  if (permFilters.only === 'mismatch') rows = rows.filter((r) => r.mismatch);
+  if (permFilters.only === 'employee') rows = rows.filter((r) => r.allow === 'Employee');
+  if (permFilters.only === 'dangling') rows = rows.filter((r) => r.danglingTarget);
+  if (permFilters.q.trim()) {
+    const n = permFilters.q.trim().toLowerCase();
+    rows = rows.filter((r) => [r.user, r.allow, r.forValue, r.targetEmployeeName, r.ownEmployeeId]
+      .filter(Boolean).join(' ').toLowerCase().includes(n));
+  }
+  return rows;
+}
+
+function renderPermissions() {
+  const el = $('#perms');
+
+  if (!PERMS && permsLoading) {
+    el.innerHTML = '<div class="panel"><div class="msg"><span class="spin"></span> Loading permissions from ERP…</div></div>';
+    return;
+  }
+  if (!PERMS) {
+    el.innerHTML = `<div class="panel"><div class="msg">
+      <h2>User permissions</h2><p>Not loaded yet.</p>
+      <button class="primary" id="perm-load">Load from ERP</button></div></div>`;
+    $('#perm-load').onclick = loadPermissions;
+    return;
+  }
+
+  const k = PERMS.kpis;
+  const rows = permRows();
+  const users = PERMS.users;
+
+  el.innerHTML = `
+    <section class="kpis">
+      ${kpi({ n: k.total, l: 'Permissions', h: `across ${k.users} users` })}
+      ${kpi({ n: k.mismatched, l: 'Wrong employee', h: 'points at someone else', cls: k.mismatched ? 'hero' : '' })}
+      ${kpi({ n: k.employeePerms, l: 'Employee scoped', h: 'of all permissions' })}
+      ${kpi({ n: k.usersWithoutEmployeePerm, l: 'No employee perm', h: 'may not see own data' })}
+      ${kpi({ n: k.dangling, l: 'Dangling target', h: 'record no longer exists' })}
+    </section>
+
+    ${permNotice ? `<div class="banner ${permNotice.kind}">${esc(permNotice.text)}</div>` : ''}
+
+    ${k.mismatched ? `<div class="banner warn">
+      <b>${k.mismatched}</b> permission(s) let a user onto another person's Employee record.
+      Filter to <b>Wrong employee</b> below. A vacant placeholder or a duplicate record
+      carrying the same <code>user_id</code> is not counted — only genuinely different people.
+    </div>` : ''}
+
+    <div class="panel" style="margin-bottom:14px">
+      <div class="card-h">Add a permission
+        <span class="hint">writes to ERP immediately</span></div>
+      <div style="padding:14px">
+        <div class="form-grid">
+          <div>
+            <label for="np-user">ERP user</label>
+            <select id="np-user"><option value="">choose a user…</option>
+              ${users.map((u) => `<option value="${esc(u)}">${esc(u)}</option>`).join('')}</select>
+          </div>
+          <div>
+            <label for="np-allow">Restrict on (doctype)</label>
+            <select id="np-allow">
+              ${PERMS.allowDoctypes.map((d) => `<option value="${esc(d)}" ${d === 'Employee' ? 'selected' : ''}>${esc(d)}</option>`).join('')}</select>
+          </div>
+          <div>
+            <label for="np-value">Value</label>
+            <input id="np-value" list="np-values" placeholder="loading…" spellcheck="false">
+            <datalist id="np-values"></datalist>
+          </div>
+          <div>
+            <label for="np-all">Apply to</label>
+            <select id="np-all">
+              <option value="1" selected>all doctypes</option>
+              <option value="0">one doctype only</option>
+            </select>
+          </div>
+          <div>
+            <button class="primary" id="np-create">Create permission</button>
+          </div>
+        </div>
+        <p class="hint" id="np-hint" style="margin:10px 0 0"></p>
+      </div>
+    </div>
+
+    <div class="controls">
+      <input type="search" id="pf-q" placeholder="Search user, value, employee…" value="${esc(permFilters.q)}">
+      <select id="pf-user"><option value="">All users</option>
+        ${users.map((u) => `<option value="${esc(u)}" ${permFilters.user === u ? 'selected' : ''}>${esc(u)}</option>`).join('')}</select>
+      <select id="pf-only">
+        <option value="">All permissions</option>
+        <option value="mismatch" ${permFilters.only === 'mismatch' ? 'selected' : ''}>Wrong employee</option>
+        <option value="employee" ${permFilters.only === 'employee' ? 'selected' : ''}>Employee scoped</option>
+        <option value="dangling" ${permFilters.only === 'dangling' ? 'selected' : ''}>Dangling target</option>
+      </select>
+      <button id="pf-export">Export CSV</button>
+      <span class="spacer" style="flex:1"></span>
+      <span class="hint">${rows.length} of ${PERMS.rows.length}</span>
+    </div>
+
+    <div class="panel"><div class="scroll">
+      <table><thead><tr>
+        <th>User</th><th>Restrict on</th><th>Value</th><th>Points at</th>
+        <th>Own record</th><th>Applies to</th><th>Created</th><th></th>
+      </tr></thead><tbody>
+        ${rows.length ? rows.map((r) => `<tr data-name="${esc(r.name)}">
+          <td class="mono">${esc(r.user)}</td>
+          <td>${esc(r.allow)}</td>
+          <td class="mono">${esc(r.forValue)}</td>
+          <td>${r.allow !== 'Employee' ? '<span class="muted">—</span>'
+            : r.danglingTarget ? '<span class="tag bad">no such record</span>'
+            : `${esc(r.targetEmployeeName)}${r.mismatch
+              ? ' <span class="tag bad" title="This is another person&apos;s record">wrong person</span>'
+              : ' <span class="tag good">self</span>'}`}</td>
+          <td class="mono">${esc(r.ownEmployeeId) || '<span class="muted">—</span>'}</td>
+          <td>${r.applyToAll ? '<span class="tag">all doctypes</span>' : `<span class="tag warn">${esc(r.applicableFor || 'one doctype')}</span>`}</td>
+          <td class="mono">${esc(r.created)}</td>
+          <td><button class="tiny danger" data-del="${esc(r.name)}">Delete</button></td>
+        </tr>`).join('')
+        : '<tr><td colspan="8"><div class="msg">No permissions match these filters.</div></td></tr>'}
+      </tbody></table>
+    </div></div>`;
+
+  // ── wiring ──
+  $('#pf-q').oninput = (e) => { permFilters.q = e.target.value; renderPermissions(); };
+  $('#pf-user').onchange = (e) => { permFilters.user = e.target.value; renderPermissions(); };
+  $('#pf-only').onchange = (e) => { permFilters.only = e.target.value; renderPermissions(); };
+  $('#pf-export').onclick = () => exportPermissions(rows);
+
+  const loadValues = async () => {
+    const dt = $('#np-allow').value;
+    const input = $('#np-value');
+    input.placeholder = 'loading…';
+    try {
+      const { options } = await permApi('GET', { qs: `?options=${encodeURIComponent(dt)}` });
+      $('#np-values').innerHTML = options.map((o) =>
+        `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join('');
+      input.placeholder = `${options.length} ${dt} records — type to search`;
+    } catch (err) {
+      input.placeholder = `couldn't load ${dt} values`;
+    }
+  };
+  $('#np-allow').onchange = loadValues;
+  loadValues();
+
+  // Picking a user pre-fills their own employee id, since that is the permission
+  // people actually need and getting it wrong is the fault this page exists for.
+  $('#np-user').onchange = (e) => {
+    const emp = (PERMS.employees || []).find((x) => x.user === e.target.value);
+    if (emp && $('#np-allow').value === 'Employee') {
+      $('#np-value').value = emp.id;
+      $('#np-hint').textContent = `${emp.name} — their own Employee record is ${emp.id}.`;
+    } else {
+      $('#np-hint').textContent = '';
+    }
+  };
+
+  $('#np-create').onclick = async () => {
+    const user = $('#np-user').value;
+    const allow = $('#np-allow').value;
+    const forValue = $('#np-value').value.trim();
+    const applyToAll = $('#np-all').value === '1';
+    if (!user || !forValue) {
+      permNotice = { kind: 'bad', text: 'Choose a user and a value first.' };
+      return renderPermissions();
+    }
+    // Naming the exact effect beats a generic "are you sure?".
+    if (!confirm(`Create permission?\n\n${user}\nwill be restricted to ${allow} = ${forValue}\n\nThis changes what they can see in ERP immediately.`)) return;
+    $('#np-create').disabled = true;
+    try {
+      await permApi('POST', { body: { user, allow, forValue, applyToAll } });
+      permNotice = { kind: 'ok', text: `Created: ${user} → ${allow} ${forValue}` };
+      await loadPermissions();
+    } catch (err) {
+      permNotice = { kind: 'bad', text: err.message };
+      renderPermissions();
+    }
+  };
+
+  el.querySelectorAll('[data-del]').forEach((b) => {
+    b.onclick = async () => {
+      const name = b.dataset.del;
+      const row = PERMS.rows.find((r) => r.name === name);
+      if (!confirm(`Delete this permission?\n\n${row.user}\n${row.allow} = ${row.forValue}\n\nThey will immediately lose that restriction in ERP.`)) return;
+      b.disabled = true;
+      try {
+        await permApi('DELETE', { qs: `?name=${encodeURIComponent(name)}`, body: { name } });
+        permNotice = { kind: 'ok', text: `Deleted: ${row.user} → ${row.allow} ${row.forValue}` };
+        await loadPermissions();
+      } catch (err) {
+        permNotice = { kind: 'bad', text: err.message };
+        renderPermissions();
+      }
+    };
+  });
+}
+
+function exportPermissions(rows) {
+  const cols = [
+    ['user', 'User'], ['allow', 'Restrict on'], ['forValue', 'Value'],
+    ['targetEmployeeName', 'Points at'], ['targetEmployeeUser', 'Target belongs to'],
+    ['ownEmployeeId', 'Own record'], ['ownEmployeeName', 'Own name'],
+    ['ownership', 'Ownership'], ['mismatch', 'Wrong employee'],
+    ['applyToAll', 'All doctypes'], ['applicableFor', 'Applicable for'],
+    ['isDefault', 'Is default'], ['created', 'Created'], ['createdBy', 'Created by'],
+    ['name', 'Permission id'],
+  ];
+  const cell = (v) => {
+    const s = v === null || v === undefined ? ''
+      : typeof v === 'boolean' ? (v ? 'yes' : 'no') : String(v);
+    const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+    return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+  };
+  const csv = [cols.map(([, l]) => cell(l)).join(',')]
+    .concat(rows.map((r) => cols.map(([k]) => cell(r[k])).join(',')))
+    .join('\r\n');
+  const filtered = permFilters.user || permFilters.only || permFilters.q.trim();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([String.fromCharCode(0xFEFF) + csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = `user-permissions${filtered ? '-filtered' : ''}-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+$('#refresh').onclick = () => {
+  if (PAGE === 'permissions') return loadPermissions();
+  return load({ refresh: true });
+};
+$('#logout').onclick = async () => {
+  await fetch('/api/logout', { method: 'POST' }).catch(() => {});
+  location.href = '/login.html';
+};
+
+PAGE = routeFromHash();
 load();
 </script>
 </body>

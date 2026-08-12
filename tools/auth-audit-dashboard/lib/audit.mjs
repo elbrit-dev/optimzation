@@ -388,6 +388,12 @@ function setErpToken(token) {
   erpTokenCache = token ? String(token).trim() : null
 }
 
+/**
+ * @param {string} path
+ * @param {{erpToken?, erpBaseUrl?, method?, body?}} [creds]
+ *   `method`/`body` are only used by the User Permission writes — everything
+ *   else in this tool is a plain GET.
+ */
 async function erpFetch(path, creds = {}) {
   const token = creds.erpToken || await getErpToken()
   if (!token) {
@@ -395,21 +401,37 @@ async function erpFetch(path, creds = {}) {
     err.code = 'NO_ERP_TOKEN'
     throw err
   }
+  const method = creds.method || 'GET'
   const res = await fetch(`${creds.erpBaseUrl || CONFIG.erpBaseUrl}${path}`, {
+    method,
     headers: {
       Accept: 'application/json',
+      ...(creds.body ? { 'Content-Type': 'application/json' } : {}),
       // Tolerate a pasted value that already carries the scheme, otherwise we'd
       // send "token token k:s" and ERP 401s with no clue why.
       Authorization: /^token\s/i.test(token) ? token : `token ${token}`,
     },
+    ...(creds.body ? { body: JSON.stringify(creds.body) } : {}),
   })
   const text = await res.text()
   let json = null
   try { json = JSON.parse(text) } catch { /* HTML error page */ }
   if (!res.ok) {
-    const detail = json?.exception || json?.message || text.slice(0, 200)
+    // Frappe buries the useful line in _server_messages; surface that first.
+    let detail = json?.exception || json?.message || text.slice(0, 200)
+    if (json?._server_messages) {
+      try {
+        const first = JSON.parse(json._server_messages)[0]
+        const parsed = typeof first === 'string' ? JSON.parse(first) : first
+        if (parsed?.message) detail = parsed.message
+      } catch { /* keep what we had */ }
+    }
     const err = new Error(`ERP ${res.status}: ${String(detail).replace(/<[^>]+>/g, ' ').trim()}`)
-    err.code = res.status === 401 || res.status === 403 ? 'BAD_ERP_TOKEN' : 'ERP_ERROR'
+    err.code = res.status === 401 ? 'BAD_ERP_TOKEN'
+      : res.status === 403 ? 'ERP_FORBIDDEN'
+      : res.status === 409 ? 'ERP_DUPLICATE'
+      : 'ERP_ERROR'
+    err.status = res.status
     throw err
   }
   return json

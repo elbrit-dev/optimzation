@@ -23,6 +23,11 @@ import {
   invalidateReportCache, log,
 } from './lib/audit.mjs'
 import { STORED } from './lib/credentials.mjs'
+import {
+  listUserPermissions, fetchEmployeeIndex, analysePermissions,
+  createUserPermission, deleteUserPermission, listAllowOptions,
+  COMMON_ALLOW_DOCTYPES,
+} from './lib/permissions.mjs'
 
 /**
  * Credentials for a local run. `allowLocalFallback` is what lets the shared core
@@ -97,6 +102,47 @@ const server = createServer(async (req, res) => {
       invalidateReportCache()
       log('erp token saved to erp-token.txt')
       return sendJson(res, 200, { ok: true })
+    }
+
+    if (url.pathname === '/api/permissions') {
+      const creds = await localCreds()
+      if (!creds.erpToken) {
+        return sendJson(res, 428, { error: 'No ERP API token yet.', code: 'CREDENTIALS_REQUIRED' })
+      }
+      const body = (req.method === 'POST' || req.method === 'DELETE')
+        ? JSON.parse((await readBody(req)) || '{}')
+        : {}
+
+      if (req.method === 'GET') {
+        const optionsFor = url.searchParams.get('options')
+        if (optionsFor) {
+          return sendJson(res, 200, {
+            doctype: optionsFor,
+            options: await listAllowOptions(creds, optionsFor),
+          })
+        }
+        const user = url.searchParams.get('user') || ''
+        const [permissions, employees] = await Promise.all([
+          listUserPermissions(creds, user ? { user } : {}),
+          fetchEmployeeIndex(creds),
+        ])
+        return sendJson(res, 200, {
+          ...analysePermissions(permissions, employees),
+          allowDoctypes: COMMON_ALLOW_DOCTYPES,
+          users: [...new Set(employees.map((e) => e.user_id).filter(Boolean))].sort(),
+          employees: employees.filter((e) => e.status === 'Active')
+            .map((e) => ({ id: e.name, name: e.employee_name, user: e.user_id || '' })),
+          scope: user || 'all',
+        })
+      }
+      if (req.method === 'POST') {
+        return sendJson(res, 201, { ok: true, created: await createUserPermission(creds, body) })
+      }
+      if (req.method === 'DELETE') {
+        const name = url.searchParams.get('name') || body.name
+        return sendJson(res, 200, { ok: true, ...(await deleteUserPermission(creds, name)) })
+      }
+      return sendJson(res, 405, { error: 'GET, POST or DELETE.' })
     }
 
     if (url.pathname === '/api/report') {

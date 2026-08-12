@@ -11,6 +11,7 @@ doesn't import from the Next app and the app doesn't know it exists.
 ```
 tools/auth-audit-dashboard/
   lib/audit.mjs                    comparison logic — fetch, match, aggregate
+  lib/permissions.mjs              User Permission list/create/delete + analysis
   lib/auth.mjs                     generic auth: PBKDF2 password + HMAC session
   lib/auth-secrets.mjs             password hash + session secret (generated)
   public/index.html                the dashboard
@@ -20,12 +21,14 @@ tools/auth-audit-dashboard/
   netlify/edge-functions/gate.mjs  auth gate — runs in front of everything
   netlify/functions/login.mjs      POST /api/login, /api/logout
   netlify/functions/report.mjs     POST /api/report
+  netlify/functions/permissions.mjs  GET/POST/DELETE /api/permissions (writes ERP)
   set-password.mjs                 sets the login password (no env vars)
   set-credentials.mjs              stores the ERP token + Firebase key once
   netlify.toml                     config for its own Netlify site
   selftest.mjs                     76 checks — matching logic
   selftest-auth.mjs                19 checks — endpoint fails closed
   selftest-login.mjs               36 checks — password, session, cookie, gate
+  selftest-permissions.mjs         19 checks — permission ownership rules
   start.cmd                        double-click launcher
   DEPLOY.md                        how it is deployed
 ```
@@ -80,9 +83,65 @@ file would ship inside the deployed function bundle and stay in git history
 permanently, and it grants full admin over the whole Firebase project.
 ---
 
-## The six tabs
+## Pages
 
-| # | Tab | Question | Rows |
+A sidebar, not tabs. Each view is its own page with its own URL
+(`#/pending`, `#/permissions`), so a view can be bookmarked or shared and a reload
+lands where you were. The sidebar shows a live count per page, and the
+**User permissions** badge turns red when there is a mis-assigned permission.
+
+```
+AUDIT                        MANAGE
+  Today's created              User permissions
+  Employee / user link
+  Firebase authentications
+  Still need to login
+  Missing phone / email
+  Total coverage
+```
+
+## User permissions — the only page that writes to ERP
+
+Everything else in this tool reads. This page creates and deletes ERPNext
+**User Permission** records, which changes what a real person can see, **immediately**.
+
+- **Create** — pick an ERP user and a doctype, and the value box autocompletes from
+  the real records (954 employees, say). Choosing a user pre-fills *their own*
+  Employee id, since that is the permission people actually need.
+- **Delete** — per row, and it names the exact user and value in the confirmation
+  rather than asking a generic "are you sure?". Deletion is always by exact
+  permission id; there is no filter-based delete, deliberately.
+- **Export CSV** of the filtered rows, same as the audit pages.
+
+### What it flags
+
+A `User Permission` with `allow = Employee` points a user at one Employee record.
+If that record belongs to **someone else**, that person can see another
+employee's data. On live data: **9 of 1,327** permissions.
+
+| Flag | Meaning |
+|---|---|
+| **wrong person** | the target Employee record belongs to a different user |
+| **no such record** | `for_value` points at an Employee that no longer exists |
+| **No employee perm** | user has no `Employee` permission at all — often why they can't see their own records |
+
+**Ownership is judged by `user_id`, not record id** — and that distinction matters.
+Comparing ids alone flagged 12, of which 3 were wrong: a user's `user_id` can sit
+on more than one Employee record, either a vacant placeholder (`ajay959` is on both
+`E00959` and `Vacant_Ajay Giri V01745`) or a duplicate (`birat@elbrit.org` on
+`DE062` and `DE078`). Those are ERP data faults but nobody is seeing another
+person's data, so they don't count. `selftest-permissions.mjs` pins both cases —
+a false positive here would push you into revoking a correct permission.
+
+### The ERP token needs write access
+
+`User Permission` create/delete requires write scope. If the token is read-only,
+ERP answers **403** and the page surfaces that verbatim, saying the token needs
+write access — rather than failing vaguely.
+
+## The six audit pages
+
+| # | Page | Question | Rows |
 |---|---|---|---|
 | 1 | **Today's created** | Which Firebase accounts were created today, and did each match an employee? | Firebase accounts, `createdAt` = today |
 | 2 | **Employee / user link** | Where is the Employee↔ERP-User link broken? Two faults in one place. | working employees with no `user_id`, **plus** `Left` employees whose ERP login is still enabled |

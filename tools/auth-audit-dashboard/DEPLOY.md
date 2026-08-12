@@ -112,6 +112,7 @@ folder reported `publish: C:\...\elbrit\public`.
 node selftest.mjs         # 76 checks — matching logic
 node selftest-auth.mjs    # 19 checks — endpoint fails closed without credentials
 node selftest-login.mjs   # 36 checks — password, session, cookie, gate
+node selftest-permissions.mjs # 19 checks — permission ownership rules
 ```
 
 Then confirm the live gate:
