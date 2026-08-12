@@ -416,7 +416,7 @@ const viewSwitcherMeta = {
   importPath: './src/components/ViewSwitcher',
   importName: 'ViewSwitcher',
   description:
-    'Standalone segmented control (e.g. Cards / Table). Not tied to any provider — drop it anywhere and bind its value to a Plasmic variable to drive which layout shows. Also used internally by Elbrit DataProvider (Views) for its built-in view switcher.',
+    'Standalone segmented control (e.g. Cards / Table). Not tied to any provider — drop it into the toolbarExtra slot, or anywhere else, and bind its value to a Plasmic variable to drive which layout shows. Also used internally by Elbrit DataProvider (Views) for its built-in view switcher.',
   props: {
     views: {
       type: 'object',

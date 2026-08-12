@@ -1,0 +1,15 @@
+{
+  "name": "elbrit-account-audit",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Standalone dashboard comparing ERPNext employees against Firebase Authentication accounts.",
+  "//": "Deliberately zero dependencies. This file also stops Netlify's framework detection from walking up to the repo root and auto-injecting @netlify/plugin-nextjs, which fails here because there is no Next.js build output to find.",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node selftest.mjs && node selftest-auth.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

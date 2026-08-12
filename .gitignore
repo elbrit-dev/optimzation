@@ -35,3 +35,23 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# firebase auth exports (contain user PII: emails, phone numbers, UIDs)
+firebase-auth-*.csv
+firebase-auth-*.json
+account-audit-*.csv
+elbrit-users.json
+*-serviceaccount.json
+*-firebase-adminsdk-*.json
+
+# account audit dashboard — saved ERP API token (never deploy or commit this)
+tools/auth-audit-dashboard/erp-token.txt
+# scratch file holding Netlify env values to paste into the UI (secrets)
+tools/auth-audit-dashboard/netlify-env.local.txt
+
+# netlify CLI local state / linked-site metadata
+.netlify/
+
+# account audit dashboard — generated files holding live secrets
+tools/auth-audit-dashboard/lib/credentials.mjs
+tools/auth-audit-dashboard/lib/auth-secrets.mjs

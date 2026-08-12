@@ -1,0 +1,3 @@
+# Internal staff-data dashboard. Not for indexing.
+User-agent: *
+Disallow: /

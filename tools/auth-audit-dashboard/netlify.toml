@@ -1,0 +1,43 @@
+# Account Audit Dashboard — its own Netlify site, separate from the elbrit app.
+#
+# Point the Netlify site's "Base directory" at tools/auth-audit-dashboard so this
+# file is the one that applies. Nothing here affects the root site.
+
+[build]
+  # Static page + one function. No bundler, no build step.
+  #
+  # `command` is deliberately ABSENT. Setting one (even a no-op echo) makes
+  # Netlify run a real build, which triggers framework detection, which injects
+  # @netlify/plugin-nextjs from the repo root and then fails with "publish
+  # directory does not contain expected Next.js build output". The local
+  # package.json keeps that detection anchored here too.
+  publish = "public"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+
+# Auth gate in front of every request, including the static page — an
+# unauthenticated visitor never receives index.html. Declared here rather than by
+# folder convention so the excluded login paths are explicit.
+[[edge_functions]]
+  function = "gate"
+  path = "/*"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # This site displays staff PII. Keep it out of search engines and caches, and
+    # deny framing so it can't be embedded elsewhere.
+    X-Robots-Tag = "noindex, nofollow, noarchive"
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "no-referrer"
+    Cache-Control = "no-store, must-revalidate"
+    Permissions-Policy = "geolocation=(), microphone=(), camera=()"
+
+[[headers]]
+  for = "/api/*"
+  [headers.values]
+    Cache-Control = "no-store, no-cache, must-revalidate, private"
+    X-Robots-Tag = "noindex, nofollow"
