@@ -238,7 +238,15 @@ PLASMIC.registerComponent(HelpSupport, {
       displayName: "Auth token",
       description: "ERP token header value, for example token key:secret.",
     },
+    className: {
+      type: "string",
+      displayName: "className",
+      description:
+        "Applied to the root element so width, height, and spacing can be set from Studio. Setting it replaces the built-in full-height sizing, so set a height here too.",
+      defaultValue: "",
+    },
   },
+  styleSections: true,
   importPath: "./components/features/help-support",
 });
 
