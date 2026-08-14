@@ -129,10 +129,12 @@ export function mapHDTicketNodeToSupportTicket(node, config = {}) {
   const agentGroup = node.agent_group__name || linkName(node.agent_group) || node.agent_group || "";
   const status = node.status__name || linkName(node.status) || node.status || "Open";
   const priority = node.priority__name || linkName(node.priority) || node.priority || "Medium";
-  // Only a real ToDo allocation counts as an assignee. The old chain fell back to
-  // owner/modified_by, which named the ticket's creator rather than whoever it is
-  // assigned to — and those User links are no longer fetched.
-  const assignee = node.assignee || node.allocated_to__name || linkName(node.allocated_to) || "";
+  // `_assign` rides along on the ticket row, so it resolves for the requester too. The
+  // ToDo merge only works for whoever owns the ToDo, which left the assignee reading
+  // "Unassigned" for everyone else.
+  const assignedUsers = (parseJsonField(node._assign, []) || []).filter(Boolean);
+  const assignee =
+    node.assignee || assignedUsers[0] || node.allocated_to__name || linkName(node.allocated_to) || "";
   const employee = node.raised_by || node.contact__name || node.customer__name || "";
   const descriptionHtml = sanitizeHtml(normalizeAssetUrls(node.description || node.summary || "", config));
   const ticketDate = node.opening_date || node.creation || "";
@@ -156,6 +158,7 @@ export function mapHDTicketNodeToSupportTicket(node, config = {}) {
     raisedBy: node.raised_by || "",
     team: agentGroup || "Unassigned team",
     assignee: assignee || "Unassigned",
+    assignees: assignedUsers,
     agentGroup,
     ticketType,
     priority,

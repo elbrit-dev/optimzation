@@ -4,11 +4,12 @@ import { HD_TICKET_DOCTYPE, HD_TICKET_GRAPHQL_NAME } from "./hdTicketFields";
 // document ({ name }) makes Frappe defer-resolve the linked doc, which needs read
 // permission on that doctype — on User links that fails the whole query with
 // "GraphQL deferred execution failed to complete" for anyone but an admin token.
-export const HD_TICKETS_QUERY = `
+const buildHDTicketsQuery = (extraFields = "") => `
 query HDTickets($first: Int!, $after: String, $filters: [DBFilterInput!]) {
   ${HD_TICKET_GRAPHQL_NAME}(first: $first, after: $after, filter: $filters, sortBy: { field: CREATION, direction: DESC }) {
     edges {
       node {
+        ${extraFields}
         name
         subject
         raised_by
@@ -51,6 +52,15 @@ query HDTickets($first: Int!, $after: String, $filters: [DBFilterInput!]) {
   }
 }
 `;
+
+export const HD_TICKETS_QUERY = buildHDTicketsQuery();
+
+// Frappe stores assignments on the document itself in `_assign`, which the requester can
+// read as part of their own ticket — unlike the ToDo rows, which Frappe scopes to the
+// user they belong to. `_assign` is a standard column rather than a DocField though, so
+// whether this schema exposes it is unverified: the client tries this variant first and
+// falls back to HD_TICKETS_QUERY if the server rejects the field.
+export const HD_TICKETS_QUERY_WITH_ASSIGN = buildHDTicketsQuery("_assign");
 
 export const HD_TICKET_OPTIONS_QUERY = `
 query HDTicketOptions($first: Int!) {

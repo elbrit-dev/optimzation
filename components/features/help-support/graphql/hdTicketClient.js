@@ -7,6 +7,7 @@ import {
   HD_TICKET_COMMUNICATIONS_QUERY,
   HD_TICKET_OPTIONS_QUERY,
   HD_TICKETS_QUERY,
+  HD_TICKETS_QUERY_WITH_ASSIGN,
   HD_VIEWS_QUERY,
   SAVE_HD_TICKET_COMMENT_MUTATION,
   SAVE_HD_TICKET_COMMUNICATION_MUTATION,
@@ -23,10 +24,31 @@ import {
   mapHDTicketsResponse,
   mapHDViewsResponse,
 } from "./hdTicketMapper";
+import { HD_TICKET_DOCTYPE } from "./hdTicketFields";
 import { clearHelpDeskGraphQLCache, executeHelpDeskGraphQL, executeHelpDeskMethod } from "./graphqlClient";
 
+// `_assign` is a standard column, not a DocField, so this schema may not expose it. Try
+// it once; if the server specifically rejects that field, remember and use the plain
+// query from then on. Any other error is a genuine failure and is rethrown.
+let assignFieldSupported = true;
+
+async function runHDTicketsQuery(variables, graphqlConfig) {
+  if (assignFieldSupported) {
+    try {
+      return await executeHelpDeskGraphQL(HD_TICKETS_QUERY_WITH_ASSIGN, variables, {
+        cache: true,
+        config: graphqlConfig,
+      });
+    } catch (error) {
+      if (!/_assign/i.test(error?.message || "")) throw error;
+      assignFieldSupported = false;
+    }
+  }
+  return executeHelpDeskGraphQL(HD_TICKETS_QUERY, variables, { cache: true, config: graphqlConfig });
+}
+
 export async function fetchHDTickets({ first = 50, filters = null, graphqlConfig } = {}) {
-  const data = await executeHelpDeskGraphQL(HD_TICKETS_QUERY, { first, filters }, { cache: true, config: graphqlConfig });
+  const data = await runHDTicketsQuery({ first, filters }, graphqlConfig);
   const tickets = mapHDTicketsResponse(data, graphqlConfig);
 
   try {
@@ -57,11 +79,7 @@ export async function fetchHDTicketByName(ticketName, graphqlConfig) {
 async function fetchHDTicketDocs(names, graphqlConfig) {
   const docs = await Promise.all(
     names.map((name) =>
-      executeHelpDeskGraphQL(
-        HD_TICKETS_QUERY,
-        { first: 1, filters: [{ fieldname: "name", operator: "EQ", value: name }] },
-        { cache: true, config: graphqlConfig }
-      )
+      runHDTicketsQuery({ first: 1, filters: [{ fieldname: "name", operator: "EQ", value: name }] }, graphqlConfig)
         .then((data) => mapHDTicketsResponse(data, graphqlConfig)[0] || null)
         .catch(() => null)
     )

@@ -2142,7 +2142,12 @@ export default function HelpSupportExperience({
         ticketTypes={ticketTypes}
         ticketPriorities={ticketPriorities}
         ticketStatuses={ticketStatuses}
-        canManage={assignedTicketIds.has(selectedTicket.id)}
+        // Either source proves the assignment: the ToDo lookup finds tickets assigned to
+        // you, and _assign confirms it on a ticket you reached another way.
+        canManage={
+          assignedTicketIds.has(selectedTicket.id) ||
+          (selectedTicket.assignees || []).some((assigned) => isSameEmail(assigned, supportUser.email))
+        }
         isRequester={isSameEmail(selectedTicket.raisedBy, supportUser.email)}
       />
     );
