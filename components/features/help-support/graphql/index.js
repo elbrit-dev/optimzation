@@ -6,3 +6,5 @@ export * from "./graphqlClient";
 export * from "./hdKnowledge.graphql";
 export * from "./hdKnowledgeMapper";
 export * from "./hdKnowledgeClient";
+export * from "./employee.graphql";
+export * from "./employeeClient";

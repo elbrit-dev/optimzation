@@ -17,9 +17,16 @@ export async function fetchHDArticleCategories({ first = 50, after = null, artic
   return mapHDArticleCategoriesResponse(data, articles);
 }
 
-export async function fetchHelpSupportDashboard({ ticketFirst = 50, articleFirst = 50, categoryFirst = 50, fetchTickets, graphqlConfig } = {}) {
+export async function fetchHelpSupportDashboard({
+  ticketFirst = 50,
+  articleFirst = 50,
+  categoryFirst = 50,
+  fetchTickets,
+  ticketFilters = null,
+  graphqlConfig,
+} = {}) {
   const [tickets, articles] = await Promise.all([
-    fetchTickets ? fetchTickets({ first: ticketFirst, graphqlConfig }) : Promise.resolve([]),
+    fetchTickets ? fetchTickets({ first: ticketFirst, filters: ticketFilters, graphqlConfig }) : Promise.resolve([]),
     fetchHDArticles({ first: articleFirst, graphqlConfig }),
   ]);
   const categories = await fetchHDArticleCategories({ first: categoryFirst, articles, graphqlConfig });

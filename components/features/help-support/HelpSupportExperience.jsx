@@ -12,6 +12,7 @@ import {
   fetchHDTickets,
   fetchHDViews,
   fetchHelpDeskLoggedUser,
+  fetchEmployeeByUser,
   fetchHelpSupportDashboard,
   saveHDArticleComment,
   saveHDTicketComment,
@@ -34,8 +35,28 @@ const HELP_SUPPORT_UI_CONTENT = {
   },
 };
 
+// Knowledge base collections only their own department may browse, keyed by the HD
+// Article Category label and the ERP Department label. Matching is exact on purpose:
+// ERP also has an "ITF" department, which a prefix or substring test would wrongly let
+// through the "IT" rule.
+const DEPARTMENT_RESTRICTED_COLLECTIONS = new Map([["it", "it"]]);
+
 function cx(...classes) {
   return classes.filter(Boolean).join(" ");
+}
+
+function normalizeDepartment(value) {
+  // Department docnames carry a company suffix: "IT - ELPL" -> "it".
+  return String(value || "")
+    .replace(/\s*-\s*[A-Za-z]{1,6}$/, "")
+    .trim()
+    .toLowerCase();
+}
+
+function canViewCollection(categoryName, department) {
+  const requiredDepartment = DEPARTMENT_RESTRICTED_COLLECTIONS.get(String(categoryName || "").trim().toLowerCase());
+  if (!requiredDepartment) return true;
+  return normalizeDepartment(department) === requiredDepartment;
 }
 
 function isEmail(value) {
@@ -1442,6 +1463,7 @@ export default function HelpSupportExperience({
   const [ticketStatuses, setTicketStatuses] = useState([]);
   const [ticketViews, setTicketViews] = useState([]);
   const [erpUser, setErpUser] = useState("");
+  const [erpDepartment, setErpDepartment] = useState("");
   const [isLoadingContent, setIsLoadingContent] = useState(false);
   const effectiveUrl = url || graphqlEndpoint;
   const effectiveToken = token || authToken;
@@ -1465,19 +1487,48 @@ export default function HelpSupportExperience({
       setTicketStatuses([]);
       setTicketViews([]);
       setErpUser("");
+      setErpDepartment("");
       setTicketFilter("");
       setIsLoadingContent(false);
       return undefined;
     }
 
-    Promise.allSettled([
-      fetchHelpSupportDashboard({ fetchTickets: fetchHDTickets, graphqlConfig }),
-      fetchHDTicketOptions({ graphqlConfig }),
-      fetchHDViews({ graphqlConfig }),
-      fetchHelpDeskLoggedUser(graphqlConfig),
-    ])
-      .then(([contentResult, optionsResult, viewsResult, userResult]) => {
-        if (!active) return;
+    // The signed-in identity has to resolve before tickets are fetched: it becomes the
+    // raised_by filter that scopes the list to the token holder's own tickets. Without
+    // it we fetch none rather than falling back to every ticket the token can read.
+    fetchHelpDeskLoggedUser(graphqlConfig)
+      .catch((error) => {
+        if (active) {
+          toast.error("Could not identify your ERP session", {
+            description: error?.message || "Tickets stay hidden until your account is known.",
+          });
+        }
+        return "";
+      })
+      .then((loggedUser) => {
+        if (!active) return null;
+        setErpUser(loggedUser || "");
+
+        return Promise.allSettled([
+          fetchHelpSupportDashboard({
+            fetchTickets: loggedUser ? fetchHDTickets : null,
+            ticketFilters: loggedUser ? [{ fieldname: "raised_by", operator: "EQ", value: loggedUser }] : null,
+            graphqlConfig,
+          }),
+          fetchHDTicketOptions({ graphqlConfig }),
+          fetchHDViews({ graphqlConfig }),
+          loggedUser ? fetchEmployeeByUser(loggedUser, graphqlConfig) : Promise.resolve(null),
+        ]);
+      })
+      .then((results) => {
+        if (!active || !results) return;
+        const [contentResult, optionsResult, viewsResult, employeeResult] = results;
+
+        // Only a confirmed Active employee record unlocks a restricted collection.
+        // Anything else — lookup failed, no employee record, or they have left — leaves
+        // the department empty, which hides those collections.
+        const employee = employeeResult.status === "fulfilled" ? employeeResult.value : null;
+        setErpDepartment(employee?.status === "Active" ? employee.department || "" : "");
 
         if (contentResult.status === "fulfilled") {
           setTickets(contentResult.value.tickets);
@@ -1512,7 +1563,6 @@ export default function HelpSupportExperience({
           });
         }
         setTicketViews(views);
-        setErpUser(userResult.status === "fulfilled" ? userResult.value : "");
         setTicketFilter((current) => {
           if (views.some((viewItem) => viewItem.id === current)) return current;
           return views.find((viewItem) => viewItem.isDefault)?.id || views[0]?.id || "";
@@ -1540,14 +1590,36 @@ export default function HelpSupportExperience({
   const normalizedQuery = query.trim().toLowerCase();
   const matches = (text) => !normalizedQuery || String(text).toLowerCase().includes(normalizedQuery);
 
-  const categoriesById = useMemo(() => new Map(categories.map((category) => [category.id, category])), [categories]);
+  // Department gate. Everything downstream — counts, search, collection view, the
+  // article lookup behind the article route — derives from these, so a restricted
+  // collection cannot be reached by any path once it is filtered out here.
+  const restrictedCategoryIds = useMemo(
+    () =>
+      new Set(
+        categories.filter((category) => !canViewCollection(category.name, erpDepartment)).map((category) => category.id)
+      ),
+    [categories, erpDepartment]
+  );
+  const visibleCategories = useMemo(
+    () => categories.filter((category) => !restrictedCategoryIds.has(category.id)),
+    [categories, restrictedCategoryIds]
+  );
+  const visibleArticles = useMemo(
+    () => articles.filter((article) => !restrictedCategoryIds.has(article.categoryId)),
+    [articles, restrictedCategoryIds]
+  );
+
+  const categoriesById = useMemo(
+    () => new Map(visibleCategories.map((category) => [category.id, category])),
+    [visibleCategories]
+  );
   const articlesWithCategoryNames = useMemo(
     () =>
-      articles.map((article) => ({
+      visibleArticles.map((article) => ({
         ...article,
         category: categoriesById.get(article.categoryId)?.name || article.category,
       })),
-    [articles, categoriesById]
+    [visibleArticles, categoriesById]
   );
   const recentArticles = useMemo(
     () =>
@@ -1562,8 +1634,8 @@ export default function HelpSupportExperience({
   );
 
   const filteredCategories = useMemo(
-    () => categories.filter((category) => matches(`${category.name} ${category.description}`)),
-    [categories, normalizedQuery]
+    () => visibleCategories.filter((category) => matches(`${category.name} ${category.description}`)),
+    [visibleCategories, normalizedQuery]
   );
   const filteredArticles = useMemo(
     () => articlesWithCategoryNames.filter((article) => matches(`${article.title} ${article.category} ${article.summary} ${article.body}`)),
@@ -1643,7 +1715,7 @@ export default function HelpSupportExperience({
   );
 
   const selectedTicket = tickets.find((ticket) => ticket.id === view.ticketId);
-  const selectedCategory = categories.find((category) => category.id === view.categoryId);
+  const selectedCategory = visibleCategories.find((category) => category.id === view.categoryId);
   const selectedArticle = articlesWithCategoryNames.find((article) => article.id === view.articleId);
 
   const goHome = () => setView({ type: "home" });
@@ -1668,8 +1740,8 @@ export default function HelpSupportExperience({
   const metrics = [
     { label: "Open tickets", value: ticketCounts.active, icon: "pi pi-comments", onClick: goTickets },
     { label: "Resolved", value: ticketCounts.resolved, icon: "pi pi-check-circle", onClick: goResolvedTickets },
-    { label: "Articles", value: articles.length, icon: "pi pi-book", onClick: goArticles },
-    { label: "Collections", value: categories.length, icon: "pi pi-folder-open", onClick: goArticles },
+    { label: "Articles", value: visibleArticles.length, icon: "pi pi-book", onClick: goArticles },
+    { label: "Collections", value: visibleCategories.length, icon: "pi pi-folder-open", onClick: goArticles },
   ];
 
   const createTicket = async (ticket) => {
@@ -1774,8 +1846,8 @@ export default function HelpSupportExperience({
         <MobileStatStrip stats={[
           { value: ticketCounts.active, label: "Open" },
           { value: ticketCounts.resolved, label: "Resolved" },
-          { value: articles.length, label: "Articles" },
-          { value: categories.length, label: "Collections" },
+          { value: visibleArticles.length, label: "Articles" },
+          { value: visibleCategories.length, label: "Collections" },
         ]} />
       </div>
       <div className="grid min-h-0 gap-5 @min-[1280px]:grid-cols-2">
