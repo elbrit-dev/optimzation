@@ -1,47 +1,27 @@
 import { HD_TICKET_DOCTYPE, HD_TICKET_GRAPHQL_NAME } from "./hdTicketFields";
 
+// Link fields are read through their "__name" scalars only. Selecting the nested
+// document ({ name }) makes Frappe defer-resolve the linked doc, which needs read
+// permission on that doctype — on User links that fails the whole query with
+// "GraphQL deferred execution failed to complete" for anyone but an admin token.
 export const HD_TICKETS_QUERY = `
 query HDTickets($first: Int!, $after: String, $filters: [DBFilterInput!]) {
   ${HD_TICKET_GRAPHQL_NAME}(first: $first, after: $after, filter: $filters, sortBy: { field: CREATION, direction: DESC }) {
     edges {
       node {
         name
-        owner {
-          name
-        }
-        owner__name
-        modified_by {
-          name
-        }
-        modified_by__name
         subject
         raised_by
-        ticket_type {
-          name
-        }
         ticket_type__name
-        agent_group {
-          name
-        }
         agent_group__name
-        status {
-          name
-        }
         status__name
-        priority {
-          name
-        }
         priority__name
+        template__name
+        sla__name
         status_category
         summary
         description
-        template {
-          name
-        }
         key
-        sla {
-          name
-        }
         response_by
         raised_outside_working_hours
         agreement_status
@@ -80,9 +60,6 @@ query HDTicketOptions($first: Int!) {
         name
         description
         disabled
-        priority {
-          name
-        }
         priority__name
       }
     }
@@ -119,9 +96,6 @@ query HDViews($first: Int!, $filters: [DBFilterInput!]) {
         is_customer_portal
         is_standard
         type
-        dt {
-          name
-        }
         dt__name
         route_name
         pinned
@@ -148,14 +122,8 @@ query HDTicketComments($ticketName: String!) {
     edges {
       node {
         name
-        owner {
-          name
-        }
         owner__name
         content
-        commented_by {
-          name
-        }
         commented_by__name
         creation
         is_pinned
@@ -177,9 +145,6 @@ query HDTicketAssignments($first: Int!) {
     edges {
       node {
         name
-        allocated_to {
-          name
-        }
         allocated_to__name
         reference_type
         reference_name

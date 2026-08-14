@@ -561,7 +561,7 @@ function readTicketField(ticket, field) {
     agreement_status: "raw.agreement_status",
     last_customer_response: "raw.last_customer_response",
     last_agent_response: "raw.last_agent_response",
-    sla: "raw.sla",
+    sla: "raw.sla__name",
   };
   const path = fieldMap[field] || field;
   return path.split(".").reduce((value, key) => value?.[key], ticket);

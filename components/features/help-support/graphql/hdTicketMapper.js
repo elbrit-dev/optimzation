@@ -129,15 +129,10 @@ export function mapHDTicketNodeToSupportTicket(node, config = {}) {
   const agentGroup = node.agent_group__name || linkName(node.agent_group) || node.agent_group || "";
   const status = node.status__name || linkName(node.status) || node.status || "Open";
   const priority = node.priority__name || linkName(node.priority) || node.priority || "Medium";
-  const assignee =
-    node.assignee ||
-    node.allocated_to__name ||
-    linkName(node.allocated_to) ||
-    node.owner__name ||
-    linkName(node.owner) ||
-    node.modified_by__name ||
-    linkName(node.modified_by) ||
-    "";
+  // Only a real ToDo allocation counts as an assignee. The old chain fell back to
+  // owner/modified_by, which named the ticket's creator rather than whoever it is
+  // assigned to — and those User links are no longer fetched.
+  const assignee = node.assignee || node.allocated_to__name || linkName(node.allocated_to) || "";
   const employee = node.raised_by || node.contact__name || node.customer__name || "";
   const descriptionHtml = sanitizeHtml(normalizeAssetUrls(node.description || node.summary || "", config));
   const ticketDate = node.opening_date || node.creation || "";

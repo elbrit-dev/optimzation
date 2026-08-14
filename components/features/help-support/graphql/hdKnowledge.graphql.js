@@ -1,3 +1,5 @@
+// Link fields use their "__name" scalars only — see the note in hdTicket.graphql.js.
+// `author` is a User link, so selecting it nested breaks this query for non-admin tokens.
 export const HD_ARTICLES_QUERY = `
 query HDArticles($first: Int!, $after: String) {
   HDArticles(first: $first, after: $after) {
@@ -6,13 +8,7 @@ query HDArticles($first: Int!, $after: String) {
         name
         title
         title_slug
-        category {
-          name
-        }
         category__name
-        author {
-          name
-        }
         author__name
         content
         published_on
