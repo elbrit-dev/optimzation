@@ -1,3 +1,5 @@
+import { formatIndiaDateTime } from "./dateTime";
+
 function linkName(value) {
   if (!value) return "";
   if (typeof value === "string") return value;
@@ -13,12 +15,8 @@ function stripHtml(value) {
     .trim();
 }
 
-function normalizeAssetUrls(html) {
-  const baseUrl =
-    process.env.NEXT_PUBLIC_HELP_SUPPORT_ASSET_BASE_URL ||
-    process.env.NEXT_PUBLIC_HELP_SUPPORT_GRAPHQL_ENDPOINT?.replace(/\/api\/method\/graphql$/, "") ||
-    process.env.NEXT_PUBLIC_GRAPHQL_ENDPOINT_UAT?.replace(/\/api\/method\/graphql$/, "") ||
-    "";
+function normalizeAssetUrls(html, config = {}) {
+  const baseUrl = config.endpointUrl?.replace(/\/api\/method\/graphql$/, "") || "";
 
   if (!baseUrl || !html) return html || "";
   return String(html)
@@ -27,23 +25,31 @@ function normalizeAssetUrls(html) {
 }
 
 export function mapHDArticleCategoryNode(node, articleCount = 0) {
+  const createdAt = node.creation || "";
+  const updatedAt = node.modified || "";
+
   return {
     id: node.name,
     name: node.category_name || node.name,
     description: node.description || "",
     icon: node.icon || "",
     count: articleCount,
-    createdAt: node.creation || "",
-    updatedAt: node.modified || "",
+    createdAt,
+    createdAtLabel: formatIndiaDateTime(createdAt),
+    updatedAt,
+    updatedAtLabel: formatIndiaDateTime(updatedAt),
     raw: node,
   };
 }
 
-export function mapHDArticleNode(node) {
+export function mapHDArticleNode(node, config = {}) {
   const categoryId = linkName(node.category) || node.category__name || "";
-  const content = normalizeAssetUrls(node.content || "");
+  const content = normalizeAssetUrls(node.content || "", config);
   const viewCount = Number(node.views) || 0;
   const summary = stripHtml(content).slice(0, 180);
+  const publishedOn = node.published_on || "";
+  const createdAt = node.creation || "";
+  const updatedAt = node.modified || node.published_on || node.creation || "";
 
   return {
     id: node.name,
@@ -57,16 +63,21 @@ export function mapHDArticleNode(node) {
     content,
     viewCount,
     views: `${viewCount} ${viewCount === 1 ? "view" : "views"}`,
+    likeCount: Number(node.likes || node.like_count) || 0,
+    comments: [],
     status: node.status || "",
-    publishedOn: node.published_on || "",
-    createdAt: node.creation || "",
-    updatedAt: node.modified || node.published_on || node.creation || "",
+    publishedOn,
+    publishedOnLabel: formatIndiaDateTime(publishedOn),
+    createdAt,
+    createdAtLabel: formatIndiaDateTime(createdAt),
+    updatedAt,
+    updatedAtLabel: formatIndiaDateTime(updatedAt),
     raw: node,
   };
 }
 
-export function mapHDArticlesResponse(data) {
-  return data?.HDArticles?.edges?.map((edge) => mapHDArticleNode(edge.node)).filter(Boolean) || [];
+export function mapHDArticlesResponse(data, config = {}) {
+  return data?.HDArticles?.edges?.map((edge) => mapHDArticleNode(edge.node, config)).filter(Boolean) || [];
 }
 
 export function mapHDArticleCategoriesResponse(data, articles = []) {
@@ -79,5 +90,21 @@ export function mapHDArticleCategoriesResponse(data, articles = []) {
     data?.HDArticleCategorys?.edges
       ?.map((edge) => mapHDArticleCategoryNode(edge.node, counts.get(edge.node.name) || 0))
       .filter(Boolean) || []
+  );
+}
+
+export function mapHDArticleCommentsResponse(data) {
+  return (
+    data?.Comments?.edges?.map((edge) => {
+      const node = edge.node;
+      return {
+        id: node.name,
+        author: node.comment_by || node.comment_email || "User",
+        email: node.comment_email || "",
+        time: formatIndiaDateTime(node.creation || ""),
+        body: stripHtml(node.content || ""),
+        raw: node,
+      };
+    }) || []
   );
 }

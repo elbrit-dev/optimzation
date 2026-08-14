@@ -228,9 +228,15 @@ PLASMIC.registerComponent(HelpSupport, {
   displayName: "Help Support",
   description: "Help desk dashboard, knowledge base, and HD ticket creation flow.",
   props: {
-    className: {
+    url: {
       type: "string",
-      description: "Optional wrapper class name.",
+      displayName: "GraphQL URL",
+      description: "ERP GraphQL URL, for example https://uat.elbrit.org/api/method/graphql.",
+    },
+    token: {
+      type: "string",
+      displayName: "Auth token",
+      description: "ERP token header value, for example token key:secret.",
     },
   },
   importPath: "./components/features/help-support",

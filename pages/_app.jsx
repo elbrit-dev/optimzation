@@ -3,7 +3,7 @@ import 'primeicons/primeicons.css';
 import '../firebase'; // Initialize Firebase
 import { DataProvider } from '@plasmicapp/host';
 import { startConsoleCapture } from '../lib/consoleCapture';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import Head from 'next/head';
 import Script from 'next/script';
 import localforage from 'localforage';
@@ -278,7 +278,13 @@ function MyApp({ Component, pageProps }) {
   const setState = useCallback((stateName, data, callback) => {
     if (typeof stateName === 'string') {
       setGlobalState(prev => {
-        const newState = {
+        // Writing the value that is already there must NOT allocate a new state
+        // object. `globalState` is the `state` DataProvider's value, so a fresh
+        // object re-renders every Plasmic consumer of $ctx.state for nothing —
+        // and a redundant write is exactly what an "on load" interaction does on
+        // every render. Returning `prev` untouched is what lets React bail out.
+        const unchanged = stateName in prev && Object.is(prev[stateName], data);
+        const newState = unchanged ? prev : {
           ...prev,
           [stateName]: data
         };
@@ -298,7 +304,12 @@ function MyApp({ Component, pageProps }) {
     } else if (typeof stateName === 'object' && stateName !== null) {
       const actualCallback = typeof data === 'function' ? data : callback;
       setGlobalState(prev => {
-        const newState = {
+        // Same bail-out as the single-key branch above: only a patch that
+        // actually moves at least one key is worth a new state object.
+        const unchanged = Object.keys(stateName).every(
+          key => key in prev && Object.is(prev[key], stateName[key])
+        );
+        const newState = unchanged ? prev : {
           ...prev,
           ...stateName
         };
@@ -316,10 +327,13 @@ function MyApp({ Component, pageProps }) {
     }
   }, []);
 
-  const fnWithState = {
+  // This object IS the `fn` DataProvider's value, so rebuilding it every render
+  // marks every Plasmic consumer of $ctx.fn as changed. `a` is module-level and
+  // `setState` is a useCallback([]), so there is nothing here that can go stale.
+  const fnWithState = useMemo(() => ({
     ...a,
     setState
-  };
+  }), [setState]);
 
   useEffect(() => {
     // Service Worker Registration

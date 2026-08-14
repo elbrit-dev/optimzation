@@ -1,10 +1,6 @@
 export const HD_TICKET_DOCTYPE = "HD Ticket";
 export const HD_TICKET_GRAPHQL_NAME = "HDTickets";
 
-export const HD_TICKET_TYPES = ["Bug", "Incident", "Question", "Unspecified"];
-export const HD_TICKET_STATUSES = ["Open", "Closed", "Replied", "Resolved"];
-export const HD_TICKET_PRIORITIES = ["High", "Low", "Medium", "Urgent"];
-
 export const DEFAULT_HD_TICKET_VALUES = {
   ticket_type: "Unspecified",
   status: "Open",

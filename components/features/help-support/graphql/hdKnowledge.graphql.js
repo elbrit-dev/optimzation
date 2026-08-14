@@ -50,3 +50,36 @@ query HDArticleCategories($first: Int!, $after: String) {
   }
 }
 `;
+
+export const HD_ARTICLE_COMMENTS_QUERY = `
+query HDArticleComments($referenceName: String!) {
+  Comments(
+    first: 100
+    filter: [
+      { fieldname: "reference_doctype", operator: EQ, value: "HD Article" }
+      { fieldname: "reference_name", operator: EQ, value: $referenceName }
+      { fieldname: "comment_type", operator: EQ, value: "Comment" }
+    ]
+  ) {
+    edges {
+      node {
+        name
+        content
+        comment_by
+        comment_email
+        creation
+      }
+    }
+  }
+}
+`;
+
+export const SAVE_HD_ARTICLE_COMMENT_MUTATION = `
+mutation SaveHDArticleComment($doc: String!) {
+  saveDoc(doctype: "Comment", doc: $doc) {
+    doc {
+      name
+    }
+  }
+}
+`;

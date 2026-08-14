@@ -21,23 +21,21 @@ function parseGraphQLError(payload, status) {
   return payload?.message || `GraphQL request failed with HTTP ${status}`;
 }
 
-function getGraphQLConfig() {
-  const endpointUrl =
-    process.env.NEXT_PUBLIC_HELP_SUPPORT_GRAPHQL_ENDPOINT ||
-    process.env.NEXT_PUBLIC_GRAPHQL_ENDPOINT_UAT;
-  const authToken =
-    process.env.NEXT_PUBLIC_HELP_SUPPORT_GRAPHQL_AUTH_TOKEN ||
-    process.env.NEXT_PUBLIC_GRAPHQL_AUTH_TOKEN_UAT;
+function getGraphQLConfig(config = {}) {
+  const endpointUrl = config.endpointUrl || config.url || "";
+  const authToken = config.authToken || config.token || "";
 
   if (!endpointUrl || !authToken) {
-    throw new Error("Help Support GraphQL endpoint or token is not configured.");
+    throw new Error("Help Support GraphQL endpoint and token must be passed as props.");
   }
 
   return { endpointUrl, authToken };
 }
 
-function cacheKey(query, variables) {
-  return JSON.stringify({ query, variables });
+function cacheKey(query, variables, config) {
+  // The token is part of the key so a response fetched with one user's token is
+  // never replayed to another — ERP permissions differ per token.
+  return JSON.stringify({ endpointUrl: config.endpointUrl, authToken: config.authToken, query, variables });
 }
 
 export function clearHelpDeskGraphQLCache() {
@@ -46,7 +44,8 @@ export function clearHelpDeskGraphQLCache() {
 
 export async function executeHelpDeskGraphQL(query, variables = {}, options = {}) {
   const { cache = false, ttl = CACHE_TTL_MS } = options;
-  const key = cache ? cacheKey(query, variables) : null;
+  const graphQLConfig = getGraphQLConfig(options.config);
+  const key = cache ? cacheKey(query, variables, graphQLConfig) : null;
   const now = Date.now();
 
   if (key) {
@@ -55,12 +54,11 @@ export async function executeHelpDeskGraphQL(query, variables = {}, options = {}
     responseCache.delete(key);
   }
 
-  const { endpointUrl, authToken } = getGraphQLConfig();
-  const response = await fetch(endpointUrl, {
+  const response = await fetch(graphQLConfig.endpointUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: authToken,
+      Authorization: graphQLConfig.authToken,
     },
     body: JSON.stringify({ query, variables }),
   });
@@ -73,4 +71,25 @@ export async function executeHelpDeskGraphQL(query, variables = {}, options = {}
 
   if (key) responseCache.set(key, { data: payload.data, expiresAt: now + ttl });
   return payload.data;
+}
+
+export async function executeHelpDeskMethod(methodName, body = {}, options = {}) {
+  const graphQLConfig = getGraphQLConfig(options.config);
+  const baseUrl = graphQLConfig.endpointUrl.replace(/\/api\/method\/graphql$/, "");
+  const response = await fetch(`${baseUrl}/api/method/${methodName}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: graphQLConfig.authToken,
+    },
+    body: JSON.stringify(body),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok || payload.exc || payload.exception) {
+    throw new Error(parseGraphQLError(payload, response.status));
+  }
+
+  return payload.message ?? payload;
 }
