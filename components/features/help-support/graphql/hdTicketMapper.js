@@ -174,9 +174,11 @@ export function mapHDTicketNodeToSupportTicket(node, config = {}) {
         author: node.raised_by || "Requester",
         role: "Requester",
         time: formatIndiaDateTime(node.creation || ""),
+        timestamp: node.creation || "",
         tone: "user",
         message: descriptionHtml || node.subject || "",
         isHtml: Boolean(descriptionHtml),
+        channel: "reply",
       },
     ].filter((message) => message.message),
   };
@@ -237,7 +239,7 @@ export function mapHDTicketOptionsResponse(data) {
   return { ticketTypes, priorities, statuses };
 }
 
-export function mapHDTicketCommentsResponse(data, user = {}) {
+export function mapHDTicketCommentsResponse(data, user = {}, config = {}) {
   return (
     data?.HDTicketComments?.edges
       ?.map((edge) => edge.node)
@@ -251,13 +253,47 @@ export function mapHDTicketCommentsResponse(data, user = {}) {
           isCurrentUserIdentity(node.owner__name, user) ||
           isCurrentUserIdentity(linkName(node.owner), user);
 
+        // Replies written in the Helpdesk agent UI arrive as HTML. Without this they
+        // rendered as literal "<p>hi</p>" text, the same way the ticket description
+        // is already sanitized and flagged below.
+        const content = sanitizeHtml(normalizeAssetUrls(node.content || "", config));
+
         return {
           id: node.name,
           author,
-          role: node.is_pinned ? "Pinned comment" : own ? "Requester" : "Support",
+          role: node.is_pinned ? "Pinned note" : "Internal note",
           time: formatIndiaDateTime(node.creation || ""),
+          timestamp: node.creation || "",
           tone: own ? "user" : "agent",
-          message: node.content,
+          message: content,
+          isHtml: /<[a-z][\s\S]*>/i.test(content),
+          channel: "note",
+        };
+      }) || []
+  );
+}
+
+export function mapHDTicketCommunicationsResponse(data, user = {}, config = {}) {
+  return (
+    data?.Communications?.edges
+      ?.map((edge) => edge.node)
+      .filter((node) => node?.content)
+      .sort((a, b) => new Date(a.creation || 0) - new Date(b.creation || 0))
+      .map((node) => {
+        const content = sanitizeHtml(normalizeAssetUrls(node.content || "", config));
+        const fromRequester = String(node.sent_or_received || "").toLowerCase() === "received";
+        const own = isCurrentUserIdentity(node.sender, user);
+
+        return {
+          id: node.name,
+          author: node.sender_full_name || node.sender || (fromRequester ? "Requester" : "Support"),
+          role: fromRequester ? "Requester" : "Support",
+          time: formatIndiaDateTime(node.creation || ""),
+          timestamp: node.creation || "",
+          tone: own ? "user" : "agent",
+          message: content,
+          isHtml: /<[a-z][\s\S]*>/i.test(content),
+          channel: "reply",
         };
       }) || []
   );

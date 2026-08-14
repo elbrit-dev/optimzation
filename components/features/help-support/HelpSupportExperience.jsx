@@ -8,14 +8,17 @@ import {
   fetchHDArticleComments,
   fetchHDTicketByName,
   fetchHDTicketComments,
+  fetchHDTicketCommunications,
   fetchHDTicketOptions,
   fetchHDTickets,
+  fetchHDTicketsAssignedTo,
   fetchHDViews,
   fetchHelpDeskLoggedUser,
   fetchEmployeeByUser,
   fetchHelpSupportDashboard,
   saveHDArticleComment,
   saveHDTicketComment,
+  saveHDTicketCommunication,
   toggleHDArticleLike,
   updateHDTicket,
 } from "./graphql";
@@ -45,12 +48,15 @@ function cx(...classes) {
   return classes.filter(Boolean).join(" ");
 }
 
-function normalizeDepartment(value) {
-  // Department docnames carry a company suffix: "IT - ELPL" -> "it".
+function departmentLabel(value) {
+  // Department docnames carry a company suffix: "IT - ELPL" -> "IT".
   return String(value || "")
     .replace(/\s*-\s*[A-Za-z]{1,6}$/, "")
-    .trim()
-    .toLowerCase();
+    .trim();
+}
+
+function normalizeDepartment(value) {
+  return departmentLabel(value).toLowerCase();
 }
 
 function canViewCollection(categoryName, department) {
@@ -61,6 +67,19 @@ function canViewCollection(categoryName, department) {
 
 function isEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+}
+
+function isSameEmail(left, right) {
+  const normalize = (value) => String(value || "").trim().toLowerCase();
+  return Boolean(normalize(left)) && normalize(left) === normalize(right);
+}
+
+function plainText(value) {
+  return String(value || "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
 }
 
 function getTicketStatusCategory(status) {
@@ -660,7 +679,14 @@ function ReadOnlyField({ label, value }) {
   );
 }
 
-function TicketMetaPanel({ ticket, onFieldChange, ticketTypes = [], ticketPriorities = [] }) {
+function TicketMetaPanel({
+  ticket,
+  onFieldChange,
+  ticketTypes = [],
+  ticketPriorities = [],
+  canManage = false,
+  requesterDepartment = "",
+}) {
   const ticketTypeOptions = mergeSelectedOption(ticketTypes, ticket.ticketType || ticket.category);
   const priorityOptions = mergeSelectedOption(ticketPriorities, ticket.priority);
   const pairedFields = [
@@ -677,24 +703,34 @@ function TicketMetaPanel({ ticket, onFieldChange, ticketTypes = [], ticketPriori
         </div>
         <div className="min-w-0">
           <p className="truncate text-xs font-bold text-slate-950">{owner}</p>
-          <p className="text-[11px] text-slate-500">ERP assignment</p>
+          <p className="text-[11px] text-slate-500">{canManage ? "Assigned to you" : "ERP assignment"}</p>
         </div>
       </div>
+      {/* Requesters see their ticket's classification but cannot re-file it — only the
+          person the ticket is assigned to can change type and priority. */}
       <div className="grid grid-cols-2 gap-2">
-        {pairedFields.map(([label, field, value]) => (
-          <FieldSelect
-            key={field}
-            label={label}
-            value={value}
-            options={field === "ticketType" ? ticketTypeOptions : priorityOptions}
-            disabled={field === "ticketType" ? !ticketTypeOptions.length : !priorityOptions.length}
-            onChange={(nextValue) => onFieldChange(ticket.id, field, nextValue)}
-          />
-        ))}
+        {pairedFields.map(([label, field, value]) =>
+          canManage ? (
+            <FieldSelect
+              key={field}
+              label={label}
+              value={value}
+              options={field === "ticketType" ? ticketTypeOptions : priorityOptions}
+              disabled={field === "ticketType" ? !ticketTypeOptions.length : !priorityOptions.length}
+              onChange={(nextValue) => onFieldChange(ticket.id, field, nextValue)}
+            />
+          ) : (
+            <ReadOnlyField key={field} label={label} value={value} />
+          )
+        )}
       </div>
       <div className="mt-3 grid gap-2">
-        <ReadOnlyField label="Employee" value={ticket.employee} />
-        <ReadOnlyField label="Team" value={ticket.team} />
+        <ReadOnlyField label={canManage ? "Raised by" : "Employee"} value={ticket.employee} />
+        {/* The requester's own department, looked up from their Employee record. The HD
+            Team field it replaced read "Unassigned team" on every ticket, because
+            agent_group is never set on tickets raised here. */}
+        <ReadOnlyField label="Department" value={requesterDepartment} />
+        {ticket.agentGroup ? <ReadOnlyField label="Team" value={ticket.team} /> : null}
         <ReadOnlyField label="Assignee" value={ticket.assignee} />
       </div>
     </Card>
@@ -978,11 +1014,18 @@ function TicketConversation({
   ticketTypes,
   ticketPriorities,
   ticketStatuses,
+  canManage = false,
+  isRequester = false,
 }) {
   const [comment, setComment] = useState("");
-  const [comments, setComments] = useState([]);
+  const [replies, setReplies] = useState([]);
+  const [notes, setNotes] = useState([]);
+  const [requesterEmployee, setRequesterEmployee] = useState(null);
+  // Agents choose the channel; requesters only ever have the public one.
+  const [channel, setChannel] = useState("reply");
   const [isLoadingComments, setIsLoadingComments] = useState(false);
   const [isSavingComment, setIsSavingComment] = useState(false);
+  const activeChannel = canManage ? channel : "reply";
   const canSend = comment.trim() && !isSavingComment;
   const commentUser = useMemo(() => {
     const storedEmail = readStoredUserEmail();
@@ -997,18 +1040,34 @@ function TicketConversation({
 
   useEffect(() => {
     let active = true;
-    setComments([]);
+    setReplies([]);
+    setNotes([]);
+    setRequesterEmployee(null);
     setComment("");
+    setChannel("reply");
     if (!ticket?.id || !ticket.raw) return undefined;
 
     setIsLoadingComments(true);
-    fetchHDTicketComments(ticket.id, graphqlConfig, commentUser)
-      .then((items) => {
-        if (active) setComments(items);
+    // Internal notes are only ever fetched for the assignee — a requester must not be
+    // able to read the agents' private channel, not even in the network payload.
+    Promise.all([
+      fetchHDTicketCommunications(ticket.id, graphqlConfig, commentUser),
+      canManage ? fetchHDTicketComments(ticket.id, graphqlConfig, commentUser) : Promise.resolve([]),
+      // Caught locally: plenty of requesters (external senders, shared mailboxes) have
+      // no Employee record, and that must not take the conversation down with it.
+      ticket.raisedBy
+        ? fetchEmployeeByUser(ticket.raisedBy, graphqlConfig).catch(() => null)
+        : Promise.resolve(null),
+    ])
+      .then(([communicationItems, noteItems, employee]) => {
+        if (!active) return;
+        setReplies(communicationItems);
+        setNotes(noteItems);
+        setRequesterEmployee(employee);
       })
       .catch((error) => {
         if (active) {
-          toast.error("Could not load ticket comments", {
+          toast.error("Could not load the ticket conversation", {
             description: error?.message || "Please check ERP access.",
           });
         }
@@ -1020,32 +1079,52 @@ function TicketConversation({
     return () => {
       active = false;
     };
-  }, [ticket?.id, ticket?.raw, graphqlConfig, commentUser]);
+  }, [ticket?.id, ticket?.raw, ticket?.raisedBy, graphqlConfig, commentUser, canManage]);
 
-  const conversation = [...(ticket.conversation || []), ...comments];
+  const conversation = useMemo(() => {
+    // A ticket raised by email stores its opening message twice — once as the ticket
+    // description and again as the first Communication — so drop the description copy
+    // when a reply already carries the same text.
+    const replyTexts = new Set(replies.map((item) => plainText(item.message)));
+    const opening = (ticket.conversation || []).filter((item) => !replyTexts.has(plainText(item.message)));
+
+    return [...opening, ...replies, ...notes].sort(
+      (a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0)
+    );
+  }, [ticket.conversation, replies, notes]);
 
   const submit = async (event) => {
     event.preventDefault();
     if (!canSend) return;
     const nextComment = comment.trim();
+    const isNote = activeChannel === "note";
     setIsSavingComment(true);
     try {
-      const name = await saveHDTicketComment(ticket.id, nextComment, { graphqlConfig, user: commentUser });
-      setComments((current) => [
-        ...current,
-        {
-          id: name || `msg-${ticket.id}-${Date.now()}`,
-          author: commentUser.name || commentUser.email || "You",
-          role: "Requester",
-          time: "Just now",
-          tone: "user",
-          message: nextComment,
-        },
-      ]);
+      const name = isNote
+        ? await saveHDTicketComment(ticket.id, nextComment, { graphqlConfig, user: commentUser })
+        : await saveHDTicketCommunication(ticket.id, nextComment, {
+            graphqlConfig,
+            user: commentUser,
+            fromAgent: canManage,
+            subject: ticket.title,
+            recipients: ticket.raisedBy || ticket.employee,
+          });
+      const optimisticMessage = {
+        id: name || `msg-${ticket.id}-${Date.now()}`,
+        author: commentUser.name || commentUser.email || "You",
+        role: isNote ? "Internal note" : canManage ? "Support" : "Requester",
+        time: "Just now",
+        timestamp: new Date().toISOString(),
+        tone: "user",
+        message: nextComment,
+        channel: isNote ? "note" : "reply",
+      };
+      if (isNote) setNotes((current) => [...current, optimisticMessage]);
+      else setReplies((current) => [...current, optimisticMessage]);
       setComment("");
-      toast.success("Comment added");
+      toast.success(isNote ? "Internal note added" : "Reply sent");
     } catch (error) {
-      toast.error("Could not save ticket comment", {
+      toast.error(isNote ? "Could not save the internal note" : "Could not send the reply", {
         description: error?.message || "Please check ERP access.",
       });
     } finally {
@@ -1067,66 +1146,168 @@ function TicketConversation({
               <i className="pi pi-chevron-left" aria-hidden />
             </button>
             <div className="min-w-0">
-              <p className="text-[11px] font-semibold text-slate-500">Tickets / {ticket.id}</p>
+              <div className="flex items-center gap-2">
+                <p className="text-[11px] font-semibold text-slate-500">Tickets / {ticket.id}</p>
+                {canManage || isRequester ? (
+                  <span
+                    className={cx(
+                      "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold",
+                      canManage ? "bg-blue-50 text-[#0F87F9]" : "bg-slate-100 text-slate-600"
+                    )}
+                  >
+                    {canManage ? "Assigned to you" : "You raised this"}
+                  </span>
+                ) : null}
+              </div>
               <h2 className="truncate text-sm font-bold text-slate-950 @min-[768px]:text-base">{ticket.title}</h2>
               <p className="mt-0.5 text-[11px] text-slate-500 @min-[768px]:text-xs">
                 Created {ticket.createdAtLabel || ticket.dateLabel || ticket.createdAt || ticket.date || "Just now"} · {ticket.category}
               </p>
             </div>
           </div>
-          <StatusSelect status={ticket.status} statuses={ticketStatuses} onChange={(status) => onStatusChange(ticket.id, status)} />
+          {/* Only the assignee drives the ticket's state; a requester sees where it stands. */}
+          {canManage ? (
+            <StatusSelect status={ticket.status} statuses={ticketStatuses} onChange={(status) => onStatusChange(ticket.id, status)} />
+          ) : (
+            <div className="flex h-10 shrink-0 items-center @min-[768px]:h-8">
+              <StatusBadge status={ticket.status} />
+            </div>
+          )}
         </div>
-        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5 text-[11px] @min-[768px]:text-xs">
-          <span className="font-semibold text-slate-700">
-            First Response <span className="ml-1 font-bold text-red-500">{ticket.firstResponse || "Pending"}</span>
+        {/* SlaBadge already greens a met target and reds an overdue one — the previous
+            hardcoded red made every ticket look breached. */}
+        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] @min-[768px]:text-xs">
+          <span className="inline-flex items-center gap-1.5 font-semibold text-slate-600">
+            First response
+            <SlaBadge value={ticket.firstResponse} />
           </span>
-          <span className="font-semibold text-slate-700">
-            Resolution <span className="ml-1 font-bold text-red-500">{ticket.resolution || "Pending"}</span>
+          <span className="inline-flex items-center gap-1.5 font-semibold text-slate-600">
+            Resolution
+            <SlaBadge value={ticket.resolution} />
           </span>
         </div>
       </div>
       <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto p-3 @min-[1024px]:grid-cols-[minmax(0,1fr)_300px] @min-[1024px]:overflow-hidden">
         <div className="flex min-h-[360px] min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-slate-100 @min-[1024px]:min-h-0">
           <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto px-3 py-3">
-            {isLoadingComments ? <p className="text-xs font-semibold text-slate-500">Loading ERP comments...</p> : null}
+            {isLoadingComments ? <p className="text-xs font-semibold text-slate-500">Loading conversation...</p> : null}
+            {!isLoadingComments && !conversation.length ? (
+              <div className="flex h-full min-h-[140px] flex-col items-center justify-center text-center">
+                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-slate-300 shadow-sm">
+                  <i className="pi pi-comments" aria-hidden />
+                </span>
+                <p className="mt-2 text-xs font-medium text-slate-500">No messages on this ticket yet.</p>
+              </div>
+            ) : null}
             {conversation.map((message) => {
+              const isNote = message.channel === "note";
               const richContent = Boolean(message.isHtml);
-              const own = message.tone === "user" && !richContent;
+              // Alignment follows the sender, not the content type. Previously any HTML
+              // message fell back to a full-width left card, so an inbound email and the
+              // reader's own reply were indistinguishable.
+              const own = message.tone === "user" && !isNote;
               return (
-                <div key={message.id} className={cx("flex flex-col", own ? "items-end" : "items-start")}>
+                <div key={message.id} className={cx("flex w-full gap-2", own ? "flex-row-reverse" : "flex-row")}>
+                  <span
+                    className={cx(
+                      "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-black",
+                      isNote
+                        ? "bg-amber-100 text-amber-700"
+                        : own
+                          ? "bg-blue-100 text-[#0F87F9]"
+                          : "bg-slate-200 text-slate-600"
+                    )}
+                    aria-hidden
+                  >
+                    {isNote ? <i className="pi pi-lock text-[9px]" /> : initials(message.author)}
+                  </span>
                   <div
                     className={cx(
-                      "max-w-full overflow-hidden break-words rounded-xl px-3 py-2 text-xs leading-5 @min-[640px]:max-w-[680px] [&_a]:break-all [&_a]:underline [&_br]:block [&_img]:my-2 [&_img]:block [&_img]:h-auto [&_img]:max-w-full [&_p]:mb-2 [&_pre]:overflow-x-auto [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto [&_video]:my-2 [&_video]:block [&_video]:h-auto [&_video]:max-w-full",
-                      richContent
-                        ? "w-full bg-white text-slate-950 shadow-sm"
-                        : own
-                          ? "bg-[#0F87F9] text-white"
-                          : "bg-white text-slate-950 shadow-sm"
+                      "flex min-w-0 flex-1 flex-col @min-[640px]:max-w-[680px] @min-[640px]:flex-none",
+                      own ? "items-end" : "items-start"
                     )}
                   >
-                    {message.isHtml ? <div dangerouslySetInnerHTML={{ __html: message.message }} /> : message.message}
+                    {isNote ? (
+                      <span className="mb-1 inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">
+                        <i className="pi pi-lock text-[9px]" aria-hidden />
+                        Internal note — not visible to the requester
+                      </span>
+                    ) : null}
+                    <div
+                      className={cx(
+                        "max-w-full overflow-hidden break-words rounded-xl px-3 py-2 text-xs leading-5 [&_a]:break-all [&_a]:underline [&_br]:block [&_img]:my-2 [&_img]:block [&_img]:h-auto [&_img]:max-w-full [&_p]:mb-2 [&_p:last-child]:mb-0 [&_pre]:overflow-x-auto [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto [&_video]:my-2 [&_video]:block [&_video]:h-auto [&_video]:max-w-full",
+                        richContent && "w-full",
+                        isNote
+                          ? "border border-amber-200 bg-amber-50 text-slate-900"
+                          : own && !richContent
+                            ? "bg-[#0F87F9] text-white"
+                            : "border border-slate-200 bg-white text-slate-950 shadow-sm"
+                      )}
+                    >
+                      {message.isHtml ? <div dangerouslySetInnerHTML={{ __html: message.message }} /> : message.message}
+                    </div>
+                    <p
+                      className={cx(
+                        "mt-1 truncate text-[11px] font-medium text-slate-500",
+                        own ? "text-right" : "text-left"
+                      )}
+                    >
+                      {message.author} · {message.role} · {message.time}
+                    </p>
                   </div>
-                  <p className="mt-1 text-[11px] font-medium text-slate-500">
-                    {message.author} · {message.role} · {message.time}
-                  </p>
                 </div>
               );
             })}
           </div>
           <form onSubmit={submit} className="border-t border-slate-200 bg-white p-2.5">
+            {canManage ? (
+              <div className="mb-2 flex gap-1 rounded-lg bg-slate-100 p-1">
+                {[
+                  { id: "reply", label: "Reply to requester", icon: "pi pi-send" },
+                  { id: "note", label: "Internal note", icon: "pi pi-lock" },
+                ].map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => setChannel(option.id)}
+                    className={cx(
+                      "inline-flex h-7 flex-1 items-center justify-center gap-1.5 rounded-md text-[11px] font-bold transition",
+                      activeChannel === option.id
+                        ? option.id === "note"
+                          ? "bg-amber-100 text-amber-800 shadow-sm"
+                          : "bg-white text-[#0F87F9] shadow-sm"
+                        : "text-slate-500 hover:text-slate-700"
+                    )}
+                  >
+                    <i className={cx(option.icon, "text-[10px]")} aria-hidden />
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
             <div className="flex gap-2">
               <input
                 value={comment}
                 onChange={(event) => setComment(event.target.value)}
-                placeholder="Add a comment..."
-                className="h-11 min-w-0 flex-1 rounded-lg border border-slate-200 px-3 text-base outline-none focus:border-[#0F87F9] focus:ring-2 focus:ring-blue-100 @min-[768px]:h-9 @min-[768px]:text-xs"
+                placeholder={activeChannel === "note" ? "Add an internal note..." : "Write a reply..."}
+                className={cx(
+                  "h-11 min-w-0 flex-1 rounded-lg border px-3 text-base outline-none focus:ring-2 @min-[768px]:h-9 @min-[768px]:text-xs",
+                  activeChannel === "note"
+                    ? "border-amber-200 bg-amber-50 focus:border-amber-400 focus:ring-amber-100"
+                    : "border-slate-200 focus:border-[#0F87F9] focus:ring-blue-100"
+                )}
               />
               <button
                 type="submit"
                 disabled={!canSend}
-                className="inline-flex h-11 shrink-0 items-center justify-center rounded-lg bg-[#0F87F9] px-4 text-xs font-bold text-white disabled:bg-blue-200 @min-[768px]:h-9 @min-[768px]:px-3"
+                className={cx(
+                  "inline-flex h-11 shrink-0 items-center justify-center rounded-lg px-4 text-xs font-bold text-white @min-[768px]:h-9 @min-[768px]:px-3",
+                  activeChannel === "note"
+                    ? "bg-amber-600 hover:bg-amber-700 disabled:bg-amber-200"
+                    : "bg-[#0F87F9] disabled:bg-blue-200"
+                )}
               >
-                {isSavingComment ? "Sending..." : "Send"}
+                {isSavingComment ? "Sending..." : activeChannel === "note" ? "Add note" : "Send"}
               </button>
             </div>
           </form>
@@ -1136,6 +1317,8 @@ function TicketConversation({
           onFieldChange={onFieldChange}
           ticketTypes={ticketTypes}
           ticketPriorities={ticketPriorities}
+          canManage={canManage}
+          requesterDepartment={departmentLabel(requesterEmployee?.department)}
         />
       </div>
     </section>
@@ -1464,6 +1647,9 @@ export default function HelpSupportExperience({
   const [ticketViews, setTicketViews] = useState([]);
   const [erpUser, setErpUser] = useState("");
   const [erpDepartment, setErpDepartment] = useState("");
+  // Tickets allocated to the signed-in user. Membership here is what switches a ticket
+  // from the requester view to the agent view.
+  const [assignedTicketIds, setAssignedTicketIds] = useState(() => new Set());
   const [isLoadingContent, setIsLoadingContent] = useState(false);
   const effectiveUrl = url || graphqlEndpoint;
   const effectiveToken = token || authToken;
@@ -1488,6 +1674,7 @@ export default function HelpSupportExperience({
       setTicketViews([]);
       setErpUser("");
       setErpDepartment("");
+      setAssignedTicketIds(new Set());
       setTicketFilter("");
       setIsLoadingContent(false);
       return undefined;
@@ -1518,11 +1705,12 @@ export default function HelpSupportExperience({
           fetchHDTicketOptions({ graphqlConfig }),
           fetchHDViews({ graphqlConfig }),
           loggedUser ? fetchEmployeeByUser(loggedUser, graphqlConfig) : Promise.resolve(null),
+          loggedUser ? fetchHDTicketsAssignedTo(loggedUser, graphqlConfig) : Promise.resolve([]),
         ]);
       })
       .then((results) => {
         if (!active || !results) return;
-        const [contentResult, optionsResult, viewsResult, employeeResult] = results;
+        const [contentResult, optionsResult, viewsResult, employeeResult, assignedResult] = results;
 
         // Only a confirmed Active employee record unlocks a restricted collection.
         // Anything else — lookup failed, no employee record, or they have left — leaves
@@ -1530,12 +1718,24 @@ export default function HelpSupportExperience({
         const employee = employeeResult.status === "fulfilled" ? employeeResult.value : null;
         setErpDepartment(employee?.status === "Active" ? employee.department || "" : "");
 
+        const assignedTickets = assignedResult.status === "fulfilled" ? assignedResult.value : [];
+        setAssignedTicketIds(new Set(assignedTickets.map((ticket) => ticket.id)));
+
+        const raisedTickets = contentResult.status === "fulfilled" ? contentResult.value.tickets : [];
+        // Union of "raised by me" and "assigned to me", newest first. A ticket can be
+        // both, so the raised copy wins and the assigned copy is only a fallback.
+        const mergedTickets = new Map(assignedTickets.map((ticket) => [ticket.id, ticket]));
+        raisedTickets.forEach((ticket) => mergedTickets.set(ticket.id, ticket));
+        setTickets(
+          Array.from(mergedTickets.values()).sort(
+            (a, b) => new Date(b.createdAt || b.date || 0) - new Date(a.createdAt || a.date || 0)
+          )
+        );
+
         if (contentResult.status === "fulfilled") {
-          setTickets(contentResult.value.tickets);
           setArticles(contentResult.value.articles);
           setCategories(contentResult.value.categories);
         } else {
-          setTickets([]);
           setArticles([]);
           setCategories([]);
           toast.error("Could not load help desk content", {
@@ -1942,6 +2142,8 @@ export default function HelpSupportExperience({
         ticketTypes={ticketTypes}
         ticketPriorities={ticketPriorities}
         ticketStatuses={ticketStatuses}
+        canManage={assignedTicketIds.has(selectedTicket.id)}
+        isRequester={isSameEmail(selectedTicket.raisedBy, supportUser.email)}
       />
     );
   } else if (view.type === "collection" && selectedCategory) {

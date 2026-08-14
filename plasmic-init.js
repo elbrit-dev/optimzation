@@ -24,6 +24,8 @@ import CatalogLetterSection from "./components/CatalogLetterSection";
 import CatalogLetterGroup from "./components/CatalogLetterGroup";
 import HomeNavRings from "./components/HomeNavRings";
 import ProgressRing from "./components/ProgressRing";
+import EmployeeProfileCard from "./components/EmployeeProfileCard";
+import ActionButton from "./components/ActionButton";
 import CommonDataTable from "./components/CommonDataTable/CommonDataTable";
 // import TableDataProvider from "./components/TableDataProvider";
 import jsonata from 'jsonata';
@@ -2184,6 +2186,309 @@ PLASMIC.registerComponent(ProgressRing, {
     className: { type: "string", description: "CSS class for the ring container." },
   },
   importPath: "./components/ProgressRing",
+});
+
+PLASMIC.registerComponent(EmployeeProfileCard, {
+  name: "EmployeeProfileCard",
+  displayName: "Employee Profile Card",
+  description:
+    "Identity card for ONE employee — built for the home-page profile drawer (tap the header avatar): one card for the logged-in user, another for their manager. Deliberately SHORT — a few fields, not the whole employee record: avatar (image or initial) + name + designation + a status line ('● Active · HQ-Chennai'), then three labelled rows (company email, employee code, reports-to) each with a COPY button, and a 'View profile' button. Every field is its OWN prop — there is NO single data object to bind, so wire each one straight off the employee record: name <- employee_name, designation <- designation__name, status <- status, hq <- fsl_hq__name, email <- company_email, employeeCode <- employee, reportsTo <- reports_to.employee_name, avatarUrl <- userAvatar, initial <- Initial. The seat code (role_id / custom_role_profile__name) is deliberately NOT shown — it duplicates the HQ in the header; bind `territory` only if you want the raw code instead. Any row whose value is empty hides itself — that's how you drop a row you don't want.",
+  props: {
+    name: {
+      type: "string",
+      defaultValue: "Janardhanan A",
+      description: "Employee name — the card heading. Bind to employee_name.",
+    },
+    designation: {
+      type: "string",
+      defaultValue: "Zonal Sales Manager",
+      description: "Job title shown under the name. Bind to designation__name. Leave empty to hide.",
+    },
+    status: {
+      type: "string",
+      defaultValue: "ACTIVE",
+      description: "Employment status. Bind to `status` — ERP stores it upper-cased ('ACTIVE') and the card displays it title-cased ('Active'). Leave empty to hide the status line.",
+    },
+    statusTone: {
+      type: "choice",
+      options: [
+        { value: "auto", label: "Auto (from status text)" },
+        { value: "active", label: "Active (green)" },
+        { value: "inactive", label: "Inactive / Suspended (amber)" },
+        { value: "left", label: "Left (grey)" },
+      ],
+      defaultValue: "auto",
+      description: "Colour of the status dot + text. Leave on 'Auto' and it derives from the status TEXT ('ACTIVE' → green, 'Inactive'/'Suspended' → amber, 'Left' → grey). Pick a tone only to override.",
+    },
+    hq: {
+      type: "string",
+      defaultValue: "HQ-Chennai",
+      description: "Headquarters shown after the status, separated by '·'. Bind to fsl_hq__name. Leave empty to show the status alone.",
+    },
+    avatarUrl: {
+      type: "string",
+      description: "Avatar image URL — bind to `userAvatar` (the data:image/svg+xml avatar works as-is). Leave EMPTY to show the initial on a tinted circle instead.",
+    },
+    initial: {
+      type: "string",
+      description: "Single letter shown when there's no avatarUrl. Bind to `Initial`, or leave empty and the card takes the first letter of `name`.",
+    },
+    avatarBg: {
+      type: "color",
+      defaultValue: "#dbeafe",
+      description: "Background of the initial-letter avatar circle (ignored when avatarUrl is set).",
+    },
+    avatarColor: {
+      type: "color",
+      defaultValue: "#2563eb",
+      description: "Colour of the initial letter in the avatar circle.",
+    },
+    email: {
+      type: "string",
+      defaultValue: "janardhanan@elbrit.org",
+      description: "Bind to company_email. Row hides itself when empty. NOTE: many BE employees have an EMPTY company_email — fall back to the User login (user_id) if you need one that's always filled.",
+    },
+    emailLabel: { type: "string", defaultValue: "Company email", description: "Label of the email row." },
+    employeeCode: {
+      type: "string",
+      defaultValue: "E00004",
+      description: "Bind to `employee` (same as the record's `name`, e.g. 'E00004'). Shown in a monospace font. Row hides itself when empty.",
+    },
+    employeeCodeLabel: { type: "string", defaultValue: "Employee code", description: "Label of the employee-code row." },
+    territory: {
+      type: "string",
+      description: "OPT-IN, normally leave EMPTY. The seat code — role_id / custom_role_profile__name ('SM-Aura_CHN_CBE_MDU_KER'). It says the same thing as `hq` in the header, and 'HQ-Chennai' reads better, so the row is hidden by default. Bind it only if you want the raw code, and then clear `hq` so the two don't repeat each other. Shown in a monospace font.",
+    },
+    territoryLabel: { type: "string", defaultValue: "Territory", description: "Label of the territory row (change to 'Role profile' if that reads better)." },
+    reportsTo: {
+      type: "string",
+      defaultValue: "Vice President – Sales",
+      description: "Who this employee reports to — bind to reports_to.employee_name (or the manager's designation). Row hides itself when empty.",
+    },
+    reportsToLabel: { type: "string", defaultValue: "Reports to", description: "Label of the reports-to row." },
+    showCopy: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Show a copy button on every detail row. It copies the raw value, flashes a green tick, and fires onCopy.",
+    },
+    onCopy: {
+      type: "eventHandler",
+      argTypes: [
+        { name: "field", type: "string" },
+        { name: "value", type: "string" },
+      ],
+      description: "Fires after a row is copied, with the row key ('email' | 'employeeCode' | 'territory' | 'reportsTo') and the copied text. Optional — the copy itself already happened; wire this only for a toast.",
+    },
+    linkEmail: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Make the email a mailto: link (it keeps the row styling and doesn't trigger the card click). Turn OFF for plain text.",
+    },
+    onCardClick: {
+      type: "eventHandler",
+      argTypes: [{ name: "value", type: "object" }],
+      description: "OPTIONAL. Fires when the card BODY is clicked, with `value`. Wiring it makes the whole card clickable (hover lift). The copy buttons, contact links and the footer button all swallow their own clicks.",
+    },
+    value: {
+      type: "object",
+      description: "The id handed back by onCardClick / onViewProfile — bind to the employee docname (e.g. 'E00004') or the whole row.",
+    },
+    showButton: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Show the footer action button. Turn OFF for a read-only card.",
+    },
+    buttonLabel: { type: "string", defaultValue: "View profile", description: "Label of the footer button." },
+    onViewProfile: {
+      type: "eventHandler",
+      argTypes: [{ name: "value", type: "object" }],
+      description: "Fires when the footer button is clicked, with `value`. Wire it to navigate to the employee's profile page or open a drawer.",
+    },
+    fullWidthButton: {
+      type: "boolean",
+      defaultValue: false,
+      description: "Stretch the footer button across the card. OFF (default) keeps it left-aligned at its natural width.",
+    },
+    disabled: {
+      type: "boolean",
+      defaultValue: false,
+      description: "Block the footer button and the card click (e.g. while something is loading).",
+    },
+    accentColor: {
+      type: "color",
+      defaultValue: "#2563eb",
+      description: "Button background, link hover colour and the hover border of a clickable card.",
+    },
+    children: {
+      type: "slot",
+      description: "Extra content between the detail rows and the button — e.g. team chips, approver lines, or a KPI strip. Leave empty and nothing renders.",
+    },
+    className: { type: "string", description: "CSS class for the card container." },
+  },
+  importPath: "./components/EmployeeProfileCard",
+});
+
+PLASMIC.registerComponent(ActionButton, {
+  name: "ActionButton",
+  displayName: "Action Button (icon + label)",
+  description:
+    "One icon + label row — the kind stacked at the bottom of the profile drawer ('Help Desk', 'Logout') or in any menu/settings list. The ICONS ARE BUILT IN as inline SVG: pick one from the `icon` dropdown (~40 ready icons — headphones, logout, bell, calendar, approvals, product, doctor, wallet, shield…) and it takes `iconColor`/`iconSize` automatically; nothing external is loaded. Need an icon that isn't listed? Drop any element into the `iconSlot` and it replaces the built-in one. Wire `onClick` for the interaction (it fires with `value`, so several buttons can share one handler), or set `href` to render a real link (mailto:, tel:, external page). Three looks via `variant` — plain borderless row (the drawer look), outlined card, or soft tinted block — and `tone` 'danger' turns it red for Logout / Delete.",
+  props: {
+    label: {
+      type: "string",
+      defaultValue: "Help Desk",
+      description: "The button text.",
+    },
+    icon: {
+      type: "choice",
+      options: [
+        { value: "headphones", label: "🎧 Headphones — Help Desk" },
+        { value: "lifeBuoy", label: "🛟 Life buoy — Support" },
+        { value: "question", label: "❓ Question — Help / FAQ" },
+        { value: "chat", label: "💬 Chat — Feedback" },
+        { value: "phone", label: "📞 Phone — Call" },
+        { value: "mail", label: "✉️ Mail — Email" },
+        { value: "send", label: "➤ Send — Submit / Raise" },
+        { value: "logout", label: "⏻ Logout — Sign out" },
+        { value: "user", label: "👤 User — Profile" },
+        { value: "userSettings", label: "👤⚙ User settings — Account" },
+        { value: "team", label: "👥 Team — My team" },
+        { value: "settings", label: "⚙️ Settings" },
+        { value: "bell", label: "🔔 Bell — Notifications" },
+        { value: "calendar", label: "📅 Calendar" },
+        { value: "calendarCheck", label: "📅✓ Calendar check — Tour plan / visits" },
+        { value: "clock", label: "🕐 Clock — Attendance / history" },
+        { value: "approvals", label: "📋✓ Clipboard check — Approvals / tasks" },
+        { value: "report", label: "📄 File — Reports / documents" },
+        { value: "sales", label: "📈 Trending up — Sales" },
+        { value: "product", label: "📦 Package — Products / stock" },
+        { value: "store", label: "🏪 Store — Distributor / customer" },
+        { value: "doctor", label: "🩺 Stethoscope — Doctor" },
+        { value: "location", label: "📍 Map pin — Territory / HQ" },
+        { value: "wallet", label: "👛 Wallet — Expense" },
+        { value: "receipt", label: "🧾 Receipt — Invoice / claim" },
+        { value: "search", label: "🔍 Search" },
+        { value: "download", label: "⬇️ Download / export" },
+        { value: "upload", label: "⬆️ Upload / import" },
+        { value: "sync", label: "🔄 Refresh — Sync" },
+        { value: "lock", label: "🔒 Lock — Change password" },
+        { value: "shield", label: "🛡️ Shield — Privacy / security" },
+        { value: "info", label: "ℹ️ Info — About" },
+        { value: "star", label: "⭐ Star — Rate us" },
+        { value: "share", label: "🔗 Share — Refer" },
+        { value: "home", label: "🏠 Home" },
+        { value: "dashboard", label: "▦ Dashboard" },
+        { value: "catalog", label: "📖 Book — Catalogue / guide" },
+        { value: "add", label: "➕ Plus — Add / new" },
+        { value: "trash", label: "🗑️ Trash — Delete" },
+        { value: "externalLink", label: "↗️ External link" },
+        { value: "globe", label: "🌐 Globe — Language / website" },
+        { value: "moon", label: "🌙 Moon — Dark mode" },
+      ],
+      defaultValue: "headphones",
+      description: "Which built-in icon to show. All of them are inline SVG inside the component (nothing is fetched) and they follow iconColor / iconSize. Ignored when iconSlot is filled.",
+    },
+    iconSlot: {
+      type: "slot",
+      description: "OPTIONAL escape hatch: drop any element here (a Studio icon, an image) and it replaces the built-in `icon`. Leave empty to use the dropdown.",
+    },
+    iconSize: {
+      type: "number",
+      defaultValue: 20,
+      description: "Icon size in px (also the spinner size while loading).",
+    },
+    iconStrokeWidth: {
+      type: "number",
+      defaultValue: 2,
+      description: "Stroke thickness of the built-in icon. 1.75 reads lighter, 2.25 bolder.",
+    },
+    iconColor: {
+      type: "color",
+      description: "Overrides the tone's icon colour. Leave empty to follow `tone` (blue by default, red for danger).",
+    },
+    labelColor: {
+      type: "color",
+      description: "Overrides the tone's text colour. Leave empty to follow `tone`.",
+    },
+    variant: {
+      type: "choice",
+      options: [
+        { value: "plain", label: "Plain (borderless row — drawer look)" },
+        { value: "outlined", label: "Outlined (own border)" },
+        { value: "soft", label: "Soft (tinted background)" },
+      ],
+      defaultValue: "plain",
+      description: "How the button is framed. 'plain' is the drawer/menu row in the mock — put a few of them inside one bordered container.",
+    },
+    tone: {
+      type: "choice",
+      options: [
+        { value: "default", label: "Default (blue icon, dark text)" },
+        { value: "primary", label: "Primary (blue icon and text)" },
+        { value: "danger", label: "Danger (red — Logout / Delete)" },
+      ],
+      defaultValue: "default",
+      description: "Colour preset for the icon + text. iconColor / labelColor override it.",
+    },
+    fullWidth: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Stretch to the container width (the menu-row default). Turn OFF to size to the label.",
+    },
+    align: {
+      type: "choice",
+      options: [
+        { value: "left", label: "Left (menu row)" },
+        { value: "center", label: "Centred" },
+      ],
+      defaultValue: "left",
+      description: "Where the icon + label sit inside the button.",
+    },
+    hoverColor: {
+      type: "color",
+      defaultValue: "#f3f4f6",
+      description: "Background on hover / press.",
+    },
+    badge: {
+      type: "string",
+      description: "OPTIONAL small pill on the right — e.g. an unread count on a Notifications row. Hidden when empty.",
+    },
+    showChevron: {
+      type: "boolean",
+      defaultValue: false,
+      description: "Add a right-hand '›' for rows that lead somewhere (a sub-page). Leave OFF for terminal actions like Logout.",
+    },
+    onClick: {
+      type: "eventHandler",
+      argTypes: [{ name: "value", type: "object" }],
+      description: "THE interaction. Fires with this button's `value` — wire it to navigate, open a dialog, sign out, etc. Several buttons can share one handler and tell themselves apart by `value`. Blocked while `disabled` or `loading`.",
+    },
+    value: {
+      type: "object",
+      description: "Passed back by onClick — an id like 'logout' / 'help-desk', or any object.",
+    },
+    href: {
+      type: "string",
+      description: "OPTIONAL. Set it and the button renders as a real link — use for mailto:, tel: or an external page. onClick still fires. Ignored while disabled/loading.",
+    },
+    newTab: {
+      type: "boolean",
+      defaultValue: false,
+      description: "Open `href` in a new tab (rel=noopener). Only applies when href is set.",
+    },
+    disabled: {
+      type: "boolean",
+      defaultValue: false,
+      description: "Dim the button and block clicks.",
+    },
+    loading: {
+      type: "boolean",
+      defaultValue: false,
+      description: "Swap the icon for a spinner and block clicks — e.g. while the sign-out is in flight.",
+    },
+    className: { type: "string", description: "CSS class for the button." },
+  },
+  importPath: "./components/ActionButton",
 });
 
 PLASMIC.registerComponent(CommonDataTable, {

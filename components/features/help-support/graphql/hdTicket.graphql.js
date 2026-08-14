@@ -155,6 +155,66 @@ query HDTicketAssignments($first: Int!) {
 }
 `;
 
+// The customer-facing thread. In Frappe Helpdesk the public conversation lives in
+// Communication (Received = from the requester, Sent = from an agent), while
+// HD Ticket Comment is the agents' internal note channel that requesters never see.
+export const HD_TICKET_COMMUNICATIONS_QUERY = `
+query HDTicketCommunications($ticketName: String!) {
+  Communications(
+    first: 100
+    filter: [
+      { fieldname: "reference_doctype", operator: EQ, value: "HD Ticket" }
+      { fieldname: "reference_name", operator: EQ, value: $ticketName }
+    ]
+  ) {
+    edges {
+      node {
+        name
+        subject
+        content
+        sender
+        sender_full_name
+        sent_or_received
+        communication_medium
+        creation
+      }
+    }
+  }
+}
+`;
+
+export const SAVE_HD_TICKET_COMMUNICATION_MUTATION = `
+mutation SaveHDTicketCommunication($doc: String!) {
+  saveDoc(doctype: "Communication", doc: $doc) {
+    doc {
+      name
+    }
+  }
+}
+`;
+
+// Tickets allocated to one user. Frappe ANDs its filters and has no OR, so "raised by
+// me or assigned to me" needs this second lookup merged with the raised_by fetch.
+export const HD_MY_TICKET_ASSIGNMENTS_QUERY = `
+query HDMyTicketAssignments($first: Int!, $user: String!) {
+  ToDoes(
+    first: $first
+    filter: [
+      { fieldname: "reference_type", operator: EQ, value: "HD Ticket" }
+      { fieldname: "allocated_to", operator: EQ, value: $user }
+    ]
+  ) {
+    edges {
+      node {
+        name
+        reference_name
+        status
+      }
+    }
+  }
+}
+`;
+
 export const CREATE_HD_TICKET_MUTATION = `
 mutation CreateHDTicket($doc: String!) {
   saveDoc(doctype: "${HD_TICKET_DOCTYPE}", doc: $doc) {
