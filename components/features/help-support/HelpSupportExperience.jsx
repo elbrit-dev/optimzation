@@ -1421,6 +1421,8 @@ export default function HelpSupportExperience({
   token = "",
   graphqlEndpoint = "",
   authToken = "",
+  className = "",
+  style,
 }) {
   const uiContent = {
     ...HELP_SUPPORT_UI_CONTENT,
@@ -1900,7 +1902,16 @@ export default function HelpSupportExperience({
   const isHomeView = view.type === "home";
 
   return (
-    <div className="mb-3 flex h-[calc(100%-0.75rem)] min-h-0 w-full max-w-full flex-col overflow-hidden bg-slate-50 text-sm text-slate-950 md:mb-4 md:h-[calc(100%-1rem)]">
+    <div
+      className={cx(
+        "flex min-h-0 flex-col overflow-hidden bg-slate-50 text-sm text-slate-950",
+        // Size/spacing utilities are dropped once a className arrives so the caller
+        // (Plasmic Studio) owns the box instead of fighting these for specificity.
+        className ? "" : "mb-3 h-[calc(100%-0.75rem)] w-full max-w-full md:mb-4 md:h-[calc(100%-1rem)]",
+        className
+      )}
+      style={style}
+    >
       <Toaster richColors position="top-right" />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overflow-x-clip overscroll-contain px-2 pb-2 pt-2 md:px-6 md:pb-8 md:pt-4">
         <div
