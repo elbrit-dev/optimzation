@@ -93,17 +93,17 @@ function Card({ children, className = "", as: Component = "section", ...props })
 
 function BackHeader({ title, subtitle, onBack, action }) {
   return (
-    <div className="flex items-center gap-2.5 border-b border-slate-200 bg-white px-3 py-2 md:rounded-xl md:border md:px-3 md:shadow-sm">
+    <div className="flex items-center gap-2.5 border-b border-slate-200 bg-white px-3 py-2 @min-[768px]:rounded-xl @min-[768px]:border @min-[768px]:px-3 @min-[768px]:shadow-sm">
       <button
         type="button"
         onClick={onBack}
         aria-label="Back"
-        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-50 text-xs text-slate-800 transition hover:bg-blue-50 hover:text-[#0F87F9] md:h-8 md:w-8"
+        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-50 text-xs text-slate-800 transition hover:bg-blue-50 hover:text-[#0F87F9] @min-[768px]:h-8 @min-[768px]:w-8"
       >
         <i className="pi pi-chevron-left" aria-hidden />
       </button>
       <div className="min-w-0 flex-1">
-        <h2 className="truncate text-sm font-bold text-slate-950 md:text-base">{title}</h2>
+        <h2 className="truncate text-sm font-bold text-slate-950 @min-[768px]:text-base">{title}</h2>
         {subtitle ? <p className="mt-0.5 truncate text-xs text-slate-500">{subtitle}</p> : null}
       </div>
       {action}
@@ -199,7 +199,7 @@ function MobileStatStrip({ stats }) {
       {stats.map((stat) => (
         <div key={stat.label} className="min-w-0 px-1 text-center">
           <p className="text-xl font-black text-slate-950">{stat.value}</p>
-          <p className="mt-1 truncate text-[9px] font-bold uppercase tracking-[0.08em] text-slate-400 min-[380px]:text-[10px] min-[380px]:tracking-[0.14em]">
+          <p className="mt-1 truncate text-[9px] font-bold uppercase tracking-[0.08em] text-slate-400 @min-[380px]:text-[10px] @min-[380px]:tracking-[0.14em]">
             {stat.label}
           </p>
         </div>
@@ -215,7 +215,7 @@ function TicketCard({ ticket, onOpen, compact = false }) {
       onClick={() => onOpen(ticket)}
       className={cx(
         "block rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-blue-200 hover:shadow-md",
-        compact && "w-[260px] shrink-0 snap-start sm:w-[280px]"
+        compact && "w-[260px] shrink-0 snap-start @min-[640px]:w-[280px]"
       )}
     >
       <div className="flex items-start justify-between gap-3">
@@ -325,13 +325,13 @@ function RecentlyViewed({ items, onOpen }) {
   return (
     <section>
       <SectionHeader title="Recently viewed" />
-      <div className="flex max-w-full snap-x snap-mandatory gap-3 overflow-x-auto pb-2 md:grid md:grid-cols-2 md:snap-none md:overflow-visible">
+      <div className="flex max-w-full snap-x snap-mandatory gap-3 overflow-x-auto pb-2 @min-[768px]:grid @min-[768px]:grid-cols-2 @min-[768px]:snap-none @min-[768px]:overflow-visible">
         {items.map((article) => (
           <button
             key={article.id}
             type="button"
             onClick={() => onOpen(article)}
-            className="w-[240px] shrink-0 snap-start rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-blue-200 sm:w-[260px] md:w-auto"
+            className="w-[240px] shrink-0 snap-start rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-blue-200 @min-[640px]:w-[260px] @min-[768px]:w-auto"
           >
             <h3 className="font-bold leading-5 text-slate-950">{article.title}</h3>
             <p className="mt-3 text-sm font-medium text-slate-500">{article.category}</p>
@@ -368,7 +368,7 @@ function TicketFilters({ activeFilter, setActiveFilter, counts, views = [] }) {
           type="button"
           onClick={() => setActiveFilter(filter.id)}
           className={cx(
-            "h-9 shrink-0 rounded-full border px-3 text-xs font-bold transition md:h-8",
+            "h-9 shrink-0 rounded-full border px-3 text-xs font-bold transition @min-[768px]:h-8",
             activeFilter === filter.id
               ? "border-[#0F87F9] bg-[#0F87F9] text-white"
               : "border-slate-200 bg-white text-slate-700 hover:border-blue-200"
@@ -397,7 +397,7 @@ function TicketDataTable({ tickets, onOpen, selectedIds, onToggleTicket, onToggl
   const partlySelected = tickets.some((ticket) => selectedIds.includes(ticket.id)) && !allSelected;
 
   return (
-    <Card className="hidden min-w-0 overflow-x-auto lg:block">
+    <Card className="hidden min-w-0 overflow-x-auto @min-[1024px]:block">
       <table className="w-full min-w-[1040px] border-collapse text-left text-xs">
         <thead>
           <tr className="border-b border-slate-100 bg-slate-50 text-slate-500">
@@ -515,13 +515,13 @@ function StatusSelect({ status, onChange, statuses = [] }) {
   const statusStyles = TICKET_STATUS_DOTS;
 
   return (
-    <label className="inline-flex h-10 w-fit shrink-0 items-center gap-2 rounded-lg bg-slate-100 px-2 text-xs font-semibold text-slate-700 md:h-8">
+    <label className="inline-flex h-10 w-fit shrink-0 items-center gap-2 rounded-lg bg-slate-100 px-2 text-xs font-semibold text-slate-700 @min-[768px]:h-8">
       <span className={cx("h-2.5 w-2.5 shrink-0 rounded-full", statusStyles[status] || "bg-slate-400")} />
       <select
         value={status}
         onChange={(event) => onChange(event.target.value)}
         disabled={!statusOptions.length}
-        className="h-9 rounded-md border-0 bg-transparent px-1 text-xs font-semibold outline-none md:h-7"
+        className="h-9 rounded-md border-0 bg-transparent px-1 text-xs font-semibold outline-none @min-[768px]:h-7"
         aria-label="Change ticket status"
       >
         {statusOptions.map((item) => (
@@ -649,7 +649,7 @@ function TicketMetaPanel({ ticket, onFieldChange, ticketTypes = [], ticketPriori
   const owner = ticket.assignee || ticket.agentGroup || ticket.team || "Helpdesk";
 
   return (
-    <Card className="shrink-0 p-3 lg:w-[300px]">
+    <Card className="shrink-0 p-3 @min-[1024px]:w-[300px]">
       <div className="mb-3 flex items-center gap-3">
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-500">
           {owner.charAt(0)}
@@ -713,7 +713,7 @@ function TicketsPanel({ tickets, onOpen, activeFilter, setActiveFilter, counts, 
 
   return (
     <section className={cx("flex min-w-0 flex-col gap-2 text-[13px]", fill ? "h-full min-h-0 flex-1 overflow-hidden" : "shrink-0 overflow-visible")}>
-      <div className="shrink-0 flex flex-col gap-2 border-b border-slate-200 bg-white/80 py-2 md:rounded-xl md:border md:px-3 md:shadow-sm">
+      <div className="shrink-0 flex flex-col gap-2 border-b border-slate-200 bg-white/80 py-2 @min-[768px]:rounded-xl @min-[768px]:border @min-[768px]:px-3 @min-[768px]:shadow-sm">
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
             <h2 className="text-[15px] font-bold text-slate-950">Tickets</h2>
@@ -723,21 +723,21 @@ function TicketsPanel({ tickets, onOpen, activeFilter, setActiveFilter, counts, 
           <button
             type="button"
             onClick={onCreate}
-            className="inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-slate-950 px-3 text-[13px] font-bold text-white hover:bg-slate-800 md:h-8"
+            className="inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-slate-950 px-3 text-[13px] font-bold text-white hover:bg-slate-800 @min-[768px]:h-8"
           >
             <i className="pi pi-plus" aria-hidden />
             Create
           </button>
         </div>
-        <div className="grid gap-3 xl:grid-cols-[1fr_auto] xl:items-center">
+        <div className="grid gap-3 @min-[1280px]:grid-cols-[1fr_auto] @min-[1280px]:items-center">
           <TicketFilters activeFilter={activeFilter} setActiveFilter={setActiveFilter} counts={counts} views={views} />
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg bg-slate-100 p-1 md:flex-none">
+            <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg bg-slate-100 p-1 @min-[768px]:flex-none">
               <i className="pi pi-filter ml-2 text-xs text-slate-500" aria-hidden />
               <select
                 value={filterField}
                 onChange={(event) => setFilterField(event.target.value)}
-                className="h-9 rounded-md border-0 bg-white px-2 text-xs font-semibold text-slate-700 outline-none md:h-7"
+                className="h-9 rounded-md border-0 bg-white px-2 text-xs font-semibold text-slate-700 outline-none @min-[768px]:h-7"
               >
                 {TICKET_FIELD_FILTERS.map((field) => (
                   <option key={field.id} value={field.id}>
@@ -749,14 +749,14 @@ function TicketsPanel({ tickets, onOpen, activeFilter, setActiveFilter, counts, 
                 value={filterValue}
                 onChange={(event) => setFilterValue(event.target.value)}
                 placeholder={`Filter by ${fieldConfig.label}`}
-                className="h-9 min-w-[90px] flex-1 rounded-md border-0 bg-white px-2 text-xs outline-none placeholder:text-slate-400 md:h-7 md:w-40"
+                className="h-9 min-w-[90px] flex-1 rounded-md border-0 bg-white px-2 text-xs outline-none placeholder:text-slate-400 @min-[768px]:h-7 @min-[768px]:w-40"
               />
             </div>
             {visibleSelectedIds.length ? (
               <button
                 type="button"
                 onClick={deleteSelected}
-                className="h-10 shrink-0 rounded-lg bg-red-50 px-3 text-xs font-bold text-red-600 hover:bg-red-100 md:h-8"
+                className="h-10 shrink-0 rounded-lg bg-red-50 px-3 text-xs font-bold text-red-600 hover:bg-red-100 @min-[768px]:h-8"
               >
                 Delete ({visibleSelectedIds.length})
               </button>
@@ -777,7 +777,7 @@ function TicketsPanel({ tickets, onOpen, activeFilter, setActiveFilter, counts, 
             onToggleTicket={toggleTicket}
             onToggleAll={toggleAll}
           />
-          <div className="grid gap-2 lg:hidden">
+          <div className="grid gap-2 @min-[1024px]:hidden">
             {filteredTickets.map((ticket) => (
               <MobileTicketRow
                 key={ticket.id}
@@ -848,7 +848,7 @@ function CreateTicketForm({ content, onSubmit, onCancel, ticketTypes = [], user 
   };
 
   return (
-    <Card className="p-4 md:p-5">
+    <Card className="p-4 @min-[768px]:p-5">
       <form onSubmit={submit} className="grid gap-4">
         <div className="flex w-full min-w-0 flex-col gap-4">
           <fieldset className="min-w-0">
@@ -862,7 +862,7 @@ function CreateTicketForm({ content, onSubmit, onCancel, ticketTypes = [], user 
                     type="button"
                     onClick={() => setTicketType(type)}
                     className={cx(
-                      "min-h-11 shrink-0 rounded-lg border px-3 py-2 text-xs font-bold transition md:px-4 md:text-sm",
+                      "min-h-11 shrink-0 rounded-lg border px-3 py-2 text-xs font-bold transition @min-[768px]:px-4 @min-[768px]:text-sm",
                       selected
                         ? "border-[#0F87F9] bg-[#0F87F9] text-white shadow-sm"
                       : "border-slate-200 bg-white text-slate-950 hover:border-blue-200 hover:bg-blue-50"
@@ -883,7 +883,7 @@ function CreateTicketForm({ content, onSubmit, onCancel, ticketTypes = [], user 
               value={subject}
               onChange={(event) => setSubject(event.target.value)}
               placeholder={content.ticketForm.subjectPlaceholder}
-              className="h-11 w-full min-w-0 rounded-lg border border-slate-200 px-3 text-base outline-none focus:border-[#0F87F9] focus:ring-4 focus:ring-blue-100 md:text-sm"
+              className="h-11 w-full min-w-0 rounded-lg border border-slate-200 px-3 text-base outline-none focus:border-[#0F87F9] focus:ring-4 focus:ring-blue-100 @min-[768px]:text-sm"
             />
           </label>
           <div className="min-w-0">
@@ -902,7 +902,7 @@ function CreateTicketForm({ content, onSubmit, onCancel, ticketTypes = [], user 
                 value={raisedBy}
                 onChange={(event) => setRaisedBy(event.target.value)}
                 placeholder="name@elbrit.org"
-                className="h-11 w-full min-w-0 rounded-lg border border-slate-200 px-3 text-base outline-none focus:border-[#0F87F9] focus:ring-4 focus:ring-blue-100 md:text-sm"
+                className="h-11 w-full min-w-0 rounded-lg border border-slate-200 px-3 text-base outline-none focus:border-[#0F87F9] focus:ring-4 focus:ring-blue-100 @min-[768px]:text-sm"
                 required
               />
             )}
@@ -920,15 +920,15 @@ function CreateTicketForm({ content, onSubmit, onCancel, ticketTypes = [], user 
             onChange={(event) => setDescription(event.target.value)}
             placeholder={content.ticketForm.descriptionPlaceholder}
             rows={5}
-            className="w-full resize-y rounded-lg border border-slate-200 p-3 text-base outline-none focus:border-[#0F87F9] focus:ring-4 focus:ring-blue-100 md:text-sm"
+            className="w-full resize-y rounded-lg border border-slate-200 p-3 text-base outline-none focus:border-[#0F87F9] focus:ring-4 focus:ring-blue-100 @min-[768px]:text-sm"
           />
         </label>
-        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
+        <div className="flex flex-col-reverse gap-2 @min-[640px]:flex-row @min-[640px]:items-center @min-[640px]:justify-end @min-[640px]:gap-3">
           {onCancel ? (
             <button
               type="button"
               onClick={onCancel}
-              className="h-11 w-full rounded-lg border border-slate-200 px-4 text-sm font-bold text-slate-600 hover:bg-slate-50 sm:h-10 sm:w-auto"
+              className="h-11 w-full rounded-lg border border-slate-200 px-4 text-sm font-bold text-slate-600 hover:bg-slate-50 @min-[640px]:h-10 @min-[640px]:w-auto"
             >
               Cancel
             </button>
@@ -936,7 +936,7 @@ function CreateTicketForm({ content, onSubmit, onCancel, ticketTypes = [], user 
           <button
             type="submit"
             disabled={!canSubmit}
-            className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#0F87F9] px-5 text-sm font-bold text-white shadow-sm transition hover:bg-blue-600 disabled:bg-blue-200 sm:h-10 sm:w-auto"
+            className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#0F87F9] px-5 text-sm font-bold text-white shadow-sm transition hover:bg-blue-600 disabled:bg-blue-200 @min-[640px]:h-10 @min-[640px]:w-auto"
           >
             <i className="pi pi-plus" aria-hidden />
             {isSubmitting ? "Submitting..." : content.ticketForm.submitLabel}
@@ -1034,28 +1034,28 @@ function TicketConversation({
 
   return (
     <section className="flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-xl bg-slate-50 text-[13px]">
-      <div className="shrink-0 border-b border-slate-200 bg-white px-3 py-2 md:rounded-xl md:border md:px-4 md:shadow-sm">
-        <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+      <div className="shrink-0 border-b border-slate-200 bg-white px-3 py-2 @min-[768px]:rounded-xl @min-[768px]:border @min-[768px]:px-4 @min-[768px]:shadow-sm">
+        <div className="flex flex-col gap-2 @min-[1024px]:flex-row @min-[1024px]:items-start @min-[1024px]:justify-between">
           <div className="flex min-w-0 items-start gap-2.5">
             <button
               type="button"
               onClick={onBack}
               aria-label="Back"
-              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-50 text-xs text-slate-800 transition hover:bg-blue-50 hover:text-[#0F87F9] md:h-8 md:w-8"
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-50 text-xs text-slate-800 transition hover:bg-blue-50 hover:text-[#0F87F9] @min-[768px]:h-8 @min-[768px]:w-8"
             >
               <i className="pi pi-chevron-left" aria-hidden />
             </button>
             <div className="min-w-0">
               <p className="text-[11px] font-semibold text-slate-500">Tickets / {ticket.id}</p>
-              <h2 className="truncate text-sm font-bold text-slate-950 md:text-base">{ticket.title}</h2>
-              <p className="mt-0.5 text-[11px] text-slate-500 md:text-xs">
+              <h2 className="truncate text-sm font-bold text-slate-950 @min-[768px]:text-base">{ticket.title}</h2>
+              <p className="mt-0.5 text-[11px] text-slate-500 @min-[768px]:text-xs">
                 Created {ticket.createdAtLabel || ticket.dateLabel || ticket.createdAt || ticket.date || "Just now"} · {ticket.category}
               </p>
             </div>
           </div>
           <StatusSelect status={ticket.status} statuses={ticketStatuses} onChange={(status) => onStatusChange(ticket.id, status)} />
         </div>
-        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5 text-[11px] md:text-xs">
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5 text-[11px] @min-[768px]:text-xs">
           <span className="font-semibold text-slate-700">
             First Response <span className="ml-1 font-bold text-red-500">{ticket.firstResponse || "Pending"}</span>
           </span>
@@ -1064,8 +1064,8 @@ function TicketConversation({
           </span>
         </div>
       </div>
-      <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto p-3 lg:grid-cols-[minmax(0,1fr)_300px] lg:overflow-hidden">
-        <div className="flex min-h-[360px] min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-slate-100 lg:min-h-0">
+      <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto p-3 @min-[1024px]:grid-cols-[minmax(0,1fr)_300px] @min-[1024px]:overflow-hidden">
+        <div className="flex min-h-[360px] min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-slate-100 @min-[1024px]:min-h-0">
           <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto px-3 py-3">
             {isLoadingComments ? <p className="text-xs font-semibold text-slate-500">Loading ERP comments...</p> : null}
             {conversation.map((message) => {
@@ -1075,7 +1075,7 @@ function TicketConversation({
                 <div key={message.id} className={cx("flex flex-col", own ? "items-end" : "items-start")}>
                   <div
                     className={cx(
-                      "max-w-full overflow-hidden break-words rounded-xl px-3 py-2 text-xs leading-5 sm:max-w-[680px] [&_a]:break-all [&_a]:underline [&_br]:block [&_img]:my-2 [&_img]:block [&_img]:h-auto [&_img]:max-w-full [&_p]:mb-2 [&_pre]:overflow-x-auto [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto [&_video]:my-2 [&_video]:block [&_video]:h-auto [&_video]:max-w-full",
+                      "max-w-full overflow-hidden break-words rounded-xl px-3 py-2 text-xs leading-5 @min-[640px]:max-w-[680px] [&_a]:break-all [&_a]:underline [&_br]:block [&_img]:my-2 [&_img]:block [&_img]:h-auto [&_img]:max-w-full [&_p]:mb-2 [&_pre]:overflow-x-auto [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto [&_video]:my-2 [&_video]:block [&_video]:h-auto [&_video]:max-w-full",
                       richContent
                         ? "w-full bg-white text-slate-950 shadow-sm"
                         : own
@@ -1098,12 +1098,12 @@ function TicketConversation({
                 value={comment}
                 onChange={(event) => setComment(event.target.value)}
                 placeholder="Add a comment..."
-                className="h-11 min-w-0 flex-1 rounded-lg border border-slate-200 px-3 text-base outline-none focus:border-[#0F87F9] focus:ring-2 focus:ring-blue-100 md:h-9 md:text-xs"
+                className="h-11 min-w-0 flex-1 rounded-lg border border-slate-200 px-3 text-base outline-none focus:border-[#0F87F9] focus:ring-2 focus:ring-blue-100 @min-[768px]:h-9 @min-[768px]:text-xs"
               />
               <button
                 type="submit"
                 disabled={!canSend}
-                className="inline-flex h-11 shrink-0 items-center justify-center rounded-lg bg-[#0F87F9] px-4 text-xs font-bold text-white disabled:bg-blue-200 md:h-9 md:px-3"
+                className="inline-flex h-11 shrink-0 items-center justify-center rounded-lg bg-[#0F87F9] px-4 text-xs font-bold text-white disabled:bg-blue-200 @min-[768px]:h-9 @min-[768px]:px-3"
               >
                 {isSavingComment ? "Sending..." : "Send"}
               </button>
@@ -1126,7 +1126,7 @@ function CollectionView({ category, articles, onBack, onArticle }) {
     <div className="flex h-full min-h-0 flex-1 flex-col gap-4">
       <BackHeader title={category.name} subtitle={category.description} onBack={onBack} />
       {articles.length ? (
-        <div className="grid gap-3 xl:grid-cols-2">
+        <div className="grid gap-3 @min-[1280px]:grid-cols-2">
           {articles.map((article) => (
             <ArticleListItem key={article.id} article={article} onOpen={onArticle} />
           ))}
@@ -1144,7 +1144,7 @@ function ArticlesResultView({ title, subtitle, articles, onBack, onArticle }) {
       <BackHeader title={title} subtitle={subtitle} onBack={onBack} />
       {articles.length ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="grid gap-3 xl:grid-cols-2">
+          <div className="grid gap-3 @min-[1280px]:grid-cols-2">
             {articles.map((article) => (
               <ArticleListItem key={article.id} article={article} onOpen={onArticle} />
             ))}
@@ -1257,11 +1257,11 @@ function ArticleView({ article, onBack, graphqlConfig, user }) {
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col gap-4">
       <BackHeader title={article.title} subtitle={`${article.category} · ${article.updatedAtLabel || article.publishedOnLabel || "Knowledge base"}`} onBack={onBack} />
-      <Card className="min-h-0 flex-1 overflow-y-auto p-4 md:p-5">
-        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+      <Card className="min-h-0 flex-1 overflow-y-auto p-4 @min-[768px]:p-5">
+        <div className="flex flex-col gap-3 @min-[768px]:flex-row @min-[768px]:items-start @min-[768px]:justify-between">
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#0F87F9]">{article.category}</p>
-            <h2 className="mt-2 text-lg font-bold leading-tight text-slate-950 md:text-xl">{article.title}</h2>
+            <h2 className="mt-2 text-lg font-bold leading-tight text-slate-950 @min-[768px]:text-xl">{article.title}</h2>
             {article.author ? (
               <div className="mt-3 flex items-center gap-2 text-xs font-semibold text-slate-500">
                 <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-50 text-[11px] font-black text-[#0F87F9]">
@@ -1298,16 +1298,16 @@ function ArticleView({ article, onBack, graphqlConfig, user }) {
           </div>
         </div>
         <div
-          className="mt-4 max-w-none break-words rounded-xl bg-slate-50 p-3 text-[13px] leading-6 text-slate-700 [&_a]:break-words [&_a]:text-[#0F87F9] [&_code]:rounded [&_code]:bg-slate-200 [&_code]:px-1 [&_h2]:mb-2 [&_h2]:mt-4 [&_h2]:text-sm [&_h2]:font-bold [&_h3]:mb-2 [&_h3]:mt-4 [&_h3]:text-sm [&_h3]:font-bold [&_img]:mx-auto [&_img]:my-3 [&_img]:block [&_img]:h-auto [&_img]:max-w-full [&_li]:ml-4 [&_li]:list-disc [&_ol>li]:list-decimal [&_p]:mb-2.5 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-slate-100 [&_pre]:p-3 [&_strong]:font-bold [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto [&_video]:mx-auto [&_video]:my-3 [&_video]:block [&_video]:h-auto [&_video]:max-w-full md:p-4"
+          className="mt-4 max-w-none break-words rounded-xl bg-slate-50 p-3 text-[13px] leading-6 text-slate-700 [&_a]:break-words [&_a]:text-[#0F87F9] [&_code]:rounded [&_code]:bg-slate-200 [&_code]:px-1 [&_h2]:mb-2 [&_h2]:mt-4 [&_h2]:text-sm [&_h2]:font-bold [&_h3]:mb-2 [&_h3]:mt-4 [&_h3]:text-sm [&_h3]:font-bold [&_img]:mx-auto [&_img]:my-3 [&_img]:block [&_img]:h-auto [&_img]:max-w-full [&_li]:ml-4 [&_li]:list-disc [&_ol>li]:list-decimal [&_p]:mb-2.5 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-slate-100 [&_pre]:p-3 [&_strong]:font-bold [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto [&_video]:mx-auto [&_video]:my-3 [&_video]:block [&_video]:h-auto [&_video]:max-w-full @min-[768px]:p-4"
           dangerouslySetInnerHTML={{ __html: article.content || article.summary || "" }}
         />
-        <div className="mt-4 rounded-xl bg-white p-3 shadow-sm ring-1 ring-slate-100 md:p-4">
+        <div className="mt-4 rounded-xl bg-white p-3 shadow-sm ring-1 ring-slate-100 @min-[768px]:p-4">
           {answer ? (
             <p className="rounded-xl bg-blue-50 px-3 py-3 text-center text-sm font-bold text-[#0F87F9]">
               {answer === "yes" ? "Marked as solved." : "Thanks for the feedback."}
             </p>
           ) : (
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-3 @min-[640px]:flex-row @min-[640px]:items-center @min-[640px]:justify-between">
               <p className="text-sm font-bold text-slate-950">Did this answer your question?</p>
               <div className="flex gap-2">
                 <button type="button" onClick={() => setAnswer("yes")} className="h-9 rounded-full border border-slate-200 px-5 text-sm font-bold text-slate-700 hover:bg-blue-50">
@@ -1327,12 +1327,12 @@ function ArticleView({ article, onBack, graphqlConfig, user }) {
               value={comment}
               onChange={(event) => setComment(event.target.value)}
               placeholder="Add a comment..."
-              className="h-11 min-w-0 flex-1 rounded-lg border border-slate-200 px-3 text-base outline-none focus:border-[#0F87F9] focus:ring-2 focus:ring-blue-100 md:h-10 md:text-sm"
+              className="h-11 min-w-0 flex-1 rounded-lg border border-slate-200 px-3 text-base outline-none focus:border-[#0F87F9] focus:ring-2 focus:ring-blue-100 @min-[768px]:h-10 @min-[768px]:text-sm"
             />
             <button
               type="submit"
               disabled={!comment.trim() || isSavingComment}
-              className="h-11 shrink-0 rounded-lg bg-[#0F87F9] px-4 text-sm font-bold text-white disabled:bg-blue-200 md:h-10"
+              className="h-11 shrink-0 rounded-lg bg-[#0F87F9] px-4 text-sm font-bold text-white disabled:bg-blue-200 @min-[768px]:h-10"
             >
               {isSavingComment ? "Posting..." : "Post"}
             </button>
@@ -1765,12 +1765,12 @@ export default function HelpSupportExperience({
 
   const dashboard = (
     <div className="flex min-h-full shrink-0 flex-col gap-5">
-      <div className="hidden grid-cols-4 gap-3 md:grid">
+      <div className="hidden grid-cols-4 gap-3 @min-[768px]:grid">
         {metrics.map((metric) => (
           <MetricCard key={metric.label} {...metric} />
         ))}
       </div>
-      <div className="md:hidden">
+      <div className="@min-[768px]:hidden">
         <MobileStatStrip stats={[
           { value: ticketCounts.active, label: "Open" },
           { value: ticketCounts.resolved, label: "Resolved" },
@@ -1778,7 +1778,7 @@ export default function HelpSupportExperience({
           { value: categories.length, label: "Collections" },
         ]} />
       </div>
-      <div className="grid min-h-0 gap-5 xl:grid-cols-2">
+      <div className="grid min-h-0 gap-5 @min-[1280px]:grid-cols-2">
         <div className="flex min-w-0 flex-col gap-5">
           {isLoadingContent ? (
             <LoadingRows rows={2} />
@@ -1902,82 +1902,91 @@ export default function HelpSupportExperience({
   const isHomeView = view.type === "home";
 
   return (
-    <div
-      className={cx(
-        "flex min-h-0 flex-col overflow-hidden bg-slate-50 text-sm text-slate-950",
-        // Size/spacing utilities are dropped once a className arrives so the caller
-        // (Plasmic Studio) owns the box instead of fighting these for specificity.
-        className ? "" : "mb-3 h-[calc(100%-0.75rem)] w-full max-w-full md:mb-4 md:h-[calc(100%-1rem)]",
-        className
-      )}
-      style={style}
-    >
+    <>
+      {/* Kept outside the container so the fixed-position toasts stay anchored to the
+          viewport — `@container` would otherwise become their containing block. */}
       <Toaster richColors position="top-right" />
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overflow-x-clip overscroll-contain px-2 pb-2 pt-2 md:px-6 md:pb-8 md:pt-4">
-        <div
-          className={cx(
-            "mx-auto flex w-full min-w-0 max-w-7xl flex-col gap-4",
-            isHomeView ? "min-h-full" : "h-full min-h-0 flex-1"
-          )}
-        >
-          {view.type === "home" ? (
-            <section className="shrink-0 rounded-2xl border border-blue-100 bg-white p-4 shadow-sm md:p-5">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                <div className="min-w-0">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#0F87F9]">ELBRIT HELP CENTER</p>
-                  <h1 className="mt-1.5 text-lg font-bold text-[#18265c] md:text-xl">Help & Support</h1>
-                  <p className="mt-1.5 max-w-2xl text-[13px] leading-5 text-slate-500">
-                    Browse ERP articles, raise tickets, and track support conversations.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setView({ type: "create" })}
-                  className="hidden h-9 items-center justify-center gap-2 rounded-lg bg-[#0F87F9] px-3 text-[13px] font-bold text-white shadow-sm transition hover:bg-blue-600 md:inline-flex"
-                >
-                  <i className="pi pi-plus" aria-hidden />
-                  Create ticket
-                </button>
-              </div>
-              <label className="mt-3 flex h-11 max-w-2xl items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 focus-within:border-[#0F87F9] focus-within:ring-2 focus-within:ring-blue-100 md:h-10">
-                <i className="pi pi-search shrink-0 text-slate-400" aria-hidden />
-                <input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder={uiContent.header.searchPlaceholder}
-                  className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-slate-400 md:text-[13px]"
-                />
-                {query ? (
+      <div
+        className={cx(
+          // Every breakpoint below this element is a container query keyed off this box,
+          // so the layout follows the component's own width rather than the browser
+          // viewport — it has to stay correct inside an arbitrary Plasmic slot.
+          // @min-[640px] / [768px] / [1024px] / [1280px] mirror Tailwind sm / md / lg / xl.
+          "@container flex min-h-0 flex-col overflow-hidden bg-slate-50 text-sm text-slate-950",
+          // Size/spacing utilities are dropped once a className arrives so the caller
+          // (Plasmic Studio) owns the box instead of fighting these for specificity.
+          // These stay viewport-based: an element cannot query its own container.
+          className ? "" : "mb-3 h-[calc(100%-0.75rem)] w-full max-w-full md:mb-4 md:h-[calc(100%-1rem)]",
+          className
+        )}
+        style={style}
+      >
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overflow-x-clip overscroll-contain px-2 pb-2 pt-2 @min-[768px]:px-6 @min-[768px]:pb-8 @min-[768px]:pt-4">
+          <div
+            className={cx(
+              "flex w-full min-w-0 flex-col gap-4",
+              isHomeView ? "min-h-full" : "h-full min-h-0 flex-1"
+            )}
+          >
+            {view.type === "home" ? (
+              <section className="shrink-0 rounded-2xl border border-blue-100 bg-white p-4 shadow-sm @min-[768px]:p-5">
+                <div className="flex flex-col gap-4 @min-[1024px]:flex-row @min-[1024px]:items-center @min-[1024px]:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#0F87F9]">ELBRIT HELP CENTER</p>
+                    <h1 className="mt-1.5 text-lg font-bold text-[#18265c] @min-[768px]:text-xl">Help & Support</h1>
+                    <p className="mt-1.5 max-w-2xl text-[13px] leading-5 text-slate-500">
+                      Browse ERP articles, raise tickets, and track support conversations.
+                    </p>
+                  </div>
                   <button
                     type="button"
-                    onClick={() => setQuery("")}
-                    aria-label="Clear search"
-                    className="-mr-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-200 hover:text-slate-600"
+                    onClick={() => setView({ type: "create" })}
+                    className="hidden h-9 items-center justify-center gap-2 rounded-lg bg-[#0F87F9] px-3 text-[13px] font-bold text-white shadow-sm transition hover:bg-blue-600 @min-[768px]:inline-flex"
                   >
-                    <i className="pi pi-times text-xs" aria-hidden />
+                    <i className="pi pi-plus" aria-hidden />
+                    Create ticket
                   </button>
-                ) : null}
-              </label>
-            </section>
-          ) : null}
-
-          <div className={cx("flex flex-col", isHomeView ? "shrink-0" : "min-h-0 flex-1")}>{mainView}</div>
+                </div>
+                <label className="mt-3 flex h-11 max-w-2xl items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 focus-within:border-[#0F87F9] focus-within:ring-2 focus-within:ring-blue-100 @min-[768px]:h-10">
+                  <i className="pi pi-search shrink-0 text-slate-400" aria-hidden />
+                  <input
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder={uiContent.header.searchPlaceholder}
+                    className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-slate-400 @min-[768px]:text-[13px]"
+                  />
+                  {query ? (
+                    <button
+                      type="button"
+                      onClick={() => setQuery("")}
+                      aria-label="Clear search"
+                      className="-mr-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-200 hover:text-slate-600"
+                    >
+                      <i className="pi pi-times text-xs" aria-hidden />
+                    </button>
+                  ) : null}
+                </label>
+              </section>
+            ) : null}
+  
+            <div className={cx("flex flex-col", isHomeView ? "shrink-0" : "min-h-0 flex-1")}>{mainView}</div>
+          </div>
         </div>
+  
+        {view.type === "home" || view.type === "tickets" || view.type === "create" ? (
+          <div className="shrink-0 px-0 pb-0 @min-[768px]:hidden">
+            <MobileTabs
+              activeTab={view.type === "create" ? "raise" : view.type === "tickets" ? "tickets" : "dashboard"}
+              ticketCount={ticketCounts.active}
+              onSelect={(tab) => {
+                if (tab === "raise") setView({ type: "create" });
+                else if (tab === "tickets") goTickets();
+                else goHome();
+              }}
+            />
+          </div>
+        ) : null}
       </div>
-
-      {view.type === "home" || view.type === "tickets" || view.type === "create" ? (
-        <div className="shrink-0 px-0 pb-0 md:hidden">
-          <MobileTabs
-            activeTab={view.type === "create" ? "raise" : view.type === "tickets" ? "tickets" : "dashboard"}
-            ticketCount={ticketCounts.active}
-            onSelect={(tab) => {
-              if (tab === "raise") setView({ type: "create" });
-              else if (tab === "tickets") goTickets();
-              else goHome();
-            }}
-          />
-        </div>
-      ) : null}
-    </div>
+    </>
   );
 }
