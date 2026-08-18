@@ -1630,7 +1630,11 @@ PLASMIC.registerComponent(ProductStockSheet, {
     },
     initialItemName: {
       type: "string",
-      description: "Which variant is selected when the sheet opens — bind to the clicked card's row.item_name.",
+      description: "Which variant is selected when the sheet opens, by FULL name — bind to the clicked card's row.item_name.",
+    },
+    variant: {
+      type: "string",
+      description: "Which variant is selected when the sheet opens, by SHORT label — bind to the click payload's `variant` (\"P\", \"MR\"). Full names also match. Case- and spacing-insensitive. Tried after initialItemName; if neither matches an item, the first variant shows.",
     },
     variantNameField: { type: "string", defaultValue: "item_name" },
     priceFields: {

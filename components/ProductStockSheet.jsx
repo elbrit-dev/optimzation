@@ -26,8 +26,11 @@ import { Dialog } from "primereact/dialog";
  *             item objects, a single item, or the WHOLE letter-grouped dataset
  *             (array of groups) — in that last case `brand` picks the group.
  *   brand   → title fallback / group selector.
- *   initialItemName → which variant is selected when the sheet opens
- *             (e.g. from ProductCard's onCardClick payload: row.item_name).
+ *   initialItemName → which variant is selected when the sheet opens, by full
+ *             name (e.g. from ProductCard's onCardClick payload: row.item_name).
+ *   variant → the same thing by SHORT label ("P", "MR" — the payload's `variant`),
+ *             for when the click hands you the label rather than the item name.
+ *             Full names work here too; initialItemName is tried first.
  * Item fields used: item_name, custom_last_mrp/ptr/pts (via priceFields),
  * package, divison[]/division[] ({company__name}), total_stock, warehouses[]
  * ({ code, warehouse, qty, batches:[{ batch_no, qty, expire_text,
@@ -74,6 +77,29 @@ function variantLabel(itemName, brand) {
     if (rest) return rest;
   }
   return name;
+}
+
+/** Loose key for variant matching: trimmed, single-spaced, upper-cased. */
+function normalizeName(value) {
+  return String(value ?? "").trim().replace(/\s+/g, " ").toUpperCase();
+}
+
+/**
+ * Finds the item a wanted variant refers to, most specific first: the full item
+ * name ("ACEBRIT P"), then the short label ("P" — what ProductCard's payload
+ * carries), then brand + label joined. Case- and whitespace-insensitive, so "p",
+ * " P " and "acebrit p" all land on the same item. Null when nothing matches, so
+ * callers can fall through to the next source.
+ */
+function findVariantItem(items, field, brandName, wanted) {
+  const want = normalizeName(wanted);
+  if (!want || items.length === 0) return null;
+  return (
+    items.find((it) => normalizeName(it?.[field]) === want) ||
+    items.find((it) => normalizeName(variantLabel(it?.[field], brandName)) === want) ||
+    items.find((it) => normalizeName(it?.[field]) === normalizeName(`${brandName} ${want}`)) ||
+    null
+  );
 }
 
 /**
@@ -153,6 +179,10 @@ export default function ProductStockSheet({
   items,
   brand,
   initialItemName,
+  // Which variant opens selected, given as the SHORT label from the card payload
+  // ("P", "MR") or the full item name — matched case-insensitively. Checked after
+  // initialItemName; neither matching falls back to the first item.
+  variant,
   variantNameField = "item_name",
   priceFields,
   showPrices = true,
@@ -208,7 +238,9 @@ export default function ProductStockSheet({
       .filter(Boolean);
   }, [priceFields]);
 
-  const [activeName, setActiveName] = useState(initialItemName ?? null);
+  // Only a pill click sets this. Null means "use whatever the props asked for",
+  // so initialItemName / variant resolve in one place below.
+  const [activeName, setActiveName] = useState(null);
   const [expanded, setExpanded] = useState(() => new Set());
 
   // CTA busy state: a time-based progress fill so the tap has feedback while the
@@ -255,11 +287,12 @@ export default function ProductStockSheet({
     if (ctaFrameRef.current != null) cancelAnimationFrame(ctaFrameRef.current);
   }, []);
 
-  // Re-sync the selected variant when the sheet targets a new product.
+  // Drop the click-selected variant when the sheet targets a new product, so the
+  // incoming initialItemName / variant wins again.
   useEffect(() => {
-    setActiveName(initialItemName ?? null);
+    setActiveName(null);
     setExpanded(new Set());
-  }, [initialItemName, brandName, visible]);
+  }, [initialItemName, variant, brandName, visible]);
 
   const active = useMemo(() => {
     if (group.items.length === 0) return null;
@@ -267,8 +300,12 @@ export default function ProductStockSheet({
       const hit = group.items.find((it) => String(it?.[variantNameField] ?? "") === String(activeName));
       if (hit) return hit;
     }
-    return group.items[0];
-  }, [group.items, activeName, variantNameField]);
+    return (
+      findVariantItem(group.items, variantNameField, brandName, initialItemName) ||
+      findVariantItem(group.items, variantNameField, brandName, variant) ||
+      group.items[0]
+    );
+  }, [group.items, activeName, variantNameField, brandName, initialItemName, variant]);
 
   const selectVariant = useCallback((item) => {
     const name = String(item?.[variantNameField] ?? "");
