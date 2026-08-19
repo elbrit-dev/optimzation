@@ -243,6 +243,52 @@ always-blank column is worse than no column.
 
 
 
+### The date range is a real picker, not two date inputs
+
+`<input type="date">` was wrong twice over. It renders the browser's own calendar,
+which looks nothing like the rest of the page, and it shows dates in the **browser's**
+locale — `08/19/2026` here — while every other date on the page reads `19 Aug 2026`.
+One screen carried two orders, so `03/01/2026` was genuinely ambiguous. Two separate
+boxes also never said "this is one range".
+
+So the range is one trigger reading `1 Jun 2026 → 19 Aug 2026 · 80 days`, opening a
+two-month calendar where a range is two clicks and the days between are visibly in
+range. Picking backwards swaps the ends rather than refusing. Future days are
+disabled and the calendar will not page past the current month — there are no sales
+in the future. Escape and click-outside close it; arrow keys move across the grid and
+page the months.
+
+All of its arithmetic is on ISO strings and UTC-built dates, so a browser in another
+timezone cannot shift which day a range starts on.
+
+**Selection state is painted onto the existing day buttons, never re-rendered.**
+Rebuilding the grid on hover destroyed the button under the cursor — Playwright saw
+it as `element was detached from the DOM, retrying`, and for a person it means a
+click can land on a node that no longer exists.
+
+### The bug behind "0 line items match"
+
+Typing in **Invoice** and then clicking a preset fired two requests, and the stale
+one — scheduled by the 450ms debounce — landed last **with no date range on it at
+all**, because the page only ever set `from`/`to` once the user touched them. The end
+state was an invoice filter nobody had finished typing over a range nobody had
+chosen.
+
+Now any `apply()` cancels the pending debounce and adopts the box's live value, so
+the newest action always wins and every request carries its dates.
+
+The same report also showed that an empty table has to say WHY. Filtering to `CI-`
+while *Only paid lines* is on is legitimately empty — that series is entirely free
+lines — but "0 line items match" reads as broken. The aggregates ignore that toggle,
+so when they report lines while the table has none, the toggle is provably the cause
+and the page says so:
+
+> **20,264** lines match this selection, but every one of them is a free line — and
+> **Only paid lines** is hiding them. `[Show free lines too]`
+
+Under it, every active filter is listed as a chip that removes itself, plus
+*Clear all* — so no filter combination is a dead end.
+
 ### Why it is built out of aggregates
 
 There are **63,816 Sales Invoices**. One month of line items is ~14,000 rows and
@@ -348,6 +394,18 @@ Charts are hand-written SVG — four small charts do not justify a dependency, a
 this way the marks obey the same specs as the rest of the page: bars capped at 24px
 with a 4px rounded data-end, 2px lines, dots ringed in the surface colour, hairline
 gridlines, and values labelled selectively rather than on every mark.
+
+**The ranked charts do not draw an "Other" bar.** They did, and it broke them: the
+tail is ₹10.84 Cr against a top brand of ₹2.12 Cr, so that one grey bar set the axis
+and squashed all eight real bars into a fifth of the width — the single comparison
+those charts exist to make became unreadable. The tail is not hidden, it is stated in
+the panel header where it reads as a fact rather than as a mark five times longer than
+everything else:
+
+> Top brands by value · **top 8 · the other 55 total ₹10.84 Cr (52% of value)**
+
+Each bar's tooltip also carries its share of total value, which is what the "Other"
+bar was really being used to imply.
 
 ### Export
 

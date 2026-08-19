@@ -70,7 +70,7 @@ export function fmtMoney(v, currency = "₹") {
   );
 }
 
-/** images: ["url"] | [{product_url}] | [{url,label}] -> [{url,label}] */
+/** images: ["url"] | [{product_url, description}] | [{url,label}] -> [{url,label}] */
 export function parseImages(input) {
   if (!Array.isArray(input)) return [];
   return input
@@ -78,7 +78,7 @@ export function parseImages(input) {
       if (!it) return null;
       if (typeof it === "string") return { url: it, label: `Image ${i + 1}` };
       const url = it.url || it.product_url || it.image || "";
-      return url ? { url, label: it.label || `Image ${i + 1}` } : null;
+      return url ? { url, label: it.label || it.description || `Image ${i + 1}` } : null;
     })
     .filter(Boolean);
 }

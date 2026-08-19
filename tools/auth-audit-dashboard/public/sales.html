@@ -101,13 +101,16 @@
   .filters { margin: 16px 0 0; padding: 12px 15px 13px; }
 
   /**
-   * Date range: presets first, then the two ends inside ONE bordered group.
+   * Date range: a real range picker, not two native date inputs.
    *
-   * Two bare `<input type=date>` boxes labelled "From date" and "To date" is the
-   * shape a form takes when nobody decided what it should look like — and it reads
-   * as two unrelated fields rather than one range. Grouping them behind a single
-   * border with an arrow between says "this is a range", and the presets make the
-   * common answers one click instead of two date pickers.
+   * The native control was wrong twice over. It renders the browser's own calendar,
+   * which looks nothing like the rest of the page and reads as dated; and it shows
+   * dates in the BROWSER's locale — 08/19/2026 here — while every other date on the
+   * page reads "19 Aug 2026", so one screen carried two orders and 03/01 was
+   * ambiguous. Two separate boxes also never said "this is one range".
+   *
+   * So: one trigger showing the range in words, opening a two-month calendar where
+   * a range is two clicks and the days in between are visibly in range.
    */
   .daterow {
     display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap;
@@ -125,34 +128,81 @@
   .chip[aria-pressed="true"] {
     background: var(--pine); border-color: var(--pine); color: #fff;
   }
-  .rangebox {
-    display: flex; align-items: center; gap: 6px; min-width: 0;
-    border: 1px solid var(--line); border-radius: 9px; padding: 4px 10px 4px 9px;
-    background: var(--panel);
+
+  .rangewrap { position: relative; }
+  #range-btn {
+    display: inline-flex; align-items: center; gap: 9px; cursor: pointer;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 9px;
+    padding: 7px 12px; min-height: 38px; color: var(--ink);
+    font: 500 13px var(--sans); font-variant-numeric: tabular-nums;
   }
-  .rangebox:focus-within { border-color: var(--teal); box-shadow: 0 0 0 3px var(--teal-soft); }
-  .rangebox .cal { width: 15px; height: 15px; color: var(--ink-3); flex: 0 0 auto; }
-  .rangebox input[type=date] {
-    border: 0; padding: 4px 2px; min-height: 30px; width: auto; background: transparent;
-    font-size: 13px; color: var(--ink);
+  #range-btn:hover { border-color: var(--teal); }
+  #range-btn[aria-expanded="true"] { border-color: var(--teal); box-shadow: 0 0 0 3px var(--teal-soft); }
+  #range-btn .cal { width: 15px; height: 15px; color: var(--ink-3); flex: 0 0 auto; }
+  #range-btn .arrow { color: var(--ink-3); font-weight: 400; }
+  #range-btn .days {
+    font-size: 11px; font-weight: 400; color: var(--ink-3);
+    border-left: 1px solid var(--line); padding-left: 9px;
   }
-  .rangebox input[type=date]:focus-visible { outline: none; }
-  .rangebox .dash { color: var(--ink-3); font-size: 12px; }
-  .rangebox .span {
-    font-size: 11px; color: var(--ink-3); border-left: 1px solid var(--line);
-    padding-left: 9px; margin-left: 3px; white-space: nowrap;
+  #range-btn .chev { color: var(--ink-3); transition: transform .12s; }
+  #range-btn[aria-expanded="true"] .chev { transform: rotate(180deg); }
+
+  .rangepop {
+    position: absolute; z-index: 30; top: calc(100% + 6px); left: 0;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    box-shadow: 0 12px 32px rgba(12, 38, 30, .16); padding: 14px;
   }
-  /**
-   * On a phone the two native date inputs plus the day count come to ~321px inside
-   * a 320px box, and Chrome clips the last digit of the year rather than shrinking.
-   * Giving the box the full width and letting the count wrap under keeps both dates
-   * whole — a date reading "08/19/202" is worse than a second line.
-   */
-  @media (max-width: 620px) {
-    .rangebox { width: 100%; flex-wrap: wrap; }
-    .rangebox input[type=date] { flex: 0 1 auto; min-width: 118px; max-width: 165px; }
-    .rangebox .span { border-left: 0; padding-left: 0; margin-left: 25px; }
+  .rangepop[hidden] { display: none; }
+  .pop-h {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; margin-bottom: 10px;
   }
+  .pop-h .lbl { font: 600 13px var(--display); }
+  .navbtn {
+    width: 30px; height: 30px; border-radius: 7px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--panel); color: var(--ink-2);
+    display: inline-flex; align-items: center; justify-content: center; font-size: 14px;
+  }
+  .navbtn:hover:not(:disabled) { border-color: var(--teal); color: var(--teal-ink); }
+  .navbtn:disabled { opacity: .35; cursor: default; }
+  .months { display: flex; gap: 18px; }
+  @media (max-width: 640px) { .months { flex-direction: column; gap: 14px; } }
+  .month { min-width: 210px; }
+  .month .cap {
+    text-align: center; font: 600 12px var(--sans); color: var(--ink-2);
+    margin-bottom: 6px; letter-spacing: .02em;
+  }
+  .month table { border-collapse: collapse; width: 100%; }
+  .month th {
+    font: 600 10px var(--sans); color: var(--ink-3); text-transform: uppercase;
+    letter-spacing: .06em; padding: 0 0 4px; text-align: center;
+    background: none; position: static; box-shadow: none; border: 0;
+  }
+  .month td { padding: 0; border: 0; text-align: center; max-width: none; }
+  .day {
+    width: 100%; min-width: 28px; height: 30px; border: 0; background: none;
+    font: 400 12.5px var(--sans); color: var(--ink); cursor: pointer;
+    font-variant-numeric: tabular-nums; border-radius: 0;
+  }
+  .day:hover:not(:disabled) { background: var(--teal-soft); }
+  .day:disabled { color: #c3ccc8; cursor: default; }
+  /* In-range days are a wash, the two ends are solid — so the span reads as a bar
+     across the weeks rather than as a set of separately selected days. */
+  .day.inrange { background: var(--teal-soft); }
+  .day.end {
+    background: var(--pine); color: #fff; font-weight: 600;
+  }
+  .day.end.start { border-radius: 7px 0 0 7px; }
+  .day.end.finish { border-radius: 0 7px 7px 0; }
+  .day.end.only { border-radius: 7px; }
+  .day.today:not(.end) { box-shadow: inset 0 0 0 1px var(--teal); border-radius: 7px; }
+  .pop-f {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--line-2);
+    font-size: 12px; color: var(--ink-2);
+  }
+  .pop-f b { color: var(--ink); font-weight: 600; }
+  .pop-f .hintline { font-size: 11.5px; }
 
   .fgrid {
     display: grid; gap: 10px 12px;
@@ -283,6 +333,8 @@
   .pill.free { background: var(--amber-soft); color: var(--amber-ink); }
   .pill.bad  { background: var(--red-soft);  color: var(--red-ink); }
   .muted { color: var(--ink-3); }
+  .emptyfilters { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; margin-top: 6px; }
+  .emptyfilters .chip { background: var(--panel); }
   /* A value that is true of the invoice but was not written on this line. Dotted,
      not coloured: it is ordinary data with a footnote, not a warning. */
   .inferred { border-bottom: 1px dotted var(--ink-3); cursor: help; }
@@ -348,17 +400,30 @@
         <button class="chip" type="button" data-preset="halfyear">Last 6 months</button>
         <button class="chip" type="button" data-preset="fy">This FY</button>
       </div>
-      <div class="rangebox">
-        <svg viewBox="0 0 16 16" aria-hidden="true" class="cal">
-          <path d="M2.5 3.5h11v10h-11z" fill="none" stroke="currentColor" stroke-width="1.2"/>
-          <path d="M2.5 6.5h11M5.5 2v2.5M10.5 2v2.5" fill="none" stroke="currentColor" stroke-width="1.2"/>
-        </svg>
-        <label class="sr-only" for="f-from">From date</label>
-        <input type="date" id="f-from" aria-label="From date">
-        <span class="dash" aria-hidden="true">→</span>
-        <label class="sr-only" for="f-to">To date</label>
-        <input type="date" id="f-to" aria-label="To date">
-        <span class="span" id="range-span"></span>
+      <div class="rangewrap">
+        <button type="button" id="range-btn" aria-expanded="false" aria-haspopup="dialog"
+          aria-controls="range-pop">
+          <svg viewBox="0 0 16 16" aria-hidden="true" class="cal">
+            <path d="M2.5 3.5h11v10h-11z" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <path d="M2.5 6.5h11M5.5 2v2.5M10.5 2v2.5" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          </svg>
+          <span id="range-label">…</span>
+          <span class="days" id="range-span"></span>
+          <span class="chev" aria-hidden="true">▾</span>
+        </button>
+        <div class="rangepop" id="range-pop" role="dialog" aria-label="Choose a date range" hidden>
+          <div class="pop-h">
+            <button type="button" class="navbtn" id="range-prev" aria-label="Previous month">‹</button>
+            <span class="lbl" id="range-view"></span>
+            <button type="button" class="navbtn" id="range-next" aria-label="Next month">›</button>
+          </div>
+          <div class="months" id="range-months"></div>
+          <div class="pop-f">
+            <span id="range-state"></span>
+            <span class="grow"></span>
+            <span class="hintline">Esc to close</span>
+          </div>
+        </div>
       </div>
       <span class="grow"></span>
       <span class="count" id="shown"></span>
@@ -481,6 +546,8 @@
 // ───────────────────────────────────────────── state
 let DATA = null;
 let loading = false;
+/** Pending invoice-box debounce, cancelled by any other filter action. */
+let invoiceTimer = null;
 let seq = 0;                    // drops the response of a superseded request
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -613,8 +680,19 @@ async function load() {
   }
 }
 
-/** Filter changes reset to page 1 — page 7 of a different filter is meaningless. */
+/**
+ * Filter changes reset to page 1 — page 7 of a different filter is meaningless.
+ *
+ * Any apply also CANCELS a pending invoice debounce and adopts whatever is in that
+ * box right now. Without this, typing in Invoice and then clicking a preset fired
+ * two requests and the stale one landed last, with no dates on it: the page ended
+ * up showing an invoice filter nobody had finished typing over a range nobody had
+ * chosen, reporting 0 rows.
+ */
 function apply(changes, { keepPage = false } = {}) {
+  clearTimeout(invoiceTimer);
+  const box = $('#f-invoice');
+  if (box && !('invoice' in changes)) Q.invoice = box.value.trim();
   Object.assign(Q, changes);
   if (!keepPage) Q.page = 1;
   load();
@@ -721,32 +799,43 @@ function columnChart(host, rows, { value, label, fmt }) {
   host.appendChild(s);
 }
 
-/** Horizontal bars, ranked. Names on the left, value at each tip. */
-function barChart(host, rows, { fmt, unit }) {
+/**
+ * Ranked horizontal bars. The long tail is summarised in words, NOT drawn.
+ *
+ * A single "Other" bar broke the chart: the tail is ₹10.84 Cr against a top brand of
+ * ₹2.12 Cr, so it set the axis and squashed all eight real bars into a fifth of the
+ * width — the one comparison the chart exists to make became unreadable. Removing it
+ * from the scale is not hiding it: its value and share are stated in the panel
+ * header, where they read as a fact rather than as a mark five times the length of
+ * everything else.
+ */
+function barChart(host, rows, { fmt, unit, total }) {
   host.innerHTML = '';
-  if (!rows.length) return emptyChart(host, 'values');
+  const bars = rows.filter((r) => !r.isOther);
+  if (!bars.length) return emptyChart(host, 'values');
   const L = 132, R = 74, T = 6, B = 4, rowH = 26;
-  const W = 640, H = T + B + rows.length * rowH;
-  const max = niceMax(Math.max(...rows.map((r) => Math.abs(r.value))));
+  const W = 640, H = T + B + bars.length * rowH;
+  const max = niceMax(Math.max(...bars.map((r) => Math.abs(r.value))));
   const iw = W - L - R;
   const s = svgRoot(W, H);
-  rows.forEach((r, i) => {
+  bars.forEach((r, i) => {
     const y = T + i * rowH;
     const bh = Math.min(14, rowH - 8);
     const w = Math.max(r.value === 0 ? 0 : 2, (Math.abs(r.value) / max) * iw);
     const g = el('g', { class: 'mark' });
     g.appendChild(el('rect', {
-      x: L, y: y + (rowH - bh) / 2, width: w, height: bh, rx: 4,
-      fill: r.isOther ? 'var(--line)' : 'var(--teal)',
+      x: L, y: y + (rowH - bh) / 2, width: w, height: bh, rx: 4, fill: 'var(--teal)',
     }));
+    // Square off the baseline end: only the data end is rounded.
     if (w > 4) {
       g.appendChild(el('rect', {
-        x: L, y: y + (rowH - bh) / 2, width: 4, height: bh,
-        fill: r.isOther ? 'var(--line)' : 'var(--teal)',
+        x: L, y: y + (rowH - bh) / 2, width: 4, height: bh, fill: 'var(--teal)',
       }));
     }
+    const share = total > 0 ? ` · ${(Math.abs(r.value) / total * 100).toFixed(1)}% of value` : '';
     g.appendChild(el('title', {}, `${r.name}: ${fmt(r.value)}`));
-    tipOn(g, `<b>${esc(r.name)}</b><br>${fmt(r.value)}<br><span class="t-sub">${qty(r.qty)} ${esc(unit)}</span>`);
+    tipOn(g, `<b>${esc(r.name)}</b><br>${fmt(r.value)}<br>`
+      + `<span class="t-sub">${qty(r.qty)} ${esc(unit)}${share}</span>`);
     s.appendChild(g);
     const name = el('text', { x: L - 9, y: y + rowH / 2 + 3.5, 'text-anchor': 'end', class: 'cat' }, r.name);
     name.appendChild(el('title', {}, r.name));
@@ -755,6 +844,17 @@ function barChart(host, rows, { fmt, unit }) {
   });
   s.appendChild(el('line', { class: 'axis', x1: L, x2: L, y1: T, y2: H - B }));
   host.appendChild(s);
+}
+
+/** "top 8 · the other 55 total ₹10.84 Cr (34% of value)" — the tail, in words. */
+function tailNote(rows, total, fmt) {
+  const bars = rows.filter((r) => !r.isOther);
+  const other = rows.find((r) => r.isOther);
+  if (!bars.length) return '';
+  if (!other) return `all ${bars.length}`;
+  const count = (other.name.match(/\((\d+)\)/) || [, '?'])[1];
+  const pct = total > 0 ? ` (${Math.round(Math.abs(other.value) / total * 100)}% of value)` : '';
+  return `top ${bars.length} · the other ${count} total ${fmt(other.value)}${pct}`;
 }
 
 /**
@@ -852,12 +952,62 @@ const COLS = [
   ['brand', 'Brand', '', 'brand', (r) => esc(r.brand) || '<span class="muted">—</span>'],
 ];
 
+/** The filters currently narrowing the view, each with the key needed to clear it. */
+function activeFilterList(q) {
+  return [
+    ['invoice', 'Invoice', q.invoice],
+    ['distributor', 'Distributor', q.distributor],
+    ['team', 'Sales team', cleanTeamLabel(q.team)],
+    ['hq', 'HQ', q.hq],
+    ['therapy', 'Therapy', q.therapy],
+    ['brand', 'Brand', q.brand],
+    ['item', 'Item', q.item],
+    ['company', 'Company', q.company],
+    ['docstatus', 'Docstatus', String(q.docstatus) === '1' ? '' : (DOCSTATUS_NAME[q.docstatus] ?? 'Any status')],
+  ].filter(([, , v]) => v);
+}
+const DOCSTATUS_NAME = { 0: 'Draft', 1: 'Submitted', 2: 'Cancelled', '': 'Any status' };
+const cleanTeamLabel = (v) => String(v || '').replace(/\s*-\s*[A-Z]{2,6}$/, '');
+
 function renderTable() {
   const rows = DATA.rows;
   const host = $('#tscroll');
   if (!rows.length) {
+    const q = DATA.query;
+    const active = activeFilterList(q);
+    /**
+     * An empty table is a dead end unless it says WHY.
+     *
+     * The most common cause is the one that reads as a bug: an invoice series whose
+     * lines are all free (`CI-`) while "Only paid lines" is on. The aggregates
+     * ignore that toggle, so when they report lines but the table has none, the
+     * toggle is provably the reason — and it can be said, with the button to undo it.
+     */
+    const hiddenByToggle = q.paidOnly && DATA.kpis.lines > 0;
     host.innerHTML = `<div class="msg"><h2>No line items</h2>
-      <p>Nothing matches these filters${Q.paidOnly ? ' — free-only invoices are hidden while "Only paid lines" is on' : ''}.</p></div>`;
+      ${hiddenByToggle
+        ? `<p><b>${nf.format(DATA.kpis.lines)}</b> line${DATA.kpis.lines === 1 ? '' : 's'} match this selection,
+             but every one of them is a free line — and <b>Only paid lines</b> is hiding them.</p>
+           <p><button class="btn solid" type="button" id="empty-show-free">Show free lines too</button></p>`
+        : '<p>Nothing matches this selection.</p>'}
+      ${active.length ? `<p class="hintline" style="margin-top:14px">Narrowed by:</p>
+        <div class="emptyfilters">${active.map(([key, label, val]) =>
+          `<button class="chip" type="button" data-clear="${key}" title="Remove this filter">
+             ${esc(label)}: <b>${esc(val)}</b> &times;</button>`).join('')}
+          <button class="chip" type="button" data-clear="ALL">Clear all</button></div>` : ''}
+    </div>`;
+    const showFree = $('#empty-show-free');
+    if (showFree) showFree.onclick = () => { $('#f-paid').checked = false; apply({ paidOnly: false }); };
+    host.querySelectorAll('[data-clear]').forEach((b) => {
+      b.onclick = () => {
+        const key = b.dataset.clear;
+        if (key === 'ALL') return $('#f-reset').click();
+        if (key === 'docstatus') return apply({ docstatus: '1' });
+        const el = $(`#f-${key}`);
+        if (el) el.value = '';
+        apply({ [key]: '' });
+      };
+    });
     return;
   }
   const head = COLS.map(([key, label, cls, sortKey]) => {
@@ -909,8 +1059,6 @@ function render() {
   // header + filter controls reflect what the server actually used
   $('#range-note').innerHTML = `<b>${esc(dmy(q.from))}</b> to <b>${esc(dmy(q.to))}</b>`
     + ` · ${esc(({ 0: 'Draft', 1: 'Submitted', 2: 'Cancelled' })[q.docstatus] ?? 'Any status')}`;
-  $('#f-from').value = q.from;
-  $('#f-to').value = q.to;
   $('#f-docstatus').value = q.docstatus === '' ? 'all' : String(q.docstatus);
   $('#f-paid').checked = q.paidOnly;
   $('#f-distributor').value = q.distributor;
@@ -918,6 +1066,7 @@ function render() {
   if (document.activeElement !== $('#f-invoice')) $('#f-invoice').value = q.invoice;
   fillSelect($('#f-therapy'), DATA.therapies || [], q.therapy, 'All therapies');
   markPresets();
+  syncRange();
   $('#f-reset').hidden = !anyFilter(q);
   $('#paid-hint').textContent = q.paidOnly
     ? 'Free-only invoices (the CI- series) are hidden while this is on.'
@@ -948,10 +1097,11 @@ function render() {
     { name: 'Billed', color: 'var(--teal)', value: (r) => r.unitsBilled },
     { name: 'Free', color: 'var(--amber)', value: (r) => r.freeUnits },
   ], { fmt: compactNum });
-  barChart($('#c-brands'), DATA.charts.topBrands, { fmt: compactInr, unit: 'units' });
-  barChart($('#c-dists'), DATA.charts.topDistributors, { fmt: compactInr, unit: 'units' });
-  $('#c-brands-note').textContent = `${DATA.charts.topBrands.length} shown of ${k.brands}`;
-  $('#c-dists-note').textContent = `${DATA.charts.topDistributors.length} shown of ${k.distributors}`;
+  const totalValue = Math.abs(k.netValue);
+  barChart($('#c-brands'), DATA.charts.topBrands, { fmt: compactInr, unit: 'units', total: totalValue });
+  barChart($('#c-dists'), DATA.charts.topDistributors, { fmt: compactInr, unit: 'units', total: totalValue });
+  $('#c-brands-note').textContent = tailNote(DATA.charts.topBrands, totalValue, compactInr);
+  $('#c-dists-note').textContent = tailNote(DATA.charts.topDistributors, totalValue, compactInr);
 
   renderTable();
 
@@ -1050,8 +1200,6 @@ async function exportAll() {
 const on = (sel, ev, fn) => $(sel).addEventListener(ev, fn);
 
 on('#f-company', 'change', (e) => apply({ company: e.target.value }));
-on('#f-from', 'change', (e) => apply({ from: e.target.value }));
-on('#f-to', 'change', (e) => apply({ to: e.target.value }));
 on('#f-team', 'change', (e) => apply({ team: e.target.value }));
 on('#f-hq', 'change', (e) => apply({ hq: e.target.value }));
 on('#f-brand', 'change', (e) => apply({ brand: e.target.value }));
@@ -1065,7 +1213,6 @@ on('#f-paid', 'change', (e) => apply({ paidOnly: e.target.checked }));
 on('#f-distributor', 'change', (e) => apply({ distributor: e.target.value.trim() }));
 on('#f-item', 'change', (e) => apply({ item: e.target.value.trim() }));
 /** Invoice is a substring match, so it is worth debouncing rather than firing per key. */
-let invoiceTimer = null;
 on('#f-invoice', 'input', (e) => {
   const v = e.target.value.trim();
   clearTimeout(invoiceTimer);
@@ -1136,9 +1283,6 @@ function markPresets() {
     const r = presetRange(b.dataset.preset, DATA.today);
     b.setAttribute('aria-pressed', String(Boolean(r && r.from === from && r.to === to)));
   }
-  const days = Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1;
-  $('#range-span').textContent = Number.isFinite(days)
-    ? `${days} day${days === 1 ? '' : 's'}` : '';
 }
 
 on('#pg-first', 'click', () => apply({ page: 1 }, { keepPage: true }));
@@ -1156,6 +1300,212 @@ window.addEventListener('hashchange', () => {
   const before = JSON.stringify(Q);
   readHash();
   if (JSON.stringify(Q) !== before) load();
+});
+
+// ───────────────────────────────────────────── date range picker
+/**
+ * A two-month range calendar, written here rather than delegated to
+ * `<input type="date">`.
+ *
+ * All arithmetic is on ISO strings and UTC-built dates. Nothing here touches local
+ * time, because a browser in another timezone must not shift which day a range
+ * starts on — and an ISO date string compares correctly with `<` and `>`, so the
+ * in-range test is a string comparison rather than date maths.
+ */
+const RANGE = { start: '', end: '', view: '', hover: '' };
+const DOW = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+
+const ymOf = (iso) => String(iso).slice(0, 7);
+const isoOf = (y, m, d) =>
+  `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+const addMonths = (ym, n) => {
+  const [y, m] = ym.split('-').map(Number);
+  const d = new Date(Date.UTC(y, m - 1 + n, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+};
+const daysInMonth = (ym) => {
+  const [y, m] = ym.split('-').map(Number);
+  return new Date(Date.UTC(y, m, 0)).getUTCDate();
+};
+/** Day of week (0=Sunday) of the 1st of the month. */
+const firstDow = (ym) => {
+  const [y, m] = ym.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, 1)).getUTCDay();
+};
+const addDays = (iso, n) => {
+  const [y, m, d] = iso.split('-').map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d + n));
+  return isoOf(t.getUTCFullYear(), t.getUTCMonth() + 1, t.getUTCDate());
+};
+const monthName = (ym) => {
+  const [y, m] = ym.split('-').map(Number);
+  return `${['January', 'February', 'March', 'April', 'May', 'June', 'July',
+    'August', 'September', 'October', 'November', 'December'][m - 1]} ${y}`;
+};
+const dayCount = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 86400000) + 1;
+
+const rangeOpen = () => !$('#range-pop').hidden;
+
+function syncRange() {
+  const q = DATA?.query;
+  if (!q) return;
+  RANGE.start = q.from;
+  RANGE.end = q.to;
+  RANGE.hover = '';
+  // Open on the month the range ENDS in, with its predecessor beside it: the recent
+  // end of a range is what people adjust.
+  RANGE.view = addMonths(ymOf(q.to), -1);
+  $('#range-label').textContent = `${dmy(q.from)} → ${dmy(q.to)}`;
+  const n = dayCount(q.from, q.to);
+  $('#range-span').textContent = Number.isFinite(n) ? `${n} day${n === 1 ? '' : 's'}` : '';
+}
+
+/** One month grid. `today` caps it: there are no sales in the future. */
+function monthGrid(ym, today) {
+  const total = daysInMonth(ym);
+  const lead = firstDow(ym);
+  const cells = [];
+  for (let i = 0; i < lead; i++) cells.push(null);
+  for (let d = 1; d <= total; d++) cells.push(d);
+  while (cells.length % 7) cells.push(null);
+
+  let body = '';
+  for (let i = 0; i < cells.length; i += 7) {
+    body += '<tr>' + cells.slice(i, i + 7).map((d) => {
+      if (!d) return '<td></td>';
+      const iso = isoOf(...ym.split('-').map(Number), d);
+      return `<td><button type="button" class="day" data-iso="${iso}"`
+        + `${iso > today ? ' disabled' : ''} aria-label="${esc(dmy(iso))}">${d}</button></td>`;
+    }).join('') + '</tr>';
+  }
+  return `<div class="month"><div class="cap">${esc(monthName(ym))}</div>
+    <table role="grid"><thead><tr>${DOW.map((d) => `<th scope="col">${d}</th>`).join('')}</tr></thead>
+    <tbody>${body}</tbody></table></div>`;
+}
+
+/**
+ * Selection state is PAINTED onto the existing buttons, never re-rendered.
+ *
+ * Rebuilding the grid on hover destroyed the button under the cursor — Playwright
+ * caught it as "element was detached from the DOM, retrying", and for a person it
+ * means a click can land on a node that no longer exists. Hover fires constantly,
+ * so it must not touch the DOM structure at all.
+ */
+function paintRange() {
+  const picking = Boolean(RANGE.start) && !RANGE.end;
+  const back = picking && RANGE.hover && RANGE.hover < RANGE.start;
+  const lo = picking ? (back ? RANGE.hover : RANGE.start) : RANGE.start;
+  const hi = picking ? (back ? RANGE.start : (RANGE.hover || RANGE.start)) : RANGE.end;
+
+  for (const b of $('#range-months').querySelectorAll('.day')) {
+    const iso = b.dataset.iso;
+    const isLo = Boolean(lo) && iso === lo;
+    const isHi = Boolean(hi) && iso === hi;
+    b.classList.toggle('inrange', Boolean(lo && hi) && iso > lo && iso < hi);
+    b.classList.toggle('end', isLo || isHi);
+    b.classList.toggle('only', isLo && isHi);
+    b.classList.toggle('start', isLo && !isHi);
+    b.classList.toggle('finish', isHi && !isLo);
+    b.classList.toggle('today', iso === DATA.today);
+    if (isLo || isHi) b.setAttribute('aria-pressed', 'true');
+    else b.removeAttribute('aria-pressed');
+  }
+  $('#range-state').innerHTML = picking
+    ? `Start <b>${esc(dmy(RANGE.start))}</b> — now pick the end`
+    : `<b>${esc(dmy(RANGE.start))}</b> → <b>${esc(dmy(RANGE.end))}</b> · ${dayCount(RANGE.start, RANGE.end)} days`;
+}
+
+/** Rebuilds the two grids. Only on open and on month paging. */
+function renderRange() {
+  const today = DATA.today;
+  const left = RANGE.view;
+  const right = addMonths(left, 1);
+  $('#range-months').innerHTML = monthGrid(left, today) + monthGrid(right, today);
+  $('#range-view').textContent = `${monthName(left)} — ${monthName(right)}`;
+  // Never page past the current month: the right pane would be all disabled days.
+  $('#range-next').disabled = right >= ymOf(today);
+
+  $('#range-months').querySelectorAll('.day:not(:disabled)').forEach((b) => {
+    b.onclick = () => pickDay(b.dataset.iso);
+    b.onmouseenter = () => {
+      if (RANGE.start && !RANGE.end) { RANGE.hover = b.dataset.iso; paintRange(); }
+    };
+  });
+  paintRange();
+}
+
+/** First click sets the start, second completes the range and applies it. */
+function pickDay(iso) {
+  if (!RANGE.start || RANGE.end) {
+    RANGE.start = iso;
+    RANGE.end = '';
+    RANGE.hover = iso;
+    paintRange();
+    return;
+  }
+  // Backwards is a legitimate way to pick a range, so swap rather than refuse.
+  const from = iso < RANGE.start ? iso : RANGE.start;
+  const to = iso < RANGE.start ? RANGE.start : iso;
+  RANGE.start = from;
+  RANGE.end = to;
+  closeRange();
+  apply({ from, to });
+}
+
+function openRange() {
+  syncRange();
+  const pop = $('#range-pop');
+  pop.hidden = false;
+  $('#range-btn').setAttribute('aria-expanded', 'true');
+  renderRange();
+  /**
+   * Anchored left by default, flipped to the right edge when a two-month panel
+   * would run off the screen — the trigger sits at the right end of the filter row,
+   * so left-anchoring alone put half the calendar outside the viewport.
+   */
+  pop.style.left = '0';
+  pop.style.right = 'auto';
+  const r = pop.getBoundingClientRect();
+  if (r.right > window.innerWidth - 10) {
+    pop.style.left = 'auto';
+    pop.style.right = '0';
+  }
+  $('#range-months').querySelector('.day[aria-pressed], .day:not(:disabled)')?.focus();
+}
+function closeRange() {
+  $('#range-pop').hidden = true;
+  $('#range-btn').setAttribute('aria-expanded', 'false');
+}
+
+on('#range-btn', 'click', () => (rangeOpen() ? closeRange() : openRange()));
+on('#range-prev', 'click', () => { RANGE.view = addMonths(RANGE.view, -1); renderRange(); });
+on('#range-next', 'click', () => { RANGE.view = addMonths(RANGE.view, 1); renderRange(); });
+
+/** Click-outside and Escape, plus arrow-key movement across the day grid. */
+document.addEventListener('pointerdown', (e) => {
+  if (rangeOpen() && !e.target.closest('.rangewrap')) closeRange();
+});
+document.addEventListener('keydown', (e) => {
+  if (!rangeOpen()) return;
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    closeRange();
+    $('#range-btn').focus();
+    return;
+  }
+  const cur = document.activeElement?.dataset?.iso;
+  if (!cur) return;
+  const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[e.key];
+  if (!step) return;
+  e.preventDefault();
+  const want = addDays(cur, step);
+  if (want > DATA.today) return;
+  // Page the calendar when the target day is not on screen.
+  if (ymOf(want) < RANGE.view || ymOf(want) > addMonths(RANGE.view, 1)) {
+    RANGE.view = addMonths(ymOf(want), 0);
+    renderRange();
+  }
+  $(`#range-months .day[data-iso="${want}"]`)?.focus();
 });
 
 // Company list is a separate call: it is a parent field, so it cannot come out of

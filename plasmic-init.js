@@ -35,6 +35,7 @@ import LabelClaimCard from "./components/ProductDetail/LabelClaimCard";
 import MarketSizeCard from "./components/ProductDetail/MarketSizeCard";
 import CompetitorBrandsCard from "./components/ProductDetail/CompetitorBrandsCard";
 import DetailingAngleCard from "./components/ProductDetail/DetailingAngleCard";
+import CompositionCard from "./components/ProductDetail/CompositionCard";
 import CommonDataTable from "./components/CommonDataTable/CommonDataTable";
 // import TableDataProvider from "./components/TableDataProvider";
 import jsonata from 'jsonata';
@@ -3345,6 +3346,14 @@ PLASMIC.registerComponent(LabelClaimCard, {
     moq: { type: "number", defaultValue: 5000, description: "<- whg_standard_moq (Indian grouping applied)." },
     leadTime: { type: "number", defaultValue: 65, description: "Days. <- whg_lead_time_to_manufacture" },
     manufacturer: { type: "string", defaultValue: "ELPL", description: "<- custom_manufacturer__name" },
+    hsnCode: {
+      type: "string",
+      description: "Optional 'HSN code' row in the supply facts. <- gst_hsn_code ('30049074'). Empty hides the row.",
+    },
+    gstText: {
+      type: "string",
+      description: "Optional 'GST' row in the supply facts. <- custom_current_tax ('GST 5% - ELPL'). Empty hides the row.",
+    },
     className: { type: "string" },
   },
   importPath: "./components/ProductDetail/LabelClaimCard",
@@ -3462,4 +3471,31 @@ PLASMIC.registerComponent(DetailingAngleCard, {
     className: { type: "string" },
   },
   importPath: "./components/ProductDetail/DetailingAngleCard",
+});
+
+PLASMIC.registerComponent(CompositionCard, {
+  name: "CompositionCard",
+  displayName: "PD · Composition Card",
+  description:
+    "The mobile Overview tab's 'COMPOSITION' card: uppercase kicker, the composition line and the therapeutic tag pills (same blue/indigo/pink tones as the hero). Bind RAW: composition<-whg_composition (bullets joined with ' + ': 'Aceclofenac 100 mg + Paracetamol 325 mg'), tags<-custom_therapeutic_class. Renders nothing when both are empty. No layout switch — usable on desktop too.",
+  props: {
+    kicker: { type: "string", defaultValue: "Composition" },
+    composition: {
+      type: "string",
+      defaultValue: "• Aceclofenac 100 mg\n• Paracetamol 325 mg",
+      description: "Bind whg_composition directly — the bullet lines are joined with `separator`.",
+    },
+    separator: {
+      type: "string",
+      defaultValue: " + ",
+      description: "Joiner between composition lines (' + ' → 'A 100 mg + B 325 mg').",
+    },
+    tags: {
+      type: "string",
+      defaultValue: "• NSAID + Analgesic/Antipyretic\n• Anti-inflammatory Pain Reliever",
+      description: "Tag pills. Bind custom_therapeutic_class directly (bullet string or array).",
+    },
+    className: { type: "string" },
+  },
+  importPath: "./components/ProductDetail/CompositionCard",
 });

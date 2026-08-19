@@ -72,6 +72,8 @@ export default function LabelClaimCard({
   moq,
   leadTime,
   manufacturer = "",
+  hsnCode = "",
+  gstText = "",
   className = "",
   style,
 }) {
@@ -100,6 +102,8 @@ export default function LabelClaimCard({
     moq ? { label: "Standard MOQ", value: fmtNum(moq) } : null,
     leadTime ? { label: "Lead time", value: `${leadTime} days` } : null,
     manufacturer ? { label: "Manufacturer", value: manufacturer } : null,
+    hsnCode ? { label: "HSN code", value: hsnCode } : null,
+    gstText ? { label: "GST", value: gstText } : null,
   ].filter(Boolean);
 
   return (
