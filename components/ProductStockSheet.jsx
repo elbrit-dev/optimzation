@@ -187,6 +187,9 @@ export default function ProductStockSheet({
   priceFields,
   showPrices = true,
   showPackage = false,
+  showComposition = true,
+  compositionField = "whg_composition",
+  compositionLabel = "Composition",
   showDivisions = false,
   showStockBars = true,
   expandableBatches = true,
@@ -413,6 +416,26 @@ export default function ProductStockSheet({
     </div>
   ) : null;
 
+  // Composition — the item's whg_composition bullet string ("• Aceclofenac 100 mg
+  // \n• Paracetamol 325 mg"), lines joined with " + ". Hidden when empty.
+  const compositionText = useMemo(() => {
+    if (!showComposition) return "";
+    const raw = active?.[compositionField];
+    if (raw == null || raw === "") return "";
+    return String(raw)
+      .split(/\r?\n/)
+      .map((l) => l.replace(/^\s*[•\-–]\s*/, "").trim())
+      .filter(Boolean)
+      .join(" + ");
+  }, [showComposition, active, compositionField]);
+
+  const compositionNode = compositionText ? (
+    <div className="rounded-xl bg-gray-50 px-3 py-2.5">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">{compositionLabel}</p>
+      <p className="mt-0.5 text-sm font-semibold text-slate-800">{compositionText}</p>
+    </div>
+  ) : null;
+
   const divisionsNode = showDivisions && divisions.length > 0 ? (
     <div className="flex flex-wrap gap-1.5">
       {divisions.map((name) => (
@@ -595,6 +618,7 @@ export default function ProductStockSheet({
               <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-6 py-5">
                 {variantsNode}
                 {pricesNode}
+                {compositionNode}
                 {divisionsNode}
               </div>
               <div className="shrink-0 border-t border-gray-100 px-6 pb-5 pt-3">
@@ -637,6 +661,7 @@ export default function ProductStockSheet({
         <div className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto pb-2">
           {variantsNode}
           {pricesNode}
+          {compositionNode}
           {divisionsNode}
           {stockListNode ? (
             <div className="pt-1">

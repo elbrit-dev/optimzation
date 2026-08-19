@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import useContainerMode from "./useContainerMode";
-import { parseBullets, parseImages, fmtMoney, fmtNum } from "./pdParse";
+import { parseBullets, parseImages, fmtMoney } from "./pdParse";
 
 /**
  * ProductHero — the identity card of the product detail page.
@@ -151,9 +151,6 @@ export default function ProductHero({
   packing,
   box,
   stockUom = "",
-  moq,
-  leadTime,
-  manufacturer = "",
   onImageChange,
   className = "",
   style,
@@ -185,9 +182,6 @@ export default function ProductHero({
   const specs = [
     pack ? { label: "Pack", value: pack } : null,
     stockUom ? { label: "Stock UOM", value: stockUom } : null,
-    moq ? { label: "MOQ", value: fmtNum(moq) } : null,
-    leadTime ? { label: "Lead time", value: `${leadTime} days` } : null,
-    manufacturer ? { label: "Manufacturer", value: manufacturer } : null,
   ].filter(Boolean);
 
   const stage = (
@@ -283,8 +277,6 @@ export default function ProductHero({
             <div className="phx-body">
               <div className="phx-topline">
                 {brand ? <b>{brand}</b> : null}
-                {brand && manufacturer ? <span className="phx-sep">|</span> : null}
-                {manufacturer ? <b>{manufacturer}</b> : null}
                 {itemCode ? (
                   <>
                     <span className="phx-sep">|</span>

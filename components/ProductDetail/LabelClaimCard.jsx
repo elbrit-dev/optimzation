@@ -1,6 +1,5 @@
 import React, { useMemo } from "react";
 import useContainerMode from "./useContainerMode";
-import { fmtNum } from "./pdParse";
 
 /**
  * LabelClaimCard — the "Label claim & supply" card (desktop) and the whole
@@ -69,9 +68,6 @@ export default function LabelClaimCard({
   packing,
   box,
   stockUom = "",
-  moq,
-  leadTime,
-  manufacturer = "",
   hsnCode = "",
   gstText = "",
   className = "",
@@ -99,9 +95,6 @@ export default function LabelClaimCard({
   const specs = [
     pack ? { label: "Packing", value: pack } : null,
     stockUom ? { label: "Stock UOM", value: stockUom } : null,
-    moq ? { label: "Standard MOQ", value: fmtNum(moq) } : null,
-    leadTime ? { label: "Lead time", value: `${leadTime} days` } : null,
-    manufacturer ? { label: "Manufacturer", value: manufacturer } : null,
     hsnCode ? { label: "HSN code", value: hsnCode } : null,
     gstText ? { label: "GST", value: gstText } : null,
   ].filter(Boolean);

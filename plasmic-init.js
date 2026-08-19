@@ -1653,6 +1653,18 @@ PLASMIC.registerComponent(ProductStockSheet, {
     },
     showPrices: { type: "boolean", defaultValue: true },
     showPackage: { type: "boolean", defaultValue: false, description: "Show the item's package line (e.g. \"10 x 10 Tablets\") under the brand." },
+    showComposition: {
+      type: "boolean",
+      defaultValue: true,
+      description:
+        "Show the COMPOSITION tile under the prices — the item's whg_composition bullet string rendered as 'Aceclofenac 100 mg + Paracetamol 325 mg'. Hides itself when the active item has no composition, so it's safe to leave ON (just make sure the dataset feeding `items` includes the field).",
+    },
+    compositionField: {
+      type: "string",
+      defaultValue: "whg_composition",
+      description: "Which item field holds the composition text. Change only if your dataset names it differently.",
+    },
+    compositionLabel: { type: "string", defaultValue: "Composition" },
     showDivisions: { type: "boolean", defaultValue: false, description: "Show division/company chips (from divison[].company__name)." },
     showStockBars: { type: "boolean", defaultValue: true, description: "The little stock-level bar per warehouse, scaled to the largest warehouse." },
     expandableBatches: { type: "boolean", defaultValue: true, description: "Warehouse rows with batches expand on tap to show batch no / expiry / qty." },
@@ -3121,7 +3133,7 @@ PLASMIC.registerComponent(ProductHero, {
   name: "ProductHero",
   displayName: "PD · Product Hero",
   description:
-    "The identity card of the product detail page. Wide: pack-shot viewer (Rx ONLY badge, ribbon, thumbnails) + name block with tag pills, the MRP/PTR/PTS price strip (retailer margin (MRP−PTR)/MRP and stockist margin (PTR−PTS)/PTR auto-computed) and the spec line. Narrow: title, image carousel with dots, price strip, compact spec strip. Bind the ERP Item RAW: images<-custom_product_urls (the [{product_url}] child table as-is), tags<-custom_therapeutic_class (bullet string → pills), subtitle<-whg_composition (bullets joined with ' + '), mrp/ptr/pts<-custom_last_mrp/_ptr/_pts, packing<-fsl_packing, box<-fsl_box, stockUom<-stock_uom__name, moq<-whg_standard_moq, leadTime<-whg_lead_time_to_manufacture, manufacturer<-custom_manufacturer__name, brand<-brand__name, itemCode<-item_code, name<-item_name.",
+    "The identity card of the product detail page. Wide: pack-shot viewer (Rx ONLY badge, ribbon, thumbnails) + name block with tag pills, the MRP/PTR/PTS price strip (retailer margin (MRP−PTR)/MRP and stockist margin (PTR−PTS)/PTR auto-computed) and the spec line. Narrow: title, image carousel with dots, price strip, compact spec strip. Bind the ERP Item RAW: images<-custom_product_urls (the [{product_url}] child table as-is), tags<-custom_therapeutic_class (bullet string → pills), subtitle<-whg_composition (bullets joined with ' + '), mrp/ptr/pts<-custom_last_mrp/_ptr/_pts, packing<-fsl_packing, box<-fsl_box, stockUom<-stock_uom__name, brand<-brand__name, itemCode<-item_code, name<-item_name.",
   props: {
     mode: {
       type: "choice",
@@ -3192,9 +3204,6 @@ PLASMIC.registerComponent(ProductHero, {
       description: "Explicit pack text ('10 strips × 15 tablets') overriding the '<box> × <packing>' auto-build.",
     },
     stockUom: { type: "string", defaultValue: "STRIPS", description: "<- stock_uom__name" },
-    moq: { type: "number", defaultValue: 5000, description: "Standard MOQ, shown with Indian grouping. <- whg_standard_moq" },
-    leadTime: { type: "number", defaultValue: 65, description: "Lead time in days. <- whg_lead_time_to_manufacture" },
-    manufacturer: { type: "string", defaultValue: "ELPL", description: "<- custom_manufacturer__name" },
     onImageChange: {
       type: "eventHandler",
       argTypes: [
@@ -3325,7 +3334,7 @@ PLASMIC.registerComponent(LabelClaimCard, {
   name: "LabelClaimCard",
   displayName: "PD · Label Claim Card",
   description:
-    "The 'Label claim & supply' card (desktop) and the whole mobile Supply tab. Bind labelClaim<-whg_label_claim RAW — the first line ('Each film coated tablet contains:') becomes the tinted box's caption, remaining lines the claim rows. Supply facts: packing<-fsl_packing, box<-fsl_box, stockUom<-stock_uom__name, moq<-whg_standard_moq, leadTime<-whg_lead_time_to_manufacture, manufacturer<-custom_manufacturer__name. Wide: a 4–5 cell strip; narrow: label-left/value-right rows.",
+    "The 'Label claim & supply' card (desktop) and the whole mobile Supply tab. Bind labelClaim<-whg_label_claim RAW — the first line ('Each film coated tablet contains:') becomes the tinted box's caption, remaining lines the claim rows. Supply facts: packing<-fsl_packing, box<-fsl_box, stockUom<-stock_uom__name, plus optional HSN/GST rows. Wide: a cell strip; narrow: label-left/value-right rows.",
   props: {
     mode: {
       type: "choice",
@@ -3348,9 +3357,6 @@ PLASMIC.registerComponent(LabelClaimCard, {
     box: { type: "number", defaultValue: 10, description: "<- fsl_box" },
     packText: { type: "string", description: "Explicit packing text ('10 strips × 15 tablets') overriding the auto-build." },
     stockUom: { type: "string", defaultValue: "STRIPS", description: "<- stock_uom__name" },
-    moq: { type: "number", defaultValue: 5000, description: "<- whg_standard_moq (Indian grouping applied)." },
-    leadTime: { type: "number", defaultValue: 65, description: "Days. <- whg_lead_time_to_manufacture" },
-    manufacturer: { type: "string", defaultValue: "ELPL", description: "<- custom_manufacturer__name" },
     hsnCode: {
       type: "string",
       description: "Optional 'HSN code' row in the supply facts. <- gst_hsn_code ('30049074'). Empty hides the row.",
