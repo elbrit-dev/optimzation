@@ -3079,7 +3079,12 @@ PLASMIC.registerComponent(VariantPills, {
     selected: {
       type: "string",
       description:
-        "Value of the active pill (a variant's `value`). Writable state — leave unset to default to the first variant; the page reads it to fetch that variant's Item.",
+        "Value of the active pill (a variant's `value`). Writable state — leave unset to fall back to initialSelected (then the first variant); the page reads it to fetch that variant's Item.",
+    },
+    initialSelected: {
+      type: "string",
+      description:
+        "Which variant is active BEFORE the user picks one — e.g. the item_code the page was opened with. Only used while `selected` is unset; ignored (and never fought against) once a pill is clicked. Must match a variant's `value`; a non-matching value falls back to the first variant.",
     },
     onSelect: {
       type: "eventHandler",

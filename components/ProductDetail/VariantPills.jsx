@@ -57,6 +57,7 @@ function normalize(variants) {
 export default function VariantPills({
   variants = [],
   selected,
+  initialSelected = "",
   onSelect,
   showCount = true,
   kicker = "Variants",
@@ -65,7 +66,11 @@ export default function VariantPills({
 }) {
   ensureStyles();
   const list = normalize(variants);
-  const sel = selected != null && selected !== "" ? String(selected) : list[0]?.value;
+  const sel =
+    selected != null && selected !== ""
+      ? String(selected)
+      : (initialSelected && list.find((v) => v.value === String(initialSelected))?.value) ||
+        list[0]?.value;
 
   return (
     <div className={`vpl-wrap ${className}`} style={style}>
