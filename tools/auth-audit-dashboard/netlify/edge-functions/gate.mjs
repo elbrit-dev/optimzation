@@ -5,11 +5,15 @@
  * before Netlify serves the static page, so an unauthenticated visitor never
  * receives index.html at all, let alone reaches /api/report.
  *
+ * It also enforces the ROLE boundary. There are two logins: full access, and
+ * sales-report-only. A report session is turned away from every other path here,
+ * at the edge — the page never has to be trusted to hide anything.
+ *
  * Runs on Deno, so it uses Web Crypto only — see lib/auth.mjs.
  */
 
 import {
-  verifySession, readCookie, authConfigured, SESSION_COOKIE,
+  verifySession, readCookie, authConfigured, SESSION_COOKIE, mayAccess, homeFor,
 } from '../../lib/auth.mjs'
 import { AUTH } from '../../lib/auth-secrets.mjs'
 
@@ -37,10 +41,24 @@ export default async (request, context) => {
     })
   }
 
-  const { valid } = await verifySession(
+  const { valid, role } = await verifySession(
     AUTH.sessionSecret, readCookie(request.headers.get('cookie'), SESSION_COOKIE),
   )
-  if (valid) return context.next()
+  if (valid) {
+    if (mayAccess(role, path)) return context.next()
+    /**
+     * Signed in, but not for this page. The report role is enforced HERE, at the
+     * edge, so a sales-report user never receives index.html or reaches
+     * /api/report — not merely has the link hidden from them.
+     */
+    if (path.startsWith('/api/')) {
+      return Response.json(
+        { error: 'This login does not have access to that.', code: 'ROLE_FORBIDDEN', role },
+        { status: 403, headers: { 'cache-control': 'no-store' } },
+      )
+    }
+    return Response.redirect(new URL(homeFor(role), url), 302)
+  }
 
   // API callers get a machine-readable 401; browsers get the login page.
   if (path.startsWith('/api/')) {

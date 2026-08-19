@@ -8,7 +8,7 @@
 
 ---
 
-## How access works — two independent layers
+## How access works — three independent layers
 
 **1. Login (auth layer).** A Netlify **edge function** runs in front of every
 request. Without a valid session cookie you are redirected to `/login.html` and
@@ -20,7 +20,13 @@ request. Without a valid session cookie you are redirected to `/login.html` and
 - **Fails closed:** with no password configured the gate serves a "locked" page
   and refuses `/api/*`. It never defaults to open.
 
-**2. Credentials (data layer).** Resolved in this order:
+**2. Role.** There are two logins, each an ID + password. The full-access one opens everything; the
+sales-report one opens `/sales.html`, `/api/sales` and `/api/logout` and is refused
+everywhere else — at the edge *and* inside each function, from one shared
+`ROLE_POLICY` table. The role travels inside the signed cookie, so it cannot be
+edited without the signing key. See **The sales-report login** below.
+
+**3. Credentials (data layer).** Resolved in this order:
 
 1. the dashboard's own form (kept in that browser's `localStorage`)
 2. `lib/credentials.mjs`, written once by `set-credentials.mjs`
@@ -30,7 +36,8 @@ With (2) filled in you sign in and the report just loads — no token, no JSON, 
 any device. Verified from a browser with empty `localStorage`.
 
 **Stored credentials are only ever used for a request with a valid session
-cookie**, checked at the edge *and again inside* `report.mjs`. The second check is
+cookie of a role that may reach that endpoint**, checked at the edge *and again
+inside* `report.mjs`, `permissions.mjs` and `sales.mjs`. The second check is
 not redundant: it is what stops a removed or misconfigured edge gate from turning
 stored credentials into a public staff-data endpoint. `selftest-auth.mjs` pins
 that an unauthenticated caller gets `401` **even when credentials are stored** —
@@ -78,6 +85,49 @@ you want after a password change. **Redeploy afterwards.**
 > `AUTH_PASSWORD_SALT` and `AUTH_SESSION_SECRET` env vars override the file if
 > you'd rather keep them off disk.
 
+## The sales-report login
+
+A second password that opens `/sales.html` and nothing else — no credential form,
+no staff data, no permission writes.
+
+```bash
+node tools/auth-audit-dashboard/set-password.mjs --report --id elbrit "their password"
+node tools/auth-audit-dashboard/set-password.mjs --report --generate
+```
+
+`--id` sets the login ID that goes with the password (currently `elbrit`). The ID is
+not a secret — it selects which login is being attempted, and is matched
+case-insensitively — but the report password does not work without it.
+
+It writes only `reportPasswordHash`, `reportSalt` and `reportUserId`, and
+deliberately does **not** rotate the session secret: adding or rotating this login should not sign an admin
+out of a session they are using. **Redeploy afterwards.**
+
+Leave it unset and the role simply does not exist — nobody can hold it, and
+`/sales.html` is reachable only by the full-access login. `REPORT_PASSWORD_HASH`
+and `REPORT_PASSWORD_SALT` env vars override the file.
+
+The sales report needs the ERP token to be **stored server-side**
+(`set-credentials.mjs`), because that login cannot supply one. With no stored token
+`/api/sales` answers 428 and the page says to ask an administrator, rather than
+showing a form the user has no business filling in.
+
+### Verify the boundary after changing it
+
+```bash
+S=https://elbrit-account-audit.netlify.app
+# sign in with the REPORT password, keeping the cookie
+curl -s -c /tmp/c.txt -X POST $S/api/login -H 'content-type: application/json' \
+  -d '{"password":"THE-REPORT-PASSWORD"}'          # -> {"ok":true,"role":"report","to":"/sales.html"}
+curl -s -b /tmp/c.txt -o /dev/null -w '%{http_code}\n' $S/api/sales     # -> 200
+curl -s -b /tmp/c.txt -o /dev/null -w '%{http_code}\n' -X POST $S/api/report   # -> 403
+curl -s -b /tmp/c.txt -o /dev/null -w '%{http_code}\n' $S/api/permissions      # -> 403
+curl -s -b /tmp/c.txt -o /dev/null -w '%{http_code} %{redirect_url}\n' $S/     # -> 302 /sales.html
+```
+
+`selftest-sales.mjs` and `selftest-auth.mjs` cover the same ground offline, so run
+those first — they are what caught `/api/report` accepting a report-role cookie.
+
 ## Deploying — always use `--no-build`
 
 ```bash
@@ -121,6 +171,9 @@ Then confirm the live gate:
 S=https://elbrit-account-audit.netlify.app
 curl -s -o /dev/null -w "%{http_code} %{redirect_url}\n" $S/     # 302 -> /login.html
 curl -s $S/api/report                                            # 401 AUTH_REQUIRED
+curl -s $S/api/sales                                             # 401 AUTH_REQUIRED
+curl -s -o /dev/null -w "%{http_code}
+" $S/sales.html           # 302 -> /login.html
 ```
 
 If `/` returns 200 without a session, **stop** — the gate is not running.

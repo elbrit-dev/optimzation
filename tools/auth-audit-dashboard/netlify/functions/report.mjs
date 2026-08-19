@@ -15,7 +15,7 @@
  * selftest-auth.mjs still pins that an unauthenticated caller gets nothing.
  */
 
-import { verifySession, readCookie, authConfigured, SESSION_COOKIE } from '../../lib/auth.mjs'
+import { verifySession, readCookie, authConfigured, SESSION_COOKIE, mayAccess } from '../../lib/auth.mjs'
 import { AUTH } from '../../lib/auth-secrets.mjs'
 import { STORED, haveStoredCredentials } from '../../lib/credentials.mjs'
 import { loadReport, resolveCreds } from '../../lib/audit.mjs'
@@ -40,11 +40,28 @@ async function signedIn(req) {
   return valid
 }
 
+/**
+ * A valid session is not enough — it has to be a session that may reach HERE.
+ * The sales-report login holds a perfectly good cookie, and this endpoint serves
+ * staff PII, so the role is checked in the function as well as at the edge. Found
+ * by selftest-auth: without this, a report session got all the way to ERP.
+ */
+async function mayCall(req) {
+  if (!authConfigured(AUTH)) return false
+  const { valid, role } = await verifySession(
+    AUTH.sessionSecret, readCookie(req.headers.get('cookie'), SESSION_COOKIE),
+  )
+  return valid && mayAccess(role, '/api/report')
+}
+
 export default async (req) => {
   const url = new URL(req.url)
 
   if (!(await signedIn(req))) {
     return json(401, { error: 'Not signed in.', code: 'AUTH_REQUIRED' })
+  }
+  if (!(await mayCall(req))) {
+    return json(403, { error: 'This login does not have access to that.', code: 'ROLE_FORBIDDEN' })
   }
 
   if (req.method === 'GET') {

@@ -75,11 +75,17 @@ async function hmacKey(secret) {
   )
 }
 
-/** @returns {Promise<string>} the cookie value */
-export async function createSession(secret, { hours = 12 } = {}) {
+/**
+ * @returns {Promise<string>} the cookie value
+ * `role` decides what the session may reach — see ROLE_POLICY below. It lives in
+ * the signed payload rather than in a second cookie so it cannot be edited
+ * without the signing key.
+ */
+export async function createSession(secret, { hours = 12, role = 'admin' } = {}) {
   const payload = JSON.stringify({
     exp: Date.now() + hours * 3600_000,
     iat: Date.now(),
+    role: ROLE_POLICY[role] ? role : 'admin',
   })
   const body = b64urlEncode(enc.encode(payload))
   const sig = await crypto.subtle.sign('HMAC', await hmacKey(secret), enc.encode(body))
@@ -110,8 +116,51 @@ export async function verifySession(secret, cookieValue) {
   try { payload = JSON.parse(new TextDecoder().decode(b64urlDecode(body))) }
   catch { return { valid: false, reason: 'malformed' } }
   if (!payload?.exp || Date.now() > payload.exp) return { valid: false, reason: 'expired' }
-  return { valid: true }
+  // A cookie with no role predates the second login and can only have been signed
+  // for the one password that existed then — the admin one.
+  const role = ROLE_POLICY[payload.role] ? payload.role : 'admin'
+  return { valid: true, role }
 }
+
+// ── roles ───────────────────────────────────────────────────────────
+
+/**
+ * Who may reach what. One table, imported by BOTH the edge gate and the
+ * functions, so a path can never be open at one layer and closed at the other.
+ *
+ * `report` exists for the sales report: it signs in with its own password, sees
+ * exactly one page, and — crucially — has no route to the credential form or to
+ * anything that reads staff PII. It uses the ERP token the server already holds
+ * and can neither see nor change it.
+ */
+export const ROLE_POLICY = {
+  admin: {
+    home: '/',
+    label: 'Full access',
+    /** Everything, including the credential form and the staff audit. */
+    allows: () => true,
+  },
+  report: {
+    home: '/sales.html',
+    label: 'Sales report only',
+    allows: (path) => REPORT_PATHS.has(path),
+  },
+}
+
+/**
+ * Deliberately a fixed set, not a prefix match: `/api/` + prefix matching is how
+ * a "read-only" role quietly gains `/api/permissions`, which writes to ERP.
+ */
+const REPORT_PATHS = new Set([
+  '/sales.html', '/sales', '/api/sales', '/api/logout', '/favicon.ico', '/robots.txt',
+])
+
+export const mayAccess = (role, path) => {
+  const policy = ROLE_POLICY[role] || ROLE_POLICY.report
+  return Boolean(policy.allows(path))
+}
+
+export const homeFor = (role) => (ROLE_POLICY[role] || ROLE_POLICY.report).home
 
 // ── cookie plumbing ─────────────────────────────────────────────────
 
@@ -147,3 +196,49 @@ export function sessionCookieHeader(value, { hours = 12, clear = false } = {}) {
 export function authConfigured(auth) {
   return Boolean(auth?.passwordHash && auth?.salt && auth?.sessionSecret)
 }
+
+/**
+ * The report login is optional: with no hash set, that role simply does not
+ * exist and nobody can hold it. It still needs the shared session secret, which
+ * `authConfigured` covers.
+ */
+export function reportAuthConfigured(auth) {
+  return Boolean(auth?.reportPasswordHash && auth?.reportSalt && auth?.sessionSecret)
+}
+
+/** Case- and space-insensitive: an ID is a name, not a secret. */
+const sameId = (a, b) => String(a ?? '').trim().toLowerCase() === String(b ?? '').trim().toLowerCase()
+
+/**
+ * Which role an ID + password unlocks, or '' for none.
+ *
+ * The ID is not a second secret — it selects which login is being attempted, so
+ * the report password cannot be used without knowing that it belongs to `elbrit`,
+ * and a wrong ID fails the same way a wrong password does. Both candidates are
+ * always evaluated so the timing does not reveal which half was wrong.
+ *
+ * A BLANK id still works for the admin password, because that login existed
+ * before there was an ID field and its holders have no reason to learn one.
+ */
+export async function roleForLogin({ id = '', password = '' } = {}, auth) {
+  const adminId = auth?.adminUserId || 'admin'
+  const reportId = auth?.reportUserId || ''
+  const idIsAdmin = !String(id ?? '').trim() || sameId(id, adminId)
+  const idIsReport = Boolean(reportId) && sameId(id, reportId)
+
+  const admin = await verifyPassword(password, auth)
+  const report = reportAuthConfigured(auth)
+    ? await verifyPassword(password, {
+      passwordHash: auth.reportPasswordHash,
+      salt: auth.reportSalt,
+      iterations: auth.iterations,
+    })
+    : false
+
+  if (admin && idIsAdmin) return 'admin'
+  if (report && idIsReport) return 'report'
+  return ''
+}
+
+/** Older shape, kept because an ID-less attempt is exactly the admin case. */
+export const roleForPassword = (password, auth) => roleForLogin({ password }, auth)

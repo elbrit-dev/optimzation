@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 /**
- * Verifies /api/report gives an unauthenticated caller NOTHING — including when
- * credentials are stored server-side, which is the whole point of storing them.
+ * Verifies /api/report and /api/sales give an unauthenticated caller NOTHING —
+ * including when credentials are stored server-side, which is the whole point of
+ * storing them — and that the sales-report role reaches the sales endpoint and
+ * ONLY the sales endpoint.
  *
  * The failure this guards is silent and total: if the function ever answered
  * without a session while lib/credentials.mjs holds a token, the entire staff
@@ -113,6 +115,55 @@ check('PUT -> 405',
   (await call({ env: { ...AUTH_ENV, ...STORED_ENV }, method: 'PUT', cookie: goodCookie })).status, 405)
 check('bad JSON body -> 400',
   (await call({ env: { ...AUTH_ENV, ...STORED_ENV }, method: 'POST', body: 'nope', cookie: goodCookie })).status, 400)
+
+// ── the second login ────────────────────────────────────────────────
+console.log('\nRole boundary at the function level')
+
+/** Same harness, pointed at whichever function is under test. */
+async function callFn(fn, { env = {}, method = 'GET', cookie, url } = {}) {
+  const saved = { ...process.env }
+  for (const k of ['ERP_API_TOKEN', 'FIREBASE_SERVICE_ACCOUNT', 'AUTH_PASSWORD_HASH',
+    'AUTH_PASSWORD_SALT', 'AUTH_SESSION_SECRET', 'REPORT_PASSWORD_HASH',
+    'REPORT_PASSWORD_SALT']) delete process.env[k]
+  Object.assign(process.env, env)
+  const mod = await import(`./netlify/functions/${fn}.mjs?v=${Math.random().toString(36).slice(2)}`)
+  let res
+  try {
+    res = await mod.default(new Request(url || `https://example.netlify.app/api/${fn}`, {
+      method, headers: { ...(cookie ? { cookie } : {}) },
+    }))
+  } finally { process.env = saved }
+  const parsed = await res.json().catch(() => ({}))
+  return { status: res.status, code: parsed.code, body: parsed }
+}
+
+const reportRoleCookie = sessionCookieHeader(
+  await createSession(SECRET, { role: 'report' }),
+).split(';')[0]
+
+check('/api/sales, no cookie -> 401',
+  (await callFn('sales', { env: { ...AUTH_ENV, ...STORED_ENV } })).status, 401)
+check('/api/sales with a forged cookie -> 401',
+  (await callFn('sales', { env: { ...AUTH_ENV, ...STORED_ENV }, cookie: 'aa_session=x.y' })).status, 401)
+check('/api/sales rejects POST',
+  (await callFn('sales', { env: { ...AUTH_ENV, ...STORED_ENV }, method: 'POST', cookie: goodCookie })).status, 405)
+
+/**
+ * THE boundary. A sales-report session must be refused by the staff-audit
+ * endpoint even though its cookie is perfectly valid — the role is what stops it,
+ * and it is enforced in the function as well as at the edge.
+ */
+const crossover = await call({
+  env: { ...AUTH_ENV, ...STORED_ENV }, method: 'POST', body: {}, cookie: reportRoleCookie,
+})
+check('report role calling /api/report -> refused', crossover.status, 403)
+check('  with ROLE_FORBIDDEN', crossover.code, 'ROLE_FORBIDDEN')
+check('  and no report payload',
+  ['employees', 'firebaseAll', 'kpis'].some((k) => k in crossover.body), false)
+check('report role calling /api/permissions -> refused',
+  (await callFn('permissions', {
+    env: { ...AUTH_ENV, ...STORED_ENV }, cookie: reportRoleCookie,
+  })).status, 403)
 
 console.log('\nHeaders')
 const h = probe.headers

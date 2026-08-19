@@ -1,0 +1,1172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Invoice item-wise sales — Elbrit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /**
+   * Clinical instrument, not a generic dashboard: a deep pine header, an off-white
+   * body, ONE teal for data, and amber reserved exclusively for free/scheme
+   * quantities so bonus stock reads at a glance.
+   *
+   * Every pair below is measured, not eyeballed — the teal passes the chroma floor
+   * and CVD separation checks against the amber (ΔE 13.9 deutan, 28.5 tritan), and
+   * every text pair clears WCAG AA on its own background. A lighter teal read as
+   * grey to the validator; a darker one lost the instrument feel.
+   */
+  :root {
+    --pine:      #12352b;   /* header */
+    --pine-2:    #0c261e;   /* header underlay, footer */
+    --pine-line: #24493d;
+    --body:      #f7f6f2;   /* off-white */
+    --panel:     #ffffff;
+    --ink:       #16211d;   /* 15.3:1 on body */
+    --ink-2:     #4a5a54;   /*  6.7:1 */
+    --ink-3:     #5f6f69;   /*  4.9:1 — the lightest text allowed here */
+    --line:      #e2e5df;
+    --line-2:    #eef0ec;
+    --teal:      #00958a;   /* DATA marks only */
+    --teal-ink:  #00695f;   /* teal as text: 6.1:1 */
+    --teal-soft: #e3f2ef;
+    --amber:     #b45309;   /* free / scheme quantity, and nothing else */
+    --amber-ink: #8a4008;
+    --amber-soft:#fdf1e1;
+    --red-ink:   #a3271c;
+    --red-soft:  #fdeceb;
+    --grey-soft: #eceee9;
+    --head-ink:  #eef4f0;   /* on pine: 12:1 */
+    --head-dim:  #a8c2b8;   /* on pine: 7:1 */
+    --r: 10px;
+    --sans: Inter, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --display: "Space Grotesk", Inter, -apple-system, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--body); color: var(--ink);
+    font: 400 14px/1.5 var(--sans);
+    /* Data is read in columns, so figures must not change width between rows. */
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, .kpi-n, .brand-mark { font-family: var(--display); letter-spacing: -0.015em; }
+  .wrap { max-width: 1560px; margin: 0 auto; padding: 0 20px 28px; }
+
+  /* ── header ─────────────────────────────────────────────── */
+  header.top {
+    background: var(--pine); color: var(--head-ink);
+    border-bottom: 3px solid var(--pine-2);
+  }
+  header.top .inner {
+    max-width: 1560px; margin: 0 auto; padding: 14px 20px;
+    display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  }
+  .brand-mark { font-size: 17px; font-weight: 700; line-height: 1.2; }
+  .brand-mark small {
+    display: block; font-family: var(--sans); font-weight: 400; font-size: 11.5px;
+    color: var(--head-dim); letter-spacing: .02em;
+  }
+  header.top .range {
+    font-size: 12.5px; color: var(--head-dim);
+    border-left: 1px solid var(--pine-line); padding-left: 18px;
+  }
+  header.top .range b { color: var(--head-ink); font-weight: 500; }
+  .grow { flex: 1 1 auto; min-width: 0; }
+  header.top button {
+    background: transparent; color: var(--head-ink); border: 1px solid var(--pine-line);
+    font: 500 12.5px var(--sans); padding: 7px 12px; border-radius: 7px; cursor: pointer;
+    min-height: 34px;
+  }
+  header.top button:hover:not(:disabled) { background: var(--pine-2); border-color: var(--head-dim); }
+  header.top button:disabled { opacity: .55; cursor: default; }
+
+  /* ── panels ─────────────────────────────────────────────── */
+  .panel {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--r); min-width: 0;
+  }
+  .panel-h {
+    padding: 11px 15px; border-bottom: 1px solid var(--line-2);
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  }
+  .panel-h h2 { font-size: 13px; margin: 0; font-weight: 600; }
+  .panel-h .note { font-size: 11.5px; color: var(--ink-3); }
+
+  /* ── filter bar ─────────────────────────────────────────── */
+  .filters { margin: 16px 0 0; padding: 12px 15px 13px; }
+
+  /**
+   * Date range: presets first, then the two ends inside ONE bordered group.
+   *
+   * Two bare `<input type=date>` boxes labelled "From date" and "To date" is the
+   * shape a form takes when nobody decided what it should look like — and it reads
+   * as two unrelated fields rather than one range. Grouping them behind a single
+   * border with an arrow between says "this is a range", and the presets make the
+   * common answers one click instead of two date pickers.
+   */
+  .daterow {
+    display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap;
+    padding-bottom: 11px; margin-bottom: 11px; border-bottom: 1px solid var(--line-2);
+  }
+  .presets { display: flex; gap: 5px; flex-wrap: wrap; }
+  .chip {
+    font: 500 12px var(--sans); color: var(--ink-2); cursor: pointer;
+    background: var(--body); border: 1px solid var(--line);
+    border-radius: 20px; padding: 6px 12px; min-height: 32px; white-space: nowrap;
+  }
+  .chip:hover { border-color: var(--teal); color: var(--teal-ink); }
+  /* The active preset is filled, not merely tinted: at a glance you can see WHICH
+     window you are looking at without reading the dates. */
+  .chip[aria-pressed="true"] {
+    background: var(--pine); border-color: var(--pine); color: #fff;
+  }
+  .rangebox {
+    display: flex; align-items: center; gap: 6px; min-width: 0;
+    border: 1px solid var(--line); border-radius: 9px; padding: 4px 10px 4px 9px;
+    background: var(--panel);
+  }
+  .rangebox:focus-within { border-color: var(--teal); box-shadow: 0 0 0 3px var(--teal-soft); }
+  .rangebox .cal { width: 15px; height: 15px; color: var(--ink-3); flex: 0 0 auto; }
+  .rangebox input[type=date] {
+    border: 0; padding: 4px 2px; min-height: 30px; width: auto; background: transparent;
+    font-size: 13px; color: var(--ink);
+  }
+  .rangebox input[type=date]:focus-visible { outline: none; }
+  .rangebox .dash { color: var(--ink-3); font-size: 12px; }
+  .rangebox .span {
+    font-size: 11px; color: var(--ink-3); border-left: 1px solid var(--line);
+    padding-left: 9px; margin-left: 3px; white-space: nowrap;
+  }
+  /**
+   * On a phone the two native date inputs plus the day count come to ~321px inside
+   * a 320px box, and Chrome clips the last digit of the year rather than shrinking.
+   * Giving the box the full width and letting the count wrap under keeps both dates
+   * whole — a date reading "08/19/202" is worse than a second line.
+   */
+  @media (max-width: 620px) {
+    .rangebox { width: 100%; flex-wrap: wrap; }
+    .rangebox input[type=date] { flex: 0 1 auto; min-width: 118px; max-width: 165px; }
+    .rangebox .span { border-left: 0; padding-left: 0; margin-left: 25px; }
+  }
+
+  .fgrid {
+    display: grid; gap: 10px 12px;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    align-items: end;
+  }
+  /* Nine filters, one row. `auto-fit` fits eight and drops Docstatus onto a row of
+     its own, which looks like a mistake rather than a layout. */
+  @media (min-width: 1240px) { .fgrid { grid-template-columns: repeat(9, minmax(0, 1fr)); } }
+  .f { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .f > label {
+    font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  input, select, button { font-family: var(--sans); }
+  input[type=text], input[type=date], input[type=search], select {
+    font-size: 13px; padding: 7px 9px; border-radius: 7px; min-height: 36px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+    width: 100%; min-width: 0; font-variant-numeric: tabular-nums;
+  }
+  input:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible,
+  th[data-sort]:focus-visible {
+    outline: 2px solid var(--teal); outline-offset: 2px;
+  }
+  .frow {
+    display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+    margin-top: 11px; padding-top: 11px; border-top: 1px solid var(--line-2);
+  }
+  /* One control, one label — the checkbox and its words are the same target. */
+  .toggle {
+    display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
+    font-size: 13px; min-height: 32px; user-select: none;
+  }
+  .toggle input { width: 17px; height: 17px; accent-color: var(--teal); margin: 0; }
+  .hintline { font-size: 11.5px; color: var(--ink-3); }
+  button.btn {
+    font-size: 12.5px; font-weight: 500; padding: 8px 13px; border-radius: 7px; min-height: 36px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer;
+  }
+  button.btn:hover:not(:disabled) { border-color: var(--teal); color: var(--teal-ink); }
+  button.btn:disabled { opacity: .5; cursor: default; }
+  button.btn.solid { background: var(--pine); border-color: var(--pine); color: #fff; }
+  button.btn.solid:hover:not(:disabled) { background: var(--pine-2); color: #fff; }
+  button.btn.ghost { min-height: 32px; padding: 6px 12px; }
+  .count { font-size: 12.5px; color: var(--ink-2); white-space: nowrap; }
+  .count b { color: var(--ink); font-weight: 600; }
+
+  /* ── kpis ───────────────────────────────────────────────── */
+  .kpis {
+    display: grid; gap: 10px; margin: 14px 0 0;
+    grid-template-columns: repeat(auto-fit, minmax(176px, 1fr));
+  }
+  /* Below ~520px `auto-fit` with a 176px floor gives ONE column and a five-card
+     tower. Two explicit columns keep the summary on one screen. */
+  @media (max-width: 560px) {
+    .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .kpi-n { font-size: 21px; }
+  }
+  .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 12px 14px; }
+  .kpi-l {
+    font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .09em;
+    color: var(--ink-3);
+  }
+  .kpi-n { font-size: 25px; font-weight: 600; margin: 3px 0 1px; line-height: 1.15; }
+  .kpi-h { font-size: 11.5px; color: var(--ink-2); }
+  .kpi.lead .kpi-n { color: var(--teal-ink); }
+  .kpi.free { border-color: #f0dcc0; background: var(--amber-soft); }
+  .kpi.free .kpi-n { color: var(--amber-ink); }
+  .kpi.free .kpi-l, .kpi.free .kpi-h { color: var(--amber-ink); }
+
+  /* ── charts ─────────────────────────────────────────────── */
+  .charts { display: grid; gap: 12px; margin: 12px 0 0; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  @media (max-width: 900px) { .charts { grid-template-columns: minmax(0, 1fr); } }
+  .chart-body { padding: 10px 14px 14px; }
+  svg.chart { display: block; width: 100%; height: auto; overflow: visible; }
+  svg.chart text { font-family: var(--sans); font-size: 10.5px; fill: var(--ink-3); }
+  svg.chart text.val { fill: var(--ink-2); font-weight: 500; }
+  svg.chart text.cat { fill: var(--ink-2); }
+  svg.chart .grid { stroke: var(--line); stroke-width: 1; }
+  svg.chart .axis { stroke: var(--line); stroke-width: 1; }
+  .legend { display: flex; gap: 14px; align-items: center; font-size: 11.5px; color: var(--ink-2); }
+  .legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; margin-right: 5px; vertical-align: -1px; }
+  .mark { cursor: default; }
+  .mark:hover { filter: brightness(1.08); }
+  #tip {
+    position: fixed; z-index: 40; pointer-events: none; opacity: 0;
+    transition: opacity .1s; background: var(--pine); color: var(--head-ink);
+    border-radius: 7px; padding: 7px 9px; font-size: 12px; line-height: 1.45;
+    box-shadow: 0 6px 18px rgba(12, 38, 30, .22); max-width: 260px;
+  }
+  #tip b { font-weight: 600; }
+  #tip .t-sub { color: var(--head-dim); }
+
+  /* ── table ──────────────────────────────────────────────── */
+  .tablewrap { margin: 12px 0 0; overflow: hidden; }
+  /**
+   * The scroll box owns BOTH scrollbars, so a 14-column table never widens the
+   * page, and the sticky header has a real container to stick to. `separate`
+   * borders because a sticky <th> does not stay put in a collapsed-border table
+   * in Chrome.
+   */
+  .tscroll { overflow: auto; max-height: min(68vh, 720px); }
+  table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 12.5px; }
+  th, td {
+    text-align: left; padding: 7px 11px; white-space: nowrap;
+    border-bottom: 1px solid var(--line-2);
+    max-width: 240px; overflow: hidden; text-overflow: ellipsis;
+  }
+  thead th {
+    position: sticky; top: 0; z-index: 2; background: var(--panel);
+    font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em;
+    color: var(--ink-3); border-bottom: 0;
+    box-shadow: inset 0 -1px 0 var(--line);
+  }
+  thead th[data-sort] { cursor: pointer; user-select: none; }
+  thead th[data-sort]:hover { color: var(--teal-ink); }
+  thead th .arrow { color: var(--teal-ink); }
+  td.n { text-align: right; }
+  th.n { text-align: right; }
+  td.mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 11.5px; }
+  tbody tr:hover { background: #f4f8f6; }
+  tbody tr:last-child td { border-bottom: 0; }
+  .pill {
+    display: inline-block; font-size: 10.5px; font-weight: 500; padding: 1px 7px;
+    border-radius: 20px; background: var(--grey-soft); color: var(--ink-2);
+  }
+  .pill.ok   { background: var(--teal-soft); color: var(--teal-ink); }
+  .pill.free { background: var(--amber-soft); color: var(--amber-ink); }
+  .pill.bad  { background: var(--red-soft);  color: var(--red-ink); }
+  .muted { color: var(--ink-3); }
+  /* A value that is true of the invoice but was not written on this line. Dotted,
+     not coloured: it is ordinary data with a footnote, not a warning. */
+  .inferred { border-bottom: 1px dotted var(--ink-3); cursor: help; }
+
+  /* ── paging ─────────────────────────────────────────────── */
+  .pager {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    padding: 11px 15px; border-top: 1px solid var(--line-2);
+  }
+  .pager .of { font-size: 12.5px; color: var(--ink-2); }
+  .pager select { width: auto; min-height: 34px; }
+
+  /* ── states ─────────────────────────────────────────────── */
+  .msg { padding: 34px 20px; text-align: center; color: var(--ink-2); }
+  .msg h2 { font-size: 15px; margin: 0 0 6px; color: var(--ink); }
+  .msg.bad h2 { color: var(--red-ink); }
+  .msg code { background: var(--body); border: 1px solid var(--line); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  .spin {
+    display: inline-block; width: 12px; height: 12px; vertical-align: -1px;
+    border: 2px solid var(--line); border-top-color: var(--teal); border-radius: 50%;
+    animation: sp .7s linear infinite;
+  }
+  @keyframes sp { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .spin { animation-duration: 2.4s; }
+    * { transition-duration: .01ms !important; }
+  }
+  .loading { opacity: .55; transition: opacity .12s; }
+  [hidden] { display: none !important; }
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+  footer.foot {
+    max-width: 1560px; margin: 18px auto 0; padding: 0 20px;
+    font-size: 11.5px; color: var(--ink-3);
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="inner">
+    <div class="brand-mark">Elbrit Sales<small>Invoice item-wise · one row per line item</small></div>
+    <div class="range" id="range-note">loading…</div>
+    <span class="grow"></span>
+    <button id="refresh" type="button">Refresh</button>
+    <button id="signout" type="button">Sign out</button>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- filters -->
+  <section class="panel filters" id="filters" aria-label="Filters">
+
+    <!-- date range: presets on the left, the two ends in one bordered group -->
+    <div class="daterow">
+      <div class="presets" role="group" aria-label="Date range presets">
+        <button class="chip" type="button" data-preset="month">This month</button>
+        <button class="chip" type="button" data-preset="prevmonth">Last month</button>
+        <button class="chip" type="button" data-preset="quarter">Last 3 months</button>
+        <button class="chip" type="button" data-preset="halfyear">Last 6 months</button>
+        <button class="chip" type="button" data-preset="fy">This FY</button>
+      </div>
+      <div class="rangebox">
+        <svg viewBox="0 0 16 16" aria-hidden="true" class="cal">
+          <path d="M2.5 3.5h11v10h-11z" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          <path d="M2.5 6.5h11M5.5 2v2.5M10.5 2v2.5" fill="none" stroke="currentColor" stroke-width="1.2"/>
+        </svg>
+        <label class="sr-only" for="f-from">From date</label>
+        <input type="date" id="f-from" aria-label="From date">
+        <span class="dash" aria-hidden="true">→</span>
+        <label class="sr-only" for="f-to">To date</label>
+        <input type="date" id="f-to" aria-label="To date">
+        <span class="span" id="range-span"></span>
+      </div>
+      <span class="grow"></span>
+      <span class="count" id="shown"></span>
+    </div>
+
+    <!-- the dimensions -->
+    <div class="fgrid">
+      <div class="f">
+        <label for="f-invoice">Invoice</label>
+        <input type="search" id="f-invoice" placeholder="Number or series" spellcheck="false"
+          title="A full number, or part of one: type CI- for claim invoices, CN- for credit notes">
+      </div>
+      <div class="f">
+        <label for="f-distributor">Distributor</label>
+        <input type="text" id="f-distributor" list="l-distributor" placeholder="All" spellcheck="false">
+        <datalist id="l-distributor"></datalist>
+      </div>
+      <div class="f">
+        <label for="f-team">Sales team</label>
+        <select id="f-team"><option value="">All teams</option></select>
+      </div>
+      <div class="f">
+        <label for="f-hq">HQ</label>
+        <select id="f-hq"><option value="">All HQs</option></select>
+      </div>
+      <div class="f">
+        <label for="f-therapy">Therapy</label>
+        <select id="f-therapy"><option value="">All therapies</option></select>
+      </div>
+      <div class="f">
+        <label for="f-brand">Brand</label>
+        <select id="f-brand"><option value="">All brands</option></select>
+      </div>
+      <div class="f">
+        <label for="f-item">Item</label>
+        <input type="text" id="f-item" list="l-item" placeholder="All" spellcheck="false">
+        <datalist id="l-item"></datalist>
+      </div>
+      <div class="f">
+        <label for="f-company">Company</label>
+        <select id="f-company"><option value="">All companies</option></select>
+      </div>
+      <div class="f">
+        <label for="f-docstatus">Docstatus</label>
+        <select id="f-docstatus">
+          <option value="1">Submitted</option>
+          <option value="0">Draft</option>
+          <option value="2">Cancelled</option>
+          <option value="all">Any status</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="frow">
+      <label class="toggle" for="f-paid">
+        <input type="checkbox" id="f-paid" checked>
+        <span>Only paid lines</span>
+      </label>
+      <span class="hintline" id="paid-hint"></span>
+      <span class="grow"></span>
+      <button class="btn ghost" type="button" id="f-reset" hidden>Clear filters</button>
+    </div>
+  </section>
+
+  <!-- state -->
+  <section class="panel" id="state" style="margin-top:12px" role="status" aria-live="polite">
+    <div class="msg"><span class="spin"></span> Loading sales lines…</div>
+  </section>
+
+  <main id="report" hidden>
+    <section class="kpis" id="kpis"></section>
+
+    <section class="charts">
+      <div class="panel">
+        <div class="panel-h"><h2>Net value by month</h2><span class="note">company currency</span></div>
+        <div class="chart-body" id="c-value"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-h"><h2>Units by month</h2>
+          <span class="note">billed and free, each on its own scale</span>
+        </div>
+        <div class="chart-body" id="c-units"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-h"><h2>Top brands by value</h2><span class="note" id="c-brands-note"></span></div>
+        <div class="chart-body" id="c-brands"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-h"><h2>Top distributors by value</h2><span class="note" id="c-dists-note"></span></div>
+        <div class="chart-body" id="c-dists"></div>
+      </div>
+    </section>
+
+    <section class="panel tablewrap">
+      <div class="panel-h">
+        <h2>Invoice line items</h2>
+        <span class="note" id="t-note"></span>
+        <span class="grow"></span>
+        <button class="btn" type="button" id="x-page">Export page</button>
+        <button class="btn solid" type="button" id="x-all">Export all filtered</button>
+      </div>
+      <div class="tscroll" id="tscroll"></div>
+      <div class="pager">
+        <button class="btn" type="button" id="pg-first">« First</button>
+        <button class="btn" type="button" id="pg-prev">‹ Prev</button>
+        <span class="of" id="pg-of"></span>
+        <button class="btn" type="button" id="pg-next">Next ›</button>
+        <span class="grow"></span>
+        <label class="of" for="pg-size">Rows per page</label>
+        <select id="pg-size"></select>
+      </div>
+    </section>
+  </main>
+</div>
+
+<footer class="foot" id="foot"></footer>
+<div id="tip" role="tooltip"></div>
+
+<script>
+// ───────────────────────────────────────────── state
+let DATA = null;
+let loading = false;
+let seq = 0;                    // drops the response of a superseded request
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+/** Everything the API understands. Kept in the URL hash so a view is shareable. */
+const Q = {
+  company: '', from: '', to: '', distributor: '', team: '', hq: '', brand: '', item: '',
+  invoice: '', therapy: '', docstatus: '1', paidOnly: true,
+  page: 1, pageSize: 50, sort: 'date', dir: 'desc',
+};
+
+// ───────────────────────────────────────────── formatting
+/**
+ * Indian units, because that is how the people reading this talk about it: a
+ * headline of ₹1.22 Cr lands, ₹121,779,147 does not. Full precision stays in the
+ * table and in the CSV.
+ */
+const nf = new Intl.NumberFormat('en-IN');
+const nf1 = new Intl.NumberFormat('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const nf2 = new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function compactInr(n) {
+  const v = Number(n) || 0;
+  const a = Math.abs(v);
+  if (a >= 1e7) return `₹${nf2.format(v / 1e7)} Cr`;
+  if (a >= 1e5) return `₹${nf1.format(v / 1e5)} L`;
+  return `₹${nf.format(Math.round(v))}`;
+}
+function compactNum(n) {
+  const v = Number(n) || 0;
+  const a = Math.abs(v);
+  if (a >= 1e7) return `${nf2.format(v / 1e7)} Cr`;
+  if (a >= 1e5) return `${nf1.format(v / 1e5)} L`;
+  if (a >= 1e3) return nf.format(Math.round(v));
+  return nf.format(Math.round(v * 100) / 100);
+}
+const money = (n) => nf2.format(Number(n) || 0);
+const qty = (n) => nf.format(Math.round((Number(n) || 0) * 1000) / 1000);
+/**
+ * "19 Aug 2026", not 19/08/2026 — the native date input renders in the browser's
+ * locale (08/19/2026 here), and two different orders on one screen is a real
+ * misreading risk on a report people act on. A named month cannot be misread.
+ */
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const dmy = (iso, { short = false } = {}) => {
+  if (!iso) return '';
+  const [y, m, d] = String(iso).split('-');
+  const mon = MON[Number(m) - 1] || m;
+  return `${Number(d)} ${mon} ${short ? String(y).slice(2) : y}`;
+};
+
+// ───────────────────────────────────────────── url state
+function readHash() {
+  const h = new URLSearchParams((location.hash || '').replace(/^#\??/, ''));
+  for (const k of Object.keys(Q)) {
+    if (!h.has(k)) continue;
+    const v = h.get(k);
+    if (k === 'paidOnly') Q[k] = v !== '0' && v !== 'false';
+    else if (k === 'page' || k === 'pageSize') Q[k] = Number(v) || Q[k];
+    else Q[k] = v;
+  }
+}
+function writeHash() {
+  const h = new URLSearchParams();
+  for (const [k, v] of Object.entries(Q)) {
+    const isDefault = (k === 'docstatus' && v === '1') || (k === 'paidOnly' && v === true)
+      || (k === 'page' && v === 1) || (k === 'pageSize' && v === 50)
+      || (k === 'sort' && v === 'date') || (k === 'dir' && v === 'desc') || v === '';
+    if (!isDefault) h.set(k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v));
+  }
+  const next = h.toString();
+  if (next !== (location.hash || '').replace(/^#\??/, '')) {
+    history.replaceState(null, '', next ? `#?${next}` : location.pathname);
+  }
+}
+
+// ───────────────────────────────────────────── loading
+function apiUrl(extra = {}) {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries({ ...Q, ...extra })) {
+    if (v === '' || v === null || v === undefined) continue;
+    p.set(k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v));
+  }
+  return `/api/sales?${p}`;
+}
+
+function showState(html, cls = '') {
+  $('#state').hidden = false;
+  $('#state').className = `panel ${cls}`;
+  $('#state').innerHTML = html;
+  if (!DATA) $('#report').hidden = true;
+}
+
+async function load() {
+  const mine = ++seq;
+  loading = true;
+  $('#refresh').disabled = true;
+  $('#report').classList.add('loading');
+  if (!DATA) showState('<div class="msg"><span class="spin"></span> Loading sales lines…</div>');
+  writeHash();
+  try {
+    const res = await fetch(apiUrl(), { headers: { accept: 'application/json' } });
+    if (mine !== seq) return;                     // a newer request is in flight
+    if (res.status === 401) { location.href = `/login.html?next=${encodeURIComponent('/sales.html')}`; return; }
+    const json = await res.json().catch(() => ({}));
+    if (res.status === 403) {
+      return showState(`<div class="msg bad"><h2>Not permitted</h2>
+        <p>${esc(json.error || 'This login cannot see the sales report.')}</p></div>`, 'bad');
+    }
+    if (res.status === 428) {
+      return showState(`<div class="msg bad"><h2>No ERP token on the server</h2>
+        <p>${esc(json.error || '')}</p>
+        <p class="muted">This login cannot add one — ask whoever administers the dashboard.</p></div>`, 'bad');
+    }
+    if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+    DATA = json;
+    $('#state').hidden = true;
+    $('#report').hidden = false;
+    render();
+  } catch (err) {
+    showState(`<div class="msg bad"><h2>Couldn't load the report</h2>
+      <p>${esc(err.message)}</p>
+      <p class="muted">A very wide date range can time out. Narrow it and try again.</p></div>`, 'bad');
+  } finally {
+    if (mine === seq) {
+      loading = false;
+      $('#refresh').disabled = false;
+      $('#report').classList.remove('loading');
+    }
+  }
+}
+
+/** Filter changes reset to page 1 — page 7 of a different filter is meaningless. */
+function apply(changes, { keepPage = false } = {}) {
+  Object.assign(Q, changes);
+  if (!keepPage) Q.page = 1;
+  load();
+}
+
+// ───────────────────────────────────────────── charts
+/**
+ * Hand-written SVG, no chart library: four small charts do not justify a
+ * dependency, and this way the marks obey the same specs as the rest of the page —
+ * ≤24px bars with a 4px rounded data-end, 2px of surface between neighbours,
+ * hairline recessive gridlines, and values labelled selectively rather than on
+ * every mark.
+ */
+const SVGNS = 'http://www.w3.org/2000/svg';
+function el(name, attrs = {}, text) {
+  const n = document.createElementNS(SVGNS, name);
+  for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+function svgRoot(w, h) {
+  const s = el('svg', {
+    class: 'chart', viewBox: `0 0 ${w} ${h}`, role: 'img',
+    preserveAspectRatio: 'xMidYMid meet',
+  });
+  return s;
+}
+
+/** Nice round axis maximum, so ticks read 0 / 25 L / 50 L rather than 0 / 23.7 L. */
+function niceMax(v) {
+  if (!(v > 0)) return 1;
+  const mag = Math.pow(10, Math.floor(Math.log10(v)));
+  for (const step of [1, 1.25, 1.5, 2, 2.5, 3, 4, 5, 7.5, 10]) {
+    if (v <= mag * step) return mag * step;
+  }
+  return mag * 10;
+}
+
+function tipOn(node, html) {
+  node.addEventListener('pointerenter', (e) => {
+    const t = $('#tip');
+    t.innerHTML = html;
+    t.style.opacity = '1';
+    moveTip(e);
+  });
+  node.addEventListener('pointermove', moveTip);
+  node.addEventListener('pointerleave', () => { $('#tip').style.opacity = '0'; });
+}
+function moveTip(e) {
+  const t = $('#tip');
+  const pad = 14;
+  const r = t.getBoundingClientRect();
+  let x = e.clientX + pad;
+  let y = e.clientY + pad;
+  if (x + r.width > window.innerWidth - 8) x = e.clientX - r.width - pad;
+  if (y + r.height > window.innerHeight - 8) y = e.clientY - r.height - pad;
+  t.style.left = `${Math.max(8, x)}px`;
+  t.style.top = `${Math.max(8, y)}px`;
+}
+
+function emptyChart(host, what) {
+  host.innerHTML = `<div class="msg" style="padding:26px 10px"><p class="muted">No ${esc(what)} in this selection.</p></div>`;
+}
+
+/** Column chart: one series, value labelled on the tallest bar only. */
+function columnChart(host, rows, { value, label, fmt }) {
+  host.innerHTML = '';
+  if (!rows.length || rows.every((r) => !value(r))) return emptyChart(host, 'values');
+  const W = 640, H = 240, L = 62, R = 12, T = 16, B = 30;
+  const max = niceMax(Math.max(...rows.map((r) => Math.abs(value(r)))));
+  const iw = W - L - R, ih = H - T - B;
+  const s = svgRoot(W, H);
+  s.appendChild(el('title', {}, `${label} — column chart`));
+  for (let i = 0; i <= 4; i++) {
+    const y = T + ih - (ih * i) / 4;
+    s.appendChild(el('line', { class: 'grid', x1: L, x2: W - R, y1: y, y2: y }));
+    s.appendChild(el('text', { x: L - 8, y: y + 3.5, 'text-anchor': 'end' }, fmt(max * i / 4)));
+  }
+  const band = iw / rows.length;
+  const bw = Math.min(24, Math.max(4, band - 8));   // capped; the slack is air
+  const peak = rows.reduce((a, b) => (Math.abs(value(b)) > Math.abs(value(a)) ? b : a), rows[0]);
+  rows.forEach((r, i) => {
+    const v = value(r);
+    const h = Math.max(v === 0 ? 0 : 2, (Math.abs(v) / max) * ih);
+    const x = L + band * i + (band - bw) / 2;
+    const y = T + ih - h;
+    const g = el('g', { class: 'mark' });
+    g.appendChild(el('rect', { x, y, width: bw, height: h, rx: 4, fill: 'var(--teal)' }));
+    // Square off the baseline end: only the data end is rounded.
+    if (h > 4) g.appendChild(el('rect', { x, y: y + h - 4, width: bw, height: 4, fill: 'var(--teal)' }));
+    g.appendChild(el('title', {}, `${r.label}: ${fmt(v)}`));
+    tipOn(g, `<b>${esc(r.label)}</b><br>${fmt(v)}`);
+    s.appendChild(g);
+    if (rows.length <= 14 || i % Math.ceil(rows.length / 12) === 0) {
+      s.appendChild(el('text', { x: L + band * i + band / 2, y: H - 10, 'text-anchor': 'middle' }, r.label));
+    }
+    if (r === peak && h > 18) {
+      s.appendChild(el('text', {
+        x: L + band * i + band / 2, y: y - 5, 'text-anchor': 'middle', class: 'val',
+      }, fmt(v)));
+    }
+  });
+  s.appendChild(el('line', { class: 'axis', x1: L, x2: W - R, y1: T + ih, y2: T + ih }));
+  host.appendChild(s);
+}
+
+/** Horizontal bars, ranked. Names on the left, value at each tip. */
+function barChart(host, rows, { fmt, unit }) {
+  host.innerHTML = '';
+  if (!rows.length) return emptyChart(host, 'values');
+  const L = 132, R = 74, T = 6, B = 4, rowH = 26;
+  const W = 640, H = T + B + rows.length * rowH;
+  const max = niceMax(Math.max(...rows.map((r) => Math.abs(r.value))));
+  const iw = W - L - R;
+  const s = svgRoot(W, H);
+  rows.forEach((r, i) => {
+    const y = T + i * rowH;
+    const bh = Math.min(14, rowH - 8);
+    const w = Math.max(r.value === 0 ? 0 : 2, (Math.abs(r.value) / max) * iw);
+    const g = el('g', { class: 'mark' });
+    g.appendChild(el('rect', {
+      x: L, y: y + (rowH - bh) / 2, width: w, height: bh, rx: 4,
+      fill: r.isOther ? 'var(--line)' : 'var(--teal)',
+    }));
+    if (w > 4) {
+      g.appendChild(el('rect', {
+        x: L, y: y + (rowH - bh) / 2, width: 4, height: bh,
+        fill: r.isOther ? 'var(--line)' : 'var(--teal)',
+      }));
+    }
+    g.appendChild(el('title', {}, `${r.name}: ${fmt(r.value)}`));
+    tipOn(g, `<b>${esc(r.name)}</b><br>${fmt(r.value)}<br><span class="t-sub">${qty(r.qty)} ${esc(unit)}</span>`);
+    s.appendChild(g);
+    const name = el('text', { x: L - 9, y: y + rowH / 2 + 3.5, 'text-anchor': 'end', class: 'cat' }, r.name);
+    name.appendChild(el('title', {}, r.name));
+    s.appendChild(name);
+    s.appendChild(el('text', { x: L + w + 8, y: y + rowH / 2 + 3.5, class: 'val' }, fmt(r.value)));
+  });
+  s.appendChild(el('line', { class: 'axis', x1: L, x2: L, y1: T, y2: H - B }));
+  host.appendChild(s);
+}
+
+/**
+ * Two lines, stacked as SMALL MULTIPLES — each with its own y scale, sharing one
+ * month axis.
+ *
+ * Not one chart with both series: free units are ~99,000 against 3.6 million
+ * billed, so on a shared axis the amber line lies flat on zero and reads as
+ * broken. And not a second y-axis either — two scales on one frame is the single
+ * most misleading thing a chart can do. Faceting keeps both trends readable and
+ * keeps the comparison honest, because each panel says what its own peak is.
+ */
+function facetLines(host, rows, series, { fmt }) {
+  host.innerHTML = '';
+  if (!rows.length) return emptyChart(host, 'units');
+  // T and GAP leave room for each facet's name ABOVE its top gridline. Inside the
+  // plot it collided with the line wherever the first month was near the peak.
+  const W = 640, L = 62, R = 14, B = 26, FH = 84, GAP = 26, T = 18;
+  const H = T + series.length * FH + (series.length - 1) * GAP + B;
+  const iw = W - L - R;
+  const s = svgRoot(W, H);
+  const xAt = (i) => (rows.length === 1 ? L + iw / 2 : L + (iw * i) / (rows.length - 1));
+
+  series.forEach((ser, fi) => {
+    const top = T + fi * (FH + GAP);
+    const max = niceMax(Math.max(...rows.map((r) => Math.abs(ser.value(r))), 1));
+    const yAt = (v) => top + FH - (Math.abs(v) / max) * FH;
+    // Two gridlines per facet: its own maximum and its baseline. More would be
+    // clutter at this height.
+    s.appendChild(el('line', { class: 'grid', x1: L, x2: W - R, y1: top, y2: top }));
+    s.appendChild(el('text', { x: L - 8, y: top + 4, 'text-anchor': 'end' }, fmt(max)));
+    s.appendChild(el('line', { class: 'axis', x1: L, x2: W - R, y1: top + FH, y2: top + FH }));
+    s.appendChild(el('text', { x: L - 8, y: top + FH + 4, 'text-anchor': 'end' }, '0'));
+    // The facet is labelled in place, so no legend is needed to tell them apart.
+    const tag = el('text', { x: L, y: top - 5, class: 'val' }, ser.name);
+    tag.setAttribute('fill', ser.color);
+    tag.setAttribute('font-weight', '600');
+    s.appendChild(tag);
+
+    s.appendChild(el('polyline', {
+      points: rows.map((r, i) => `${xAt(i)},${yAt(ser.value(r))}`).join(' '),
+      fill: 'none', stroke: ser.color, 'stroke-width': 2,
+      'stroke-linejoin': 'round', 'stroke-linecap': 'round',
+    }));
+    rows.forEach((r, i) => {
+      const g = el('g', { class: 'mark' });
+      // 2px surface ring so a dot stays legible where it meets the line.
+      g.appendChild(el('circle', {
+        cx: xAt(i), cy: yAt(ser.value(r)), r: 4.5, fill: ser.color,
+        stroke: 'var(--panel)', 'stroke-width': 2,
+      }));
+      g.appendChild(el('title', {}, `${r.label} — ${ser.name}: ${fmt(ser.value(r))}`));
+      tipOn(g, `<b>${esc(r.label)}</b><br>`
+        + series.map((x) => `${esc(x.name)}: ${fmt(x.value(r))}`).join('<br>'));
+      s.appendChild(g);
+    });
+    // Value on the last point only — the trend is the story, not every number.
+    const lastV = ser.value(rows[rows.length - 1]);
+    s.appendChild(el('text', {
+      x: xAt(rows.length - 1) - 8, y: yAt(lastV) - 9, 'text-anchor': 'end', class: 'val',
+    }, fmt(lastV)));
+  });
+
+  rows.forEach((r, i) => {
+    if (rows.length <= 14 || i % Math.ceil(rows.length / 12) === 0) {
+      s.appendChild(el('text', { x: xAt(i), y: H - 8, 'text-anchor': 'middle' }, r.label));
+    }
+  });
+  host.appendChild(s);
+}
+
+// ───────────────────────────────────────────── table
+const COLS = [
+  ['invoice', 'ID', 'mono', 'invoice', (r) => esc(r.invoice)],
+  ['docstatus', 'Docstatus', '', null, (r) => {
+    const cls = r.docstatus === 1 ? 'ok' : r.docstatus === 2 ? 'bad' : '';
+    return `<span class="pill ${cls}">${r.docstatus} ${esc(r.docstatusLabel)}</span>`;
+  }],
+  ['distributor', 'Distributor', '', 'distributor', (r) => esc(r.distributor)],
+  ['grandTotal', 'Grand total', 'n', 'grandTotal', (r) => money(r.grandTotal)],
+  ['date', 'Date', '', 'date', (r) => dmy(r.date, { short: true })],
+  ['month', 'Month', 'n', null, (r) => (r.month ?? '')],
+  ['item', 'Item', '', 'item', (r) => esc(r.item)],
+  ['freeQty', 'Free qty', 'n', null, (r) => (r.freeQty
+    ? `<span class="pill free">+${qty(r.freeQty)}</span>`
+    : '<span class="muted">—</span>')],
+  ['qty', 'Qty (stock UOM)', 'n', 'qty', (r) => `${qty(r.qty)}${r.uom ? ` <span class="muted">${esc(r.uom)}</span>` : ''}`],
+  ['netRate', 'Net rate', 'n', 'rate', (r) => money(r.netRate)],
+  ['netAmount', 'Net amount', 'n', 'amount', (r) => money(r.netAmount)],
+  ['team', 'Sales team', '', 'team', (r) => (r.team
+    ? `<span${r.teamFromInvoice ? ' class="inferred" title="Not stamped on this line — taken from another line of the same invoice"' : ''}>${esc(r.team)}</span>`
+    : '<span class="muted">—</span>')],
+  ['therapy', 'Therapy', '', null, (r) => esc(r.therapy) || '<span class="muted">—</span>'],
+  ['rowId', 'Name', 'mono', null, (r) => esc(r.rowId)],
+  ['brand', 'Brand', '', 'brand', (r) => esc(r.brand) || '<span class="muted">—</span>'],
+];
+
+function renderTable() {
+  const rows = DATA.rows;
+  const host = $('#tscroll');
+  if (!rows.length) {
+    host.innerHTML = `<div class="msg"><h2>No line items</h2>
+      <p>Nothing matches these filters${Q.paidOnly ? ' — free-only invoices are hidden while "Only paid lines" is on' : ''}.</p></div>`;
+    return;
+  }
+  const head = COLS.map(([key, label, cls, sortKey]) => {
+    const on = sortKey && Q.sort === sortKey;
+    const aria = on ? (Q.dir === 'desc' ? 'descending' : 'ascending') : (sortKey ? 'none' : undefined);
+    return `<th class="${cls === 'n' ? 'n' : ''}" ${sortKey ? `data-sort="${sortKey}" tabindex="0" role="columnheader"` : ''}`
+      + `${aria ? ` aria-sort="${aria}"` : ''}>${esc(label)}`
+      + `${on ? ` <span class="arrow" aria-hidden="true">${Q.dir === 'desc' ? '↓' : '↑'}</span>` : ''}</th>`;
+  }).join('');
+  const body = rows.map((r) => '<tr>' + COLS.map(([key, , cls, , fmt]) =>
+    `<td class="${cls || ''}">${fmt(r)}</td>`).join('') + '</tr>').join('');
+  host.innerHTML = `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+
+  host.querySelectorAll('td').forEach((td) => {
+    const t = td.textContent.trim();
+    if (t && t !== '—' && td.scrollWidth > td.clientWidth) td.title = t;
+  });
+  host.querySelectorAll('th[data-sort]').forEach((th) => {
+    const go = () => {
+      const key = th.dataset.sort;
+      apply({ sort: key, dir: Q.sort === key && Q.dir === 'desc' ? 'asc' : 'desc' });
+    };
+    th.onclick = go;
+    th.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } };
+  });
+}
+
+// ───────────────────────────────────────────── render
+function fillSelect(sel, values, current, allLabel) {
+  const keep = current && !values.includes(current) ? [current] : [];
+  sel.innerHTML = `<option value="">${esc(allLabel)}</option>`
+    + [...keep, ...values].map((v) =>
+      `<option value="${esc(v)}" ${v === current ? 'selected' : ''}>${esc(v)}</option>`).join('');
+}
+function fillList(list, values) {
+  list.innerHTML = values.slice(0, 1200).map((v) => `<option value="${esc(v)}"></option>`).join('');
+}
+
+/** Is anything narrowing the view beyond the date range? */
+const anyFilter = (q) => Boolean(
+  q.company || q.distributor || q.team || q.hq || q.brand || q.item
+  || q.invoice || q.therapy || String(q.docstatus) !== '1' || !q.paidOnly,
+);
+
+function render() {
+  const k = DATA.kpis;
+  const q = DATA.query;
+
+  // header + filter controls reflect what the server actually used
+  $('#range-note').innerHTML = `<b>${esc(dmy(q.from))}</b> to <b>${esc(dmy(q.to))}</b>`
+    + ` · ${esc(({ 0: 'Draft', 1: 'Submitted', 2: 'Cancelled' })[q.docstatus] ?? 'Any status')}`;
+  $('#f-from').value = q.from;
+  $('#f-to').value = q.to;
+  $('#f-docstatus').value = q.docstatus === '' ? 'all' : String(q.docstatus);
+  $('#f-paid').checked = q.paidOnly;
+  $('#f-distributor').value = q.distributor;
+  $('#f-item').value = q.item;
+  if (document.activeElement !== $('#f-invoice')) $('#f-invoice').value = q.invoice;
+  fillSelect($('#f-therapy'), DATA.therapies || [], q.therapy, 'All therapies');
+  markPresets();
+  $('#f-reset').hidden = !anyFilter(q);
+  $('#paid-hint').textContent = q.paidOnly
+    ? 'Free-only invoices (the CI- series) are hidden while this is on.'
+    : 'Showing free lines too — they carry rate 0.';
+  fillSelect($('#f-team'), DATA.options.team, q.team, 'All teams');
+  fillSelect($('#f-hq'), DATA.options.hq, q.hq, 'All HQs');
+  fillSelect($('#f-brand'), DATA.options.brand, q.brand, 'All brands');
+  fillList($('#l-distributor'), DATA.options.distributor);
+  fillList($('#l-item'), DATA.options.item);
+
+  $('#kpis').innerHTML = [
+    { l: 'Net value', n: compactInr(k.netValue), h: `${nf.format(k.lines)} line items`, cls: 'lead' },
+    { l: 'Units billed', n: compactNum(k.unitsBilled), h: `across ${nf.format(k.paidLines)} paid lines` },
+    { l: 'Free units', n: compactNum(k.freeUnits), h: `${nf.format(k.freeLines)} scheme lines`, cls: 'free' },
+    { l: 'Invoices', n: nf.format(k.invoices), h: `${nf.format(k.distributors)} distributors` },
+    { l: 'Brands', n: nf.format(k.brands), h: `${nf.format(k.items)} items` },
+  ].map((c) => `<div class="kpi ${c.cls || ''}">
+      <div class="kpi-l">${esc(c.l)}</div>
+      <div class="kpi-n">${esc(c.n)}</div>
+      <div class="kpi-h">${esc(c.h)}</div>
+    </div>`).join('');
+
+  const months = DATA.charts.byMonth;
+  columnChart($('#c-value'), months, {
+    value: (r) => r.value, label: 'Net value by month', fmt: compactInr,
+  });
+  facetLines($('#c-units'), months, [
+    { name: 'Billed', color: 'var(--teal)', value: (r) => r.unitsBilled },
+    { name: 'Free', color: 'var(--amber)', value: (r) => r.freeUnits },
+  ], { fmt: compactNum });
+  barChart($('#c-brands'), DATA.charts.topBrands, { fmt: compactInr, unit: 'units' });
+  barChart($('#c-dists'), DATA.charts.topDistributors, { fmt: compactInr, unit: 'units' });
+  $('#c-brands-note').textContent = `${DATA.charts.topBrands.length} shown of ${k.brands}`;
+  $('#c-dists-note').textContent = `${DATA.charts.topDistributors.length} shown of ${k.distributors}`;
+
+  renderTable();
+
+  const p = DATA.paging;
+  const first = (p.page - 1) * p.pageSize + 1;
+  const last = Math.min(p.page * p.pageSize, p.total);
+  $('#pg-of').textContent = p.total
+    ? `${nf.format(first)}–${nf.format(last)} of ${nf.format(p.total)}  ·  page ${nf.format(p.page)} of ${nf.format(p.pages)}`
+    : 'no rows';
+  $('#pg-first').disabled = p.page <= 1;
+  $('#pg-prev').disabled = p.page <= 1;
+  $('#pg-next').disabled = p.page >= p.pages;
+  $('#pg-size').innerHTML = [25, 50, 100, 200].map((n) =>
+    `<option value="${n}" ${n === p.pageSize ? 'selected' : ''}>${n}</option>`).join('');
+  $('#shown').innerHTML = `<b>${nf.format(p.total)}</b> line items match`;
+  $('#t-note').textContent = q.paidOnly
+    ? 'paid lines only — free quantities are stamped onto the matching paid line'
+    : 'paid and free lines';
+  $('#foot').innerHTML = `Company currency (base) throughout · Free goods often ship on their own invoice, `
+    + `so a paid line only shows a free quantity when the scheme was billed together · `
+    + `built ${esc(new Date(DATA.generatedAt).toLocaleString('en-IN'))}`;
+}
+
+// ───────────────────────────────────────────── csv
+function csvCell(v) {
+  /**
+   * A NUMBER is written bare, even a negative one.
+   *
+   * The formula guard below (prefixing a leading =,+,-,@ with an apostrophe) stops
+   * Excel executing a text cell. Applied to numbers it does real damage: a credit
+   * note's -97,202.70 exported as the text '-97202.7, and a column of those will
+   * not sum — which is the first thing anyone does with this file. There is no
+   * injection risk in a value we produced ourselves as a number.
+   */
+  if (typeof v === 'number') return Number.isFinite(v) ? String(v) : '';
+  const s = v === null || v === undefined ? ''
+    : typeof v === 'boolean' ? (v ? 'yes' : 'no') : String(v);
+  const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+  return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+}
+const CSV_COLS = [
+  ['invoice', 'ID'], ['docstatus', 'Docstatus'], ['docstatusLabel', 'Status'],
+  ['distributor', 'Distributor'], ['grandTotal', 'Grand Total (Company Currency)'],
+  ['date', 'Date'], ['month', 'Month'], ['item', 'Item'], ['itemCode', 'Item code'],
+  ['freeQty', 'Free Qty'], ['qty', 'Qty as per Stock UOM'], ['uom', 'Stock UOM'],
+  ['netRate', 'Net Rate'], ['netAmount', 'Net Amount'], ['team', 'Sales Team'],
+  ['therapy', 'Therapy'], ['teamRaw', 'Sales Team (raw)'], ['teamFromInvoice', 'Team taken from invoice'],
+  ['hq', 'HQ'], ['rowId', 'Name'], ['brand', 'Brand'], ['isFree', 'Is free line'],
+];
+function download(rows, tag) {
+  const csv = [CSV_COLS.map(([, l]) => csvCell(l)).join(',')]
+    .concat(rows.map((r) => CSV_COLS.map(([k]) => csvCell(r[k])).join(',')))
+    .join('\r\n');
+  const a = document.createElement('a');
+  // BOM so Excel reads UTF-8; brand names carry non-ASCII.
+  a.href = URL.createObjectURL(new Blob([String.fromCharCode(0xFEFF) + csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = `sales-lines-${Q.from}-to-${Q.to}${tag}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+/**
+ * The whole filtered set, not just this page — pulled 200 rows at a time through
+ * the same endpoint. Capped, and the cap is announced rather than silently
+ * truncating: a CSV that is quietly short is worse than one that says it stopped.
+ */
+const EXPORT_CAP = 20000;
+async function exportAll() {
+  const btn = $('#x-all');
+  const total = Math.min(DATA.paging.total, EXPORT_CAP);
+  if (DATA.paging.total > EXPORT_CAP
+    && !confirm(`${nf.format(DATA.paging.total)} rows match. This will export the first ${nf.format(EXPORT_CAP)} in the current sort order.\n\nNarrow the filters for a smaller file.`)) return;
+  btn.disabled = true;
+  const out = [];
+  try {
+    for (let page = 1; out.length < total; page++) {
+      btn.textContent = `Exporting ${nf.format(out.length)} / ${nf.format(total)}…`;
+      const res = await fetch(apiUrl({ page, pageSize: 200 }));
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      if (!json.rows?.length) break;
+      out.push(...json.rows);
+      if (page > Math.ceil(EXPORT_CAP / 200)) break;
+    }
+    download(out.slice(0, EXPORT_CAP), '-all');
+  } catch (err) {
+    alert(`Export stopped: ${err.message}\n\n${out.length} rows were fetched.`);
+    if (out.length) download(out, '-partial');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Export all filtered';
+  }
+}
+
+// ───────────────────────────────────────────── wiring
+const on = (sel, ev, fn) => $(sel).addEventListener(ev, fn);
+
+on('#f-company', 'change', (e) => apply({ company: e.target.value }));
+on('#f-from', 'change', (e) => apply({ from: e.target.value }));
+on('#f-to', 'change', (e) => apply({ to: e.target.value }));
+on('#f-team', 'change', (e) => apply({ team: e.target.value }));
+on('#f-hq', 'change', (e) => apply({ hq: e.target.value }));
+on('#f-brand', 'change', (e) => apply({ brand: e.target.value }));
+// Therapy and brand both narrow to brands, so choosing a therapy clears an
+// explicit brand rather than fighting it.
+on('#f-therapy', 'change', (e) => apply({ therapy: e.target.value, brand: '' }));
+on('#f-docstatus', 'change', (e) => apply({ docstatus: e.target.value }));
+on('#f-paid', 'change', (e) => apply({ paidOnly: e.target.checked }));
+// Free text with a datalist: `change` fires on both picking and blurring, which is
+// the moment the value is actually meant.
+on('#f-distributor', 'change', (e) => apply({ distributor: e.target.value.trim() }));
+on('#f-item', 'change', (e) => apply({ item: e.target.value.trim() }));
+/** Invoice is a substring match, so it is worth debouncing rather than firing per key. */
+let invoiceTimer = null;
+on('#f-invoice', 'input', (e) => {
+  const v = e.target.value.trim();
+  clearTimeout(invoiceTimer);
+  invoiceTimer = setTimeout(() => { if (v !== Q.invoice) apply({ invoice: v }); }, 450);
+});
+on('#f-invoice', 'change', (e) => {
+  clearTimeout(invoiceTimer);
+  const v = e.target.value.trim();
+  if (v !== Q.invoice) apply({ invoice: v });
+});
+
+on('#f-reset', 'click', () => {
+  Object.assign(Q, {
+    company: '', distributor: '', team: '', hq: '', brand: '', item: '',
+    invoice: '', therapy: '', docstatus: '1', paidOnly: true, page: 1,
+    sort: 'date', dir: 'desc',
+  });
+  for (const id of ['#f-distributor', '#f-item', '#f-invoice']) $(id).value = '';
+  // Back to the server's own default window rather than a guess: omit the dates
+  // and let it decide.
+  apply({ from: '', to: '' });
+});
+
+/** Date presets, computed from the server's idea of today, not the browser's. */
+function shiftMonth(ym, by) {
+  const [y, m] = ym.split('-').map(Number);
+  const d = new Date(Date.UTC(y, m - 1 + by, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+const lastDay = (ym) => {
+  const [y, m] = ym.split('-').map(Number);
+  return `${ym}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, '0')}`;
+};
+
+/**
+ * Each preset resolves to a concrete from/to against the SERVER's today, so the
+ * range a preset means never depends on the visitor's clock.
+ */
+function presetRange(kind, today) {
+  const ym = today.slice(0, 7);
+  const [y, m] = today.split('-').map(Number);
+  switch (kind) {
+    case 'month': return { from: `${ym}-01`, to: today };
+    case 'prevmonth': {
+      const prev = shiftMonth(ym, -1);
+      return { from: `${prev}-01`, to: lastDay(prev) };
+    }
+    case 'quarter': return { from: `${shiftMonth(ym, -2)}-01`, to: today };
+    case 'halfyear': return { from: `${shiftMonth(ym, -5)}-01`, to: today };
+    // Indian financial year: April to March.
+    case 'fy': return { from: `${m >= 4 ? y : y - 1}-04-01`, to: today };
+    default: return null;
+  }
+}
+
+document.querySelectorAll('.chip[data-preset]').forEach((b) => {
+  b.onclick = () => {
+    const r = presetRange(b.dataset.preset, DATA.today);
+    if (r) apply(r);
+  };
+});
+
+/** Marks whichever preset the current range happens to equal — including after a
+ *  reload from the URL, so the chips describe the view rather than the last click. */
+function markPresets() {
+  const { from, to } = DATA.query;
+  for (const b of document.querySelectorAll('.chip[data-preset]')) {
+    const r = presetRange(b.dataset.preset, DATA.today);
+    b.setAttribute('aria-pressed', String(Boolean(r && r.from === from && r.to === to)));
+  }
+  const days = Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1;
+  $('#range-span').textContent = Number.isFinite(days)
+    ? `${days} day${days === 1 ? '' : 's'}` : '';
+}
+
+on('#pg-first', 'click', () => apply({ page: 1 }, { keepPage: true }));
+on('#pg-prev', 'click', () => apply({ page: Math.max(1, Q.page - 1) }, { keepPage: true }));
+on('#pg-next', 'click', () => apply({ page: Q.page + 1 }, { keepPage: true }));
+on('#pg-size', 'change', (e) => apply({ pageSize: Number(e.target.value) }));
+on('#refresh', 'click', () => load());
+on('#x-page', 'click', () => download(DATA.rows, '-page' + DATA.paging.page));
+on('#x-all', 'click', exportAll);
+on('#signout', 'click', async () => {
+  await fetch('/api/logout', { method: 'POST' }).catch(() => {});
+  location.href = '/login.html';
+});
+window.addEventListener('hashchange', () => {
+  const before = JSON.stringify(Q);
+  readHash();
+  if (JSON.stringify(Q) !== before) load();
+});
+
+// Company list is a separate call: it is a parent field, so it cannot come out of
+// the grouped aggregates that feed every other dropdown.
+fetch('/api/sales?options=company')
+  .then((r) => (r.ok ? r.json() : null))
+  .then((j) => { if (j?.companies) fillSelect($('#f-company'), j.companies, Q.company, 'All companies'); })
+  .catch(() => {});
+
+readHash();
+load();
+</script>
+</body>
+</html>

@@ -28,6 +28,7 @@ import {
   createUserPermission, deleteUserPermission, listAllowOptions,
   COMMON_ALLOW_DOCTYPES,
 } from './lib/permissions.mjs'
+import { buildSalesReport, listCompanies } from './lib/sales.mjs'
 
 /**
  * Credentials for a local run. `allowLocalFallback` is what lets the shared core
@@ -143,6 +144,29 @@ const server = createServer(async (req, res) => {
         return sendJson(res, 200, { ok: true, ...(await deleteUserPermission(creds, name)) })
       }
       return sendJson(res, 405, { error: 'GET, POST or DELETE.' })
+    }
+
+    /**
+     * The sales report. Deployed this sits behind its own login; locally there is
+     * no login at all, so it is simply available.
+     */
+    if (url.pathname === '/api/sales') {
+      const creds = await localCreds()
+      if (!creds.erpToken) {
+        return sendJson(res, 428, { error: 'No ERP API token yet.', code: 'CREDENTIALS_REQUIRED' })
+      }
+      if (url.searchParams.get('options') === 'company') {
+        return sendJson(res, 200, { companies: await listCompanies(creds) })
+      }
+      const today = new Intl.DateTimeFormat('en-CA', {
+        timeZone: CONFIG.timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+      }).format(new Date())
+      const data = await buildSalesReport({
+        creds,
+        query: Object.fromEntries(url.searchParams),
+        today,
+      })
+      return sendJson(res, 200, { ...data, role: 'admin' })
     }
 
     if (url.pathname === '/api/report') {

@@ -47,10 +47,14 @@
 </head>
 <body>
   <form class="card" id="form">
-    <h1>Account Audit</h1>
-    <p class="sub">Internal dashboard. Sign in to continue.</p>
-    <label for="pw">Password</label>
-    <input type="password" id="pw" autocomplete="current-password" autofocus required>
+    <h1>Elbrit internal</h1>
+    <p class="sub">Account audit and the sales report. Your ID and password decide
+      which one you land on.</p>
+    <label for="uid">ID</label>
+    <input type="text" id="uid" autocomplete="username" autocapitalize="off"
+      spellcheck="false" placeholder="elbrit" autofocus>
+    <label for="pw" style="margin-top:14px">Password</label>
+    <input type="password" id="pw" autocomplete="current-password" required>
     <button type="submit" id="go">Sign in</button>
     <p class="err" id="err"></p>
     <p class="foot">Session lasts 12 hours on this device.</p>
@@ -58,9 +62,12 @@
 <script>
   const $ = (s) => document.querySelector(s);
   // Only same-origin paths are honoured, so ?next= can't be used to bounce a
-  // signed-in user off to another site.
-  const nextParam = new URLSearchParams(location.search).get('next') || '/';
-  const next = nextParam.startsWith('/') && !nextParam.startsWith('//') ? nextParam : '/';
+  // signed-in user off to another site. Where they actually land is decided by the
+  // SERVER from the role their password unlocks — sending a sales-report login to
+  // an admin page would just be bounced back by the gate and read as a broken
+  // login, so `next` is a request, not an instruction.
+  const nextParam = new URLSearchParams(location.search).get('next') || '';
+  const next = nextParam.startsWith('/') && !nextParam.startsWith('//') ? nextParam : '';
 
   $('#form').onsubmit = async (e) => {
     e.preventDefault();
@@ -70,11 +77,11 @@
       const res = await fetch('/api/login', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ password: $('#pw').value }),
+        body: JSON.stringify({ id: $('#uid').value, password: $('#pw').value, next }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error || `Sign-in failed (${res.status})`);
-      location.replace(next);
+      location.replace(body.to || next || '/');
     } catch (err) {
       $('#err').textContent = err.message;
       $('#pw').select();

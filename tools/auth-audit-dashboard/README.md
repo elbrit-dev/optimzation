@@ -1,9 +1,15 @@
 # Account Audit Dashboard
 
-Who in ERP hasn't created their login yet — with their role and department.
+Two reports behind two logins, on one Netlify site.
 
-Compares **ERPNext Employees** against **Firebase Authentication accounts** and
-shows the gap both ways. Run it whenever you need the numbers; no script editing.
+**Account audit** — who in ERP hasn't created their login yet, with their role and
+department. Compares **ERPNext Employees** against **Firebase Authentication
+accounts** and shows the gap both ways.
+
+**Invoice item-wise sales** (`/sales.html`) — one row per Sales Invoice line item,
+with KPIs, four charts and CSV export. Its **own password** opens that page and
+nothing else: no credential form, no staff data, no permission writes. See
+[Two logins](#two-logins).
 
 Standalone by design: its own folder, zero npm dependencies, no build step. It
 doesn't import from the Next app and the app doesn't know it exists.
@@ -13,22 +19,28 @@ tools/auth-audit-dashboard/
   lib/audit.mjs                    comparison logic — fetch, match, aggregate
   lib/permissions.mjs              User Permission list/create/delete + analysis
   lib/auth.mjs                     generic auth: PBKDF2 password + HMAC session
-  lib/auth-secrets.mjs             password hash + session secret (generated)
-  public/index.html                the dashboard
-  public/login.html                the login page
+  lib/auth-secrets.mjs             both password hashes + session secret (generated)
+  lib/sales.mjs                    invoice item-wise sales: ERP aggregates + paging
+  lib/therapy.mjs                  brand -> therapy area (ERP has no such field)
+  public/index.html                the account-audit dashboard
+  public/sales.html                the sales report (its own login)
+  public/login.html                the login page for both
   public/robots.txt                disallow all crawlers
   server.mjs                       local runtime: node HTTP on 127.0.0.1
   netlify/edge-functions/gate.mjs  auth gate — runs in front of everything
   netlify/functions/login.mjs      POST /api/login, /api/logout
   netlify/functions/report.mjs     POST /api/report
   netlify/functions/permissions.mjs  GET/POST/DELETE /api/permissions (writes ERP)
-  set-password.mjs                 sets the login password (no env vars)
+  netlify/functions/sales.mjs      GET /api/sales — never accepts credentials
+  set-password.mjs                 sets either login's password (no env vars)
   set-credentials.mjs              stores the ERP token + Firebase key once
   netlify.toml                     config for its own Netlify site
-  selftest.mjs                     76 checks — matching logic
-  selftest-auth.mjs                19 checks — endpoint fails closed
+  selftest.mjs                     90 checks — matching logic
+  selftest-auth.mjs                26 checks — endpoints fail closed, role boundary
   selftest-login.mjs               36 checks — password, session, cookie, gate
-  selftest-permissions.mjs         19 checks — permission ownership rules
+  selftest-permissions.mjs         24 checks — permission ownership rules
+  selftest-sales.mjs               108 checks — sales queries, rollups, role + ID policy
+  selftest-ui.mjs                  drives the rendered page in a browser
   start.cmd                        double-click launcher
   DEPLOY.md                        how it is deployed
 ```
@@ -81,6 +93,273 @@ browser instead.
 Secrets are never hardcoded: a service-account private key committed in that
 file would ship inside the deployed function bundle and stay in git history
 permanently, and it grants full admin over the whole Firebase project.
+---
+
+## Two logins
+
+One password opens everything. A second opens the sales report and nothing else.
+
+| | Full access | Sales report |
+|---|---|---|
+| ID | blank, or `admin` | `elbrit` |
+| Password | `set-password.mjs "…"` | `set-password.mjs --report --id elbrit "…"` |
+| Lands on | `/` — the account audit | `/sales.html` |
+| May reach | every page and endpoint | `/sales.html`, `/api/sales`, `/api/logout` |
+| ERP token | can paste their own | uses the server's; can neither see nor set one |
+| Staff PII | yes | **no** |
+| Writes to ERP | User Permissions | nothing |
+
+The login form asks for an **ID and a password**. The ID is not a second secret —
+it selects which login is being attempted, so the report password is useless without
+knowing it belongs to `elbrit`, and a wrong ID fails exactly like a wrong password.
+It is compared case-insensitively. A **blank** ID still works for the admin
+password, because that login existed before the field did.
+
+There is no role selector: the pair that is typed decides the role, and the server
+returns where that role should land. A `?next=` is
+honoured only when the role may actually reach it — otherwise a report user
+following a bookmarked admin URL would be redirected there and bounced straight
+back out, which reads as a broken login rather than a boundary.
+
+**Where it is enforced.** The role rides inside the signed session cookie, and
+`ROLE_POLICY` in `lib/auth.mjs` is the single table both layers import:
+
+1. `netlify/edge-functions/gate.mjs` — at the edge, before Netlify serves anything.
+   A report session asking for `/` never receives `index.html`; it is redirected to
+   `/sales.html`, and an API path gets a 403.
+2. Each function checks again for itself. Not redundant: `/api/report` serves the
+   staff directory and must not depend on the edge config being right. That is also
+   a gap which actually existed — `selftest-auth.mjs` caught `/api/report` and
+   `/api/permissions` accepting a report-role cookie and reaching ERP with it. Both
+   now refuse with 403.
+
+The allowed set is a fixed list of paths, deliberately not a prefix match: `/api/`
+plus prefix matching is exactly how a "read-only" role quietly acquires
+`/api/permissions`, which writes.
+
+`/api/sales` never reads credentials from the request at all — unlike
+`/api/report`, which lets an admin paste their own token. The report login is meant
+to use the token the server already holds, so there is no code path there that
+could accept or reveal one.
+
+Editing the role in the cookie invalidates the signature, so it cannot be
+self-promoted; a session with no role at all is treated as admin, because only the
+admin password existed before this second login.
+
+---
+
+## Invoice item-wise sales
+
+`/sales.html` · one row per **Sales Invoice line item**, so an invoice with 8
+products is 8 rows. The granular "what sold, to whom, under which rep" table, plus
+its summary.
+
+**Columns** — ID (invoice no.), Docstatus, Distributor, Grand Total (company
+currency), Date, Month, Item, Free Qty, Qty as per Stock UOM, Net Rate, Net Amount,
+Sales Team, Therapy, Name (the line's own row id), Brand.
+
+**Filters** — Invoice, Distributor, Sales Team, HQ, Therapy, Brand, Item, Company,
+Docstatus (Submitted by default), and *Only paid lines*. The date range sits in its
+own row with five presets — this month, last month, last 3 / 6 months, this FY
+(April–March) — and the active one is filled in, so the window is legible without
+reading the dates.
+
+**Invoice** matches as a substring, which makes it both a lookup and a series
+filter: a full number finds one invoice, `CI-` narrows to claim invoices, `CN-` to
+credit notes.
+
+**KPIs** — net value, units billed, free units, invoices (+ distributor count),
+brands (+ item count).
+
+**Charts** — net value by month, units by month, top brands by value, top
+distributors by value.
+
+HQ is the line's `custom_hq`, a custom field on Sales Invoice Item rather than on
+the invoice.
+
+Every filter, page and sort lives in the URL hash, so a view can be bookmarked or
+pasted to someone.
+
+### Reconciled against the company's own export
+
+`Sales Invoice-34.xlsx` (Apr–Jun 2024, 49,821 line rows) is the report this page
+replaces. Every invoice that appears in both was compared line by line:
+
+| | Their file | ERP now |
+|---|---|---|
+| invoices | 6,071 | 6,339 |
+| lines | 49,821 | 52,090 |
+| stock qty | 1,364,321 | 1,840,802 |
+| free qty | 29,478 | 29,457 |
+
+For the **6,069 invoices present in both, the line count and the quantity total
+match exactly — zero differences**. Row `3v07048s4s` is identical field for field
+(GLIMIBRIT 4, qty 40, net rate 77.14).
+
+The gaps are both explained, and neither is a reading error:
+
+- **270 invoices are in ERP but not in their file**, and every one is the `CI-`
+  claim/sample series — 2,280 lines and 476,624 units. Their export left that
+  series out, which is the entire quantity difference. The **Invoice** filter is
+  how you include or exclude it here: type `CI-` for claim invoices, `CN-` for
+  credit notes, `INV-` for tax invoices.
+- **2 invoices are in their file but no longer in ERP** (`CI-CB24-00236`,
+  `IN-SW24-00658`) — cancelled or deleted since.
+- **Sales Team differs on old rows.** Their file says `Elbrit Karnataka`; ERP now
+  says `Elbrit Bangalore` for the same line. Both departments exist today, along
+  with `Elbrit Mysore` and `Elbrit Trichy`, which their file never mentions — the
+  territory was split and the historical invoice lines were re-stamped. This page
+  shows what ERP holds now; the spreadsheet is a snapshot from before that change.
+
+So the answer to "I don't think the data is actual" is: the data reconciles, and
+where it differs from the spreadsheet it is the spreadsheet that is behind.
+
+### Sales Team, Therapy, Location
+
+**Sales Team** is `Sales Invoice Item.custom_department` — labelled "Department" in
+ERP and "Sales Team" in their report, same field. It is stamped per line and 10.8%
+of live lines have it blank; a third of those sit on an invoice where another line
+does carry it, so the value is copied across (shown with a dotted underline and a
+tooltip saying where it came from). The rest — 93 invoices in August, mostly
+`INV-MW` self-transfers and `CN-` credit notes — carry no team on any line and stay
+blank rather than being attributed to somebody.
+
+**Therapy** does not exist in ERP. The closest field is
+`Item.custom_therapeutic_class`, which is prose ("• Sulfonylurea (3rd generation)"),
+not one of the eleven areas their report uses. So `lib/therapy.mjs` maps brand →
+therapy using **their own file** as the source: in those 49,821 rows therapy is
+perfectly consistent per brand (57 brands, 57 therapies, zero conflicts), so brand
+is the right key and a new item under a known brand inherits it. TRIGLIMIBRIT is
+deliberately blank — their file has no therapy for it either, and guessing one would
+be inventing data.
+
+That map also powers the **Therapy filter**, which becomes a brand `IN` filter at
+the ERP end. An unrecognised therapy is dropped rather than passed through, because
+an empty `IN` list would silently match nothing.
+
+**Location** is in their export and is empty in all 49,821 rows. There is no such
+field on Sales Invoice or Sales Invoice Item, so it is not reproduced here — an
+always-blank column is worse than no column.
+
+
+
+### Why it is built out of aggregates
+
+There are **63,816 Sales Invoices**. One month of line items is ~14,000 rows and
+~5 MB of JSON from ERP; five months hits the 100,000-row cap at 36 MB. A Netlify
+function has ten seconds and a six-megabyte response, so "fetch the lines and add
+them up in JavaScript" — the way the account audit works — cannot work here.
+
+So every number comes from a `GROUP BY` run inside ERP, and only the visible page
+of lines is fetched as rows:
+
+| Range | First load | Any later page |
+|---|---|---|
+| 3 months (the default) | ~1.2s | ~0.2s |
+| 17 months | ~3.6s | ~0.2s |
+
+Paging is fast because the aggregates are cached separately from the rows, keyed on
+the *filters* only — turning a page or re-sorting changes neither the KPIs nor the
+charts, so it costs one query instead of nine.
+
+The default window is three months, not one. One month was the obvious default and
+it was wrong: both time charts collapse to a single column and two lone dots, so
+half the report says nothing on first load.
+
+### The Frappe constraint that shapes every query
+
+Frappe runs these aggregates **only when the first `group_by` term is a child-table
+field**. Group by a parent field and the child-table permission check runs without a
+parent doctype and throws `PermissionError`:
+
+```
+group_by=`tabSales Invoice Item`.is_free_item,posting_date   OK   30 rows, 371ms
+group_by=posting_date                                       FAIL PermissionError
+```
+
+So the leading child field is load-bearing, not decoration. `parenttype` is used the
+same way to get a single group — it is always `Sales Invoice`, so grouping by it
+yields exactly one row of grand totals including `COUNT(DISTINCT parent)`.
+
+Four more that cost real time to find:
+
+- **`as lines` is a MariaDB reserved word** and the query dies with a 1064 syntax
+  error. It is `lines_count`.
+- **A child column in `order_by` must carry its backticks.** Without them Frappe
+  does not error — it returns **zero rows**, which reads as "no data for this
+  filter". `selftest-sales.mjs` pins the backticks on every child sort column.
+- **`COUNT(DISTINCT parent)` costs 35–40% of an aggregate** at scale (item grouping
+  over 17 months: 2297ms with it, 1401ms without), so it is paid for once on the
+  grand-total query and left off the seven per-dimension ones.
+- **Nine parallel queries made ERP drop a connection** mid-flight
+  (`UND_ERR_SOCKET: other side closed`), failing the whole report. Three at a time
+  is 811ms against 1534ms sequential, and stays connected.
+
+### Free goods are usually their own invoice
+
+The Free Qty column exists because free stock arrives as **separate lines** (rate 0,
+`is_free_item`), so a paid line knows nothing about the scheme quantity that shipped
+with it. It is stamped on by matching invoice **and item code** — the name is a
+label, and two codes can share one.
+
+On live data (August 2026, 1,167 invoices) that relationship only exists part of the
+time:
+
+| | Invoices |
+|---|---|
+| paid lines only | 843 |
+| **free lines only** — `CI-` claim/sample invoices | 166 |
+| both on one invoice — a real 10+1 scheme | 158 |
+
+So Free Qty is populated for those 158, blank for the rest, and the free-only
+invoices never appear in the table at all while *Only paid lines* is on. Their
+quantity is still counted in the **Free units** KPI and the units chart, which is
+why that KPI is not simply the sum of the Free Qty column. The page says so in its
+footer rather than leaving a column of dashes to be misread.
+
+Verified end to end: on a page of scheme invoices, 76 of 200 rows carry a stamped
+quantity at clean 5:1 ratios — `INV-TL26-00404` GLIMIBRIT M2 FORTE, 30 billed and 6
+free.
+
+### Design
+
+Clinical instrument rather than generic dashboard: a deep pine header, off-white
+body, **one** teal for data, and **amber reserved exclusively for free/scheme
+quantity** so bonus stock reads at a glance. Space Grotesk for headings and figures,
+Inter with tabular numerals for the data so columns line up.
+
+The palette is measured rather than eyeballed. The teal is `#00958a` because a more
+muted one failed the chroma floor and read as grey, and it clears CVD separation
+against the amber (ΔE 13.9 deutan, 28.5 tritan). Every text pair clears WCAG AA on
+its own background.
+
+Amounts appear in Indian units (₹20.72 Cr, 36.5 L) because that is how the people
+reading it talk about the number; the table and the CSV keep full precision. Dates
+read as `19 Aug 2026` — the native date input renders in the browser's locale
+(`08/19/2026` here), and two different orders on one screen is a real misreading
+risk on a report people act on.
+
+**Units by month is two stacked facets, not one chart with two lines.** Free units
+(~99,000) against billed units (~3.6 million) on a shared axis puts the amber line
+flat on zero, where it reads as broken; a second y-axis would be worse. Each facet
+carries its own scale and states its own peak.
+
+Charts are hand-written SVG — four small charts do not justify a dependency, and
+this way the marks obey the same specs as the rest of the page: bars capped at 24px
+with a 4px rounded data-end, 2px lines, dots ringed in the surface colour, hairline
+gridlines, and values labelled selectively rather than on every mark.
+
+### Export
+
+*Export page* is the visible rows. *Export all filtered* pages through the same
+endpoint 200 rows at a time up to 20,000, announcing the cap rather than silently
+truncating.
+
+Numbers export as **numbers**. The formula guard that protects text cells from Excel
+(prefixing a leading `=+-@` with an apostrophe) was turning a credit note's
+`-97202.7` into text, and a column of those will not sum — which is the first thing
+anyone does with the file.
+
 ---
 
 ## Pages

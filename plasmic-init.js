@@ -26,6 +26,15 @@ import HomeNavRings from "./components/HomeNavRings";
 import ProgressRing from "./components/ProgressRing";
 import EmployeeProfileCard from "./components/EmployeeProfileCard";
 import ActionButton from "./components/ActionButton";
+import VariantPills from "./components/ProductDetail/VariantPills";
+import ProductHero from "./components/ProductDetail/ProductHero";
+import SectionListCard from "./components/ProductDetail/SectionListCard";
+import MechanismCard from "./components/ProductDetail/MechanismCard";
+import DosageCard from "./components/ProductDetail/DosageCard";
+import LabelClaimCard from "./components/ProductDetail/LabelClaimCard";
+import MarketSizeCard from "./components/ProductDetail/MarketSizeCard";
+import CompetitorBrandsCard from "./components/ProductDetail/CompetitorBrandsCard";
+import DetailingAngleCard from "./components/ProductDetail/DetailingAngleCard";
 import CommonDataTable from "./components/CommonDataTable/CommonDataTable";
 // import TableDataProvider from "./components/TableDataProvider";
 import jsonata from 'jsonata';
@@ -3030,3 +3039,427 @@ registerElbritCoreComponents(PLASMIC)
 //   },
 //   importPath: "./share/src/app/datatable/components/DataTableNew",
 // });
+// ============================================================
+// Product detail page (Cilnitab-20 design, 1A desktop / 1B field app)
+// Responsive code components under components/ProductDetail/ — each
+// renders the desktop layout when its container is wide and the
+// field-app layout when narrow (mode="auto"), or can be forced.
+// All list-ish props take the ERP Item's RAW fields (bullet strings,
+// child tables) and parse internally — bind fields directly.
+// ============================================================
+
+PLASMIC.registerComponent(VariantPills, {
+  name: "VariantPills",
+  displayName: "PD · Variant Pills",
+  description:
+    "The 'VARIANTS · N' pill switcher at the top of the product detail page. `variants` takes plain strings ('20', 'T 40') or {label, value} objects (label on the pill, value handed back — bind value to the variant's item_code). `selected` is a writable state; picking a pill fires onSelect(value, variant) — update the state / re-drive the page's item query from it. Same component on desktop and mobile (scrolls horizontally when tight).",
+  props: {
+    variants: {
+      type: "array",
+      itemType: {
+        type: "object",
+        nameFunc: (item) => item?.label,
+        fields: {
+          label: { type: "string" },
+          value: { type: "string" },
+        },
+      },
+      defaultValue: [
+        { label: "20", value: "CILNITAB 20" },
+        { label: "5", value: "CILNITAB 5" },
+        { label: "10", value: "CILNITAB 10" },
+        { label: "T 40", value: "CILNITAB T 40" },
+        { label: "NB 10/5", value: "CILNITAB NB 10/5" },
+        { label: "NB 10/2.5", value: "CILNITAB NB 10/2.5" },
+      ],
+      description:
+        "The strength variants of the brand. Bind a dynamic expression mapping your variant list, e.g. items of the same brand__name: [{label: shortName, value: item_code}]. Plain strings work too.",
+    },
+    selected: {
+      type: "string",
+      description:
+        "Value of the active pill (a variant's `value`). Writable state — leave unset to default to the first variant; the page reads it to fetch that variant's Item.",
+    },
+    onSelect: {
+      type: "eventHandler",
+      argTypes: [
+        { name: "value", type: "string" },
+        { name: "variant", type: "object" },
+      ],
+      description: "Fires with the picked value AND the whole variant object. Update your selected state / refetch the item here.",
+    },
+    kicker: {
+      type: "string",
+      defaultValue: "Variants",
+      description: "The small uppercase label before the pills. Empty hides it.",
+    },
+    showCount: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Append '· N' (variant count) to the kicker.",
+    },
+    className: { type: "string" },
+  },
+  states: {
+    selected: {
+      type: "writable",
+      variableType: "text",
+      valueProp: "selected",
+      onChangeProp: "onSelect",
+    },
+  },
+  importPath: "./components/ProductDetail/VariantPills",
+});
+
+PLASMIC.registerComponent(ProductHero, {
+  name: "ProductHero",
+  displayName: "PD · Product Hero",
+  description:
+    "The identity card of the product detail page. Wide: pack-shot viewer (Rx ONLY badge, ribbon, thumbnails) + name block with tag pills, the MRP/PTR/PTS price strip (retailer margin (MRP−PTR)/MRP and stockist margin (PTR−PTS)/PTR auto-computed) and the spec line. Narrow: title, image carousel with dots, price strip, compact spec strip. Bind the ERP Item RAW: images<-custom_product_urls (the [{product_url}] child table as-is), tags<-custom_therapeutic_class (bullet string → pills), subtitle<-whg_composition (bullets joined with ' + '), mrp/ptr/pts<-custom_last_mrp/_ptr/_pts, packing<-fsl_packing, box<-fsl_box, stockUom<-stock_uom__name, moq<-whg_standard_moq, leadTime<-whg_lead_time_to_manufacture, manufacturer<-custom_manufacturer__name, brand<-brand__name, itemCode<-item_code, name<-item_name.",
+  props: {
+    mode: {
+      type: "choice",
+      options: [
+        { value: "auto", label: "Auto (by container width)" },
+        { value: "desktop", label: "Force desktop layout" },
+        { value: "mobile", label: "Force mobile layout" },
+      ],
+      defaultValue: "auto",
+      description: "'auto' measures the component's OWN container and switches at `breakpoint`.",
+    },
+    breakpoint: {
+      type: "number",
+      defaultValue: 640,
+      description: "Container width (px) below which the field-app layout renders (mode='auto' only).",
+    },
+    name: { type: "string", defaultValue: "ACEBRIT P", description: "Product name. <- item_name" },
+    brand: { type: "string", defaultValue: "ACEBRIT", description: "Brand line in the topline. <- brand__name" },
+    itemCode: { type: "string", defaultValue: "ACEBRIT P", description: "Item code in the topline. <- item_code" },
+    subtitle: {
+      type: "string",
+      defaultValue: "• Aceclofenac 100 mg\n• Paracetamol 325 mg",
+      description:
+        "Composition/form line under the name. Accepts whg_composition's raw bullet string — bullets are joined with ' + ' ('Aceclofenac 100 mg + Paracetamol 325 mg'). A plain string shows as-is.",
+    },
+    tags: {
+      type: "string",
+      defaultValue: "• NSAID + Analgesic/Antipyretic\n• Anti-inflammatory Pain Reliever",
+      description:
+        "Therapeutic tag pills. Accepts custom_therapeutic_class's raw bullet string (or an array). Pills cycle blue/indigo/pink.",
+    },
+    rx: { type: "boolean", defaultValue: true, description: "Show the red 'Rx ONLY' badge on the image." },
+    rxLabel: { type: "string", defaultValue: "Rx ONLY" },
+    ribbon: {
+      type: "string",
+      description: "Optional ribbon on the image (the design's 'New Design'). Empty hides it.",
+    },
+    images: {
+      type: "array",
+      itemType: {
+        type: "object",
+        nameFunc: (item) => item?.label || item?.product_url || item?.url,
+        fields: {
+          product_url: { type: "string" },
+          label: { type: "string" },
+        },
+      },
+      description:
+        "Pack shots. Bind custom_product_urls DIRECTLY — the [{product_url}] child table is understood as-is; plain URL strings or {url, label} also work. Desktop shows thumbnails, mobile a dot carousel.",
+    },
+    mediaNote: {
+      type: "string",
+      defaultValue: "Pack shots from the brand library",
+      description: "Muted caption beside the thumbnails (desktop). Empty hides it.",
+    },
+    mrp: { type: "number", defaultValue: 87.19, description: "MRP. <- custom_last_mrp" },
+    ptr: { type: "number", defaultValue: 66.43, description: "Price to retailer. <- custom_last_ptr. Retailer margin (MRP−PTR)/MRP shows under it automatically." },
+    pts: { type: "number", defaultValue: 59.79, description: "Price to stockist. <- custom_last_pts. Stockist margin (PTR−PTS)/PTR shows under it automatically." },
+    mrpSubtitle: {
+      type: "string",
+      description: "Text under the MRP (the design's 'Per strip of 15'). Empty auto-builds 'Pack of <pack>' from packing/box.",
+    },
+    currency: { type: "string", defaultValue: "₹" },
+    packing: { type: "number", defaultValue: 10, description: "Units per pack. <- fsl_packing. Combined with `box` into '<box> × <packing>'." },
+    box: { type: "number", defaultValue: 10, description: "Packs per box. <- fsl_box" },
+    packText: {
+      type: "string",
+      description: "Explicit pack text ('10 strips × 15 tablets') overriding the '<box> × <packing>' auto-build.",
+    },
+    stockUom: { type: "string", defaultValue: "STRIPS", description: "<- stock_uom__name" },
+    moq: { type: "number", defaultValue: 5000, description: "Standard MOQ, shown with Indian grouping. <- whg_standard_moq" },
+    leadTime: { type: "number", defaultValue: 65, description: "Lead time in days. <- whg_lead_time_to_manufacture" },
+    manufacturer: { type: "string", defaultValue: "ELPL", description: "<- custom_manufacturer__name" },
+    onImageChange: {
+      type: "eventHandler",
+      argTypes: [
+        { name: "index", type: "number" },
+        { name: "url", type: "string" },
+      ],
+      description: "Fires when a thumbnail/dot switches the pack shot.",
+    },
+    className: { type: "string" },
+  },
+  importPath: "./components/ProductDetail/ProductHero",
+});
+
+PLASMIC.registerComponent(SectionListCard, {
+  name: "SectionListCard",
+  displayName: "PD · Section List Card",
+  description:
+    "One generic content card, reused for three sections via `variant`: 'numbered' = Key clinical benefits (01–06, bind items<-kly_key_cinical_benf), 'bullet' = Patient profile (items<-kly_patient_profile), 'chips' = Target customers (items<-kly_target_doc, footerLabel 'Advantage', footerText<-whg_advantages). `items` takes the ERP's RAW bullet string ('• a\\n• b') or an array — bind the field directly, no mapping. Two columns wide / one narrow.",
+  props: {
+    mode: {
+      type: "choice",
+      options: [
+        { value: "auto", label: "Auto (by container width)" },
+        { value: "desktop", label: "Force desktop layout" },
+        { value: "mobile", label: "Force mobile layout" },
+      ],
+      defaultValue: "auto",
+    },
+    breakpoint: { type: "number", defaultValue: 640 },
+    title: { type: "string", defaultValue: "Key clinical benefits" },
+    caption: {
+      type: "string",
+      description: "Muted caption at the right of the title rule (e.g. 'Molecule · Cilnidipine'). Empty hides it.",
+    },
+    variant: {
+      type: "choice",
+      options: [
+        { value: "numbered", label: "Numbered (01, 02, …)" },
+        { value: "bullet", label: "Bulleted dots" },
+        { value: "chips", label: "Chips (specialties)" },
+      ],
+      defaultValue: "numbered",
+    },
+    items: {
+      type: "string",
+      defaultValue:
+        "• Rapid relief from pain & inflammation\n• Effective in musculoskeletal and joint pain\n• Paracetamol adds fast analgesia & antipyresis\n• Better GI tolerability vs older NSAIDs\n• Improves mobility & functional recovery",
+      description:
+        "The list content. Bind the raw ERP bullet string (kly_key_cinical_benf / kly_patient_profile / kly_target_doc) directly — '•' bullets and newlines are parsed; an array of strings also works.",
+    },
+    columns: {
+      type: "number",
+      defaultValue: 2,
+      description: "Columns of the numbered/bullet grid when wide (narrow is always 1). Chips just wrap.",
+    },
+    footerLabel: {
+      type: "string",
+      description: "Muted lead-in of the footer line, e.g. 'Advantage'.",
+    },
+    footerText: {
+      type: "string",
+      description: "Footer line under a divider ('Advantage · Effective combination…'). <- whg_advantages for the Target customers card. Empty hides the footer.",
+    },
+    className: { type: "string" },
+  },
+  importPath: "./components/ProductDetail/SectionListCard",
+});
+
+PLASMIC.registerComponent(MechanismCard, {
+  name: "MechanismCard",
+  displayName: "PD · Mechanism Card",
+  description:
+    "The 'Mechanism of action' card: tinted molecule panels + ✓ takeaway lines. Bind the kly_mechanism_table row RAW: content<-row.content ('Aceclofenac\\n• Inhibits COX…\\n\\nParacetamol\\n• Central…' — each blank-line block becomes a panel, first line the panel title, bullets the body) and takeaways<-row.mechanism_type (bullet string → ✓ lines). Structured input works too (content = [{title, items}]). Panels sit side by side when there's room, stack when narrow.",
+  props: {
+    title: { type: "string", defaultValue: "Mechanism of action" },
+    caption: {
+      type: "string",
+      description: "Muted caption at the right of the title rule (e.g. 'Molecule · Cilnidipine').",
+    },
+    content: {
+      type: "string",
+      defaultValue:
+        "Aceclofenac\n• Inhibits COX enzymes → reduces prostaglandin synthesis\n• Decreases inflammation, swelling & pain\n\nParacetamol\n• Central analgesic & antipyretic action\n• Enhances pain relief without added GI risk",
+      description:
+        "The panels. Bind kly_mechanism_table[0].content directly. Blank lines split panels; each panel's first non-bullet line is its title (colored dot added automatically).",
+    },
+    takeaways: {
+      type: "string",
+      defaultValue:
+        "• Dual-action pain control: anti-inflammatory + fast analgesia\n• Effective relief with good tolerability",
+      description: "The ✓ lines under the panels. Bind kly_mechanism_table[0].mechanism_type directly.",
+    },
+    className: { type: "string" },
+  },
+  importPath: "./components/ProductDetail/MechanismCard",
+});
+
+PLASMIC.registerComponent(DosageCard, {
+  name: "DosageCard",
+  displayName: "PD · Dosage Card",
+  description:
+    "The 'Dosage' card. Bind doseText<-kly_dose RAW ('Adults:\\n• 1 tablet twice daily…\\n\\nDuration:\\n• Short-term use…') — blank-line blocks become sections, the first emphasised, the rest as muted 'Duration · …' lines. The optional `dose`/`doseQualifier` pair puts a big value in front (the design's '20 mg · once daily, adults') when the strength is known.",
+  props: {
+    title: { type: "string", defaultValue: "Dosage" },
+    dose: {
+      type: "string",
+      description: "Optional big dose value ('20 mg'). Leave empty when the raw kly_dose text is all you have.",
+    },
+    doseQualifier: {
+      type: "string",
+      description: "Inline text after the big value ('once daily, adults'). Only shown with `dose`.",
+    },
+    doseText: {
+      type: "string",
+      defaultValue: "Adults:\n• 1 tablet twice daily, after meals\n\nDuration:\n• Short-term use (3–7 days) or as advised",
+      description: "The dosing text. Bind kly_dose directly — headings ('Adults:', 'Duration:') and bullets are parsed.",
+    },
+    note: {
+      type: "string",
+      description: "Optional extra note line under the first section ('Dose individualised based on BP control.').",
+    },
+    className: { type: "string" },
+  },
+  importPath: "./components/ProductDetail/DosageCard",
+});
+
+PLASMIC.registerComponent(LabelClaimCard, {
+  name: "LabelClaimCard",
+  displayName: "PD · Label Claim Card",
+  description:
+    "The 'Label claim & supply' card (desktop) and the whole mobile Supply tab. Bind labelClaim<-whg_label_claim RAW — the first line ('Each film coated tablet contains:') becomes the tinted box's caption, remaining lines the claim rows. Supply facts: packing<-fsl_packing, box<-fsl_box, stockUom<-stock_uom__name, moq<-whg_standard_moq, leadTime<-whg_lead_time_to_manufacture, manufacturer<-custom_manufacturer__name. Wide: a 4–5 cell strip; narrow: label-left/value-right rows.",
+  props: {
+    mode: {
+      type: "choice",
+      options: [
+        { value: "auto", label: "Auto (by container width)" },
+        { value: "desktop", label: "Force desktop layout" },
+        { value: "mobile", label: "Force mobile layout" },
+      ],
+      defaultValue: "auto",
+    },
+    breakpoint: { type: "number", defaultValue: 640 },
+    title: { type: "string", defaultValue: "Label claim & supply" },
+    labelClaim: {
+      type: "string",
+      defaultValue:
+        "Each flim coated tablet contains: \nAceclofenac  IP…………100  Mg\nParacetamol  IP………...325  Mg\nColour : Sunset Yellow Supra.",
+      description: "The label-claim text. Bind whg_label_claim directly — line breaks are preserved.",
+    },
+    packing: { type: "number", defaultValue: 10, description: "<- fsl_packing (combined with `box` into '<box> × <packing>')." },
+    box: { type: "number", defaultValue: 10, description: "<- fsl_box" },
+    packText: { type: "string", description: "Explicit packing text ('10 strips × 15 tablets') overriding the auto-build." },
+    stockUom: { type: "string", defaultValue: "STRIPS", description: "<- stock_uom__name" },
+    moq: { type: "number", defaultValue: 5000, description: "<- whg_standard_moq (Indian grouping applied)." },
+    leadTime: { type: "number", defaultValue: 65, description: "Days. <- whg_lead_time_to_manufacture" },
+    manufacturer: { type: "string", defaultValue: "ELPL", description: "<- custom_manufacturer__name" },
+    className: { type: "string" },
+  },
+  importPath: "./components/ProductDetail/LabelClaimCard",
+});
+
+PLASMIC.registerComponent(MarketSizeCard, {
+  name: "MarketSizeCard",
+  displayName: "PD · Market Size Card",
+  description:
+    "The 'Molecule market size' card. Bind the ERP's amount strings RAW: marketSize<-whg_market_size ('631Cr'), top5Value<-custom_top_5_market_shares ('469.3Cr') — numbers and the unit are parsed, the top-5 share % and progress bar computed ((469.3/631)=74.4%). Wide: one stat card with bar + caption; narrow: the field-app Market-tab layout (two tiles + share bar).",
+  props: {
+    mode: {
+      type: "choice",
+      options: [
+        { value: "auto", label: "Auto (by container width)" },
+        { value: "desktop", label: "Force desktop layout" },
+        { value: "mobile", label: "Force mobile layout" },
+      ],
+      defaultValue: "auto",
+    },
+    breakpoint: { type: "number", defaultValue: 640 },
+    title: { type: "string", defaultValue: "Molecule market size" },
+    marketSize: {
+      type: "string",
+      defaultValue: "631Cr",
+      description: "Total molecule market. Bind whg_market_size as-is ('631Cr'); a plain number works too.",
+    },
+    top5Value: {
+      type: "string",
+      defaultValue: "469.3Cr",
+      description: "Top-5 brands' combined value. Bind custom_top_5_market_shares as-is.",
+    },
+    top5Label: { type: "string", defaultValue: "Top 5 brands" },
+    sharePct: {
+      type: "number",
+      description: "OPTIONAL override of the top-5 share %. Leave empty to compute top5Value/marketSize.",
+    },
+    moleculeName: {
+      type: "string",
+      description: "Molecule name used in the auto caption ('64.1% of the Cilnidipine market sits with the top 5 brands').",
+    },
+    caption: {
+      type: "string",
+      description: "Explicit caption overriding the auto-built one.",
+    },
+    className: { type: "string" },
+  },
+  importPath: "./components/ProductDetail/MarketSizeCard",
+});
+
+PLASMIC.registerComponent(CompetitorBrandsCard, {
+  name: "CompetitorBrandsCard",
+  displayName: "PD · Competitor Brands Card",
+  description:
+    "The 'Competitor brands' card (desktop right rail; the mobile Market tab uses the same layout). Bind brands<-kly_market_share_table DIRECTLY — rows {brands, company, mat_24, mat_25} are understood as-is ({name, company, from, to} also works). Growth % is computed mat_24→mat_25 (↑/↓, red when negative), bars scale to the largest mat_25, rows sort by value (sortByValue). With top5Value<-custom_top_5_market_shares the footer shows 'Published <sum> of <top5> Cr', and when fewer than expectedCount rows are published the dashed 'N of the top 5 brands are not published…' note appears automatically.",
+  props: {
+    title: { type: "string", defaultValue: "Competitor brands" },
+    periodLabel: { type: "string", defaultValue: "MAT 24 → MAT 25" },
+    brands: {
+      type: "array",
+      itemType: {
+        type: "object",
+        nameFunc: (item) => item?.brands || item?.name,
+        fields: {
+          brands: { type: "string" },
+          company: { type: "string" },
+          mat_24: { type: "string" },
+          mat_25: { type: "string" },
+        },
+      },
+      defaultValue: [
+        { brands: "ZERODOL-P", company: "IPCA LABS", mat_24: "46.2", mat_25: "305.9" },
+        { brands: "HIFENAC-P", company: "INTAS PHARMA*", mat_24: "76.2", mat_25: "82.8" },
+        { brands: "DOLOKIND PLUS", company: "MANKIND", mat_24: "29.1", mat_25: "30.2" },
+        { brands: "ACECLO PLUS", company: "ARISTO PHARMA*", mat_24: "28.7", mat_25: "27.4" },
+        { brands: "ACENAC-P", company: "MEDLEY PHARMA", mat_24: "23", mat_25: "23.1" },
+      ],
+      description: "Bind kly_market_share_table directly — no mapping needed.",
+    },
+    sortByValue: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Sort rows by mat_25 descending. OFF keeps the child-table order.",
+    },
+    expectedCount: {
+      type: "number",
+      defaultValue: 5,
+      description: "How many top brands SHOULD be listed. Fewer published rows triggers the dashed 'not published' note.",
+    },
+    top5Value: {
+      type: "string",
+      description: "Bind custom_top_5_market_shares ('469.3Cr') to get the 'Published X of Y Cr' footer automatically.",
+    },
+    note: { type: "string", description: "Explicit text for the dashed note, overriding the auto one." },
+    footLeft: { type: "string", defaultValue: "Values in ₹ Cr. * as reported" },
+    footRight: { type: "string", description: "Explicit right footer, overriding the auto 'Published X of Y Cr'." },
+    className: { type: "string" },
+  },
+  importPath: "./components/ProductDetail/CompetitorBrandsCard",
+});
+
+PLASMIC.registerComponent(DetailingAngleCard, {
+  name: "DetailingAngleCard",
+  displayName: "PD · Detailing Angle Card",
+  description:
+    "The navy quote card with the rep's one-line pitch ('DETAILING ANGLE — \\'Same 24-hour control…\\''). Renders NOTHING when `quote` is empty, so it's safe to bind an Item field that isn't filled on every product yet.",
+  props: {
+    label: { type: "string", defaultValue: "Detailing angle" },
+    quote: {
+      type: "string",
+      defaultValue: "Same 24-hour control, without the pedal edema that makes patients quit Amlodipine.",
+      description: "The pitch line. Curly quotes are added automatically (quoteMarks). Empty hides the whole card.",
+    },
+    quoteMarks: { type: "boolean", defaultValue: true },
+    className: { type: "string" },
+  },
+  importPath: "./components/ProductDetail/DetailingAngleCard",
+});
