@@ -494,8 +494,8 @@ export const pipelineScenarios = [
     },
     assert(_result, spy) {
       const body = JSON.parse(spy.mock.calls[0][1].body);
-      expect(body.variables.filters.from_date).toBe('2026-01-01');
-      expect(body.variables.filters.to_date).toBe('2026-03-31');
+      expect(body.variables.input.date_range.from_date).toBe('2026-01-01');
+      expect(body.variables.input.date_range.to_date).toBe('2026-03-31');
     },
   },
   {
@@ -510,7 +510,7 @@ export const pipelineScenarios = [
     },
     assert(_result, spy) {
       const body = JSON.parse(spy.mock.calls[0][1].body);
-      expect(body.variables.filters.pivot_by_month).toBe(1);
+      expect(body.variables.input.options.pivot).toBe(true);
     },
   },
   {
@@ -525,7 +525,8 @@ export const pipelineScenarios = [
     },
     assert(_result, spy) {
       const body = JSON.parse(spy.mock.calls[0][1].body);
-      expect(body.variables.filters.hq).toBe('HQ-Bangalore');
+      const hqFilter = body.variables.input.dimension_filters.find(f => f.dimension === 'HQ');
+      expect(hqFilter?.values).toEqual(['HQ-Bangalore']);
     },
   },
 ];

@@ -1,5 +1,5 @@
 /**
- * Replaces global.fetch with a stub that returns a GraphQL-shaped customReport payload.
+ * Replaces global.fetch with a stub that returns a GraphQL-shaped customReportV2 payload.
  *
  * Usage:
  *   import { mockGraphqlFetch, restoreFetch } from '@/test/helpers/fetchMocker';
@@ -8,7 +8,7 @@
  *   afterEach(() => restoreFetch());
  *
  * Fixture files (src/test/fixtures/frappe-responses/<name>.json) contain { columns, result }.
- * mockGraphqlFetch wraps them into the customReport GraphQL envelope automatically.
+ * mockGraphqlFetch wraps them into the customReportV2 GraphQL envelope automatically.
  */
 
 let _original = global.fetch;
@@ -24,7 +24,7 @@ export function mockGraphqlFetch(payload) {
     ok: true,
     json: async () => ({
       data: {
-        customReport: {
+        customReportV2: {
           report_meta: [{ columns: columnsWithMeta }],
           edges:       payload.result.map(node => ({ node })),
           pageInfo:    { hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null },

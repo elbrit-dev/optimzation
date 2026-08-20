@@ -413,9 +413,138 @@ export function buildPipeline(steps, extraResult = {}) {
 
 // ─── GraphQL Custom Report data source ───────────────────────────────────────
 //
-// All variables are declared explicitly in api.variableTypes.
 // Controls write outputs to viewParams._controls[key] via setControlOutput.
 // api.variablesMap maps 'controls.{key}.{outputKey}' / 'sort' / 'pagination.*' → variable paths.
+// The resolved flat vars are translated to customReportV2's structured input
+// by buildCustomReportV2Input() just before the fetch.
+
+// ─── customReportV2 input translation ────────────────────────────────────────
+//
+// Maps the flat V1-shaped `filters` blob (still produced by resolveVariablesMap
+// from the unchanged Firestore reportConfig) into customReportV2's structured,
+// registry-validated `input`. Enum names mirror report_registry.py's
+// to_enum_name() output for the real sales_config in report_config.py.
+
+const DIMENSION_LABEL_TO_ENUM = {
+  Department: 'DEPARTMENT', HQ: 'HQ', Customer: 'CUSTOMER', Item: 'ITEM',
+  Brand: 'BRAND', Warehouse: 'WAREHOUSE', 'Batch No': 'BATCH_NO',
+  'Item Group': 'ITEM_GROUP', Territory: 'TERRITORY', Invoice: 'INVOICE',
+};
+
+const FILTER_KEY_TO_DIMENSION_ENUM = {
+  department: 'DEPARTMENT', hq: 'HQ', customer: 'CUSTOMER', item: 'ITEM',
+  brand: 'BRAND', warehouse: 'WAREHOUSE', batch_no: 'BATCH_NO',
+  item_group: 'ITEM_GROUP', territory: 'TERRITORY', invoice: 'INVOICE',
+};
+
+const METRIC_KEY_TO_ENUM = {
+  target_value: 'TARGET_VALUE', target_pct: 'TARGET_PCT', qty: 'QTY',
+  net_primary: 'NET_PRIMARY', gross_primary: 'GROSS_PRIMARY',
+  inc_primary: 'INC_PRIMARY', credit_note: 'CREDIT_NOTE', expired: 'EXPIRED',
+  breakage: 'BREAKAGE', sales_return: 'SALES_RETURN', prod_offer: 'PROD_OFFER',
+  inv_offer: 'INV_OFFER', claim: 'CLAIM',
+};
+
+const ALL_FILTER_DIMENSION_ENUMS = Object.values(FILTER_KEY_TO_DIMENSION_ENUM);
+
+function _toList(value) {
+  if (value == null || value === '') return [];
+  if (Array.isArray(value)) return value;
+  return String(value).split(',').map(v => v.trim()).filter(Boolean);
+}
+
+/** Build the `sort` array for customReportV2 from V1's `sort_by` "field:dir,..." string. */
+function _buildSortInput(sortBy, groupByEnums) {
+  const pairs = _toList(sortBy).map(entry => {
+    const [field, dir] = entry.split(':');
+    return { field: field?.trim(), direction: (dir || 'asc').trim().toUpperCase() };
+  }).filter(p => p.field);
+
+  const out = [];
+  for (const { field, direction } of pairs) {
+    if (field === 'label') {
+      if (groupByEnums[0]) out.push({ dimension: groupByEnums[0], direction });
+      continue;
+    }
+    const dimEnum = FILTER_KEY_TO_DIMENSION_ENUM[field];
+    if (dimEnum) {
+      if (groupByEnums.includes(dimEnum)) out.push({ dimension: dimEnum, direction });
+      else console.warn(`[customReportV2] sort field "${field}" is not in group_by — dropping (would raise SORT_DIMENSION_NOT_GROUPED)`);
+      continue;
+    }
+    const metricEnum = METRIC_KEY_TO_ENUM[field];
+    if (metricEnum) { out.push({ metric: metricEnum, direction }); continue; }
+    console.warn(`[customReportV2] unrecognized sort field "${field}" — dropping`);
+  }
+  return out;
+}
+
+/**
+ * Translate the flat V1-shaped gqlVars (`{ filters: {...}, sort_by, page, limit }`)
+ * into customReportV2's structured `CustomReportV2Input`.
+ */
+export function buildCustomReportV2Input(gqlVars) {
+  const filters = gqlVars.filters ?? {};
+
+  const groupByEnums = _toList(filters.group_by).map(label => {
+    const dimEnum = DIMENSION_LABEL_TO_ENUM[label];
+    if (!dimEnum) console.warn(`[customReportV2] unrecognized group_by dimension "${label}" — dropping`);
+    return dimEnum;
+  }).filter(Boolean);
+
+  const metricEnums = _toList(filters.selected_columns).map(key => {
+    const metricEnum = METRIC_KEY_TO_ENUM[key];
+    if (!metricEnum) console.warn(`[customReportV2] unrecognized metric "${key}" — dropping`);
+    return metricEnum;
+  }).filter(Boolean);
+
+  const dimensionFilters = Object.entries(FILTER_KEY_TO_DIMENSION_ENUM)
+    .filter(([key]) => filters[key] != null && filters[key] !== '' && !(Array.isArray(filters[key]) && filters[key].length === 0))
+    .map(([key, dimEnum]) => ({
+      dimension: dimEnum,
+      operator: 'IN',
+      values: _toList(filters[key]),
+    }));
+
+  const sort = _buildSortInput(gqlVars.sort_by, groupByEnums);
+
+  const input = {
+    report: 'SALES',
+    date_range: { from_date: filters.from_date, to_date: filters.to_date },
+    group_by: groupByEnums,
+    options: {
+      pivot: !!filters.pivot_by_month,
+      pivot_period: (filters.pivot_period || 'Month').toUpperCase(),
+      display_in_lakhs: !!filters.display_in_lakhs,
+      include_total_row: true,
+      include_today_totals: true,
+      include_filter_values: ALL_FILTER_DIMENSION_ENUMS,
+    },
+    page: gqlVars.page,
+    limit: gqlVars.limit,
+  };
+
+  if (metricEnums.length)    input.metrics = metricEnums;
+  if (dimensionFilters.length) input.dimension_filters = dimensionFilters;
+  if (sort.length)           input.sort = sort;
+
+  return input;
+}
+
+const CUSTOM_REPORT_V2_QUERY = `
+  query CustomReportV2($input: CustomReportV2Input!) {
+    customReportV2(input: $input) {
+      report_meta
+      edges { node }
+    }
+  }
+`;
+
+// ─── customReport (V1) — legacy query builder ────────────────────────────────
+//
+// Kept so a reportConfig can opt back into the old field via `api.reportApiVersion:
+// 'v1'` — e.g. while a view's selected_columns/group_by hasn't been audited yet
+// for v2's stricter metric/target-grouping validation.
 
 // Infer a GQL type from a JS value when variableTypes is not provided.
 function _inferGqlType(value) {
@@ -428,11 +557,11 @@ function _inferGqlType(value) {
 }
 
 /**
- * Build a GraphQL query string dynamically from the resolved variables.
+ * Build the V1 customReport query string dynamically from the resolved variables.
  * When variableTypes is omitted, types are inferred from the variable values.
  * 'filters' is always routed into run_report[{ filters: $filters }]; all other keys are direct args.
  */
-function buildCustomReportQuery(variables, variableTypes) {
+function buildCustomReportV1Query(variables, variableTypes) {
   const paramDecls = Object.keys(variables).map(k => {
     const type = variableTypes?.[k] ?? _inferGqlType(variables[k]);
     return `$${k}: ${type}`;
@@ -574,14 +703,25 @@ export function resolveIndexGqlVars(rawApiConfig, queryDoc, { viewParams, sortBy
   });
 }
 
+const REPORT_API_VERSIONS = new Set(['v1', 'v2']);
+const DEFAULT_REPORT_API_VERSION = 'v1';
+
 /**
- * @param {{ urlKey?: string, variables: object, variableTypes?: object, variablesMap?: object }} rawApiConfig
- *   variables     — base GraphQL variables (report, filters, and any custom fields)
- *   variableTypes — GQL type per variable key; omit to auto-infer from variable values
- *   variablesMap  — maps source keys (controls.*, sort, pagination.*) to variable dot-paths;
- *                   omit to use _DEFAULT_VARIABLES_MAP (dateRange, breakdown, filterSort)
+ * @param {{ urlKey?: string, variables: object, variablesMap?: object, reportApiVersion?: 'v1'|'v2' }} rawApiConfig
+ *   variables        — base GraphQL variables (report, filters, and any custom fields)
+ *   variablesMap     — maps source keys (controls.*, sort, pagination.*) to variable dot-paths;
+ *                      omit to use _DEFAULT_VARIABLES_MAP (dateRange, breakdown, filterSort)
+ *   reportApiVersion — 'v1' (default, calls the legacy customReport field as-is) or
+ *                      'v2' (translates the resolved flat vars into customReportV2's
+ *                      structured input via buildCustomReportV2Input() before the
+ *                      fetch). Defaults to 'v1' so existing/unaudited configs keep
+ *                      today's behavior until a view explicitly opts in.
  */
 export function graphqlQueryReportDataSource(rawApiConfig) {
+  const version = REPORT_API_VERSIONS.has(rawApiConfig.reportApiVersion)
+    ? rawApiConfig.reportApiVersion
+    : DEFAULT_REPORT_API_VERSION;
+
   const step = async (state, params) => {
     const { endpoint, token, variables: baseVars = {} } = await resolveApiConfig(rawApiConfig);
 
@@ -594,19 +734,22 @@ export function graphqlQueryReportDataSource(rawApiConfig) {
       pagination,
       viewParams: params.viewParams ?? {},
     });
-    const query = buildCustomReportQuery(gqlVars, rawApiConfig.variableTypes);
+
+    const isV2 = version === 'v2';
+    const query = isV2 ? CUSTOM_REPORT_V2_QUERY : buildCustomReportV1Query(gqlVars, rawApiConfig.variableTypes);
+    const body  = isV2 ? { input: buildCustomReportV2Input(gqlVars) } : gqlVars;
 
     const res = await fetch(endpoint, {
       method:  'POST',
       headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ query, variables: gqlVars }),
+      body:    JSON.stringify({ query, variables: body }),
     });
-    const errCtx = { source: 'graphqlQueryReportDataSource', operation: 'CustomReport', endpoint, query, variables: gqlVars };
+    const errCtx = { source: 'graphqlQueryReportDataSource', operation: isV2 ? 'CustomReportV2' : 'CustomReport', endpoint, query, variables: body };
     if (!res.ok) throw await reportGraphQLFailure(res, errCtx);
     const { data, errors } = await res.json();
     if (errors?.length) throw reportGraphQLErrors(errors, errCtx);
 
-    const { report_meta, edges } = data.customReport;
+    const { report_meta, edges } = isV2 ? data.customReportV2 : data.customReport;
     const gqlColumns = report_meta[0]?.columns ?? [];
     const gqlRows    = edges.map(e => e.node).filter(node => !node._is_total_row);
 
@@ -706,4 +849,3 @@ export async function graphqlFetchFilterValues(rawApiConfig, key, { page = 1, pa
   const items = allValues.slice(start, page * pageLength).map(v => ({ value: v.value, label: v.value, count: v.line_count }));
   return { items, hasMore: allValues.length >= page * pageLength };
 }
-

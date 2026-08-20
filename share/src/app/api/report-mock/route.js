@@ -248,7 +248,7 @@ export function GET(request) {
   );
   return NextResponse.json({
     data: {
-      customReport: {
+      customReportV2: {
         report_meta: [{ columns: columnsWithMeta }],
         edges:       result.map(node => ({ node })),
         pageInfo:    { hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null },

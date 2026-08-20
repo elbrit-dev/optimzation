@@ -341,6 +341,7 @@ function ReportDocsPanel() {
           <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">api</div>
           <CodeBlock>{`api: {
   urlKey: 'myApi',
+  reportApiVersion: 'v1',  // 'v1' (default) | 'v2' — see below
   index: 'Primary',  // Saved tab query name; GQL from that query
   indexVariables: { startDate: '2026-01-01', endDate: '2026-01-31' },
   indexVariablesMap: {
@@ -364,6 +365,19 @@ function ReportDocsPanel() {
     },
   },
 }`}</CodeBlock>
+          <p className="text-[11px] text-gray-500 mt-1.5">
+            <code className="font-mono text-blue-700">reportApiVersion</code> selects which
+            backend field <code className="font-mono text-blue-700">graphqlQueryReportDataSource</code>{' '}
+            calls. Defaults to <code className="font-mono text-blue-700">&apos;v1&apos;</code> (legacy{' '}
+            <code className="font-mono text-blue-700">customReport</code>, unchanged behavior) so
+            existing configs are unaffected. Set to{' '}
+            <code className="font-mono text-blue-700">&apos;v2&apos;</code> per <em>view</em> (it can
+            be overridden inside <code className="font-mono text-blue-700">views.&lt;id&gt;.api</code>{' '}
+            just like any other api field) once that view&apos;s <code className="font-mono text-blue-700">group_by</code>{' '}
+            /<code className="font-mono text-blue-700">selected_columns</code> have been checked against{' '}
+            <code className="font-mono text-blue-700">customReportV2</code>&apos;s stricter validation
+            (e.g. target metrics require grouping by Department or HQ).
+          </p>
         </section>
 
         {/* controls */}
