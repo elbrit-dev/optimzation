@@ -1,9 +1,13 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Toaster, toast } from "sonner";
 import {
+  ATTACHMENT_ACCEPT,
   createHDTicket,
+  describeFileSize,
+  uploadHDTicketAttachments,
+  validateAttachment,
   deleteHDTicket,
   fetchHDArticleComments,
   fetchHDTicketByName,
@@ -401,14 +405,14 @@ function TicketFilters({ activeFilter, setActiveFilter, counts, views = [] }) {
   }
 
   return (
-    <div className="flex gap-2 overflow-x-auto pb-1">
+    <div className="flex flex-wrap gap-2">
       {views.map((filter) => (
         <button
           key={filter.id}
           type="button"
           onClick={() => setActiveFilter(filter.id)}
           className={cx(
-            "h-9 shrink-0 rounded-full border px-3 text-xs font-bold transition @min-[768px]:h-8",
+            "min-h-9 rounded-full border px-3 text-xs font-bold transition @min-[768px]:min-h-8",
             activeFilter === filter.id
               ? "border-[#0F87F9] bg-[#0F87F9] text-white"
               : "border-slate-200 bg-white text-slate-700 hover:border-blue-200"
@@ -822,7 +826,7 @@ function TicketsPanel({ tickets, onOpen, activeFilter, setActiveFilter, counts, 
         </div>
       </div>
 
-      <div className={cx("min-w-0", fill ? "min-h-0 flex-1 overflow-auto" : "overflow-visible")}>
+      <div className={cx("flex min-w-0 flex-col", fill ? "min-h-0 flex-1 overflow-auto" : "overflow-visible")}>
         {isLoading ? (
           <LoadingRows rows={4} />
         ) : filteredTickets.length ? (
@@ -862,8 +866,42 @@ function CreateTicketForm({ content, onSubmit, onCancel, ticketTypes = [], user 
   const [subject, setSubject] = useState("");
   const [raisedBy, setRaisedBy] = useState(sessionEmail);
   const [description, setDescription] = useState("");
+  const [attachments, setAttachments] = useState([]);
+  const [attachmentError, setAttachmentError] = useState("");
+  const fileInputRef = useRef(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const canSubmit = ticketType && subject.trim() && isEmail(raisedBy) && description.trim() && !isSubmitting;
+
+  const addFiles = (fileList) => {
+    const incoming = Array.from(fileList || []);
+    if (!incoming.length) return;
+
+    const problems = [];
+    const accepted = [];
+
+    incoming.forEach((file) => {
+      const problem = validateAttachment(file);
+      if (problem) {
+        problems.push(problem);
+        return;
+      }
+      // Same file picked twice is almost always a mis-click, not intent.
+      const duplicate = attachments.some(
+        (existing) => existing.name === file.name && existing.size === file.size
+      );
+      if (!duplicate) accepted.push(file);
+    });
+
+    if (accepted.length) setAttachments((current) => [...current, ...accepted]);
+    setAttachmentError(problems.join(" "));
+    // Reset so re-picking the same file still fires a change event.
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const removeFile = (index) => {
+    setAttachments((current) => current.filter((_, position) => position !== index));
+    setAttachmentError("");
+  };
 
   useEffect(() => {
     if (sessionEmail) {
@@ -895,8 +933,11 @@ function CreateTicketForm({ content, onSubmit, onCancel, ticketTypes = [], user 
         subject: subject.trim(),
         raisedBy: raisedBy.trim(),
         description: description.trim(),
+        attachments,
       });
       if (result === false) return;
+      setAttachments([]);
+      setAttachmentError("");
       setSubject("");
       setDescription("");
     } finally {
@@ -910,7 +951,7 @@ function CreateTicketForm({ content, onSubmit, onCancel, ticketTypes = [], user 
         <div className="flex w-full min-w-0 flex-col gap-4">
           <fieldset className="min-w-0">
             <legend className="mb-2 block text-sm font-semibold text-slate-700">{content.ticketForm.categoryLabel}</legend>
-            <div className="flex max-w-full gap-2 overflow-x-auto pb-1">
+            <div className="flex max-w-full flex-wrap gap-2">
               {ticketTypeOptions.map((type) => {
                 const selected = ticketType === type;
                 return (
@@ -919,7 +960,7 @@ function CreateTicketForm({ content, onSubmit, onCancel, ticketTypes = [], user 
                     type="button"
                     onClick={() => setTicketType(type)}
                     className={cx(
-                      "min-h-11 shrink-0 rounded-lg border px-3 py-2 text-xs font-bold transition @min-[768px]:px-4 @min-[768px]:text-sm",
+                      "min-h-11 rounded-lg border px-3 py-2 text-left text-xs font-bold transition @min-[768px]:px-4 @min-[768px]:text-sm",
                       selected
                         ? "border-[#0F87F9] bg-[#0F87F9] text-white shadow-sm"
                       : "border-slate-200 bg-white text-slate-950 hover:border-blue-200 hover:bg-blue-50"
@@ -980,6 +1021,64 @@ function CreateTicketForm({ content, onSubmit, onCancel, ticketTypes = [], user 
             className="w-full resize-y rounded-lg border border-slate-200 p-3 text-base outline-none focus:border-[#0F87F9] focus:ring-4 focus:ring-blue-100 @min-[768px]:text-sm"
           />
         </label>
+        <div className="min-w-0">
+          <span className="mb-2 block text-sm font-semibold text-slate-700">Attach images / PDF</span>
+          <input
+            ref={fileInputRef}
+            id="hd-ticket-attachments"
+            type="file"
+            multiple
+            accept={ATTACHMENT_ACCEPT}
+            onChange={(event) => addFiles(event.target.files)}
+            className="sr-only"
+          />
+          <label
+            htmlFor="hd-ticket-attachments"
+            className="flex min-h-[76px] cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-4 text-center transition hover:border-[#0F87F9] hover:bg-blue-50"
+          >
+            <i className="pi pi-paperclip text-base text-slate-400" aria-hidden />
+            <span className="text-[13px] font-semibold text-slate-700">Choose files</span>
+            <span className="text-[11px] text-slate-500">PNG, JPG, WEBP, GIF or PDF &middot; up to 10 MB each</span>
+          </label>
+
+          {attachments.length ? (
+            <ul className="mt-2 flex flex-col gap-2">
+              {attachments.map((file, index) => (
+                <li
+                  key={`${file.name}-${file.size}-${index}`}
+                  className="flex min-w-0 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2"
+                >
+                  <i
+                    className={cx(
+                      file.type === "application/pdf" ? "pi pi-file-pdf" : "pi pi-image",
+                      "shrink-0 text-slate-400"
+                    )}
+                    aria-hidden
+                  />
+                  <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-slate-700">{file.name}</span>
+                  <span className="shrink-0 text-[11px] text-slate-500">{describeFileSize(file.size)}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeFile(index)}
+                    aria-label={`Remove ${file.name}`}
+                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                  >
+                    <i className="pi pi-times text-xs" aria-hidden />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
+          {attachmentError ? (
+            <p className="mt-1.5 text-[11px] font-semibold text-red-600">{attachmentError}</p>
+          ) : (
+            <p className="mt-1.5 text-[11px] text-slate-500">
+              Attachments upload once the ticket is created, and are linked to it in the ERP.
+            </p>
+          )}
+        </div>
+
         <div className="flex flex-col-reverse gap-2 @min-[640px]:flex-row @min-[640px]:items-center @min-[640px]:justify-end @min-[640px]:gap-3">
           {onCancel ? (
             <button
@@ -1561,7 +1660,9 @@ function ArticleView({ article, onBack, graphqlConfig, user }) {
 
 function EmptyState({ message, icon = "pi pi-inbox" }) {
   return (
-    <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-white/60 px-5 py-8 text-center">
+    // `flex-1` so an empty list still fills its column instead of letting the
+    // mobile tab bar ride up under it.
+    <div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-white/60 px-5 py-8 text-center">
       <span className="flex h-11 w-11 items-center justify-center rounded-full bg-slate-50 text-slate-300">
         <i className={cx(icon, "text-lg")} aria-hidden />
       </span>
@@ -1945,8 +2046,10 @@ export default function HelpSupportExperience({
   ];
 
   const createTicket = async (ticket) => {
+    const { attachments = [], ...ticketFields } = ticket || {};
+
     try {
-      const createPromise = createHDTicket(ticket, {
+      const createPromise = createHDTicket(ticketFields, {
           graphqlConfig,
           user: supportUser,
         });
@@ -1957,6 +2060,26 @@ export default function HelpSupportExperience({
       });
 
       const created = await createPromise;
+
+      // Files can only be attached once the ticket exists, so this is a second
+      // step. A failed upload must not discard the ticket that was just saved -
+      // report it and let the user retry from the conversation view.
+      if (attachments.length) {
+        const uploadPromise = uploadHDTicketAttachments(attachments, created.id, graphqlConfig);
+        toast.promise(uploadPromise, {
+          loading: `Attaching ${attachments.length} file${attachments.length > 1 ? "s" : ""}...`,
+          success: ({ uploaded, failed }) =>
+            failed.length
+              ? `${uploaded.length} of ${attachments.length} files attached`
+              : `${uploaded.length} file${uploaded.length > 1 ? "s" : ""} attached`,
+          error: (error) => error?.message || "Failed to attach files",
+        });
+
+        const { failed } = await uploadPromise.catch(() => ({ failed: [] }));
+        failed.forEach((failure) => {
+          toast.error(`Could not attach ${failure.fileName}`, { description: failure.message });
+        });
+      }
 
       setTickets((current) => [created, ...current]);
       setTicketFilter((current) => current || effectiveTicketViews.find((viewItem) => viewItem.isDefault)?.id || effectiveTicketViews[0]?.id || "");
@@ -2191,7 +2314,7 @@ export default function HelpSupportExperience({
           // so the layout follows the component's own width rather than the browser
           // viewport — it has to stay correct inside an arbitrary Plasmic slot.
           // @min-[640px] / [768px] / [1024px] / [1280px] mirror Tailwind sm / md / lg / xl.
-          "@container flex min-h-0 flex-col overflow-hidden bg-slate-50 text-sm text-slate-950",
+          "@container flex min-h-0 min-h-full flex-col overflow-hidden bg-slate-50 text-sm text-slate-950",
           // Size/spacing utilities are dropped once a className arrives so the caller
           // (Plasmic Studio) owns the box instead of fighting these for specificity.
           // These stay viewport-based: an element cannot query its own container.

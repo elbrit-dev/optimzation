@@ -19,20 +19,17 @@ export function useDisclosure({
 }
 
 export const useLocalStorage = (key, initialValue) => {
-	const readValue = () => {
-		if (typeof window === "undefined") {
-			return initialValue;
-		}
+	// Callers pass `initialValue` as an inline object literal, so its identity
+	// changes on every render. Keep it in a ref so it can never be an effect
+	// dependency - having it in the hydration deps below re-ran the effect on
+	// every render, and `JSON.parse` always returns a fresh object, so the
+	// setState never bailed out and the tree looped until React threw #185
+	// ("Maximum update depth exceeded").
+	const initialValueRef = useRef(initialValue);
+	initialValueRef.current = initialValue;
 
-		try {
-			const item = window.localStorage.getItem(key);
-			return item ? (JSON.parse(item)) : initialValue;
-		} catch (error) {
-			console.warn(`Error reading localStorage key "${key}":`, error);
-			return initialValue;
-		}
-	};
-
+	// Render the server / first client pass with the fallback so hydration
+	// matches, then read localStorage once the component is mounted.
 	const [storedValue, setStoredValue] = useState(initialValue);
 
 	useEffect(() => {
@@ -40,12 +37,12 @@ export const useLocalStorage = (key, initialValue) => {
 
 		try {
 			const item = window.localStorage.getItem(key);
-			setStoredValue(item ? JSON.parse(item) : initialValue);
+			setStoredValue(item ? JSON.parse(item) : initialValueRef.current);
 		} catch (error) {
 			console.warn(`Error reading localStorage key "${key}":`, error);
-			setStoredValue(initialValue);
+			setStoredValue(initialValueRef.current);
 		}
-	}, [initialValue, key]);
+	}, [key]);
 
 	const setValue = (value) => {
 		try {

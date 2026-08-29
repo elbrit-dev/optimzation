@@ -11,12 +11,82 @@ import { uploadLeaveMedicalCertificate } from "@calendar/lib/file.service";
 
 const STORAGE_KEY = "calendar-submission-queue:v1";
 const QUEUE_EVENT = "calendar-submission-queue:changed";
+const LOCK_KEY = "calendar-submission-queue:v1:lock";
+
+// An ERP write that has not settled within this window is treated as abandoned
+// (the tab that owned it was closed or crashed). Anything newer is assumed to
+// still be in flight somewhere and must not be re-sent: these writes are
+// non-idempotent creates, so a second send produces a duplicate document.
+const LOCK_TTL_MS = 60_000;
 
 const listeners = new Set();
 let isProcessing = false;
 
+// Identifies this browsing context (tab / iframe). `isProcessing` only guards
+// re-entry within one context; the queue lives in localStorage and is shared by
+// every same-origin context, so the lock below is what actually serialises them.
+const PROCESSOR_ID = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
 function isBrowser() {
   return typeof window !== "undefined";
+}
+
+function readLock() {
+  if (!isBrowser()) return null;
+  return safeJsonParse(window.localStorage.getItem(LOCK_KEY), null);
+}
+
+// localStorage has no compare-and-swap, so claim the lock and then read it back:
+// if two contexts race, the last write wins and the other sees a foreign owner
+// and backs off.
+function acquireProcessingLock() {
+  if (!isBrowser()) return false;
+
+  const existing = readLock();
+  const now = Date.now();
+
+  if (
+    existing &&
+    existing.owner !== PROCESSOR_ID &&
+    Number(existing.expiresAt) > now
+  ) {
+    return false;
+  }
+
+  window.localStorage.setItem(
+    LOCK_KEY,
+    JSON.stringify({ owner: PROCESSOR_ID, expiresAt: now + LOCK_TTL_MS })
+  );
+
+  return readLock()?.owner === PROCESSOR_ID;
+}
+
+function renewProcessingLock() {
+  if (!isBrowser()) return;
+
+  const existing = readLock();
+  if (existing && existing.owner !== PROCESSOR_ID) return;
+
+  window.localStorage.setItem(
+    LOCK_KEY,
+    JSON.stringify({
+      owner: PROCESSOR_ID,
+      expiresAt: Date.now() + LOCK_TTL_MS,
+    })
+  );
+}
+
+function releaseProcessingLock() {
+  if (!isBrowser()) return;
+  if (readLock()?.owner === PROCESSOR_ID) {
+    window.localStorage.removeItem(LOCK_KEY);
+  }
+}
+
+// True while another context may still be waiting on this item's ERP response.
+function isSyncInFlight(item) {
+  const startedAt = Date.parse(item?.syncStartedAt ?? "");
+  return Number.isFinite(startedAt) && startedAt > Date.now() - LOCK_TTL_MS;
 }
 
 function safeJsonParse(value, fallback) {
@@ -47,6 +117,12 @@ function normalizeQueueForStartup(queue) {
       }
 
       if (item.status === "syncing") {
+        // A tab mounting must not reclaim a write another tab is still waiting
+        // on - that re-sends the create and duplicates the ERP document.
+        if (isSyncInFlight(item)) {
+          return [item];
+        }
+
         mutated = true;
         return [
           {
@@ -83,7 +159,10 @@ function resetStaleSyncingItems(queue) {
   let mutated = false;
 
   const normalizedQueue = queue.map((item) => {
-    if (item.status === "syncing") {
+    // Despite the name this used to reset *every* syncing item, including ones
+    // still awaiting a response, which is how one submit became several ERP
+    // documents. Only reclaim writes whose owner is gone.
+    if (item.status === "syncing" && !isSyncInFlight(item)) {
       mutated = true;
 
       return {
@@ -569,6 +648,11 @@ export async function processSubmissionQueue(runtime = {}) {
     return { processedCount: 0 };
   }
 
+  // Another tab / iframe on this origin is already draining the queue.
+  if (!acquireProcessingLock()) {
+    return { processedCount: 0 };
+  }
+
   isProcessing = true;
   let processedCount = 0;
 
@@ -576,6 +660,8 @@ export async function processSubmissionQueue(runtime = {}) {
     resetStaleSyncingItems(readQueue());
 
     while (true) {
+      renewProcessingLock();
+
       const queue = readQueue();
       const nextItem = queue.find(
         (item) => item.status === "pending"
@@ -588,6 +674,7 @@ export async function processSubmissionQueue(runtime = {}) {
       updateQueueItem(nextItem.id, (item) => ({
         ...item,
         status: "syncing",
+        syncStartedAt: new Date().toISOString(),
         error: null,
       }));
 
@@ -617,6 +704,7 @@ export async function processSubmissionQueue(runtime = {}) {
     }
   } finally {
     isProcessing = false;
+    releaseProcessingLock();
   }
 
   return { processedCount };

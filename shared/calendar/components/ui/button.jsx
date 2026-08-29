@@ -42,6 +42,11 @@ const Button = React.forwardRef(({ className, variant, size, asChild = false, ..
     <Comp
       className={cn(buttonVariants({ variant, size, className }))}
       ref={ref}
+      // A <button> with no type is type="submit". These render inside the event
+      // form (combobox / date / time popover triggers), so every click on one
+      // was firing a native submit and saving a duplicate event. Default to
+      // "button"; the spread below lets a caller pass type="submit" explicitly.
+      {...(asChild ? {} : { type: "button" })}
       {...props} />
   );
 })

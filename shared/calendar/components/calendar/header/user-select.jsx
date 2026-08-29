@@ -36,32 +36,27 @@ function EmployeeFilterList({
   return (
     <div className={cn("space-y-1", className)}>
       {showAllOption ? (
-        <button
-          type="button"
-          className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition hover:bg-muted"
-          onClick={onToggleAll}
+        <label
+          className="flex w-full cursor-pointer select-none items-center gap-3 rounded-md px-2 py-2 text-left transition hover:bg-muted"
         >
-          <Checkbox checked={isAllChecked} />
+          <Checkbox checked={isAllChecked} onCheckedChange={onToggleAll} />
           <div className="min-w-0">
             <p className="text-sm font-medium">All</p>
           </div>
-        </button>
+        </label>
       ) : null}
 
       {users.map((user) => {
         const checked = checkedIds.includes(user.id);
 
         return (
-          <button
+          <label
             key={user.id}
-            type="button"
-            className="flex w-full items-start gap-3 rounded-md px-2 py-2 text-left transition hover:bg-muted"
-            onClick={() => onToggleUser(user.id)}
+            className="flex w-full cursor-pointer select-none items-start gap-3 rounded-md px-2 py-2 text-left transition hover:bg-muted"
           >
             <Checkbox
               checked={checked}
               className="mt-0.5"
-              onClick={(event) => event.stopPropagation()}
               onCheckedChange={() => onToggleUser(user.id)}
             />
 
@@ -87,7 +82,7 @@ function EmployeeFilterList({
                 </p>
               ) : null}
             </div>
-          </button>
+          </label>
         );
       })}
     </div>
@@ -463,7 +458,6 @@ export function UserSelect({ mode = "popover" }) {
         align="start"
         sideOffset={4}
         avoidCollisions={false}
-        portalled={false}
         className="p-2 w-[var(--radix-popover-trigger-width)] md:w-[250px]"
       >
         {/* 🔍 Search + Department filter (sticky) */}

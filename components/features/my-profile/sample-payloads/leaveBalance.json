@@ -1,0 +1,26 @@
+{
+  "note": "As on 21 Aug 2026 - Holiday list Elbrit TN 2026",
+  "items": [
+    {
+      "label": "Earned leave",
+      "value": "8.0",
+      "caption": "Allocated 15 - Used 7"
+    },
+    {
+      "label": "Casual leave",
+      "value": "4.5",
+      "caption": "Allocated 10 - Used 5.5"
+    },
+    {
+      "label": "Sick leave",
+      "value": "0",
+      "caption": "Allocated 7 - Used 7"
+    },
+    {
+      "label": "Total available",
+      "value": "12.5 days",
+      "caption": "Across all leave types",
+      "strong": true
+    }
+  ]
+}

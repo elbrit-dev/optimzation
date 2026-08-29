@@ -1,7 +1,9 @@
 import { format, isWithinInterval, parseISO } from "date-fns";
 import { Calendar, Clock, User } from "lucide-react";
 import { AnimatePresence,motion } from "framer-motion";
-import { useEffect, useRef, startTransition } from "react";
+import { useEffect, useMemo, useRef, startTransition } from "react";
+import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
+import { isEmployeeOnApprovedLeave } from "@calendar/lib/calendar/leaveDay";
 import { DayPicker } from "@calendar/components/ui/day-picker";
 import { ScrollArea } from "@calendar/components/ui/scroll-area";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
@@ -17,9 +19,15 @@ export function CalendarDayView({
 	singleDayEvents,
 	multiDayEvents
 }) {
-	const { selectedDate, setSelectedDate, users, use24HourFormat } =
+	const { selectedDate, setSelectedDate, users, use24HourFormat, allEvents } =
 		useCalendar();
 	const scrollAreaRef = useRef(null);
+	// Own approved leave on this day blocks the click-to-add slots, same rule
+	// as the header's Add Event button.
+	const isLeaveDay = useMemo(
+		() => isEmployeeOnApprovedLeave(allEvents, LOGGED_IN_USER.id, selectedDate),
+		[allEvents, selectedDate]
+	);
 
 	const hours = Array.from({ length: 24 }, (_, i) => i);
 	const SWIPE_THRESHOLD = 80;
@@ -135,10 +143,16 @@ export function CalendarDayView({
 											hour={hour}
 											minute={0}
 											className="absolute inset-x-0 top-0 h-[48px]">
-											<AddEditEventDialog startDate={selectedDate} startTime={{ hour, minute: 0 }}>
+											{isLeaveDay ? (
 												<div
-													className="absolute inset-0 cursor-pointer transition-colors hover:bg-secondary" />
-											</AddEditEventDialog>
+													className="absolute inset-0 cursor-not-allowed"
+													title="You're on leave on this day" />
+											) : (
+												<AddEditEventDialog startDate={selectedDate} startTime={{ hour, minute: 0 }}>
+													<div
+														className="absolute inset-0 cursor-pointer transition-colors hover:bg-secondary" />
+												</AddEditEventDialog>
+											)}
 										</DroppableArea>
 
 										<div
@@ -149,10 +163,16 @@ export function CalendarDayView({
 											hour={hour}
 											minute={30}
 											className="absolute inset-x-0 bottom-0 h-[48px]">
-											<AddEditEventDialog startDate={selectedDate} startTime={{ hour, minute: 30 }}>
+											{isLeaveDay ? (
 												<div
-													className="absolute inset-0 cursor-pointer transition-colors hover:bg-secondary" />
-											</AddEditEventDialog>
+													className="absolute inset-0 cursor-not-allowed"
+													title="You're on leave on this day" />
+											) : (
+												<AddEditEventDialog startDate={selectedDate} startTime={{ hour, minute: 30 }}>
+													<div
+														className="absolute inset-0 cursor-pointer transition-colors hover:bg-secondary" />
+												</AddEditEventDialog>
+											)}
 										</DroppableArea>
 									</div>
 								))}

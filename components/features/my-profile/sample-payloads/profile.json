@@ -1,0 +1,229 @@
+{
+  "company": {
+    "name": "Elbrit Lifesciences Private Limited",
+    "addressLines": [
+      "Level 4, A Wing, Dynasty Business Park,",
+      "Andheri Kurla Road, Andheri (E),",
+      "Mumbai - 400059, Maharashtra."
+    ],
+    "cin": "U74999TZ2014PTC029965",
+    "supportEmail": "support@elbrit.org",
+    "supportPhone": "1800 257 3579",
+    "logoUrl": "/logo.png"
+  },
+  "employee": {
+    "name": "Janardhanan A",
+    "initials": "J",
+    "status": "Active",
+    "designation": "Zonal Sales Manager",
+    "headquarters": "HQ-Chennai",
+    "department": "Sales",
+    "division": "Aura",
+    "employeeCode": "E00004",
+    "joinedOn": "Joined 01 Apr 2014",
+    "tenure": "12 yrs 4 mo"
+  },
+  "syncText": "Synced from ERP - 12 Aug 2026, 09:14",
+  "readonlyNote": "This profile is read-only - only the profile picture can be changed here. Any correction to a detail goes through the Help desk.",
+  "personalInfo": {
+    "overviewNote": "ERP - Employee E00004",
+    "overview": [
+      {
+        "label": "Full name",
+        "value": "Janardhanan A"
+      },
+      {
+        "label": "Gender",
+        "value": "Male"
+      },
+      {
+        "label": "Date of birth",
+        "value": "01 Jun 1983"
+      },
+      {
+        "label": "Date of joining",
+        "value": "01 Apr 2014"
+      },
+      {
+        "label": "Employee code",
+        "value": "E00004",
+        "copy": true
+      },
+      {
+        "label": "Blood group",
+        "value": "O positive"
+      },
+      {
+        "label": "Marital status",
+        "value": "Married"
+      }
+    ],
+    "contactNote": "Corrections go through the Help desk",
+    "contact": [
+      {
+        "label": "Company email",
+        "value": "janardhanan@elbrit.org",
+        "copy": true
+      },
+      {
+        "label": "Personal email",
+        "value": "erisjanaa09@gmail.com",
+        "copy": true
+      },
+      {
+        "label": "Cell number",
+        "value": "9003806455",
+        "copy": true
+      },
+      {
+        "label": "Current address",
+        "value": "12/4 Anna Nagar West, Chennai 600040",
+        "copy": true
+      },
+      {
+        "label": "Emergency contact",
+        "value": "Lakshmi J (spouse)"
+      },
+      {
+        "label": "Emergency number",
+        "value": "9840112233",
+        "copy": true
+      }
+    ]
+  },
+  "roleDetails": {
+    "reportingNote": "Maintained by HR - ERP Employee record",
+    "reporting": [
+      {
+        "label": "Designation",
+        "value": "Zonal Sales Manager"
+      },
+      {
+        "label": "Department",
+        "value": "Sales"
+      },
+      {
+        "label": "Headquarters",
+        "value": "HQ-Chennai"
+      },
+      {
+        "label": "Employment type",
+        "value": "Full-time"
+      },
+      {
+        "label": "Reports to",
+        "value": "Vice President - Sales (E00001)"
+      },
+      {
+        "label": "Role profile",
+        "value": "SM-Aura_CHN_CBE_MDU_KER",
+        "copy": true
+      },
+      {
+        "label": "Team under this role",
+        "value": "11 medical representatives - 2 area managers"
+      },
+      {
+        "label": "Leave approver",
+        "value": "Vice President - Sales"
+      },
+      {
+        "label": "Expense approver",
+        "value": "Finance Desk - South"
+      },
+      {
+        "label": "Holiday list",
+        "value": "Elbrit TN 2026"
+      }
+    ]
+  },
+  "accountDetails": {
+    "salaryNote": "Verified by Finance - account masked by default",
+    "salary": [
+      {
+        "label": "Bank name",
+        "value": "HDFC Bank"
+      },
+      {
+        "label": "Account number",
+        "value": "5012 4460 4417",
+        "maskedValue": "•••• •••• 4417",
+        "reveal": true,
+        "copy": true
+      },
+      {
+        "label": "IFSC code",
+        "value": "HDFC0000523",
+        "copy": true
+      },
+      {
+        "label": "Salary mode",
+        "value": "Bank transfer"
+      }
+    ],
+    "statutoryNote": "Sourced from payroll master",
+    "statutory": [
+      {
+        "label": "PAN",
+        "value": "ABGPJ4471K",
+        "maskedValue": "ABGPJ••••K",
+        "reveal": true,
+        "copy": true
+      },
+      {
+        "label": "UAN",
+        "value": "101234567890",
+        "maskedValue": "••••••••7890",
+        "reveal": true,
+        "copy": true
+      },
+      {
+        "label": "PF account",
+        "value": "PY/MAS/0043215/000/0000871",
+        "copy": true
+      },
+      {
+        "label": "Gratuity eligibility",
+        "value": "Eligible from 01 Apr 2019"
+      },
+      {
+        "label": "Tax regime (FY 2026-27)",
+        "value": "New regime"
+      }
+    ],
+    "insuranceNote": "Group Mediclaim - Policy year 2026-27",
+    "insuranceCoverage": {
+      "label": "Coverage value",
+      "value": "₹5,00,000",
+      "caption": "Family floater - valid till 31 Mar 2027"
+    },
+    "insurance": [
+      {
+        "label": "Insurance number",
+        "value": "GMC-ELB-2026-04417",
+        "copy": true
+      },
+      {
+        "label": "Policy number",
+        "value": "NIA/GMC/2026/88231",
+        "copy": true
+      },
+      {
+        "label": "Insurer",
+        "value": "New India Assurance"
+      },
+      {
+        "label": "Plan",
+        "value": "Group Mediclaim - family floater"
+      },
+      {
+        "label": "Nominee",
+        "value": "Lakshmi J (spouse)"
+      },
+      {
+        "label": "Members covered",
+        "value": "Self, spouse, 2 children"
+      }
+    ]
+  }
+}

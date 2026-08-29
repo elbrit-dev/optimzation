@@ -9,6 +9,7 @@ import { TAG_IDS, TAGS } from "@calendar/components/calendar/constants";
 import { motion, AnimatePresence } from "framer-motion";
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 import { isLeafRole, resolveLoggedInRoleId } from "@calendar/lib/employeeHeirachy";
+import { isEmployeeOnApprovedLeave } from "@calendar/lib/calendar/leaveDay";
 import {
   Plus,
   Building2, Users, Cake, Calendar, Stethoscope, ListChecks, HelpCircle,
@@ -28,6 +29,7 @@ export default function MobileAddEventBar({ date: propDate }) {
   const {
     selectedDate,
     events,
+    allEvents,
     users,
     allEmployeeOptions,
     elbritRoleEdges,
@@ -97,6 +99,14 @@ export default function MobileAddEventBar({ date: propDate }) {
   );
 
   if (isPastDate) return null;
+
+  // Own approved leave on this day - same rule as the desktop header's Add
+  // Event button, applied here to the mobile "+" bar as a whole.
+  const isLeaveDay = isEmployeeOnApprovedLeave(
+    allEvents,
+    LOGGED_IN_USER.id,
+    date
+  );
 
   const hasValidHqTourPlan = !!matchedHqEvent;
   const canCreateDoctorVisitDirectly =
@@ -183,8 +193,10 @@ export default function MobileAddEventBar({ date: propDate }) {
             </AnimatePresence>
 
             <Button
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground"
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-50"
               onClick={() => setShowTags((v) => !v)}
+              disabled={isLeaveDay}
+              title={isLeaveDay ? "You're on leave on this day" : undefined}
             >
               <Plus className="h-5 w-5" />
             </Button>

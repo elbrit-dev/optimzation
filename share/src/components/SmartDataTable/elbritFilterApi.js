@@ -2,32 +2,6 @@ import { resolveApiConfig } from './apiRegistry.js';
 
 const _dimMapCache = new Map(); // baseUrl → Promise<{ [key]: displayName }>
 
-// A report's filter key is not always this API's dimension slug. Stock Coverage Summary
-// keys its Item dimension `item_code` (matching its own filter_map), while the API calls
-// that dimension "Item" → `item`, so the raw lookup misses and the tab renders empty.
-// Scope: this bridge is for elbrit_sales_filter_api only — the keys sent back to the
-// report itself must stay exactly as the report emitted them.
-const DIMENSION_KEY_ALIASES = { item_code: 'item' };
-
-/**
- * Maps a report filter key onto a key present in the dimension map.
- * Exact match first, then an explicit alias, then ERPNext's `_code`/`_name` suffix
- * stripped off (so `item_code` and `item_name` both reach "Item"). Every branch is
- * guarded on the dimension existing, so this can only turn a guaranteed miss into a
- * hit — a key that already resolves is never redirected.
- */
-function resolveDimensionKey(dimensionMap, key) {
-  if (dimensionMap[key]) return key;
-
-  const alias = DIMENSION_KEY_ALIASES[key];
-  if (alias && dimensionMap[alias]) return alias;
-
-  const stripped = key.replace(/_(code|name)$/, '');
-  if (stripped !== key && dimensionMap[stripped]) return stripped;
-
-  return key;
-}
-
 /** Scan _controls outputs for the first { start, end } date-range control. */
 export function resolveControlDateRange(controls = {}) {
   for (const output of Object.values(controls)) {
@@ -71,17 +45,14 @@ export async function fetchElbritFilterValues(rawApiConfig, key, { page = 1, pag
   const headers = token ? { Authorization: `token ${token}` } : {};
 
   const dimensionMap = await getDimensionMap(baseUrl, headers);
-  const dimensionName = dimensionMap[resolveDimensionKey(dimensionMap, key)];
+  const dimensionName = dimensionMap[key];
   if (!dimensionName) return { items: [], hasMore: false };
 
   const params = new URLSearchParams({ dimensions: dimensionName, limit: page * pageLength });
   if (search) params.set('search', search);
 
-  // Cascade params are named by dimension too, so they need the same bridging — otherwise
-  // an `item_code` selection is sent under a name the API ignores and the other tabs
-  // silently fail to narrow.
   for (const [k, v] of Object.entries(currentFilters)) {
-    if (k !== key && v?.length) params.set(resolveDimensionKey(dimensionMap, k), v.join(','));
+    if (k !== key && v?.length) params.set(k, v.join(','));
   }
 
   if (dateRange.from_date) params.set('from_date', dateRange.from_date);
