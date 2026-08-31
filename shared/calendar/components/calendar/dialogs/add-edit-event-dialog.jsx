@@ -111,7 +111,7 @@ export function AddEditEventDialog({
 	const allDay = useWatch({ control: form.control, name: "allDay" });
 	const leaveType = useWatch({ control: form.control, name: "leaveType", });
 	const leavePeriod = useWatch({ control: form.control, name: "leavePeriod", });
-	const { doctor, employees, hqTerritory, tags: selectedTag, attending, enableGoogleMeet } = useWatch({ control: form.control });
+	const { doctor, employees, hqTerritory, tags: selectedTag, attending, enableGoogleMeet, forceVisit: isForceVisitSelected } = useWatch({ control: form.control });
 	const pobGiven = useWatch({ control: form.control, name: "pob_given", });
 	const customer = useWatch({ control: form.control, name: "customer", });
 	const pobItems = useWatch({ control: form.control, name: "fsl_doctor_item" });
@@ -1173,8 +1173,10 @@ export function AddEditEventDialog({
 		const normalizedStartDate = new Date(
 			values.startDate ?? event?.startDate ?? new Date()
 		);
+		// Submitted value first, so an edited date range is reflected in the
+		// optimistic calendar entry instead of snapping back to the saved one.
 		const fallbackEndDate = new Date(
-			event?.endDate ?? values.endDate ?? values.startDate ?? new Date()
+			values.endDate ?? event?.endDate ?? values.startDate ?? new Date()
 		);
 		const resolvedEndDate =
 			values.tags === TAG_IDS.DOCTOR_VISIT_PLAN &&
@@ -1377,9 +1379,10 @@ export function AddEditEventDialog({
 		() =>
 			getDisabledHqDates(
 				events,
-				allowedEmployeeIds
+				allowedEmployeeIds,
+				event?.erpName ?? null
 			),
-		[events, allowedEmployeeIds]
+		[events, allowedEmployeeIds, event?.erpName]
 	);
 
 	useEffect(() => {
@@ -1514,12 +1517,18 @@ export function AddEditEventDialog({
 				});
 			quotationName = quotationDoc.name ?? quotationName;
 		}
+		// When the form actually exposes End Date, the submitted value must win:
+		// passing the saved end date as a fallback made the mapper keep the old
+		// one, so edited end dates never reached ERP. Tags that hide the field
+		// (e.g. Doctor Visit Plan) still fall back to the stored value.
+		const isEndDateEditable =
+			isFieldVisible("endDate") && !isEditReadOnlyField("endDate");
 		const erpDoc = mapFormToErpEvent(normalizedValues, {
 			erpName: event?.erpName,
 			employeeResolvers,
 			doctorResolvers,
 			existingEventParticipants: event?.event_participants ?? [],
-			existingEndDate: event?.endDate ?? null,
+			existingEndDate: isEndDateEditable ? null : event?.endDate ?? null,
 			enableGoogleCalendarSync: shouldSyncGoogleCalendar,
 			googleCalendar:
 				shouldSyncGoogleCalendar && googleCalendarEnabled
@@ -2195,7 +2204,7 @@ export function AddEditEventDialog({
 											control={form.control}
 											form={form}
 											name="startDate"
-											label="Date"
+											label={getFieldLabel("startDate", "Date")}
 											hideTime
 											/* Doctor Tour Plan restriction */
 											minDate={
@@ -2219,7 +2228,8 @@ export function AddEditEventDialog({
 										/>
 									)}
 
-								{isFieldVisible("endDate") && (
+								{isFieldVisible("endDate") &&
+									!isEditReadOnlyField("endDate") && (
 									<RHFDateTimeField control={form.control} form={form} name="endDate" label={getFieldLabel("endDate", "End Date")} hideTime={tagConfig.dateOnly}
 										onChange={(date) => {
 											endDateTouchedRef.current = true;
@@ -2595,18 +2605,39 @@ export function AddEditEventDialog({
 								)}
 							</div>
 						)}
-						{isEditing && selectedTag == TAG_IDS.DOCTOR_VISIT_PLAN && showReason && (
+						{/* Visibility follows the persisted forceVisit flag, not just the
+						    distance check that ran this session: a visit saved as a force
+						    visit whose location is missing would otherwise hide a field
+						    that submit now requires. */}
+						{isEditing &&
+							selectedTag == TAG_IDS.DOCTOR_VISIT_PLAN &&
+							(showReason || isForceVisitSelected) && (
 							<div className="mt-2 space-y-1">
 								<FormField
 									control={form.control}
 									name="custom_force_visit_reason"
-									render={({ field }) => (
-										<RHFFieldWrapper label={"Force Visit Reason"}>
-											<Textarea content={field.value} onChange={field.onChange} />
-											{/* <Tiptap
-											content={field.value}
-											onChange={field.onChange}
-										/> */}
+									render={({ field, fieldState }) => (
+										<RHFFieldWrapper
+											label={
+												isForceVisitSelected
+													? "Force Visit Reason *"
+													: "Force Visit Reason"
+											}
+											error={fieldState.error?.message}
+										>
+											{/* `content` is not a textarea prop — it left the field
+											    uncontrolled, so a saved reason never showed on reopen. */}
+											<Textarea
+												value={field.value ?? ""}
+												onChange={field.onChange}
+												placeholder="Why was this visit made outside the doctor's location?"
+											/>
+											{isForceVisitSelected && (
+												<p className="text-xs text-muted-foreground">
+													This visit is outside 500 m of the doctor, so a reason
+													is required.
+												</p>
+											)}
 										</RHFFieldWrapper>
 									)}
 								/>

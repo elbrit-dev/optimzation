@@ -112,11 +112,15 @@ export const TAG_FORM_CONFIG = {
           startOfDay(new Date())
         ),
     },
+    labels: {
+      startDate: "Start Date",
+    },
+    // Only the territory is fixed once the plan exists — both ends of the date
+    // range stay editable, so they are rendered as real date fields instead of
+    // read-only text (which also duplicated the End Date row).
     editReadOnly: {
       fields: [
-        { key: "startDate", label: "Start Date", type: "date" },
-        { key: "endDate", label: "End Date", type: "date" },
-        { key: "hqTerritory", label: "HQTerrioty", type: "hqTerritory" },
+        { key: "hqTerritory", label: "HQ Territory", type: "hqTerritory" },
       ],
     },
     autoTitle: (

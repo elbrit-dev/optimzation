@@ -180,6 +180,23 @@ export const eventSchema = z
       });
     }
 
+    /* ---------------------------------------------
+       DOCTOR VISIT PLAN: FORCE VISIT REASON
+       A visit logged outside the doctor's 500 m radius is a force visit and
+       must explain itself. A normal visit needs no reason.
+    --------------------------------------------- */
+    if (
+      data.tags === TAG_IDS.DOCTOR_VISIT_PLAN &&
+      data.forceVisit === true &&
+      !data.custom_force_visit_reason?.trim()
+    ) {
+      ctx.addIssue({
+        path: ["custom_force_visit_reason"],
+        message: "Force visit reason is required",
+        code: z.ZodIssueCode.custom,
+      });
+    }
+
     if (
       data.tags === TAG_IDS.MEETING &&
       data.allDay &&

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Plus, RotateCw, Search } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@calendar/components/ui/avatar";
 import { Button } from "@calendar/components/ui/button";
@@ -45,9 +45,10 @@ function buildDepartmentMap(elbritRoleEdges = []) {
   return nextMap;
 }
 
-function formatViewingLabel(mode, selectedUsers) {
-  if (mode === "all") return "Everyone";
-  if (selectedUsers.length === 0) return LOGGED_IN_USER.name || "You";
+// An empty selection is the calendar's "no employee filter" state, which shows
+// every calendar the user is allowed to see.
+function formatViewingLabel(selectedUsers) {
+  if (selectedUsers.length === 0) return "Everyone";
   if (selectedUsers.length === 1) return selectedUsers[0].name;
   if (selectedUsers.length === 2) {
     return `${selectedUsers[0].name}, ${selectedUsers[1].name}`;
@@ -73,9 +74,13 @@ export function MobileSchedulerSidebarContent({ open, onClose }) {
 
   const [search, setSearch] = useState("");
   const [departmentFilter, setDepartmentFilter] = useState("all");
+  // Role tab is a list filter only — it never changes who is selected.
   const [activeRoleTab, setActiveRoleTab] = useState("everyone");
-  const [draftMode, setDraftMode] = useState("custom");
+  // Single source of truth for the draft selection. Empty = everyone.
   const [draftSelectedIds, setDraftSelectedIds] = useState([LOGGED_IN_USER.id]);
+  const wasOpenRef = useRef(false);
+  // Once the user has changed the draft, the committed filter must not overwrite it.
+  const hasEditedRef = useRef(false);
 
   const visibleUsers = useMemo(() => {
     if (usersLoading || elbritRoleLoading) return [];
@@ -110,8 +115,13 @@ export function MobileSchedulerSidebarContent({ open, onClose }) {
     return counts;
   }, [enrichedUsers]);
 
+  const selectedIdSet = useMemo(
+    () => new Set(draftSelectedIds),
+    [draftSelectedIds]
+  );
+
   const quickSwitchUsers = useMemo(() => {
-    const selectedSet = new Set(draftSelectedIds);
+    const selectedSet = selectedIdSet;
     const sorted = [...enrichedUsers].sort((left, right) => {
       const leftSelected = selectedSet.has(left.id) ? 1 : 0;
       const rightSelected = selectedSet.has(right.id) ? 1 : 0;
@@ -121,7 +131,7 @@ export function MobileSchedulerSidebarContent({ open, onClose }) {
       return (left.name || "").localeCompare(right.name || "");
     });
     return sorted.slice(0, 5);
-  }, [draftSelectedIds, enrichedUsers]);
+  }, [selectedIdSet, enrichedUsers]);
 
   const filteredUsers = useMemo(() => {
     let nextUsers = enrichedUsers;
@@ -146,95 +156,91 @@ export function MobileSchedulerSidebarContent({ open, onClose }) {
     ));
   }, [activeRoleTab, departmentFilter, enrichedUsers, search]);
 
-  const selectedUsers = useMemo(() => {
-    if (draftMode === "all") return [];
-    const selectedSet = new Set(draftSelectedIds);
-    return enrichedUsers.filter((user) => selectedSet.has(user.id));
-  }, [draftMode, draftSelectedIds, enrichedUsers]);
+  const selectedUsers = useMemo(
+    () => enrichedUsers.filter((user) => selectedIdSet.has(user.id)),
+    [selectedIdSet, enrichedUsers]
+  );
 
+  const allFilteredSelected =
+    filteredUsers.length > 0 &&
+    filteredUsers.every((user) => selectedIdSet.has(user.id));
+
+  // Mirror the committed filter into the draft until the user touches it. The
+  // calendar applies its default filter only once employees finish loading, so
+  // on a slow connection that lands while the sheet is already open — the old
+  // unconditional mirror then wiped whatever had just been tapped.
   useEffect(() => {
-    if (!open) return;
-
-    const nextSelectedIds =
-      Array.isArray(selectedUserId) && selectedUserId.length > 0
-        ? selectedUserId
-        : [];
-
-    if (nextSelectedIds.length === 0) {
-      setDraftMode("all");
-      setDraftSelectedIds([]);
-      setActiveRoleTab("everyone");
-    } else {
-      setDraftMode("custom");
-      setDraftSelectedIds(nextSelectedIds);
-      setActiveRoleTab("everyone");
-    }
-
-    setSearch("");
-    setDepartmentFilter("all");
-  }, [open, selectedUserId]);
-
-  const isUserSelected = (userId) => {
-    if (draftMode === "all") return false;
-    return draftSelectedIds.includes(userId);
-  };
-
-  const selectSingleUser = (userId) => {
-    setDraftMode("custom");
-    setDraftSelectedIds([userId]);
-    setActiveRoleTab("everyone");
-  };
-
-  const toggleUser = (userId) => {
-    if (draftMode === "all") {
-      setDraftMode("custom");
-      setDraftSelectedIds([userId]);
-      setActiveRoleTab("everyone");
+    if (!open) {
+      wasOpenRef.current = false;
+      hasEditedRef.current = false;
       return;
     }
 
-    setDraftSelectedIds((prev) => {
-      let nextIds;
-      if (prev.includes(userId)) {
-        nextIds = prev.filter((id) => id !== userId);
-      } else {
-        nextIds = [...prev, userId];
-      }
-
-      if (nextIds.length === 0) nextIds = [LOGGED_IN_USER.id];
+    if (!wasOpenRef.current) {
+      wasOpenRef.current = true;
       setActiveRoleTab("everyone");
-      return nextIds;
-    });
+      setSearch("");
+      setDepartmentFilter("all");
+    }
+
+    if (hasEditedRef.current) return;
+
+    setDraftSelectedIds(
+      Array.isArray(selectedUserId) ? [...selectedUserId] : []
+    );
+  }, [open, selectedUserId]);
+
+  const isUserSelected = (userId) => selectedIdSet.has(userId);
+
+  const setSelection = (updater) => {
+    hasEditedRef.current = true;
+    setDraftSelectedIds(updater);
+  };
+
+  const selectSingleUser = (userId) => {
+    setSelection([userId]);
+  };
+
+  // Plain add/remove: no silent substitutions, so a tap always does exactly
+  // what it looks like. Deselecting everyone lands on "Everyone" (no filter).
+  const toggleUser = (userId) => {
+    setSelection((prev) =>
+      prev.includes(userId)
+        ? prev.filter((id) => id !== userId)
+        : [...prev, userId]
+    );
   };
 
   const applyRoleTab = (roleCode) => {
     setActiveRoleTab(roleCode);
+  };
 
-    if (roleCode === "everyone") {
-      setDraftMode("all");
-      setDraftSelectedIds([]);
-      return;
-    }
+  const toggleAllFiltered = () => {
+    const filteredIds = filteredUsers.map((user) => user.id);
 
-    const nextIds = enrichedUsers
-      .filter((user) => user.roleCode === roleCode)
-      .map((user) => user.id);
+    setSelection((prev) => {
+      if (allFilteredSelected) {
+        const filteredSet = new Set(filteredIds);
+        return prev.filter((id) => !filteredSet.has(id));
+      }
 
-    setDraftMode("custom");
-    setDraftSelectedIds(nextIds.length ? nextIds : [LOGGED_IN_USER.id]);
+      return [...new Set([...prev, ...filteredIds])];
+    });
+  };
+
+  const handleSelectEveryone = () => {
+    setSelection([]);
   };
 
   const handleReset = () => {
-    setDraftMode("custom");
-    setDraftSelectedIds([LOGGED_IN_USER.id]);
+    setSelection([LOGGED_IN_USER.id]);
     setActiveRoleTab("everyone");
     setSearch("");
     setDepartmentFilter("all");
   };
 
   const handleDone = () => {
-    const nextIds = draftMode === "all" ? [] : draftSelectedIds;
-    filterEventsBySelectedUser(nextIds);
+    filterEventsBySelectedUser(draftSelectedIds);
     onClose?.();
   };
 
@@ -243,8 +249,16 @@ export function MobileSchedulerSidebarContent({ open, onClose }) {
     setMobileLayer(MOBILE_LAYER_MAP[nextView]);
   };
 
-  const viewingLabel = formatViewingLabel(draftMode, selectedUsers);
-  const viewingCount = draftMode === "all" ? enrichedUsers.length : draftSelectedIds.length;
+  const isEveryoneSelected = draftSelectedIds.length === 0;
+  // Selected ids can outrun the loaded employee list, so fall back to a count
+  // instead of reading as "Everyone" while names are still resolving.
+  const viewingLabel =
+    !isEveryoneSelected && selectedUsers.length === 0
+      ? `${draftSelectedIds.length} selected`
+      : formatViewingLabel(selectedUsers);
+  const viewingCount = isEveryoneSelected
+    ? enrichedUsers.length
+    : draftSelectedIds.length;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-white">
@@ -276,13 +290,14 @@ export function MobileSchedulerSidebarContent({ open, onClose }) {
             <p className="text-sm font-medium text-slate-400">Quick switch</p>
             <div className="mt-2 flex gap-2 overflow-x-auto overflow-y-visible px-1 py-1">
               {quickSwitchUsers.map((user) => {
-                const isSelected =
-                  draftMode !== "all" && draftSelectedIds.includes(user.id);
+                const isSelected = isUserSelected(user.id);
 
                 return (
                   <button
                     key={user.id}
                     type="button"
+                    aria-pressed={isSelected}
+                    title={`View only ${user.name}`}
                     onClick={() => selectSingleUser(user.id)}
                     className="flex min-w-[54px] flex-col items-center gap-1"
                   >
@@ -378,9 +393,37 @@ export function MobileSchedulerSidebarContent({ open, onClose }) {
               </Select>
             </div>
 
-            <p className="text-xs leading-5 text-slate-400">
-              Tap a role tab to view that whole group. Tap a person for just them. Use + to compare.
-            </p>
+            {/* Role tabs, search and department only narrow this list; selection
+                changes happen here, so a tap never silently rewrites it. */}
+            <div className="flex items-center justify-between gap-2">
+              <p className="min-w-0 flex-1 text-xs leading-5 text-slate-400">
+                Tap a person to add or remove them. Tabs and search only filter
+                this list.
+              </p>
+
+              <div className="flex shrink-0 items-center gap-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="h-8 rounded-lg px-2 text-xs font-medium text-blue-600 hover:bg-blue-50"
+                  disabled={filteredUsers.length === 0}
+                  onClick={toggleAllFiltered}
+                >
+                  {allFilteredSelected
+                    ? "Deselect all"
+                    : `Select all (${filteredUsers.length})`}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="h-8 rounded-lg px-2 text-xs font-medium text-slate-500"
+                  disabled={isEveryoneSelected}
+                  onClick={handleSelectEveryone}
+                >
+                  Everyone
+                </Button>
+              </div>
+            </div>
           </div>
 
           <div className="space-y-1">
@@ -400,11 +443,15 @@ export function MobileSchedulerSidebarContent({ open, onClose }) {
               const isSelected = isUserSelected(user.id);
 
               return (
-                <div
+                <button
                   key={user.id}
+                  type="button"
+                  role="checkbox"
+                  aria-checked={isSelected}
+                  onClick={() => toggleUser(user.id)}
                   className={cn(
-                    "flex items-center gap-2 rounded-xl px-2 py-1.5 transition",
-                    isSelected && "bg-blue-50"
+                    "flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left transition",
+                    isSelected ? "bg-blue-50" : "hover:bg-slate-50"
                   )}
                 >
                   <Avatar className="size-9">
@@ -427,28 +474,18 @@ export function MobileSchedulerSidebarContent({ open, onClose }) {
                   </div>
 
                   {isSelected ? (
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex shrink-0 items-center gap-1.5">
                       <span className="text-xs font-medium text-blue-600">Viewing</span>
-                      <button
-                        type="button"
-                        onClick={() => toggleUser(user.id)}
-                        className="flex size-7 items-center justify-center rounded-lg bg-white text-slate-500 shadow-sm ring-1 ring-slate-200"
-                        aria-label={`Remove ${user.name}`}
-                      >
-                        <Check className="size-3" />
-                      </button>
+                      <span className="flex size-7 items-center justify-center rounded-lg bg-blue-600 text-white">
+                        <Check className="size-3.5" />
+                      </span>
                     </div>
                   ) : (
-                    <button
-                      type="button"
-                      onClick={() => toggleUser(user.id)}
-                      className="flex size-7 items-center justify-center rounded-lg bg-slate-100 text-slate-500 transition hover:bg-slate-200"
-                      aria-label={`Add ${user.name}`}
-                    >
-                      <Plus className="size-3" />
-                    </button>
+                    <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
+                      <Plus className="size-3.5" />
+                    </span>
                   )}
-                </div>
+                </button>
               );
             })}
           </div>
@@ -460,7 +497,7 @@ export function MobileSchedulerSidebarContent({ open, onClose }) {
           <div className="flex items-center gap-2">
             <Avatar className="size-8">
               <AvatarFallback className="bg-sky-700 text-xs font-semibold text-white">
-                {draftMode === "all" ? "ALL" : getFirstLetters(viewingLabel)}
+                {isEveryoneSelected ? "ALL" : getFirstLetters(viewingLabel)}
               </AvatarFallback>
             </Avatar>
 
@@ -476,9 +513,10 @@ export function MobileSchedulerSidebarContent({ open, onClose }) {
               type="button"
               variant="ghost"
               className="h-7 rounded-lg px-2 text-xs font-medium text-slate-200 hover:bg-slate-800 hover:text-white"
+              title="View only my calendar"
               onClick={handleReset}
             >
-              Reset
+              Just me
             </Button>
             <Button
               type="button"
