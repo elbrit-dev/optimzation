@@ -48,7 +48,7 @@ import TodoComments from "@calendar/components/calendar/module/todo/components/T
 import { ErrorBoundary } from "@calendar/components/ui/error-boundary";
 import { Textarea } from "@calendar/components/ui/textarea";
 import { fetchEmployeeLeaveBalance } from "@calendar/components/calendar/module/leave/services/leave.service";
-import { isLeafRole, resolveLoggedInRoleId, resolveSuperiorShareUserIds } from "@calendar/lib/employeeHeirachy";
+import { isLeafRole, resolveLoggedInRoleId, resolveSuperiorShareUserIds, resolveVisibleRoleIds } from "@calendar/lib/employeeHeirachy";
 import { enqueueSubmission } from "@calendar/lib/calendar/submission-queue";
 import { fetchDocSharesByDocument } from "@calendar/components/calendar/module/event/services/docshare.service";
 import { cn } from "@calendar/lib/utils";
@@ -617,15 +617,30 @@ export function AddEditEventDialog({
 			resolvedLoggedInRoleId
 		).filter((userId) => userId !== LOGGED_IN_USER.email);
 	}, [resolvedLoggedInRoleId, elbritRoleEdges, isEditing, shareUsers]);
-	const currentUserDepartment = useMemo(() => {
-		if (!resolvedLoggedInRoleId) return null;
+	// Departments whose products this user may bill POB against.
+	//
+	// A manager's own role profile has no department: an SM covers several
+	// (SM-Vasco spans Vasco Chennai and Vasco Coimbatore) and ERP's field holds
+	// only one, so it is left empty — which used to leave every SM with an empty
+	// item list. Resolve it down the same role hierarchy the calendar uses for
+	// event visibility and take the union, so a manager gets exactly what their
+	// team carries. A BE is a leaf, so this is just their own department.
+	const currentUserDepartments = useMemo(() => {
+		if (!resolvedLoggedInRoleId) return [];
 
-		return (
-			elbritRoleEdges?.find(
-				({ node }) => node?.role_id === resolvedLoggedInRoleId
-			)?.node?.sales_team__name ?? null
+		const visibleRoleIds = new Set(
+			resolveVisibleRoleIds(elbritRoleEdges, resolvedLoggedInRoleId)
 		);
+		const departments = new Set();
+
+		elbritRoleEdges?.forEach(({ node }) => {
+			if (!node?.role_id || !visibleRoleIds.has(node.role_id)) return;
+			if (node.sales_team__name) departments.add(node.sales_team__name);
+		});
+
+		return [...departments];
 	}, [elbritRoleEdges, resolvedLoggedInRoleId]);
+	const hasResolvedDepartment = currentUserDepartments.length > 0;
 	const isAutoShareableTag = (tag) => tag !== TAG_IDS.LEAVE;
 	const collectManualShareEmails = (values) => {
 		const emails = new Set();
@@ -735,8 +750,8 @@ export function AddEditEventDialog({
 		if (Number(pobGiven) !== 1) return;
 		if (itemOptions.length) return;
 
-		fetchItemsByDepartment(currentUserDepartment).then(setItemOptions);
-	}, [currentUserDepartment, isEditing, itemOptions.length, pobGiven, selectedTag]);
+		fetchItemsByDepartment(currentUserDepartments).then(setItemOptions);
+	}, [currentUserDepartments, isEditing, itemOptions.length, pobGiven, selectedTag]);
 
 	/* ---------------------------------------------
 	  RESET POB ITEMS
@@ -2721,6 +2736,16 @@ export function AddEditEventDialog({
 							canCurrentParticipantEditPob && (
 								<div className="space-y-4">
 									<h4 className="font-medium">POB Details</h4>
+
+									{/* An empty item dropdown is indistinguishable from a broken
+									    search, so name the cause: no department resolved means
+									    nothing can ever match. */}
+									{!hasResolvedDepartment && (
+										<p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+											No product department is mapped to your role profile, so no
+											items can be listed. Ask MIS to map a department to it.
+										</p>
+									)}
 
 									{/* ✅ HEADER (ONLY ONCE)
 									    Column headers only read as headers next to their columns;
