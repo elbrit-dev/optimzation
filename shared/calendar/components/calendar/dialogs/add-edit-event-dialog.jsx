@@ -21,7 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, } from "
 import { RHFFieldWrapper, RHFComboboxField, RHFDateTimeField, InlineCheckboxField, FormFooter, RHFHQCardSelector, } from "@calendar/components/calendar/form-fields";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 import { RHFDoctorCardSelector } from "@calendar/components/RHFDoctorCardSelector";
-import { useDisclosure, useSubmissionRouter } from "@calendar/components/calendar/hooks";
+import { useBackToClose, useDisclosure, useSubmissionRouter } from "@calendar/components/calendar/hooks";
 import { eventSchema } from "@calendar/components/calendar/schemas";
 import { TAG_FORM_CONFIG } from "@calendar/lib/calendar/form-config";
 import { loadParticipantOptionsByTag } from "@calendar/lib/participants";
@@ -93,6 +93,7 @@ export function AddEditEventDialog({
 	const [isResolvingLocation, setIsResolvingLocation] = useState(false);
 	const [distanceKm, setDistanceKm] = useState(null);
 	const endDateTouchedRef = useRef(false); // existing
+	const pobRowsEndRef = useRef(null);
 	const [showReason, setShowReason] = useState(false);
 	const [googleCalendarEnabled, setGoogleCalendarEnabled] = useState(false);
 	const [meetingMode, setMeetingMode] = useState("physical");
@@ -1475,6 +1476,10 @@ export function AddEditEventDialog({
 		}
 		onClose();
 	};
+	// Android back used to unwind the calendar route and dump the user on the
+	// overview page with the form gone; it now closes just this dialog (or the
+	// popover stacked on top of it).
+	useBackToClose(isOpen, () => handleDialogOpenChange(false));
 	const handleDefaultEvent = async (values) => {
 		const shouldSyncGoogleCalendar =
 			values.tags === TAG_IDS.MEETING
@@ -2717,62 +2722,94 @@ export function AddEditEventDialog({
 								<div className="space-y-4">
 									<h4 className="font-medium">POB Details</h4>
 
-									{/* ✅ HEADER (ONLY ONCE) */}
-									<div className="grid grid-cols-[1fr_100px_120px_40px] gap-3 text-sm font-medium text-muted-foreground">
+									{/* ✅ HEADER (ONLY ONCE)
+									    Column headers only read as headers next to their columns;
+									    the row stacks on a phone, so each field carries its own. */}
+									<div className="hidden gap-3 text-sm font-medium text-muted-foreground sm:grid sm:grid-cols-[1fr_100px_120px_40px]">
 										<span>Item</span>
 										<span>Qty</span>
 										<span>Amount</span>
 										<span></span>
 									</div>
 
-									{/* ✅ ROWS */}
+									{/* ✅ ROWS
+									    Four fixed columns need ~330px — more than a phone dialog
+									    has — which squeezed the item picker down to an unusable
+									    sliver. Stacked below sm, original grid from sm up. */}
 									{(pobItems ?? []).map((row, index) => (
 										<div
 											key={index}
-											className="grid grid-cols-[1fr_100px_120px_40px] gap-3 items-end"
+											className="grid grid-cols-1 gap-2 rounded-lg border p-3 sm:grid-cols-[1fr_100px_120px_40px] sm:items-end sm:gap-3 sm:rounded-none sm:border-0 sm:p-0"
 										>
 											{/* Item */}
-											<RHFComboboxField
-												name={`fsl_doctor_item.${index}.item__name`}
-												options={getAvailableItems(
-													itemOptions,
-													pobItems,
-													row.item__name
-												)}
-												tagsDisplay={false}
-												multiple={false}
-												placeholder="Select Item"
-											/>
+											<div className="min-w-0">
+												<span className="mb-1 block text-xs text-muted-foreground sm:hidden">
+													Item
+												</span>
+												<RHFComboboxField
+													name={`fsl_doctor_item.${index}.item__name`}
+													options={getAvailableItems(
+														itemOptions,
+														pobItems,
+														row.item__name
+													)}
+													tagsDisplay={false}
+													multiple={false}
+													placeholder="Select Item"
+													searchPlaceholder="Search item by name or code"
+												/>
+											</div>
 
-											{/* Qty */}
-											<Input
-												type="number"
-												min={1}
-												value={row.qty}
-												onChange={(e) => {
-													const qty = Number(e.target.value);
-													updatePobRow(form, index, { qty });
-												}}
-											/>
+											{/* Qty / Amount / Remove: one row on mobile, three grid
+											    cells from sm up (`contents` drops this wrapper). */}
+											<div className="flex items-end gap-2 sm:contents">
+												<div className="w-20 sm:w-auto">
+													<span className="mb-1 block text-xs text-muted-foreground sm:hidden">
+														Qty
+													</span>
+													<Input
+														type="number"
+														min={1}
+														inputMode="numeric"
+														value={row.qty}
+														onChange={(e) => {
+															// Clearing the field yields NaN, which then fails
+															// validation on a value the user cannot see.
+															const parsed = Number(e.target.value);
+															const qty =
+																Number.isFinite(parsed) && parsed > 0
+																	? parsed
+																	: 1;
+															updatePobRow(form, index, { qty });
+														}}
+													/>
+												</div>
 
-											{/* Amount */}
-											<Input value={row.amount} disabled />
+												<div className="min-w-0 flex-1 sm:w-auto sm:flex-none">
+													<span className="mb-1 block text-xs text-muted-foreground sm:hidden">
+														Amount
+													</span>
+													<Input value={row.amount} disabled />
+												</div>
 
-											{/* Remove */}
-											<Button
-												type="button"
-												variant="ghost"
-												size="icon"
-												onClick={() => {
-													const items = [...form.getValues("fsl_doctor_item")];
-													items.splice(index, 1);
-													form.setValue("fsl_doctor_item", items, {
-														shouldDirty: true,
-													});
-												}}
-											>
-												✕
-											</Button>
+												{/* Remove */}
+												<Button
+													type="button"
+													variant="ghost"
+													size="icon"
+													className="shrink-0"
+													aria-label="Remove item"
+													onClick={() => {
+														const items = [...form.getValues("fsl_doctor_item")];
+														items.splice(index, 1);
+														form.setValue("fsl_doctor_item", items, {
+															shouldDirty: true,
+														});
+													}}
+												>
+													✕
+												</Button>
+											</div>
 										</div>
 									))}
 
@@ -2786,10 +2823,21 @@ export function AddEditEventDialog({
 												[...items, { item__name: "", qty: 1, rate: 0, amount: 0 }],
 												{ shouldDirty: true }
 											);
+
+											// The new row lands at the bottom, exactly where an open
+											// soft keyboard sits: drop the keyboard and scroll the row
+											// into view instead of leaving the user staring at keys.
+											document.activeElement?.blur?.();
+											requestAnimationFrame(() => {
+												pobRowsEndRef.current?.scrollIntoView({
+													block: "nearest",
+												});
+											});
 										}}
 									>
 										+ Add Item
 									</Button>
+									<div ref={pobRowsEndRef} aria-hidden="true" />
 								</div>
 							)}
 						{/* ================= Notes ================= */}
