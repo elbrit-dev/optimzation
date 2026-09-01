@@ -16,6 +16,19 @@ const DEFAULT_VIEW_STATE = {
   columns:       null,  // populated by dataSource result; null = use prop
   columnGroups:  null,  // populated when meta.column_group === true; drives headerColumnGroup
   expandable:    false, // set to true by groupedReportDataSource
+  // Lazily-fetched children, keyed by drillDownKey(row._path):
+  //   { status: 'loading'|'ready'|'error', rows, columns, hasNextPage, page, error }
+  // Kept flat here rather than spliced into rows._children: splicing means an
+  // immutable update through every ancestor on each expand, which churns objects
+  // the table has already memoised. Empty for views without drill-down.
+  drillDown:     {},
+  // Cache key of the request the fetched children belong to. Children survive a
+  // re-render or a cache-hit restore of the same request, and are dropped the
+  // moment it changes.
+  drillDownSignature: null,
+  // Resolved drill-down config for this view plus the full group_by, or null.
+  // Distinct from `drillDown` above, which holds the fetched children.
+  drillDownMeta: null,
   metaTotals:      {},  // column totals from API (field → raw value)
   metaTodayTotals: {},  // today-only totals from API (field → raw value)
   metaCol:         null, // full _meta column object from API
@@ -211,7 +224,7 @@ export function createSmartDataStore() {
       });
     },
 
-    _setResult(viewId, { rows, totalRecords, columns, columnGroups, expandable, allRows, filterDefs, labelColDefs, metaTotals, metaTodayTotals, metaCol }) {
+    _setResult(viewId, { rows, totalRecords, columns, columnGroups, expandable, allRows, filterDefs, labelColDefs, metaTotals, metaTodayTotals, metaCol, drillDownMeta }) {
       set(state => {
         if (!state.views[viewId]) return state; // view unregistered before fetch completed
         return { views: { ...state.views, [viewId]: {
@@ -231,8 +244,58 @@ export function createSmartDataStore() {
             ...(metaTodayTotals !== undefined && { metaTodayTotals }),
             ...(metaCol        !== undefined && { metaCol }),
             expandable: expandable ?? false,
+            drillDownMeta: drillDownMeta ?? null,
           },
         } };
+      });
+    },
+
+    /**
+     * Forget one node entirely, so the next expand re-fetches it.
+     *
+     * Distinct from writing an error status: an aborted fetch is not a failure
+     * the user should see, but the entry cannot be left at 'loading' either --
+     * the table skips any node already present in this map, so a stuck entry is
+     * a branch that spins forever with no way to retry.
+     */
+    _dropDrillDown(viewId, key) {
+      set(state => {
+        const view = state.views[viewId];
+        if (!view || !(key in view.drillDown)) return state;
+        const { [key]: _dropped, ...rest } = view.drillDown;
+        return { views: { ...state.views, [viewId]: { ...view, drillDown: rest } } };
+      });
+    },
+
+    /** Merge one node's drill-down state. */
+    _setDrillDown(viewId, key, patch) {
+      set(state => {
+        const view = state.views[viewId];
+        if (!view) return state;
+        return { views: { ...state.views, [viewId]: {
+          ...view,
+          drillDown: { ...view.drillDown, [key]: { ...view.drillDown[key], ...patch } },
+        } } };
+      });
+    },
+
+    /**
+     * Drop fetched children when the request they hang off has changed.
+     *
+     * Called before every _setResult, including the ones served from the client
+     * cache. Comparing signatures rather than clearing unconditionally means
+     * navigating away and back -- which restores the parent rows from cache --
+     * keeps its expanded children instead of silently re-fetching them, while a
+     * genuine change (date range, filter, sort) still drops them. Without this
+     * the tree can show one request's children under another's parents.
+     */
+    _syncDrillDownSignature(viewId, signature) {
+      set(state => {
+        const view = state.views[viewId];
+        if (!view || view.drillDownSignature === signature) return state;
+        return { views: { ...state.views, [viewId]: {
+          ...view, drillDown: {}, drillDownSignature: signature,
+        } } };
       });
     },
 

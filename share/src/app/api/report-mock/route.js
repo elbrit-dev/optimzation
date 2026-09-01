@@ -2,48 +2,33 @@ import { NextResponse } from 'next/server';
 
 // ─── Column definitions ───────────────────────────────────────────────────────
 
-const META_HQ = {
-  fieldname: '_meta', label: '', fieldtype: 'Data',
-  meta_filter_values: {
-    hq: [
-      { value: 'HQ-Bangalore',  label: 'HQ-Bangalore'  },
-      { value: 'HQ-Hyderabad',  label: 'HQ-Hyderabad'  },
-      { value: 'HQ-Gorakhpur',  label: 'HQ-Gorakhpur'  },
-      { value: 'HQ-Ahmedabad',  label: 'HQ-Ahmedabad'  },
-      { value: 'HQ-Mumbai',     label: 'HQ-Mumbai'     },
-      { value: 'HQ-Pune',       label: 'HQ-Pune'       },
-      { value: 'HQ-Delhi',      label: 'HQ-Delhi'      },
-      { value: 'HQ-Noida',      label: 'HQ-Noida'      },
-      { value: 'HQ-Jaipur',     label: 'HQ-Jaipur'     },
-      { value: 'HQ-Mysore',     label: 'HQ-Mysore'     },
-    ],
-  },
+// Dropdown values per dimension. These used to ride along on the report as
+// _meta.meta_filter_values; the server now returns {} there and serves them from
+// the reportFilterValues query instead, which is what `?dimension=` below emulates.
+const FILTER_VALUES = {
+  hq: [
+    'HQ-Bangalore', 'HQ-Hyderabad', 'HQ-Gorakhpur', 'HQ-Ahmedabad', 'HQ-Mumbai',
+    'HQ-Pune', 'HQ-Delhi', 'HQ-Noida', 'HQ-Jaipur', 'HQ-Mysore',
+  ],
+  brand: ['Cipla', 'Abbott', 'Sun Pharma', 'Micro Labs', 'Lupin'],
+  item: [
+    'Azithromycin 500mg', 'Paracetamol 650mg', 'Thyronorm 100mcg', 'Cremaffin Syrup',
+    'Clopilet 75mg', 'Rosuvas 10mg', 'Telma 40mg', 'Dolo 650 Strip',
+    'Gluconorm G2', 'Tonact 10mg',
+  ],
 };
 
-const META_BRAND = {
-  fieldname: '_meta', label: '', fieldtype: 'Data',
-  meta_filter_values: {
-    brand: [
-      { value: 'Cipla',      label: 'Cipla'      },
-      { value: 'Abbott',     label: 'Abbott'     },
-      { value: 'Sun Pharma', label: 'Sun Pharma' },
-      { value: 'Micro Labs', label: 'Micro Labs' },
-      { value: 'Lupin',      label: 'Lupin'      },
-    ],
-    item: [
-      { value: 'Azithromycin 500mg', label: 'Azithromycin 500mg' },
-      { value: 'Paracetamol 650mg',  label: 'Paracetamol 650mg'  },
-      { value: 'Thyronorm 100mcg',   label: 'Thyronorm 100mcg'   },
-      { value: 'Cremaffin Syrup',    label: 'Cremaffin Syrup'    },
-      { value: 'Clopilet 75mg',      label: 'Clopilet 75mg'      },
-      { value: 'Rosuvas 10mg',       label: 'Rosuvas 10mg'       },
-      { value: 'Telma 40mg',         label: 'Telma 40mg'         },
-      { value: 'Dolo 650 Strip',     label: 'Dolo 650 Strip'     },
-      { value: 'Gluconorm G2',       label: 'Gluconorm G2'       },
-      { value: 'Tonact 10mg',        label: 'Tonact 10mg'        },
-    ],
-  },
+// meta_filter_values is {} on every response now — customReportV2's
+// options.include_filter_values is accepted and ignored. The key stays because
+// clients read _meta by key; the pointer is how an unmigrated one finds the values.
+const EMPTY_FILTER_VALUES = {
+  meta_filter_values: {},
+  meta_filter_values_deprecated:
+    'options.include_filter_values is ignored -- use the reportFilterValues query',
 };
+
+const META_HQ    = { fieldname: '_meta', label: '', fieldtype: 'Data', ...EMPTY_FILTER_VALUES };
+const META_BRAND = { fieldname: '_meta', label: '', fieldtype: 'Data', ...EMPTY_FILTER_VALUES };
 
 // Shared base columns (non-pivot, no tree)
 const COL_LABEL_DEPT   = { fieldname: 'label',          label: 'Department / HQ',  fieldtype: 'Data',     width: 250 };
@@ -229,9 +214,108 @@ const VIEWS = {
 
 const VALID_VIEWS = Object.keys(VIEWS);
 
+/**
+ * Emulates `query ReportFilterValues($input: ReportFilterValuesInput!)`.
+ *   ?dimension=hq[&search=ban][&limit=100][&include_counts=false]
+ * Counts are null when include_counts=false, matching the server: 0 would read as
+ * "no rows matched", the opposite of what a returned value means.
+ */
+function filterValuesResponse(searchParams, dimension) {
+  const all = FILTER_VALUES[dimension];
+  if (!all) {
+    return NextResponse.json(
+      { error: `Unknown dimension "${dimension}". Valid dimensions: ${Object.keys(FILTER_VALUES).join(', ')}` },
+      { status: 400 }
+    );
+  }
+
+  const search        = (searchParams.get('search') ?? '').toLowerCase();
+  const limit         = Number(searchParams.get('limit') ?? 100);
+  const includeCounts = searchParams.get('include_counts') !== 'false';
+
+  const matched = (search ? all.filter(v => v.toLowerCase().includes(search)) : all).slice(0, limit);
+  const values  = matched.map((value, i) => ({
+    value,
+    distinct_count: includeCounts ? matched.length - i : null,
+    line_count:     includeCounts ? (matched.length - i) * 3 : null,
+  }));
+
+  return NextResponse.json({
+    data: {
+      reportFilterValues: {
+        groups: [{
+          dimension: dimension.toUpperCase(),
+          filter_key: dimension,
+          values,
+          limit,
+          // Exactly `limit` values came back, so more may exist behind them.
+          truncated: values.length >= limit,
+          cached: false,
+        }],
+        execution_time: 0.001,
+      },
+    },
+  });
+}
+
+/**
+ * Emulates `query ReportDrillDown($input: ReportDrillDownInput!)`.
+ *   ?view=<v>&parent=<label>[&page=N]
+ * Returns two synthetic children of the named node, so the lazy-expansion path
+ * can be driven without a bench. `has_children` alternates so both the
+ * expandable and the genuine-leaf branches are reachable.
+ */
+function drillDownResponse(searchParams, parent) {
+  const page = Number(searchParams.get('page') ?? 1);
+  const rows = [0, 1].map(i => ({
+    label: `${parent} / child ${(page - 1) * 2 + i + 1}`,
+    indent: 0,
+    level: 0,
+    is_group: false,
+    // Alternating, so a client that trusts this flag is exercised both ways.
+    has_children: i === 0 ? 1 : 0,
+    qty: 100 + i,
+    net_amount: 1000 + i,
+  }));
+
+  return NextResponse.json({
+    data: {
+      reportDrillDown: {
+        report_meta: [{ columns: [
+          {
+            fieldname: '_meta', label: '', fieldtype: 'Data', hidden: 1, width: 0,
+            meta_parent_path: [{ dimension: 'DEPARTMENT', value: parent }],
+            meta_full_group_by: ['DEPARTMENT', 'HQ', 'CUSTOMER'],
+            meta_depth: 1,
+            meta_has_more_levels: true,
+            meta_dropped_metrics: [],
+            meta_pagination: { page, limit: 2, total_roots: 4, total_pages: 2,
+                               has_next: page < 2, has_prev: page > 1,
+                               sort_by: '', sort_order: 'asc' },
+          },
+          { fieldname: 'label',      label: 'HQ',         fieldtype: 'Data',     width: 220 },
+          { fieldname: 'qty',        label: 'Total Qty',  fieldtype: 'Float'    },
+          { fieldname: 'net_amount', label: 'Net Amount', fieldtype: 'Currency' },
+        ] }],
+        edges: rows.map(node => ({ node })),
+        totalCount: rows.length,
+        pageInfo: { hasNextPage: page < 2, hasPreviousPage: page > 1, startCursor: null, endCursor: null },
+      },
+    },
+  });
+}
+
 export function GET(request) {
   const { searchParams } = new URL(request.url);
   const view = searchParams.get('view');
+  const dimension = searchParams.get('dimension');
+
+  // reportFilterValues mode — one dimension's dropdown, independent of any view.
+  if (dimension) return filterValuesResponse(searchParams, dimension);
+
+  // reportDrillDown mode — one node's children.
+  const parent = searchParams.get('parent');
+  if (parent) return drillDownResponse(searchParams, parent);
 
   if (!view || !VIEWS[view]) {
     return NextResponse.json(

@@ -11,6 +11,8 @@ import * as XLSX from 'xlsx';
 import { useSmartDataContext, useSmartDataConfig, useSmartDataStoreApi, useSmartDataSelector } from './SmartDataContext';
 import { INDEX_LOADING_MESSAGE, resolveConfig, isRowClickEnabledAtDepth } from './smartDataTableConfig';
 import { localFilter, localSort } from './tableUtils';
+import { drillDownKey } from './reportSource.jsx';
+import { DrillDownBranch, makeCanExpand } from './drillDownBranch.jsx';
 import { TableSkeleton, LoadingOverlay } from './TableSkeleton';
 import { TextFilter } from './filters/TextFilter';
 import { NumericFilter } from './filters/NumericFilter';
@@ -187,12 +189,25 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
   const cfg = useMemo(() => resolveConfig(commonConfig, perViewConfig), [commonConfig, perViewConfig]);
 
   const { registerView, unregisterView, handleSignal, exportView,
-          registerViewActions, unregisterViewActions, reportConfig } = useSmartDataContext();
+          registerViewActions, unregisterViewActions, reportConfig,
+          fetchDrillDown, cancelDrillDown } = useSmartDataContext();
 
   // Subscribe only to this view's slice — other views changing won't re-render this.
   // Store is provider-scoped: a same-named viewId under a different provider is a different slice.
   const store     = useSmartDataStoreApi();
   const viewState = useSmartDataSelector(state => state.views[viewId]);
+
+  // Null for v1 views and for v2 views that did not opt into drill-down, which
+  // is what keeps every lazy-expansion path below inert for them.
+  const drillDownMeta = viewState?.drillDownMeta ?? null;
+  const drillNodes = viewState?.drillDown ?? {};
+
+  // The inline filter row filters rows already in the browser. Under drill-down
+  // most of the tree is not, so a filter matching only an unfetched descendant
+  // would silently show nothing. The sidebar's filters go to the server and
+  // cover the same ground, so this one is turned off rather than made to lie.
+  const filterRowEnabled = cfg.enableFilterRow !== false && !drillDownMeta;
+
 
   useEffect(() => {
     // Provider pre-registers all views declared in reportConfig.views (including drawers).
@@ -351,7 +366,13 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
   const handleExport = useCallback(async () => {
     if (viewState?.expandable) {
       // Show level picker immediately using already-loaded store rows — fetch happens on confirm.
-      const maxDepth = getMaxDepth(viewState.rows);
+      //
+      // Under drill-down the loaded rows are only the levels the user expanded,
+      // so their depth would understate what the report actually has. The full
+      // group_by is the honest bound, and handleDialogExport fetches to match.
+      const maxDepth = drillDownMeta
+        ? Math.max(0, drillDownMeta.fullGroupBy.length - 1)
+        : getMaxDepth(viewState.rows);
       const allLevels = Array.from({ length: maxDepth + 1 }, (_, i) => i);
       setExportAvailableLevels(allLevels);
       setExportSelectedLevels(allLevels);
@@ -365,17 +386,21 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
         setExporting(false);
       }
     }
-  }, [exportView, viewId, viewState?.expandable, viewState?.rows, doExport]);
+  }, [exportView, viewId, viewState?.expandable, viewState?.rows, doExport, drillDownMeta]);
 
   const handleDialogExport = useCallback(async () => {
     setExportDialogLoading(true);
     try {
-      const allRows = await exportView(viewId);
+      // fullDepth re-runs the request without the drill-down truncation. That is
+      // the slow eager call this feature exists to avoid on render -- but an
+      // export of the expanded rows only, with no indication that the rest is
+      // missing, is worse than a slow one.
+      const allRows = await exportView(viewId, { fullDepth: !!drillDownMeta });
       if (allRows?.length) doExport(allRows, exportSelectedLevels);
     } finally {
       setExportDialogLoading(false);
     }
-  }, [exportView, viewId, exportSelectedLevels, doExport]);
+  }, [exportView, viewId, exportSelectedLevels, doExport, drillDownMeta]);
 
   useEffect(() => {
     registerViewActions(viewId, {
@@ -499,7 +524,7 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
   const columnElements = useMemo(() => {
     if (!visibleColumns?.length) return null;
     const hasGroupedHeader = !!columnGroups?.length;
-    const filtersEnabled = cfg.enableFilterRow !== false;
+    const filtersEnabled = filterRowEnabled;
     const totalsEnabled = cfg.enableTotalRow === true;
     const labelField = findLabelField(visibleColumns);
 
@@ -539,20 +564,86 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
     });
     // viewState?.filters intentionally in deps so filter elements reflect active values
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibleColumns, columnGroups, viewState?.filters, onFilter, freezeFirstColumn, rowClickEnabled, cfg.enableFilterRow, cfg.enableTotalRow, cfg.enableSort, cfg.filterDebounceText, cfg.filterDebounceNumeric]);
+  }, [visibleColumns, columnGroups, viewState?.filters, onFilter, freezeFirstColumn, rowClickEnabled, filterRowEnabled, cfg.enableTotalRow, cfg.enableSort, cfg.filterDebounceText, cfg.filterDebounceNumeric]);
 
   // ── Row expansion (set by groupedReportDataSource via expandable: true) ──────
   const [expandedRows, setExpandedRows] = useState(null);
   const expandable = viewState?.expandable ?? false;
 
-  const rowExpansionTemplate = useCallback((rowData) => {
-    if (!rowData._children?.length) return null;
-    return (
-      <div className="px-6 py-2 bg-gray-50">
-        <InnerDataTable rows={rowData._children} columns={visibleColumns} columnGroups={columnGroups} labelColDefs={labelColDefs} depth={1} onSignal={onSignal} rowClickLevels={effectiveRowClickLevels} _parent={{ data: (({ _children, ...rest }) => rest)(rowData), _parent: null }} />
-      </div>
-    );
-  }, [visibleColumns, columnGroups, labelColDefs, onSignal, effectiveRowClickLevels]);
+  const expandNode = useCallback((rowData) => {
+    if (rowData?._path?.length) fetchDrillDown(viewId, rowData._path);
+  }, [fetchDrillDown, viewId]);
+
+  // Built per table, not shared. Each nested table reports only its own expanded
+  // set, so one shared map would be overwritten by whichever table toggled last
+  // -- making every other table's open rows look collapsed and aborting their
+  // in-flight fetches.
+  const makeToggleHandler = useCallback((onExpandRow) => {
+    const openPaths = new Map();
+    return (data) => {
+      const next = new Map();
+      for (const row of (Array.isArray(data) ? data : [])) {
+        if (!row?._path?.length) continue;
+        next.set(drillDownKey(row._path), row._path);
+        onExpandRow(row);
+      }
+      for (const [pathKey, rowPath] of openPaths) {
+        if (!next.has(pathKey)) cancelDrillDown(viewId, rowPath);
+      }
+      openPaths.clear();
+      for (const [pathKey, rowPath] of next) openPaths.set(pathKey, rowPath);
+    };
+  }, [cancelDrillDown, viewId]);
+
+  const loadMoreNode = useCallback((rowData) => {
+    if (!rowData?._path?.length) return;
+    const node = drillNodes[drillDownKey(rowData._path)];
+    fetchDrillDown(viewId, rowData._path, { page: (node?.page ?? 1) + 1 });
+  }, [drillNodes, fetchDrillDown, viewId]);
+
+  const expandIfNeeded = useCallback((row) => {
+    if (row._children?.length) return;
+    // Already fetched, in flight, or failed -- a failed node offers a retry
+    // rather than re-firing on every toggle of a sibling.
+    if (drillNodes[drillDownKey(row._path)]) return;
+    expandNode(row);
+  }, [drillNodes, expandNode]);
+
+  // The root table's own handler. Nested tables each build their own via
+  // drill.makeToggleHandler, so their expanded sets stay independent.
+  const onDrillToggle = useMemo(
+    () => (drillDownMeta ? makeToggleHandler(expandIfNeeded) : () => {}),
+    [drillDownMeta, makeToggleHandler, expandIfNeeded],
+  );
+
+  const drill = useMemo(
+    () => drillDownMeta && {
+      fullGroupBy: drillDownMeta.fullGroupBy ?? [],
+      nodes: drillNodes,
+      onExpand: expandNode,
+      onLoadMore: loadMoreNode,
+      onToggle: onDrillToggle,
+      // Nested tables call this once to get their own handler, so collapsing a
+      // row in one table never looks like a collapse in another.
+      makeToggleHandler: () => makeToggleHandler(expandIfNeeded),
+    },
+    [drillDownMeta, drillNodes, expandNode, loadMoreNode, onDrillToggle,
+     makeToggleHandler, expandIfNeeded],
+  );
+
+  const canExpand = useMemo(() => makeCanExpand(drill), [drill]);
+
+  const rowExpansionTemplate = useCallback((rowData) => (
+    <DrillDownBranch
+      rowData={rowData}
+      drill={drill}
+      renderChildren={childRows => (
+        <div className="px-6 py-2 bg-gray-50">
+          <InnerDataTable rows={childRows} columns={visibleColumns} columnGroups={columnGroups} labelColDefs={labelColDefs} depth={1} onSignal={onSignal} rowClickLevels={effectiveRowClickLevels} _parent={{ data: (({ _children, ...rest }) => rest)(rowData), _parent: null }} drill={drill} />
+        </div>
+      )}
+    />
+  ), [visibleColumns, columnGroups, labelColDefs, onSignal, effectiveRowClickLevels, drill]);
 
   // ── Column group header (built when meta.column_group === true) ────────────
   // Uses visibleColumns so hidden columns are excluded from the group header too.
@@ -561,7 +652,7 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
     const colByField = Object.fromEntries(visibleColumns.map(c => [c.field, c]));
     const filters = viewState?.filters ?? {};
     const visibleFields = new Set(visibleColumns.map(c => c.field));
-    const filtersEnabled = cfg.enableFilterRow !== false;
+    const filtersEnabled = filterRowEnabled;
     const rowSpan = filtersEnabled ? 3 : 2;
 
     return (
@@ -600,7 +691,7 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
         )}
       </ColumnGroup>
     );
-  }, [columnGroups, visibleColumns, expandable, freezeFirstColumn, viewState?.filters, onFilter, cfg.enableFilterRow, cfg.filterDebounceText, cfg.filterDebounceNumeric]);
+  }, [columnGroups, visibleColumns, expandable, freezeFirstColumn, viewState?.filters, onFilter, filterRowEnabled, cfg.filterDebounceText, cfg.filterDebounceNumeric]);
 
   const onRowClick = useCallback(
     e => onSignal({ type: 'rowClick', payload: { depth: 0, event: { ...e, data: { ...(({ _children, ...rest }) => rest)(e.data), _parent: null } } } }),
@@ -644,7 +735,7 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
     multiSortMeta: Object.entries(viewState?.sortBy ?? {}).map(([field, direction]) => ({ field, order: direction === 'asc' ? 1 : -1 })),
     onSort,
     removableSort: cfg.enableRemovableSort,
-    ...(cfg.enableFilterRow !== false && { filterDisplay: 'row' }),
+    ...(filterRowEnabled && { filterDisplay: 'row' }),
     paginator: cfg.enablePaginator,
     lazy: true,
     first,
@@ -663,7 +754,7 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
     ...(headerColumnGroup && { headerColumnGroup }),
     ...(expandable && {
       expandedRows,
-      onRowToggle: e => setExpandedRows(e.data),
+      onRowToggle: e => { setExpandedRows(e.data); onDrillToggle(e.data); },
       rowExpansionTemplate,
     }),
     ...(rowClickEnabled && { onRowClick, selectionMode: 'single' }),
@@ -677,7 +768,7 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
         {...sharedTableProps}
         scrollHeight={cfg.scrollHeight}
       >
-        {expandable && <Column expander style={{ width: '3rem' }} />}
+        {expandable && <Column expander={canExpand} style={{ width: '3rem' }} />}
         {columnElements}
       </DataTable>
 
@@ -714,7 +805,7 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
               scrollHeight="flex"
               style={{ height: '100%' }}
             >
-              {expandable && <Column expander style={{ width: '3rem' }} />}
+              {expandable && <Column expander={canExpand} style={{ width: '3rem' }} />}
               {columnElements}
             </DataTable>
           </div>
@@ -754,6 +845,15 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
         <p className="mb-3 text-sm text-gray-600">
           Select which levels to export. Each selected level becomes a separate sheet in the Excel file.
         </p>
+        {drillDownMeta && (
+          // The table only holds the levels the user expanded, so exporting what
+          // is on screen would quietly omit the rest. This re-fetches the whole
+          // tree in one request -- correct, and slow enough to warn about.
+          <p className="mb-3 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+            This report loads rows as you expand them, so exporting fetches the full
+            tree first. It can take a minute or more for a wide date range.
+          </p>
+        )}
         <div className="flex flex-col gap-2">
           {exportAvailableLevels.map((i) => (
             <label key={i} className="flex items-center gap-2 cursor-pointer text-sm">
@@ -780,7 +880,7 @@ export const SmartDataTable = memo(SmartDataTableInner);
 
 // ─── Inner expansion table ───────────────────────────────────────────────────
 
-function InnerDataTable({ rows, columns, columnGroups, labelColDefs = [], depth = 0, onSignal, rowClickLevels, _parent = null }) {
+function InnerDataTable({ rows, columns, columnGroups, labelColDefs = [], depth = 0, onSignal, rowClickLevels, _parent = null, drill = null }) {
   const [filters, setFilters] = useState({});
   const [sortMeta, setSortMeta] = useState([]);
   const [expandedRows, setExpandedRows] = useState(null);
@@ -800,16 +900,33 @@ function InnerDataTable({ rows, columns, columnGroups, labelColDefs = [], depth 
     [rows, filters, sortMeta]
   );
 
-  const expandable = useMemo(() => rows.some(r => r._children?.length), [rows]);
+  // Under drill-down no row has fetched children yet, so the usual test is
+  // false and the expander column would never render.
+  const expandable = useMemo(
+    () => !!drill || rows.some(r => r._children?.length),
+    [drill, rows],
+  );
+  const canExpand = useMemo(() => makeCanExpand(drill), [drill]);
 
-  const rowExpansionTemplate = useCallback((rowData) => {
-    if (!rowData._children?.length) return null;
-    return (
-      <div className="px-6 py-2 bg-gray-50">
-        <InnerDataTable rows={rowData._children} columns={columns} columnGroups={columnGroups} labelColDefs={labelColDefs} depth={depth + 1} onSignal={onSignal} rowClickLevels={rowClickLevels} _parent={{ data: (({ _children, ...rest }) => rest)(rowData), _parent }} />
-      </div>
-    );
-  }, [columns, columnGroups, labelColDefs, depth, onSignal, rowClickLevels, _parent]);
+  const rowExpansionTemplate = useCallback((rowData) => (
+    <DrillDownBranch
+      rowData={rowData}
+      drill={drill}
+      renderChildren={childRows => (
+        <div className="px-6 py-2 bg-gray-50">
+          <InnerDataTable rows={childRows} columns={columns} columnGroups={columnGroups} labelColDefs={labelColDefs} depth={depth + 1} onSignal={onSignal} rowClickLevels={rowClickLevels} _parent={{ data: (({ _children, ...rest }) => rest)(rowData), _parent }} drill={drill} />
+        </div>
+      )}
+    />
+  ), [columns, columnGroups, labelColDefs, depth, onSignal, rowClickLevels, _parent, drill]);
+
+  // One handler per table instance, holding this table's own open-row set.
+  const toggleDrill = useMemo(() => drill?.makeToggleHandler?.() ?? null, [drill]);
+
+  const onRowToggle = useCallback((e) => {
+    setExpandedRows(e.data);
+    toggleDrill?.(e.data);
+  }, [toggleDrill]);
 
   const rowClickEnabled = !!onSignal && isRowClickEnabledAtDepth(rowClickLevels, depth);
 
@@ -908,7 +1025,7 @@ function InnerDataTable({ rows, columns, columnGroups, labelColDefs = [], depth 
       filterDisplay="row"
       {...(expandable && {
         expandedRows,
-        onRowToggle: e => setExpandedRows(e.data),
+        onRowToggle,
         rowExpansionTemplate,
       })}
       {...(headerColumnGroup && { headerColumnGroup })}
@@ -917,7 +1034,7 @@ function InnerDataTable({ rows, columns, columnGroups, labelColDefs = [], depth 
         selectionMode: 'single',
       })}
     >
-      {expandable && <Column expander style={{ width: '3rem' }} />}
+      {expandable && <Column expander={canExpand} style={{ width: '3rem' }} />}
       {columnElements}
     </DataTable>
   );

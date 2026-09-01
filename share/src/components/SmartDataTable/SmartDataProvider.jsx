@@ -6,7 +6,11 @@ import { DataProvider as PlasmicDataProvider } from '@plasmicapp/loader-nextjs';
 import { useStore } from 'zustand';
 import { SmartDataContext, SmartDataConfigContext } from './SmartDataContext';
 import { createSmartDataStore, registerStoreInstance } from './useSmartDataStore';
-import { graphqlQueryReportDataSource, resolveIndexGqlVars } from './reportSource.jsx';
+import {
+  graphqlQueryReportDataSource, graphqlFetchReportFilterValues, resolveIndexGqlVars,
+  resolveDrillDown, graphqlFetchDrillDown, drillDownKey, resolveVariablesMap,
+  samePathValues,
+} from './reportSource.jsx';
 import { fetchElbritFilterValues, resolveControlDateRange } from './elbritFilterApi.js';
 import { buildViewDataState } from './viewContextHelpers';
 import { loadReportConfig } from '@/app/report-table/config/reportConfigService';
@@ -204,10 +208,51 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
   // Per-view generation counter — bumped on every data fetch to discard stale responses.
   const fetchGenRef    = useRef({});
 
-  // Cache of _meta.meta_filter_values from the most recent fetch.
-  const filterValuesCacheRef = useRef({});
-  // Raw API config stored so fetchFilterValues can call the customFilter API on search.
+  // Raw API config stored so fetchFilterValues can reach the right filter-values API.
   const rawApiConfigRef = useRef(null);
+  // In-flight drill-down fetches, viewId -> Map(pathKey -> AbortController).
+  // Nested by view so a parent re-fetch can abort that view's expands without
+  // touching another's.
+  // Collapsing a row aborts its fetch, so a user opening and closing rows quickly
+  // does not leave a queue of expands nobody is waiting for.
+  const drillControllersRef = useRef({});
+  // Number of drill-down fetches currently on the wire, and the waiters queued
+  // behind the cap. Each expand is a multi-second query; a user opening ten rows
+  // in a row would otherwise fire ten at once and slow all of them down.
+  const drillInFlightRef = useRef(0);
+  const drillQueueRef = useRef([]);
+
+  const viewControllers = useCallback((viewId) => {
+    const existing = drillControllersRef.current[viewId];
+    if (existing) return existing;
+    const created = new Map();
+    drillControllersRef.current[viewId] = created;
+    return created;
+  }, []);
+
+  /** Abort an in-flight expand, e.g. because the row was collapsed. */
+  const cancelDrillDown = useCallback((viewId, path) => {
+    if (!path?.length) return;
+    const key = drillDownKey(path);
+    const controllers = drillControllersRef.current[viewId];
+    controllers?.get(key)?.abort();
+    controllers?.delete(key);
+  }, []);
+
+  /**
+   * Abort every in-flight expand for a view.
+   *
+   * Called whenever the parent request is re-run. Without it a fetch already on
+   * the wire lands after _syncDrillDownSignature has cleared the map and writes
+   * the previous request's children back into it -- reintroducing exactly the
+   * mixed-result-set state that mechanism exists to prevent.
+   */
+  const abortViewDrillDowns = useCallback((viewId) => {
+    const controllers = drillControllersRef.current[viewId];
+    if (!controllers) return;
+    for (const controller of controllers.values()) controller.abort();
+    controllers.clear();
+  }, []);
   useEffect(() => {
     if (reportConfig?.api?.urlKey) refreshGlobalTokenRows();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -250,8 +295,14 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
         logSmartDataEvent('debug', 'fetch', 'fetch:stale-discarded', { viewId });
         return;
       }
-      if (result.filterValues) filterValuesCacheRef.current = result.filterValues;
       cache.current.set(cacheKey, result);
+      // The children were fetched against the previous request. Anything that
+      // re-runs the parent -- a date change, a filter, an explicit refresh --
+      // invalidates them, and leaving them would mix two result sets in one tree.
+      // Aborting first stops a fetch already on the wire from writing the old
+      // request's children back in after the map is cleared.
+      abortViewDrillDowns(viewId);
+      state._syncDrillDownSignature(viewId, cacheKey);
       state._setResult(viewId, result);
       setLastFetchedAt(new Date());
       logSmartDataEvent('info', 'fetch', 'fetch:success', {
@@ -284,6 +335,7 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
       if (!bypassCache) {
         const cached = cache.current.get(cacheKey);
         if (cached) {
+          state._syncDrillDownSignature(viewId, cacheKey);
           state._setResult(viewId, cached);
           logSmartDataEvent('debug', 'fetch', 'cache:hit', { viewId });
           continue;
@@ -308,7 +360,10 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
               const stored = viewIndexRef.current[viewId];
               if (indexValue != null && stored?.key === cacheKey && stored?.value === indexValue) {
                 const cached = cache.current.get(cacheKey);
-                if (cached) state._setResult(viewId, cached);
+                if (cached) {
+                  state._syncDrillDownSignature(viewId, cacheKey);
+                  state._setResult(viewId, cached);
+                }
                 else state._setLoading(viewId, false);
                 logSmartDataEvent('debug', 'index-check', 'index:unchanged-skipped', { viewId });
                 return false;
@@ -355,8 +410,15 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
     const viewIds = Object.keys(viewDataSources.current);
     logSmartDataEvent('info', 'refresh', 'refresh:triggered', { viewIds });
     cache.current.clear();
+    // Explicitly, because signature-based invalidation cannot see this: refresh
+    // re-runs the same request, so the cache key is unchanged and the fetched
+    // children would survive a refresh whose whole purpose is to discard them.
+    for (const viewId of viewIds) {
+      abortViewDrillDowns(viewId);
+      store.getState()._syncDrillDownSignature(viewId, null);
+    }
     await flushViewPipelineBatch(viewIds, { bypassCache: true, refreshGate: true });
-  }, [flushViewPipelineBatch]);
+  }, [flushViewPipelineBatch, abortViewDrillDowns, store]);
 
   // Stores resolved api vars + creates a dataSource instance for a view.
   // Called whenever a view's api config is known or updated (register, openDrawer).
@@ -494,11 +556,24 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
     logSmartDataEvent('info', 'drawer', 'drawer:closed', {});
   }, []);
 
-  const exportView = useCallback(async (viewId) => {
+  /**
+   * Every row of a view, for export.
+   *
+   * `fullDepth` matters only for drill-down views. Their own data source asks for
+   * a truncated group_by, so re-running it would export the shallow tree and
+   * silently omit every level the user had not expanded. This builds a one-off
+   * source with the gate removed, which is the eager full-depth call the
+   * drill-down split exists to avoid -- correct for an export, and slow on
+   * purpose. The caller is expected to have warned the user.
+   */
+  const exportView = useCallback(async (viewId, { fullDepth = false } = {}) => {
     const view = store.getState().views[viewId];
-    const ds   = viewDataSources.current[viewId] ?? providerDataSource;
+    const resolvedApi = viewResolvedApiRef.current[viewId];
+    const ds = (fullDepth && resolveDrillDown(resolvedApi))
+      ? graphqlQueryReportDataSource({ ...resolvedApi, drillDown: undefined })
+      : (viewDataSources.current[viewId] ?? providerDataSource);
     if (!ds || !view) return [];
-    logSmartDataEvent('info', 'export', 'export:start', { viewId });
+    logSmartDataEvent('info', 'export', 'export:start', { viewId, fullDepth });
     try {
       const result = await Promise.resolve(
         ds({
@@ -532,9 +607,13 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
   }, [reportConfig]);
 
   /**
-   * Serves paginated filter values for a sidebar dimension.
-   * No search: fast path from the static _meta cache populated on report fetch.
-   * With search: live customFilter GraphQL call (server-side search + cascade filtering).
+   * Serves paginated filter values for a sidebar dimension, with server-side search
+   * and cascade filtering.
+   *
+   * v2 views use the reportFilterValues GraphQL query; v1 views keep the
+   * elbrit_sales_filter_api REST endpoint. The split exists because customReportV2
+   * no longer returns dropdown values inline — options.include_filter_values is
+   * deprecated and ignored — so on v2 this call is the only source of them.
    */
   const fetchFilterValues = useCallback(async (key, { page = 1, pageLength = 20, search = '', currentFilters = {} } = {}) => {
     const viewId = Object.entries(reportConfig?.views ?? {})
@@ -542,12 +621,156 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
       ?? Object.keys(store.getState().views)[0];
     const controls = store.getState().views[viewId]?.viewParams?._controls ?? {};
     const dateRange = resolveControlDateRange(controls);
-    const result = await fetchElbritFilterValues(rawApiConfigRef.current, key, { page, pageLength, search, currentFilters, dateRange });
+    // Per view, not rawApiConfigRef: that holds only the first non-drawer view,
+    // so a report mixing v1 and v2 views would send one view's setting for
+    // another -- and a v2 view routed to the v1 REST API returns nothing, since
+    // v2 stopped populating meta_filter_values.
+    const apiConfig = viewResolvedApiRef.current[viewId] ?? rawApiConfigRef.current;
+    const opts = { page, pageLength, search, currentFilters, dateRange };
+    const result = apiConfig?.reportApiVersion === 'v2'
+      ? await graphqlFetchReportFilterValues(apiConfig, key, opts)
+      : await fetchElbritFilterValues(apiConfig, key, opts);
     logSmartDataEvent('debug', 'filter-search', 'filter-search:result', {
       key, search, resultCount: result?.items?.length ?? 0,
     });
     return result;
   }, [reportConfig, store]);
+
+  // At most this many expands on the wire at once. Each is a multi-second query,
+  // and running them three-wide finishes a burst sooner than running ten.
+  const DRILL_CONCURRENCY = 3;
+
+  const drillSlot = useCallback(() => {
+    if (drillInFlightRef.current < DRILL_CONCURRENCY) {
+      drillInFlightRef.current += 1;
+      return Promise.resolve();
+    }
+    return new Promise(resolve => { drillQueueRef.current.push(resolve); });
+  }, []);
+
+  const drillRelease = useCallback(() => {
+    const next = drillQueueRef.current.shift();
+    if (next) next();
+    else drillInFlightRef.current = Math.max(0, drillInFlightRef.current - 1);
+  }, []);
+
+  /**
+   * Fetch one node's children and record them on the view.
+   *
+   * v2-only, gated per view: reportApiVersion can be overridden inside
+   * views.<id>.api, so this reads viewResolvedApiRef rather than rawApiConfigRef
+   * (which holds only the first non-drawer view and would apply one view's
+   * setting to another).
+   *
+   * Errors are recorded on the node rather than thrown -- callers are render-path
+   * expand handlers, and one failed branch must not take down the tree.
+   *
+   * `page` above 1 appends to the node's existing rows rather than replacing
+   * them, which is what makes a "load more" affordance work.
+   */
+  const fetchDrillDown = useCallback(async (viewId, path, { page = 1 } = {}) => {
+    const resolvedApi = viewResolvedApiRef.current[viewId];
+    const drillDown = resolveDrillDown(resolvedApi);
+    if (!drillDown || !path?.length) return null;
+
+    const key = drillDownKey(path);
+    const view = store.getState().views[viewId];
+    if (!view) return null;
+
+    // The request these children belong to. If the parent is re-fetched while
+    // this is in flight the signature moves, and the result describes a result
+    // set that is no longer on screen.
+    const signature = view.drillDownSignature;
+
+    // A second expand of the same node supersedes the first.
+    const controllers = viewControllers(viewId);
+    controllers.get(key)?.abort();
+    const controller = new AbortController();
+    controllers.set(key, controller);
+
+    store.getState()._setDrillDown(viewId, key, {
+      status: page > 1 ? 'loadingMore' : 'loading', error: null,
+    });
+
+    // Re-resolved rather than stashed from the top-level fetch, so the children
+    // are scoped by exactly the date range and filters the parent was.
+    const gqlVars = resolveVariablesMap(resolvedApi.variables ?? {}, resolvedApi.variablesMap, {
+      controls: view.viewParams?._controls ?? {},
+      sortBy: view.sortBy,
+      pagination: view.pagination ?? { first: 0, rows: 50 },
+      viewParams: view.viewParams ?? {},
+    });
+
+    await drillSlot();
+    if (controller.signal.aborted) { drillRelease(); return null; }
+
+    try {
+      const result = await graphqlFetchDrillDown(resolvedApi, gqlVars, path, {
+        depth: 1,
+        includeChildCounts: drillDown.includeChildCounts,
+        page,
+        signal: controller.signal,
+      });
+
+      // The server echoes back the node it answered for. A response that does
+      // not match the node we asked about must be dropped rather than spliced
+      // under the wrong row -- the failure mode is plausible-looking wrong data,
+      // which is worse than an error.
+      if (result.parentPath && !samePathValues(result.parentPath, path)) {
+        logSmartDataEvent('warn', 'drill-down', 'drill-down:path-mismatch', {
+          viewId,
+          expected: path.map(p => p.value).join(' / '),
+          received: result.parentPath.map(p => p.value).join(' / '),
+        });
+        // Terminal, not silent: leaving it at 'loading' spins forever with no
+        // retry. A client/server disagreement is worth surfacing.
+        store.getState()._setDrillDown(viewId, key, {
+          status: 'error',
+          error: { message: 'Received rows for a different row; please retry.' },
+        });
+        return null;
+      }
+
+      // The parent was re-fetched while this was in flight, so these children
+      // belong to a result set that is no longer displayed. Drop the node so a
+      // later expand fetches against the current request instead.
+      if (store.getState().views[viewId]?.drillDownSignature !== signature) {
+        logSmartDataEvent('debug', 'drill-down', 'drill-down:stale-discarded', {
+          viewId, path: path.map(p => p.value).join(' / '),
+        });
+        store.getState()._dropDrillDown(viewId, key);
+        return null;
+      }
+
+      const existing = store.getState().views[viewId]?.drillDown?.[key];
+      store.getState()._setDrillDown(viewId, key, {
+        ...result,
+        status: 'ready',
+        rows: page > 1 ? [...(existing?.rows ?? []), ...result.rows] : result.rows,
+      });
+      logSmartDataEvent('debug', 'drill-down', 'drill-down:result', {
+        viewId, path: path.map(p => p.value).join(' / '), page, rows: result.rows.length,
+      });
+      return result;
+    } catch (error) {
+      // An aborted fetch is a collapsed row, not a failure, so it must not leave
+      // an error behind -- and it must not leave the 'loading' entry either. The
+      // table skips any node already in this map, so a stuck entry is a branch
+      // that spins forever with no way to retry. Forgetting it restores both.
+      if (error?.name === 'AbortError') {
+        store.getState()._dropDrillDown(viewId, key);
+        return null;
+      }
+      store.getState()._setDrillDown(viewId, key, { status: 'error', error });
+      logSmartDataEvent('error', 'drill-down', 'drill-down:error', {
+        viewId, path: path.map(p => p.value).join(' / '), message: error?.message,
+      });
+      return null;
+    } finally {
+      drillRelease();
+      if (controllers.get(key) === controller) controllers.delete(key);
+    }
+  }, [store, drillSlot, drillRelease, viewControllers]);
 
   const handleSignal = useCallback((viewId, signal) => {
     const s = store.getState();
@@ -661,6 +884,8 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
         lastFetchedAt,
         registerPipelineWatcher, unregisterPipelineWatcher,
         fetchFilterValues,
+        fetchDrillDown,
+        cancelDrillDown,
         resolveView,
         openDrawerView, closeDrawerView,
         registerViewActions, unregisterViewActions,

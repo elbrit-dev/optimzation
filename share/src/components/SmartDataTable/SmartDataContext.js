@@ -13,11 +13,19 @@ export const SmartDataConfigContext = createContext(resolveConfig());
 /**
  * Returns { providerDataSource, registerView, unregisterView, handleSignal, setViewParam,
  *           exportView, refresh, lastFetchedAt, registerPipelineWatcher, unregisterPipelineWatcher,
- *           fetchFilterValues }
+ *           fetchFilterValues, fetchDrillDown }
  * from the nearest SmartDataProvider.
  *
- * fetchFilterValues(key, { page, pageLength, search }) → Promise<Array<{ value, label }>>
- *   Fetches paginated filter values from /api/method/report-filter for use in FilterSortSidebar.
+ * fetchFilterValues(key, { page, pageLength, search, currentFilters })
+ *   → Promise<{ items: Array<{ value, label, count }>, hasMore: boolean }>
+ *   Paginated dropdown values for one dimension, for FilterSortSidebar. v2 views go to
+ *   the reportFilterValues GraphQL query, v1 views to elbrit_sales_filter_api.
+ *
+ * fetchDrillDown(viewId, path, { page, signal })
+ *   → Promise<{ rows, columns, hasNextPage, parentPath } | null>
+ *   Fetches one node's children and records them on the view's `drillDown` slice.
+ *   Returns null (without throwing) when the view is not a v2 drill-down view, when
+ *   the fetch was aborted, or on error — errors are recorded on the node instead.
  */
 export function useSmartDataContext() {
   const ctx = useContext(SmartDataContext);
