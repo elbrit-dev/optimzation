@@ -11,6 +11,7 @@ import FirebaseUIComponent from "./components/FirebaseUIComponent";
 import LoginHelpForm from "./components/LoginHelpForm";
 import HelpSupport from "./components/features/help-support";
 import CalendarPage from "@calendar/components/CalendarPage";
+import { TAGS, TAG_IDS, EVENT_TYPE_MODES } from "@calendar/components/calendar/constants";
 import NovuInbox from "./components/NovuInbox";
 import PushNotificationToggle from "./components/PushNotificationToggle";
 import NetworkBanner from "./components/NetworkBanner";
