@@ -217,7 +217,11 @@ export function mapDoctors(data) {
       custom_longitude: node.custom_longitude ?? null,
       city: node.city,
       code: node.name,
-      fsl_speciality__name: node.custom_speciality,
+      // ERP stores this on `custom_specialty` (no "i"); the identically named
+      // `custom_speciality` field also exists but is empty, so reading it left
+      // every doctor with no specialty and the specialty filter nearly empty.
+      fsl_speciality__name:
+        node.custom_specialty ?? node.custom_speciality ?? null,
       email: node.email_id,
       fsl_category1__name: node.custom_category1__name,
       fsl_category2__name: node.custom_category2__name,

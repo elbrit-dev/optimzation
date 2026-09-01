@@ -1858,6 +1858,7 @@ PLASMIC.registerComponent(DoctorCard, {
         lead_name: "Dr Shanmugam",
         custom_specialty__name: "NEURO",
         custom_category1__name: "C",
+        city: "Trichy",
         territory: { name: "HQ-Trichy" },
         custom_role_profile: [
           { department__name: "Vasco Coimbatore - ELPL" },
@@ -1883,7 +1884,12 @@ PLASMIC.registerComponent(DoctorCard, {
     hqField: {
       type: "string",
       defaultValue: "territory",
-      description: "Column holding the HQ shown next to the pin. Reads the nested Link ({ territory: { name } }) or the flattened territory__name, then custom_hq__name, then city.",
+      description: "Column holding the HQ shown next to the pin. Reads the nested Link ({ territory: { name } }) or the flattened territory__name, then custom_hq__name.",
+    },
+    cityField: {
+      type: "string",
+      defaultValue: "city",
+      description: "Column holding the city, shown as a smaller line right under the HQ. Skipped when it is the same text as the HQ; when the HQ is missing, the city takes the pin line instead.",
     },
     tagsField: {
       type: "string",
@@ -1918,7 +1924,7 @@ PLASMIC.registerComponent(DoctorCard, {
     },
     onDoctorClick: {
       type: "eventHandler",
-      description: "Fires when the card is clicked, with { doctor, row, name, code, speciality, hq, tags } — doctor/row is the full data row.",
+      description: "Fires when the card is clicked, with { doctor, row, name, code, speciality, hq, city, tags } — doctor/row is the full data row.",
       argTypes: [{ name: "payload", type: "object" }],
     },
     onCopyCode: {

@@ -19,7 +19,10 @@ function normalizeAttending(value) {
   return "No";
 }
 
-function normalizeParticipantAttending(value) {
+// ERP's GraphQL layer returns Select fields as enums ("YES"), while the doctype
+// only accepts "", "Yes", "No" or "Maybe" on write — so anything read from
+// GraphQL has to come back through here before it is saved again.
+export function normalizeParticipantAttending(value) {
   if (typeof value !== "string") return "";
 
   const v = value.trim().toLowerCase();

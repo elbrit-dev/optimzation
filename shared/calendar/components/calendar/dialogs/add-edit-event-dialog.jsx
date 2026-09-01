@@ -1344,6 +1344,21 @@ export function AddEditEventDialog({
 	const canUseDoctorVisitTag =
 		hasValidHqTourPlan || canCreateDoctorVisitDirectly;
 	const shouldHideHqTourPlanTag = canCreateDoctorVisitDirectly;
+	// A new event must never sit on a type this deployment doesn't offer. Without
+	// this, a trigger asking for a disabled type (or a stale default) left the
+	// form rendering that type's fields with no chip selected — e.g. tapping
+	// "DR Tour Plan" and getting the Leave form.
+	useEffect(() => {
+		if (!isOpen || isEditing) return;
+		if (!availableTags.length) return;
+		if (availableTags.some((tag) => tag.id === selectedTag)) return;
+
+		form.setValue("tags", availableTags[0].id, {
+			shouldDirty: false,
+			shouldValidate: true,
+		});
+	}, [availableTags, form, isEditing, isOpen, selectedTag]);
+
 	useEffect(() => {
 		if (!isOpen || isEditing) return;
 

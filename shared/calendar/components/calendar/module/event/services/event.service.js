@@ -1,5 +1,7 @@
 import { graphqlRequest } from "@calendar/lib/graphql-client";
 import { serializeEventDoc } from "../mappers/event-to-erp";
+import { normalizeParticipantAttending } from "@calendar/components/calendar/module/event/mappers/erp-to-event";
+import { isParticipantVisitRecorded } from "@calendar/lib/calendar/visit";
 import { ERP_EVENT_FIELDS } from "@calendar/components/calendar/module/event/graphql/field-config";
 import {
   CUSTOMER_QUERY,
@@ -119,12 +121,8 @@ const PARTICIPANT_VISIT_FIELDS = [
   ERP_EVENT_FIELDS.participantForceVisitReasonWrite,
 ];
 
-function isVisitRecorded(row) {
-  return (
-    String(row?.attending ?? "").toLowerCase() === "yes" &&
-    Boolean(row?.[ERP_EVENT_FIELDS.participantVisitTimeWrite])
-  );
-}
+// Same rule the roster uses, so "already visited" means one thing everywhere.
+const isVisitRecorded = isParticipantVisitRecorded;
 
 async function fetchEventParticipantRows(erpName) {
   const data = await graphqlRequest(EVENT_PARTICIPANTS_QUERY, {
@@ -142,7 +140,8 @@ async function fetchEventParticipantRows(erpName) {
     name: row.name ?? undefined,
     reference_doctype: row.reference_doctype__name,
     reference_docname: String(row.reference_docname__name),
-    attending: row.attending ?? "",
+    // "YES" from the enum read is rejected on write; normalise before echoing.
+    attending: normalizeParticipantAttending(row.attending),
     email: row.email ?? "",
     custom_latitude: row.custom_latitude ?? null,
     custom_longitude: row.custom_longitude ?? null,

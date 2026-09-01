@@ -22,6 +22,7 @@ import React, { useCallback, useMemo, useState } from "react";
  *   code            -> name                                   "DR-36661"
  *   speciality      -> custom_specialty__name                 "NEURO"
  *   hq              -> territory { name }                     "HQ-Trichy"
+ *   city            -> city                                   "Trichy"
  *   division chips  -> custom_role_profile[].department__name  "Elbrit Trichy - ELPL"
  * EVERY field is optional. Each one falls back through the usual aliases
  * (custom_speciality, territory__name, city, department, role_profile_list …) so
@@ -183,6 +184,7 @@ export default function DoctorCard({
   codeField = "name",
   specialityField = "custom_specialty__name",
   hqField = "territory",
+  cityField = "city",
   tagsField = "custom_role_profile",
   tagLabelField = "department__name",
   showAvatar = true,
@@ -210,7 +212,10 @@ export default function DoctorCard({
     "fsl_speciality__name",
     "speciality",
   ]);
-  const hq = pick(doctor, hqField, ["territory", "territory__name", "custom_hq__name", "hq", "city"]);
+  const hq = pick(doctor, hqField, ["territory", "territory__name", "custom_hq__name", "hq"]);
+  // The city sits under the HQ. It's skipped when it repeats the HQ (an HQ named
+  // after its city) or when the HQ line already fell back to it.
+  const city = pick(doctor, cityField, ["city"]);
   const tags = useMemo(() => readTags(doctor, tagsField, tagLabelField), [doctor, tagsField, tagLabelField]);
 
   // C1 / C2 / C3 grading — off by default (it isn't part of the list design),
@@ -229,8 +234,8 @@ export default function DoctorCard({
 
   const fire = useCallback(() => {
     if (!clickable || !onDoctorClick) return;
-    onDoctorClick({ doctor, row: doctor, name, code, speciality, hq, tags });
-  }, [clickable, onDoctorClick, doctor, name, code, speciality, hq, tags]);
+    onDoctorClick({ doctor, row: doctor, name, code, speciality, hq, city, tags });
+  }, [clickable, onDoctorClick, doctor, name, code, speciality, hq, city, tags]);
 
   const copyCode = useCallback(
     async (e) => {
@@ -334,11 +339,15 @@ export default function DoctorCard({
                 </div>
               ) : null}
 
-              {hq ? (
+              {hq || city ? (
                 <div className="flex items-center justify-end gap-1 text-xs text-gray-400">
                   <PinIcon />
-                  <span className="truncate">{hq}</span>
+                  <span className="truncate">{hq || city}</span>
                 </div>
+              ) : null}
+
+              {hq && city && city.toLowerCase() !== hq.toLowerCase() ? (
+                <p className="truncate text-[11px] text-gray-400">{city}</p>
               ) : null}
             </div>
           </div>

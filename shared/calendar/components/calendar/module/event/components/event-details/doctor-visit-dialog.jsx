@@ -33,6 +33,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@calendar/components/ui/tooltip";
+import { isParticipantVisitRecorded } from "@calendar/lib/calendar/visit";
 import { cn } from "@calendar/lib/utils";
 /* =====================================================
    PURE HELPERS (NO LOGIC CHANGE)
@@ -70,11 +71,7 @@ function resolveDoctorDetails(event, doctorResolvers) {
   };
 }
 
-function hasValidLocation(latitude, longitude) {
-  const lat = Number(latitude);
-  const lng = Number(longitude);
-  return lat !== 0 && lng !== 0 && !Number.isNaN(lat) && !Number.isNaN(lng);
-}
+
 
 /**
  * A participant has completed the visit when ERP marks them attending AND a
@@ -82,16 +79,7 @@ function hasValidLocation(latitude, longitude) {
  * so it evaluates the same for every role that opens the visit — unlike a check
  * derived from the logged-in viewer.
  */
-function isParticipantVisited(participant) {
-  if (!participant) return false;
-  return (
-    String(participant.attending ?? "").toLowerCase() === "yes" &&
-    hasValidLocation(
-      participant.custom_latitude,
-      participant.custom_longitude
-    )
-  );
-}
+const isParticipantVisited = isParticipantVisitRecorded;
 
 
 /* =====================================================
