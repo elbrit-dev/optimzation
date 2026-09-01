@@ -80,6 +80,9 @@ export function mapErpGraphqlEventToCalendar(node) {
           participant.reference_doctype__name === "Employee"
       )
       .map((p) => ({
+      // The child row id: echoing it back updates the row in place instead of
+      // Frappe deleting and recreating the whole table on every save.
+      name: p.name ?? undefined,
       reference_doctype: p.reference_doctype__name,
       reference_docname: String(p.reference_docname__name),
       attending: normalizeParticipantAttending(p.attending),

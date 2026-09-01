@@ -1847,7 +1847,7 @@ PLASMIC.registerComponent(DoctorCard, {
   name: "DoctorCard",
   displayName: "Doctor Card",
   description:
-    "ONE doctor row card for the doctor page list view — place it and REPEAT it over the doctor rows, binding each instance its own row (currentItem). Renders the initials avatar, doctor name, coloured speciality chip, the division chips (Elbrit Kanchipuram / Vasco Coimbatore …), the doctor code with a copy button, the HQ territory with a pin, and a chevron. The whole card is clickable: onDoctorClick gives you the full row, so wire it to open a detail sheet, navigate, or start a visit — the copy button stays independently clickable. Every field is optional: anything null is left out of the card instead of rendering an empty line.",
+    "ONE doctor row card for the doctor page list view — place it and REPEAT it over the doctor rows, binding each instance its own row (currentItem). Renders the initials avatar, doctor name, coloured speciality chip, the doctor code with a copy button, the HQ territory with a pin, and the department chips (Elbrit Kanchipuram / Vasco Coimbatore …) across the card's full width — as many per row as fit, the rest wrapping onto the next line. The whole card is clickable: onDoctorClick gives you the full row, so wire it to open a detail sheet, navigate, or start a visit — the copy button stays independently clickable. Every field is optional: anything null is left out of the card instead of rendering an empty line.",
   props: {
     data: {
       type: "object",
@@ -1888,17 +1888,12 @@ PLASMIC.registerComponent(DoctorCard, {
     tagsField: {
       type: "string",
       defaultValue: "custom_role_profile",
-      description: "Child table holding the division chips. Also accepts a plain array of strings or a comma-separated string.",
+      description: "Child table holding the department chips. Also accepts a plain array of strings or a comma-separated string. Every department is shown — the row wraps onto the next line instead of collapsing or truncating.",
     },
     tagLabelField: {
       type: "string",
       defaultValue: "department__name",
       description: "Field inside each tag row to label the chip. Falls back to role_profile_list__name. The trailing company abbreviation is trimmed (\"Elbrit Trichy - ELPL\" → \"Elbrit Trichy\").",
-    },
-    maxTags: {
-      type: "number",
-      defaultValue: 3,
-      description: "How many division chips to show before collapsing the rest into a \"+N\" chip (hover shows the full list). 0 = show all.",
     },
     showAvatar: { type: "boolean", defaultValue: true, description: "Show the initials avatar." },
     showCopyCode: {
@@ -1906,7 +1901,6 @@ PLASMIC.registerComponent(DoctorCard, {
       defaultValue: true,
       description: "Show the copy button beside the doctor code. Copying never counts as clicking the card.",
     },
-    showChevron: { type: "boolean", defaultValue: true, description: "Show the chevron on the right (clickable cards only)." },
     showCategories: {
       type: "boolean",
       defaultValue: false,
@@ -1931,10 +1925,6 @@ PLASMIC.registerComponent(DoctorCard, {
       type: "eventHandler",
       description: "Fires after the doctor code is copied to the clipboard, with { code, doctor } — use it for a toast.",
       argTypes: [{ name: "payload", type: "object" }],
-    },
-    children: {
-      type: "slot",
-      description: "Renders below the name / chips block — the place for extra content (last visit, POB, actions).",
     },
     className: { type: "string", description: "CSS class for the card container." },
   },

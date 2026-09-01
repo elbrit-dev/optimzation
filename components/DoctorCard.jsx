@@ -6,8 +6,9 @@ import React, { useCallback, useMemo, useState } from "react";
  * Deliberately a single card, not a list: place it and repeat it in Plasmic
  * Studio over the doctor rows, binding each instance its own row (currentItem).
  * Renders the initials avatar, the doctor name, a coloured speciality chip, the
- * division chips (Elbrit Kanchipuram / Vasco Coimbatore …), the doctor code with
- * a copy button, the HQ territory with a pin, and a chevron.
+ * doctor code with a copy button, the HQ territory with a pin, and the
+ * department chips (Elbrit Kanchipuram / Vasco Coimbatore …) across the card's
+ * full width — as many per row as fit, the rest wrapping onto the next line.
  *
  * The whole card is clickable — onDoctorClick fires with the full row, so Studio
  * can open a detail sheet, navigate, or start a visit. The copy button is
@@ -176,14 +177,6 @@ function PinIcon() {
   );
 }
 
-function ChevronIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4 shrink-0">
-      <path d="m9 18 6-6-6-6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
 export default function DoctorCard({
   data,
   nameField = "lead_name",
@@ -192,16 +185,13 @@ export default function DoctorCard({
   hqField = "territory",
   tagsField = "custom_role_profile",
   tagLabelField = "department__name",
-  maxTags = 3,
   showAvatar = true,
   showCopyCode = true,
-  showChevron = true,
   showCategories = false,
   clickable = true,
   selected = false,
   onDoctorClick,
   onCopyCode,
-  children,
   className,
 }) {
   const [copied, setCopied] = useState(false);
@@ -222,10 +212,6 @@ export default function DoctorCard({
   ]);
   const hq = pick(doctor, hqField, ["territory", "territory__name", "custom_hq__name", "hq", "city"]);
   const tags = useMemo(() => readTags(doctor, tagsField, tagLabelField), [doctor, tagsField, tagLabelField]);
-
-  const limit = Number.isFinite(Number(maxTags)) && Number(maxTags) > 0 ? Number(maxTags) : tags.length;
-  const shownTags = tags.slice(0, limit);
-  const hiddenTagCount = tags.length - shownTags.length;
 
   // C1 / C2 / C3 grading — off by default (it isn't part of the list design),
   // but the data is there for whoever wants it on.
@@ -322,27 +308,6 @@ export default function DoctorCard({
                 </span>
               ) : null}
 
-              {shownTags.length > 0 ? (
-                <div className="mt-1.5 flex flex-wrap gap-1.5">
-                  {shownTags.map((tag) => (
-                    <span
-                      key={tag}
-                      className="rounded-md bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700"
-                    >
-                      {tag}
-                    </span>
-                  ))}
-                  {hiddenTagCount > 0 ? (
-                    <span
-                      title={tags.slice(limit).join(", ")}
-                      className="rounded-md bg-gray-50 px-2 py-0.5 text-[11px] font-medium text-gray-500"
-                    >
-                      +{hiddenTagCount}
-                    </span>
-                  ) : null}
-                </div>
-              ) : null}
-
               {categories.length > 0 ? (
                 <p className="mt-1.5 truncate text-[11px] text-gray-400">{categories.join("  |  ")}</p>
               ) : null}
@@ -378,14 +343,23 @@ export default function DoctorCard({
             </div>
           </div>
 
-          {children ? <div className="mt-3">{children}</div> : null}
+          {/* DEPARTMENTS — full width under the header row (not boxed in by the
+              code/HQ column), laid out in one horizontal row that fits as many
+              chips as the width allows and wraps the rest onto the next line.
+              Nothing is truncated or collapsed into a "+N". */}
+          {tags.length > 0 ? (
+            <div className="mt-2 flex w-full flex-row flex-wrap items-center gap-1.5">
+              {tags.map((tag) => (
+                <span
+                  key={tag}
+                  className="whitespace-nowrap rounded-md bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700"
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          ) : null}
         </div>
-
-        {showChevron && clickable ? (
-          <div className="self-center text-gray-300">
-            <ChevronIcon />
-          </div>
-        ) : null}
       </div>
     </div>
   );

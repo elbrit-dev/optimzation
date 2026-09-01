@@ -1604,6 +1604,16 @@ export function AddEditEventDialog({
 					shareWithUserIds: getShareUserIds(values),
 					deferShareSync: false,
 					skipExistingShareCheck: !event?.erpName,
+					// Rebuild the participant table from ERP at write time and touch
+					// only this user's row, so marking your own visit can't wipe a
+					// colleague's on a shared visit (see mergeParticipantRows).
+					...(event?.erpName && {
+						mergeParticipants: {
+							actingEmployeeId: LOGGED_IN_USER.id,
+							recomputeDoctorVisitStatus:
+								values.tags === TAG_IDS.DOCTOR_VISIT_PLAN,
+						},
+					}),
 				},
 			},
 		});

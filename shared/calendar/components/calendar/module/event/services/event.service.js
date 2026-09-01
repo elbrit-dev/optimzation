@@ -1,7 +1,9 @@
 import { graphqlRequest } from "@calendar/lib/graphql-client";
 import { serializeEventDoc } from "../mappers/event-to-erp";
+import { ERP_EVENT_FIELDS } from "@calendar/components/calendar/module/event/graphql/field-config";
 import {
   CUSTOMER_QUERY,
+  EVENT_PARTICIPANTS_QUERY,
   EVENTS_BY_RANGE_QUERY,
   SAVE_EVENT_MUTATION,
   SAVE_EVENT_QUOTATION,
@@ -92,9 +94,172 @@ export async function fetchQuotationsByNames(names) {
 
   return map;
 }
+/* --------------------------------------------------------------------------
+   PARTICIPANT MERGE
+
+   Saving an Event replaces its whole `event_participants` table. Every client
+   holds its own cached copy, invalidated only by its own writes, so a browser's
+   copy of the other participants is routinely out of date. Sending it back is a
+   lost update: whoever marked the visit first has their attendance, visit time
+   and location wiped by whoever saves second, which also drops the doc out of
+   "Completed" and reads to the user as "the visit reset, do it again".
+
+   So the rows are rebuilt from ERP at write time. Only the acting participant's
+   own row may change, and a visit that is already recorded is never cleared.
+-------------------------------------------------------------------------- */
+
+// Everything ERP records about one person's visit. Untouchable once set.
+const PARTICIPANT_VISIT_FIELDS = [
+  "attending",
+  "custom_latitude",
+  "custom_longitude",
+  ERP_EVENT_FIELDS.participantDistanceWrite,
+  ERP_EVENT_FIELDS.participantVisitTimeWrite,
+  ERP_EVENT_FIELDS.participantForceVisitWrite,
+  ERP_EVENT_FIELDS.participantForceVisitReasonWrite,
+];
+
+function isVisitRecorded(row) {
+  return (
+    String(row?.attending ?? "").toLowerCase() === "yes" &&
+    Boolean(row?.[ERP_EVENT_FIELDS.participantVisitTimeWrite])
+  );
+}
+
+async function fetchEventParticipantRows(erpName) {
+  const data = await graphqlRequest(EVENT_PARTICIPANTS_QUERY, {
+    name: erpName,
+  });
+
+  // "No event came back" must never be read as "this event has no
+  // participants": callers like join/leave send only the acting person's row,
+  // so treating an unreadable event as empty would delete everyone else.
+  if (!data?.Event) {
+    throw new Error(`Event ${erpName} could not be read before saving`);
+  }
+
+  return (data.Event.event_participants ?? []).map((row) => ({
+    name: row.name ?? undefined,
+    reference_doctype: row.reference_doctype__name,
+    reference_docname: String(row.reference_docname__name),
+    attending: row.attending ?? "",
+    email: row.email ?? "",
+    custom_latitude: row.custom_latitude ?? null,
+    custom_longitude: row.custom_longitude ?? null,
+    [ERP_EVENT_FIELDS.participantDistanceWrite]: row.custom_distance ?? null,
+    [ERP_EVENT_FIELDS.participantVisitTimeWrite]: row.custom_visit_time ?? null,
+    [ERP_EVENT_FIELDS.participantForceVisitWrite]: row.custom_is_force_visit
+      ? 1
+      : 0,
+    [ERP_EVENT_FIELDS.participantForceVisitReasonWrite]:
+      row.custom_force_visit_reason ?? "",
+    ...(row.role_profile?.name && {
+      [ERP_EVENT_FIELDS.participantRoleProfileWrite]: row.role_profile.name,
+    }),
+  }));
+}
+
+export function mergeParticipantRows({
+  freshRows = [],
+  outgoingRows = [],
+  actingEmployeeId,
+  removedEmployeeIds = [],
+}) {
+  const removed = new Set(removedEmployeeIds.map(String));
+  const acting = actingEmployeeId != null ? String(actingEmployeeId) : null;
+  const outgoingByEmployee = new Map(
+    outgoingRows
+      .filter((row) => row?.reference_docname != null)
+      .map((row) => [String(row.reference_docname), row])
+  );
+
+  const merged = [];
+  const seen = new Set();
+
+  freshRows.forEach((freshRow) => {
+    const employeeId = String(freshRow.reference_docname);
+    seen.add(employeeId);
+
+    if (removed.has(employeeId)) return;
+
+    const outgoingRow = outgoingByEmployee.get(employeeId);
+
+    // Someone else's row: ERP's copy wins outright. The client has no business
+    // rewriting another person's visit.
+    if (!outgoingRow || employeeId !== acting) {
+      merged.push(freshRow);
+      return;
+    }
+
+    const nextRow = { ...freshRow, ...outgoingRow, name: freshRow.name };
+
+    // Done stays done: a stale blank must never undo a recorded visit.
+    if (isVisitRecorded(freshRow)) {
+      PARTICIPANT_VISIT_FIELDS.forEach((field) => {
+        nextRow[field] = freshRow[field];
+      });
+    }
+
+    merged.push(nextRow);
+  });
+
+  // Newly invited employees (and a join) exist only in the outgoing rows.
+  outgoingRows.forEach((row) => {
+    const employeeId = String(row?.reference_docname ?? "");
+    if (!employeeId || seen.has(employeeId) || removed.has(employeeId)) return;
+    seen.add(employeeId);
+    merged.push(row);
+  });
+
+  return merged;
+}
+
 export async function saveEvent(doc, options = {}) {
+  let outgoingDoc = doc;
+
+  if (options.mergeParticipants && doc?.name) {
+    try {
+      const freshRows = await fetchEventParticipantRows(doc.name);
+      const mergedRows = mergeParticipantRows({
+        freshRows,
+        outgoingRows: doc.event_participants ?? [],
+        actingEmployeeId: options.mergeParticipants.actingEmployeeId,
+        removedEmployeeIds:
+          options.mergeParticipants.removedEmployeeIds ?? [],
+      });
+
+      outgoingDoc = { ...doc, event_participants: mergedRows };
+
+      // Completion follows the merged rows, so a visit is only "Completed" when
+      // everyone really has visited — and one person's tick can't complete or
+      // un-complete the visit on another person's behalf.
+      if (options.mergeParticipants.recomputeDoctorVisitStatus) {
+        const employeeRows = mergedRows.filter(
+          (row) => row.reference_doctype === "Employee"
+        );
+        const allVisited =
+          employeeRows.length > 0 && employeeRows.every(isVisitRecorded);
+
+        outgoingDoc.status = allVisited ? "Completed" : "Open";
+      }
+    } catch (error) {
+      // Writing the stale table anyway is what destroys other people's visits,
+      // so fail instead. The cause is carried into the message on purpose: the
+      // queue classifies retryability by matching the network signature, so a
+      // dropped connection here still auto-retries rather than parking as a
+      // hard failure the user has to notice.
+      console.error("Failed to read current participants before save", error);
+      throw new Error(
+        `Couldn't confirm the current visit data, so nothing was saved. ${
+          error?.message ?? ""
+        }`.trim(),
+        { cause: error }
+      );
+    }
+  }
+
   const data = await graphqlRequest(SAVE_EVENT_MUTATION, {
-    doc: serializeEventDoc(doc),
+    doc: serializeEventDoc(outgoingDoc),
   });
 
   if (!data?.saveDoc?.doc?.name) {

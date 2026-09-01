@@ -43,6 +43,7 @@ query EventsByRange(
         custom_meeting_location:${ERP_EVENT_FIELDS.meetingLocationRead}
         custom_hq__name:${ERP_EVENT_FIELDS.hqRead}
         event_participants {
+          name
           reference_doctype__name
           custom_latitude
           custom_longitude
@@ -66,6 +67,40 @@ query EventsByRange(
   }
 }
 `;
+/**
+ * Current participant rows for one event, read straight from ERP.
+ *
+ * A save replaces the whole child table, so it must be built from the server's
+ * rows and not from whatever copy the browser has been holding — otherwise the
+ * second person to mark a visit overwrites the first person's attendance.
+ */
+export const EVENT_PARTICIPANTS_QUERY = `
+query EventParticipants($name: String!) {
+  Event(name: $name) {
+    name
+    status
+    starts_on
+    ends_on
+    event_participants {
+      name
+      reference_doctype__name
+      reference_docname__name
+      attending
+      email
+      custom_latitude
+      custom_longitude
+      custom_distance:${ERP_EVENT_FIELDS.participantDistanceRead}
+      custom_visit_time:${ERP_EVENT_FIELDS.participantVisitTimeRead}
+      custom_is_force_visit:${ERP_EVENT_FIELDS.participantForceVisitRead}
+      custom_force_visit_reason:${ERP_EVENT_FIELDS.participantForceVisitReasonRead}
+      role_profile:${ERP_EVENT_FIELDS.participantRoleProfileRead} {
+        name
+      }
+    }
+  }
+}
+`;
+
 export const ELBRIT_ROLEID = `
 query RoleProfiles($first: Int) {
   RoleProfiles(first: $first) {

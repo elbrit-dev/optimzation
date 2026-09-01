@@ -27,6 +27,12 @@ import { SharedToBlock } from "@calendar/components/calendar/dialogs/share-event
 import { Avatar, AvatarFallback, AvatarImage } from "@calendar/components/ui/avatar";
 import { EventParticipantAvatars } from "@calendar/components/calendar/views/shared/event-participant-avatars";
 import { getAvatarColorBySeed, getFirstLetters } from "@calendar/components/calendar/helpers";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@calendar/components/ui/tooltip";
 import { cn } from "@calendar/lib/utils";
 /* =====================================================
    PURE HELPERS (NO LOGIC CHANGE)
@@ -155,6 +161,9 @@ export function EventDoctorVisitDialog({
             // attendance — identical for every role that opens this visit.
             visited: isParticipantVisited(p),
             forceVisit: Boolean(p.custom_is_force_visit),
+            // Each participant records their own reason — the roster shows
+            // whose force visit is whose, so the reason has to travel per row.
+            forceVisitReason: p.custom_force_visit_reason ?? "",
           };
         })
         .filter(Boolean) ?? []
@@ -165,6 +174,10 @@ export function EventDoctorVisitDialog({
     () => resolveEmployeeParticipants(event, employeeMap),
     [event, employeeMap]
   );
+  // Radix never opens a tooltip on tap (by design), and this roster is read on
+  // phones far more than on a mouse, so the reason tooltip is controlled: hover
+  // drives it through onOpenChange, tapping the tag toggles it.
+  const [openForceVisitReasonId, setOpenForceVisitReasonId] = useState(null);
   const tagConfig =
     TAG_FORM_CONFIG[event.tags] ?? TAG_FORM_CONFIG.DEFAULT;
 
@@ -254,15 +267,12 @@ export function EventDoctorVisitDialog({
 
   const handleJoin = async () => {
     try {
-      const existingParticipants =
-        event.event_participants?.map((p) => ({
-          reference_doctype: p.reference_doctype,
-          reference_docname: p.reference_docname,
-        })) || [];
+      // Keep every field of the other rows: reducing them to ids used to blank
+      // out the attendance and visit times other participants had recorded.
+      const existingParticipants = event.event_participants ?? [];
 
       await joinDoctorVisit({
         erpName: event.erpName,
-        existingParticipants,
         employeeId: LOGGED_IN_USER.id,
       });
 
@@ -293,15 +303,10 @@ export function EventDoctorVisitDialog({
   };
   const handleLeaveVisit = async () => {
     try {
-      const existingParticipants =
-        event.event_participants?.map((p) => ({
-          reference_doctype: p.reference_doctype,
-          reference_docname: p.reference_docname,
-        })) || [];
+      const existingParticipants = event.event_participants ?? [];
 
       await leaveDoctorVisit({
         erpName: event.erpName,
-        existingParticipants,
         employeeId: LOGGED_IN_USER.id,
       });
 
@@ -483,6 +488,7 @@ export function EventDoctorVisitDialog({
             />
           </div>
           {/* Participants */}
+          <TooltipProvider delayDuration={200}>
           {employeeParticipants.map((p, index) => (
             <div
               key={p.id ?? index}
@@ -518,12 +524,43 @@ export function EventDoctorVisitDialog({
                 </span>
               )}
               {p.forceVisit && (
-                <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-700 leading-none">
-                  Force visit
-                </span>
+                <Tooltip
+                  open={openForceVisitReasonId === p.id}
+                  onOpenChange={(nextOpen) =>
+                    setOpenForceVisitReasonId(nextOpen ? p.id : null)
+                  }
+                >
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={`Force visit reason for ${p.name}`}
+                      // Radix closes on pointerdown using the open state from
+                      // render, so toggling here stays in step with it.
+                      onPointerDown={() =>
+                        setOpenForceVisitReasonId((current) =>
+                          current === p.id ? null : p.id
+                        )
+                      }
+                      className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-700 leading-none"
+                    >
+                      Force visit
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent
+                    side="top"
+                    align="start"
+                    className="max-w-[15rem] whitespace-pre-wrap break-words text-left"
+                    onPointerDown={() => setOpenForceVisitReasonId(null)}
+                  >
+                    {p.forceVisitReason?.trim()
+                      ? p.forceVisitReason
+                      : "No reason recorded"}
+                  </TooltipContent>
+                </Tooltip>
               )}
             </div>
           ))}
+          </TooltipProvider>
 
           {/* ================= Notes Section ================= */}
           <DoctorNotesSection
