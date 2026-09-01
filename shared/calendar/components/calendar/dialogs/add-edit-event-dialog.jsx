@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 import { isEmployeeOnApprovedLeave } from "@calendar/lib/calendar/leaveDay";
-import { buildEventDefaultValues, TAG_IDS, TAGS } from "@calendar/components/calendar/constants";
+import { buildEventDefaultValues, getAvailableTags, TAG_IDS } from "@calendar/components/calendar/constants";
 import { mapFormToErpEvent } from "@calendar/components/calendar/module/event/mappers/event-to-erp";
 import {
 	fetchAllCustomers,
@@ -82,7 +82,13 @@ export function AddEditEventDialog({
 		hqTerritoryOptions,
 		setEmployeeOptions, territoryDoctors, setTerritoryDoctors,
 		setDoctorOptions, customerOptions, setCustomerOptions, selectedDate, allowedEmployeeIds,
-		setHqTerritoryOptions, users, elbritRoleEdges, enableGoogleCalendarSync: calendarSyncEnabled } = useCalendar();
+		setHqTerritoryOptions, users, elbritRoleEdges, enabledTagIds, enableGoogleCalendarSync: calendarSyncEnabled } = useCalendar();
+	// Only the event types this deployment enables can be created here, and a new
+	// event must start on one of them.
+	const availableTags = useMemo(
+		() => getAvailableTags(enabledTagIds),
+		[enabledTagIds]
+	);
 	const isEditing = !!event;
 	const [leaveBalance, setLeaveBalance] = useState(null);
 	const [leaveLoading, setLeaveLoading] = useState(false);
@@ -104,7 +110,10 @@ export function AddEditEventDialog({
 	const form = useForm({
 		resolver: zodResolver(eventSchema),
 		mode: "onChange",
-		defaultValues: buildEventDefaultValues({ event, defaultTag }),
+		defaultValues: buildEventDefaultValues({
+			event,
+			defaultTag: defaultTag ?? availableTags[0]?.id,
+		}),
 	});
 
 	const startDate = useWatch({ control: form.control, name: "startDate" });
@@ -1472,6 +1481,13 @@ export function AddEditEventDialog({
 	const handleDialogOpenChange = (nextOpen) => {
 		if (!nextOpen && isMutationPending) return;
 		if (nextOpen) {
+			// Every event type can legitimately be switched off (see the
+			// eventTypes / eventTypesMode props). There is then nothing valid to
+			// create, so don't open a form whose type picker is empty.
+			if (!isEditing && !availableTags.length) {
+				toast.error("No event types are enabled");
+				return;
+			}
 			// Central guard for EVERY entry point that opens this form (header,
 			// day-cell click, mobile add): if the user is on an APPROVED leave on
 			// the target day, don't open — creating an event is pointless then.
@@ -1954,7 +1970,7 @@ export function AddEditEventDialog({
 								name="tags"
 								render={({ field }) => (
 									<div className="flex flex-wrap gap-2">
-										{TAGS.filter((tag) => {
+										{availableTags.filter((tag) => {
 											if (tag.id === TAG_IDS.HQ_TOUR_PLAN) {
 												return !shouldHideHqTourPlanTag;
 											}

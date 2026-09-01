@@ -787,11 +787,23 @@ PLASMIC.registerComponent(CalendarPage, {
       type: "string",
       helpText: "Google Redirect URI",
     },
-    enableGoogleCalendarSync: {
-      type: "boolean",
-      defaultValue: false,
+    eventTypes: {
+      type: "choice",
+      multiSelect: true,
+      options: TAGS.map((tag) => ({ label: tag.label, value: tag.id })),
+      defaultValue: [TAG_IDS.LEAVE, TAG_IDS.MEETING, TAG_IDS.TODO_LIST],
       helpText:
-        "Enable Google Calendar sync for non-meeting events. Virtual meetings with Google Meet still sync automatically when enabled.",
+        "Event types to apply the rule below to. Pick none and every type is enabled.",
+    },
+    eventTypesMode: {
+      type: "choice",
+      options: [
+        { label: "Disabled — hide the picked types", value: EVENT_TYPE_MODES.DISABLED },
+        { label: "Enabled — show only the picked types", value: EVENT_TYPE_MODES.ENABLED },
+      ],
+      defaultValue: EVENT_TYPE_MODES.DISABLED,
+      helpText:
+        "How to read the picked types. A type that ends up off is hidden from the event form, filtered off the calendar, and its data is never fetched — and with Leave off, the 'employee is on approved leave' guard on Add Event stops blocking.",
     },
   },
 });

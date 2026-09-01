@@ -1,5 +1,5 @@
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
-import { STATUS, TAG_IDS } from "@calendar/components/calendar/constants";
+import { isTagEnabled, STATUS, TAG_IDS } from "@calendar/components/calendar/constants";
 
 export function buildEmployeeEmailToId(users = []) {
   const map = new Map();
@@ -117,6 +117,7 @@ export function filterCalendarEvents({
   elbritRoleLoading,
   employeeRoleMap,
   employeeEmailToId,
+  enabledTagIds,
 }) {
   if (usersLoading || elbritRoleLoading) {
     return allEvents;
@@ -138,6 +139,11 @@ export function filterCalendarEvents({
 
     return selectedUserId.some((id) => eventEmployeeIds.includes(id));
   };
+
+  // Switched-off event types (see DISABLED_TAG_IDS) never reach a view. Meetings
+  // ride along in the same query as other events, so filtering is the only way
+  // to hide them.
+  const matchesEnabledTag = (event) => isTagEnabled(event.tags, enabledTagIds);
 
   const matchesSelectedColors = (event) =>
     !selectedColors.length ||
@@ -201,6 +207,7 @@ export function filterCalendarEvents({
 
   return result.filter(
     (event) =>
+      matchesEnabledTag(event) &&
       matchesSelectedUsers(event) &&
       matchesSelectedColors(event) &&
       matchesSelectedStatuses(event)

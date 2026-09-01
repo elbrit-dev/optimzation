@@ -24,6 +24,7 @@ import {
 	requeueFailedSubmissions,
 	subscribeSubmissionQueue,
 } from "@calendar/lib/calendar/submission-queue";
+import { resolveEnabledTagIds, TAG_IDS } from "@calendar/components/calendar/constants";
 import { useAuth } from "@calendar/components/auth/auth-context";
 import { toast } from "sonner";
 
@@ -86,8 +87,17 @@ export function CalendarProvider({
 	badge = "colored",
 	view = "day",
 	enableGoogleCalendarSync = false,
+	eventTypes,
+	eventTypesMode,
 }) {
 	const { erpUrl, authToken } = useAuth();
+	// Event types this deployment offers (prop-driven; see resolveEnabledTagIds).
+	const enabledTagIds = useMemo(
+		() => resolveEnabledTagIds(eventTypes, eventTypesMode),
+		[eventTypes, eventTypesMode]
+	);
+	const includeLeaves = enabledTagIds.includes(TAG_IDS.LEAVE);
+	const includeTodos = enabledTagIds.includes(TAG_IDS.TODO_LIST);
 	const [settings, setSettings] = useLocalStorage("calendar-settings", {
 		...DEFAULT_SETTINGS,
 		badgeVariant: badge,
@@ -227,10 +237,10 @@ export function CalendarProvider({
 			start,
 			end,
 			currentView,
-			{ force }
+			{ force, includeLeaves, includeTodos }
 		);
 		return nextEvents;
-	}, [currentView, selectedDate]);
+	}, [currentView, selectedDate, includeLeaves, includeTodos]);
 
 	// Guards against an older, slower fetch landing after a newer one and
 	// clobbering the current range's events.
@@ -269,7 +279,7 @@ export function CalendarProvider({
 			startOfYear(anchorDate),
 			endOfYear(anchorDate),
 			"year",
-			{ force: true }
+			{ force: true, includeLeaves, includeTodos }
 		);
 
 		if (token !== reloadTokenRef.current) {
@@ -557,6 +567,7 @@ export function CalendarProvider({
 			elbritRoleLoading,
 			employeeRoleMap,
 			employeeEmailToId,
+			enabledTagIds,
 		});
 	}, [
 		allEvents,
@@ -570,6 +581,7 @@ export function CalendarProvider({
 		elbritRoleLoading,
 		employeeRoleMap,
 		employeeEmailToId,
+		enabledTagIds,
 	]);
 	const employeeResolvers = useEmployeeResolvers(employeeOptions);
 	useEffect(() => {
@@ -581,6 +593,7 @@ export function CalendarProvider({
 		);
 	}, [filteredEvents, employeeResolvers]);
 	const value = {
+		enabledTagIds,
 		selectedDate,
 		setSelectedDate: handleSelectDate,
 		selectedUserId,

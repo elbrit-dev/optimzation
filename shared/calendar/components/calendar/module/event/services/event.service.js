@@ -312,8 +312,13 @@ export function clearGoogleCalendarStatusCache(email) {
  *   handing that promise back to a Sync click is what made Sync look broken.
  */
 export async function fetchEventsByRange(startDate, endDate, view, options = {}) {
-  const { force = false } = options;
-  const cacheKey = buildRangeCacheKey(view, startDate, endDate);
+  // includeLeaves / includeTodos follow the calendar's enabled event types: a
+  // disabled type costs no query. They are part of the cache key because they
+  // change the shape of the result.
+  const { force = false, includeLeaves = true, includeTodos = true } = options;
+  const cacheKey = `${buildRangeCacheKey(view, startDate, endDate)}:${
+    includeLeaves ? "L" : "-"
+  }${includeTodos ? "T" : "-"}`;
 
   if (!force) {
     const cached = getCachedEvents(cacheKey);
@@ -329,7 +334,8 @@ export async function fetchEventsByRange(startDate, endDate, view, options = {})
     cacheKey,
     startDate,
     endDate,
-    generation
+    generation,
+    { includeLeaves, includeTodos }
   )
     .finally(() => {
       // A forced fetch may have replaced this entry — only clear our own.
@@ -403,7 +409,8 @@ async function fetchEventsByRangeUncached(
   cacheKey,
   startDate,
   endDate,
-  generation
+  generation,
+  { includeLeaves = true, includeTodos = true } = {}
 ) {
   const filter = [
     {
@@ -443,8 +450,10 @@ async function fetchEventsByRangeUncached(
     sharedEventNamesResult,
   ] = await Promise.allSettled([
     fetchQuotationsByNames(uniqueQuotationNames),
-    fetchAllLeaveApplications(),
-    fetchAllTodoList(),
+    // Two queries per calendar load that are pure waste while these types are
+    // switched off (see DISABLED_TAG_IDS) — they'd be filtered out on arrival.
+    includeLeaves ? fetchAllLeaveApplications() : [],
+    includeTodos ? fetchAllTodoList() : [],
     fetchDocShareNamesForUser(LOGGED_IN_USER.email),
   ]);
   const quotationMap =

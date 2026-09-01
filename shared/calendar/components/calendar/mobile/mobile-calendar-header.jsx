@@ -17,7 +17,7 @@ import { useCalendar } from "@calendar/components/calendar/contexts/calendar-con
 import { cn } from "@calendar/lib/utils";
 import { tabs } from "@calendar/components/calendar/header/view-tabs";
 import { DateNavigator } from "@calendar/components/calendar/header/date-navigator";
-import { STATUS } from "@calendar/components/calendar/constants";
+import { isTagEnabled, STATUS, TAG_IDS } from "@calendar/components/calendar/constants";
 import {
   Popover,
   PopoverContent,
@@ -47,6 +47,7 @@ export function MobileCalendarHeader() {
     isRetryingSync,
     syncCalendar,
     selectedUserId,
+    enabledTagIds,
   } = useCalendar();
   const [isSyncing, setIsSyncing] = useState(false);
   const today = new Date();
@@ -182,46 +183,52 @@ export function MobileCalendarHeader() {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-9 shrink-0"
-            aria-label="Show approved leaves only"
-            title="Show approved leaves only"
-            onClick={() =>
-              handleAgendaToggle(
-                setShowOnlyApprovedLeaves,
-                setShowOnlyTodoList, STATUS.APPROVED
-              )
-            }
-          >
-            <CircleCheckBig
-              className={cn(
-                "h-5 w-5",
-                showOnlyApprovedLeaves && "text-blue-500"
-              )}
-            />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-9 shrink-0"
-            aria-label="Show todo list only"
-            title="Show todo list only"
-            onClick={() =>
-              handleAgendaToggle(
-                setShowOnlyTodoList,
-                setShowOnlyApprovedLeaves
-              )
-            }
-          >
-            <ListChecks
-              className={cn(
-                "h-5 w-5",
-                showOnlyTodoList && "text-blue-500"
-              )}
-            />
-          </Button>
+          {/* Filters for switched-off event types would only ever show an
+              empty agenda, so they go with the types. */}
+          {isTagEnabled(TAG_IDS.LEAVE, enabledTagIds) && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-9 shrink-0"
+              aria-label="Show approved leaves only"
+              title="Show approved leaves only"
+              onClick={() =>
+                handleAgendaToggle(
+                  setShowOnlyApprovedLeaves,
+                  setShowOnlyTodoList, STATUS.APPROVED
+                )
+              }
+            >
+              <CircleCheckBig
+                className={cn(
+                  "h-5 w-5",
+                  showOnlyApprovedLeaves && "text-blue-500"
+                )}
+              />
+            </Button>
+          )}
+          {isTagEnabled(TAG_IDS.TODO_LIST, enabledTagIds) && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-9 shrink-0"
+              aria-label="Show todo list only"
+              title="Show todo list only"
+              onClick={() =>
+                handleAgendaToggle(
+                  setShowOnlyTodoList,
+                  setShowOnlyApprovedLeaves
+                )
+              }
+            >
+              <ListChecks
+                className={cn(
+                  "h-5 w-5",
+                  showOnlyTodoList && "text-blue-500"
+                )}
+              />
+            </Button>
+          )}
           <Button
             type="button"
             variant="ghost"

@@ -5,6 +5,7 @@ import { Sidebar } from 'primereact/sidebar';
 import { Button } from 'primereact/button';
 import { InputText } from 'primereact/inputtext';
 import { LoadingOverlay } from './TableSkeleton';
+import { logSmartDataEvent } from './smartDataLogger.js';
 
 // ─── Mobile hook ─────────────────────────────────────────────────────────────
 
@@ -156,7 +157,13 @@ export default function FilterSortSidebar({
           },
         };
       });
-    } catch {
+    } catch (err) {
+      // Never swallow this: a throw before the fetch (bad api config, failed dimension
+      // discovery) otherwise looks identical to "the server returned nothing".
+      logSmartDataEvent('error', 'filter-search', 'filter-search:error', {
+        key, page, search, error: err?.message,
+      });
+      console.error(`[FilterSortSidebar] fetchFilterValues("${key}") failed:`, err);
       setTabValues(prev => ({
         ...prev,
         [key]: { ...(prev[key] ?? {}), loading: false, hasMore: false },
