@@ -313,7 +313,6 @@ export async function fetchDoctorById(doctorName) {
         city
         custom_latitude
         custom_longitude
-        custom_specialty
         custom_speciality
         email_id
         notes {

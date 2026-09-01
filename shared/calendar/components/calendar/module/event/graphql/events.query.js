@@ -202,7 +202,6 @@ query Doctors($first: Int,$filter: [DBFilterInput]) {
         city
         custom_latitude
         custom_longitude
-        custom_specialty
         custom_speciality
         email_id
         notes {
