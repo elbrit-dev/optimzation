@@ -47,9 +47,9 @@ export function DateNavigator({
         });
 
     return (
-        <div className="space-y-0.5">
-            <div className="flex items-center gap-2">
-                <div className="md:hidden flex items-center gap-1">
+        <div className="min-w-0 space-y-0.5">
+            <div className="flex min-w-0 items-center gap-2">
+                <div className="md:hidden flex shrink-0 items-center gap-1">
                     <MotionButton
                         variant="outline"
                         size="icon"
@@ -78,7 +78,7 @@ export function DateNavigator({
                     transition={transition}
                     disabled={isYearView}
                     className={cn(
-                      "text-sm md:text-lg font-semibold block md:hidden",
+                      "block min-w-0 truncate text-left text-sm font-semibold md:hidden md:text-lg",
                       !isYearView && "cursor-pointer"
                     )}
                     onClick={() =>

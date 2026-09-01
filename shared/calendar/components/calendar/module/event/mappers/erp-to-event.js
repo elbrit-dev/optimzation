@@ -19,7 +19,10 @@ function normalizeAttending(value) {
   return "No";
 }
 
-function normalizeParticipantAttending(value) {
+// ERP's GraphQL layer returns Select fields as enums ("YES"), while the doctype
+// only accepts "", "Yes", "No" or "Maybe" on write — so anything read from
+// GraphQL has to come back through here before it is saved again.
+export function normalizeParticipantAttending(value) {
   if (typeof value !== "string") return "";
 
   const v = value.trim().toLowerCase();
@@ -80,6 +83,9 @@ export function mapErpGraphqlEventToCalendar(node) {
           participant.reference_doctype__name === "Employee"
       )
       .map((p) => ({
+      // The child row id: echoing it back updates the row in place instead of
+      // Frappe deleting and recreating the whole table on every save.
+      name: p.name ?? undefined,
       reference_doctype: p.reference_doctype__name,
       reference_docname: String(p.reference_docname__name),
       attending: normalizeParticipantAttending(p.attending),

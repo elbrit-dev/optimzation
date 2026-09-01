@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 import { isEmployeeOnApprovedLeave } from "@calendar/lib/calendar/leaveDay";
-import { buildEventDefaultValues, TAG_IDS, TAGS } from "@calendar/components/calendar/constants";
+import { buildEventDefaultValues, getAvailableTags, TAG_IDS } from "@calendar/components/calendar/constants";
 import { mapFormToErpEvent } from "@calendar/components/calendar/module/event/mappers/event-to-erp";
 import {
 	fetchAllCustomers,
@@ -21,7 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, } from "
 import { RHFFieldWrapper, RHFComboboxField, RHFDateTimeField, InlineCheckboxField, FormFooter, RHFHQCardSelector, } from "@calendar/components/calendar/form-fields";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 import { RHFDoctorCardSelector } from "@calendar/components/RHFDoctorCardSelector";
-import { useDisclosure, useSubmissionRouter } from "@calendar/components/calendar/hooks";
+import { useBackToClose, useDisclosure, useSubmissionRouter } from "@calendar/components/calendar/hooks";
 import { eventSchema } from "@calendar/components/calendar/schemas";
 import { TAG_FORM_CONFIG } from "@calendar/lib/calendar/form-config";
 import { loadParticipantOptionsByTag } from "@calendar/lib/participants";
@@ -48,7 +48,7 @@ import TodoComments from "@calendar/components/calendar/module/todo/components/T
 import { ErrorBoundary } from "@calendar/components/ui/error-boundary";
 import { Textarea } from "@calendar/components/ui/textarea";
 import { fetchEmployeeLeaveBalance } from "@calendar/components/calendar/module/leave/services/leave.service";
-import { isLeafRole, resolveLoggedInRoleId, resolveSuperiorShareUserIds } from "@calendar/lib/employeeHeirachy";
+import { isLeafRole, resolveLoggedInRoleId, resolveSuperiorShareUserIds, resolveVisibleRoleIds } from "@calendar/lib/employeeHeirachy";
 import { enqueueSubmission } from "@calendar/lib/calendar/submission-queue";
 import { fetchDocSharesByDocument } from "@calendar/components/calendar/module/event/services/docshare.service";
 import { cn } from "@calendar/lib/utils";
@@ -82,7 +82,13 @@ export function AddEditEventDialog({
 		hqTerritoryOptions,
 		setEmployeeOptions, territoryDoctors, setTerritoryDoctors,
 		setDoctorOptions, customerOptions, setCustomerOptions, selectedDate, allowedEmployeeIds,
-		setHqTerritoryOptions, users, elbritRoleEdges, enableGoogleCalendarSync: calendarSyncEnabled } = useCalendar();
+		setHqTerritoryOptions, users, elbritRoleEdges, enabledTagIds, enableGoogleCalendarSync: calendarSyncEnabled } = useCalendar();
+	// Only the event types this deployment enables can be created here, and a new
+	// event must start on one of them.
+	const availableTags = useMemo(
+		() => getAvailableTags(enabledTagIds),
+		[enabledTagIds]
+	);
 	const isEditing = !!event;
 	const [leaveBalance, setLeaveBalance] = useState(null);
 	const [leaveLoading, setLeaveLoading] = useState(false);
@@ -93,6 +99,7 @@ export function AddEditEventDialog({
 	const [isResolvingLocation, setIsResolvingLocation] = useState(false);
 	const [distanceKm, setDistanceKm] = useState(null);
 	const endDateTouchedRef = useRef(false); // existing
+	const pobRowsEndRef = useRef(null);
 	const [showReason, setShowReason] = useState(false);
 	const [googleCalendarEnabled, setGoogleCalendarEnabled] = useState(false);
 	const [meetingMode, setMeetingMode] = useState("physical");
@@ -103,7 +110,10 @@ export function AddEditEventDialog({
 	const form = useForm({
 		resolver: zodResolver(eventSchema),
 		mode: "onChange",
-		defaultValues: buildEventDefaultValues({ event, defaultTag }),
+		defaultValues: buildEventDefaultValues({
+			event,
+			defaultTag: defaultTag ?? availableTags[0]?.id,
+		}),
 	});
 
 	const startDate = useWatch({ control: form.control, name: "startDate" });
@@ -111,7 +121,7 @@ export function AddEditEventDialog({
 	const allDay = useWatch({ control: form.control, name: "allDay" });
 	const leaveType = useWatch({ control: form.control, name: "leaveType", });
 	const leavePeriod = useWatch({ control: form.control, name: "leavePeriod", });
-	const { doctor, employees, hqTerritory, tags: selectedTag, attending, enableGoogleMeet } = useWatch({ control: form.control });
+	const { doctor, employees, hqTerritory, tags: selectedTag, attending, enableGoogleMeet, forceVisit: isForceVisitSelected } = useWatch({ control: form.control });
 	const pobGiven = useWatch({ control: form.control, name: "pob_given", });
 	const customer = useWatch({ control: form.control, name: "customer", });
 	const pobItems = useWatch({ control: form.control, name: "fsl_doctor_item" });
@@ -616,15 +626,30 @@ export function AddEditEventDialog({
 			resolvedLoggedInRoleId
 		).filter((userId) => userId !== LOGGED_IN_USER.email);
 	}, [resolvedLoggedInRoleId, elbritRoleEdges, isEditing, shareUsers]);
-	const currentUserDepartment = useMemo(() => {
-		if (!resolvedLoggedInRoleId) return null;
+	// Departments whose products this user may bill POB against.
+	//
+	// A manager's own role profile has no department: an SM covers several
+	// (SM-Vasco spans Vasco Chennai and Vasco Coimbatore) and ERP's field holds
+	// only one, so it is left empty — which used to leave every SM with an empty
+	// item list. Resolve it down the same role hierarchy the calendar uses for
+	// event visibility and take the union, so a manager gets exactly what their
+	// team carries. A BE is a leaf, so this is just their own department.
+	const currentUserDepartments = useMemo(() => {
+		if (!resolvedLoggedInRoleId) return [];
 
-		return (
-			elbritRoleEdges?.find(
-				({ node }) => node?.role_id === resolvedLoggedInRoleId
-			)?.node?.sales_team__name ?? null
+		const visibleRoleIds = new Set(
+			resolveVisibleRoleIds(elbritRoleEdges, resolvedLoggedInRoleId)
 		);
+		const departments = new Set();
+
+		elbritRoleEdges?.forEach(({ node }) => {
+			if (!node?.role_id || !visibleRoleIds.has(node.role_id)) return;
+			if (node.sales_team__name) departments.add(node.sales_team__name);
+		});
+
+		return [...departments];
 	}, [elbritRoleEdges, resolvedLoggedInRoleId]);
+	const hasResolvedDepartment = currentUserDepartments.length > 0;
 	const isAutoShareableTag = (tag) => tag !== TAG_IDS.LEAVE;
 	const collectManualShareEmails = (values) => {
 		const emails = new Set();
@@ -734,8 +759,8 @@ export function AddEditEventDialog({
 		if (Number(pobGiven) !== 1) return;
 		if (itemOptions.length) return;
 
-		fetchItemsByDepartment(currentUserDepartment).then(setItemOptions);
-	}, [currentUserDepartment, isEditing, itemOptions.length, pobGiven, selectedTag]);
+		fetchItemsByDepartment(currentUserDepartments).then(setItemOptions);
+	}, [currentUserDepartments, isEditing, itemOptions.length, pobGiven, selectedTag]);
 
 	/* ---------------------------------------------
 	  RESET POB ITEMS
@@ -1173,8 +1198,10 @@ export function AddEditEventDialog({
 		const normalizedStartDate = new Date(
 			values.startDate ?? event?.startDate ?? new Date()
 		);
+		// Submitted value first, so an edited date range is reflected in the
+		// optimistic calendar entry instead of snapping back to the saved one.
 		const fallbackEndDate = new Date(
-			event?.endDate ?? values.endDate ?? values.startDate ?? new Date()
+			values.endDate ?? event?.endDate ?? values.startDate ?? new Date()
 		);
 		const resolvedEndDate =
 			values.tags === TAG_IDS.DOCTOR_VISIT_PLAN &&
@@ -1317,6 +1344,21 @@ export function AddEditEventDialog({
 	const canUseDoctorVisitTag =
 		hasValidHqTourPlan || canCreateDoctorVisitDirectly;
 	const shouldHideHqTourPlanTag = canCreateDoctorVisitDirectly;
+	// A new event must never sit on a type this deployment doesn't offer. Without
+	// this, a trigger asking for a disabled type (or a stale default) left the
+	// form rendering that type's fields with no chip selected — e.g. tapping
+	// "DR Tour Plan" and getting the Leave form.
+	useEffect(() => {
+		if (!isOpen || isEditing) return;
+		if (!availableTags.length) return;
+		if (availableTags.some((tag) => tag.id === selectedTag)) return;
+
+		form.setValue("tags", availableTags[0].id, {
+			shouldDirty: false,
+			shouldValidate: true,
+		});
+	}, [availableTags, form, isEditing, isOpen, selectedTag]);
+
 	useEffect(() => {
 		if (!isOpen || isEditing) return;
 
@@ -1377,9 +1419,10 @@ export function AddEditEventDialog({
 		() =>
 			getDisabledHqDates(
 				events,
-				allowedEmployeeIds
+				allowedEmployeeIds,
+				event?.erpName ?? null
 			),
-		[events, allowedEmployeeIds]
+		[events, allowedEmployeeIds, event?.erpName]
 	);
 
 	useEffect(() => {
@@ -1453,6 +1496,13 @@ export function AddEditEventDialog({
 	const handleDialogOpenChange = (nextOpen) => {
 		if (!nextOpen && isMutationPending) return;
 		if (nextOpen) {
+			// Every event type can legitimately be switched off (see the
+			// eventTypes / eventTypesMode props). There is then nothing valid to
+			// create, so don't open a form whose type picker is empty.
+			if (!isEditing && !availableTags.length) {
+				toast.error("No event types are enabled");
+				return;
+			}
 			// Central guard for EVERY entry point that opens this form (header,
 			// day-cell click, mobile add): if the user is on an APPROVED leave on
 			// the target day, don't open — creating an event is pointless then.
@@ -1472,6 +1522,10 @@ export function AddEditEventDialog({
 		}
 		onClose();
 	};
+	// Android back used to unwind the calendar route and dump the user on the
+	// overview page with the form gone; it now closes just this dialog (or the
+	// popover stacked on top of it).
+	useBackToClose(isOpen, () => handleDialogOpenChange(false));
 	const handleDefaultEvent = async (values) => {
 		const shouldSyncGoogleCalendar =
 			values.tags === TAG_IDS.MEETING
@@ -1514,12 +1568,18 @@ export function AddEditEventDialog({
 				});
 			quotationName = quotationDoc.name ?? quotationName;
 		}
+		// When the form actually exposes End Date, the submitted value must win:
+		// passing the saved end date as a fallback made the mapper keep the old
+		// one, so edited end dates never reached ERP. Tags that hide the field
+		// (e.g. Doctor Visit Plan) still fall back to the stored value.
+		const isEndDateEditable =
+			isFieldVisible("endDate") && !isEditReadOnlyField("endDate");
 		const erpDoc = mapFormToErpEvent(normalizedValues, {
 			erpName: event?.erpName,
 			employeeResolvers,
 			doctorResolvers,
 			existingEventParticipants: event?.event_participants ?? [],
-			existingEndDate: event?.endDate ?? null,
+			existingEndDate: isEndDateEditable ? null : event?.endDate ?? null,
 			enableGoogleCalendarSync: shouldSyncGoogleCalendar,
 			googleCalendar:
 				shouldSyncGoogleCalendar && googleCalendarEnabled
@@ -1559,6 +1619,16 @@ export function AddEditEventDialog({
 					shareWithUserIds: getShareUserIds(values),
 					deferShareSync: false,
 					skipExistingShareCheck: !event?.erpName,
+					// Rebuild the participant table from ERP at write time and touch
+					// only this user's row, so marking your own visit can't wipe a
+					// colleague's on a shared visit (see mergeParticipantRows).
+					...(event?.erpName && {
+						mergeParticipants: {
+							actingEmployeeId: LOGGED_IN_USER.id,
+							recomputeDoctorVisitStatus:
+								values.tags === TAG_IDS.DOCTOR_VISIT_PLAN,
+						},
+					}),
 				},
 			},
 		});
@@ -1925,7 +1995,7 @@ export function AddEditEventDialog({
 								name="tags"
 								render={({ field }) => (
 									<div className="flex flex-wrap gap-2">
-										{TAGS.filter((tag) => {
+										{availableTags.filter((tag) => {
 											if (tag.id === TAG_IDS.HQ_TOUR_PLAN) {
 												return !shouldHideHqTourPlanTag;
 											}
@@ -2195,7 +2265,7 @@ export function AddEditEventDialog({
 											control={form.control}
 											form={form}
 											name="startDate"
-											label="Date"
+											label={getFieldLabel("startDate", "Date")}
 											hideTime
 											/* Doctor Tour Plan restriction */
 											minDate={
@@ -2219,7 +2289,8 @@ export function AddEditEventDialog({
 										/>
 									)}
 
-								{isFieldVisible("endDate") && (
+								{isFieldVisible("endDate") &&
+									!isEditReadOnlyField("endDate") && (
 									<RHFDateTimeField control={form.control} form={form} name="endDate" label={getFieldLabel("endDate", "End Date")} hideTime={tagConfig.dateOnly}
 										onChange={(date) => {
 											endDateTouchedRef.current = true;
@@ -2595,18 +2666,39 @@ export function AddEditEventDialog({
 								)}
 							</div>
 						)}
-						{isEditing && selectedTag == TAG_IDS.DOCTOR_VISIT_PLAN && showReason && (
+						{/* Visibility follows the persisted forceVisit flag, not just the
+						    distance check that ran this session: a visit saved as a force
+						    visit whose location is missing would otherwise hide a field
+						    that submit now requires. */}
+						{isEditing &&
+							selectedTag == TAG_IDS.DOCTOR_VISIT_PLAN &&
+							(showReason || isForceVisitSelected) && (
 							<div className="mt-2 space-y-1">
 								<FormField
 									control={form.control}
 									name="custom_force_visit_reason"
-									render={({ field }) => (
-										<RHFFieldWrapper label={"Force Visit Reason"}>
-											<Textarea content={field.value} onChange={field.onChange} />
-											{/* <Tiptap
-											content={field.value}
-											onChange={field.onChange}
-										/> */}
+									render={({ field, fieldState }) => (
+										<RHFFieldWrapper
+											label={
+												isForceVisitSelected
+													? "Force Visit Reason *"
+													: "Force Visit Reason"
+											}
+											error={fieldState.error?.message}
+										>
+											{/* `content` is not a textarea prop — it left the field
+											    uncontrolled, so a saved reason never showed on reopen. */}
+											<Textarea
+												value={field.value ?? ""}
+												onChange={field.onChange}
+												placeholder="Why was this visit made outside the doctor's location?"
+											/>
+											{isForceVisitSelected && (
+												<p className="text-xs text-muted-foreground">
+													This visit is outside 500 m of the doctor, so a reason
+													is required.
+												</p>
+											)}
 										</RHFFieldWrapper>
 									)}
 								/>
@@ -2686,62 +2778,104 @@ export function AddEditEventDialog({
 								<div className="space-y-4">
 									<h4 className="font-medium">POB Details</h4>
 
-									{/* ✅ HEADER (ONLY ONCE) */}
-									<div className="grid grid-cols-[1fr_100px_120px_40px] gap-3 text-sm font-medium text-muted-foreground">
+									{/* An empty item dropdown is indistinguishable from a broken
+									    search, so name the cause: no department resolved means
+									    nothing can ever match. */}
+									{!hasResolvedDepartment && (
+										<p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+											No product department is mapped to your role profile, so no
+											items can be listed. Ask MIS to map a department to it.
+										</p>
+									)}
+
+									{/* ✅ HEADER (ONLY ONCE)
+									    Column headers only read as headers next to their columns;
+									    the row stacks on a phone, so each field carries its own. */}
+									<div className="hidden gap-3 text-sm font-medium text-muted-foreground sm:grid sm:grid-cols-[1fr_100px_120px_40px]">
 										<span>Item</span>
 										<span>Qty</span>
 										<span>Amount</span>
 										<span></span>
 									</div>
 
-									{/* ✅ ROWS */}
+									{/* ✅ ROWS
+									    Four fixed columns need ~330px — more than a phone dialog
+									    has — which squeezed the item picker down to an unusable
+									    sliver. Stacked below sm, original grid from sm up. */}
 									{(pobItems ?? []).map((row, index) => (
 										<div
 											key={index}
-											className="grid grid-cols-[1fr_100px_120px_40px] gap-3 items-end"
+											className="grid grid-cols-1 gap-2 rounded-lg border p-3 sm:grid-cols-[1fr_100px_120px_40px] sm:items-end sm:gap-3 sm:rounded-none sm:border-0 sm:p-0"
 										>
 											{/* Item */}
-											<RHFComboboxField
-												name={`fsl_doctor_item.${index}.item__name`}
-												options={getAvailableItems(
-													itemOptions,
-													pobItems,
-													row.item__name
-												)}
-												tagsDisplay={false}
-												multiple={false}
-												placeholder="Select Item"
-											/>
+											<div className="min-w-0">
+												<span className="mb-1 block text-xs text-muted-foreground sm:hidden">
+													Item
+												</span>
+												<RHFComboboxField
+													name={`fsl_doctor_item.${index}.item__name`}
+													options={getAvailableItems(
+														itemOptions,
+														pobItems,
+														row.item__name
+													)}
+													tagsDisplay={false}
+													multiple={false}
+													placeholder="Select Item"
+													searchPlaceholder="Search item by name or code"
+												/>
+											</div>
 
-											{/* Qty */}
-											<Input
-												type="number"
-												min={1}
-												value={row.qty}
-												onChange={(e) => {
-													const qty = Number(e.target.value);
-													updatePobRow(form, index, { qty });
-												}}
-											/>
+											{/* Qty / Amount / Remove: one row on mobile, three grid
+											    cells from sm up (`contents` drops this wrapper). */}
+											<div className="flex items-end gap-2 sm:contents">
+												<div className="w-20 sm:w-auto">
+													<span className="mb-1 block text-xs text-muted-foreground sm:hidden">
+														Qty
+													</span>
+													<Input
+														type="number"
+														min={1}
+														inputMode="numeric"
+														value={row.qty}
+														onChange={(e) => {
+															// Clearing the field yields NaN, which then fails
+															// validation on a value the user cannot see.
+															const parsed = Number(e.target.value);
+															const qty =
+																Number.isFinite(parsed) && parsed > 0
+																	? parsed
+																	: 1;
+															updatePobRow(form, index, { qty });
+														}}
+													/>
+												</div>
 
-											{/* Amount */}
-											<Input value={row.amount} disabled />
+												<div className="min-w-0 flex-1 sm:w-auto sm:flex-none">
+													<span className="mb-1 block text-xs text-muted-foreground sm:hidden">
+														Amount
+													</span>
+													<Input value={row.amount} disabled />
+												</div>
 
-											{/* Remove */}
-											<Button
-												type="button"
-												variant="ghost"
-												size="icon"
-												onClick={() => {
-													const items = [...form.getValues("fsl_doctor_item")];
-													items.splice(index, 1);
-													form.setValue("fsl_doctor_item", items, {
-														shouldDirty: true,
-													});
-												}}
-											>
-												✕
-											</Button>
+												{/* Remove */}
+												<Button
+													type="button"
+													variant="ghost"
+													size="icon"
+													className="shrink-0"
+													aria-label="Remove item"
+													onClick={() => {
+														const items = [...form.getValues("fsl_doctor_item")];
+														items.splice(index, 1);
+														form.setValue("fsl_doctor_item", items, {
+															shouldDirty: true,
+														});
+													}}
+												>
+													✕
+												</Button>
+											</div>
 										</div>
 									))}
 
@@ -2755,10 +2889,21 @@ export function AddEditEventDialog({
 												[...items, { item__name: "", qty: 1, rate: 0, amount: 0 }],
 												{ shouldDirty: true }
 											);
+
+											// The new row lands at the bottom, exactly where an open
+											// soft keyboard sits: drop the keyboard and scroll the row
+											// into view instead of leaving the user staring at keys.
+											document.activeElement?.blur?.();
+											requestAnimationFrame(() => {
+												pobRowsEndRef.current?.scrollIntoView({
+													block: "nearest",
+												});
+											});
 										}}
 									>
 										+ Add Item
 									</Button>
+									<div ref={pobRowsEndRef} aria-hidden="true" />
 								</div>
 							)}
 						{/* ================= Notes ================= */}

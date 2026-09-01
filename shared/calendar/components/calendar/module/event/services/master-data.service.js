@@ -181,11 +181,27 @@ function isActiveDepartmentMapping(detail) {
   return today >= validFrom && today <= validTo;
 }
 
-export async function fetchItemsByDepartment(departmentName) {
-  const normalizedDepartment = normalizeDepartmentName(departmentName);
+/**
+ * Products a user may bill POB against.
+ *
+ * Accepts one department or several: a manager's role profile carries no
+ * department of its own (an SM covers more than one, and the link field holds
+ * only a single value), so callers pass the departments of every role under
+ * them. An item qualifies when ANY of them matches an active mapping.
+ */
+export async function fetchItemsByDepartment(departmentNames) {
+  const normalizedDepartments = (
+    Array.isArray(departmentNames) ? departmentNames : [departmentNames]
+  )
+    .map(normalizeDepartmentName)
+    .filter(Boolean);
+
+  // No department resolved means nothing can match — don't spend a full item
+  // fetch to arrive at an empty list.
+  if (!normalizedDepartments.length) return [];
 
   return getCached(
-    `POB_ITEMS_${normalizedDepartment || "all"}`,
+    `POB_ITEMS_${[...normalizedDepartments].sort().join("|")}`,
     async () => {
       const data = await graphqlRequest(ITEMS_QUERY, {
         first: MAX_ROWS,
@@ -206,12 +222,10 @@ export async function fetchItemsByDepartment(departmentName) {
           : [];
 
         const isAllowed = mappings.some((detail) => {
-          return (
-            departmentsMatch(
-              detail?.elbrit_department__name,
-              normalizedDepartment
-            ) &&
-            isActiveDepartmentMapping(detail)
+          if (!isActiveDepartmentMapping(detail)) return false;
+
+          return normalizedDepartments.some((department) =>
+            departmentsMatch(detail?.elbrit_department__name, department)
           );
         });
 

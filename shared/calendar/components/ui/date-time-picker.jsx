@@ -136,6 +136,10 @@ export function DateTimePicker({
 		n.setHours(0, 0, 0, 0);
 		return n.getTime();
 	});
+	const stopScrollPropagation = (scrollEvent) => {
+		scrollEvent.stopPropagation();
+	};
+
 	return (
 		<FormItem className="flex flex-col">
 			<FormLabel>
@@ -167,7 +171,16 @@ export function DateTimePicker({
 						</Button>
 					</FormControl>
 				</PopoverTrigger>
-				<PopoverContent className="w-auto p-0">
+				{/* This popover is non-modal, so inside a Dialog the dialog's scroll
+				    lock (react-remove-scroll, listening on `document`) cancels every
+				    scroll that starts in this portalled content — which makes the
+				    hour/minute columns unscrollable by touch. Stopping the events in
+				    the capture phase keeps them away from that listener. */}
+				<PopoverContent
+					className="w-auto p-0"
+					onWheelCapture={stopScrollPropagation}
+					onTouchMoveCapture={stopScrollPropagation}
+				>
 					<div className="sm:flex w-[220px]">
 						<Calendar
 							mode="single"

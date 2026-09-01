@@ -1,0 +1,171 @@
+{
+  "summary": [
+    {
+      "label": "Net pay - July 2026",
+      "value": "₹1,10,260",
+      "caption": "Credited 31 Jul 2026 - HDFC ••••4417",
+      "strong": true
+    },
+    {
+      "label": "Gross pay - FY 2026-27",
+      "value": "₹5,18,600",
+      "caption": "Apr 2026 - Jul 2026, 4 slips"
+    },
+    {
+      "label": "Deductions - FY 2026-27",
+      "value": "₹73,817",
+      "caption": "PF, professional tax and TDS"
+    },
+    {
+      "label": "Net paid - FY 2026-27",
+      "value": "₹4,44,783",
+      "caption": "Take-home to date",
+      "strong": true
+    }
+  ],
+  "fiscalYears": [
+    "FY 2026-27",
+    "FY 2025-26"
+  ],
+  "slips": [
+    {
+      "month": "July 2026",
+      "period": "01 Jul - 31 Jul 2026",
+      "gross": "₹1,28,500",
+      "deductions": "₹18,240",
+      "netPay": "₹1,10,260",
+      "status": "Submitted"
+    },
+    {
+      "month": "June 2026",
+      "period": "01 Jun - 30 Jun 2026",
+      "gross": "₹1,28,500",
+      "deductions": "₹18,240",
+      "netPay": "₹1,10,260",
+      "status": "Submitted"
+    },
+    {
+      "month": "May 2026",
+      "period": "01 May - 31 May 2026",
+      "gross": "₹1,33,100",
+      "deductions": "₹19,097",
+      "netPay": "₹1,14,003",
+      "status": "Submitted"
+    },
+    {
+      "month": "April 2026",
+      "period": "01 Apr - 30 Apr 2026",
+      "gross": "₹1,28,500",
+      "deductions": "₹18,240",
+      "netPay": "₹1,10,260",
+      "status": "Submitted"
+    },
+    {
+      "month": "March 2026",
+      "period": "01 Mar - 31 Mar 2026",
+      "gross": "₹1,21,000",
+      "deductions": "₹16,416",
+      "netPay": "₹1,04,584",
+      "status": "Submitted"
+    },
+    {
+      "month": "February 2026",
+      "period": "01 Feb - 28 Feb 2026",
+      "gross": "₹1,21,000",
+      "deductions": "₹16,416",
+      "netPay": "₹1,04,584",
+      "status": "Submitted"
+    }
+  ],
+  "selectedSlip": {
+    "title": "July 2026",
+    "subtitle": "Sal Slip/E00004/00028",
+    "netPay": "₹1,10,260",
+    "creditText": "Credited to HDFC ••••4417",
+    "incomeTaxSlab": "New Regime (2026-27)",
+    "earnings": [
+      {
+        "label": "Basic",
+        "value": "₹51,400",
+        "ytd": "₹2,05,600"
+      },
+      {
+        "label": "House rent allowance",
+        "value": "₹25,700",
+        "ytd": "₹1,02,800"
+      },
+      {
+        "label": "Conveyance allowance",
+        "value": "₹3,200",
+        "ytd": "₹12,800"
+      },
+      {
+        "label": "Field allowance",
+        "value": "₹9,500",
+        "ytd": "₹38,000"
+      },
+      {
+        "label": "Special allowance",
+        "value": "₹38,700",
+        "ytd": "₹1,59,400"
+      }
+    ],
+    "grossPay": "₹1,28,500",
+    "deductions": [
+      {
+        "label": "Provident fund (employee)",
+        "value": "₹6,168",
+        "ytd": "₹24,672"
+      },
+      {
+        "label": "Professional tax",
+        "value": "₹208",
+        "ytd": "₹832"
+      },
+      {
+        "label": "Income tax (TDS)",
+        "value": "₹11,864",
+        "ytd": "₹48,313"
+      }
+    ],
+    "totalDeductions": "₹18,240",
+    "taxSummary": [
+      {
+        "label": "Taxable Earnings:",
+        "value": "₹15,42,000"
+      },
+      {
+        "label": "Standard Tax Exemption Amount:",
+        "value": "₹75,000"
+      },
+      {
+        "label": "Tax Exemption Declaration:",
+        "value": "₹0"
+      }
+    ],
+    "incomeTaxSummary": [
+      {
+        "label": "Income Tax Deducted Till Date:",
+        "value": "₹48,313"
+      },
+      {
+        "label": "Future Income Tax:",
+        "value": "₹96,626"
+      },
+      {
+        "label": "Total Income Tax:",
+        "value": "₹1,44,939"
+      }
+    ],
+    "meta": [
+      {
+        "label": "Payment mode",
+        "value": "Bank transfer - HDFC ••••4417"
+      },
+      {
+        "label": "Payable days",
+        "value": "31 of 31"
+      }
+    ]
+  }
+}

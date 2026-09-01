@@ -16,15 +16,30 @@ import {RenderGroupedEvents} from "@calendar/components/calendar/views/week-and-
 import {
     WeekViewMultiDayEventsRow
 } from "@calendar/components/calendar/views/week-and-day-view/week-view-multi-day-events-row";
+import { useMemo } from "react";
+import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
+import { isEmployeeOnApprovedLeave } from "@calendar/lib/calendar/leaveDay";
 
 export function CalendarWeekView({
     singleDayEvents,
     multiDayEvents
 }) {
-    const {selectedDate,setSelectedDate, use24HourFormat} = useCalendar();
+    const {selectedDate,setSelectedDate, use24HourFormat, allEvents} = useCalendar();
 
     const weekStart = startOfWeek(selectedDate);
     const weekDays = Array.from({length: 7}, (_, i) => addDays(weekStart, i));
+    // One lookup per visible day - own approved leave blocks the click-to-add
+    // slots for that day's column, same rule as the header's Add Event button.
+    const leaveDayFlags = useMemo(
+        () =>
+            new Map(
+                weekDays.map((day) => [
+                    day.getTime(),
+                    isEmployeeOnApprovedLeave(allEvents, LOGGED_IN_USER.id, day),
+                ])
+            ),
+        [allEvents, weekStart]
+    );
     const hours = Array.from({length: 24}, (_, i) => i);
     const SWIPE_THRESHOLD = 80;
 	const handleDragEnd = (_, info) => {
@@ -144,6 +159,7 @@ export function CalendarWeekView({
                                         isSameDay(parseISO(event.startDate), day) ||
                                         isSameDay(parseISO(event.endDate), day));
                                     const groupedEvents = groupEvents(dayEvents);
+                                    const isLeaveDay = leaveDayFlags.get(day.getTime()) ?? false;
 
                                     return (
                                         <motion.div
@@ -169,10 +185,16 @@ export function CalendarWeekView({
                                                         hour={hour}
                                                         minute={0}
                                                         className="absolute inset-x-0 top-0  h-[48px]">
-                                                        <AddEditEventDialog startDate={day} startTime={{hour, minute: 0}}>
+                                                        {isLeaveDay ? (
                                                             <div
-                                                                className="absolute inset-0 cursor-pointer transition-colors hover:bg-secondary" />
-                                                        </AddEditEventDialog>
+                                                                className="absolute inset-0 cursor-not-allowed"
+                                                                title="You're on leave on this day" />
+                                                        ) : (
+                                                            <AddEditEventDialog startDate={day} startTime={{hour, minute: 0}}>
+                                                                <div
+                                                                    className="absolute inset-0 cursor-pointer transition-colors hover:bg-secondary" />
+                                                            </AddEditEventDialog>
+                                                        )}
                                                     </DroppableArea>
 
                                                     <div
@@ -183,10 +205,16 @@ export function CalendarWeekView({
                                                         hour={hour}
                                                         minute={30}
                                                         className="absolute inset-x-0 bottom-0 h-[48px]">
-                                                        <AddEditEventDialog startDate={day} startTime={{hour, minute: 30}}>
+                                                        {isLeaveDay ? (
                                                             <div
-                                                                className="absolute inset-0 cursor-pointer transition-colors hover:bg-secondary" />
-                                                        </AddEditEventDialog>
+                                                                className="absolute inset-0 cursor-not-allowed"
+                                                                title="You're on leave on this day" />
+                                                        ) : (
+                                                            <AddEditEventDialog startDate={day} startTime={{hour, minute: 30}}>
+                                                                <div
+                                                                    className="absolute inset-0 cursor-pointer transition-colors hover:bg-secondary" />
+                                                            </AddEditEventDialog>
+                                                        )}
                                                     </DroppableArea>
                                                 </motion.div>
                                             ))}

@@ -330,35 +330,34 @@ export function normalizeMeetingTimes(
 }
 
 
-export async function joinDoctorVisit({
-  erpName,
-  existingParticipants,
-  employeeId,
-}) {
-  return saveEvent({
-    name: erpName,
-    event_participants: [
-      ...existingParticipants,
-      {
-        reference_doctype: "Employee",
-        reference_docname: employeeId,
-      },
-    ],
-  });
+// Join and leave only ever change the acting employee's own membership. The
+// other rows come from ERP inside saveEvent, so a stale browser copy can't
+// clobber another participant's recorded visit (see mergeParticipantRows).
+export async function joinDoctorVisit({ erpName, employeeId }) {
+  return saveEvent(
+    {
+      name: erpName,
+      event_participants: [
+        {
+          reference_doctype: "Employee",
+          reference_docname: employeeId,
+        },
+      ],
+    },
+    { mergeParticipants: { actingEmployeeId: employeeId } }
+  );
 }
-export async function leaveDoctorVisit({
-  erpName,
-  existingParticipants,
-  employeeId,
-}) {
-  return saveEvent({
-    name: erpName,
-    event_participants: existingParticipants.filter(
-      (p) =>
-        !(
-          p.reference_doctype === "Employee" &&
-          String(p.reference_docname) === String(employeeId)
-        )
-    ),
-  });
+export async function leaveDoctorVisit({ erpName, employeeId }) {
+  return saveEvent(
+    {
+      name: erpName,
+      event_participants: [],
+    },
+    {
+      mergeParticipants: {
+        actingEmployeeId: employeeId,
+        removedEmployeeIds: [employeeId],
+      },
+    }
+  );
 }

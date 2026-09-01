@@ -14,6 +14,10 @@ export default function CalendarPage({
   googleClientId,
   googleRedirectUri,
   enableGoogleCalendarSync = false,
+  // `eventTypes` is the set you pick; `eventTypesMode` says whether that set is
+  // the enabled one or the disabled one. Pick nothing and every type is on.
+  eventTypes,
+  eventTypesMode,
 }) {
   return (
     <AuthProvider
@@ -28,7 +32,11 @@ export default function CalendarPage({
           (the host Plasmic app doesn't render Sonner's Toaster). */}
       <Toaster richColors position="top-right" />
       <Suspense fallback={<CalendarSkeleton />}>
-        <Calendar enableGoogleCalendarSync={enableGoogleCalendarSync} />
+        <Calendar
+          enableGoogleCalendarSync={enableGoogleCalendarSync}
+          eventTypes={eventTypes}
+          eventTypesMode={eventTypesMode}
+        />
       </Suspense>
     </AuthProvider>
   );

@@ -15,6 +15,8 @@ import { MonthEventBadge } from "@calendar/components/calendar/views/month-view/
 import { AddEditEventDialog } from "../../dialogs/add-edit-event-dialog";
 import { Button } from "@calendar/components/ui/button";
 import { Plus } from "lucide-react";
+import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
+import { isEmployeeOnApprovedLeave } from "@calendar/lib/calendar/leaveDay";
 
 export const dayCellVariants = cva("text-white", {
   variants: {
@@ -50,7 +52,7 @@ export function DayCell({
 }) {
   const { day, currentMonth, date } = cell;
   const isMobile = useMediaQuery("(max-width: 768px)");
-  const { setEventListDate, isEventListOpen, setSelectedDate, activeDate, setActiveDate, setMobileLayer, mobileLayer } = useCalendar();
+  const { setEventListDate, isEventListOpen, setSelectedDate, activeDate, setActiveDate, setMobileLayer, mobileLayer, allEvents } = useCalendar();
   const isSelected =
     activeDate &&
     startOfDay(activeDate).getTime() === startOfDay(date).getTime();
@@ -122,6 +124,12 @@ export function DayCell({
   const showMobileMore = isMobile && currentMonth && showMoreCount > 0;
   const showDesktopMore = !isMobile && currentMonth && showMoreCount > 0;
   const isPastDate = isBefore(startOfDay(date), startOfDay(new Date()));
+  // Own approved leave on this day - adding an event here is pointless, so the
+  // quick-add affordance is swapped for a plain "On leave" note instead.
+  const isLeaveDay = useMemo(
+    () => isEmployeeOnApprovedLeave(allEvents, LOGGED_IN_USER.id, date),
+    [allEvents, date]
+  );
   const cellContent = useMemo(() => (
     <motion.div
       className={cn(
@@ -156,17 +164,23 @@ export function DayCell({
           )}>
           {!isPastDate && cellEvents.length === 0 ? (
             <div className="w-full h-full hidden md:flex  flex justify-center items-center group">
-              <AddEditEventDialog startDate={date}>
-                <Button
-                  variant="ghost"
-                  onPointerDownCapture={(e) => e.stopPropagation()}
-                  onClick={(e) => e.stopPropagation()}
-                  className="border opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-auto"
-                >
-                  <Plus className="h-4 w-4" />
-                  <span className="max-sm:hidden">Add Event</span>
-                </Button>
-              </AddEditEventDialog>
+              {isLeaveDay ? (
+                <span className="text-[10px] lg:text-xs font-medium text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                  On leave
+                </span>
+              ) : (
+                <AddEditEventDialog startDate={date}>
+                  <Button
+                    variant="ghost"
+                    onPointerDownCapture={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
+                    className="border opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-auto"
+                  >
+                    <Plus className="h-4 w-4" />
+                    <span className="max-sm:hidden">Add Event</span>
+                  </Button>
+                </AddEditEventDialog>
+              )}
             </div>
           ) : (
             visibleEvents.map((event, index) => (
@@ -223,6 +237,7 @@ export function DayCell({
     day,
     currentMonth,
     cellEvents,
+    isLeaveDay,
     showMobileMore,
     showDesktopMore,
     showMoreCount,

@@ -102,6 +102,54 @@ export const TAGS = [
   { id: TAG_IDS.MEETING, label: "Meeting" },
   // { id: TAG_IDS.OTHER, label: "Other" },
 ];
+/**
+ * Which event types the calendar offers.
+ *
+ * Two props decide it (CalendarPage → Calendar → CalendarProvider):
+ *   eventTypes     — the types you pick
+ *   eventTypesMode — whether that pick is the enabled set or the disabled set
+ *
+ * Pick nothing and every type is enabled, whatever the mode says: a rule with
+ * no subject should not switch the calendar off.
+ *
+ * A type left out is hidden from the add/edit form, filtered off the calendar,
+ * and the queries backing it are never sent. Note that leaving Leave out stops
+ * leave applications from loading, so the "employee is on approved leave" guard
+ * that greys out Add Event has nothing to match against and stops blocking.
+ */
+export const EVENT_TYPE_MODES = {
+  ENABLED: "enabled",
+  DISABLED: "disabled",
+};
+
+export const ALL_TAG_IDS = TAGS.map((tag) => tag.id);
+
+export function resolveEnabledTagIds(
+  eventTypes,
+  eventTypesMode = EVENT_TYPE_MODES.DISABLED
+) {
+  const selected = (Array.isArray(eventTypes) ? eventTypes : []).filter((tag) =>
+    ALL_TAG_IDS.includes(tag)
+  );
+
+  if (!selected.length) return ALL_TAG_IDS;
+
+  if (eventTypesMode === EVENT_TYPE_MODES.ENABLED) return selected;
+
+  return ALL_TAG_IDS.filter((tag) => !selected.includes(tag));
+}
+
+export function isTagEnabled(tag, enabledTagIds = ALL_TAG_IDS) {
+  return (Array.isArray(enabledTagIds) ? enabledTagIds : ALL_TAG_IDS).includes(
+    tag
+  );
+}
+
+export function getAvailableTags(enabledTagIds) {
+  const enabled = Array.isArray(enabledTagIds) ? enabledTagIds : ALL_TAG_IDS;
+  return TAGS.filter((tag) => enabled.includes(tag.id));
+}
+
 export const PARTICIPANT_SOURCE_BY_TAG = {
   [TAG_IDS.LEAVE]: ["EMPLOYEE"],
   [TAG_IDS.HQ_TOUR_PLAN]: ["HQ_TERRITORY"],
@@ -147,7 +195,7 @@ export function buildEventDefaultValues({ event, defaultTag }) {
     description: event?.description ?? "",
     startDate,
     endDate,
-    tags: event?.tags ?? defaultTag ?? "Leave",
+    tags: event?.tags ?? defaultTag ?? TAG_IDS.HQ_TOUR_PLAN,
     hqTerritory: event?.hqTerritory ?? "",
     meetingLocation: event?.meetingLocation ?? "",
     employees: event?.employees,

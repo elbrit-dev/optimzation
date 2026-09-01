@@ -85,6 +85,7 @@ export function TimePicker({
               return (
                 <button
                 key={`${h}-${m}`}
+                type="button"
                 disabled={isDisabled}
                 onClick={() => handleSelect(h, m)}
                 className={cn(

@@ -25,7 +25,7 @@ export function RHFCombobox({
   onChange,
   options = [],
   placeholder = "Select option",
-  searchPlaceholder,
+  searchPlaceholder = "Search...",
   disabled = false,
   selectionLabel = "item",
   multiple = false,
@@ -186,8 +186,30 @@ export function RHFCombobox({
     setActiveFilters({});
   };
 
-  const stopWheelPropagation = (event) => {
+  // The dropdown is portalled to <body>, so it sits outside the scroll lock
+  // Radix Dialog installs (react-remove-scroll listens on `document` and
+  // preventDefault()s every wheel/touchmove that starts outside the dialog
+  // subtree — which silently made this list unscrollable inside a dialog).
+  // Stopping the event in the capture phase keeps it from ever reaching that
+  // document listener, so the browser scrolls the list normally.
+  const stopScrollPropagation = (event) => {
     event.stopPropagation();
+  };
+
+  // On touch, opening the list must not put focus in the search box: the soft
+  // keyboard would cover the options the user came here to pick. Tapping the
+  // search field is what opens the keyboard. Pointer devices keep the default
+  // focus so arrow-key navigation still works.
+  const handleOpenAutoFocus = (event) => {
+    const isTouchDevice =
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(pointer: coarse)").matches;
+
+    if (!isTouchDevice) return;
+
+    event.preventDefault();
+    document.activeElement?.blur?.();
   };
 
   /* ---------------------------------------
@@ -241,12 +263,23 @@ export function RHFCombobox({
         </PopoverTrigger>
 
         <PopoverContent
-          className="w-[var(--radix-popover-trigger-width)] min-w-[var(--radix-popover-trigger-width)] max-h-[320px] overflow-hidden p-0"
+          className="flex w-[var(--radix-popover-trigger-width)] min-w-[var(--radix-popover-trigger-width)] flex-col overflow-hidden p-0"
           align="start"
-          onWheelCapture={stopWheelPropagation}
+          collisionPadding={8}
+          style={{
+            // Never taller than the space Radix reports between the trigger and
+            // the viewport edge, so an open keyboard shrinks the list instead
+            // of pushing options behind it — but never so short that the list
+            // becomes an unscrollable sliver either.
+            maxHeight:
+              "min(320px, max(15rem, var(--radix-popover-content-available-height, 320px)))",
+          }}
+          onOpenAutoFocus={handleOpenAutoFocus}
+          onWheelCapture={stopScrollPropagation}
+          onTouchMoveCapture={stopScrollPropagation}
         >
-          <Command className="max-h-[320px] overflow-hidden">
-            <div className="flex items-center gap-2 border-b px-3 py-2">
+          <Command className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="flex shrink-0 items-center gap-2 pr-2">
               <CommandInput
                 className="flex-1"
                 placeholder={searchPlaceholder}
@@ -275,7 +308,8 @@ export function RHFCombobox({
                     align="end"
                     className="w-72 p-0"
                     sideOffset={8}
-                    onWheelCapture={stopWheelPropagation}
+                    onWheelCapture={stopScrollPropagation}
+                    onTouchMoveCapture={stopScrollPropagation}
                   >
                     <div className="flex items-center justify-between border-b px-3 py-2">
                       <p className="text-sm font-medium">Filters</p>
@@ -291,7 +325,8 @@ export function RHFCombobox({
                     </div>
                     <div
                       className="max-h-72 overflow-y-auto overscroll-contain px-3 py-2"
-                      onWheelCapture={stopWheelPropagation}
+                      onWheelCapture={stopScrollPropagation}
+                      onTouchMoveCapture={stopScrollPropagation}
                     >
                       {filterFacets.map((facet) => (
                         <div key={facet.id} className="mb-4 last:mb-0">
@@ -329,15 +364,20 @@ export function RHFCombobox({
               )}
             </div>
             <CommandList
-              className="max-h-[260px] overflow-y-auto overscroll-contain"
-              onWheelCapture={stopWheelPropagation}
+              className="max-h-none min-h-0 flex-1 overflow-y-auto overscroll-contain"
+              onWheelCapture={stopScrollPropagation}
+              onTouchMoveCapture={stopScrollPropagation}
             >
               {loading && (
                 <div className="px-3 py-2 text-sm text-muted-foreground">
                   Loading...
                 </div>
               )}
-              <CommandEmpty>No results found.</CommandEmpty>
+              <CommandEmpty>
+                {search.trim()
+                  ? `No match for "${search.trim()}"`
+                  : "No results found."}
+              </CommandEmpty>
 
               <CommandGroup>
                 {filteredOptions.map((opt) => (
@@ -351,7 +391,7 @@ export function RHFCombobox({
                       opt.role,
                       opt.designation,
                     ].filter(Boolean)}
-                    className="flex items-center"
+                    className="flex items-center py-2.5"
                   >
                     <Check
                       className={cn(

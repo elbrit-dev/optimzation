@@ -11,6 +11,7 @@ import FirebaseUIComponent from "./components/FirebaseUIComponent";
 import LoginHelpForm from "./components/LoginHelpForm";
 import HelpSupport from "./components/features/help-support";
 import CalendarPage from "@calendar/components/CalendarPage";
+import { TAGS, TAG_IDS, EVENT_TYPE_MODES } from "@calendar/components/calendar/constants";
 import NovuInbox from "./components/NovuInbox";
 import PushNotificationToggle from "./components/PushNotificationToggle";
 import NetworkBanner from "./components/NetworkBanner";
@@ -22,6 +23,7 @@ import ProductCard from "./components/ProductCard";
 import ProductStockSheet from "./components/ProductStockSheet";
 import CatalogLetterSection from "./components/CatalogLetterSection";
 import CatalogLetterGroup from "./components/CatalogLetterGroup";
+import DoctorCard from "./components/DoctorCard";
 import HomeNavRings from "./components/HomeNavRings";
 import ProgressRing from "./components/ProgressRing";
 import EmployeeProfileCard from "./components/EmployeeProfileCard";
@@ -787,11 +789,23 @@ PLASMIC.registerComponent(CalendarPage, {
       type: "string",
       helpText: "Google Redirect URI",
     },
-    enableGoogleCalendarSync: {
-      type: "boolean",
-      defaultValue: false,
+    eventTypes: {
+      type: "choice",
+      multiSelect: true,
+      options: TAGS.map((tag) => ({ label: tag.label, value: tag.id })),
+      defaultValue: [TAG_IDS.LEAVE, TAG_IDS.MEETING, TAG_IDS.TODO_LIST],
       helpText:
-        "Enable Google Calendar sync for non-meeting events. Virtual meetings with Google Meet still sync automatically when enabled.",
+        "Event types to apply the rule below to. Pick none and every type is enabled.",
+    },
+    eventTypesMode: {
+      type: "choice",
+      options: [
+        { label: "Disabled — hide the picked types", value: EVENT_TYPE_MODES.DISABLED },
+        { label: "Enabled — show only the picked types", value: EVENT_TYPE_MODES.ENABLED },
+      ],
+      defaultValue: EVENT_TYPE_MODES.DISABLED,
+      helpText:
+        "How to read the picked types. A type that ends up off is hidden from the event form, filtered off the calendar, and its data is never fetched — and with Leave off, the 'employee is on approved leave' guard on Add Event stops blocking.",
     },
   },
 });
@@ -1827,6 +1841,100 @@ PLASMIC.registerComponent(CatalogLetterGroup, {
     className: { type: "string" },
   },
   importPath: "./components/CatalogLetterGroup",
+});
+
+PLASMIC.registerComponent(DoctorCard, {
+  name: "DoctorCard",
+  displayName: "Doctor Card",
+  description:
+    "ONE doctor row card for the doctor page list view — place it and REPEAT it over the doctor rows, binding each instance its own row (currentItem). Renders the initials avatar, doctor name, coloured speciality chip, the doctor code with a copy button, the HQ territory with a pin, and the department chips (Elbrit Kanchipuram / Vasco Coimbatore …) across the card's full width — as many per row as fit, the rest wrapping onto the next line. The whole card is clickable: onDoctorClick gives you the full row, so wire it to open a detail sheet, navigate, or start a visit — the copy button stays independently clickable. Every field is optional: anything null is left out of the card instead of rendering an empty line.",
+  props: {
+    data: {
+      type: "object",
+      description:
+        "ONE doctor row (bind currentItem inside a repeat). Tolerant of shape — the row itself, a GraphQL edge ({ node }), or a single-row array/connection. Rows are ERP Lead nodes (lead_name, name, custom_specialty__name, territory { name }, custom_role_profile[{ department__name }]).",
+      defaultValue: {
+        name: "DR-36661",
+        lead_name: "Dr Shanmugam",
+        custom_specialty__name: "NEURO",
+        custom_category1__name: "C",
+        city: "Trichy",
+        territory: { name: "HQ-Trichy" },
+        custom_role_profile: [
+          { department__name: "Vasco Coimbatore - ELPL" },
+          { department__name: "Elbrit Trichy - ELPL" },
+        ],
+      },
+    },
+    nameField: {
+      type: "string",
+      defaultValue: "lead_name",
+      description: "Column holding the doctor's display name. Falls back to first_name, then the code, so a card is never nameless. The salutation is skipped when building the avatar initials (\"Dr Meenakshi R\" → MR).",
+    },
+    codeField: {
+      type: "string",
+      defaultValue: "name",
+      description: "Column holding the doctor code shown top-right (the Lead id, e.g. DR-36661). Falls back to custom_doctor_code.",
+    },
+    specialityField: {
+      type: "string",
+      defaultValue: "custom_specialty__name",
+      description: "Column holding the speciality shown as the coloured chip. Falls back to custom_speciality / custom_specialty. The colour is derived from the text, so one speciality always keeps the same colour.",
+    },
+    hqField: {
+      type: "string",
+      defaultValue: "territory",
+      description: "Column holding the HQ shown next to the pin. Reads the nested Link ({ territory: { name } }) or the flattened territory__name, then custom_hq__name.",
+    },
+    cityField: {
+      type: "string",
+      defaultValue: "city",
+      description: "Column holding the city, shown as a smaller line right under the HQ. Skipped when it is the same text as the HQ; when the HQ is missing, the city takes the pin line instead.",
+    },
+    tagsField: {
+      type: "string",
+      defaultValue: "custom_role_profile",
+      description: "Child table holding the department chips. Also accepts a plain array of strings or a comma-separated string. Every department is shown — the row wraps onto the next line instead of collapsing or truncating.",
+    },
+    tagLabelField: {
+      type: "string",
+      defaultValue: "department__name",
+      description: "Field inside each tag row to label the chip. Falls back to role_profile_list__name. The trailing company abbreviation is trimmed (\"Elbrit Trichy - ELPL\" → \"Elbrit Trichy\").",
+    },
+    showAvatar: { type: "boolean", defaultValue: true, description: "Show the initials avatar." },
+    showCopyCode: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Show the copy button beside the doctor code. Copying never counts as clicking the card.",
+    },
+    showCategories: {
+      type: "boolean",
+      defaultValue: false,
+      description: "Add a muted C1 / C2 / C3 grading line under the chips, from custom_category1__name … custom_category3__name. Off by default — it isn't part of the list design.",
+    },
+    clickable: {
+      type: "boolean",
+      defaultValue: true,
+      description: "Make the card clickable and keyboard-operable (fires onDoctorClick).",
+    },
+    selected: {
+      type: "boolean",
+      defaultValue: false,
+      description: "Highlight this card (indigo ring) — bind e.g. currentItem.name == the open doctor to keep the list in sync with a detail sheet.",
+    },
+    onDoctorClick: {
+      type: "eventHandler",
+      description: "Fires when the card is clicked, with { doctor, row, name, code, speciality, hq, city, tags } — doctor/row is the full data row.",
+      argTypes: [{ name: "payload", type: "object" }],
+    },
+    onCopyCode: {
+      type: "eventHandler",
+      description: "Fires after the doctor code is copied to the clipboard, with { code, doctor } — use it for a toast.",
+      argTypes: [{ name: "payload", type: "object" }],
+    },
+    className: { type: "string", description: "CSS class for the card container." },
+  },
+  importPath: "./components/DoctorCard",
 });
 
 PLASMIC.registerComponent(SecondaryApprovalSummary, {

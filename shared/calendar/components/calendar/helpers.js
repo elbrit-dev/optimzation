@@ -51,16 +51,23 @@ export function getVisibleHqEvents(
    */
   export function getDisabledHqDates(
 	events,
-	allowedEmployeeIds = []
+	allowedEmployeeIds = [],
+	excludeEventId = null
   ) {
 	const disabled = [];
-  
+
 	const hqEvents = getVisibleHqEvents(
 	  events,
 	  allowedEmployeeIds
 	);
-  
+
 	hqEvents.forEach((ev) => {
+	  // The plan being edited must not disable its own days, otherwise its
+	  // current start/end dates are unpickable in the edit form.
+	  if (excludeEventId && ev.erpName === excludeEventId) {
+		return;
+	  }
+
 	  const current = startOfDay(
 		new Date(ev.startDate)
 	  );

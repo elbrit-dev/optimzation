@@ -17,7 +17,7 @@ import { useCalendar } from "@calendar/components/calendar/contexts/calendar-con
 import { cn } from "@calendar/lib/utils";
 import { tabs } from "@calendar/components/calendar/header/view-tabs";
 import { DateNavigator } from "@calendar/components/calendar/header/date-navigator";
-import { STATUS } from "@calendar/components/calendar/constants";
+import { isTagEnabled, STATUS, TAG_IDS } from "@calendar/components/calendar/constants";
 import {
   Popover,
   PopoverContent,
@@ -47,6 +47,7 @@ export function MobileCalendarHeader() {
     isRetryingSync,
     syncCalendar,
     selectedUserId,
+    enabledTagIds,
   } = useCalendar();
   const [isSyncing, setIsSyncing] = useState(false);
   const today = new Date();
@@ -110,15 +111,21 @@ export function MobileCalendarHeader() {
   };
   return (
     <>
-      <header className="flex items-center justify-between border-b px-2 py-2 md:hidden">
-        {/* LEFT */}
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(true)}>
+      <header className="flex flex-col gap-1 border-b px-2 py-1.5 md:hidden">
+        {/* ROW 1 — DATE NAVIGATION */}
+        <div className="flex min-w-0 items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-9 shrink-0"
+            aria-label="Open scheduler"
+            onClick={() => setSidebarOpen(true)}
+          >
             <Menu />
           </Button>
 
           <motion.div
-            className="flex items-center gap-2"
+            className="flex min-w-0 flex-1 items-center"
             variants={slideFromLeft}
             initial="initial"
             animate="animate"
@@ -126,23 +133,33 @@ export function MobileCalendarHeader() {
           >
             <DateNavigator view={view} events={events} />
           </motion.div>
-        </div>
 
-        {/* RIGHT */}
-        <div className="flex items-center">
           {/* TODAY */}
           <Button
             onClick={handleTodayClick}
-            className="mx-1 px-2 h-8 text-sm border"
+            className="h-8 shrink-0 border px-2 text-sm"
             variant="ghost"
           >
             {todayDate}
           </Button>
+        </div>
 
+        {/* ROW 2 — ACTION STRIP
+            Kept on its own row with compact, non-shrinking buttons: on a single
+            row the widest phones fit but narrower ones pushed sync and the
+            viewer picker past the calendar's overflow-hidden shell, so those
+            controls silently disappeared instead of staying reachable. */}
+        <div className="flex items-center justify-between gap-0.5">
           {/* VIEW SWITCH */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-9 shrink-0"
+                aria-label="Change calendar view"
+                title="Change calendar view"
+              >
                 <Rows2 />
               </Button>
             </DropdownMenuTrigger>
@@ -166,44 +183,57 @@ export function MobileCalendarHeader() {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() =>
-              handleAgendaToggle(
-                setShowOnlyApprovedLeaves,
-                setShowOnlyTodoList, STATUS.APPROVED
-              )
-            }
-          >
-            <CircleCheckBig
-              className={cn(
-                "h-5 w-5",
-                showOnlyApprovedLeaves && "text-blue-500"
-              )}
-            />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() =>
-              handleAgendaToggle(
-                setShowOnlyTodoList,
-                setShowOnlyApprovedLeaves
-              )
-            }
-          >
-            <ListChecks
-              className={cn(
-                "h-5 w-5",
-                showOnlyTodoList && "text-blue-500"
-              )}
-            />
-          </Button>
+          {/* Filters for switched-off event types would only ever show an
+              empty agenda, so they go with the types. */}
+          {isTagEnabled(TAG_IDS.LEAVE, enabledTagIds) && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-9 shrink-0"
+              aria-label="Show approved leaves only"
+              title="Show approved leaves only"
+              onClick={() =>
+                handleAgendaToggle(
+                  setShowOnlyApprovedLeaves,
+                  setShowOnlyTodoList, STATUS.APPROVED
+                )
+              }
+            >
+              <CircleCheckBig
+                className={cn(
+                  "h-5 w-5",
+                  showOnlyApprovedLeaves && "text-blue-500"
+                )}
+              />
+            </Button>
+          )}
+          {isTagEnabled(TAG_IDS.TODO_LIST, enabledTagIds) && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-9 shrink-0"
+              aria-label="Show todo list only"
+              title="Show todo list only"
+              onClick={() =>
+                handleAgendaToggle(
+                  setShowOnlyTodoList,
+                  setShowOnlyApprovedLeaves
+                )
+              }
+            >
+              <ListChecks
+                className={cn(
+                  "h-5 w-5",
+                  showOnlyTodoList && "text-blue-500"
+                )}
+              />
+            </Button>
+          )}
           <Button
             type="button"
             variant="ghost"
             size="icon"
+            className="size-9 shrink-0"
             onClick={handleSync}
             disabled={isSyncing}
             aria-label="Sync calendar data"
@@ -215,25 +245,37 @@ export function MobileCalendarHeader() {
             <Button
               type="button"
               variant="outline"
-              size="sm"
-              className="mx-1 gap-1 px-2 text-xs"
+              size="icon"
+              className="relative size-9 shrink-0"
               onClick={retryPendingSync}
               disabled={isRetryingSync}
+              aria-label={`Retry sync (${pendingSyncCount} pending)`}
+              title={
+                isRetryingSync
+                  ? "Retrying sync..."
+                  : `Retry sync (${pendingSyncCount} pending)`
+              }
             >
               <RotateCw
                 className={cn(
-                  "h-3.5 w-3.5",
+                  "h-4 w-4",
                   isRetryingSync && "animate-spin"
                 )}
               />
-              {isRetryingSync
-                ? "Retrying..."
-                : `Retry Sync(${pendingSyncCount})`}
+              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold text-destructive-foreground">
+                {pendingSyncCount}
+              </span>
             </Button>
           )}
           <Popover>
             <PopoverTrigger asChild>
-              <Button variant="ghost" size="icon" className="relative">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="relative size-9 shrink-0"
+                aria-label="Choose whose calendars to view"
+                title="Choose whose calendars to view"
+              >
                 <Eye className="h-5 w-5" />
                 {selectedViewerCount > 0 && (
                   <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
