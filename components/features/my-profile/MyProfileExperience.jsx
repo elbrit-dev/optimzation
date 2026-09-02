@@ -3,7 +3,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Building2,
-  Camera,
   Check,
   ChevronDown,
   Clipboard,
@@ -24,6 +23,7 @@ import {
   downloadProfilePdf,
   slipFromRow,
 } from "./pdf";
+import { ProfileAvatar, ProfilePictureEditor, useProfilePicture } from "./profile-picture";
 
 const TABS = [
   { id: "personal", label: "Personal info" },
@@ -59,6 +59,23 @@ function asArray(value) {
 /** Fall back to the first letter of the name rather than a hardcoded letter. */
 function initialsOf(employee) {
   return employee?.initials || String(employee?.name || "").trim().charAt(0).toUpperCase();
+}
+
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Saving a picture needs the ERP User docname, which is `Employee.user_id`.
+ * Bind it as `employee.userId`; until a query does, this reads the Company
+ * email row, which holds that same address on these employee records. The
+ * label is matched exactly so a Personal email row can never be picked up.
+ */
+function erpUserOf(employee, contact) {
+  const bound = String(employee?.userId || "").trim();
+  if (bound) return bound;
+
+  const row = asArray(contact).find((item) => /^company email$/i.test(String(item?.label || "").trim()));
+  const value = String(row?.value || "").trim();
+  return EMAIL.test(value) ? value : "";
 }
 
 /* -------------------------------- clipboard ------------------------------ */
@@ -207,26 +224,40 @@ function FieldGrid({ items, columns = "xl:grid-cols-4" }) {
   );
 }
 
-function HeaderCard({ data, helpDeskLink }) {
+/** The one line that reports how the last picture change went, on both layouts. */
+function PictureStatus({ picture, className = "" }) {
+  const message = picture.error || picture.notice;
+  if (!message) return null;
+
+  return (
+    <p
+      role={picture.error ? "alert" : "status"}
+      aria-live="polite"
+      className={cx(TEXT.micro, picture.error ? "text-[#c02026]" : "text-[#00951b]", className)}
+    >
+      {message}
+    </p>
+  );
+}
+
+function HeaderCard({ data, helpDeskLink, picture }) {
   const employee = data.employee;
 
   return (
     <section className="rounded-[6px] bg-white px-3 py-4 shadow-[0_1px_6px_rgba(15,23,42,0.04)] sm:px-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <div className="relative h-[54px] w-[54px] shrink-0 rounded-full bg-[#e8f3ff] text-[#0b7cff]">
-            <span className="flex h-full w-full items-center justify-center text-[22px] font-bold leading-none">
-              {initialsOf(employee)}
-            </span>
-            <button
-              type="button"
-              aria-label="Change profile picture"
-              title="Change profile picture"
-              className="absolute bottom-[-2px] right-[-2px] inline-flex h-5 w-5 items-center justify-center rounded-full border border-[#dddddd] bg-white text-[#333333] shadow-sm transition hover:bg-[#f8fafc] active:translate-y-px"
-            >
-              <Camera aria-hidden className="h-2.5 w-2.5" strokeWidth={1.7} />
-            </button>
-          </div>
+          <ProfileAvatar
+            initials={initialsOf(employee)}
+            pictureUrl={picture.pictureUrl}
+            canEdit={picture.canEdit}
+            saving={picture.saving}
+            onPick={picture.pick}
+            className="h-[54px] w-[54px]"
+            initialsClassName="text-[22px]"
+            badgeClassName="bottom-[-2px] right-[-2px] h-5 w-5"
+            iconClassName="h-2.5 w-2.5"
+          />
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className={cx(TEXT.title, "break-words font-bold text-[#162653]")}>{employee.name}</h1>
@@ -268,6 +299,7 @@ function HeaderCard({ data, helpDeskLink }) {
               ) : null}
               <span>{[employee.joinedOn, employee.tenure].filter(Boolean).join(" · ")}</span>
             </div>
+            <PictureStatus picture={picture} className="mt-1.5" />
           </div>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row lg:pt-1">
@@ -781,7 +813,7 @@ function MobileStat({ label, value }) {
   );
 }
 
-function MobileProfileCard({ data }) {
+function MobileProfileCard({ data, picture }) {
   const employee = data.employee;
   const latestSlip = data.payslips.selectedSlip;
   const leaveTotal = asArray(data.leaveBalance.items).find((item) => item.strong) || asArray(data.leaveBalance.items)[0];
@@ -791,19 +823,17 @@ function MobileProfileCard({ data }) {
     <section className="rounded-[10px] bg-white p-4 shadow-[0_1px_6px_rgba(15,23,42,0.05)]">
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="relative h-11 w-11 shrink-0 rounded-full bg-[#e8f3ff] text-[#0b7cff]">
-            <span className="flex h-full w-full items-center justify-center text-[16px] font-bold leading-none">
-              {initialsOf(employee)}
-            </span>
-            <button
-              type="button"
-              aria-label="Change profile picture"
-              title="Change profile picture"
-              className="absolute bottom-[-2px] right-[-2px] inline-flex h-4 w-4 items-center justify-center rounded-full border border-[#dddddd] bg-white text-[#333333] shadow-sm"
-            >
-              <Camera aria-hidden className="h-2 w-2" strokeWidth={1.7} />
-            </button>
-          </div>
+          <ProfileAvatar
+            initials={initialsOf(employee)}
+            pictureUrl={picture.pictureUrl}
+            canEdit={picture.canEdit}
+            saving={picture.saving}
+            onPick={picture.pick}
+            className="h-11 w-11"
+            initialsClassName="text-[16px]"
+            badgeClassName="bottom-[-2px] right-[-2px] h-4 w-4"
+            iconClassName="h-2 w-2"
+          />
           <div className="min-w-0">
             <div className={cx(TEXT.body, "truncate font-bold text-[#162653]")}>{employee.name}</div>
             {employee.designation ? (
@@ -835,6 +865,8 @@ function MobileProfileCard({ data }) {
           ) : null}
         </div>
       ) : null}
+
+      <PictureStatus picture={picture} className="mt-2" />
 
       {latestSlip || leaveTotal || headquarters ? (
         <div className="mt-3 flex items-stretch gap-3 border-t border-[#f0f0f0] pt-3">
@@ -1051,12 +1083,12 @@ function MobileEarlierMonths({ data }) {
   );
 }
 
-function MobileProfileExperience({ data, helpDeskLink }) {
+function MobileProfileExperience({ data, helpDeskLink, picture }) {
   const [view, setView] = useState("profile");
 
   return (
     <div className="flex w-full flex-col gap-3">
-      <MobileProfileCard data={data} />
+      <MobileProfileCard data={data} picture={picture} />
       <MobileSegmentedTabs active={view} onChange={setView} />
       {view === "profile" ? <MobileAccordionList data={data} /> : null}
       {view === "payslips" ? (
@@ -1130,6 +1162,9 @@ export default function MyProfileExperience({
   payslips,
   documents,
   helpDeskLink,
+  erpBaseUrl = "",
+  erpEndpointKey = "",
+  onPictureChange,
   defaultTab = "personal",
   className = "",
 }) {
@@ -1142,30 +1177,46 @@ export default function MyProfileExperience({
     TABS.some((tab) => tab.id === defaultTab) ? defaultTab : "personal"
   );
 
+  // The picture is the one thing on this screen that writes back to the ERP, so
+  // its state sits here: both layouts are mounted at once and share it.
+  const picture = useProfilePicture({
+    imageUrl: data.employee.imageUrl,
+    baseUrl: erpBaseUrl,
+    user: erpUserOf(data.employee, data.personalInfo.contact),
+    employee: data.employee.id || data.employee.employeeCode,
+    endpointKey: erpEndpointKey,
+    onChange: onPictureChange,
+  });
+
   // The outer breadcrumb/notification/settings header duplicated chrome the
   // host page already provides, so both viewports render straight into their
   // own layout with no page-level header or footer of their own.
   return (
     <div className={cx("flex w-full flex-col font-sans text-[#333333]", className)}>
-      <main className="hidden w-full flex-col bg-[#e7e8ed] p-2 sm:flex sm:p-3 lg:p-4">
-        {/* `overflow-clip` rounds the shell without making it a scroll container,
-            so the page scrolls as one and the payslip preview can still stick. */}
-        <div className="flex w-full flex-col overflow-clip rounded-[8px] bg-[#f2f2f2]">
-          <div className="space-y-3 px-3 py-4 sm:px-4 lg:px-6">
-            <HeaderCard data={data} helpDeskLink={helpDeskLink} />
-            <Tabs activeTab={activeTab} onChange={setActiveTab} syncText={data.syncText} />
-            {activeTab === "personal" ? <PersonalTab data={data} /> : null}
-            {activeTab === "role" ? <RoleTab data={data} /> : null}
-            {activeTab === "account" ? <AccountTab data={data} /> : null}
-            {activeTab === "documents" ? <DocumentsTab data={data} /> : null}
-            {activeTab === "payslips" ? <PayslipsTab data={data} helpDeskLink={helpDeskLink} /> : null}
-          </div>
-        </div>
+      {/* One surface, one level of padding. The grey gutter and rounded inner
+          shell this used to sit in read as a frame around the page, so the
+          cards now sit straight on the background. */}
+      <main className="hidden w-full flex-col gap-3 bg-[#f2f2f2] px-3 py-4 sm:flex sm:px-4 lg:px-6">
+        <HeaderCard data={data} helpDeskLink={helpDeskLink} picture={picture} />
+        <Tabs activeTab={activeTab} onChange={setActiveTab} syncText={data.syncText} />
+        {activeTab === "personal" ? <PersonalTab data={data} /> : null}
+        {activeTab === "role" ? <RoleTab data={data} /> : null}
+        {activeTab === "account" ? <AccountTab data={data} /> : null}
+        {activeTab === "documents" ? <DocumentsTab data={data} /> : null}
+        {activeTab === "payslips" ? <PayslipsTab data={data} helpDeskLink={helpDeskLink} /> : null}
       </main>
 
       <main className="flex w-full flex-col gap-3 bg-[#f5f6f8] p-3 sm:hidden">
-        <MobileProfileExperience data={data} helpDeskLink={helpDeskLink} />
+        <MobileProfileExperience data={data} helpDeskLink={helpDeskLink} picture={picture} />
       </main>
+
+      <ProfilePictureEditor
+        image={picture.image}
+        saving={picture.saving}
+        error={picture.error}
+        onCancel={picture.cancel}
+        onSave={picture.save}
+      />
     </div>
   );
 }

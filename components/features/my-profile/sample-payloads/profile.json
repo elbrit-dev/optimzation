@@ -13,6 +13,9 @@
   },
   "employee": {
     "name": "Janardhanan A",
+    "id": "E00004",
+    "userId": "janardhanan@elbrit.org",
+    "imageUrl": "",
     "initials": "J",
     "status": "Active",
     "designation": "Zonal Sales Manager",
