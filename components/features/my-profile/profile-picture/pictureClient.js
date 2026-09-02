@@ -27,6 +27,32 @@ export function resolvePictureUrl(url, baseUrl) {
 }
 
 /**
+ * Reads the picture the ERP currently holds. Returns "" when the user has none,
+ * which is an answer rather than a failure - the avatar falls back to initials.
+ *
+ * @returns {Promise<string>}
+ */
+export async function fetchProfilePicture({ user, employee, endpointKey, signal }) {
+  if (!user) return "";
+
+  const params = new URLSearchParams({ user });
+  if (employee) params.set("employee", employee);
+  if (endpointKey) params.set("endpointKey", endpointKey);
+
+  const response = await fetch(`${PROFILE_PICTURE_ENDPOINT}?${params}`, {
+    method: "GET",
+    signal,
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.error || `Reading the picture failed with HTTP ${response.status}`);
+  }
+
+  return payload?.fileUrl || "";
+}
+
+/**
  * @returns {Promise<{ fileUrl: string, warning?: string }>}
  */
 export async function saveProfilePicture({ dataUrl, user, employee, endpointKey }) {

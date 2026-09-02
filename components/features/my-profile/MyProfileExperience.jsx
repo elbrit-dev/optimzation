@@ -10,7 +10,6 @@ import {
   Eye,
   EyeOff,
   FileText,
-  HelpCircle,
   Landmark,
   ShieldPlus,
   User,
@@ -302,7 +301,11 @@ function HeaderCard({ data, helpDeskLink, picture }) {
             <PictureStatus picture={picture} className="mt-1.5" />
           </div>
         </div>
-        <div className="flex flex-col gap-2 sm:flex-row lg:pt-1">
+        {/* The read-only notice used to sit in a divider row below this one.
+            With the note gone, the link joins the actions rather than leaving
+            an empty band across the card. */}
+        <div className="flex flex-col gap-2 lg:items-end lg:pt-1">
+          <div className="flex flex-col gap-2 sm:flex-row">
           {data.payslips.selectedSlip ? (
           <button
             type="button"
@@ -325,33 +328,17 @@ function HeaderCard({ data, helpDeskLink, picture }) {
           >
             Export profile
           </button>
-        </div>
-      </div>
-      <div className="mt-4 border-t border-[#d7d7d7] pt-3">
-        <div
-          className={cx(
-            TEXT.body,
-            "flex flex-col gap-2 text-[#3b3b3b] lg:flex-row lg:items-center lg:justify-between"
-          )}
-        >
-          <div className="flex gap-2">
-            <HelpCircle aria-hidden className="mt-0.5 h-3 w-3 shrink-0 text-[#aaaaaa]" strokeWidth={1.7} />
-            <p>{data.readonlyNote}</p>
           </div>
           {helpDeskLink ? (
             <a
               href={helpDeskLink}
               target="_blank"
               rel="noreferrer"
-              className={cx(TEXT.body, "shrink-0 text-left text-[#0077ff] hover:underline lg:text-right")}
+              className={cx(TEXT.label, "text-[#0077ff] hover:underline")}
             >
               Open Help desk
             </a>
-          ) : (
-            <span className={cx(TEXT.body, "shrink-0 text-left text-[#aaaaaa] lg:text-right")}>
-              Open Help desk
-            </span>
-          )}
+          ) : null}
         </div>
       </div>
     </section>
@@ -1134,7 +1121,6 @@ function fromProps({ profile, leaveBalance, payslips, documents }) {
 
   return {
     syncText: "",
-    readonlyNote: "",
     ...p,
     company: set(p.company),
     employee: set(p.employee),
