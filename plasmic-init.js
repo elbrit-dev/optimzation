@@ -6,7 +6,8 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 // import DataProvider from "./share/src/app/datatable/components/DataProviderNew";
 // import DataTableNew from "./share/src/app/datatable/components/DataTableNew";
 // import Navigation from "./share/src/app/navigation/components/Navigation";
-import { registerElbritCoreComponents } from './share/src/plasmic-init'
+import { registerElbritCoreComponents } from './share/src/plasmic-init';
+import MyProfile from "./components/features/my-profile";
 import FirebaseUIComponent from "./components/FirebaseUIComponent";
 import LoginHelpForm from "./components/LoginHelpForm";
 import HelpSupport from "./components/features/help-support";
@@ -311,264 +312,6 @@ PLASMIC.registerFunction(getGlobalState, {
   ],
   returnType: "any",
 });
-
-// Register DataTable Component
-// PLASMIC.registerComponent(DataTable, {
-//   name: "DataTable",
-//   props: {
-//     data: {
-//       type: "object",
-//       description: "The array of data to display in the table",
-//     },
-//     queryVariables: {
-//       type: "object",
-//       description: "Base variables for the query (provided by DataProvider)",
-//     },
-//     onVariableOverridesChange: {
-//       type: "eventHandler",
-//       argTypes: [{ name: "overrides", type: "object" }],
-//     },
-//     showControls: {
-//       type: "boolean",
-//       description: "Toggle the visibility of the table controls (sort, filter, etc.)",
-//       defaultValue: false,
-//     },
-//     dataSource: {
-//       type: "string",
-//       description: "The data source ID or 'offline' for local data",
-//     },
-//     queryKey: {
-//       type: "string",
-//       description: "The specific key within the data source results to display",
-//     },
-//     rowsPerPageOptions: {
-//       type: "object",
-//       defaultValue: [10, 25, 50, 100],
-//     },
-//     defaultRows: {
-//       type: "number",
-//       defaultValue: 10,
-//     },
-//     scrollable: {
-//       type: "boolean",
-//       defaultValue: true,
-//     },
-//     scrollHeight: {
-//       type: "string",
-//       defaultValue: "600px",
-//     },
-//     tableName: {
-//       type: "string",
-//       defaultValue: "table",
-//     },
-//     enableSort: {
-//       type: "boolean",
-//       defaultValue: true,
-//       description: "Show/hide sorting controls within the header",
-//     },
-//     enableFilter: {
-//       type: "boolean",
-//       defaultValue: true,
-//       description: "Show/hide filtering controls within the header",
-//     },
-//     enableSummation: {
-//       type: "boolean",
-//       defaultValue: true,
-//       description: "Show/hide summation controls within the header",
-//     },
-//     enableGrouping: {
-//       type: "boolean",
-//       defaultValue: true,
-//       description: "Initial grouping state for orchestration layer",
-//     },
-//     enableDivideBy1Lakh: {
-//       type: "boolean",
-//       defaultValue: false,
-//       description: "Toggle dividing numerical values by 1,0,00,000 (1 Lakh)",
-//     },
-//     percentageColumns: {
-//       type: "object",
-//       description: "Configuration for percentage-based columns",
-//       defaultValue: [],
-//     },
-//     textFilterColumns: {
-//       type: "object",
-//       description: "Array of fields to use text search instead of multi-select",
-//       defaultValue: [],
-//     },
-//     visibleColumns: {
-//       type: "object",
-//       description: "Array of fields to display (empty = all)",
-//       defaultValue: [],
-//     },
-//     onVisibleColumnsChange: {
-//       type: "eventHandler",
-//       argTypes: [{ name: "columns", type: "object" }],
-//     },
-//     redFields: {
-//       type: "object",
-//       defaultValue: [],
-//     },
-//     greenFields: {
-//       type: "object",
-//       defaultValue: [],
-//     },
-//     outerGroupField: {
-//       type: "string",
-//       description: "Field to group by (e.g. team name)",
-//     },
-//     innerGroupField: {
-//       type: "string",
-//       description: "Field to sub-group/aggregate by",
-//     },
-//     enableCellEdit: {
-//       type: "boolean",
-//       defaultValue: false,
-//     },
-//     nonEditableColumns: {
-//       type: "object",
-//       defaultValue: [],
-//     },
-//     isAdminMode: {
-//       type: "boolean",
-//       description: "Enable admin mode to bypass data filtering",
-//       defaultValue: false,
-//     },
-//     salesTeamColumn: {
-//       type: "string",
-//       description: "Column name for Sales Team filtering",
-//     },
-//     salesTeamValues: {
-//       type: "object",
-//       description: "Array of allowed Sales Team values",
-//       defaultValue: [],
-//     },
-//     hqColumn: {
-//       type: "string",
-//       description: "Column name for HQ filtering",
-//     },
-//     hqValues: {
-//       type: "object",
-//       description: "Array of allowed HQ values",
-//       defaultValue: [],
-//     },
-//     enableFullscreenDialog: {
-//       type: "boolean",
-//       defaultValue: true,
-//       description: "Enable/disable fullscreen dialog feature",
-//     },
-//     drawerTabs: {
-//       type: "object",
-//       description: "Array of tab configurations for the detail drawer (name, outerGroup, innerGroup)",
-//       defaultValue: [],
-//     },
-//     enableReport: {
-//       type: "boolean",
-//       defaultValue: false,
-//     },
-//     dateColumn: {
-//       type: "string",
-//     },
-//     breakdownType: {
-//       type: "string",
-//       defaultValue: "month",
-//     },
-//     onDrawerTabsChange: {
-//       type: "eventHandler",
-//       argTypes: [{ name: "tabs", type: "object" }],
-//     },
-//     onEnableReportChange: {
-//       type: "eventHandler",
-//       argTypes: [{ name: "enabled", type: "boolean" }],
-//     },
-//     onDateColumnChange: {
-//       type: "eventHandler",
-//       argTypes: [{ name: "column", type: "string" }],
-//     },
-//     onBreakdownTypeChange: {
-//       type: "eventHandler",
-//       argTypes: [{ name: "type", type: "string" }],
-//     },
-//     onOuterGroupFieldChange: {
-//       type: "eventHandler",
-//       argTypes: [{ name: "field", type: "string" }],
-//     },
-//     onInnerGroupFieldChange: {
-//       type: "eventHandler",
-//       argTypes: [{ name: "field", type: "string" }],
-//     },
-//     controlsPanelSize: {
-//       type: "number",
-//       description: "The percentage width of the controls sidebar (0-100)",
-//       defaultValue: 20,
-//     },
-//     columnTypes: {
-//       type: "object",
-//       description: "Override column types (e.g., { fieldName: 'number' })",
-//       defaultValue: { is_internal_customer: "number" },
-//     },
-//     onColumnTypesChange: {
-//       type: "eventHandler",
-//       argTypes: [{ name: "columnTypes", type: "object" }],
-//     },
-//     useOrchestrationLayer: {
-//       type: "boolean",
-//       description: "Enable the new orchestration layer for data processing",
-//       defaultValue: false,
-//     },
-//     onSave: {
-//       type: "eventHandler",
-//       argTypes: [],
-//     },
-//     onAdminModeChange: {
-//       type: "eventHandler",
-//       argTypes: [{ name: "isAdminMode", type: "boolean" }],
-//     },
-//   },
-//   importPath: "./components/DataTable",
-// });
-
-// PLASMIC.registerComponent(Navigation, {
-//   name: "Navigation",
-//   props: {
-//     items: {
-//       type: "object",
-//       description: "JSON array of navigation items. Each item should have: label (string), path (string), iconActive (JSX element), iconInactive (JSX element), mobileFullscreen (boolean), mobileOnly (boolean), isDefault (boolean), isDisabled (boolean). Icons must be JSX elements, not strings.",
-//       defaultValue: [],
-//     },
-//     defaultIndex: {
-//       type: "number",
-//       defaultValue: 0,
-//       description: "Fallback index if no URL path matches and no item has isDefault: true",
-//     },
-//     desktopWidth: {
-//       type: "string",
-//       defaultValue: "16rem",
-//       description: "Width of the desktop sidebar navigation",
-//     },
-//     desktopHeight: {
-//       type: "string",
-//       defaultValue: "93dvh",
-//       description: "Height of the desktop sidebar navigation",
-//     },
-//     mobileWidth: {
-//       type: "string",
-//       defaultValue: "100%",
-//       description: "Width of the mobile bottom navigation",
-//     },
-//     mobileHeight: {
-//       type: "string",
-//       defaultValue: "4rem",
-//       description: "Height of the mobile bottom navigation",
-//     },
-//     showCollapse: {
-//       type: "boolean",
-//       defaultValue: true,
-//       description: "Show/hide the collapse button in desktop sidebar",
-//     },
-//   },
-//   importPath: "./share/src/app/navigation/components/Navigation",
-// });
 
 // Register FirebaseUIComponent
 PLASMIC.registerComponent(FirebaseUIComponent, {
@@ -2760,6 +2503,51 @@ PLASMIC.registerComponent(CommonDataTable, {
   },
 });
 
+PLASMIC.registerComponent(MyProfile, {
+  name: "MyProfile",
+  displayName: "MyProfile",
+  description:
+    "Read-only employee profile: personal info, role details, account details, documents and payslips, with PDF export.",
+  props: {
+    profile: {
+      type: "object",
+      displayName: "Profile",
+      description:
+        "Company, employee identity and the read-only field sections. Shape: { company, employee, syncText, readonlyNote, personalInfo: { overviewNote, overview[], contactNote, contact[] }, roleDetails: { reportingNote, reporting[] }, accountDetails: { salaryNote, salary[], statutoryNote, statutory[], insuranceNote, insuranceCoverage, insurance[] } }. Every field list is an array of { label, value, copy?, reveal?, maskedValue? }.",
+    },
+    leaveBalance: {
+      type: "object",
+      displayName: "Leave balance",
+      description:
+        "Leave balance card. Shape: { note, items: [{ label, value, caption, strong? }] }.",
+    },
+    payslips: {
+      type: "object",
+      displayName: "Payslips",
+      description:
+        "Salary Slip data. Shape: { summary[], fiscalYears[], slips: [{ month, period, gross, deductions, netPay, status }], selectedSlip: { title, subtitle, netPay, creditText, earnings[], grossPay, deductions[], totalDeductions, meta[], incomeTaxSlab?, taxSummary?[], incomeTaxSummary?[] } }. Earnings/deductions rows accept an optional `ytd` for the Year To Date column.",
+    },
+    documents: {
+      type: "object",
+      displayName: "Documents",
+      description:
+        "Documents tab. Shape: { note, items: [{ name, issued, format, size, url? }] }. Give an item a `url` and its download serves that file instead of a generated record sheet.",
+    },
+    defaultTab: {
+      type: "choice",
+      displayName: "Default tab",
+      options: ["personal", "role", "account", "documents", "payslips"],
+      defaultValue: "personal",
+    },
+    helpDeskLink: {
+      type: "string",
+      displayName: "Help desk link",
+      description: "URL for the \"Open Help desk\" link in the desktop header. Left empty, it renders as plain non-interactive text.",
+    },
+  },
+  styleSections: true,
+  importPath: "./components/features/my-profile",
+});
 registerElbritCoreComponents(PLASMIC)
 
 // PLASMIC.registerComponent(DataProvider, {

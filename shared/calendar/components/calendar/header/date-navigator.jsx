@@ -30,6 +30,8 @@ export function DateNavigator({
 
     const month = formatDate(selectedDate, "MMMM");
     const year = selectedDate.getFullYear();
+    // Mobile keeps the header to one row, so the label is short: "Sep 26".
+    const compactMonthYear = formatDate(selectedDate, "MMM yy");
 
     const eventCount = useMemo(
         () => getEventsCount(events, selectedDate, view),
@@ -88,7 +90,7 @@ export function DateNavigator({
                         })
                       }                      
                 >
-                    {month} {year}
+                    {compactMonthYear}
                 </motion.button>
 
                 <motion.span
