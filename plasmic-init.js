@@ -2507,13 +2507,13 @@ PLASMIC.registerComponent(MyProfile, {
   name: "MyProfile",
   displayName: "MyProfile",
   description:
-    "Read-only employee profile: personal info, role details, account details, documents and payslips, with PDF export.",
+    "Employee profile: personal info, role details, account details, documents and payslips, with PDF export. Every field is read-only except the profile picture, which writes back to the ERP.",
   props: {
     profile: {
       type: "object",
       displayName: "Profile",
       description:
-        "Company, employee identity and the read-only field sections. Shape: { company, employee, syncText, readonlyNote, personalInfo: { overviewNote, overview[], contactNote, contact[] }, roleDetails: { reportingNote, reporting[] }, accountDetails: { salaryNote, salary[], statutoryNote, statutory[], insuranceNote, insuranceCoverage, insurance[] } }. Every field list is an array of { label, value, copy?, reveal?, maskedValue? }.",
+        "Company, employee identity and the read-only field sections. Shape: { company, employee, syncText, readonlyNote, personalInfo: { overviewNote, overview[], contactNote, contact[] }, roleDetails: { reportingNote, reporting[] }, accountDetails: { salaryNote, salary[], statutoryNote, statutory[], insuranceNote, insuranceCoverage, insurance[] } }. Every field list is an array of { label, value, copy?, reveal?, maskedValue? }. `employee` also drives the avatar: { imageUrl, userId, id } - `imageUrl` is the current picture (User.user_image, absolute or /files/…), `userId` is the ERP User id that a new picture is saved onto (Employee.user_id; falls back to the Company email row, then the button disables), and `id` is the Employee docname the picture is mirrored to (falls back to employeeCode).",
     },
     leaveBalance: {
       type: "object",
@@ -2543,6 +2543,24 @@ PLASMIC.registerComponent(MyProfile, {
       type: "string",
       displayName: "Help desk link",
       description: "URL for the \"Open Help desk\" link in the desktop header. Left empty, it renders as plain non-interactive text.",
+    },
+    erpBaseUrl: {
+      type: "string",
+      displayName: "ERP base URL",
+      description:
+        "Only needed when profile.employee.imageUrl is a relative ERP path such as /files/avatar.jpg - it is resolved against this origin, for example https://uat.elbrit.org. A picture saved from here always comes back absolute.",
+    },
+    erpEndpointKey: {
+      type: "string",
+      displayName: "ERP endpoint key",
+      description:
+        "Leave this empty unless more than one ERP is configured. It names which one a new picture is written to, and it is only the {KEY} half of NEXT_PUBLIC_GRAPHQL_ENDPOINT_{KEY} - \"UAT\", not the whole variable name. Empty means the server picks NEXT_PUBLIC_GRAPHQL_DEFAULT_ENDPOINT, or the only endpoint it finds.",
+    },
+    onPictureChange: {
+      type: "eventHandler",
+      displayName: "On picture change",
+      description: "Fires after a new profile picture is saved to the ERP. Use it to refetch the profile query.",
+      argTypes: [{ name: "imageUrl", type: "string" }],
     },
   },
   styleSections: true,
