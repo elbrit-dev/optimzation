@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 // import Navigation from "./share/src/app/navigation/components/Navigation";
 import { registerElbritCoreComponents } from './share/src/plasmic-init';
 import MyProfile from "./components/features/my-profile";
+import ProfileHeader from "./components/features/profile-header";
 import FirebaseUIComponent from "./components/FirebaseUIComponent";
 import LoginHelpForm from "./components/LoginHelpForm";
 import HelpSupport from "./components/features/help-support";
@@ -2566,6 +2567,68 @@ PLASMIC.registerComponent(MyProfile, {
   styleSections: true,
   importPath: "./components/features/my-profile",
 });
+
+PLASMIC.registerComponent(ProfileHeader, {
+  name: "ProfileHeader",
+  displayName: "ProfileHeader",
+  description:
+    "Page header for the profile screen: title on the left, an actions slot for the notification bell on the right, then the company logo.",
+  props: {
+    title: {
+      type: "string",
+      displayName: "Title",
+      defaultValue: "My profile",
+    },
+    subtitle: {
+      type: "string",
+      displayName: "Subtitle",
+      description: "Optional small line under the title. Leave empty and nothing renders.",
+    },
+    actions: {
+      type: "slot",
+      displayName: "Bell / actions",
+      description:
+        "Sits to the left of the logo - drop NovuInbox here for the notification bell. Any number of icons can go in; they lay out in a row.",
+      defaultValue: [{ type: "component", name: "NovuInbox" }],
+    },
+    logoUrl: {
+      type: "imageUrl",
+      displayName: "Logo",
+      description: "Shown at the far right. Leave empty and the logo (and its divider) are dropped.",
+    },
+    logoAlt: {
+      type: "string",
+      displayName: "Logo alt text",
+      defaultValue: "Company logo",
+    },
+    logoHeight: {
+      type: "number",
+      displayName: "Logo height",
+      defaultValue: 28,
+      description: "Height in px. Width follows the image's aspect ratio.",
+    },
+    logoHref: {
+      type: "string",
+      displayName: "Logo link",
+      description: "Optional - makes the logo a link that opens in a new tab.",
+    },
+    sticky: {
+      type: "boolean",
+      displayName: "Stick to top",
+      defaultValue: false,
+      description: "Keeps the header visible while the page scrolls.",
+    },
+    bordered: {
+      type: "boolean",
+      displayName: "Bottom border",
+      defaultValue: true,
+    },
+    className: { type: "string", description: "CSS class on the header element." },
+  },
+  styleSections: true,
+  importPath: "./components/features/profile-header",
+});
+
 registerElbritCoreComponents(PLASMIC)
 
 // PLASMIC.registerComponent(DataProvider, {
