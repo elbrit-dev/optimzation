@@ -2572,7 +2572,7 @@ PLASMIC.registerComponent(ProfileHeader, {
   name: "ProfileHeader",
   displayName: "ProfileHeader",
   description:
-    "Page header for the profile screen: title on the left, an actions slot for the notification bell on the right, then the company logo.",
+    "Page header for the profile screen: company logo at the left corner, page title centred, and an actions slot for the notification bell at the right.",
   props: {
     title: {
       type: "string",
@@ -2588,13 +2588,13 @@ PLASMIC.registerComponent(ProfileHeader, {
       type: "slot",
       displayName: "Bell / actions",
       description:
-        "Sits to the left of the logo - drop NovuInbox here for the notification bell. Any number of icons can go in; they lay out in a row.",
+        "The right zone - drop NovuInbox here for the notification bell. Any number of icons can go in; they lay out in a row and each gets the same 36px hit target.",
       defaultValue: [{ type: "component", name: "NovuInbox" }],
     },
     logoUrl: {
       type: "imageUrl",
       displayName: "Logo",
-      description: "Shown at the far right. Leave empty and the logo (and its divider) are dropped.",
+      description: "Shown at the left corner. Leave empty and the left zone stays blank - the title stays centred either way.",
     },
     logoAlt: {
       type: "string",
@@ -2604,8 +2604,14 @@ PLASMIC.registerComponent(ProfileHeader, {
     logoHeight: {
       type: "number",
       displayName: "Logo height",
-      defaultValue: 28,
-      description: "Height in px. Width follows the image's aspect ratio.",
+      defaultValue: 30,
+      description: "Height in px. Width follows the image's aspect ratio, capped at 150px.",
+    },
+    onBack: {
+      type: "eventHandler",
+      displayName: "On back",
+      description: "Set this and a back chevron appears ahead of the logo. Leave empty and no chevron renders.",
+      argTypes: [],
     },
     logoHref: {
       type: "string",
