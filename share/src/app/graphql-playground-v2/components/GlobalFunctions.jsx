@@ -84,12 +84,12 @@ export function GlobalFunctions() {
           <Button
             icon={isSaving ? "pi pi-spin pi-spinner" : "pi pi-save"}
             label="Save"
-            className={`p-button-sm ${
+            className={`ds-button-sm ${
               isSaving
-                ? "p-button-secondary"
+                ? "ds-button-secondary"
                 : hasError
-                  ? "p-button-danger"
-                  : "p-button-primary"
+                  ? "ds-button-danger"
+                  : "ds-button-primary"
             }`}
             onClick={handleSave}
             title={

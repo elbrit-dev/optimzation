@@ -62,7 +62,7 @@ const ColumnFilterInput = memo(function ColumnFilterInput({
       onBlur={(event) => commitNow(event.currentTarget.value)}
       placeholder={isNumeric ? '<, >, =' : 'Search…'}
       title={isNumeric ? NUMERIC_FILTER_HINT : `Search ${column}`}
-      className="p-column-filter p-inputtext-sm w-full"
+      className="p-column-filter w-full"
       style={{ minWidth: '4.5rem' }}
       aria-label={`Filter ${column}`}
     />

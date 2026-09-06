@@ -208,7 +208,7 @@ function QueryItem({ query, isSelected, onQueryClick, onDelete, formatRelativeTi
             )}
             <Button
               icon="pi pi-trash"
-              className="p-button-text p-button-sm p-button-danger"
+              className="ds-button-text ds-button-sm ds-button-danger"
               onClick={(e) => onDelete(query.id, query.name, e)}
               tooltip="Delete query"
               tooltipOptions={{ position: 'top' }}
@@ -348,16 +348,16 @@ export function SavedQueries() {
         .saved-query-card .p-card-content {
           padding: 0.5rem 1rem !important;
         }
-        .saved-query-card .p-button-text {
+        .saved-query-card .ds-button-text {
           padding: 0.125rem 0.25rem !important;
           width: fit-content !important;
           min-width: auto !important;
         }
-        .saved-query-card .p-button-text.p-button-icon-only {
+        .saved-query-card .ds-button-text.ds-button-icon-only {
           width: fit-content !important;
           min-width: auto !important;
         }
-        .saved-query-card .p-button-text .p-button-icon {
+        .saved-query-card .ds-button-text .p-button-icon {
           margin: 0 !important;
         }
       `}} />

@@ -119,7 +119,7 @@ function TokensPageInner() {
       header: 'Delete Token',
       message: `Delete token "${row?.name || 'this token'}"?`,
       icon: 'pi pi-exclamation-triangle',
-      acceptClassName: 'p-button-danger',
+      acceptClassName: 'ds-button-danger',
       acceptLabel: 'Delete',
       rejectLabel: 'Cancel',
       accept: () => {
@@ -243,7 +243,7 @@ function TokensPageInner() {
               <Button
                 type="button"
                 icon={`pi ${showToken ? 'pi-eye-slash' : 'pi-eye'}`}
-                className="p-button-secondary"
+                className="ds-button-secondary"
                 onClick={() => setShowToken((prev) => !prev)}
               />
             </div>

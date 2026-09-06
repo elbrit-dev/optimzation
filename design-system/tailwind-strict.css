@@ -1,0 +1,116 @@
+/* Elbrit Design System — strict mode.
+
+   THIS FILE BREAKS THINGS ON PURPOSE. It deletes Tailwind's stock palette and
+   scales, so any utility that is not a design token stops compiling. That is
+   what turns "please use tokens" from a code-review request into a build
+   error.
+
+   Do NOT import it until the surface has migrated. As of writing, netstar has
+   1021 stock-palette utility occurrences and elbrit-app has its own; adopting
+   this today would blank out most of both apps.
+
+   Adopt per-surface, in this order:
+     1. import tailwind.css only, and migrate call sites to DS utilities
+     2. run `npx oxlint -c src/design-system/.oxlintrc.json <dir>` to find
+        the remaining stock-palette classes
+     3. when that reports clean for a directory, import this file
+
+   Import order:
+     @import "tailwindcss";
+     @import "../design-system/tokens/index.css";
+     @import "../design-system/tailwind.css";
+     @import "../design-system/tailwind-strict.css";   <-- last */
+
+@theme {
+  /* ---- Colour. Resets the stock palette FAMILY BY FAMILY, not with the
+         whole-namespace `--color-*: initial`.
+
+         That distinction is load-bearing. A namespace reset applies to
+         everything registered in that namespace regardless of which @theme
+         block declared it, so because this file is imported after
+         tailwind.css, `--color-*: initial` also deletes every DS colour —
+         leaving `bg-surface`, `text-secondary` and `bg-brand` uncompiled
+         while `bg-white` survives. Resetting per family removes exactly the
+         stock ramp and nothing else. ---- */
+  --color-slate-*: initial;
+  --color-gray-*: initial;
+  --color-zinc-*: initial;
+  --color-neutral-*: initial;
+  --color-stone-*: initial;
+  --color-red-*: initial;
+  --color-orange-*: initial;
+  --color-amber-*: initial;
+  --color-yellow-*: initial;
+  --color-lime-*: initial;
+  --color-green-*: initial;
+  --color-emerald-*: initial;
+  --color-teal-*: initial;
+  --color-cyan-*: initial;
+  --color-sky-*: initial;
+  --color-blue-*: initial;
+  --color-indigo-*: initial;
+  --color-violet-*: initial;
+  --color-purple-*: initial;
+  --color-fuchsia-*: initial;
+  --color-pink-*: initial;
+  --color-rose-*: initial;
+
+  /* ---- Type. Removes text-2xl and up, and the arbitrary rem sizes.
+         Nothing in this product is set between 32 and 64px. ---- */
+  --text-2xl: initial;
+  --text-3xl: initial;
+  --text-4xl: initial;
+  --text-5xl: initial;
+  --text-6xl: initial;
+  --text-7xl: initial;
+  --text-8xl: initial;
+  --text-9xl: initial;
+
+  /* ---- Families. Three families, not seven. ---- */
+  --font-serif: initial;
+
+  /* ---- Spacing is deliberately left ALONE, even here.
+         Tailwind's numeric steps land on the DS even scale (p-4 = 16px =
+         --space-16), so they are already compliant. Removing them would buy
+         nothing and break 557 correct call sites. The odd steps stay
+         available as p-field / p-btn / p-tight / p-chip from tailwind.css.
+
+         What is worth banning is the ARBITRARY value — `p-[13px]`,
+         `mt-[7px]` — and no @theme key can express that. The oxlint rule
+         `no-restricted-syntax` in .oxlintrc.json catches it instead. ---- */
+
+  /* ---- Radius. Removes rounded-xs (2px) and re-points rounded-xl to the
+         DS 16px rather than Tailwind's 12px. ---- */
+  --radius-xs: initial;
+  --radius-2xl: initial;
+  --radius-3xl: initial;
+  --radius-4xl: initial;
+
+  /* ---- Elevation. Four shadows, that is all. Removes shadow-xs/sm/md/lg/xl
+         /2xl/inner and the entire drop-shadow, inset-shadow and blur sets —
+         depth in this system comes from nothing but the four. ---- */
+  --shadow-2xs: initial;
+  --shadow-xs: initial;
+  --shadow-sm: initial;
+  --shadow-md: initial;
+  --shadow-lg: initial;
+  --shadow-xl: initial;
+  --shadow-2xl: initial;
+  --shadow-inner: initial;
+  --inset-shadow-*: initial;
+  --drop-shadow-*: initial;
+  --blur-*: initial;
+
+  /* ---- Motion. One curve. ---- */
+  --ease-in: initial;
+  --ease-out: initial;
+  --ease-in-out: initial;
+
+  /* Keyframes: `spin` and `pulse` are kept. The no-motion rule is about
+     decorative motion — bounce, spring, parallax, scale-on-press — not about
+     loading affordances. A spinner and a skeleton shimmer are the only way
+     the product signals in-flight work, and removing them would leave no
+     affordance at all. `bounce` and `ping` have no such justification. */
+  --animate-bounce: initial;
+  --animate-ping: initial;
+}

@@ -320,7 +320,7 @@ function DataTablePage() {
       message: `Delete Firebase preset "${presetName}"? This cannot be undone.`,
       header: 'Delete Preset',
       icon: 'pi pi-exclamation-triangle',
-      acceptClassName: 'p-button-danger',
+      acceptClassName: 'ds-button-danger',
       accept: async () => {
         try {
           await firestoreService.deletePresetForQuery(dataSource, presetName);

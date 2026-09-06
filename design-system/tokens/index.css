@@ -1,0 +1,11 @@
+/* Elbrit Design System — token entry point.
+   Import this once per app, before any component styles.
+
+   Order matters: fonts define the family variables that type.css consumes,
+   and base.css consumes everything above it. */
+
+@import "./fonts.css";
+@import "./color.css";
+@import "./type.css";
+@import "./space.css";
+@import "./base.css";

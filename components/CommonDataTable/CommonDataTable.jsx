@@ -119,7 +119,7 @@ function CommonDataTable({
               icon={isExpanded ? 'pi pi-minus-circle' : 'pi pi-plus-circle'}
               label={isExpanded ? 'Collapse all' : 'Expand all'}
               onClick={() => setExpandAllSignal({ expanded: !isExpanded })}
-              className="p-button-sm p-button-text p-button-secondary"
+              className="ds-button-sm ds-button-text ds-button-secondary"
             />
           )}
 
@@ -130,7 +130,7 @@ function CommonDataTable({
               label="Export"
               onClick={handleExport}
               disabled={isExporting || leafRows.length === 0}
-              className="p-button-sm p-button-text p-button-secondary"
+              className="ds-button-sm ds-button-text ds-button-secondary"
             />
           )}
         </div>

@@ -5541,7 +5541,7 @@ export default function DataProviderNew({
                     icon="pi pi-sliders-h"
                     label="Filter / Sort"
                     onClick={() => setFilterSortSidebarVisible(true)}
-                    className="p-button-outlined"
+                    className="ds-button-outlined"
                     severity="secondary"
                     style={{ height: '2rem', fontSize: '0.875rem' }}
                   >
@@ -5770,7 +5770,7 @@ export default function DataProviderNew({
                   icon="pi pi-sliders-h"
                   label="Filter and Sort"
                   onClick={() => setFilterSortSidebarVisible(true)}
-                  className="p-button-outlined shrink-0"
+                  className="ds-button-outlined shrink-0"
                   severity="secondary"
                   style={{ height: '2rem', fontSize: '0.875rem' }}
                 >

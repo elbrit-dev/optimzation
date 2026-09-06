@@ -1,0 +1,510 @@
+/* Elbrit Design System — primitive styles.
+   Imported once by tokens consumers; see design-system/README.md.
+
+   Why a stylesheet and not inline style objects: the state matrix requires
+   hover, press, focus-visible and disabled on every interactive component.
+   Inline styles cannot express pseudo-classes, and driving them from React
+   state costs a re-render per pointer event on a 5000-row table. Every value
+   here is still a token — that is the rule that matters.
+
+   All classes are prefixed `ds-` and every one is a single flat selector, so
+   nothing here can leak into or fight PrimeReact `.p-*` rules. */
+
+/* ============================================================ Button */
+
+.ds-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-8);
+  box-sizing: border-box;
+  border: var(--border-w) solid transparent;
+  border-radius: var(--ds-radius-md);
+  font: var(--type-button);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  text-decoration: none;
+  transition: background-color var(--dur-fast) var(--ds-ease-standard),
+    border-color var(--dur-fast) var(--ds-ease-standard),
+    color var(--dur-fast) var(--ds-ease-standard);
+}
+
+.ds-btn:focus-visible {
+  outline: var(--border-w-bold) solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Sizes. Inline padding 7 / 15 / 15 — not 8 / 16 / 16. */
+.ds-btn--sm {
+  height: var(--control-h-sm);
+  padding-inline: var(--space-7);
+  border-radius: var(--ds-radius-sm);
+  font: var(--type-button-sm);
+}
+.ds-btn--default {
+  height: var(--control-h);
+  padding-inline: var(--space-15);
+}
+.ds-btn--lg {
+  height: var(--control-h-lg);
+  padding-inline: var(--space-15);
+  border-radius: var(--ds-radius-lg);
+  font-size: var(--fs-16);
+}
+.ds-btn--app {
+  height: var(--control-h-app);
+  padding-inline: var(--space-10);
+  font: var(--type-app-body);
+}
+
+/* Icon-only is a square of the control height with zero padding. */
+.ds-btn--icon-only {
+  padding-inline: var(--space-0);
+  aspect-ratio: 1 / 1;
+}
+
+.ds-btn--round {
+  border-radius: var(--ds-radius-pill);
+}
+.ds-btn--block {
+  width: 100%;
+}
+
+/* --- type=primary. Hover and press both go DARKER, which is the opposite of
+   the tinted-surface triad and deliberate: this is a white label ON the
+   colour. `--brand-primary` is 3.59:1 with white and `--brand-primary-hover`
+   is 2.9:1, so the original "hover lighter" made an already-failing control
+   worse on hover. `--brand-fill` is 6.16:1. See tokens/color.css. --- */
+.ds-btn--primary {
+  background-color: var(--brand-fill);
+  border-color: transparent;
+  color: var(--ds-text-on-brand);
+}
+.ds-btn--primary:hover:not(:disabled) {
+  background-color: var(--brand-fill-hover);
+}
+.ds-btn--primary:active:not(:disabled) {
+  background-color: var(--brand-fill-hover);
+}
+
+/* --- type=default --- */
+.ds-btn--default-type {
+  background-color: var(--surface-card);
+  border-color: var(--border-subtle);
+  color: var(--ds-text-body);
+}
+.ds-btn--default-type:hover:not(:disabled) {
+  border-color: var(--brand-primary-hover);
+  color: var(--brand-text);
+}
+.ds-btn--default-type:active:not(:disabled) {
+  border-color: var(--brand-primary-active);
+  color: var(--brand-text);
+}
+
+/* --- type=dashed --- */
+.ds-btn--dashed {
+  background-color: var(--surface-card);
+  border-color: var(--border-subtle);
+  border-style: dashed;
+  color: var(--ds-text-body);
+}
+.ds-btn--dashed:hover:not(:disabled) {
+  border-color: var(--brand-primary-hover);
+  color: var(--brand-text);
+}
+.ds-btn--dashed:active:not(:disabled) {
+  border-color: var(--brand-primary-active);
+  color: var(--brand-text);
+}
+
+/* --- type=text --- */
+.ds-btn--text {
+  background-color: transparent;
+  border-color: transparent;
+  color: var(--ds-text-body);
+}
+.ds-btn--text:hover:not(:disabled) {
+  background-color: var(--brand-tint-weak);
+}
+.ds-btn--text:active:not(:disabled) {
+  background-color: var(--brand-tint-strong);
+}
+
+/* --- type=link --- */
+.ds-btn--link {
+  background-color: transparent;
+  border-color: transparent;
+  color: var(--ds-text-link);
+}
+.ds-btn--link:hover:not(:disabled) {
+  color: var(--brand-text);
+}
+.ds-btn--link:active:not(:disabled) {
+  color: var(--brand-text);
+}
+
+/* --- danger: an orthogonal flag, not a type --- */
+.ds-btn--danger.ds-btn--primary {
+  background-color: var(--intent-danger-fill);
+}
+.ds-btn--danger.ds-btn--primary:hover:not(:disabled) {
+  background-color: var(--intent-danger);
+}
+.ds-btn--danger.ds-btn--default-type,
+.ds-btn--danger.ds-btn--dashed {
+  border-color: var(--intent-danger-border);
+  color: var(--intent-danger-text);
+}
+.ds-btn--danger.ds-btn--default-type:hover:not(:disabled),
+.ds-btn--danger.ds-btn--dashed:hover:not(:disabled) {
+  border-color: var(--intent-danger-hover);
+  color: var(--intent-danger-text);
+}
+.ds-btn--danger.ds-btn--text,
+.ds-btn--danger.ds-btn--link {
+  color: var(--intent-danger-text);
+}
+
+/* --- ghost: transparent fill, accent border and label --- */
+.ds-btn--ghost {
+  background-color: transparent;
+}
+.ds-btn--ghost.ds-btn--primary {
+  border-color: var(--brand-primary);
+  color: var(--brand-text);
+}
+
+/* --- disabled. Text and link types go transparent instead of grey. --- */
+.ds-btn:disabled,
+.ds-btn[aria-disabled="true"] {
+  background-color: var(--surface-disabled);
+  border-color: var(--border-disabled);
+  color: var(--ds-text-disabled);
+  cursor: not-allowed;
+}
+.ds-btn--text:disabled,
+.ds-btn--link:disabled,
+.ds-btn--text[aria-disabled="true"],
+.ds-btn--link[aria-disabled="true"] {
+  background-color: transparent;
+  border-color: transparent;
+}
+
+/* ============================================================= Field */
+
+.ds-field-wrap {
+  display: inline-flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.ds-field-wrap--block {
+  display: flex;
+  width: 100%;
+}
+
+/* Labels sit above (console) or inline-left (app) — never floating. */
+.ds-field-label {
+  font: var(--type-app-label);
+  color: var(--ds-text-secondary);
+}
+
+.ds-field-box {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+  box-sizing: border-box;
+  width: 100%;
+  /* No border — a shadow ring supplies both the hairline and the ring. */
+  border: 0;
+  border-radius: var(--ds-radius-md);
+  background-color: var(--surface-card);
+  box-shadow: var(--ds-shadow-field);
+  color: var(--ds-text-body);
+  transition: box-shadow var(--dur-fast) var(--ds-ease-standard);
+}
+
+.ds-field-box--sm {
+  height: var(--control-h-sm);
+  padding-inline: var(--space-7);
+}
+.ds-field-box--default {
+  height: var(--control-h);
+  padding-inline: var(--space-11);
+}
+.ds-field-box--lg {
+  height: var(--control-h-lg);
+  padding-inline: var(--space-11);
+}
+.ds-field-box--app {
+  height: var(--control-h-app);
+  padding-inline: var(--space-11);
+}
+
+.ds-field-box:hover:not(.ds-field-box--disabled) {
+  box-shadow: var(--ds-shadow-field), 0 0 0 1px var(--brand-primary-hover);
+}
+.ds-field-box:focus-within {
+  box-shadow: var(--ds-shadow-field), 0 0 0 var(--border-w-bold) var(--focus-ring);
+}
+.ds-field-box--invalid {
+  box-shadow: var(--ds-shadow-field), 0 0 0 1px var(--intent-danger);
+}
+.ds-field-box--invalid:focus-within {
+  box-shadow: var(--ds-shadow-field), 0 0 0 var(--border-w-bold) var(--intent-danger);
+}
+.ds-field-box--disabled {
+  background-color: var(--surface-disabled);
+  box-shadow: none;
+  color: var(--ds-text-disabled);
+  cursor: not-allowed;
+}
+
+.ds-field-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: var(--type-app-body);
+}
+.ds-field-input::placeholder {
+  color: var(--ds-text-placeholder);
+}
+.ds-field-input:disabled {
+  cursor: not-allowed;
+}
+
+.ds-field-affix {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  color: var(--ds-text-muted);
+}
+
+/* A hint renders at 10px, and the guide allows --ds-text-muted only at
+   "12px+ on white" — measured, muted at 10px is 3.35:1 against a 4.5:1 floor.
+   Secondary is 7:1 at the same size. */
+.ds-field-hint {
+  font: var(--type-app-label);
+  color: var(--ds-text-secondary);
+}
+/* --intent-danger is a FILL. As 10px text on white it measures 3.27:1; the
+   palette's deeper red reaches 4.62:1 and reads as the same colour. */
+.ds-field-hint--error {
+  color: var(--intent-danger-text);
+}
+
+/* ============================================================ Switch */
+
+.ds-switch {
+  --ds-switch-w: 32px;
+  --ds-switch-h: 16px;
+  --ds-switch-knob: 12px;
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  width: var(--ds-switch-w);
+  height: var(--ds-switch-h);
+  padding: 0;
+  border: 0;
+  border-radius: var(--ds-radius-pill);
+  background-color: var(--border-disabled);
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ds-ease-standard);
+}
+.ds-switch--lg {
+  --ds-switch-w: 44px;
+  --ds-switch-h: 22px;
+  --ds-switch-knob: 18px;
+}
+.ds-switch:focus-visible {
+  outline: var(--border-w-bold) solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.ds-switch[aria-checked="true"] {
+  background-color: var(--brand-primary);
+}
+.ds-switch[aria-checked="true"]:hover:not(:disabled) {
+  background-color: var(--brand-primary-hover);
+}
+.ds-switch[aria-checked="true"]:active:not(:disabled) {
+  background-color: var(--brand-primary-active);
+}
+.ds-switch:disabled {
+  background-color: var(--surface-disabled);
+  box-shadow: inset 0 0 0 1px var(--border-disabled);
+  cursor: not-allowed;
+}
+.ds-switch__knob {
+  position: absolute;
+  top: 50%;
+  left: 2px;
+  width: var(--ds-switch-knob);
+  height: var(--ds-switch-knob);
+  border-radius: var(--ds-radius-circle);
+  background-color: var(--surface-card);
+  box-shadow: var(--ds-shadow-hairline);
+  translate: 0 -50%;
+  transition: left var(--dur-fast) var(--ds-ease-standard);
+}
+.ds-switch[aria-checked="true"] .ds-switch__knob {
+  left: calc(var(--ds-switch-w) - var(--ds-switch-knob) - 2px);
+}
+
+/* ======================================================== StatusPill */
+
+.ds-pill {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-6);
+  box-sizing: border-box;
+  height: var(--control-h-app);
+  padding-inline: var(--space-8);
+  border-radius: var(--ds-radius-chip);
+  font: var(--type-chip);
+  white-space: nowrap;
+}
+.ds-pill__dot {
+  flex: 0 0 auto;
+  width: var(--icon-dot);
+  height: var(--icon-dot);
+  border-radius: var(--ds-radius-circle);
+  background-color: currentColor;
+}
+
+/* =============================================================== Tag */
+
+.ds-tag {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-6);
+  box-sizing: border-box;
+  padding: var(--space-2) var(--space-8);
+  border: var(--border-w) solid transparent;
+  border-radius: var(--ds-radius-sm);
+  font: var(--type-chip);
+  line-height: var(--lh-tight);
+  white-space: nowrap;
+}
+
+/* ================================================ SegmentedControl */
+
+.ds-segmented {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  box-sizing: border-box;
+  height: var(--control-h-default);
+  padding: 2px;
+  border: var(--border-w) solid var(--border-subtle);
+  border-radius: var(--ds-radius-md);
+  background-color: var(--surface-sunken);
+}
+.ds-segmented--pill,
+.ds-segmented--pill .ds-segmented__item {
+  border-radius: var(--ds-radius-pill);
+}
+.ds-segmented__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-6);
+  height: 100%;
+  padding-inline: var(--space-8);
+  border: 0;
+  border-radius: var(--ds-radius-sm);
+  background-color: transparent;
+  /* --ds-text-secondary, not -muted. The guide allows muted only at "12px+ on
+     white", and this label sits on --surface-sunken; measured on the tint it
+     came out at 3.33:1, under AA. Secondary lifts it to ~5.7:1. */
+  color: var(--ds-text-secondary);
+  font: var(--type-app-body);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ds-ease-standard),
+    color var(--dur-fast) var(--ds-ease-standard);
+}
+.ds-segmented__item:hover:not(:disabled) {
+  color: var(--ds-text-body);
+}
+.ds-segmented__item:focus-visible {
+  outline: var(--border-w-bold) solid var(--focus-ring);
+  outline-offset: -2px;
+}
+.ds-segmented__item[aria-selected="true"] {
+  background-color: var(--surface-card);
+  box-shadow: var(--ds-shadow-hairline), 0 0 0 1px var(--border-subtle);
+  color: var(--ds-text-body);
+}
+.ds-segmented__item:disabled {
+  color: var(--ds-text-disabled);
+  cursor: not-allowed;
+}
+
+/* ============================================================== Card */
+
+/* Shadow card is the default. Hairline card has a border and NO shadow.
+   Pick one, never both. There is no left-accent-border card in this system —
+   status goes in a pill inside the card, not on its edge. */
+.ds-card {
+  box-sizing: border-box;
+  border-radius: var(--ds-radius-lg);
+  background-color: var(--surface-card);
+  box-shadow: var(--ds-shadow-card);
+}
+.ds-card--hairline {
+  border: var(--border-w) solid var(--border-default);
+  box-shadow: none;
+}
+.ds-card--flush {
+  padding: var(--space-0);
+}
+.ds-card--app {
+  padding: var(--space-12);
+}
+.ds-card--console {
+  padding: var(--space-16);
+}
+.ds-card--interactive {
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ds-ease-standard);
+}
+.ds-card--interactive:hover {
+  background-color: var(--brand-tint-weak);
+}
+.ds-card--interactive:focus-visible {
+  outline: var(--border-w-bold) solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.ds-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-8);
+  margin-bottom: var(--space-12);
+}
+.ds-card__title {
+  font: var(--type-section);
+  color: var(--ds-text-heading);
+  margin: 0;
+}
+
+/* ============================================================== Icon */
+
+.ds-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  color: currentColor;
+  line-height: 1;
+}

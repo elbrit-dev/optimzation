@@ -2670,7 +2670,7 @@ export function SaveControls() {
                   }
                 }}
                 disabled={!schema || writeSchemaTreeNodes.length === 0}
-                className="p-button-sm p-button-outlined w-full"
+                className="ds-button-sm ds-button-outlined w-full"
                 title={Object.keys(writeSchemaSelectionKeys).some(key => writeSchemaSelectionKeys[key]?.checked) 
                   ? `Selected fields: ${Object.keys(writeSchemaSelectionKeys).filter(key => writeSchemaSelectionKeys[key]?.checked).length}` 
                   : 'Select write schema fields'}
@@ -2749,7 +2749,7 @@ export function SaveControls() {
                 value={writeDocTypeName}
                 onChange={(e) => setWriteDocTypeName(e.target.value)}
                 placeholder="e.g. Secondary Data Entry"
-                className="w-full p-inputtext-sm"
+                className="w-full"
               />
             </div>
           </div>
@@ -2768,7 +2768,7 @@ export function SaveControls() {
                   }
                 }}
                 disabled={treeNodes.length === 0}
-                className="p-button-sm p-button-outlined w-full"
+                className="ds-button-sm ds-button-outlined w-full"
                 title={selectedKeys && formatFieldName ? String(formatFieldName(selectedKeys)) : 'Select index field'}
                 style={{
                   justifyContent: 'space-between',
@@ -2850,7 +2850,7 @@ export function SaveControls() {
                   }
                 }}
                 disabled={!selectedKeys || monthIndexTreeNodes.length === 0}
-                className="p-button-sm p-button-outlined w-full"
+                className="ds-button-sm ds-button-outlined w-full"
                 title={sanitizedMonthIndexKey && formatFieldName ? String(formatFieldName(sanitizedMonthIndexKey)) : 'Select month index field'}
                 style={{
                   justifyContent: 'space-between',
@@ -2920,7 +2920,7 @@ export function SaveControls() {
                 }
               }}
               disabled={processedDataTreeNodesMemo.length === 0}
-              className="p-button-sm p-button-outlined w-full"
+              className="ds-button-sm ds-button-outlined w-full"
               title="Select search fields"
               style={{
                 justifyContent: 'space-between',
@@ -2991,7 +2991,7 @@ export function SaveControls() {
                 }
               }}
               disabled={processedDataTreeNodesMemo.length === 0}
-              className="p-button-sm p-button-outlined w-full"
+              className="ds-button-sm ds-button-outlined w-full"
               title="Select sort fields"
               style={{
                 justifyContent: 'space-between',
@@ -3057,7 +3057,7 @@ export function SaveControls() {
             onClick={handleSave}
             icon="pi pi-save"
             label="Save"
-            className="p-button-sm w-full"
+            className="ds-button-sm w-full"
             style={{
               whiteSpace: 'nowrap'
             }}

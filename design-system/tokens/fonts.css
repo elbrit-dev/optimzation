@@ -1,0 +1,35 @@
+/* Elbrit Design System — font families.
+   Three families, not seven. The source Figma file used Roboto, Work Sans,
+   SF Pro Text, Poppins, Inter, Mulish, Montserrat, Manrope, Plus Jakarta Sans,
+   ABeeZee and Courier Prime; the last several appeared in isolated screens
+   only and are not part of this system. See README "Deviations". */
+
+/* The webfonts are loaded by each app with next/font, not by a CSS @import.
+   next/font self-hosts the faces at build time: no render-blocking request to
+   Google, no layout shift, no runtime dependency on a third-party CDN. (A CSS
+   `@import url(...)` would also be dropped by the browser here — it has to
+   precede all other rules, and Tailwind's have already been emitted.)
+
+   next/font generates a hashed family name (`__Roboto_abc123`), so the stacks
+   below read it through a variable rather than naming "Roboto" directly. The
+   var() fallback means the tokens still resolve sensibly if an app has not
+   wired next/font yet: a locally installed Roboto, then the system stack.
+
+     netstar      src/app/layout.jsx   — variables on <html>
+     elbrit-app   pages/_app.jsx       — variables on a display:contents wrapper */
+
+:root {
+  /* Console / default. Every table, label, form and nav item. */
+  --ds-font-ui: var(--font-roboto, Roboto), -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+
+  /* The field app's own screens: section titles, chips, cards. */
+  --ds-font-display: var(--font-work-sans, "Work Sans"), var(--font-roboto, Roboto), -apple-system, "Helvetica Neue", Arial, sans-serif;
+
+  /* Code, keyboard keys, monospaced numerals in debug surfaces. */
+  --ds-font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Courier New", monospace;
+
+  /* Semantic aliases — prefer these at call sites. */
+  --ds-font-body: var(--ds-font-ui);
+  --ds-font-heading: var(--ds-font-display);
+  --ds-font-data: var(--ds-font-ui);
+}

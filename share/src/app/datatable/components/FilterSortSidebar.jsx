@@ -574,7 +574,7 @@ export default function FilterSortSidebar({
               label="Clear"
               icon="pi pi-times"
               onClick={handleClear}
-              className="p-button-outlined flex-1"
+              className="ds-button-outlined flex-1"
               disabled={!hasActiveFilters}
             />
             <Button

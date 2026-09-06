@@ -21,6 +21,7 @@ import { DateRangeFilter } from './filters/DateRangeFilter';
 import { MultiselectFilter } from './filters/MultiselectFilter';
 import { SmartTableToolbar, ColumnVisibilityDropdown, GroupByReorder } from './SmartTableToolbar';
 import { useGroupBy } from './SmartDataControls';
+import { dsDataTableProps } from '@/design-system/primereact/dataTableProps';
 
 // ─── Export utilities (module-scope, no hooks) ───────────────────────────────
 
@@ -764,7 +765,7 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
     <div className="relative" ref={containerRef}>
       <SmartTableToolbar leftActions={leftActions} rightActions={rightActions} />
 
-      <DataTable
+      <DataTable {...dsDataTableProps()}
         {...sharedTableProps}
         scrollHeight={cfg.scrollHeight}
       >
@@ -800,7 +801,7 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
             className="shrink-0"
           />
           <div className="flex-1" style={{ minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-            <DataTable
+            <DataTable {...dsDataTableProps()}
               {...sharedTableProps}
               scrollHeight="flex"
               style={{ height: '100%' }}
@@ -1013,7 +1014,7 @@ function InnerDataTable({ rows, columns, columnGroups, labelColDefs = [], depth 
   }, [columnGroups, columns, filters, onFilter, labelColDefs, depth, expandable]);
 
   return (
-    <DataTable
+    <DataTable {...dsDataTableProps()}
       value={processedRows}
       size="small"
       showGridlines

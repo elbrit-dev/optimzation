@@ -72,7 +72,7 @@ function GraphQLPlaygroundV2() {
       message: 'You have unsaved changes. Do you want to start a new session and reset the workspace?',
       acceptLabel: 'Reset',
       rejectLabel: 'Cancel',
-      acceptClassName: 'p-button-danger',
+      acceptClassName: 'ds-button-danger',
       accept: performReset,
     });
   }, [isDirty, resetWorkspace, setActiveTab, setActiveMiddleTab]);
@@ -193,7 +193,7 @@ function GraphQLPlaygroundV2() {
               <Button
                 label="New"
                 icon="pi pi-plus"
-                className="p-button-sm p-button-text"
+                className="ds-button-sm ds-button-text"
                 onClick={handleNewSession}
               />
             </div>
@@ -235,7 +235,7 @@ function GraphQLPlaygroundV2() {
                   label={isExecuting ? "Executing..." : isTransforming ? "Applying..." : "Execute"}
                   onClick={handleExecute}
                   disabled={!query || !query.trim() || isExecuting || isTransforming}
-                  className="p-button-sm"
+                  className="ds-button-sm"
                 />
               </div>
               <div className="flex-1"></div>

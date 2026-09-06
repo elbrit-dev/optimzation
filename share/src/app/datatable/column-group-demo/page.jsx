@@ -6,6 +6,7 @@ import { Column } from 'primereact/column';
 import { ColumnGroup } from 'primereact/columngroup';
 import { Row } from 'primereact/row';
 import ProtectedRoute from '@/components/ProtectedRoute';
+import { dsDataTableProps } from '@/design-system/primereact/dataTableProps';
 
 export default function ColumnGroupDemoPage() {
   const [sales] = useState([
@@ -91,7 +92,7 @@ export default function ColumnGroupDemoPage() {
             </p>
           </div>
           <div className="card">
-            <DataTable
+            <DataTable {...dsDataTableProps()}
               value={sales}
               headerColumnGroup={headerGroup}
               footerColumnGroup={footerGroup}

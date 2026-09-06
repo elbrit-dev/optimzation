@@ -1,0 +1,349 @@
+/* Elbrit Design System — Tailwind v4 bridge (additive).
+   Import AFTER `@import "tailwindcss"` and after tokens/index.css:
+
+     @import "tailwindcss";
+     @import "../design-system/tokens/index.css";
+     @import "../design-system/tailwind.css";
+
+   This file is SAFE TO ADOPT TODAY. It only adds DS utilities and re-points
+   the type scale onto DS line-heights; it removes nothing, so every existing
+   `bg-gray-200` / `p-3` / `rounded-xl` keeps compiling.
+
+   When a surface has finished migrating, additionally import
+   `tailwind-strict.css`, which deletes Tailwind's stock palette and scales so
+   non-token values stop compiling. That is the file that makes the system
+   enforceable; this one makes it available.
+
+   NAMING NOTE: five DS token groups carry a `--ds-` prefix — fonts, text
+   colours, radii, shadows and easing. Tailwind v4 claims `--font-*`,
+   `--text-*`, `--radius-*`, `--shadow-*` and `--ease-*` as @theme namespaces,
+   so an unprefixed DS token of the same name would make the mapping below
+   self-referential and resolve to nothing. Everything else keeps its plain
+   name (--space-*, --brand-*, --surface-*, --fs-*, --control-h*). */
+
+@theme {
+  /* ---- Surfaces: bg-surface, bg-row-alt, bg-sunken ---- */
+  --color-surface: var(--surface-card);
+  --color-page: var(--surface-page);
+  --color-sunken: var(--surface-sunken);
+  --color-row-alt: var(--surface-row-alt);
+  --color-table-head: var(--surface-table-head);
+  --color-surface-disabled: var(--surface-disabled);
+
+  /* ---- Text: text-body, text-secondary, text-muted ---- */
+  --color-body: var(--ds-text-body);
+  --color-heading: var(--ds-text-heading);
+  --color-secondary: var(--ds-text-secondary);
+  --color-muted: var(--ds-text-muted);
+  --color-placeholder: var(--ds-text-placeholder);
+  --color-on-brand: var(--ds-text-on-brand);
+  --color-link: var(--ds-text-link);
+  /* MISSING UNTIL THE CONTRAST AUDIT. `text-disabled` was used in six places
+     across the PrimeReact presets and generated NO RULE AT ALL — Tailwind only
+     emits a utility for a namespace it knows about, and this alias did not
+     exist. A disabled primary button therefore kept its white label on the grey
+     disabled fill: 1.08:1, invisible. Nothing failed; the class was simply
+     inert. Same failure mode as a mistyped utility name. */
+  --color-disabled: var(--ds-text-disabled);
+
+  /* ---- Brand / interactive: bg-brand, hover:bg-brand-hover ---- */
+  --color-brand: var(--brand-primary);
+  --color-brand-hover: var(--brand-primary-hover);
+  --color-brand-active: var(--brand-primary-active);
+  --color-brand-text: var(--brand-text);
+  --color-brand-tint: var(--brand-tint);
+  --color-brand-tint-weak: var(--brand-tint-weak);
+  --color-brand-tint-strong: var(--brand-tint-strong);
+  /* The brand fill that carries a white label — see color.css. */
+  --color-brand-fill: var(--brand-fill);
+  --color-brand-fill-hover: var(--brand-fill-hover);
+  --color-mark: var(--brand-mark);
+  --color-wordmark: var(--brand-wordmark);
+
+  /* ---- Borders: border-line, border-line-subtle ---- */
+  --color-line: var(--border-default);
+  --color-line-subtle: var(--border-subtle);
+  --color-line-strong: var(--border-strong);
+  --color-line-on-brand: var(--border-on-brand);
+
+  /* ---- Status: text-approved, bg-pending ---- */
+  --color-approved: var(--status-approved);
+  --color-pending: var(--status-pending);
+  --color-rejected: var(--status-rejected);
+  --color-draft: var(--status-draft);
+  --color-status-info: var(--status-info);
+  /* Accessible text twins of the status hues. */
+  --color-approved-text: var(--status-approved-text);
+  --color-pending-text: var(--status-pending-text);
+  --color-rejected-text: var(--status-rejected-text);
+  --color-draft-text: var(--status-draft-text);
+  --color-status-info-text: var(--status-info-text);
+
+  /* ---- Intent washes: bg-danger-wash border-danger-border ---- */
+  --color-danger: var(--intent-danger);
+  --color-danger-hover: var(--intent-danger-hover);
+  --color-danger-text: var(--intent-danger-text);
+  --color-danger-border: var(--intent-danger-border);
+  --color-danger-wash: var(--intent-danger-wash);
+  --color-danger-fill: var(--intent-danger-fill);
+  --color-warning: var(--intent-warning);
+  --color-warning-border: var(--intent-warning-border);
+  --color-warning-wash: var(--intent-warning-wash);
+  --color-success: var(--intent-success);
+  --color-success-border: var(--intent-success-border);
+  --color-success-wash: var(--intent-success-wash);
+  --color-info: var(--intent-info);
+  --color-info-border: var(--intent-info-border);
+  --color-info-wash: var(--intent-info-wash);
+
+  /* ---- Categorical, for charts and decorative chips only. Never semantic:
+         a categorical colour must not be read as success or failure. ---- */
+  --color-cat-blue: var(--elbrit-blue);
+  --color-cat-magenta: var(--elbrit-magenta);
+  --color-cat-violet: var(--elbrit-violet);
+  --color-cat-plum: var(--elbrit-plum);
+  --color-cat-cyan: var(--elbrit-cyan);
+  --color-cat-amber: var(--elbrit-amber);
+  --color-cat-blue-wash: var(--cat-blue-wash);
+  --color-cat-magenta-wash: var(--cat-magenta-wash);
+  --color-cat-violet-wash: var(--cat-violet-wash);
+  --color-cat-plum-wash: var(--cat-plum-wash);
+  --color-cat-cyan-wash: var(--cat-cyan-wash);
+  --color-cat-amber-wash: var(--cat-amber-wash);
+
+  /* ---- Focus ---- */
+  --color-focus: var(--focus-ring);
+
+  /* ---- Type. Numeric names map 1:1 onto the DS scale, each carrying its
+         DS line-height. `text-12` is 12/20. ---- */
+  --text-6: var(--fs-6);
+  --text-6--line-height: var(--lh-12);
+  --text-8: var(--fs-8);
+  --text-8--line-height: var(--lh-12);
+  --text-10: var(--fs-10);
+  --text-10--line-height: var(--lh-20);
+  --text-11: var(--fs-11);
+  --text-11--line-height: var(--lh-20);
+  --text-12: var(--fs-12);
+  --text-12--line-height: var(--lh-20);
+  --text-13: var(--fs-13);
+  --text-13--line-height: var(--lh-20);
+  --text-14: var(--fs-14);
+  --text-14--line-height: var(--lh-20);
+  --text-16: var(--fs-16);
+  --text-16--line-height: var(--lh-normal);
+  --text-18: var(--fs-18);
+  --text-18--line-height: var(--lh-normal);
+  --text-20: var(--fs-20);
+  --text-20--line-height: var(--lh-normal);
+  --text-24: var(--fs-24);
+  --text-24--line-height: var(--lh-normal);
+  --text-28: var(--fs-28);
+  --text-28--line-height: var(--lh-normal);
+  --text-32: var(--fs-32);
+  --text-32--line-height: var(--lh-normal);
+  --text-64: var(--fs-64);
+  --text-64--line-height: var(--lh-normal);
+
+  /* Re-point the t-shirt sizes already used at 333 call sites. Sizes are
+     unchanged (they were already legal DS steps); what changes is the paired
+     line-height, which becomes the DS 20px workhorse instead of Tailwind's
+     16px. This one block is what makes table rows align. */
+  --text-xs: var(--fs-12);
+  --text-xs--line-height: var(--lh-20);
+  --text-sm: var(--fs-14);
+  --text-sm--line-height: var(--lh-20);
+  --text-base: var(--fs-16);
+  --text-base--line-height: var(--lh-normal);
+  --text-lg: var(--fs-18);
+  --text-lg--line-height: var(--lh-normal);
+  --text-xl: var(--fs-20);
+  --text-xl--line-height: var(--lh-normal);
+
+  /* ---- Families: font-ui, font-display, font-mono ---- */
+  --font-ui: var(--ds-font-ui);
+  --font-display: var(--ds-font-display);
+  --font-mono: var(--ds-font-mono);
+  --font-sans: var(--ds-font-ui);
+
+  /* ---- Weights ---- */
+  --font-weight-light: var(--fw-light);
+  --font-weight-normal: var(--fw-regular);
+  --font-weight-medium: var(--fw-medium);
+  --font-weight-semibold: var(--fw-semibold);
+  --font-weight-bold: var(--fw-bold);
+
+  /* ---- Tracking ---- */
+  --tracking-none: var(--ls-none);
+  --tracking-tight: var(--ls-tight);
+
+  /* ---- Spacing.
+         DELIBERATELY DOES NOT redefine the numeric scale. Tailwind's stock
+         0.25rem steps already land exactly on every EVEN step of the DS
+         scale, so those need no bridge:
+
+           p-0.5 = 2px    p-1  = 4px    p-1.5 = 6px   p-2 = 8px
+           p-2.5 = 10px   p-3  = 12px   p-4  = 16px   p-5 = 20px
+           p-6   = 24px   p-8  = 32px   p-12 = 48px
+
+         Redefining them would silently rescale 557 existing call sites in
+         netstar alone (gap-2 from 8px to 2px, p-4 from 16px to 4px). Never
+         do that.
+
+         Only the four ODD steps have no Tailwind equivalent, and they are
+         named for their intent rather than their value — which is also how
+         the guide describes them, and it stops them being "corrected" to 8
+         by the next reader. ---- */
+  --spacing-chip: var(--space-5); /* 5px  — chip inline padding */
+  --spacing-tight: var(--space-7); /* 7px  — small button / small input inline */
+  --spacing-field: var(--space-11); /* 11px — input inline padding, every size */
+  --spacing-btn: var(--space-15); /* 15px — button inline padding, default and lg */
+
+  /* ---- Radius. rounded-md and rounded-lg already matched the DS at 6/8px;
+         these make that explicit and add the 15px chip. ---- */
+  --radius-sm: var(--ds-radius-sm);
+  --radius-md: var(--ds-radius-md);
+  --radius-lg: var(--ds-radius-lg);
+  --radius-xl: var(--ds-radius-xl);
+  --radius-chip: var(--ds-radius-chip);
+  --radius-pill: var(--ds-radius-pill);
+
+  /* ---- Elevation. Four shadows and nothing else. ---- */
+  --shadow-hairline: var(--ds-shadow-hairline);
+  --shadow-field: var(--ds-shadow-field);
+  --shadow-card: var(--ds-shadow-card);
+  --shadow-pop: var(--ds-shadow-pop);
+  --shadow-bottom-nav: var(--ds-shadow-bottom-nav);
+
+  /* ---- Motion. One curve. ---- */
+  --ease-standard: var(--ds-ease-standard);
+}
+
+/* ---- Control heights. `h-control` beats `h-8` because 32px is a control
+       height, not eight spacing units. `h-control-default` follows the
+       surrounding [data-surface] scope. ---- */
+@utility h-control-app {
+  height: var(--control-h-app);
+}
+@utility h-control-sm {
+  height: var(--control-h-sm);
+}
+@utility h-control {
+  height: var(--control-h);
+}
+@utility h-control-lg {
+  height: var(--control-h-lg);
+}
+@utility h-control-default {
+  height: var(--control-h-default);
+}
+
+/* Square controls need a matching width, and a paginator page button needs a
+   min-width so double-digit pages do not distort the circle. */
+@utility w-control-sm {
+  width: var(--control-h-sm);
+}
+@utility w-control {
+  width: var(--control-h);
+}
+@utility min-w-control-sm {
+  min-width: var(--control-h-sm);
+}
+@utility min-w-control {
+  min-width: var(--control-h);
+}
+
+/* ---- Type roles as single utilities. `type-app-body` sets family, size,
+       weight and line-height together, which is how the source file
+       actually defines type. ---- */
+/* Table cell padding, resolved from the surrounding [data-surface]. Named for
+   intent so it cannot be "corrected" to a numeric step by the next reader —
+   the whole point is that no call site chooses it. */
+@utility px-cell {
+  padding-inline: var(--table-cell-px);
+}
+@utility py-cell {
+  padding-block: var(--table-cell-py);
+}
+
+/* The surface's own body role — console 14/20, field app 12/20. Table cells
+   take this rather than a fixed `text-12` so they track the surface. */
+@utility type-body-default {
+  font: var(--type-body-default);
+}
+
+@utility type-app-label {
+  font: var(--type-app-label);
+}
+@utility type-app-body {
+  font: var(--type-app-body);
+}
+@utility type-app-tile {
+  font: var(--type-app-tile);
+}
+@utility type-console-body {
+  font: var(--type-console-body);
+}
+@utility type-table-head {
+  font: var(--type-table-head);
+}
+@utility type-button {
+  font: var(--type-button);
+}
+@utility type-chip {
+  font: var(--type-chip);
+}
+@utility type-section {
+  font: var(--type-section);
+}
+@utility type-doc-head {
+  font: var(--type-doc-head);
+}
+@utility type-hero-numeral {
+  font: var(--type-hero-numeral);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- The state matrix as one utility. The guide requires all six states on
+       every interactive element; this supplies focus, disabled and the
+       transition so a call site only expresses hover and press. ---- */
+@utility ds-interactive {
+  transition: background-color var(--dur-fast) var(--ds-ease-standard),
+    border-color var(--dur-fast) var(--ds-ease-standard),
+    color var(--dur-fast) var(--ds-ease-standard);
+
+  &:focus-visible {
+    outline: var(--border-w-bold) solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+
+  &:disabled,
+  &[aria-disabled="true"] {
+    background-color: var(--surface-disabled);
+    border-color: var(--border-disabled);
+    color: var(--ds-text-disabled);
+    cursor: not-allowed;
+  }
+}
+
+/* A 22px visual control still needs a 44px hit area. Grows the touch target
+   without touching the visual box. */
+@utility ds-tap-target {
+  position: relative;
+
+  &::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: var(--tap-target-min);
+    height: var(--tap-target-min);
+    translate: -50% -50%;
+  }
+}
+
+/* The mobile hit-area floor as a named utility, so `min-h-[44px]` stops being
+   an arbitrary value that reads like a coincidence. */
+@utility min-h-tap {
+  min-height: var(--tap-target-min);
+}

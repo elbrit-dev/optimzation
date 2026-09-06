@@ -1,0 +1,83 @@
+/* Elbrit Design System — element defaults.
+   Deliberately minimal. This sets the brand voice on bare elements and
+   nothing else; it does not reset or normalise (Tailwind preflight already
+   does that in both consuming apps). */
+
+/* WRAPPED IN `@layer base`, AND THAT IS LOAD-BEARING.
+ *
+ * Every rule here uses `:where()` so it carries zero specificity and any
+ * utility can override it. That intent does not survive on its own: Tailwind v4
+ * puts utilities in `@layer utilities`, and in the CSS cascade UNLAYERED styles
+ * beat LAYERED ones outright, regardless of specificity. Unlayered, `:where(a)`
+ * therefore won against `.text-body` — silently overriding every Tailwind
+ * text-colour utility on every anchor in the app. It was found because the app
+ * header's nav labels came out link-blue instead of body-black after the
+ * Menubar migration, with `text-body` present in the class list and doing
+ * nothing.
+ *
+ * Declaring the layer puts these defaults BELOW utilities, which is what
+ * `:where()` was reaching for in the first place. */
+@layer base {
+  /* `--type-body-default` resolves per surface in space.css — console 14px,
+     app 12px. It was defined there but nothing consumed it: the body was
+     pinned to `--type-app-body`, so netstar rendered at 12px on a surface the
+     system says is 14px. Every PrimeReact component happened to escape that
+     because lara's `.p-component` forced 16px on it; once the theme goes, they
+     inherit this, which is why it had to be right first. */
+  :where(body) {
+    font: var(--type-body-default, var(--type-app-body));
+    color: var(--ds-text-body);
+    background: var(--surface-page);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  :where(a) {
+    color: var(--ds-text-link);
+    text-decoration: none;
+    transition: color var(--dur-fast) var(--ds-ease-standard);
+  }
+
+  :where(a:hover) {
+    color: var(--brand-primary-hover);
+    text-decoration: underline;
+  }
+
+  :where(a:active) {
+    color: var(--brand-primary-active);
+  }
+
+  /* A ring, never a colour swap. Applies to anything focusable that has not
+     opted out with its own :focus-visible rule. */
+  :where(:focus-visible) {
+    outline: var(--border-w-bold) solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+
+  /* Disabled, for every control that has not styled it explicitly.
+
+     Only the cursor and the text colour are set here, NOT a background fill.
+     The system's disabled spec does include a --surface-disabled fill, but
+     applying that at this level would turn every disabled icon-only and ghost
+     button into a grey box where it used to be transparent — the spec itself
+     carves those out ("text and link types go transparent instead"). Fill is
+     therefore opt-in, via `disabled:bg-surface-disabled` or the Button
+     primitive, which knows its own variant.
+
+     :where() is zero-specificity, so any explicit disabled:* utility and every
+     PrimeReact `.p-disabled` rule still win. */
+  :where(:disabled, [aria-disabled="true"]) {
+    color: var(--ds-text-disabled);
+    cursor: not-allowed;
+  }
+
+  ::placeholder {
+    color: var(--ds-text-placeholder);
+    opacity: 1;
+  }
+
+  /* Tabular figures wherever numbers are compared vertically. */
+  :where(td, th, .ds-numeric) {
+    font-variant-numeric: tabular-nums;
+  }
+}

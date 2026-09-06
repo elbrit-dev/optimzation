@@ -857,7 +857,7 @@ export default function ReportsConfigSidebar({ onConfigLoad }) {
       message: `Delete config "${name}"? This cannot be undone.`,
       header: 'Delete Config',
       icon: 'pi pi-exclamation-triangle',
-      acceptClassName: 'p-button-danger',
+      acceptClassName: 'ds-button-danger',
       accept: async () => {
         try {
           await firestoreService.deleteReport(name);

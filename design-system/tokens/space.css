@@ -1,0 +1,150 @@
+/* Elbrit Design System — space, radius, elevation, motion, layout.
+
+   This is NOT an 8px grid. 5, 7, 11 and 15px are real steps taken from the
+   source kit's own control metrics. The three most-often "corrected" values:
+   a button's 15px inline padding (not 16), an input's 11px (not 12), and a
+   small control's 7px (not 8). Snapping them to 8 makes every control a
+   pixel out of line with the rest of the product. */
+
+:root {
+  /* ---- Spacing ---- */
+  --space-0: 0;
+  --space-2: 2px;   /* status dot to its label at 10px */
+  --space-4: 4px;
+  --space-5: 5px;   /* chip inline padding. Odd on purpose. */
+  --space-6: 6px;   /* icon-to-label gap in chips and pills */
+  --space-7: 7px;   /* small button / small input inline padding. Odd on purpose. */
+  --space-8: 8px;   /* button icon gap; dense table cell */
+  --space-10: 10px; /* app list-row inline padding */
+  --space-11: 11px; /* input inline padding at every size. Odd on purpose. */
+  --space-12: 12px; /* dropdown item inline padding; app card padding */
+  --space-15: 15px; /* button inline padding, default and lg. Odd on purpose. */
+  --space-16: 16px; /* base step: table cell, section gutter */
+  --space-20: 20px; /* between cards */
+  --space-24: 24px; /* section separation */
+  --space-32: 32px;
+  --space-48: 48px;
+
+  /* ---- Radius follows SIZE, not component type. ---- */
+  --ds-radius-sm: 4px;      /* tags, code spans, small controls */
+  --ds-radius-md: 6px;      /* the default: buttons, inputs, selects, popovers */
+  --ds-radius-lg: 8px;      /* cards, panels, tables, large controls */
+  --ds-radius-xl: 16px;     /* bottom sheets, large tiles */
+  --ds-radius-chip: 15px;   /* chips and status pills on a 22px box */
+  --ds-radius-pill: 9999px; /* segmented controls */
+  --ds-radius-circle: 50%;  /* avatars, status dots, the centre nav action */
+
+  /* ---- Control heights ---- */
+  --control-h-app: 22px;  /* field app inline fields, chips, status pills */
+  --control-h-sm: 24px;   /* console small buttons, pagination, row actions */
+  --control-h: 32px;      /* console default: buttons, inputs, selects */
+  --control-h-lg: 40px;   /* primary form submits, search bars */
+
+  /* Resolved per surface — see the [data-surface] scopes below. */
+  --control-h-default: var(--control-h);
+
+  /* ---- Table cell density.
+     Ant Design's table GEOMETRY at Frappe's DENSITY: horizontal dividers only,
+     tight rows, because this is an operational grid and principle 3 is density
+     before comfort.
+
+     Resolved per surface for the same reason --control-h-default is. Padding
+     used to come from a per-call-site `size` prop, and that is exactly how the
+     two table trees drifted to 8px and 16px against each other while both
+     looked correct in isolation. A surface cannot drift from itself. */
+  --table-cell-px: var(--space-12);
+  --table-cell-py: var(--space-8);
+
+  /* ---- Line widths ---- */
+  --border-w: 1px;
+  --border-w-bold: 2px;   /* active tab underline, focus ring */
+
+  /* ---- Icon sizes ---- */
+  --icon-sm: 14px;   /* inside a 24px small button */
+  --icon-md: 16px;   /* default: all inline icons beside text */
+  --icon-lg: 18px;   /* inside a 40px button; bottom-nav glyphs */
+  --icon-xl: 24px;   /* toolbar icons */
+  --icon-dot: 6px;   /* the status dot on badges and pills */
+
+  /* ---- Elevation. Four shadows. Depth comes from nothing else.
+         No gradients, no glass, no backdrop blur, no coloured glows. ---- */
+  --ds-shadow-hairline: 0 1px 0 0 rgb(0 0 0 / 0.02);
+  --ds-shadow-field: 0 1px 2px 0 rgb(0 0 0 / 0.06), 0 0 0 1px rgb(104 113 130 / 0.16);
+  --ds-shadow-card: 0 0 4px 0 rgb(204 204 204 / 0.25);
+  --ds-shadow-pop: 0 4px 4px 0 rgb(0 0 0 / 0.25);
+
+  /* The one documented exception: the field app's bottom nav casts upward. */
+  --ds-shadow-bottom-nav: 0 -3px 9.3px 0 rgb(204 204 204 / 0.25);
+
+  /* ---- Motion. One curve. Fades and short slides only.
+         No bounce, no spring, no parallax, no scale-on-press. ---- */
+  --ds-ease-standard: cubic-bezier(0.215, 0.61, 0.355, 1);
+  --dur-fast: 120ms;  /* state changes */
+  --dur-base: 200ms;  /* panels, sheets */
+
+  /* ---- Layout ---- */
+  --app-width: 360px;
+  --app-nav-h: 56px;
+  --console-rail-w: 208px;
+  --console-topbar-h: 56px;
+  --console-content-max: 1200px;
+  --tap-target-min: 44px; /* a 22px visual control still needs this hit area */
+}
+
+/* ---- Surface density scopes ----
+   The two surfaces share the token set but not the density. Set
+   data-surface on a root element and density-aware components adapt. */
+[data-surface="app"] {
+  --control-h-default: var(--control-h-app);
+  --table-cell-px: var(--space-12);
+  --type-body-default: var(--type-app-body);
+  --type-label-default: var(--type-app-label);
+  --ds-font-surface: var(--ds-font-display);
+}
+
+[data-surface="console"] {
+  --control-h-default: var(--control-h);
+  /* The console is a desktop surface and carries the 16px base step. */
+  --table-cell-px: var(--space-16);
+  /* Narrow screens take the denser app body; the console's own 14px starts at
+     the tablet breakpoint. See the media query below — the console is a
+     desktop surface, and 14px on a phone costs more in wrapping than it buys
+     in legibility. */
+  --type-body-default: var(--type-app-body);
+  --type-label-default: var(--type-app-body);
+  --ds-font-surface: var(--ds-font-ui);
+}
+
+/* ---- Responsive body size ----
+   The console surface steps up from the 12px app body to its own 14px at
+   640px. Two reasons this exists at all:
+
+   1. It is what the surface scale already says — `--type-console-body` is
+      14px — and the body simply was not reading it.
+   2. It is what makes dropping the lara theme safe. lara's
+      `.p-component { font-size: 1rem }` forced 16px on every PrimeReact root;
+      without a step here, removing the theme dropped them all the way to 12px
+      in one go, which measured 400-5000 differing pixels on every baseline.
+
+   16px was considered and NOT used: on this scale 16px is `--fs-16`, the
+   section-title step. Making it the body size would collapse the distinction
+   between a heading and its content. If a larger console body is wanted, the
+   change is this one declaration. */
+@media (min-width: 640px) {
+  [data-surface="console"] {
+    --type-body-default: var(--type-console-body);
+  }
+}
+
+:root {
+  --type-body-default: var(--type-app-body);
+  --type-label-default: var(--type-app-label);
+  --ds-font-surface: var(--ds-font-ui);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 1ms;
+    --dur-base: 1ms;
+  }
+}
