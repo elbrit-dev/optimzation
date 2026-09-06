@@ -240,13 +240,15 @@ export function makeDataTablePt() {
       className: cx(CELL, 'type-table-head text-body border-t border-line-subtle'),
     },
 
-    /* `text-secondary` (0.65), not `text-muted` (0.45). At 0.45 next to a
-       0.88 medium-weight header label the sort affordance was hard to see at
-       rest. Secondary keeps the hierarchy — the label still leads — while
-       being legible without hovering. Ant's own inactive sorter is fainter
-       still, but it draws TWO carets, which reads as a control where a single
-       muted glyph does not. */
-    sortIcon: { className: 'ml-2 shrink-0 text-12 text-secondary' },
+    /* `text-body` (0.88). Went 0.45 -> 0.65 -> 0.88 across two reports: the
+       glyph is a pair of thin 16px arrows, and stroke weight matters as much
+       as alpha here — at 0.65 a hairline arrow still reads as absent next to
+       a solid 12px label, even though 0.65 is legible for TEXT.
+
+       Do not "restore the hierarchy" by lowering this again. Ant can keep its
+       sorter at 0.29 because it draws two filled carets that read as a control
+       at any alpha; this is a stroked outline icon and does not. */
+    sortIcon: { className: 'ml-2 shrink-0 text-12 text-body' },
 
     /* Multi-sort order badge. A brand tint with brand text, matching the
        count badges in SmartTableToolbar. */
