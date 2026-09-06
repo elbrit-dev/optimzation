@@ -266,10 +266,26 @@
   padding-block: var(--table-cell-py);
 }
 
-/* The surface's own body role — console 14/20, field app 12/20. Table cells
-   take this rather than a fixed `text-12` so they track the surface. */
+/* The surface's own body role — console 14/20, field app 12/20. */
 @utility type-body-default {
   font: var(--type-body-default);
+}
+
+/* The same role for TABLE CELLS, which additionally must keep tabular figures.
+
+   Why this is a separate utility rather than `type-body-default tabular-nums`
+   at the call site: `font:` is a shorthand and resets font-variant-numeric to
+   normal. tokens/base.css sets tabular-nums on :where(td, th) but lives in
+   @layer base, which loses to @layer utilities. Pairing the two utilities does
+   NOT fix it either — both land in the same layer and Tailwind emitted
+   `.tabular-nums` BEFORE `.type-body-default`, so the shorthand still won.
+   Measured, not assumed: indexes 96175 vs 109496 in the built sheet.
+
+   Two declarations in ONE rule is order-independent: the longhand always
+   follows the shorthand it is correcting. */
+@utility type-cell {
+  font: var(--type-body-default);
+  font-variant-numeric: tabular-nums;
 }
 
 @utility type-app-label {
@@ -284,8 +300,15 @@
 @utility type-console-body {
   font: var(--type-console-body);
 }
+/* Carries the tabular-figures guard for the same reason `type-cell` does: this
+   is a `font:` shorthand landing on a th/footer cell, and it is emitted AFTER
+   type-cell (measured: 109656 vs 96394), so without this it re-resets
+   font-variant-numeric and un-aligns FOOTER TOTALS — the one row where digit
+   alignment matters most. Header labels are unaffected either way; tabular
+   figures only change digits. */
 @utility type-table-head {
   font: var(--type-table-head);
+  font-variant-numeric: tabular-nums;
 }
 @utility type-button {
   font: var(--type-button);

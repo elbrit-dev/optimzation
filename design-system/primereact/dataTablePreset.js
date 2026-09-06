@@ -60,7 +60,13 @@ const cx = (...parts) => parts.filter(Boolean).join(' ');
    A surface cannot drift from itself, and there is no fallback to be silent
    about. `size` is still accepted on the DataTable for PrimeReact's own
    internals; it no longer decides padding. */
-const CELL = 'px-cell py-cell type-body-default';
+const CELL = 'px-cell py-cell type-cell';
+
+/* `type-cell`, not `type-body-default`: the latter is a `font:` shorthand and
+   resets font-variant-numeric, silently un-aligning every figure in every
+   table. base.css sets tabular-nums on :where(td, th) but is out-ranked by the
+   utilities layer. See the note on @utility type-cell in tailwind.css — the
+   obvious fix of adding `tabular-nums` alongside does NOT work. */
 
 /* A frozen cell's `position: sticky` came from lara's `.p-frozen-column`, so
    unstyled mode silently broke the Lock-first-column toolbar toggle — the
