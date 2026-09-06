@@ -28,9 +28,17 @@ const ITEM = cx(
 );
 
 /* A close/dismiss control. Used by Dialog, Sidebar and OverlayPanel. */
+/* Shared by Dialog, Sidebar (incl. the bottom drawer) and OverlayPanel.
+
+   `text-body` (0.88), not `text-secondary` (0.65). At 0.65 with a brand-tinted
+   hover, the close control read as though it only appeared on hover — the same
+   defect the DataTable row expander had, reported on the bottom drawer. A
+   dismiss control is the one affordance a modal surface must advertise at
+   rest, so it takes full body contrast; the hover tint is then feedback rather
+   than the control arriving. */
 const CLOSE =
   'inline-flex h-control-sm aspect-square items-center justify-center rounded-full ' +
-  'text-secondary transition-colors hover:bg-brand-tint-weak hover:text-brand-text';
+  'text-body transition-colors hover:bg-brand-tint-weak hover:text-brand-text';
 
 export const dividerPt = {
   root: { className: 'my-3 flex items-center border-t border-line-subtle' },

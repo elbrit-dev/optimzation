@@ -240,7 +240,13 @@ export function makeDataTablePt() {
       className: cx(CELL, 'type-table-head text-body border-t border-line-subtle'),
     },
 
-    sortIcon: { className: 'ml-2 shrink-0 text-12 text-muted' },
+    /* `text-secondary` (0.65), not `text-muted` (0.45). At 0.45 next to a
+       0.88 medium-weight header label the sort affordance was hard to see at
+       rest. Secondary keeps the hierarchy — the label still leads — while
+       being legible without hovering. Ant's own inactive sorter is fainter
+       still, but it draws TWO carets, which reads as a control where a single
+       muted glyph does not. */
+    sortIcon: { className: 'ml-2 shrink-0 text-12 text-secondary' },
 
     /* Multi-sort order badge. A brand tint with brand text, matching the
        count badges in SmartTableToolbar. */
