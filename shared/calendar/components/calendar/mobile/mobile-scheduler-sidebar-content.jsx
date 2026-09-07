@@ -367,22 +367,29 @@ export function MobileSchedulerSidebarContent({ open, onClose }) {
           </div>
 
           <div className="space-y-1.5">
-            <div className="grid grid-cols-[minmax(0,1fr)_128px] gap-2">
-              <div className="relative">
+            {/* A fixed two-column grid squeezed the department trigger to 128px
+                on a phone, so its label and chevron collided. Both controls
+                flex instead and drop onto their own full-width row when the
+                screen is too narrow to hold them side by side. */}
+            <div className="flex flex-wrap gap-2">
+              <div className="relative flex-[1.4_1_9rem]">
                 <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
                 <Input
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                   placeholder="Search people..."
-                  className="h-10 rounded-xl border-slate-200 pl-10 text-sm shadow-none"
+                  className="h-10 w-full rounded-xl border-slate-200 pl-10 text-sm shadow-none"
                 />
               </div>
 
               <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
-                <SelectTrigger className="h-10 rounded-xl border-slate-200 text-sm shadow-none">
+                <SelectTrigger className="h-10 flex-[1_1_8.5rem] rounded-xl border-slate-200 text-sm shadow-none">
                   <SelectValue placeholder="All depts" />
                 </SelectTrigger>
-                <SelectContent>
+                {/* Capped so a long department list scrolls inside the sheet
+                    instead of running off the bottom of the screen, and kept
+                    inside the viewport on a narrow phone. */}
+                <SelectContent className="max-h-[45vh] w-[min(15rem,calc(100vw-1.5rem))]">
                   <SelectItem value="all">All depts</SelectItem>
                   {departmentOptions.map((department) => (
                     <SelectItem key={department} value={department}>

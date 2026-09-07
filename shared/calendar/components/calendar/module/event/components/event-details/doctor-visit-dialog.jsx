@@ -346,6 +346,20 @@ export function EventDoctorVisitDialog({
   ) ?? false;
   const shouldShowPob =
     hasPobItems || visitCompleted;
+  const hasPobDecision =
+    Number(event.pob_given) === 1 || hasPobItems;
+  // The visit form is reachable through the Visit / Edit action only while the
+  // visit is open and the date has not passed. POB is not on that clock: the
+  // doctor may confirm the order hours or days later, and a wrong quantity has
+  // to stay correctable — so POB gets its own way in, for any participant,
+  // however long ago the visit was marked.
+  const canOpenVisitForm =
+    permissions.canEdit && (!viewerHasVisited || isFailedSync);
+  const canManagePob =
+    isDoctorVisit &&
+    isEmployeeParticipant &&
+    !isFailedSync &&
+    !canOpenVisitForm;
   const pobTotals = useMemo(() => {
     if (!hasPobItems) return { qty: 0, amount: 0 };
 
@@ -689,6 +703,17 @@ export function EventDoctorVisitDialog({
                 </div>
               )}
             </>
+          )}
+
+          {canManagePob && (
+            <AddEditEventDialog event={event}>
+              <Button
+                variant={hasPobDecision ? "outline" : "default"}
+                className="w-full sm:w-auto"
+              >
+                {hasPobDecision ? "Edit POB" : "Add POB"}
+              </Button>
+            </AddEditEventDialog>
           )}
 
           {permissions.canDelete && !isFailedSync && (!hasParticipants || isFailedSync) && (

@@ -24,8 +24,21 @@ export function mapFormToErpEvent(values, options = {}) {
     values.tags === TAG_IDS.DOCTOR_VISIT_PLAN;
 
   const isUpdate = Boolean(erpName);
+  // The visit time already on record for the person saving, if any.
+  const recordedOwnVisitTime =
+    existingEventParticipants.find(
+      (participant) =>
+        participant.reference_doctype === "Employee" &&
+        String(participant.reference_docname) === String(LOGGED_IN_USER.id)
+    )?.[ERP_EVENT_FIELDS.participantVisitTimeWrite] ?? null;
+  // Stamped once, on the save that marks the visit. A visit that is already
+  // recorded gets reopened later to add or correct its POB, and that save must
+  // not move when the visit happened (nor the event's ends_on, which follows
+  // this) to whenever the form was reopened.
   const currentVisitTimestamp =
-    isDoctorVisitPlan && values.attending === "Yes"
+    isDoctorVisitPlan &&
+    values.attending === "Yes" &&
+    !recordedOwnVisitTime
       ? format(new Date(), "yyyy-MM-dd HH:mm:ss")
       : null;
   const meetingAttendanceMap = new Map(

@@ -313,7 +313,9 @@ export async function fetchDoctorById(doctorName) {
         city
         custom_latitude
         custom_longitude
+        custom_doctor_code
         custom_speciality
+        custom_specialty__name
         email_id
         notes {
           name
@@ -323,6 +325,7 @@ export async function fetchDoctorById(doctorName) {
           doctype
           modified
         }
+        custom_category__name
         custom_category3__name
         custom_category2__name
         custom_category1__name

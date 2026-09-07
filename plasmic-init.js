@@ -2610,7 +2610,9 @@ PLASMIC.registerComponent(ProfileHeader, {
     logoHref: {
       type: "string",
       displayName: "Logo link",
-      description: "Optional - makes the logo a link that opens in a new tab.",
+      defaultValue: "/",
+      description:
+        "Where tapping the logo goes. Defaults to the home page, routed in-app with no reload. A full URL to another site opens in a new tab instead. Leave empty and the logo is not clickable.",
     },
     sticky: {
       type: "boolean",

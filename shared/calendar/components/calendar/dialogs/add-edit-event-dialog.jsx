@@ -130,6 +130,23 @@ export function AddEditEventDialog({
 	const initialStartDateTs = initialStartDate
 		? initialStartDate.getTime()
 		: null;
+	// POB can be captured or corrected long after the call, so this form gets
+	// reopened on visits that are already marked. Everything below that is tied
+	// to *where and when the visit happened* must then be left exactly as it was
+	// recorded: re-measuring from wherever the user is now would turn a normal
+	// visit into a force visit (and demand a reason before POB could be saved).
+	const isVisitAlreadyRecorded = useMemo(() => {
+		if (!isEditing) return false;
+
+		return Boolean(
+			event?.participants?.some(
+				(participant) =>
+					participant?.type === "Employee" &&
+					String(participant?.id) === String(LOGGED_IN_USER.id) &&
+					participant?.custom_visit_time
+			)
+		);
+	}, [event?.participants, isEditing]);
 	const selectedDateTs = selectedDate
 		? new Date(selectedDate).getTime()
 		: null;
@@ -172,6 +189,9 @@ export function AddEditEventDialog({
 	}, [allDay, enableGoogleMeet, form, selectedTag]);
 	useEffect(() => {
 		if (!isEditing) return;
+		// Distance and force-visit belong to the moment the visit was marked.
+		// Leave the recorded values alone on a later POB edit.
+		if (isVisitAlreadyRecorded) return;
 		const doctorId = Array.isArray(event?.doctor)
 			? event.doctor[0]
 			: event?.doctor;
@@ -249,7 +269,7 @@ export function AddEditEventDialog({
 			);
 		}
 
-	}, [currentLatitude, currentLongitude, doctorResolvers, event?.doctor, isEditing]);
+	}, [currentLatitude, currentLongitude, doctorResolvers, event?.doctor, isEditing, isVisitAlreadyRecorded]);
 	const hasValidLocation =
 		Number(currentLatitude) !== 0 &&
 		Number(currentLongitude) !== 0 &&
@@ -324,16 +344,11 @@ export function AddEditEventDialog({
 		Boolean(selectedLeaveBalance) &&
 		leaveDays > 0 &&
 		Number(selectedLeaveBalance.available ?? 0) < leaveDays;
-	const hasExistingPobItems =
-		Array.isArray(event?.fsl_doctor_item) &&
-		event.fsl_doctor_item.length > 0;
-	const hasExistingPobDecision =
-		selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN &&
-		isEditing &&
-		(Number(event?.pob_given) === 1 ||
-			hasExistingPobItems);
-	const canCurrentParticipantEditPob =
-		!hasExistingPobDecision;
+	// POB used to freeze the moment it was captured, locking out even the person
+	// who entered it. It is commercial data that often lands after the call — the
+	// doctor confirms the order later, a quantity was mistyped — so it stays
+	// editable, and the mapper updates the existing quotation rather than raising
+	// a second one (see `existingName` in mapDoctorVisitToQuotation).
 	const doctorDetails = useMemo(() => {
 		const doctorId = Array.isArray(event?.doctor)
 			? event.doctor[0]
@@ -799,10 +814,14 @@ export function AddEditEventDialog({
 		// location then or it spams a geolocation toast on every detail open.
 		if (!isOpen) return;
 		// Location is only relevant to Doctor Visit Plans (force-visit distance).
+		// Once the visit is marked, its coordinates are history — asking the
+		// device again on a later POB edit would overwrite them with wherever
+		// the user happens to be.
+		if (isVisitAlreadyRecorded) return;
 		if (selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN) {
 			resolveLatLong(form, isEditing, toast);
 		}
-	}, [isEditing, isOpen, selectedTag]);
+	}, [isEditing, isOpen, selectedTag, isVisitAlreadyRecorded]);
 	/* ---------------------------------------------
 	  Load Calendar Google Calendar 
 	--------------------------------------------- */
@@ -1351,7 +1370,12 @@ export function AddEditEventDialog({
 		isLeafHierarchyUser && Boolean(loggedInEmployeeHqTerritory);
 	const canUseDoctorVisitTag =
 		hasValidHqTourPlan || canCreateDoctorVisitDirectly;
-	const shouldHideHqTourPlanTag = canCreateDoctorVisitDirectly;
+	// Only one HQ Tour Plan per person per day is allowed (enforced on save
+	// below), so once the day has one the tag stops being offered for a NEW
+	// event. Editing is exempt: the plan being edited is the one that matched,
+	// and hiding its own tag would leave the form with no tag selected.
+	const shouldHideHqTourPlanTag =
+		canCreateDoctorVisitDirectly || (!isEditing && hasValidHqTourPlan);
 	// A new event must never sit on a type this deployment doesn't offer. Without
 	// this, a trigger asking for a disabled type (or a stale default) left the
 	// form rendering that type's fields with no chip selected — e.g. tapping
@@ -1563,7 +1587,6 @@ export function AddEditEventDialog({
 		// Only for Doctor Visit Plan
 		if (
 			normalizedValues.tags === TAG_IDS.DOCTOR_VISIT_PLAN &&
-			canCurrentParticipantEditPob &&
 			Number(normalizedValues.pob_given) === 1
 		) {
 			const selectedDoctor = Array.isArray(normalizedValues.doctor)
@@ -2726,12 +2749,6 @@ export function AddEditEventDialog({
 						{isEditing &&
 							selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN && (
 								<>
-									{hasExistingPobDecision &&
-										!canCurrentParticipantEditPob && (
-											<p className="text-sm text-muted-foreground">
-												POB has already been captured for this visit. Remaining participants can only mark Visit.
-											</p>
-										)}
 									<FormField
 										control={form.control}
 										name="pob_given"
@@ -2743,7 +2760,6 @@ export function AddEditEventDialog({
 															type="radio"
 															value="1"
 															checked={Number(field.value) === 1}
-															disabled={!canCurrentParticipantEditPob}
 															onChange={() => field.onChange(1)}
 														/>
 														<span>Yes</span>
@@ -2754,7 +2770,6 @@ export function AddEditEventDialog({
 															type="radio"
 															value="0"
 															checked={Number(field.value) === 0}
-															disabled={!canCurrentParticipantEditPob}
 															onChange={() => field.onChange(0)}
 														/>
 														<span>No</span>
@@ -2768,8 +2783,7 @@ export function AddEditEventDialog({
 						{/* ================= CUSTOMER ================= */}
 						{isEditing &&
 							selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN &&
-							Number(pobGiven) === 1 &&
-							canCurrentParticipantEditPob && (
+							Number(pobGiven) === 1 && (
 								<FormField
 									control={form.control}
 									name="customer"
@@ -2790,8 +2804,7 @@ export function AddEditEventDialog({
 						{isEditing &&
 							selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN &&
 							Number(pobGiven) === 1 &&
-							customer &&
-							canCurrentParticipantEditPob && (
+							customer && (
 								<div className="space-y-4">
 									<h4 className="font-medium">POB Details</h4>
 

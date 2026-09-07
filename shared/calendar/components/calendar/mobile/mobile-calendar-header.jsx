@@ -38,6 +38,9 @@ const MOBILE_LAYER_MAP = {
 
 export function MobileCalendarHeader() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Controlled so "Add calendar" can hand off to the scheduler sheet: the
+  // popover has to close first, or the sheet opens behind it.
+  const [viewerOpen, setViewerOpen] = useState(false);
   const {
     view,
     setView,
@@ -165,7 +168,7 @@ export function MobileCalendarHeader() {
           <RotateCw className={cn("h-5 w-5", isSyncing && "animate-spin")} />
         </Button>
 
-        <Popover>
+        <Popover open={viewerOpen} onOpenChange={setViewerOpen}>
           <PopoverTrigger asChild>
             <Button
               variant="ghost"
@@ -187,7 +190,13 @@ export function MobileCalendarHeader() {
             side="bottom"
             className="mr-2 w-[min(calc(100vw-1rem),24rem)] p-2"
           >
-            <UserSelect mode="mobile-viewer" />
+            <UserSelect
+              mode="mobile-viewer"
+              onAddCalendar={() => {
+                setViewerOpen(false);
+                setSidebarOpen(true);
+              }}
+            />
           </PopoverContent>
         </Popover>
 

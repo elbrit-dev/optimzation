@@ -217,8 +217,16 @@ export function mapDoctors(data) {
       custom_longitude: node.custom_longitude ?? null,
       city: node.city,
       code: node.name,
-      fsl_speciality__name: node.custom_speciality,
+      doctorCode: node.custom_doctor_code ?? null,
+      // ERP holds the speciality in whichever of the two fields the record was
+      // created with — the Link field on newer rows, the free-text one on older
+      // ones. Reading only `custom_speciality` left most doctors with a blank
+      // speciality (and an empty speciality filter).
+      fsl_speciality__name:
+        node.custom_specialty__name ?? node.custom_speciality ?? null,
       email: node.email_id,
+      // The primary category. category1/2/3 are a smaller legacy set kept below.
+      fsl_category__name: node.custom_category__name ?? null,
       fsl_category1__name: node.custom_category1__name,
       fsl_category2__name: node.custom_category2__name,
       fsl_category3__name: node.custom_category3__name,

@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from "@calendar/components/ui/select";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
+import { Plus, X } from "lucide-react";
 import { useEffect, useState, useMemo } from "react";
 import {resolveVisibleEmployeeIds} from "@calendar/lib/employeeHeirachy";
 import { getAvatarColorBySeed, getFirstLetters } from "@calendar/components/calendar/helpers";
@@ -89,7 +90,7 @@ function EmployeeFilterList({
   );
 }
 
-export function UserSelect({ mode = "popover" }) {
+export function UserSelect({ mode = "popover", onAddCalendar }) {
   const {
     users = [],
     usersLoading,
@@ -378,7 +379,7 @@ export function UserSelect({ mode = "popover" }) {
                 key={user.id}
                 className="flex items-center gap-3 rounded-md border px-2 py-2"
               >
-                <Avatar className="size-7">
+                <Avatar className="size-7 shrink-0">
                   <AvatarImage
                     src={user.picturePath ?? undefined}
                     alt={user.name}
@@ -392,19 +393,56 @@ export function UserSelect({ mode = "popover" }) {
                     {getFirstLetters(user.name)}
                   </AvatarFallback>
                 </Avatar>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">
                     {user.name}
+                    {user.id === LOGGED_IN_USER.id ? (
+                      <span className="ml-1 text-xs font-normal text-muted-foreground">
+                        (you)
+                      </span>
+                    ) : null}
                   </p>
                   <p className="truncate text-xs text-muted-foreground">
                     {user.email}
                   </p>
                 </div>
+
+                {/* Every row can be dropped, your own included — looking at a
+                    colleague's calendar should not force yours to stay in the
+                    view. Removing the last one falls back to your own calendar
+                    rather than an empty screen. */}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
+                  aria-label={`Stop viewing ${user.name}'s calendar`}
+                  title={`Stop viewing ${user.name}'s calendar`}
+                  onClick={() => toggleUser(user.id)}
+                >
+                  <X className="size-4" />
+                </Button>
               </div>
             ))}
           </div>
         )}
 
+        {/* Adding hands off to the scheduler sheet, which is the one place
+            people are picked — no second, smaller picker to keep in step. */}
+        {onAddCalendar ? (
+          <div className="px-2 pb-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 w-full justify-center text-xs"
+              onClick={onAddCalendar}
+            >
+              <Plus className="size-4" />
+              Add calendar
+            </Button>
+          </div>
+        ) : null}
       </div>
     );
   }

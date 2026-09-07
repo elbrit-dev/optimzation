@@ -202,7 +202,12 @@ query Doctors($first: Int,$filter: [DBFilterInput]) {
         city
         custom_latitude
         custom_longitude
+        custom_doctor_code
+        # Speciality lives in two fields: the legacy free-text custom_speciality
+        # and the current Link field custom_specialty (US spelling). Most rows
+        # only carry one of them, so both are read and coalesced in mapDoctors.
         custom_speciality
+        custom_specialty__name
         email_id
         notes {
           name
@@ -213,6 +218,9 @@ query Doctors($first: Int,$filter: [DBFilterInput]) {
           creation
           modified
         }
+        # custom_category is the category actually maintained on most doctors;
+        # category1/2/3 are only set on a small legacy slice.
+        custom_category__name
         custom_category3__name
         custom_category2__name
         custom_category1__name

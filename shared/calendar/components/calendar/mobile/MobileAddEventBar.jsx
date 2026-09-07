@@ -105,7 +105,11 @@ export default function MobileAddEventBar({ date: propDate }) {
   const hasValidHqTourPlan = !!matchedHqEvent;
   const canCreateDoctorVisitDirectly =
     isLeafHierarchyUser && Boolean(loggedInEmployeeHqTerritory);
-  const shouldHideHqTourPlanTag = canCreateDoctorVisitDirectly;
+  // Only one HQ Tour Plan per person per day is allowed, and the form rejects a
+  // second one on save. Once the day already has one, stop offering the tag
+  // rather than offering it and then refusing it.
+  const shouldHideHqTourPlanTag =
+    canCreateDoctorVisitDirectly || hasValidHqTourPlan;
 
   // The "+" tags start from the types this deployment actually offers — the same
   // enabled/disabled rule (eventTypes / eventTypesMode) the event form applies —

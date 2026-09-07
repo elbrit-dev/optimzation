@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, MapPin, X } from "lucide-react";
+import {
+    Check,
+    Clock3,
+    Loader2,
+    Search,
+    SlidersHorizontal,
+    X,
+} from "lucide-react";
+import { differenceInCalendarDays, format } from "date-fns";
 import { Input } from "@calendar/components/ui/input";
 import { Button } from "@calendar/components/ui/button";
 import { Checkbox } from "@calendar/components/ui/checkbox";
@@ -8,60 +16,193 @@ import {
     PopoverContent,
     PopoverTrigger,
 } from "@calendar/components/ui/popover";
-import { cn } from "@calendar/lib/utils";
 import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@calendar/components/ui/select";
+    Tabs,
+    TabsContent,
+    TabsList,
+    TabsTrigger,
+} from "@calendar/components/ui/tabs";
+import { cn } from "@calendar/lib/utils";
+import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
+import { buildLastVisitByDoctor } from "@calendar/lib/calendar/doctorVisitHistory";
 import { searchDoctors } from "@calendar/components/calendar/module/event/services/master-data.service";
+
+/* =====================================================
+   FACETS
+
+   One definition per filter so the search bar stays the only always-visible
+   control: everything else lives behind the filter button as a tab. Adding a
+   filter later means adding an entry here, not another control in the row.
+
+   `valuesOf` returns a list because a doctor can carry several categories; a
+   doctor matches a facet when any of its values is selected.
+===================================================== */
+const FACETS = [
+    {
+        key: "speciality",
+        label: "Speciality",
+        valuesOf: (doctor) => [doctor.fsl_speciality__name],
+    },
+    {
+        key: "category",
+        label: "Category",
+        valuesOf: (doctor) => [
+            doctor.fsl_category__name,
+            doctor.fsl_category1__name,
+            doctor.fsl_category2__name,
+            doctor.fsl_category3__name,
+        ],
+    },
+    {
+        key: "city",
+        label: "City",
+        valuesOf: (doctor) => [doctor.city],
+    },
+];
+
+const EMPTY_SELECTION = { speciality: [], category: [], city: [] };
+
+function normalizeValue(value) {
+    return typeof value === "string" ? value.trim() : "";
+}
+
+/* =====================================================
+   Option lists per facet
+
+   ERP casing is inconsistent ("Vellore" next to "walajapet"), so values are
+   grouped case-insensitively and shown with the first spelling seen — otherwise
+   the same town appears twice in the filter.
+===================================================== */
+function buildFacetOptions(doctors) {
+    return FACETS.reduce((options, facet) => {
+        const byKey = new Map();
+
+        doctors.forEach((doctor) => {
+            facet.valuesOf(doctor).forEach((raw) => {
+                const value = normalizeValue(raw);
+                if (!value) return;
+
+                const key = value.toLowerCase();
+                if (!byKey.has(key)) byKey.set(key, value);
+            });
+        });
+
+        options[facet.key] = Array.from(byKey.values()).sort((left, right) =>
+            left.localeCompare(right)
+        );
+
+        return options;
+    }, {});
+}
+
+function matchesFacet(facet, doctor, selectedValues) {
+    if (!selectedValues.length) return true;
+
+    const doctorValues = facet
+        .valuesOf(doctor)
+        .map((value) => normalizeValue(value).toLowerCase())
+        .filter(Boolean);
+
+    return selectedValues.some((value) =>
+        doctorValues.includes(value.toLowerCase())
+    );
+}
+
+/**
+ * Last visit for the card corner: `short` has to survive next to the doctor
+ * name on a phone, so the full sentence goes in the tooltip instead.
+ */
+function describeLastVisit(timestamp) {
+    if (!timestamp) {
+        return { short: "No visit", full: "No visit recorded", isRecent: false };
+    }
+
+    const visitedOn = new Date(timestamp);
+    const daysAgo = differenceInCalendarDays(new Date(), visitedOn);
+    // A visit in the last week is the one worth flagging: it is the case where
+    // picking this doctor again is probably a mistake.
+    const isRecent = daysAgo <= 7;
+    const fullDate = format(visitedOn, "d MMM yyyy");
+
+    if (daysAgo <= 0) {
+        return { short: "Today", full: `Visited today (${fullDate})`, isRecent };
+    }
+
+    if (daysAgo === 1) {
+        return {
+            short: "Yesterday",
+            full: `Visited yesterday (${fullDate})`,
+            isRecent,
+        };
+    }
+
+    return {
+        // The year is only worth the space once the visit is old enough that
+        // "12 Aug" alone would be ambiguous.
+        short: `${format(visitedOn, daysAgo > 300 ? "d MMM yy" : "d MMM")} · ${daysAgo}d`,
+        full: `Last visit ${fullDate} · ${daysAgo} days ago`,
+        isRecent,
+    };
+}
 
 export function RHFDoctorCardSelector({
     value,
-    onChange,hqTerritory,
+    onChange,
+    hqTerritory,
     options = [],
     multiple = false,
     tagsDisplay = true,
 }) {
     const [search, setSearch] = useState("");
-    const [category, setCategory] = useState("ALL");
-    // Empty = every city, so the filter starts out of the way.
-    const [selectedCities, setSelectedCities] = useState([]);
-    const [cityFilterOpen, setCityFilterOpen] = useState(false);
+    // Empty = no filter on that facet, so filters start out of the way.
+    const [selectedFacets, setSelectedFacets] = useState(EMPTY_SELECTION);
+    const [filterOpen, setFilterOpen] = useState(false);
+    const [activeTab, setActiveTab] = useState(FACETS[0].key);
+    // Narrows the option list of whichever tab is open — a territory can carry
+    // a few hundred cities, which is far too many to scroll through.
+    const [optionSearch, setOptionSearch] = useState("");
     const [searchResults, setSearchResults] = useState([]);
     const [loading, setLoading] = useState(false);
+
+    // The dialog lives inside the calendar, so the events it already holds are
+    // the visit history — no extra ERP round trip to show a last-visit date.
+    const { allEvents } = useCalendar();
+    const lastVisitByDoctor = useMemo(
+        () => buildLastVisitByDoctor(allEvents ?? []),
+        [allEvents]
+    );
+
     useEffect(() => {
         setSearchResults(options);
     }, [options]);
+
     useEffect(() => {
         const timeout = setTimeout(async () => {
-        const term = search.trim();
-        
-        // Show territory doctors initially
-        if (!term) {
-          setSearchResults(options);
-          return;
-        }
-        
-        setLoading(true);
-        
-        try {
-          const doctors = await searchDoctors({
-            search: term,
-            territory: hqTerritory,
-          });
-        
-          setSearchResults(doctors);
-        } finally {
-          setLoading(false);
-        }
-        
+            const term = search.trim();
+
+            // Show territory doctors initially
+            if (!term) {
+                setSearchResults(options);
+                return;
+            }
+
+            setLoading(true);
+
+            try {
+                const doctors = await searchDoctors({
+                    search: term,
+                    territory: hqTerritory,
+                });
+
+                setSearchResults(doctors);
+            } finally {
+                setLoading(false);
+            }
         }, 400);
-        
+
         return () => clearTimeout(timeout);
-        }, [search, hqTerritory, options]);
+    }, [search, hqTerritory, options]);
+
     /* =====================================================
        Normalize value → selected ID array (unchanged logic)
     ===================================================== */
@@ -95,67 +236,114 @@ export function RHFDoctorCardSelector({
     };
 
     /* =====================================================
-       Filtering (optimized slightly)
+       Filter options, built from the doctors that came back for this HQ
+       (before the facets are applied, so choosing a city never removes the
+       other cities from the list you are choosing from).
     ===================================================== */
-    /* =====================================================
-       City filter options
+    const facetOptions = useMemo(
+        () => buildFacetOptions(searchResults),
+        [searchResults]
+    );
 
-       Built from the doctors that came back for this HQ (before the city
-       filter is applied, so choosing a city never removes the other cities
-       from the list you are choosing from).
-    ===================================================== */
-    const cityOptions = useMemo(() => {
-        // ERP casing is inconsistent ("Vellore" next to "walajapet"), so cities
-        // are grouped case-insensitively and shown with the first spelling seen
-        // — otherwise the same town appears twice in the filter.
-        const byKey = new Map();
+    const availableFacets = useMemo(
+        () => FACETS.filter((facet) => facetOptions[facet.key]?.length),
+        [facetOptions]
+    );
 
-        searchResults.forEach((doc) => {
-            const city = typeof doc.city === "string" ? doc.city.trim() : "";
-            if (!city) return;
-
-            const key = city.toLowerCase();
-            if (!byKey.has(key)) byKey.set(key, city);
-        });
-
-        return Array.from(byKey.values()).sort((left, right) =>
-            left.localeCompare(right)
-        );
-    }, [searchResults]);
-
-    // A city that disappears from the list (new HQ, new search) must not keep
+    // A value that disappears from the list (new HQ, new search) must not keep
     // filtering invisibly.
     useEffect(() => {
-        setSelectedCities((current) => {
-            const next = current.filter((city) => cityOptions.includes(city));
-            return next.length === current.length ? current : next;
-        });
-    }, [cityOptions]);
+        setSelectedFacets((current) => {
+            let changed = false;
 
-    const toggleCity = (city) => {
-        setSelectedCities((current) =>
-            current.includes(city)
-                ? current.filter((value) => value !== city)
-                : [...current, city]
-        );
-    };
-
-    const filteredDoctors = useMemo(() => {
-        return searchResults.filter((doc) => {
-            const matchesSpeciality =
-                category === "ALL" ||
-                doc.fsl_speciality__name === category;
-
-            const docCity = String(doc.city ?? "").trim().toLowerCase();
-            const matchesCity =
-                !selectedCities.length ||
-                selectedCities.some(
-                    (city) => city.toLowerCase() === docCity
+            const next = FACETS.reduce((accumulator, facet) => {
+                const allowed = facetOptions[facet.key] ?? [];
+                const kept = (current[facet.key] ?? []).filter((value) =>
+                    allowed.includes(value)
                 );
 
-            return matchesSpeciality && matchesCity;
+                if (kept.length !== (current[facet.key] ?? []).length) {
+                    changed = true;
+                }
+
+                accumulator[facet.key] = kept;
+                return accumulator;
+            }, {});
+
+            return changed ? next : current;
         });
-    }, [searchResults, category, selectedCities]);
+    }, [facetOptions]);
+
+    // Keep the open tab on something that still has options to choose from.
+    useEffect(() => {
+        if (!availableFacets.length) return;
+        if (availableFacets.some((facet) => facet.key === activeTab)) return;
+
+        setActiveTab(availableFacets[0].key);
+    }, [availableFacets, activeTab]);
+
+    // The option search belongs to the tab it was typed in, so switching tabs
+    // (or reopening the panel) starts from the full list again.
+    const handleTabChange = (nextTab) => {
+        setActiveTab(nextTab);
+        setOptionSearch("");
+    };
+
+    const handleFilterOpenChange = (nextOpen) => {
+        setFilterOpen(nextOpen);
+        if (!nextOpen) setOptionSearch("");
+    };
+
+    const visibleFacetOptions = useMemo(() => {
+        const query = optionSearch.trim().toLowerCase();
+        const allOptions = facetOptions[activeTab] ?? [];
+
+        if (!query) return allOptions;
+
+        return allOptions.filter((option) =>
+            option.toLowerCase().includes(query)
+        );
+    }, [facetOptions, activeTab, optionSearch]);
+
+    const toggleFacetValue = (facetKey, facetValue) => {
+        setSelectedFacets((current) => {
+            const selected = current[facetKey] ?? [];
+
+            return {
+                ...current,
+                [facetKey]: selected.includes(facetValue)
+                    ? selected.filter((entry) => entry !== facetValue)
+                    : [...selected, facetValue],
+            };
+        });
+    };
+
+    const clearFacet = (facetKey) => {
+        setSelectedFacets((current) => ({ ...current, [facetKey]: [] }));
+    };
+
+    const clearAllFacets = () => setSelectedFacets(EMPTY_SELECTION);
+
+    const activeFilters = useMemo(
+        () =>
+            FACETS.flatMap((facet) =>
+                (selectedFacets[facet.key] ?? []).map((value) => ({
+                    facetKey: facet.key,
+                    facetLabel: facet.label,
+                    value,
+                }))
+            ),
+        [selectedFacets]
+    );
+
+    const filteredDoctors = useMemo(() => {
+        return searchResults.filter((doctor) =>
+            FACETS.every((facet) =>
+                matchesFacet(facet, doctor, selectedFacets[facet.key] ?? [])
+            )
+        );
+    }, [searchResults, selectedFacets]);
+
     /* =====================================================
        Toggle select (unchanged logic)
     ===================================================== */
@@ -171,18 +359,6 @@ export function RHFDoctorCardSelector({
             onChange([...selectedIds, doctor.value]);
         }
     };
-
-    /* =====================================================
-       Speciality filter options
-    ===================================================== */
-    const specialityOptions = useMemo(() => {
-        const unique = new Set(
-            options
-                .map((d) => d.fsl_speciality__name)
-                .filter(Boolean)
-        );
-        return ["ALL", ...Array.from(unique)];
-    }, [options]);
 
     return (
         <div className="space-y-3">
@@ -211,66 +387,66 @@ export function RHFDoctorCardSelector({
             )}
 
             {/* ============================================
-         SEARCH + SPECIALITY + CITY FILTER
+         SEARCH + FILTER BUTTON
+
+         One search field and one filter button, so the row never has to
+         reflow on a phone. Speciality, category and city moved into the
+         panel behind the button.
       ============================================ */}
-            <div className="flex flex-wrap gap-2 sm:gap-3">
-                <Input
-                    placeholder="Search Doctor or Code"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="min-w-[10rem] flex-1"
-                />
+            <div className="flex items-center gap-2">
+                <div className="relative min-w-0 flex-1">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                        placeholder="Search doctor or code"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        className="pl-9 pr-9"
+                    />
+                    {loading ? (
+                        <Loader2 className="absolute right-3 top-1/2 size-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+                    ) : search ? (
+                        <button
+                            type="button"
+                            onClick={() => setSearch("")}
+                            aria-label="Clear search"
+                            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                        >
+                            <X className="size-3.5" />
+                        </button>
+                    ) : null}
+                </div>
 
-                <Select
-                    value={category}
-                    onValueChange={setCategory}
-                >
-                    <SelectTrigger className="w-[7.5rem] shrink-0 sm:w-[180px]">
-                        <SelectValue placeholder="Speciality" />
-                    </SelectTrigger>
-
-                    <SelectContent className="max-h-[200px] overflow-y-auto">
-                        {specialityOptions.map((spec) => (
-                            <SelectItem key={spec} value={spec}>
-                                {spec}
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-
-                </Select>
-
-                {/* City: several cities can be relevant on one HQ round, so this
-                    one is multi-select. A Radix Select can't do that, hence a
-                    popover of checkboxes. */}
-                <Popover open={cityFilterOpen} onOpenChange={setCityFilterOpen}>
+                <Popover open={filterOpen} onOpenChange={handleFilterOpenChange}>
                     <PopoverTrigger asChild>
                         <Button
                             type="button"
                             variant="outline"
-                            className="w-[7.5rem] shrink-0 justify-between font-normal sm:w-[180px]"
-                            disabled={!cityOptions.length}
-                            title={
-                                cityOptions.length
-                                    ? "Filter by city"
-                                    : "No city on these doctors"
+                            size="icon"
+                            aria-label={
+                                activeFilters.length
+                                    ? `Filters (${activeFilters.length} active)`
+                                    : "Filters"
                             }
+                            title="Filters"
+                            disabled={!availableFacets.length}
+                            className={cn(
+                                "relative size-9 shrink-0",
+                                activeFilters.length &&
+                                    "border-primary text-primary"
+                            )}
                         >
-                            <span className="flex min-w-0 items-center gap-1.5">
-                                <MapPin className="size-4 shrink-0 opacity-60" />
-                                <span className="truncate">
-                                    {selectedCities.length === 0
-                                        ? "All cities"
-                                        : selectedCities.length === 1
-                                        ? selectedCities[0]
-                                        : `${selectedCities.length} cities`}
+                            <SlidersHorizontal className="size-4" />
+                            {activeFilters.length ? (
+                                <span className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-primary-foreground">
+                                    {activeFilters.length}
                                 </span>
-                            </span>
+                            ) : null}
                         </Button>
                     </PopoverTrigger>
 
                     <PopoverContent
                         align="end"
-                        className="w-[min(16rem,calc(100vw-2rem))] p-0"
+                        className="w-[min(20rem,calc(100vw-2rem))] p-0"
                         // Portalled out of the dialog, so the dialog's scroll
                         // lock cancels touch scrolling here unless the event is
                         // stopped before it reaches the document listener.
@@ -278,118 +454,309 @@ export function RHFDoctorCardSelector({
                         onTouchMoveCapture={(event) => event.stopPropagation()}
                     >
                         <div className="flex items-center justify-between border-b px-3 py-2">
-                            <p className="text-sm font-medium">City</p>
+                            <p className="text-sm font-medium">Filters</p>
                             <Button
                                 type="button"
                                 variant="ghost"
                                 size="sm"
                                 className="h-7 px-2 text-xs"
-                                disabled={!selectedCities.length}
-                                onClick={() => setSelectedCities([])}
+                                disabled={!activeFilters.length}
+                                onClick={clearAllFacets}
                             >
-                                Clear
+                                Clear all
                             </Button>
                         </div>
 
-                        <div className="max-h-60 overflow-y-auto overscroll-contain p-1">
-                            {cityOptions.map((city) => {
-                                const checked = selectedCities.includes(city);
+                        <Tabs
+                            value={activeTab}
+                            onValueChange={handleTabChange}
+                            className="w-full"
+                        >
+                            <div className="px-3 pt-3">
+                                <TabsList
+                                    className="grid w-full"
+                                    style={{
+                                        gridTemplateColumns: `repeat(${availableFacets.length}, minmax(0, 1fr))`,
+                                    }}
+                                >
+                                    {availableFacets.map((facet) => {
+                                        const count =
+                                            selectedFacets[facet.key]?.length ?? 0;
+
+                                        return (
+                                            <TabsTrigger
+                                                key={facet.key}
+                                                value={facet.key}
+                                                className="min-w-0 px-2 text-xs"
+                                            >
+                                                <span className="truncate">
+                                                    {facet.label}
+                                                </span>
+                                                {count ? (
+                                                    <span className="ml-1 rounded-full bg-primary/10 px-1.5 text-[10px] font-semibold text-primary">
+                                                        {count}
+                                                    </span>
+                                                ) : null}
+                                            </TabsTrigger>
+                                        );
+                                    })}
+                                </TabsList>
+                            </div>
+
+                            {availableFacets.map((facet) => {
+                                const selected = selectedFacets[facet.key] ?? [];
 
                                 return (
-                                    <label
-                                        key={city}
-                                        className="flex cursor-pointer select-none items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-muted"
+                                    <TabsContent
+                                        key={facet.key}
+                                        value={facet.key}
+                                        className="mt-0"
                                     >
-                                        <Checkbox
-                                            checked={checked}
-                                            onCheckedChange={() => toggleCity(city)}
-                                        />
-                                        <span className="truncate">{city}</span>
-                                    </label>
+                                        <div className="px-3 pt-2">
+                                            <div className="relative">
+                                                <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                                                <Input
+                                                    value={optionSearch}
+                                                    onChange={(event) =>
+                                                        setOptionSearch(
+                                                            event.target.value
+                                                        )
+                                                    }
+                                                    placeholder={`Search ${facet.label.toLowerCase()}`}
+                                                    className="h-8 pl-8 pr-8 text-sm"
+                                                />
+                                                {optionSearch ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                            setOptionSearch("")
+                                                        }
+                                                        aria-label="Clear option search"
+                                                        className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                                                    >
+                                                        <X className="size-3" />
+                                                    </button>
+                                                ) : null}
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-center justify-between px-3 py-1.5 text-xs text-muted-foreground">
+                                            <span className="truncate">
+                                                {selected.length
+                                                    ? `${selected.length} selected`
+                                                    : `All ${facet.label.toLowerCase()}`}
+                                                {optionSearch
+                                                    ? ` · ${visibleFacetOptions.length} shown`
+                                                    : ""}
+                                            </span>
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="sm"
+                                                className="h-6 shrink-0 px-2 text-xs"
+                                                disabled={!selected.length}
+                                                onClick={() => clearFacet(facet.key)}
+                                            >
+                                                Clear
+                                            </Button>
+                                        </div>
+
+                                        <div className="max-h-60 overflow-y-auto overscroll-contain border-t p-1">
+                                            {visibleFacetOptions.length ? (
+                                                visibleFacetOptions.map(
+                                                    (facetValue) => (
+                                                        <label
+                                                            key={facetValue}
+                                                            className="flex cursor-pointer select-none items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-muted"
+                                                        >
+                                                            <Checkbox
+                                                                checked={selected.includes(
+                                                                    facetValue
+                                                                )}
+                                                                onCheckedChange={() =>
+                                                                    toggleFacetValue(
+                                                                        facet.key,
+                                                                        facetValue
+                                                                    )
+                                                                }
+                                                            />
+                                                            <span className="truncate">
+                                                                {facetValue}
+                                                            </span>
+                                                        </label>
+                                                    )
+                                                )
+                                            ) : (
+                                                <p className="px-2 py-6 text-center text-xs text-muted-foreground">
+                                                    No {facet.label.toLowerCase()}{" "}
+                                                    matches “{optionSearch}”
+                                                </p>
+                                            )}
+                                        </div>
+                                    </TabsContent>
                                 );
                             })}
+                        </Tabs>
+
+                        <div className="border-t p-2">
+                            <Button
+                                type="button"
+                                className="w-full"
+                                size="sm"
+                                onClick={() => setFilterOpen(false)}
+                            >
+                                Show {filteredDoctors.length}{" "}
+                                {filteredDoctors.length === 1
+                                    ? "doctor"
+                                    : "doctors"}
+                            </Button>
                         </div>
                     </PopoverContent>
                 </Popover>
             </div>
 
             {/* ============================================
+         ACTIVE FILTER CHIPS
+
+         What is filtering the list stays visible after the panel closes,
+         and each chip removes exactly one value.
+      ============================================ */}
+            {activeFilters.length ? (
+                <div className="flex flex-wrap items-center gap-1.5">
+                    {activeFilters.map(({ facetKey, facetLabel, value: facetValue }) => (
+                        <button
+                            key={`${facetKey}-${facetValue}`}
+                            type="button"
+                            onClick={() => toggleFacetValue(facetKey, facetValue)}
+                            title={`Remove ${facetLabel} filter`}
+                            className="flex max-w-full items-center gap-1 rounded-full border border-primary/30 bg-primary/5 py-1 pl-2.5 pr-1.5 text-xs text-primary"
+                        >
+                            <span className="truncate">{facetValue}</span>
+                            <X className="size-3 shrink-0" />
+                        </button>
+                    ))}
+
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs text-muted-foreground"
+                        onClick={clearAllFacets}
+                    >
+                        Clear all
+                    </Button>
+                </div>
+            ) : null}
+
+            <p className="text-xs text-muted-foreground">
+                {filteredDoctors.length}{" "}
+                {filteredDoctors.length === 1 ? "doctor" : "doctors"}
+                {searchResults.length !== filteredDoctors.length
+                    ? ` of ${searchResults.length}`
+                    : ""}
+                {selectedIds.length ? ` · ${selectedIds.length} selected` : ""}
+            </p>
+
+            {/* ============================================
          DOCTOR CARDS
       ============================================ */}
-            <div className="space-y-3 max-h-[340px] overflow-y-auto">
+            <div className="max-h-[340px] space-y-3 overflow-y-auto overscroll-contain">
+                {!filteredDoctors.length ? (
+                    <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+                        {loading
+                            ? "Searching doctors…"
+                            : searchResults.length
+                            ? "No doctor matches these filters."
+                            : "No doctors found for this HQ."}
+                    </div>
+                ) : null}
+
                 {filteredDoctors.map((doc) => {
                     const isSelected = selectedIds.includes(doc.value);
+                    const lastVisit = describeLastVisit(
+                        lastVisitByDoctor.get(String(doc.value))
+                    );
+                    // Code, speciality, city and HQ share one line so the card
+                    // stays three rows tall.
+                    const metaDetails = [
+                        doc.fsl_speciality__name,
+                        doc.city,
+                        doc.territory__name,
+                    ]
+                        .filter(Boolean)
+                        .join(" · ");
+                    const categories = [
+                        doc.fsl_category__name,
+                        doc.fsl_category1__name &&
+                            `C1 ${doc.fsl_category1__name}`,
+                        doc.fsl_category2__name &&
+                            `C2 ${doc.fsl_category2__name}`,
+                        doc.fsl_category3__name &&
+                            `C3 ${doc.fsl_category3__name}`,
+                    ].filter(Boolean);
 
                     return (
                         <div
                             key={doc.value}
+                            role="checkbox"
+                            aria-checked={isSelected}
                             onClick={() => toggleSelect(doc)}
                             className={cn(
-                                "cursor-pointer rounded-xl border p-4 transition-all",
+                                "cursor-pointer rounded-xl border p-3 transition-all sm:p-4",
                                 isSelected
                                     ? "border-primary bg-primary/5"
                                     : "hover:border-primary/40"
                             )}
                         >
-                            <div className="flex justify-between">
+                            {/* ---------- NAME + LAST VISIT ---------- */}
+                            <div className="flex items-start gap-2">
+                                <p className="min-w-0 flex-1 font-medium leading-tight">
+                                    {doc.label}
+                                </p>
 
-                                {/* ================= LEFT SECTION ================= */}
-                                <div className="space-y-1">
-
-                                    {/* Name */}
-                                    <p className="font-medium">
-                                        {doc.label}
-                                    </p>
-
-                                    {/* Speciality */}
-                                    {doc.fsl_speciality__name && (
-                                        <p className="text-sm text-muted-foreground">
-                                            {doc.fsl_speciality__name}
-                                        </p>
-                                    )}
-
-                                    {/* Categories */}
-                                    {(doc.fsl_category1__name ||
-                                        doc.fsl_category2__name ||
-                                        doc.fsl_category3__name) && (
-                                            <p className="text-xs text-muted-foreground">
-                                                {doc.fsl_category1__name && (
-                                                    <>C1 - {doc.fsl_category1__name}</>
-                                                )}
-                                                {doc.fsl_category2__name && (
-                                                    <> | C2 - {doc.fsl_category2__name}</>
-                                                )}
-                                                {doc.fsl_category3__name && (
-                                                    <> | C3 - {doc.fsl_category3__name}</>
-                                                )}
-                                            </p>
+                                <div className="flex shrink-0 items-center gap-1.5">
+                                    <span
+                                        title={lastVisit.full}
+                                        className={cn(
+                                            "flex items-center gap-1 whitespace-nowrap text-[11px]",
+                                            lastVisit.isRecent
+                                                ? "font-medium text-emerald-600"
+                                                : "text-muted-foreground"
                                         )}
-
-                                </div>
-
-                                {/* ================= RIGHT SECTION ================= */}
-                                <div className="text-right space-y-1">
-
-                                    {/* Code */}
-                                    {doc.code && (
-                                        <p className="text-blue-600 text-sm font-medium">
-                                            {doc.code}
-                                        </p>
-                                    )}
-
-                                    {/* Territory */}
-                                    {doc.territory__name && (
-                                        <p className="text-xs text-muted-foreground">
-                                            {doc.territory__name}
-                                        </p>
-                                    )}
-
-                                    {/* Checkmark */}
+                                    >
+                                        <Clock3 className="size-3 shrink-0" />
+                                        {lastVisit.short}
+                                    </span>
                                     {isSelected && (
-                                        <Check className="h-4 w-4 text-green-600 ml-auto" />
+                                        <Check className="size-4 text-green-600" />
                                     )}
                                 </div>
                             </div>
+
+                            {/* ---------- CODE · SPECIALITY · CITY · HQ ---------- */}
+                            <p className="mt-1 truncate text-xs text-muted-foreground">
+                                {doc.code ? (
+                                    <span className="font-medium text-blue-600">
+                                        {doc.code}
+                                    </span>
+                                ) : null}
+                                {doc.code && metaDetails ? " · " : ""}
+                                {metaDetails}
+                            </p>
+
+                            {/* ---------- CATEGORIES ---------- */}
+                            {categories.length ? (
+                                <div className="mt-2 flex flex-wrap gap-1">
+                                    {categories.map((category) => (
+                                        <span
+                                            key={category}
+                                            className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground"
+                                        >
+                                            {category}
+                                        </span>
+                                    ))}
+                                </div>
+                            ) : null}
                         </div>
                     );
                 })}
