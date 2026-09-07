@@ -48,7 +48,8 @@ import TodoComments from "@calendar/components/calendar/module/todo/components/T
 import { ErrorBoundary } from "@calendar/components/ui/error-boundary";
 import { Textarea } from "@calendar/components/ui/textarea";
 import { fetchEmployeeLeaveBalance } from "@calendar/components/calendar/module/leave/services/leave.service";
-import { isLeafRole, resolveLoggedInRoleId, resolveSuperiorShareUserIds, resolveVisibleRoleIds } from "@calendar/lib/employeeHeirachy";
+import { isLeafRole, resolveLoggedInRoleId, resolveSuperiorShareUserIds } from "@calendar/lib/employeeHeirachy";
+import { resolvePobDepartments } from "@calendar/lib/calendar/pobDepartments";
 import { enqueueSubmission } from "@calendar/lib/calendar/submission-queue";
 import { fetchDocSharesByDocument } from "@calendar/components/calendar/module/event/services/docshare.service";
 import { cn } from "@calendar/lib/utils";
@@ -641,29 +642,12 @@ export function AddEditEventDialog({
 			resolvedLoggedInRoleId
 		).filter((userId) => userId !== LOGGED_IN_USER.email);
 	}, [resolvedLoggedInRoleId, elbritRoleEdges, isEditing, shareUsers]);
-	// Departments whose products this user may bill POB against.
-	//
-	// A manager's own role profile has no department: an SM covers several
-	// (SM-Vasco spans Vasco Chennai and Vasco Coimbatore) and ERP's field holds
-	// only one, so it is left empty — which used to leave every SM with an empty
-	// item list. Resolve it down the same role hierarchy the calendar uses for
-	// event visibility and take the union, so a manager gets exactly what their
-	// team carries. A BE is a leaf, so this is just their own department.
-	const currentUserDepartments = useMemo(() => {
-		if (!resolvedLoggedInRoleId) return [];
-
-		const visibleRoleIds = new Set(
-			resolveVisibleRoleIds(elbritRoleEdges, resolvedLoggedInRoleId)
-		);
-		const departments = new Set();
-
-		elbritRoleEdges?.forEach(({ node }) => {
-			if (!node?.role_id || !visibleRoleIds.has(node.role_id)) return;
-			if (node.sales_team__name) departments.add(node.sales_team__name);
-		});
-
-		return [...departments];
-	}, [elbritRoleEdges, resolvedLoggedInRoleId]);
+	// Shared with the inline POB editor in the visit details dialog, so both
+	// offer the same item list.
+	const currentUserDepartments = useMemo(
+		() => resolvePobDepartments(elbritRoleEdges, resolvedLoggedInRoleId),
+		[elbritRoleEdges, resolvedLoggedInRoleId]
+	);
 	const hasResolvedDepartment = currentUserDepartments.length > 0;
 	const isAutoShareableTag = (tag) => tag !== TAG_IDS.LEAVE;
 	const collectManualShareEmails = (values) => {

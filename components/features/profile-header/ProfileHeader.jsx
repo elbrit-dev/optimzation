@@ -1,7 +1,6 @@
 "use client";
 
 import React from "react";
-import Link from "next/link";
 
 /**
  * The bar that sits above the profile page: the company logo in the left
@@ -11,9 +10,6 @@ import Link from "next/link";
  * The three zones are grid columns rather than a flex row, so the title stays
  * centred on the HEADER - not on whatever space the logo and bell leave over.
  * With a flex row it would drift left or right as either side changed width.
- *
- * The logo is a link home by default (logoHref="/"), so it works the way a
- * masthead is expected to on every other site.
  *
  * The bell is deliberately a slot rather than a built-in icon - the real one is
  * NovuInbox, which carries its own state and popover, so it gets dropped in
@@ -30,7 +26,7 @@ export default function ProfileHeader({
   logoUrl = "",
   logoAlt = "Company logo",
   logoHeight = 30,
-  logoHref = "/",
+  logoHref = "",
   actions,
   sticky = false,
   bordered = true,
@@ -50,28 +46,6 @@ export default function ProfileHeader({
     />
   ) : null;
 
-  // Tapping the logo goes home, the way it does on every other site. An
-  // in-app path routes client-side so the PWA doesn't do a full reload;
-  // anything pointing off this origin opens in a new tab instead, so the app
-  // is never replaced by a marketing site with no way back.
-  const href = String(logoHref || "").trim();
-  const isExternal = /^([a-z][a-z0-9+.-]*:|\/\/)/i.test(href);
-  const linkClass =
-    "flex shrink-0 items-center rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#162653]";
-
-  let linkedLogo = logo;
-  if (logo && href) {
-    linkedLogo = isExternal ? (
-      <a href={href} target="_blank" rel="noreferrer" className={linkClass}>
-        {logo}
-      </a>
-    ) : (
-      <Link href={href} aria-label="Go to home" className={linkClass}>
-        {logo}
-      </Link>
-    );
-  }
-
   return (
     <header
       className={cx(
@@ -82,7 +56,13 @@ export default function ProfileHeader({
       )}
     >
       <div className="flex min-w-0 items-center gap-2 justify-self-start">
-        {linkedLogo}
+        {logoHref && logo ? (
+          <a href={logoHref} target="_blank" rel="noreferrer" className="flex shrink-0 items-center">
+            {logo}
+          </a>
+        ) : (
+          logo
+        )}
       </div>
 
       {hasHeading ? (

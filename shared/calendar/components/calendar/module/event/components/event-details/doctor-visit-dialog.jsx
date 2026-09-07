@@ -7,6 +7,7 @@ import { TAG_FORM_CONFIG } from "@calendar/lib/calendar/form-config";
 import { ScrollArea } from "@calendar/components/ui/scroll-area";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 import { AddEditEventDialog } from "@calendar/components/calendar/dialogs/add-edit-event-dialog";
+import { VisitPobEditor } from "@calendar/components/calendar/module/event/components/event-details/VisitPobEditor";
 import { TAG_IDS } from "@calendar/components/calendar/constants";
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 import { buildParticipantsWithDetails } from "@calendar/lib/helper";
@@ -348,18 +349,14 @@ export function EventDoctorVisitDialog({
     hasPobItems || visitCompleted;
   const hasPobDecision =
     Number(event.pob_given) === 1 || hasPobItems;
-  // The visit form is reachable through the Visit / Edit action only while the
-  // visit is open and the date has not passed. POB is not on that clock: the
-  // doctor may confirm the order hours or days later, and a wrong quantity has
-  // to stay correctable — so POB gets its own way in, for any participant,
-  // however long ago the visit was marked.
-  const canOpenVisitForm =
-    permissions.canEdit && (!viewerHasVisited || isFailedSync);
+  // POB is edited here, in the POB block itself, and saved on its own. The visit
+  // form is reachable only while the visit is open and the date has not passed;
+  // POB is not on that clock — the doctor may confirm the order hours or days
+  // later, and a wrong quantity has to stay correctable. Editing it here also
+  // means nothing else about the visit is put back in play.
   const canManagePob =
-    isDoctorVisit &&
-    isEmployeeParticipant &&
-    !isFailedSync &&
-    !canOpenVisitForm;
+    isDoctorVisit && isEmployeeParticipant && !isFailedSync;
+  const [isEditingPob, setIsEditingPob] = useState(false);
   const pobTotals = useMemo(() => {
     if (!hasPobItems) return { qty: 0, amount: 0 };
 
@@ -582,18 +579,37 @@ export function EventDoctorVisitDialog({
             </div>
           )}
           {/* ================= POB ================= */}
-          {shouldShowPob && (
+          {(shouldShowPob || canManagePob) && (
             <div className="space-y-3">
-              <p className="text-sm font-medium mb-[4px]">
-                POB
-              </p>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-medium">POB</p>
 
-              <p className="text-sm text-muted-foreground">
-                {Number(event.pob_given) === 1 ? "Yes" : "No"}
-              </p>
+                {canManagePob && !isEditingPob && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => setIsEditingPob(true)}
+                  >
+                    {hasPobDecision ? "Edit POB" : "Add POB"}
+                  </Button>
+                )}
+              </div>
+
+              {isEditingPob ? (
+                <VisitPobEditor
+                  event={event}
+                  onDone={() => setIsEditingPob(false)}
+                />
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  {Number(event.pob_given) === 1 ? "Yes" : "No"}
+                </p>
+              )}
 
               {/* Table only if items exist */}
-              {hasPobItems && (
+              {!isEditingPob && hasPobItems && (
                 <div className="border rounded-md text-sm mt-2">
                   <div className="grid grid-cols-4 gap-4 border-b p-2 font-medium">
                     <span>Date</span>
@@ -703,17 +719,6 @@ export function EventDoctorVisitDialog({
                 </div>
               )}
             </>
-          )}
-
-          {canManagePob && (
-            <AddEditEventDialog event={event}>
-              <Button
-                variant={hasPobDecision ? "outline" : "default"}
-                className="w-full sm:w-auto"
-              >
-                {hasPobDecision ? "Edit POB" : "Add POB"}
-              </Button>
-            </AddEditEventDialog>
           )}
 
           {permissions.canDelete && !isFailedSync && (!hasParticipants || isFailedSync) && (

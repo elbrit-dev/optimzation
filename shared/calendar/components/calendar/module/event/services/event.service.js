@@ -104,6 +104,7 @@ export async function fetchQuotationsByNames(names) {
           node {
             name
             creation
+            party_name__name
             items {
               item_code { name }
               qty
@@ -454,6 +455,44 @@ export async function saveDocToQuotation(doc) {
   invalidateCalendarData({ reason: "quotation:save" });
   return data.saveDoc.doc;
 }
+/**
+ * Save only the POB of a visit.
+ *
+ * POB is captured and corrected long after the call, on visits that are already
+ * marked, so this must not touch anything else about the event: no participants,
+ * no attendance or visit time, no dates, no status, no location. ERP's `saveDoc`
+ * merges the fields it is given (the same partial-write `joinDoctorVisit` relies
+ * on), so the document carries the POB flag and the quotation link and nothing
+ * more.
+ */
+export async function saveVisitPob({ erpName, pobGiven, quotationDoc }) {
+  if (!erpName) throw new Error("Missing event to save POB against");
+
+  let quotationFields = {};
+
+  if (quotationDoc) {
+    const savedQuotation = await saveDocToQuotation(quotationDoc);
+
+    if (savedQuotation?.name) {
+      quotationFields = {
+        reference_doctype: "Quotation",
+        reference_docname: savedQuotation.name,
+      };
+    }
+  }
+
+  const savedEvent = await saveEvent({
+    name: erpName,
+    [ERP_EVENT_FIELDS.pobGivenWrite]: Number(pobGiven) === 1 ? 1 : 0,
+    ...quotationFields,
+  });
+
+  return {
+    name: savedEvent.name,
+    ...quotationFields,
+  };
+}
+
 export async function fetchAllCustomers() {
   return getCached("CUSTOMERS", async () => {
     const data = await graphqlRequest(CUSTOMER_QUERY, {
@@ -731,6 +770,9 @@ async function fetchEventsByRangeUncached(
       const quotation =
         quotationMap[node.reference_docname__name];
       node.pob_creation = quotation.creation ?? null;
+      // Without the customer the POB cannot be edited without re-picking it,
+      // and the quotation would be revised against a blank party.
+      node.customer = quotation.party_name__name ?? null;
       node.fsl_doctor_item =
         quotation.items?.map((row) => ({
           item__name: row.item_code?.name,

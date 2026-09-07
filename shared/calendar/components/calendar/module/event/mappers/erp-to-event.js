@@ -259,6 +259,7 @@ export function mapErpGraphqlEventToCalendar(node) {
 
     fsl_doctor_item:
       node.fsl_doctor_item ?? [],
+    customer: node.customer ?? undefined,
     pobCreation:
       node.pob_creation ?? null,
 
