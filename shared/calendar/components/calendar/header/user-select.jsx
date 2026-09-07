@@ -16,7 +16,7 @@ import {
   SelectValue,
 } from "@calendar/components/ui/select";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
-import { Plus, X } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { useEffect, useState, useMemo } from "react";
 import {resolveVisibleEmployeeIds} from "@calendar/lib/employeeHeirachy";
 import { getAvatarColorBySeed, getFirstLetters } from "@calendar/components/calendar/helpers";
@@ -415,12 +415,12 @@ export function UserSelect({ mode = "popover", onAddCalendar }) {
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
+                  className="size-7 shrink-0 text-red-600 hover:bg-red-50 hover:text-red-700"
                   aria-label={`Stop viewing ${user.name}'s calendar`}
                   title={`Stop viewing ${user.name}'s calendar`}
                   onClick={() => toggleUser(user.id)}
                 >
-                  <X className="size-4" />
+                  <Trash2 className="size-4" />
                 </Button>
               </div>
             ))}
