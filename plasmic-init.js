@@ -2607,12 +2607,6 @@ PLASMIC.registerComponent(ProfileHeader, {
       defaultValue: 30,
       description: "Height in px. Width follows the image's aspect ratio, capped at 150px.",
     },
-    onBack: {
-      type: "eventHandler",
-      displayName: "On back",
-      description: "Set this and a back chevron appears ahead of the logo. Leave empty and no chevron renders.",
-      argTypes: [],
-    },
     logoHref: {
       type: "string",
       displayName: "Logo link",

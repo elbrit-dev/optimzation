@@ -28,7 +28,6 @@ export default function ProfileHeader({
   logoHeight = 30,
   logoHref = "",
   actions,
-  onBack,
   sticky = false,
   bordered = true,
   className = "",
@@ -57,29 +56,6 @@ export default function ProfileHeader({
       )}
     >
       <div className="flex min-w-0 items-center gap-2 justify-self-start">
-        {onBack ? (
-          <button
-            type="button"
-            onClick={onBack}
-            aria-label="Go back"
-            // 36px hit target, same as the icons in the actions slot.
-            className="-ml-1.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[#162653] transition-colors hover:bg-[#f2f4f8]"
-          >
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="m15 18-6-6 6-6" />
-            </svg>
-          </button>
-        ) : null}
         {logoHref && logo ? (
           <a href={logoHref} target="_blank" rel="noreferrer" className="flex shrink-0 items-center">
             {logo}
