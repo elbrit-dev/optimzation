@@ -11,18 +11,21 @@ import {
   EyeOff,
   FileText,
   Landmark,
+  Loader2,
   ShieldPlus,
   User,
 } from "lucide-react";
 
 import {
   downloadDocumentPdf,
-  downloadPayslipPdf,
   downloadPayslipRegisterPdf,
   downloadProfilePdf,
-  slipFromRow,
 } from "./pdf";
 import { ProfileAvatar, ProfilePictureEditor, useProfilePicture } from "./profile-picture";
+// Individual payslips come straight from the ERP's own print format. The local
+// renderer still produces the profile sheet, the multi-month register and the
+// document records - none of which the ERP has a print format for.
+import { usePayslipPrint } from "./erp-print";
 
 const TABS = [
   { id: "personal", label: "Personal info" },
@@ -223,23 +226,27 @@ function FieldGrid({ items, columns = "xl:grid-cols-4" }) {
   );
 }
 
-/** The one line that reports how the last picture change went, on both layouts. */
-function PictureStatus({ picture, className = "" }) {
-  const message = picture.error || picture.notice;
+/**
+ * One line for whatever an ERP round-trip just did - a saved picture, or a
+ * payslip that would not download. Used on both layouts, so a click never
+ * looks like it did nothing.
+ */
+function StatusLine({ error, notice, className = "" }) {
+  const message = error || notice;
   if (!message) return null;
 
   return (
     <p
-      role={picture.error ? "alert" : "status"}
+      role={error ? "alert" : "status"}
       aria-live="polite"
-      className={cx(TEXT.micro, picture.error ? "text-[#c02026]" : "text-[#00951b]", className)}
+      className={cx(TEXT.micro, error ? "text-[#c02026]" : "text-[#00951b]", className)}
     >
       {message}
     </p>
   );
 }
 
-function HeaderCard({ data, helpDeskLink, picture }) {
+function HeaderCard({ data, helpDeskLink, picture, payslipPrint }) {
   const employee = data.employee;
 
   return (
@@ -298,7 +305,7 @@ function HeaderCard({ data, helpDeskLink, picture }) {
               ) : null}
               <span>{[employee.joinedOn, employee.tenure].filter(Boolean).join(" · ")}</span>
             </div>
-            <PictureStatus picture={picture} className="mt-1.5" />
+            <StatusLine error={picture.error} notice={picture.notice} className="mt-1.5" />
           </div>
         </div>
         {/* The read-only notice used to sit in a divider row below this one.
@@ -309,13 +316,19 @@ function HeaderCard({ data, helpDeskLink, picture }) {
           {data.payslips.selectedSlip ? (
           <button
             type="button"
-            onClick={() => downloadPayslipPdf(data.payslips.selectedSlip, data)}
+            disabled={payslipPrint.busy || !payslipPrint.available}
+            // The slip on screen, not whatever the ERP holds as newest - those
+            // can differ, and downloading a month the page never showed is
+            // worse than downloading the one it does.
+            onClick={() => payslipPrint.download(data.payslips.selectedSlip)}
             className={cx(
               TEXT.action,
-              "inline-flex min-h-8 items-center justify-center whitespace-nowrap rounded-[4px] border border-[#d9d9d9] bg-white px-3 text-[#202020] transition hover:bg-[#f8fafc] active:translate-y-px"
+              "inline-flex min-h-8 items-center justify-center whitespace-nowrap rounded-[4px] border border-[#d9d9d9] bg-white px-3 text-[#202020] transition hover:bg-[#f8fafc] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
             )}
           >
-            Download latest payslip
+            {payslipPrint.isPending(data.payslips.selectedSlip)
+              ? "Fetching from ERP…"
+              : "Download latest payslip"}
           </button>
           ) : null}
           <button
@@ -526,7 +539,7 @@ function SummaryCards({ items }) {
   );
 }
 
-function SalarySlips({ data }) {
+function SalarySlips({ data, payslipPrint }) {
   const payslips = data.payslips;
   const slips = asArray(payslips.slips);
 
@@ -592,10 +605,15 @@ function SalarySlips({ data }) {
                     type="button"
                     aria-label={`Download ${slip.month} payslip`}
                     title={`Download ${slip.month} payslip`}
-                    onClick={() => downloadPayslipPdf(slipFromRow(payslips, slip), data)}
-                    className="ml-auto inline-flex h-5 w-5 items-center justify-center rounded text-[#aaaaaa] transition hover:bg-[#f3f4f6] hover:text-[#333333]"
+                    disabled={payslipPrint.busy}
+                    onClick={() => payslipPrint.download(slip)}
+                    className="ml-auto inline-flex h-5 w-5 items-center justify-center rounded text-[#aaaaaa] transition hover:bg-[#f3f4f6] hover:text-[#333333] disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    <Download aria-hidden className="h-2.5 w-2.5" strokeWidth={1.7} />
+                    {payslipPrint.isPending(slip) ? (
+                      <Loader2 aria-hidden className="h-2.5 w-2.5 animate-spin" strokeWidth={2} />
+                    ) : (
+                      <Download aria-hidden className="h-2.5 w-2.5" strokeWidth={1.7} />
+                    )}
                   </button>
                 </td>
               </tr>
@@ -629,7 +647,7 @@ function AmountRows({ rows }) {
   );
 }
 
-function PayslipPreview({ data, helpDeskLink }) {
+function PayslipPreview({ data, helpDeskLink, payslipPrint }) {
   const selected = data.payslips.selectedSlip;
   if (!selected) return null;
 
@@ -642,13 +660,14 @@ function PayslipPreview({ data, helpDeskLink }) {
         </div>
         <button
           type="button"
-          onClick={() => downloadPayslipPdf(selected, data)}
+          disabled={payslipPrint.busy}
+          onClick={() => payslipPrint.download(selected)}
           className={cx(
             TEXT.label,
-            "inline-flex h-7 shrink-0 items-center justify-center rounded-[4px] border border-[#d9d9d9] px-2 text-[#333333] transition hover:bg-[#f8fafc] active:translate-y-px"
+            "inline-flex h-7 shrink-0 items-center justify-center rounded-[4px] border border-[#d9d9d9] px-2 text-[#333333] transition hover:bg-[#f8fafc] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
           )}
         >
-          Download PDF
+          {payslipPrint.isPending(selected) ? "Fetching…" : "Download PDF"}
         </button>
       </div>
       <div className="mt-3 rounded-[4px] bg-[#fbfcff] p-3">
@@ -712,14 +731,15 @@ function PayslipPreview({ data, helpDeskLink }) {
   );
 }
 
-function PayslipsTab({ data, helpDeskLink }) {
+function PayslipsTab({ data, helpDeskLink, payslipPrint }) {
   const payslips = data.payslips;
   return (
     <div className="space-y-2.5">
+      <StatusLine error={payslipPrint.error} />
       <SummaryCards items={asArray(payslips.summary)} />
       <div className="grid grid-cols-1 gap-2.5 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <SalarySlips data={data} />
-        <PayslipPreview data={data} helpDeskLink={helpDeskLink} />
+        <SalarySlips data={data} payslipPrint={payslipPrint} />
+        <PayslipPreview data={data} helpDeskLink={helpDeskLink} payslipPrint={payslipPrint} />
       </div>
     </div>
   );
@@ -853,7 +873,7 @@ function MobileProfileCard({ data, picture }) {
         </div>
       ) : null}
 
-      <PictureStatus picture={picture} className="mt-2" />
+      <StatusLine error={picture.error} notice={picture.notice} className="mt-2" />
 
       {latestSlip || leaveTotal || headquarters ? (
         <div className="mt-3 flex items-stretch gap-3 border-t border-[#f0f0f0] pt-3">
@@ -966,7 +986,7 @@ function MobileAccordionList({ data }) {
   );
 }
 
-function MobilePayslipCard({ data, helpDeskLink }) {
+function MobilePayslipCard({ data, helpDeskLink, payslipPrint }) {
   const selected = data.payslips.selectedSlip;
   if (!selected) return null;
 
@@ -993,10 +1013,14 @@ function MobilePayslipCard({ data, helpDeskLink }) {
       <div className="mt-3 flex gap-2">
         <button
           type="button"
-          onClick={() => downloadPayslipPdf(selected, data)}
-          className={cx(TEXT.body, "flex-1 rounded-[8px] bg-[#1d73f8] py-2 text-center font-bold text-white")}
+          disabled={payslipPrint.busy}
+          onClick={() => payslipPrint.download(selected)}
+          className={cx(
+            TEXT.body,
+            "flex-1 rounded-[8px] bg-[#1d73f8] py-2 text-center font-bold text-white disabled:opacity-60"
+          )}
         >
-          Download PDF
+          {payslipPrint.isPending(selected) ? "Fetching…" : "Download PDF"}
         </button>
         {helpDeskLink ? (
           <a
@@ -1019,7 +1043,7 @@ function MobilePayslipCard({ data, helpDeskLink }) {
   );
 }
 
-function MobileEarlierMonths({ data }) {
+function MobileEarlierMonths({ data, payslipPrint }) {
   const payslips = data.payslips;
   const slips = asArray(payslips.slips);
   if (!slips.length) return null;
@@ -1058,10 +1082,15 @@ function MobileEarlierMonths({ data }) {
               type="button"
               aria-label={`Download ${slip.month} payslip`}
               title={`Download ${slip.month} payslip`}
-              onClick={() => downloadPayslipPdf(slipFromRow(payslips, slip), data)}
-              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-[#aaaaaa] transition hover:bg-[#f3f4f6] hover:text-[#333333]"
+              disabled={payslipPrint.busy}
+              onClick={() => payslipPrint.download(slip)}
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-[#aaaaaa] transition hover:bg-[#f3f4f6] hover:text-[#333333] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <Download aria-hidden className="h-3.5 w-3.5" strokeWidth={1.7} />
+              {payslipPrint.isPending(slip) ? (
+                <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
+              ) : (
+                <Download aria-hidden className="h-3.5 w-3.5" strokeWidth={1.7} />
+              )}
             </button>
           </li>
         ))}
@@ -1070,7 +1099,7 @@ function MobileEarlierMonths({ data }) {
   );
 }
 
-function MobileProfileExperience({ data, helpDeskLink, picture }) {
+function MobileProfileExperience({ data, helpDeskLink, picture, payslipPrint }) {
   const [view, setView] = useState("profile");
 
   return (
@@ -1080,8 +1109,9 @@ function MobileProfileExperience({ data, helpDeskLink, picture }) {
       {view === "profile" ? <MobileAccordionList data={data} /> : null}
       {view === "payslips" ? (
         <div className="flex flex-col gap-2.5">
-          <MobilePayslipCard data={data} helpDeskLink={helpDeskLink} />
-          <MobileEarlierMonths data={data} />
+          <StatusLine error={payslipPrint.error} />
+          <MobilePayslipCard data={data} helpDeskLink={helpDeskLink} payslipPrint={payslipPrint} />
+          <MobileEarlierMonths data={data} payslipPrint={payslipPrint} />
         </div>
       ) : null}
     </div>
@@ -1174,6 +1204,11 @@ export default function MyProfileExperience({
     onChange: onPictureChange,
   });
 
+  const payslipPrint = usePayslipPrint({
+    employee: data.employee.id || data.employee.employeeCode,
+    endpointKey: erpEndpointKey,
+  });
+
   // The outer breadcrumb/notification/settings header duplicated chrome the
   // host page already provides, so both viewports render straight into their
   // own layout with no page-level header or footer of their own.
@@ -1183,17 +1218,17 @@ export default function MyProfileExperience({
           shell this used to sit in read as a frame around the page, so the
           cards now sit straight on the background. */}
       <main className="hidden w-full flex-col gap-3 bg-[#f2f2f2] px-3 py-4 sm:flex sm:px-4 lg:px-6">
-        <HeaderCard data={data} helpDeskLink={helpDeskLink} picture={picture} />
+        <HeaderCard data={data} helpDeskLink={helpDeskLink} picture={picture} payslipPrint={payslipPrint} />
         <Tabs activeTab={activeTab} onChange={setActiveTab} syncText={data.syncText} />
         {activeTab === "personal" ? <PersonalTab data={data} /> : null}
         {activeTab === "role" ? <RoleTab data={data} /> : null}
         {activeTab === "account" ? <AccountTab data={data} /> : null}
         {activeTab === "documents" ? <DocumentsTab data={data} /> : null}
-        {activeTab === "payslips" ? <PayslipsTab data={data} helpDeskLink={helpDeskLink} /> : null}
+        {activeTab === "payslips" ? <PayslipsTab data={data} helpDeskLink={helpDeskLink} payslipPrint={payslipPrint} /> : null}
       </main>
 
       <main className="flex w-full flex-col gap-3 bg-[#f5f6f8] p-3 sm:hidden">
-        <MobileProfileExperience data={data} helpDeskLink={helpDeskLink} picture={picture} />
+        <MobileProfileExperience data={data} helpDeskLink={helpDeskLink} picture={picture} payslipPrint={payslipPrint} />
       </main>
 
       <ProfilePictureEditor

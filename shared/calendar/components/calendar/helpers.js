@@ -30,7 +30,11 @@ import { useCalendar } from "@calendar/components/calendar/contexts/calendar-con
 import { STATUS, STATUS_MAP,TAG_IDS } from "@calendar/components/calendar/constants";
 const FORMAT_STRING = "MMM d, yyyy";
 /**
- * Get all HQ Tour Plans visible to the user
+ * HQ Tour Plans belonging to `allowedEmployeeIds`.
+ *
+ * Callers enforcing the "one HQ Tour Plan per person per day" rule must pass
+ * only the employee the plan is for — passing a manager's whole visible team
+ * would make a subordinate's plan block the manager's own.
  */
 export function getVisibleHqEvents(
 	events,
@@ -98,7 +102,6 @@ export function getVisibleHqEvents(
 	endDate,
 	allowedEmployeeIds,
 	currentEventId,
-	hqTerritory,
   }) {
 	const selectedStart = startOfDay(
 	  new Date(startDate)
@@ -119,12 +122,6 @@ export function getVisibleHqEvents(
 		currentEventId &&
 		ev.erpName === currentEventId
 	  ) {
-		return false;
-	  }
-
-	  // Only the SAME HQ on overlapping days is a conflict — a different HQ on
-	  // the same day is allowed.
-	  if (hqTerritory && ev.hqTerritory && ev.hqTerritory !== hqTerritory) {
 		return false;
 	  }
 

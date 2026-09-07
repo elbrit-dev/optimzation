@@ -326,11 +326,12 @@ export function mapFormToErpEvent(values, options = {}) {
     values.doctor,
     "custom_longitude"
   );
-  const shouldSyncWithGoogleCalendar =
-    values.tags === TAG_IDS.MEETING
-      ? (Boolean(values.enableGoogleMeet) && !values.allDay) ||
-        Boolean(enableGoogleCalendarSync)
-      : Boolean(enableGoogleCalendarSync);
+  // Every event now targets a Google Calendar, irrespective of the
+  // enableGoogleCalendarSync org setting or the per-meeting Google Meet
+  // checkbox — those used to gate this on/off, now they (and googleCalendar
+  // below) only affect *which* calendar is targeted. sync_with_google_calendar
+  // stays 0 either way (see below), so this never touches save latency.
+  const shouldSyncWithGoogleCalendar = true;
   const doc = {
     // doctype: "Event",
     subject: values.title,
@@ -365,7 +366,13 @@ export function mapFormToErpEvent(values, options = {}) {
       (Number(values.pob_given) === 1 || Number(values.pob_given) === 0)
         ? Number(values.pob_given)
         : undefined,
-    sync_with_google_calendar: shouldSyncWithGoogleCalendar ? 1 : 0,
+    // Frappe's native Event hook syncs to Google Calendar synchronously
+    // in-request when this flag is 1 — confirmed via backend profiling to add
+    // ~1.7-1.9s to every save. A backend Scheduler Event now syncs
+    // asynchronously instead, so this must always stay 0; saveEvent() nudges
+    // that sync via a non-blocking sync_event_google_Calendar call keyed off
+    // google_calendar below instead of this flag.
+    sync_with_google_calendar: 0,
     google_calendar: shouldSyncWithGoogleCalendar
       ? googleCalendar || "IT Elbrit"
       : "",

@@ -3,12 +3,12 @@
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import { NovuProvider, Inbox } from "@novu/react";
-import {
-  requestPushPermission,
-  getOneSignalDeviceId,
-  setOneSignalUserData,
-  logoutOneSignal,
-} from "@/lib/onesignal";
+// import {
+//   requestPushPermission,
+//   getOneSignalDeviceId,
+//   setOneSignalUserData,
+//   logoutOneSignal,
+// } from "@/lib/onesignal";
 
 const NovuInbox = ({
   email,

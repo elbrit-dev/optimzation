@@ -43,11 +43,11 @@ export default function MobileAddEventBar({ date: propDate }) {
     [propDate, selectedDate]
   );
   const matchedHqEvent = useMemo(() => {
-    if (!date || !events?.length) return null;
+    if (!date || !allEvents?.length) return null;
 
     const selectedDay = startOfDay(new Date(date));
 
-    return events.find((ev) => {
+    return allEvents.find((ev) => {
       if (ev.tags !== TAG_IDS.HQ_TOUR_PLAN) return false;
 
       const isParticipant = ev.participants?.some(
@@ -64,7 +64,7 @@ export default function MobileAddEventBar({ date: propDate }) {
         selectedDay <= planEnd
       );
     });
-  }, [events, date]);
+  }, [allEvents, date]);
   const resolvedLoggedInRoleId = useMemo(
     () => resolveLoggedInRoleId(users),
     [users]
@@ -94,6 +94,14 @@ export default function MobileAddEventBar({ date: propDate }) {
     return null;
   }, [allEmployeeOptions, hqTerritoryOptions]);
 
+  // BE is a leaf role in the Elbrit hierarchy with one fixed HQ, so there is
+  // nothing for them to plan: the HQ tag is hidden and they book DR Tour Plans
+  // directly. Every other role plans HQ first and can only book a DR Tour Plan
+  // on a day one of their own HQ Tour Plans covers.
+  //
+  // The territory check is deliberate: a BE with no HQ territory on their
+  // employee record has no HQ to book against, so they fall through to the
+  // normal path and plan HQ first like everyone else.
   const hasValidHqTourPlan = !!matchedHqEvent;
   const canCreateDoctorVisitDirectly =
     isLeafHierarchyUser && Boolean(loggedInEmployeeHqTerritory);

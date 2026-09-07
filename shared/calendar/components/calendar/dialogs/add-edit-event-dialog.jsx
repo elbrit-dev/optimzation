@@ -1315,11 +1315,11 @@ export function AddEditEventDialog({
 	// if user has HQ Tour Plan for selected date
 	// ----------------------------------------------------
 	const matchedHqEvent = useMemo(() => {
-		if (!startDate || !events?.length) return null;
+		if (!startDate || !allEvents?.length) return null;
 
 		const selectedDay = startOfDay(new Date(startDate));
 
-		return events.find((ev) => {
+		return allEvents.find((ev) => {
 			if (ev.tags !== TAG_IDS.HQ_TOUR_PLAN) return false;
 
 			const isParticipant = ev.participants?.some(
@@ -1333,11 +1333,19 @@ export function AddEditEventDialog({
 
 			return selectedDay >= planStart && selectedDay <= planEnd;
 		});
-	}, [events, startDate]);
+	}, [allEvents, startDate]);
 
 	const doctorVisitHqTerritory =
 		matchedHqEvent?.hqTerritory ??
 		(isLeafHierarchyUser ? loggedInEmployeeHqTerritory : null);
+	// BE is a leaf role in the Elbrit hierarchy with one fixed HQ, so there is
+	// nothing for them to plan: the HQ tag is hidden and they book DR Tour Plans
+	// directly. Every other role plans HQ first and can only book a DR Tour Plan
+	// on a day one of their own HQ Tour Plans covers.
+	//
+	// The territory check is deliberate: a BE with no HQ territory on their
+	// employee record has no HQ to book against, so they fall through to the
+	// normal path and plan HQ first like everyone else.
 	const hasValidHqTourPlan = !!matchedHqEvent;
 	const canCreateDoctorVisitDirectly =
 		isLeafHierarchyUser && Boolean(loggedInEmployeeHqTerritory);
@@ -1415,14 +1423,21 @@ export function AddEditEventDialog({
 	// Prevent selecting dates where HQ already exists
 	// ----------------------------------------------------
 
+	// The HQ form has no employee field, so a plan is always for the logged-in
+	// user. Scope the check to them: passing allowedEmployeeIds (a manager's
+	// whole visible team) let a subordinate's plan disable the manager's dates.
+	const ownHqEmployeeIds = useMemo(() => [LOGGED_IN_USER.id], []);
+
+	// allEvents, not events: an active user/colour/status filter must not hide an
+	// existing plan and let a duplicate through.
 	const disabledHqDates = useMemo(
 		() =>
 			getDisabledHqDates(
-				events,
-				allowedEmployeeIds,
+				allEvents,
+				ownHqEmployeeIds,
 				event?.erpName ?? null
 			),
-		[events, allowedEmployeeIds, event?.erpName]
+		[allEvents, ownHqEmployeeIds, event?.erpName]
 	);
 
 	useEffect(() => {
@@ -1884,20 +1899,22 @@ export function AddEditEventDialog({
 			if (
 				values.tags === TAG_IDS.HQ_TOUR_PLAN
 			) {
+				// One HQ Tour Plan per person per day, whatever the territory.
 				const conflict =
 					findOverlappingHqEvent({
-						events,
+						events: allEvents,
 						startDate: values.startDate,
 						endDate: values.endDate,
-						allowedEmployeeIds,
+						allowedEmployeeIds: ownHqEmployeeIds,
 						currentEventId:
 							event?.erpName,
-						hqTerritory: values.hqTerritory,
 					});
 
 				if (conflict) {
 					toast.error(
-						`An HQ Tour Plan for ${values.hqTerritory || "this HQ"} already exists on the selected date.`
+						conflict.hqTerritory
+							? `You already have an HQ Tour Plan for ${conflict.hqTerritory} on this date. Only one HQ Tour Plan per day is allowed.`
+							: "You already have an HQ Tour Plan on this date. Only one HQ Tour Plan per day is allowed."
 					);
 
 					return;

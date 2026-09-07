@@ -28,10 +28,59 @@ import {
   fetchDocShareNamesForUser,
   syncEventDocShares,
 } from "@calendar/components/calendar/module/event/services/docshare.service";
-import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
+import { AUTH_CONFIG, LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 const QUOTATION_BATCH_SIZE = 25;
 const pendingEventRequests = new Map();
 
+function getErpBaseUrl() {
+  const { erpUrl } = AUTH_CONFIG;
+
+  if (!erpUrl) {
+    throw new Error("Missing ERP auth configuration");
+  }
+
+  return erpUrl
+    .replace(/(\/api(?:\/method)?\/graphql|\/graphql)\/?$/i, "")
+    .replace(/\/$/, "");
+}
+
+async function syncEventGoogleCalendar(eventName) {
+  const { authToken } = AUTH_CONFIG;
+
+  if (!authToken) {
+    throw new Error("Missing ERP auth configuration");
+  }
+
+  const response = await fetch(
+    `${getErpBaseUrl()}/api/method/sync_event_google_Calendar`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `token ${authToken}`,
+      },
+      body: JSON.stringify({ name: eventName }),
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+}
+
+// Fire-and-forget: the save mutation always sends sync_with_google_calendar: 0
+// (see mapFormToErpEvent) so Frappe's blocking native sync hook never fires
+// in-request. This nudges the backend to sync sooner than the next Scheduler
+// Event tick. It must never throw into the caller or delay the save response —
+// the event is already saved successfully, and that Scheduler job is the
+// retrying safety net if this call fails or times out.
+async function enqueueGoogleCalendarSync(eventName) {
+  try {
+    return await syncEventGoogleCalendar(eventName);
+  } catch (error) {
+    console.error(`Google Calendar sync failed for Event:${eventName}`, error);
+  }
+}
 
 export async function fetchQuotationsByNames(names) {
   if (!names?.length) return {};
@@ -266,6 +315,13 @@ export async function saveEvent(doc, options = {}) {
   }
   // invalidate cache only after successful write
   invalidateCalendarData({ reason: "event:save" });
+
+  // Only events that actually want Google Calendar sync (google_calendar set
+  // by mapFormToErpEvent) need the nudge — everything else can just wait for
+  // nothing, since sync_with_google_calendar is always 0 on the wire now.
+  if (outgoingDoc.google_calendar) {
+    void enqueueGoogleCalendarSync(data.saveDoc.doc.name);
+  }
 
   if (options.shareWithUserIds?.length) {
     const shareOptions = {
