@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+    ArrowUpDown,
     Check,
     Clock3,
     Loader2,
@@ -61,6 +62,80 @@ const FACETS = [
 ];
 
 const EMPTY_SELECTION = { speciality: [], category: [], city: [] };
+
+// Every doctor in ERP is named "Dr <name>", so comparing the raw label would
+// sort every row on the same honorific. Dropping it puts the actual name first
+// — and keeps the order right for any row that happens to be stored without it.
+// The word boundary matters: it must not bite into a name like "Drake".
+function doctorSortName(doctor) {
+    return String(doctor?.label ?? "")
+        .replace(/^\s*dr\.?\s+/i, "")
+        .trim();
+}
+
+function compareByName(left, right) {
+    return doctorSortName(left.doctor).localeCompare(
+        doctorSortName(right.doctor),
+        undefined,
+        // Case and accents must not split the alphabet into separate runs, and
+        // a trailing "Dr Kumar 2" should follow "Dr Kumar 1", not precede it.
+        { sensitivity: "base", numeric: true }
+    );
+}
+
+/* =====================================================
+   SORT ORDERS
+
+   Same shape as FACETS: adding an order is one entry here, not another control
+   in the row. `compare` runs over { doctor, lastVisit } pairs — lastVisit is the
+   timestamp of the last recorded visit, or null when there is none.
+===================================================== */
+const SORT_OPTIONS = [
+    {
+        key: "default",
+        label: "Default order",
+        description: "As returned for this HQ",
+        compare: null,
+    },
+    {
+        key: "visit-latest",
+        label: "Recently visited",
+        description: "Most recent visit first; never visited last",
+        compare: (left, right) => {
+            if (left.lastVisit == null && right.lastVisit == null) return 0;
+            if (left.lastVisit == null) return 1;
+            if (right.lastVisit == null) return -1;
+            return right.lastVisit - left.lastVisit;
+        },
+    },
+    {
+        key: "visit-oldest",
+        label: "Longest since visit",
+        // A doctor with no visit on record is the most overdue of all, so they
+        // lead rather than trailing off the end of the list.
+        description: "Never visited first, then the oldest visit",
+        compare: (left, right) => {
+            if (left.lastVisit == null && right.lastVisit == null) return 0;
+            if (left.lastVisit == null) return -1;
+            if (right.lastVisit == null) return 1;
+            return left.lastVisit - right.lastVisit;
+        },
+    },
+    {
+        key: "name-asc",
+        label: "Name A–Z",
+        description: "Alphabetical by doctor name",
+        compare: compareByName,
+    },
+    {
+        key: "name-desc",
+        label: "Name Z–A",
+        description: "Reverse alphabetical by doctor name",
+        compare: (left, right) => compareByName(right, left),
+    },
+];
+
+const DEFAULT_SORT_KEY = SORT_OPTIONS[0].key;
 
 function normalizeValue(value) {
     return typeof value === "string" ? value.trim() : "";
@@ -156,6 +231,8 @@ export function RHFDoctorCardSelector({
     const [search, setSearch] = useState("");
     // Empty = no filter on that facet, so filters start out of the way.
     const [selectedFacets, setSelectedFacets] = useState(EMPTY_SELECTION);
+    const [sortKey, setSortKey] = useState(DEFAULT_SORT_KEY);
+    const [sortOpen, setSortOpen] = useState(false);
     const [filterOpen, setFilterOpen] = useState(false);
     const [activeTab, setActiveTab] = useState(FACETS[0].key);
     // Narrows the option list of whichever tab is open — a territory can carry
@@ -343,6 +420,35 @@ export function RHFDoctorCardSelector({
             )
         );
     }, [searchResults, selectedFacets]);
+
+    const activeSort = useMemo(
+        () =>
+            SORT_OPTIONS.find((option) => option.key === sortKey) ??
+            SORT_OPTIONS[0],
+        [sortKey]
+    );
+
+    /* =====================================================
+       Sorting
+
+       Applied after filtering so the order always describes what is on screen.
+       Sort keeps its own state rather than living in the filter panel: it does
+       not narrow the list, and a count badge on the filter button that included
+       it would be misleading.
+    ===================================================== */
+    const visibleDoctors = useMemo(() => {
+        if (!activeSort.compare) return filteredDoctors;
+
+        return filteredDoctors
+            .map((doctor) => ({
+                doctor,
+                lastVisit: lastVisitByDoctor.get(String(doctor.value)) ?? null,
+            }))
+            // Array#sort is stable, so doctors that compare equal keep the order
+            // ERP returned them in.
+            .sort(activeSort.compare)
+            .map((entry) => entry.doctor);
+    }, [activeSort, filteredDoctors, lastVisitByDoctor]);
 
     /* =====================================================
        Toggle select (unchanged logic)
@@ -613,6 +719,73 @@ export function RHFDoctorCardSelector({
                         </div>
                     </PopoverContent>
                 </Popover>
+
+                {/* ---------- SORT ---------- */}
+                <Popover open={sortOpen} onOpenChange={setSortOpen}>
+                    <PopoverTrigger asChild>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            aria-label={`Sort: ${activeSort.label}`}
+                            title={`Sort: ${activeSort.label}`}
+                            className={cn(
+                                "size-9 shrink-0",
+                                activeSort.compare && "border-primary text-primary"
+                            )}
+                        >
+                            <ArrowUpDown className="size-4" />
+                        </Button>
+                    </PopoverTrigger>
+
+                    <PopoverContent
+                        align="end"
+                        className="w-[min(16rem,calc(100vw-2rem))] p-0"
+                        // Portalled out of the dialog, so the dialog's scroll
+                        // lock cancels touch scrolling here unless the event is
+                        // stopped before it reaches the document listener.
+                        onWheelCapture={(event) => event.stopPropagation()}
+                        onTouchMoveCapture={(event) => event.stopPropagation()}
+                    >
+                        <p className="border-b px-3 py-2 text-sm font-medium">
+                            Sort by
+                        </p>
+
+                        <div className="max-h-60 overflow-y-auto overscroll-contain p-1">
+                            {SORT_OPTIONS.map((option) => {
+                                const isActive = option.key === sortKey;
+
+                                return (
+                                    <button
+                                        key={option.key}
+                                        type="button"
+                                        onClick={() => {
+                                            setSortKey(option.key);
+                                            setSortOpen(false);
+                                        }}
+                                        className={cn(
+                                            "flex w-full items-start gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-muted",
+                                            isActive && "bg-muted"
+                                        )}
+                                    >
+                                        <span className="min-w-0 flex-1">
+                                            <span className="block truncate font-medium">
+                                                {option.label}
+                                            </span>
+                                            <span className="block text-xs text-muted-foreground">
+                                                {option.description}
+                                            </span>
+                                        </span>
+
+                                        {isActive ? (
+                                            <Check className="mt-0.5 size-4 shrink-0 text-primary" />
+                                        ) : null}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </PopoverContent>
+                </Popover>
             </div>
 
             {/* ============================================
@@ -655,6 +828,7 @@ export function RHFDoctorCardSelector({
                     ? ` of ${searchResults.length}`
                     : ""}
                 {selectedIds.length ? ` · ${selectedIds.length} selected` : ""}
+                {activeSort.compare ? ` · ${activeSort.label}` : ""}
             </p>
 
             {/* ============================================
@@ -671,7 +845,7 @@ export function RHFDoctorCardSelector({
                     </div>
                 ) : null}
 
-                {filteredDoctors.map((doc) => {
+                {visibleDoctors.map((doc) => {
                     const isSelected = selectedIds.includes(doc.value);
                     const lastVisit = describeLastVisit(
                         lastVisitByDoctor.get(String(doc.value))
