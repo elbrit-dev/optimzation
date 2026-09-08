@@ -218,6 +218,11 @@ export default function DoctorCard({
 }) {
   const [copied, setCopied] = useState(false);
   const [pobOpen, setPobOpen] = useState(false);
+  // The card lifts on hover, which reads as "this whole thing is one target".
+  // While the pointer is on the POB button that's a lie — it would promise the
+  // card's action for a click that does something else — so the lift is held
+  // back and only the button reacts.
+  const [pobHovered, setPobHovered] = useState(false);
 
   const doctor = useMemo(() => normalizeRow(data), [data]);
 
@@ -314,7 +319,11 @@ export default function DoctorCard({
         selected ? "border-indigo-300 ring-1 ring-indigo-200" : "border-gray-100"
       } ${
         clickable
-          ? "cursor-pointer transition-all duration-150 ease-out hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-lg active:translate-y-0 active:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200"
+          ? `transition-all duration-150 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 ${
+              pobHovered
+                ? "cursor-default"
+                : "cursor-pointer hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-lg active:translate-y-0 active:shadow-md"
+            }`
           : ""
       } ${className ?? ""}`}
     >
@@ -405,7 +414,11 @@ export default function DoctorCard({
               <button
                 type="button"
                 onClick={openPob}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+                onMouseEnter={() => setPobHovered(true)}
+                onMouseLeave={() => setPobHovered(false)}
+                onFocus={() => setPobHovered(true)}
+                onBlur={() => setPobHovered(false)}
+                className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700 transition-colors hover:border-indigo-300 hover:bg-indigo-100 active:bg-indigo-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
               >
                 <PlusIcon />
                 {addPobLabel}

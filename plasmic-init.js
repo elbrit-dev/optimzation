@@ -1680,7 +1680,7 @@ PLASMIC.registerComponent(DoctorCard, {
     employee: {
       type: "object",
       description:
-        "WHO is raising the POB — bind the signed-in user's ERP Employee record (or just their Employee ID as a string). Two things depend on it: the popup's Employee field defaults to them, and the Employee dropdown is narrowed to them plus everyone under them in the role hierarchy. Leave it empty and the popup still works — the dropdown just lists every active employee and nothing is pre-selected. Only read when Show Add Pob is on.",
+        "WHO is raising the POB — bind the signed-in user's ERP Employee record (or just their Employee ID as a string). It is what scopes the whole popup: the Employee field defaults to them, and the Employee dropdown is narrowed to them plus everyone under them in the role hierarchy. (HQ and Department are then scoped to whichever employee is picked — HQ to the territories that person's team actually covers, Department to their role profile — so a BE gets exactly their own HQ and cannot bill outside it.) Leave it empty and the popup still works, but the Employee dropdown falls back to every active employee and nothing is pre-selected. Only read when Show Add Pob is on.",
     },
     erpUrl: {
       type: "string",
@@ -1700,7 +1700,7 @@ PLASMIC.registerComponent(DoctorCard, {
     onPobSaved: {
       type: "eventHandler",
       description:
-        "Fires after the POB Quotation exists in ERP, with { quotation, doctorId, doctorName, employee, hq, departments, customer, visitAt, reason, items, total }. The popup already toasts and closes itself — wire this only if the page needs to refetch or show something.",
+        "Fires after the POB Quotation exists in ERP, with { quotation, doctorId, doctorName, employee, hq, department, customer, visitAt, reason, items, total }. The popup already toasts and closes itself — wire this only if the page needs to refetch or show something.",
       argTypes: [{ name: "payload", type: "object" }],
     },
     onCopyCode: {

@@ -26,7 +26,6 @@ import { resolvePobDepartments } from "@calendar/lib/calendar/pobDepartments";
 import { getAvailableItems, syncPobItemRates, updatePobRow } from "@calendar/lib/helper";
 import {
   fetchEmployeeNodes,
-  fetchHQTerritories,
   fetchItemsByDepartment,
 } from "@calendar/components/calendar/module/event/services/master-data.service";
 import {
@@ -47,6 +46,11 @@ import { getEndpointAndAuth } from "@/app/datatable/utils/queryEndpointUtils";
  * does. It writes ONE document: the same POB Quotation the visit flow writes,
  * minus the `custom_event` link — nothing is added to the calendar.
  *
+ * Every dropdown is scoped to the person, not to the whole company: the employee
+ * list is their role subtree, the HQ list is the HQs that subtree actually
+ * covers, and the department list is the ones their role profile carries. Picking
+ * a different employee re-scopes HQ and department under them.
+ *
  * Because such a quotation is otherwise indistinguishable from a visit POB whose
  * event was deleted, a REASON is mandatory and is stored, together with the
  * chosen employee / HQ / department / timestamp, in the Quotation's free-text
@@ -60,6 +64,29 @@ export const DIRECT_POB_MARKER = "DIRECT POB — raised from the Doctor page (no
 const EMPTY_ROW = { item__name: "", qty: 1, rate: 0, amount: 0 };
 
 const ROLE_CACHE_KEY = "ELBRIT_ROLE_PROFILES";
+const EMPLOYEE_HQ_CACHE_KEY = "EMPLOYEE_HQ_MAP";
+
+/**
+ * The employee's HQ.
+ *
+ * NOT part of the calendar's own employee query, which asks for
+ * `custom_hq__name` — a field the Employee doctype does not have (the real one
+ * is `fsl_hq`), so its HQ prefill silently never fires. Asked for separately
+ * here so that bug can be fixed upstream without this depending on it, and so a
+ * failure degrades to the full territory list instead of breaking the form.
+ */
+const EMPLOYEE_HQ_QUERY = `
+query EmployeeHqs($first: Int!, $filters: [DBFilterInput!]) {
+  Employees(first: $first, filter: $filters) {
+    edges {
+      node {
+        name
+        hq: fsl_hq__name
+      }
+    }
+  }
+}
+`;
 
 /**
  * The stored token is a whole Authorization header value ("token key:secret"),
@@ -108,6 +135,22 @@ async function fetchElbritRoleEdges() {
   });
 }
 
+/** { [employeeId]: "HQ-Trichy" }. Empty when ERP won't give up the field. */
+async function fetchEmployeeHqMap() {
+  return getCached(EMPLOYEE_HQ_CACHE_KEY, async () => {
+    const data = await graphqlRequest(EMPLOYEE_HQ_QUERY, {
+      first: 1000,
+      filters: [{ fieldname: "status", operator: "EQ", value: "Active" }],
+    });
+
+    const map = {};
+    data?.Employees?.edges?.forEach(({ node }) => {
+      if (node?.name && node?.hq) map[node.name] = node.hq;
+    });
+    return map;
+  });
+}
+
 /** The Employee ID behind whatever Studio bound to `employee`. */
 function resolveEmployeeId(employee) {
   if (!employee) return null;
@@ -137,6 +180,20 @@ function toLocalInputValue(date) {
   )}:${pad(d.getMinutes())}`;
 }
 
+const SALUTATIONS = new Set(["dr", "dr.", "mr", "mr.", "mrs", "mrs.", "ms", "ms.", "miss", "prof", "prof."]);
+
+function initialsOf(name) {
+  const words = String(name ?? "")
+    .trim()
+    .split(/\s+/)
+    .filter((w) => w && !SALUTATIONS.has(w.toLowerCase()));
+  if (words.length === 0) return "?";
+  return words
+    .slice(0, 2)
+    .map((w) => w.charAt(0).toUpperCase())
+    .join("");
+}
+
 function escapeHtml(text) {
   return String(text ?? "")
     .replace(/&/g, "&amp;")
@@ -152,17 +209,45 @@ function escapeHtml(text) {
  * Quotation has no employee field, and the document's `owner` is whichever
  * account the page's token belongs to, not the person the POB is for.
  */
-function buildReasonHtml({ reason, employeeLabel, hq, departments, recordedAt }) {
+function buildReasonHtml({ reason, employeeLabel, hq, department, recordedAt }) {
   const lines = [
     DIRECT_POB_MARKER,
     `Employee: ${employeeLabel || "—"}`,
     `HQ: ${hq || "—"}`,
-    `Department: ${(departments ?? []).join(", ") || "—"}`,
+    `Department: ${department || "—"}`,
     `Recorded at: ${recordedAt || "—"}`,
     `Reason: ${reason}`,
   ];
 
   return lines.map((line) => `<div>${escapeHtml(line)}</div>`).join("");
+}
+
+/* =====================================================
+   LAYOUT BITS
+===================================================== */
+
+function Section({ title, hint, children, first = false }) {
+  return (
+    <section className={first ? "space-y-3" : "space-y-3 border-t border-gray-100 pt-4"}>
+      <div className="flex items-baseline justify-between gap-2">
+        <h3 className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
+          {title}
+        </h3>
+        {hint ? <span className="text-[11px] text-gray-400">{hint}</span> : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function Notice({ tone = "amber", children }) {
+  const tones = {
+    amber: "border-amber-200 bg-amber-50 text-amber-800",
+    rose: "border-rose-200 bg-rose-50 text-rose-800",
+  };
+  return (
+    <p className={`rounded-lg border px-3 py-2 text-xs ${tones[tone]}`}>{children}</p>
+  );
 }
 
 export default function DoctorPobDialog({
@@ -185,7 +270,7 @@ export default function DoctorPobDialog({
 
   const [employeeNodes, setEmployeeNodes] = useState([]);
   const [roleEdges, setRoleEdges] = useState([]);
-  const [hqOptions, setHqOptions] = useState([]);
+  const [employeeHqMap, setEmployeeHqMap] = useState({});
   const [customerOptions, setCustomerOptions] = useState([]);
   const [itemOptions, setItemOptions] = useState([]);
   const [isLoadingCustomers, setIsLoadingCustomers] = useState(false);
@@ -196,7 +281,7 @@ export default function DoctorPobDialog({
     defaultValues: {
       employee: "",
       hq: "",
-      departments: [],
+      department: "",
       customer: "",
       visitAt: "",
       reason: "",
@@ -206,8 +291,10 @@ export default function DoctorPobDialog({
 
   const selectedEmployee = form.watch("employee");
   const hq = form.watch("hq");
-  const departments = form.watch("departments");
+  const department = form.watch("department");
   const customer = form.watch("customer");
+  const visitAt = form.watch("visitAt");
+  const reason = form.watch("reason");
   const pobItems = form.watch("fsl_doctor_item");
 
   // Reset to a clean sheet on every open — a half-filled POB left over from the
@@ -217,8 +304,8 @@ export default function DoctorPobDialog({
 
     form.reset({
       employee: "",
-      hq: doctorHq ?? "",
-      departments: [],
+      hq: "",
+      department: "",
       customer: "",
       visitAt: toLocalInputValue(new Date()),
       reason: "",
@@ -227,12 +314,12 @@ export default function DoctorPobDialog({
     setCustomerOptions([]);
     setItemOptions([]);
     setBootError(null);
-    // form is a stable RHF instance; doctorHq is the only real input here.
+    // form is a stable RHF instance.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, doctorHq]);
+  }, [open]);
 
-  // Employees + role hierarchy. Both are cached module-side, so reopening the
-  // popup is instant and only the first open pays for them.
+  // Employees, role hierarchy and the employee→HQ map. All cached module-side,
+  // so reopening the popup is instant and only the first open pays for them.
   useEffect(() => {
     if (!open) return;
 
@@ -242,15 +329,24 @@ export default function DoctorPobDialog({
     (async () => {
       try {
         await ensureErpAuth({ erpUrl, authToken });
-        const [employees, edges, territories] = await Promise.all([
+
+        const [employees, edges] = await Promise.all([
           fetchEmployeeNodes(),
           fetchElbritRoleEdges(),
-          fetchHQTerritories(),
         ]);
         if (cancelled) return;
         setEmployeeNodes(employees);
         setRoleEdges(edges);
-        setHqOptions(territories);
+
+        // Separate and non-fatal: without it the HQ list can't be scoped, which
+        // is worth saying out loud rather than silently widening.
+        try {
+          const hqMap = await fetchEmployeeHqMap();
+          if (!cancelled) setEmployeeHqMap(hqMap);
+        } catch (hqError) {
+          console.error("Failed to load employee HQs", hqError);
+          if (!cancelled) setEmployeeHqMap({});
+        }
       } catch (error) {
         if (cancelled) return;
         console.error("Failed to load POB master data", error);
@@ -284,11 +380,26 @@ export default function DoctorPobDialog({
     return LOGGED_IN_USER?.id ?? null;
   }, [employee, employeeNodes]);
 
-  const myRoleId = useMemo(() => {
-    if (!myEmployeeId) return null;
-    const match = employeeNodes.find((node) => node.name === myEmployeeId);
-    return match?.role_id ?? LOGGED_IN_USER?.roleId ?? null;
-  }, [employeeNodes, myEmployeeId]);
+  const roleIdOf = useCallback(
+    (employeeId) => employeeNodes.find((node) => node.name === employeeId)?.role_id ?? null,
+    [employeeNodes]
+  );
+
+  const myRoleId = useMemo(
+    () => (myEmployeeId ? roleIdOf(myEmployeeId) ?? LOGGED_IN_USER?.roleId ?? null : null),
+    [myEmployeeId, roleIdOf]
+  );
+
+  /** Employee IDs inside a role's subtree (the role itself plus everyone under it). */
+  const employeesUnderRole = useCallback(
+    (roleId) => {
+      if (!roleId) return null;
+      const visibleRoleIds = new Set(resolveVisibleRoleIds(roleEdges, roleId));
+      if (!visibleRoleIds.size) return null;
+      return employeeNodes.filter((node) => visibleRoleIds.has(node.role_id));
+    },
+    [employeeNodes, roleEdges]
+  );
 
   /**
    * Who this POB may be logged for: the signed-in employee and everyone under
@@ -297,27 +408,46 @@ export default function DoctorPobDialog({
    * outright, and ERP still permission-checks the write.
    */
   const employeeOptions = useMemo(() => {
-    const visibleRoleIds = myRoleId ? new Set(resolveVisibleRoleIds(roleEdges, myRoleId)) : null;
+    const scoped = employeesUnderRole(myRoleId) ?? employeeNodes;
 
-    return employeeNodes
-      .filter((node) => !visibleRoleIds || visibleRoleIds.size === 0 || visibleRoleIds.has(node.role_id))
+    return scoped
       .map((node) => ({
         value: node.name,
-        label: node.employee_name
-          ? `${node.employee_name} (${node.name})`
-          : node.name,
-      }));
-  }, [employeeNodes, roleEdges, myRoleId]);
+        label: node.employee_name ? `${node.employee_name} (${node.name})` : node.name,
+        role: node.designation?.name ?? null,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [employeesUnderRole, myRoleId, employeeNodes]);
 
-  // Every department in the hierarchy, so a manager can bill against any team
-  // they cover even when the auto-resolved set is narrower than they need.
-  const departmentOptions = useMemo(() => {
+  const selectedRoleId = useMemo(
+    () => roleIdOf(selectedEmployee),
+    [roleIdOf, selectedEmployee]
+  );
+
+  /**
+   * HQs the CHOSEN employee covers: their own, plus their team's when they
+   * manage one. A BE therefore gets exactly one HQ and cannot bill outside it.
+   */
+  const hqOptions = useMemo(() => {
+    const scoped = employeesUnderRole(selectedRoleId);
+    if (!scoped) return [];
+
     const seen = new Set();
-    roleEdges.forEach(({ node }) => {
-      if (node?.sales_team__name) seen.add(node.sales_team__name);
+    scoped.forEach((node) => {
+      const territory = employeeHqMap[node.name];
+      if (territory) seen.add(territory);
     });
+
     return [...seen].sort().map((name) => ({ value: name, label: name }));
-  }, [roleEdges]);
+  }, [employeesUnderRole, selectedRoleId, employeeHqMap]);
+
+  /** Departments that employee's role profile can bill — same rule as the visit POB. */
+  const departmentOptions = useMemo(() => {
+    if (!selectedRoleId) return [];
+    return resolvePobDepartments(roleEdges, selectedRoleId)
+      .sort()
+      .map((name) => ({ value: name, label: name }));
+  }, [roleEdges, selectedRoleId]);
 
   // Default the employee to whoever is signed in, once the list is in.
   const didPrefillEmployee = useRef(false);
@@ -335,21 +465,44 @@ export default function DoctorPobDialog({
   }, [open, myEmployeeId, employeeOptions, form]);
 
   /**
-   * Departments follow the chosen employee's role profile — the same resolution
-   * the visit POB uses — and stay editable afterwards.
+   * HQ and department follow the chosen employee. The doctor's own HQ wins when
+   * that employee actually covers it — this POB is for this doctor — otherwise
+   * fall back to the employee's own HQ, and to nothing when they cover several
+   * and no single one is implied.
    */
-  const lastAutoEmployee = useRef(null);
+  const lastScopedEmployee = useRef(null);
   useEffect(() => {
-    if (!selectedEmployee) return;
-    if (lastAutoEmployee.current === selectedEmployee) return;
-    if (!roleEdges.length) return;
+    if (!selectedEmployee || !roleEdges.length) return;
+    if (lastScopedEmployee.current === selectedEmployee) return;
 
-    lastAutoEmployee.current = selectedEmployee;
+    lastScopedEmployee.current = selectedEmployee;
 
-    const node = employeeNodes.find((entry) => entry.name === selectedEmployee);
-    const resolved = resolvePobDepartments(roleEdges, node?.role_id);
-    form.setValue("departments", resolved, { shouldDirty: true });
-  }, [selectedEmployee, employeeNodes, roleEdges, form]);
+    const allowedHqs = hqOptions.map((option) => option.value);
+    const ownHq = employeeHqMap[selectedEmployee] ?? null;
+    const nextHq =
+      (doctorHq && allowedHqs.includes(doctorHq) && doctorHq) ||
+      (ownHq && allowedHqs.includes(ownHq) && ownHq) ||
+      (allowedHqs.length === 1 ? allowedHqs[0] : "");
+
+    form.setValue("hq", nextHq, { shouldDirty: true });
+    // One department is the common case (a BE carries exactly one); a manager
+    // covering several has to say which one this POB bills against.
+    const allowedDepartments = resolvePobDepartments(roleEdges, selectedRoleId);
+    form.setValue(
+      "department",
+      allowedDepartments.length === 1 ? allowedDepartments[0] : "",
+      { shouldDirty: true }
+    );
+    form.setValue("customer", "");
+  }, [
+    selectedEmployee,
+    selectedRoleId,
+    roleEdges,
+    hqOptions,
+    employeeHqMap,
+    doctorHq,
+    form,
+  ]);
 
   // Billing runs through the customers of the chosen HQ — the same narrowing the
   // visit POB gets from the visit's own territory.
@@ -394,13 +547,8 @@ export default function DoctorPobDialog({
     form.setValue("customer", "");
   }, [customer, customerOptions, isLoadingCustomers, form]);
 
-  const departmentKey = useMemo(
-    () => [...(departments ?? [])].sort().join("|"),
-    [departments]
-  );
-
   useEffect(() => {
-    if (!open || !departmentKey) {
+    if (!open || !department) {
       setItemOptions([]);
       return;
     }
@@ -408,7 +556,7 @@ export default function DoctorPobDialog({
     let cancelled = false;
     setIsLoadingItems(true);
 
-    fetchItemsByDepartment(departmentKey.split("|"))
+    fetchItemsByDepartment([department])
       .then((items) => {
         if (!cancelled) setItemOptions(items ?? []);
       })
@@ -423,7 +571,7 @@ export default function DoctorPobDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, departmentKey]);
+  }, [open, department]);
 
   // Rates live on the item master, not on the row.
   useEffect(() => {
@@ -444,9 +592,11 @@ export default function DoctorPobDialog({
   );
 
   const addRow = useCallback(() => {
-    form.setValue("fsl_doctor_item", [...(form.getValues("fsl_doctor_item") ?? []), { ...EMPTY_ROW }], {
-      shouldDirty: true,
-    });
+    form.setValue(
+      "fsl_doctor_item",
+      [...(form.getValues("fsl_doctor_item") ?? []), { ...EMPTY_ROW }],
+      { shouldDirty: true }
+    );
   }, [form]);
 
   const removeRow = useCallback(
@@ -468,7 +618,7 @@ export default function DoctorPobDialog({
     }
     if (!values.employee) return toast.error("Select the employee this POB is for");
     if (!values.hq) return toast.error("Select the HQ");
-    if (!(values.departments ?? []).length) return toast.error("Select at least one department");
+    if (!values.department) return toast.error("Select the department");
     if (!values.customer) return toast.error("Select a customer for this POB");
     if (!values.visitAt) return toast.error("Pick the date and time");
     if (!values.reason?.trim()) return toast.error("Give a reason for raising this POB directly");
@@ -505,7 +655,7 @@ export default function DoctorPobDialog({
           reason: values.reason.trim(),
           employeeLabel,
           hq: values.hq,
-          departments: values.departments,
+          department: values.department,
           recordedAt: values.visitAt.replace("T", " "),
         }),
         ...(employeeField ? { [employeeField]: values.employee } : {}),
@@ -520,7 +670,7 @@ export default function DoctorPobDialog({
         doctorName,
         employee: values.employee,
         hq: values.hq,
-        departments: values.departments,
+        department: values.department,
         customer: values.customer,
         visitAt: values.visitAt,
         reason: values.reason.trim(),
@@ -540,216 +690,288 @@ export default function DoctorPobDialog({
     <Modal open={!!open} onOpenChange={onOpenChange}>
       <ModalContent
         side="bottom"
-        className="max-h-[92dvh] lg:max-w-2xl"
+        className="flex max-h-[92dvh] flex-col gap-0 p-0 lg:max-w-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {renderToaster ? <Toaster richColors position="top-center" /> : null}
 
-        <ModalHeader>
-          <ModalTitle>Add POB</ModalTitle>
-          <ModalDescription>
-            {doctorName || doctorId
-              ? `Billed against ${doctorName || doctorId}${
-                  doctorName && doctorId ? ` · ${doctorId}` : ""
-                }`
-              : "Billed against this doctor"}
-          </ModalDescription>
-        </ModalHeader>
-
-        {bootError ? (
-          <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
-            {bootError}
-          </p>
-        ) : null}
-
-        <Form {...form}>
-          <div className="space-y-3 pb-2">
-            <RHFComboboxField
-              name="employee"
-              label="Employee"
-              options={employeeOptions}
-              multiple={false}
-              loading={isLoading}
-              placeholder="Select Employee"
-              searchPlaceholder="Search employee by name or ID"
-            />
-
-            <RHFComboboxField
-              name="hq"
-              label="HQ"
-              options={hqOptions}
-              multiple={false}
-              loading={isLoading}
-              placeholder="Select HQ"
-              searchPlaceholder="Search HQ"
-            />
-
-            <RHFComboboxField
-              name="departments"
-              label="Department"
-              options={departmentOptions}
-              multiple
-              loading={isLoading}
-              placeholder="Select Department"
-              searchPlaceholder="Search department"
-            />
-
-            <RHFComboboxField
-              name="customer"
-              label="Customer"
-              options={customerOptions}
-              multiple={false}
-              loading={isLoadingCustomers}
-              placeholder={hq ? "Select Customer" : "Pick an HQ first"}
-              searchPlaceholder="Search customer"
-            />
-
-            {/* An empty dropdown is indistinguishable from a broken search, so
-                name the cause instead of leaving them tapping at it. */}
-            {hq && !isLoadingCustomers && customerOptions.length === 0 ? (
-              <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                No customer is mapped to {hq}. Pick another HQ, or ask MIS to map
-                the distributor to this territory.
-              </p>
-            ) : null}
-
-            <div>
-              <p className="mb-1 text-sm font-medium">Date &amp; time</p>
-              <Input
-                type="datetime-local"
-                value={form.watch("visitAt")}
-                onChange={(e) =>
-                  form.setValue("visitAt", e.target.value, { shouldDirty: true })
-                }
-              />
-              <p className="mt-1 text-xs text-muted-foreground">
-                ERP dates the quotation by the day; the exact time is kept with the
-                reason below.
-              </p>
+        {/* HEADER — who this POB is for, kept in view while the body scrolls. */}
+        <ModalHeader className="shrink-0 space-y-0 border-b border-gray-100 px-4 py-3 pr-12 text-left sm:text-left">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-sm font-bold text-indigo-700">
+              {initialsOf(doctorName || doctorId)}
             </div>
-
-            <div>
-              <p className="mb-1 text-sm font-medium">
-                Reason <span className="text-rose-600">*</span>
-              </p>
-              <Textarea
-                rows={3}
-                placeholder="Why is this POB being raised from the doctor page instead of a visit?"
-                value={form.watch("reason")}
-                onChange={(e) =>
-                  form.setValue("reason", e.target.value, { shouldDirty: true })
-                }
-              />
-            </div>
-
-            {(departments ?? []).length && !isLoadingItems && itemOptions.length === 0 ? (
-              <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                No billable item is mapped to the selected department, so no items
-                can be listed. Ask MIS to map the products to it.
-              </p>
-            ) : null}
-
-            {customer ? (
-              <div className="space-y-2">
-                <div className="hidden gap-3 text-xs font-medium text-muted-foreground sm:grid sm:grid-cols-[1fr_80px_100px_36px]">
-                  <span>Item</span>
-                  <span>Qty</span>
-                  <span>Amount</span>
-                  <span />
-                </div>
-
-                {(pobItems ?? []).map((row, index) => (
-                  <div
-                    key={index}
-                    className="grid grid-cols-1 gap-2 rounded-lg border p-2 sm:grid-cols-[1fr_80px_100px_36px] sm:items-end sm:gap-3 sm:rounded-none sm:border-0 sm:p-0"
-                  >
-                    <div className="min-w-0">
-                      <span className="mb-1 block text-xs text-muted-foreground sm:hidden">
-                        Item
+            <div className="min-w-0">
+              <ModalTitle className="text-base font-bold text-[#1e2a5a]">
+                Add POB
+              </ModalTitle>
+              <ModalDescription className="truncate text-xs">
+                {doctorName || doctorId ? (
+                  <>
+                    {doctorName || doctorId}
+                    {doctorName && doctorId ? (
+                      <span className="ml-1.5 rounded bg-gray-100 px-1.5 py-0.5 font-medium text-gray-500">
+                        {doctorId}
                       </span>
-                      <RHFComboboxField
-                        name={`fsl_doctor_item.${index}.item__name`}
-                        options={getAvailableItems(itemOptions, pobItems, row.item__name)}
-                        tagsDisplay={false}
-                        multiple={false}
-                        loading={isLoadingItems}
-                        placeholder="Select Item"
-                        searchPlaceholder="Search item by name or code"
-                      />
-                    </div>
-
-                    <div className="flex items-end gap-2 sm:contents">
-                      <div className="w-20 sm:w-auto">
-                        <span className="mb-1 block text-xs text-muted-foreground sm:hidden">
-                          Qty
-                        </span>
-                        <Input
-                          type="number"
-                          min={1}
-                          inputMode="numeric"
-                          value={row.qty}
-                          onChange={(e) => {
-                            // Clearing the field yields NaN, which then fails on
-                            // a value the user can't see.
-                            const parsed = Number(e.target.value);
-                            updatePobRow(form, index, {
-                              qty: Number.isFinite(parsed) && parsed > 0 ? parsed : 1,
-                            });
-                          }}
-                        />
-                      </div>
-
-                      <div className="min-w-0 flex-1 sm:w-auto sm:flex-none">
-                        <span className="mb-1 block text-xs text-muted-foreground sm:hidden">
-                          Amount
-                        </span>
-                        <Input value={row.amount} disabled />
-                      </div>
-
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="shrink-0"
-                        aria-label="Remove item"
-                        onClick={() => removeRow(index)}
-                      >
-                        ✕
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-
-                <div className="flex items-center justify-between gap-2">
-                  <Button type="button" variant="outline" size="sm" onClick={addRow}>
-                    + Add Item
-                  </Button>
-
-                  {total.qty > 0 ? (
-                    <p className="text-sm font-medium">
-                      {total.qty} qty · {total.amount.toFixed(2)}
-                    </p>
-                  ) : null}
-                </div>
-              </div>
-            ) : null}
-
-            <div className="sticky bottom-0 flex justify-end gap-2 border-t bg-white pt-3">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={isSaving}
-                onClick={() => onOpenChange?.(false)}
-              >
-                Cancel
-              </Button>
-              <Button type="button" size="sm" disabled={isSaving} onClick={handleSave}>
-                {isSaving ? "Saving…" : "Save POB"}
-              </Button>
+                    ) : null}
+                  </>
+                ) : (
+                  "Billed against this doctor"
+                )}
+              </ModalDescription>
             </div>
           </div>
-        </Form>
+        </ModalHeader>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+          {bootError ? <Notice tone="rose">{bootError}</Notice> : null}
+
+          <Form {...form}>
+            <div className="space-y-4">
+              <Section
+                first
+                title="Who & where"
+                hint={isLoading ? "Loading…" : undefined}
+              >
+                <RHFComboboxField
+                  name="employee"
+                  label="Employee"
+                  options={employeeOptions}
+                  multiple={false}
+                  tagsDisplay={false}
+                  loading={isLoading}
+                  placeholder="Select employee"
+                  searchPlaceholder="Search by name or ID"
+                />
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <RHFComboboxField
+                    name="hq"
+                    label="HQ"
+                    options={hqOptions}
+                    multiple={false}
+                    tagsDisplay={false}
+                    loading={isLoading}
+                    placeholder={selectedEmployee ? "Select HQ" : "Pick an employee first"}
+                    searchPlaceholder="Search HQ"
+                  />
+
+                  <RHFComboboxField
+                    name="department"
+                    label="Department"
+                    options={departmentOptions}
+                    multiple={false}
+                    tagsDisplay={false}
+                    loading={isLoading}
+                    placeholder={
+                      selectedEmployee ? "Select department" : "Pick an employee first"
+                    }
+                    searchPlaceholder="Search department"
+                  />
+                </div>
+
+                {selectedEmployee && !isLoading && hqOptions.length === 0 ? (
+                  <Notice>
+                    No HQ is mapped to this employee or their team, so there is
+                    nothing to bill against. Ask MIS to set the Territory on their
+                    Employee record.
+                  </Notice>
+                ) : null}
+
+                {selectedEmployee && !isLoading && departmentOptions.length === 0 ? (
+                  <Notice>
+                    No product department is mapped to this employee&apos;s role
+                    profile, so no items can be listed. Ask MIS to map a department
+                    to it.
+                  </Notice>
+                ) : null}
+              </Section>
+
+              <Section title="Billing">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <RHFComboboxField
+                    name="customer"
+                    label="Customer"
+                    options={customerOptions}
+                    multiple={false}
+                    tagsDisplay={false}
+                    loading={isLoadingCustomers}
+                    placeholder={hq ? "Select customer" : "Pick an HQ first"}
+                    searchPlaceholder="Search customer"
+                  />
+
+                  <div className="flex flex-col">
+                    <label
+                      htmlFor="pob-visit-at"
+                      className="mb-2 text-sm font-medium leading-none"
+                    >
+                      Date &amp; time
+                    </label>
+                    <Input
+                      id="pob-visit-at"
+                      type="datetime-local"
+                      value={visitAt}
+                      onChange={(e) =>
+                        form.setValue("visitAt", e.target.value, { shouldDirty: true })
+                      }
+                    />
+                  </div>
+                </div>
+
+                <p className="text-[11px] text-gray-400">
+                  ERP dates the quotation by the day — the exact time is kept with
+                  the reason.
+                </p>
+
+                {/* An empty dropdown is indistinguishable from a broken search,
+                    so name the cause instead of leaving them tapping at it. */}
+                {hq && !isLoadingCustomers && customerOptions.length === 0 ? (
+                  <Notice>
+                    No customer is mapped to {hq}. Pick another HQ, or ask MIS to
+                    map the distributor to this territory.
+                  </Notice>
+                ) : null}
+              </Section>
+
+              <Section title="Reason" hint="Required">
+                <Textarea
+                  rows={3}
+                  placeholder="Why is this POB being raised from the doctor page instead of a visit?"
+                  value={reason}
+                  onChange={(e) =>
+                    form.setValue("reason", e.target.value, { shouldDirty: true })
+                  }
+                />
+              </Section>
+
+              <Section
+                title="Items"
+                hint={total.qty > 0 ? `${total.qty} qty · ₹${total.amount.toFixed(2)}` : undefined}
+              >
+                {department &&
+                !isLoadingItems &&
+                itemOptions.length === 0 ? (
+                  <Notice>
+                    No billable item is mapped to the selected department, so no
+                    items can be listed. Ask MIS to map the products to it.
+                  </Notice>
+                ) : null}
+
+                {!customer ? (
+                  <p className="rounded-lg border border-dashed border-gray-200 px-3 py-6 text-center text-xs text-gray-400">
+                    Pick a customer to start adding items.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="hidden gap-3 px-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400 sm:grid sm:grid-cols-[1fr_84px_104px_36px]">
+                      <span>Item</span>
+                      <span>Qty</span>
+                      <span>Amount</span>
+                      <span />
+                    </div>
+
+                    {(pobItems ?? []).map((row, index) => (
+                      <div
+                        key={index}
+                        className="grid grid-cols-1 gap-2 rounded-xl border border-gray-100 bg-gray-50/60 p-2.5 sm:grid-cols-[1fr_84px_104px_36px] sm:items-center sm:gap-3 sm:rounded-lg sm:bg-transparent sm:p-1"
+                      >
+                        <div className="min-w-0">
+                          <span className="mb-1 block text-[11px] font-medium text-gray-400 sm:hidden">
+                            Item
+                          </span>
+                          <RHFComboboxField
+                            name={`fsl_doctor_item.${index}.item__name`}
+                            options={getAvailableItems(itemOptions, pobItems, row.item__name)}
+                            tagsDisplay={false}
+                            multiple={false}
+                            loading={isLoadingItems}
+                            placeholder="Select item"
+                            searchPlaceholder="Search item by name or code"
+                          />
+                        </div>
+
+                        <div className="flex items-end gap-2 sm:contents">
+                          <div className="w-20 sm:w-auto">
+                            <span className="mb-1 block text-[11px] font-medium text-gray-400 sm:hidden">
+                              Qty
+                            </span>
+                            <Input
+                              type="number"
+                              min={1}
+                              inputMode="numeric"
+                              value={row.qty}
+                              onChange={(e) => {
+                                // Clearing the field yields NaN, which then fails
+                                // on a value the user can't see.
+                                const parsed = Number(e.target.value);
+                                updatePobRow(form, index, {
+                                  qty: Number.isFinite(parsed) && parsed > 0 ? parsed : 1,
+                                });
+                              }}
+                            />
+                          </div>
+
+                          <div className="min-w-0 flex-1 sm:w-auto sm:flex-none">
+                            <span className="mb-1 block text-[11px] font-medium text-gray-400 sm:hidden">
+                              Amount
+                            </span>
+                            <Input
+                              value={Number(row.amount ?? 0).toFixed(2)}
+                              disabled
+                              className="text-right font-medium"
+                            />
+                          </div>
+
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="shrink-0 text-gray-400 hover:text-rose-600"
+                            aria-label={`Remove item ${index + 1}`}
+                            onClick={() => removeRow(index)}
+                          >
+                            ✕
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+
+                    <div className="flex items-center justify-between gap-2 pt-1">
+                      <Button type="button" variant="outline" size="sm" onClick={addRow}>
+                        + Add item
+                      </Button>
+
+                      {total.qty > 0 ? (
+                        <p className="rounded-lg bg-indigo-50 px-3 py-1.5 text-sm font-semibold text-indigo-700">
+                          {total.qty} qty · ₹{total.amount.toFixed(2)}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                )}
+              </Section>
+            </div>
+          </Form>
+        </div>
+
+        {/* FOOTER — outside the scroll area, so Save is always one tap away. */}
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-gray-100 bg-white px-4 py-3">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={isSaving}
+            onClick={() => onOpenChange?.(false)}
+          >
+            Cancel
+          </Button>
+          {/* Deliberately not disabled on an incomplete form: a dead Save
+              button explains nothing, while pressing it names the one field
+              that is missing. */}
+          <Button type="button" size="sm" disabled={isSaving} onClick={handleSave}>
+            {isSaving ? "Saving…" : "Save POB"}
+          </Button>
+        </div>
       </ModalContent>
     </Modal>
   );
