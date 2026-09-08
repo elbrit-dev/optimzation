@@ -1591,7 +1591,7 @@ PLASMIC.registerComponent(DoctorCard, {
   name: "DoctorCard",
   displayName: "Doctor Card",
   description:
-    "ONE doctor row card for the doctor page list view — place it and REPEAT it over the doctor rows, binding each instance its own row (currentItem). Renders the initials avatar, doctor name, coloured speciality chip, the doctor code with a copy button, the HQ territory with a pin, and the department chips (Elbrit Kanchipuram / Vasco Coimbatore …) across the card's full width — as many per row as fit, the rest wrapping onto the next line. The whole card is clickable: onDoctorClick gives you the full row, so wire it to open a detail sheet, navigate, or start a visit — the copy button stays independently clickable. Every field is optional: anything null is left out of the card instead of rendering an empty line.",
+    "ONE doctor row card for the doctor page list view — place it and REPEAT it over the doctor rows, binding each instance its own row (currentItem). Renders the initials avatar, doctor name, coloured speciality chip, the doctor code with a copy button, the HQ territory with a pin, and the department chips (Elbrit Kanchipuram / Vasco Coimbatore …) across the card's full width — as many per row as fit, the rest wrapping onto the next line. The whole card is clickable: onDoctorClick gives you the full row, so wire it to open a detail sheet, navigate, or start a visit — the copy button stays independently clickable. Every field is optional: anything null is left out of the card instead of rendering an empty line. Turn on Show Add Pob for an \"Add POB\" button that opens the doctor-visit POB capture as a popup and raises the Quotation straight from the list — see that prop for exactly what it writes.",
   props: {
     data: {
       type: "object",
@@ -1666,9 +1666,41 @@ PLASMIC.registerComponent(DoctorCard, {
       defaultValue: false,
       description: "Highlight this card (indigo ring) — bind e.g. currentItem.name == the open doctor to keep the list in sync with a detail sheet.",
     },
+    showAddPob: {
+      type: "boolean",
+      defaultValue: false,
+      description:
+        "Add an \"Add POB\" button to the card. It opens the SAME POB capture the doctor visit uses — employee → HQ → department → customer → date/time → items — as a popup, without going through the calendar. Saving writes ONE ERP Quotation against this doctor (custom_doctorvisit = the card's code); NO calendar event is created, and no visit is marked. Because such a POB is otherwise indistinguishable from a visit POB whose event was deleted, the popup makes a REASON mandatory and stores it — with the chosen employee, HQ, department and the exact timestamp — in the Quotation's Terms field, led by \"DIRECT POB — raised from the Doctor page\". The button is its own hit target: the rest of the card keeps firing onDoctorClick.",
+    },
+    addPobLabel: {
+      type: "string",
+      defaultValue: "Add POB",
+      description: "Text on the Add POB button. Only shown when Show Add Pob is on.",
+    },
+    employee: {
+      type: "object",
+      description:
+        "WHO is raising the POB — bind the signed-in user's ERP Employee record (or just their Employee ID as a string). Two things depend on it: the popup's Employee field defaults to them, and the Employee dropdown is narrowed to them plus everyone under them in the role hierarchy. Leave it empty and the popup still works — the dropdown just lists every active employee and nothing is pre-selected. Only read when Show Add Pob is on.",
+    },
+    erpUrl: {
+      type: "string",
+      description:
+        "GraphQL endpoint the POB is written to — the full URL, e.g. https://erp.elbrit.org/api/method/graphql. LEAVE EMPTY on a normal page: the popup falls back to the same default global token the page's own data provider uses (/tokens), which is almost always what you want. Set it only to pin a card to a different environment, and then set Auth Token too.",
+    },
+    authToken: {
+      type: "string",
+      description:
+        "Frappe API credential for the endpoint above, as <api_key>:<api_secret> (a leading \"token \" is tolerated). ⚠️ Anything typed here ships to the browser — prefer leaving both this and ERP URL empty so the global token is used instead. Needs read on Employee / Role Profile / Territory / Customer / Item and create on Quotation.",
+    },
     onDoctorClick: {
       type: "eventHandler",
       description: "Fires when the card is clicked, with { doctor, row, name, code, speciality, hq, city, tags } — doctor/row is the full data row.",
+      argTypes: [{ name: "payload", type: "object" }],
+    },
+    onPobSaved: {
+      type: "eventHandler",
+      description:
+        "Fires after the POB Quotation exists in ERP, with { quotation, doctorId, doctorName, employee, hq, departments, customer, visitAt, reason, items, total }. The popup already toasts and closes itself — wire this only if the page needs to refetch or show something.",
       argTypes: [{ name: "payload", type: "object" }],
     },
     onCopyCode: {

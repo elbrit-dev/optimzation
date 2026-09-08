@@ -1,4 +1,10 @@
 import React, { useCallback, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
+
+// The POB popup drags in the calendar's form kit, its ERP services and the item
+// master — none of which a doctor LIST needs. Load it the first time somebody
+// actually opens it, not on every page that renders a card.
+const DoctorPobDialog = dynamic(() => import("./DoctorPobDialog"), { ssr: false });
 
 /**
  * DoctorCard — ONE doctor row card for the doctor page list view.
@@ -178,6 +184,14 @@ function PinIcon() {
   );
 }
 
+function PlusIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="h-3.5 w-3.5">
+      <path d="M12 5v14M5 12h14" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export default function DoctorCard({
   data,
   nameField = "lead_name",
@@ -192,11 +206,18 @@ export default function DoctorCard({
   showCategories = false,
   clickable = true,
   selected = false,
+  showAddPob = false,
+  addPobLabel = "Add POB",
+  employee,
+  erpUrl,
+  authToken,
   onDoctorClick,
   onCopyCode,
+  onPobSaved,
   className,
 }) {
   const [copied, setCopied] = useState(false);
+  const [pobOpen, setPobOpen] = useState(false);
 
   const doctor = useMemo(() => normalizeRow(data), [data]);
 
@@ -266,7 +287,14 @@ export default function DoctorCard({
     [code, onCopyCode, doctor],
   );
 
+  // Opening the POB must not also count as opening the doctor.
+  const openPob = useCallback((e) => {
+    e.stopPropagation();
+    setPobOpen(true);
+  }, []);
+
   return (
+    <>
     <div
       role={clickable ? "button" : undefined}
       tabIndex={clickable ? 0 : undefined}
@@ -368,8 +396,39 @@ export default function DoctorCard({
               ))}
             </div>
           ) : null}
+
+          {/* ADD POB — the same POB the doctor visit captures, raised straight
+              from the list. Its own button, so the card click keeps opening the
+              doctor. */}
+          {showAddPob ? (
+            <div className="mt-3 flex justify-end">
+              <button
+                type="button"
+                onClick={openPob}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+              >
+                <PlusIcon />
+                {addPobLabel}
+              </button>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
+
+    {showAddPob && pobOpen ? (
+      <DoctorPobDialog
+        open={pobOpen}
+        onOpenChange={setPobOpen}
+        doctorId={code}
+        doctorName={name}
+        doctorHq={hq}
+        employee={employee}
+        erpUrl={erpUrl}
+        authToken={authToken}
+        onSaved={onPobSaved}
+      />
+    ) : null}
+    </>
   );
 }
