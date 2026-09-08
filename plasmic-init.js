@@ -1670,17 +1670,23 @@ PLASMIC.registerComponent(DoctorCard, {
       type: "boolean",
       defaultValue: false,
       description:
-        "Add an \"Add POB\" button to the card. It opens the SAME POB capture the doctor visit uses — employee → HQ → department → customer → date/time → items — as a popup, without going through the calendar. Saving writes ONE ERP Quotation against this doctor (custom_doctorvisit = the card's code); NO calendar event is created, and no visit is marked. Because such a POB is otherwise indistinguishable from a visit POB whose event was deleted, the popup makes a REASON mandatory and stores it — with the chosen employee, HQ, department and the exact timestamp — in the Quotation's Terms field, led by \"DIRECT POB — raised from the Doctor page\". The button is its own hit target: the rest of the card keeps firing onDoctorClick.",
+        "Add an \"Add POB\" button to the card. It opens the SAME POB capture the doctor visit uses — employee → HQ → department → customer → date/time → items — as a popup, without going through the calendar. HQ and Department come from the doctor's own custom_role_profile rows and auto-select when the doctor carries one of each, so most POBs need only a customer, a reason and the items; the Customer list then follows the chosen HQ and the item list the chosen department. Saving writes ONE ERP document: a plain Quotation. NO calendar event is created, no visit is marked, and no Link fields are set (see Link Pob To Doctor), so there is nothing for ERP to resolve. Since that leaves no links to trace it by, the popup makes a REASON mandatory and stores it — with the doctor, the chosen employee, HQ, department and the exact timestamp — in the Quotation's Terms field, led by \"DIRECT POB — raised from the Doctor page\". The button is its own hit target: the rest of the card keeps firing onDoctorClick, and its hover lift is suppressed while the pointer is on the button.",
     },
     addPobLabel: {
       type: "string",
       defaultValue: "Add POB",
       description: "Text on the Add POB button. Only shown when Show Add Pob is on.",
     },
+    linkPobToDoctor: {
+      type: "boolean",
+      defaultValue: false,
+      description:
+        "Also write the doctor into the Quotation's DoctorVisit field (custom_doctorvisit → Lead). OFF by default, because ERP then validates the code (DR-80034) against the Lead table of whichever environment the write lands in, and a miss fails the whole save with \"Could not find DoctorVisit\" — the field is optional on the doctype (reqd = 0), so a direct POB does not need it. The doctor's name and code are written into the reason block either way, so nothing is lost from the record; what you gain by turning this on is being able to REPORT on POBs by doctor. Turn it on once you have confirmed the page's ERP endpoint holds the same Leads the doctor list is read from.",
+    },
     employee: {
       type: "object",
       description:
-        "WHO is raising the POB — bind the signed-in user's ERP Employee record (or just their Employee ID as a string). It is what scopes the whole popup: the Employee field defaults to them, and the Employee dropdown is narrowed to them plus everyone under them in the role hierarchy. (HQ and Department are then scoped to whichever employee is picked — HQ to the territories that person's team actually covers, Department to their role profile — so a BE gets exactly their own HQ and cannot bill outside it.) Leave it empty and the popup still works, but the Employee dropdown falls back to every active employee and nothing is pre-selected. Only read when Show Add Pob is on.",
+        "WHO is raising the POB — bind the signed-in user's ERP Employee record (or just their Employee ID as a string). The Employee field defaults to them, and the Employee dropdown is narrowed to them plus everyone under them in the role hierarchy. (HQ and Department are driven by the DOCTOR, not by this: they come from the doctor's own custom_role_profile rows and are auto-selected when the doctor carries just one of each — which is the usual case. This employee's coverage then narrows that set, and a doctor outside their territory is flagged rather than blocked.) Leave it empty and the popup still works, but the Employee dropdown falls back to every active employee and nothing is pre-selected. Only read when Show Add Pob is on.",
     },
     erpUrl: {
       type: "string",

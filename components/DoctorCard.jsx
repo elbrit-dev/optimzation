@@ -208,6 +208,7 @@ export default function DoctorCard({
   selected = false,
   showAddPob = false,
   addPobLabel = "Add POB",
+  linkPobToDoctor = false,
   employee,
   erpUrl,
   authToken,
@@ -436,6 +437,7 @@ export default function DoctorCard({
         doctorId={code}
         doctorName={name}
         doctorHq={hq}
+        linkDoctor={linkPobToDoctor}
         employee={employee}
         erpUrl={erpUrl}
         authToken={authToken}
