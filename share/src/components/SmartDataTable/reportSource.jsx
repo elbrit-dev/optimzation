@@ -489,21 +489,28 @@ export function buildPipeline(steps, extraResult = {}) {
 // Maps the flat V1-shaped `filters` blob (still produced by resolveVariablesMap
 // from the unchanged Firestore reportConfig) into customReportV2's structured,
 // registry-validated `input`. Enum names mirror report_registry.py's
-// to_enum_name() output for the real sales_config in report_config.py.
+// to_enum_name() output for the real configs in report_config.py.
+//
+// Per report, not global. The ReportDimension / ReportMetric enums in the schema
+// are the *union* across every registered report, but the server rejects
+// anything the named report does not define -- INVALID_DIMENSION_FOR_REPORT /
+// INVALID_METRIC_FOR_REPORT -- so the translation has to be scoped to the report
+// being asked for. Filter keys differ per report as well: SALES filters Item as
+// `item` against item_name, STOCK as `item_code` against item_code.
 
-const DIMENSION_LABEL_TO_ENUM = {
+const SALES_DIMENSIONS = {
   Department: 'DEPARTMENT', HQ: 'HQ', Customer: 'CUSTOMER', Item: 'ITEM',
   Brand: 'BRAND', Warehouse: 'WAREHOUSE', 'Batch No': 'BATCH_NO',
   'Item Group': 'ITEM_GROUP', Territory: 'TERRITORY', Invoice: 'INVOICE',
 };
 
-const FILTER_KEY_TO_DIMENSION_ENUM = {
+const SALES_FILTER_KEYS = {
   department: 'DEPARTMENT', hq: 'HQ', customer: 'CUSTOMER', item: 'ITEM',
   brand: 'BRAND', warehouse: 'WAREHOUSE', batch_no: 'BATCH_NO',
   item_group: 'ITEM_GROUP', territory: 'TERRITORY', invoice: 'INVOICE',
 };
 
-const METRIC_KEY_TO_ENUM = {
+const SALES_METRICS = {
   target_value: 'TARGET_VALUE', target_pct: 'TARGET_PCT', qty: 'QTY',
   net_primary: 'NET_PRIMARY', gross_primary: 'GROSS_PRIMARY',
   inc_primary: 'INC_PRIMARY', credit_note: 'CREDIT_NOTE', expired: 'EXPIRED',
@@ -511,24 +518,88 @@ const METRIC_KEY_TO_ENUM = {
   inv_offer: 'INV_OFFER', claim: 'CLAIM',
 };
 
-// Canonical dimension order for the sidebar. Under customReportV2 the server no
-// longer reports which dimensions exist -- options.include_filter_values is
-// deprecated and _meta.meta_filter_values is always {} -- so the tab list comes
-// from this registry mirror instead of from the response.
-const ALL_FILTER_KEYS = Object.keys(FILTER_KEY_TO_DIMENSION_ENUM);
+// stock_config in report_config.py: two dimensions, one metric. Item is
+// item_code here, not item_name -- the same ITEM enum, a different column.
+const STOCK_DIMENSIONS = { Item: 'ITEM', Warehouse: 'WAREHOUSE' };
+const STOCK_FILTER_KEYS = { item_code: 'ITEM', warehouse: 'WAREHOUSE' };
+// Only SALES_QTY is a real, SQL-backed metric -- usable in metric_filters/sort.
+// The rest are STOCK's enrichment/row-tail fields: selectable as output columns,
+// but the server rejects them in metric_filters/sort (not grouped, not a metric).
+const STOCK_METRICS = {
+  sales_qty: 'SALES_QTY',
+  stock_quantity: 'STOCK_QUANTITY',
+  expiry_date: 'EXPIRY_DATE',
+  item_name: 'ITEM_NAME',
+  lead_time: 'LEAD_TIME',
+  standard_moq: 'STANDARD_MOQ',
+  prefered_manufacturer: 'PREFERED_MANUFACTURER',
+  related_supplier: 'RELATED_SUPPLIER',
+  transaction_date: 'TRANSACTION_DATE',
+  required_by: 'REQUIRED_BY',
+  max_of_qty: 'MAX_OF_QTY',
+  avg_per_day_qty: 'AVG_PER_DAY_QTY',
+  batch_stock_in_days: 'BATCH_STOCK_IN_DAYS',
+};
 
+/** Mirror of report_registry.py's REPORTS, keyed by ReportName enum value. */
+const REPORTS = {
+  SALES: { dimensions: SALES_DIMENSIONS, filterKeys: SALES_FILTER_KEYS, metrics: SALES_METRICS },
+  STOCK: { dimensions: STOCK_DIMENSIONS, filterKeys: STOCK_FILTER_KEYS, metrics: STOCK_METRICS },
+};
+
+const DEFAULT_REPORT_KEY = 'SALES';
+
+/**
+ * `api.variables.report` as a ReportName enum value.
+ *
+ * V1's customReport requires the field but never routes on it -- report_engine
+ * always ran sales_config -- so pre-v2 configs carry a human report title there.
+ * V2 does route on it, so a v2 config must name the enum ("SALES" / "STOCK").
+ * Anything unrecognized falls back to SALES, which is what every config that
+ * predates v2 meant.
+ */
+export function resolveReportKey(gqlVars) {
+  const raw = String(gqlVars?.report ?? '').trim();
+  if (REPORTS[raw]) return raw;
+  if (raw) console.warn(`[customReportV2] report "${raw}" is not a ReportName — falling back to ${DEFAULT_REPORT_KEY}`);
+  return DEFAULT_REPORT_KEY;
+}
+
+function _reportDefOf(gqlVars) {
+  return REPORTS[resolveReportKey(gqlVars)];
+}
+
+// Every dimension label, for rendering a drill-down row's ancestor chain. The
+// enum -> label direction is unambiguous across reports: two reports may spell a
+// dimension's *filter key* differently, but report_registry._union_enum_values
+// refuses to build a schema where one enum name means two internal keys.
 const ENUM_TO_DIMENSION_LABEL = Object.fromEntries(
-  Object.entries(DIMENSION_LABEL_TO_ENUM).map(([label, dimEnum]) => [dimEnum, label]),
+  Object.values(REPORTS).flatMap(def =>
+    Object.entries(def.dimensions).map(([label, dimEnum]) => [dimEnum, label])),
 );
+
+// item_code is the only filter key whose derived label reads wrong ("Item code"
+// for what the sidebar elsewhere calls Item).
+const FILTER_KEY_LABELS = { item_code: 'Item' };
 
 /** Filter key to sidebar label: hq -> HQ, batch_no -> Batch no. */
 function _dimensionLabel(key) {
+  if (FILTER_KEY_LABELS[key]) return FILTER_KEY_LABELS[key];
   return key.toUpperCase() === key || key === 'hq'
     ? key.toUpperCase()
     : key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' ');
 }
 
-const V2_FILTER_DEFS = ALL_FILTER_KEYS.map(key => ({ key, label: _dimensionLabel(key) }));
+// Sidebar tab list per report. Under customReportV2 the server no longer reports
+// which dimensions exist -- options.include_filter_values is deprecated and
+// _meta.meta_filter_values is always {} -- so the tabs come from this registry
+// mirror instead of from the response.
+const V2_FILTER_DEFS_BY_REPORT = Object.fromEntries(
+  Object.entries(REPORTS).map(([key, def]) => [
+    key,
+    Object.keys(def.filterKeys).map(filterKey => ({ key: filterKey, label: _dimensionLabel(filterKey) })),
+  ]),
+);
 
 const REPORT_API_VERSIONS = new Set(['v1', 'v2']);
 const DEFAULT_REPORT_API_VERSION = 'v1';
@@ -574,10 +645,12 @@ export function resolveDrillDown(rawApiConfig) {
 
 /** group_by as ReportDimension enums, unsliced. */
 export function groupByEnumsOf(gqlVars) {
+  const reportKey = resolveReportKey(gqlVars);
+  const { dimensions } = REPORTS[reportKey];
   return _toList((gqlVars.filters ?? {}).group_by)
     .map(label => {
-      const dimEnum = DIMENSION_LABEL_TO_ENUM[label];
-      if (!dimEnum) console.warn(`[customReportV2] unrecognized group_by dimension "${label}" — dropping`);
+      const dimEnum = dimensions[label];
+      if (!dimEnum) console.warn(`[customReportV2] group_by dimension "${label}" is not defined on report ${reportKey} — dropping`);
       return dimEnum;
     })
     .filter(Boolean);
@@ -590,7 +663,8 @@ function _toList(value) {
 }
 
 /** Build the `sort` array for customReportV2 from V1's `sort_by` "field:dir,..." string. */
-function _buildSortInput(sortBy, groupByEnums) {
+function _buildSortInput(sortBy, groupByEnums, report) {
+  const { filterKeys, metrics } = report;
   const pairs = _toList(sortBy).map(entry => {
     const [field, dir] = entry.split(':');
     return { field: field?.trim(), direction: (dir || 'asc').trim().toUpperCase() };
@@ -602,13 +676,13 @@ function _buildSortInput(sortBy, groupByEnums) {
       if (groupByEnums[0]) out.push({ dimension: groupByEnums[0], direction });
       continue;
     }
-    const dimEnum = FILTER_KEY_TO_DIMENSION_ENUM[field];
+    const dimEnum = filterKeys[field];
     if (dimEnum) {
       if (groupByEnums.includes(dimEnum)) out.push({ dimension: dimEnum, direction });
       else console.warn(`[customReportV2] sort field "${field}" is not in group_by — dropping (would raise SORT_DIMENSION_NOT_GROUPED)`);
       continue;
     }
-    const metricEnum = METRIC_KEY_TO_ENUM[field];
+    const metricEnum = metrics[field];
     if (metricEnum) { out.push({ metric: metricEnum, direction }); continue; }
     console.warn(`[customReportV2] unrecognized sort field "${field}" — dropping`);
   }
@@ -621,6 +695,8 @@ function _buildSortInput(sortBy, groupByEnums) {
  */
 export function buildCustomReportV2Input(gqlVars, drillDown = null) {
   const filters = gqlVars.filters ?? {};
+  const reportKey = resolveReportKey(gqlVars);
+  const report = REPORTS[reportKey];
 
   // Under drill-down the initial call asks for the top levels only; the rest of
   // the tree arrives one node at a time. Sorting is resolved against the sliced
@@ -632,12 +708,12 @@ export function buildCustomReportV2Input(gqlVars, drillDown = null) {
     : allGroupByEnums;
 
   const metricEnums = _toList(filters.selected_columns).map(key => {
-    const metricEnum = METRIC_KEY_TO_ENUM[key];
-    if (!metricEnum) console.warn(`[customReportV2] unrecognized metric "${key}" — dropping`);
+    const metricEnum = report.metrics[key];
+    if (!metricEnum) console.warn(`[customReportV2] metric "${key}" is not defined on report ${reportKey} — dropping`);
     return metricEnum;
   }).filter(Boolean);
 
-  const dimensionFilters = Object.entries(FILTER_KEY_TO_DIMENSION_ENUM)
+  const dimensionFilters = Object.entries(report.filterKeys)
     .filter(([key]) => filters[key] != null && filters[key] !== '' && !(Array.isArray(filters[key]) && filters[key].length === 0))
     .map(([key, dimEnum]) => ({
       dimension: dimEnum,
@@ -645,10 +721,10 @@ export function buildCustomReportV2Input(gqlVars, drillDown = null) {
       values: _toList(filters[key]),
     }));
 
-  const sort = _buildSortInput(gqlVars.sort_by, groupByEnums);
+  const sort = _buildSortInput(gqlVars.sort_by, groupByEnums, report);
 
   const input = {
-    report: 'SALES',
+    report: reportKey,
     date_range: { from_date: filters.from_date, to_date: filters.to_date },
     group_by: groupByEnums,
     options: {
@@ -917,7 +993,7 @@ export function graphqlQueryReportDataSource(rawApiConfig) {
     // meta_filter_values is always {} there -- so the tab list is static and the
     // values behind each tab are fetched on demand by fetchFilterValues.
     const filterDefs = isV2
-      ? V2_FILTER_DEFS
+      ? V2_FILTER_DEFS_BY_REPORT[resolveReportKey(gqlVars)]
       : Object.keys(filterValues).map(key => ({ key, label: _dimensionLabel(key) }));
 
     // groupByEnums is the sliced list this call actually grouped by, so a row's
@@ -1140,13 +1216,16 @@ const _GQL_REPORT_FILTER_VALUES = `
 export async function graphqlFetchReportFilterValues(rawApiConfig, key, {
   page = 1, pageLength = 20, search = '', currentFilters = {}, dateRange = {}, includeCounts = true,
 } = {}) {
-  const dimension = FILTER_KEY_TO_DIMENSION_ENUM[key];
+  const { endpoint, token, variables: baseVars = {} } = await resolveApiConfig(rawApiConfig);
+
+  // Which dimensions exist, and the filter key each is spelled with, is per
+  // report -- so the report has to be resolved before the key can be validated.
+  const reportKey = resolveReportKey(baseVars);
+  const dimension = REPORTS[reportKey].filterKeys[key];
   if (!dimension) {
-    console.warn(`[reportFilterValues] unknown dimension key "${key}" — returning no values`);
+    console.warn(`[reportFilterValues] dimension key "${key}" is not defined on report ${reportKey} — returning no values`);
     return { items: [], hasMore: false };
   }
-
-  const { endpoint, token, variables: baseVars = {} } = await resolveApiConfig(rawApiConfig);
 
   // date_range is non-null on the input type. The sidebar's date control is the
   // source of truth; api.variables.filters is the fallback for views without one.
@@ -1162,11 +1241,11 @@ export async function graphqlFetchReportFilterValues(rawApiConfig, key, {
   // left out: the server excludes it anyway, and sending it would fragment the
   // permission-scoped cache once per selection the user makes in that dropdown.
   const dimensionFilters = Object.entries(currentFilters)
-    .filter(([k, v]) => k !== key && v?.length && FILTER_KEY_TO_DIMENSION_ENUM[k])
-    .map(([k, v]) => ({ dimension: FILTER_KEY_TO_DIMENSION_ENUM[k], operator: 'IN', values: v }));
+    .filter(([k, v]) => k !== key && v?.length && REPORTS[reportKey].filterKeys[k])
+    .map(([k, v]) => ({ dimension: REPORTS[reportKey].filterKeys[k], operator: 'IN', values: v }));
 
   const input = {
-    report: 'SALES',
+    report: reportKey,
     date_range: { from_date, to_date },
     dimensions: [dimension],
     // The server has no offset — ask for everything up to this page and slice below.

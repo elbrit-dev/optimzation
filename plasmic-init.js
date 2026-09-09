@@ -26,6 +26,7 @@ import ProductStockSheet from "./components/ProductStockSheet";
 import CatalogLetterSection from "./components/CatalogLetterSection";
 import CatalogLetterGroup from "./components/CatalogLetterGroup";
 import DoctorCard from "./components/DoctorCard";
+import DoctorDetail from "./components/DoctorDetail";
 import HomeNavRings from "./components/HomeNavRings";
 import ProgressRing from "./components/ProgressRing";
 import EmployeeProfileCard from "./components/EmployeeProfileCard";
@@ -1585,6 +1586,194 @@ PLASMIC.registerComponent(CatalogLetterGroup, {
     className: { type: "string" },
   },
   importPath: "./components/CatalogLetterGroup",
+});
+
+PLASMIC.registerComponent(DoctorDetail, {
+  name: "DoctorDetail",
+  displayName: "Doctor Detail Page",
+  description:
+    "The WHOLE doctor detail page as ONE component — masthead, stat strip, POB history (month chart + ranked products + the quotation ledger), coverage, classification, notes timeline, contact and record. Unlike the product detail page this is NOT a set of cards to assemble: drop it, bind Data to a doctor row, and the page is done. It is driven by three list-shaped props rather than a wall of switches — SECTIONS picks and orders the panels, ACTIONS picks and orders the buttons, FIELDMAP is the only place column names live — so a page is a handful of choices, not twenty. Coloured in the Elbrit palette taken off the logo (#D92C24), and there is deliberately NO route into ERP: no link, no action, no footer. Every ERP read is additive and optional: if it fails the page still renders the bound row behind a dismissible strip, and every section with no data says so in words instead of spinning.",
+  props: {
+    data: {
+      type: "object",
+      description:
+        "ONE doctor row — bind the row the list already holds (currentItem), or the single row from a Doctor query. THE ONLY BINDING REQUIRED. Tolerant of shape: the row itself, a GraphQL edge ({ node }), or a single-row array/connection. Rows are ERP Lead nodes (lead_name, name, custom_specialty__name, territory { name }, custom_role_profile[…]). Strictly speaking only the doctor code is needed — everything else can arrive through Enrich.",
+      defaultValue: {
+        name: "DR-36661",
+        lead_name: "Dr Shanmugam",
+        custom_specialty__name: "NEURO",
+        custom_qualification__name: "MD.DM",
+        custom_category__name: "C",
+        custom_category1__name: "HILR",
+        custom_category2__name: "EC20",
+        city: "Trichy",
+        territory: { name: "HQ-Trichy" },
+        custom_role_profile: [
+          {
+            department__name: "Vasco Coimbatore - ELPL",
+            hq__name: "HQ-Trichy",
+            role_profile_list__name: "BE11-VASC-CO-TRI",
+          },
+          {
+            department__name: "Elbrit Trichy - ELPL",
+            hq__name: "HQ-Trichy",
+            role_profile_list__name: "BE8-ELBR-TR-TRI",
+          },
+        ],
+      },
+    },
+    sections: {
+      type: "choice",
+      multiSelect: true,
+      options: ["business", "coverage", "classification", "notes", "contact", "record"],
+      defaultValue: ["business", "coverage", "classification", "notes", "contact", "record"],
+      description:
+        "WHICH panels the page shows, and in WHAT ORDER — one control in place of six separate switches, and unlike switches it carries order. business = POB history (month chart, ranked products, quotation ledger) · coverage = the division × HQ × beat rows · classification = grade, the C1 2×2 locator, C2, C3 · notes = the doctor's notes timeline · contact = phones, e-mail, place, coordinates · record = ids and timestamps. Clear the list to show none. On a WIDE container the page is two columns: business and notes take the big column, the rest the narrow one, each keeping your order — so order is honoured within a column, and the columns themselves are always big-then-narrow. On a narrow container it is a single stream in exactly your order. A section that would be empty still renders and says why, rather than vanishing and leaving the reader unsure whether it was switched off or simply has no data.",
+    },
+    actions: {
+      type: "choice",
+      multiSelect: true,
+      options: ["pob", "note", "call", "whatsapp", "email", "directions"],
+      defaultValue: ["pob", "note", "call", "whatsapp", "email", "directions"],
+      description:
+        "WHICH buttons sit in the masthead, and in what order. pob opens the POB capture (see Add Pob Label) · note fires On Add Note and is only shown once you have wired that handler, because a button that does nothing is worse than no button · call / whatsapp / email / directions come off the doctor's own record. There is deliberately NO ERP option — opening ERP was removed from this component entirely. An action the record cannot support is NOT silently dropped: it stays, dimmed and relabelled (\"Call · no number\"), with the reason on hover. That matters here because ERP holds a literal 0 in the phone columns of most bulk-imported doctors, and a reader who sees no Call button cannot tell whether the page hid it or the number is missing. Clear the list for no action row at all.",
+    },
+    accent: {
+      type: "string",
+      defaultValue: "brand",
+      description:
+        "The page's one colour. \"brand\" (the default) is the Elbrit red #D92C24, sampled off the logo animation — which also matches the #DC2627 in public/logo.svg. \"speciality\" instead hashes a colour off the doctor's speciality, the same rule Doctor Card uses for its chip, so every doctor carries their own and opening a card feels like that card expanding. Or give any hex (#0F766E) and the masthead gradient, chart bars, count pills, tints and focus rings are all derived from it. Text-red is always a darker step than the fill, because the brand red clears about 4.3:1 on white — fine behind a bar, short of comfortable for small type. Status colours are NOT derived from this and never turn red: red is the brand here, so a red \"Lost\" pill beside a red Add POB button would read as one system shouting. Ordered is green, Draft amber, Lost a neutral slate, and each carries a mark as well as a word.",
+    },
+    fieldMap: {
+      type: "object",
+      description:
+        "The ONLY place column names live — one object in place of six separate name props: { name, code, speciality, hq, city, roles }. Every entry already has a working default (lead_name, name, custom_specialty__name, territory, city, custom_role_profile) and each falls through the usual aliases, so both the nested (territory { name }) and flattened (territory__name) GraphQL shapes work untouched. Set a key only for a row whose column is named oddly; anything you leave out keeps its default.",
+      defaultValue: {},
+    },
+    doctorId: {
+      type: "string",
+      description:
+        "The Lead id to load (DR-36661). LEAVE EMPTY on a normal page — it is taken from the bound row's code field. Set it only when the page has a doctor code from the URL and no row to bind, in which case the whole page is built from Enrich alone.",
+    },
+    mode: {
+      type: "choice",
+      options: ["auto", "desktop", "mobile"],
+      defaultValue: "auto",
+      description:
+        "Auto measures the component's OWN container (not the viewport) and switches to the stacked single-column layout below Breakpoint, so one instance works full-width in the web console, inside a column, and in a 360px phone frame. Desktop / mobile force one layout.",
+    },
+    breakpoint: {
+      type: "number",
+      defaultValue: 860,
+      description:
+        "Container width in px below which the compact single-column layout is used. Only read when Mode is auto.",
+    },
+    enrich: {
+      type: "boolean",
+      defaultValue: true,
+      description:
+        "Fetch the rest of the doctor from ERP — the full Lead (qualification, phones, e-mail, state/country, coordinates, timestamps, notes) plus this doctor's POB history. The doctor LIST query carries none of that, so with this off the page can only show what the bound row holds and the POB, notes and contact sections stay empty. Reads are additive (the bound row still wins for fields it carries), independent (POB failing cannot blank the notes), and each is tried in several query shapes, because frappe_graphql fails a whole request over one unknown field and Link fields are not exposed identically on every instance.",
+    },
+    pobs: {
+      type: "object",
+      description:
+        "Hand over this doctor's POB Quotations yourself instead of letting the component fetch them. Accepts a plain array or a GraphQL connection ({ edges: [{ node }] }) of Quotation rows — transaction_date, grand_total, status, customer_name, territory__name and items[{ item_name, qty, amount }] are what the chart, the ranked products and the ledger are built from. LEAVE EMPTY on a normal page: Enrich fetches them. Bind it only when the page already holds the rows and a second round-trip would be waste; doing so skips that fetch and nothing else.",
+    },
+    pobLimit: {
+      type: "number",
+      defaultValue: 200,
+      description:
+        "How many of this doctor's POB Quotations to pull. The chart, the ranked products and the totals are all computed from what comes down, so a doctor with more POBs than this would under-report — 200 is far above any real doctor's history. The ledger itself shows the most recent 12 and names the rest.",
+    },
+    currency: {
+      type: "string",
+      defaultValue: "₹",
+      description: "Currency symbol for every money figure.",
+    },
+    erpTarget: {
+      type: "string",
+      defaultValue: "",
+      description:
+        "WHICH ERP is READ — this component never links out to ERP, it only reads from it. The name of a row in /tokens, where the page prompts \"ERP / UAT / DEV\". LEAVE EMPTY and it uses ERP, i.e. live. It deliberately does NOT follow the row marked \"default\" in /tokens: that flag is a convenience for the query playground and points at whichever instance was last poked. Set UAT on a test page. Ignored when the calendar has already pointed the ERP client somewhere, and an unknown name falls back to the default row rather than failing.",
+    },
+    erpUrl: {
+      type: "string",
+      description:
+        "Overrides Erp Target with a full GraphQL URL, e.g. https://erp.elbrit.org/api/method/graphql. LEAVE EMPTY on a normal page — Erp Target already picks the live endpoint and its credential stays in /tokens instead of on the page. Only set this to point one instance somewhere Erp Target cannot name, and then set Auth Token too.",
+    },
+    authToken: {
+      type: "string",
+      description:
+        "Frappe API credential for the URL above, as <api_key>:<api_secret> (a leading \"token \" is tolerated). ⚠️ NOT A SECRET: this is a client component, so anything typed here is shipped in the page and readable in devtools by any visitor. Leave it and ERP URL empty and the credential is fetched at runtime from /tokens instead of being baked into the markup. Needs read on Lead and Quotation, plus — if the POB action is on — the permissions that popup lists.",
+    },
+    showStats: {
+      type: "boolean",
+      defaultValue: true,
+      description:
+        "Show the four-tile strip — POB value, last POB, divisions covering, notes on file — lifted so it straddles the masthead edge and the page reads as one object rather than a banner with a table under it.",
+    },
+    showBackButton: {
+      type: "boolean",
+      defaultValue: false,
+      description:
+        "Show a back pill at the top of the masthead. It only fires On Back — wire that to your own navigation.",
+    },
+    backLabel: { type: "string", defaultValue: "All doctors", description: "Text on the back pill." },
+    matrixAxisY: {
+      type: "string",
+      defaultValue: "Axis I",
+      description:
+        "Caption for the FIRST axis of the C1 code — the \"I\" in LILR / HIHR — shown up the side of the 2×2 locator. ⚠️ It says \"Axis I\" rather than guessing, because ERP stores only the bare codes in Category List and records no expansion anywhere, and the two plausible readings invert the meaning of every cell: Investment/Return makes HILR your WORST doctor, Potential/Rx-support makes him your BIGGEST OPPORTUNITY. Confirm with the commercial team and set it once. Renaming this relabels only the caption — the cell codes are read straight out of ERP's own letters and never change.",
+    },
+    matrixAxisX: {
+      type: "string",
+      defaultValue: "Axis R",
+      description:
+        "Caption for the SECOND axis of the C1 code — the \"R\" in LILR / HIHR — shown along the bottom of the locator. Same caveat as the other axis.",
+    },
+    addPobLabel: {
+      type: "string",
+      defaultValue: "Add POB",
+      description: "Text on the POB action. Only shown when \"pob\" is in Actions.",
+    },
+    linkPobToDoctor: {
+      type: "boolean",
+      defaultValue: false,
+      description:
+        "Write the doctor into the POB Quotation's DoctorVisit field (custom_doctorvisit → Lead). OFF by default, matching Doctor Card, because ERP then validates the code against the Lead table of whichever environment the write lands in and a miss fails the whole save. NOTE THE CONSEQUENCE FOR THIS PAGE: custom_doctorvisit is exactly what the POB history section joins on, so a POB raised with this off will never appear in the history above. Turn it on once you have confirmed the page's ERP endpoint holds the same Leads the doctor list is read from.",
+    },
+    employee: {
+      type: "object",
+      description:
+        "WHO is raising the POB — bind the signed-in user's ERP Employee record (or just their Employee ID as a string). The Employee field defaults to them and the dropdown is narrowed to them plus everyone under them in the role hierarchy. Leave it empty and the popup still works, but the dropdown falls back to every active employee and nothing is pre-selected. Only read when \"pob\" is in Actions.",
+    },
+    onAddNote: {
+      type: "eventHandler",
+      description:
+        "Fires when the \"Add a note\" action is pressed, with { doctor, code, name }. The component does not write notes itself — wire this to whatever your page uses. Until it is wired the action is not shown at all, so it can never be a dead button.",
+      argTypes: [{ name: "payload", type: "object" }],
+    },
+    onBack: {
+      type: "eventHandler",
+      description:
+        "Fires when the back pill is pressed, with { doctor, code }. The component does not navigate itself.",
+      argTypes: [{ name: "payload", type: "object" }],
+    },
+    onCopyCode: {
+      type: "eventHandler",
+      description:
+        "Fires after the doctor code is copied to the clipboard, with { code, doctor } — use it for a toast.",
+      argTypes: [{ name: "payload", type: "object" }],
+    },
+    onPobSaved: {
+      type: "eventHandler",
+      description:
+        "Fires after the POB Quotation exists in ERP, with { quotation, doctorId, doctorName, employee, hq, department, customer, visitAt, reason, items, total }. The popup toasts and closes itself and this page refetches its own history, so wire this only if the surrounding page needs to react.",
+      argTypes: [{ name: "payload", type: "object" }],
+    },
+    className: { type: "string", description: "CSS class for the page container." },
+  },
+  importPath: "./components/DoctorDetail",
 });
 
 PLASMIC.registerComponent(DoctorCard, {

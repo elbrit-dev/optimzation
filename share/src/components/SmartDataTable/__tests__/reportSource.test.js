@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import {
   graphqlQueryReportDataSource, graphqlFetchReportFilterValues, buildCustomReportV2Input,
   resolveDrillDown, buildDrillDownInput, graphqlFetchDrillDown, samePathValues, nestStep,
+  resolveReportKey,
 } from '../reportSource.jsx';
 import { makeCanExpand } from '../drillDownBranch.jsx';
 import { stepCases, pipelineScenarios } from '@/test/scenarios/pipeline.scenarios.js';
@@ -958,5 +959,166 @@ describe('nestStep — label headers across the full tree', () => {
     const labelColDefs = [{ field: 'label', header: 'Department' }];
     const state = nestStep({ ...base, labelColDefs, drillDownMeta: null });
     expect(state.labelColDefs).toBe(labelColDefs);
+  });
+});
+
+// ─── per-report translation (STOCK) ────────────────────────────────────────────
+//
+// customReportV2's dimension/metric enums are the union across every registered
+// report, but the server rejects anything the named report does not define. The
+// STOCK report (stock_config in report_config.py) has two dimensions and one
+// metric, and spells Item as `item_code` where SALES spells it `item`.
+
+describe('resolveReportKey', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('takes a ReportName enum value straight from api.variables.report', () => {
+    expect(resolveReportKey({ report: 'STOCK' })).toBe('STOCK');
+    expect(resolveReportKey({ report: ' SALES ' })).toBe('SALES');
+  });
+
+  it('falls back to SALES for a v1-era report title, with a warning', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(resolveReportKey({ report: 'Stock Coverage Summary' })).toBe('SALES');
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it('falls back to SALES silently when no report is named', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(resolveReportKey({})).toBe('SALES');
+    expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+describe('buildCustomReportV2Input — STOCK report', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const stockVars = {
+    report: 'STOCK',
+    filters: {
+      from_date: '2026-07-01',
+      to_date: '2026-07-31',
+      group_by: ['Item', 'Warehouse'],
+      selected_columns: ['sales_qty'],
+    },
+    limit: 30,
+    page: 1,
+  };
+
+  it('names the report and translates its own dimensions and metrics', () => {
+    const input = buildCustomReportV2Input(stockVars);
+    expect(input.report).toBe('STOCK');
+    expect(input.group_by).toEqual(['ITEM', 'WAREHOUSE']);
+    expect(input.metrics).toEqual(['SALES_QTY']);
+  });
+
+  it('builds dimension_filters from STOCK filter keys (item_code, not item)', () => {
+    const input = buildCustomReportV2Input({
+      ...stockVars,
+      filters: { ...stockVars.filters, item_code: ['ITM-001'], warehouse: 'WH-Chennai' },
+    });
+    expect(input.dimension_filters).toEqual(
+      expect.arrayContaining([
+        { dimension: 'ITEM', operator: 'IN', values: ['ITM-001'] },
+        { dimension: 'WAREHOUSE', operator: 'IN', values: ['WH-Chennai'] },
+      ])
+    );
+  });
+
+  it('ignores a SALES filter key on a STOCK report', () => {
+    const input = buildCustomReportV2Input({
+      ...stockVars,
+      filters: { ...stockVars.filters, item: ['Azithromycin 500mg'] },
+    });
+    expect(input.dimension_filters).toBeUndefined();
+  });
+
+  it('drops dimensions and metrics the report does not define, rather than letting the server 400', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const input = buildCustomReportV2Input({
+      ...stockVars,
+      filters: { ...stockVars.filters, group_by: ['Department', 'Item'], selected_columns: ['sales_qty', 'net_primary'] },
+    });
+    expect(input.group_by).toEqual(['ITEM']);
+    expect(input.metrics).toEqual(['SALES_QTY']);
+    expect(warn).toHaveBeenCalledTimes(2);
+  });
+
+  it('resolves sort against the report own metrics and dimensions', () => {
+    const input = buildCustomReportV2Input({ ...stockVars, sort_by: 'sales_qty:desc' });
+    expect(input.sort).toEqual([{ metric: 'SALES_QTY', direction: 'DESC' }]);
+  });
+
+  it('carries the report through to reportDrillDown', () => {
+    const input = buildDrillDownInput(stockVars, [{ dimension: 'ITEM', value: 'ITM-001' }], { depth: 1 });
+    expect(input.report).toBe('STOCK');
+    expect(input.group_by).toEqual(['ITEM', 'WAREHOUSE']);
+  });
+});
+
+describe('filterDefs — per report', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const params = { filters: {}, sortBy: {}, pagination: { first: 0, rows: 10 }, viewParams: {} };
+
+  it('offers only the dimensions the STOCK report defines', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: { customReportV2: { report_meta: [{ columns: [
+        { fieldname: 'label', label: 'Item', fieldtype: 'Data' },
+        { fieldname: '_meta', label: '', fieldtype: 'Data', meta_filter_values: {} },
+      ] }], edges: [] } } }),
+    });
+
+    const ds = graphqlQueryReportDataSource({
+      endpoint: '/x', token: 't',
+      variables: { report: 'STOCK', filters: {} },
+      reportApiVersion: 'v2',
+    });
+    const result = await ds(params);
+
+    expect(result.filterDefs).toEqual([
+      { key: 'item_code', label: 'Item' },
+      { key: 'warehouse', label: 'Warehouse' },
+    ]);
+  });
+});
+
+describe('graphqlFetchReportFilterValues — STOCK report', () => {
+  afterEach(() => { restoreFetch(); vi.restoreAllMocks(); });
+
+  const apiConfig = {
+    endpoint: '/x', token: 't',
+    variables: { report: 'STOCK', filters: { from_date: '2026-07-01', to_date: '2026-07-31' } },
+  };
+
+  function mockGroup(filter_key, values) {
+    const spy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: { reportFilterValues: { groups: [{ filter_key, values, truncated: false }] } } }),
+    });
+    global.fetch = spy;
+    return spy;
+  }
+
+  it('sends the STOCK report and maps item_code to the ITEM dimension', async () => {
+    const spy = mockGroup('item_code', [{ value: 'ITM-001', distinct_count: 1, line_count: 4 }]);
+
+    const result = await graphqlFetchReportFilterValues(apiConfig, 'item_code', {});
+
+    const input = JSON.parse(spy.mock.calls[0][1].body).variables.input;
+    expect(input.report).toBe('STOCK');
+    expect(input.dimensions).toEqual(['ITEM']);
+    expect(result.items).toEqual([{ value: 'ITM-001', label: 'ITM-001', count: 4 }]);
+  });
+
+  it('returns nothing for a dimension the report does not define', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const spy = vi.fn();
+    global.fetch = spy;
+
+    expect(await graphqlFetchReportFilterValues(apiConfig, 'hq', {}))
+      .toEqual({ items: [], hasMore: false });
+    expect(spy).not.toHaveBeenCalled();
   });
 });
