@@ -38,6 +38,12 @@ import { STATUS, TAG_IDS } from "@calendar/components/calendar/constants";
 import { navigateDate } from "@calendar/components/calendar/helpers";
 import { ChevronDown } from "lucide-react";
 import FilterEvents from "@calendar/components/calendar/header/filter";
+import {
+  DoctorPlanGroupLabel,
+  getPlanGroupKey,
+  getPlanOwnerId,
+  resolvePlanCreatorName,
+} from "@calendar/components/calendar/views/agenda-view/doctor-plan-group-label";
 
 const PULL_THRESHOLD = 70;
 const SWIPE_THRESHOLD = 70;
@@ -297,17 +303,20 @@ export const AgendaEventsMobile = () => {
               if (event.tags === TAG_IDS.DOCTOR_VISIT_PLAN) {
                 const hqId = event.hqTerritory;
 
+                const ownerId = getPlanOwnerId(event);
                 const exists = enhancedHQEvents.some(
                   (e) =>
                     e.tags === TAG_IDS.HQ_TOUR_PLAN &&
-                    e.hqTerritory === hqId
+                    e.hqTerritory === hqId &&
+                    getPlanOwnerId(e) === ownerId
                 );
 
                 if (!exists) {
                   const hqEvent = events.find(
                     (e) =>
                       e.tags === TAG_IDS.HQ_TOUR_PLAN &&
-                      e.hqTerritory === hqId
+                      e.hqTerritory === hqId &&
+                      getPlanOwnerId(e) === ownerId
                   );
 
                   if (hqEvent) enhancedHQEvents.push(hqEvent);
@@ -315,9 +324,9 @@ export const AgendaEventsMobile = () => {
               }
             });
 
-            const groupedByHQ = Object.groupBy(
+            const groupedByHQAndOwner = Object.groupBy(
               enhancedHQEvents,
-              (e) => e.hqTerritory
+              getPlanGroupKey
             );
 
             return (
@@ -326,7 +335,7 @@ export const AgendaEventsMobile = () => {
                 heading={format(parseISO(groupKey), "EEEE, MMM d")}
               >
 
-                {Object.entries(groupedByHQ).map(([hqId, events]) => {
+                {Object.entries(groupedByHQAndOwner).map(([planGroupKey, events]) => {
                   const hqOnly = events.filter(
                     (e) => e.tags === TAG_IDS.HQ_TOUR_PLAN
                   );
@@ -335,18 +344,20 @@ export const AgendaEventsMobile = () => {
                     (e) => e.tags === TAG_IDS.DOCTOR_VISIT_PLAN
                   );
 
-                  const key = `${groupKey}-${hqId}`;
+                  const key = `${groupKey}-${planGroupKey}`;
                   const isOpen = accordionOpen[key];
 
+                  const hqId = events[0]?.hqTerritory || "No-HQ";
                   const name = hqOnly[0]?.hqName || hqId;
-                  const title =
-                    doctor.length > 0
-                      ? `${name?name:"No-HQ"}-${doctor.length}-Doctor-Plan`
-                      : name;
+                  const creatorName = resolvePlanCreatorName(
+                    doctor.length > 0 ? doctor : hqOnly,
+                    users
+                  );
 
                   return (
-                    <div key={hqId}>
+                    <div key={planGroupKey}>
                       <CommandItem
+                        value={`hq-${hqId}-${creatorName}`}
                         onSelect={() =>
                           setAccordionOpen((p) => ({
                             ...p,
@@ -355,10 +366,21 @@ export const AgendaEventsMobile = () => {
                         }
                         className="border rounded-md p-2 mb-2"
                       >
-                        <div className="flex justify-between w-full">
-                          {title}
+                        <div className="flex min-w-0 items-center justify-between gap-2 w-full">
+                          {doctor.length > 0 ? (
+                            <DoctorPlanGroupLabel
+                              hqName={name}
+                              doctorCount={doctor.length}
+                              creatorName={creatorName}
+                            />
+                          ) : (
+                            <span className="min-w-0 break-words text-xs">
+                              {name}
+                            </span>
+                          )}
                           <ChevronDown
                             className={cn(
+                              "h-4 w-4 shrink-0 transition-transform",
                               isOpen && "rotate-180"
                             )}
                           />

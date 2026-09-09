@@ -310,6 +310,12 @@ The prop descriptions are written as **Studio-facing documentation**, including 
 | `showLetterRail` | boolean | `false` | needs `[data-letter]` in the slot |
 | `letterRailField` | string | — | e.g. `brand__name`; enables live dimming |
 | `letterRailViews` | object | `['cards']` | `[]` = all views |
+| `enableServerPaging` | boolean | `false` | drives the query's own limit variable — needs it declared in the query body |
+| `pageSize` | number | `25` | initial fetch size, and the "Load more" step |
+| `pageSizeOptions` | object | `[10,25,50,100,200]` | current size is always included |
+| `pageSizeVariable` | string | `first` | `first` for Relay-style ERP queries |
+| `showPageSizeControl` / `showLoadMore` | boolean | `true` / `true` | |
+| `paginatorPosition` | choice | `both` | `header` \| `bottom` \| `both` |
 | `staleWhileRevalidate` | boolean | `false` | `$ctx.data.main.isRevalidating` during stale window |
 | `cacheKey` | string | `preset:{src}:{name}` | set to unshare snapshots |
 | `presetDataSource`, `presetName`, `offlineData`, `overrides`, `onDataChange`, `onError` | — | — | identical to Elbrit DataProvider |
@@ -325,7 +331,44 @@ The prop descriptions are written as **Studio-facing documentation**, including 
 ### Studio bindings
 
 - `$ctx.data` — unchanged (data, columns, filter/sort state)
-- `$ctx.view` — `{ views, activeView, setActiveView, isActive, keepInactiveMounted }`
+- `$ctx.view` — `{ views, activeView, setActiveView, isActive, keepInactiveMounted, paging }`
+- `$ctx.view.paging` — `{ enabled, fetchSize, setFetchSize, loadMore, loadMoreStep, pageSizeOptions, pageSizeVariable, showLoadMore }`
+
+---
+
+## 5a. Fetch size (`ViewPaginator`)
+
+Added after the original range. The ask was pagination "so we load less data each time", and the important finding was that **the engine has no fetch-size concept to expose** — `$ctx.data.paginatedData` is `sortedData.slice(first, first + rows)`, a slice of what is already in memory. Paginating it changes render cost, not bytes on the wire.
+
+The limit that does exist is in the query body itself, as a literal:
+
+```graphql
+query Doctors { Leads(first: 10, filter: {…}) { … } }   # before
+query Doctors($first: Int = 10) { Leads(first: $first, filter: {…}) { … } }   # after
+```
+
+### Why no engine change was needed
+
+`overrides.variables` already reaches the GraphQL request: `DataProvider` passes `overrides` straight through, `DataProviderNew` folds it into `variableOverrides` (line ~362), and `useQueryExecution` merges that into the sent variables (line ~534) — then **re-runs the query whenever `variableOverrides` changes** (line ~822). So the variant merges the chosen size into `overrides.variables` and the engine does the rest. Zero lines changed in `DataProviderNew`, `DataTableNew`, `DataProvider`, or either pipeline hook.
+
+### Decisions worth recording
+
+**`useStableValue` around the merged overrides.** That "re-run on `variableOverrides` change" effect keys on **object identity**. A caller building `overrides` inline — Plasmic Studio does — hands down a fresh object every render, which loops: fetch → state → render → new object → fetch. The variant therefore stabilizes the merged object by JSON signature, and passes `overrides` through untouched when paging is off so the default path stays byte-identical.
+
+**"Load more" by growing `first`, not cursors.** `Doctors` carries a `filter`, and `after` + `filter` together throws `Filter must be a tuple or list` on our ERP. Cursor paging is unavailable, so the control raises the limit (10 → 25 → 50) and rows 1..N always come down together. No page can be skipped.
+
+**"More may exist" is a heuristic.** Nothing in the pipeline reads `pageInfo` — `hasNextPage`/`endCursor` appear nowhere in `graphql-playground/utils/` — so a full page coming back is the only available signal. With a search or filter active the loaded count is already narrowed, so the button stays enabled rather than claiming the end of the list.
+
+**A native `<select>` for the size pill.** The engine's header row is `overflow-x-auto`, which clips a popup on the cross axis too — the reason `SyncPill` has to position its menu `fixed`. A native select has no such problem.
+
+**The size also drives `updatePagination`.** So a view bound to `$ctx.data.paginatedData` shows the same window as one bound to `sortedData`, instead of the two silently disagreeing.
+
+### Costs the caller has to accept
+
+1. **Search and sort only cover loaded rows.** These queries are `clientSave: true` with client-side `searchFields`/`sortFields`. At `first: 25` the search bar and the A–Z rail see 25 doctors. Fetching less and searching everything are in direct tension; server-side search would mean driving `filter` from the search term.
+2. **Every size change is a network round-trip.** The `variableOverrides` effect calls `runQuery(dataSource, true)`, which is the direct query path, not the IndexedDB-first path used at mount — so with paging on, the provider fetches live rather than reading cache. Pair it with `staleWhileRevalidate` if instant paint matters.
+3. **The IndexedDB cache is not keyed by variables** — `` `${queryId}_${monthRange}` `` — so results fetched at different sizes overwrite one entry. The cache cannot hold pages separately.
+4. **Only works where the variable is declared.** A query without `$first` in its body ignores the variable and keeps its hardcoded limit; the control then does nothing but re-slice locally.
 
 ---
 

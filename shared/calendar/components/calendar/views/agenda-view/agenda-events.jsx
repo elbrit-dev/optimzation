@@ -45,6 +45,12 @@ import { EventParticipantAvatars } from "@calendar/components/calendar/views/sha
 
 import { ICON_MAP } from "@calendar/components/calendar/mobile/MobileAddEventBar";
 import { STATUS, TAG_IDS } from "@calendar/components/calendar/constants";
+import {
+  DoctorPlanGroupLabel,
+  getPlanGroupKey,
+  getPlanOwnerId,
+  resolvePlanCreatorName,
+} from "@calendar/components/calendar/views/agenda-view/doctor-plan-group-label";
 
 const SWIPE_THRESHOLD = 60;
 
@@ -348,17 +354,20 @@ export const AgendaEvents = ({ scope = "all"}) => {
               if (event.tags === TAG_IDS.DOCTOR_VISIT_PLAN) {
                 const hqId = event.hqTerritory;
 
+                const ownerId = getPlanOwnerId(event);
                 const alreadyExists = enhancedHQEvents.some(
                   (e) =>
                     e.tags === TAG_IDS.HQ_TOUR_PLAN &&
-                    e.hqTerritory === hqId
+                    e.hqTerritory === hqId &&
+                    getPlanOwnerId(e) === ownerId
                 );
 
                 if (!alreadyExists) {
                   const hqEvent = events.find(
                     (e) =>
                       e.tags === TAG_IDS.HQ_TOUR_PLAN &&
-                      e.hqTerritory === hqId
+                      e.hqTerritory === hqId &&
+                      getPlanOwnerId(e) === ownerId
                   );
 
                   if (hqEvent) {
@@ -369,9 +378,9 @@ export const AgendaEvents = ({ scope = "all"}) => {
             });
 
             // 👉 Step 3: Now group
-            const groupedByHQ = Object.groupBy(
+            const groupedByHQAndOwner = Object.groupBy(
               enhancedHQEvents,
-              (event) => event.hqTerritory
+              getPlanGroupKey
             );
             return (
               <CommandGroup
@@ -383,7 +392,7 @@ export const AgendaEvents = ({ scope = "all"}) => {
                 }
               >
                 {/* DOCTOR EVENTS */}
-                {Object.entries(groupedByHQ).map(([hqId, events]) => {
+                {Object.entries(groupedByHQAndOwner).map(([planGroupKey, events]) => {
                   const hqOnlyEvents = events.filter(
                     (e) => e.tags === TAG_IDS.HQ_TOUR_PLAN
                   );
@@ -391,21 +400,21 @@ export const AgendaEvents = ({ scope = "all"}) => {
                   const doctorEvents = events.filter(
                     (e) => e.tags === TAG_IDS.DOCTOR_VISIT_PLAN
                   );
-                  const key = `${groupKey}-${hqId}`;
+                  const key = `${groupKey}-${planGroupKey}`;
                   const isOpen = doctorAccordionOpen[key];
+                  const hqId = events[0]?.hqTerritory || "No-HQ";
                   const hqName = hqOnlyEvents[0]?.hqName || hqId;
                   const doctorCount = doctorEvents.length;
-
-                  const title =
-                    doctorCount > 0
-                      ? `${hqName ? hqName : "No-HQ"}-${doctorCount}-Doctor-Plan`
-                      : hqName;
+                  const creatorName = resolvePlanCreatorName(
+                    doctorEvents.length > 0 ? doctorEvents : hqOnlyEvents,
+                    users
+                  );
                   return (
-                    <div key={hqId} className="mt-2">
+                    <div key={planGroupKey} className="mt-2">
 
                       {/* HQ ACCORDION HEADER */}
                       <CommandItem
-                        value={`hq-${hqId}`}
+                        value={`hq-${hqId}-${creatorName}`}
                         onSelect={() =>
                           setDoctorAccordionOpen((prev) => ({
                             ...prev,
@@ -414,12 +423,22 @@ export const AgendaEvents = ({ scope = "all"}) => {
                         }
                         className="mb-1 p-2 border rounded-md cursor-pointer font-medium"
                       >
-                        <div className="flex justify-between w-full">
-                          {title}
+                        <div className="flex min-w-0 items-center justify-between gap-2 w-full">
+                          {doctorCount > 0 ? (
+                            <DoctorPlanGroupLabel
+                              hqName={hqName}
+                              doctorCount={doctorCount}
+                              creatorName={creatorName}
+                            />
+                          ) : (
+                            <span className="min-w-0 break-words text-xs">
+                              {hqName}
+                            </span>
+                          )}
 
                           <ChevronDown
                             className={cn(
-                              "h-4 w-4 transition",
+                              "h-4 w-4 shrink-0 transition",
                               isOpen && "rotate-180"
                             )}
                           />

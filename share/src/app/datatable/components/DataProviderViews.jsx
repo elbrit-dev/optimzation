@@ -8,6 +8,7 @@ import FilterSortPill from './views/FilterSortPill';
 import ProductSearchBar from './views/ProductSearchBar';
 import StaleDataBridge from './views/StaleDataBridge';
 import SyncPill from './views/SyncPill';
+import { LoadMoreBar, PageSizePill } from './views/ViewPaginator';
 import { ViewSwitcher } from '../../../components/ViewSwitcher';
 import { DataViewContext } from '../contexts/ViewContext';
 
@@ -33,6 +34,31 @@ function normalizeViews(views) {
 }
 
 const ALIGN_CLASS = { left: 'justify-start', center: 'justify-center', right: 'justify-end' };
+
+const DEFAULT_PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 200];
+
+/**
+ * Hold an object's identity steady while its contents are unchanged.
+ *
+ * Needed because DataProviderNew derives `variableOverrides` from the
+ * `overrides` prop by identity, and re-runs the query whenever that identity
+ * changes. A caller that builds `overrides` inline (Plasmic Studio does) hands
+ * down a fresh object every render, which would loop: fetch -> state -> render
+ * -> new object -> fetch. Non-serializable values fall through unstabilized.
+ */
+function useStableValue(value) {
+  const ref = useRef({ signature: undefined, value });
+  let signature;
+  try {
+    signature = JSON.stringify(value ?? null);
+  } catch {
+    return value;
+  }
+  if (signature !== ref.current.signature) {
+    ref.current = { signature, value };
+  }
+  return ref.current.value;
+}
 
 // Breathing room around the slot content — the engine's header is shared with the
 // original provider, so the variant adds its own spacing here instead of touching it.
@@ -82,6 +108,21 @@ export default function DataProviderViews({
   // Views (by id) where the rail is shown — the table has no letter sections,
   // so it defaults to the cards view only. Empty array = every view.
   letterRailViews = ['cards'],
+  // --- fetch size ("pagination"): the page-size control drives the query's own
+  // limit variable, so the SERVER returns fewer rows — not a client-side slice.
+  // Off by default; requires the query body to declare the variable, e.g.
+  // `query Doctors($first: Int = 10) { Leads(first: $first, ...) }`.
+  enableServerPaging = false,
+  pageSize = 25,
+  pageSizeOptions = DEFAULT_PAGE_SIZE_OPTIONS,
+  // GraphQL variable that carries the limit. `first` for the Relay-style ERP
+  // queries; name it differently for a query that uses e.g. `limit`.
+  pageSizeVariable = 'first',
+  showPageSizeControl = true,
+  showLoadMore = true,
+  // 'header' = size pill on the control row, 'bottom' = Load more under the
+  // content, 'both' = each in its place.
+  paginatorPosition = 'both',
   // --- cache: paint last session's data instantly, refresh behind it.
   // Variant-only (StaleDataBridge): the underlying DataProvider's loading flow
   // is untouched — this only re-provides the published context while it loads. ---
@@ -132,13 +173,61 @@ export default function DataProviderViews({
     ? activeView
     : fallbackView;
 
+  // --- fetch size -----------------------------------------------------------
+  // Normalized once so a Studio-typed string ("25") or a stray 0 can't reach
+  // the query as a bad variable.
+  const initialFetchSize = useMemo(() => {
+    const n = Number(pageSize);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 25;
+  }, [pageSize]);
+
+  const [fetchSize, setFetchSizeState] = useState(initialFetchSize);
+
+  // Follow the prop when it changes (Studio edit, or a page variable driving it).
+  useEffect(() => { setFetchSizeState(initialFetchSize); }, [initialFetchSize]);
+
+  const setFetchSize = useCallback((next) => {
+    const n = Number(next);
+    if (!Number.isFinite(n) || n <= 0) return;
+    setFetchSizeState(Math.floor(n));
+  }, []);
+
+  const loadMore = useCallback(() => {
+    setFetchSizeState((current) => current + initialFetchSize);
+  }, [initialFetchSize]);
+
+  const showPaginatorInHeader = enableServerPaging && showPageSizeControl
+    && (paginatorPosition === 'header' || paginatorPosition === 'both');
+  const showPaginatorAtBottom = enableServerPaging && showLoadMore
+    && (paginatorPosition === 'bottom' || paginatorPosition === 'both');
+
+  // Stabilized for the same reason as the overrides object: `paging` rides on
+  // viewCtx / $ctx.view, so a fresh array literal from Studio would give the
+  // whole view context a new identity on every render.
+  const stablePageSizeOptions = useStableValue(pageSizeOptions);
+
+  const paging = useMemo(() => ({
+    enabled: enableServerPaging === true,
+    fetchSize,
+    setFetchSize,
+    loadMore,
+    loadMoreStep: initialFetchSize,
+    pageSizeOptions: stablePageSizeOptions,
+    pageSizeVariable,
+    showLoadMore: showPaginatorAtBottom,
+  }), [
+    enableServerPaging, fetchSize, setFetchSize, loadMore, initialFetchSize,
+    stablePageSizeOptions, pageSizeVariable, showPaginatorAtBottom,
+  ]);
+
   const viewCtx = useMemo(() => ({
     views: normalizedViews,
     activeView: resolvedActiveView,
     setActiveView,
     isActive: (id) => id === resolvedActiveView,
     keepInactiveMounted,
-  }), [normalizedViews, resolvedActiveView, setActiveView, keepInactiveMounted]);
+    paging,
+  }), [normalizedViews, resolvedActiveView, setActiveView, keepInactiveMounted, paging]);
 
   // Each header element is memoized so `__internal` keeps a stable identity between
   // renders — inline JSX would change every time and defeat the memo below.
@@ -188,13 +277,26 @@ export default function DataProviderViews({
         <div className="flex min-w-0 flex-nowrap items-center gap-1.5 sm:gap-2">
           <FilterSortPill />
           <SyncPill />
+          {showPaginatorInHeader ? <PageSizePill /> : null}
         </div>
         {inHeader ? switcher : null}
       </div>
     );
-  }, [compact, inHeader, switcher]);
+  }, [compact, inHeader, switcher, showPaginatorInHeader]);
 
-  const headerRight = !compact && inHeader ? switcher : null;
+  // Non-compact: the engine renders its own controls, so the size pill joins the
+  // switcher on the right rather than duplicating a control row.
+  const headerRight = useMemo(() => {
+    if (compact) return null;
+    const pill = showPaginatorInHeader ? <PageSizePill /> : null;
+    if (!pill) return inHeader ? switcher : null;
+    return (
+      <div className="flex shrink-0 flex-nowrap items-center gap-1.5 sm:gap-2">
+        {pill}
+        {inHeader ? switcher : null}
+      </div>
+    );
+  }, [compact, inHeader, switcher, showPaginatorInHeader]);
 
   const internalForProvider = useMemo(() => {
     const next = { ...__internal };
@@ -207,6 +309,24 @@ export default function DataProviderViews({
     return next;
   }, [__internal, headerTop, headerLeft, headerRight, compact, hideNativeFilterSort]);
 
+  // The whole server-paging trick: `overrides.variables` already flows through
+  // DataProvider into the GraphQL request (DataProviderNew builds
+  // variableOverrides from it), so merging the chosen size in limits the fetch
+  // with no engine change. Merged INTO any existing variables so a caller's own
+  // overrides (or a token) survive, and stabilized by content — see
+  // useStableValue for why identity matters here.
+  const overridesWithPaging = useMemo(() => {
+    if (!enableServerPaging || !pageSizeVariable) return overrides;
+    return {
+      ...(overrides && typeof overrides === 'object' ? overrides : {}),
+      variables: {
+        ...(overrides?.variables ?? {}),
+        [pageSizeVariable]: fetchSize,
+      },
+    };
+  }, [enableServerPaging, pageSizeVariable, overrides, fetchSize]);
+  const stableOverrides = useStableValue(overridesWithPaging);
+
   return (
     <DataProvider
       presetDataSource={presetDataSource}
@@ -214,7 +334,7 @@ export default function DataProviderViews({
       offlineData={offlineData}
       onDataChange={onDataChange}
       onError={onError}
-      overrides={overrides}
+      overrides={enableServerPaging ? stableOverrides : overrides}
       __internal={internalForProvider}
     >
       <DataViewContext.Provider value={viewCtx}>
@@ -236,6 +356,7 @@ export default function DataProviderViews({
                 ) : (
                   <div className={contentClassName ?? DEFAULT_CONTENT_PADDING}>{children}</div>
                 )}
+                {showPaginatorAtBottom ? <LoadMoreBar /> : null}
                 {viewSwitcherPosition === 'bottom' ? standaloneSwitcher : null}
               </div>
             );

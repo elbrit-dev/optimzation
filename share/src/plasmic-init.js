@@ -158,6 +158,47 @@ const dataProviderViewsMeta = {
       description:
         'View ids where the rail shows. Defaults to ["cards"] — the table view has no letter sections, so the rail hides there. Empty array = show on every view.',
     },
+    // --- fetch size (server-side limit, not a client slice) ---
+    enableServerPaging: {
+      type: 'boolean',
+      defaultValue: false,
+      description:
+        'Let the page-size control drive the query\'s own limit variable, so the SERVER returns fewer rows. REQUIRES the query body to declare the variable, e.g. query Doctors($first: Int = 10) { Leads(first: $first, ...) } — a query that does not declare it keeps its own hardcoded limit and this does nothing. Note: with clientSave queries, search / sort / the A–Z rail only cover the rows actually loaded.',
+    },
+    pageSize: {
+      type: 'number',
+      defaultValue: 25,
+      description:
+        'Rows to fetch initially, and the step "Load more" adds each time. Also sets the engine\'s own row window so sortedData- and paginatedData-bound views agree.',
+    },
+    pageSizeOptions: {
+      type: 'object',
+      defaultValue: [10, 25, 50, 100, 200],
+      description: 'Choices in the page-size pill. The current size is always included even if it is not listed here.',
+    },
+    pageSizeVariable: {
+      type: 'string',
+      defaultValue: 'first',
+      description:
+        'GraphQL variable that carries the limit. "first" for the Relay-style ERP queries; change it for a query that uses e.g. "limit".',
+    },
+    showPageSizeControl: {
+      type: 'boolean',
+      defaultValue: true,
+      description: 'Show the "25 / page" pill on the control row.',
+    },
+    showLoadMore: {
+      type: 'boolean',
+      defaultValue: true,
+      description:
+        'Show the row count + "Load more" bar under the content. Load more raises the fetch size by one pageSize step and re-queries — it is not cursor paging (after + filter throws on our ERP), so rows always come down from the first one.',
+    },
+    paginatorPosition: {
+      type: 'choice',
+      options: ['header', 'bottom', 'both'],
+      defaultValue: 'both',
+      description: 'Where the fetch-size controls go: size pill on the header row, Load more under the content, or both.',
+    },
     // --- cache ---
     staleWhileRevalidate: {
       type: 'boolean',
