@@ -195,14 +195,14 @@ function stripHtml(value) {
  * and it carries ORDER, which booleans cannot.                        *
  * ------------------------------------------------------------------ */
 
-const SECTION_KEYS = ["business", "visits", "notes", "coverage", "contact", "classification", "record"];
+const SECTION_KEYS = ["revenue", "business", "visits", "notes", "coverage", "contact", "classification", "record"];
 const ACTION_KEYS = ["pob", "note", "call", "whatsapp", "email", "directions"];
 
 /**
  * Sections that want the wider column on a desktop layout. Everything else
  * goes in the narrow column, each in the order the caller listed it.
  */
-const WIDE_SECTIONS = new Set(["business", "visits", "notes"]);
+const WIDE_SECTIONS = new Set(["revenue", "business", "visits", "notes"]);
 
 /**
  * Normalise a multi-select prop.
@@ -628,6 +628,62 @@ async function fetchDoctorAddresses(doctorId) {
   return Array.isArray(json && json.data) ? json.data : [];
 }
 /**
+ * Revenue attributed to the doctor.
+ *
+ * ERP attributes revenue to a prescriber on the ORDER LINE — `Sales Order
+ * Item.custom_doctor` is a Link to Lead, and it is genuinely populated (about
+ * ₹1.17 Cr of tagged lines across all doctors as of Sep 2026). Sales INVOICE
+ * carries no doctor field at any level, so ordered value is the only honest
+ * attribution available; the panel says "ordered" rather than "billed" for
+ * exactly that reason, and a line whose order is later cancelled still shows
+ * with its order's status beside it.
+ *
+ * The read is REST, not GraphQL: the filter is on a CHILD table
+ * (["Sales Order Item", "custom_doctor", "=", id]), which the schema's
+ * SalesOrders resolver has no way to express. Selecting child columns
+ * alongside it makes the endpoint return ONE ROW PER MATCHING LINE rather than
+ * per order, which is what the panel wants — the doctor's lines, not every
+ * line of any order that happens to mention them.
+ */
+const SALES_FIELDS = [
+  "name",
+  "transaction_date",
+  "customer",
+  "customer_name",
+  "status",
+  "`tabSales Order Item`.item_code as item_code",
+  "`tabSales Order Item`.item_name as item_name",
+  "`tabSales Order Item`.qty as qty",
+  "`tabSales Order Item`.uom as uom",
+  "`tabSales Order Item`.rate as rate",
+  "`tabSales Order Item`.amount as amount",
+];
+
+async function fetchDoctorRevenue(doctorId) {
+  const { authToken } = AUTH_CONFIG;
+  if (!authToken) throw new Error("Missing ERP auth configuration");
+
+  const params = new URLSearchParams({
+    fields: JSON.stringify(SALES_FIELDS),
+    filters: JSON.stringify([["Sales Order Item", "custom_doctor", "=", doctorId]]),
+    limit_page_length: "500",
+    // Both tables carry `transaction_date`-adjacent columns once joined, and an
+    // unqualified order_by on a joined child answers 500 — the same trap the
+    // address read hits. Keep it qualified AND backticked: a child column
+    // without backticks returns zero rows with no error at all.
+    order_by: "`tabSales Order`.`transaction_date` desc",
+  });
+
+  const response = await fetch(
+    erpRestBase() + "/api/resource/" + encodeURIComponent("Sales Order") + "?" + params,
+    { headers: { Accept: "application/json", Authorization: "token " + authToken } }
+  );
+  if (!response.ok) throw new Error("HTTP " + response.status);
+  const json = await response.json();
+  return Array.isArray(json && json.data) ? json.data : [];
+}
+
+/**
  * Visit history.
  *
  * Two fields are deliberately NOT asked for.
@@ -684,7 +740,7 @@ async function firstSuccessful(queries, variables, extract) {
  * cached here: a detail page is opened for one doctor at a time and a stale POB
  * total is worse than a second's wait.
  */
-function useDoctorEnrichment(doctorId, { enabled, pobLimit, pobsGiven, visitsGiven, addressesGiven, erpUrl, authToken, erpTarget }) {
+function useDoctorEnrichment(doctorId, { enabled, pobLimit, pobsGiven, visitsGiven, addressesGiven, revenueGiven, erpUrl, authToken, erpTarget }) {
   const [result, setResult] = useState(null);
   const [nonce, setNonce] = useState(0);
   const refresh = useCallback(() => setNonce((n) => n + 1), []);
@@ -700,6 +756,7 @@ function useDoctorEnrichment(doctorId, { enabled, pobLimit, pobsGiven, visitsGiv
       ["pobs", (vars) => firstSuccessful(POB_QUERIES, vars, (d) => normalizeConnection(d?.Quotations)), pobsGiven],
       ["visits", (vars) => firstSuccessful([VISIT_QUERY], vars, (d) => normalizeConnection(d?.Events)), visitsGiven],
       ["addresses", (vars) => fetchDoctorAddresses(vars.name), addressesGiven],
+      ["revenue", (vars) => fetchDoctorRevenue(vars.name), revenueGiven],
     ].filter(([, , given]) => !Array.isArray(given));
     setResult({ key: requestKey, loading: Object.fromEntries(jobs.map(([key]) => [key, true])), errors: {} });
     const update = (key, value, error) => {
@@ -731,16 +788,18 @@ function useDoctorEnrichment(doctorId, { enabled, pobLimit, pobsGiven, visitsGiv
       }));
     })();
     return () => { live = false; };
-  }, [enabled, doctorId, pobLimit, pobsGiven, visitsGiven, addressesGiven, erpUrl, authToken, erpTarget, nonce, requestKey]);
+  }, [enabled, doctorId, pobLimit, pobsGiven, visitsGiven, addressesGiven, revenueGiven, erpUrl, authToken, erpTarget, nonce, requestKey]);
   // Never paint a previous doctor's details during the render before effects run.
   const current = enabled && result?.key === requestKey ? result : null;
   const pending = !!enabled && !!doctorId && !current;
   return {
     lead: current?.lead, pobs: current?.pobs, visits: current?.visits, addresses: current?.addresses,
+    revenue: current?.revenue,
     loadingLead: pending || !!current?.loading.lead,
     loadingPobs: !pobsGiven && (pending || !!current?.loading.pobs),
     loadingVisits: !visitsGiven && (pending || !!current?.loading.visits),
     loadingAddresses: !addressesGiven && (pending || !!current?.loading.addresses),
+    loadingRevenue: !revenueGiven && (pending || !!current?.loading.revenue),
     errors: current?.errors || {}, refresh,
   };
 }
@@ -848,44 +907,109 @@ function analysePobs(pobs) {
   });
   const products = [...byProduct.values()].sort((a, b) => b.amount - a.amount || b.qty - a.qty);
 
-  // Months are built forward from the earliest POB to the latest so a gap reads
-  // as a gap. A doctor with one POB gets one bar, not twelve empty ones.
-  const months = [];
-  const dated = rows.filter((r) => r.time != null);
-  if (dated.length) {
-    const first = new Date(dated[dated.length - 1].time);
-    const lastDate = new Date(dated[0].time);
-    const cursor = new Date(Math.max(new Date(first.getFullYear(), first.getMonth(), 1).getTime(), new Date(lastDate.getFullYear(), lastDate.getMonth() - 11, 1).getTime()));
-    const end = new Date(lastDate.getFullYear(), lastDate.getMonth(), 1);
-    const buckets = new Map();
-    dated.forEach((row) => {
-      const d = new Date(row.time);
-      const key = `${d.getFullYear()}-${d.getMonth()}`;
-      const entry = buckets.get(key) ?? { value: 0, count: 0 };
-      entry.value += Number.isFinite(row.value) ? row.value : 0;
-      entry.count += 1;
-      buckets.set(key, entry);
-    });
-    // Guard the walk: a corrupt date could otherwise run the loop forever.
-    let guard = 0;
-    while (cursor <= end && guard < 60) {
-      const key = `${cursor.getFullYear()}-${cursor.getMonth()}`;
-      const entry = buckets.get(key) ?? { value: 0, count: 0 };
-      months.push({
-        key,
-        label: MONTHS[cursor.getMonth()],
-        year: cursor.getFullYear(),
-        value: entry.value,
-        count: entry.count,
-      });
-      cursor.setMonth(cursor.getMonth() + 1);
-      guard += 1;
-    }
-  }
-  // Only the tail is charted — an older bar tells a rep nothing they can act on.
-  const chart = months.slice(-12);
+  return { rows, total, unknownValues, count: rows.length, last, products, months: monthSeries(rows) };
+}
 
-  return { rows, total, unknownValues, count: rows.length, last, products, months: chart };
+/**
+ * A month-by-month series from any [{ time, value }] list, newest last.
+ *
+ * Built FORWARD from the earliest row to the latest so a gap reads as a gap
+ * rather than closing up — a month with nothing in it is the finding. A doctor
+ * with one row gets one bar, not twelve empty ones, and only the last twelve
+ * months are returned because an older bar tells a rep nothing they can act on.
+ */
+function monthSeries(rows) {
+  const dated = (rows ?? []).filter((r) => r && r.time != null);
+  if (!dated.length) return [];
+  const times = dated.map((r) => r.time);
+  const first = new Date(Math.min(...times));
+  const lastDate = new Date(Math.max(...times));
+  const cursor = new Date(Math.max(
+    new Date(first.getFullYear(), first.getMonth(), 1).getTime(),
+    new Date(lastDate.getFullYear(), lastDate.getMonth() - 11, 1).getTime()
+  ));
+  const end = new Date(lastDate.getFullYear(), lastDate.getMonth(), 1);
+
+  const buckets = new Map();
+  dated.forEach((row) => {
+    const d = new Date(row.time);
+    const key = `${d.getFullYear()}-${d.getMonth()}`;
+    const entry = buckets.get(key) ?? { value: 0, count: 0 };
+    entry.value += Number.isFinite(row.value) ? row.value : 0;
+    entry.count += 1;
+    buckets.set(key, entry);
+  });
+
+  const months = [];
+  // Guard the walk: a corrupt date could otherwise run the loop forever.
+  let guard = 0;
+  while (cursor <= end && guard < 60) {
+    const key = `${cursor.getFullYear()}-${cursor.getMonth()}`;
+    const entry = buckets.get(key) ?? { value: 0, count: 0 };
+    months.push({ key, label: MONTHS[cursor.getMonth()], year: cursor.getFullYear(), value: entry.value, count: entry.count });
+    cursor.setMonth(cursor.getMonth() + 1);
+    guard += 1;
+  }
+  return months.slice(-12);
+}
+
+/**
+ * The revenue ledger: one ERP row per ORDER LINE tagged to this doctor.
+ *
+ * Rolled up three ways because each answers a different question a rep or a
+ * manager actually asks — how much and when (months), what is being written
+ * (products), and which distributor it flows through (customers, which is the
+ * one that says who to service to keep the doctor's scripts filled).
+ */
+function analyseRevenue(lines) {
+  const rows = (lines ?? [])
+    .map((line) => ({
+      order: line?.name ?? "",
+      at: line?.transaction_date ?? null,
+      time: toTime(line?.transaction_date),
+      status: line?.status ?? "",
+      customer: line?.customer_name || line?.customer || "",
+      label: line?.item_name || line?.item_code || "",
+      code: line?.item_code ?? "",
+      qty: toNumber(line?.qty),
+      uom: line?.uom ?? "",
+      rate: toNumber(line?.rate),
+      value: toNumber(line?.amount),
+    }))
+    .filter((row) => row.order)
+    .sort((a, b) => (b.time ?? 0) - (a.time ?? 0));
+
+  const total = rows.reduce((sum, r) => sum + (Number.isFinite(r.value) ? r.value : 0), 0);
+  const orders = new Set(rows.map((r) => r.order)).size;
+  const last = rows.find((r) => r.time != null) ?? null;
+
+  const roll = (keyOf) => {
+    const map = new Map();
+    rows.forEach((row) => {
+      const key = keyOf(row);
+      if (!key) return;
+      const entry = map.get(key) ?? { label: key, amount: 0, qty: 0, lines: 0, orders: new Set() };
+      entry.amount += Number.isFinite(row.value) ? row.value : 0;
+      entry.qty += Number.isFinite(row.qty) ? row.qty : 0;
+      entry.lines += 1;
+      entry.orders.add(row.order);
+      map.set(key, entry);
+    });
+    return [...map.values()]
+      .map((e) => ({ ...e, orders: e.orders.size }))
+      .sort((a, b) => b.amount - a.amount || b.qty - a.qty);
+  };
+
+  return {
+    rows,
+    total,
+    orders,
+    lines: rows.length,
+    last,
+    products: roll((r) => r.label),
+    customers: roll((r) => r.customer),
+    months: monthSeries(rows),
+  };
 }
 
 /* ------------------------------------------------------------------ *
@@ -1228,6 +1352,146 @@ function PobPanel({ pob, known, loading, currency, compact, limit }) {
   </div>;
 }
 
+/**
+ * What the doctor is worth to the company.
+ *
+ * The headline is ORDERED value, not billed: ERP tags the prescriber on the
+ * Sales Order line and nothing carries that tag through to the invoice, so
+ * claiming "revenue billed" would be inventing a number. The strip says
+ * "Ordered value" and the footnote says where it comes from.
+ *
+ * Most doctors will have nothing here — the tag is only written on some order
+ * lines — so the empty state has to explain that the doctor may well be
+ * prescribing and simply be untagged, rather than implying they sell nothing.
+ */
+function RevenuePanel({ revenue, known, loading, currency, compact }) {
+  const [allProducts, setAllProducts] = useState(false);
+  const [page, setPage] = useState(0);
+
+  if (loading && !known) return <Section title="Revenue"><Loading lines={4} /></Section>;
+  if (!known) {
+    return (
+      <Section title="Revenue">
+        <Empty
+          headline="Revenue could not be loaded"
+          body="Order lines could not be read from ERP. Retry above, or check this page’s ERP target."
+        />
+      </Section>
+    );
+  }
+  if (!revenue.lines) {
+    return (
+      <Section title="Revenue">
+        <Empty
+          headline="No orders tagged to this doctor"
+          body="Revenue appears here once an order line names this doctor as the prescriber. Orders that were never tagged do not show, so this doctor may still be prescribing."
+        />
+      </Section>
+    );
+  }
+
+  const currentPage = Math.min(page, Math.max(0, Math.ceil(revenue.rows.length / 10) - 1));
+  const shownProducts = allProducts ? revenue.products : revenue.products.slice(0, 5);
+
+  return (
+    <div className="dtx-panel-stack">
+      <Section title="Revenue">
+        <div className="dtx-pad">
+          <div className="dtx-balance dtx-balance--flush">
+            <div className="dtx-balance-figure">
+              <div className="dtx-label">Ordered value</div>
+              <div className="dtx-balance-value">{fmtMoney(revenue.total, currency)}</div>
+              <div className="dtx-balance-sub">
+                {`Across ${revenue.orders} order${revenue.orders === 1 ? "" : "s"} · ${revenue.lines} line${revenue.lines === 1 ? "" : "s"}`}
+              </div>
+            </div>
+            <div className="dtx-balance-cell">
+              <div className="dtx-label">Products</div>
+              <div className="dtx-balance-cell-value">{fmtNum(revenue.products.length)}</div>
+              <div className="dtx-balance-sub">{`Through ${revenue.customers.length} distributor${revenue.customers.length === 1 ? "" : "s"}`}</div>
+            </div>
+            {revenue.last?.at ? (
+              <div className="dtx-balance-cell">
+                <div className="dtx-label">Last order</div>
+                <div className="dtx-balance-cell-value">{fmtDate(revenue.last.at)}</div>
+                <div className="dtx-balance-sub">{relTime(revenue.last.at)}</div>
+              </div>
+            ) : null}
+          </div>
+          {revenue.months.length > 2 ? (
+            <div className="dtx-revenue-chart">
+              <MonthChart months={compact ? revenue.months.slice(-6) : revenue.months} currency={currency} />
+            </div>
+          ) : null}
+          <p className="dtx-note-foot">
+            Ordered value from Sales Order lines that name this doctor. ERP records no prescriber on
+            invoices, so this is what was ordered against them, not what was billed.
+          </p>
+        </div>
+      </Section>
+
+      <Section title="Products written" count={revenue.products.length}>
+        <div className="dtx-pad">
+          <div className="dtx-rank">
+            {shownProducts.map((product) => (
+              <div className="dtx-rank-row" key={product.label}>
+                <div className="dtx-rank-top">
+                  <span className="dtx-product-name">{product.label}</span>
+                  <small>{fmtNum(product.qty)} {product.qty === 1 ? "unit" : "units"}</small>
+                  <b>{fmtMoney(product.amount, currency)}</b>
+                </div>
+              </div>
+            ))}
+          </div>
+          {revenue.products.length > 5 ? (
+            <button type="button" className="dtx-more" onClick={() => setAllProducts(!allProducts)}>
+              {allProducts ? "Show fewer" : `Show all ${revenue.products.length}`}
+            </button>
+          ) : null}
+        </div>
+      </Section>
+
+      <Section title="Ordered through" count={revenue.customers.length}>
+        <div className="dtx-coverage">
+          {revenue.customers.map((customer) => (
+            <article className="dtx-team" key={customer.label}>
+              <div className="dtx-rank-top">
+                <span className="dtx-product-name">{customer.label}</span>
+                <b>{fmtMoney(customer.amount, currency)}</b>
+              </div>
+              <p>{`${customer.orders} order${customer.orders === 1 ? "" : "s"} · ${fmtNum(customer.qty)} units`}</p>
+            </article>
+          ))}
+        </div>
+      </Section>
+
+      <Section title="Order lines" count={revenue.lines}>
+        <div className="dtx-notes">
+          {revenue.rows.slice(currentPage * 10, (currentPage + 1) * 10).map((row, index) => (
+            <article className="dtx-note" key={`${row.order}-${row.code}-${index}`}>
+              <div className="dtx-note-when">
+                {fmtDate(row.at) || "Date not recorded"}
+                {row.order ? <span className="dtx-doc-no">{row.order}</span> : null}
+              </div>
+              <div className="dtx-visit-title">
+                <h3>{row.label || "Item not named"}</h3>
+                <span className="dtx-rev-amount">{fmtMoney(row.value, currency)}</span>
+                <StatusPill value={row.status} />
+              </div>
+              <div className="dtx-visit-meta">
+                <span>{row.customer || "Customer not specified"}</span>
+                {Number.isFinite(row.qty) ? <span>{fmtNum(row.qty)} {row.uom || "units"}</span> : null}
+                {Number.isFinite(row.rate) ? <span>at {fmtMoney(row.rate, currency)}</span> : null}
+              </div>
+            </article>
+          ))}
+        </div>
+        <Pagination page={currentPage} count={revenue.rows.length} size={10} onChange={setPage} />
+      </Section>
+    </div>
+  );
+}
+
 function VisitsPanel({ visits, known, loading, pobs, currency }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
@@ -1405,19 +1669,23 @@ export default function DoctorDetail({
 
   const visitsGiven = useMemo(() => normalizeConnection(visitsProp ?? envelope?.Events), [visitsProp, envelope?.Events]);
   const addressesGiven = useMemo(() => normalizeConnection(addressesProp ?? envelope?.Addresses), [addressesProp, envelope?.Addresses]);
+  // No prop feeds order lines — the child-table filter cannot be expressed
+  // upstream, so this read is always the component's own.
+  const revenueGiven = null;
   const {
     lead,
     pobs: pobsFetched,
     visits: visitsFetched,
     addresses: addressesFetched,
-    loadingVisits, loadingAddresses, errors,
+    revenue: revenueFetched,
+    loadingVisits, loadingAddresses, loadingRevenue, errors,
     loadingLead,
     loadingPobs,
     refresh,
   } = useDoctorEnrichment(doctorId, {
     enabled: !!enrich,
     pobLimit,
-    pobsGiven, visitsGiven, addressesGiven,
+    pobsGiven, visitsGiven, addressesGiven, revenueGiven,
     erpUrl,
     authToken,
     erpTarget,
@@ -1485,6 +1753,11 @@ export default function DoctorDetail({
   const pob = useMemo(() => analysePobs(pobs), [pobs]);
   const pobKnown = Array.isArray(pobs);
 
+  /* --- revenue -------------------------------------------------- */
+
+  const revenue = useMemo(() => analyseRevenue(revenueFetched), [revenueFetched]);
+  const revenueKnown = Array.isArray(revenueFetched);
+
   /* --- classification ------------------------------------------- */
 
   const cat1 = pickBoth(lead, row, "custom_category1__name", ["custom_category1"]);
@@ -1531,7 +1804,7 @@ export default function DoctorDetail({
     ...(style ?? {}),
   };
 
-  const enriching = enrich && (loadingLead || loadingPobs || loadingVisits || loadingAddresses);
+  const enriching = enrich && (loadingLead || loadingPobs || loadingVisits || loadingAddresses || loadingRevenue);
 
   /* --- stat tiles ----------------------------------------------- */
 
@@ -1539,6 +1812,8 @@ export default function DoctorDetail({
   // nothing still shows — "0 visits" is information — but it is not given the
   // same weight as the balance.
   const stats = [
+    { label: "Revenue", value: revenueKnown && revenue.lines ? fmtMoneyShort(Math.round(revenue.total), currency) : "—",
+      sub: revenueKnown ? (revenue.lines ? `Across ${revenue.orders} order${revenue.orders === 1 ? "" : "s"}` : "Nothing tagged yet") : loadingRevenue ? "Loading" : "Unavailable" },
     { label: "Visits", value: Array.isArray(visits) ? fmtNum(visitRows.length) : "—",
       sub: lastVisit ? `Last ${fmtDate(lastVisit.starts_on)}` : nextVisit ? `Next ${fmtDate(nextVisit.starts_on)}` : Array.isArray(visits) ? "None recorded" : "Unavailable" },
     { label: "Notes", value: fmtNum(notes.length),
@@ -1769,6 +2044,7 @@ export default function DoctorDetail({
 
   /* --- sections ------------------------------------------------- */
 
+  const revenueSection = <RevenuePanel key={code} revenue={revenue} known={revenueKnown} loading={loadingRevenue} currency={currency} compact={compact} />;
   const businessSection = <PobPanel key={code} pob={pob} known={pobKnown} loading={loadingPobs} currency={currency} compact={compact} limit={pobLimit} />;
   const visitsSection = <VisitsPanel key={code} visits={visitRows} known={Array.isArray(visits)} loading={loadingVisits} pobs={pob.rows} currency={currency} />;
 
@@ -1918,6 +2194,7 @@ export default function DoctorDetail({
   // sections take the big column and the rest the narrow one, each keeping its
   // listed order; on a narrow container they are one stream.
   const byKey = {
+    revenue: revenueSection,
     business: businessSection,
     visits: visitsSection,
     coverage: coverageSection,
@@ -1931,9 +2208,9 @@ export default function DoctorDetail({
   const narrowCol = chosen.filter(([key]) => !WIDE_SECTIONS.has(key));
 
   const selectedView = wideCol.some(([key]) => key === activeView) ? activeView : wideCol[0]?.[0];
-  const tabLabels = { business: "POB overview", visits: "Visit history", notes: "Notes" };
-  const tabCounts = { business: pobKnown ? pob.count : null, visits: Array.isArray(visits) ? visits.length : null, notes: notes.length };
-  const failed = Object.entries(errors).filter(([, value]) => value).map(([key]) => ({ lead: "profile", pobs: "POBs", visits: "visits", addresses: "addresses" }[key]));
+  const tabLabels = { revenue: "Revenue", business: "POB overview", visits: "Visit history", notes: "Notes" };
+  const tabCounts = { revenue: revenueKnown && revenue.orders ? revenue.orders : null, business: pobKnown ? pob.count : null, visits: Array.isArray(visits) ? visits.length : null, notes: notes.length };
+  const failed = Object.entries(errors).filter(([, value]) => value).map(([key]) => ({ lead: "profile", pobs: "POBs", visits: "visits", addresses: "addresses", revenue: "revenue" }[key]));
 
   return (
     <>

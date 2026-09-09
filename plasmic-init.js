@@ -1592,7 +1592,7 @@ PLASMIC.registerComponent(DoctorDetail, {
   name: "DoctorDetail",
   displayName: "Doctor Detail Page",
   description:
-    "The whole doctor detail page as ONE component: identity, the recorded-POB balance with its trend, vitals, and panels for quotations, visits, notes, coverage, contact, classification and record. Bind DOCTOR and you are done — it runs its own ERP queries for everything the row does not carry (the full Lead, the POB ledger, visit history, addresses), so there is nothing to plumb. Every read is additive: the bound row paints immediately, a read that fails leaves the page on that row behind a dismissible strip, and a panel with no data says so in words rather than spinning. Coloured in the Elbrit palette taken off the logo, and there is deliberately no route into ERP — no link, no action, no footer. It is a component, not a page: at auto height it grows inside a stack, and given a height it scrolls inside itself.",
+    "The whole doctor detail page as ONE component: identity, the recorded-POB balance with its trend, vitals, and panels for revenue, quotations, visits, notes, coverage, contact, classification and record. Bind DOCTOR and you are done — it runs its own ERP queries for everything the row does not carry (the full Lead, the POB ledger, visit history, addresses), so there is nothing to plumb. Every read is additive: the bound row paints immediately, a read that fails leaves the page on that row behind a dismissible strip, and a panel with no data says so in words rather than spinning. Coloured in the Elbrit palette taken off the logo, and there is deliberately no route into ERP — no link, no action, no footer. It is a component, not a page: at auto height it grows inside a stack, and given a height it scrolls inside itself.",
   props: {
     doctor: {
       type: "object",
@@ -1616,9 +1616,9 @@ PLASMIC.registerComponent(DoctorDetail, {
     sections: {
       type: "choice",
       multiSelect: true,
-      options: ["business", "visits", "notes", "coverage", "contact", "classification", "record"],
+      options: ["revenue", "business", "visits", "notes", "coverage", "contact", "classification", "record"],
       description:
-        "WHICH panels to show, and in what order. Leave empty for all of them. business = the quotation ledger, by-month chart and products prescribed · visits = visit history with who called and whether the call was actually made · notes = the doctor's notes · coverage = division × HQ × beat with the assigned rep · contact = addresses, phones, e-mail, coordinates · classification = grade and the C1/C2/C3 codes · record = ids and timestamps. On a wide container business, visits and notes share the big column as tabs and the rest fills the sidebar, each in your order; on a narrow one it is a single stream. A panel that would be empty still renders and says why, rather than vanishing and leaving the reader unsure whether it was switched off or has no data.",
+        "WHICH panels to show, and in what order. Leave empty for all of them. revenue = what the doctor is worth: ordered value from Sales Order lines tagged to them, by month, by product and by distributor · business = the quotation ledger, by-month chart and products prescribed · visits = visit history with who called and whether the call was actually made · notes = the doctor's notes · coverage = division × HQ × beat with the assigned rep · contact = addresses, phones, e-mail, coordinates · classification = grade and the C1/C2/C3 codes · record = ids and timestamps. On a wide container business, visits and notes share the big column as tabs and the rest fills the sidebar, each in your order; on a narrow one it is a single stream. A panel that would be empty still renders and says why, rather than vanishing and leaving the reader unsure whether it was switched off or has no data.",
     },
     erpTarget: {
       type: "string",

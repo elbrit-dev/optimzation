@@ -169,6 +169,7 @@ const doctorDetailStyles = `
 /* Proportional, not "figure takes all the slack" — at 1.55fr the total had
    ~700px of dead white beside it and the other two cells were pinned to the
    far edge, which read as three unrelated things rather than one strip. */
+.dtx-balance--flush {margin:0}
 .dtx-balance-figure, .dtx-balance-cell {
   padding:14px 16px; border-left:1px solid var(--dtx-line); min-width:0;
   display:flex; flex-direction:column; justify-content:center;
@@ -203,7 +204,7 @@ const doctorDetailStyles = `
 /* ------------------------------------------------------------------ vitals */
 /* A real grid, not flex with a 130px basis — that basis wrapped four tiles
    into a ragged 3 + 1 at most container widths. */
-.dtx-stats {display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:var(--dtx-gap)}
+.dtx-stats {display:grid; grid-template-columns:repeat(auto-fit,minmax(132px,1fr)); gap:var(--dtx-gap)}
 .dtx-stat {
   min-width:0; padding:13px 15px; background:var(--dtx-card);
   border:1px solid var(--dtx-line); border-radius:12px;
@@ -261,6 +262,18 @@ const doctorDetailStyles = `
 .dtx-sidebar {min-width:0}
 .dtx-panel-stack {display:flex; flex-direction:column; gap:var(--dtx-gap); min-width:0}
 
+/* ----------------------------------------------------------------- revenue */
+.dtx-revenue-chart {margin-top:18px}
+/* A caveat, not a caption: it says what the number is NOT (billed), so it
+   carries a rule above it rather than trailing off the chart. */
+.dtx-note-foot {
+  margin-top:16px; padding-top:12px; border-top:1px solid var(--dtx-line-soft);
+  max-width:70ch; font-size:12px; line-height:1.6; color:var(--dtx-mute);
+}
+/* The order number belongs to the date line, set apart as a document number. */
+.dtx-doc-no {margin-left:auto; font-family:var(--dtx-mono); font-size:11px; font-weight:600; letter-spacing:0; text-transform:none; color:var(--dtx-faint)}
+.dtx-rev-amount {flex:none; font-size:14px; font-weight:700; color:var(--dtx-ink); font-variant-numeric:tabular-nums; white-space:nowrap}
+
 /* ------------------------------------------------------------------ ledger */
 /* Quotations are the account's line items: date left, party and document
    number in the middle, figure right — figures on one right edge, tabular, so
@@ -297,7 +310,7 @@ const doctorDetailStyles = `
 .dtx-pill {
   display:inline-flex; align-items:center; gap:4px; padding:3px 9px; border-radius:999px;
   border:1px solid transparent; font-size:11px; font-weight:700; letter-spacing:.02em;
-  text-transform:capitalize; white-space:nowrap; line-height:1.4;
+  white-space:nowrap; line-height:1.4;
 }
 .dtx-pill--won {color:var(--dtx-good); background:var(--dtx-good-soft); border-color:var(--dtx-good-line)}
 .dtx-pill--draft {color:var(--dtx-warn); background:var(--dtx-warn-soft); border-color:var(--dtx-warn-line)}
