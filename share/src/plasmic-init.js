@@ -158,6 +158,19 @@ const dataProviderViewsMeta = {
       description:
         'View ids where the rail shows. Defaults to ["cards"] — the table view has no letter sections, so the rail hides there. Empty array = show on every view.',
     },
+    // --- slot spacing ---
+    contentPadding: {
+      type: 'choice',
+      options: ['default', 'tight', 'none'],
+      defaultValue: 'default',
+      description:
+        'Inset the provider puts around the slot content. "default" = px-3 pt-3 pb-4 (sm:px-4). "tight" = px-1. "none" = no padding at all, so the layout inside the slot owns its own spacing — use this when your cards already carry margins.',
+    },
+    contentClassName: {
+      type: 'string',
+      description:
+        'Escape hatch: replaces the contentPadding classes outright with your own. An empty string means no classes at all. Leave unset to use contentPadding.',
+    },
     // --- fetch size (server-side limit, not a client slice) ---
     enableServerPaging: {
       type: 'boolean',
@@ -198,6 +211,26 @@ const dataProviderViewsMeta = {
       options: ['header', 'bottom', 'both'],
       defaultValue: 'both',
       description: 'Where the fetch-size controls go: size pill on the header row, Load more under the content, or both.',
+    },
+    loadMorePlacement: {
+      type: 'choice',
+      options: ['sticky', 'fixed', 'static'],
+      defaultValue: 'sticky',
+      description:
+        'How the Load-more bar sits while scrolling. "sticky" (default) keeps it visible at the bottom of the scrolling area and stays in flow, so it can never cover the last row — it needs a scrolling ancestor and no ancestor with overflow:hidden. "fixed" pins it to the viewport (space is reserved automatically) for pages whose scroll container is not the provider content. "static" leaves it at the end of the list.',
+    },
+    loadMoreBottomGap: {
+      type: 'string',
+      defaultValue: '4.5rem',
+      description:
+        'Gap below the bar for sticky/fixed placement, clearing the app\'s bottom navigation (fixed, 4rem) — the device safe-area inset is added on top of this automatically. Any CSS length.',
+    },
+    loadMoreVariant: {
+      type: 'choice',
+      options: ['floating', 'bar', 'plain'],
+      defaultValue: 'floating',
+      description:
+        '"floating" = centered white capsule with shadow over the content. "bar" = full-width footer with a top border. "plain" = no background (the original look; it will be unreadable over content when sticky).',
     },
     // --- cache ---
     staleWhileRevalidate: {

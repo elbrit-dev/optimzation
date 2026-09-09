@@ -302,6 +302,8 @@ The prop descriptions are written as **Studio-facing documentation**, including 
 | `viewSwitcherPosition` | choice | `header` | `header` \| `top` \| `bottom` |
 | `viewSwitcherAlign` | choice | `right` | `top`/`bottom` only |
 | `keepInactiveMounted` | boolean | `true` | keeps table scroll/expanded rows |
+| `contentPadding` | choice | `default` | `default` \| `tight` \| `none` — inset around the slot |
+| `contentClassName` | string | — | replaces the padding classes outright; `''` = none |
 | `showSearch` | boolean | `false` | needs `clientSave: true` + `searchFields` |
 | `searchPlaceholder` | string | `Search product or brand…` | |
 | `showRecentSearches` / `recentSearchLimit` / `recentSearchStorageKey` | bool / num / string | `true` / `5` / — | set the key to isolate per page |
@@ -316,6 +318,9 @@ The prop descriptions are written as **Studio-facing documentation**, including 
 | `pageSizeVariable` | string | `first` | `first` for Relay-style ERP queries |
 | `showPageSizeControl` / `showLoadMore` | boolean | `true` / `true` | |
 | `paginatorPosition` | choice | `both` | `header` \| `bottom` \| `both` |
+| `loadMorePlacement` | choice | `sticky` | `sticky` \| `fixed` \| `static` |
+| `loadMoreBottomGap` | string | `4.5rem` | clears the 4rem bottom nav; safe-area inset added on top |
+| `loadMoreVariant` | choice | `floating` | `floating` \| `bar` \| `plain` |
 | `staleWhileRevalidate` | boolean | `false` | `$ctx.data.main.isRevalidating` during stale window |
 | `cacheKey` | string | `preset:{src}:{name}` | set to unshare snapshots |
 | `presetDataSource`, `presetName`, `offlineData`, `overrides`, `onDataChange`, `onError` | — | — | identical to Elbrit DataProvider |
@@ -362,6 +367,12 @@ query Doctors($first: Int = 10) { Leads(first: $first, filter: {…}) { … } } 
 **A native `<select>` for the size pill.** The engine's header row is `overflow-x-auto`, which clips a popup on the cross axis too — the reason `SyncPill` has to position its menu `fixed`. A native select has no such problem.
 
 **The size also drives `updatePagination`.** So a view bound to `$ctx.data.paginatedData` shows the same window as one bound to `sortedData`, instead of the two silently disagreeing.
+
+**`sticky` over `fixed` as the placement default.** Sticky stays in normal flow, so the bar can never cover the last row and no space has to be reserved for it. `fixed` is offered for pages whose scroll container isn't the provider's content, and there the variant inserts its own spacer — a fixed bar with nothing reserved would hide the final card. Sticky's cost is that it needs a scrolling ancestor and no ancestor with `overflow: hidden`; if the bar refuses to lift, that's the first thing to check.
+
+**The gap is `4.5rem` + `env(safe-area-inset-bottom)`.** The app's bottom navigation is `fixed bottom-0` with `height: 4rem` (`navigation/components/Navigation.jsx`), so 4.5rem clears it with breathing room. The inset is added here explicitly because the nav's own `safe-area-bottom` class **is not defined in any stylesheet** — it looks like padding but does nothing.
+
+**Lifted bars are `pointer-events-none` with an `auto` inner.** A floating capsule sits over the cards; without this it would swallow taps on the rows either side of it. It also sits at `z-20` against the nav's `z-10` — above it in stacking order, clear of it in space.
 
 ### Costs the caller has to accept
 

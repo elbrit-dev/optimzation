@@ -8,7 +8,12 @@ import FilterSortPill from './views/FilterSortPill';
 import ProductSearchBar from './views/ProductSearchBar';
 import StaleDataBridge from './views/StaleDataBridge';
 import SyncPill from './views/SyncPill';
-import { LoadMoreBar, PageSizePill } from './views/ViewPaginator';
+import {
+  DEFAULT_BOTTOM_GAP,
+  LOAD_MORE_RESERVED_SPACE,
+  LoadMoreBar,
+  PageSizePill,
+} from './views/ViewPaginator';
 import { ViewSwitcher } from '../../../components/ViewSwitcher';
 import { DataViewContext } from '../contexts/ViewContext';
 
@@ -63,6 +68,14 @@ function useStableValue(value) {
 // Breathing room around the slot content — the engine's header is shared with the
 // original provider, so the variant adds its own spacing here instead of touching it.
 const DEFAULT_CONTENT_PADDING = 'px-3 pt-3 pb-4 sm:px-4 sm:pt-4';
+
+// Named insets for the slot. `none` hands spacing entirely to the Studio layout
+// inside the slot, which is the right choice when the cards carry their own.
+const CONTENT_PADDING_PRESETS = {
+  default: DEFAULT_CONTENT_PADDING,
+  tight: 'px-1 pt-1 pb-2 sm:px-1.5',
+  none: '',
+};
 // Same reason for the header: the engine wraps it in px-2 (8px on mobile), which
 // reads as cramped, so the variant insets its OWN header slots a little further.
 const HEADER_SLOT_PADDING = 'px-1 sm:px-1.5';
@@ -89,6 +102,9 @@ export default function DataProviderViews({
   keepInactiveMounted = true,
   className,
   // Padding around the slot content (variant-only; the engine header is shared).
+  // `contentPadding` picks a named inset; `contentClassName` overrides it
+  // outright, including with '' for no classes at all.
+  contentPadding = 'default',
   contentClassName,
   // --- search bar (drives the provider's own multi-field searchTerm) ---
   showSearch = false,
@@ -123,6 +139,13 @@ export default function DataProviderViews({
   // 'header' = size pill on the control row, 'bottom' = Load more under the
   // content, 'both' = each in its place.
   paginatorPosition = 'both',
+  // How the Load-more bar sits: 'sticky' keeps it visible while scrolling
+  // (default), 'fixed' pins it to the viewport, 'static' scrolls away with the
+  // content. Lifted placements clear the app's bottom navigation by
+  // loadMoreBottomGap + the device's safe-area inset.
+  loadMorePlacement = 'sticky',
+  loadMoreBottomGap = DEFAULT_BOTTOM_GAP,
+  loadMoreVariant = 'floating',
   // --- cache: paint last session's data instantly, refresh behind it.
   // Variant-only (StaleDataBridge): the underlying DataProvider's loading flow
   // is untouched — this only re-provides the published context while it loads. ---
@@ -200,6 +223,12 @@ export default function DataProviderViews({
     && (paginatorPosition === 'header' || paginatorPosition === 'both');
   const showPaginatorAtBottom = enableServerPaging && showLoadMore
     && (paginatorPosition === 'bottom' || paginatorPosition === 'both');
+
+  // An explicit contentClassName wins outright — '' is a valid value meaning
+  // "no padding from the provider", so this cannot use ?? on the preset.
+  const resolvedContentClass = typeof contentClassName === 'string'
+    ? contentClassName
+    : (CONTENT_PADDING_PRESETS[contentPadding] ?? DEFAULT_CONTENT_PADDING);
 
   // Stabilized for the same reason as the overrides object: `paging` rides on
   // viewCtx / $ctx.view, so a fresh array literal from Studio would give the
@@ -344,7 +373,7 @@ export default function DataProviderViews({
               <div className={className ?? 'flex flex-col min-h-0 flex-1'}>
                 {viewSwitcherPosition === 'top' ? standaloneSwitcher : null}
                 {showLetterRail ? (
-                  <div className={`flex min-h-0 flex-1 gap-1 ${contentClassName ?? DEFAULT_CONTENT_PADDING}`}>
+                  <div className={`flex min-h-0 flex-1 gap-1 ${resolvedContentClass}`}>
                     <div className="min-w-0 flex-1">{children}</div>
                     {/* Rail only on the views that have letter sections (cards).
                         The wrapper row stays constant so toggling views never
@@ -354,9 +383,23 @@ export default function DataProviderViews({
                     ) : null}
                   </div>
                 ) : (
-                  <div className={contentClassName ?? DEFAULT_CONTENT_PADDING}>{children}</div>
+                  <div className={resolvedContentClass}>{children}</div>
                 )}
-                {showPaginatorAtBottom ? <LoadMoreBar /> : null}
+                {showPaginatorAtBottom ? (
+                  <>
+                    {/* A fixed bar is out of flow, so the list needs the space
+                        reserved or its last row hides underneath. Sticky stays
+                        in flow and needs nothing. */}
+                    {loadMorePlacement === 'fixed' ? (
+                      <div aria-hidden="true" style={{ height: LOAD_MORE_RESERVED_SPACE }} />
+                    ) : null}
+                    <LoadMoreBar
+                      placement={loadMorePlacement}
+                      bottomGap={loadMoreBottomGap}
+                      variant={loadMoreVariant}
+                    />
+                  </>
+                ) : null}
                 {viewSwitcherPosition === 'bottom' ? standaloneSwitcher : null}
               </div>
             );

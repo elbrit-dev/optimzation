@@ -103,7 +103,59 @@ export function PageSizePill({ className }) {
  * active the loaded count is already narrowed, so the button stays enabled
  * rather than claiming the end of the list.
  */
-export function LoadMoreBar({ className }) {
+// Bottom navigation is `fixed bottom-0` at 4rem (navigation/components/Navigation.jsx),
+// so the default gap clears it with a little breathing room. Note that the nav's
+// own `safe-area-bottom` class is not defined in any stylesheet — the inset is
+// added here explicitly rather than inherited from it.
+export const DEFAULT_BOTTOM_GAP = '4.5rem';
+
+/** Reserve space so the last row is never left underneath a lifted bar. */
+export const LOAD_MORE_RESERVED_SPACE = '3.25rem';
+
+const VARIANT_SHELL = {
+  // Full-width footer: reads as chrome, best when the bar spans the screen.
+  bar: 'border-t border-gray-200 bg-white/95 shadow-[0_-2px_10px_rgba(15,23,42,0.06)] backdrop-blur',
+  // Centered capsule floating over the content.
+  floating: '',
+  // Original look: no background at all.
+  plain: '',
+};
+
+const VARIANT_INNER = {
+  bar: 'flex items-center justify-center gap-3 py-2.5',
+  floating:
+    'inline-flex items-center gap-3 rounded-full border border-gray-200 bg-white/95 px-3 py-1.5 shadow-lg backdrop-blur',
+  plain: 'flex items-center justify-center gap-3 py-3',
+};
+
+/**
+ * Bottom bar: how many rows are in hand, plus "Load more" — which raises the
+ * fetch size by one step and re-queries.
+ *
+ * Deliberately NOT cursor paging. This query carries a `filter`, and `after` +
+ * `filter` together throws "Filter must be a tuple or list" on our ERP, so
+ * growing `first` is the only paging that works here. It also means no page can
+ * be skipped: row 1..N always come down together.
+ *
+ * "More may exist" is a heuristic — nothing in the pipeline reads pageInfo, so
+ * a full page coming back is the only signal available. With a search or filter
+ * active the loaded count is already narrowed, so the button stays enabled
+ * rather than claiming the end of the list.
+ *
+ * Placement:
+ * - `sticky` (default) sticks to the bottom of the SCROLLING ANCESTOR. It stays
+ *   in flow, so it can never cover the last row — but it needs an ancestor that
+ *   actually scrolls and none with `overflow: hidden`.
+ * - `fixed` pins it to the viewport instead, for a page whose scroll container
+ *   isn't the provider's own content. The caller reserves the space.
+ * - `static` leaves it at the end of the list, scrolling away with the content.
+ */
+export function LoadMoreBar({
+  className,
+  placement = 'sticky',
+  bottomGap = DEFAULT_BOTTOM_GAP,
+  variant = 'floating',
+}) {
   const paging = useDataViews()?.paging;
   const { rawData, sortedData, searchTerm, filters } = useTableOperations();
   const busy = useBusy();
@@ -121,8 +173,21 @@ export function LoadMoreBar({ className }) {
     ? `${inHand.toLocaleString('en-US')} loaded`
     : `${visible.toLocaleString('en-US')} of ${inHand.toLocaleString('en-US')} loaded`;
 
-  return (
-    <div className={`flex items-center justify-center gap-3 py-3 ${className ?? ''}`}>
+  const shell = VARIANT_SHELL[variant] ?? VARIANT_SHELL.floating;
+  const inner = VARIANT_INNER[variant] ?? VARIANT_INNER.floating;
+
+  // The nav sits at z-10; lift above it in the stacking order but stay clear of
+  // it in space, so neither one covers the other.
+  const lifted = placement === 'sticky' || placement === 'fixed';
+  const offset = `calc(${bottomGap} + env(safe-area-inset-bottom, 0px))`;
+  const positionStyle = placement === 'fixed'
+    ? { position: 'fixed', left: 0, right: 0, bottom: offset, zIndex: 20 }
+    : placement === 'sticky'
+      ? { position: 'sticky', bottom: offset, zIndex: 20 }
+      : undefined;
+
+  const content = (
+    <div className={inner}>
       <span className="text-[11px] font-medium text-gray-500 sm:text-xs">{label}</span>
       {mayHaveMore ? (
         <button
@@ -141,6 +206,17 @@ export function LoadMoreBar({ className }) {
       ) : (
         <span className="text-[11px] text-gray-400 sm:text-xs">All loaded</span>
       )}
+    </div>
+  );
+
+  return (
+    <div
+      // pointer-events only on the bar itself: a floating capsule must not
+      // swallow taps on the cards either side of it.
+      className={`flex justify-center ${lifted ? 'pointer-events-none' : ''} ${shell} ${className ?? ''}`}
+      style={positionStyle}
+    >
+      <div className={lifted ? 'pointer-events-auto' : undefined}>{content}</div>
     </div>
   );
 }
