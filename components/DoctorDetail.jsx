@@ -965,12 +965,11 @@ const Icon = {
  * Small render pieces (kept local — this component IS the page)       *
  * ------------------------------------------------------------------ */
 
-function Section({ title, subtitle, icon: SectionIcon, count, children, id }) {
+function Section({ title, count, children, id }) {
   return (
     <section className="dtx-card" id={id}>
       <div className="dtx-head">
-        <span className="dtx-section-icon">{SectionIcon ? <SectionIcon size={18} /> : <ClipboardList size={18} />}</span>
-        <div><h2>{title}</h2>{subtitle ? <p className="dtx-section-sub">{subtitle}</p> : null}</div>
+        <h2>{title}</h2>
         {count != null ? <span className="dtx-count">{count}</span> : null}
       </div>
       {children}
@@ -1043,17 +1042,24 @@ function MonthChart({ months, currency }) {
   return (
     <div className="dtx-pad">
       <div className="dtx-chart">
-        {months.map((m) => {
+        {months.map((m, index) => {
           const pct = peak > 0 ? Math.max(3, Math.round((m.value / peak) * 100)) : 3;
+          // Every bar in brand red made thirteen loud marks on a page whose
+          // whole discipline is spending the accent once. The bars are ink and
+          // only the LATEST month carries red — that is the one a rep can still
+          // act on, and the peak is already named in the footer below.
+          const latest = index === months.length - 1 && m.value > 0;
           return (
             <div
               className="dtx-bar-wrap"
               key={m.key}
               title={`${m.label} ${m.year} — ${fmtMoney(m.value, currency)} across ${m.count} POB${m.count === 1 ? "" : "s"}`}
             >
-              <span className="dtx-bar-val">{m.value > 0 ? fmtMoneyShort(m.value, currency) : ""}</span>
+              {/* Whole rupees only: a bar label sat next to ₹3.1K should not
+                  read ₹348.76 — mixed precision makes the axis look unruly. */}
+              <span className="dtx-bar-val">{m.value > 0 ? fmtMoneyShort(Math.round(m.value), currency) : ""}</span>
               <div
-                className={`dtx-bar ${m.value > 0 ? "" : "dtx-bar--empty"}`}
+                className={`dtx-bar ${m.value > 0 ? (latest ? "dtx-bar--latest" : "") : "dtx-bar--empty"}`}
                 style={{ height: `${pct}%` }}
               />
               <span className="dtx-bar-label">{m.label}</span>
@@ -1179,33 +1185,33 @@ function PobPanel({ pob, known, loading, currency, compact, limit }) {
   const filtered = pob.rows.filter((r) => `${r.id} ${r.customer} ${r.items.map((i) => i.label).join(" ")}`.toLowerCase().includes(search.toLowerCase()));
   const currentPage = Math.min(page, Math.max(0, Math.ceil(filtered.length / 8) - 1));
   const netValues = pob.rows.some((r) => r.estimated);
-  if (loading && !known) return <Section title="POB overview" icon={Wallet}><Loading lines={4} /></Section>;
-  if (!known || !pob.count) return <Section title="POB overview" icon={Wallet}><Empty headline={known ? "Your next opportunity starts here" : "POB history unavailable"} body={known ? "No POBs are linked to this doctor yet. Use Add POB to capture an order opportunity." : "POB history will appear when it is loaded or supplied with this profile."} /></Section>;
+  if (loading && !known) return <Section title="Quotations"><Loading lines={4} /></Section>;
+  if (!known || !pob.count) return <Section title="Quotations"><Empty headline={known ? "Your next opportunity starts here" : "POB history unavailable"} body={known ? "No POBs are linked to this doctor yet. Use Add POB to capture an order opportunity." : "POB history could not be loaded from ERP. Retry above, or check this page’s ERP target."} /></Section>;
   return <div className="dtx-panel-stack">
-    <Section title="Business overview" subtitle="POB performance for this doctor" icon={Wallet}>
-      <div className="dtx-business-top"><div><div className="dtx-business-caption">{netValues ? "Recorded value · item totals where needed" : "Recorded POB value"}</div><div className="dtx-business-value">{fmtMoney(pob.total, currency)}</div></div>
-        <div className="dtx-business-last"><span>Latest POB</span><b>{fmtDate(pob.last?.at) || "Undated"}</b></div></div>
-      {pob.months.length > 1 ? <MonthChart months={compact ? pob.months.slice(-6) : pob.months} currency={currency} /> : <div className="dtx-period-summary">
-        <span><b>{pob.count}</b> POB{pob.count === 1 ? "" : "s"} recorded</span>
-        <span><b>{pob.products.length}</b> product{pob.products.length === 1 ? "" : "s"}</span>
-        {pob.months[0] ? <span>{pob.months[0].label} {pob.months[0].year}</span> : null}
-      </div>}
-      {pob.unknownValues ? <p className="dtx-empty">{pob.unknownValues} POB{pob.unknownValues === 1 ? " has" : "s have"} no value supplied and {pob.unknownValues === 1 ? "is" : "are"} excluded from the total.</p> : null}
-      {pob.count >= Math.max(1, Math.min(1000, Number(limit) || 200)) ? <p className="dtx-empty">Summary covers {pob.count} loaded POBs. Earlier records may not be included.</p> : null}
-    </Section>
-    {pob.products.length ? <Section title="Product mix" subtitle="Products carried in this doctor’s POBs" icon={Package} count={pob.products.length}>
-      <div className="dtx-product-list">{(allProducts ? pob.products : pob.products.slice(0, 4)).map((product) => <div className="dtx-product" key={product.label}>
-        <span className="dtx-product-icon"><Package size={18} /></span>
-        <div className="dtx-product-body"><div className="dtx-product-name">{product.label}</div><div className="dtx-product-sub">{fmtNum(product.qty)} {product.qty === 1 ? "unit" : "units"} · {product.lines} line{product.lines === 1 ? "" : "s"}</div>
-          <div className="dtx-rank-track"><div className="dtx-rank-fill" style={{ width: `${Math.max(0, Math.min(100, product.amount / (pob.products[0].amount || 1) * 100))}%` }} /></div></div>
-        <div className="dtx-product-value">{fmtMoney(product.amount, currency)}</div>
-      </div>)}</div>
-      {pob.products.length > 4 ? <button type="button" className="dtx-more" onClick={() => setAllProducts(!allProducts)}>{allProducts ? "Show fewer products" : `View all ${pob.products.length} products`}</button> : null}
+    {pob.months.length > 2 ? <Section title="POB by month">
+      <div className="dtx-pad"><MonthChart months={compact ? pob.months.slice(-6) : pob.months} currency={currency} /></div>
     </Section> : null}
-    <Section title="POB history" subtitle="Open a quotation to view its items" icon={ClipboardList} count={pob.count}>
+    {pob.products.length ? <Section title="Products prescribed" count={pob.products.length}>
+      <div className="dtx-pad"><div className="dtx-rank">
+        {(allProducts ? pob.products : pob.products.slice(0, 5)).map((product) => <div className="dtx-rank-row" key={product.label}>
+          <div className="dtx-rank-top">
+            <span className="dtx-product-name">{product.label}</span>
+            <small>{fmtNum(product.qty)} {product.qty === 1 ? "unit" : "units"}</small>
+            <b>{fmtMoney(product.amount, currency)}</b>
+          </div>
+          {/* No bar. In a statement the right-aligned figures ARE the
+              comparison — a track under each name was a second, weaker
+              encoding of the same thing, it read as a red underline, and at
+              these values every bar came out nearly full width. */}
+        </div>)}
+      </div>
+      {pob.products.length > 5 ? <button type="button" className="dtx-more" onClick={() => setAllProducts(!allProducts)}>{allProducts ? "Show fewer" : `Show all ${pob.products.length}`}</button> : null}
+      </div>
+    </Section> : null}
+    <Section title="Quotations" count={pob.count}>
       <div className="dtx-toolbar"><label className="dtx-search"><Search size={15} /><input aria-label="Search POBs" placeholder="Search customer, product or quotation…" value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} /></label></div>
       {filtered.slice(currentPage * 8, (currentPage + 1) * 8).map((r, index) => <details className="dtx-quotation" key={r.id || index}>
-        <summary><span className="dtx-date-box">{r.time ? new Date(r.time).getDate() : "—"}<small>{r.time ? MONTHS[new Date(r.time).getMonth()] : "Date"}</small></span>
+        <summary><span className="dtx-date-box">{r.time ? `${new Date(r.time).getDate()} ${MONTHS[new Date(r.time).getMonth()]}` : "—"}</span>
           <span className="dtx-quotation-main"><b>{r.customer || "Customer not specified"}</b><small>{r.id} · {fmtDate(r.at) || "Undated"}</small></span>
           <span className="dtx-quotation-right"><span>{fmtMoney(r.value, currency)}</span><StatusPill value={r.status || "Status not supplied"} /></span><ChevronDown size={16} className="dtx-chevron" /></summary>
         <div className="dtx-quotation-detail">
@@ -1229,7 +1235,7 @@ function VisitsPanel({ visits, known, loading, pobs, currency }) {
     return matching && (filter === "all" || (filter === "upcoming" ? upcoming : visit.time != null && visit.time <= Date.now()));
   });
   const currentPage = Math.min(page, Math.max(0, Math.ceil(filtered.length / 10) - 1));
-  return <Section title="Visit history" subtitle="Conversations, team activity and linked POBs" icon={CalendarDays} count={known ? visits.length : undefined}>
+  return <Section title="Visits" count={known ? visits.length : undefined}>
     {loading && !known ? <Loading lines={4} /> : !known || !visits.length ? <Empty headline={known ? "No visits on file" : "Visit history unavailable"} body="Recorded visits and upcoming appointments will appear here." /> : <>
       <div className="dtx-toolbar"><label className="dtx-search"><Search size={15} /><input aria-label="Search visits" placeholder="Search visits or team members…" value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} /></label>
         <select className="dtx-select" aria-label="Filter visits" value={filter} onChange={(e) => { setFilter(e.target.value); setPage(0); }}><option value="all">All visits</option><option value="past">Past visits</option><option value="upcoming">Upcoming</option></select></div>
@@ -1255,56 +1261,108 @@ function VisitsPanel({ visits, known, loading, pobs, currency }) {
   </Section>;
 }
 
+/* ------------------------------------------------------------------ *
+ * Settled here rather than exposed as props                           *
+ *                                                                     *
+ * None of these is a per-page decision, so none of them earned a knob *
+ * in Studio: they are house style or company-wide facts, and a page    *
+ * wanting a different one would be a page disagreeing with the brand   *
+ * or with ERP — a code change, not a checkbox.                         *
+ * ------------------------------------------------------------------ */
+
+const CURRENCY = "₹";
+const ACCENT = "brand";
+const BREAKPOINT = 860;
+const ADD_POB_LABEL = "Add POB";
+const BACK_LABEL = "All doctors";
+
+/** Far above any real doctor's history; the ledger pages what comes down. */
+const POB_LIMIT = 200;
+
+/**
+ * Whether a POB raised here writes the doctor into the Quotation's
+ * custom_doctorvisit Link.
+ *
+ * OFF — and this is a migration flag, not a preference. ERP validates
+ * DR-xxxxx against the Lead table of whichever instance the write lands on,
+ * and a miss fails the whole save. The cost of leaving it off: a POB raised
+ * here never shows in the history above, because custom_doctorvisit is
+ * exactly what that history joins on. Turn it on here, once, after confirming
+ * this endpoint holds the same Leads the doctor list is read from.
+ */
+const LINK_POB_TO_DOCTOR = false;
+
+/**
+ * Names for the two axes of the C1 code (LILR / LIHR / HILR / HIHR).
+ *
+ * ERP stores only the bare codes in Category List and records no expansion
+ * anywhere, and the two plausible readings invert every cell: Investment /
+ * Return makes HILR the WORST doctor, Potential / Rx-support makes him the
+ * BIGGEST OPPORTUNITY. So the 2x2 locator stays hidden while these are
+ * placeholders and the codes show as plain rows instead. Replace both with
+ * the real names once the commercial team confirms them, and the locator
+ * appears on its own.
+ */
+const MATRIX_AXIS_Y = "Axis I";
+const MATRIX_AXIS_X = "Axis R";
+
 export default function DoctorDetail({
-  data,
-  doctorId: doctorIdProp,
-
-  mode = "auto",
-  breakpoint = 860,
-
-  fieldMap,
-
-  sections: sectionsProp,
-  actions: actionsProp,
-  accent = "brand",
-
-  enrich = true,
-  pobLimit = 200,
-  pobs: pobsProp,
-  visits: visitsProp,
-  addresses: addressesProp,
-  currency = "₹",
-
-  erpTarget,
-  erpUrl,
-  authToken,
-
-  showBackButton = false,
-  backLabel = "All doctors",
-  showStats = true,
-
-  matrixAxisY = "Axis I",
-  matrixAxisX = "Axis R",
-
-  addPobLabel = "Add POB",
-  linkPobToDoctor = false,
+  /** WHO to show — a Lead id ("DR-36661") or the row you already have. */
+  doctor,
+  /** WHO is acting. Needed by Add POB; there is no reliable way to read the
+      signed-in user here, because AuthProvider only runs on the calendar. */
   employee,
-
+  /** Which panels, in what order. Omit for all of them. */
+  sections: sectionsProp,
+  /** Which ERP to read — a row name in /tokens. Omit for live. */
+  erpTarget,
+  /** Navigate back. The back pill only appears when this is wired. */
   onBack,
-  onCopyCode,
-  onPobSaved,
+  /** Open your own note composer. The action only appears when this is wired. */
   onAddNote,
-
   className = "",
   style,
 }) {
+  // Everything below used to be a prop. Re-bound here under the old names so
+  // the rest of the component is untouched — see the constants above each for
+  // why it is not a per-page decision.
+  const currency = CURRENCY;
+  const accent = ACCENT;
+  const mode = "auto";
+  const breakpoint = BREAKPOINT;
+  const pobLimit = POB_LIMIT;
+  const addPobLabel = ADD_POB_LABEL;
+  const backLabel = BACK_LABEL;
+  const linkPobToDoctor = LINK_POB_TO_DOCTOR;
+  const matrixAxisY = MATRIX_AXIS_Y;
+  const matrixAxisX = MATRIX_AXIS_X;
+  const showStats = true;
+  // The pill would be a dead control without somewhere to go.
+  const showBackButton = !!onBack;
+  // Always fetch: supplying the rows by hand was the plumbing this removed.
+  const enrich = true;
+  const fieldMap = undefined;
+  const actionsProp = undefined;
+  const pobsProp = undefined;
+  const visitsProp = undefined;
+  const addressesProp = undefined;
+  const erpUrl = undefined;
+  const authToken = undefined;
+  const onCopyCode = undefined;
+  const onPobSaved = undefined;
 
   const [wrapRef, compact] = useContainerMode(mode, breakpoint);
   const [copied, setCopied] = useState(false);
   const [pobOpen, setPobOpen] = useState(false);
 
-  const row = useMemo(() => normalizeRow(data?.Lead ?? data?.data?.Lead ?? data), [data]);
-  const envelope = data?.data ?? data;
+  // One tolerant input: a list can pass currentItem straight through, and a
+  // URL-driven page can pass the id as a string. The combined-query envelope
+  // is gone with the rest of the plumbing — the component fetches its own.
+  const row = useMemo(
+    () => (typeof doctor === "string" ? null : normalizeRow(doctor)),
+    [doctor]
+  );
+  const envelope = undefined;
   const [activeView, setActiveView] = useState("business");
   const tabsId = useId();
 
@@ -1333,8 +1391,10 @@ export default function DoctorDetail({
     [actionsProp]
   );
 
-  const boundCode = pick(row, fields.code, ["name", "custom_doctor_code", "value", "code"]);
-  const doctorId = String(doctorIdProp ?? "").trim() || boundCode;
+  const boundCode = typeof doctor === "string"
+    ? doctor.trim()
+    : pick(row, fields.code, ["name", "custom_doctor_code", "value", "code"]);
+  const doctorId = boundCode;
 
   // A page that already holds this doctor's quotations can hand them over and
   // the component skips that fetch entirely; anything else is fetched as usual.
@@ -1472,20 +1532,64 @@ export default function DoctorDetail({
 
   /* --- stat tiles ----------------------------------------------- */
 
+  // Vitals are the counts a reader scans, kept small and ruled. A count of
+  // nothing still shows — "0 visits" is information — but it is not given the
+  // same weight as the balance.
   const stats = [
-    { label: "POB value", icon: Wallet,
-      value: pobKnown ? fmtMoneyShort(pob.total, currency) : "—",
-      sub: pobKnown ? `Across ${pob.count} loaded POB${pob.count === 1 ? "" : "s"}${pob.unknownValues ? " · partial values" : ""}` : loadingPobs ? "Loading POBs…" : "History unavailable" },
-    { label: "Last visit", icon: CalendarDays,
-      value: lastVisit ? fmtDate(lastVisit.starts_on) : Array.isArray(visits) ? "No visits yet" : "—",
-      sub: lastVisit ? pick(lastVisit, "custom_employee_id.employee_name", ["custom_employee_id__name"]) || relTime(lastVisit.starts_on) : loadingVisits ? "Loading visits…" : "No past visit on file" },
-    { label: "Visit activity", icon: Activity,
-      value: Array.isArray(visits) ? fmtNum(visitRows.length) : "—",
-      sub: nextVisit ? `Next: ${fmtDate(nextVisit.starts_on)}` : Array.isArray(visits) ? "No upcoming visit recorded" : "History unavailable" },
-    { label: "Division coverage", icon: Users,
-      value: divisions.length ? fmtNum(divisions.length) : loadingLead ? "—" : "0",
-      sub: roleRows.length ? `${roleRows.length} mapped team${roleRows.length === 1 ? "" : "s"}` : "No teams assigned" },
+    { label: "Visits", value: Array.isArray(visits) ? fmtNum(visitRows.length) : "—",
+      sub: lastVisit ? `last ${fmtDate(lastVisit.starts_on)}` : nextVisit ? `next ${fmtDate(nextVisit.starts_on)}` : Array.isArray(visits) ? "none recorded" : "unavailable" },
+    { label: "Notes", value: fmtNum(notes.length),
+      sub: notes.length ? relTime(notes[0].at) : "none written" },
+    { label: "Divisions", value: divisions.length ? fmtNum(divisions.length) : loadingLead ? "—" : "0",
+      sub: roleRows.length ? `${roleRows.length} beat${roleRows.length === 1 ? "" : "s"}` : "none mapped" },
+    { label: "Products", value: pobKnown ? fmtNum(pob.products.length) : "—",
+      sub: pobKnown ? (pob.unknownValues ? `${pob.unknownValues} POB without a value` : pob.products.length ? "prescribed" : "none yet") : loadingPobs ? "loading" : "unavailable" },
   ];
+
+  // The signature: the account's closing balance, with the trend on its own
+  // baseline rather than in a chart panel of its own.
+  const sparkMonths = (pob.months || []).length > 2 ? pob.months.slice(-8) : [];
+  const sparkPeak = sparkMonths.reduce((max, month) => Math.max(max, month.value || 0), 0);
+  const balance = (
+    <div className="dtx-balance">
+      <div className="dtx-balance-figure">
+        <div className="dtx-label">Recorded POB</div>
+        <div className="dtx-balance-value">{pobKnown ? fmtMoney(pob.total, currency) : "—"}</div>
+        <div className="dtx-balance-sub">
+          {pobKnown
+            ? pob.count
+              ? `across ${pob.count} quotation${pob.count === 1 ? "" : "s"}${pob.unknownValues ? " · some values missing" : ""}`
+              : "nothing raised against this doctor yet"
+            : loadingPobs ? "loading from ERP…" : "history unavailable"}
+        </div>
+      </div>
+      <div className="dtx-balance-right">
+        {sparkMonths.length > 1 ? (
+          <div>
+            <div className="dtx-spark" role="img" aria-label={`POB by month, ${sparkMonths.length} months to ${sparkMonths[sparkMonths.length - 1].label}`}>
+              {sparkMonths.map((month, index) => (
+                <div
+                  key={month.key}
+                  className={`dtx-spark-bar ${month.value > 0 ? (index === sparkMonths.length - 1 ? "dtx-spark-bar--last" : "dtx-spark-bar--on") : ""}`}
+                  style={{ height: `${sparkPeak > 0 ? Math.max(4, Math.round((month.value / sparkPeak) * 100)) : 4}%` }}
+                  title={`${month.label} ${month.year} · ${fmtMoney(month.value, currency)}`}
+                />
+              ))}
+            </div>
+            <div className="dtx-label dtx-spark-cap">
+              {sparkMonths.length} mo
+            </div>
+          </div>
+        ) : null}
+        {pob.last?.at ? (
+          <div className="dtx-balance-note">
+            <div className="dtx-label">Last POB</div>
+            <b>{fmtDate(pob.last.at)}</b>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
 
   /* --- actions -------------------------------------------------- */
 
@@ -1561,7 +1665,7 @@ export default function DoctorDetail({
   /* --- masthead ------------------------------------------------- */
 
   const masthead = (
-    <header className={`dtx-mast ${compact ? "dtx-mast--compact" : ""}`}>
+    <header className="dtx-mast">
       {showBackButton ? (
         <button type="button" className="dtx-back" onClick={() => onBack?.({ doctor: lead ?? row, code })}>
           <Icon.Back />
@@ -1570,7 +1674,7 @@ export default function DoctorDetail({
       ) : null}
 
       <div className="dtx-identity">
-        <div className={`dtx-mono ${compact ? "dtx-mono--compact" : ""}`}>{initialsOf(name)}</div>
+        <div className="dtx-mono">{initialsOf(name)}</div>
 
         <div className="dtx-idbody">
           <div className="dtx-eyebrow">
@@ -1589,7 +1693,7 @@ export default function DoctorDetail({
             ) : null}
           </div>
 
-          <h1 className={`dtx-name ${compact ? "dtx-name--compact" : ""}`}>{name || "Unnamed doctor"}</h1>
+          <h1 className="dtx-name">{name || "Unnamed doctor"}</h1>
 
           <div className="dtx-sub">
             {speciality ? <span className="dtx-spec">{speciality}</span> : null}
@@ -1665,7 +1769,7 @@ export default function DoctorDetail({
   const visitsSection = <VisitsPanel key={code} visits={visitRows} known={Array.isArray(visits)} loading={loadingVisits} pobs={pob.rows} currency={currency} />;
 
   const notesSection = (
-    <Section key="notes" title="Notes & observations" subtitle="Context for your next conversation" icon={ClipboardList} count={notes.length}>
+    <Section key="notes" title="Notes" count={notes.length}>
       {!notes.length && loadingLead ? (
         <Loading lines={3} />
       ) : !notes.length ? (
@@ -1690,12 +1794,12 @@ export default function DoctorDetail({
   );
 
   const coverageSection = (
-    <Section key="coverage" title="Team & coverage" subtitle="Divisions connected to this doctor" icon={Users} count={roleRows.length}>
+    <Section key="coverage" title="Coverage" count={roleRows.length}>
       {!roleRows.length && loadingLead ? <Loading lines={3} /> : !roleRows.length ?
         <Empty headline="No team assigned" body="Division and territory assignments will appear here." /> :
         <div className="dtx-coverage">{roleRows.map((r) => (
           <article className="dtx-team" key={`${r.department}|${r.hq}|${r.beat}`}>
-            <span className="dtx-team-icon"><Building2 size={18} /></span>
+            
             <div><h3>{r.department || "Division not specified"}</h3>
               <p>{r.hq || "HQ not specified"}</p>
               {r.employee ? <div className="dtx-assignee"><span className="dtx-avatar-small">{initialsOf(r.employee)}</span>{r.employee}</div> : null}
@@ -1765,7 +1869,7 @@ export default function DoctorDetail({
   ];
 
   const contactSection = (
-    <Section key="contact" title="Contact & locations" icon={MapPin}>
+    <Section key="contact" title="Contact">
       {addresses?.length ? <div className="dtx-addresses">{addresses.map((a, index) => <article className="dtx-address" key={a.name || index}>
         <div className="dtx-address-title"><MapPin size={17} /><b>{a.address_title || a.address_type || "Practice address"}</b>{a.address_type ? <span className="dtx-pill dtx-pill--soft">{a.address_type}</span> : null}</div>
         <p>{addressText(a)}</p>
@@ -1833,11 +1937,16 @@ export default function DoctorDetail({
     <>
       <div ref={wrapRef} className={`dtx-root ${compact ? "dtx-root--compact" : ""} ${className}`} style={accentVars}>
         <style>{doctorDetailStyles}</style>
+        {/* Everything scrollable lives in one port so the component behaves
+            like any other block in a Plasmic stack: left at auto height it
+            grows and the PAGE scrolls, given a height it scrolls itself. */}
+        <div className="dtx-scrollport">
         {masthead}
-        <div className={`dtx-body ${compact ? "dtx-body--compact" : ""}`}>
-          {showStats ? <div className={`dtx-stats ${compact ? "dtx-stats--compact" : ""}`}>
+        {showStats ? balance : null}
+        <div className="dtx-body">
+          {showStats ? <div className="dtx-stats">
             {stats.map((stat) => <div className="dtx-stat" key={stat.label}>
-              <div className="dtx-stat-top"><span className="dtx-stat-label">{stat.label}</span><stat.icon size={17} /></div>
+              <span className="dtx-stat-label">{stat.label}</span>
               <div className="dtx-stat-value">{stat.value}</div><div className="dtx-stat-sub">{stat.sub}</div>
             </div>)}
           </div> : null}
@@ -1860,6 +1969,7 @@ export default function DoctorDetail({
             {narrowCol.length ? <aside className="dtx-col dtx-sidebar" aria-label="Doctor information">{narrowCol.map(([, node]) => node)}</aside> : null}
           </div> : null}
           <div className="dtx-foot"><span>Doctor record <b>{code || "—"}</b></span>{enriching ? <span role="status">Updating details…</span> : null}</div>
+        </div>
         </div>
       </div>
 

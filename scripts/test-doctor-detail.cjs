@@ -51,8 +51,9 @@ async function main() {
   };
   const quotation = { name: 'Q-1', transaction_date: '2026-09-09', customer_name: 'Example Agency', custom_event__name: 'EV-1', items: [{ item_name: 'PRODUCT A', qty: 1, rate: 275.85, net_amount: 275.85 }, { item_name: 'PRODUCT B', qty: 1, net_amount: 87.19 }] };
   const connection = (nodes) => ({ edges: nodes.map((node) => ({ node })) });
+  const visit = { name: 'EV-1', starts_on: '2026-09-09 10:00:00', subject: 'Routine visit', status: 'Closed', custom_employee_id: { employee_name: 'Example Rep' }, event_participants: [{ reference_doctype__name: 'Employee', attending: 'Yes', custom_visit_time: '2026-09-09 10:20:00' }] };
   const data = { Lead: doctor, Quotations: connection([quotation]), Addresses: connection([{ name: 'ADDR-1', address_title: 'Example Clinic', address_type: 'Office', address_line1: '12 Example Road', city: 'Trichy', phone: '04312345678', email_id: 'clinic@example.com' }]), Events: connection([{ name: 'EV-1', starts_on: '2026-09-09 10:00:00', subject: 'Routine visit', status: 'Closed', custom_employee_id: { employee_name: 'Example Rep' } }]) };
-  const render = (props = {}) => renderToStaticMarkup(React.createElement(api.default, { data, enrich: false, ...props }));
+  const render = (props = {}) => renderToStaticMarkup(React.createElement(api.default, { doctor, ...props }));
   check('confirmed item net amounts total correctly without grand_total', () => assert.equal(api.analysePobs([quotation]).total, 363.04));
   check('grand total retains its priority', () => assert.equal(api.analysePobs([{ ...quotation, grand_total: 400 }]).total, 400));
   check('zero net amount does not fall through to rate', () => assert.equal(api.itemValue({ net_amount: 0, qty: 2, rate: 300 }), 0));
@@ -101,19 +102,57 @@ async function main() {
     // The latest EMPLOYEE stamp wins; the User invitee copy is ignored.
     assert.equal(new Date(joint.at).getHours(), 11);
   });
-  check('combined GraphQL envelope renders data and address contact actions', () => {
+  check('the bound row paints immediately, before any fetch returns', () => {
     const html = render();
-    for (const text of ['Dr Example', '363.04', 'Example Clinic', 'Example Rep', 'Routine visit', 'Follow up &amp; review', 'tel:04312345678', 'mailto:clinic@example.com']) assert.ok(html.includes(text), text);
+    for (const text of ['Dr Example', 'NEURO', 'DR-TEST']) assert.ok(html.includes(text), text);
+    // ERP writes a literal 0 into the phone columns of imported doctors.
     assert.ok(!html.includes('href="tel:0"'));
-    assert.ok(!html.includes('ERP stores only'));
-    assert.ok(!html.includes('dtx-matrix-figure'));
-    assert.ok(html.includes('Value from item totals'));
+    // The 2x2 locator stays hidden while the axis names are placeholders.
+    assert.ok(!html.includes('class="dtx-matrix-figure"'));
   });
-  check('mobile keeps classification grade and tab panels', () => { const html = render({ mode: 'mobile' }); assert.ok(html.includes('dtx-root--compact')); assert.ok(html.includes('dtx-grade-value')); assert.equal((html.match(/role="tabpanel"/g) || []).length, 3); });
-  check('data wrapper and row wrappers are accepted', () => { assert.ok(render({ data: { data } }).includes('Example Clinic')); assert.ok(render({ data: { node: doctor }, pobs: [quotation], visits: [], addresses: [] }).includes('363.04')); });
-  check('unknown history is distinct from an explicitly empty collection', () => { assert.ok(render({ data: doctor }).includes('POB history unavailable')); assert.ok(render({ data: doctor, pobs: [], visits: [], addresses: [] }).includes('Your next opportunity starts here')); });
-  check('configured sections and actions remain respected', () => { const html = render({ sections: ['visits'], actions: [] }); assert.ok(html.includes('Visit history')); assert.ok(!html.includes('Team &amp; coverage')); assert.ok(!html.includes('>Add POB<')); });
-  check('notes escape active markup', () => { const html = render({ data: { ...doctor, notes: [{ note: '<img src=x onerror=alert(1)><p>Safe</p>' }] } }); assert.ok(!html.includes('onerror=')); assert.ok(html.includes('Safe')); });
+  check('the grade and the tab panels are always present', () => {
+    const html = render();
+    assert.ok(html.includes('dtx-grade-value'));
+    assert.equal((html.match(/role="tabpanel"/g) || []).length, 3);
+  });
+  check('the doctor input takes an id, a row or an edge', () => {
+    for (const input of [doctor.name, doctor, { node: doctor }]) {
+      assert.ok(renderToStaticMarkup(React.createElement(api.default, { doctor: input })).includes('DR-TEST'));
+    }
+  });
+  check('a pending fetch never reads as an empty record', () => {
+    const html = render();
+    // At first paint the fetch is still in flight, so the panel shows a
+    // skeleton. What it must NOT do is claim the doctor has no POBs —
+    // "not loaded yet" and "none on record" are different statements.
+    assert.ok(html.includes('dtx-skel'), 'expected a loading skeleton');
+    assert.ok(!html.includes('Your next opportunity starts here'));
+    assert.ok(!html.includes('No visits on file'));
+  });
+  check('the sections prop still picks and orders panels', () => {
+    const html = render({ sections: ['visits'] });
+    assert.ok(html.includes('Visits'));
+    assert.ok(!/>Coverage</.test(html));
+  });
+  // This is a component inside a page's layout stack, not a page. Both of
+  // these regressed once already and neither is visible in a normal preview.
+  check('behaves as a child of a layout stack, not a page', () => {
+    const html = render();
+    // One scroll port, so auto height grows and a set height scrolls inside.
+    // Match the attribute, not the name — the inlined <style> mentions it too.
+    assert.equal((html.match(/class="dtx-scrollport"/g) || []).length, 1);
+    const css = styleModule.exports.default ?? styleModule.exports.doctorDetailStyles ?? Object.values(styleModule.exports)[0];
+    assert.ok(/\.dtx-scrollport\s*{[^}]*overflow-y:\s*auto/.test(css), 'scroll port must scroll');
+    assert.ok(/\.dtx-scrollport\s*{[^}]*min-height:\s*0/.test(css), 'min-height:0 or a flex child will not shrink');
+    assert.ok(/\.dtx-root\s*{[^}]*min-height:\s*0/.test(css), 'root must be squeezable by its parent');
+    // A vw/vh size tracks the browser window instead of the component's box.
+    assert.ok(!/\d(vw|vh|dvh|svh)/.test(css), 'no viewport-relative sizes');
+  });
+  check('notes escape active markup', () => {
+    const html = render({ doctor: { ...doctor, notes: [{ note: '<img src=x onerror=alert(1)><p>Safe</p>' }] } });
+    assert.ok(!html.includes('onerror='));
+    assert.ok(html.includes('Safe'));
+  });
   authConfig.erpUrl = 'https://erp.example.org/api/method/graphql';
   authConfig.authToken = 'key:secret';
   const addresses = await api.fetchDoctorAddresses('DR-36661');
@@ -135,6 +174,15 @@ async function main() {
   request = async () => { throw new Error('Unavailable'); };
   await assert.rejects(api.firstSuccessful(api.POB_QUERIES, {}, (value) => value.Quotations), /Unavailable/);
   checks.push('failed collection fetch stays a failure rather than empty data');
+  check('the prop surface stays small', () => {
+    const src = fs.readFileSync(path.join(root, 'components/DoctorDetail.jsx'), 'utf8');
+    const sig = src.slice(src.indexOf('export default function DoctorDetail({'));
+    const head = sig.slice(0, sig.indexOf('}) {')).replace(/\/\*[\s\S]*?\*\//g, '');
+    const props = [...new Set(head.match(/[a-zA-Z]\w*(?=\s*[,:}])/g) || [])];
+    assert.ok(props.length <= 9, `prop surface grew to ${props.length}: ${props.join(', ')}`);
+    for (const gone of ['fieldMap', 'pobLimit', 'currency', 'accent', 'matrixAxisY', 'linkPobToDoctor', 'authToken', 'enrich', 'pobs'])
+      assert.ok(!props.includes(gone), `${gone} came back as a prop`);
+  });
   await compile('plasmic-init.js');
   checks.push('Plasmic registration compiles');
   console.log(`${checks.length} checks passed:\n${checks.map((name) => `  - ${name}`).join('\n')}`);

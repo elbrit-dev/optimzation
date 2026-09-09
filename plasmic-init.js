@@ -1592,194 +1592,57 @@ PLASMIC.registerComponent(DoctorDetail, {
   name: "DoctorDetail",
   displayName: "Doctor Detail Page",
   description:
-    "Complete doctor profile with a light identity header, activity metrics, tabbed POBs, visits and notes, plus team coverage, addresses and classification. Accepts a Lead row or a combined GraphQL result and independently loads missing collections.",
+    "The whole doctor detail page as ONE component: identity, the recorded-POB balance with its trend, vitals, and panels for quotations, visits, notes, coverage, contact, classification and record. Bind DOCTOR and you are done — it runs its own ERP queries for everything the row does not carry (the full Lead, the POB ledger, visit history, addresses), so there is nothing to plumb. Every read is additive: the bound row paints immediately, a read that fails leaves the page on that row behind a dismissible strip, and a panel with no data says so in words rather than spinning. Coloured in the Elbrit palette taken off the logo, and there is deliberately no route into ERP — no link, no action, no footer. It is a component, not a page: at auto height it grows inside a stack, and given a height it scrolls inside itself.",
   props: {
-    data: {
+    doctor: {
       type: "object",
       description:
-        "A Lead row, edge or single-row connection, or the complete { Lead, Addresses, Events, Quotations } GraphQL result. Supplied collections skip their enrichment requests.",
+        "WHO to show — THE ONLY BINDING REQUIRED. Either the Lead id as a string (\"DR-36661\", e.g. from the URL) or the doctor row you already have: bind currentItem straight from a list and it is unwrapped for you, including a GraphQL edge ({ node }). The row paints the masthead instantly while the rest is fetched. Field names are the component's own business now that it owns the queries, so there is nothing to map.",
       defaultValue: {
         name: "DR-36661",
         lead_name: "Dr Shanmugam",
         custom_specialty__name: "NEURO",
         custom_qualification__name: "MD.DM",
         custom_category__name: "C",
-        custom_category1__name: "HILR",
-        custom_category2__name: "EC20",
         city: "Trichy",
         territory: { name: "HQ-Trichy" },
-        custom_role_profile: [
-          {
-            department__name: "Vasco Coimbatore - ELPL",
-            hq__name: "HQ-Trichy",
-            role_profile_list__name: "BE11-VASC-CO-TRI",
-          },
-          {
-            department__name: "Elbrit Trichy - ELPL",
-            hq__name: "HQ-Trichy",
-            role_profile_list__name: "BE8-ELBR-TR-TRI",
-          },
-        ],
       },
+    },
+    employee: {
+      type: "object",
+      description:
+        "WHO is acting — bind the signed-in user's ERP Employee record, or just their Employee ID as a string. Add POB defaults the employee to them and narrows the dropdown to them plus everyone under them in the role hierarchy. This one cannot be worked out internally: the signed-in user is only published by the calendar's AuthProvider, which does not run on a doctor page. Leave it empty and the page still works, but Add POB falls back to every active employee with nothing pre-selected.",
     },
     sections: {
       type: "choice",
       multiSelect: true,
       options: ["business", "visits", "notes", "coverage", "contact", "classification", "record"],
-      defaultValue: ["business", "visits", "notes", "coverage", "contact", "classification", "record"],
       description:
-        "Choose the visible panels. Business, visits and notes appear as activity tabs in the selected order. Coverage, contact, classification and record appear alongside them on desktop and below on mobile. Clear the list to hide all panels.",
-    },
-    actions: {
-      type: "choice",
-      multiSelect: true,
-      options: ["pob", "note", "call", "whatsapp", "email", "directions"],
-      defaultValue: ["pob", "note", "call", "whatsapp", "email", "directions"],
-      description:
-        "Choose and order header actions. POB opens the existing capture dialog; note requires On Add Note. Call, WhatsApp, email and directions appear when usable contact data exists. Missing contact details are explained in the contact panel.",
-    },
-    accent: {
-      type: "string",
-      defaultValue: "brand",
-      description:
-        "Use brand for Elbrit red, speciality for a specialty-based accent, or a hex colour. Applies to primary actions, identity accents, charts and active tabs; the profile surface stays light.",
-    },
-    fieldMap: {
-      type: "object",
-      description:
-        "The ONLY place column names live — one object in place of six separate name props: { name, code, speciality, hq, city, roles }. Every entry already has a working default (lead_name, name, custom_specialty__name, territory, city, custom_role_profile) and each falls through the usual aliases, so both the nested (territory { name }) and flattened (territory__name) GraphQL shapes work untouched. Set a key only for a row whose column is named oddly; anything you leave out keeps its default.",
-      defaultValue: {},
-    },
-    doctorId: {
-      type: "string",
-      description:
-        "The Lead id to load (DR-36661). LEAVE EMPTY on a normal page — it is taken from the bound row's code field. Set it only when the page has a doctor code from the URL and no row to bind, in which case the whole page is built from Enrich alone.",
-    },
-    mode: {
-      type: "choice",
-      options: ["auto", "desktop", "mobile"],
-      defaultValue: "auto",
-      description:
-        "Auto measures the component's OWN container (not the viewport) and switches to the stacked single-column layout below Breakpoint, so one instance works full-width in the web console, inside a column, and in a 360px phone frame. Desktop / mobile force one layout.",
-    },
-    breakpoint: {
-      type: "number",
-      defaultValue: 860,
-      description:
-        "Container width in px below which the compact single-column layout is used. Only read when Mode is auto.",
-    },
-    enrich: {
-      type: "boolean",
-      defaultValue: true,
-      description:
-        "Independently fetch the Lead, Quotations, Events and Addresses from ERP. Supplied collections skip fetching. A failed request leaves available data visible and offers Retry. Optional Lead and Quotation fields use a confirmed-schema fallback.",
-    },
-    pobs: {
-      type: "object",
-      description:
-        "Optional Quotation array or connection. Supports items with net_amount, amount, taxable_value or qty and rate. Uses grand_total when supplied, otherwise the item total, labelled accordingly. Can also be supplied as data.Quotations.",
-    },
-    visits: {
-      type: "object",
-      description: "Optional Events array or connection for this doctor. Includes visit date, employee, department, status, reason, location and linked POBs. Can also be supplied as data.Events.",
-    },
-    addresses: {
-      type: "object",
-      description: "Optional Addresses array or connection. Displays practice addresses and directions, and fills missing phone/email from address records. Can also be supplied as data.Addresses.",
-    },
-    pobLimit: {
-      type: "number",
-      defaultValue: 200,
-      description:
-        "Maximum POB rows to load, from 1 to 1000 (default 200). Totals cover loaded records, with a notice when the limit is reached. The history has search, expandable item details and pagination.",
-    },
-    currency: {
-      type: "string",
-      defaultValue: "₹",
-      description: "Currency symbol for every money figure.",
+        "WHICH panels to show, and in what order. Leave empty for all of them. business = the quotation ledger, by-month chart and products prescribed · visits = visit history with who called and whether the call was actually made · notes = the doctor's notes · coverage = division × HQ × beat with the assigned rep · contact = addresses, phones, e-mail, coordinates · classification = grade and the C1/C2/C3 codes · record = ids and timestamps. On a wide container business, visits and notes share the big column as tabs and the rest fills the sidebar, each in your order; on a narrow one it is a single stream. A panel that would be empty still renders and says why, rather than vanishing and leaving the reader unsure whether it was switched off or has no data.",
     },
     erpTarget: {
       type: "string",
       defaultValue: "",
       description:
-        "WHICH ERP is READ — this component never links out to ERP, it only reads from it. The name of a row in /tokens, where the page prompts \"ERP / UAT / DEV\". LEAVE EMPTY and it uses ERP, i.e. live. It deliberately does NOT follow the row marked \"default\" in /tokens: that flag is a convenience for the query playground and points at whichever instance was last poked. Set UAT on a test page. Ignored when the calendar has already pointed the ERP client somewhere, and an unknown name falls back to the default row rather than failing.",
-    },
-    erpUrl: {
-      type: "string",
-      description:
-        "Overrides Erp Target with a full GraphQL URL, e.g. https://erp.elbrit.org/api/method/graphql. LEAVE EMPTY on a normal page — Erp Target already picks the live endpoint and its credential stays in /tokens instead of on the page. Only set this to point one instance somewhere Erp Target cannot name, and then set Auth Token too.",
-    },
-    authToken: {
-      type: "string",
-      description:
-        "Frappe API credential for the URL above, as <api_key>:<api_secret> (a leading \"token \" is tolerated). ⚠️ NOT A SECRET: this is a client component, so anything typed here is shipped in the page and readable in devtools by any visitor. Leave it and ERP URL empty and the credential is fetched at runtime from /tokens instead of being baked into the markup. Needs read on Lead and Quotation, plus — if the POB action is on — the permissions that popup lists.",
-    },
-    showStats: {
-      type: "boolean",
-      defaultValue: true,
-      description:
-        "Show four summary cards: recorded POB value, last visit, visit activity and division coverage.",
-    },
-    showBackButton: {
-      type: "boolean",
-      defaultValue: false,
-      description:
-        "Show a back pill at the top of the masthead. It only fires On Back — wire that to your own navigation.",
-    },
-    backLabel: { type: "string", defaultValue: "All doctors", description: "Text on the back pill." },
-    matrixAxisY: {
-      type: "string",
-      defaultValue: "Axis I",
-      description:
-        "Optional label for the first axis of Category 1 codes. The matrix is hidden until both axis labels are configured; raw classification codes are always shown.",
-    },
-    matrixAxisX: {
-      type: "string",
-      defaultValue: "Axis R",
-      description:
-        "Optional label for the second axis of Category 1 codes. Set both labels to show the matrix without guessing the meaning of ERP codes.",
-    },
-    addPobLabel: {
-      type: "string",
-      defaultValue: "Add POB",
-      description: "Text on the POB action. Only shown when \"pob\" is in Actions.",
-    },
-    linkPobToDoctor: {
-      type: "boolean",
-      defaultValue: false,
-      description:
-        "Write the doctor into the POB Quotation's DoctorVisit field (custom_doctorvisit → Lead). OFF by default, matching Doctor Card, because ERP then validates the code against the Lead table of whichever environment the write lands in and a miss fails the whole save. NOTE THE CONSEQUENCE FOR THIS PAGE: custom_doctorvisit is exactly what the POB history section joins on, so a POB raised with this off will never appear in the history above. Turn it on once you have confirmed the page's ERP endpoint holds the same Leads the doctor list is read from.",
-    },
-    employee: {
-      type: "object",
-      description:
-        "WHO is raising the POB — bind the signed-in user's ERP Employee record (or just their Employee ID as a string). The Employee field defaults to them and the dropdown is narrowed to them plus everyone under them in the role hierarchy. Leave it empty and the popup still works, but the dropdown falls back to every active employee and nothing is pre-selected. Only read when \"pob\" is in Actions.",
-    },
-    onAddNote: {
-      type: "eventHandler",
-      description:
-        "Fires when the \"Add a note\" action is pressed, with { doctor, code, name }. The component does not write notes itself — wire this to whatever your page uses. Until it is wired the action is not shown at all, so it can never be a dead button.",
-      argTypes: [{ name: "payload", type: "object" }],
+        "WHICH ERP to read — the name of a row in /tokens, where the page prompts \"ERP / UAT / DEV\". LEAVE EMPTY on a normal page and it reads live. It deliberately does not follow the row flagged \"default\" in /tokens: that flag is a convenience for the query playground and points at whichever instance was last poked. Set UAT on a test page. This component only ever READS — it never writes to ERP except through Add POB, and it never links out to it.",
     },
     onBack: {
       type: "eventHandler",
       description:
-        "Fires when the back pill is pressed, with { doctor, code }. The component does not navigate itself.",
+        "Navigate back, with { doctor, code }. The back pill only appears when this is wired, so it can never be a control that does nothing. The component does not navigate itself.",
       argTypes: [{ name: "payload", type: "object" }],
     },
-    onCopyCode: {
+    onAddNote: {
       type: "eventHandler",
       description:
-        "Fires after the doctor code is copied to the clipboard, with { code, doctor } — use it for a toast.",
+        "Open your own note composer, with { doctor, code, name }. Like the back pill, the action only appears once this is wired — the component does not write notes itself.",
       argTypes: [{ name: "payload", type: "object" }],
     },
-    onPobSaved: {
-      type: "eventHandler",
+    className: {
+      type: "string",
       description:
-        "Fires after the POB Quotation exists in ERP, with { quotation, doctorId, doctorName, employee, hq, department, customer, visitAt, reason, items, total }. The popup toasts and closes itself and this page refetches its own history, so wire this only if the surrounding page needs to react.",
-      argTypes: [{ name: "payload", type: "object" }],
+        "Set by Studio for sizing. Leave the height on auto and the component grows inside a stack; give it a height (or stretch it) and it scrolls inside itself instead of clipping.",
     },
-    className: { type: "string", description: "CSS class for the page container." },
   },
   importPath: "./components/DoctorDetail",
 });
