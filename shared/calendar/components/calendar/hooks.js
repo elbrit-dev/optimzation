@@ -129,7 +129,7 @@ export function useDeleteEvent({ removeEvent, onClose }) {
 
       const queueId = event?.__localQueueId;
       const isLocalOnly =
-        !!queueId || String(erpName ?? "").startsWith("local-");
+        String(erpName ?? "").startsWith("local-");
 
       if (isLocalOnly) {
         discardQueuedSubmission({

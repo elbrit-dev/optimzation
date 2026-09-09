@@ -1224,7 +1224,11 @@ export function AddEditEventDialog({
 			description: values.description,
 			startDate: normalizedStartDate.toISOString(),
 			endDate: normalizedEndDate.toISOString(),
-			color: shouldBeGreen ? "green" : tagConfig.fixedColor,
+			// Retain the last ERP-confirmed colour while this update is queued.
+			// The server refresh turns a confirmed completed visit green.
+			color:
+				event?.color ??
+				(shouldBeGreen ? "green" : tagConfig.fixedColor),
 			tags: values.tags,
 			allDay: values.allDay ?? event?.allDay ?? false,
 			ownerEmployeeId: ownerEmployeeIdOverride,
@@ -1261,7 +1265,10 @@ export function AddEditEventDialog({
 			),
 			status:
 				values.tags === TAG_IDS.DOCTOR_VISIT_PLAN
-					? erpDoc.status
+					// Completion is durable only after ERP accepts the update. While
+					// it is queued, keep the last confirmed status on the card; the
+					// queue badge communicates the in-flight submission.
+					? event?.status ?? erpDoc.status
 					: event?.status,
 		};
 

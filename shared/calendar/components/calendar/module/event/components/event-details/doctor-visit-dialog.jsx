@@ -332,11 +332,15 @@ export function EventDoctorVisitDialog({
   // decide the displayed status, or the same visit reads differently per role.
   const viewerHasVisited = isParticipantVisited(currentEmployeeParticipant);
 
+  const isVisitSyncPending =
+    event?.__syncStatus === "pending" || event?.__syncStatus === "syncing";
+
   // Whether the VISIT ITSELF is complete, derived from the participant data on
   // the shared event. Identical across BE / ABM / RBM views.
   const visitCompleted = useMemo(
-    () => employeeParticipants.some((p) => p.visited),
-    [employeeParticipants]
+    () =>
+      !isVisitSyncPending && employeeParticipants.some((p) => p.visited),
+    [employeeParticipants, isVisitSyncPending]
   );
   const isFailedSync = event?.__syncStatus === "failed";
   const hasPobItems =

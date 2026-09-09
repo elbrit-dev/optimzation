@@ -174,6 +174,27 @@ const PARTICIPANT_VISIT_FIELDS = [
 // Same rule the roster uses, so "already visited" means one thing everywhere.
 const isVisitRecorded = isParticipantVisitRecorded;
 
+// Event saves can collide when two participants complete the same visit at
+// nearly the same time. Frappe rolls these transactions back with MySQL 1205
+// (lock wait timeout) or 1213 (deadlock), so retrying that explicit response is
+// safe. Each retry rebuilds the participant table from ERP below, which also
+// prevents a stale retry from overwriting another participant's visit.
+const EVENT_SAVE_RETRY_DELAYS_MS = [750, 1500];
+
+function isDatabaseContentionError(error) {
+  const message = String(error?.message ?? "").toLowerCase();
+
+  return (
+    message.includes("lock wait timeout") ||
+    message.includes("deadlock found") ||
+    /operationalerror:\s*\((1205|1213)\b/.test(message)
+  );
+}
+
+function waitForRetry(delayMs) {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
 async function fetchEventParticipantRows(erpName) {
   const data = await graphqlRequest(EVENT_PARTICIPANTS_QUERY, {
     name: erpName,
@@ -263,7 +284,7 @@ export function mergeParticipantRows({
   return merged;
 }
 
-export async function saveEvent(doc, options = {}) {
+async function prepareEventDocForSave(doc, options) {
   let outgoingDoc = doc;
 
   if (options.mergeParticipants && doc?.name) {
@@ -307,9 +328,46 @@ export async function saveEvent(doc, options = {}) {
     }
   }
 
-  const data = await graphqlRequest(SAVE_EVENT_MUTATION, {
-    doc: serializeEventDoc(outgoingDoc),
-  });
+  return outgoingDoc;
+}
+
+export async function saveEvent(doc, options = {}) {
+  let outgoingDoc = doc;
+  let data;
+
+  for (
+    let attempt = 0;
+    attempt <= EVENT_SAVE_RETRY_DELAYS_MS.length;
+    attempt += 1
+  ) {
+    // Do this inside the retry loop. Another participant may have completed
+    // the visit while this request was waiting for the database lock.
+    outgoingDoc = await prepareEventDocForSave(doc, options);
+
+    try {
+      data = await graphqlRequest(SAVE_EVENT_MUTATION, {
+        doc: serializeEventDoc(outgoingDoc),
+      });
+      break;
+    } catch (error) {
+      const canRetry =
+        isDatabaseContentionError(error) &&
+        attempt < EVENT_SAVE_RETRY_DELAYS_MS.length;
+
+      if (!canRetry) {
+        if (isDatabaseContentionError(error)) {
+          throw new Error(
+            "ERP is busy updating this visit. Please retry in a moment.",
+            { cause: error }
+          );
+        }
+
+        throw error;
+      }
+
+      await waitForRetry(EVENT_SAVE_RETRY_DELAYS_MS[attempt]);
+    }
+  }
 
   if (!data?.saveDoc?.doc?.name) {
     throw new Error("ERP did not return Event name");
@@ -337,11 +395,31 @@ export async function saveEvent(doc, options = {}) {
         shareOptions
       );
     } else {
-      await syncEventDocShares(
-        data.saveDoc.doc.name,
-        options.shareWithUserIds,
-        shareOptions
-      );
+      try {
+        await syncEventDocShares(
+          data.saveDoc.doc.name,
+          options.shareWithUserIds,
+          shareOptions
+        );
+      } catch (error) {
+        // The Event transaction has already committed. Reporting the whole
+        // queue item as failed here makes a successful create look local-only
+        // and can cause a duplicate create on retry. Sharing is independent
+        // follow-up work, so record its failure without undoing Event success.
+        console.error(
+          `DocShare sync failed after Event:${data.saveDoc.doc.name} was saved`,
+          error
+        );
+        // Re-read existing shares on the retry. Some recipients may already
+        // have been saved before the failure, and creating them twice would
+        // produce duplicate permission rows.
+        void enqueueDocShareSync(
+          "Event",
+          data.saveDoc.doc.name,
+          options.shareWithUserIds,
+          { ...shareOptions, skipExistingCheck: false }
+        );
+      }
     }
   }
 

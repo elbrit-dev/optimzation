@@ -116,6 +116,10 @@ function normalizeQueueForStartup(queue) {
         return [item];
       }
 
+      if (item.status === "failed") {
+        return [item];
+      }
+
       if (item.status === "syncing") {
         // A tab mounting must not reclaim a write another tab is still waiting
         // on - that re-sends the create and duplicates the ERP document.
@@ -307,7 +311,8 @@ export function mergeServerEventsWithQueuedEvents(serverEvents = [], queueItems 
     .filter(
       (item) =>
         item.status !== "synced" &&
-        item.kind !== "delete"
+        item.kind !== "delete" &&
+        !(item.status === "failed" && item.targetErpName)
     )
     .map((item) => item.optimisticEvent)
     .filter(Boolean);
@@ -316,8 +321,19 @@ export function mergeServerEventsWithQueuedEvents(serverEvents = [], queueItems 
   const deletingIds = new Set();
 
   queueItems.forEach((item) => {
-    if (item.targetErpName) overriddenIds.add(item.targetErpName);
-    if (item.optimisticEvent?.erpName && !String(item.optimisticEvent.erpName).startsWith("local-")) {
+    // A failed update must reveal the last state ERP actually confirmed. Keep
+    // the failed queue item for retry and attach its error to the server event
+    // below, but do not let its optimistic fields replace ERP truth.
+    const isFailedExistingWrite =
+      item.status === "failed" && Boolean(item.targetErpName);
+    if (item.targetErpName && !isFailedExistingWrite) {
+      overriddenIds.add(item.targetErpName);
+    }
+    if (
+      !isFailedExistingWrite &&
+      item.optimisticEvent?.erpName &&
+      !String(item.optimisticEvent.erpName).startsWith("local-")
+    ) {
       overriddenIds.add(item.optimisticEvent.erpName);
     }
 
@@ -335,11 +351,21 @@ export function mergeServerEventsWithQueuedEvents(serverEvents = [], queueItems 
     }
   });
 
-  const filteredServerEvents = serverEvents.filter(
-    (event) =>
-      !overriddenIds.has(event.erpName) &&
-      !deletingIds.has(event.erpName)
+  const failedWritesByErpName = new Map(
+    queueItems
+      .filter((item) => item.status === "failed" && item.targetErpName)
+      .map((item) => [String(item.targetErpName), item])
   );
+  const filteredServerEvents = serverEvents
+    .filter(
+      (event) =>
+        !overriddenIds.has(event.erpName) &&
+        !deletingIds.has(event.erpName)
+    )
+    .map((event) => {
+      const failedItem = failedWritesByErpName.get(String(event.erpName));
+      return failedItem ? decorateOptimisticEvent(event, failedItem) : event;
+    });
 
   return [...filteredServerEvents, ...queuedEvents];
 }
@@ -678,6 +704,14 @@ export async function processSubmissionQueue(runtime = {}) {
         error: null,
       }));
 
+      // A MySQL lock wait can keep the request open close to the lock TTL.
+      // Renew while awaiting ERP so another tab cannot reclaim and resend the
+      // same queue item in the middle of a legitimate in-flight request.
+      const lockHeartbeatId = window.setInterval(
+        renewProcessingLock,
+        Math.floor(LOCK_TTL_MS / 3)
+      );
+
       try {
         const result = await processQueueItem(nextItem, runtime);
         processedCount += 1;
@@ -700,6 +734,8 @@ export async function processSubmissionQueue(runtime = {}) {
         if (shouldRetry) {
           break;
         }
+      } finally {
+        window.clearInterval(lockHeartbeatId);
       }
     }
   } finally {

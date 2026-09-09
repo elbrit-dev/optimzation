@@ -1688,15 +1688,21 @@ PLASMIC.registerComponent(DoctorCard, {
       description:
         "WHO is raising the POB — bind the signed-in user's ERP Employee record (or just their Employee ID as a string). The Employee field defaults to them, and the Employee dropdown is narrowed to them plus everyone under them in the role hierarchy. (HQ and Department are driven by the DOCTOR, not by this: they come from the doctor's own custom_role_profile rows and are auto-selected when the doctor carries just one of each — which is the usual case. This employee's coverage then narrows that set, and a doctor outside their territory is flagged rather than blocked.) Leave it empty and the popup still works, but the Employee dropdown falls back to every active employee and nothing is pre-selected. Only read when Show Add Pob is on.",
     },
+    erpTarget: {
+      type: "string",
+      defaultValue: "",
+      description:
+        "WHICH ERP the POB is written to — the name of a row in /tokens (the page there prompts \"ERP / UAT / DEV\"). LEAVE EMPTY and it uses ERP, i.e. live. It deliberately does NOT follow the row marked \"default\" in /tokens: that flag is a convenience for the query playground, and following it is what once wrote a POB to an instance that did not hold the doctor Leads (\"Could not find DoctorVisit\"). Set UAT on a test page. An unknown name falls back to the default row rather than failing.",
+    },
     erpUrl: {
       type: "string",
       description:
-        "GraphQL endpoint the POB is written to — the full URL, e.g. https://erp.elbrit.org/api/method/graphql. LEAVE EMPTY on a normal page: the popup falls back to the same default global token the page's own data provider uses (/tokens), which is almost always what you want. Set it only to pin a card to a different environment, and then set Auth Token too.",
+        "Overrides Erp Target with a full GraphQL URL, e.g. https://erp.elbrit.org/api/method/graphql. LEAVE EMPTY on a normal page — Erp Target already picks the live endpoint, and its credential stays in /tokens instead of on the page. Only set this to point one card somewhere Erp Target cannot name, and then set Auth Token too.",
     },
     authToken: {
       type: "string",
       description:
-        "Frappe API credential for the endpoint above, as <api_key>:<api_secret> (a leading \"token \" is tolerated). ⚠️ Anything typed here ships to the browser — prefer leaving both this and ERP URL empty so the global token is used instead. Needs read on Employee / Role Profile / Territory / Customer / Item and create on Quotation.",
+        "Frappe API credential for the URL above, as <api_key>:<api_secret> (a leading \"token \" is tolerated). ⚠️ NOT A SECRET: this is a client component, so anything typed here is shipped in the page and readable in devtools by any visitor. Leave it and ERP URL empty and the credential is fetched at runtime from /tokens instead of being baked into the page — still reachable by a determined user, but not sitting in the markup. Needs read on Employee / Role Profile / Territory / Customer / Item and create on Quotation. Whatever account it belongs to is the `owner` of every Quotation raised here, so it will not show who actually created the POB.",
     },
     onDoctorClick: {
       type: "eventHandler",

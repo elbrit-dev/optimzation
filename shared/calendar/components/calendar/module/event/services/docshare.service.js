@@ -98,21 +98,23 @@ export async function syncDocShares(
     return existingShares;
   }
 
-  await Promise.all(
-    missingUserIds.map((userId) =>
-      graphqlRequest(SAVE_DOC_SHARE_MUTATION, {
-        doc: JSON.stringify({
-          [ERP_DOC_SHARE_FIELDS.user]: userId,
-          [ERP_DOC_SHARE_FIELDS.shareDoctype]: doctype,
-          [ERP_DOC_SHARE_FIELDS.shareName]: documentName,
-          read: 1,
-          write: 1,
-          share: 0,
-          notify_by_email: 0,
-        }),
-      })
-    )
-  );
+  // These writes update permissions for the same document. Sending all of
+  // them concurrently makes Frappe transactions contend with one another and
+  // can produce MySQL 1205 lock timeouts. A document normally has only a few
+  // recipients, so serial writes are both cheap and substantially safer.
+  for (const userId of missingUserIds) {
+    await graphqlRequest(SAVE_DOC_SHARE_MUTATION, {
+      doc: JSON.stringify({
+        [ERP_DOC_SHARE_FIELDS.user]: userId,
+        [ERP_DOC_SHARE_FIELDS.shareDoctype]: doctype,
+        [ERP_DOC_SHARE_FIELDS.shareName]: documentName,
+        read: 1,
+        write: 1,
+        share: 0,
+        notify_by_email: 0,
+      }),
+    });
+  }
 
   return fetchDocSharesByDocument(doctype, documentName);
 }

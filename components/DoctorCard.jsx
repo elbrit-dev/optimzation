@@ -140,6 +140,36 @@ function readTags(row, tagsField, tagLabelField) {
 }
 
 /**
+ * The (department, HQ) pairs behind the chips.
+ *
+ * Same `custom_role_profile` child table `readTags` reads for the labels, but
+ * kept as rows: each one is a real pairing (Aura & Proxima Kerala AT
+ * HQ-Kottayam), and the POB popup needs the pairing, not two independent lists.
+ * Read off the row the page already fetched so the popup does not have to go
+ * back to ERP for something the card is holding.
+ */
+function readRoleRows(row, tagsField) {
+  const raw = readField(row, tagsField);
+  if (!Array.isArray(raw)) return [];
+
+  const seen = new Set();
+  const out = [];
+  raw.forEach((entry) => {
+    if (!entry || typeof entry !== "object") return;
+    const department = stripCompanySuffix(
+      pick(entry, "department__name", ["department", "department_name"])
+    );
+    const hq = pick(entry, "hq__name", ["hq", "territory__name", "territory"]);
+    if (!department && !hq) return;
+    const key = `${hq}|${department}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ department, hq: hq || null });
+  });
+  return out;
+}
+
+/**
  * Chip / avatar tones. Full literal class strings (Tailwind has to see them) —
  * picked deterministically off the text so the same speciality always keeps the
  * same colour across cards, pages and re-renders.
@@ -212,6 +242,7 @@ export default function DoctorCard({
   employee,
   erpUrl,
   authToken,
+  erpTarget,
   onDoctorClick,
   onCopyCode,
   onPobSaved,
@@ -244,6 +275,7 @@ export default function DoctorCard({
   // after its city) or when the HQ line already fell back to it.
   const city = pick(doctor, cityField, ["city"]);
   const tags = useMemo(() => readTags(doctor, tagsField, tagLabelField), [doctor, tagsField, tagLabelField]);
+  const roleRows = useMemo(() => readRoleRows(doctor, tagsField), [doctor, tagsField]);
 
   // C1 / C2 / C3 grading — off by default (it isn't part of the list design),
   // but the data is there for whoever wants it on.
@@ -437,10 +469,12 @@ export default function DoctorCard({
         doctorId={code}
         doctorName={name}
         doctorHq={hq}
+        doctorRoles={roleRows}
         linkDoctor={linkPobToDoctor}
         employee={employee}
         erpUrl={erpUrl}
         authToken={authToken}
+        erpTarget={erpTarget}
         onSaved={onPobSaved}
       />
     ) : null}

@@ -17,7 +17,6 @@ import {
 	filterCalendarEvents,
 } from "@calendar/components/calendar/contexts/calendar-context/selectors";
 import {
-	discardQueuedSubmission,
 	mergeServerEventsWithQueuedEvents,
 	processSubmissionQueue,
 	pruneSubmissionQueueOnStartup,
@@ -371,13 +370,6 @@ export function CalendarProvider({
 			},
 			onError: async (queueItem, error, meta) => {
 				if (meta?.retryable) return;
-
-				if (queueItem.targetErpName) {
-					discardQueuedSubmission({
-						queueId: queueItem.id,
-						erpName: queueItem.targetErpName,
-					});
-				}
 
 				toast.error(
 					error?.message ||
