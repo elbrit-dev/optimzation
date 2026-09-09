@@ -1,7 +1,9 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import doctorDetailStyles from "./DoctorDetail.styles";
+import { Activity, ArrowUpRight, Building2, CalendarDays, ChevronDown, ClipboardList, MapPin, Package, Search, Users, Wallet } from "lucide-react";
 
 import { AUTH_CONFIG } from "@calendar/components/auth/calendar-users";
 import { graphqlRequest } from "@calendar/lib/graphql-client";
@@ -12,61 +14,10 @@ import { getEndpointConfigFromUrlKeyAsync } from "@/app/graphql-playground/const
 // time somebody presses Add POB.
 const DoctorPobDialog = dynamic(() => import("./DoctorPobDialog"), { ssr: false });
 
-/**
- * DoctorDetail — the WHOLE doctor detail page as ONE code component.
- *
- * Deliberately not the product-detail shape. There, ten registered components
- * (ProductHero, DosageCard, MechanismCard …) are assembled in Studio, and every
- * page that wants the product detail has to rebuild that stack. Here the page
- * IS the component: drop it, bind the doctor row, done. Sections are switched
- * with booleans instead of being separate components, so a page can never end
- * up half-assembled and there is no ordering to get wrong.
- *
- * WHAT IT RENDERS, top to bottom
- *   1. Masthead      — monogram, salutation + name, speciality, qualification,
- *                      doctor code (copyable), status, HQ · city, grade badge,
- *                      and the action row (Add POB, call, WhatsApp, mail,
- *                      directions, open in ERP).
- *   2. Stat strip    — POB value, POB count + last POB, divisions covering,
- *                      notes on file. Lifted so it straddles the masthead edge.
- *   3. Business      — POB history: a month-by-month value chart, the products
- *                      this doctor's POBs actually carry (ranked), and the
- *                      quotation ledger itself.
- *   4. Coverage      — the (division, HQ, beat code) rows from the doctor's own
- *                      custom_role_profile child table, as real pairings.
- *   5. Classification— grade + the C1 investment/return locator, C2, C3.
- *   6. Notes         — the CRM Note child table as a timeline, HTML stripped.
- *   7. Contact       — phones/e-mail (ERP's "0" placeholders suppressed),
- *                      city/state/country, coordinates + directions.
- *   8. Record        — id, company, owner-side timestamps.
- *
- * DATA — two ways in, and they compose
- *   `data`   ONE doctor row, in whatever shape the page already holds: the row
- *            itself, a GraphQL edge ({ node }), or a single-row connection. A
- *            list row is enough to paint the masthead immediately.
- *   `enrich` The list query carries none of the qualification, phones, notes or
- *            POB history a detail page is for. With enrich on (the default) the
- *            component fetches the full Lead by name plus the doctor's POB
- *            Quotations, through the same ERP endpoint resolution the POB popup
- *            uses. Every fetch is additive: the bound row still wins for fields
- *            it holds, and a failed fetch leaves the page rendering the row
- *            rather than showing an error.
- *
- * Both ERP reads use a retry ladder rather than one query. frappe_graphql fails
- * the WHOLE request for a single unknown field, and Link fields differ between
- * instances in whether they expose `x__name` or a nested `x { name }` — so a
- * rich shape is tried first and a lean shape is the fallback. A section with no
- * data says so in words; nothing spins forever.
- *
- * The accent colour is derived from the speciality, the same way DoctorCard
- * derives its chip colour, so opening a card feels like the same object
- * expanding rather than arriving at an unrelated screen.
+/** Doctor profile with independently loaded business, visits and contact data.
+ * Accepts a Lead row or the complete { Lead, Addresses, Events, Quotations }
+ * query result. Existing field mappings, actions and POB callbacks stay intact.
  */
-
-/* ------------------------------------------------------------------ *
- * Row reading — identical rules to DoctorCard, so a row that renders  *
- * as a card renders here without re-mapping any field.                *
- * ------------------------------------------------------------------ */
 
 /** Unwrap edge/connection/array wrappers down to the ONE row inside. */
 function normalizeRow(data) {
@@ -182,7 +133,10 @@ function readRoleRows(row, tagsField) {
     const key = `${hq}|${department}|${beat}`;
     if (seen.has(key)) return;
     seen.add(key);
-    out.push({ department, hq: hq || null, beat: beat || null });
+    out.push({ department, hq: hq || null, beat: beat || null,
+      employee: pick(entry, "role_profile_list.custom_employee_id.employee_name", []),
+      employeeId: pick(entry, "role_profile_list.custom_employee_id.employee", []),
+    });
   });
   return out;
 }
@@ -205,7 +159,11 @@ function readNotes(row) {
       return {
         id: String(entry?.name ?? i),
         text,
-        at: entry?.creation ?? entry?.modified ?? null,
+        // `added_on` / `added_by` are only stamped on notes written through the
+        // app; bulk-imported ones carry a row `creation` and nothing else, so
+        // they would otherwise render with no date at all.
+        at: entry?.added_on ?? entry?.creation ?? entry?.modified ?? null,
+        author: pick(entry, "added_by__name", ["added_by"]),
         idx: Number(entry?.idx ?? i) || 0,
       };
     })
@@ -237,14 +195,14 @@ function stripHtml(value) {
  * and it carries ORDER, which booleans cannot.                        *
  * ------------------------------------------------------------------ */
 
-const SECTION_KEYS = ["business", "coverage", "classification", "notes", "contact", "record"];
+const SECTION_KEYS = ["business", "visits", "notes", "coverage", "contact", "classification", "record"];
 const ACTION_KEYS = ["pob", "note", "call", "whatsapp", "email", "directions"];
 
 /**
  * Sections that want the wider column on a desktop layout. Everything else
  * goes in the narrow column, each in the order the caller listed it.
  */
-const WIDE_SECTIONS = new Set(["business", "notes"]);
+const WIDE_SECTIONS = new Set(["business", "visits", "notes"]);
 
 /**
  * Normalise a multi-select prop.
@@ -334,7 +292,9 @@ function relTime(value) {
 
 function toNumber(value) {
   if (value == null || value === "") return NaN;
-  const n = typeof value === "number" ? value : Number(String(value).replace(/[^0-9.\-]/g, ""));
+  const text = String(value).trim().replace(/[,₹\s]/g, "");
+  if (!/^-?(?:\d+\.?\d*|\.\d+)$/.test(text)) return NaN;
+  const n = Number(text);
   return Number.isFinite(n) ? n : NaN;
 }
 
@@ -575,149 +535,130 @@ async function ensureErpAuth({ erpUrl, authToken, erpTarget }) {
  * the raw Link values, tier 3 asks only for the fields the list query already
  * proves exist. Whatever comes back is merged over the bound row.
  */
+// Keep the confirmed schema as a fallback when optional contact fields differ.
+const LEAD_FIELDS = `
+  city first_name lead_name name custom_category1__name custom_category2__name
+  custom_category3__name custom_address_created custom_latitude
+  custom_latitude_and_longitude custom_longitude custom_specialty__name
+  custom_speciality email_id custom_category__name
+  notes { name added_by__name added_on note creation }
+  territory { name territory_name }
+  custom_role_profile {
+    role_profile_list__name department__name hq__name
+    role_profile_list { custom_employee_id { employee_name employee } }
+  }
+`;
 const LEAD_QUERIES = [
-  `
-query DoctorDetail($name: String!) {
-  Lead(name: $name) {
-    name
-    salutation
-    first_name
-    middle_name
-    last_name
-    lead_name
-    title
-    status
-    custom_doctor_code
-    custom_specialty__name
-    custom_speciality
-    custom_qualification__name
-    custom_category__name
-    custom_category1__name
-    custom_category2__name
-    custom_category3__name
-    mobile_no
-    whatsapp_no
-    phone
-    email_id
-    city
-    state
-    country__name
-    territory__name
-    company__name
-    custom_latitude
-    custom_longitude
-    custom_address_created
-    creation
-    modified
-    notes { name note creation modified idx }
-    custom_role_profile { role_profile_list__name department__name hq__name }
-  }
-}
-`,
-  `
-query DoctorDetail($name: String!) {
-  Lead(name: $name) {
-    name
-    salutation
-    first_name
-    lead_name
-    status
-    custom_doctor_code
-    custom_specialty__name
-    custom_speciality
-    custom_qualification
-    custom_category
-    custom_category1
-    custom_category2
-    custom_category3
-    mobile_no
-    whatsapp_no
-    phone
-    email_id
-    city
-    state
-    country
-    territory
-    company
-    custom_latitude
-    custom_longitude
-    creation
-    modified
-    notes { name note creation idx }
-    custom_role_profile { role_profile_list department hq }
-  }
-}
-`,
-  `
-query DoctorDetail($name: String!) {
-  Lead(name: $name) {
-    name
-    lead_name
-    first_name
-    city
-    email_id
-    custom_specialty__name
-    custom_speciality
-    custom_category__name
-    custom_category1__name
-    custom_category2__name
-    custom_category3__name
-    custom_latitude
-    custom_longitude
-    territory__name
-    notes { name note creation idx }
-    custom_role_profile { role_profile_list__name department__name hq__name }
-  }
-}
-`,
+  `query DoctorDetail($name: String!) { Lead(name: $name) {
+    ${LEAD_FIELDS}
+    custom_qualification__name mobile_no phone whatsapp_no status
+    company__name creation modified
+  } }`,
+  `query DoctorDetail($name: String!) { Lead(name: $name) { ${LEAD_FIELDS} } }`,
+];
+const POB_FIELDS = `
+  name address_display custom_event__name custom_doctorvisit__name
+  customer_address__name customer_name valid_till
+  territory__name total_qty transaction_date
+  items { item_name net_amount ordered_qty qty rate taxable_value }
+`;
+const POB_QUERIES = [
+  `query DoctorPobs($first: Int!, $name: String!) {
+    Quotations(first: $first, filter: {fieldname: "custom_doctorvisit", operator: EQ, value: $name}) {
+      edges { node { ${POB_FIELDS} status grand_total } }
+    }
+  }`,
+  `query DoctorPobs($first: Int!, $name: String!) {
+    Quotations(first: $first, filter: {fieldname: "custom_doctorvisit", operator: EQ, value: $name}) {
+      edges { node { ${POB_FIELDS} } }
+    }
+  }`,
+];
+/**
+ * Addresses are read over REST, not GraphQL, and that is deliberate.
+ *
+ * An Address is joined to its doctor through the `Dynamic Link` CHILD table
+ * (link_doctype = "Lead", link_name = the Lead id) — there is no link_name
+ * column on Address itself. frappe_graphql's DBFilterInput is
+ * { fieldname, operator, value }, with nowhere to name a second doctype, so
+ * that join cannot be expressed there at all. Frappe's REST list API can:
+ * filters=[["Dynamic Link","link_name","=","DR-36661"]], verified against live
+ * ERP. (Two more reasons the old query could not have worked: this schema
+ * pluralises naively — Territorys, RoleProfiles — so the field is Addresss, not
+ * Addresses; and link_name is itself a Dynamic Link, so link_name__name does
+ * not resolve either.)
+ *
+ * Same credential as the GraphQL client, with the base URL derived from it the
+ * way the calendar's own change probe does.
+ */
+const ADDRESS_FIELDS = [
+  "name", "address_title", "address_type", "address_line1", "address_line2",
+  "city", "county", "state", "pincode", "country", "phone", "email_id",
 ];
 
+function erpRestBase() {
+  const { erpUrl } = AUTH_CONFIG;
+  if (!erpUrl) throw new Error("Missing ERP auth configuration");
+  return erpUrl
+    .replace(/(\/api(?:\/method)?\/graphql|\/graphql)\/?$/i, "")
+    .replace(/\/$/, "");
+}
+
+async function fetchDoctorAddresses(doctorId) {
+  const { authToken } = AUTH_CONFIG;
+  if (!authToken) throw new Error("Missing ERP auth configuration");
+
+  const params = new URLSearchParams({
+    fields: JSON.stringify(ADDRESS_FIELDS),
+    filters: JSON.stringify([
+      ["Dynamic Link", "link_doctype", "=", "Lead"],
+      ["Dynamic Link", "link_name", "=", doctorId],
+    ]),
+    limit_page_length: "10",
+    // Both tables carry `modified`, so an unqualified order_by is ambiguous
+    // once the child table is joined and Frappe answers 500.
+    order_by: "`tabAddress`.`modified` desc",
+  });
+
+  const response = await fetch(erpRestBase() + "/api/resource/Address?" + params, {
+    headers: { Accept: "application/json", Authorization: "token " + authToken },
+  });
+  if (!response.ok) throw new Error("HTTP " + response.status);
+  const json = await response.json();
+  return Array.isArray(json && json.data) ? json.data : [];
+}
 /**
- * The doctor's POB history.
+ * Visit history.
  *
- * A POB is written as a plain Quotation carrying the doctor in
- * `custom_doctorvisit` (Link -> Lead), so that field is the whole join. Rich
- * shape first (items, customer, territory, the visit it came from), then a lean
- * shape that gives up the line items but keeps the ledger — a Quotation Item
- * field name differing between instances must not cost the section entirely.
+ * Two fields are deliberately NOT asked for.
+ *
+ * `custom_department` exists on Event but the app never writes it — there is no
+ * department entry in the calendar's ERP_EVENT_FIELDS, and the
+ * `custom_department { … }` blocks in events.query.js belong to RoleProfiles,
+ * not Event. Reading it only ever produced a blank line; the doctor's own
+ * role-profile rows are where their division actually lives.
+ *
+ * `attending` on the Event PARENT is not the attendance signal. Attendance is
+ * written per participant (event-to-erp.js sets participant.attending), so the
+ * parent's value is "" on real events. `event_participants` is requested
+ * instead: it carries attending plus custom_visit_time, which is the pair the
+ * calendar's own doctorVisitHistory uses to decide a visit was actually MADE
+ * rather than merely planned.
  */
-const POB_QUERIES = [
-  `
-query DoctorPobs($first: Int!, $filters: [DBFilterInput!]) {
-  Quotations(first: $first, filter: $filters) {
-    edges {
-      node {
-        name
-        transaction_date
-        creation
-        status
-        grand_total
-        customer_name
-        territory__name
-        custom_event__name
-        items { item_name qty rate amount }
+const VISIT_QUERY = `query DoctorVisits($name: String!) {
+  Events(first: 1000, filter: {fieldname: "custom_doctor", operator: EQ, value: $name}) {
+    edges { node {
+      name event_type starts_on event_category custom_longitude custom_latitude
+      custom_hq__name custom_force_visit_reason custom_employee_id__name
+      custom_doctor__name subject status
+      custom_pob_given custom_employee_id { employee_name employee } creation
+      event_participants {
+        reference_doctype__name reference_docname__name attending
+        custom_visit_time custom_is_force_visit
       }
-    }
+    } }
   }
-}
-`,
-  `
-query DoctorPobs($first: Int!, $filters: [DBFilterInput!]) {
-  Quotations(first: $first, filter: $filters) {
-    edges {
-      node {
-        name
-        transaction_date
-        creation
-        status
-        grand_total
-        customer_name
-      }
-    }
-  }
-}
-`,
-];
+}`;
 
 /** Run a ladder of query shapes, returning the first that answers. */
 async function firstSuccessful(queries, variables, extract) {
@@ -743,91 +684,108 @@ async function firstSuccessful(queries, variables, extract) {
  * cached here: a detail page is opened for one doctor at a time and a stale POB
  * total is worse than a second's wait.
  */
-function useDoctorEnrichment(doctorId, { enabled, pobLimit, pobsGiven, erpUrl, authToken, erpTarget }) {
-  const [lead, setLead] = useState(null);
-  const [pobs, setPobs] = useState(null);
-  const [loadingLead, setLoadingLead] = useState(false);
-  const [loadingPobs, setLoadingPobs] = useState(false);
-  const [error, setError] = useState(null);
+function useDoctorEnrichment(doctorId, { enabled, pobLimit, pobsGiven, visitsGiven, addressesGiven, erpUrl, authToken, erpTarget }) {
+  const [result, setResult] = useState(null);
   const [nonce, setNonce] = useState(0);
-
   const refresh = useCallback(() => setNonce((n) => n + 1), []);
-
+  const requestKey = JSON.stringify([doctorId, enabled, erpUrl, authToken, erpTarget, nonce]);
   useEffect(() => {
-    if (!enabled || !doctorId) {
-      setLead(null);
-      setPobs(null);
-      setError(null);
-      return undefined;
-    }
-
-    // A doctor switched mid-flight must not have the previous doctor's reply
-    // land on top of it.
+    if (!enabled || !doctorId) return undefined;
     let live = true;
-    const fetchPobs = !Array.isArray(pobsGiven);
-    setLoadingLead(true);
-    setLoadingPobs(fetchPobs);
-    setError(null);
-    setLead(null);
-    setPobs(null);
-
+    // Each job is [key, run(variables), alreadySupplied]. Addresses run over
+    // REST rather than through the GraphQL ladder — see fetchDoctorAddresses
+    // for why that join cannot be expressed in GraphQL at all.
+    const jobs = [
+      ["lead", (vars) => firstSuccessful(LEAD_QUERIES, vars, (d) => d?.Lead ?? null), null],
+      ["pobs", (vars) => firstSuccessful(POB_QUERIES, vars, (d) => normalizeConnection(d?.Quotations)), pobsGiven],
+      ["visits", (vars) => firstSuccessful([VISIT_QUERY], vars, (d) => normalizeConnection(d?.Events)), visitsGiven],
+      ["addresses", (vars) => fetchDoctorAddresses(vars.name), addressesGiven],
+    ].filter(([, , given]) => !Array.isArray(given));
+    setResult({ key: requestKey, loading: Object.fromEntries(jobs.map(([key]) => [key, true])), errors: {} });
+    const update = (key, value, error) => {
+      if (!live) return;
+      setResult((prev) => ({ ...prev, [key]: value,
+        loading: { ...prev.loading, [key]: false },
+        errors: { ...prev.errors, [key]: error || null },
+      }));
+    };
     (async () => {
       try {
         await ensureErpAuth({ erpUrl, authToken, erpTarget });
-      } catch (authError) {
-        if (!live) return;
-        setError(authError?.message || "Couldn't reach ERP");
-        setLoadingLead(false);
-        setLoadingPobs(false);
+      } catch {
+        jobs.forEach(([key]) => update(key, null, true));
         return;
       }
-
-      if (!fetchPobs) setLoadingPobs(false);
-
-      firstSuccessful(LEAD_QUERIES, { name: doctorId }, (d) => d?.Lead ?? null)
-        .then((value) => {
-          if (live) setLead(value);
-        })
-        .catch((leadError) => {
-          if (!live) return;
-          console.warn("DoctorDetail: couldn't load the full Lead", leadError);
-          setError((prev) => prev || leadError?.message || "Couldn't load this doctor from ERP");
-        })
-        .finally(() => {
-          if (live) setLoadingLead(false);
-        });
-
-      if (!fetchPobs) return;
-
-      firstSuccessful(
-        POB_QUERIES,
-        {
-          first: Math.max(1, Number(pobLimit) || 200),
-          filters: [
-            { fieldname: "custom_doctorvisit", operator: "EQ", value: doctorId },
-          ],
-        },
-        (d) => d?.Quotations?.edges ?? null
-      )
-        .then((edges) => {
-          if (live) setPobs((edges ?? []).map((edge) => edge?.node).filter(Boolean));
-        })
-        .catch((pobError) => {
-          if (!live) return;
-          console.warn("DoctorDetail: couldn't load POB history", pobError);
-          setPobs([]);
-        })
-        .finally(() => {
-          if (live) setLoadingPobs(false);
-        });
+      const variables = {
+        name: doctorId,
+        first: Math.max(1, Math.min(1000, Number(pobLimit) || 200)),
+      };
+      await Promise.all(jobs.map(async ([key, run]) => {
+        try {
+          const value = await run(variables);
+          if (value == null) throw new Error("No result");
+          update(key, value, null);
+        } catch {
+          update(key, null, true);
+        }
+      }));
     })();
+    return () => { live = false; };
+  }, [enabled, doctorId, pobLimit, pobsGiven, visitsGiven, addressesGiven, erpUrl, authToken, erpTarget, nonce, requestKey]);
+  // Never paint a previous doctor's details during the render before effects run.
+  const current = enabled && result?.key === requestKey ? result : null;
+  const pending = !!enabled && !!doctorId && !current;
+  return {
+    lead: current?.lead, pobs: current?.pobs, visits: current?.visits, addresses: current?.addresses,
+    loadingLead: pending || !!current?.loading.lead,
+    loadingPobs: !pobsGiven && (pending || !!current?.loading.pobs),
+    loadingVisits: !visitsGiven && (pending || !!current?.loading.visits),
+    loadingAddresses: !addressesGiven && (pending || !!current?.loading.addresses),
+    errors: current?.errors || {}, refresh,
+  };
+}
 
-    return () => {
-      live = false;
-    };
-  }, [enabled, doctorId, pobLimit, pobsGiven, erpUrl, authToken, erpTarget, nonce]);
+/**
+ * Whether a visit actually HAPPENED, and when.
+ *
+ * A plan that nobody carried out is still an Event, so the date alone proves
+ * nothing. The calendar marks a visit by stamping the EMPLOYEE participant
+ * attending "Yes" with a `custom_visit_time`; that pair is the only evidence a
+ * call was made, and it is what doctorVisitHistory keys on too. The parent
+ * Event's own `attending` is never written and is not consulted.
+ *
+ * Returns { made, at, forced } — `at` is the latest participant stamp, so a
+ * joint call reads as one visit at the time the last person arrived.
+ */
+function readVisitAttendance(visit) {
+  const rows = Array.isArray(visit?.event_participants) ? visit.event_participants : [];
+  const stamps = [];
+  let forced = false;
 
-  return { lead, pobs, loadingLead, loadingPobs, error, refresh };
+  rows.forEach((row) => {
+    const type = pick(row, "reference_doctype__name", ["reference_doctype"]);
+    // Employee participants are the callers; a User row is the invitee copy.
+    if (type && !/^employee$/i.test(type)) return;
+    if (!/^(yes|true|1)$/i.test(String(row?.attending ?? "").trim())) return;
+    const at = toTime(row?.custom_visit_time);
+    if (at != null) stamps.push(at);
+    if (row?.custom_is_force_visit === true || row?.custom_is_force_visit === 1) forced = true;
+  });
+
+  if (!stamps.length) return { made: false, at: null, forced };
+  return { made: true, at: Math.max.apply(null, stamps), forced };
+}
+
+function itemValue(item) {
+  for (const field of ["net_amount", "amount", "taxable_value"]) {
+    const value = toNumber(item?.[field]);
+    if (Number.isFinite(value)) return value;
+  }
+  return toNumber(item?.qty) * toNumber(item?.rate);
+}
+
+function addressText(address) {
+  return [address.address_line1, address.address_line2, address.city, address.state, address.pincode, address.country__name].filter(Boolean).join(", ");
 }
 
 /* ------------------------------------------------------------------ *
@@ -847,7 +805,12 @@ function analysePobs(pobs) {
         at: when,
         time: toTime(when),
         status: node?.status ?? "",
-        value: toNumber(node?.grand_total),
+        value: Number.isFinite(toNumber(node?.grand_total)) ? toNumber(node.grand_total)
+          : (node?.items?.length && node.items.every((item) => Number.isFinite(itemValue(item)))
+            ? node.items.reduce((total, item) => total + itemValue(item), 0) : NaN),
+        estimated: !Number.isFinite(toNumber(node?.grand_total)),
+        address: stripHtml(node?.address_display),
+        validTill: node?.valid_till,
         customer: node?.customer_name ?? "",
         territory: pick(node, "territory__name", ["territory"]),
         event: pick(node, "custom_event__name", ["custom_event"]),
@@ -857,7 +820,9 @@ function analysePobs(pobs) {
                 label:
                   pick(item, "item_name", ["item_code__name", "item_code", "item"]) || "",
                 qty: toNumber(item?.qty),
-                amount: toNumber(item?.amount),
+                amount: itemValue(item),
+                rate: toNumber(item?.rate),
+                ordered: toNumber(item?.ordered_qty),
               }))
               .filter((item) => item.label)
           : [],
@@ -865,7 +830,8 @@ function analysePobs(pobs) {
     })
     .sort((a, b) => (b.time ?? 0) - (a.time ?? 0));
 
-  const total = rows.reduce((sum, r) => sum + (Number.isFinite(r.value) ? r.value : 0), 0);
+  const unknownValues = rows.filter((r) => !Number.isFinite(r.value)).length;
+  const total = rows.length && unknownValues === rows.length ? NaN : rows.reduce((sum, r) => sum + (Number.isFinite(r.value) ? r.value : 0), 0);
   const last = rows.find((r) => r.time != null) ?? null;
 
   // Products, ranked by the money behind them rather than by line count — one
@@ -889,7 +855,7 @@ function analysePobs(pobs) {
   if (dated.length) {
     const first = new Date(dated[dated.length - 1].time);
     const lastDate = new Date(dated[0].time);
-    const cursor = new Date(first.getFullYear(), first.getMonth(), 1);
+    const cursor = new Date(Math.max(new Date(first.getFullYear(), first.getMonth(), 1).getTime(), new Date(lastDate.getFullYear(), lastDate.getMonth() - 11, 1).getTime()));
     const end = new Date(lastDate.getFullYear(), lastDate.getMonth(), 1);
     const buckets = new Map();
     dated.forEach((row) => {
@@ -919,7 +885,7 @@ function analysePobs(pobs) {
   // Only the tail is charted — an older bar tells a rep nothing they can act on.
   const chart = months.slice(-12);
 
-  return { rows, total, count: rows.length, last, products, months: chart };
+  return { rows, total, unknownValues, count: rows.length, last, products, months: chart };
 }
 
 /* ------------------------------------------------------------------ *
@@ -948,450 +914,7 @@ function useContainerMode(mode = "auto", breakpoint = 860) {
   return [ref, compact];
 }
 
-/* ------------------------------------------------------------------ *
- * Styles                                                             *
- *                                                                     *
- * Injected once and prefixed, the way the product-detail family does  *
- * it, rather than Tailwind utilities: this page has to look the same  *
- * inside the Studio canvas, which does not load the app's stylesheet, *
- * and the masthead/chart/locator want gradients and grid templates    *
- * that would be a wall of arbitrary-value classes.                    *
- * ------------------------------------------------------------------ */
-
-const STYLE_ID = "elbrit-doctor-detail-styles";
-
-function ensureStyles() {
-  if (typeof document === "undefined" || document.getElementById(STYLE_ID)) return;
-  const el = document.createElement("style");
-  el.id = STYLE_ID;
-  el.textContent = `
-    /* Neutrals are warm / red-biased so they belong to the Elbrit red rather
-       than sitting next to it as a borrowed cool grey. --dtx-deep and its
-       lighter step are set per instance from the resolved accent. */
-    .dtx-root {
-      box-sizing: border-box; width: 100%; max-width: 100%;
-      font-family: var(--dtx-font, system-ui, -apple-system, "Segoe UI", sans-serif);
-      color: #211311; background: #f6f2f1;
-      --dtx-ink: #211311;
-      --dtx-ink-2: #4a3532;
-      --dtx-mute: #9c8a86;
-      --dtx-slate: #6b5b58;
-      --dtx-line: #e6dcda;
-      --dtx-line-soft: #f0e8e6;
-      --dtx-card: #ffffff;
-      --dtx-card-2: #fbf7f6;
-      /* Status tones deliberately avoid red: red IS the brand here, so a red
-         "Lost" pill beside a red Add POB button reads as one system shouting.
-         Each pill also carries a mark and a word, so state never rests on
-         colour alone. */
-      --dtx-good: #17724a;
-      --dtx-good-soft: #e4f2ea;
-      --dtx-good-line: #bedecc;
-      --dtx-warn: #8f5a0c;
-      --dtx-warn-soft: #fbf2e6;
-      --dtx-warn-line: #ebd9bb;
-      --dtx-void: #5a4a47;
-      --dtx-void-soft: #f0eae9;
-      --dtx-void-line: #ddd1cf;
-      -webkit-font-smoothing: antialiased;
-    }
-    .dtx-root *, .dtx-root *::before, .dtx-root *::after { box-sizing: border-box; }
-    .dtx-root h1, .dtx-root h2, .dtx-root h3, .dtx-root p, .dtx-root dl,
-    .dtx-root dd, .dtx-root dt, .dtx-root ul, .dtx-root li, .dtx-root figure {
-      margin: 0; padding: 0;
-    }
-    .dtx-root ul { list-style: none; }
-    /* Colour is deliberately NOT reset here. This selector is one class plus
-       one type, so it out-specifies every single-class rule below it, and an
-       inherited colour made the primary action white-on-white. Each button
-       states its own instead. */
-    .dtx-root button { font: inherit; }
-
-    /* ---------------- masthead ---------------- */
-    .dtx-mast {
-      position: relative; overflow: hidden;
-      padding: 26px 28px 62px 28px;
-      background:
-        radial-gradient(120% 140% at 88% -10%, rgba(255,255,255,.18) 0%, rgba(255,255,255,0) 55%),
-        linear-gradient(126deg, var(--dtx-deep, #2e100d) 0%, var(--dtx-deep-2, #6b1712) 55%, var(--dtx-accent, #d92c24) 100%);
-      color: #fdf4f3;
-    }
-    .dtx-mast--compact { padding: 18px 16px 56px 16px; }
-    /* A hairline of the accent along the top edge ties the page to the card
-       the reader clicked to get here. */
-    .dtx-mast::before {
-      content: ""; position: absolute; inset: 0 0 auto 0; height: 2px;
-      background: #fff; opacity: .5;
-    }
-    .dtx-back {
-      display: inline-flex; align-items: center; gap: 7px;
-      margin-bottom: 18px; padding: 5px 11px 5px 8px;
-      font-size: 12.5px; font-weight: 600;
-      color: rgba(255,255,255,.82);
-      background: rgba(255,255,255,.10); border: 1px solid rgba(255,255,255,.16);
-      border-radius: 999px; cursor: pointer;
-      transition: background .15s ease, color .15s ease;
-    }
-    .dtx-back:hover { background: rgba(255,255,255,.18); color: #fff; }
-
-    .dtx-identity { display: flex; gap: 18px; align-items: flex-start; }
-    .dtx-mono {
-      flex: 0 0 auto;
-      width: 66px; height: 66px; border-radius: 20px;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 24px; font-weight: 800; letter-spacing: -.02em;
-      color: #fff;
-      background: rgba(255,255,255,.13);
-      border: 1px solid rgba(255,255,255,.22);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.18);
-    }
-    .dtx-mono--compact { width: 52px; height: 52px; border-radius: 16px; font-size: 19px; }
-    .dtx-idbody { min-width: 0; flex: 1; }
-    .dtx-eyebrow {
-      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-      font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
-      color: rgba(255,255,255,.62);
-    }
-    .dtx-name {
-      margin-top: 7px;
-      font-size: 30px; font-weight: 800; letter-spacing: -.022em; line-height: 1.12;
-      overflow-wrap: anywhere;
-    }
-    .dtx-name--compact { font-size: 22px; }
-    .dtx-sub {
-      display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
-      margin-top: 10px; font-size: 13px; color: rgba(255,255,255,.78);
-    }
-    .dtx-dot { width: 3px; height: 3px; border-radius: 999px; background: rgba(255,255,255,.4); }
-    .dtx-spec {
-      padding: 3px 10px; border-radius: 7px;
-      font-size: 11.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
-      color: #fff; background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.2);
-    }
-    .dtx-codebtn {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 3px 9px; border-radius: 7px; cursor: pointer;
-      font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums;
-      color: rgba(255,255,255,.9);
-      background: rgba(255,255,255,.10); border: 1px solid rgba(255,255,255,.18);
-      transition: background .15s ease;
-    }
-    .dtx-codebtn:hover { background: rgba(255,255,255,.2); }
-    .dtx-codebtn--done { color: #b8f5dc; border-color: rgba(184,245,220,.4); }
-
-    /* the grade, sat opposite the name */
-    .dtx-grade {
-      flex: 0 0 auto; text-align: center; min-width: 86px;
-      padding: 11px 14px 12px 14px; border-radius: 14px;
-      background: rgba(255,255,255,.10); border: 1px solid rgba(255,255,255,.2);
-    }
-    .dtx-grade-label {
-      font-size: 9.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
-      color: rgba(255,255,255,.6);
-    }
-    .dtx-grade-value { margin-top: 3px; font-size: 25px; font-weight: 800; letter-spacing: -.02em; }
-
-    /* ---------------- actions ---------------- */
-    .dtx-actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 20px; }
-    .dtx-act {
-      display: inline-flex; align-items: center; gap: 7px;
-      padding: 8px 14px; border-radius: 10px; cursor: pointer;
-      font-size: 13px; font-weight: 650; text-decoration: none;
-      color: rgba(255,255,255,.92);
-      background: rgba(255,255,255,.10); border: 1px solid rgba(255,255,255,.18);
-      transition: background .15s ease, transform .15s ease, border-color .15s ease;
-    }
-    .dtx-act:hover { background: rgba(255,255,255,.2); border-color: rgba(255,255,255,.32); transform: translateY(-1px); }
-    .dtx-act:active { transform: translateY(0); }
-    .dtx-act--primary {
-      color: var(--dtx-deep, #2e100d); background: #fff; border-color: #fff; font-weight: 700;
-      box-shadow: 0 6px 18px -8px rgba(0,0,0,.5);
-    }
-    .dtx-act--primary:hover { background: #fff; color: var(--dtx-deep, #2e100d); }
-    /* An action the record cannot support: still shown, still named, plainly
-       not pressable. */
-    .dtx-act--off { opacity: .42; cursor: default; }
-    .dtx-act--off:hover { background: rgba(255,255,255,.10); border-color: rgba(255,255,255,.18); transform: none; }
-
-    /* ---------------- body & stat strip ---------------- */
-    .dtx-body { padding: 0 28px 28px 28px; }
-    .dtx-body--compact { padding: 0 14px 20px 14px; }
-
-    /* Lifted so it straddles the masthead edge — the page reads as one object
-       with a header, not as a banner with a table under it. */
-    .dtx-stats {
-      position: relative; margin-top: -40px;
-      display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
-      background: var(--dtx-card); border: 1px solid var(--dtx-line);
-      border-radius: 16px; overflow: hidden;
-      box-shadow: 0 14px 34px -22px rgba(15,23,41,.42);
-    }
-    .dtx-stats--compact { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: -42px; }
-    .dtx-stat { padding: 15px 17px; border-left: 1px solid var(--dtx-line-soft); min-width: 0; }
-    .dtx-stat:first-child { border-left: none; }
-    .dtx-stats--compact .dtx-stat:nth-child(odd) { border-left: none; }
-    .dtx-stats--compact .dtx-stat:nth-child(n+3) { border-top: 1px solid var(--dtx-line-soft); }
-    .dtx-stat-label {
-      font-size: 10px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
-      color: var(--dtx-mute);
-    }
-    .dtx-stat-value {
-      margin-top: 6px; font-size: 22px; font-weight: 800; letter-spacing: -.02em;
-      color: var(--dtx-deep, #2e100d); white-space: nowrap;
-      overflow: hidden; text-overflow: ellipsis;
-    }
-    .dtx-stat-value--compact { font-size: 18px; }
-    .dtx-stat-sub {
-      margin-top: 3px; font-size: 11.5px; color: var(--dtx-mute);
-      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    }
-
-    /* ---------------- section grid ---------------- */
-    .dtx-grid {
-      margin-top: 20px; display: grid; gap: 18px;
-      grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr);
-      align-items: start;
-    }
-    .dtx-grid--compact { grid-template-columns: minmax(0, 1fr); gap: 14px; margin-top: 16px; }
-    .dtx-col { display: grid; gap: 18px; align-content: start; min-width: 0; }
-    .dtx-grid--compact .dtx-col { gap: 14px; }
-
-    .dtx-card {
-      background: var(--dtx-card); border: 1px solid var(--dtx-line);
-      border-radius: 16px; overflow: hidden;
-    }
-    .dtx-head {
-      display: flex; align-items: center; gap: 10px;
-      padding: 14px 17px; border-bottom: 1px solid var(--dtx-line-soft);
-    }
-    .dtx-head h3 {
-      font-size: 12px; font-weight: 700; letter-spacing: .085em; text-transform: uppercase;
-      color: var(--dtx-ink-2);
-    }
-    .dtx-count {
-      margin-left: auto; padding: 2px 8px; border-radius: 999px;
-      font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;
-      color: var(--dtx-ink-accent, #a81c16); background: var(--dtx-soft, #fcedec);
-    }
-    .dtx-pad { padding: 16px 17px; }
-    .dtx-empty {
-      padding: 22px 17px; font-size: 12.5px; line-height: 1.55; color: var(--dtx-mute);
-    }
-    .dtx-empty b { display: block; margin-bottom: 3px; font-weight: 650; color: var(--dtx-ink-2); }
-
-    /* skeleton — a shape, so the layout does not jump when data lands */
-    .dtx-skel {
-      height: 11px; border-radius: 5px; background: var(--dtx-line-soft);
-      animation: dtx-pulse 1.3s ease-in-out infinite;
-    }
-    @keyframes dtx-pulse { 0%,100% { opacity: 1 } 50% { opacity: .45 } }
-    @media (prefers-reduced-motion: reduce) {
-      .dtx-skel { animation: none; }
-      .dtx-act:hover, .dtx-row-link:hover { transform: none; }
-    }
-
-    /* ---------------- definition rows ---------------- */
-    .dtx-defs { display: grid; gap: 0; }
-    .dtx-def {
-      display: flex; gap: 14px; align-items: baseline;
-      padding: 10px 17px; border-top: 1px solid var(--dtx-line-soft);
-      font-size: 13px;
-    }
-    .dtx-def:first-child { border-top: none; }
-    .dtx-def dt {
-      flex: 0 0 38%; max-width: 150px;
-      font-size: 11.5px; font-weight: 600; color: var(--dtx-mute);
-    }
-    .dtx-def dd {
-      flex: 1; min-width: 0; font-weight: 600; color: var(--dtx-ink);
-      overflow-wrap: anywhere;
-    }
-    .dtx-def dd a { color: var(--dtx-ink-accent, #a81c16); text-decoration: none; font-weight: 650; }
-    .dtx-def dd a:hover { text-decoration: underline; }
-    .dtx-def dd small { display: block; margin-top: 2px; font-size: 11px; font-weight: 500; color: var(--dtx-mute); }
-
-    /* ---------------- tables ---------------- */
-    .dtx-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-    .dtx-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-    .dtx-table th {
-      padding: 9px 17px; text-align: left; white-space: nowrap;
-      font-size: 10px; font-weight: 700; letter-spacing: .085em; text-transform: uppercase;
-      color: var(--dtx-mute); background: #fbfcfe;
-      border-bottom: 1px solid var(--dtx-line-soft);
-    }
-    .dtx-table td {
-      padding: 11px 17px; border-bottom: 1px solid var(--dtx-line-soft);
-      color: var(--dtx-ink); vertical-align: top;
-    }
-    .dtx-table tr:last-child td { border-bottom: none; }
-    .dtx-table .dtx-num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; white-space: nowrap; }
-    .dtx-table .dtx-id { font-variant-numeric: tabular-nums; font-weight: 650; white-space: nowrap; }
-    .dtx-table tfoot td {
-      padding: 11px 17px; background: #fbfcfe; font-weight: 800; color: var(--dtx-deep, #2e100d);
-      border-top: 1px solid var(--dtx-line);
-    }
-
-    /* ---------------- stacked ledger (compact) ----------------
-       A five-column table on a phone pushes VALUE — the one figure a rep is
-       actually here for — off the right edge behind a horizontal scroll. So on
-       a narrow container the same rows are stacked instead, with the amount
-       kept on the first line beside the date. */
-    .dtx-ledger { display: grid; }
-    .dtx-led {
-      display: grid; gap: 3px;
-      padding: 12px 17px; border-top: 1px solid var(--dtx-line-soft);
-    }
-    .dtx-led:first-child { border-top: none; }
-    .dtx-led-top {
-      display: flex; align-items: baseline; gap: 10px;
-      font-size: 13px; font-weight: 700; color: var(--dtx-ink);
-    }
-    .dtx-led-top span { flex: 1; min-width: 0; }
-    .dtx-led-top b { font-variant-numeric: tabular-nums; white-space: nowrap; }
-    .dtx-led-mid {
-      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-      font-size: 12px; color: var(--dtx-ink-2);
-    }
-    .dtx-led-mid span { min-width: 0; overflow-wrap: anywhere; }
-    .dtx-led-sub {
-      font-size: 11px; color: var(--dtx-mute); font-variant-numeric: tabular-nums;
-    }
-    .dtx-led-total {
-      display: flex; justify-content: space-between; gap: 10px;
-      padding: 12px 17px; background: #fbfcfe;
-      border-top: 1px solid var(--dtx-line);
-      font-size: 12.5px; font-weight: 800; color: var(--dtx-deep, #2e100d);
-    }
-    .dtx-led-total b { font-variant-numeric: tabular-nums; }
-
-    .dtx-pill {
-      display: inline-block; padding: 2px 8px; border-radius: 6px;
-      font-size: 10.5px; font-weight: 700; letter-spacing: .03em; white-space: nowrap;
-    }
-    /* A mark plus the word, so status never rests on colour — and none of
-       these is red, which belongs to the brand. */
-    .dtx-pill::before { margin-right: 3px; font-size: 9px; }
-    .dtx-pill--draft { color: var(--dtx-warn); background: var(--dtx-warn-soft); border: 1px solid var(--dtx-warn-line); }
-    .dtx-pill--draft::before { content: "○"; }
-    .dtx-pill--open { color: var(--dtx-ink-2); background: var(--dtx-line-soft); border: 1px solid var(--dtx-line); }
-    .dtx-pill--open::before { content: "○"; }
-    .dtx-pill--won { color: var(--dtx-good); background: var(--dtx-good-soft); border: 1px solid var(--dtx-good-line); }
-    .dtx-pill--won::before { content: "✓"; }
-    .dtx-pill--lost { color: var(--dtx-void); background: var(--dtx-void-soft); border: 1px solid var(--dtx-void-line); }
-    .dtx-pill--lost::before { content: "×"; }
-    .dtx-pill--soft { color: var(--dtx-ink-2); background: var(--dtx-line-soft); border: 1px solid var(--dtx-line); }
-    .dtx-pill--accent { color: var(--dtx-ink-accent, #a81c16); background: var(--dtx-soft, #fcedec); }
-
-    /* ---------------- POB month chart ---------------- */
-    .dtx-chart { display: flex; align-items: flex-end; gap: 7px; height: 132px; padding: 4px 0 0 0; }
-    .dtx-bar-wrap {
-      flex: 1 1 0; min-width: 0; display: flex; flex-direction: column;
-      align-items: center; justify-content: flex-end; height: 100%; gap: 6px;
-    }
-    .dtx-bar-val {
-      font-size: 9.5px; font-weight: 700; color: var(--dtx-ink-2);
-      font-variant-numeric: tabular-nums; white-space: nowrap;
-    }
-    .dtx-bar {
-      width: 100%; max-width: 44px; min-height: 3px; border-radius: 5px 5px 2px 2px;
-      background: linear-gradient(180deg, var(--dtx-accent, #d92c24) 0%, var(--dtx-deep, #6b1712) 100%);
-    }
-    /* A month with no POB keeps its slot: the gap is the finding, so the stub
-       has to be tall enough to see rather than a hairline. */
-    .dtx-bar--empty { background: var(--dtx-line); min-height: 6px; }
-    .dtx-bar-label {
-      font-size: 10px; font-weight: 650; color: var(--dtx-mute); white-space: nowrap;
-    }
-    .dtx-chart-foot {
-      display: flex; justify-content: space-between; gap: 10px;
-      margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--dtx-line-soft);
-      font-size: 11.5px; color: var(--dtx-mute);
-    }
-    .dtx-chart-foot b { color: var(--dtx-ink); font-weight: 700; }
-
-    /* ---------------- ranked products ---------------- */
-    .dtx-rank { display: grid; gap: 11px; }
-    .dtx-rank-row { display: grid; gap: 5px; }
-    .dtx-rank-top {
-      display: flex; align-items: baseline; gap: 10px;
-      font-size: 12.5px; font-weight: 650; color: var(--dtx-ink);
-    }
-    .dtx-rank-top span:first-child { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-    .dtx-rank-top b { font-variant-numeric: tabular-nums; white-space: nowrap; }
-    .dtx-rank-top small { font-size: 11px; font-weight: 500; color: var(--dtx-mute); white-space: nowrap; }
-    .dtx-rank-track { height: 6px; border-radius: 999px; background: var(--dtx-line-soft); overflow: hidden; }
-    .dtx-rank-fill {
-      height: 100%; border-radius: 999px; min-width: 3px;
-      background: linear-gradient(90deg, var(--dtx-accent, #d92c24), var(--dtx-deep, #6b1712));
-    }
-
-    /* ---------------- classification locator ---------------- */
-    .dtx-matrix { display: flex; gap: 14px; align-items: stretch; }
-    .dtx-matrix--compact { flex-direction: column; }
-    .dtx-matrix-figure { flex: 0 0 auto; }
-    .dtx-matrix-legend { flex: 1; min-width: 0; display: grid; gap: 8px; align-content: center; }
-    .dtx-matrix-note {
-      font-size: 11.5px; line-height: 1.5; color: var(--dtx-mute);
-    }
-    .dtx-matrix-note b { color: var(--dtx-ink); font-weight: 700; }
-
-    /* ---------------- notes timeline ---------------- */
-    .dtx-notes { display: grid; gap: 0; }
-    .dtx-note {
-      position: relative; padding: 13px 17px 13px 38px;
-      border-top: 1px solid var(--dtx-line-soft);
-    }
-    .dtx-note:first-child { border-top: none; }
-    /* the rail and its node, drawn rather than imaged so it scales with text */
-    .dtx-note::before {
-      content: ""; position: absolute; left: 23px; top: 0; bottom: 0; width: 1px;
-      background: var(--dtx-line);
-    }
-    .dtx-note:first-child::before { top: 18px; }
-    .dtx-note:last-child::before { bottom: auto; height: 18px; }
-    .dtx-note::after {
-      content: ""; position: absolute; left: 19.5px; top: 16px;
-      width: 8px; height: 8px; border-radius: 999px;
-      background: var(--dtx-accent, #d92c24);
-      box-shadow: 0 0 0 3px var(--dtx-card);
-    }
-    .dtx-note-when {
-      font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
-      color: var(--dtx-mute);
-    }
-    .dtx-note-text {
-      margin-top: 4px; font-size: 13px; line-height: 1.55; color: var(--dtx-ink);
-      white-space: pre-wrap; overflow-wrap: anywhere;
-    }
-
-    /* ---------------- footer ---------------- */
-    .dtx-foot {
-      display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center;
-      margin-top: 18px; padding: 0 2px;
-      font-size: 11.5px; color: var(--dtx-mute);
-    }
-    .dtx-foot b { color: var(--dtx-ink-2); font-weight: 650; }
-    .dtx-foot a { margin-left: auto; color: var(--dtx-ink-accent, #a81c16); text-decoration: none; font-weight: 650; }
-    .dtx-foot a:hover { text-decoration: underline; }
-
-    .dtx-warn {
-      display: flex; gap: 9px; align-items: flex-start;
-      margin-top: 18px; padding: 11px 14px;
-      font-size: 12px; line-height: 1.5; color: #7c4a06;
-      background: #fffbeb; border: 1px solid #fde68a; border-radius: 11px;
-    }
-    .dtx-warn button {
-      margin-left: auto; padding: 3px 10px; border-radius: 7px; cursor: pointer;
-      font-size: 11.5px; font-weight: 700; color: #7c4a06;
-      background: #fef3c7; border: 1px solid #fcd34d; white-space: nowrap;
-    }
-  `;
-  document.head.appendChild(el);
-}
-
-/* ------------------------------------------------------------------ *
- * Icons — inline so the component carries no icon dependency.         *
- * ------------------------------------------------------------------ */
+// Local icons keep existing action controls consistent with DoctorCard.
 
 const ico = { fill: "none", stroke: "currentColor", strokeWidth: 1.9, strokeLinecap: "round", strokeLinejoin: "round" };
 
@@ -1442,11 +965,12 @@ const Icon = {
  * Small render pieces (kept local — this component IS the page)       *
  * ------------------------------------------------------------------ */
 
-function Section({ title, count, children, id }) {
+function Section({ title, subtitle, icon: SectionIcon, count, children, id }) {
   return (
     <section className="dtx-card" id={id}>
       <div className="dtx-head">
-        <h3>{title}</h3>
+        <span className="dtx-section-icon">{SectionIcon ? <SectionIcon size={18} /> : <ClipboardList size={18} />}</span>
+        <div><h2>{title}</h2>{subtitle ? <p className="dtx-section-sub">{subtitle}</p> : null}</div>
         {count != null ? <span className="dtx-count">{count}</span> : null}
       </div>
       {children}
@@ -1497,7 +1021,7 @@ function Defs({ rows }) {
   );
 }
 
-const STATUS_TONE = { draft: "draft", open: "open", ordered: "won", won: "won", lost: "lost", expired: "lost" };
+const STATUS_TONE = { completed: "won", closed: "won", cancelled: "lost", canceled: "lost", draft: "draft", open: "open", ordered: "won", won: "won", lost: "lost", expired: "lost" };
 
 function StatusPill({ value }) {
   if (!value) return null;
@@ -1639,6 +1163,98 @@ function MatrixLocator({ parsed, axisX, axisY, compact }) {
  * The page                                                            *
  * ------------------------------------------------------------------ */
 
+function Pagination({ page, count, size, onChange }) {
+  const pages = Math.max(1, Math.ceil(count / size));
+  return <div className="dtx-pagination">
+    <span>{count ? `${page * size + 1}–${Math.min((page + 1) * size, count)} of ${count}` : "0 results"}</span>
+    <div><button type="button" disabled={page === 0} onClick={() => onChange(page - 1)}>Previous</button>
+      <button type="button" disabled={page + 1 >= pages} onClick={() => onChange(page + 1)}>Next</button></div>
+  </div>;
+}
+
+function PobPanel({ pob, known, loading, currency, compact, limit }) {
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(0);
+  const [allProducts, setAllProducts] = useState(false);
+  const filtered = pob.rows.filter((r) => `${r.id} ${r.customer} ${r.items.map((i) => i.label).join(" ")}`.toLowerCase().includes(search.toLowerCase()));
+  const currentPage = Math.min(page, Math.max(0, Math.ceil(filtered.length / 8) - 1));
+  const netValues = pob.rows.some((r) => r.estimated);
+  if (loading && !known) return <Section title="POB overview" icon={Wallet}><Loading lines={4} /></Section>;
+  if (!known || !pob.count) return <Section title="POB overview" icon={Wallet}><Empty headline={known ? "Your next opportunity starts here" : "POB history unavailable"} body={known ? "No POBs are linked to this doctor yet. Use Add POB to capture an order opportunity." : "POB history will appear when it is loaded or supplied with this profile."} /></Section>;
+  return <div className="dtx-panel-stack">
+    <Section title="Business overview" subtitle="POB performance for this doctor" icon={Wallet}>
+      <div className="dtx-business-top"><div><div className="dtx-business-caption">{netValues ? "Recorded value · item totals where needed" : "Recorded POB value"}</div><div className="dtx-business-value">{fmtMoney(pob.total, currency)}</div></div>
+        <div className="dtx-business-last"><span>Latest POB</span><b>{fmtDate(pob.last?.at) || "Undated"}</b></div></div>
+      {pob.months.length > 1 ? <MonthChart months={compact ? pob.months.slice(-6) : pob.months} currency={currency} /> : <div className="dtx-period-summary">
+        <span><b>{pob.count}</b> POB{pob.count === 1 ? "" : "s"} recorded</span>
+        <span><b>{pob.products.length}</b> product{pob.products.length === 1 ? "" : "s"}</span>
+        {pob.months[0] ? <span>{pob.months[0].label} {pob.months[0].year}</span> : null}
+      </div>}
+      {pob.unknownValues ? <p className="dtx-empty">{pob.unknownValues} POB{pob.unknownValues === 1 ? " has" : "s have"} no value supplied and {pob.unknownValues === 1 ? "is" : "are"} excluded from the total.</p> : null}
+      {pob.count >= Math.max(1, Math.min(1000, Number(limit) || 200)) ? <p className="dtx-empty">Summary covers {pob.count} loaded POBs. Earlier records may not be included.</p> : null}
+    </Section>
+    {pob.products.length ? <Section title="Product mix" subtitle="Products carried in this doctor’s POBs" icon={Package} count={pob.products.length}>
+      <div className="dtx-product-list">{(allProducts ? pob.products : pob.products.slice(0, 4)).map((product) => <div className="dtx-product" key={product.label}>
+        <span className="dtx-product-icon"><Package size={18} /></span>
+        <div className="dtx-product-body"><div className="dtx-product-name">{product.label}</div><div className="dtx-product-sub">{fmtNum(product.qty)} {product.qty === 1 ? "unit" : "units"} · {product.lines} line{product.lines === 1 ? "" : "s"}</div>
+          <div className="dtx-rank-track"><div className="dtx-rank-fill" style={{ width: `${Math.max(0, Math.min(100, product.amount / (pob.products[0].amount || 1) * 100))}%` }} /></div></div>
+        <div className="dtx-product-value">{fmtMoney(product.amount, currency)}</div>
+      </div>)}</div>
+      {pob.products.length > 4 ? <button type="button" className="dtx-more" onClick={() => setAllProducts(!allProducts)}>{allProducts ? "Show fewer products" : `View all ${pob.products.length} products`}</button> : null}
+    </Section> : null}
+    <Section title="POB history" subtitle="Open a quotation to view its items" icon={ClipboardList} count={pob.count}>
+      <div className="dtx-toolbar"><label className="dtx-search"><Search size={15} /><input aria-label="Search POBs" placeholder="Search customer, product or quotation…" value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} /></label></div>
+      {filtered.slice(currentPage * 8, (currentPage + 1) * 8).map((r, index) => <details className="dtx-quotation" key={r.id || index}>
+        <summary><span className="dtx-date-box">{r.time ? new Date(r.time).getDate() : "—"}<small>{r.time ? MONTHS[new Date(r.time).getMonth()] : "Date"}</small></span>
+          <span className="dtx-quotation-main"><b>{r.customer || "Customer not specified"}</b><small>{r.id} · {fmtDate(r.at) || "Undated"}</small></span>
+          <span className="dtx-quotation-right"><span>{fmtMoney(r.value, currency)}</span><StatusPill value={r.status || "Status not supplied"} /></span><ChevronDown size={16} className="dtx-chevron" /></summary>
+        <div className="dtx-quotation-detail">
+          {r.items.length ? <div className="dtx-scroll"><table className="dtx-table"><caption className="dtx-business-caption">Items in {r.id}</caption><thead><tr><th>Product</th><th className="dtx-num">Qty</th><th className="dtx-num">Rate</th><th className="dtx-num">Value</th></tr></thead><tbody>{r.items.map((item, i) => <tr key={`${item.label}-${i}`}><td>{item.label}{Number.isFinite(item.ordered) ? <div className="dtx-product-sub">{fmtNum(item.ordered)} ordered</div> : null}</td><td className="dtx-num">{fmtNum(item.qty)}</td><td className="dtx-num">{fmtMoney(item.rate, currency)}</td><td className="dtx-num">{fmtMoney(item.amount, currency)}</td></tr>)}</tbody></table></div> : <Empty headline="No item details supplied" />}
+          <div className="dtx-quotation-meta">{r.territory ? <span>{r.territory}</span> : null}{r.event ? <span>Visit: {r.event}</span> : null}{r.validTill ? <span>Valid until {fmtDate(r.validTill)}</span> : null}{r.estimated ? <span>Value from item totals</span> : null}{r.address ? <p>{r.address}</p> : null}</div>
+        </div>
+      </details>)}
+      {!filtered.length ? <Empty headline="No matching POBs" body="Try another customer, product or quotation number." /> : null}
+      <Pagination page={currentPage} count={filtered.length} size={8} onChange={setPage} />
+    </Section>
+  </div>;
+}
+
+function VisitsPanel({ visits, known, loading, pobs, currency }) {
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [page, setPage] = useState(0);
+  const filtered = visits.filter((visit) => {
+    const upcoming = visit.time > Date.now() && !/cancel|completed|closed/i.test(visit.status || "");
+    const matching = `${visit.subject || ""} ${visit.custom_hq__name || ""} ${pick(visit, "custom_employee_id.employee_name", ["custom_employee_id__name"])}`.toLowerCase().includes(search.toLowerCase());
+    return matching && (filter === "all" || (filter === "upcoming" ? upcoming : visit.time != null && visit.time <= Date.now()));
+  });
+  const currentPage = Math.min(page, Math.max(0, Math.ceil(filtered.length / 10) - 1));
+  return <Section title="Visit history" subtitle="Conversations, team activity and linked POBs" icon={CalendarDays} count={known ? visits.length : undefined}>
+    {loading && !known ? <Loading lines={4} /> : !known || !visits.length ? <Empty headline={known ? "No visits on file" : "Visit history unavailable"} body="Recorded visits and upcoming appointments will appear here." /> : <>
+      <div className="dtx-toolbar"><label className="dtx-search"><Search size={15} /><input aria-label="Search visits" placeholder="Search visits or team members…" value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} /></label>
+        <select className="dtx-select" aria-label="Filter visits" value={filter} onChange={(e) => { setFilter(e.target.value); setPage(0); }}><option value="all">All visits</option><option value="past">Past visits</option><option value="upcoming">Upcoming</option></select></div>
+      <div className="dtx-notes">{filtered.slice(currentPage * 10, (currentPage + 1) * 10).map((visit, index) => {
+        const linked = pobs.filter((pob) => pob.event && pob.event === visit.name);
+        const lat = realCoord(visit.custom_latitude), lng = realCoord(visit.custom_longitude);
+        const hasLocation = lat != null && lng != null && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+        const pobGiven = visit.custom_pob_given === true || visit.custom_pob_given === 1 || /^(yes|true|1)$/i.test(String(visit.custom_pob_given));
+        const attendance = readVisitAttendance(visit);
+        return <article className="dtx-note" key={visit.name || index}>
+          <div className="dtx-note-when">{fmtDate(visit.starts_on) || "Date not recorded"}{visit.time != null ? ` · ${new Date(visit.time).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}` : ""}</div>
+          <div className="dtx-visit-title"><h3>{visit.subject || visit.event_category || "Doctor visit"}</h3><StatusPill value={visit.status} /></div>
+          <div className="dtx-visit-meta"><span>{pick(visit, "custom_employee_id.employee_name", ["custom_employee_id__name"]) || "Team member not supplied"}</span>{visit.custom_hq__name ? <span>{visit.custom_hq__name}</span> : null}{visit.event_category ? <span>{visit.event_category}</span> : null}{attendance.made ? <span className="dtx-visit-made">Visited{attendance.at ? ` ${new Date(attendance.at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}` : ""}</span> : visit.time != null && visit.time <= Date.now() ? <span className="dtx-visit-unmade">Not marked visited</span> : null}{attendance.forced ? <span className="dtx-visit-forced">Force visit</span> : null}</div>
+          {visit.custom_force_visit_reason ? <p className="dtx-note-text">{stripHtml(visit.custom_force_visit_reason)}</p> : null}
+          {linked.length || pobGiven ? <div className="dtx-visit-pob"><ClipboardList size={13} />{linked.length ? `${linked.length} linked POB${linked.length === 1 ? "" : "s"} · ${fmtMoney(linked.reduce((sum, row) => sum + (Number.isFinite(row.value) ? row.value : 0), 0), currency)}` : "POB recorded on visit"}</div> : null}
+          {hasLocation ? <div><a className="dtx-text-link" href={`https://www.google.com/maps/search/?api=1&query=${lat},${lng}`} target="_blank" rel="noreferrer">View visit location <ArrowUpRight size={14} /></a></div> : null}
+        </article>;
+      })}</div>
+      {!filtered.length ? <Empty headline="No matching visits" body="Try a different search or visit filter." /> : null}
+      <Pagination page={currentPage} count={filtered.length} size={10} onChange={setPage} />
+      {visits.length >= 1000 ? <p className="dtx-empty">Showing 1,000 loaded visits. Older activity may not be included.</p> : null}
+    </>}
+  </Section>;
+}
+
 export default function DoctorDetail({
   data,
   doctorId: doctorIdProp,
@@ -1655,6 +1271,8 @@ export default function DoctorDetail({
   enrich = true,
   pobLimit = 200,
   pobs: pobsProp,
+  visits: visitsProp,
+  addresses: addressesProp,
   currency = "₹",
 
   erpTarget,
@@ -1680,12 +1298,15 @@ export default function DoctorDetail({
   className = "",
   style,
 }) {
-  ensureStyles();
+
   const [wrapRef, compact] = useContainerMode(mode, breakpoint);
   const [copied, setCopied] = useState(false);
   const [pobOpen, setPobOpen] = useState(false);
 
-  const row = useMemo(() => normalizeRow(data), [data]);
+  const row = useMemo(() => normalizeRow(data?.Lead ?? data?.data?.Lead ?? data), [data]);
+  const envelope = data?.data ?? data;
+  const [activeView, setActiveView] = useState("business");
+  const tabsId = useId();
 
   // One object instead of six name props. Every entry has a working default,
   // so a normal page never touches this — it exists for a row whose columns
@@ -1717,25 +1338,35 @@ export default function DoctorDetail({
 
   // A page that already holds this doctor's quotations can hand them over and
   // the component skips that fetch entirely; anything else is fetched as usual.
-  const pobsGiven = useMemo(() => normalizeConnection(pobsProp), [pobsProp]);
+  const pobsGiven = useMemo(() => normalizeConnection(pobsProp ?? envelope?.Quotations), [pobsProp, envelope?.Quotations]);
 
+  const visitsGiven = useMemo(() => normalizeConnection(visitsProp ?? envelope?.Events), [visitsProp, envelope?.Events]);
+  const addressesGiven = useMemo(() => normalizeConnection(addressesProp ?? envelope?.Addresses), [addressesProp, envelope?.Addresses]);
   const {
     lead,
     pobs: pobsFetched,
+    visits: visitsFetched,
+    addresses: addressesFetched,
+    loadingVisits, loadingAddresses, errors,
     loadingLead,
     loadingPobs,
-    error,
     refresh,
   } = useDoctorEnrichment(doctorId, {
     enabled: !!enrich,
     pobLimit,
-    pobsGiven,
+    pobsGiven, visitsGiven, addressesGiven,
     erpUrl,
     authToken,
     erpTarget,
   });
 
   const pobs = pobsGiven ?? pobsFetched;
+  const addresses = addressesGiven ?? addressesFetched;
+  const visits = visitsGiven ?? visitsFetched;
+  const visitRows = useMemo(() => (visits ?? []).map((v) => ({ ...v, time: toTime(v.starts_on) }))
+    .sort((a, b) => (b.time ?? 0) - (a.time ?? 0)), [visits]);
+  const lastVisit = visitRows.find((v) => v.time != null && v.time <= Date.now() && !/cancel/i.test(v.status || ""));
+  const nextVisit = [...visitRows].reverse().find((v) => v.time > Date.now() && !/cancel|closed|completed/i.test(v.status || ""));
 
   /* --- identity ------------------------------------------------- */
 
@@ -1762,24 +1393,23 @@ export default function DoctorDetail({
 
   const mobile = realPhone(pickBoth(lead, row, "mobile_no", ["mobile"]));
   const whatsapp = realPhone(pickBoth(lead, row, "whatsapp_no", []));
-  const landline = realPhone(pickBoth(lead, row, "phone", []));
-  const email = realEmail(pickBoth(lead, row, "email_id", ["email"]));
+  const landline = realPhone(pickBoth(lead, row, "phone", [])) || (addresses ?? []).map((a) => realPhone(a.phone)).find(Boolean) || "";
+  const email = realEmail(pickBoth(lead, row, "email_id", ["email"])) || (addresses ?? []).map((a) => realEmail(a.email_id)).find(Boolean) || "";
 
   const lat = realCoord(pickBoth(lead, row, "custom_latitude", []));
   const lng = realCoord(pickBoth(lead, row, "custom_longitude", []));
-  const hasGeo = lat != null && lng != null;
-  const mapsHref = hasGeo ? `https://www.google.com/maps/search/?api=1&query=${lat},${lng}` : "";
+  const hasGeo = lat != null && lng != null && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+  const mapsQuery = hasGeo ? `${lat},${lng}` : addresses?.length ? addressText(addresses[0]) : "";
+  const mapsHref = mapsQuery ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapsQuery)}` : "";
 
   // Coverage and notes come from whichever side actually holds the child table:
   // the list row carries role profiles, the enriched Lead carries both.
   const roleRows = useMemo(() => {
-    const fromLead = readRoleRows(lead, "custom_role_profile");
-    return fromLead.length ? fromLead : readRoleRows(row, fields.roles);
+    return Array.isArray(lead?.custom_role_profile) ? readRoleRows(lead, "custom_role_profile") : readRoleRows(row, fields.roles);
   }, [lead, row, fields.roles]);
 
   const notes = useMemo(() => {
-    const fromLead = readNotes(lead);
-    return fromLead.length ? fromLead : readNotes(row);
+    return Array.isArray(lead?.notes) ? readNotes(lead) : readNotes(row);
   }, [lead, row]);
 
   const divisions = useMemo(
@@ -1838,47 +1468,29 @@ export default function DoctorDetail({
     ...(style ?? {}),
   };
 
-  const enriching = enrich && (loadingLead || loadingPobs);
+  const enriching = enrich && (loadingLead || loadingPobs || loadingVisits || loadingAddresses);
 
   /* --- stat tiles ----------------------------------------------- */
 
   const stats = [
-    {
-      label: "POB value",
+    { label: "POB value", icon: Wallet,
       value: pobKnown ? fmtMoneyShort(pob.total, currency) : "—",
-      sub: pobKnown
-        ? pob.count
-          ? `across ${pob.count} POB${pob.count === 1 ? "" : "s"}`
-          : "nothing raised yet"
-        : enriching
-          ? "loading…"
-          : "not loaded",
-    },
-    {
-      label: "Last POB",
-      value: pob.last?.at ? fmtDate(pob.last.at) : pobKnown ? "Never" : "—",
-      sub: pob.last?.at
-        ? `${relTime(pob.last.at)}${pob.last.value ? ` · ${fmtMoneyShort(pob.last.value, currency)}` : ""}`
-        : pobKnown
-          ? "no POB on record"
-          : "",
-    },
-    {
-      label: "Divisions covering",
-      value: divisions.length ? fmtNum(divisions.length) : "—",
-      sub: divisions.length ? divisions.slice(0, 2).join(", ") : "no role profile rows",
-    },
-    {
-      label: "Notes on file",
-      value: notes.length ? fmtNum(notes.length) : "—",
-      sub: notes.length ? `last ${relTime(notes[0].at)}` : "nothing recorded",
-    },
+      sub: pobKnown ? `Across ${pob.count} loaded POB${pob.count === 1 ? "" : "s"}${pob.unknownValues ? " · partial values" : ""}` : loadingPobs ? "Loading POBs…" : "History unavailable" },
+    { label: "Last visit", icon: CalendarDays,
+      value: lastVisit ? fmtDate(lastVisit.starts_on) : Array.isArray(visits) ? "No visits yet" : "—",
+      sub: lastVisit ? pick(lastVisit, "custom_employee_id.employee_name", ["custom_employee_id__name"]) || relTime(lastVisit.starts_on) : loadingVisits ? "Loading visits…" : "No past visit on file" },
+    { label: "Visit activity", icon: Activity,
+      value: Array.isArray(visits) ? fmtNum(visitRows.length) : "—",
+      sub: nextVisit ? `Next: ${fmtDate(nextVisit.starts_on)}` : Array.isArray(visits) ? "No upcoming visit recorded" : "History unavailable" },
+    { label: "Division coverage", icon: Users,
+      value: divisions.length ? fmtNum(divisions.length) : loadingLead ? "—" : "0",
+      sub: roleRows.length ? `${roleRows.length} mapped team${roleRows.length === 1 ? "" : "s"}` : "No teams assigned" },
   ];
 
   /* --- actions -------------------------------------------------- */
 
   const actions = useMemo(() => {
-    const phone = String(mobile || "").replace(/\s/g, "");
+    const phone = String(mobile || landline || "").replace(/\s/g, "");
     const wa = String(whatsapp || mobile || "").replace(/[^0-9]/g, "");
     const spec = {
       pob: {
@@ -1900,14 +1512,14 @@ export default function DoctorDetail({
         : null,
       call: {
         key: "call",
-        label: phone ? "Call" : "Call · no number",
+        label: "Call",
         icon: <Icon.Phone />,
         href: phone ? `tel:${phone}` : "",
         why: phone ? "" : "ERP holds no mobile number for this doctor",
       },
       whatsapp: {
         key: "whatsapp",
-        label: wa ? "WhatsApp" : "WhatsApp · no number",
+        label: "WhatsApp",
         icon: <Icon.Chat />,
         href: wa ? `https://wa.me/${wa}` : "",
         external: true,
@@ -1915,21 +1527,21 @@ export default function DoctorDetail({
       },
       email: {
         key: "email",
-        label: email ? "E-mail" : "E-mail · none on record",
+        label: "Email",
         icon: <Icon.Mail />,
         href: email ? `mailto:${email}` : "",
         why: email ? "" : "ERP holds no e-mail address for this doctor",
       },
       directions: {
         key: "directions",
-        label: hasGeo ? "Directions" : "Directions · no location",
+        label: "Directions",
         icon: <Icon.Pin />,
         href: mapsHref,
         external: true,
         why: hasGeo ? "" : "This doctor's coordinates were never captured",
       },
     };
-    return wanted.map((key) => spec[key]).filter(Boolean);
+    return wanted.map((key) => spec[key]).filter((action) => action && (action.href || action.onClick));
   }, [
     wanted,
     addPobLabel,
@@ -1939,6 +1551,7 @@ export default function DoctorDetail({
     code,
     name,
     mobile,
+    landline,
     whatsapp,
     email,
     hasGeo,
@@ -1961,7 +1574,7 @@ export default function DoctorDetail({
 
         <div className="dtx-idbody">
           <div className="dtx-eyebrow">
-            <span>Doctor</span>
+            <span>Doctor profile</span>
             {hq ? (
               <>
                 <i className="dtx-dot" />
@@ -1993,11 +1606,11 @@ export default function DoctorDetail({
                 {code}
               </button>
             ) : null}
-            {status ? <span>{status}</span> : null}
+            {status ? <StatusPill value={status} /> : null}
           </div>
         </div>
 
-        {grade && !compact ? (
+        {grade ? (
           <div className="dtx-grade">
             <div className="dtx-grade-label">Grade</div>
             <div className="dtx-grade-value">{grade}</div>
@@ -2005,11 +1618,6 @@ export default function DoctorDetail({
         ) : null}
       </div>
 
-      {/* Actions come from the `actions` list, in its order. An action the
-          record cannot support is shown DIMMED AND LABELLED rather than
-          dropped: "Call · no number" tells the reader the number is missing,
-          where a silently absent button leaves them wondering. Add POB and
-          Add a note are always supportable, so they never dim. */}
       {actions.length > 0 ? (
         <div className="dtx-actions">
           {actions.map((action) =>
@@ -2053,135 +1661,17 @@ export default function DoctorDetail({
 
   /* --- sections ------------------------------------------------- */
 
-  const businessSection = (
-    <Section key="business" title="POB history" count={pobKnown && pob.count ? pob.count : undefined}>
-      {!pobKnown && loadingPobs ? (
-        <Loading lines={4} />
-      ) : !pob.count ? (
-        <Empty
-          headline="No POB recorded against this doctor"
-          body={
-            enrich
-              ? "A POB shows up here once a Quotation carries this doctor in its DoctorVisit field. POBs raised without that link — the direct-POB default — are not traceable to a doctor and cannot appear."
-              : "Enrichment is off, so no POB history was fetched."
-          }
-        />
-      ) : (
-        <>
-          {pob.months.length > 1 ? <MonthChart months={pob.months} currency={currency} /> : null}
-
-          {pob.products.length ? (
-            <div className="dtx-pad" style={{ borderTop: "1px solid var(--dtx-line-soft)" }}>
-              <div className="dtx-stat-label" style={{ marginBottom: 12 }}>
-                What this doctor's POBs carry
-              </div>
-              <div className="dtx-rank">
-                {pob.products.slice(0, 6).map((p) => {
-                  const peak = pob.products[0].amount || 1;
-                  return (
-                    <div className="dtx-rank-row" key={p.label}>
-                      <div className="dtx-rank-top">
-                        <span>{p.label}</span>
-                        <small>{fmtNum(p.qty)} units</small>
-                        <b>{fmtMoney(p.amount, currency)}</b>
-                      </div>
-                      <div className="dtx-rank-track">
-                        <div
-                          className="dtx-rank-fill"
-                          style={{ width: `${Math.max(3, Math.round((p.amount / peak) * 100))}%` }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ) : null}
-
-          <div style={{ borderTop: "1px solid var(--dtx-line-soft)" }}>
-            {compact ? (
-              <>
-                <div className="dtx-ledger">
-                  {pob.rows.slice(0, 12).map((r) => (
-                    <div className="dtx-led" key={r.id}>
-                      <div className="dtx-led-top">
-                        <span>{fmtDate(r.at) || "Undated"}</span>
-                        <b>{fmtMoney(r.value, currency)}</b>
-                      </div>
-                      <div className="dtx-led-mid">
-                        <span>{r.customer || "No customer"}</span>
-                        <StatusPill value={r.status} />
-                      </div>
-                      <div className="dtx-led-sub">
-                        {[r.id, r.territory].filter(Boolean).join("  ·  ")}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div className="dtx-led-total">
-                  <span>
-                    {pob.rows.length > 12 ? `Showing 12 of ${pob.rows.length} — total across all` : "Total"}
-                  </span>
-                  <b>{fmtMoney(pob.total, currency)}</b>
-                </div>
-              </>
-            ) : (
-              <div className="dtx-scroll">
-                <table className="dtx-table">
-                  <thead>
-                    <tr>
-                      <th>Date</th>
-                      <th>Quotation</th>
-                      <th>Customer</th>
-                      <th>Status</th>
-                      <th className="dtx-num">Value</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pob.rows.slice(0, 12).map((r) => (
-                      <tr key={r.id}>
-                        <td className="dtx-id">
-                          {fmtDate(r.at) || "—"}
-                          {r.territory ? (
-                            <small style={{ display: "block", fontWeight: 500, color: "var(--dtx-mute)" }}>
-                              {r.territory}
-                            </small>
-                          ) : null}
-                        </td>
-                        <td className="dtx-id">{r.id}</td>
-                        <td>{r.customer || "—"}</td>
-                        <td>
-                          <StatusPill value={r.status} />
-                        </td>
-                        <td className="dtx-num">{fmtMoney(r.value, currency)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr>
-                      <td colSpan={4}>
-                        {pob.rows.length > 12 ? `Showing 12 of ${pob.rows.length} — total across all` : "Total"}
-                      </td>
-                      <td className="dtx-num">{fmtMoney(pob.total, currency)}</td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            )}
-          </div>
-        </>
-      )}
-    </Section>
-  );
+  const businessSection = <PobPanel key={code} pob={pob} known={pobKnown} loading={loadingPobs} currency={currency} compact={compact} limit={pobLimit} />;
+  const visitsSection = <VisitsPanel key={code} visits={visitRows} known={Array.isArray(visits)} loading={loadingVisits} pobs={pob.rows} currency={currency} />;
 
   const notesSection = (
-    <Section key="notes" title="Notes" count={notes.length || undefined}>
+    <Section key="notes" title="Notes & observations" subtitle="Context for your next conversation" icon={ClipboardList} count={notes.length}>
       {!notes.length && loadingLead ? (
         <Loading lines={3} />
       ) : !notes.length ? (
         <Empty
-          headline="No notes on this doctor"
-          body="Notes written on a doctor visit land in the Lead's own notes table and appear here, newest first."
+          headline={errors.lead ? "Notes could not be loaded" : "No notes yet"}
+          body="Observations and follow-ups recorded for this doctor appear here."
         />
       ) : (
         <div className="dtx-notes">
@@ -2189,7 +1679,7 @@ export default function DoctorDetail({
             <article className="dtx-note" key={note.id}>
               <div className="dtx-note-when">
                 {fmtDate(note.at) || `Note ${note.idx}`}
-                {note.at ? ` · ${relTime(note.at)}` : ""}
+                {note.author ? ` · ${note.author}` : ""}
               </div>
               <p className="dtx-note-text">{note.text}</p>
             </article>
@@ -2200,44 +1690,26 @@ export default function DoctorDetail({
   );
 
   const coverageSection = (
-    <Section key="coverage" title="Coverage" count={roleRows.length || undefined}>
-      {!roleRows.length && loadingLead ? (
-        <Loading lines={2} />
-      ) : !roleRows.length ? (
-        <Empty
-          headline="No division is mapped to this doctor"
-          body="Coverage comes from the doctor's Role Profile rows, which pair a division with an HQ. Without one, a POB has no department to price items against."
-        />
-      ) : (
-        <div className="dtx-scroll">
-          <table className="dtx-table">
-            <thead>
-              <tr>
-                <th>Division</th>
-                <th>HQ</th>
-                <th>Beat</th>
-              </tr>
-            </thead>
-            <tbody>
-              {roleRows.map((r) => (
-                <tr key={`${r.department}|${r.hq}|${r.beat}`}>
-                  <td style={{ fontWeight: 650 }}>{r.department || "—"}</td>
-                  <td>{r.hq || "—"}</td>
-                  <td className="dtx-id" style={{ color: "var(--dtx-mute)" }}>{r.beat || "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+    <Section key="coverage" title="Team & coverage" subtitle="Divisions connected to this doctor" icon={Users} count={roleRows.length}>
+      {!roleRows.length && loadingLead ? <Loading lines={3} /> : !roleRows.length ?
+        <Empty headline="No team assigned" body="Division and territory assignments will appear here." /> :
+        <div className="dtx-coverage">{roleRows.map((r) => (
+          <article className="dtx-team" key={`${r.department}|${r.hq}|${r.beat}`}>
+            <span className="dtx-team-icon"><Building2 size={18} /></span>
+            <div><h3>{r.department || "Division not specified"}</h3>
+              <p>{r.hq || "HQ not specified"}</p>
+              {r.employee ? <div className="dtx-assignee"><span className="dtx-avatar-small">{initialsOf(r.employee)}</span>{r.employee}</div> : null}
+              {r.beat ? <small className="dtx-beat">{r.beat}</small> : null}
+            </div>
+          </article>
+        ))}</div>}
     </Section>
   );
-
   const classificationRows = [
     { label: "Grade", value: grade },
-    { label: `${matrixAxisY} / ${matrixAxisX}`, value: cat1 },
-    { label: "Coverage class", value: cat2 },
-    { label: "Focus list", value: cat3 },
+    { label: "Category 1", value: cat1 },
+    { label: "Category 2", value: cat2 },
+    { label: "Category 3", value: cat3 },
   ].filter((r) => r.value);
 
   const classificationSection =
@@ -2247,7 +1719,7 @@ export default function DoctorDetail({
           <Loading lines={2} />
         ) : (
           <>
-            {matrix ? (
+            {matrix && matrixAxisY !== "Axis I" && matrixAxisX !== "Axis R" ? (
               <div className="dtx-pad">
                 <div className={`dtx-matrix ${compact ? "dtx-matrix--compact" : ""}`}>
                   <MatrixLocator parsed={matrix} axisX={matrixAxisX} axisY={matrixAxisY} compact={compact} />
@@ -2263,8 +1735,6 @@ export default function DoctorDetail({
                       <b>
                         {matrix.xHigh ? "high" : "low"} {String(matrixAxisX).toLowerCase()}
                       </b>
-                      . ERP stores only the code, so the axis names are set on this component — rename
-                      them and the grid relabels itself.
                     </p>
                   </div>
                 </div>
@@ -2295,7 +1765,13 @@ export default function DoctorDetail({
   ];
 
   const contactSection = (
-    <Section key="contact" title="Contact & location">
+    <Section key="contact" title="Contact & locations" icon={MapPin}>
+      {addresses?.length ? <div className="dtx-addresses">{addresses.map((a, index) => <article className="dtx-address" key={a.name || index}>
+        <div className="dtx-address-title"><MapPin size={17} /><b>{a.address_title || a.address_type || "Practice address"}</b>{a.address_type ? <span className="dtx-pill dtx-pill--soft">{a.address_type}</span> : null}</div>
+        <p>{addressText(a)}</p>
+        <a className="dtx-text-link" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addressText(a))}`} target="_blank" rel="noreferrer">Get directions <ArrowUpRight size={14} /></a>
+      </article>)}</div> : loadingAddresses ? <Loading lines={2} /> : null}
+      {!mobile && !landline && !email && !loadingLead && !loadingAddresses ? <p className="dtx-contact-missing">No phone number or email on file.</p> : null}
       {contactRows.some((r) => r.value) ? (
         <Defs rows={contactRows} />
       ) : loadingLead ? (
@@ -2303,7 +1779,7 @@ export default function DoctorDetail({
       ) : (
         <Empty
           headline="No reachable contact detail"
-          body="ERP holds 0 in the phone columns for bulk-imported doctors, and those are treated as blank here rather than shown as a number to dial."
+          body="Add a phone number or email to make it easier to connect."
         />
       )}
     </Section>
@@ -2337,6 +1813,7 @@ export default function DoctorDetail({
   // listed order; on a narrow container they are one stream.
   const byKey = {
     business: businessSection,
+    visits: visitsSection,
     coverage: coverageSection,
     classification: classificationSection,
     notes: notesSection,
@@ -2347,70 +1824,42 @@ export default function DoctorDetail({
   const wideCol = chosen.filter(([key]) => WIDE_SECTIONS.has(key));
   const narrowCol = chosen.filter(([key]) => !WIDE_SECTIONS.has(key));
 
+  const selectedView = wideCol.some(([key]) => key === activeView) ? activeView : wideCol[0]?.[0];
+  const tabLabels = { business: "POB overview", visits: "Visit history", notes: "Notes" };
+  const tabCounts = { business: pobKnown ? pob.count : null, visits: Array.isArray(visits) ? visits.length : null, notes: notes.length };
+  const failed = Object.entries(errors).filter(([, value]) => value).map(([key]) => ({ lead: "profile", pobs: "POBs", visits: "visits", addresses: "addresses" }[key]));
+
   return (
     <>
-      <div ref={wrapRef} className={`dtx-root ${className}`} style={accentVars}>
+      <div ref={wrapRef} className={`dtx-root ${compact ? "dtx-root--compact" : ""} ${className}`} style={accentVars}>
+        <style>{doctorDetailStyles}</style>
         {masthead}
-
         <div className={`dtx-body ${compact ? "dtx-body--compact" : ""}`}>
-          {showStats ? (
-            <div className={`dtx-stats ${compact ? "dtx-stats--compact" : ""}`}>
-              {stats.map((s) => (
-                <div className="dtx-stat" key={s.label}>
-                  <div className="dtx-stat-label">{s.label}</div>
-                  <div className={`dtx-stat-value ${compact ? "dtx-stat-value--compact" : ""}`}>{s.value}</div>
-                  {s.sub ? <div className="dtx-stat-sub">{s.sub}</div> : null}
-                </div>
-              ))}
-            </div>
-          ) : null}
-
-          {/* The ERP read is additive — the page is already usable from the bound
-              row — so a failure is a dismissible strip, never a blank screen. */}
-          {error ? (
-            <div className="dtx-warn" role="status">
-              <span>
-                Showing what the list already loaded. ERP wouldn&apos;t hand over the rest: {error}
-              </span>
-              <button type="button" onClick={refresh}>
-                Retry
-              </button>
-            </div>
-          ) : null}
-
-          {chosen.length > 0 ? (
-            <div
-              className={`dtx-grid ${compact ? "dtx-grid--compact" : ""}`}
-              // With everything in one column there is no second track to
-              // reserve, so a section list of only wide (or only narrow)
-              // entries does not leave an empty half.
-              style={
-                !compact && (wideCol.length === 0 || narrowCol.length === 0)
-                  ? { gridTemplateColumns: "minmax(0, 1fr)" }
-                  : undefined
-              }
-            >
-              {compact ? (
-                <div className="dtx-col">{chosen.map(([, node]) => node)}</div>
-              ) : (
-                <>
-                  {wideCol.length > 0 ? (
-                    <div className="dtx-col">{wideCol.map(([, node]) => node)}</div>
-                  ) : null}
-                  {narrowCol.length > 0 ? (
-                    <div className="dtx-col">{narrowCol.map(([, node]) => node)}</div>
-                  ) : null}
-                </>
-              )}
-            </div>
-          ) : null}
-
-          <div className="dtx-foot">
-            <span>
-              ERP Lead <b>{code || "—"}</b>
-            </span>
-            {enriching ? <span>Loading detail from ERP…</span> : null}
-          </div>
+          {showStats ? <div className={`dtx-stats ${compact ? "dtx-stats--compact" : ""}`}>
+            {stats.map((stat) => <div className="dtx-stat" key={stat.label}>
+              <div className="dtx-stat-top"><span className="dtx-stat-label">{stat.label}</span><stat.icon size={17} /></div>
+              <div className="dtx-stat-value">{stat.value}</div><div className="dtx-stat-sub">{stat.sub}</div>
+            </div>)}
+          </div> : null}
+          {failed.length ? <div className="dtx-warn" role="status"><span>Couldn’t load {failed.join(", ")}. Available details are still shown.</span><button type="button" onClick={refresh}>Retry</button></div> : null}
+          {chosen.length ? <div className={`dtx-grid ${compact ? "dtx-grid--compact" : ""}`} style={!wideCol.length || !narrowCol.length ? { gridTemplateColumns: "minmax(0, 1fr)" } : undefined}>
+            {wideCol.length ? <div className="dtx-col">
+              <div className="dtx-tabs" role="tablist" aria-label="Doctor activity">
+                {wideCol.map(([key], index) => <button key={key} type="button" role="tab" id={`${tabsId}-${key}`} aria-controls={`${tabsId}-panel-${key}`} aria-selected={selectedView === key} tabIndex={selectedView === key ? 0 : -1}
+                  onClick={() => setActiveView(key)} onKeyDown={(event) => {
+                    let next;
+                    if (event.key === "ArrowRight") next = (index + 1) % wideCol.length;
+                    if (event.key === "ArrowLeft") next = (index + wideCol.length - 1) % wideCol.length;
+                    if (event.key === "Home") next = 0;
+                    if (event.key === "End") next = wideCol.length - 1;
+                    if (next != null) { event.preventDefault(); setActiveView(wideCol[next][0]); event.currentTarget.parentElement.children[next].focus(); }
+                  }}>{tabLabels[key]}{tabCounts[key] != null ? <span>{tabCounts[key]}</span> : null}</button>)}
+              </div>
+              {wideCol.map(([key, node]) => <div key={key} role="tabpanel" id={`${tabsId}-panel-${key}`} aria-labelledby={`${tabsId}-${key}`} tabIndex={0} hidden={selectedView !== key}>{node}</div>)}
+            </div> : null}
+            {narrowCol.length ? <aside className="dtx-col dtx-sidebar" aria-label="Doctor information">{narrowCol.map(([, node]) => node)}</aside> : null}
+          </div> : null}
+          <div className="dtx-foot"><span>Doctor record <b>{code || "—"}</b></span>{enriching ? <span role="status">Updating details…</span> : null}</div>
         </div>
       </div>
 

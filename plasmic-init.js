@@ -1592,12 +1592,12 @@ PLASMIC.registerComponent(DoctorDetail, {
   name: "DoctorDetail",
   displayName: "Doctor Detail Page",
   description:
-    "The WHOLE doctor detail page as ONE component — masthead, stat strip, POB history (month chart + ranked products + the quotation ledger), coverage, classification, notes timeline, contact and record. Unlike the product detail page this is NOT a set of cards to assemble: drop it, bind Data to a doctor row, and the page is done. It is driven by three list-shaped props rather than a wall of switches — SECTIONS picks and orders the panels, ACTIONS picks and orders the buttons, FIELDMAP is the only place column names live — so a page is a handful of choices, not twenty. Coloured in the Elbrit palette taken off the logo (#D92C24), and there is deliberately NO route into ERP: no link, no action, no footer. Every ERP read is additive and optional: if it fails the page still renders the bound row behind a dismissible strip, and every section with no data says so in words instead of spinning.",
+    "Complete doctor profile with a light identity header, activity metrics, tabbed POBs, visits and notes, plus team coverage, addresses and classification. Accepts a Lead row or a combined GraphQL result and independently loads missing collections.",
   props: {
     data: {
       type: "object",
       description:
-        "ONE doctor row — bind the row the list already holds (currentItem), or the single row from a Doctor query. THE ONLY BINDING REQUIRED. Tolerant of shape: the row itself, a GraphQL edge ({ node }), or a single-row array/connection. Rows are ERP Lead nodes (lead_name, name, custom_specialty__name, territory { name }, custom_role_profile[…]). Strictly speaking only the doctor code is needed — everything else can arrive through Enrich.",
+        "A Lead row, edge or single-row connection, or the complete { Lead, Addresses, Events, Quotations } GraphQL result. Supplied collections skip their enrichment requests.",
       defaultValue: {
         name: "DR-36661",
         lead_name: "Dr Shanmugam",
@@ -1625,10 +1625,10 @@ PLASMIC.registerComponent(DoctorDetail, {
     sections: {
       type: "choice",
       multiSelect: true,
-      options: ["business", "coverage", "classification", "notes", "contact", "record"],
-      defaultValue: ["business", "coverage", "classification", "notes", "contact", "record"],
+      options: ["business", "visits", "notes", "coverage", "contact", "classification", "record"],
+      defaultValue: ["business", "visits", "notes", "coverage", "contact", "classification", "record"],
       description:
-        "WHICH panels the page shows, and in WHAT ORDER — one control in place of six separate switches, and unlike switches it carries order. business = POB history (month chart, ranked products, quotation ledger) · coverage = the division × HQ × beat rows · classification = grade, the C1 2×2 locator, C2, C3 · notes = the doctor's notes timeline · contact = phones, e-mail, place, coordinates · record = ids and timestamps. Clear the list to show none. On a WIDE container the page is two columns: business and notes take the big column, the rest the narrow one, each keeping your order — so order is honoured within a column, and the columns themselves are always big-then-narrow. On a narrow container it is a single stream in exactly your order. A section that would be empty still renders and says why, rather than vanishing and leaving the reader unsure whether it was switched off or simply has no data.",
+        "Choose the visible panels. Business, visits and notes appear as activity tabs in the selected order. Coverage, contact, classification and record appear alongside them on desktop and below on mobile. Clear the list to hide all panels.",
     },
     actions: {
       type: "choice",
@@ -1636,13 +1636,13 @@ PLASMIC.registerComponent(DoctorDetail, {
       options: ["pob", "note", "call", "whatsapp", "email", "directions"],
       defaultValue: ["pob", "note", "call", "whatsapp", "email", "directions"],
       description:
-        "WHICH buttons sit in the masthead, and in what order. pob opens the POB capture (see Add Pob Label) · note fires On Add Note and is only shown once you have wired that handler, because a button that does nothing is worse than no button · call / whatsapp / email / directions come off the doctor's own record. There is deliberately NO ERP option — opening ERP was removed from this component entirely. An action the record cannot support is NOT silently dropped: it stays, dimmed and relabelled (\"Call · no number\"), with the reason on hover. That matters here because ERP holds a literal 0 in the phone columns of most bulk-imported doctors, and a reader who sees no Call button cannot tell whether the page hid it or the number is missing. Clear the list for no action row at all.",
+        "Choose and order header actions. POB opens the existing capture dialog; note requires On Add Note. Call, WhatsApp, email and directions appear when usable contact data exists. Missing contact details are explained in the contact panel.",
     },
     accent: {
       type: "string",
       defaultValue: "brand",
       description:
-        "The page's one colour. \"brand\" (the default) is the Elbrit red #D92C24, sampled off the logo animation — which also matches the #DC2627 in public/logo.svg. \"speciality\" instead hashes a colour off the doctor's speciality, the same rule Doctor Card uses for its chip, so every doctor carries their own and opening a card feels like that card expanding. Or give any hex (#0F766E) and the masthead gradient, chart bars, count pills, tints and focus rings are all derived from it. Text-red is always a darker step than the fill, because the brand red clears about 4.3:1 on white — fine behind a bar, short of comfortable for small type. Status colours are NOT derived from this and never turn red: red is the brand here, so a red \"Lost\" pill beside a red Add POB button would read as one system shouting. Ordered is green, Draft amber, Lost a neutral slate, and each carries a mark as well as a word.",
+        "Use brand for Elbrit red, speciality for a specialty-based accent, or a hex colour. Applies to primary actions, identity accents, charts and active tabs; the profile surface stays light.",
     },
     fieldMap: {
       type: "object",
@@ -1672,18 +1672,26 @@ PLASMIC.registerComponent(DoctorDetail, {
       type: "boolean",
       defaultValue: true,
       description:
-        "Fetch the rest of the doctor from ERP — the full Lead (qualification, phones, e-mail, state/country, coordinates, timestamps, notes) plus this doctor's POB history. The doctor LIST query carries none of that, so with this off the page can only show what the bound row holds and the POB, notes and contact sections stay empty. Reads are additive (the bound row still wins for fields it carries), independent (POB failing cannot blank the notes), and each is tried in several query shapes, because frappe_graphql fails a whole request over one unknown field and Link fields are not exposed identically on every instance.",
+        "Independently fetch the Lead, Quotations, Events and Addresses from ERP. Supplied collections skip fetching. A failed request leaves available data visible and offers Retry. Optional Lead and Quotation fields use a confirmed-schema fallback.",
     },
     pobs: {
       type: "object",
       description:
-        "Hand over this doctor's POB Quotations yourself instead of letting the component fetch them. Accepts a plain array or a GraphQL connection ({ edges: [{ node }] }) of Quotation rows — transaction_date, grand_total, status, customer_name, territory__name and items[{ item_name, qty, amount }] are what the chart, the ranked products and the ledger are built from. LEAVE EMPTY on a normal page: Enrich fetches them. Bind it only when the page already holds the rows and a second round-trip would be waste; doing so skips that fetch and nothing else.",
+        "Optional Quotation array or connection. Supports items with net_amount, amount, taxable_value or qty and rate. Uses grand_total when supplied, otherwise the item total, labelled accordingly. Can also be supplied as data.Quotations.",
+    },
+    visits: {
+      type: "object",
+      description: "Optional Events array or connection for this doctor. Includes visit date, employee, department, status, reason, location and linked POBs. Can also be supplied as data.Events.",
+    },
+    addresses: {
+      type: "object",
+      description: "Optional Addresses array or connection. Displays practice addresses and directions, and fills missing phone/email from address records. Can also be supplied as data.Addresses.",
     },
     pobLimit: {
       type: "number",
       defaultValue: 200,
       description:
-        "How many of this doctor's POB Quotations to pull. The chart, the ranked products and the totals are all computed from what comes down, so a doctor with more POBs than this would under-report — 200 is far above any real doctor's history. The ledger itself shows the most recent 12 and names the rest.",
+        "Maximum POB rows to load, from 1 to 1000 (default 200). Totals cover loaded records, with a notice when the limit is reached. The history has search, expandable item details and pagination.",
     },
     currency: {
       type: "string",
@@ -1710,7 +1718,7 @@ PLASMIC.registerComponent(DoctorDetail, {
       type: "boolean",
       defaultValue: true,
       description:
-        "Show the four-tile strip — POB value, last POB, divisions covering, notes on file — lifted so it straddles the masthead edge and the page reads as one object rather than a banner with a table under it.",
+        "Show four summary cards: recorded POB value, last visit, visit activity and division coverage.",
     },
     showBackButton: {
       type: "boolean",
@@ -1723,13 +1731,13 @@ PLASMIC.registerComponent(DoctorDetail, {
       type: "string",
       defaultValue: "Axis I",
       description:
-        "Caption for the FIRST axis of the C1 code — the \"I\" in LILR / HIHR — shown up the side of the 2×2 locator. ⚠️ It says \"Axis I\" rather than guessing, because ERP stores only the bare codes in Category List and records no expansion anywhere, and the two plausible readings invert the meaning of every cell: Investment/Return makes HILR your WORST doctor, Potential/Rx-support makes him your BIGGEST OPPORTUNITY. Confirm with the commercial team and set it once. Renaming this relabels only the caption — the cell codes are read straight out of ERP's own letters and never change.",
+        "Optional label for the first axis of Category 1 codes. The matrix is hidden until both axis labels are configured; raw classification codes are always shown.",
     },
     matrixAxisX: {
       type: "string",
       defaultValue: "Axis R",
       description:
-        "Caption for the SECOND axis of the C1 code — the \"R\" in LILR / HIHR — shown along the bottom of the locator. Same caveat as the other axis.",
+        "Optional label for the second axis of Category 1 codes. Set both labels to show the matrix without guessing the meaning of ERP codes.",
     },
     addPobLabel: {
       type: "string",
