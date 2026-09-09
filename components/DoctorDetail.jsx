@@ -968,8 +968,11 @@ const Icon = {
 function Section({ title, count, children, id }) {
   return (
     <section className="dtx-card" id={id}>
+      {/* Title, a hairline that takes the slack, then the count — the same
+          head the product detail cards use, so the two pages read as one. */}
       <div className="dtx-head">
         <h2>{title}</h2>
+        <i className="dtx-rule" aria-hidden="true" />
         {count != null ? <span className="dtx-count">{count}</span> : null}
       </div>
       {children}
@@ -1537,17 +1540,20 @@ export default function DoctorDetail({
   // same weight as the balance.
   const stats = [
     { label: "Visits", value: Array.isArray(visits) ? fmtNum(visitRows.length) : "—",
-      sub: lastVisit ? `last ${fmtDate(lastVisit.starts_on)}` : nextVisit ? `next ${fmtDate(nextVisit.starts_on)}` : Array.isArray(visits) ? "none recorded" : "unavailable" },
+      sub: lastVisit ? `Last ${fmtDate(lastVisit.starts_on)}` : nextVisit ? `Next ${fmtDate(nextVisit.starts_on)}` : Array.isArray(visits) ? "None recorded" : "Unavailable" },
     { label: "Notes", value: fmtNum(notes.length),
-      sub: notes.length ? relTime(notes[0].at) : "none written" },
+      sub: notes.length ? relTime(notes[0].at) : "None written" },
     { label: "Divisions", value: divisions.length ? fmtNum(divisions.length) : loadingLead ? "—" : "0",
-      sub: roleRows.length ? `${roleRows.length} beat${roleRows.length === 1 ? "" : "s"}` : "none mapped" },
+      sub: roleRows.length ? `${roleRows.length} beat${roleRows.length === 1 ? "" : "s"}` : "None mapped" },
     { label: "Products", value: pobKnown ? fmtNum(pob.products.length) : "—",
-      sub: pobKnown ? (pob.unknownValues ? `${pob.unknownValues} POB without a value` : pob.products.length ? "prescribed" : "none yet") : loadingPobs ? "loading" : "unavailable" },
+      sub: pobKnown ? (pob.unknownValues ? `${pob.unknownValues} POB without a value` : pob.products.length ? "Prescribed" : "None yet") : loadingPobs ? "Loading" : "Unavailable" },
   ];
 
-  // The signature: the account's closing balance, with the trend on its own
-  // baseline rather than in a chart panel of its own.
+  // The signature: the figure this page exists for, set in the divided strip
+  // the product detail page uses for its price row. Each part owns a cell, so
+  // the trend and the last-POB date keep their own baselines — as one flex row
+  // they were aligned to a number 56px away and came apart at every width
+  // between phone and desktop.
   const sparkMonths = (pob.months || []).length > 2 ? pob.months.slice(-8) : [];
   const sparkPeak = sparkMonths.reduce((max, month) => Math.max(max, month.value || 0), 0);
   const balance = (
@@ -1558,36 +1564,34 @@ export default function DoctorDetail({
         <div className="dtx-balance-sub">
           {pobKnown
             ? pob.count
-              ? `across ${pob.count} quotation${pob.count === 1 ? "" : "s"}${pob.unknownValues ? " · some values missing" : ""}`
-              : "nothing raised against this doctor yet"
-            : loadingPobs ? "loading from ERP…" : "history unavailable"}
+              ? `Across ${pob.count} quotation${pob.count === 1 ? "" : "s"}${pob.unknownValues ? " · some values missing" : ""}`
+              : "Nothing raised against this doctor yet"
+            : loadingPobs ? "Loading from ERP…" : "History unavailable"}
         </div>
       </div>
-      <div className="dtx-balance-right">
-        {sparkMonths.length > 1 ? (
-          <div>
-            <div className="dtx-spark" role="img" aria-label={`POB by month, ${sparkMonths.length} months to ${sparkMonths[sparkMonths.length - 1].label}`}>
-              {sparkMonths.map((month, index) => (
-                <div
-                  key={month.key}
-                  className={`dtx-spark-bar ${month.value > 0 ? (index === sparkMonths.length - 1 ? "dtx-spark-bar--last" : "dtx-spark-bar--on") : ""}`}
-                  style={{ height: `${sparkPeak > 0 ? Math.max(4, Math.round((month.value / sparkPeak) * 100)) : 4}%` }}
-                  title={`${month.label} ${month.year} · ${fmtMoney(month.value, currency)}`}
-                />
-              ))}
-            </div>
-            <div className="dtx-label dtx-spark-cap">
-              {sparkMonths.length} mo
-            </div>
+      {sparkMonths.length > 1 ? (
+        <div className="dtx-balance-cell">
+          <div className="dtx-label">Trend</div>
+          <div className="dtx-spark" role="img" aria-label={`POB by month, ${sparkMonths.length} months to ${sparkMonths[sparkMonths.length - 1].label}`}>
+            {sparkMonths.map((month, index) => (
+              <div
+                key={month.key}
+                className={`dtx-spark-bar ${month.value > 0 ? (index === sparkMonths.length - 1 ? "dtx-spark-bar--last" : "dtx-spark-bar--on") : ""}`}
+                style={{ height: `${sparkPeak > 0 ? Math.max(4, Math.round((month.value / sparkPeak) * 100)) : 4}%` }}
+                title={`${month.label} ${month.year} · ${fmtMoney(month.value, currency)}`}
+              />
+            ))}
           </div>
-        ) : null}
-        {pob.last?.at ? (
-          <div className="dtx-balance-note">
-            <div className="dtx-label">Last POB</div>
-            <b>{fmtDate(pob.last.at)}</b>
-          </div>
-        ) : null}
-      </div>
+          <div className="dtx-balance-sub dtx-spark-cap">Last {sparkMonths.length} months</div>
+        </div>
+      ) : null}
+      {pob.last?.at ? (
+        <div className="dtx-balance-cell">
+          <div className="dtx-label">Last POB</div>
+          <div className="dtx-balance-cell-value">{fmtDate(pob.last.at)}</div>
+          <div className="dtx-balance-sub">{relTime(pob.last.at)}</div>
+        </div>
+      ) : null}
     </div>
   );
 
@@ -1799,12 +1803,10 @@ export default function DoctorDetail({
         <Empty headline="No team assigned" body="Division and territory assignments will appear here." /> :
         <div className="dtx-coverage">{roleRows.map((r) => (
           <article className="dtx-team" key={`${r.department}|${r.hq}|${r.beat}`}>
-            
-            <div><h3>{r.department || "Division not specified"}</h3>
-              <p>{r.hq || "HQ not specified"}</p>
-              {r.employee ? <div className="dtx-assignee"><span className="dtx-avatar-small">{initialsOf(r.employee)}</span>{r.employee}</div> : null}
-              {r.beat ? <small className="dtx-beat">{r.beat}</small> : null}
-            </div>
+            <h3>{r.department || "Division not specified"}</h3>
+            <p>{r.hq || "HQ not specified"}</p>
+            {r.employee ? <div className="dtx-assignee"><span className="dtx-avatar-small">{initialsOf(r.employee)}</span>{r.employee}</div> : null}
+            {r.beat ? <small className="dtx-beat">{r.beat}</small> : null}
           </article>
         ))}</div>}
     </Section>
@@ -1941,8 +1943,12 @@ export default function DoctorDetail({
             like any other block in a Plasmic stack: left at auto height it
             grows and the PAGE scrolls, given a height it scrolls itself. */}
         <div className="dtx-scrollport">
-        {masthead}
-        {showStats ? balance : null}
+        {/* Identity and the POB strip are one white card; everything below
+            sits on the light ground as separate cards. */}
+        <div className="dtx-hero">
+          {masthead}
+          {showStats ? balance : null}
+        </div>
         <div className="dtx-body">
           {showStats ? <div className="dtx-stats">
             {stats.map((stat) => <div className="dtx-stat" key={stat.label}>
