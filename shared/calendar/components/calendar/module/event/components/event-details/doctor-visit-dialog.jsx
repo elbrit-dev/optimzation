@@ -332,6 +332,25 @@ export function EventDoctorVisitDialog({
   // decide the displayed status, or the same visit reads differently per role.
   const viewerHasVisited = isParticipantVisited(currentEmployeeParticipant);
 
+  // Who created the plan. Matched on employee id first, falling back to email,
+  // because older events carry only one of the two.
+  const isEventOwner = useMemo(() => {
+    const ownerEmployeeId = event?.ownerEmployeeId ?? event?.owner?.id;
+    if (
+      ownerEmployeeId &&
+      String(ownerEmployeeId) === String(LOGGED_IN_USER.id)
+    ) {
+      return true;
+    }
+
+    const ownerEmail = String(
+      event?.ownerEmail ?? event?.owner?.email ?? ""
+    ).toLowerCase();
+    const viewerEmail = String(LOGGED_IN_USER.email ?? "").toLowerCase();
+
+    return Boolean(ownerEmail) && ownerEmail === viewerEmail;
+  }, [event]);
+
   const isVisitSyncPending =
     event?.__syncStatus === "pending" || event?.__syncStatus === "syncing";
 
@@ -701,13 +720,27 @@ export function EventDoctorVisitDialog({
 
               {permissions.canVisitNow && !isFailedSync && (
                 <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
-                  <Button
-                    variant="destructive"
-                    className="w-full sm:w-auto"
-                    onClick={handleLeaveVisit}
-                  >
-                    Remove
-                  </Button>
+                  {/* The creator has nothing to "remove" themselves from: doing
+                      so strands their own plan with no participants, which then
+                      offers Join and still has to be deleted. So they get the
+                      delete outright. Invited participants keep Remove, which
+                      leaves the visit standing for everyone else. */}
+                  {isEventOwner && permissions.canDelete ? (
+                    <DeleteEventDialog
+                      className="w-full sm:w-auto"
+                      onConfirm={() =>
+                        handleDelete(event.erpName, undefined, event)
+                      }
+                    />
+                  ) : (
+                    <Button
+                      variant="destructive"
+                      className="w-full sm:w-auto"
+                      onClick={handleLeaveVisit}
+                    >
+                      Remove
+                    </Button>
+                  )}
                   <AddEditEventDialog
                     event={event}
                     forceValues={
