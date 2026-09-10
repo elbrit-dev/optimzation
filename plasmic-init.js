@@ -1651,7 +1651,7 @@ PLASMIC.registerComponent(DoctorCard, {
   name: "DoctorCard",
   displayName: "Doctor Card",
   description:
-    "ONE doctor row card for the doctor page list view — place it and REPEAT it over the doctor rows, binding each instance its own row (currentItem). Renders the initials avatar, doctor name, coloured speciality chip, the doctor code with a copy button, the HQ territory with a pin, and the department chips (Elbrit Kanchipuram / Vasco Coimbatore …) across the card's full width — as many per row as fit, the rest wrapping onto the next line. The whole card is clickable: onDoctorClick gives you the full row, so wire it to open a detail sheet, navigate, or start a visit — the copy button stays independently clickable. Every field is optional: anything null is left out of the card instead of rendering an empty line. Turn on Show Add Pob for an \"Add POB\" button that opens the doctor-visit POB capture as a popup and raises the Quotation straight from the list — see that prop for exactly what it writes.",
+    "ONE doctor row card for the doctor page list view — place it and REPEAT it over the doctor rows, binding each instance its own row (currentItem). Renders the initials avatar, doctor name, coloured speciality chip, the doctor code with a copy button, the HQ territory with a pin, and the department chips (Elbrit Kanchipuram / Vasco Coimbatore …) across the card's full width — as many per row as fit, the rest wrapping onto the next line. Clicking the card opens a PREVIEW POPUP by default — the doctor's details, an Add POB button and a \"Doctor detail\" button; that last one is what fires onDoctorClick, so wire it to navigate. Navigation being a second, named press is deliberate: it used to be one stray tap away from Add POB, and a mis-tap cost the reader their place in the list. Set Card Click to \"detail\" for the old straight-to-navigation behaviour. The copy button stays independently clickable. Every field is optional: anything null is left out of the card instead of rendering an empty line. Turn on Show Add Pob for an \"Add POB\" button that opens the doctor-visit POB capture as a popup and raises the Quotation straight from the list — see that prop for exactly what it writes.",
   props: {
     data: {
       type: "object",
@@ -1719,7 +1719,19 @@ PLASMIC.registerComponent(DoctorCard, {
     clickable: {
       type: "boolean",
       defaultValue: true,
-      description: "Make the card clickable and keyboard-operable (fires onDoctorClick).",
+      description: "Make the card clickable and keyboard-operable. What the click DOES is set by Card Click.",
+    },
+    cardClick: {
+      type: "choice",
+      options: ["preview", "detail", "none"],
+      defaultValue: "preview",
+      description:
+        "WHAT a click on the card body does. preview (default) opens a popup showing the doctor's details, with Add POB and a \"Doctor detail\" button — that button is what fires onDoctorClick, so a page already wired to navigate keeps working unchanged. detail navigates straight away (the old behaviour). none makes the card body inert, leaving only its own buttons live. Prefer preview: with detail, a stray tap beside Add POB navigates away and costs the reader their scroll position and filters.",
+    },
+    detailLabel: {
+      type: "string",
+      defaultValue: "Doctor detail",
+      description: "Label on the preview popup's button that fires onDoctorClick.",
     },
     selected: {
       type: "boolean",
@@ -1730,7 +1742,7 @@ PLASMIC.registerComponent(DoctorCard, {
       type: "boolean",
       defaultValue: false,
       description:
-        "Add an \"Add POB\" button to the card. It opens the SAME POB capture the doctor visit uses — employee → HQ → department → customer → date/time → items — as a popup, without going through the calendar. HQ and Department come from the doctor's own custom_role_profile rows and auto-select when the doctor carries one of each, so most POBs need only a customer, a reason and the items; the Customer list then follows the chosen HQ and the item list the chosen department. Saving writes ONE ERP document: a plain Quotation. NO calendar event is created, no visit is marked, and no Link fields are set (see Link Pob To Doctor), so there is nothing for ERP to resolve. Since that leaves no links to trace it by, the popup makes a REASON mandatory and stores it — with the doctor, the chosen employee, HQ, department and the exact timestamp — in the Quotation's Terms field, led by \"DIRECT POB — raised from the Doctor page\". The button is its own hit target: the rest of the card keeps firing onDoctorClick, and its hover lift is suppressed while the pointer is on the button.",
+        "Add an \"Add POB\" button to the card. It opens the SAME POB capture the doctor visit uses — employee → HQ → department → customer → date/time → items — as a popup, without going through the calendar. HQ and Department come from the doctor's own custom_role_profile rows and auto-select when the doctor carries one of each, so most POBs need only a customer, a reason and the items; the Customer list then follows the chosen HQ and the item list the chosen department. Saving writes ONE ERP document: a plain Quotation. NO calendar event is created, no visit is marked, and no Link fields are set (see Link Pob To Doctor), so there is nothing for ERP to resolve. Since that leaves no links to trace it by, the popup makes a REASON mandatory and stores it — with the doctor, the chosen employee, HQ, department and the exact timestamp — in the Quotation's Terms field, led by \"DIRECT POB — raised from the Doctor page\". The button is its own hit target: a click on it never counts as a click on the card, and its hover lift is suppressed while the pointer is on it. The same button appears in the card's preview popup.",
     },
     addPobLabel: {
       type: "string",
@@ -1766,7 +1778,7 @@ PLASMIC.registerComponent(DoctorCard, {
     },
     onDoctorClick: {
       type: "eventHandler",
-      description: "Fires when the card is clicked, with { doctor, row, name, code, speciality, hq, city, tags } — doctor/row is the full data row.",
+      description: "Fires when the reader asks to OPEN the doctor — the preview popup's \"Doctor detail\" button, or a card click when Card Click is \"detail\". Payload { doctor, row, name, code, speciality, hq, city, tags } — doctor/row is the full data row.",
       argTypes: [{ name: "payload", type: "object" }],
     },
     onPobSaved: {

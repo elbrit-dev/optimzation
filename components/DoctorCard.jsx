@@ -6,6 +6,10 @@ import dynamic from "next/dynamic";
 // actually opens it, not on every page that renders a card.
 const DoctorPobDialog = dynamic(() => import("./DoctorPobDialog"), { ssr: false });
 
+// The preview popup is only ever needed once somebody opens a card, so a list
+// of 200 does not pay for it up front.
+const DoctorPeekDialog = dynamic(() => import("./DoctorPeekDialog"), { ssr: false });
+
 /**
  * DoctorCard — ONE doctor row card for the doctor page list view.
  *
@@ -16,9 +20,15 @@ const DoctorPobDialog = dynamic(() => import("./DoctorPobDialog"), { ssr: false 
  * department chips (Elbrit Kanchipuram / Vasco Coimbatore …) across the card's
  * full width — as many per row as fit, the rest wrapping onto the next line.
  *
- * The whole card is clickable — onDoctorClick fires with the full row, so Studio
- * can open a detail sheet, navigate, or start a visit. The copy button is
- * independently clickable and never counts as a card click.
+ * Clicking the card opens a PREVIEW POPUP by default (`cardClick`), not the
+ * detail page. Navigation used to be one stray tap away from the Add POB
+ * button sitting inside the card, and a mis-tap cost the reader their place in
+ * the list, their scroll position and their filters. From the preview, both
+ * actions are named and deliberate: Add POB, and Doctor detail — which is what
+ * fires `onDoctorClick`, so a page already wired to navigate keeps working
+ * with no change in Studio. Set `cardClick` to "detail" for the old
+ * straight-to-navigation behaviour. The copy button is independently clickable
+ * and never counts as a card click.
  *
  * DATA (`data` prop) — ONE doctor row. Tolerant of shape: the row itself, a
  * GraphQL edge ({ node }), or a single-row array/connection.
@@ -235,6 +245,8 @@ export default function DoctorCard({
   showCopyCode = true,
   showCategories = false,
   clickable = true,
+  cardClick = "preview",
+  detailLabel = "Doctor detail",
   selected = false,
   showAddPob = false,
   addPobLabel = "Add POB",
@@ -250,6 +262,7 @@ export default function DoctorCard({
 }) {
   const [copied, setCopied] = useState(false);
   const [pobOpen, setPobOpen] = useState(false);
+  const [peekOpen, setPeekOpen] = useState(false);
   // The card lifts on hover, which reads as "this whole thing is one target".
   // While the pointer is on the POB button that's a lie — it would promise the
   // card's action for a click that does something else — so the lift is held
@@ -277,24 +290,43 @@ export default function DoctorCard({
   const tags = useMemo(() => readTags(doctor, tagsField, tagLabelField), [doctor, tagsField, tagLabelField]);
   const roleRows = useMemo(() => readRoleRows(doctor, tagsField), [doctor, tagsField]);
 
-  // C1 / C2 / C3 grading — off by default (it isn't part of the list design),
-  // but the data is there for whoever wants it on.
-  const categories = useMemo(() => {
-    if (!showCategories) return [];
-    return ["custom_category1__name", "custom_category2__name", "custom_category3__name"]
-      .map((field, i) => {
-        const value = pick(doctor, field);
-        return value ? `C${i + 1} · ${value}` : null;
-      })
-      .filter(Boolean);
-  }, [doctor, showCategories]);
+  // C1 / C2 / C3 grading. Always derived, because the PREVIEW shows it either
+  // way — the popup is the roomy view, and hiding a grade there would be
+  // withholding it rather than saving space. Show Categories governs only
+  // whether the card itself is allowed the line.
+  const allCategories = useMemo(
+    () =>
+      ["custom_category1__name", "custom_category2__name", "custom_category3__name"]
+        .map((field, i) => {
+          const value = pick(doctor, field);
+          return value ? `C${i + 1} · ${value}` : null;
+        })
+        .filter(Boolean),
+    [doctor],
+  );
+  const categories = showCategories ? allCategories : [];
 
   const tone = toneOf(speciality || name);
 
+  const payload = useMemo(
+    () => ({ doctor, row: doctor, name, code, speciality, hq, city, tags }),
+    [doctor, name, code, speciality, hq, city, tags],
+  );
+
+  const openDetail = useCallback(() => {
+    setPeekOpen(false);
+    onDoctorClick?.(payload);
+  }, [onDoctorClick, payload]);
+
+  // "preview" opens the popup; "detail" is the old straight-to-navigation
+  // behaviour; anything else makes the card inert. A card that previews stays
+  // pressable even with no onDoctorClick wired — the preview is worth opening
+  // on its own.
   const fire = useCallback(() => {
-    if (!clickable || !onDoctorClick) return;
-    onDoctorClick({ doctor, row: doctor, name, code, speciality, hq, city, tags });
-  }, [clickable, onDoctorClick, doctor, name, code, speciality, hq, city, tags]);
+    if (!clickable) return;
+    if (cardClick === "preview") setPeekOpen(true);
+    else if (cardClick === "detail") onDoctorClick?.(payload);
+  }, [clickable, cardClick, onDoctorClick, payload]);
 
   const copyCode = useCallback(
     async (e) => {
@@ -325,21 +357,26 @@ export default function DoctorCard({
     [code, onCopyCode, doctor],
   );
 
-  // Opening the POB must not also count as opening the doctor.
+  // Opening the POB must not also count as opening the doctor. Raised from the
+  // preview it closes the preview first, so there is never a dialog stacked on
+  // a dialog with two things listening for Escape.
   const openPob = useCallback((e) => {
-    e.stopPropagation();
+    e?.stopPropagation?.();
+    setPeekOpen(false);
     setPobOpen(true);
   }, []);
+
+  const actsOnClick = clickable && (cardClick === "preview" || (cardClick === "detail" && !!onDoctorClick));
 
   return (
     <>
     <div
-      role={clickable ? "button" : undefined}
-      tabIndex={clickable ? 0 : undefined}
-      aria-label={clickable ? `${name || "Doctor"}${code && code !== name ? ` (${code})` : ""}` : undefined}
+      role={actsOnClick ? "button" : undefined}
+      tabIndex={actsOnClick ? 0 : undefined}
+      aria-label={actsOnClick ? `${name || "Doctor"}${code && code !== name ? ` (${code})` : ""}` : undefined}
       onClick={fire}
       onKeyDown={
-        clickable
+        actsOnClick
           ? (e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
@@ -351,7 +388,7 @@ export default function DoctorCard({
       className={`rounded-2xl border bg-white p-4 shadow-sm ${
         selected ? "border-indigo-300 ring-1 ring-indigo-200" : "border-gray-100"
       } ${
-        clickable
+        actsOnClick
           ? `transition-all duration-150 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 ${
               pobHovered
                 ? "cursor-default"
@@ -461,6 +498,31 @@ export default function DoctorCard({
         </div>
       </div>
     </div>
+
+    {peekOpen ? (
+      <DoctorPeekDialog
+        open={peekOpen}
+        onOpenChange={setPeekOpen}
+        name={name}
+        code={code}
+        speciality={speciality}
+        hq={hq}
+        city={city}
+        tags={tags}
+        categories={allCategories}
+        roleRows={roleRows}
+        initials={initialsOf(name)}
+        tone={tone}
+        copied={copied}
+        onCopyCode={showCopyCode ? copyCode : undefined}
+        showCopyCode={showCopyCode}
+        showAddPob={showAddPob}
+        addPobLabel={addPobLabel}
+        detailLabel={detailLabel}
+        onAddPob={showAddPob ? openPob : undefined}
+        onOpenDetail={onDoctorClick ? openDetail : undefined}
+      />
+    ) : null}
 
     {showAddPob && pobOpen ? (
       <DoctorPobDialog
