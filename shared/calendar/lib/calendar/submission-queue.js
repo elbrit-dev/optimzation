@@ -7,6 +7,7 @@ import {
 } from "@calendar/components/calendar/module/event/services/event.service";
 import { saveLeaveApplication, updateLeaveAttachment } from "@calendar/components/calendar/module/leave/services/leave.service";
 import { saveDocToErp } from "@calendar/components/calendar/module/todo/services/todo.service";
+import { syncDocShares } from "@calendar/components/calendar/module/event/services/docshare.service";
 import { uploadLeaveMedicalCertificate } from "@calendar/lib/file.service";
 
 const STORAGE_KEY = "calendar-submission-queue:v1";
@@ -312,6 +313,9 @@ export function mergeServerEventsWithQueuedEvents(serverEvents = [], queueItems 
       (item) =>
         item.status !== "synced" &&
         item.kind !== "delete" &&
+        // Permission work on an event ERP already has: no optimistic event of
+        // its own to merge into the calendar.
+        item.kind !== "share" &&
         !(item.status === "failed" && item.targetErpName)
     )
     .map((item) => item.optimisticEvent)
@@ -375,6 +379,16 @@ export async function enqueueSubmission(submission) {
   const replaceIndex = currentQueue.findIndex((item) => {
     if (submission.replaceQueueId && item.id === submission.replaceQueueId) {
       return true;
+    }
+
+    // A share item lives alongside the event write for the same document. The
+    // erpName/targetErpName matching below would have one replace the other,
+    // dropping either the save or the share.
+    if (submission.kind === "share" || item.kind === "share") {
+      return (
+        submission.kind === item.kind &&
+        submission.payload?.documentName === item.payload?.documentName
+      );
     }
 
     if (
@@ -448,21 +462,35 @@ export function discardQueuedSubmission(match = {}) {
   writeQueue(nextQueue);
 }
 
+// Hitting Retry Sync means "now", so the backoff marker is dropped too.
 export function requeueFailedSubmissions() {
   const currentQueue = readQueue();
   let mutated = false;
 
   const nextQueue = currentQueue.map((item) => {
-    if (item.status !== "failed") {
-      return item;
+    // Failed items go back in the queue with a fresh attempt budget, and items
+    // merely waiting out their backoff become due immediately: the user asked
+    // for this to happen now.
+    if (item.status === "failed") {
+      mutated = true;
+      return {
+        ...item,
+        status: "pending",
+        retryCount: 0,
+        nextAttemptAt: null,
+        error: null,
+      };
     }
 
-    mutated = true;
-    return {
-      ...item,
-      status: "pending",
-      error: null,
-    };
+    if (item.status === "pending" && item.nextAttemptAt) {
+      mutated = true;
+      return {
+        ...item,
+        nextAttemptAt: null,
+      };
+    }
+
+    return item;
   });
 
   if (mutated) {
@@ -541,7 +569,21 @@ async function processEventSubmission(queueItem) {
     }
   }
 
-  const savedEvent = await saveEvent(workingDoc, saveOptions);
+  // Sharing is handed to the queue instead of being fired and forgotten inside
+  // saveEvent, so it gets the same persistence and backoff as the save itself.
+  const { shareWithUserIds, ...saveOptionsWithoutShares } = saveOptions ?? {};
+  const savedEvent = await saveEvent(workingDoc, saveOptionsWithoutShares);
+
+  if (shareWithUserIds?.length) {
+    await enqueueSubmission({
+      kind: "share",
+      payload: {
+        doctype: "Event",
+        documentName: savedEvent.name,
+        userIds: shareWithUserIds,
+      },
+    });
+  }
 
   return {
     name: savedEvent.name,
@@ -648,6 +690,8 @@ async function processQueueItem(queueItem, runtime) {
   switch (queueItem.kind) {
     case "event":
       return processEventSubmission(queueItem);
+    case "share":
+      return processShareSubmission(queueItem);
     case "leave":
       return processLeaveSubmission(queueItem, runtime);
     case "todo":
@@ -659,13 +703,90 @@ async function processQueueItem(queueItem, runtime) {
   }
 }
 
+/**
+ * Sharing an event with the people who must see it.
+ *
+ * Its own queue item, rather than fire-and-forget work after the save, so it
+ * survives a failed request, a closed tab or a reload. Fired and forgotten, a
+ * share that failed was lost with nothing but a console line, and somebody had
+ * to re-share the visit by hand. Kept separate from the event item because the
+ * event is already safely in ERP: a share needing another attempt must never
+ * make the calendar re-save the event.
+ */
+async function processShareSubmission(queueItem) {
+  const { doctype, documentName, userIds } = queueItem.payload;
+
+  await syncDocShares(doctype, documentName, userIds, {
+    // Always re-check on an attempt: a previous try may have written some of
+    // the shares before failing, and rewriting those is wasted work against a
+    // document that is already contended.
+    skipExistingCheck: false,
+  });
+
+  return { name: documentName, shareOnly: true };
+}
+
+/**
+ * Backoff between automatic retries.
+ *
+ * The drain effect re-runs whenever the queue changes, so an item left pending
+ * would be retried the instant it was written back — a hot loop against an ERP
+ * that is already contended. `nextAttemptAt` is what makes a retry wait, and
+ * the attempt cap is what stops an item retrying forever instead of surfacing.
+ */
+const RETRY_BACKOFF_MS = [2000, 6000, 20000, 60000, 180000];
+const MAX_AUTOMATIC_ATTEMPTS = RETRY_BACKOFF_MS.length;
+
+function resolveRetryDelayMs(retryCount) {
+  const index = Math.min(
+    Math.max(retryCount - 1, 0),
+    RETRY_BACKOFF_MS.length - 1
+  );
+  const base = RETRY_BACKOFF_MS[index];
+
+  // Jittered: the contending writers are other clients running this same code.
+  return Math.round(base * (0.7 + Math.random() * 0.6));
+}
+
+function isDueForAttempt(item, now = Date.now()) {
+  if (!item.nextAttemptAt) return true;
+
+  const dueAt = Date.parse(item.nextAttemptAt);
+  return Number.isNaN(dueAt) || dueAt <= now;
+}
+
+/**
+ * Milliseconds until the earliest deferred item is due, or null when nothing is
+ * waiting. Callers use it to schedule the next drain — without a timer a
+ * deferred item would sit until the queue happens to change again.
+ */
+export function getNextQueueAttemptDelayMs() {
+  const now = Date.now();
+
+  const dueTimes = readQueue()
+    .filter((item) => item.status === "pending" && item.nextAttemptAt)
+    .map((item) => Date.parse(item.nextAttemptAt))
+    .filter((dueAt) => !Number.isNaN(dueAt) && dueAt > now);
+
+  if (!dueTimes.length) return null;
+
+  return Math.max(Math.min(...dueTimes) - now, 0);
+}
+
 function isRetryableError(error) {
   const message = String(error?.message ?? "").toLowerCase();
   return (
     !navigator.onLine ||
     message.includes("failed to fetch") ||
     message.includes("networkerror") ||
-    message.includes("network request failed")
+    message.includes("network request failed") ||
+    // Database contention: another writer held the Event while this save ran.
+    // Nothing is wrong with the payload, so parking it as "Sync Failed" for the
+    // user to retry by hand is wrong — it just needs another attempt later.
+    message.includes("erp is busy") ||
+    message.includes("lock wait timeout") ||
+    message.includes("deadlock found") ||
+    message.includes("has been modified after you have opened it")
   );
 }
 
@@ -690,7 +811,7 @@ export async function processSubmissionQueue(runtime = {}) {
 
       const queue = readQueue();
       const nextItem = queue.find(
-        (item) => item.status === "pending"
+        (item) => item.status === "pending" && isDueForAttempt(item)
       );
 
       if (!nextItem) {
@@ -701,6 +822,7 @@ export async function processSubmissionQueue(runtime = {}) {
         ...item,
         status: "syncing",
         syncStartedAt: new Date().toISOString(),
+        nextAttemptAt: null,
         error: null,
       }));
 
@@ -718,12 +840,22 @@ export async function processSubmissionQueue(runtime = {}) {
         removeQueueItem(nextItem.id);
         await runtime.onSuccess?.(normalizeQueueItem(nextItem), result);
       } catch (error) {
-        const shouldRetry = isRetryableError(error);
+        const retryCount = (nextItem.retryCount ?? 0) + 1;
+        // Offline is not an attempt against a budget — the queue simply waits
+        // for the network, so it must not burn through the cap.
+        const isOffline =
+          typeof navigator !== "undefined" && !navigator.onLine;
+        const shouldRetry =
+          isRetryableError(error) &&
+          (isOffline || retryCount < MAX_AUTOMATIC_ATTEMPTS);
 
         updateQueueItem(nextItem.id, (item) => ({
           ...item,
           status: shouldRetry ? "pending" : "failed",
-          retryCount: (item.retryCount ?? 0) + 1,
+          retryCount,
+          nextAttemptAt: shouldRetry
+            ? new Date(Date.now() + resolveRetryDelayMs(retryCount)).toISOString()
+            : null,
           error: error?.message ?? "Sync failed",
         }));
 

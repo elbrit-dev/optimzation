@@ -70,6 +70,7 @@ export function MobileSchedulerSidebarContent({ open, onClose }) {
     pendingSyncCount,
     retryPendingSync,
     isRetryingSync,
+    enableGoogleCalendarSync,
   } = useCalendar();
 
   const [search, setSearch] = useState("");
@@ -536,7 +537,9 @@ export function MobileSchedulerSidebarContent({ open, onClose }) {
         </div>
 
         <div className="mt-1.5 space-y-1.5">
-          <GoogleCalendarConnect className="w-full justify-center rounded-xl text-sm" />
+          {enableGoogleCalendarSync && (
+            <GoogleCalendarConnect className="w-full justify-center rounded-xl text-sm" />
+          )}
           {pendingSyncCount > 0 ? (
             <Button
               type="button"

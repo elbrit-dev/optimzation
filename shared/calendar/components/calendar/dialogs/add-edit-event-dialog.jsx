@@ -180,6 +180,17 @@ export function AddEditEventDialog({
 	}, [event?.enableGoogleMeet, form, isEditing, isOpen, selectedTag]);
 	useEffect(() => {
 		if (selectedTag !== TAG_IDS.MEETING) return;
+		if (calendarSyncEnabled) return;
+		if (!enableGoogleMeet) return;
+
+		form.setValue("enableGoogleMeet", false, {
+			shouldDirty: false,
+			shouldValidate: false,
+		});
+	}, [calendarSyncEnabled, enableGoogleMeet, form, selectedTag]);
+
+	useEffect(() => {
+		if (selectedTag !== TAG_IDS.MEETING) return;
 		if (!allDay || !enableGoogleMeet) return;
 
 		form.setValue("enableGoogleMeet", false, {
@@ -810,6 +821,14 @@ export function AddEditEventDialog({
 	  Load Calendar Google Calendar 
 	--------------------------------------------- */
 	useEffect(() => {
+		// With Google sync off there is nothing to ask Google about, and this
+		// query used to run for every mounted dialog (the mobile "+" bar mounts
+		// one per event type) on every calendar load.
+		if (!calendarSyncEnabled) {
+			setGoogleCalendarEnabled(false);
+			return;
+		}
+
 		async function loadGoogleStatus() {
 			const calendar = await fetchGoogleCalendarStatus(
 				LOGGED_IN_USER.email
@@ -823,7 +842,7 @@ export function AddEditEventDialog({
 		}
 
 		loadGoogleStatus();
-	}, []);
+	}, [calendarSyncEnabled]);
 	const handleRequestLocation = async () => {
 		try {
 			setIsResolvingLocation(true);
@@ -1557,10 +1576,9 @@ export function AddEditEventDialog({
 	// popover stacked on top of it).
 	useBackToClose(isOpen, () => handleDialogOpenChange(false));
 	const handleDefaultEvent = async (values) => {
-		const shouldSyncGoogleCalendar =
-			values.tags === TAG_IDS.MEETING
-				? (Boolean(values.enableGoogleMeet) && !values.allDay) || calendarSyncEnabled
-				: calendarSyncEnabled;
+		// Google sync is the switch for everything Google, Meet included: ERP
+		// cannot attach a Meet link to an event it never syncs.
+		const shouldSyncGoogleCalendar = calendarSyncEnabled;
 		const normalizedDoctorValue =
 			values.tags === TAG_IDS.DOCTOR_VISIT_PLAN &&
 				(!values.doctor ||
@@ -1646,7 +1664,7 @@ export function AddEditEventDialog({
 				quotationDoc,
 				saveOptions: {
 					shareWithUserIds: getShareUserIds(values),
-					deferShareSync: false,
+					deferShareSync: true,
 					skipExistingShareCheck: !event?.erpName,
 					// Rebuild the participant table from ERP at write time and touch
 					// only this user's row, so marking your own visit can't wipe a
@@ -1725,7 +1743,7 @@ export function AddEditEventDialog({
 						quotationDoc: null,
 						saveOptions: {
 							shareWithUserIds: superiorUserIds,
-							deferShareSync: false,
+							deferShareSync: true,
 							skipExistingShareCheck: true,
 						},
 					},
@@ -1875,7 +1893,7 @@ export function AddEditEventDialog({
 				todoDoc,
 				saveOptions: {
 					shareWithUserIds: getShareUserIds(values),
-					deferShareSync: false,
+					deferShareSync: true,
 					skipExistingShareCheck: !event?.erpName,
 				},
 			},

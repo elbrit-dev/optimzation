@@ -339,12 +339,12 @@ export function mapFormToErpEvent(values, options = {}) {
     values.doctor,
     "custom_longitude"
   );
-  // Every event now targets a Google Calendar, irrespective of the
-  // enableGoogleCalendarSync org setting or the per-meeting Google Meet
-  // checkbox — those used to gate this on/off, now they (and googleCalendar
-  // below) only affect *which* calendar is targeted. sync_with_google_calendar
-  // stays 0 either way (see below), so this never touches save latency.
-  const shouldSyncWithGoogleCalendar = true;
+  // `google_calendar` is the only switch that still matters for Google: with it
+  // empty, saveEvent() skips its sync nudge and the backend Scheduler job has
+  // nothing to pick up. So the enableGoogleCalendarSync setting gates it —
+  // hardcoding this to true made every event sync regardless of the setting.
+  // sync_with_google_calendar stays 0 either way (see below).
+  const shouldSyncWithGoogleCalendar = Boolean(enableGoogleCalendarSync);
   const doc = {
     // doctype: "Event",
     subject: values.title,

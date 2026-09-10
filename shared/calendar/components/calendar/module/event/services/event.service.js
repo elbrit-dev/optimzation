@@ -179,14 +179,35 @@ const isVisitRecorded = isParticipantVisitRecorded;
 // (lock wait timeout) or 1213 (deadlock), so retrying that explicit response is
 // safe. Each retry rebuilds the participant table from ERP below, which also
 // prevents a stale retry from overwriting another participant's visit.
-const EVENT_SAVE_RETRY_DELAYS_MS = [750, 1500];
+// Jittered, because the writers that contend here are other clients running
+// this same code: fixed delays make two of them collide again on every retry.
+const EVENT_SAVE_RETRY_DELAYS_MS = [600, 1400, 3000];
 
+function withJitter(delayMs) {
+  return Math.round(delayMs * (0.7 + Math.random() * 0.6));
+}
+
+/**
+ * Two writers touching one Event at the same time.
+ *
+ * Frappe reports this several different ways depending on where the collision
+ * lands: a row-lock timeout or deadlock from MySQL, a timestamp mismatch when
+ * the row changed under the request, or an explicit document lock. All of them
+ * mean the same thing for us — nothing is wrong with the payload, so the save
+ * is worth retrying.
+ */
 function isDatabaseContentionError(error) {
   const message = String(error?.message ?? "").toLowerCase();
 
   return (
     message.includes("lock wait timeout") ||
     message.includes("deadlock found") ||
+    message.includes("timestampmismatch") ||
+    message.includes("has been modified after you have opened it") ||
+    message.includes("document has been modified") ||
+    message.includes("documentlocked") ||
+    message.includes("document locked") ||
+    message.includes("querytimeout") ||
     /operationalerror:\s*\((1205|1213)\b/.test(message)
   );
 }
@@ -356,8 +377,13 @@ export async function saveEvent(doc, options = {}) {
 
       if (!canRetry) {
         if (isDatabaseContentionError(error)) {
+          // "Busy" is the marker the submission queue matches on to keep this
+          // pending and retry it in the background, instead of parking it as a
+          // failure the user has to notice and retry by hand. Wording stays
+          // generic: this happens while creating tour plans too, not just
+          // visits.
           throw new Error(
-            "ERP is busy updating this visit. Please retry in a moment.",
+            "ERP is busy updating this event, so it is still queued and will retry automatically.",
             { cause: error }
           );
         }
@@ -365,7 +391,7 @@ export async function saveEvent(doc, options = {}) {
         throw error;
       }
 
-      await waitForRetry(EVENT_SAVE_RETRY_DELAYS_MS[attempt]);
+      await waitForRetry(withJitter(EVENT_SAVE_RETRY_DELAYS_MS[attempt]));
     }
   }
 

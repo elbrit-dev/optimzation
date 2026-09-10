@@ -33,6 +33,7 @@ export function CalendarHeader() {
 		isRetryingSync,
 		syncCalendar,
 		allEvents,
+		enableGoogleCalendarSync,
 	} = useCalendar();
 	const [isSyncing, setIsSyncing] = useState(false);
 
@@ -88,7 +89,7 @@ export function CalendarHeader() {
 				animate="animate"
 				transition={transition}>
 				<div className="options flex-wrap flex items-center gap-4 md:gap-2">
-					<GoogleCalendarConnect />
+					{enableGoogleCalendarSync && <GoogleCalendarConnect />}
 					<Views />
 				</div>
 

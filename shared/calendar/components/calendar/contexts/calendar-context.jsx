@@ -18,6 +18,7 @@ import {
 } from "@calendar/components/calendar/contexts/calendar-context/selectors";
 import {
 	mergeServerEventsWithQueuedEvents,
+	getNextQueueAttemptDelayMs,
 	processSubmissionQueue,
 	pruneSubmissionQueueOnStartup,
 	requeueFailedSubmissions,
@@ -333,6 +334,12 @@ export function CalendarProvider({
 			erpUrl,
 			authToken,
 			onSuccess: async (queueItem, result) => {
+				// A share item carries no event of its own; the event it belongs
+				// to is already in `serverEvents`.
+				if (result?.shareOnly) {
+					return;
+				}
+
 				if (result?.removed) {
 					setServerEvents((prev) =>
 						prev.filter(
@@ -414,9 +421,20 @@ export function CalendarProvider({
 
 		let cancelled = false;
 
+		let retryTimer = null;
+
 		const runQueue = async () => {
 			const processedCount = await syncPendingSubmissions();
 			if (cancelled) return;
+
+			// An item that hit contention is waiting out its backoff. Nothing
+			// else will wake it: this effect only re-runs when the queue changes,
+			// and the change that deferred it has already happened.
+			const nextDelay = getNextQueueAttemptDelayMs();
+			if (nextDelay !== null) {
+				retryTimer = window.setTimeout(runQueue, nextDelay + 50);
+			}
+
 			return processedCount;
 		};
 
@@ -429,6 +447,7 @@ export function CalendarProvider({
 		window.addEventListener("online", handleOnline);
 		return () => {
 			cancelled = true;
+			if (retryTimer) window.clearTimeout(retryTimer);
 			window.removeEventListener("online", handleOnline);
 		};
 	}, [queueEvents, syncPendingSubmissions]);
