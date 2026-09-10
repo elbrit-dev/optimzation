@@ -139,6 +139,14 @@ const doctorDetailStyles = `
   padding:8px 12px 9px; border:1px solid var(--dtx-line); border-radius:12px; background:var(--dtx-ground);
 }
 .dtx-grade-label {font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--dtx-faint)}
+/* ROI reads as a verdict, so it carries the brand tint rather than the
+   neutral grade chrome. */
+.dtx-grade--roi {background:var(--dtx-soft); border-color:var(--dtx-line-accent)}
+.dtx-grade--roi .dtx-grade-value {color:var(--dtx-ink-accent)}
+/* Tables inside a card need the card's gutter; the ledger tables get theirs
+   from .dtx-quotation-detail, these stand alone. */
+.dtx-table--pad {margin:0 var(--dtx-gut) 18px; width:calc(100% - var(--dtx-gut) * 2)}
+.dtx-table--pad caption {padding-top:0}
 .dtx-grade-value {font-size:22px; font-weight:800; color:var(--dtx-navy); line-height:1.2; margin-top:1px}
 
 .dtx-actions {display:flex; flex-wrap:wrap; gap:8px; margin-top:18px; padding-bottom:20px}
@@ -204,7 +212,7 @@ const doctorDetailStyles = `
 /* ------------------------------------------------------------------ vitals */
 /* A real grid, not flex with a 130px basis — that basis wrapped four tiles
    into a ragged 3 + 1 at most container widths. */
-.dtx-stats {display:grid; grid-template-columns:repeat(auto-fit,minmax(132px,1fr)); gap:var(--dtx-gap)}
+.dtx-stats {display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:var(--dtx-gap)}
 .dtx-stat {
   min-width:0; padding:13px 15px; background:var(--dtx-card);
   border:1px solid var(--dtx-line); border-radius:12px;
@@ -214,6 +222,106 @@ const doctorDetailStyles = `
   font-variant-numeric:tabular-nums; overflow-wrap:anywhere; line-height:1.2;
 }
 .dtx-stat-sub {margin-top:4px; font-size:11.5px; line-height:1.4; color:var(--dtx-faint); overflow-wrap:anywhere}
+
+/* -------------------------------------------------------------------- view */
+/* The page-level switch and the period on one bar: both govern everything
+   below, and as two stacked rows the page led with more chrome than content. */
+.dtx-viewbar {display:flex; align-items:center; flex-wrap:wrap; gap:10px 16px}
+.dtx-views {
+  display:flex; gap:4px; padding:4px; flex:none;
+  background:var(--dtx-card); border:1px solid var(--dtx-line); border-radius:12px;
+}
+.dtx-view-btn {
+  display:inline-flex; align-items:center; gap:7px; min-height:38px; padding:0 18px;
+  border:0; border-radius:9px; background:transparent;
+  font-size:13.5px; font-weight:600; color:var(--dtx-mute); white-space:nowrap;
+  transition:background .15s,color .15s;
+}
+.dtx-view-btn:hover {background:var(--dtx-ground); color:var(--dtx-ink-2)}
+.dtx-view-btn--on {background:var(--dtx-navy); color:#fff; font-weight:700}
+.dtx-view-btn:hover.dtx-view-btn--on {background:var(--dtx-navy); color:#fff}
+.dtx-view-btn span {
+  padding:1px 7px; border-radius:999px; background:var(--dtx-line-soft);
+  font-size:11px; font-weight:700; color:var(--dtx-mute); font-variant-numeric:tabular-nums;
+}
+/* The navy blended with 22% white, stated opaquely — an alpha fill here
+   makes the badge unverifiable against its own background. White on
+   this is 5.6:1. */
+.dtx-view-btn--on span {background:#4f65a4; color:#fff}
+/* The period sits to the right of the switch and gives up its own row first. */
+.dtx-viewbar .dtx-rangebar {flex:1 1 auto; justify-content:flex-end; min-width:0}
+.dtx-root--compact .dtx-viewbar {gap:10px}
+.dtx-root--compact .dtx-views {width:100%}
+.dtx-root--compact .dtx-view-btn {flex:1 1 0; justify-content:center; min-height:40px; padding:0 12px}
+.dtx-root--compact .dtx-viewbar .dtx-rangebar {flex:1 1 100%; justify-content:flex-start}
+
+/* ---------------------------------------------------------------- timeline */
+/* A single rail down the left with the entries hung off it, so the eye reads
+   the ORDER first and the content second — which is the whole reason this is
+   a separate view from the Overview. */
+.dtx-timeline {position:relative; list-style:none; margin:0; padding:16px var(--dtx-gut) 4px 0}
+.dtx-timeline::before {
+  content:""; position:absolute; top:0; bottom:0;
+  left:calc(var(--dtx-gut) + 5px); width:2px; background:var(--dtx-line);
+}
+.dtx-tl-month {
+  position:relative; margin:14px 0 10px; padding-left:calc(var(--dtx-gut) + 26px);
+  font-size:11px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--dtx-faint);
+}
+.dtx-tl-month:first-child {margin-top:0}
+/* The heading breaks the rail rather than sitting on top of it. */
+.dtx-tl-month span {position:relative; padding:2px 8px; background:var(--dtx-card); border-radius:6px}
+.dtx-tl-item {position:relative; padding-left:calc(var(--dtx-gut) + 26px); padding-bottom:12px}
+.dtx-tl-dot {
+  position:absolute; left:var(--dtx-gut); top:14px; width:12px; height:12px;
+  border-radius:50%; background:var(--dtx-card); border:2px solid var(--dtx-faint);
+}
+/* Each kind keeps one colour across the whole feed, so a reader learns the
+   rail rather than re-reading every badge. */
+.dtx-tl-item--visit .dtx-tl-dot {border-color:#1d4ed8}
+.dtx-tl-item--pob .dtx-tl-dot {border-color:var(--dtx-accent)}
+.dtx-tl-item--revenue .dtx-tl-dot {border-color:var(--dtx-good)}
+.dtx-tl-item--service .dtx-tl-dot {border-color:var(--dtx-warn)}
+.dtx-tl-item--note .dtx-tl-dot {border-color:var(--dtx-faint)}
+.dtx-tl-card {
+  padding:12px 14px; border:1px solid var(--dtx-line); border-radius:12px; background:var(--dtx-card);
+  transition:border-color .15s,box-shadow .15s;
+}
+.dtx-tl-card:hover {border-color:var(--dtx-faint)}
+.dtx-tl-top {display:flex; align-items:center; flex-wrap:wrap; gap:8px 10px}
+.dtx-tl-when {font-size:12px; color:var(--dtx-faint); font-variant-numeric:tabular-nums}
+.dtx-tl-amount {margin-left:auto; font-size:14px; font-weight:700; color:var(--dtx-ink); font-variant-numeric:tabular-nums; white-space:nowrap}
+.dtx-root .dtx-tl-title {margin-top:7px; font-size:14px; font-weight:600; color:var(--dtx-ink); overflow-wrap:anywhere}
+.dtx-tl-card .dtx-visit-meta {margin-top:6px}
+.dtx-tl-card .dtx-note-text {margin-top:8px; font-size:12.5px; color:var(--dtx-mute)}
+.dtx-select--grow {flex:1 1 auto; min-width:0}
+.dtx-root--compact .dtx-timeline {padding-right:var(--dtx-gut)}
+
+/* ------------------------------------------------------------------ period */
+/* A segmented control on its own row above the tabs, so it reads as governing
+   the whole page rather than belonging to whichever tab is open. */
+.dtx-rangebar {display:flex; align-items:center; flex-wrap:wrap; gap:8px 12px}
+.dtx-range-legend {flex:none}
+.dtx-range {
+  display:flex; gap:4px; padding:4px; min-width:0; overflow-x:auto; scrollbar-width:none;
+  background:var(--dtx-card); border:1px solid var(--dtx-line); border-radius:12px;
+}
+.dtx-range::-webkit-scrollbar {display:none}
+.dtx-range-btn {
+  flex:0 0 auto; min-height:34px; padding:0 12px; border:0; border-radius:9px;
+  background:transparent; font-size:12.5px; font-weight:600; color:var(--dtx-mute);
+  white-space:nowrap; transition:background .15s,color .15s;
+}
+.dtx-range-btn:hover {background:var(--dtx-ground); color:var(--dtx-ink-2)}
+.dtx-range-btn--on {background:var(--dtx-soft); color:var(--dtx-ink-accent); font-weight:700}
+/* The resolved dates, so "FY 26-27" is never something the reader has to
+   take on trust. Dropped first when the row runs out of width. */
+.dtx-range-note {flex:1 1 auto; min-width:0; font-size:11.5px; color:var(--dtx-faint); font-variant-numeric:tabular-nums}
+.dtx-root--compact .dtx-range-note {display:none}
+.dtx-root--compact .dtx-range-legend {display:none}
+.dtx-root--compact .dtx-rangebar {gap:8px}
+.dtx-root--compact .dtx-range {width:100%}
+.dtx-root--compact .dtx-range-btn {min-height:38px; font-size:12px; padding:0 11px}
 
 /* -------------------------------------------------------------------- tabs */
 /* A segmented control on the ground, not a full-bleed rule of uppercase mono.

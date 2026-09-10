@@ -195,14 +195,14 @@ function stripHtml(value) {
  * and it carries ORDER, which booleans cannot.                        *
  * ------------------------------------------------------------------ */
 
-const SECTION_KEYS = ["revenue", "business", "visits", "notes", "coverage", "contact", "classification", "record"];
+const SECTION_KEYS = ["roi", "support", "service", "orders", "business", "visits", "notes", "coverage", "contact", "classification", "record"];
 const ACTION_KEYS = ["pob", "note", "call", "whatsapp", "email", "directions"];
 
 /**
  * Sections that want the wider column on a desktop layout. Everything else
  * goes in the narrow column, each in the order the caller listed it.
  */
-const WIDE_SECTIONS = new Set(["revenue", "business", "visits", "notes"]);
+const WIDE_SECTIONS = new Set(["roi", "support", "service", "orders", "business", "visits", "notes"]);
 
 /**
  * Normalise a multi-select prop.
@@ -562,7 +562,26 @@ const POB_FIELDS = `
   territory__name total_qty transaction_date
   items { item_name net_amount ordered_qty qty rate taxable_value }
 `;
+/**
+ * The ledger reads, narrowest first.
+ *
+ * The BOUNDED forms carry a `transaction_date >= from` clause so a page only
+ * pulls the period being looked at — by default the current financial year,
+ * which is all anyone opens this page for. The array filter shape
+ * ([{fieldname, operator: "GTE", value}]) is the one the calendar itself uses
+ * against this endpoint in production, so it is known to work.
+ *
+ * The unbounded forms stay at the end of the ladder on purpose: if a schema
+ * ever rejects the array form, `firstSuccessful` falls through to what works
+ * today rather than the panel going blank. Nothing is bounded when the period
+ * is All time — `from` is null and the bounded queries are skipped.
+ */
 const POB_QUERIES = [
+  `query DoctorPobs($first: Int!, $filters: [DBFilterInput!]) {
+    Quotations(first: $first, filter: $filters) {
+      edges { node { ${POB_FIELDS} status grand_total } }
+    }
+  }`,
   `query DoctorPobs($first: Int!, $name: String!) {
     Quotations(first: $first, filter: {fieldname: "custom_doctorvisit", operator: EQ, value: $name}) {
       edges { node { ${POB_FIELDS} status grand_total } }
@@ -684,6 +703,96 @@ async function fetchDoctorRevenue(doctorId) {
 }
 
 /**
+ * SUPPORT — what the doctor gives back.
+ *
+ * `Doctor Support` is a MONTHLY roll-up per doctor, fed from Ecubix:
+ * `custom_period` ("2026-June"), `date` (month end), `custom_total_amount`
+ * and `custom_total_qty`. One row per doctor per month, so a whole history is
+ * a couple of dozen rows — it is fetched whole rather than paged or windowed.
+ *
+ * This is the number the business runs on, and it is NOT the Sales Order
+ * attribution: DR-47718 shows ₹3,36,952 of support over Apr–Jul 2026 against
+ * ₹17,288 of tagged order lines. Order tagging catches a few percent of the
+ * real picture, which is why Support — not orders — is the numerator of ROI.
+ *
+ * ERP holds support from April 2026 only (the rows were backfilled in Aug
+ * 2026), so everything derived from it is FY 26-27 onwards however wide a
+ * period is asked for. The panel says so rather than letting a short history
+ * read as a quiet doctor.
+ */
+const SUPPORT_FIELDS = ["name", "date", "custom_period", "custom_total_qty", "custom_total_amount"];
+
+async function fetchDoctorSupport(doctorId) {
+  const { authToken } = AUTH_CONFIG;
+  if (!authToken) throw new Error("Missing ERP auth configuration");
+
+  const params = new URLSearchParams({
+    fields: JSON.stringify(SUPPORT_FIELDS),
+    filters: JSON.stringify([["doctor", "=", doctorId]]),
+    limit_page_length: "200",
+    order_by: "`tabDoctor Support`.`date` desc",
+  });
+
+  const response = await fetch(
+    erpRestBase() + "/api/resource/" + encodeURIComponent("Doctor Support") + "?" + params,
+    { headers: { Accept: "application/json", Authorization: "token " + authToken } }
+  );
+  if (!response.ok) throw new Error("HTTP " + response.status);
+  const json = await response.json();
+  return Array.isArray(json && json.data) ? json.data : [];
+}
+
+/**
+ * What the company spends ON the doctor.
+ *
+ * `Doctor Service` is a real, heavily used doctype — ~26,700 rows and ~₹47 Cr
+ * across all doctors, running from 2022 to now. One row is one payment or
+ * benefit: `service_name` is the kind (Cash, GIFT CARD, EMI TAKEOVER, Fund
+ * Transfer, RD 3, cab), `service_amount` the money, `by` the employee who
+ * raised it, and `remarks` usually carries the transfer reference.
+ *
+ * A plain parent-table read, so no child-table join tricks are needed.
+ * `service_date` IS SOMETIMES NULL (a few rows carry only an auto-series name
+ * and nothing else), so the analyser must not assume every row is dated.
+ *
+ * `workflow_state` is "Draft" on effectively every row, so it is shown but
+ * never filtered on — filtering would empty the panel for every doctor.
+ */
+const SERVICE_FIELDS = [
+  "name",
+  "service_name",
+  "service_amount",
+  "service_date",
+  "date",
+  "by",
+  "hq",
+  "department",
+  "remarks",
+  "workflow_state",
+  "role_profile",
+];
+
+async function fetchDoctorServices(doctorId) {
+  const { authToken } = AUTH_CONFIG;
+  if (!authToken) throw new Error("Missing ERP auth configuration");
+
+  const params = new URLSearchParams({
+    fields: JSON.stringify(SERVICE_FIELDS),
+    filters: JSON.stringify([["doctor", "=", doctorId]]),
+    limit_page_length: "500",
+    order_by: "`tabDoctor Service`.`service_date` desc",
+  });
+
+  const response = await fetch(
+    erpRestBase() + "/api/resource/" + encodeURIComponent("Doctor Service") + "?" + params,
+    { headers: { Accept: "application/json", Authorization: "token " + authToken } }
+  );
+  if (!response.ok) throw new Error("HTTP " + response.status);
+  const json = await response.json();
+  return Array.isArray(json && json.data) ? json.data : [];
+}
+
+/**
  * Visit history.
  *
  * Two fields are deliberately NOT asked for.
@@ -701,8 +810,8 @@ async function fetchDoctorRevenue(doctorId) {
  * calendar's own doctorVisitHistory uses to decide a visit was actually MADE
  * rather than merely planned.
  */
-const VISIT_QUERY = `query DoctorVisits($name: String!) {
-  Events(first: 1000, filter: {fieldname: "custom_doctor", operator: EQ, value: $name}) {
+const VISIT_FIELDS_QUERY = (filterArg) => `query DoctorVisits($name: String!, $filters: [DBFilterInput!]) {
+  Events(first: 1000, filter: ${filterArg}) {
     edges { node {
       name event_type starts_on event_category custom_longitude custom_latitude
       custom_hq__name custom_force_visit_reason custom_employee_id__name
@@ -715,6 +824,12 @@ const VISIT_QUERY = `query DoctorVisits($name: String!) {
     } }
   }
 }`;
+
+// Bounded first, unbounded as the fallback — see POB_QUERIES for why.
+const VISIT_QUERIES = [
+  VISIT_FIELDS_QUERY("$filters"),
+  VISIT_FIELDS_QUERY('{fieldname: "custom_doctor", operator: EQ, value: $name}'),
+];
 
 /** Run a ladder of query shapes, returning the first that answers. */
 async function firstSuccessful(queries, variables, extract) {
@@ -740,11 +855,13 @@ async function firstSuccessful(queries, variables, extract) {
  * cached here: a detail page is opened for one doctor at a time and a stale POB
  * total is worse than a second's wait.
  */
-function useDoctorEnrichment(doctorId, { enabled, pobLimit, pobsGiven, visitsGiven, addressesGiven, revenueGiven, erpUrl, authToken, erpTarget }) {
+function useDoctorEnrichment(doctorId, { enabled, pobLimit, from, pobsGiven, visitsGiven, addressesGiven, revenueGiven, servicesGiven, supportGiven, erpUrl, authToken, erpTarget }) {
   const [result, setResult] = useState(null);
   const [nonce, setNonce] = useState(0);
   const refresh = useCallback(() => setNonce((n) => n + 1), []);
-  const requestKey = JSON.stringify([doctorId, enabled, erpUrl, authToken, erpTarget, nonce]);
+  // `from` is part of the key: widening the period has to go back to ERP,
+  // because the rows outside the old window were never fetched.
+  const requestKey = JSON.stringify([doctorId, enabled, erpUrl, authToken, erpTarget, from, nonce]);
   useEffect(() => {
     if (!enabled || !doctorId) return undefined;
     let live = true;
@@ -753,10 +870,12 @@ function useDoctorEnrichment(doctorId, { enabled, pobLimit, pobsGiven, visitsGiv
     // for why that join cannot be expressed in GraphQL at all.
     const jobs = [
       ["lead", (vars) => firstSuccessful(LEAD_QUERIES, vars, (d) => d?.Lead ?? null), null],
-      ["pobs", (vars) => firstSuccessful(POB_QUERIES, vars, (d) => normalizeConnection(d?.Quotations)), pobsGiven],
-      ["visits", (vars) => firstSuccessful([VISIT_QUERY], vars, (d) => normalizeConnection(d?.Events)), visitsGiven],
+      ["pobs", (vars) => firstSuccessful(vars.pobFilters ? POB_QUERIES : POB_QUERIES.slice(1), vars, (d) => normalizeConnection(d?.Quotations)), pobsGiven],
+      ["visits", (vars) => firstSuccessful(vars.visitFilters ? VISIT_QUERIES : VISIT_QUERIES.slice(1), vars, (d) => normalizeConnection(d?.Events)), visitsGiven],
       ["addresses", (vars) => fetchDoctorAddresses(vars.name), addressesGiven],
       ["revenue", (vars) => fetchDoctorRevenue(vars.name), revenueGiven],
+      ["services", (vars) => fetchDoctorServices(vars.name), servicesGiven],
+      ["support", (vars) => fetchDoctorSupport(vars.name), supportGiven],
     ].filter(([, , given]) => !Array.isArray(given));
     setResult({ key: requestKey, loading: Object.fromEntries(jobs.map(([key]) => [key, true])), errors: {} });
     const update = (key, value, error) => {
@@ -773,13 +892,36 @@ function useDoctorEnrichment(doctorId, { enabled, pobLimit, pobsGiven, visitsGiv
         jobs.forEach(([key]) => update(key, null, true));
         return;
       }
+      // ERP wants a plain date, and the bound is the FIRST of the window's
+      // month so a row dated mid-month is never clipped off the front.
+      const fromDate = from == null ? null : new Date(from);
+      const fromText = fromDate
+        ? `${fromDate.getFullYear()}-${String(fromDate.getMonth() + 1).padStart(2, "0")}-01`
+        : null;
       const variables = {
         name: doctorId,
         first: Math.max(1, Math.min(1000, Number(pobLimit) || 200)),
+        filters: null,
+        pobFilters: null,
+        visitFilters: null,
       };
+      if (fromText) {
+        variables.pobFilters = [
+          { fieldname: "custom_doctorvisit", operator: "EQ", value: doctorId },
+          { fieldname: "transaction_date", operator: "GTE", value: fromText },
+        ];
+        variables.visitFilters = [
+          { fieldname: "custom_doctor", operator: "EQ", value: doctorId },
+          { fieldname: "starts_on", operator: "GTE", value: fromText },
+        ];
+      }
       await Promise.all(jobs.map(async ([key, run]) => {
         try {
-          const value = await run(variables);
+          // Each job gets `filters` pointed at its own clause set.
+          const value = await run({
+            ...variables,
+            filters: key === "pobs" ? variables.pobFilters : key === "visits" ? variables.visitFilters : null,
+          });
           if (value == null) throw new Error("No result");
           update(key, value, null);
         } catch {
@@ -788,18 +930,22 @@ function useDoctorEnrichment(doctorId, { enabled, pobLimit, pobsGiven, visitsGiv
       }));
     })();
     return () => { live = false; };
-  }, [enabled, doctorId, pobLimit, pobsGiven, visitsGiven, addressesGiven, revenueGiven, erpUrl, authToken, erpTarget, nonce, requestKey]);
+  }, [enabled, doctorId, pobLimit, from, pobsGiven, visitsGiven, addressesGiven, revenueGiven, servicesGiven, supportGiven, erpUrl, authToken, erpTarget, nonce, requestKey]);
   // Never paint a previous doctor's details during the render before effects run.
   const current = enabled && result?.key === requestKey ? result : null;
   const pending = !!enabled && !!doctorId && !current;
   return {
     lead: current?.lead, pobs: current?.pobs, visits: current?.visits, addresses: current?.addresses,
     revenue: current?.revenue,
+    services: current?.services,
+    support: current?.support,
     loadingLead: pending || !!current?.loading.lead,
     loadingPobs: !pobsGiven && (pending || !!current?.loading.pobs),
     loadingVisits: !visitsGiven && (pending || !!current?.loading.visits),
     loadingAddresses: !addressesGiven && (pending || !!current?.loading.addresses),
     loadingRevenue: !revenueGiven && (pending || !!current?.loading.revenue),
+    loadingServices: !servicesGiven && (pending || !!current?.loading.services),
+    loadingSupport: !supportGiven && (pending || !!current?.loading.support),
     errors: current?.errors || {}, refresh,
   };
 }
@@ -855,7 +1001,7 @@ function addressText(address) {
  * Turn the raw quotation list into what a rep is actually asking:
  * how much, how often, when last, in which months, and on which products.
  */
-function analysePobs(pobs) {
+function analysePobs(pobs, range) {
   const rows = (pobs ?? [])
     .map((node) => {
       const when = node?.transaction_date || node?.creation || null;
@@ -907,28 +1053,102 @@ function analysePobs(pobs) {
   });
   const products = [...byProduct.values()].sort((a, b) => b.amount - a.amount || b.qty - a.qty);
 
-  return { rows, total, unknownValues, count: rows.length, last, products, months: monthSeries(rows) };
+  return { rows, total, unknownValues, count: rows.length, last, products, months: monthSeries(rows, range) };
+}
+
+/* ------------------------------------------------------------------ *
+ * Date range                                                          *
+ *                                                                     *
+ * Elbrit runs on the Indian financial year — 1 April to 31 March — so *
+ * "this year" on a commercial page has to mean the FY, not the        *
+ * calendar year. The page defaults to the CURRENT FY.                 *
+ * ------------------------------------------------------------------ */
+
+/** The FY containing `date`, as [startYear, endYear] — Sep 2026 -> [2026, 2027]. */
+function fyOf(date) {
+  const year = date.getFullYear();
+  return date.getMonth() >= 3 ? [year, year + 1] : [year - 1, year];
+}
+
+/** FY bounds as timestamps. `offset` -1 is the previous FY. */
+function fyRange(offset = 0) {
+  const [start] = fyOf(new Date());
+  const from = new Date(start + offset, 3, 1);
+  const to = new Date(start + offset + 1, 2, 31, 23, 59, 59, 999);
+  return { from: from.getTime(), to: to.getTime(), label: `FY ${String(start + offset).slice(2)}-${String(start + offset + 1).slice(2)}` };
+}
+
+/** The last `n` whole months plus the current one, ending now. */
+function trailingRange(n) {
+  const now = new Date();
+  const from = new Date(now.getFullYear(), now.getMonth() - (n - 1), 1);
+  return { from: from.getTime(), to: now.getTime(), label: `Last ${n} months` };
+}
+
+/**
+ * The presets, resolved fresh on every render so a page left open overnight
+ * across 1 April does not keep reporting last year's FY as "this".
+ */
+function buildRanges() {
+  const thisFy = fyRange(0);
+  const lastFy = fyRange(-1);
+  return [
+    { key: "fy", label: thisFy.label, hint: "This financial year", from: thisFy.from, to: thisFy.to },
+    { key: "fy-1", label: lastFy.label, hint: "Last financial year", from: lastFy.from, to: lastFy.to },
+    { key: "m6", label: "6 months", hint: trailingRange(6).label, from: trailingRange(6).from, to: trailingRange(6).to },
+    { key: "m12", label: "12 months", hint: trailingRange(12).label, from: trailingRange(12).from, to: trailingRange(12).to },
+    { key: "all", label: "All time", hint: "Everything on record", from: null, to: null },
+  ];
+}
+
+/**
+ * Keep only the rows inside the range.
+ *
+ * An UNDATED row survives only when the range is All time. Counting a row with
+ * no date inside "FY 26-27" would be asserting something the record does not
+ * say, and it would make the totals of the parts disagree with the whole.
+ */
+function withinRange(rows, range) {
+  if (!range || range.from == null) return rows ?? [];
+  return (rows ?? []).filter((row) => row && row.time != null && row.time >= range.from && row.time <= range.to);
 }
 
 /**
  * A month-by-month series from any [{ time, value }] list, newest last.
  *
- * Built FORWARD from the earliest row to the latest so a gap reads as a gap
- * rather than closing up — a month with nothing in it is the finding. A doctor
- * with one row gets one bar, not twelve empty ones, and only the last twelve
- * months are returned because an older bar tells a rep nothing they can act on.
+ * With a RANGE the axis is the range: every month from its start to today (or
+ * to the range's end, whichever is sooner) gets a slot, so a month with
+ * nothing in it shows as an empty bar. That gap is the finding — a doctor who
+ * was serviced in April and never again should look like it. Future months of
+ * the current FY are not drawn, because an empty bar for a month that has not
+ * happened reads as a miss rather than as time remaining.
+ *
+ * With no range the axis follows the data: from the earliest row to the
+ * latest, capped at the last twelve months, because an older bar tells a rep
+ * nothing they can act on.
  */
-function monthSeries(rows) {
+function monthSeries(rows, range) {
   const dated = (rows ?? []).filter((r) => r && r.time != null);
-  if (!dated.length) return [];
-  const times = dated.map((r) => r.time);
-  const first = new Date(Math.min(...times));
-  const lastDate = new Date(Math.max(...times));
-  const cursor = new Date(Math.max(
-    new Date(first.getFullYear(), first.getMonth(), 1).getTime(),
-    new Date(lastDate.getFullYear(), lastDate.getMonth() - 11, 1).getTime()
-  ));
-  const end = new Date(lastDate.getFullYear(), lastDate.getMonth(), 1);
+  const ranged = range && range.from != null;
+  if (!dated.length && !ranged) return [];
+
+  let cursor;
+  let end;
+  if (ranged) {
+    const from = new Date(range.from);
+    const to = new Date(Math.min(range.to, Date.now()));
+    cursor = new Date(from.getFullYear(), from.getMonth(), 1);
+    end = new Date(to.getFullYear(), to.getMonth(), 1);
+  } else {
+    const times = dated.map((r) => r.time);
+    const first = new Date(Math.min(...times));
+    const lastDate = new Date(Math.max(...times));
+    cursor = new Date(Math.max(
+      new Date(first.getFullYear(), first.getMonth(), 1).getTime(),
+      new Date(lastDate.getFullYear(), lastDate.getMonth() - 11, 1).getTime()
+    ));
+    end = new Date(lastDate.getFullYear(), lastDate.getMonth(), 1);
+  }
 
   const buckets = new Map();
   dated.forEach((row) => {
@@ -961,7 +1181,7 @@ function monthSeries(rows) {
  * (products), and which distributor it flows through (customers, which is the
  * one that says who to service to keep the doctor's scripts filled).
  */
-function analyseRevenue(lines) {
+function analyseRevenue(lines, range) {
   const rows = (lines ?? [])
     .map((line) => ({
       order: line?.name ?? "",
@@ -1008,7 +1228,236 @@ function analyseRevenue(lines) {
     last,
     products: roll((r) => r.label),
     customers: roll((r) => r.customer),
-    months: monthSeries(rows),
+    months: monthSeries(rows, range),
+  };
+}
+
+/**
+ * SUPPORT, rolled up.
+ *
+ * The rows are already monthly, so nothing is bucketed — they are simply
+ * ordered, totalled, and shaped like every other month series on the page so
+ * MonthChart can draw them.
+ */
+function analyseSupport(support, range) {
+  const rows = (support ?? [])
+    .map((node) => ({
+      id: node?.name ?? "",
+      at: node?.date ?? null,
+      time: toTime(node?.date),
+      period: node?.custom_period ?? "",
+      qty: toNumber(node?.custom_total_qty),
+      value: toNumber(node?.custom_total_amount),
+    }))
+    .filter((row) => row.id)
+    .sort((a, b) => (b.time ?? 0) - (a.time ?? 0));
+
+  const total = rows.reduce((sum, r) => sum + (Number.isFinite(r.value) ? r.value : 0), 0);
+  const qty = rows.reduce((sum, r) => sum + (Number.isFinite(r.qty) ? r.qty : 0), 0);
+  const peak = rows.reduce((best, r) => (!best || (r.value ?? 0) > (best.value ?? 0) ? r : best), null);
+
+  return {
+    rows,
+    total,
+    qty,
+    months: rows.length,
+    last: rows[0] ?? null,
+    peak,
+    series: monthSeries(rows, range),
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * ROI                                                                 *
+ *                                                                     *
+ * ROI = SUPPORT / SERVICE — what the doctor gave back divided by what *
+ * was spent on them. The shape is taken from the commercial team's own *
+ * working file (CAB - DR. Arpith M N), which computes it four ways:    *
+ * till date, for the latest service, for the one before it, and since  *
+ * the peak service, each with the months it has had to play out.       *
+ *                                                                      *
+ * Verified against that file: 76,308.96 / 20,000 = 3.8154 and          *
+ * 22,572.06 / 10,000 = 2.2572 both reproduce exactly.                  *
+ * ------------------------------------------------------------------ */
+
+/**
+ * Two service rows on the SAME DATE for the SAME AMOUNT are one service.
+ *
+ * ERP genuinely carries duplicates — DR-54980 has the same ₹10,000 of 19 Jul
+ * 2025 filed twice under two different employees — and the commercial file
+ * counts it once (total service 20,000, not 30,000). Counting both would
+ * halve every ROI on the page.
+ */
+function dedupeServices(rows) {
+  const seen = new Set();
+  return (rows ?? []).filter((row) => {
+    const key = `${row.at ?? "?"}|${row.value ?? "?"}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/** Whole months from `time` to now, counting both ends — Apr to Sep is 6. */
+function monthsSince(time) {
+  if (time == null) return null;
+  const from = new Date(time);
+  const now = new Date();
+  return (now.getFullYear() - from.getFullYear()) * 12 + (now.getMonth() - from.getMonth()) + 1;
+}
+
+/**
+ * Support earned from a service's own month onwards.
+ *
+ * Inclusive of the month the service was given: a service on the 28th and the
+ * support booked for that month belong together, and the commercial file
+ * counts them that way.
+ */
+function supportSince(supportRows, time) {
+  if (time == null) return 0;
+  const from = new Date(time);
+  const start = new Date(from.getFullYear(), from.getMonth(), 1).getTime();
+  return (supportRows ?? [])
+    .filter((row) => row.time != null && row.time >= start)
+    .reduce((sum, row) => sum + (Number.isFinite(row.value) ? row.value : 0), 0);
+}
+
+function computeRoi(serviceRows, supportRows) {
+  const services = dedupeServices((serviceRows ?? []).filter((r) => r.time != null && Number.isFinite(r.value) && r.value > 0))
+    .sort((a, b) => (b.time ?? 0) - (a.time ?? 0));
+  const supportTotal = (supportRows ?? []).reduce((sum, r) => sum + (Number.isFinite(r.value) ? r.value : 0), 0);
+  const serviceTotal = services.reduce((sum, r) => sum + r.value, 0);
+
+  /** Every rupee of service from `time` onwards, that service included. */
+  const serviceFrom = (time) =>
+    services.filter((r) => r.time != null && r.time >= time).reduce((sum, r) => sum + r.value, 0);
+
+  /**
+   * One ROI line: the service it is measured from, and how it has done.
+   *
+   * The denominator is CUMULATIVE — every service from this one onwards, not
+   * this service alone. That is what the commercial file does, and it is the
+   * only reading that is self-consistent: support earned since July cannot be
+   * credited to July's ₹10,000 while ignoring the ₹10,000 spent in April to
+   * keep earning it. Dividing by the single amount doubled every ROI measured
+   * from an older service (7.63 where the file says 3.82).
+   */
+  const line = (label, service) => {
+    if (!service) return null;
+    const earned = supportSince(supportRows, service.time);
+    const spent = serviceFrom(service.time);
+    return {
+      label,
+      service,
+      amount: service.value,
+      spent,
+      support: earned,
+      // A ratio only means something against a real denominator.
+      roi: spent > 0 ? earned / spent : null,
+      months: monthsSince(service.time),
+    };
+  };
+
+  const peakService = services.reduce((best, r) => (!best || r.value > best.value ? r : best), null);
+
+  return {
+    // Every service, against every rupee of support since the first one.
+    tillDate: {
+      label: "Till date",
+      support: supportTotal,
+      amount: serviceTotal,
+      roi: serviceTotal > 0 ? supportTotal / serviceTotal : null,
+      months: services.length ? monthsSince(services[services.length - 1].time) : null,
+      count: services.length,
+    },
+    latest: line("Latest service", services[0]),
+    previous: line("One before latest", services[1]),
+    peak: line("Peak service", peakService),
+    serviceTotal,
+    supportTotal,
+    services,
+  };
+}
+
+/**
+ * Support and service side by side, financial year by financial year.
+ *
+ * The FY is the unit the commercial team plans in, so the breakdown is by FY
+ * rather than by calendar year — and it is computed off UNFILTERED rows,
+ * because a table whose whole point is to compare years must not be cut down
+ * to the one year the period control happens to be showing.
+ */
+function fyBreakdown(supportRows, serviceRows) {
+  const buckets = new Map();
+  const put = (time, key, value) => {
+    if (time == null || !Number.isFinite(value)) return;
+    const [start] = fyOf(new Date(time));
+    const entry = buckets.get(start) ?? { start, support: 0, service: 0 };
+    entry[key] += value;
+    buckets.set(start, entry);
+  };
+  (supportRows ?? []).forEach((row) => put(row.time, "support", row.value));
+  dedupeServices(serviceRows ?? []).forEach((row) => put(row.time, "service", row.value));
+
+  return [...buckets.values()]
+    .sort((a, b) => b.start - a.start)
+    .map((entry) => ({
+      ...entry,
+      label: `FY ${String(entry.start).slice(2)}-${String(entry.start + 1).slice(2)}`,
+      roi: entry.service > 0 ? entry.support / entry.service : null,
+    }));
+}
+
+/**
+ * The investment ledger: what has been spent ON this doctor.
+ *
+ * Rolled up by KIND as well as by month, because "₹2,00,000" means something
+ * different depending on whether it is one EMI takeover or twenty gift cards —
+ * the kind is what a manager questions, not the total.
+ *
+ * Undated rows are kept in the total and the ledger but cannot enter the month
+ * series; `undated` reports how many, so a total that does not match the bars
+ * explains itself rather than looking like a bug.
+ */
+function analyseServices(services, range) {
+  const rows = (services ?? [])
+    .map((node) => {
+      const when = node?.service_date || node?.date || null;
+      return {
+        id: node?.name ?? "",
+        at: when,
+        time: toTime(when),
+        label: node?.service_name || "Service not named",
+        value: toNumber(node?.service_amount),
+        by: node?.by ?? "",
+        hq: node?.hq ?? "",
+        department: stripCompanySuffix(node?.department),
+        remarks: stripHtml(node?.remarks),
+        status: node?.workflow_state ?? "",
+      };
+    })
+    .filter((row) => row.id)
+    .sort((a, b) => (b.time ?? 0) - (a.time ?? 0));
+
+  const total = rows.reduce((sum, r) => sum + (Number.isFinite(r.value) ? r.value : 0), 0);
+  const last = rows.find((r) => r.time != null) ?? null;
+
+  const byKind = new Map();
+  rows.forEach((row) => {
+    const entry = byKind.get(row.label) ?? { label: row.label, amount: 0, count: 0 };
+    entry.amount += Number.isFinite(row.value) ? row.value : 0;
+    entry.count += 1;
+    byKind.set(row.label, entry);
+  });
+
+  return {
+    rows,
+    total,
+    count: rows.length,
+    undated: rows.filter((r) => r.time == null).length,
+    last,
+    kinds: [...byKind.values()].sort((a, b) => b.amount - a.amount || b.count - a.count),
+    months: monthSeries(rows, range),
   };
 }
 
@@ -1352,6 +1801,502 @@ function PobPanel({ pob, known, loading, currency, compact, limit }) {
   </div>;
 }
 
+/* ------------------------------------------------------------------ *
+ * Activities — one chronological feed                                 *
+ *                                                                     *
+ * The Overview answers "what is true about this doctor". Activities    *
+ * answers "what happened, in order" — and that is a different          *
+ * question, which is why it is a view rather than another panel. Every *
+ * source is already loaded and already scoped to the period, so this   *
+ * merges what is in hand rather than reading anything new.             *
+ * ------------------------------------------------------------------ */
+
+const ACTIVITY_KINDS = [
+  { key: "all", label: "Everything" },
+  { key: "visit", label: "Visits" },
+  { key: "pob", label: "POBs" },
+  { key: "revenue", label: "Orders" },
+  { key: "support", label: "Support" },
+  { key: "service", label: "Service" },
+  { key: "note", label: "Notes" },
+];
+
+/** A month heading for the rail — "Dec 2025". */
+function monthKeyOf(time) {
+  if (time == null) return "undated";
+  const d = new Date(time);
+  return `${d.getFullYear()}-${String(d.getMonth()).padStart(2, "0")}`;
+}
+function monthLabelOf(time) {
+  if (time == null) return "Undated";
+  const d = new Date(time);
+  return `${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+function ActivityTimeline({ entries, loading, currency, counts }) {
+  const [kind, setKind] = useState("all");
+  const [shown, setShown] = useState(25);
+
+  const filtered = kind === "all" ? entries : entries.filter((e) => e.kind === kind);
+  const visible = filtered.slice(0, shown);
+
+  return (
+    <section className="dtx-card">
+      <div className="dtx-head">
+        <h2>Activities</h2>
+        <i className="dtx-rule" aria-hidden="true" />
+        <span className="dtx-count">{filtered.length}</span>
+      </div>
+
+      <div className="dtx-toolbar">
+        <select
+          className="dtx-select dtx-select--grow"
+          aria-label="Filter activities"
+          value={kind}
+          onChange={(event) => { setKind(event.target.value); setShown(25); }}
+        >
+          {ACTIVITY_KINDS.map((option) => (
+            <option key={option.key} value={option.key}>
+              {option.label}
+              {counts[option.key] != null ? ` (${counts[option.key]})` : ""}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {loading && !entries.length ? (
+        <Loading lines={5} />
+      ) : !filtered.length ? (
+        <Empty
+          headline={entries.length ? "Nothing of that kind in this period" : "Nothing recorded in this period"}
+          body={entries.length ? "Choose another kind, or widen the period above." : "Visits, POBs, orders, investment and notes appear here in the order they happened."}
+        />
+      ) : (
+        <ol className="dtx-timeline">
+          {visible.map((entry, index) => {
+            // A month heading whenever the month changes, so a long feed stays
+            // navigable without a date on every line being read in full.
+            const heading = index === 0 || monthKeyOf(entry.time) !== monthKeyOf(visible[index - 1].time);
+            return (
+              <React.Fragment key={entry.id}>
+                {heading ? (
+                  <li className="dtx-tl-month" aria-hidden="true">
+                    <span>{monthLabelOf(entry.time)}</span>
+                  </li>
+                ) : null}
+                <li className={`dtx-tl-item dtx-tl-item--${entry.kind}`}>
+                  <span className="dtx-tl-dot" aria-hidden="true" />
+                  <article className="dtx-tl-card">
+                    <div className="dtx-tl-top">
+                      <span className={`dtx-pill dtx-pill--${entry.tone}`}>{entry.kindLabel}</span>
+                      <span className="dtx-tl-when">
+                        {fmtDate(entry.at) || "Date not recorded"}
+                      </span>
+                      {entry.status ? <StatusPill value={entry.status} /> : null}
+                      {entry.amount != null && Number.isFinite(entry.amount) ? (
+                        <span className="dtx-tl-amount">{fmtMoney(entry.amount, currency)}</span>
+                      ) : null}
+                    </div>
+                    <h3 className="dtx-tl-title">{entry.title}</h3>
+                    {entry.meta?.length ? (
+                      <div className="dtx-visit-meta">
+                        {entry.meta.filter(Boolean).map((bit) => <span key={bit}>{bit}</span>)}
+                      </div>
+                    ) : null}
+                    {entry.body ? <p className="dtx-note-text">{entry.body}</p> : null}
+                  </article>
+                </li>
+              </React.Fragment>
+            );
+          })}
+        </ol>
+      )}
+
+      {filtered.length > visible.length ? (
+        <div className="dtx-pad">
+          <button type="button" className="dtx-more" onClick={() => setShown(shown + 25)}>
+            Show 25 more · {filtered.length - visible.length} left
+          </button>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+/** A ratio, shown as a multiple — 3.82x is how the commercial team reads it. */
+function fmtRoi(value) {
+  if (value == null || !Number.isFinite(value)) return "\u2014";
+  return value.toFixed(2) + "x";
+}
+
+/**
+ * ROI \u2014 support earned against service given.
+ *
+ * Four readings, because one number cannot carry the question. "Till date"
+ * says whether the relationship pays; "latest service" says whether the most
+ * recent spend is working yet, and its Months column is the caveat \u2014 a
+ * service given last month has had no time to earn anything, so a low ratio
+ * there means nothing at all.
+ */
+function RoiPanel({ roi, known, loading, currency, fyRows }) {
+  if (loading && !known) return <Section title="ROI"><Loading lines={4} /></Section>;
+  if (!known) {
+    return <Section title="ROI"><Empty headline="ROI could not be worked out" body="It needs both support and service, and one of them could not be read from ERP." /></Section>;
+  }
+  if (!roi.services.length) {
+    return (
+      <Section title="ROI">
+        <Empty
+          headline="No service to measure against"
+          body="ROI is support earned divided by service given. Nothing has been given to this doctor, so there is nothing to divide by."
+        />
+      </Section>
+    );
+  }
+
+  const lines = [roi.latest, roi.previous, roi.peak].filter(Boolean);
+
+  return (
+    <div className="dtx-panel-stack">
+      <Section title="ROI">
+        <div className="dtx-pad">
+          <div className="dtx-balance dtx-balance--flush">
+            <div className="dtx-balance-figure">
+              <div className="dtx-label">ROI till date</div>
+              <div className="dtx-balance-value">{fmtRoi(roi.tillDate.roi)}</div>
+              <div className="dtx-balance-sub">
+                {fmtMoney(roi.tillDate.support, currency) + " support \u00b7 " + fmtMoney(roi.tillDate.amount, currency) + " service"}
+              </div>
+            </div>
+            {roi.latest ? (
+              <div className="dtx-balance-cell">
+                <div className="dtx-label">Latest service</div>
+                <div className="dtx-balance-cell-value">{fmtRoi(roi.latest.roi)}</div>
+                <div className="dtx-balance-sub">
+                  {fmtDate(roi.latest.service.at)}
+                  {roi.latest.months != null ? " \u00b7 " + roi.latest.months + " mo" : ""}
+                </div>
+              </div>
+            ) : null}
+            <div className="dtx-balance-cell">
+              <div className="dtx-label">Services</div>
+              <div className="dtx-balance-cell-value">{fmtNum(roi.tillDate.count)}</div>
+              <div className="dtx-balance-sub">{roi.tillDate.months != null ? "over " + roi.tillDate.months + " months" : "\u2014"}</div>
+            </div>
+          </div>
+          <p className="dtx-note-foot">
+            Support earned from each service onwards, divided by every rupee of service from that
+            point on. A service given recently has had little time to earn, so read the ratio next
+            to its months, not on its own.
+          </p>
+        </div>
+      </Section>
+
+      <Section title="Measured from each service" count={lines.length}>
+        <div className="dtx-scroll">
+          <table className="dtx-table dtx-table--pad">
+            <thead>
+              <tr>
+                <th>From</th>
+                <th>Service</th>
+                <th className="dtx-num">Given</th>
+                <th className="dtx-num">Support since</th>
+                <th className="dtx-num">Months</th>
+                <th className="dtx-num">ROI</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lines.map((line) => (
+                <tr key={line.label}>
+                  <td>{line.label}</td>
+                  <td>{fmtDate(line.service.at)}<div className="dtx-product-sub">{line.service.label || ""}</div></td>
+                  <td className="dtx-num">{fmtMoney(line.spent, currency)}</td>
+                  <td className="dtx-num">{fmtMoney(line.support, currency)}</td>
+                  <td className="dtx-num">{line.months ?? "\u2014"}</td>
+                  <td className="dtx-num"><b>{fmtRoi(line.roi)}</b></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Section>
+
+      {fyRows.length ? (
+        <Section title="By financial year" count={fyRows.length}>
+          <div className="dtx-scroll">
+            <table className="dtx-table dtx-table--pad">
+              <thead>
+                <tr>
+                  <th>Year</th>
+                  <th className="dtx-num">Support</th>
+                  <th className="dtx-num">Service</th>
+                  <th className="dtx-num">ROI</th>
+                </tr>
+              </thead>
+              <tbody>
+                {fyRows.map((row) => (
+                  <tr key={row.label}>
+                    <td>{row.label}</td>
+                    <td className="dtx-num">{row.support ? fmtMoney(row.support, currency) : "\u2014"}</td>
+                    <td className="dtx-num">{row.service ? fmtMoney(row.service, currency) : "\u2014"}</td>
+                    <td className="dtx-num"><b>{row.service ? fmtRoi(row.roi) : "\u2014"}</b></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {/* Support only exists in ERP from April 2026, so an older year shows
+              its service with no support beside it. Saying so stops that
+              reading as a doctor who took the money and did nothing. */}
+          <p className="dtx-note-foot">
+            ERP holds support from April 2026 onwards. An earlier year shows the service given but
+            no support against it because the figure was never loaded, not because none was earned.
+          </p>
+        </Section>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * SUPPORT \u2014 the business the doctor gives back, month by month.
+ *
+ * Already monthly in ERP, so nothing is bucketed here: the rows ARE the
+ * series. One row per doctor per month, fed from Ecubix.
+ */
+function SupportPanel({ support, known, loading, currency, compact }) {
+  if (loading && !known) return <Section title="Support"><Loading lines={4} /></Section>;
+  if (!known) {
+    return <Section title="Support"><Empty headline="Support could not be loaded" body="Doctor Support could not be read from ERP. Retry above, or check this page\u2019s ERP target." /></Section>;
+  }
+  if (!support.months) {
+    return (
+      <Section title="Support">
+        <Empty
+          headline="No support recorded in this period"
+          body="Monthly support is loaded into ERP from April 2026 onwards. Try a wider period, or check back once the month closes."
+        />
+      </Section>
+    );
+  }
+
+  return (
+    <div className="dtx-panel-stack">
+      <Section title="Support">
+        <div className="dtx-pad">
+          <div className="dtx-balance dtx-balance--flush">
+            <div className="dtx-balance-figure">
+              <div className="dtx-label">Support</div>
+              <div className="dtx-balance-value">{fmtMoney(support.total, currency)}</div>
+              <div className="dtx-balance-sub">{"Across " + support.months + " month" + (support.months === 1 ? "" : "s") + " \u00b7 " + fmtNum(support.qty) + " units"}</div>
+            </div>
+            {support.peak ? (
+              <div className="dtx-balance-cell">
+                <div className="dtx-label">Best month</div>
+                <div className="dtx-balance-cell-value">{fmtMoney(support.peak.value, currency)}</div>
+                <div className="dtx-balance-sub">{support.peak.period || fmtDate(support.peak.at)}</div>
+              </div>
+            ) : null}
+            {support.last ? (
+              <div className="dtx-balance-cell">
+                <div className="dtx-label">Latest month</div>
+                <div className="dtx-balance-cell-value">{fmtMoney(support.last.value, currency)}</div>
+                <div className="dtx-balance-sub">{support.last.period || fmtDate(support.last.at)}</div>
+              </div>
+            ) : null}
+          </div>
+          {support.series.length > 2 ? (
+            <div className="dtx-revenue-chart">
+              <MonthChart months={compact ? support.series.slice(-6) : support.series} currency={currency} />
+            </div>
+          ) : null}
+        </div>
+      </Section>
+
+      <Section title="By month" count={support.months}>
+        <div className="dtx-scroll">
+          <table className="dtx-table dtx-table--pad">
+            <thead>
+              <tr><th>Month</th><th className="dtx-num">Units</th><th className="dtx-num">Support</th></tr>
+            </thead>
+            <tbody>
+              {support.rows.map((row) => (
+                <tr key={row.id}>
+                  <td>{row.period || fmtDate(row.at)}</td>
+                  <td className="dtx-num">{fmtNum(row.qty)}</td>
+                  <td className="dtx-num">{fmtMoney(row.value, currency)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Section>
+    </div>
+  );
+}
+
+/**
+ * The period control.
+ *
+ * ONE control for the whole page, not one per tab. Revenue and Investment are
+ * only worth anything read against each other, and a per-tab period would let
+ * the page show ₹17k of orders beside ₹2 lakh of spend measured over different
+ * years — a comparison that is wrong by juxtaposition without a word of it
+ * being false. A single period keeps every number on the page answerable by
+ * the same sentence.
+ */
+function RangeBar({ ranges, value, onChange, note }) {
+  return (
+    <div className="dtx-rangebar">
+      <span className="dtx-label dtx-range-legend">Period</span>
+      <div className="dtx-range" role="group" aria-label="Period">
+        {ranges.map((range) => (
+          <button
+            key={range.key}
+            type="button"
+            aria-pressed={range.key === value}
+            title={range.hint}
+            className={`dtx-range-btn ${range.key === value ? "dtx-range-btn--on" : ""}`}
+            onClick={() => onChange(range.key)}
+          >
+            {range.label}
+          </button>
+        ))}
+      </div>
+      {note ? <span className="dtx-range-note">{note}</span> : null}
+    </div>
+  );
+}
+
+/**
+ * What the company spends ON the doctor.
+ *
+ * Deliberately sits beside Revenue rather than inside it. The two are read
+ * together, but they are not two views of one number: revenue attribution is
+ * partial (only tagged order lines), while investment is complete (every row
+ * is a real payment). Dividing one by the other would produce a confident
+ * "ROI" whose numerator is missing an unknown amount, so the page shows both
+ * figures and lets the reader judge, with the asymmetry stated in words.
+ */
+function ServicePanel({ services, known, loading, currency, compact, range, support, supportKnown }) {
+  const [page, setPage] = useState(0);
+
+  if (loading && !known) return <Section title="Service"><Loading lines={4} /></Section>;
+  if (!known) {
+    return (
+      <Section title="Service">
+        <Empty
+          headline="Investment could not be loaded"
+          body="Doctor Service records could not be read from ERP. Retry above, or check this page’s ERP target."
+        />
+      </Section>
+    );
+  }
+  if (!services.count) {
+    return (
+      <Section title="Service">
+        <Empty
+          headline={range?.from == null ? "No service given to this doctor" : `No service given in ${range.label}`}
+          body={
+            range?.from == null
+              ? "Cash, gift cards, EMI takeovers, cabs and transfers given to this doctor appear here."
+              : "Try a wider period — this doctor may have been serviced outside it."
+          }
+        />
+      </Section>
+    );
+  }
+
+  const currentPage = Math.min(page, Math.max(0, Math.ceil(services.rows.length / 10) - 1));
+
+  return (
+    <div className="dtx-panel-stack">
+      <Section title="Service">
+        <div className="dtx-pad">
+          <div className="dtx-balance dtx-balance--flush">
+            <div className="dtx-balance-figure">
+              <div className="dtx-label">Service given</div>
+              <div className="dtx-balance-value">{fmtMoney(services.total, currency)}</div>
+              <div className="dtx-balance-sub">
+                {`Across ${services.count} service${services.count === 1 ? "" : "s"}`}
+                {services.undated ? ` · ${services.undated} undated` : ""}
+              </div>
+            </div>
+            {/* The other half of the pair, shown only when the support read
+                actually answered — a blank cell would read as "no support". */}
+            {supportKnown ? (
+              <div className="dtx-balance-cell">
+                <div className="dtx-label">Support back</div>
+                <div className="dtx-balance-cell-value">{support?.months ? fmtMoney(support.total, currency) : "—"}</div>
+                <div className="dtx-balance-sub">{support?.months ? "Same period" : "None recorded"}</div>
+              </div>
+            ) : null}
+            {services.last?.at ? (
+              <div className="dtx-balance-cell">
+                <div className="dtx-label">Last service</div>
+                <div className="dtx-balance-cell-value">{fmtDate(services.last.at)}</div>
+                <div className="dtx-balance-sub">{relTime(services.last.at)}</div>
+              </div>
+            ) : null}
+          </div>
+          {services.months.length > 2 ? (
+            <div className="dtx-revenue-chart">
+              <MonthChart months={compact ? services.months.slice(-6) : services.months} currency={currency} />
+            </div>
+          ) : null}
+          <p className="dtx-note-foot">
+            Every service row is a real payment or benefit given to the doctor. Support beside it is
+            what came back over the same months. The ROI panel divides the two properly, measured
+            from each service forward rather than over a fixed window.
+          </p>
+        </div>
+      </Section>
+
+      <Section title="By kind" count={services.kinds.length}>
+        <div className="dtx-pad">
+          <div className="dtx-rank">
+            {services.kinds.map((kind) => (
+              <div className="dtx-rank-row" key={kind.label}>
+                <div className="dtx-rank-top">
+                  <span className="dtx-product-name">{kind.label}</span>
+                  <small>{kind.count}{kind.count === 1 ? " time" : " times"}</small>
+                  <b>{fmtMoney(kind.amount, currency)}</b>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </Section>
+
+      <Section title="Services" count={services.count}>
+        <div className="dtx-notes">
+          {services.rows.slice(currentPage * 10, (currentPage + 1) * 10).map((row) => (
+            <article className="dtx-note" key={row.id}>
+              <div className="dtx-note-when">
+                {fmtDate(row.at) || "Date not recorded"}
+                {row.by ? <span className="dtx-doc-no">{row.by}</span> : null}
+              </div>
+              <div className="dtx-visit-title">
+                <h3>{row.label}</h3>
+                <span className="dtx-rev-amount">{fmtMoney(row.value, currency)}</span>
+                {row.status ? <StatusPill value={row.status} /> : null}
+              </div>
+              <div className="dtx-visit-meta">
+                {row.hq ? <span>{row.hq}</span> : null}
+                {row.department ? <span>{row.department}</span> : null}
+              </div>
+              {/* The reference is the audit trail — an account number or a gift
+                  card serial — so it is shown, not summarised away. */}
+              {row.remarks ? <p className="dtx-note-text">{row.remarks}</p> : null}
+            </article>
+          ))}
+        </div>
+        <Pagination page={currentPage} count={services.rows.length} size={10} onChange={setPage} />
+      </Section>
+    </div>
+  );
+}
+
 /**
  * What the doctor is worth to the company.
  *
@@ -1671,21 +2616,36 @@ export default function DoctorDetail({
   const addressesGiven = useMemo(() => normalizeConnection(addressesProp ?? envelope?.Addresses), [addressesProp, envelope?.Addresses]);
   // No prop feeds order lines — the child-table filter cannot be expressed
   // upstream, so this read is always the component's own.
+  /* --- period --------------------------------------------------- */
+
+  // Declared BEFORE the reads, because the period now bounds them: the POB
+  // and visit queries only ask ERP for the window being looked at, so a page
+  // opens on one financial year instead of a doctor's whole history.
+  // Rebuilt every render so the FY presets stay correct across 1 April.
+  const ranges = useMemo(() => buildRanges(), []);
+  const [rangeKey, setRangeKey] = useState("fy");
+  const range = ranges.find((r) => r.key === rangeKey) ?? ranges[0];
+
   const revenueGiven = null;
+  const servicesGiven = null;
+  const supportGiven = null;
   const {
     lead,
     pobs: pobsFetched,
     visits: visitsFetched,
     addresses: addressesFetched,
     revenue: revenueFetched,
-    loadingVisits, loadingAddresses, loadingRevenue, errors,
+    services: servicesFetched,
+    support: supportFetched,
+    loadingVisits, loadingAddresses, loadingRevenue, loadingServices, loadingSupport, errors,
     loadingLead,
     loadingPobs,
     refresh,
   } = useDoctorEnrichment(doctorId, {
     enabled: !!enrich,
     pobLimit,
-    pobsGiven, visitsGiven, addressesGiven, revenueGiven,
+    from: range.from,
+    pobsGiven, visitsGiven, addressesGiven, revenueGiven, servicesGiven, supportGiven,
     erpUrl,
     authToken,
     erpTarget,
@@ -1748,15 +2708,171 @@ export default function DoctorDetail({
     [roleRows]
   );
 
+  /* --- view ----------------------------------------------------- */
+
+  // Overview answers "what is true about this doctor", Activities answers
+  // "what happened, in order". Two questions, so two views rather than one
+  // page that tries to be both.
+  const [view, setView] = useState("overview");
+
   /* --- business ------------------------------------------------- */
 
-  const pob = useMemo(() => analysePobs(pobs), [pobs]);
+  // Everything is filtered client-side: the reads already pull the doctor's
+  // whole history, so changing the period is instant and costs no ERP call.
+  const pob = useMemo(() => analysePobs(withinRange((pobs ?? []).map((p) => ({ ...p, time: toTime(p?.transaction_date || p?.creation) })), range), range), [pobs, range]);
   const pobKnown = Array.isArray(pobs);
 
   /* --- revenue -------------------------------------------------- */
 
-  const revenue = useMemo(() => analyseRevenue(revenueFetched), [revenueFetched]);
+  const revenue = useMemo(
+    () => analyseRevenue(withinRange((revenueFetched ?? []).map((r) => ({ ...r, time: toTime(r?.transaction_date) })), range), range),
+    [revenueFetched, range],
+  );
   const revenueKnown = Array.isArray(revenueFetched);
+
+  /* --- investment ----------------------------------------------- */
+
+  const services = useMemo(
+    () => analyseServices(withinRange((servicesFetched ?? []).map((r) => ({ ...r, time: toTime(r?.service_date || r?.date) })), range), range),
+    [servicesFetched, range],
+  );
+  const servicesKnown = Array.isArray(servicesFetched);
+
+  /* --- support and ROI ------------------------------------------ */
+
+  // Rows shaped once, then used three ways: the period-scoped panel, the ROI
+  // engine (which must see the FULL history, not the period) and the FY table.
+  const supportAll = useMemo(
+    () => (supportFetched ?? []).map((r) => ({ ...r, time: toTime(r?.date), value: toNumber(r?.custom_total_amount) })),
+    [supportFetched],
+  );
+  const servicesAll = useMemo(
+    () => (servicesFetched ?? []).map((r) => ({ ...r, at: r?.service_date || r?.date, time: toTime(r?.service_date || r?.date), value: toNumber(r?.service_amount) })),
+    [servicesFetched],
+  );
+
+  const support = useMemo(() => analyseSupport(withinRange(supportAll, range), range), [supportAll, range]);
+  const supportKnown = Array.isArray(supportFetched);
+
+  // ROI is measured from a service forward, so it is deliberately NOT scoped
+  // to the period — cutting the history at 1 April would credit a service
+  // with only the support that happens to fall inside the chosen window.
+  const roi = useMemo(() => computeRoi(servicesAll, supportAll), [servicesAll, supportAll]);
+  const roiKnown = supportKnown && servicesKnown;
+  const fyRows = useMemo(() => fyBreakdown(supportAll, servicesAll), [supportAll, servicesAll]);
+
+  /* --- activities ----------------------------------------------- */
+
+  // Everything already loaded and already scoped to the period, folded into
+  // one list in the order it happened. Nothing here reads from ERP.
+  const activities = useMemo(() => {
+    const out = [];
+
+    withinRange(visitRows, range).forEach((visit) => {
+      const attendance = readVisitAttendance(visit);
+      out.push({
+        id: `visit-${visit.name}`,
+        kind: "visit",
+        kindLabel: "Visit",
+        tone: "open",
+        time: visit.time,
+        at: visit.starts_on,
+        title: visit.subject || visit.event_category || "Doctor visit",
+        status: visit.status,
+        meta: [
+          pick(visit, "custom_employee_id.employee_name", ["custom_employee_id__name"]),
+          visit.custom_hq__name,
+          attendance.made ? "Visited" : visit.time != null && visit.time <= Date.now() ? "Not marked visited" : "",
+          attendance.forced ? "Force visit" : "",
+        ],
+        body: visit.custom_force_visit_reason ? stripHtml(visit.custom_force_visit_reason) : "",
+      });
+    });
+
+    pob.rows.forEach((row) => {
+      out.push({
+        id: `pob-${row.id}`,
+        kind: "pob",
+        kindLabel: "POB",
+        tone: "accent",
+        time: row.time,
+        at: row.at,
+        title: row.customer || "Customer not specified",
+        amount: row.value,
+        status: row.status,
+        meta: [row.id, row.territory, row.items.length ? `${row.items.length} item${row.items.length === 1 ? "" : "s"}` : ""],
+      });
+    });
+
+    revenue.rows.forEach((row, index) => {
+      out.push({
+        id: `rev-${row.order}-${row.code}-${index}`,
+        kind: "revenue",
+        kindLabel: "Order",
+        tone: "won",
+        time: row.time,
+        at: row.at,
+        title: row.label || "Item not named",
+        amount: row.value,
+        status: row.status,
+        meta: [row.customer, row.order, Number.isFinite(row.qty) ? `${fmtNum(row.qty)} ${row.uom || "units"}` : ""],
+      });
+    });
+
+    services.rows.forEach((row) => {
+      out.push({
+        id: `svc-${row.id}`,
+        kind: "service",
+        kindLabel: "Service",
+        tone: "draft",
+        time: row.time,
+        at: row.at,
+        title: row.label,
+        amount: row.value,
+        meta: [row.by, row.hq, row.department],
+        body: row.remarks,
+      });
+    });
+
+    support.rows.forEach((row) => {
+      out.push({
+        id: `sup-${row.id}`,
+        kind: "support",
+        kindLabel: "Support",
+        tone: "won",
+        time: row.time,
+        at: row.at,
+        title: row.period ? `Support for ${row.period}` : "Monthly support",
+        amount: row.value,
+        meta: [Number.isFinite(row.qty) ? `${fmtNum(row.qty)} units` : ""],
+      });
+    });
+
+    withinRange(notes.map((note) => ({ ...note, time: toTime(note.at) })), range).forEach((note) => {
+      out.push({
+        id: `note-${note.id}`,
+        kind: "note",
+        kindLabel: "Note",
+        tone: "soft",
+        time: note.time,
+        at: note.at,
+        title: note.author ? `Note by ${note.author}` : "Note",
+        body: note.text,
+      });
+    });
+
+    // Undated rows sink to the bottom rather than jumping to the top, which is
+    // where a null timestamp would otherwise sort them.
+    return out.sort((a, b) => (b.time ?? -Infinity) - (a.time ?? -Infinity));
+  }, [visitRows, range, pob.rows, revenue.rows, services.rows, support.rows, notes]);
+
+  const activityCounts = useMemo(() => {
+    const counts = { all: activities.length };
+    ACTIVITY_KINDS.forEach((option) => {
+      if (option.key !== "all") counts[option.key] = activities.filter((e) => e.kind === option.key).length;
+    });
+    return counts;
+  }, [activities]);
 
   /* --- classification ------------------------------------------- */
 
@@ -1804,7 +2920,7 @@ export default function DoctorDetail({
     ...(style ?? {}),
   };
 
-  const enriching = enrich && (loadingLead || loadingPobs || loadingVisits || loadingAddresses || loadingRevenue);
+  const enriching = enrich && (loadingLead || loadingPobs || loadingVisits || loadingAddresses || loadingRevenue || loadingServices || loadingSupport);
 
   /* --- stat tiles ----------------------------------------------- */
 
@@ -1812,8 +2928,12 @@ export default function DoctorDetail({
   // nothing still shows — "0 visits" is information — but it is not given the
   // same weight as the balance.
   const stats = [
-    { label: "Revenue", value: revenueKnown && revenue.lines ? fmtMoneyShort(Math.round(revenue.total), currency) : "—",
-      sub: revenueKnown ? (revenue.lines ? `Across ${revenue.orders} order${revenue.orders === 1 ? "" : "s"}` : "Nothing tagged yet") : loadingRevenue ? "Loading" : "Unavailable" },
+    { label: "Support", value: supportKnown && support.months ? fmtMoneyShort(Math.round(support.total), currency) : "—",
+      sub: supportKnown ? (support.months ? `${support.months} month${support.months === 1 ? "" : "s"}` : "None recorded") : loadingSupport ? "Loading" : "Unavailable" },
+    { label: "Service", value: servicesKnown && services.count ? fmtMoneyShort(Math.round(services.total), currency) : "—",
+      sub: servicesKnown ? (services.count ? `${services.count} service${services.count === 1 ? "" : "s"}` : "None given") : loadingServices ? "Loading" : "Unavailable" },
+    { label: "ROI till date", value: roiKnown ? fmtRoi(roi.tillDate.roi) : "—",
+      sub: roiKnown && roi.latest ? `Latest ${fmtRoi(roi.latest.roi)} in ${roi.latest.months ?? "?"} mo` : roiKnown ? "No service yet" : "Unavailable" },
     { label: "Visits", value: Array.isArray(visits) ? fmtNum(visitRows.length) : "—",
       sub: lastVisit ? `Last ${fmtDate(lastVisit.starts_on)}` : nextVisit ? `Next ${fmtDate(nextVisit.starts_on)}` : Array.isArray(visits) ? "None recorded" : "Unavailable" },
     { label: "Notes", value: fmtNum(notes.length),
@@ -1993,6 +3113,15 @@ export default function DoctorDetail({
           </div>
         </div>
 
+        {/* ROI sits with the grade because it is the same kind of fact: a
+            standing judgement on the doctor, not something that happened. */}
+        {roiKnown && roi.tillDate.roi != null ? (
+          <div className="dtx-grade dtx-grade--roi" title={`${fmtMoney(roi.tillDate.support, currency)} support against ${fmtMoney(roi.tillDate.amount, currency)} service`}>
+            <div className="dtx-grade-label">ROI</div>
+            <div className="dtx-grade-value">{fmtRoi(roi.tillDate.roi)}</div>
+          </div>
+        ) : null}
+
         {grade ? (
           <div className="dtx-grade">
             <div className="dtx-grade-label">Grade</div>
@@ -2044,6 +3173,9 @@ export default function DoctorDetail({
 
   /* --- sections ------------------------------------------------- */
 
+  const roiSection = <RoiPanel key={code} roi={roi} known={roiKnown} loading={loadingSupport || loadingServices} currency={currency} fyRows={fyRows} />;
+  const supportSection = <SupportPanel key={code} support={support} known={supportKnown} loading={loadingSupport} currency={currency} compact={compact} />;
+  const serviceSection = <ServicePanel key={code} services={services} known={servicesKnown} loading={loadingServices} currency={currency} compact={compact} range={range} support={support} supportKnown={supportKnown} />;
   const revenueSection = <RevenuePanel key={code} revenue={revenue} known={revenueKnown} loading={loadingRevenue} currency={currency} compact={compact} />;
   const businessSection = <PobPanel key={code} pob={pob} known={pobKnown} loading={loadingPobs} currency={currency} compact={compact} limit={pobLimit} />;
   const visitsSection = <VisitsPanel key={code} visits={visitRows} known={Array.isArray(visits)} loading={loadingVisits} pobs={pob.rows} currency={currency} />;
@@ -2194,7 +3326,10 @@ export default function DoctorDetail({
   // sections take the big column and the rest the narrow one, each keeping its
   // listed order; on a narrow container they are one stream.
   const byKey = {
-    revenue: revenueSection,
+    roi: roiSection,
+    support: supportSection,
+    service: serviceSection,
+    orders: revenueSection,
     business: businessSection,
     visits: visitsSection,
     coverage: coverageSection,
@@ -2208,9 +3343,9 @@ export default function DoctorDetail({
   const narrowCol = chosen.filter(([key]) => !WIDE_SECTIONS.has(key));
 
   const selectedView = wideCol.some(([key]) => key === activeView) ? activeView : wideCol[0]?.[0];
-  const tabLabels = { revenue: "Revenue", business: "POB overview", visits: "Visit history", notes: "Notes" };
-  const tabCounts = { revenue: revenueKnown && revenue.orders ? revenue.orders : null, business: pobKnown ? pob.count : null, visits: Array.isArray(visits) ? visits.length : null, notes: notes.length };
-  const failed = Object.entries(errors).filter(([, value]) => value).map(([key]) => ({ lead: "profile", pobs: "POBs", visits: "visits", addresses: "addresses", revenue: "revenue" }[key]));
+  const tabLabels = { roi: "ROI", support: "Support", service: "Service", orders: "Orders", business: "POB overview", visits: "Visit history", notes: "Notes" };
+  const tabCounts = { roi: null, support: supportKnown && support.months ? support.months : null, service: servicesKnown && services.count ? services.count : null, orders: revenueKnown && revenue.orders ? revenue.orders : null, business: pobKnown ? pob.count : null, visits: Array.isArray(visits) ? visits.length : null, notes: notes.length };
+  const failed = Object.entries(errors).filter(([, value]) => value).map(([key]) => ({ lead: "profile", pobs: "POBs", visits: "visits", addresses: "addresses", revenue: "orders", services: "service", support: "support" }[key]));
 
   return (
     <>
@@ -2227,13 +3362,59 @@ export default function DoctorDetail({
           {showStats ? balance : null}
         </div>
         <div className="dtx-body">
+          {/* The view switch and the period share one bar: both govern the
+              whole page, and stacking them as two control rows made the page
+              look like it had more chrome than content. */}
+          <div className="dtx-viewbar">
+            <div className="dtx-views" role="tablist" aria-label="Doctor view">
+              {[["overview", "Overview"], ["activities", "Activities"]].map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  role="tab"
+                  aria-selected={view === key}
+                  tabIndex={view === key ? 0 : -1}
+                  className={`dtx-view-btn ${view === key ? "dtx-view-btn--on" : ""}`}
+                  onClick={() => setView(key)}
+                  onKeyDown={(event) => {
+                    if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+                    event.preventDefault();
+                    setView(key === "overview" ? "activities" : "overview");
+                  }}
+                >
+                  {label}
+                  {key === "activities" && activities.length ? <span>{activities.length}</span> : null}
+                </button>
+              ))}
+            </div>
+            <RangeBar
+              ranges={ranges}
+              value={rangeKey}
+              onChange={setRangeKey}
+              // The timestamps go to fmtDate as-is. Routing them through
+              // toISOString() first would render 1 April as 31 March: the
+              // bounds are local midnight, and ISO restates them in UTC.
+              note={range.from != null ? `${fmtDate(range.from)} – ${fmtDate(Math.min(range.to, Date.now()))}` : ""}
+            />
+          </div>
+
+          {failed.length ? <div className="dtx-warn" role="status"><span>Couldn’t load {failed.join(", ")}. Available details are still shown.</span><button type="button" onClick={refresh}>Retry</button></div> : null}
+
+          {view === "activities" ? (
+            <ActivityTimeline
+              entries={activities}
+              loading={enriching}
+              currency={currency}
+              counts={activityCounts}
+            />
+          ) : (
+          <>
           {showStats ? <div className="dtx-stats">
             {stats.map((stat) => <div className="dtx-stat" key={stat.label}>
               <span className="dtx-stat-label">{stat.label}</span>
               <div className="dtx-stat-value">{stat.value}</div><div className="dtx-stat-sub">{stat.sub}</div>
             </div>)}
           </div> : null}
-          {failed.length ? <div className="dtx-warn" role="status"><span>Couldn’t load {failed.join(", ")}. Available details are still shown.</span><button type="button" onClick={refresh}>Retry</button></div> : null}
           {chosen.length ? <div className={`dtx-grid ${compact ? "dtx-grid--compact" : ""}`} style={!wideCol.length || !narrowCol.length ? { gridTemplateColumns: "minmax(0, 1fr)" } : undefined}>
             {wideCol.length ? <div className="dtx-col">
               <div className="dtx-tabs" role="tablist" aria-label="Doctor activity">
@@ -2251,6 +3432,8 @@ export default function DoctorDetail({
             </div> : null}
             {narrowCol.length ? <aside className="dtx-col dtx-sidebar" aria-label="Doctor information">{narrowCol.map(([, node]) => node)}</aside> : null}
           </div> : null}
+          </>
+          )}
           <div className="dtx-foot"><span>Doctor record <b>{code || "—"}</b></span>{enriching ? <span role="status">Updating details…</span> : null}</div>
         </div>
         </div>
