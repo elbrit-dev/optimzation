@@ -1,0 +1,787 @@
+<title>Elbrit Doctor Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<style>
+/* ------------------------------------------------------------------ *
+ * Tokens — taken from the app's own system (components/ProductDetail
+ * and DoctorDetail.styles.js), not invented, so this prototype previews
+ * the real page rather than a lookalike. Navy carries structure; the
+ * Elbrit red is rationed to identity and the active state.
+ * ------------------------------------------------------------------ */
+:root{
+  --navy:#1e3a8a; --brand:#d92c24; --brand-ink:#a02019; --brand-soft:#fcedec; --brand-line:#f3c9c6;
+  --ink:#111827; --ink2:#374151; --mute:#4b5563; --faint:#6b7280;
+  --line:#e5e7eb; --line-soft:#f3f4f6; --card:#ffffff; --ground:#f6f8fb; --sunk:#eef1f6;
+  --good:#047857; --good-soft:#ecfdf5; --good-line:#a7f3d0;
+  --warn:#b45309; --warn-soft:#fffbeb; --warn-line:#fde68a;
+  --info:#1d4ed8; --info-soft:#eff6ff; --info-line:#bfdbfe;
+  --bar:#8296c0; --bar-soft:#dbe2ef;
+  --shadow:0 1px 2px rgba(16,24,40,.04);
+  --gut:20px; --gap:14px; --r:14px; --rsm:10px;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+}
+/* The default "system" viewer stamps nothing, so dark has to come from the
+   media query as well as the explicit toggle. Tokens only — never components. */
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --navy:#93b0f5; --brand:#f4635b; --brand-ink:#ff8f88; --brand-soft:#3a1a18; --brand-line:#5c2a26;
+    --ink:#f3f5f9; --ink2:#d3d9e4; --mute:#a8b2c4; --faint:#8b95a8;
+    --line:#2b3242; --line-soft:#232936; --card:#161b24; --ground:#0f131a; --sunk:#0b0e14;
+    --good:#5fd3a3; --good-soft:#12291f; --good-line:#1e4636;
+    --warn:#f0b95c; --warn-soft:#2c2113; --warn-line:#4d3a1b;
+    --info:#7fa5f8; --info-soft:#151f33; --info-line:#27395c;
+    --bar:#5f7bb5; --bar-soft:#252d3d;
+    --shadow:0 1px 2px rgba(0,0,0,.4);
+  }
+}
+:root[data-theme="dark"]{
+  --navy:#93b0f5; --brand:#f4635b; --brand-ink:#ff8f88; --brand-soft:#3a1a18; --brand-line:#5c2a26;
+  --ink:#f3f5f9; --ink2:#d3d9e4; --mute:#a8b2c4; --faint:#8b95a8;
+  --line:#2b3242; --line-soft:#232936; --card:#161b24; --ground:#0f131a; --sunk:#0b0e14;
+  --good:#5fd3a3; --good-soft:#12291f; --good-line:#1e4636;
+  --warn:#f0b95c; --warn-soft:#2c2113; --warn-line:#4d3a1b;
+  --info:#7fa5f8; --info-soft:#151f33; --info-line:#27395c;
+  --bar:#5f7bb5; --bar-soft:#252d3d;
+  --shadow:0 1px 2px rgba(0,0,0,.4);
+}
+
+*,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none!important}
+body{
+  margin:0; background:var(--sunk); color:var(--ink);
+  font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:14px; line-height:1.5; -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3,h4,p,dl,dd,dt{margin:0}
+button{font:inherit; cursor:pointer}
+a{color:var(--navy)}
+:is(button,select,a,[tabindex]):focus-visible{outline:2px solid var(--navy); outline-offset:2px; border-radius:4px}
+@media(prefers-reduced-motion:reduce){*{animation:none!important; transition:none!important}}
+
+.wrap{max-width:1160px; margin:0 auto; padding:22px 18px 56px}
+
+/* ------------------------------------------------------------ page chrome */
+.topbar{display:flex; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:16px}
+.mark{display:flex; align-items:center; gap:9px; font-weight:800; letter-spacing:-.01em; color:var(--ink)}
+.mark i{width:22px; height:22px; border-radius:6px; background:var(--brand); display:grid; place-items:center; color:#fff; font-size:12px; font-style:normal; font-weight:800}
+.tag{padding:3px 9px; border-radius:999px; background:var(--card); border:1px solid var(--line); font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--faint)}
+.spacer{flex:1 1 auto}
+.ghost{min-height:34px; padding:0 12px; border:1px solid var(--line); border-radius:9px; background:var(--card); font-size:12.5px; font-weight:600; color:var(--ink2)}
+.ghost:hover{border-color:var(--faint); color:var(--navy)}
+
+.note-strip{
+  display:flex; gap:10px; align-items:flex-start; margin-bottom:16px; padding:11px 14px;
+  border:1px solid var(--info-line); border-radius:12px; background:var(--info-soft);
+  font-size:12.5px; line-height:1.55; color:var(--info);
+}
+.note-strip b{font-weight:700}
+
+/* ------------------------------------------------------------------ shell */
+.shell{border:1px solid var(--line); border-radius:16px; overflow:hidden; background:var(--ground); box-shadow:var(--shadow)}
+.hero{background:var(--card)}
+.mast{padding:22px var(--gut) 0}
+.identity{display:flex; gap:16px; align-items:flex-start}
+.mono{
+  width:56px; height:56px; flex:none; border-radius:12px; display:grid; place-items:center;
+  background:var(--brand-soft); border:1px solid var(--brand-line); color:var(--brand-ink);
+  font-size:20px; font-weight:800;
+}
+.idbody{flex:1; min-width:0}
+.eyebrow{display:flex; align-items:center; flex-wrap:wrap; gap:8px; font-size:11px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--faint)}
+.eyebrow i{width:3px; height:3px; border-radius:50%; background:var(--line); font-style:normal}
+.dname{margin-top:6px; font-size:28px; font-weight:800; line-height:1.15; letter-spacing:-.02em; color:var(--navy); text-wrap:balance}
+.sub{display:flex; align-items:center; flex-wrap:wrap; gap:8px 10px; margin-top:8px; font-size:13.5px; color:var(--mute)}
+.sub .spec{font-weight:600; color:var(--ink2)}
+.code{padding:3px 9px; border:1px solid var(--line); border-radius:999px; background:var(--ground); font-family:var(--mono); font-size:11.5px; font-weight:600; color:var(--mute)}
+
+/* A standing summary of the relationship, under the identity: how long the
+   doctor has been on file, when they were last serviced, when last seen.
+   Facts, not metrics — the metrics are in the strip below. */
+.facts{display:flex; flex-wrap:wrap; gap:6px 18px; margin-top:12px; font-size:12.5px; color:var(--mute)}
+.facts>span{display:inline-flex; align-items:center; gap:6px}
+.facts b{font-weight:600; color:var(--ink2); font-variant-numeric:tabular-nums}
+.facts .k{font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--faint)}
+.facts .warnish{color:var(--warn); font-weight:600}
+.delta{display:inline-flex; align-items:center; gap:3px; padding:2px 7px; border-radius:999px; font-size:11px; font-weight:700; font-variant-numeric:tabular-nums}
+.delta--up{color:var(--good); background:var(--good-soft)}
+.delta--down{color:var(--warn); background:var(--warn-soft)}
+.cellrow{display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:7px}
+.cellrow .cellv{margin-top:0}
+
+.stamps{display:flex; gap:8px; flex:none}
+.stamp{min-width:64px; text-align:center; padding:8px 12px 9px; border:1px solid var(--line); border-radius:12px; background:var(--ground)}
+.stamp-l{font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--faint)}
+.stamp-v{font-size:22px; font-weight:800; color:var(--navy); line-height:1.2; font-variant-numeric:tabular-nums}
+.stamp--roi{background:var(--brand-soft); border-color:var(--brand-line)}
+.stamp--roi .stamp-v{color:var(--brand-ink)}
+
+.acts{display:flex; flex-wrap:wrap; gap:8px; margin-top:18px; padding-bottom:20px}
+.act{display:inline-flex; align-items:center; justify-content:center; gap:7px; min-height:40px; padding:8px 14px; border:1px solid var(--line); border-radius:var(--rsm); background:var(--card); font-size:13px; font-weight:600; color:var(--ink2)}
+.act:hover{background:var(--ground); border-color:var(--faint); color:var(--navy)}
+.act--primary{background:var(--brand-ink); border-color:var(--brand-ink); color:#fff}
+.act--primary:hover{background:var(--brand); border-color:var(--brand); color:#fff}
+
+/* the strip */
+.strip{display:flex; margin:0 var(--gut) 20px; border:1px solid var(--line); border-radius:12px; background:var(--card); overflow:hidden}
+.strip>div{padding:14px 16px; border-left:1px solid var(--line); min-width:0; display:flex; flex-direction:column; justify-content:center}
+.strip>div:first-child{border-left:0; flex:1.7 1 0}
+.strip>div+div{flex:1 1 0}
+.lab{display:block; font-size:11px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--faint)}
+.big{margin-top:7px; font-size:30px; font-weight:800; letter-spacing:-.025em; line-height:1.1; color:var(--navy); font-variant-numeric:tabular-nums}
+.cellv{margin-top:7px; font-size:15px; font-weight:700; color:var(--ink); font-variant-numeric:tabular-nums; white-space:nowrap}
+.subtle{margin-top:6px; font-size:12px; line-height:1.45; color:var(--faint)}
+
+/* ------------------------------------------------------------------- body */
+.body{display:flex; flex-direction:column; gap:var(--gap); padding:var(--gap); background:var(--ground); border-top:1px solid var(--line)}
+.viewbar{display:flex; align-items:center; flex-wrap:wrap; gap:10px 16px}
+.seg{display:flex; gap:4px; padding:4px; background:var(--card); border:1px solid var(--line); border-radius:12px; overflow-x:auto; scrollbar-width:none}
+.seg::-webkit-scrollbar{display:none}
+.seg button{display:inline-flex; align-items:center; gap:7px; min-height:38px; padding:0 16px; border:0; border-radius:9px; background:transparent; font-size:13.5px; font-weight:600; color:var(--mute); white-space:nowrap; transition:background .15s,color .15s}
+.seg button:hover{background:var(--ground); color:var(--ink2)}
+.seg button[aria-pressed="true"]{background:var(--navy); color:#fff; font-weight:700}
+.seg button span{padding:1px 7px; border-radius:999px; background:var(--line-soft); font-size:11px; font-weight:700; color:var(--mute); font-variant-numeric:tabular-nums}
+.seg button[aria-pressed="true"] span{background:rgba(255,255,255,.24); color:#fff}
+.period{display:flex; align-items:center; gap:10px; flex:1 1 auto; justify-content:flex-end; min-width:0}
+.period .seg button{min-height:34px; padding:0 12px; font-size:12.5px}
+.period .seg button[aria-pressed="true"]{background:var(--brand-soft); color:var(--brand-ink)}
+.pnote{font-size:11.5px; color:var(--faint); font-variant-numeric:tabular-nums; white-space:nowrap}
+
+.tiles{display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:var(--gap)}
+.tile{padding:13px 15px; background:var(--card); border:1px solid var(--line); border-radius:12px; min-width:0}
+.tile-v{margin-top:6px; font-size:20px; font-weight:800; color:var(--navy); line-height:1.2; font-variant-numeric:tabular-nums; overflow-wrap:anywhere}
+.tile-s{margin-top:4px; font-size:11.5px; line-height:1.4; color:var(--faint); overflow-wrap:anywhere}
+.tile--roi .tile-v{color:var(--brand-ink)}
+
+.tabs{display:flex; gap:4px; padding:4px; background:var(--card); border:1px solid var(--line); border-radius:12px; overflow-x:auto; scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tabs button{display:inline-flex; align-items:center; gap:7px; min-height:36px; padding:0 14px; border:0; border-radius:9px; background:transparent; font-size:13px; font-weight:600; color:var(--mute); white-space:nowrap}
+.tabs button:hover{background:var(--ground); color:var(--ink2)}
+.tabs button[aria-selected="true"]{background:var(--brand-soft); color:var(--brand-ink); font-weight:700}
+.tabs button span{padding:1px 7px; border-radius:999px; background:var(--line-soft); font-size:11px; font-weight:700; color:var(--mute); font-variant-numeric:tabular-nums}
+.tabs button[aria-selected="true"] span{background:var(--card); color:var(--brand-ink)}
+
+.stack{display:flex; flex-direction:column; gap:var(--gap)}
+.card{background:var(--card); border:1px solid var(--line); border-radius:var(--r); overflow:hidden}
+.chead{display:flex; align-items:center; gap:14px; padding:16px var(--gut) 0}
+.chead h2{flex:none; font-size:16px; font-weight:700; color:var(--navy)}
+.rule{flex:1 1 auto; height:1px; min-width:12px; background:var(--line)}
+.count{flex:none; padding:2px 9px; border-radius:999px; background:var(--line-soft); font-size:11.5px; font-weight:700; color:var(--mute); font-variant-numeric:tabular-nums}
+.pad{padding:14px var(--gut) 18px}
+.strip--flush{margin:0}
+.foot{margin-top:16px; padding-top:12px; border-top:1px solid var(--line-soft); max-width:70ch; font-size:12px; line-height:1.6; color:var(--mute)}
+
+/* charts */
+.chart{display:flex; align-items:flex-end; gap:10px; height:120px; padding-top:6px; border-bottom:1px solid var(--line)}
+.bw{flex:1 1 0; min-width:0; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%; gap:6px}
+.bv{height:14px; font-size:11px; font-weight:700; color:var(--ink2); white-space:nowrap; font-variant-numeric:tabular-nums}
+.bar{width:100%; max-width:38px; min-height:2px; border-radius:4px 4px 0 0; background:var(--bar)}
+.bar--last{background:var(--brand)}
+.bar--none{background:var(--line); min-height:6px}
+.bl{font-size:11px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--faint)}
+.cfoot{display:flex; justify-content:space-between; gap:14px; margin-top:12px; font-size:12.5px; color:var(--mute)}
+.cfoot b{color:var(--ink); font-variant-numeric:tabular-nums}
+
+/* tables */
+.scroll{overflow-x:auto}
+table{width:calc(100% - var(--gut)*2); margin:0 var(--gut) 18px; border-collapse:collapse; font-size:12.5px}
+th{padding:7px 10px 7px 0; text-align:left; white-space:nowrap; font-size:11px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--faint); border-bottom:1px solid var(--line)}
+td{padding:9px 10px 9px 0; border-bottom:1px solid var(--line-soft); color:var(--ink2); vertical-align:top}
+tr:last-child td{border-bottom:0}
+.num{text-align:right; padding-right:0; font-variant-numeric:tabular-nums; white-space:nowrap; font-weight:600; color:var(--ink)}
+th.num{font-weight:700; color:var(--faint)}
+.sub2{margin-top:3px; font-size:11.5px; color:var(--faint)}
+
+/* rows / pills */
+.rows{display:flex; flex-direction:column}
+.row{padding:13px var(--gut); border-top:1px solid var(--line-soft)}
+.row:first-child{border-top:0}
+.rtop{display:flex; align-items:baseline; gap:12px}
+.rname{flex:1; min-width:0; font-size:13.5px; font-weight:500; color:var(--ink2); overflow-wrap:anywhere}
+.rtop small{font-size:11.5px; color:var(--faint); white-space:nowrap; font-variant-numeric:tabular-nums}
+.rtop b{font-size:13.5px; font-weight:700; color:var(--ink); font-variant-numeric:tabular-nums; white-space:nowrap}
+.meta{display:flex; flex-wrap:wrap; align-items:center; gap:5px 12px; margin-top:8px; font-size:12px; color:var(--mute)}
+.ref{margin-top:8px; font-size:12.5px; line-height:1.6; color:var(--mute); overflow-wrap:anywhere}
+.pill{display:inline-flex; align-items:center; gap:4px; padding:3px 9px; border-radius:999px; border:1px solid transparent; font-size:11px; font-weight:700; white-space:nowrap; line-height:1.4}
+.pill--good{color:var(--good); background:var(--good-soft); border-color:var(--good-line)}
+.pill--warn{color:var(--warn); background:var(--warn-soft); border-color:var(--warn-line)}
+.pill--info{color:var(--info); background:var(--info-soft); border-color:var(--info-line)}
+.pill--soft{color:var(--mute); background:var(--line-soft); border-color:var(--line)}
+.pill--brand{color:var(--brand-ink); background:var(--brand-soft); border-color:var(--brand-line)}
+
+.empty{max-width:58ch; padding:16px var(--gut) 20px; font-size:13px; line-height:1.6; color:var(--mute)}
+.empty b{display:block; margin-bottom:4px; font-size:13.5px; font-weight:700; color:var(--ink)}
+
+/* timeline */
+.tl{position:relative; list-style:none; margin:0; padding:16px var(--gut) 6px 0}
+.tl::before{content:""; position:absolute; top:0; bottom:0; left:calc(var(--gut) + 5px); width:2px; background:var(--line)}
+.tl-m{position:relative; margin:14px 0 10px; padding-left:calc(var(--gut) + 26px); font-size:11px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--faint)}
+.tl-m:first-child{margin-top:0}
+.tl-i{position:relative; padding-left:calc(var(--gut) + 26px); padding-bottom:12px}
+.dot{position:absolute; left:var(--gut); top:14px; width:12px; height:12px; border-radius:50%; background:var(--card); border:2px solid var(--faint)}
+.tl-i[data-k="support"] .dot{border-color:var(--good)}
+.tl-i[data-k="service"] .dot{border-color:var(--warn)}
+.tl-i[data-k="order"] .dot{border-color:var(--navy)}
+.tl-i[data-k="visit"] .dot{border-color:var(--info)}
+.tlc{padding:12px 14px; border:1px solid var(--line); border-radius:12px; background:var(--card)}
+.tlc:hover{border-color:var(--faint)}
+.tltop{display:flex; align-items:center; flex-wrap:wrap; gap:8px 10px}
+.tlwhen{font-size:12px; color:var(--faint); font-variant-numeric:tabular-nums}
+.tlamt{margin-left:auto; font-size:14px; font-weight:700; color:var(--ink); font-variant-numeric:tabular-nums; white-space:nowrap}
+.tlt{margin-top:7px; font-size:14px; font-weight:600; color:var(--ink); overflow-wrap:anywhere}
+
+.pagefoot{display:flex; flex-wrap:wrap; gap:6px 18px; padding:4px 4px 0; font-size:11.5px; color:var(--faint)}
+.pagefoot b{font-family:var(--mono); color:var(--mute)}
+select.filter{min-height:40px; width:100%; padding:0 12px; border:1px solid var(--line); border-radius:var(--rsm); background:var(--card); color:var(--ink); font-size:13px; font-weight:500}
+.toolbar{padding:14px var(--gut); border-top:1px solid var(--line-soft)}
+
+@media(max-width:720px){
+  :root{--gut:16px; --gap:12px}
+  .dname{font-size:22px}
+  .strip{flex-direction:column}
+  .strip>div{border-left:0; border-top:1px solid var(--line)}
+  .strip>div:first-child{border-top:0}
+  .big{font-size:26px}
+  .period{justify-content:flex-start; flex:1 1 100%}
+  .pnote{display:none}
+  .seg{width:100%}
+  .viewbar>.seg button{flex:1 1 0; justify-content:center}
+}
+</style>
+
+<div class="wrap">
+  <div class="topbar">
+    <div class="mark"><i>E</i> Elbrit Doctor Console</div>
+    <span class="tag" id="proto-tag">Prototype</span>
+    <div class="spacer"></div>
+    <select class="ghost" id="who" aria-label="Doctor" style="min-width:230px"></select>
+    <button class="ghost" id="theme" type="button">Dark</button>
+  </div>
+
+  <p class="note-strip">
+    <span><b>Support, Service and Orders are live ERP figures</b> read from <code>Doctor Support</code>,
+    <code>Doctor Service</code> and <code>Sales Order Item.custom_doctor</code> for these two real doctors.
+    Visits are sample rows — visit history was not pulled. Account and phone digits in the service remarks are masked.</span>
+  </p>
+
+  <div class="shell">
+    <div class="hero">
+      <header class="mast">
+        <div class="identity">
+          <div class="mono" id="mono">SR</div>
+          <div class="idbody">
+            <div class="eyebrow" id="eyebrow"></div>
+            <h1 class="dname" id="dname"></h1>
+            <div class="sub" id="dsub"></div>
+            <div class="facts" id="facts"></div>
+          </div>
+          <div class="stamps" id="stamps"></div>
+        </div>
+        <div class="acts">
+          <button class="act act--primary" type="button">Add POB</button>
+          <button class="act" type="button">Request service</button>
+          <button class="act" type="button">Call</button>
+          <button class="act" type="button">Directions</button>
+        </div>
+      </header>
+      <div class="strip" id="strip"></div>
+    </div>
+
+    <div class="body">
+      <div class="viewbar">
+        <div class="seg" role="group" aria-label="View">
+          <button type="button" data-view="overview" aria-pressed="true">Overview</button>
+          <button type="button" data-view="activities" aria-pressed="false">Activities <span id="actcount">0</span></button>
+        </div>
+        <div class="period">
+          <div class="seg" role="group" aria-label="Period" id="periods"></div>
+          <span class="pnote" id="pnote"></span>
+        </div>
+      </div>
+
+      <div id="overview" class="stack">
+        <div class="tiles" id="tiles"></div>
+        <div class="tabs" role="tablist" aria-label="Doctor data" id="tabs"></div>
+        <div id="panel" class="stack"></div>
+      </div>
+
+      <div id="activities" class="stack" hidden>
+        <section class="card">
+          <div class="chead"><h2>Activities</h2><i class="rule"></i><span class="count" id="tlcount">0</span></div>
+          <div class="toolbar">
+            <select class="filter" id="kind" aria-label="Filter activities"></select>
+          </div>
+          <div id="tl"></div>
+        </section>
+      </div>
+
+      <div class="pagefoot"><span>Doctor record <b id="foot">—</b></span><span id="footnote"></span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ------------------------------------------------------------------ *
+ * Real ERP rows, read on 10 Sep 2026.
+ *   support — Doctor Support (monthly roll-up, fed from Ecubix)
+ *   service — Doctor Service (one row per payment or benefit)
+ *   orders  — Sales Order lines tagged with custom_doctor
+ * visits are marked sample; visit history was not pulled.
+ * ------------------------------------------------------------------ */
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const T = d => new Date(d + "T00:00:00").getTime();
+
+const DOCTORS = {
+  "DR-47718": {
+    name:"Dr S. Ramesh Kumar", initials:"SR", spec:"Diabetology", qual:"MBBS, MD",
+    hq:"HQ-Chennai", city:"Chennai", grade:"A", cats:["C1 · HIHR","C2 · Core prescriber"],
+    support:[
+      {p:"2026-April", d:"2026-04-30", qty:790, amt:81129},
+      {p:"2026-May",   d:"2026-05-31", qty:630, amt:74757},
+      {p:"2026-June",  d:"2026-06-30", qty:790, amt:88636},
+      {p:"2026-July",  d:"2026-07-31", qty:860, amt:92430}
+    ],
+    service:[
+      {d:"2026-06-15", kind:"Fund Transfer", amt:40000, by:"E00717", hq:"HQ-Chennai", ref:"CASH - CASHFREE - ACCOUNT TRANSFER (NAME : S RAMESH KUMAR, ACC NO:6038•••••1577, IFSC CODE:ICIC0001686)"},
+      {d:"2026-04-16", kind:"Fund Transfer", amt:40000, by:"E00717", hq:"HQ-Chennai", ref:"CASH - CASHFREE - ACCOUNT TRANSFER (NAME : S SUSILA & G SUBRAMANIAM, ACC NO : 4744•••213, IFSC CODE : IDIB000R036)"},
+      {d:"2026-02-09", kind:"Fund Transfer", amt:40000, by:"E00717", hq:"HQ-Chennai", ref:"CASH - CASHFREE - ACCOUNT TRANSFER (NAME : S SUSILA & G SUBRAMANIAM, ACC NO : 4744•••213, IFSC CODE : IDIB000R036)"},
+      {d:"2025-12-09", kind:"Fund Transfer", amt:40000, by:"E00717", hq:"HQ-Chennai", ref:"CASH - CASHFREE (ACCOUNT TRANSFER (NAME : S SUSILA, ACC NO : 4744•••213, IFSC CODE : IDIB000R036))"},
+      {d:"2025-10-23", kind:"Fund Transfer", amt:40000, by:"E00717", hq:"HQ-Chennai", ref:"CASH - CASHFREE - ACCOUNT TRANSFER (NAME : S SUSILA, ACC NO : 4744•••213, IFSC CODE : IDIB000R036)"}
+    ],
+    orders:[
+      {d:"2026-09-02", so:"SO2026-2027-010955", cust:"Power Pharmaceuticals Pvt Ltd", item:"TRIGLIMIBRIT 1.3", qty:30, amt:3587.10, st:"To Deliver and Bill"},
+      {d:"2026-08-13", so:"SO2026-2027-009447", cust:"Jlcity Pharma India Pvt Ltd", item:"BRITVIT", qty:9, amt:1735.74, st:"To Bill"},
+      {d:"2026-08-13", so:"SO2026-2027-009447", cust:"Jlcity Pharma India Pvt Ltd", item:"TRIGLIMIBRIT 1.3", qty:20, amt:2391.40, st:"To Bill"},
+      {d:"2026-08-13", so:"SO2026-2027-009447", cust:"Jlcity Pharma India Pvt Ltd", item:"ROZULA 10", qty:4, amt:511.72, st:"To Bill"},
+      {d:"2026-08-13", so:"SO2026-2027-009447", cust:"Jlcity Pharma India Pvt Ltd", item:"GLIZATO 30 OD", qty:14, amt:567.00, st:"To Bill"},
+      {d:"2026-08-01", so:"SO2026-2027-008886", cust:"Power Pharmaceuticals Pvt Ltd", item:"TRIGLIMIBRIT 1.3", qty:20, amt:2391.40, st:"Completed"},
+      {d:"2026-08-01", so:"SO2026-2027-008886", cust:"Power Pharmaceuticals Pvt Ltd", item:"GLIMIBRIT M 0.5", qty:2, amt:124.72, st:"Completed"},
+      {d:"2026-06-18", so:"SO2026-2027-005554", cust:"Jlcity Pharma India Pvt Ltd", item:"TRIGLIMIBRIT 1.3", qty:40, amt:4782.80, st:"Completed"},
+      {d:"2026-05-06", so:"SO2026-2027-002169", cust:"Power Pharmaceuticals Pvt Ltd", item:"TRIGLIMIBRIT 1.3", qty:5, amt:597.85, st:"Completed"},
+      {d:"2026-05-04", so:"SO2026-2027-002048", cust:"Power Pharmaceuticals Pvt Ltd", item:"TRIGLIMIBRIT 1.3", qty:5, amt:597.85, st:"Completed"}
+    ],
+    visits:[
+      {d:"2026-08-22", who:"Chandrashekar V", hq:"HQ-Chennai", subject:"Detailing call", made:true},
+      {d:"2026-06-11", who:"Chandrashekar V", hq:"HQ-Chennai", subject:"Follow-up on TRIGLIMIBRIT", made:true},
+      {d:"2026-04-18", who:"Arunkumar M", hq:"HQ-Chennai", subject:"Joint call with ABM", made:true}
+    ]
+  },
+  "DR-54980": {
+    name:"Dr Arpith M N", initials:"AM", spec:"Orthopaedics", qual:"MBBS, MS",
+    hq:"HQ-Mysore", city:"Mysore", grade:"SC", cats:["Old customer"],
+    support:[
+      {p:"2026-April", d:"2026-04-30", qty:46, amt:6047},
+      {p:"2026-May",   d:"2026-05-31", qty:49, amt:5567},
+      {p:"2026-June",  d:"2026-06-30", qty:5,  amt:916},
+      {p:"2026-July",  d:"2026-07-31", qty:44, amt:5469}
+    ],
+    service:[
+      {d:"2026-04-28", kind:"Cash", amt:10000, by:"E01153", hq:"HQ-Mysore", ref:"CASH - GPAY (99864•••53 - Arpith M N)"},
+      {d:"2025-07-19", kind:"Cash", amt:10000, by:"E01153", hq:"HQ-Mysore", ref:"CASH - CASHFREE (99864•••53 - VANDANA N)"},
+      {d:"2025-07-19", kind:"Cash", amt:10000, by:"E00817", hq:"HQ-Mysore", ref:"CASH - CASHFREE (99864•••53 - VANDANA N) - VASCO KA"}
+    ],
+    orders:[],
+    visits:[
+      {d:"2026-07-30", who:"Chandrashekar V", hq:"HQ-Mysore", subject:"Cab service discussion", made:true},
+      {d:"2026-05-14", who:"Arunkumar M", hq:"HQ-Mysore", subject:"Detailing call", made:false}
+    ]
+  }
+};
+
+/* ------------------------------------------------------------ formatting */
+const inr = n => "₹" + Math.round(n).toLocaleString("en-IN");
+const inrShort = n => {
+  const a = Math.abs(n);
+  if (a >= 1e7) return "₹" + (n/1e7).toFixed(2) + "Cr";
+  if (a >= 1e5) return "₹" + (n/1e5).toFixed(2) + "L";
+  if (a >= 1e3) return "₹" + Math.round(n/1e3) + "k";
+  return "₹" + Math.round(n);
+};
+const fdate = d => { const x = new Date(d + "T00:00:00"); return x.getDate() + " " + MONTHS[x.getMonth()] + " " + x.getFullYear(); };
+const roiText = v => (v == null || !isFinite(v)) ? "—" : v.toFixed(2) + "x";
+/* "1 yr 2 mo" reads faster than "14 months" once it passes a year. */
+const spanText = m => {
+  if (m == null) return "—";
+  if (m < 12) return m + " mo";
+  const y = Math.floor(m/12), r = m % 12;
+  return y + " yr" + (r ? " " + r + " mo" : "");
+};
+const monthName = d => { const x = new Date(d + "T00:00:00"); return MONTHS[x.getMonth()] + " " + x.getFullYear(); };
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+/* -------------------------------------------------------- financial year */
+/* Elbrit runs 1 April to 31 March, so "this year" means the FY. */
+const NOW = new Date("2026-09-10T12:00:00");
+const fyStartOf = d => d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1;
+const fyLabel = y => "FY " + String(y).slice(2) + "-" + String(y+1).slice(2);
+const CUR_FY = fyStartOf(NOW);
+
+const PERIODS = [
+  {k:"fy",  label:fyLabel(CUR_FY),   from:new Date(CUR_FY,3,1).getTime(),   to:new Date(CUR_FY+1,2,31,23,59,59).getTime()},
+  {k:"fy1", label:fyLabel(CUR_FY-1), from:new Date(CUR_FY-1,3,1).getTime(), to:new Date(CUR_FY,2,31,23,59,59).getTime()},
+  {k:"m12", label:"12 months", from:new Date(NOW.getFullYear(), NOW.getMonth()-11, 1).getTime(), to:NOW.getTime()},
+  {k:"all", label:"All time", from:null, to:null}
+];
+
+const inPeriod = (rows, p) => p.from == null ? rows : rows.filter(r => r.t >= p.from && r.t <= p.to);
+
+/* ------------------------------------------------------------------- ROI *
+ * ROI = support earned from a service onward, divided by EVERY rupee of
+ * service from that service onward. The cumulative denominator is the part
+ * that is easy to get wrong; it is what the commercial workbook does.
+ * -------------------------------------------------------------------- */
+
+/* Two service rows on the same date for the same amount are one service —
+   ERP genuinely files duplicates under two employees. */
+function dedupe(rows){
+  const seen = new Set();
+  return rows.filter(r => { const k = r.d + "|" + r.amt; if (seen.has(k)) return false; seen.add(k); return true; });
+}
+function monthsSince(t){
+  const f = new Date(t);
+  return (NOW.getFullYear() - f.getFullYear()) * 12 + (NOW.getMonth() - f.getMonth()) + 1;
+}
+/* Inclusive of the service's own month: a service on the 28th and that
+   month's support belong together. */
+function supportFrom(support, t){
+  const f = new Date(t), start = new Date(f.getFullYear(), f.getMonth(), 1).getTime();
+  return support.filter(r => r.t >= start).reduce((s,r) => s + r.amt, 0);
+}
+function computeRoi(service, support){
+  const svc = dedupe(service.slice()).sort((a,b) => b.t - a.t);
+  const supportTotal = support.reduce((s,r) => s + r.amt, 0);
+  const serviceTotal = svc.reduce((s,r) => s + r.amt, 0);
+  const from = t => svc.filter(r => r.t >= t).reduce((s,r) => s + r.amt, 0);
+  const line = (label, s) => {
+    if (!s) return null;
+    const earned = supportFrom(support, s.t), spent = from(s.t);
+    return {label, s, spent, support:earned, roi: spent > 0 ? earned/spent : null, months: monthsSince(s.t)};
+  };
+  let peak = null;
+  svc.forEach(r => { if (!peak || r.amt > peak.amt) peak = r; });
+  const rows = [line("Latest service", svc[0]), line("One before latest", svc[1]), line("Peak service", peak)]
+    .filter(Boolean)
+    /* Peak and latest are often the same row when every service is the same
+       size — showing it twice would read as two findings. */
+    .filter((r,i,a) => a.findIndex(x => x.s.d === r.s.d && x.s.amt === r.s.amt) === i);
+  return {
+    tillDate:{support:supportTotal, amount:serviceTotal, roi: serviceTotal > 0 ? supportTotal/serviceTotal : null,
+              count:svc.length, months: svc.length ? monthsSince(svc[svc.length-1].t) : null},
+    rows, svc, supportTotal, serviceTotal
+  };
+}
+function fyTable(support, service){
+  const m = new Map();
+  const put = (t, key, v) => {
+    const y = fyStartOf(new Date(t));
+    const e = m.get(y) || {y, support:0, service:0};
+    e[key] += v; m.set(y, e);
+  };
+  support.forEach(r => put(r.t, "support", r.amt));
+  dedupe(service.slice()).forEach(r => put(r.t, "service", r.amt));
+  return [...m.values()].sort((a,b) => b.y - a.y)
+    .map(e => ({...e, label:fyLabel(e.y), roi: e.service > 0 ? e.support/e.service : null}));
+}
+
+/* ------------------------------------------------------------------ state */
+let docId = "DR-47718", periodKey = "fy", view = "overview", tab = "roi", kindFilter = "all";
+
+function current(){
+  const d = DOCTORS[docId];
+  const stamp = rows => rows.map(r => ({...r, t:T(r.d)}));
+  const support = stamp(d.support), service = stamp(d.service), orders = stamp(d.orders), visits = stamp(d.visits);
+  const p = PERIODS.find(x => x.k === periodKey);
+  return {
+    d, p, allSupport:support, allService:service,
+    support: inPeriod(support, p), service: inPeriod(service, p),
+    orders: inPeriod(orders, p), visits: inPeriod(visits, p),
+    /* ROI is deliberately NOT clipped to the period — cutting the history at
+       1 April would credit a service with only the support inside the window. */
+    roi: computeRoi(service, support),
+    fy: fyTable(support, service)
+  };
+}
+
+/* The latest month against the one before it. A bare figure says nothing
+   about direction, and direction is what a rep acts on. */
+function deltaChip(c){
+  const rows = c.allSupport.slice().sort((a,b) => b.t - a.t);
+  if (rows.length < 2 || !rows[1].amt) return "";
+  const pct = ((rows[0].amt - rows[1].amt) / rows[1].amt) * 100;
+  const up = pct >= 0;
+  return '<span class="delta delta--' + (up ? "up" : "down") + '">' + (up ? "▲" : "▼") + " " +
+         Math.abs(Math.round(pct)) + '%</span>';
+}
+
+/* ------------------------------------------------------------------ charts */
+function barChart(series, opts){
+  if (!series.length) return "";
+  const peak = Math.max(...series.map(s => s.v), 0) || 1;
+  const bars = series.map((s,i) => {
+    const isLast = i === series.length - 1 && s.v > 0;
+    const cls = s.v > 0 ? ("bar" + (isLast ? " bar--last" : "")) : "bar bar--none";
+    const h = s.v > 0 ? Math.max(4, (s.v/peak)*100) : 2;
+    return '<div class="bw"><span class="bv">' + (s.v > 0 ? inrShort(s.v) : "") + '</span>' +
+           '<div class="' + cls + '" style="height:' + h + '%"></div>' +
+           '<span class="bl">' + esc(s.l) + '</span></div>';
+  }).join("");
+  const best = series.reduce((a,b) => b.v > a.v ? b : a, series[0]);
+  return '<div class="chart">' + bars + '</div><div class="cfoot"><span>Peak <b>' + inrShort(best.v) +
+         '</b> in ' + esc(best.l) + '</span><span>' + series.length + ' months</span></div>';
+}
+/* One slot per month across the window, so a month with nothing shows as a
+   gap rather than closing up — the gap is the finding. */
+function monthSeries(rows, p){
+  if (!rows.length && p.from == null) return [];
+  const from = p.from != null ? new Date(p.from) : new Date(Math.min(...rows.map(r => r.t)));
+  const to = new Date(Math.min(p.to != null ? p.to : NOW.getTime(), NOW.getTime()));
+  const out = []; const cur = new Date(from.getFullYear(), from.getMonth(), 1);
+  const end = new Date(to.getFullYear(), to.getMonth(), 1);
+  let guard = 0;
+  while (cur <= end && guard < 24){
+    const v = rows.filter(r => { const x = new Date(r.t); return x.getFullYear() === cur.getFullYear() && x.getMonth() === cur.getMonth(); })
+                  .reduce((s,r) => s + r.amt, 0);
+    out.push({l:MONTHS[cur.getMonth()], v});
+    cur.setMonth(cur.getMonth()+1); guard++;
+  }
+  return out.slice(-12);
+}
+
+/* ------------------------------------------------------------------ panels */
+const head = (t,c) => '<div class="chead"><h2>' + t + '</h2><i class="rule"></i>' + (c != null ? '<span class="count">' + c + '</span>' : '') + '</div>';
+const empty = (h,b) => '<div class="empty"><b>' + h + '</b>' + b + '</div>';
+
+function panelRoi(c){
+  if (!c.roi.svc.length) return '<section class="card">' + head("ROI") + empty("No service to measure against","ROI is support divided by service given. Nothing has been given to this doctor, so there is nothing to divide by.") + '</section>';
+  const t = c.roi.tillDate;
+  const lines = c.roi.rows.map(r =>
+    '<tr><td>' + r.label + '</td><td>' + fdate(r.s.d) + '<div class="sub2">' + esc(r.s.kind) + '</div></td>' +
+    '<td class="num">' + inr(r.spent) + '</td><td class="num">' + inr(r.support) + '</td>' +
+    '<td class="num">' + r.months + '</td><td class="num"><b>' + roiText(r.roi) + '</b></td></tr>').join("");
+  const fyr = c.fy.map(f =>
+    '<tr><td>' + f.label + '</td><td class="num">' + (f.support ? inr(f.support) : "—") + '</td>' +
+    '<td class="num">' + (f.service ? inr(f.service) : "—") + '</td>' +
+    '<td class="num"><b>' + (f.service && f.support ? roiText(f.roi) : "—") + '</b></td></tr>').join("");
+  return '<section class="card">' + head("ROI") + '<div class="pad">' +
+    '<div class="strip strip--flush">' +
+      '<div><span class="lab">ROI till date</span><div class="big">' + roiText(t.roi) + '</div>' +
+        '<div class="subtle">' + inr(t.support) + ' support · ' + inr(t.amount) + ' service</div></div>' +
+      '<div><span class="lab">Latest service</span><div class="cellv">' + roiText(c.roi.rows[0].roi) + '</div>' +
+        '<div class="subtle">' + fdate(c.roi.rows[0].s.d) + ' · ' + c.roi.rows[0].months + ' mo</div></div>' +
+      '<div><span class="lab">Services</span><div class="cellv">' + t.count + '</div>' +
+        '<div class="subtle">over ' + t.months + ' months</div></div>' +
+    '</div>' +
+    '<p class="foot">Support earned from each service onward, divided by every rupee of service from that point on. A service given recently has had little time to earn, so read the ratio next to its months, not on its own.</p>' +
+    '</div></section>' +
+    '<section class="card">' + head("Measured from each service", c.roi.rows.length) +
+      '<div class="scroll"><table><thead><tr><th>From</th><th>Service</th><th class="num">Given</th><th class="num">Support since</th><th class="num">Months</th><th class="num">ROI</th></tr></thead><tbody>' + lines + '</tbody></table></div></section>' +
+    '<section class="card">' + head("By financial year", c.fy.length) +
+      '<div class="scroll"><table><thead><tr><th>Year</th><th class="num">Support</th><th class="num">Service</th><th class="num">ROI</th></tr></thead><tbody>' + fyr + '</tbody></table></div>' +
+      '<p class="foot" style="margin:0 var(--gut) 18px">ERP holds support from April 2026 onward. An earlier year shows the service given with no support beside it because the figure was never loaded, not because none was earned.</p></section>';
+}
+
+function panelSupport(c){
+  const s = c.support;
+  if (!s.length) return '<section class="card">' + head("Support") + empty("No support in " + c.p.label, "Monthly support is loaded into ERP from April 2026 onward. Try a wider period.") + '</section>';
+  const total = s.reduce((a,r) => a + r.amt, 0), qty = s.reduce((a,r) => a + r.qty, 0);
+  const best = s.reduce((a,r) => r.amt > a.amt ? r : a, s[0]);
+  const last = s.slice().sort((a,b) => b.t - a.t)[0];
+  const rows = s.slice().sort((a,b) => b.t - a.t).map(r =>
+    '<tr><td>' + esc(r.p) + '</td><td class="num">' + r.qty.toLocaleString("en-IN") + '</td><td class="num">' + inr(r.amt) + '</td></tr>').join("");
+  return '<section class="card">' + head("Support") + '<div class="pad">' +
+    '<div class="strip strip--flush">' +
+      '<div><span class="lab">Support</span><div class="big">' + inr(total) + '</div><div class="subtle">Across ' + s.length + ' months · ' + qty.toLocaleString("en-IN") + ' units</div></div>' +
+      '<div><span class="lab">Best month</span><div class="cellv">' + inr(best.amt) + '</div><div class="subtle">' + esc(best.p) + '</div></div>' +
+      '<div><span class="lab">Latest month</span><div class="cellv">' + inr(last.amt) + '</div><div class="subtle">' + esc(last.p) + '</div></div>' +
+    '</div><div style="margin-top:18px">' + barChart(monthSeries(s, c.p)) + '</div></div></section>' +
+    '<section class="card">' + head("By month", s.length) + '<div class="scroll"><table><thead><tr><th>Month</th><th class="num">Units</th><th class="num">Support</th></tr></thead><tbody>' + rows + '</tbody></table></div></section>';
+}
+
+function panelService(c){
+  const s = c.service;
+  if (!s.length) return '<section class="card">' + head("Service") + empty("No service given in " + c.p.label, "Cash, gift cards, EMI takeovers, cabs and transfers given to this doctor appear here.") + '</section>';
+  const uniq = dedupe(s.slice());
+  const total = uniq.reduce((a,r) => a + r.amt, 0);
+  const kinds = {};
+  uniq.forEach(r => { kinds[r.kind] = kinds[r.kind] || {n:0, amt:0}; kinds[r.kind].n++; kinds[r.kind].amt += r.amt; });
+  const kindRows = Object.entries(kinds).sort((a,b) => b[1].amt - a[1].amt).map(([k,v]) =>
+    '<div class="row"><div class="rtop"><span class="rname">' + esc(k) + '</span><small>' + v.n + (v.n === 1 ? " time" : " times") + '</small><b>' + inr(v.amt) + '</b></div></div>').join("");
+  const dupCount = s.length - uniq.length;
+  const list = s.slice().sort((a,b) => b.t - a.t).map((r,i) => {
+    const dup = i > 0 && s.slice().sort((a,b)=>b.t-a.t).slice(0,i).some(x => x.d === r.d && x.amt === r.amt);
+    return '<div class="row"><div class="rtop"><span class="rname">' + esc(r.kind) + '</span>' +
+      (dup ? '<span class="pill pill--soft">duplicate — not counted</span>' : '') +
+      '<b>' + inr(r.amt) + '</b></div>' +
+      '<div class="meta"><span>' + fdate(r.d) + '</span><span>' + esc(r.by) + '</span><span>' + esc(r.hq) + '</span></div>' +
+      '<p class="ref">' + esc(r.ref) + '</p></div>';
+  }).join("");
+  return '<section class="card">' + head("Service") + '<div class="pad">' +
+    '<div class="strip strip--flush">' +
+      '<div><span class="lab">Service given</span><div class="big">' + inr(total) + '</div><div class="subtle">Across ' + uniq.length + ' service' + (uniq.length === 1 ? "" : "s") +
+        (dupCount ? ' · ' + dupCount + ' duplicate row' + (dupCount === 1 ? "" : "s") + ' ignored' : '') + '</div></div>' +
+      '<div><span class="lab">Support back</span><div class="cellv">' + (c.support.length ? inr(c.support.reduce((a,r) => a + r.amt, 0)) : "—") + '</div><div class="subtle">Same period</div></div>' +
+    '</div><div style="margin-top:18px">' + barChart(monthSeries(uniq, c.p)) + '</div>' +
+    '<p class="foot">Every row is a real payment or benefit given to the doctor. Two rows on the same date for the same amount are one service — ERP files duplicates under two employees, and counting both would halve every ROI.</p>' +
+    '</div></section>' +
+    '<section class="card">' + head("By kind", Object.keys(kinds).length) + '<div class="rows">' + kindRows + '</div></section>' +
+    '<section class="card">' + head("Services", s.length) + '<div class="rows">' + list + '</div></section>';
+}
+
+function panelOrders(c){
+  const o = c.orders;
+  if (!o.length) return '<section class="card">' + head("Orders") + empty("No orders tagged in " + c.p.label, "Order lines show only when a Sales Order names this doctor as prescriber. Tagging is partial — Support is the number that matters.") + '</section>';
+  const total = o.reduce((a,r) => a + r.amt, 0);
+  const rows = o.slice().sort((a,b) => b.t - a.t).map(r =>
+    '<tr><td>' + fdate(r.d) + '<div class="sub2">' + esc(r.so) + '</div></td><td>' + esc(r.item) + '<div class="sub2">' + esc(r.cust) + '</div></td>' +
+    '<td class="num">' + r.qty + '</td><td class="num">' + inr(r.amt) + '</td></tr>').join("");
+  return '<section class="card">' + head("Orders", o.length) + '<div class="pad">' +
+    '<div class="strip strip--flush"><div><span class="lab">Ordered value</span><div class="big">' + inr(total) + '</div>' +
+    '<div class="subtle">' + o.length + ' lines · a partial slice, not the business figure</div></div></div>' +
+    '<p class="foot">Sales Order lines tagged with this doctor. For DR-47718 this is ' + inr(total) + ' against ' +
+    inr(c.roi.supportTotal) + ' of actual support — order tagging catches a few percent, which is why ROI uses Support.</p></div></section>' +
+    '<section class="card">' + head("Order lines", o.length) + '<div class="scroll"><table><thead><tr><th>Date</th><th>Item</th><th class="num">Qty</th><th class="num">Value</th></tr></thead><tbody>' + rows + '</tbody></table></div></section>';
+}
+
+function panelVisits(c){
+  const v = c.visits;
+  if (!v.length) return '<section class="card">' + head("Visits") + empty("No visits in " + c.p.label, "Only this period is loaded. Widen it above to see earlier visits.") + '</section>';
+  const rows = v.slice().sort((a,b) => b.t - a.t).map(r =>
+    '<div class="row"><div class="rtop"><span class="rname" style="font-weight:600;color:var(--ink)">' + esc(r.subject) + '</span>' +
+    '<span class="pill ' + (r.made ? "pill--good" : "pill--soft") + '">' + (r.made ? "Visited" : "Not marked") + '</span></div>' +
+    '<div class="meta"><span>' + fdate(r.d) + '</span><span>' + esc(r.who) + '</span><span>' + esc(r.hq) + '</span></div></div>').join("");
+  return '<section class="card">' + head("Visits", v.length) +
+    '<p class="empty" style="padding-bottom:0"><span class="pill pill--info">Sample rows</span></p>' +
+    '<div class="rows">' + rows + '</div></section>';
+}
+
+const PANELS = {roi:panelRoi, support:panelSupport, service:panelService, orders:panelOrders, visits:panelVisits};
+
+/* ------------------------------------------------------------- activities */
+function activities(c){
+  const out = [];
+  c.support.forEach(r => out.push({k:"support", kl:"Support", tone:"good", t:r.t, d:r.d, title:"Support for " + r.p, amt:r.amt, meta:[r.qty + " units"]}));
+  dedupe(c.service.slice()).forEach(r => out.push({k:"service", kl:"Service", tone:"warn", t:r.t, d:r.d, title:r.kind, amt:r.amt, meta:[r.by, r.hq], body:r.ref}));
+  c.orders.forEach(r => out.push({k:"order", kl:"Order", tone:"brand", t:r.t, d:r.d, title:r.item, amt:r.amt, meta:[r.cust, r.so], st:r.st}));
+  c.visits.forEach(r => out.push({k:"visit", kl:"Visit", tone:"info", t:r.t, d:r.d, title:r.subject, meta:[r.who, r.hq, r.made ? "Visited" : "Not marked"]}));
+  return out.sort((a,b) => b.t - a.t);
+}
+function renderTimeline(list){
+  if (!list.length) return empty("Nothing in this period","Support, service, orders and visits appear here in the order they happened.");
+  let last = null; const parts = [];
+  list.forEach(e => {
+    const x = new Date(e.t), key = x.getFullYear() + "-" + x.getMonth();
+    if (key !== last){ parts.push('<li class="tl-m">' + MONTHS[x.getMonth()] + " " + x.getFullYear() + '</li>'); last = key; }
+    parts.push('<li class="tl-i" data-k="' + e.k + '"><span class="dot"></span><article class="tlc">' +
+      '<div class="tltop"><span class="pill pill--' + e.tone + '">' + e.kl + '</span>' +
+      '<span class="tlwhen">' + fdate(e.d) + '</span>' +
+      (e.st ? '<span class="pill pill--soft">' + esc(e.st) + '</span>' : '') +
+      (e.amt != null ? '<span class="tlamt">' + inr(e.amt) + '</span>' : '') + '</div>' +
+      '<h3 class="tlt">' + esc(e.title) + '</h3>' +
+      (e.meta && e.meta.filter(Boolean).length ? '<div class="meta">' + e.meta.filter(Boolean).map(m => '<span>' + esc(m) + '</span>').join("") + '</div>' : '') +
+      (e.body ? '<p class="ref">' + esc(e.body) + '</p>' : '') +
+      '</article></li>');
+  });
+  return '<ol class="tl">' + parts.join("") + '</ol>';
+}
+
+/* ----------------------------------------------------------------- render */
+function render(){
+  const c = current(), d = c.d, t = c.roi.tillDate;
+
+  document.getElementById("mono").textContent = d.initials;
+  document.getElementById("dname").textContent = d.name;
+  document.getElementById("eyebrow").innerHTML =
+    '<span>Doctor profile</span><i></i><span>' + esc(d.hq) + '</span><i></i><span>' + esc(d.city) + '</span>';
+  document.getElementById("dsub").innerHTML =
+    '<span class="spec">' + esc(d.spec) + '</span><span>' + esc(d.qual) + '</span>' +
+    '<span class="code">' + docId + '</span>' + d.cats.map(x => '<span class="pill pill--soft">' + esc(x) + '</span>').join("");
+  document.getElementById("stamps").innerHTML =
+    (t.roi != null ? '<div class="stamp stamp--roi"><div class="stamp-l">ROI</div><div class="stamp-v">' + roiText(t.roi) + '</div></div>' : '') +
+    '<div class="stamp"><div class="stamp-l">Grade</div><div class="stamp-v">' + esc(d.grade) + '</div></div>';
+
+  /* Everything on file, not just the period — "since" and "last seen" are
+     facts about the relationship, and clipping them to FY 26-27 would make a
+     five-year doctor look new every April. */
+  const allSvc = dedupe(c.allService.slice()).sort((a,b) => b.t - a.t);
+  const allSup = c.allSupport.slice().sort((a,b) => b.t - a.t);
+  const firstSeen = [...allSvc, ...allSup].sort((a,b) => a.t - b.t)[0];
+  const lastSvc = allSvc[0];
+  const allVisits = d.visits.map(v => ({...v, t:T(v.d)})).sort((a,b) => b.t - a.t);
+  const lastVisit = allVisits[0];
+  const facts = [];
+  if (firstSeen) facts.push('<span><span class="k">On file since</span> <b>' + monthName(firstSeen.d) + '</b> <span>(' + spanText(monthsSince(firstSeen.t)) + ')</span></span>');
+  if (lastSvc) {
+    const m = monthsSince(lastSvc.t);
+    /* Four months without a service is the gap a manager wants flagged. */
+    facts.push('<span><span class="k">Last service</span> <b>' + fdate(lastSvc.d) + '</b> <span class="' + (m > 4 ? "warnish" : "") + '">(' + spanText(m) + ' ago)</span></span>');
+  }
+  if (lastVisit) facts.push('<span><span class="k">Last visit</span> <b>' + fdate(lastVisit.d) + '</b> <span>' + esc(lastVisit.who) + '</span></span>');
+  document.getElementById("facts").innerHTML = facts.join("");
+
+  const supTotal = c.support.reduce((a,r) => a + r.amt, 0);
+  const svcTotal = dedupe(c.service.slice()).reduce((a,r) => a + r.amt, 0);
+  const lastSup = c.support.slice().sort((a,b) => b.t - a.t)[0];
+  document.getElementById("strip").innerHTML =
+    '<div><span class="lab">Support in ' + c.p.label + '</span><div class="big">' + (c.support.length ? inr(supTotal) : "—") +
+      '</div><div class="subtle">' + (c.support.length ? "Across " + c.support.length + " months" : "None recorded in this period") + '</div></div>' +
+    '<div><span class="lab">Service given</span><div class="cellv">' + (svcTotal ? inr(svcTotal) : "—") + '</div>' +
+      '<div class="subtle">' + (svcTotal ? dedupe(c.service.slice()).length + " service" + (dedupe(c.service.slice()).length === 1 ? "" : "s") : "None given") + '</div></div>' +
+    '<div><span class="lab">Latest month</span><div class="cellrow"><span class="cellv">' + (lastSup ? inr(lastSup.amt) : "—") + '</span>' + deltaChip(c) + '</div>' +
+      '<div class="subtle">' + (lastSup ? esc(lastSup.p) : "—") + '</div></div>';
+
+  document.getElementById("periods").innerHTML = PERIODS.map(p =>
+    '<button type="button" data-p="' + p.k + '" aria-pressed="' + (p.k === periodKey) + '">' + p.label + '</button>').join("");
+  document.getElementById("pnote").textContent = c.p.from == null ? "Everything on record"
+    : fdate(new Date(c.p.from).toISOString().slice(0,10)) + " – " + fdate(new Date(Math.min(c.p.to, NOW.getTime())).toISOString().slice(0,10));
+
+  document.getElementById("tiles").innerHTML = [
+    {l:"Support", v:c.support.length ? inrShort(supTotal) : "—", s:c.support.length ? c.support.length + " months" : "None in period"},
+    {l:"Service", v:svcTotal ? inrShort(svcTotal) : "—", s:svcTotal ? dedupe(c.service.slice()).length + " given" : "None given"},
+    {l:"ROI till date", v:roiText(t.roi), s:c.roi.rows.length ? "Latest " + roiText(c.roi.rows[0].roi) + " in " + c.roi.rows[0].months + " mo" : "No service", roi:true},
+    {l:"Orders", v:c.orders.length ? inrShort(c.orders.reduce((a,r) => a + r.amt, 0)) : "—", s:c.orders.length ? c.orders.length + " lines" : "None tagged"},
+    {l:"Visits", v:String(c.visits.length), s:"sample rows"}
+  ].map(x => '<div class="tile' + (x.roi ? " tile--roi" : "") + '"><span class="lab">' + x.l + '</span><div class="tile-v">' + x.v + '</div><div class="tile-s">' + x.s + '</div></div>').join("");
+
+  const counts = {roi:null, support:c.support.length, service:c.service.length, orders:c.orders.length, visits:c.visits.length};
+  document.getElementById("tabs").innerHTML = [["roi","ROI"],["support","Support"],["service","Service"],["orders","Orders"],["visits","Visits"]]
+    .map(([k,l]) => '<button type="button" role="tab" data-t="' + k + '" aria-selected="' + (k === tab) + '">' + l +
+      (counts[k] ? '<span>' + counts[k] + '</span>' : '') + '</button>').join("");
+  document.getElementById("panel").innerHTML = PANELS[tab](c);
+
+  const acts = activities(c);
+  const filtered = kindFilter === "all" ? acts : acts.filter(a => a.k === kindFilter);
+  document.getElementById("actcount").textContent = acts.length;
+  document.getElementById("tlcount").textContent = filtered.length;
+  const kinds = [["all","Everything"],["support","Support"],["service","Service"],["order","Orders"],["visit","Visits"]];
+  document.getElementById("kind").innerHTML = kinds.map(([k,l]) =>
+    '<option value="' + k + '"' + (k === kindFilter ? " selected" : "") + '>' + l + " (" + (k === "all" ? acts.length : acts.filter(a => a.k === k).length) + ")</option>").join("");
+  document.getElementById("tl").innerHTML = renderTimeline(filtered);
+
+  document.getElementById("overview").hidden = view !== "overview";
+  document.getElementById("activities").hidden = view !== "activities";
+  document.querySelectorAll("[data-view]").forEach(b => b.setAttribute("aria-pressed", b.dataset.view === view));
+  document.getElementById("foot").textContent = docId;
+  document.getElementById("footnote").textContent = "Support and service read from ERP on 10 Sep 2026";
+}
+
+/* ------------------------------------------------------------------ events */
+document.getElementById("who").innerHTML = Object.entries(DOCTORS)
+  .map(([k,v]) => '<option value="' + k + '">' + v.name + " · " + k + "</option>").join("");
+document.getElementById("who").addEventListener("change", e => { docId = e.target.value; render(); });
+document.getElementById("periods").addEventListener("click", e => {
+  const b = e.target.closest("[data-p]"); if (!b) return; periodKey = b.dataset.p; render();
+});
+document.getElementById("tabs").addEventListener("click", e => {
+  const b = e.target.closest("[data-t]"); if (!b) return; tab = b.dataset.t; render();
+});
+document.querySelectorAll("[data-view]").forEach(b =>
+  b.addEventListener("click", () => { view = b.dataset.view; render(); }));
+document.getElementById("kind").addEventListener("change", e => { kindFilter = e.target.value; render(); });
+document.getElementById("theme").addEventListener("click", () => {
+  const dark = document.documentElement.getAttribute("data-theme") === "dark";
+  document.documentElement.setAttribute("data-theme", dark ? "light" : "dark");
+  document.getElementById("theme").textContent = dark ? "Dark" : "Light";
+});
+
+render();
+</script>

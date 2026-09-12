@@ -810,7 +810,7 @@ async function fetchDoctorServices(doctorId) {
  * calendar's own doctorVisitHistory uses to decide a visit was actually MADE
  * rather than merely planned.
  */
-const VISIT_FIELDS_QUERY = (filterArg) => `query DoctorVisits($name: String!, $filters: [DBFilterInput!]) {
+const VISIT_FIELDS_QUERY = (varDecl, filterArg) => `query DoctorVisits(${varDecl}) {
   Events(first: 1000, filter: ${filterArg}) {
     edges { node {
       name event_type starts_on event_category custom_longitude custom_latitude
@@ -827,13 +827,20 @@ const VISIT_FIELDS_QUERY = (filterArg) => `query DoctorVisits($name: String!, $f
 
 // Bounded first, unbounded as the fallback — see POB_QUERIES for why.
 const VISIT_QUERIES = [
-  VISIT_FIELDS_QUERY("$filters"),
-  VISIT_FIELDS_QUERY('{fieldname: "custom_doctor", operator: EQ, value: $name}'),
+  VISIT_FIELDS_QUERY("$filters: [DBFilterInput!]", "$filters"),
+  VISIT_FIELDS_QUERY("$name: String!", '{fieldname: "custom_doctor", operator: EQ, value: $name}'),
 ];
 
-/** Run a ladder of query shapes, returning the first that answers. */
+/**
+ * Run a ladder of query shapes, returning the first that answers.
+ *
+ * Every shape failing is worth saying out loud: the panel only shows
+ * "couldn't load", and the reason (a schema rejection, an auth failure) is
+ * otherwise lost. Each attempt's error is kept and logged once at the end.
+ */
 async function firstSuccessful(queries, variables, extract) {
   let lastError = null;
+  const errors = [];
   for (const query of queries) {
     try {
       const data = await graphqlRequest(query, variables);
@@ -841,9 +848,15 @@ async function firstSuccessful(queries, variables, extract) {
       if (value != null) return value;
     } catch (error) {
       lastError = error;
+      errors.push(error);
     }
   }
-  if (lastError) throw lastError;
+  if (lastError) {
+    if (typeof console !== "undefined" && console.warn) {
+      console.warn("DoctorDetail: every query shape failed", errors.map((e) => e?.message ?? String(e)));
+    }
+    throw lastError;
+  }
   return null;
 }
 
@@ -912,7 +925,7 @@ function useDoctorEnrichment(doctorId, { enabled, pobLimit, from, pobsGiven, vis
         ];
         variables.visitFilters = [
           { fieldname: "custom_doctor", operator: "EQ", value: doctorId },
-          { fieldname: "starts_on", operator: "GTE", value: fromText },
+          { fieldname: "starts_on", operator: "GTE", value: fromText + " 00:00:00" },
         ];
       }
       await Promise.all(jobs.map(async ([key, run]) => {
@@ -2437,7 +2450,7 @@ function RevenuePanel({ revenue, known, loading, currency, compact }) {
   );
 }
 
-function VisitsPanel({ visits, known, loading, pobs, currency }) {
+function VisitsPanel({ visits, known, loading, pobs, currency, range }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
   const [page, setPage] = useState(0);
@@ -2448,7 +2461,17 @@ function VisitsPanel({ visits, known, loading, pobs, currency }) {
   });
   const currentPage = Math.min(page, Math.max(0, Math.ceil(filtered.length / 10) - 1));
   return <Section title="Visits" count={known ? visits.length : undefined}>
-    {loading && !known ? <Loading lines={4} /> : !known || !visits.length ? <Empty headline={known ? "No visits on file" : "Visit history unavailable"} body="Recorded visits and upcoming appointments will appear here." /> : <>
+    {loading && !known ? <Loading lines={4} /> : !known || !visits.length ? <Empty
+      headline={!known ? "Visit history unavailable" : range?.from == null ? "No visits on file" : `No visits in ${range.label}`}
+      /* The read is bounded by the period now, so an empty list usually means
+         "not in this window" rather than "never happened". Saying so stops a
+         reader concluding a doctor was never called on. */
+      body={!known
+        ? "Visit history could not be read from ERP. Retry above, or check this page’s ERP target."
+        : range?.from == null
+          ? "Recorded visits and upcoming appointments will appear here."
+          : "Only this period is loaded. Widen it above to see earlier visits."}
+    /> : <>
       <div className="dtx-toolbar"><label className="dtx-search"><Search size={15} /><input aria-label="Search visits" placeholder="Search visits or team members…" value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} /></label>
         <select className="dtx-select" aria-label="Filter visits" value={filter} onChange={(e) => { setFilter(e.target.value); setPage(0); }}><option value="all">All visits</option><option value="past">Past visits</option><option value="upcoming">Upcoming</option></select></div>
       <div className="dtx-notes">{filtered.slice(currentPage * 10, (currentPage + 1) * 10).map((visit, index) => {
@@ -3178,7 +3201,7 @@ export default function DoctorDetail({
   const serviceSection = <ServicePanel key={code} services={services} known={servicesKnown} loading={loadingServices} currency={currency} compact={compact} range={range} support={support} supportKnown={supportKnown} />;
   const revenueSection = <RevenuePanel key={code} revenue={revenue} known={revenueKnown} loading={loadingRevenue} currency={currency} compact={compact} />;
   const businessSection = <PobPanel key={code} pob={pob} known={pobKnown} loading={loadingPobs} currency={currency} compact={compact} limit={pobLimit} />;
-  const visitsSection = <VisitsPanel key={code} visits={visitRows} known={Array.isArray(visits)} loading={loadingVisits} pobs={pob.rows} currency={currency} />;
+  const visitsSection = <VisitsPanel key={code} visits={visitRows} known={Array.isArray(visits)} loading={loadingVisits} pobs={pob.rows} currency={currency} range={range} />;
 
   const notesSection = (
     <Section key="notes" title="Notes" count={notes.length}>

@@ -2,6 +2,7 @@
 
 import {
   deleteEventFromErp,
+  findExistingEventByNaturalKey,
   saveEvent,
   saveDocToQuotation,
 } from "@calendar/components/calendar/module/event/services/event.service";
@@ -561,6 +562,29 @@ async function processEventSubmission(queueItem) {
     ...erpDoc,
   };
 
+  // A create carries no name, so every re-send inserts another document. Items
+  // are re-sent for ordinary reasons — a lost response, a phone that
+  // backgrounded the tab mid-request, an in-flight write reclaimed as stale —
+  // which is how one submit ended up as two ERP events. `queueItem` is read
+  // before this attempt stamps it, so these fields describe earlier attempts.
+  const isResend =
+    Boolean(queueItem.syncStartedAt) || (queueItem.retryCount ?? 0) > 0;
+
+  if (!workingDoc.name && isResend) {
+    const existingName = await findExistingEventByNaturalKey({
+      subject: workingDoc.subject,
+      startsOn: workingDoc.starts_on,
+      eventCategory: workingDoc.event_category,
+    });
+
+    if (existingName) {
+      return {
+        name: existingName,
+        calendarEvent: buildSyncedCalendarEvent(queueItem, existingName),
+      };
+    }
+  }
+
   if (quotationDoc) {
     const savedQuotation = await saveDocToQuotation(quotationDoc);
     if (savedQuotation?.name) {
@@ -829,10 +853,20 @@ export async function processSubmissionQueue(runtime = {}) {
       // A MySQL lock wait can keep the request open close to the lock TTL.
       // Renew while awaiting ERP so another tab cannot reclaim and resend the
       // same queue item in the middle of a legitimate in-flight request.
-      const lockHeartbeatId = window.setInterval(
-        renewProcessingLock,
-        Math.floor(LOCK_TTL_MS / 3)
-      );
+      const lockHeartbeatId = window.setInterval(() => {
+        renewProcessingLock();
+
+        // Renew the item's own marker too. `isSyncInFlight` reads
+        // `syncStartedAt`, which was stamped once when this attempt began — so
+        // a save that legitimately runs past the TTL (slow network, internal
+        // retries) looked abandoned, and the next tab to mount reclaimed and
+        // re-sent it. That is a duplicate ERP document, not a retry.
+        updateQueueItem(nextItem.id, (item) =>
+          item.status === "syncing"
+            ? { ...item, syncStartedAt: new Date().toISOString() }
+            : item
+        );
+      }, Math.floor(LOCK_TTL_MS / 3));
 
       try {
         const result = await processQueueItem(nextItem, runtime);

@@ -74,6 +74,29 @@ query EventsByRange(
  * rows and not from whatever copy the browser has been holding — otherwise the
  * second person to mark a visit overwrites the first person's attendance.
  */
+/**
+ * Look up an event by the fields that identify it, so a re-sent create can
+ * adopt the document it already made instead of inserting a second one.
+ *
+ * Queue items are at-least-once: a lost response, a backgrounded tab or a
+ * reclaimed in-flight write all cause a re-send, and an Event create carries no
+ * name, so every re-send used to produce a duplicate.
+ */
+export const EVENT_BY_NATURAL_KEY_QUERY = `
+query EventByNaturalKey($first: Int!, $filters: [DBFilterInput!]) {
+  Events(first: $first, filter: $filters) {
+    edges {
+      node {
+        name
+        subject
+        starts_on
+        event_category
+      }
+    }
+  }
+}
+`;
+
 export const EVENT_PARTICIPANTS_QUERY = `
 query EventParticipants($name: String!) {
   Event(name: $name) {

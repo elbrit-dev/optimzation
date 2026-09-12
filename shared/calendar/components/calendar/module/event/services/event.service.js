@@ -5,6 +5,7 @@ import { isParticipantVisitRecorded } from "@calendar/lib/calendar/visit";
 import { ERP_EVENT_FIELDS } from "@calendar/components/calendar/module/event/graphql/field-config";
 import {
   CUSTOMER_QUERY,
+  EVENT_BY_NATURAL_KEY_QUERY,
   EVENT_PARTICIPANTS_QUERY,
   EVENTS_BY_RANGE_QUERY,
   SAVE_EVENT_MUTATION,
@@ -350,6 +351,39 @@ async function prepareEventDocForSave(doc, options) {
   }
 
   return outgoingDoc;
+}
+
+/**
+ * The document a previous attempt at this create already made, if any.
+ *
+ * Subject and starts_on together identify one of these events: the subject is
+ * generated from the doctor/HQ and the employee, and the app already treats one
+ * doctor per employee per day as unique. Matched with EQ only — this Frappe
+ * GraphQL layer mishandles IN filters.
+ */
+export async function findExistingEventByNaturalKey({
+  subject,
+  startsOn,
+  eventCategory,
+}) {
+  if (!subject || !startsOn) return null;
+
+  const data = await graphqlRequest(EVENT_BY_NATURAL_KEY_QUERY, {
+    first: 5,
+    filters: [
+      { fieldname: "subject", operator: "EQ", value: subject },
+      { fieldname: "starts_on", operator: "EQ", value: startsOn },
+    ],
+  });
+
+  const nodes =
+    data?.Events?.edges?.map((edge) => edge?.node).filter(Boolean) ?? [];
+
+  const match = eventCategory
+    ? nodes.find((node) => node.event_category === eventCategory)
+    : nodes[0];
+
+  return match?.name ?? null;
 }
 
 export async function saveEvent(doc, options = {}) {
