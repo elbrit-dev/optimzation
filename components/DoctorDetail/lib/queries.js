@@ -154,10 +154,12 @@ const VISIT_QUERY = (varDecl, filterArg) => `query DoctorVisits(${varDecl}) {
       custom_hq__name custom_doctor__name custom_pob_given
       custom_force_visit_reason custom_latitude custom_longitude
       custom_employee_id__name
+      custom_role_profile__name custom_department__name
       custom_employee_id { employee_name employee }
       event_participants {
         reference_doctype__name reference_docname__name attending
         custom_visit_time custom_is_force_visit
+        custom_role_profile__name
       }
     } }
   }
@@ -172,6 +174,7 @@ const VISIT_REST_FIELDS = [
   "name", "subject", "status", "event_type", "event_category", "starts_on", "creation",
   "custom_hq", "custom_doctor", "custom_pob_given", "custom_force_visit_reason",
   "custom_latitude", "custom_longitude", "custom_employee_id",
+  "custom_role_profile", "custom_department",
 ];
 
 /**

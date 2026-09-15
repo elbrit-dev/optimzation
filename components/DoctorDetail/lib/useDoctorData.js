@@ -26,6 +26,7 @@ import {
   deriveClinics, deriveDoctor, deriveNotes, derivePharmacies, derivePobs,
   deriveServices, deriveSupport, deriveVisits, eventOwnerIndex, normalizeRow,
 } from "./derive";
+import { resolveScope, scopeRawRows } from "./scope";
 
 const EMPTY = Object.freeze([]);
 
@@ -72,6 +73,12 @@ export function useDoctorData(doctorInput, { erpUrl, authToken, erpTarget, pobLi
       if (!live) return;
       const canSeeService = !!viewer?.canSeeService;
 
+      // WHAT they may count, not just who they are. The span walk is a handful
+      // of Employee reads and is issued alongside the doctor reads below rather
+      // than before them, because nothing can be filtered until both have
+      // landed anyway.
+      const scopePromise = resolveScope(viewer?.row ?? null).catch(() => null);
+
       // A read can fail two ways and they must not be reported the same. 403
       // means this user's ERP role cannot see that doctype — not a bug, and not
       // something a Retry button will ever fix.
@@ -87,15 +94,26 @@ export function useDoctorData(doctorInput, { erpUrl, authToken, erpTarget, pobLi
       };
 
       const vars = { name: doctorId, first: Math.max(1, Math.min(1000, Number(pobLimit) || 500)) };
-      const [lead, supportRaw, serviceRaw, addressRaw, pobRaw, visitRaw] = await Promise.all([
+      const [lead, supportAll, serviceAll, addressRaw, pobAll, visitAll, span] = await Promise.all([
         run("lead", () => fetchLead(vars), null),
         run("support", () => fetchSupport(doctorId), EMPTY),
         canSeeService ? run("service", () => fetchServices(doctorId), EMPTY) : Promise.resolve(EMPTY),
         run("addresses", () => fetchAddresses(doctorId), EMPTY),
         run("pobs", () => fetchPobs(vars), EMPTY),
         run("visits", () => fetchVisits(vars), EMPTY),
+        scopePromise,
       ]);
       if (!live) return;
+
+      // Narrowed HERE, on the raw rows, so every total and every chart series
+      // below is computed over the reader's own rows and nothing else.
+      const { support: supportRaw, service: serviceRaw, pobs: pobRaw, visits: visitRaw } =
+        scopeRawRows(span, {
+          support: supportAll,
+          service: serviceAll,
+          pobs: pobAll,
+          visits: visitAll,
+        });
 
       // Wave two: turn employee ids into roles and departments. Only the VISIT
       // rows name an employee — a Quotation names none, which is why POBs are
@@ -118,6 +136,11 @@ export function useDoctorData(doctorInput, { erpUrl, authToken, erpTarget, pobLi
         key,
         scope,
         viewer,
+        span,
+        // False means we could not establish WHAT this reader covers, so every
+        // scoped panel above is empty on purpose. The page must say so —
+        // otherwise it reads as a doctor with no history.
+        scoped: !!span?.resolved,
         canSeeService,
         doctor,
         support: deriveSupport(supportRaw),
@@ -152,6 +175,8 @@ export function useDoctorData(doctorInput, { erpUrl, authToken, erpTarget, pobLi
     fatal: current?.fatal ?? null,
     scope: current?.scope ?? "user",
     viewer: current?.viewer ?? null,
+    span: current?.span ?? null,
+    scoped: current?.scoped ?? false,
     canSeeService: current?.canSeeService ?? false,
     // The bound row paints the hero before any read lands.
     doctor: current?.doctor ?? placeholder,

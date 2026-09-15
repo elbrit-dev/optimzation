@@ -17,6 +17,8 @@ import { AUTH_CONFIG } from "@calendar/components/auth/calendar-users";
 import { graphqlRequest } from "@calendar/lib/graphql-client";
 import { getEndpointConfigFromUrlKeyAsync } from "@/app/graphql-playground/constants";
 
+import { SERVICE_MIN_RANK, gradeRank } from "./grade";
+
 const LIVE_ERP_TARGET = "ERP";
 
 function stripAuthScheme(token) {
@@ -190,8 +192,16 @@ export const ROLE_NAMES = {
   Admin: "Administrator",
 };
 
-/** Roles allowed to see what the company SPENT on a doctor. */
-const SERVICE_VISIBLE_TO = ["SM", "ZSM", "Admin"];
+/**
+ * The grade at which service spend becomes visible now lives in grade.js, as a
+ * RANK rather than a list of seat prefixes.
+ *
+ * The list this replaced read ["SM", "ZSM", "Admin"] and was wrong for real
+ * people: E00181 holds seat SRBM-ELBR-KE-COC but is designated Sales Manager
+ * and has RBMs reporting to him, and E00003 is the General Manager sitting on a
+ * seat literally called "IT". Both were refused figures they are entitled to,
+ * because a prefix list can only ever match the seat codes someone remembered.
+ */
 
 /**
  * "BE12-CND-CH-CHE" -> "BE".
@@ -275,6 +285,7 @@ export async function resolveViewer() {
   const roleId = row?.custom_role_profile ?? row?.role_id ?? null;
   const role = rolePrefix(roleId) ?? (email && !row ? null : null);
   const department = parseDepartment(row?.department);
+  const rank = gradeRank({ roleId, designation: row?.designation });
 
   return {
     email,
@@ -283,9 +294,13 @@ export async function resolveViewer() {
     designation: row?.designation ?? null,
     roleId,
     role,
+    rank,
     division: department.division,
     hq: row?.fsl_hq ?? row?.custom_territory ?? null,
-    canSeeService: !!role && SERVICE_VISIBLE_TO.includes(role),
+    canSeeService: rank >= SERVICE_MIN_RANK,
+    // The Employee row itself, so the span walk does not have to fetch it a
+    // second time. `resolveScope` needs `name` and nothing else is re-read.
+    row,
     resolved: !!row,
   };
 }
