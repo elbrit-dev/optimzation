@@ -723,6 +723,14 @@ export function buildCustomReportV2Input(gqlVars, drillDown = null) {
 
   const sort = _buildSortInput(gqlVars.sort_by, groupByEnums, report);
 
+  // Generic name/value passthrough for report-specific knobs that aren't a
+  // dimension, metric, or ReportOptionsInput field -- e.g. STOCK's
+  // expiry_months. Config supplies filters.params as a plain object; the
+  // server validates each name itself, so nothing here is report-scoped.
+  const paramEntries = Object.entries(filters.params ?? {})
+    .filter(([, value]) => value != null && value !== '')
+    .map(([name, value]) => ({ name, value: String(value) }));
+
   const input = {
     report: reportKey,
     date_range: { from_date: filters.from_date, to_date: filters.to_date },
@@ -746,6 +754,7 @@ export function buildCustomReportV2Input(gqlVars, drillDown = null) {
   if (metricEnums.length)    input.metrics = metricEnums;
   if (dimensionFilters.length) input.dimension_filters = dimensionFilters;
   if (sort.length)           input.sort = sort;
+  if (paramEntries.length)  input.params = paramEntries;
 
   return input;
 }
@@ -1101,6 +1110,7 @@ export function buildDrillDownInput(gqlVars, path, {
   if (base.metrics)           input.metrics = base.metrics;
   if (base.dimension_filters) input.dimension_filters = base.dimension_filters;
   if (base.sort)              input.sort = base.sort;
+  if (base.params)            input.params = base.params;
   if (depth != null)          input.depth = depth;
   if (!includeChildCounts)    input.include_child_counts = false;
 

@@ -3,9 +3,6 @@ import { TAG_IDS } from "@calendar/components/calendar/constants";
 import { useRef } from "react";
 import { toast } from "sonner";
 import { deleteEventFromErp } from "@calendar/components/calendar/module/event/services/event.service";
-import {
-  discardQueuedSubmission,
-} from "@calendar/lib/calendar/submission-queue";
 const OVERLAY_HISTORY_FLAG = "__calendarOverlayLayer";
 
 function isEditableElement(element) {
@@ -122,30 +119,10 @@ export function useDeleteEvent({ removeEvent, onClose }) {
     deleteLockRef.current = true;
 
     try {
-      if (event?.__pendingDelete) {
-        toast.info("Delete is already queued for sync.");
-        return;
-      }
-
-      const queueId = event?.__localQueueId;
-      const isLocalOnly =
-        String(erpName ?? "").startsWith("local-");
-
-      if (isLocalOnly) {
-        discardQueuedSubmission({
-          queueId,
-          erpName,
-        });
-        removeEvent(erpName);
-        onClose?.();
-        toast.success("Queued event removed.");
-        return;
-      }
-
+      // Every event on the calendar is a document ERP has stored, so there is no
+      // local-only case to discard: deleting means deleting in ERP, and the row
+      // only leaves the calendar once ERP has confirmed it.
       await deleteEventFromErp(erpName, docname);
-      discardQueuedSubmission({
-        erpName,
-      });
       removeEvent(erpName);
       onClose?.();
       toast.success("Event deleted.");

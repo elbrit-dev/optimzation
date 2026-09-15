@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Plus, RotateCw, Search } from "lucide-react";
+import { Check, Plus, Search } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@calendar/components/ui/avatar";
 import { Button } from "@calendar/components/ui/button";
 import { Input } from "@calendar/components/ui/input";
@@ -67,9 +67,6 @@ export function MobileSchedulerSidebarContent({ open, onClose }) {
     filterEventsBySelectedUser,
     elbritRoleEdges,
     elbritRoleLoading,
-    pendingSyncCount,
-    retryPendingSync,
-    isRetryingSync,
     enableGoogleCalendarSync,
   } = useCalendar();
 
@@ -540,18 +537,6 @@ export function MobileSchedulerSidebarContent({ open, onClose }) {
           {enableGoogleCalendarSync && (
             <GoogleCalendarConnect className="w-full justify-center rounded-xl text-sm" />
           )}
-          {pendingSyncCount > 0 ? (
-            <Button
-              type="button"
-              variant="outline"
-              className="h-9 w-full rounded-xl border-slate-200 text-sm font-medium"
-              onClick={retryPendingSync}
-              disabled={isRetryingSync}
-            >
-              <RotateCw className={cn("mr-2 size-4", isRetryingSync && "animate-spin")} />
-              {isRetryingSync ? "Retrying..." : `Retry Sync (${pendingSyncCount})`}
-            </Button>
-          ) : null}
         </div>
       </div>
     </div>

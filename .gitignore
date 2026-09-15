@@ -55,3 +55,6 @@ tools/auth-audit-dashboard/netlify-env.local.txt
 # account audit dashboard — generated files holding live secrets
 tools/auth-audit-dashboard/lib/credentials.mjs
 tools/auth-audit-dashboard/lib/auth-secrets.mjs
+
+# Local render of components/DoctorDetail for eyeballing — see scripts/preview-doctor-detail.cjs
+.preview/

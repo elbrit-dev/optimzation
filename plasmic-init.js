@@ -1592,56 +1592,66 @@ PLASMIC.registerComponent(DoctorDetail, {
   name: "DoctorDetail",
   displayName: "Doctor Detail Page",
   description:
-    "The whole doctor detail page as ONE component: identity, the recorded-POB balance with its trend, vitals, and panels for revenue, investment, quotations, visits, notes, coverage, contact, classification and record. Every panel is scoped by ONE period control above the tabs, defaulting to the current Indian financial year (1 April), so revenue and investment are always measured over the same window. The page opens on OVERVIEW; an ACTIVITIES view beside it folds visits, POBs, orders, investment and notes into one timeline in the order they happened, filterable by kind — the same data, answering what HAPPENED instead of what is TRUE. Bind DOCTOR and you are done — it runs its own ERP queries for everything the row does not carry (the full Lead, the POB ledger, visit history, addresses), so there is nothing to plumb. Every read is additive: the bound row paints immediately, a read that fails leaves the page on that row behind a dismissible strip, and a panel with no data says so in words rather than spinning. Coloured in the Elbrit palette taken off the logo, and there is deliberately no route into ERP — no link, no action, no footer. It is a component, not a page: at auto height it grows inside a stack, and given a height it scrolls inside itself.",
+    "The whole doctor page as ONE component, built to the design management approved in September 2026: a hero card (identity, ROI, the stat strip, clinic chips and the actions), a swipeable strip of TOTALS — visits, POB, support, notes and service — each showing its last three entries and a way into the timeline, COVERAGE BY ROLE as BE/ABM/RBM/ZSM rings you can open for the per-department split, a MONTHLY TREND of smoothed lines over one rupee axis with visits on their own rail below and a pager through the doctor’s departments, and one panel that switches between a DEPARTMENT TABLE (optionally pivoted by month, expandable to real POB product lines) and an ACTIVITY TIMELINE. One filter above them all — department, value format and period, defaulting to the current Indian financial year — so no two numbers on the page are ever measured over different windows. BIND THE DOCTOR AND THE SIGNED-IN USER’S ERP CREDENTIAL AND YOU ARE DONE: the component runs its own reads and works out who is looking, what they may see, which departments the doctor has and who covers them. Reading with the user’s own token is the point — several reps share a doctor, and ERP’s permissions are what keep one of them out of another’s rows. Service figures (and ROI) are shown only to SM, ZSM and Admin; everyone else sees the page without them, and it says so rather than leaving a blank. EVERY figure is attributed, support included: its department, role profile and product breakdown come off Doctor Support’s item child table (the parent row carries only the month totals, which is why a list read makes it look bare). So the department filter, the chart pager and the table rows all count the same way, and a support month can be opened to its Ecubix product lines. The only thing that ever lands in Unassigned is a month Ecubix sent as a total with no products behind it — shown rather than dropped, so the headline total always ties out.",
   props: {
     doctor: {
       type: "object",
       description:
-        "WHO to show — THE ONLY BINDING REQUIRED. Either the Lead id as a string (\"DR-36661\", e.g. from the URL) or the doctor row you already have: bind currentItem straight from a list and it is unwrapped for you, including a GraphQL edge ({ node }). The row paints the masthead instantly while the rest is fetched. Field names are the component's own business now that it owns the queries, so there is nothing to map.",
-      defaultValue: {
-        name: "DR-36661",
-        lead_name: "Dr Shanmugam",
-        custom_specialty__name: "NEURO",
-        custom_qualification__name: "MD.DM",
-        custom_category__name: "C",
-        city: "Trichy",
-        territory: { name: "HQ-Trichy" },
-      },
+        "WHO to show — THE ONLY DATA BINDING REQUIRED. Either the Lead id as a string (\"DR-47718\", e.g. from the URL) or the doctor row you already have: bind currentItem straight from a list and it is unwrapped for you, including a GraphQL edge ({ node }). The row paints the hero instantly while everything else is fetched. Field names are the component’s own business — there is nothing to map.",
+      defaultValue: "DR-47718",
     },
-    employee: {
-      type: "object",
+    erpUrl: {
+      type: "string",
+      defaultValue: "",
       description:
-        "WHO is acting — bind the signed-in user's ERP Employee record, or just their Employee ID as a string. Add POB defaults the employee to them and narrows the dropdown to them plus everyone under them in the role hierarchy. This one cannot be worked out internally: the signed-in user is only published by the calendar's AuthProvider, which does not run on a doctor page. Leave it empty and the page still works, but Add POB falls back to every active employee with nothing pre-selected.",
+        "The ERP GraphQL endpoint, bound TOGETHER with Auth Token to the SIGNED-IN USER’S credential — the same pair the calendar page binds on CalendarPage. This is what scopes the page: every read is made as that user, so ERP’s own permissions decide which of a shared doctor’s rows they see. Leave BOTH empty and the page falls back to whatever AuthProvider has already published, and failing that to the shared row in /tokens — which sees everything, so the page says so in a strip across the top rather than letting unscoped figures pass as scoped.",
     },
-    sections: {
-      type: "choice",
-      multiSelect: true,
-      options: ["roi", "support", "service", "orders", "business", "visits", "notes", "coverage", "contact", "classification", "record"],
+    authToken: {
+      type: "string",
+      defaultValue: "",
       description:
-        "WHICH panels to show, and in what order. Leave empty for all of them. roi = support divided by service, measured from each service forward (till date, latest, one before, peak) plus a financial-year table · support = what the doctor gives back: monthly Doctor Support from Ecubix · service = what the company gives them: cash, gift cards, EMI takeovers, cabs and transfers from Doctor Service · orders = Sales Order lines tagged to the doctor (a small, partial slice of the real business — support is the number that matters) · business = the quotation ledger, by-month chart and products prescribed · visits = visit history with who called and whether the call was actually made · notes = the doctor's notes · coverage = division × HQ × beat with the assigned rep · contact = addresses, phones, e-mail, coordinates · classification = grade and the C1/C2/C3 codes · record = ids and timestamps. On a wide container business, visits and notes share the big column as tabs and the rest fills the sidebar, each in your order; on a narrow one it is a single stream. A panel that would be empty still renders and says why, rather than vanishing and leaving the reader unsure whether it was switched off or has no data.",
+        "The signed-in user’s ERP token, bound together with ERP URL. There is deliberately NO prop for the viewer’s role: the token identifies them and the component asks ERP (logged user → Employee → role profile). A role prop would let anyone with Studio access hand themselves sight of the service figures.",
     },
     erpTarget: {
       type: "string",
       defaultValue: "",
       description:
-        "WHICH ERP to read — the name of a row in /tokens, where the page prompts \"ERP / UAT / DEV\". LEAVE EMPTY on a normal page and it reads live. It deliberately does not follow the row flagged \"default\" in /tokens: that flag is a convenience for the query playground and points at whichever instance was last poked. Set UAT on a test page. This component only ever READS — it never writes to ERP except through Add POB, and it never links out to it.",
+        "WHICH ERP to read when no user token is bound — the name of a row in /tokens, where the page prompts \"ERP / UAT / DEV\". LEAVE EMPTY on a normal page. It deliberately does not follow the row flagged \"default\": that flag is a convenience for the query playground and points at whichever instance was last poked. Set UAT on a test page.",
     },
     onBack: {
       type: "eventHandler",
       description:
-        "Navigate back, with { doctor, code }. The back pill only appears when this is wired, so it can never be a control that does nothing. The component does not navigate itself.",
+        "Navigate back, with { doctor, code }. Wire it and the breadcrumb’s \"Doctor lists\" becomes a link; leave it and the crumb is plain text. The component never navigates itself.",
       argTypes: [{ name: "payload", type: "object" }],
     },
-    onAddNote: {
+    onAddClinic: {
       type: "eventHandler",
       description:
-        "Open your own note composer, with { doctor, code, name }. Like the back pill, the action only appears once this is wired — the component does not write notes itself.",
+        "Open your own \"add clinic\" flow, with { doctor, code }. THE CHIP ONLY APPEARS ONCE THIS IS WIRED, so it can never be a control that does nothing — ERP has no clinic doctype (no type, no visiting days, one set of coordinates on the Lead), so there is nothing the component could write on its own.",
+      argTypes: [{ name: "payload", type: "object" }],
+    },
+    onAddPharmacy: {
+      type: "eventHandler",
+      description:
+        "Open your own \"add pharmacy\" flow from inside the linked-pharmacies dialog, with { doctor, code }. Like Add clinic, the button only appears once wired: the pharmacy list is reconstructed from the POB ledger because ERP holds no doctor-to-pharmacy link, so there is no row for the component to create.",
+      argTypes: [{ name: "payload", type: "object" }],
+    },
+    onRequestService: {
+      type: "eventHandler",
+      description:
+        "Open your own service-request flow, with { doctor, code }. The button only appears once wired — Doctor Service rows are raised through an approval process this page has no business short-circuiting.",
+      argTypes: [{ name: "payload", type: "object" }],
+    },
+    onPobSaved: {
+      type: "eventHandler",
+      description:
+        "Fires after Add POB writes a Quotation, with whatever the POB dialog reports. Optional — the page already refreshes itself, so wire this only if something else on the page has to react.",
       argTypes: [{ name: "payload", type: "object" }],
     },
     className: {
       type: "string",
       description:
-        "Set by Studio for sizing. Leave the height on auto and the component grows inside a stack; give it a height (or stretch it) and it scrolls inside itself instead of clipping.",
+        "Set by Studio for sizing. The layout switches to its compact (phone) arrangement by the COMPONENT’S OWN width, not the window’s, so it is correct in a narrow column on a wide screen.",
     },
   },
   importPath: "./components/DoctorDetail",

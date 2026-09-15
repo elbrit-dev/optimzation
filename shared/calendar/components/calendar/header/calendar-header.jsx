@@ -28,9 +28,6 @@ export function CalendarHeader() {
 		events,
 		activeDate,
 		selectedDate,
-		pendingSyncCount,
-		retryPendingSync,
-		isRetryingSync,
 		syncCalendar,
 		allEvents,
 		enableGoogleCalendarSync,
@@ -110,19 +107,6 @@ export function CalendarHeader() {
 							{isSyncing ? "Syncing..." : "Sync"}
 						</span>
 					</Button>
-					{pendingSyncCount > 0 && (
-						<Button
-							type="button"
-							variant="outline"
-							onClick={retryPendingSync}
-							disabled={isRetryingSync}
-						>
-							<RotateCw className="h-4 w-4" />
-							{isRetryingSync
-								? "Retrying..."
-								: `Retry Sync(${pendingSyncCount})`}
-						</Button>
-					)}
 					<div className="hidden md:block">
 						<AddEditEventDialog startDate={startDateForDialog}>
 							<Button

@@ -3,7 +3,7 @@ import { addMinutes, differenceInCalendarDays, startOfDay, endOfDay, parseISO } 
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
-import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
+import { AUTH_CONFIG, LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 import { isEmployeeOnApprovedLeave } from "@calendar/lib/calendar/leaveDay";
 import { buildEventDefaultValues, getAvailableTags, TAG_IDS } from "@calendar/components/calendar/constants";
 import { mapFormToErpEvent } from "@calendar/components/calendar/module/event/mappers/event-to-erp";
@@ -11,6 +11,8 @@ import {
 	fetchAllCustomers,
 	fetchCustomersByTerritory,
 	fetchGoogleCalendarStatus,
+	saveDocToQuotation,
+	saveEvent,
 } from "@calendar/components/calendar/module/event/services/event.service";
 import { useWatch } from "react-hook-form";
 import { LeaveTypeCards } from "@calendar/components/calendar/leave/LeaveTypeCards";
@@ -47,10 +49,15 @@ import { DoctorNotesSection } from "../module/event/components/DoctorNotesSectio
 import TodoComments from "@calendar/components/calendar/module/todo/components/TodoCommentsSection";
 import { ErrorBoundary } from "@calendar/components/ui/error-boundary";
 import { Textarea } from "@calendar/components/ui/textarea";
-import { fetchEmployeeLeaveBalance } from "@calendar/components/calendar/module/leave/services/leave.service";
+import {
+	fetchEmployeeLeaveBalance,
+	saveLeaveApplication,
+	updateLeaveAttachment,
+} from "@calendar/components/calendar/module/leave/services/leave.service";
 import { isLeafRole, resolveLoggedInRoleId, resolveSuperiorShareUserIds } from "@calendar/lib/employeeHeirachy";
 import { resolvePobDepartments } from "@calendar/lib/calendar/pobDepartments";
-import { enqueueSubmission } from "@calendar/lib/calendar/submission-queue";
+import { saveDocToErp } from "@calendar/components/calendar/module/todo/services/todo.service";
+import { uploadLeaveMedicalCertificate } from "@calendar/lib/file.service";
 import { fetchDocSharesByDocument } from "@calendar/components/calendar/module/event/services/docshare.service";
 import { cn } from "@calendar/lib/utils";
 
@@ -83,7 +90,8 @@ export function AddEditEventDialog({
 		hqTerritoryOptions,
 		setEmployeeOptions, territoryDoctors, setTerritoryDoctors,
 		setDoctorOptions, customerOptions, setCustomerOptions, selectedDate, allowedEmployeeIds,
-		setHqTerritoryOptions, users, elbritRoleEdges, enabledTagIds, enableGoogleCalendarSync: calendarSyncEnabled } = useCalendar();
+		setHqTerritoryOptions, users, elbritRoleEdges, enabledTagIds, enableGoogleCalendarSync: calendarSyncEnabled,
+		addEvent, updateEvent } = useCalendar();
 	// Only the event types this deployment enables can be created here, and a new
 	// event must start on one of them.
 	const availableTags = useMemo(
@@ -1144,10 +1152,6 @@ export function AddEditEventDialog({
 		toast.success(message);
 		resetAndCloseDialog();
 	};
-	const finalizeQueued = (message) => {
-		toast.info(message);
-		resetAndCloseDialog();
-	};
 	function normalizePobItemsForUI(items = []) {
 		return items.map(row => ({
 			item__name:
@@ -1654,37 +1658,59 @@ export function AddEditEventDialog({
 				event?.ownerFullName || LOGGED_IN_USER.name,
 		});
 		ensureDoctorOptionsAvailable(normalizedValues.doctor);
-		await enqueueSubmission({
-			kind: "event",
-			replaceQueueId: event?.__localQueueId ?? null,
-			targetErpName: event?.erpName ?? null,
-			optimisticEvent: calendarEvent,
-			payload: {
-				erpDoc,
-				quotationDoc,
-				saveOptions: {
-					shareWithUserIds: getShareUserIds(values),
-					deferShareSync: true,
-					skipExistingShareCheck: !event?.erpName,
-					// Rebuild the participant table from ERP at write time and touch
-					// only this user's row, so marking your own visit can't wipe a
-					// colleague's on a shared visit (see mergeParticipantRows).
-					...(event?.erpName && {
-						mergeParticipants: {
-							actingEmployeeId: LOGGED_IN_USER.id,
-							recomputeDoctorVisitStatus:
-								values.tags === TAG_IDS.DOCTOR_VISIT_PLAN,
-						},
-					}),
+
+		// Straight to ERP, and we wait for it. `form.formState.isSubmitting` keeps
+		// the Save button busy and `handleDialogOpenChange` refuses to close while
+		// that is true, so the user sees the write happening. If it throws,
+		// `onSubmit` catches it, shows the real ERP message and leaves the form
+		// open with their input intact — nothing is written to the calendar that
+		// ERP does not have.
+		const workingDoc = { ...erpDoc };
+
+		if (quotationDoc) {
+			const savedQuotation = await saveDocToQuotation(quotationDoc);
+			if (savedQuotation?.name) {
+				workingDoc.reference_doctype = "Quotation";
+				workingDoc.reference_docname = savedQuotation.name;
+			}
+		}
+
+		const savedEvent = await saveEvent(workingDoc, {
+			shareWithUserIds: getShareUserIds(values),
+			// Sharing is follow-up work on a document ERP has already committed,
+			// so it must not hold up the save the user is waiting on.
+			deferShareSync: true,
+			skipExistingShareCheck: !event?.erpName,
+			// Rebuild the participant table from ERP at write time and touch
+			// only this user's row, so marking your own visit can't wipe a
+			// colleague's on a shared visit (see mergeParticipantRows).
+			...(event?.erpName && {
+				mergeParticipants: {
+					actingEmployeeId: LOGGED_IN_USER.id,
+					recomputeDoctorVisitStatus:
+						values.tags === TAG_IDS.DOCTOR_VISIT_PLAN,
 				},
-			},
+			}),
 		});
 
-		finalizeQueued(
-			isEditing
-				? "Event queued for sync"
-				: "Event queued for sync"
-		);
+		const savedCalendarEvent = {
+			...calendarEvent,
+			erpName: savedEvent.name,
+			id: savedEvent.name,
+			reference_doctype: workingDoc.reference_doctype
+				? { name: workingDoc.reference_doctype }
+				: calendarEvent.reference_doctype,
+			reference_docname:
+				workingDoc.reference_docname ?? calendarEvent.reference_docname,
+		};
+
+		if (event?.erpName) {
+			updateEvent(savedCalendarEvent);
+		} else {
+			addEvent(savedCalendarEvent);
+		}
+
+		finalize(isEditing ? "Event updated" : "Event created");
 	};
 	const handleDoctorVisitPlan = async (values) => {
 		const shouldSyncGoogleCalendar = calendarSyncEnabled;
@@ -1698,80 +1724,95 @@ export function AddEditEventDialog({
 		);
 
 		const totalDoctors = normalizedDoctors.length;
-		const results = await Promise.allSettled(
-			normalizedDoctors.map(async (doctor) => {
-				const doctorId =
-					typeof doctor === "object" ? doctor.value : doctor;
-				const computedTitle = buildDoctorVisitTitle(doctorId, values);
+		// One doctor at a time, not Promise.all: these are concurrent writes to
+		// the same ERP table by the same user, which is exactly what produces the
+		// MySQL lock timeouts saveEvent has to retry around. Serial is a little
+		// slower for a multi-doctor plan and materially more likely to land.
+		const remainingDoctors = [];
+		let lastError = null;
 
-				const enrichedValues = {
-					...values,
-					title: computedTitle,
-					doctor,
-				};
-				ensureDoctorOptionsAvailable(doctor);
-				const erpDoc = mapFormToErpEvent(enrichedValues, {
-					employeeResolvers,
-					doctorResolvers,
-					enableGoogleCalendarSync: shouldSyncGoogleCalendar,
-					googleCalendar:
-						shouldSyncGoogleCalendar && googleCalendarEnabled
-							? LOGGED_IN_USER.email
-							: "IT Elbrit"
+		for (const doctor of normalizedDoctors) {
+			const doctorId =
+				typeof doctor === "object" ? doctor.value : doctor;
+			const computedTitle = buildDoctorVisitTitle(doctorId, values);
+
+			const enrichedValues = {
+				...values,
+				title: computedTitle,
+				doctor,
+			};
+			ensureDoctorOptionsAvailable(doctor);
+			const erpDoc = mapFormToErpEvent(enrichedValues, {
+				employeeResolvers,
+				doctorResolvers,
+				enableGoogleCalendarSync: shouldSyncGoogleCalendar,
+				googleCalendar:
+					shouldSyncGoogleCalendar && googleCalendarEnabled
+						? LOGGED_IN_USER.email
+						: "IT Elbrit"
+			});
+
+			try {
+				const savedEvent = await saveEvent(erpDoc, {
+					shareWithUserIds: superiorUserIds,
+					// The Event is committed by the time this runs; sharing is
+					// follow-up work and must not hold up the user's save.
+					deferShareSync: true,
+					skipExistingShareCheck: true,
 				});
 
-				const optimisticEventId = createLocalEventId(
-					`local-doctor-visit-${doctorId}`
-				);
-				const optimisticEvent = buildCalendarEvent({
-					values: enrichedValues,
-					erpDoc,
-					savedName: optimisticEventId,
-					tagConfig,
-					employeeOptions: employeePickerOptions,
-					doctorOptions,
-					ownerEmployeeIdOverride: LOGGED_IN_USER.id,
-					ownerEmailOverride: LOGGED_IN_USER.email,
-					ownerFullNameOverride: LOGGED_IN_USER.name,
-				});
-				await enqueueSubmission({
-					kind: "event",
-					targetErpName: null,
-					optimisticEvent,
-					payload: {
+				// Built from the name ERP just gave us, so what lands on the
+				// calendar is a real document — there is no local-only event that
+				// can later turn out never to have been saved.
+				addEvent(
+					buildCalendarEvent({
+						values: enrichedValues,
 						erpDoc,
-						quotationDoc: null,
-						saveOptions: {
-							shareWithUserIds: superiorUserIds,
-							deferShareSync: true,
-							skipExistingShareCheck: true,
-						},
-					},
-				});
-				return optimisticEventId;
-			})
-		);
+						savedName: savedEvent.name,
+						tagConfig,
+						employeeOptions: employeePickerOptions,
+						doctorOptions,
+						ownerEmployeeIdOverride: LOGGED_IN_USER.id,
+						ownerEmailOverride: LOGGED_IN_USER.email,
+						ownerFullNameOverride: LOGGED_IN_USER.name,
+					})
+				);
+			} catch (error) {
+				console.error(
+					`Failed to create Doctor Visit for ${doctorId}`,
+					error
+				);
+				lastError = error;
+				remainingDoctors.push(doctor);
+			}
+		}
 
-		const successCount = results.filter(
-			(result) => result.status === "fulfilled"
-		).length;
-		const failedCount = totalDoctors - successCount;
+		const successCount = totalDoctors - remainingDoctors.length;
 
-		if (failedCount === 0) {
-			finalizeQueued(
-				`${successCount} Doctor Visit event${successCount > 1 ? "s" : ""} queued for sync`
+		if (!remainingDoctors.length) {
+			finalize(
+				`${successCount} Doctor Visit event${successCount > 1 ? "s" : ""} created`
 			);
 			return;
 		}
 
+		// Leave the form open holding only the doctors that did NOT get saved, so
+		// pressing Save again retries just those. Re-submitting the whole list
+		// would create a second event for the doctors that already succeeded.
 		if (successCount > 0) {
-			toast.error(
-				`Created ${successCount} of ${totalDoctors} Doctor Visit events`
-			);
-			return;
+			form.setValue("doctor", remainingDoctors, {
+				shouldValidate: false,
+				shouldDirty: true,
+			});
 		}
 
-		toast.error("Failed to create Doctor Visit events");
+		const reason = lastError?.message ?? "Please try again.";
+
+		toast.error(
+			successCount > 0
+				? `Created ${successCount} of ${totalDoctors}. ${remainingDoctors.length} left in the form to retry — ${reason}`
+				: `Could not create the Doctor Visit. ${reason}`
+		);
 	};
 
 	const handleLeave = async (values) => {
@@ -1840,24 +1881,60 @@ export function AddEditEventDialog({
 				color: "#DC2626",
 			});
 
-			await enqueueSubmission({
-				kind: "leave",
-				replaceQueueId: event?.__localQueueId ?? null,
-				targetErpName: event?.erpName ?? null,
-				optimisticEvent: calendarLeave,
-				payload: {
-					leaveDoc,
-					saveOptions: {
-						erpName: event?.erpName,
-					},
-					medicalAttachment: values.medicalAttachment,
-				},
+			const savedLeave = await saveLeaveApplication(leaveDoc, {
+				erpName: event?.erpName,
 			});
-			finalizeQueued(
-				isEditing
-					? "Leave queued for sync"
-					: "Leave queued for sync"
-			);
+
+			// The application exists in ERP from here on. A certificate that fails
+			// to upload is reported, but it must not make a saved leave look
+			// unsaved — re-submitting would file a second application.
+			let uploadedFileUrl = null;
+
+			if (values.medicalAttachment instanceof File) {
+				try {
+					const uploadResult = await uploadLeaveMedicalCertificate(
+						{ medicalAttachment: values.medicalAttachment },
+						savedLeave.name,
+						AUTH_CONFIG.erpUrl,
+						AUTH_CONFIG.authToken
+					);
+
+					if (uploadResult?.fileUrl) {
+						await updateLeaveAttachment(
+							savedLeave.name,
+							uploadResult.fileUrl
+						);
+						uploadedFileUrl = uploadResult.fileUrl;
+					}
+				} catch (uploadError) {
+					console.error(
+						`Medical certificate upload failed for ${savedLeave.name}`,
+						uploadError
+					);
+					toast.error(
+						"Leave was saved, but the medical certificate did not upload. Edit the leave to attach it again."
+					);
+				}
+			} else if (typeof values.medicalAttachment === "string") {
+				uploadedFileUrl = values.medicalAttachment;
+			}
+
+			const savedCalendarLeave = {
+				...calendarLeave,
+				erpName: savedLeave.name,
+				id: savedLeave.name,
+				...(uploadedFileUrl
+					? { medicalAttachment: uploadedFileUrl }
+					: {}),
+			};
+
+			if (event?.erpName) {
+				updateEvent(savedCalendarLeave);
+			} else {
+				addEvent(savedCalendarLeave);
+			}
+
+			finalize(isEditing ? "Leave updated" : "Leave applied");
 
 		} catch (error) {
 			console.error("Leave submission error:", error);
@@ -1884,26 +1961,25 @@ export function AddEditEventDialog({
 			employeeResolvers
 		);
 
-		await enqueueSubmission({
-			kind: "todo",
-			replaceQueueId: event?.__localQueueId ?? null,
-			targetErpName: event?.erpName ?? null,
-			optimisticEvent: calendarTodo,
-			payload: {
-				todoDoc,
-				saveOptions: {
-					shareWithUserIds: getShareUserIds(values),
-					deferShareSync: true,
-					skipExistingShareCheck: !event?.erpName,
-				},
-			},
+		const savedTodo = await saveDocToErp(todoDoc, {
+			shareWithUserIds: getShareUserIds(values),
+			deferShareSync: true,
+			skipExistingShareCheck: !event?.erpName,
 		});
 
-		finalizeQueued(
-			isEditing
-				? "Todo queued for sync"
-				: "Todo queued for sync"
-		);
+		const savedCalendarTodo = {
+			...calendarTodo,
+			erpName: savedTodo.name,
+			id: savedTodo.name,
+		};
+
+		if (event?.erpName) {
+			updateEvent(savedCalendarTodo);
+		} else {
+			addEvent(savedCalendarTodo);
+		}
+
+		finalize(isEditing ? "Todo updated" : "Todo created");
 	};
 	const onInvalid = (errors) => {
 		const shown = showFirstFormErrorAsToast(errors);
