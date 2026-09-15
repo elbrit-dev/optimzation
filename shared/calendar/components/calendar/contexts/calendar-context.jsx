@@ -55,13 +55,30 @@ function discardLegacySubmissionQueue() {
 	return abandonedCount;
 }
 
-function mergeFetchedEventsWithRecent(existingEvents = [], fetchedEvents = []) {
+function mergeFetchedEventsWithRecent(
+	existingEvents = [],
+	fetchedEvents = [],
+	recentlyDeleted = null
+) {
+	const now = Date.now();
+
+	// A refetch that was already in flight when the user deleted something comes
+	// back still listing that event — it was issued before ERP removed it.
+	// Merging it would put the deleted event straight back on the calendar and
+	// make a successful delete look like it did nothing. ERP is right; this list
+	// is just older than the delete.
+	const survivingFetchedEvents = recentlyDeleted?.size
+		? fetchedEvents.filter((event) => {
+			const deletedAt = recentlyDeleted.get(event?.erpName);
+			return !deletedAt || now - deletedAt >= RECENT_SYNC_GRACE_MS;
+		})
+		: fetchedEvents;
+
 	const fetchedIds = new Set(
-		fetchedEvents
+		survivingFetchedEvents
 			.map((event) => event?.erpName)
 			.filter(Boolean)
 	);
-	const now = Date.now();
 	const recentSyncedEvents = existingEvents.filter((event) => {
 		if (!event?.erpName || fetchedIds.has(event.erpName)) {
 			return false;
@@ -75,7 +92,7 @@ function mergeFetchedEventsWithRecent(existingEvents = [], fetchedEvents = []) {
 		return now - justSyncedAt < RECENT_SYNC_GRACE_MS;
 	});
 
-	return [...fetchedEvents, ...recentSyncedEvents];
+	return [...survivingFetchedEvents, ...recentSyncedEvents];
 }
 
 function normalizeCalendarEventState(event) {
@@ -252,8 +269,25 @@ export function CalendarProvider({
 	};
 
 
+	// erpName -> when it was deleted. Read by mergeFetchedEventsWithRecent so a
+	// refetch issued before the delete cannot put the row back.
+	const recentlyDeletedRef = useRef(new Map());
+
 	const removeEvent = (erpName) => {
 		if (!erpName) return;
+
+		const tombstones = recentlyDeletedRef.current;
+		const now = Date.now();
+		tombstones.set(erpName, now);
+
+		// Only the grace window matters; anything older has already been through
+		// a full refetch, so keeping it would suppress a genuine re-creation of
+		// the same document.
+		tombstones.forEach((deletedAt, name) => {
+			if (now - deletedAt >= RECENT_SYNC_GRACE_MS) {
+				tombstones.delete(name);
+			}
+		});
 
 		setServerEvents(prev => prev.filter(e => e.erpName !== erpName));
 		// setFilteredEvents(prev => prev.filter(e => e.erpName !== erpName));
@@ -287,7 +321,11 @@ export function CalendarProvider({
 		}
 
 		setServerEvents((prev) =>
-			mergeFetchedEventsWithRecent(prev, nextEvents)
+			mergeFetchedEventsWithRecent(
+				prev,
+				nextEvents,
+				recentlyDeletedRef.current
+			)
 		);
 		return nextEvents;
 	}, [refreshEvents]);
@@ -315,7 +353,11 @@ export function CalendarProvider({
 		}
 
 		setServerEvents((prev) =>
-			mergeFetchedEventsWithRecent(prev, nextEvents)
+			mergeFetchedEventsWithRecent(
+				prev,
+				nextEvents,
+				recentlyDeletedRef.current
+			)
 		);
 		return nextEvents;
 	}, [selectedDate]);

@@ -11,6 +11,7 @@ import {
 	fetchAllCustomers,
 	fetchCustomersByTerritory,
 	fetchGoogleCalendarStatus,
+	findExistingEventByNaturalKey,
 	saveDocToQuotation,
 	saveEvent,
 } from "@calendar/components/calendar/module/event/services/event.service";
@@ -1152,6 +1153,29 @@ export function AddEditEventDialog({
 		toast.success(message);
 		resetAndCloseDialog();
 	};
+	// Set when a submit from this form has already failed. A save can fail on the
+	// wire (a deadlock surfacing after the row committed, a lost response) while
+	// ERP has in fact stored the document — so a second press of Save would
+	// insert a duplicate. Before re-creating, look for the document the previous
+	// attempt may already have made and adopt it instead.
+	const previousSubmitFailedRef = useRef(false);
+
+	const createEventAdoptingPreviousAttempt = async (erpDoc, saveOptions) => {
+		if (!erpDoc.name && previousSubmitFailedRef.current) {
+			const existingName = await findExistingEventByNaturalKey({
+				subject: erpDoc.subject,
+				startsOn: erpDoc.starts_on,
+				eventCategory: erpDoc.event_category,
+			});
+
+			if (existingName) {
+				return { name: existingName, adopted: true };
+			}
+		}
+
+		return saveEvent(erpDoc, saveOptions);
+	};
+
 	function normalizePobItemsForUI(items = []) {
 		return items.map(row => ({
 			item__name:
@@ -1675,7 +1699,7 @@ export function AddEditEventDialog({
 			}
 		}
 
-		const savedEvent = await saveEvent(workingDoc, {
+		const savedEvent = await createEventAdoptingPreviousAttempt(workingDoc, {
 			shareWithUserIds: getShareUserIds(values),
 			// Sharing is follow-up work on a document ERP has already committed,
 			// so it must not hold up the save the user is waiting on.
@@ -1753,7 +1777,7 @@ export function AddEditEventDialog({
 			});
 
 			try {
-				const savedEvent = await saveEvent(erpDoc, {
+				const savedEvent = await createEventAdoptingPreviousAttempt(erpDoc, {
 					shareWithUserIds: superiorUserIds,
 					// The Event is committed by the time this runs; sharing is
 					// follow-up work and must not hold up the user's save.
@@ -1782,6 +1806,10 @@ export function AddEditEventDialog({
 					`Failed to create Doctor Visit for ${doctorId}`,
 					error
 				);
+				// This loop swallows the error so the other doctors still get
+				// saved, so onSubmit's catch never runs — set the flag here, or a
+				// retry of this doctor could duplicate a document ERP already has.
+				previousSubmitFailedRef.current = true;
 				lastError = error;
 				remainingDoctors.push(doctor);
 			}
@@ -2063,6 +2091,10 @@ export function AddEditEventDialog({
 			await handler(values);
 		} catch (error) {
 			console.error("Submit error:", error);
+
+			// The next attempt from this form has to assume ERP may already hold
+			// the document this one was creating.
+			previousSubmitFailedRef.current = true;
 
 			const message =
 				error?.response?.errors?.[0]?.message ||

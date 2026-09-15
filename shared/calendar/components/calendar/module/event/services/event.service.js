@@ -201,8 +201,13 @@ function isDatabaseContentionError(error) {
   const message = String(error?.message ?? "").toLowerCase();
 
   return (
-    message.includes("lock wait timeout") ||
-    message.includes("deadlock found") ||
+    // Matched loosely on purpose. Frappe surfaces the same MySQL condition with
+    // several different wrappings, and anything that reaches the user as a raw
+    // "deadlock" string is a retry we failed to make — it is contention, not a
+    // problem with the payload.
+    message.includes("lock wait") ||
+    message.includes("deadlock") ||
+    message.includes("try restarting transaction") ||
     message.includes("timestampmismatch") ||
     message.includes("has been modified after you have opened it") ||
     message.includes("document has been modified") ||
@@ -411,13 +416,11 @@ export async function saveEvent(doc, options = {}) {
 
       if (!canRetry) {
         if (isDatabaseContentionError(error)) {
-          // "Busy" is the marker the submission queue matches on to keep this
-          // pending and retry it in the background, instead of parking it as a
-          // failure the user has to notice and retry by hand. Wording stays
-          // generic: this happens while creating tour plans too, not just
-          // visits.
+          // Nothing retries this in the background any more, so the message must
+          // not promise that it will. The user is the retry now, and the form is
+          // still open in front of them.
           throw new Error(
-            "ERP is busy updating this event, so it is still queued and will retry automatically.",
+            "ERP was busy with this event and the save did not go through. Press Save again.",
             { cause: error }
           );
         }
