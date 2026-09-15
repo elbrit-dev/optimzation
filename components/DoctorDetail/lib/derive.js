@@ -49,6 +49,9 @@ export function deriveDoctor(lead, fallbackRow, doctorId) {
   const alt = fallbackRow ?? {};
   const read = (key) => row[key] ?? alt[key] ?? null;
 
+  // REST hands back the raw column, GraphQL the resolved Link label. Both
+  // shapes reach here because the reads race two transports.
+  const pick = (...keys) => { for (const k of keys) { const v = read(k); if (v != null && v !== "") return v; } return null; };
   const profiles = Array.isArray(read("custom_role_profile")) ? read("custom_role_profile") : [];
   const seen = new Map();
   const covering = [];
@@ -60,6 +63,8 @@ export function deriveDoctor(lead, fallbackRow, doctorId) {
     if (division && !seen.has(short)) {
       seen.set(short, { key: short, label: short, division, region, department: label });
     }
+    // GraphQL nests the employee under the role profile; REST returns the role
+    // profile as a bare string, so there is nobody to list.
     const list = entry.role_profile_list;
     const holder = list && typeof list === "object" ? list.custom_employee_id : null;
     const people = Array.isArray(holder) ? holder : holder ? [holder] : [];
@@ -69,16 +74,18 @@ export function deriveDoctor(lead, fallbackRow, doctorId) {
         employee: p.employee,
         name: p.employee_name ?? p.employee,
         division: short,
-        roleId: entry.role_profile_list__name ?? null,
-        role: rolePrefix(entry.role_profile_list__name),
+        roleId: entry.role_profile_list__name ?? (typeof list === "string" ? list : null),
+        role: rolePrefix(entry.role_profile_list__name ?? (typeof list === "string" ? list : null)),
       });
     });
   });
 
   const divisions = [...seen.values()];
   const name = String(read("lead_name") ?? read("first_name") ?? doctorId ?? "").trim();
-  const cats = [read("custom_category__name"), read("custom_category1__name"),
-    read("custom_category2__name"), read("custom_category3__name")]
+  const cats = [pick("custom_category__name", "custom_category"),
+    pick("custom_category1__name", "custom_category1"),
+    pick("custom_category2__name", "custom_category2"),
+    pick("custom_category3__name", "custom_category3")]
     .map((v) => (v == null ? "" : String(v).trim()))
     .filter(Boolean);
 
@@ -89,8 +96,8 @@ export function deriveDoctor(lead, fallbackRow, doctorId) {
     id: doctorId ?? read("name") ?? null,
     name: name || (doctorId ?? "Doctor"),
     initials: initialsOf(name),
-    spec: read("custom_specialty__name") ?? read("custom_speciality") ?? null,
-    qual: read("custom_qualification__name") ?? read("custom_qualification") ?? null,
+    spec: pick("custom_specialty__name", "custom_specialty", "custom_speciality"),
+    qual: pick("custom_qualification__name", "custom_qualification"),
     city: read("city") ?? null,
     state: read("state") ?? null,
     hq: linkName(read("territory")),
@@ -241,49 +248,78 @@ export function deriveServices(rows) {
 /**
  * POB: one row per ITEM LINE, not per quotation.
  *
- * The design's table and banner both read POB as product lines, which is also
- * how the business talks about it. Department and role are not on the
- * Quotation — they come from `owner` through the employee index. A line whose
- * author cannot be resolved keeps its money and lands in Unassigned rather
- * than being dropped; a POB is real whether or not the rep still works here.
+ * WHO it belongs to comes from the doctor VISIT the quotation was raised on
+ * (`custom_event` -> that event's employee), never from `owner`. Owner is
+ * whoever saved the row — frequently an admin or an integration account — and
+ * crediting a call to them would put other people's POBs in their column.
+ *
+ * A quotation with no event (a POB added straight from the doctor page) keeps
+ * its money and sits in Unassigned. That is the honest answer: ERP genuinely
+ * does not record whose it was.
+ *
+ * Two input shapes are accepted because the read races two transports: REST
+ * returns one flat row per line with `item_name`/`net_amount` on it, GraphQL
+ * one row per quotation with a nested `items` array.
  */
-export function derivePobs(rows, employeeIndex) {
+export function derivePobs(rows, eventIndex) {
   const out = [];
-  (rows ?? []).forEach((q) => {
+  const push = (q, line, i) => {
     const t = T(q.transaction_date);
     if (t == null) return;
-    const who = employeeIndex?.byUser?.get(q.owner) ?? null;
-    const div = shortDivision(who?.division) ?? UNASSIGNED;
-    const items = Array.isArray(q.items) ? q.items : [];
-    const chemist = q.customer_name ?? "Unnamed chemist";
-    const base = {
+    const eventId = q.custom_event ?? q.custom_event__name ?? null;
+    const who = eventId ? eventIndex?.get(eventId) ?? null : null;
+    out.push({
       k: "pob",
       quotation: q.name,
+      id: q.name + "#" + i,
       d: String(q.transaction_date).slice(0, 10),
       t,
-      div,
+      div: shortDivision(who?.division) ?? UNASSIGNED,
       role: who?.role ?? null,
-      by: who?.name ?? q.owner ?? null,
-      chemist,
+      by: who?.name ?? null,
+      event: eventId,
+      chemist: q.customer_name ?? "Unnamed chemist",
       address: q.address_display ? stripHtml(q.address_display) : null,
-      territory: q.territory__name ?? null,
+      territory: q.territory ?? q.territory__name ?? null,
       status: q.status ?? null,
-    };
-    if (!items.length) {
-      out.push({ ...base, item: "No line items", qty: toNumber(q.total_qty), amt: toNumber(q.grand_total) });
+      item: line.item ?? "Item",
+      qty: toNumber(line.qty),
+      amt: toNumber(line.amt),
+    });
+  };
+
+  (rows ?? []).forEach((q, qi) => {
+    if (Array.isArray(q.items)) {
+      // GraphQL shape: one row per quotation.
+      if (!q.items.length) {
+        push(q, { item: "No line items", qty: q.total_qty, amt: q.grand_total }, 0);
+        return;
+      }
+      q.items.forEach((it, i) => push(q, {
+        item: it.item_name ?? it.item_code, qty: it.qty, amt: it.net_amount,
+      }, i));
       return;
     }
-    items.forEach((it, i) => {
-      out.push({
-        ...base,
-        id: q.name + "#" + i,
-        item: it.item_name ?? it.item_code ?? "Item",
-        qty: toNumber(it.qty),
-        amt: toNumber(it.net_amount),
-      });
-    });
+    // REST shape: already one row per line.
+    push(q, { item: q.item_name ?? q.item_code, qty: q.qty, amt: q.net_amount }, qi);
   });
+
   return out.sort((a, b) => b.t - a.t);
+}
+
+/**
+ * Which employee each doctor visit belongs to, keyed by event id.
+ *
+ * Built from the visits the page already holds, so attributing the POB ledger
+ * costs no extra read.
+ */
+export function eventOwnerIndex(visits) {
+  const map = new Map();
+  (visits ?? []).forEach((v) => {
+    if (!v.id) return;
+    map.set(v.id, { name: v.who, role: v.role, division: v.div, employee: v.employee });
+  });
+  return map;
 }
 
 /**
@@ -295,7 +331,13 @@ export function derivePobs(rows, employeeIndex) {
  * was made. The parent Event's own `attending` is never written.
  */
 function readAttendance(visit) {
-  const rows = Array.isArray(visit?.event_participants) ? visit.event_participants : [];
+  // The REST fallback cannot read the participant table at all. Reporting
+  // "planned, not made" off an absent child table would libel every rep whose
+  // visits happened to come back over that route.
+  if (visit?.__attendanceUnknown || !Array.isArray(visit?.event_participants)) {
+    return { made: null, at: null, forced: false };
+  }
+  const rows = visit.event_participants;
   let made = false;
   let at = null;
   let forced = false;
@@ -325,7 +367,10 @@ export function deriveVisits(rows, employeeIndex) {
     .map((v) => {
       const t = T(v.starts_on);
       if (t == null) return null;
-      const empId = v.custom_employee_id?.employee ?? v.custom_employee_id__name ?? null;
+      // GraphQL nests it, REST returns the bare employee id.
+      const empId = typeof v.custom_employee_id === "string"
+        ? v.custom_employee_id
+        : v.custom_employee_id?.employee ?? v.custom_employee_id__name ?? null;
       const who = empId ? employeeIndex?.byId?.get(empId) ?? null : null;
       const attendance = readAttendance(v);
       return {
@@ -337,11 +382,12 @@ export function deriveVisits(rows, employeeIndex) {
         employee: empId,
         role: who?.role ?? null,
         div: shortDivision(who?.division) ?? UNASSIGNED,
-        hq: v.custom_hq__name ?? null,
+        hq: v.custom_hq__name ?? v.custom_hq ?? null,
         subject: v.subject ?? v.event_type ?? "Visit",
         category: v.event_category ?? null,
         pobGiven: v.custom_pob_given ?? null,
         made: attendance.made,
+        attendanceKnown: attendance.made !== null,
         at: attendance.at,
         forced: attendance.forced || !!v.custom_force_visit_reason,
         forceReason: v.custom_force_visit_reason ?? null,
@@ -369,7 +415,7 @@ export function deriveNotes(lead) {
         tag: "Note",
         title,
         body,
-        by: n?.added_by__name ?? null,
+        by: n?.added_by__name ?? n?.added_by ?? null,
       };
     })
     .filter((n) => n && n.t != null)

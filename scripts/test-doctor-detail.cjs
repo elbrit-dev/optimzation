@@ -156,9 +156,23 @@ async function main() {
 
   check('POB reads join on the Lead id, not an event', () => {
     assert.ok(queries.POB_QUERIES.every((q) => q.includes('custom_doctorvisit')));
-    // owner is what later becomes the department and the role; losing it
-    // silently drops every POB into Unassigned.
-    assert.ok(queries.POB_QUERIES.every((q) => /\bowner\b/.test(q)));
+  });
+
+  check('no read asks for owner anywhere', () => {
+    // owner is whoever SAVED the row - routinely an admin or an integration
+    // account. Attributing a call to them puts other people's work in their
+    // column. It is also a Link, so asking for it as a scalar 400s the query.
+    const all = [...queries.LEAD_QUERIES, ...queries.POB_QUERIES, ...queries.VISIT_QUERIES];
+    all.forEach((q) => assert.ok(!/\bowner\b/.test(q), 'a query still selects owner'));
+  });
+
+  check('no read asks for a Link field as a scalar', () => {
+    // salutation is type Salutation and owner is type User!. Either one in a
+    // selection 400s the WHOLE query and takes the page down with it.
+    const all = [...queries.LEAD_QUERIES, ...queries.POB_QUERIES, ...queries.VISIT_QUERIES];
+    all.forEach((q) => {
+      assert.ok(!/\bsalutation\b/.test(q), 'salutation must not be selected');
+    });
   });
 
   check('visits ask for participants, not the parent attending flag', () => {
@@ -288,33 +302,62 @@ async function main() {
     assert.equal(derive.deriveServices([{ name: 'X', service_amount: 100 }]).length, 0);
   });
 
-  check('a POB becomes one row per product line, attributed via its owner', () => {
-    const index = {
-      byUser: new Map([['rep@elbrit.org', { role: 'BE', division: 'Elbrit', name: 'Rep' }]]),
-      byId: new Map(),
-    };
+  // Quotation carries no employee and no role profile of its own. The only
+  // honest link is custom_event -> that doctor visit -> the visit's employee.
+  const EVENTS = new Map([['EV1', { name: 'Rep', role: 'BE', division: 'Elbrit', employee: 'E1' }]]);
+
+  check('a POB is attributed through its visit, never through owner', () => {
     const rows = derive.derivePobs([{
-      name: 'SAL-QTN-1', owner: 'rep@elbrit.org', transaction_date: '2026-09-02',
-      customer_name: 'Power Pharmaceuticals', total_qty: 50, grand_total: 4000,
+      name: 'SAL-QTN-1',
+      owner: 'administrator@elbrit.org', // an admin saved it; it is not their call
+      custom_event: 'EV1',
+      transaction_date: '2026-09-02',
+      customer_name: 'Power Pharmaceuticals',
       items: [
         { item_name: 'TRIGLIMIBRIT 1.3', qty: 30, net_amount: 3587 },
         { item_name: 'GLIMIBRIT M 0.5', qty: 20, net_amount: 413 },
       ],
-    }], index);
+    }], EVENTS);
     assert.equal(rows.length, 2);
     assert.equal(rows[0].div, 'Elbrit');
     assert.equal(rows[0].role, 'BE');
+    assert.equal(rows[0].by, 'Rep', 'the rep who made the visit, not the admin who saved it');
     assert.equal(rows[0].chemist, 'Power Pharmaceuticals');
   });
 
-  check('a POB whose author cannot be resolved keeps its money', () => {
+  check('a POB with no visit stays unattributed rather than crediting the saver', () => {
     const rows = derive.derivePobs([{
-      name: 'Q', owner: 'gone@elbrit.org', transaction_date: '2026-09-02',
+      name: 'Q', owner: 'administrator@elbrit.org', transaction_date: '2026-09-02',
       customer_name: 'Chemist', items: [{ item_name: 'X', qty: 1, net_amount: 500 }],
-    }], { byUser: new Map(), byId: new Map() });
+    }], EVENTS);
     assert.equal(rows.length, 1);
     assert.equal(rows[0].div, 'Unassigned');
-    assert.equal(rows[0].amt, 500);
+    assert.equal(rows[0].by, null);
+    assert.equal(rows[0].amt, 500, 'the money must survive being unattributed');
+  });
+
+  check('the REST row shape attributes identically to the GraphQL one', () => {
+    // REST answers one flat row per line; GraphQL one row per quotation with a
+    // nested items array. Both race, so both must land in the same place.
+    const rest = derive.derivePobs([
+      { name: 'Q1', custom_event: 'EV1', transaction_date: '2026-09-02', customer_name: 'Chem', item_name: 'X', qty: 3, net_amount: 300 },
+      { name: 'Q1', custom_event: 'EV1', transaction_date: '2026-09-02', customer_name: 'Chem', item_name: 'Y', qty: 1, net_amount: 100 },
+    ], EVENTS);
+    const gql = derive.derivePobs([
+      { name: 'Q1', custom_event__name: 'EV1', transaction_date: '2026-09-02', customer_name: 'Chem', items: [{ item_name: 'X', qty: 3, net_amount: 300 }, { item_name: 'Y', qty: 1, net_amount: 100 }] },
+    ], EVENTS);
+    assert.equal(rest.length, gql.length);
+    assert.equal(rest.reduce((a, r) => a + r.amt, 0), gql.reduce((a, r) => a + r.amt, 0));
+    assert.equal(rest[0].div, gql[0].div);
+    assert.equal(rest[0].role, gql[0].role);
+  });
+
+  check('the event index is built from the visits already on the page', () => {
+    const index = derive.eventOwnerIndex([
+      { id: 'EV9', who: 'Rep', role: 'ABM', div: 'Vasco', employee: 'E2' },
+    ]);
+    assert.equal(index.get('EV9').role, 'ABM');
+    assert.equal(index.get('EV9').division, 'Vasco');
   });
 
   check('a visit is only MADE when a participant was stamped', () => {
@@ -334,7 +377,22 @@ async function main() {
     ], index);
     assert.equal(made.made, true);
     assert.equal(planned.made, false);
+    assert.equal(planned.attendanceKnown, true);
     assert.equal(made.div, 'Elbrit');
+  });
+
+  check('a visit read without participants reports attendance as UNKNOWN', () => {
+    // The REST fallback cannot read the participant child table. Reporting
+    // "planned, not made" off an absent table would libel every rep whose
+    // visits happened to come back over that route.
+    const [v] = derive.deriveVisits([{
+      name: 'EV3', starts_on: '2026-08-22 10:00:00', subject: 'Call',
+      custom_employee_id: 'E1', custom_hq: 'HQ-Mysore', __attendanceUnknown: true,
+    }], { byUser: new Map(), byId: new Map([['E1', { role: 'BE', division: 'Elbrit', name: 'Rep' }]]) });
+    assert.equal(v.made, null);
+    assert.equal(v.attendanceKnown, false);
+    assert.equal(v.role, 'BE', 'the bare employee id must still resolve');
+    assert.equal(v.hq, 'HQ-Mysore');
   });
 
   check('a Lead note is flattened, never carried as HTML', () => {

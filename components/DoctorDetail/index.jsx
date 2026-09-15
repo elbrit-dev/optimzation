@@ -381,7 +381,8 @@ export default function DoctorDetail({
       k: "visit", id: "vis-" + r.id, t: r.t, d: r.d, div: r.div,
       title: r.subject, amt: null,
       meta: [r.who, r.role, r.hq].filter(Boolean).join(" · "),
-      flag: r.made ? (r.forced ? "Force visit" : null) : "Planned — not marked as made",
+      flag: r.made ? (r.forced ? "Force visit" : null)
+        : r.attendanceKnown ? "Planned — not marked as made" : null,
     }));
     notes.forEach((r) => out.push({
       k: "note", id: "note-" + r.id, t: r.t, d: r.d, div: "",
@@ -446,7 +447,11 @@ export default function DoctorDetail({
         pobs.length ? plural(pobs.length, "line tagged", "lines tagged") : "none tagged",
         last3(pobs, (r) => ({ a: sdate(r.d), c: r.role ?? r.div, b: money(r.amt), full: fdate(r.d) + " · " + r.item + " · qty " + r.qty + " · " + r.chemist }))),
       visit: make("visit", String(visits.length),
-        visits.length ? (made === visits.length ? "last " + fdate(visits[0].d) : made + " made · " + (visits.length - made) + " planned") : "none logged",
+        visits.length
+          ? (visits.some((v) => !v.attendanceKnown) || made === visits.length
+            ? "last " + fdate(visits[0].d)
+            : made + " made · " + (visits.length - made) + " planned")
+          : "none logged",
         last3(visits, (r) => ({ a: sdate(r.d), c: r.role ?? "—", b: r.div, full: fdate(r.d) + " · " + r.who + " · " + r.subject }))),
       note: make("note", String(notes.length),
         notes.length ? "last " + fdate(notes[0].d) : "none written",
@@ -539,13 +544,13 @@ export default function DoctorDetail({
     );
   }
 
-  const FAILED_NAMES = {
+  const READ_NAMES = {
     lead: "the doctor's profile", support: "support", service: "service",
     pobs: "POBs", visits: "visits", addresses: "addresses",
   };
-  const failed = Object.keys(data.errors)
-    .filter((k) => data.errors[k])
-    .map((k) => FAILED_NAMES[k] ?? k);
+  const named = (source) => Object.keys(source ?? {}).filter((k) => source[k]).map((k) => READ_NAMES[k] ?? k);
+  const failed = named(data.errors);
+  const refused = named(data.denied);
   const filterLabel = (div === "all" ? "All depts" : div) + " · " + range.label;
   const filterOn = div !== "all" || rangeMode.mode !== "fy";
 
@@ -621,6 +626,15 @@ export default function DoctorDetail({
           {filterOn ? <i className="dx-flag" /> : null}
         </button>
       </div>
+
+      {refused.length ? (
+        <div className="dx-warn" role="status">
+          <span>
+            Your ERP role cannot read {refused.join(", ")} for this doctor, so it is left out.
+            Everything else on the page is real. Ask MIS if you should have access — retrying will not help.
+          </span>
+        </div>
+      ) : null}
 
       {failed.length ? (
         <div className="dx-warn" role="status">

@@ -6,7 +6,7 @@
  * obvious alternatives fail silently rather than loudly. The comments say which.
  */
 
-import { erpList, firstSuccessful } from "./erp";
+import { erpDoc, erpList, firstAnswer, firstSuccessful } from "./erp";
 
 /* ------------------------------------------------------------------ Lead */
 
@@ -22,7 +22,7 @@ import { erpList, firstSuccessful } from "./erp";
  * reads it has to dedupe.
  */
 const LEAD_FIELDS = `
-  name lead_name first_name salutation city state country
+  name lead_name first_name city state country
   custom_doctor_code custom_specialty__name custom_speciality
   custom_category__name custom_category1__name custom_category2__name
   custom_category3__name custom_latitude custom_longitude
@@ -44,8 +44,24 @@ export const LEAD_QUERIES = [
   `query DoctorLead($name: String!) { Lead(name: $name) { ${LEAD_FIELDS} } }`,
 ];
 
+/**
+ * The doctor.
+ *
+ * REST FIRST. `GET /api/resource/Lead/<id>` returns the whole document —
+ * notes and custom_role_profile included — in one call, and it does not care
+ * what TYPE a field is. GraphQL does: asking for a Link as a scalar 400s the
+ * entire query. `salutation` is a Link to Salutation and took the whole page
+ * down until it was removed from the selection above; nothing here needs it,
+ * because the name is de-prefixed when initials are taken.
+ *
+ * The GraphQL ladder stays as the fallback for an instance where the REST list
+ * permission is withheld but the GraphQL resolver is not.
+ */
 export function fetchLead(vars) {
-  return firstSuccessful(LEAD_QUERIES, vars, (d) => d?.Lead ?? null);
+  return firstAnswer([
+    () => erpDoc("Lead", vars.name),
+    () => firstSuccessful(LEAD_QUERIES, vars, (d) => d?.Lead ?? null),
+  ]);
 }
 
 /* ------------------------------------------------------------------- POB */
@@ -53,27 +69,25 @@ export function fetchLead(vars) {
 /**
  * The POB ledger.
  *
- * `Quotation.custom_doctorvisit` is a Link to the LEAD, despite the name — it
- * holds "DR-47718", not an event id. Verified against live rows.
+ * `Quotation.custom_doctorvisit` is a Link to the LEAD despite the name — it
+ * holds "DR-47718", not an event id.
  *
- * The Quotation itself carries no department and no role. `owner` is the login
- * that raised it, and that resolves to an Employee, which is where both come
- * from — see fetchEmployeeIndex. `owner` is therefore not optional here even
- * though nothing renders it directly.
+ * WHO a POB belongs to is NOT `owner`. Owner is whoever saved the record, which
+ * is routinely an admin or an integration account, and that says nothing about
+ * whose call it was. The Quotation carries no employee and no role profile of
+ * its own; the only honest link is `custom_event` -> the doctor visit -> that
+ * visit's `custom_employee_id`. A POB raised straight from the doctor page has
+ * no event at all, so it stays unattributed rather than being credited to
+ * whoever happened to press save.
  */
 const POB_FIELDS = `
-  name owner transaction_date customer_name customer_address__name
+  name transaction_date customer_name customer_address__name
   address_display territory__name total_qty valid_till
   custom_event__name custom_doctorvisit__name
   items { item_name item_code net_amount qty rate }
 `;
 
 export const POB_QUERIES = [
-  `query DoctorPobs($first: Int!, $filters: [DBFilterInput!]) {
-    Quotations(first: $first, filter: $filters) {
-      edges { node { ${POB_FIELDS} status grand_total } }
-    }
-  }`,
   `query DoctorPobs($first: Int!, $name: String!) {
     Quotations(first: $first, filter: {fieldname: "custom_doctorvisit", operator: EQ, value: $name}) {
       edges { node { ${POB_FIELDS} status grand_total } }
@@ -86,10 +100,38 @@ export const POB_QUERIES = [
   }`,
 ];
 
+const POB_REST_FIELDS = [
+  "name", "transaction_date", "customer_name", "customer_address", "address_display",
+  "territory", "total_qty", "valid_till", "status", "grand_total",
+  "custom_event", "custom_doctorvisit",
+  "`tabQuotation Item`.item_name as item_name",
+  "`tabQuotation Item`.item_code as item_code",
+  "`tabQuotation Item`.qty as qty",
+  "`tabQuotation Item`.rate as rate",
+  "`tabQuotation Item`.net_amount as net_amount",
+];
+
+/**
+ * REST first, and the shapes differ on purpose.
+ *
+ * The REST read selects child columns, so it answers ONE ROW PER LINE and a
+ * quotation with no lines drops out of the INNER JOIN. GraphQL answers one row
+ * per quotation with a nested `items` array. Both shapes are normalised in
+ * derive.js, which is why either can serve.
+ */
 export function fetchPobs(vars) {
-  // Drop the bounded shape when there is no date floor to bound with.
-  const ladder = vars.pobFilters ? POB_QUERIES : POB_QUERIES.slice(1);
-  return firstSuccessful(ladder, vars, (d) => normalizeConnection(d?.Quotations));
+  return firstAnswer([
+    async () => {
+      const rows = await erpList("Quotation", {
+        fields: POB_REST_FIELDS,
+        filters: [["custom_doctorvisit", "=", vars.name]],
+        limit: 2000,
+        orderBy: "`tabQuotation`.`transaction_date` desc",
+      });
+      return rows;
+    },
+    () => firstSuccessful(POB_QUERIES, vars, (d) => normalizeConnection(d?.Quotations)),
+  ]);
 }
 
 /* ---------------------------------------------------------------- Visits */
@@ -126,9 +168,34 @@ export const VISIT_QUERIES = [
   VISIT_QUERY("$name: String!", '{fieldname: "custom_doctor", operator: EQ, value: $name}'),
 ];
 
+const VISIT_REST_FIELDS = [
+  "name", "subject", "status", "event_type", "event_category", "starts_on", "creation",
+  "custom_hq", "custom_doctor", "custom_pob_given", "custom_force_visit_reason",
+  "custom_latitude", "custom_longitude", "custom_employee_id",
+];
+
+/**
+ * GraphQL FIRST here, which is the opposite of everywhere else.
+ *
+ * Only the GraphQL shape brings back `event_participants`, and those are the
+ * only proof a visit actually HAPPENED. The REST fallback cannot express that
+ * child read, so rows it returns are marked as having UNKNOWN attendance —
+ * better than silently reporting every visit as never made.
+ */
 export function fetchVisits(vars) {
   const ladder = vars.visitFilters ? VISIT_QUERIES : VISIT_QUERIES.slice(1);
-  return firstSuccessful(ladder, vars, (d) => normalizeConnection(d?.Events));
+  return firstAnswer([
+    () => firstSuccessful(ladder, vars, (d) => normalizeConnection(d?.Events)),
+    async () => {
+      const rows = await erpList("Event", {
+        fields: VISIT_REST_FIELDS,
+        filters: [["custom_doctor", "=", vars.name]],
+        limit: 1000,
+        orderBy: "`tabEvent`.`starts_on` desc",
+      });
+      return rows.map((r) => ({ ...r, __attendanceUnknown: true }));
+    },
+  ]);
 }
 
 /* --------------------------------------------------------------- Support */

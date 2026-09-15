@@ -66,6 +66,22 @@ export function erpRestBase() {
     .replace(/\/$/, "");
 }
 
+/**
+ * An HTTP failure that still says WHICH failure it was.
+ *
+ * 403 is not a bug and must not be reported as one: it means this user's ERP
+ * role cannot read that doctype, which is the whole point of reading as the
+ * user. The page says so in those words instead of "couldn't load".
+ */
+export class ErpHttpError extends Error {
+  constructor(status, detail) {
+    super("HTTP " + status + (detail ? " — " + detail : ""));
+    this.name = "ErpHttpError";
+    this.status = status;
+    this.denied = status === 403 || status === 401;
+  }
+}
+
 export async function erpRest(path, params) {
   const { authToken } = AUTH_CONFIG;
   if (!authToken) throw new Error("Missing ERP auth configuration");
@@ -73,8 +89,16 @@ export async function erpRest(path, params) {
   const response = await fetch(erpRestBase() + path + query, {
     headers: { Accept: "application/json", Authorization: "token " + authToken },
   });
-  if (!response.ok) throw new Error("HTTP " + response.status);
+  if (!response.ok) throw new ErpHttpError(response.status);
   return response.json();
+}
+
+/** One whole document, child tables included. */
+export async function erpDoc(doctype, name) {
+  const json = await erpRest(
+    "/api/resource/" + encodeURIComponent(doctype) + "/" + encodeURIComponent(name)
+  );
+  return json?.data ?? null;
 }
 
 /** A Frappe REST list read. Returns [] rather than throwing on an empty table. */
@@ -92,13 +116,47 @@ export async function erpList(doctype, { fields, filters, limit = 500, orderBy }
 }
 
 /**
- * Run a ladder of query shapes, returning the first that answers.
+ * Try several ways of getting the same thing; take the first that answers.
  *
- * frappe_graphql fails the WHOLE request over one unknown field, and Link
- * fields are exposed as `x__name` on some instances and as a scalar on others,
- * so a single query shape is a coin toss across environments. Every shape
- * failing is worth saying out loud — the panel only shows "couldn't load", and
- * the reason is otherwise lost.
+ * Attempts deliberately mix TRANSPORTS, not just query shapes. Neither one is
+ * reliable on its own here and they fail for unrelated reasons:
+ *
+ *   - GraphQL rejects the WHOLE request over one field. A Link asked for as a
+ *     scalar ("salutation", "owner") 400s the query and takes every other field
+ *     on the page down with it.
+ *   - REST cannot express a child-table join without an INNER JOIN, so a parent
+ *     with no child rows silently vanishes, and some doctypes answer 403 to a
+ *     list read that GraphQL will happily serve.
+ *
+ * So each read names more than one route to its data. A 403 is re-thrown rather
+ * than retried: the next attempt would be refused the same way, and the caller
+ * needs to tell "you may not see this" apart from "this broke".
+ */
+export async function firstAnswer(attempts) {
+  const errors = [];
+  for (const attempt of attempts) {
+    try {
+      const value = await attempt();
+      if (value != null) return value;
+    } catch (error) {
+      if (error?.denied) throw error;
+      errors.push(error);
+    }
+  }
+  if (errors.length) {
+    if (typeof console !== "undefined" && console.warn) {
+      console.warn("DoctorDetail: every route failed", errors.map((e) => e?.message ?? String(e)));
+    }
+    throw errors[errors.length - 1];
+  }
+  return null;
+}
+
+/**
+ * Run a ladder of GraphQL query shapes, returning the first that answers.
+ *
+ * Link fields are exposed as `x__name` on some instances and as a scalar on
+ * others, so a single shape is a coin toss across environments.
  */
 export async function firstSuccessful(queries, variables, extract) {
   let lastError = null;
@@ -286,38 +344,29 @@ export async function appendLeadNote(doctorId, { subject, body, tag, author }) {
 }
 
 /**
- * Role and department for the people who touched this doctor's rows.
+ * Role and department for the employees who touched this doctor's rows.
  *
- * POBs carry only `owner` (a login) and visits only an employee id, so both
- * need the same lookup — done once for every id on the page rather than per
- * row. Anything that fails to resolve stays unresolved: a POB whose author left
- * the company is still a real POB and must not vanish from the total.
+ * Keyed by EMPLOYEE ID only. There is deliberately no lookup by login: the only
+ * record that names a person here is the doctor visit, through
+ * `custom_employee_id`. A Quotation names nobody, and its `owner` is whoever
+ * saved it — often an admin or an integration account — so resolving by login
+ * would quietly file other people's POBs under theirs.
+ *
+ * Anything that fails to resolve stays unresolved: a visit whose rep has left
+ * the company is still a real visit and must not vanish from the count.
  */
-export async function fetchEmployeeIndex({ userIds = [], employeeIds = [] } = {}) {
-  const byUser = new Map();
+export async function fetchEmployeeIndex({ employeeIds = [] } = {}) {
   const byId = new Map();
-
-  const users = [...new Set(userIds.filter(Boolean))];
   const ids = [...new Set(employeeIds.filter(Boolean))];
-  if (!users.length && !ids.length) return { byUser, byId };
+  if (!ids.length) return { byId };
 
-  const filters = [];
-  if (users.length && ids.length) {
-    // `or_filters` is not exposed on this endpoint, so two reads beat one.
-    filters.push([["user_id", "in", users]], [["name", "in", ids]]);
-  } else if (users.length) {
-    filters.push([["user_id", "in", users]]);
-  } else {
-    filters.push([["name", "in", ids]]);
-  }
+  const rows = await erpList("Employee", {
+    fields: VIEWER_FIELDS,
+    filters: [["name", "in", ids]],
+    limit: 500,
+  }).catch(() => []);
 
-  const results = await Promise.all(
-    filters.map((f) =>
-      erpList("Employee", { fields: VIEWER_FIELDS, filters: f, limit: 500 }).catch(() => [])
-    )
-  );
-
-  results.flat().forEach((row) => {
+  rows.forEach((row) => {
     const roleId = row.custom_role_profile ?? row.role_id ?? null;
     const department = parseDepartment(row.department);
     const entry = {
@@ -329,9 +378,8 @@ export async function fetchEmployeeIndex({ userIds = [], employeeIds = [] } = {}
       department: department.label,
       hq: row.fsl_hq ?? row.custom_territory ?? null,
     };
-    if (row.user_id) byUser.set(row.user_id, entry);
     byId.set(row.name, entry);
   });
 
-  return { byUser, byId };
+  return { byId };
 }

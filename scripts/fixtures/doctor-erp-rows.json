@@ -1,0 +1,118 @@
+{
+  "_comment": "RAW ERP payloads, copied verbatim from live erp.elbrit.org on 2026-09-15. These go through the real derive layer in scripts/preview-doctor-detail.cjs, so the preview exercises normalisation on the shapes ERP actually returns rather than on rows shaped to suit it. Visits are absent because the read-only credential used to collect this cannot see the Event doctype at all - see the note in the preview script.",
+
+  "DR-47718": {
+    "label": "rich support, 10 services, one department (CND)",
+    "lead": {
+      "name": "DR-47718",
+      "salutation": "Dr",
+      "custom_doctor_code": "47718",
+      "first_name": "S. Ramesh Kumar ",
+      "lead_name": "Dr S. Ramesh Kumar ",
+      "custom_latitude": 13.0676292,
+      "custom_longitude": 80.2141187,
+      "status": "Active",
+      "custom_address_created": 1,
+      "mobile_no": "0",
+      "whatsapp_no": "0",
+      "phone": "0",
+      "territory": "HQ-Chennai",
+      "city": "CHENNAI",
+      "state": "Tn-Chennai",
+      "country": "India",
+      "company": "Elbrit Lifesciences Private Limited",
+      "custom_specialty": "Diabeto",
+      "custom_qualification": "MD.DM",
+      "custom_category": "RBM 50",
+      "creation": "2026-01-21 15:18:29.541892",
+      "modified": "2026-07-27 23:11:37.058712",
+      "notes": [],
+      "custom_role_profile": [
+        { "role_profile_list": "BE12-CND-CH-CHE", "department": "CND Chennai - ELPL", "hq": "HQ-Chennai" }
+      ]
+    },
+    "supportTotals": [
+      { "name": "DR-47718-2026-July", "date": "2026-07-31", "custom_period": "2026-July", "custom_total_qty": 860, "custom_total_amount": 92430 },
+      { "name": "DR-47718-2026-June", "date": "2026-06-30", "custom_period": "2026-June", "custom_total_qty": 790, "custom_total_amount": 88636 },
+      { "name": "DR-47718-2026-May", "date": "2026-05-31", "custom_period": "2026-May", "custom_total_qty": 630, "custom_total_amount": 74757 },
+      { "name": "DR-47718-2026-April", "date": "2026-04-30", "custom_period": "2026-April", "custom_total_qty": 790, "custom_total_amount": 81129 }
+    ],
+    "supportItems": [
+      { "name": "DR-47718-2026-July", "date": "2026-07-31", "custom_period": "2026-July", "item": "SITADOC MP 500", "brand": "SITADOC", "qty": 50, "rate": 154.29, "amount": 7715, "department": "CND Chennai - ELPL", "hq": "HQ-Chennai", "role_profile": "BE12-CND-CH-CHE", "item_status": "Submitted" },
+      { "name": "DR-47718-2026-July", "date": "2026-07-31", "custom_period": "2026-July", "item": "NEBILOC 5", "brand": "NEBILOC", "qty": 10, "rate": 118.93, "amount": 1189, "department": "CND Chennai - ELPL", "hq": "HQ-Chennai", "role_profile": "BE12-CND-CH-CHE", "item_status": "Submitted" },
+      { "name": "DR-47718-2026-July", "date": "2026-07-31", "custom_period": "2026-July", "item": "TRIGLIMIBRIT 1.3", "brand": "GLIMIBRIT", "qty": 630, "rate": 119.57, "amount": 75329, "department": "CND Chennai - ELPL", "hq": "HQ-Chennai", "role_profile": "BE12-CND-CH-CHE", "item_status": "Submitted" },
+      { "name": "DR-47718-2026-July", "date": "2026-07-31", "custom_period": "2026-July", "item": "GLIZATO 30 OD", "brand": "GLIZATO", "qty": 110, "rate": 40.5, "amount": 4455, "department": "CND Chennai - ELPL", "hq": "HQ-Chennai", "role_profile": "BE12-CND-CH-CHE", "item_status": "Submitted" },
+      { "name": "DR-47718-2026-July", "date": "2026-07-31", "custom_period": "2026-July", "item": "GLIMIBRIT M 0.5", "brand": "GLIMIBRIT", "qty": 60, "rate": 62.36, "amount": 3742, "department": "CND Chennai - ELPL", "hq": "HQ-Chennai", "role_profile": "BE12-CND-CH-CHE", "item_status": "Submitted" },
+      { "name": "DR-47718-2026-June", "date": "2026-06-30", "custom_period": "2026-June", "item": "GLIZATO 30 OD", "brand": "GLIZATO", "qty": 100, "rate": 40.5, "amount": 4050, "department": "CND Chennai - ELPL", "hq": "HQ-Chennai", "role_profile": "BE12-CND-CH-CHE", "item_status": "Submitted" },
+      { "name": "DR-47718-2026-June", "date": "2026-06-30", "custom_period": "2026-June", "item": "TRIGLIMIBRIT 1.3", "brand": "GLIMIBRIT", "qty": 630, "rate": 119.57, "amount": 75329, "department": "CND Chennai - ELPL", "hq": "HQ-Chennai", "role_profile": "BE12-CND-CH-CHE", "item_status": "Submitted" },
+      { "name": "DR-47718-2026-June", "date": "2026-06-30", "custom_period": "2026-June", "item": "SITADOC MP 500", "brand": "SITADOC", "qty": 60, "rate": 154.29, "amount": 9257, "department": "CND Chennai - ELPL", "hq": "HQ-Chennai", "role_profile": "BE12-CND-CH-CHE", "item_status": "Submitted" },
+      { "name": "DR-47718-2026-May", "date": "2026-05-31", "custom_period": "2026-May", "item": "GLIMIBRIT M 0.5", "brand": "GLIMIBRIT", "qty": 10, "rate": 62.36, "amount": 624, "department": "CND Chennai - ELPL", "hq": "HQ-Chennai", "role_profile": "BE12-CND-CH-CHE", "item_status": "Submitted" },
+      { "name": "DR-47718-2026-May", "date": "2026-05-31", "custom_period": "2026-May", "item": "TRIGLIMIBRIT 1.3", "brand": "GLIMIBRIT", "qty": 620, "rate": 119.57, "amount": 74133, "department": "CND Chennai - ELPL", "hq": "HQ-Chennai", "role_profile": "BE12-CND-CH-CHE", "item_status": "Submitted" },
+      { "name": "DR-47718-2026-April", "date": "2026-04-30", "custom_period": "2026-April", "item": "SITADOC MP 500", "brand": "SITADOC", "qty": 40, "rate": 154.29, "amount": 6172, "department": "CND Chennai - ELPL", "hq": "HQ-Chennai", "role_profile": "BE12-CND-CH-CHE", "item_status": "Submitted" },
+      { "name": "DR-47718-2026-April", "date": "2026-04-30", "custom_period": "2026-April", "item": "GLIMIBRIT M 0.5", "brand": "GLIMIBRIT", "qty": 50, "rate": 62.36, "amount": 3118, "department": "CND Chennai - ELPL", "hq": "HQ-Chennai", "role_profile": "BE12-CND-CH-CHE", "item_status": "Submitted" },
+      { "name": "DR-47718-2026-April", "date": "2026-04-30", "custom_period": "2026-April", "item": "GLIZATO 30 OD", "brand": "GLIZATO", "qty": 150, "rate": 40.5, "amount": 6075, "department": "CND Chennai - ELPL", "hq": "HQ-Chennai", "role_profile": "BE12-CND-CH-CHE", "item_status": "Submitted" },
+      { "name": "DR-47718-2026-April", "date": "2026-04-30", "custom_period": "2026-April", "item": "TRIGLIMIBRIT 1.3", "brand": "GLIMIBRIT", "qty": 550, "rate": 119.57, "amount": 65764, "department": "CND Chennai - ELPL", "hq": "HQ-Chennai", "role_profile": "BE12-CND-CH-CHE", "item_status": "Submitted" }
+    ],
+    "services": [
+      { "name": "DR-47718-E00717-2026-06-15-Fund Transfer-40000-", "service_name": "Fund Transfer", "service_amount": 40000, "service_date": "2026-06-15", "by": "E00717", "hq": "HQ-Chennai", "department": "CND Chennai - ELPL", "role_profile": "BE12-CND-CH-CHE", "remarks": "CASH - CASHFREE - ACCOUNT TRANSFER (NAME :S RAMESH KUMAR, ACC NO:603801521577,IFSC CODE:ICIC0001686)", "workflow_state": "Draft" },
+      { "name": "DR-47718-E00717-2026-04-16-Fund Transfer-40000-", "service_name": "Fund Transfer", "service_amount": 40000, "service_date": "2026-04-16", "by": "E00717", "hq": "HQ-Chennai", "department": "CND Chennai - ELPL", "role_profile": "BE12-CND-CH-CHE", "remarks": "CASH - CASHFREE - ACCOUNT TRANSFER (NAME :  S SUSILA & G SUBRAMANIAM, ACC NO : 474461213 , IFSC CODE : IDIB000R036)", "workflow_state": "Draft" },
+      { "name": "DR-47718-E00717-2026-02-09-Fund Transfer-40000-", "service_name": "Fund Transfer", "service_amount": 40000, "service_date": "2026-02-09", "by": "E00717", "hq": "HQ-Chennai", "department": "CND Chennai - ELPL", "role_profile": "BE12-CND-CH-CHE", "remarks": "CASH - CASHFREE - ACCOUNT TRANSFER (NAME :  S SUSILA & G SUBRAMANIAM, ACC NO : 474461213 , IFSC CODE : IDIB000R036)", "workflow_state": "Draft" },
+      { "name": "DR-47718-E00717-2025-12-09-Fund Transfer-40000-", "service_name": "Fund Transfer", "service_amount": 40000, "service_date": "2025-12-09", "by": "E00717", "hq": "HQ-Chennai", "department": "CND Chennai - ELPL", "role_profile": "BE12-CND-CH-CHE", "remarks": "CASH - CASHFREE (ACCOUNT TRANSFER (NAME : S SUSILA, ACC NO : 474461213 , IFSC CODE : IDIB000R036))", "workflow_state": "Draft" },
+      { "name": "DR-47718-E00717-2025-10-23-Fund Transfer-40000-", "service_name": "Fund Transfer", "service_amount": 40000, "service_date": "2025-10-23", "by": "E00717", "hq": "HQ-Chennai", "department": "CND Chennai - ELPL", "role_profile": "BE12-CND-CH-CHE", "remarks": "CASH - CASHFREE - ACCOUNT TRANSFER (NAME : S SUSILA, ACC NO : 474461213 , IFSC CODE : IDIB000R036)", "workflow_state": "Draft" },
+      { "name": "DR-47718-E00717-2025-08-22-Fund Transfer-40000-", "service_name": "Fund Transfer", "service_amount": 40000, "service_date": "2025-08-22", "by": "E00717", "hq": "HQ-Chennai", "department": "CND Chennai - ELPL", "role_profile": "BE12-CND-CH-CHE", "remarks": "CASH - CASHFREE - ACCOUNT TRANSFER (NAME : S SUSILA, ACC NO : 474461213 , IFSC CODE : IDIB000R036)", "workflow_state": "Draft" },
+      { "name": "DR-47718-E00717-2025-04-16-RD 2-40000-", "service_name": "RD 2", "service_amount": 40000, "service_date": "2025-04-16", "by": "E00717", "hq": "HQ-Chennai", "department": "CND Chennai - ELPL", "role_profile": "BE12-CND-CH-CHE", "remarks": "2 MONTH EMI (CASHFREE)(NAME : S SUSILA, ACC NO : 474461213 , IFSC CODE : IDIB000R036)", "workflow_state": "Draft" },
+      { "name": "DR-47718-E00717-2025-02-18-EMI TAKEOVER-40000-", "service_name": "EMI TAKEOVER", "service_amount": 40000, "service_date": "2025-02-18", "by": "E00717", "hq": "HQ-Chennai", "department": "CND Chennai - ELPL", "role_profile": "BE12-CND-CH-CHE", "remarks": "1 MONTH EMI (CASHFREE)ACCOUNT TRANSFER : ACC HOLDER NAME : S SUSILA, ACC NO : 474461213 , IFSC CODE : IDIB000R036", "workflow_state": "Draft" },
+      { "name": "DR-47718-E00717-2024-07-19-Travel-32331-", "service_name": "Travel", "service_amount": 32331, "service_date": "2024-07-19", "by": "E00717", "hq": "HQ-Chennai", "department": "CND Chennai - ELPL", "role_profile": "BE12-CND-CH-CHE", "remarks": "NEED HOTEL ACCOMADATION JW MARRIOTT ON BANGALORE  FROM 20-07-2024  @ 4PM TO 21-07-2024 @ 4PM FOR 2 ADULTS", "workflow_state": "Draft" }
+    ],
+    "pobs": [],
+    "addresses": []
+  },
+
+  "DR-49059": {
+    "label": "POB-rich (11 lines over 6 quotations), one support month, no service",
+    "lead": {
+      "name": "DR-49059",
+      "salutation": "Dr",
+      "custom_doctor_code": "49059",
+      "first_name": "John Baskar Arthur",
+      "lead_name": "Dr John Baskar Arthur",
+      "custom_latitude": 11.3079419,
+      "custom_longitude": 77.7046261,
+      "status": "Active",
+      "territory": "HQ-Erode",
+      "city": "Erode",
+      "state": "Tn-Coimbatore",
+      "country": "India",
+      "custom_specialty": "Surgeon",
+      "custom_qualification": "MS",
+      "custom_category": "SC",
+      "creation": "2026-01-21 15:19:00.373727",
+      "modified": "2026-07-25 16:52:47.284267",
+      "notes": [],
+      "custom_role_profile": [
+        { "role_profile_list": "BE4-AURA-CO-ERO", "department": "Aura & Proxima Coimbatore - ELPL", "hq": "HQ-Erode" }
+      ]
+    },
+    "supportTotals": [
+      { "name": "DR-49059-2026-April", "date": "2026-04-30", "custom_period": "2026-April", "custom_total_qty": 3, "custom_total_amount": 463 }
+    ],
+    "supportItems": [
+      { "name": "DR-49059-2026-April", "date": "2026-04-30", "custom_period": "2026-April", "item": "CALBRIT XT", "brand": "CALBRIT", "qty": 3, "rate": 154.29, "amount": 463, "department": "Aura & Proxima Coimbatore - ELPL", "hq": "HQ-Erode", "role_profile": "BE4-AURA-CO-ERO", "item_status": "Submitted" }
+    ],
+    "services": [],
+    "pobs": [
+      { "name": "SAL-QTN-2026-00010", "transaction_date": "2026-08-04", "customer_name": "Universal Hospital Supplies", "territory": "HQ-Erode", "status": "Draft", "grand_total": 904.7, "total_qty": 4, "custom_event": "EV00077", "item_name": "OLMETOP 40 CT", "qty": 3, "rate": 267.19, "net_amount": 801.57, "address_display": "Door no: 018/8, Second Floor<br>Perundurai road, Erode<br>PIN Code: 638011" },
+      { "name": "SAL-QTN-2026-00010", "transaction_date": "2026-08-04", "customer_name": "Universal Hospital Supplies", "territory": "HQ-Erode", "status": "Draft", "grand_total": 904.7, "total_qty": 4, "custom_event": "EV00077", "item_name": "GLIMIBRIT 3", "qty": 1, "rate": 103.13, "net_amount": 103.13, "address_display": "Door no: 018/8, Second Floor<br>Perundurai road, Erode<br>PIN Code: 638011" },
+      { "name": "SAL-QTN-2026-00011", "transaction_date": "2026-08-04", "customer_name": "Srree Senthil Agencies", "territory": "HQ-Erode", "status": "Draft", "grand_total": 734.07, "total_qty": 3, "custom_event": "EV00077", "item_name": "ELVIX GEL 50GM", "qty": 2, "rate": 233.44, "net_amount": 466.88, "address_display": "No:054, Patel Street<br>Near Erode Blood Bank, Erode<br>PIN Code: 638001" },
+      { "name": "SAL-QTN-2026-00011", "transaction_date": "2026-08-04", "customer_name": "Srree Senthil Agencies", "territory": "HQ-Erode", "status": "Draft", "grand_total": 734.07, "total_qty": 3, "custom_event": "EV00077", "item_name": "OLMETOP 40 CT", "qty": 1, "rate": 267.19, "net_amount": 267.19, "address_display": "No:054, Patel Street<br>Near Erode Blood Bank, Erode<br>PIN Code: 638001" },
+      { "name": "SAL-QTN-2026-00012", "transaction_date": "2026-08-04", "customer_name": "Universal Hospital Supplies", "territory": "HQ-Erode", "status": "Draft", "grand_total": 435.01, "total_qty": 3, "custom_event": "EV00077", "item_name": "GLIMIBRIT 3", "qty": 1, "rate": 103.13, "net_amount": 103.13, "address_display": "Door no: 018/8, Second Floor<br>Perundurai road, Erode<br>PIN Code: 638011" },
+      { "name": "SAL-QTN-2026-00012", "transaction_date": "2026-08-04", "customer_name": "Universal Hospital Supplies", "territory": "HQ-Erode", "status": "Draft", "grand_total": 435.01, "total_qty": 3, "custom_event": "EV00077", "item_name": "TELBRIT MT 25", "qty": 2, "rate": 165.94, "net_amount": 331.88, "address_display": "Door no: 018/8, Second Floor<br>Perundurai road, Erode<br>PIN Code: 638011" },
+      { "name": "SAL-QTN-2026-00014", "transaction_date": "2026-08-04", "customer_name": "Universal Hospital Supplies", "territory": "HQ-Erode", "status": "Draft", "grand_total": 103.13, "total_qty": 1, "custom_event": "EV00077", "item_name": "GLIMIBRIT 3", "qty": 1, "rate": 103.13, "net_amount": 103.13, "address_display": "Door no: 018/8, Second Floor<br>Perundurai road, Erode<br>PIN Code: 638011" },
+      { "name": "SAL-QTN-2026-00018", "transaction_date": "2026-08-04", "customer_name": "Srree Senthil Agencies", "territory": "HQ-Erode", "status": "Draft", "grand_total": 578.58, "total_qty": 4, "custom_event": "EV00077", "item_name": "BRITORVA 10", "qty": 2, "rate": 68.98, "net_amount": 137.96, "address_display": "No:054, Patel Street<br>Near Erode Blood Bank, Erode<br>PIN Code: 638001" },
+      { "name": "SAL-QTN-2026-00018", "transaction_date": "2026-08-04", "customer_name": "Srree Senthil Agencies", "territory": "HQ-Erode", "status": "Draft", "grand_total": 578.58, "total_qty": 4, "custom_event": "EV00077", "item_name": "BRITORVA 10F", "qty": 2, "rate": 220.31, "net_amount": 440.62, "address_display": "No:054, Patel Street<br>Near Erode Blood Bank, Erode<br>PIN Code: 638001" },
+      { "name": "SAL-QTN-2026-00021", "transaction_date": "2026-08-04", "customer_name": "Srree Senthil Agencies", "territory": "HQ-Erode", "status": "Draft", "grand_total": 824.62, "total_qty": 4, "custom_event": "EV00077", "item_name": "BRITORVA 10F", "qty": 2, "rate": 220.31, "net_amount": 440.62, "address_display": "No:054, Patel Street<br>Near Erode Blood Bank, Erode<br>PIN Code: 638001" },
+      { "name": "SAL-QTN-2026-00021", "transaction_date": "2026-08-04", "customer_name": "Srree Senthil Agencies", "territory": "HQ-Erode", "status": "Draft", "grand_total": 824.62, "total_qty": 4, "custom_event": "EV00077", "item_name": "CALBRIT 60K", "qty": 2, "rate": 192, "net_amount": 384, "address_display": "No:054, Patel Street<br>Near Erode Blood Bank, Erode<br>PIN Code: 638001" }
+    ],
+    "addresses": []
+  }
+}

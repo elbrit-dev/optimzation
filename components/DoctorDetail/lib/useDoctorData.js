@@ -24,7 +24,7 @@ import {
 } from "./queries";
 import {
   deriveClinics, deriveDoctor, deriveNotes, derivePharmacies, derivePobs,
-  deriveServices, deriveSupport, deriveVisits, normalizeRow,
+  deriveServices, deriveSupport, deriveVisits, eventOwnerIndex, normalizeRow,
 } from "./derive";
 
 const EMPTY = Object.freeze([]);
@@ -72,9 +72,18 @@ export function useDoctorData(doctorInput, { erpUrl, authToken, erpTarget, pobLi
       if (!live) return;
       const canSeeService = !!viewer?.canSeeService;
 
+      // A read can fail two ways and they must not be reported the same. 403
+      // means this user's ERP role cannot see that doctype — not a bug, and not
+      // something a Retry button will ever fix.
       const errors = {};
+      const denied = {};
       const run = async (name, fn, fallback) => {
-        try { return await fn(); } catch { errors[name] = true; return fallback; }
+        try {
+          return await fn();
+        } catch (error) {
+          if (error?.denied) denied[name] = true; else errors[name] = true;
+          return fallback;
+        }
       };
 
       const vars = { name: doctorId, first: Math.max(1, Math.min(1000, Number(pobLimit) || 500)) };
@@ -88,18 +97,22 @@ export function useDoctorData(doctorInput, { erpUrl, authToken, erpTarget, pobLi
       ]);
       if (!live) return;
 
-      // Wave two. Both lists are usually small and overlap heavily, so one
-      // lookup covers the whole page.
+      // Wave two: turn employee ids into roles and departments. Only the VISIT
+      // rows name an employee — a Quotation names none, which is why POBs are
+      // attributed through the visit they were raised on rather than through
+      // whoever saved them.
       const index = await fetchEmployeeIndex({
-        userIds: (pobRaw ?? []).map((q) => q.owner),
-        employeeIds: (visitRaw ?? []).map(
-          (v) => v?.custom_employee_id?.employee ?? v?.custom_employee_id__name
-        ),
-      }).catch(() => ({ byUser: new Map(), byId: new Map() }));
+        employeeIds: (visitRaw ?? []).map((v) => (
+          typeof v?.custom_employee_id === "string"
+            ? v.custom_employee_id
+            : v?.custom_employee_id?.employee ?? v?.custom_employee_id__name
+        )),
+      }).catch(() => ({ byId: new Map() }));
       if (!live) return;
 
       const doctor = deriveDoctor(lead, boundRef.current, doctorId);
-      const pobs = derivePobs(pobRaw, index);
+      const visits = deriveVisits(visitRaw, index);
+      const pobs = derivePobs(pobRaw, eventOwnerIndex(visits));
 
       setState({
         key,
@@ -110,11 +123,12 @@ export function useDoctorData(doctorInput, { erpUrl, authToken, erpTarget, pobLi
         support: deriveSupport(supportRaw),
         service: deriveServices(serviceRaw),
         pobs,
-        visits: deriveVisits(visitRaw, index),
+        visits,
         notes: deriveNotes(lead),
         clinics: deriveClinics(addressRaw, doctor),
         pharmacies: derivePharmacies(pobs),
         errors,
+        denied,
         fatal: null,
       });
     })();
@@ -149,6 +163,7 @@ export function useDoctorData(doctorInput, { erpUrl, authToken, erpTarget, pobLi
     clinics: current?.clinics ?? EMPTY,
     pharmacies: current?.pharmacies ?? EMPTY,
     errors: current?.errors ?? {},
+    denied: current?.denied ?? {},
     refresh,
   };
 }
