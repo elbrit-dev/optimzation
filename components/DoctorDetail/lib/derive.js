@@ -55,6 +55,21 @@ export function deriveDoctor(lead, fallbackRow, doctorId) {
   const profiles = Array.isArray(read("custom_role_profile")) ? read("custom_role_profile") : [];
   const seen = new Map();
   const covering = [];
+  // The doctor's HQ, gathered from the COVERAGE rows rather than from the
+  // parent `territory` Link. `Lead.territory` is null on thousands of records
+  // that nonetheless know exactly which HQ works them — the import wrote the
+  // child table and skipped the parent field — so territory is treated as one
+  // source among several and never as the only one. A doctor genuinely worked
+  // out of two HQs (DR-24758 is Kollam for Elbrit and Trivandrum for A&P) keeps
+  // both, in coverage order.
+  const hqSeen = new Set();
+  const hqs = [];
+  profiles.forEach((entry) => {
+    if (!entry) return;
+    const territory = entry.hq__name ?? entry.hq ?? null;
+    const label = String(territory ?? "").trim();
+    if (label && !hqSeen.has(label)) { hqSeen.add(label); hqs.push(label); }
+  });
   profiles.forEach((entry) => {
     if (!entry) return;
     const label = entry.department__name ?? entry.department ?? null;
@@ -100,7 +115,10 @@ export function deriveDoctor(lead, fallbackRow, doctorId) {
     qual: pick("custom_qualification__name", "custom_qualification"),
     city: read("city") ?? null,
     state: read("state") ?? null,
-    hq: linkName(read("territory")),
+    // Territory first when it is set, the coverage rows when it is not. Null
+    // only when ERP genuinely knows no HQ for this doctor at all.
+    hq: linkName(read("territory")) ?? hqs[0] ?? null,
+    hqs,
     code: read("custom_doctor_code") ?? null,
     status: read("status") ?? null,
     email: read("email_id") ?? null,
