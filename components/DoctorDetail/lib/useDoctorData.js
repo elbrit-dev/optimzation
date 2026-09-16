@@ -30,7 +30,7 @@ import { resolveScope, scopeRawRows } from "./scope";
 
 const EMPTY = Object.freeze([]);
 
-export function useDoctorData(doctorInput, { erpUrl, authToken, erpTarget, pobLimit = 500 } = {}) {
+export function useDoctorData(doctorInput, { erpUrl, authToken, pobLimit = 500 } = {}) {
   const [nonce, setNonce] = useState(0);
   const [state, setState] = useState(null);
 
@@ -59,8 +59,9 @@ export function useDoctorData(doctorInput, { erpUrl, authToken, erpTarget, pobLi
 
     (async () => {
       let scope = "user";
+      let endpoint = null;
       try {
-        ({ scope } = await ensureErpAuth({ erpUrl, authToken, erpTarget }));
+        ({ scope, endpoint } = await ensureErpAuth({ erpUrl, authToken }));
       } catch (error) {
         if (live) setState({ key, fatal: error?.message ?? "No ERP endpoint is configured.", errors: {} });
         return;
@@ -135,6 +136,10 @@ export function useDoctorData(doctorInput, { erpUrl, authToken, erpTarget, pobLi
       setState({
         key,
         scope,
+        // WHICH ERP answered. Kept so the page can name it: a UAT front end
+        // reading production is invisible otherwise, and that is exactly how
+        // permission fixes get applied to the wrong instance.
+        endpoint,
         viewer,
         span,
         // False means we could not establish WHAT this reader covers, so every
@@ -157,7 +162,7 @@ export function useDoctorData(doctorInput, { erpUrl, authToken, erpTarget, pobLi
     })();
 
     return () => { live = false; };
-  }, [doctorId, erpUrl, authToken, erpTarget, pobLimit, nonce]);
+  }, [doctorId, erpUrl, authToken, pobLimit, nonce]);
 
   // Never paint the previous doctor's rows during the render before the effect
   // for a new one has run.
@@ -174,6 +179,7 @@ export function useDoctorData(doctorInput, { erpUrl, authToken, erpTarget, pobLi
     ready: !!current && !current.fatal,
     fatal: current?.fatal ?? null,
     scope: current?.scope ?? "user",
+    endpoint: current?.endpoint ?? null,
     viewer: current?.viewer ?? null,
     span: current?.span ?? null,
     scoped: current?.scoped ?? false,

@@ -1597,26 +1597,19 @@ PLASMIC.registerComponent(DoctorDetail, {
     doctor: {
       type: "object",
       description:
-        "WHO to show — THE ONLY DATA BINDING REQUIRED. Either the Lead id as a string (\"DR-47718\", e.g. from the URL) or the doctor row you already have: bind currentItem straight from a list and it is unwrapped for you, including a GraphQL edge ({ node }). The row paints the hero instantly while everything else is fetched. Field names are the component’s own business — there is nothing to map.",
-      defaultValue: "DR-47718",
+        "WHO to show — THE ONLY DATA BINDING REQUIRED. Either the Lead id as a string (the page's own route param, e.g. $ctx.params.id) or the doctor row you already have: bind currentItem straight from a list and it is unwrapped for you, including a GraphQL edge ({ node }). The row paints the hero instantly while everything else is fetched. Field names are the component’s own business — there is nothing to map. DELIBERATELY HAS NO DEFAULT: a default here becomes the value the page falls back to when the binding fails, so an unbound page would silently show one real doctor's figures — and their support, POB and service — under someone else's name. Empty shows an honest empty state instead.",
     },
     erpUrl: {
       type: "string",
       defaultValue: "",
       description:
-        "The ERP GraphQL endpoint, bound TOGETHER with Auth Token to the SIGNED-IN USER’S credential — the same pair the calendar page binds on CalendarPage. This is what scopes the page: every read is made as that user, so ERP’s own permissions decide which of a shared doctor’s rows they see. Leave BOTH empty and the page falls back to whatever AuthProvider has already published, and failing that to the shared row in /tokens — which sees everything, so the page says so in a strip across the top rather than letting unscoped figures pass as scoped.",
+        "The ERP GraphQL endpoint, bound TOGETHER with Auth Token to the SIGNED-IN USER’S credential — the same pair the calendar page binds on CalendarPage. REQUIRED, and it is what scopes the page: every read is made as that user, so ERP’s own permissions decide which of a shared doctor’s rows they see. There is NO default and no environment name to fall back on — the only other source is the pair AuthProvider already published for the signed-in user on a page that also mounts the calendar. Bind the endpoint the page actually means: a UAT page pointed at erp.elbrit.org reads production, and nothing on screen would say so.",
     },
     authToken: {
       type: "string",
       defaultValue: "",
       description:
         "The signed-in user’s ERP token, bound together with ERP URL. There is deliberately NO prop for the viewer’s role: the token identifies them and the component asks ERP (logged user → Employee → role profile). A role prop would let anyone with Studio access hand themselves sight of the service figures.",
-    },
-    erpTarget: {
-      type: "string",
-      defaultValue: "",
-      description:
-        "WHICH ERP to read when no user token is bound — the name of a row in /tokens, where the page prompts \"ERP / UAT / DEV\". LEAVE EMPTY on a normal page. It deliberately does not follow the row flagged \"default\": that flag is a convenience for the query playground and points at whichever instance was last poked. Set UAT on a test page.",
     },
     onBack: {
       type: "eventHandler",

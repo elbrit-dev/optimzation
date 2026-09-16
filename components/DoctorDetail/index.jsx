@@ -60,7 +60,6 @@ export default function DoctorDetail({
   doctor: doctorProp,
   erpUrl,
   authToken,
-  erpTarget,
   onBack,
   onAddClinic,
   onAddPharmacy,
@@ -98,7 +97,7 @@ export default function DoctorDetail({
   const [pobOpen, setPobOpen] = useState(false);
   const [supportSplit, setSupportSplit] = useState(null);
 
-  const data = useDoctorData(doctorProp, { erpUrl, authToken, erpTarget });
+  const data = useDoctorData(doctorProp, { erpUrl, authToken });
   const { doctor, canSeeService, viewer } = data;
   const money = useMemo(() => makeMoney(numShort), [numShort]);
   const count = (n) => (n ? String(n) : "—");
@@ -579,6 +578,7 @@ export default function DoctorDetail({
           <span>
             Reading with the shared service credential, not your own — figures are not narrowed to what you may see.
             Bind the signed-in user&apos;s ERP token on this page.
+            {data.endpoint ? " Endpoint: " + data.endpoint + "." : null}
           </span>
         </div>
       ) : null}
@@ -807,7 +807,6 @@ export default function DoctorDetail({
           employee={viewer?.employee ?? null}
           erpUrl={erpUrl}
           authToken={authToken}
-          erpTarget={erpTarget}
           onSaved={(payload) => { setPobOpen(false); data.refresh(); onPobSaved?.(payload); }}
         />
       ) : null}
