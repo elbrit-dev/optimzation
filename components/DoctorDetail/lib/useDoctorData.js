@@ -30,7 +30,7 @@ import { resolveScope, scopeRawRows } from "./scope";
 
 const EMPTY = Object.freeze([]);
 
-export function useDoctorData(doctorInput, { erpUrl, authToken, pobLimit = 500 } = {}) {
+export function useDoctorData(doctorInput, { erpUrl, authToken, employee, roleProfile, pobLimit = 500 } = {}) {
   const [nonce, setNonce] = useState(0);
   const [state, setState] = useState(null);
 
@@ -78,7 +78,7 @@ export function useDoctorData(doctorInput, { erpUrl, authToken, pobLimit = 500 }
       // of Employee reads and is issued alongside the doctor reads below rather
       // than before them, because nothing can be filtered until both have
       // landed anyway.
-      const scopePromise = resolveScope(viewer?.row ?? null).catch(() => null);
+      const scopePromise = resolveScope(viewer?.row ?? null, { employee, roleProfile }).catch(() => null);
 
       // A read can fail two ways and they must not be reported the same. 403
       // means this user's ERP role cannot see that doctype — not a bug, and not
@@ -162,7 +162,7 @@ export function useDoctorData(doctorInput, { erpUrl, authToken, pobLimit = 500 }
     })();
 
     return () => { live = false; };
-  }, [doctorId, erpUrl, authToken, pobLimit, nonce]);
+  }, [doctorId, erpUrl, authToken, employee, roleProfile, pobLimit, nonce]);
 
   // Never paint the previous doctor's rows during the render before the effect
   // for a new one has run.

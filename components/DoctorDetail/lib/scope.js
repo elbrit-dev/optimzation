@@ -225,7 +225,7 @@ async function backfillFromSeats(span) {
  * whole cross-division history, and what the company spends on them, to anyone
  * whose Employee record happens to be missing.
  */
-export async function resolveScope(viewerRow) {
+export async function resolveScope(viewerRow, { employee, roleProfile } = {}) {
   const self = viewerRow ?? null;
   const rank = gradeRank({
     roleId: self?.custom_role_profile ?? self?.role_id,
@@ -261,12 +261,61 @@ export async function resolveScope(viewerRow) {
     await backfillFromSeats(span).catch(() => {});
   }
 
+  /*
+   * NARROWING — `employee` and `roleProfile` can only ever take AWAY.
+   *
+   * Both are intersected with the span the token earned, never substituted for
+   * it. Binding someone else's employee id or a seat outside your own span
+   * therefore yields NOTHING rather than more: a page author cannot widen their
+   * own sight by editing a Studio field, which is the same reason the viewer's
+   * role is not a prop either.
+   */
+  let narrowed = span;
+  let focus = null;
+
+  const wantEmployee = clean(employee);
+  if (wantEmployee) {
+    const rows = await erpList("Employee", {
+      fields: SPAN_FIELDS,
+      filters: [["name", "=", wantEmployee]],
+      limit: 1,
+    }).catch(() => []);
+    const under = rows.length ? await walkSubtree(wantEmployee).catch(() => []) : [];
+    narrowed = intersect(narrowed, collect([...rows, ...under]));
+    focus = { employee: wantEmployee };
+  }
+
+  const wantSeat = clean(roleProfile);
+  if (wantSeat) {
+    // The seat, plus the department and HQ of whoever actually sits in it — a
+    // seat alone cannot say which department its rows belong to.
+    const holders = people.filter((r) => (clean(r?.custom_role_profile) ?? clean(r?.role_id)) === wantSeat);
+    const seatSpan = collect(holders);
+    seatSpan.roleProfiles = new Set([wantSeat]);
+    narrowed = intersect(narrowed, seatSpan);
+    focus = { ...(focus ?? {}), roleProfile: wantSeat };
+  }
+
   return {
     resolved: true,
     rank,
     canSeeService: rank >= SERVICE_MIN_RANK,
-    ...span,
+    ...narrowed,
+    // The FULL span stays available so the page can say "narrowed to X of your Y".
+    full: span,
+    focus,
     people,
+  };
+}
+
+/** Set intersection on every axis at once. */
+function intersect(a, b) {
+  const both = (x, y) => new Set([...x].filter((v) => y.has(v)));
+  return {
+    roleProfiles: both(a.roleProfiles, b.roleProfiles),
+    departments: both(a.departments, b.departments),
+    hqs: both(a.hqs, b.hqs),
+    employees: both(a.employees, b.employees),
   };
 }
 

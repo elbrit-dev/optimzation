@@ -24,6 +24,9 @@
  */
 
 import DoctorDetail from "../components/DoctorDetail";
+import {
+  DoctorCoverage, DoctorFilterBar, DoctorHero, DoctorInsights, DoctorTotals,
+} from "../components/DoctorConsole/sections";
 
 // Shaped like a real Lead row, including the coverage child table, so the hero
 // and the coverage ring have something true to draw.
@@ -59,8 +62,20 @@ export default function DoctorDetailProbe() {
       <ol style={{ margin: "0 0 16px", fontSize: 13, color: "#4b5563" }}>
         {EXPECTED.map((s) => <li key={s}>{s}</li>)}
       </ol>
+      <h3 style={{ fontSize: 14, margin: "0 0 6px" }}>A · built-in stack (no children)</h3>
       <div style={{ border: "2px dashed #c7d2fe", borderRadius: 12, padding: 8 }}>
         <DoctorDetail doctor={ROW} />
+      </div>
+
+      <h3 style={{ fontSize: 14, margin: "24px 0 6px" }}>B · composed from sections (what Studio will do)</h3>
+      <div style={{ border: "2px dashed #fca5a5", borderRadius: 12, padding: 8 }}>
+        <DoctorDetail doctor={ROW} department="Elbrit" period="all" valueFormat="short">
+          <DoctorHero />
+          <DoctorTotals />
+          <DoctorFilterBar />
+          <DoctorCoverage />
+          <DoctorInsights />
+        </DoctorDetail>
       </div>
     </div>
   );

@@ -24,7 +24,7 @@
  * Ecubix sent as a total with no products behind it.
  */
 
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 
 import styles from "./styles";
@@ -47,11 +47,35 @@ import DataTable from "./ui/DataTable";
 import Activity from "./ui/Activity";
 import { FilterModal, MapModal, NoteModal, PharmacyModal, RoleDetailModal, SupportItemsModal } from "./ui/Modals";
 import { Icon, TONE } from "./ui/parts";
+import { DoctorConsoleContext } from "../DoctorConsole/context";
 
 // The POB capture drags in the calendar's form kit, its ERP services and the
 // item master. The page renders fine without any of it, so it arrives the first
 // time somebody presses Add POB.
 const DoctorPobDialog = dynamic(() => import("../DoctorPobDialog"), { ssr: false });
+
+const clean = (v) => {
+  const t = String(v ?? "").trim();
+  return t ? t : null;
+};
+
+/** The period keys the filter actually offers — see `rangeOpts` below. */
+const PERIODS = new Set(["fy", "cur", "last", "m3", "all"]);
+
+/**
+ * Apply a prop as a default, and again whenever the PROP changes — never on an
+ * unrelated re-render, which would fight the reader for the control.
+ */
+function useWhenPropChanges(value, apply) {
+  const prev = useRef(value);
+  const fn = useRef(apply);
+  fn.current = apply;
+  useEffect(() => {
+    if (prev.current === value) return;
+    prev.current = value;
+    fn.current(value);
+  }, [value]);
+}
 
 const CHART_W = 600;
 const CHART_H = 184;
@@ -60,6 +84,15 @@ export default function DoctorDetail({
   doctor: doctorProp,
   erpUrl,
   authToken,
+  employee,
+  roleProfile,
+  department,
+  period,
+  valueFormat,
+  // When a Studio page places the sections itself, they arrive here and replace
+  // the built-in stack. The modals and the POB dialog stay mounted either way —
+  // they are opened from inside the sections.
+  children,
   onBack,
   onAddClinic,
   onAddPharmacy,
@@ -71,9 +104,17 @@ export default function DoctorDetail({
   const [wrapRef, compact] = useContainerMode(720);
   const panelRef = useRef(null);
 
-  const [div, setDiv] = useState("all");
-  const [rangeMode, setRangeMode] = useState({ mode: "fy", from: null, to: null });
-  const [numShort, setNumShort] = useState(false);
+  // The three filter props are DEFAULTS, not controls: they set where the page
+  // opens, and the reader may then change any of them. They are re-applied only
+  // when the prop itself changes, so a Studio edit lands without stamping on
+  // someone mid-session.
+  const [div, setDiv] = useState(() => clean(department) ?? "all");
+  const [rangeMode, setRangeMode] = useState(() => ({ mode: PERIODS.has(period) ? period : "fy", from: null, to: null }));
+  const [numShort, setNumShort] = useState(valueFormat === "short");
+
+  useWhenPropChanges(department, (v) => setDiv(clean(v) ?? "all"));
+  useWhenPropChanges(period, (v) => setRangeMode({ mode: PERIODS.has(v) ? v : "fy", from: null, to: null }));
+  useWhenPropChanges(valueFormat, (v) => setNumShort(v === "short"));
   const [pivotOn, setPivotOn] = useState(false);
   const [openRow, setOpenRow] = useState(null);
   const [sortIdx, setSortIdx] = useState(-1);
@@ -97,7 +138,7 @@ export default function DoctorDetail({
   const [pobOpen, setPobOpen] = useState(false);
   const [supportSplit, setSupportSplit] = useState(null);
 
-  const data = useDoctorData(doctorProp, { erpUrl, authToken });
+  const data = useDoctorData(doctorProp, { erpUrl, authToken, employee, roleProfile });
   const { doctor, canSeeService, viewer } = data;
   const money = useMemo(() => makeMoney(numShort), [numShort]);
   const count = (n) => (n ? String(n) : "—");
@@ -553,7 +594,118 @@ export default function DoctorDetail({
   const filterLabel = (div === "all" ? "All depts" : div) + " · " + range.label;
   const filterOn = div !== "all" || rangeMode.mode !== "fy";
 
+  const heroSince = firstT ? monthLabel(new Date(firstT).getFullYear(), new Date(firstT).getMonth()) : null;
+  const heroAge = firstT ? span(monthsSince(firstT)) : null;
+  const heroRoiTill = roiText(roi.tillDate);
+  const coverageNote = activeRoles + " of " + coverageRows.length + " roles active · "
+    + plural(visits.length, "visit", "visits");
+
+  // The three heavy parts are built ONCE, as elements, and handed both to the
+  // built-in stack below and to the separately placeable sections through the
+  // context. Two copies of these prop objects is how the standalone Trend and
+  // the built-in one would quietly drift apart.
+  const trendEl = (
+          <Trend
+            readLabel={selMonth.label}
+            page={{
+              label: pages[pIdx]?.label ?? "All departments",
+              many: pages.length > 1,
+              prev: () => { setChartPage((p) => (p - 1 + pages.length) % pages.length); setSel(null); setHov(null); },
+              next: () => { setChartPage((p) => (p + 1) % pages.length); setSel(null); setHov(null); },
+            }}
+            cols={cols}
+            // Always short form: the axis column is 44px and ₹1,24,300 does not fit.
+            yLabels={[inrShort(peak), inrShort(peak * 0.66), inrShort(peak * 0.33), "0"]}
+            lines={lines}
+            markers={lines.map((l) => ({ k: l.k, hue: l.hue, top: l.tops[crossIdx] ?? 0 }))}
+            crossLeft={crossLeft}
+            series={SERIES.map((x) => ({
+              k: x.k,
+              label: x.label,
+              hue: x.hue,
+              on: !hidden[x.k],
+              value: x.k === "vis" ? String(selMonth.vis) : (selMonth[x.k] ? money(selMonth[x.k]) : "—"),
+              toggle: () => setHidden((h) => ({ ...h, [x.k]: !h[x.k] })),
+            }))}
+            tip={hovIdx != null ? {
+              left: hovPct.toFixed(2),
+              shift: hovPct < 22 ? "-8px" : hovPct > 78 ? "calc(-100% + 8px)" : "-50%",
+              label: months[hovIdx]?.label ?? "",
+              rows: [
+                ...lines.map((l) => {
+                  const s = SERIES.find((x) => x.k === l.k);
+                  const v = months[hovIdx]?.[l.k] ?? 0;
+                  return { label: s.label, hue: l.hue, value: v ? money(v) : "—" };
+                }),
+                ...(visOn ? [{ label: "Visits", hue: "#047857", value: String(months[hovIdx]?.vis ?? 0) }] : []),
+              ],
+            } : null}
+            onHover={(i) => { setSel(i); setHov(i); }}
+            onLeave={() => setHov(null)}
+          />
+  );
+  const tableEl = (
+            <DataTable
+              table={table}
+              openRow={openRow}
+              onToggleRow={(k) => setOpenRow((v) => (v === k ? null : k))}
+              pivotOn={pivotOn}
+              onTogglePivot={() => { setPivotOn((v) => !v); setOpenRow(null); setSortIdx(-1); }}
+              sortIdx={sortIdx}
+              sortDir={sortDir}
+              onSort={(i) => {
+                setSortDir((d) => (sortIdx === i && d === "desc" ? "asc" : "desc"));
+                setSortIdx(i);
+              }}
+              footnote={"Expanding a department shows its product lines — support items from Ecubix and POB lines from the quotation ledger. Service is a payment, so it has no products. " + UNATTRIBUTED_NOTE}
+            />
+  );
+  const activityEl = (
+            <Activity
+              filters={filters}
+              groups={feedGroups}
+              today={fdate(new Date().toISOString().slice(0, 10))}
+              foot={feedShown.length
+                ? "Earlier than " + feedGroups[feedGroups.length - 1].label + " is outside the selected period"
+                : "Nothing recorded for this filter"}
+            />
+  );
+
+  // Everything the sections draw, in one object. Built here rather than in each
+  // section so there is exactly one place that decides what "the data" is.
+  const published = {
+    // identity + status
+    doctor, doctorId: data.doctorId, viewer, canSeeService, scoped: data.scoped,
+    loading: data.loading, ready: data.ready, fatal: data.fatal,
+    errors: data.errors, denied: data.denied, endpoint: data.endpoint,
+    failed, refused, scope: data.scope, compact,
+    // scoped + filtered rows
+    support, service, pobs, visits, notes,
+    clinics: data.clinics, pharmacies: data.pharmacies,
+    // derived
+    range, roi, stats, months, coverageRows, activeRoles, table,
+    filters, feedGroups, feedShown, cards, bannerOrder, firstT,
+    money, count, filterLabel, filterOn,
+    heroSince, heroAge, heroRoiTill, coverageNote,
+    trendEl, tableEl, activityEl,
+    // chart
+    chart: { pages, pIdx, cols, lines, peak, selIdx, hovIdx, crossIdx, crossLeft, selMonth, SERIES, shown, visOn, hovPct, lblStep, hidden },
+    // handlers the sections need
+    on: {
+      back: onBack ? () => onBack({ doctor: data.doctor, code: data.doctorId }) : null,
+      addClinic: onAddClinic ? () => onAddClinic({ doctor: data.doctor, code: data.doctorId }) : null,
+      requestService: onRequestService ? () => onRequestService({ doctor: data.doctor, code: data.doctorId }) : null,
+      openModal: setModal, openRole: setRoleOpen, openPob: () => setPobOpen(true),
+      pickClinic: setClinicIdx, clinicIndex: Math.min(clinicIdx, Math.max(0, data.clinics.length - 1)),
+      setView, view, setKindFilter, jumpTo, setChartPage, setHidden, setSel, setHov,
+      setPivotOn, pivotOn, setOpenRow, openRow, setSortIdx, sortIdx, setSortDir, sortDir,
+      setBannerIdx, bannerIdx, refresh: data.refresh, panelRef,
+      noteOpen: () => { setNoteError(null); setModal("note"); },
+    },
+  };
+
   return (
+    <DoctorConsoleContext.Provider value={published}>
     <div
       ref={wrapRef}
       className={"dx-root" + (compact ? " dx-root--compact" : "") + (className ? " " + className : "")}
@@ -561,6 +713,8 @@ export default function DoctorDetail({
     >
       <style>{styles}</style>
 
+      {children ?? (
+      <>
       <div className="dx-crumbs">
         {onBack ? (
           <button type="button" className="dx-crumb-btn" onClick={() => onBack({ doctor: data.doctor, code: data.doctorId })}>
@@ -587,9 +741,9 @@ export default function DoctorDetail({
         doctor={doctor}
         compact={compact}
         loading={data.loading}
-        since={firstT ? monthLabel(new Date(firstT).getFullYear(), new Date(firstT).getMonth()) : null}
-        age={firstT ? span(monthsSince(firstT)) : null}
-        roiTill={roiText(roi.tillDate)}
+        since={heroSince}
+        age={heroAge}
+        roiTill={heroRoiTill}
         canSeeService={canSeeService}
         stats={stats}
         clinics={data.clinics}
@@ -646,48 +800,11 @@ export default function DoctorDetail({
       <div className="dx-stack">
         <Coverage
           rows={coverageRows}
-          note={activeRoles + " of " + coverageRows.length + " roles active · " + plural(visits.length, "visit", "visits")}
+          note={coverageNote}
         />
 
         <section ref={panelRef} className="dx-panel dx-panel--flush">
-          <Trend
-            readLabel={selMonth.label}
-            page={{
-              label: pages[pIdx]?.label ?? "All departments",
-              many: pages.length > 1,
-              prev: () => { setChartPage((p) => (p - 1 + pages.length) % pages.length); setSel(null); setHov(null); },
-              next: () => { setChartPage((p) => (p + 1) % pages.length); setSel(null); setHov(null); },
-            }}
-            cols={cols}
-            // Always short form: the axis column is 44px and ₹1,24,300 does not fit.
-            yLabels={[inrShort(peak), inrShort(peak * 0.66), inrShort(peak * 0.33), "0"]}
-            lines={lines}
-            markers={lines.map((l) => ({ k: l.k, hue: l.hue, top: l.tops[crossIdx] ?? 0 }))}
-            crossLeft={crossLeft}
-            series={SERIES.map((x) => ({
-              k: x.k,
-              label: x.label,
-              hue: x.hue,
-              on: !hidden[x.k],
-              value: x.k === "vis" ? String(selMonth.vis) : (selMonth[x.k] ? money(selMonth[x.k]) : "—"),
-              toggle: () => setHidden((h) => ({ ...h, [x.k]: !h[x.k] })),
-            }))}
-            tip={hovIdx != null ? {
-              left: hovPct.toFixed(2),
-              shift: hovPct < 22 ? "-8px" : hovPct > 78 ? "calc(-100% + 8px)" : "-50%",
-              label: months[hovIdx]?.label ?? "",
-              rows: [
-                ...lines.map((l) => {
-                  const s = SERIES.find((x) => x.k === l.k);
-                  const v = months[hovIdx]?.[l.k] ?? 0;
-                  return { label: s.label, hue: l.hue, value: v ? money(v) : "—" };
-                }),
-                ...(visOn ? [{ label: "Visits", hue: "#047857", value: String(months[hovIdx]?.vis ?? 0) }] : []),
-              ],
-            } : null}
-            onHover={(i) => { setSel(i); setHov(i); }}
-            onLeave={() => setHov(null)}
-          />
+          {trendEl}
 
           <div className="dx-switchbar">
             <div className="dx-switch">
@@ -702,31 +819,7 @@ export default function DoctorDetail({
             <span className="dx-total">{range.label} total</span>
           </div>
 
-          {view === "table" ? (
-            <DataTable
-              table={table}
-              openRow={openRow}
-              onToggleRow={(k) => setOpenRow((v) => (v === k ? null : k))}
-              pivotOn={pivotOn}
-              onTogglePivot={() => { setPivotOn((v) => !v); setOpenRow(null); setSortIdx(-1); }}
-              sortIdx={sortIdx}
-              sortDir={sortDir}
-              onSort={(i) => {
-                setSortDir((d) => (sortIdx === i && d === "desc" ? "asc" : "desc"));
-                setSortIdx(i);
-              }}
-              footnote={"Expanding a department shows its product lines — support items from Ecubix and POB lines from the quotation ledger. Service is a payment, so it has no products. " + UNATTRIBUTED_NOTE}
-            />
-          ) : (
-            <Activity
-              filters={filters}
-              groups={feedGroups}
-              today={fdate(new Date().toISOString().slice(0, 10))}
-              foot={feedShown.length
-                ? "Earlier than " + feedGroups[feedGroups.length - 1].label + " is outside the selected period"
-                : "Nothing recorded for this filter"}
-            />
-          )}
+          {view === "table" ? tableEl : activityEl}
         </section>
 
         <p className="dx-foot">
@@ -736,6 +829,8 @@ export default function DoctorDetail({
           {canSeeService ? " ROI is support earned from a service onward over every rupee of service from that point." : ""}
         </p>
       </div>
+      </>
+      )}
 
       {modal === "filter" ? (
         <FilterModal
@@ -811,5 +906,6 @@ export default function DoctorDetail({
         />
       ) : null}
     </div>
+    </DoctorConsoleContext.Provider>
   );
 }

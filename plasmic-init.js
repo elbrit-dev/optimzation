@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 // import DataTableNew from "./share/src/app/datatable/components/DataTableNew";
 // import Navigation from "./share/src/app/navigation/components/Navigation";
 import { registerElbritCoreComponents } from './share/src/plasmic-init';
+import { registerDoctorConsoleComponents } from './components/DoctorConsole/plasmic';
 import MyProfile from "./components/features/my-profile";
 import ProfileHeader from "./components/features/profile-header";
 import FirebaseUIComponent from "./components/FirebaseUIComponent";
@@ -1591,9 +1592,19 @@ PLASMIC.registerComponent(CatalogLetterGroup, {
 PLASMIC.registerComponent(DoctorDetail, {
   name: "DoctorDetail",
   displayName: "Doctor Detail Page",
+  // It owns every read, the viewer, the scope, the filter and the analytics,
+  // and publishes them to the "Doctor · …" sections placed inside it.
+  providesData: true,
   description:
     "The whole doctor page as ONE component, built to the design management approved in September 2026: a hero card (identity, ROI, the stat strip, clinic chips and the actions), a swipeable strip of TOTALS — visits, POB, support, notes and service — each showing its last three entries and a way into the timeline, COVERAGE BY ROLE as BE/ABM/RBM/ZSM rings you can open for the per-department split, a MONTHLY TREND of smoothed lines over one rupee axis with visits on their own rail below and a pager through the doctor’s departments, and one panel that switches between a DEPARTMENT TABLE (optionally pivoted by month, expandable to real POB product lines) and an ACTIVITY TIMELINE. One filter above them all — department, value format and period, defaulting to the current Indian financial year — so no two numbers on the page are ever measured over different windows. BIND THE DOCTOR AND THE SIGNED-IN USER’S ERP CREDENTIAL AND YOU ARE DONE: the component runs its own reads and works out who is looking, what they may see, which departments the doctor has and who covers them. Reading with the user’s own token is the point — several reps share a doctor, and ERP’s permissions are what keep one of them out of another’s rows. Service figures (and ROI) are shown only to SM, ZSM and Admin; everyone else sees the page without them, and it says so rather than leaving a blank. EVERY figure is attributed, support included: its department, role profile and product breakdown come off Doctor Support’s item child table (the parent row carries only the month totals, which is why a list read makes it look bare). So the department filter, the chart pager and the table rows all count the same way, and a support month can be opened to its Ecubix product lines. The only thing that ever lands in Unassigned is a month Ecubix sent as a total with no products behind it — shown rather than dropped, so the headline total always ties out.",
   props: {
+    children: {
+      type: "slot",
+      displayName: "Sections",
+      description:
+        "LEAVE EMPTY for the approved page in one piece — hero, totals, coverage, trend and the data/activity panel, in order. Drop \"Doctor · …\" sections in here instead to lay the same page out yourself; they read the very same numbers, so nothing can disagree. The filter, the modals and the POB capture stay wired either way.",
+      defaultValue: [],
+    },
     doctor: {
       type: "object",
       description:
@@ -1610,6 +1621,38 @@ PLASMIC.registerComponent(DoctorDetail, {
       defaultValue: "",
       description:
         "The signed-in user’s ERP token, bound together with ERP URL. There is deliberately NO prop for the viewer’s role: the token identifies them and the component asks ERP (logged user → Employee → role profile). A role prop would let anyone with Studio access hand themselves sight of the service figures.",
+    },
+    employee: {
+      type: "string",
+      defaultValue: "",
+      description:
+        "NARROW the page to one Employee's span instead of the reader's own — e.g. an ABM looking at just one of their BEs. Takes an Employee id (E01255). It can only ever take AWAY: it is intersected with what the reader's own token earned, so naming somebody outside their span shows NOTHING rather than more. Leave empty for the reader's full span.",
+    },
+    roleProfile: {
+      type: "string",
+      defaultValue: "",
+      description:
+        "NARROW the page to a single SEAT, e.g. BE4-ELBR-CO-ERO — useful when a doctor is covered by three BEs and you want one column. Same rule as Employee: intersected with the reader's own span, never added to it. Leave empty for every seat they cover.",
+    },
+    department: {
+      type: "string",
+      defaultValue: "",
+      description:
+        "Which department the page OPENS on, e.g. \"Elbrit\" — the short division key the filter shows, not the full ERP name. A DEFAULT, not a lock: the reader can change it in Filter. Empty opens on all departments.",
+    },
+    period: {
+      type: "choice",
+      options: ["fy", "cur", "last", "m3", "all"],
+      defaultValue: "fy",
+      description:
+        "Which period the page OPENS on — fy (the Indian financial year, the default), cur (this month), last (last month), m3 (three months) or all. A DEFAULT, not a lock. Every figure on the page answers to this one window, which is why there is a single period rather than one per card.",
+    },
+    valueFormat: {
+      type: "choice",
+      options: ["full", "short"],
+      defaultValue: "full",
+      description:
+        "How money reads: full (₹1,24,300) or short (₹1.24L). A DEFAULT — the reader can switch it in Filter. The chart's own axis is always short, because the axis column is 44px and a full figure does not fit.",
     },
     onBack: {
       type: "eventHandler",
@@ -2751,6 +2794,7 @@ PLASMIC.registerComponent(ProfileHeader, {
 });
 
 registerElbritCoreComponents(PLASMIC)
+registerDoctorConsoleComponents(PLASMIC)
 
 // PLASMIC.registerComponent(DataProvider, {
 //   name: "DataProvider",
