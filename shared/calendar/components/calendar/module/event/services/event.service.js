@@ -436,7 +436,7 @@ export async function saveEvent(doc, options = {}) {
     throw new Error("ERP did not return Event name");
   }
   // invalidate cache only after successful write
-  invalidateCalendarData({ reason: "event:save" });
+  invalidateCalendarData({ broadcast: false, reason: "event:save" });
 
   // Only events that actually want Google Calendar sync (google_calendar set
   // by mapFormToErpEvent) need the nudge — everything else can just wait for
@@ -992,7 +992,7 @@ export async function deleteEventFromErp(erpName, docname) {
     });
 
     // Success path
-    invalidateCalendarData({ reason: "event:delete" });
+    invalidateCalendarData({ broadcast: false, reason: "event:delete" });
     return true;
 
   } catch (error) {
@@ -1004,7 +1004,7 @@ export async function deleteEventFromErp(erpName, docname) {
       message.includes("does not exist") ||
       message.includes("Missing document")
     ) {
-      invalidateCalendarData({ reason: "event:delete" });
+      invalidateCalendarData({ broadcast: false, reason: "event:delete" });
       return true;
     }
 

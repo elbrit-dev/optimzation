@@ -9,10 +9,12 @@ import { invalidateCalendarData } from "@calendar/lib/calendar/invalidate";
 import { subscribeCalendarDataChanged } from "@calendar/lib/calendar/realtime";
 
 // Worst-case delay before one user sees another user's change. Each probe is 4
-// aggregate rows (~250 bytes total) and only runs while the tab is visible, so
-// this is cheap — but it is per open calendar, so raise it if ERP load becomes a
-// concern rather than reaching for a longer full refetch.
-const DEFAULT_PROBE_INTERVAL_MS = 10 * 1000;
+// separate REST calls and only runs while the tab is visible. They are small,
+// but at 10s that was 24 requests a minute from every open calendar, competing
+// with the user's own saves for the browser's ~6 connections per host — on a
+// field phone that is the difference between a save going out now and a save
+// waiting its turn. 30s is still well inside "nobody notices".
+const DEFAULT_PROBE_INTERVAL_MS = 30 * 1000;
 // A single save can fire several notifications (the write itself, then the
 // DocShare sync that follows it). Collapse them into one refetch.
 const LOCAL_CHANGE_DEBOUNCE_MS = 400;

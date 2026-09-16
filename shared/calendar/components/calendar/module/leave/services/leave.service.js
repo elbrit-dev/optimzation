@@ -231,7 +231,7 @@ export async function saveLeaveApplication(doc, options = {}) {
       }
     }
 
-    invalidateCalendarData({ reason: "leave:write" });
+    invalidateCalendarData({ broadcast: false, reason: "leave:write" });
     return data.saveDoc.doc;
   }
   export async function fetchAllLeaveApplications() {

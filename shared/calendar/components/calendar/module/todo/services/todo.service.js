@@ -81,6 +81,6 @@ export async function saveDocToErp(doc, options = {}) {
   // Must drop TODO_LIST too, not just the range cache — the range cache is
   // rebuilt from it, so clearing only the outer layer re-merged the same stale
   // todo list and a new/edited todo never showed up until a page reload.
-  invalidateCalendarData({ reason: "todo:save" });
+  invalidateCalendarData({ broadcast: false, reason: "todo:save" });
   return data.saveDoc.doc;
 }
