@@ -13,7 +13,7 @@ import {
 } from "./format";
 import { parseDepartment, shortDivision, rolePrefix } from "./erp";
 
-const UNASSIGNED = "Unassigned";
+export const UNASSIGNED = "Unassigned";
 
 /** Unwrap edge/connection/array wrappers down to the ONE row inside. */
 export function normalizeRow(value) {

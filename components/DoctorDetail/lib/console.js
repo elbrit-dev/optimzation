@@ -28,6 +28,7 @@ import {
   UNATTRIBUTED_NOTE, buildTable, computeRoi, coverageByRole, flow, mEnd, mStart,
   monthSeries, monthWindow, resolveRange, sum,
 } from "./analytics";
+import { UNASSIGNED } from "./derive";
 import { TONE } from "../ui/parts";
 
 export const CHART_W = 600;
@@ -115,10 +116,33 @@ export function buildConsole(data, ui, on) {
   const inRange = (r) => r.t >= range.from && r.t <= range.to;
   const byDiv = (rows) => (allDivs ? rows : rows.filter((r) => divs.includes(r.div)));
 
+  /*
+   * A visit COUNTS only if it can be placed: a seat on the BE/ABM/RBM/ZSM
+   * ladder, and a department to sit under.
+   *
+   * Filtered here, once, so that every panel agrees. The department table can
+   * only ever show a visit that has both -- its rows are departments and its
+   * columns are the ladder -- so before this, the table read 23 for DR-7155
+   * while the headline and the coverage rings read 25, and nothing on the page
+   * explained the other 2.
+   *
+   * What it drops, and the cost, decided deliberately: an `Admin`-seat event
+   * (EV280012 for DR-7155 is a test visit created from an admin login) and a
+   * visit whose custom_department is empty in ERP. The second is the one that
+   * hurts -- EV272731 is a COMPLETED visit by E00010, a real ZSM, stamped
+   * 10:41 on 15 Jul 2026, and it is not counted anywhere on the page now. That
+   * is a data gap in ERP, not in this page: fill in that event's department and
+   * it reappears on its own.
+   *
+   * To count everything again, delete this filter and give buildTable an
+   * "Unassigned" row the way deriveSupport already has one.
+   */
+  const countable = (v) => ROLE_LADDER.includes(v.role) && v.div && v.div !== UNASSIGNED;
+
   const supportAll = byDiv(data.support);
   const serviceAll = byDiv(data.service);
   const pobAll = byDiv(data.pobs);
-  const visitAll = byDiv(data.visits);
+  const visitAll = byDiv(data.visits.filter(countable));
 
   const support = supportAll.filter(inRange);
   const service = serviceAll.filter(inRange);
