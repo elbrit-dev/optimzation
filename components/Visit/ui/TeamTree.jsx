@@ -25,6 +25,14 @@ import { attainmentTone, formatPercent, formatRatio } from '../lib/format';
    Managers never get one; their state is the ratio next to their name. */
 function SubtitleFor({ member, roll }) {
   if (!roll.isLeaf) {
+    if (member.vacant) {
+      return (
+        <span className="mt-1 flex items-center gap-2 text-10 text-ds-secondary">
+          {member.short}
+          <StatusPill status={ATTENDANCE_TONE.vacant}>{ATTENDANCE_LABEL.vacant}</StatusPill>
+        </span>
+      );
+    }
     return (
       <span className="block text-10 text-ds-secondary">
         {member.short} · {roll.workingReps}/{roll.totalReps} working
