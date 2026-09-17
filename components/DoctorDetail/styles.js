@@ -714,6 +714,21 @@ const styles = String.raw`
   .dx-skeleton { animation: none; }
 }
 .dx-foot { margin: 0; font-size: 11px; line-height: 1.55; color: var(--dx-mute); }
+
+/* A single card placed on its own page.
+   It keeps every token and reset .dx-root defines -- the card markup is written
+   against them -- but drops the PAGE's own frame: the 12px gutter, the grey
+   ground and the full-height stretch belong to a page, not to one card. Without
+   this, a card nested in the one-drop page would be padded twice. */
+/* Standalone helper text. Scoped rules like .dx-tablebar .dx-hint still win
+   over this by specificity, so the table bar keeps its smaller size. */
+.dx-hint { font-size: 10.5px; line-height: 1.5; color: var(--dx-mute); }
+
+.dx-root--card {
+  padding: 0;
+  min-height: 0;
+  background: transparent;
+}
 `;
 
 export default styles;

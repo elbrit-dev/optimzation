@@ -84,8 +84,11 @@ async function main() {
     'components/DoctorDetail/lib/queries.js',
     'components/DoctorDetail/lib/derive.js',
     'components/DoctorDetail/lib/analytics.js',
+    'components/DoctorDetail/lib/grade.js',
+    'components/DoctorDetail/lib/scope.js',
     'components/DoctorDetail/lib/useContainerMode.js',
-    'components/DoctorDetail/lib/useDoctorData.js',
+    'components/DoctorDetail/lib/loadDoctor.js',
+    'components/DoctorDetail/lib/console.js',
     'components/DoctorDetail/styles.js',
     'components/DoctorDetail/ui/parts.jsx',
     'components/DoctorDetail/ui/Hero.jsx',
@@ -95,6 +98,15 @@ async function main() {
     'components/DoctorDetail/ui/DataTable.jsx',
     'components/DoctorDetail/ui/Activity.jsx',
     'components/DoctorDetail/ui/Modals.jsx',
+    'components/DoctorConsole/session.js',
+    'components/DoctorConsole/useDoctorConsole.js',
+    'components/DoctorConsole/shell.jsx',
+    'components/DoctorConsole/DoctorHeroCard.jsx',
+    'components/DoctorConsole/DoctorTotalsCard.jsx',
+    'components/DoctorConsole/DoctorFilterBar.jsx',
+    'components/DoctorConsole/DoctorCoverageCard.jsx',
+    'components/DoctorConsole/DoctorInsightsCard.jsx',
+    'components/DoctorConsole/plasmic.js',
     'components/DoctorDetail/index.jsx',
   ];
   const compiled = new Map();
@@ -143,6 +155,9 @@ async function main() {
   const derive = loadSync('components/DoctorDetail/lib/derive.js');
   const an = loadSync('components/DoctorDetail/lib/analytics.js');
   const page = loadSync('components/DoctorDetail/index.jsx');
+  const console_ = loadSync('components/DoctorConsole/plasmic.js');
+  const sessions = loadSync('components/DoctorConsole/session.js');
+  const consoleLib = loadSync('components/DoctorDetail/lib/console.js');
 
   const checks = [];
   const check = (name, fn) => { fn(); checks.push(name); };
@@ -584,6 +599,156 @@ async function main() {
     assert.ok(html.includes('Add POB'));
     assert.ok(!html.includes('Request service'), 'a dead control is worse than a missing one');
     assert.ok(!html.includes('Add clinic'));
+  });
+
+  /* ------------------------------------------------- five separate cards */
+
+  // The five cards are ordinary top-level components. Nothing wraps them, so
+  // every one of these renders a card with no parent at all.
+
+  check('every card is registered top level, with no slot and no parent', () => {
+    const metas = [];
+    console_.registerDoctorConsoleComponents({ registerComponent: (c, m) => metas.push(m) });
+    assert.equal(metas.length, 5);
+    metas.forEach((m) => {
+      assert.ok(!m.parentComponentName, m.name + ' is still nested under a parent');
+      assert.ok(!m.providesData, m.name + ' still claims to provide data');
+      Object.entries(m.props).forEach(([key, def]) => {
+        assert.notEqual(def?.type, 'slot', m.name + '.' + key + ' is still a slot');
+      });
+      // A card is useless in Studio if it cannot be given its own doctor.
+      assert.ok(m.props.doctor, m.name + ' cannot be bound to a doctor');
+    });
+  });
+
+  check('each card renders on its own, with nothing around it', () => {
+    const cards = {
+      DoctorHeroCard: 'DR-47718',
+      DoctorTotalsCard: 'Visits',
+      DoctorFilterBar: 'Signed in as',
+      DoctorCoverageCard: 'Coverage by role',
+      DoctorInsightsCard: 'Monthly trend',
+    };
+    Object.entries(cards).forEach(([name, expected]) => {
+      sessions.clearSessions();
+      const html = renderToStaticMarkup(
+        React.createElement(console_[name], { doctor: 'DR-47718' })
+      );
+      assert.ok(html.includes(expected), name + ' did not draw ' + expected + ' on its own');
+    });
+    assert.equal(fetchCalls.length, 0, 'a server render must not read ERP');
+  });
+
+  check('a card with nothing bound joins the doctor another card named', () => {
+    sessions.clearSessions();
+    // Deliberately NOT nested: siblings, in the order a page would place them,
+    // and only the first one knows which doctor this is.
+    const html = renderToStaticMarkup(React.createElement('div', null,
+      React.createElement(console_.DoctorHeroCard, { doctor: 'DR-47718' }),
+      React.createElement(console_.DoctorCoverageCard, null),
+      React.createElement(console_.DoctorTotalsCard, null),
+    ));
+    assert.ok(html.includes('Coverage by role'), 'the coverage card fell back to the placeholder');
+    assert.ok(html.includes('Visits'), 'the totals card fell back to the placeholder');
+    assert.ok(!html.includes('needs a doctor'), 'a card refused to join the session');
+  });
+
+  check('a card alone with no doctor anywhere asks for one instead of failing', () => {
+    sessions.clearSessions();
+    const html = renderToStaticMarkup(React.createElement(console_.DoctorTotalsCard, null));
+    assert.ok(html.includes('needs a doctor'));
+  });
+
+  check('two cards read the same figures, because they read one session', () => {
+    sessions.clearSessions();
+    const hero = renderToStaticMarkup(React.createElement(console_.DoctorHeroCard, { doctor: 'DR-47718' }));
+    const bar = renderToStaticMarkup(React.createElement(console_.DoctorFilterBar, null));
+    // The filter label is built from the shared department + period, so the two
+    // agreeing on it is the whole guarantee the old parent used to provide.
+    const label = /<b>([^<]*)<\/b>/.exec(bar);
+    assert.ok(label, 'the filter bar did not render its label');
+    assert.ok(label[1].includes('All depts'), 'the filter bar lost the shared department');
+    assert.ok(/\d{2}/.test(label[1]), 'the filter bar lost the shared period: ' + label[1]);
+    assert.ok(hero.includes('DR-47718'));
+  });
+
+  /* --------------------------------------------- multi-department filter */
+
+  // SM, ZSM and Admin cover several divisions at once, so the department filter
+  // is a LIST, not one-or-all.
+
+  // The module under test runs in its own vm realm, so an array it returns is
+  // not the same Array as this file's. Copying pulls it back across.
+  const here = (x) => [...x];
+
+  check('a department list is read from every shape a page might bind', () => {
+    const p = (v) => here(consoleLib.parseDepartments(v));
+    assert.deepEqual(p(['Elbrit', 'CND']), ['Elbrit', 'CND']);
+    assert.deepEqual(p('Elbrit'), ['Elbrit'], 'a single bound string must still work');
+    assert.deepEqual(p('Elbrit, CND , Vasco'), ['Elbrit', 'CND', 'Vasco']);
+    assert.deepEqual(p([{ key: 'Elbrit' }, { value: 'CND' }]), ['Elbrit', 'CND']);
+    // "all" is how a page spells the empty list; it is never a department.
+    assert.deepEqual(p('all'), []);
+    assert.deepEqual(p(['Elbrit', 'all', 'Elbrit']), ['Elbrit'], 'and duplicates collapse');
+    assert.deepEqual(p(null), []);
+    assert.deepEqual(p([]), []);
+  });
+
+  check('picking two departments counts both, and neither counts them all', () => {
+    const rows = (div, amt) => ({ div, amt, t: Date.now(), d: '2026-09-01', qty: 1, item: 'X', p: '2026 September', parent: 'S-' + div });
+    const data = {
+      doctorId: 'DR-1', loading: false, ready: true, fatal: null, scope: 'user',
+      endpoint: null, viewer: { role: 'SM' }, span: null, scoped: true, canSeeService: true,
+      doctor: { name: 'Dr X', divisions: [{ key: 'Elbrit' }, { key: 'CND' }, { key: 'Vasco' }] },
+      support: [rows('Elbrit', 100), rows('CND', 20), rows('Vasco', 3)],
+      service: [], pobs: [], visits: [], notes: [], clinics: [], pharmacies: [],
+      errors: {}, denied: {},
+    };
+    const on = new Proxy({}, { get: () => () => {} });
+    const build = (divs) => consoleLib.buildConsole(
+      data,
+      { ...consoleLib.initialUi({ period: 'all' }), divs },
+      on
+    );
+
+    const total = (c) => here(c.support).reduce((a, r) => a + r.amt, 0);
+    assert.equal(total(build([])), 123, 'no selection must mean every department');
+    assert.equal(total(build(['Elbrit'])), 100);
+    assert.equal(total(build(['Elbrit', 'CND'])), 120, 'two departments must be added together');
+
+    // The pager walks what is left in play, opening on the combined line.
+    assert.deepEqual(here(build(['Elbrit', 'CND']).chart.pages).map((p) => p.label),
+      ['2 departments', 'Elbrit', 'CND']);
+    // One CHOSEN department has no combined page to walk to - that would be the
+    // same page twice.
+    assert.deepEqual(here(build(['Elbrit']).chart.pages).map((p) => p.label), ['Elbrit']);
+    // But choosing NOTHING still leads with "All departments", even for a doctor
+    // who only has one - the page must say which page it is, not rename itself
+    // to the division. This is what the fixture frames regressed on.
+    const one = { ...data, doctor: { name: 'Dr Y', divisions: [{ key: 'CND' }] } };
+    const pages = here(consoleLib.buildConsole(one, { ...consoleLib.initialUi({ period: 'all' }), divs: [] }, on).chart.pages);
+    assert.deepEqual(pages.map((p) => p.label), ['All departments', 'CND']);
+
+    // The button has to stay readable at phone width, so past one it counts.
+    assert.equal(build([]).filterLabel.split(' · ')[0], 'All depts');
+    assert.equal(build(['Elbrit']).filterLabel.split(' · ')[0], 'Elbrit');
+    assert.equal(build(['Elbrit', 'CND']).filterLabel.split(' · ')[0], '2 depts');
+
+    // And the table lists exactly the departments in play, not all three.
+    assert.deepEqual(here(build(['Elbrit', 'CND']).table.rows).map((r) => r.label).sort(), ['CND', 'Elbrit']);
+  });
+
+  check('the filter sheet toggles departments instead of replacing them', () => {
+    sessions.clearSessions();
+    const s = sessions.getSession(sessions.sessionKey({ doctorId: 'DR-1' }), { doctor: 'DR-1' });
+    s.started = true;
+    s.on.setDiv('Elbrit');
+    s.on.setDiv('CND');
+    assert.deepEqual(here(s.ui.divs), ['Elbrit', 'CND'], 'a second tap must add, not replace');
+    s.on.setDiv('Elbrit');
+    assert.deepEqual(here(s.ui.divs), ['CND'], 'tapping a chosen one must remove it');
+    s.on.setDiv('all');
+    assert.deepEqual(here(s.ui.divs), [], '"All" clears the list');
   });
 
   check('the stylesheet survived the template-literal traps', () => {

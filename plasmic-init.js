@@ -1591,20 +1591,15 @@ PLASMIC.registerComponent(CatalogLetterGroup, {
 
 PLASMIC.registerComponent(DoctorDetail, {
   name: "DoctorDetail",
-  displayName: "Doctor Detail Page",
-  // It owns every read, the viewer, the scope, the filter and the analytics,
-  // and publishes them to the "Doctor · …" sections placed inside it.
-  providesData: true,
+  displayName: "Doctor Detail Page (all five)",
+  // A convenience only — the five "Doctor · …" cards are ordinary top-level
+  // components and are the normal way to build this page. This drops all five
+  // at once, in the approved order. It is NOT a container and takes no slot:
+  // the cards never needed a parent, only a shared reading, which they get from
+  // the session store whether they are inside this or not.
   description:
     "The whole doctor page as ONE component, built to the design management approved in September 2026: a hero card (identity, ROI, the stat strip, clinic chips and the actions), a swipeable strip of TOTALS — visits, POB, support, notes and service — each showing its last three entries and a way into the timeline, COVERAGE BY ROLE as BE/ABM/RBM/ZSM rings you can open for the per-department split, a MONTHLY TREND of smoothed lines over one rupee axis with visits on their own rail below and a pager through the doctor’s departments, and one panel that switches between a DEPARTMENT TABLE (optionally pivoted by month, expandable to real POB product lines) and an ACTIVITY TIMELINE. One filter above them all — department, value format and period, defaulting to the current Indian financial year — so no two numbers on the page are ever measured over different windows. BIND THE DOCTOR AND THE SIGNED-IN USER’S ERP CREDENTIAL AND YOU ARE DONE: the component runs its own reads and works out who is looking, what they may see, which departments the doctor has and who covers them. Reading with the user’s own token is the point — several reps share a doctor, and ERP’s permissions are what keep one of them out of another’s rows. Service figures (and ROI) are shown only to SM, ZSM and Admin; everyone else sees the page without them, and it says so rather than leaving a blank. EVERY figure is attributed, support included: its department, role profile and product breakdown come off Doctor Support’s item child table (the parent row carries only the month totals, which is why a list read makes it look bare). So the department filter, the chart pager and the table rows all count the same way, and a support month can be opened to its Ecubix product lines. The only thing that ever lands in Unassigned is a month Ecubix sent as a total with no products behind it — shown rather than dropped, so the headline total always ties out.",
   props: {
-    children: {
-      type: "slot",
-      displayName: "Sections",
-      description:
-        "LEAVE EMPTY for the approved page in one piece — hero, totals, coverage, trend and the data/activity panel, in order. Drop \"Doctor · …\" sections in here instead to lay the same page out yourself; they read the very same numbers, so nothing can disagree. The filter, the modals and the POB capture stay wired either way.",
-      defaultValue: [],
-    },
     doctor: {
       type: "object",
       description:

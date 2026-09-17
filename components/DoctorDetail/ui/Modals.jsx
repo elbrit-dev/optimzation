@@ -80,7 +80,7 @@ export function RoleDetailModal({ detail, onClose, compact }) {
 /* ---------------------------------------------------------------- filter */
 
 export function FilterModal({
-  divisions, div, onDiv, numShort, onNum, range, onRange,
+  divisions, onDiv, numShort, onNum, range, onRange,
   picker, onClose, onReset, label,
 }) {
   return (
@@ -100,18 +100,26 @@ export function FilterModal({
                 key={v.key}
                 type="button"
                 onClick={() => onDiv(v.key)}
-                aria-pressed={div === v.key}
+                aria-pressed={v.on}
                 style={{
+                  display: "flex", alignItems: "center", gap: 6,
                   minHeight: 34, padding: "0 13px", borderRadius: 999,
-                  border: "1px solid " + (div === v.key ? "#a02019" : "#e5e7eb"),
-                  background: div === v.key ? "#fcedec" : "#fff",
-                  fontSize: 12, fontWeight: div === v.key ? 700 : 600,
-                  color: div === v.key ? "#a02019" : "#4b5563",
+                  border: "1px solid " + (v.on ? "#a02019" : "#e5e7eb"),
+                  background: v.on ? "#fcedec" : "#fff",
+                  fontSize: 12, fontWeight: v.on ? 700 : 600,
+                  color: v.on ? "#a02019" : "#4b5563",
                 }}
               >
+                {/* A tick only on the named departments. "All" is the absence of
+                    a choice, not a sixth thing that can be ticked alongside. */}
+                {v.on && v.key !== "all" ? <span aria-hidden="true">✓</span> : null}
                 {v.label}
               </button>
             ))}
+          </div>
+          <div className="dx-hint" style={{ marginTop: 6 }}>
+            Tap more than one to combine them — an SM or ZSM covering several divisions
+            sees them added together, with the chart pager walking each in turn.
           </div>
         </div>
 

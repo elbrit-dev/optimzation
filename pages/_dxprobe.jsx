@@ -25,8 +25,8 @@
 
 import DoctorDetail from "../components/DoctorDetail";
 import {
-  DoctorCoverage, DoctorFilterBar, DoctorHero, DoctorInsights, DoctorTotals,
-} from "../components/DoctorConsole/sections";
+  DoctorCoverageCard, DoctorFilterBar, DoctorHeroCard, DoctorInsightsCard, DoctorTotalsCard,
+} from "../components/DoctorConsole/plasmic";
 
 // Shaped like a real Lead row, including the coverage child table, so the hero
 // and the coverage ring have something true to draw.
@@ -67,15 +67,17 @@ export default function DoctorDetailProbe() {
         <DoctorDetail doctor={ROW} />
       </div>
 
-      <h3 style={{ fontSize: 14, margin: "24px 0 6px" }}>B · composed from sections (what Studio will do)</h3>
-      <div style={{ border: "2px dashed #fca5a5", borderRadius: 12, padding: 8 }}>
-        <DoctorDetail doctor={ROW} department="Elbrit" period="all" valueFormat="short">
-          <DoctorHero />
-          <DoctorTotals />
-          <DoctorFilterBar />
-          <DoctorCoverage />
-          <DoctorInsights />
-        </DoctorDetail>
+      <h3 style={{ fontSize: 14, margin: "24px 0 6px" }}>B · the five cards, placed separately (what Studio will do)</h3>
+      <p style={{ margin: "0 0 6px", fontSize: 12, color: "#6b7280" }}>
+        Only the hero is bound to a doctor. The other four attach to the same reading — nothing
+        wraps them, and they are in a different order on purpose.
+      </p>
+      <div style={{ border: "2px dashed #fca5a5", borderRadius: 12, padding: 8, display: "grid", gap: 12 }}>
+        <DoctorHeroCard doctor={ROW} department="Elbrit" period="all" valueFormat="short" />
+        <DoctorFilterBar />
+        <DoctorTotalsCard />
+        <DoctorInsightsCard />
+        <DoctorCoverageCard />
       </div>
     </div>
   );
