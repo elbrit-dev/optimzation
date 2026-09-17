@@ -80,6 +80,10 @@ export default function DoctorHeroCard(props) {
           index={clinicIndex}
           onPick={on.pickClinic}
           onClose={on.closeModal}
+          // Same gate as the chip in the hero: the action exists only once the
+          // page has wired a handler. It carries the doctor's identity so the
+          // flow on the other side knows which Lead to attach the address to.
+          onAdd={showClinics && onAddClinic ? () => onAddClinic(ident) : undefined}
         />
       ) : null}
 

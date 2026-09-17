@@ -217,7 +217,7 @@ export function FilterModal({
 
 /* ------------------------------------------------------------------- map */
 
-export function MapModal({ clinics, index, onPick, onClose }) {
+export function MapModal({ clinics, index, onPick, onClose, onAdd }) {
   const c = clinics[index] ?? clinics[0] ?? null;
   const box = c?.lat && c?.lon
     ? [(c.lon - 0.012).toFixed(4), (c.lat - 0.008).toFixed(4), (c.lon + 0.012).toFixed(4), (c.lat + 0.008).toFixed(4)].join(",")
@@ -262,6 +262,13 @@ export function MapModal({ clinics, index, onPick, onClose }) {
         ))}
       </div>
       <div className="dx-sheet-foot">
+        {/* Same shape as PharmacyModal's footer: the add action sits on the
+            left and only exists once the page has wired a handler for it. */}
+        {onAdd ? (
+          <button type="button" className="dx-chip dx-chip--add" onClick={onAdd}>
+            <i>+</i>Add clinic
+          </button>
+        ) : null}
         {c?.lat && c?.lon ? (
           <a href={"https://www.openstreetmap.org/?mlat=" + c.lat + "&mlon=" + c.lon + "#map=16/" + c.lat + "/" + c.lon}
             target="_blank" rel="noreferrer" style={{ fontSize: 12, fontWeight: 700 }}>

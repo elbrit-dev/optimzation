@@ -135,6 +135,12 @@ export default function Hero({
             </span>
             {!compact ? (
               <div className="dx-clinic-acts">
+                {onAddClinic ? (
+                  <button type="button" className="dx-map-btn" onClick={onAddClinic}
+                    aria-label="Add a clinic" style={{ border: "1px solid " + hue, color: hue }}>
+                    + Add clinic
+                  </button>
+                ) : null}
                 <button type="button" className="dx-map-btn" onClick={onOpenMap}
                   style={{ border: "1px solid " + hue, color: hue }}>
                   Map
