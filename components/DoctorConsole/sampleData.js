@@ -38,7 +38,7 @@
  * them is a design review of the happy path only.
  */
 
-import { parseDepartment, rolePrefix } from "../DoctorDetail/lib/erp";
+import { parseDepartment, ladderRole } from "../DoctorDetail/lib/erp";
 import {
   deriveClinics, deriveDoctor, deriveNotes, derivePharmacies, derivePobs,
   deriveServices, deriveSupport, deriveVisits, eventOwnerIndex,
@@ -76,7 +76,7 @@ const DEPTS = {
 /**
  * The people who cover the doctor, one seat each.
  *
- * The seat code is what decides the role — `rolePrefix("ABM2-ELBR-CO-ERO")` is
+ * The seat code is what decides the role — `ladderRole("ABM2-ELBR-CO-ERO")` is
  * "ABM" — so the coverage rings are derived here exactly as they are live,
  * rather than being asserted. There is deliberately NO ZSM: a ladder where
  * every rung is lit tells a reviewer nothing about how the dashed "no touch"
@@ -571,7 +571,7 @@ function buildEmployeeIndex() {
     byId.set(p.id, {
       employee: p.id,
       name: p.name,
-      role: rolePrefix(p.seat),
+      role: ladderRole(p.seat),
       roleId: p.seat,
       division: department.division,
       department: department.label,

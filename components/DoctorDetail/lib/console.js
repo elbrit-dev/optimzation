@@ -28,7 +28,6 @@ import {
   UNATTRIBUTED_NOTE, buildTable, computeRoi, coverageByRole, flow, mEnd, mStart,
   monthSeries, monthWindow, resolveRange, sum,
 } from "./analytics";
-import { UNASSIGNED } from "./derive";
 import { TONE } from "../ui/parts";
 
 export const CHART_W = 600;
@@ -134,10 +133,23 @@ export function buildConsole(data, ui, on) {
    * is a data gap in ERP, not in this page: fill in that event's department and
    * it reappears on its own.
    *
+   * The division is tested against the DOCTOR's own divisions, not merely
+   * against "is it set". A visit's div comes from the employee record, and at
+   * the top of the ladder that is an HR bucket rather than a sales division:
+   * all eight SM holders sit in a department literally called "Sales", which
+   * parseDepartment turns into a division named "Sales" that no doctor has. It
+   * passed an "is it set" test and was counted in the headline, but the table's
+   * rows are the doctor's divisions, so it landed in none of them and the two
+   * disagreed by one all over again. Testing against the doctor's own list is
+   * what makes the headline equal the sum of the table's rows BY CONSTRUCTION,
+   * for every doctor, rather than for the ones we happened to check.
+   *
    * To count everything again, delete this filter and give buildTable an
    * "Unassigned" row the way deriveSupport already has one.
    */
-  const countable = (v) => ROLE_LADDER.includes(v.role) && v.div && v.div !== UNASSIGNED;
+  const doctorDivs = new Set((doctor?.divisions ?? []).map((d) => d.key));
+  const countable = (v) =>
+    ROLE_LADDER.includes(v.role) && doctorDivs.has(v.div);
 
   const supportAll = byDiv(data.support);
   const serviceAll = byDiv(data.service);

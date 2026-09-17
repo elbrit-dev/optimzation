@@ -187,7 +187,23 @@ export async function firstSuccessful(queries, variables, extract) {
   return null;
 }
 
-export const ROLE_LADDER = ["BE", "ABM", "RBM", "ZSM"];
+/*
+ * The four rungs, top one SM.
+ *
+ * It used to be ZSM, and that rung could never be filled: across 495 active
+ * employees ERP holds EIGHT SM-* seats and ZERO ZSM-* ones, so every doctor's
+ * coverage card showed a permanently empty "ZSM  NO TOUCH" while the eight
+ * people at that grade fell off the ladder entirely and their visits were
+ * counted under no rung at all. Three of them (E00006, E00004, E00010) are even
+ * designated "Zonal Sales Manager" while sitting on an SM- seat, which is the
+ * same seat-vs-designation disagreement grade.js documents -- and grade.js
+ * already ranks SM and ZSM equal at 5, so treating them as one rung here agrees
+ * with it rather than inventing a second rule.
+ *
+ * ZSM is not dropped, it is FOLDED IN by ladderRole below, so the day someone
+ * creates a ZSM- seat it lands on this rung instead of vanishing.
+ */
+export const ROLE_LADDER = ["BE", "ABM", "RBM", "SM"];
 export const ROLE_NAMES = {
   BE: "Business Executive",
   ABM: "Area Business Manager",
@@ -219,6 +235,19 @@ export function rolePrefix(roleId) {
   if (!roleId) return null;
   const prefix = String(roleId).split("-")[0].replace(/[0-9]/g, "").toUpperCase();
   return prefix || null;
+}
+
+/**
+ * The same seat prefix, folded onto the rung the LADDER uses.
+ *
+ * Kept separate from rolePrefix on purpose. That one has to stay byte-identical
+ * to the calendar's rule -- see its note -- so the folding lives here, where
+ * only this page's rungs are decided. SM and ZSM are one grade (grade.js ranks
+ * both 5) and ERP only ever issues SM- seats, so ZSM folds onto SM.
+ */
+export function ladderRole(roleId) {
+  const prefix = rolePrefix(roleId);
+  return prefix === "ZSM" ? "SM" : prefix;
 }
 
 /**
@@ -392,7 +421,7 @@ export async function fetchEmployeeIndex({ employeeIds = [] } = {}) {
     const entry = {
       employee: row.name,
       name: row.employee_name,
-      role: rolePrefix(roleId),
+      role: ladderRole(roleId),
       roleId,
       division: department.division,
       department: department.label,

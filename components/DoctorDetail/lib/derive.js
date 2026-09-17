@@ -11,7 +11,7 @@
 import {
   T, toNumber, stripHtml, initialsOf, MONTHS,
 } from "./format";
-import { parseDepartment, shortDivision, rolePrefix } from "./erp";
+import { parseDepartment, shortDivision, ladderRole } from "./erp";
 
 export const UNASSIGNED = "Unassigned";
 
@@ -90,7 +90,7 @@ export function deriveDoctor(lead, fallbackRow, doctorId) {
         name: p.employee_name ?? p.employee,
         division: short,
         roleId: entry.role_profile_list__name ?? (typeof list === "string" ? list : null),
-        role: rolePrefix(entry.role_profile_list__name ?? (typeof list === "string" ? list : null)),
+        role: ladderRole(entry.role_profile_list__name ?? (typeof list === "string" ? list : null)),
       });
     });
   });
@@ -178,7 +178,7 @@ export function deriveSupport(payload) {
       t,
       p: periodOf(r),
       div: shortDivision(division) ?? UNASSIGNED,
-      role: rolePrefix(r.role_profile),
+      role: ladderRole(r.role_profile),
       roleId: r.role_profile ?? null,
       hq: r.hq ?? null,
       item: r.item ?? "Item",
@@ -243,7 +243,7 @@ export function deriveServices(rows) {
         kind: r.service_name ?? "Service",
         amt: toNumber(r.service_amount),
         by: r.by ?? null,
-        role: rolePrefix(r.role_profile),
+        role: ladderRole(r.role_profile),
         roleId: r.role_profile ?? null,
         div: shortDivision(division) ?? UNASSIGNED,
         hq: r.hq ?? null,
