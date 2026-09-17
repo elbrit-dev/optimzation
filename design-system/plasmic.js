@@ -17,14 +17,27 @@
    is closed. That is deliberate: a Studio user cannot invent a sixth button
    type or an off-scale size through the props panel. */
 
+import { Avatar } from './components/Avatar';
 import { Button } from './components/Button';
 import { Card } from './components/Card';
+import { ChipRow } from './components/ChipRow';
+import { DisclosureRow } from './components/DisclosureRow';
+import { Eyebrow } from './components/Eyebrow';
 import { Field } from './components/Field';
 import { Icon } from './components/Icon';
+import { LegendChip } from './components/LegendChip';
+import { ListRow } from './components/ListRow';
+import { Metric } from './components/Metric';
+import { ProgressBar } from './components/ProgressBar';
+import { SectionLabel } from './components/SectionLabel';
 import { SegmentedControl } from './components/SegmentedControl';
+import { Select } from './components/Select';
+import { StackedBar } from './components/StackedBar';
 import { StatusPill } from './components/StatusPill';
 import { Switch } from './components/Switch';
+import { Tabs } from './components/Tabs';
 import { Tag } from './components/Tag';
+import { TreeSelect } from './components/TreeSelect';
 
 const SECTION = 'Elbrit Design System';
 
@@ -144,9 +157,13 @@ const statusPillMeta = {
   props: {
     status: {
       type: 'choice',
-      options: ['approved', 'pending', 'rejected', 'draft', 'info'],
+      options: ['approved', 'pending', 'rejected', 'draft', 'info',
+        'success', 'warning', 'danger', 'neutral', 'brand'],
       defaultValue: 'pending',
-      description: 'Semantic and closed. For open labels use DS Tag.',
+      description:
+        'Semantic and closed. For open labels use DS Tag. The last five are the '
+        + 'outcome names the bar and metric primitives use; they resolve to the '
+        + 'same tokens.',
     },
     children: { type: 'slot', defaultValue: 'Pending' },
     showDot: { type: 'boolean', defaultValue: true },
@@ -227,6 +244,12 @@ const cardMeta = {
     title: { type: 'string' },
     actions: { type: 'slot', hidePlaceholder: true },
     onClick: { type: 'eventHandler', argTypes: [] },
+    selected: {
+      type: 'boolean',
+      description:
+        'Turns an interactive card into a CHOICE — brand ring, wash and '
+        + 'aria-pressed. Requires onClick; ignored without it.',
+    },
   },
 };
 
@@ -253,6 +276,285 @@ const iconMeta = {
   },
 };
 
+/* ---- Quantitative and list primitives ----------------------------------
+   Added with the Visit KPI report. None of them knows anything about visits;
+   they are the generic shapes that screen turned out to need. */
+
+const TONE_CHOICE = {
+  type: 'choice',
+  options: ['brand', 'success', 'warning', 'danger', 'neutral'],
+  defaultValue: 'neutral',
+  description: 'Meaning, not decoration. See design-system/lib/tone.js.',
+};
+
+const avatarMeta = {
+  name: 'DsAvatar',
+  displayName: 'DS Avatar',
+  section: SECTION,
+  importPath: './design-system/components/Avatar',
+  importName: 'Avatar',
+  defaultStyles: { width: 'hug' },
+  props: {
+    name: { type: 'string', defaultValue: 'Santosh Kumar' },
+    src: { type: 'imageUrl', description: 'Falls back to initials when absent.' },
+    size: { type: 'choice', options: ['sm', 'md', 'lg'], defaultValue: 'md' },
+    color: {
+      type: 'string',
+      description: 'Overrides the colour derived from the name. Use a token, not a hex.',
+    },
+  },
+};
+
+const metricMeta = {
+  name: 'DsMetric',
+  displayName: 'DS Metric',
+  section: SECTION,
+  importPath: './design-system/components/Metric',
+  importName: 'Metric',
+  props: {
+    label: { type: 'string', defaultValue: 'Visits happened' },
+    value: { type: 'string', defaultValue: '199' },
+    caption: { type: 'string', defaultValue: '71% of plan' },
+    tone: TONE_CHOICE,
+    dot: { type: 'boolean', defaultValue: false },
+    progress: {
+      type: 'object',
+      description: 'An ornament: { value, max }. The caption carries the meaning.',
+    },
+  },
+};
+
+const progressBarMeta = {
+  name: 'DsProgressBar',
+  displayName: 'DS Progress Bar',
+  section: SECTION,
+  importPath: './design-system/components/ProgressBar',
+  importName: 'ProgressBar',
+  props: {
+    value: { type: 'number', defaultValue: 60 },
+    max: { type: 'number', defaultValue: 100 },
+    tone: { ...TONE_CHOICE, defaultValue: 'brand' },
+    size: { type: 'choice', options: ['sm', 'md', 'lg'], defaultValue: 'md' },
+    showTrack: { type: 'boolean', defaultValue: true },
+    label: { type: 'string', description: 'Accessible name.' },
+  },
+};
+
+const stackedBarMeta = {
+  name: 'DsStackedBar',
+  displayName: 'DS Stacked Bar',
+  section: SECTION,
+  importPath: './design-system/components/StackedBar',
+  importName: 'StackedBar',
+  props: {
+    segments: {
+      type: 'object',
+      defaultValue: [
+        { key: 'working', value: 20, tone: 'success', label: 'Working' },
+        { key: 'absent', value: 2, tone: 'danger', label: 'Not reporting' },
+      ],
+      description:
+        'Percentages are of the segment TOTAL. For a partly-filled track add a '
+        + 'trailing neutral segment for the remainder.',
+    },
+    size: { type: 'choice', options: ['sm', 'md', 'lg'], defaultValue: 'lg' },
+    label: { type: 'string', description: 'Accessible name.' },
+  },
+};
+
+const legendChipMeta = {
+  name: 'DsLegendChip',
+  displayName: 'DS Legend Chip',
+  section: SECTION,
+  importPath: './design-system/components/LegendChip',
+  importName: 'LegendChip',
+  defaultStyles: { width: 'hug' },
+  props: {
+    label: { type: 'string', defaultValue: 'Working' },
+    value: { type: 'string', defaultValue: '20' },
+    tone: TONE_CHOICE,
+    showChevron: { type: 'boolean', description: 'Defaults to true when onClick is set.' },
+    onClick: { type: 'eventHandler', argTypes: [] },
+  },
+};
+
+const chipRowMeta = {
+  name: 'DsChipRow',
+  displayName: 'DS Chip Row',
+  section: SECTION,
+  importPath: './design-system/components/ChipRow',
+  importName: 'ChipRow',
+  props: {
+    items: {
+      type: 'object',
+      defaultValue: [
+        { key: 'hubballi', label: 'Hubballi', count: 136 },
+        { key: 'hyderabad', label: 'Hyderabad', count: 63 },
+      ],
+      description: 'Open, data-driven list. For a fixed small set use DS Segmented Control.',
+    },
+    value: { type: 'string' },
+    ariaLabel: { type: 'string', defaultValue: 'Filter' },
+    onChange: { type: 'eventHandler', argTypes: [{ name: 'key', type: 'string' }] },
+  },
+};
+
+const listRowMeta = {
+  name: 'DsListRow',
+  displayName: 'DS List Row',
+  section: SECTION,
+  importPath: './design-system/components/ListRow',
+  importName: 'ListRow',
+  props: {
+    title: { type: 'string', defaultValue: 'Hubballi' },
+    subtitle: { type: 'string', defaultValue: '14/15 reps active' },
+    trailing: { type: 'slot', hidePlaceholder: true },
+    dense: { type: 'boolean', defaultValue: false },
+    divider: { type: 'boolean', defaultValue: true },
+    onClick: { type: 'eventHandler', argTypes: [] },
+  },
+};
+
+const disclosureRowMeta = {
+  name: 'DsDisclosureRow',
+  displayName: 'DS Disclosure Row',
+  section: SECTION,
+  importPath: './design-system/components/DisclosureRow',
+  importName: 'DisclosureRow',
+  props: {
+    header: { type: 'slot', defaultValue: 'Bishnu Charan Behera' },
+    children: { type: 'slot', hidePlaceholder: true },
+    expanded: {
+      type: 'boolean',
+      defaultValue: false,
+      description: 'Controlled only, so the tree can reset open state when scope changes.',
+    },
+    depth: { type: 'number', defaultValue: 0 },
+    expandable: { type: 'boolean', description: 'Defaults to whether children are present.' },
+    onToggle: { type: 'eventHandler', argTypes: [] },
+  },
+};
+
+const tabsMeta = {
+  name: 'DsTabs',
+  displayName: 'DS Tabs',
+  section: SECTION,
+  importPath: './design-system/components/Tabs',
+  importName: 'Tabs',
+  props: {
+    items: {
+      type: 'object',
+      defaultValue: [
+        { id: 'today', label: 'Today' },
+        { id: 'mtd', label: 'Month till date' },
+      ],
+      description: 'Array of { id, label, count, disabled }.',
+    },
+    value: { type: 'string', defaultValue: 'today' },
+    ariaLabel: { type: 'string', defaultValue: 'View' },
+    onChange: { type: 'eventHandler', argTypes: [{ name: 'id', type: 'string' }] },
+  },
+};
+
+const selectMeta = {
+  name: 'DsSelect',
+  displayName: 'DS Select',
+  section: SECTION,
+  importPath: './design-system/components/Select',
+  importName: 'Select',
+  props: {
+    label: { type: 'string', defaultValue: 'Team scope' },
+    hideLabel: { type: 'boolean', defaultValue: false },
+    options: {
+      type: 'object',
+      defaultValue: [
+        { value: 'e1', label: 'Santosh Kumar - SM' },
+        { value: 'e2', label: 'Bishnu Charan Behera - RBM' },
+      ],
+      description: 'Array of strings, or of { value, label, disabled }.',
+    },
+    value: { type: 'string' },
+    defaultValue: { type: 'string' },
+    placeholder: { type: 'string' },
+    size: {
+      type: 'choice',
+      options: ['sm', 'default', 'lg', 'app'],
+      defaultValue: 'lg',
+      description: 'Defaults to lg: 22px fails the 44px tap target for a primary choice.',
+    },
+    disabled: { type: 'boolean', defaultValue: false },
+    invalid: { type: 'boolean', defaultValue: false },
+    hint: { type: 'string' },
+    error: { type: 'string' },
+    onChange: { type: 'eventHandler', argTypes: [{ name: 'value', type: 'string' }] },
+  },
+};
+
+const treeSelectMeta = {
+  name: 'DsTreeSelect',
+  displayName: 'DS Tree Select',
+  section: SECTION,
+  importPath: './design-system/components/TreeSelect',
+  importName: 'TreeSelect',
+  props: {
+    label: { type: 'string', defaultValue: 'Team scope' },
+    hideLabel: { type: 'boolean', defaultValue: false },
+    tree: {
+      type: 'object',
+      defaultValue: [
+        {
+          id: 'e1',
+          label: 'Santosh Kumar · SM',
+          children: [{ id: 'e2', label: 'Bishnu Charan Behera · RBM' }],
+        },
+      ],
+      description: 'Nested nodes: array of { id, label, children? }, any depth.',
+    },
+    value: { type: 'string' },
+    placeholder: { type: 'string', defaultValue: 'Select…' },
+    size: {
+      type: 'choice',
+      options: ['sm', 'default', 'lg', 'app'],
+      defaultValue: 'lg',
+      description: 'Defaults to lg: 22px fails the 44px tap target for a primary choice.',
+    },
+    disabled: { type: 'boolean', defaultValue: false },
+    onChange: { type: 'eventHandler', argTypes: [{ name: 'value', type: 'string' }] },
+  },
+  states: {
+    value: {
+      type: 'writable',
+      variableType: 'text',
+      valueProp: 'value',
+      onChangeProp: 'onChange',
+    },
+  },
+};
+
+const eyebrowMeta = {
+  name: 'DsEyebrow',
+  displayName: 'DS Eyebrow',
+  section: SECTION,
+  importPath: './design-system/components/Eyebrow',
+  importName: 'Eyebrow',
+  defaultStyles: { width: 'hug' },
+  props: {
+    children: { type: 'slot', defaultValue: 'Visit plans today' },
+  },
+};
+
+const sectionLabelMeta = {
+  name: 'DsSectionLabel',
+  displayName: 'DS Section Label',
+  section: SECTION,
+  importPath: './design-system/components/SectionLabel',
+  importName: 'SectionLabel',
+  defaultStyles: { width: 'hug' },
+  props: {
+    children: { type: 'slot', defaultValue: 'Where the visits happened' },
+  },
+};
+
 const REGISTRY = [
   [Button, buttonMeta],
   [Field, fieldMeta],
@@ -262,6 +564,19 @@ const REGISTRY = [
   [SegmentedControl, segmentedControlMeta],
   [Card, cardMeta],
   [Icon, iconMeta],
+  [Tabs, tabsMeta],
+  [Select, selectMeta],
+  [TreeSelect, treeSelectMeta],
+  [Avatar, avatarMeta],
+  [Metric, metricMeta],
+  [ProgressBar, progressBarMeta],
+  [StackedBar, stackedBarMeta],
+  [LegendChip, legendChipMeta],
+  [ChipRow, chipRowMeta],
+  [ListRow, listRowMeta],
+  [DisclosureRow, disclosureRowMeta],
+  [Eyebrow, eyebrowMeta],
+  [SectionLabel, sectionLabelMeta],
 ];
 
 /**
