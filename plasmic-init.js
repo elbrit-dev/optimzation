@@ -591,18 +591,18 @@ PLASMIC.registerComponent(VisitReport, {
   name: "VisitReport",
   displayName: "Visit Report",
   description:
-    "Mobile-first daily / month-till-date field-force visit KPI report: attendance, planned vs happened calls, POB, geo-verified vs force visits, an HQ strip with hourly chart, and the manager team tree. Reads live from ERPNext (Events, Employees, LeaveApplications, Quotations) via the /tokens endpoint registry — same registry every other ERP-reading component on this canvas resolves through.",
+    "Mobile-first daily / month-till-date field-force visit KPI report: attendance, planned vs happened calls, POB, geo-verified vs force visits, an HQ strip with hourly chart, and the manager team tree. Reads live from ERPNext (Events, Employees, LeaveApplications, Quotations) as the SIGNED-IN user, so the default 'my team' scope and every permission-scoped row reflect who is actually looking. Bind gqlToken to the same user credential the other ERP-reading components on this canvas use — there is no shared/service-token fallback.",
   props: {
     gqlEnvironment: {
       type: "string",
       defaultValue: "ERP",
       helpText:
-        "The /tokens registry row NAME to resolve the ERP endpoint + token from. Leave as 'ERP' unless a UAT/sandbox row exists to point at instead.",
+        "The /tokens registry row NAME this resolves the ERP HOST from ('ERP' vs a UAT/sandbox row). Never used for a credential — gqlToken is the only source of that.",
     },
-    gqlTokenOverride: {
+    gqlToken: {
       type: "string",
       helpText:
-        "Optional: a raw 'key:secret' credential to use against the SAME endpoint the environment row resolves to, in place of that row's own token. Leave empty to use the registry's token.",
+        "REQUIRED. The signed-in user's own ERP token ('key:secret' or already-prefixed 'token key:secret'). There is no fallback: leaving this empty means the report has nothing to authenticate with and throws rather than silently using a shared credential.",
     },
   },
   importPath: "./components/Visit",

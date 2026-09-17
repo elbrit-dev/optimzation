@@ -38,26 +38,20 @@ function todayLocal() {
 }
 
 /* 'ERP' is the row NAME in the /tokens registry, not a secret -- it is the
-   default until a caller picks a different one (see the layout sidebar's
-   Environment select on /visit). By default the resolved credential is never
-   a component-level prop or piece of React state, only ever the return value
-   of `getEndpointConfigFromUrlKeyAsync` right here in the data layer, one
-   call per dataset fetch -- the only thing that flows through the component
-   tree ordinarily is `gqlEnvironment`, the row name.
-
-   The one deliberate exception is `gqlTokenOverride` below: the playground
-   sidebar's own token field is explicitly for typing in a raw credential to
-   test with, so THAT value does live in page-level state -- there is no way
-   to type a token into a field without it being state somewhere. What still
-   never happens is threading the REGISTRY's own resolved token back out to a
-   component once fetched. */
+   default until a caller picks a different one. It ONLY resolves which ERP
+   HOST to call (`getEndpointConfigFromUrlKeyAsync` below reads just its
+   `endpointUrl`); the registry's own stored credential is never read or used
+   as a fallback. `gqlToken` is a REQUIRED prop -- the signed-in user's own
+   ERP token, bound by whatever page renders this component (a Studio page
+   binds it the same way it already does for CalendarPage/DoctorDetail) --
+   never resolved here, so a shared/service credential can never quietly
+   stand in for the viewer. */
 export const DEFAULT_GQL_ENVIRONMENT = 'ERP';
 const MAX_ROWS = 20000;
 
-/* An override is typed into a plain text field, so it may or may not already
-   carry the "token " scheme Frappe expects -- the registry always does (see
-   graphqlRequest below), a pasted `key:secret` never does. Adding the scheme
-   only when it is missing means both forms work without the field growing
+/* A token arrives as whatever the caller typed or stored, so it may or may
+   not already carry the "token " scheme Frappe expects. Adding the scheme
+   only when it is missing means both forms work without the caller growing
    its own "paste the whole header" instructions. */
 function normalizeToken(raw) {
   const trimmed = raw?.trim();
@@ -314,27 +308,31 @@ async function fetchOnLeaveIds(onDate, conn) {
    the mock does -- so 'today' and 'mtd' periods both slice client-side from
    one dataset (see periodWindow/inPeriod in selectors.js).
 
-   `gqlEnvironment` is the /tokens row NAME, e.g. "ERP" -- resolving it to an
-   actual `{ endpointUrl, gqlToken }` happens right here, once per fetch,
-   rather than being cached module-wide (a stale cache would survive switching
-   environments in the sidebar).
+   `gqlEnvironment` is the /tokens row NAME, e.g. "ERP" -- resolved here ONLY
+   for its `endpointUrl` (which ERP host to call), never for its stored
+   token.
 
-   `gqlTokenOverride`, when given, replaces the resolved row's own token but
-   NOT its endpoint -- it is for hitting the same ERP with a different key,
-   not a different server. Either way the credential that actually goes on
-   the wire is computed here and only here; it is never threaded through as
-   its own prop, which would put a bearer token in React state for no
-   reason. */
+   `gqlToken` is REQUIRED: the signed-in user's own ERP credential, passed
+   down by whatever renders this component. There is no fallback -- a caller
+   that has no token to give has nothing to view this with, and must not be
+   quietly handed a shared one. */
 export async function fetchVisitDataset({
   anchorDate,
   gqlEnvironment = DEFAULT_GQL_ENVIRONMENT,
-  gqlTokenOverride,
+  gqlToken: rawGqlToken,
 } = {}) {
+  const gqlToken = normalizeToken(rawGqlToken);
+  if (!gqlToken) {
+    throw new Error(
+      "[visit] no gqlToken provided -- bind the signed-in user's ERP token; "
+      + 'gqlEnvironment only selects which ERP host to call, never a credential.',
+    );
+  }
+
   const today = anchorDate ?? todayLocal();
   const monthStart = `${today.slice(0, 7)}-01`;
 
-  const { endpointUrl, authToken } = await getEndpointConfigFromUrlKeyAsync(gqlEnvironment);
-  const gqlToken = normalizeToken(gqlTokenOverride) ?? authToken;
+  const { endpointUrl } = await getEndpointConfigFromUrlKeyAsync(gqlEnvironment);
   const conn = { endpointUrl, gqlToken, gqlEnvironment };
 
   const [rows, team, onLeaveIds, pobQuotations, viewerEmail] = await Promise.all([
