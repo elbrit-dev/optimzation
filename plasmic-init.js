@@ -15,6 +15,7 @@ import FirebaseUIComponent from "./components/FirebaseUIComponent";
 import LoginHelpForm from "./components/LoginHelpForm";
 import HelpSupport from "./components/features/help-support";
 import CalendarPage from "@calendar/components/CalendarPage";
+import { VisitReport } from "./components/Visit";
 import { TAGS, TAG_IDS, EVENT_TYPE_MODES } from "@calendar/components/calendar/constants";
 import NovuInbox from "./components/NovuInbox";
 import PushNotificationToggle from "./components/PushNotificationToggle";
@@ -583,6 +584,27 @@ PLASMIC.registerComponent(CalendarPage, {
         "How to read the picked types. A type that ends up off is hidden from the event form, filtered off the calendar, and its data is never fetched — and with Leave off, the 'employee is on approved leave' guard on Add Event stops blocking.",
     },
   },
+});
+
+PLASMIC.registerComponent(VisitReport, {
+  name: "VisitReport",
+  displayName: "Visit Report",
+  description:
+    "Mobile-first daily / month-till-date field-force visit KPI report: attendance, planned vs happened calls, POB, geo-verified vs force visits, an HQ strip with hourly chart, and the manager team tree. Reads live from ERPNext (Events, Employees, LeaveApplications, Quotations) via the /tokens endpoint registry — same registry every other ERP-reading component on this canvas resolves through.",
+  props: {
+    gqlEnvironment: {
+      type: "string",
+      defaultValue: "ERP",
+      helpText:
+        "The /tokens registry row NAME to resolve the ERP endpoint + token from. Leave as 'ERP' unless a UAT/sandbox row exists to point at instead.",
+    },
+    gqlTokenOverride: {
+      type: "string",
+      helpText:
+        "Optional: a raw 'key:secret' credential to use against the SAME endpoint the environment row resolves to, in place of that row's own token. Leave empty to use the registry's token.",
+    },
+  },
+  importPath: "./components/Visit",
 });
 
 PLASMIC.registerComponent(NovuInbox, {

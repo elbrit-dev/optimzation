@@ -20,7 +20,7 @@ const cx = (...parts) => parts.filter(Boolean).join(' ');
 /* Header nav and the today/clear buttons share a shape. */
 const NAV_BUTTON =
   'inline-flex h-control-sm aspect-square items-center justify-center rounded-full ' +
-  'text-secondary transition-colors hover:bg-brand-tint-weak hover:text-brand-text';
+  'text-ds-secondary transition-colors hover:bg-brand-tint-weak hover:text-brand-text';
 
 /* A day cell. State comes from PrimeReact's data attributes rather than the pt
    context — `context.selected` and friends are unreliable (landmine 2), while
@@ -36,10 +36,10 @@ const DAY = cx(
      span itself — matched nothing at all, and the first render came out with
      no today marker and no dimmed other-month days. Same shape as the Timeline
      nth-child case; see landmine 13. */
-  /* `text-secondary`, not `text-muted`. Muted is rgba(0,0,0,0.45) — 3.35:1 on
+  /* `text-ds-secondary`, not `text-ds-muted`. Muted is rgba(0,0,0,0.45) — 3.35:1 on
      white, below the AA floor — and an adjacent month's dates are still dates
      a user reads and clicks, not decoration. Secondary (0.65) clears it. */
-  '[[data-p-other-month=true]>&]:text-secondary',
+  '[[data-p-other-month=true]>&]:text-ds-secondary',
   '[[data-p-today=true]>&]:bg-info-wash [[data-p-today=true]>&]:text-brand-text',
   /* `data-p-highlight` is the exception: PrimeReact puts THAT one on the span
      itself, while `data-p-today` and `data-p-other-month` are on the <td>.
@@ -62,7 +62,7 @@ export const calendarPt = {
     root: cx(
       'inline-flex h-control aspect-square shrink-0 items-center justify-center',
       'rounded-r-md border border-l-0 border-line-subtle bg-surface',
-      'text-secondary transition-colors hover:border-brand-hover hover:text-brand-text',
+      'text-ds-secondary transition-colors hover:border-brand-hover hover:text-brand-text',
     ),
   },
 
@@ -91,9 +91,9 @@ export const calendarPt = {
 
   container: { className: 'w-full border-collapse' },
   table: { className: 'w-full border-collapse' },
-  weekHeader: { className: 'text-12 text-secondary' },
-  weekLabelContainer: { className: 'text-12 text-muted' },
-  weekNumber: { className: 'text-12 text-muted' },
+  weekHeader: { className: 'text-12 text-ds-secondary' },
+  weekLabelContainer: { className: 'text-12 text-ds-muted' },
+  weekNumber: { className: 'text-12 text-ds-muted' },
 
   /* `td` padding, matching the override sheet's `.p-datepicker table td`. */
   day: { className: 'p-1 text-center' },
@@ -130,7 +130,7 @@ export const calendarPt = {
   minutePicker: { className: 'text-14 text-body' },
   secondPicker: { className: 'text-14 text-body' },
   ampmPicker: { className: 'text-14 text-body' },
-  separatorContainer: { className: 'text-14 text-secondary' },
+  separatorContainer: { className: 'text-14 text-ds-secondary' },
   incrementButton: { className: NAV_BUTTON },
   decrementButton: { className: NAV_BUTTON },
 };

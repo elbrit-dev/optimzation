@@ -12,7 +12,24 @@ export { Icon } from './components/Icon';
 export { SegmentedControl } from './components/SegmentedControl';
 export { StatusPill } from './components/StatusPill';
 export { Switch } from './components/Switch';
+export { TreeSelect } from './components/TreeSelect';
+/* Tabs vs SegmentedControl: Tabs change WHAT you are looking at and span the
+   page; SegmentedControl changes HOW the same data is rendered and sits in a
+   toolbar. Tabs.jsx has the long version. */
+export { Tabs } from './components/Tabs';
 export { Tag } from './components/Tag';
 
+/* Quantitative + list primitives. Added for the Visit report screen, but
+   nothing in them knows about visits — keep it that way. */
+export { Avatar, initialsOf } from './components/Avatar';
+export { DisclosureRow } from './components/DisclosureRow';
+export { Eyebrow } from './components/Eyebrow';
+export { LegendChip } from './components/LegendChip';
+export { Metric } from './components/Metric';
+export { ProgressBar } from './components/ProgressBar';
+export { SectionLabel } from './components/SectionLabel';
+export { StackedBar } from './components/StackedBar';
+
 export { cx } from './lib/cx';
+export { TONES, toneFill, toneText } from './lib/tone';
 export { registerDesignSystem } from './plasmic';

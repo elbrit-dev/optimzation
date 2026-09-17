@@ -1,6 +1,7 @@
 'use client';
 
 import { cx } from '../lib/cx';
+import { toneFill, toneText } from '../lib/tone';
 
 /* StatusPill — one colour, one meaning. The status hue as text on a 12% tint
    of itself, 22px box, 6px dot.
@@ -11,16 +12,13 @@ import { cx } from '../lib/cx';
    against a 4.5:1 floor, so the labels were decorative rather than readable.
    The pill still looks like its status because the wash and dot are unchanged.
 
-   Status is semantic and closed. For open/categorical labels use Tag. */
+   Status is semantic and closed. For open/categorical labels use Tag.
 
-/* [text, fill] */
-const STATUS_TOKEN = {
-  approved: ['var(--status-approved-text)', 'var(--status-approved)'],
-  pending: ['var(--status-pending-text)', 'var(--status-pending)'],
-  rejected: ['var(--status-rejected-text)', 'var(--status-rejected)'],
-  draft: ['var(--status-draft-text)', 'var(--status-draft)'],
-  info: ['var(--status-info-text)', 'var(--status-info)'],
-};
+   The token pairs now come from lib/tone.js, shared with the quantitative
+   primitives, rather than from a private copy here — so a pill and a bar
+   meaning the same thing cannot drift to two greens. `status` still takes
+   approved/pending/rejected/draft/info and additionally accepts the outcome
+   names (success/warning/danger/neutral/brand) those primitives use. */
 
 export function StatusPill({
   status = 'pending',
@@ -30,7 +28,8 @@ export function StatusPill({
   style,
   ...rest
 }) {
-  const [text, fill] = STATUS_TOKEN[status] ?? STATUS_TOKEN.draft;
+  const text = toneText(status);
+  const fill = toneFill(status);
 
   return (
     <span

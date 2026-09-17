@@ -66,6 +66,21 @@
   --icon-xl: 24px;   /* toolbar icons */
   --icon-dot: 6px;   /* the status dot on badges and pills */
 
+  /* ---- Bar heights. Three, for the three jobs a bar does.
+     `sm` underlines a metric and must not read as content, so it is thinner
+     than any spacing step — the one genuinely new value here. `md` and `lg`
+     are the existing scale: a bar you read a ratio off, and a bar you read
+     four segments off. ---- */
+  --ds-bar-h-sm: 3px;
+  --ds-bar-h-md: var(--space-8);
+  --ds-bar-h-lg: var(--space-10);
+
+  /* ---- Avatar sizes. `md` is the header identity, `sm` the one that sits
+     inline in a list row at app density. ---- */
+  --ds-avatar-sm: 24px;
+  --ds-avatar-md: 38px;
+  --ds-avatar-lg: 48px;
+
   /* ---- Elevation. Four shadows. Depth comes from nothing else.
          No gradients, no glass, no backdrop blur, no coloured glows. ---- */
   --ds-shadow-hairline: 0 1px 0 0 rgb(0 0 0 / 0.02);

@@ -7,7 +7,17 @@ import { cx } from '../lib/cx';
    both.
 
    There is no left-accent-border card in this system: status belongs in a
-   StatusPill inside the card, not on its edge. */
+   StatusPill inside the card, not on its edge.
+
+   `selected` turns an interactive card into a CHOICE. That is a distinct thing
+   from a card you can click through to somewhere: it stays on the page and one
+   of the group is always on, so it needs a persistent treatment (brand ring +
+   wash) and `aria-pressed`, not just a hover. Reach for it when a set of cards
+   IS the filter — see /visit, where selecting an HQ card drives the chart
+   below it. `selected` on a card with no `onClick` is meaningless and ignored.
+
+   The ring is an `outline`, not a shadow: this system's four shadows mean
+   elevation, and a selected card is not raised. */
 
 const PADDING_CLASS = {
   none: 'ds-card--flush',
@@ -22,11 +32,13 @@ export function Card({
   title,
   actions,
   onClick,
+  selected,
   className,
   style,
   ...rest
 }) {
   const isInteractive = typeof onClick === 'function';
+  const isChoice = isInteractive && selected != null;
 
   return (
     <div
@@ -35,10 +47,12 @@ export function Card({
         variant === 'hairline' && 'ds-card--hairline',
         PADDING_CLASS[padding] ?? PADDING_CLASS.app,
         isInteractive && 'ds-card--interactive',
+        isChoice && selected && 'ds-card--selected',
         className,
       )}
       onClick={onClick}
       role={isInteractive ? 'button' : undefined}
+      aria-pressed={isChoice ? Boolean(selected) : undefined}
       tabIndex={isInteractive ? 0 : undefined}
       onKeyDown={
         isInteractive

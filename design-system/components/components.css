@@ -508,3 +508,703 @@
   color: currentColor;
   line-height: 1;
 }
+
+/* ======================================================= Visually hidden */
+
+/* Kept off `display:none` and `visibility:hidden` on purpose — both remove
+   the text from the accessibility tree, which is the opposite of the job. */
+.ds-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ============================================================ Avatar */
+
+.ds-avatar {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: var(--ds-radius-circle);
+  color: var(--ds-text-on-brand);
+  font: var(--fw-semibold) var(--fs-13) / var(--lh-tight) var(--ds-font-display);
+  user-select: none;
+}
+.ds-avatar__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* =========================================== ProgressBar / StackedBar */
+
+.ds-bar {
+  display: flex;
+  width: 100%;
+  overflow: hidden;
+  border-radius: var(--ds-radius-pill);
+  background-color: var(--surface-disabled);
+}
+.ds-bar--no-track {
+  background-color: transparent;
+}
+.ds-bar__fill {
+  display: block;
+  height: 100%;
+  transition: width var(--dur-base) var(--ds-ease-standard);
+}
+/* Only the OUTER track is rounded. Rounding each segment would leave a
+   hairline of track showing between them at every join. */
+.ds-bar--stacked .ds-bar__fill {
+  border-radius: 0;
+}
+
+/* ======================================================== LegendChip */
+
+.ds-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-6);
+  /* The visual is ~15px tall; the block padding is what carries it to a
+     legal tap target without changing how the legend reads. */
+  padding-block: var(--space-8);
+  padding-inline: 0;
+  border: 0;
+  background: none;
+  font: var(--fw-regular) var(--fs-12) / var(--lh-20) var(--ds-font-ui);
+  color: var(--ds-text-secondary);
+  text-align: left;
+}
+.ds-legend--interactive {
+  cursor: pointer;
+}
+.ds-legend--interactive:focus-visible {
+  outline: var(--border-w-bold) solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--ds-radius-sm);
+}
+.ds-legend__dot {
+  flex: 0 0 auto;
+  width: var(--icon-dot);
+  height: var(--icon-dot);
+  border-radius: var(--ds-radius-circle);
+}
+.ds-legend__value {
+  color: var(--ds-text-body);
+  font-weight: var(--fw-semibold);
+  font-variant-numeric: tabular-nums;
+}
+.ds-legend__chevron {
+  color: var(--ds-text-muted);
+}
+
+/* =========================================================== ChipRow */
+
+/* Horizontal scroll with no visible scrollbar, shared by ChipRow and by any
+   strip of cards. A visible bar under 26px pills reads as a rendering fault;
+   the overflow is signalled by the cut-off last item instead, which is the
+   platform convention on touch. Kept as its own class so the two callers
+   cannot drift. */
+.ds-scroll-x {
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  /* Snap so a flick lands on a card edge rather than mid-card. */
+  scroll-snap-type: x proximity;
+
+  /* ROOM FOR THE ITEMS' OWN EDGES, VERTICALLY ONLY. Setting overflow-x to auto
+     makes overflow-y compute to auto as well — the spec does not let one axis
+     clip while the other stays visible — so a strip sized exactly to its cards
+     trims their shadow top and bottom, and the row reads as flat rectangles.
+     Padding gives that back; the matching negative margin keeps the strip
+     aligned with everything above and below, so it is invisible to callers.
+
+     There is deliberately NO horizontal equivalent. Inline padding moves the
+     first item off the container's content edge by that amount, which put the
+     cards 2px left of every other card on the page — visible as a jog down the
+     column. Nothing needs it: a selected card's ring is drawn inside its box
+     (see .ds-card--selected) and a hairline border always was. */
+  padding-block: var(--space-4);
+  margin-block: calc(var(--space-4) * -1);
+}
+.ds-scroll-x::-webkit-scrollbar {
+  display: none;
+}
+.ds-scroll-x > * {
+  scroll-snap-align: start;
+}
+
+.ds-chiprow {
+  display: flex;
+  gap: var(--space-8);
+}
+.ds-chiprow__chip {
+  flex: 0 0 auto;
+  height: var(--control-h-app);
+  padding-inline: var(--space-12);
+  border: var(--border-w) solid var(--border-subtle);
+  border-radius: var(--ds-radius-pill);
+  background-color: var(--surface-card);
+  color: var(--ds-text-secondary);
+  font: var(--fw-medium) var(--fs-11) / var(--lh-tight) var(--ds-font-ui);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ds-ease-standard),
+    color var(--dur-fast) var(--ds-ease-standard),
+    border-color var(--dur-fast) var(--ds-ease-standard);
+}
+/* --brand-fill, not --brand-primary: this chip carries a white label, and
+   white on --brand-primary is 3.59:1. Same rule as the primary button. */
+.ds-chiprow__chip--active {
+  background-color: var(--brand-fill);
+  border-color: var(--brand-fill);
+  color: var(--ds-text-on-brand);
+}
+.ds-chiprow__chip:focus-visible {
+  outline: var(--border-w-bold) solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.ds-chiprow__count {
+  font-variant-numeric: tabular-nums;
+}
+
+/* =================================================== Eyebrow / label */
+
+.ds-eyebrow {
+  display: block;
+  font: var(--fw-medium) var(--fs-10) / var(--lh-12) var(--ds-font-ui);
+  letter-spacing: var(--ls-wide);
+  text-transform: uppercase;
+  color: var(--ds-text-muted);
+}
+
+.ds-section-label {
+  margin: 0;
+  font: var(--fw-medium) var(--fs-12) / var(--lh-20) var(--ds-font-ui);
+  color: var(--ds-text-secondary);
+}
+
+/* ============================================================ Metric */
+
+.ds-metric {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.ds-metric__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-8);
+}
+.ds-metric__dot {
+  flex: 0 0 auto;
+  width: var(--icon-dot);
+  height: var(--icon-dot);
+  margin-top: var(--space-4);
+  border-radius: var(--ds-radius-circle);
+}
+/* font-variant-numeric AFTER the `font:` shorthand, which resets it. This is
+   the same trap documented on `.type-cell` in tailwind.css. */
+.ds-metric__value {
+  font: var(--fw-semibold) var(--fs-20) / var(--lh-normal) var(--ds-font-display);
+  font-variant-numeric: tabular-nums;
+  color: var(--ds-text-heading);
+}
+.ds-metric__caption {
+  font: var(--fw-regular) var(--fs-10) / var(--lh-20) var(--ds-font-ui);
+  color: var(--ds-text-secondary);
+}
+
+/* =========================================================== ListRow */
+
+.ds-listrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+  width: 100%;
+  padding-block: var(--space-12);
+  padding-inline: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+}
+.ds-listrow--dense {
+  padding-block: var(--space-8);
+}
+.ds-listrow--divider + .ds-listrow--divider {
+  border-top: var(--border-w) solid var(--border-subtle);
+}
+.ds-listrow--interactive {
+  cursor: pointer;
+}
+.ds-listrow--interactive:focus-visible {
+  outline: var(--border-w-bold) solid var(--focus-ring);
+  outline-offset: -2px;
+}
+.ds-listrow__main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.ds-listrow__title {
+  font: var(--fw-semibold) var(--fs-13) / var(--lh-20) var(--ds-font-display);
+  color: var(--ds-text-heading);
+}
+.ds-listrow__subtitle {
+  font: var(--fw-regular) var(--fs-10) / var(--lh-20) var(--ds-font-ui);
+  color: var(--ds-text-secondary);
+}
+.ds-listrow__trailing {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ==================================================== DisclosureRow */
+
+.ds-disclosure {
+  /* Indent is a custom property times one step, so nesting is not capped at
+     whatever depth the stylesheet happened to anticipate. */
+  padding-left: calc(var(--ds-disclosure-depth, 0) * var(--space-12));
+}
+.ds-disclosure__header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-8);
+  width: 100%;
+  padding-block: var(--space-10);
+  padding-inline: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+}
+.ds-disclosure__header--interactive {
+  cursor: pointer;
+}
+.ds-disclosure__header--interactive:focus-visible {
+  outline: var(--border-w-bold) solid var(--focus-ring);
+  outline-offset: -2px;
+}
+/* Sized to --icon-md and set at the body step, so the caret sits on the same
+   optical line as the row title rather than reading as a stray tick. */
+.ds-disclosure__marker {
+  flex: 0 0 auto;
+  width: var(--icon-md);
+  color: var(--brand-text);
+  font-size: var(--fs-12);
+  line-height: var(--lh-20);
+  text-align: center;
+}
+.ds-disclosure__body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ds-disclosure__children {
+  border-top: var(--border-w) solid var(--border-subtle);
+}
+
+/* ==================================== Pointer affordances (desktop only)
+
+   Every interactive primitive above is built phone-first: the tap target is
+   the affordance, and there is no hover state at all. On a pointer device
+   that leaves a row you can click with nothing telling you so.
+
+   Wrapped in `(hover: hover)` rather than a width breakpoint. A touch device
+   resolves :hover on tap and then KEEPS it until you touch elsewhere, so an
+   unguarded rule leaves a stuck highlight on the last row you pressed — which
+   reads as a selection the user did not make. `(pointer: fine)` is the
+   companion test: it excludes the hybrid laptops that report both. */
+@media (hover: hover) and (pointer: fine) {
+  .ds-listrow--interactive:hover,
+  .ds-disclosure__header--interactive:hover {
+    background-color: var(--brand-tint-weak);
+  }
+
+  .ds-chiprow__chip:not(.ds-chiprow__chip--active):hover {
+    border-color: var(--brand-primary);
+    color: var(--brand-text);
+  }
+
+  .ds-legend--interactive:hover .ds-legend__label {
+    color: var(--ds-text-body);
+  }
+
+  .ds-legend--interactive:hover .ds-legend__chevron {
+    color: var(--brand-text);
+  }
+}
+
+/* The tint has to reach the card edge to read as a row rather than as a
+   highlighted paragraph, and the rows sit inside a padded card. Negative
+   margin plus matching padding is what buys that without the card having to
+   go flush and every other child re-indenting itself. */
+.ds-listrow--interactive,
+.ds-disclosure__header--interactive {
+  margin-inline: calc(var(--space-12) * -1);
+  padding-inline: var(--space-12);
+  width: calc(100% + var(--space-12) * 2);
+  border-radius: var(--ds-radius-md);
+  transition: background-color var(--dur-fast) var(--ds-ease-standard);
+}
+
+/* ========================================================= TreeSelect */
+
+/* Positions the panel against the trigger; the trigger itself is a
+   `.ds-field-box` (shared with Select/Field) wearing a couple of extra rules
+   below because it is a <button>, not a <div> around an <input>. */
+.ds-treeselect {
+  position: relative;
+}
+.ds-treeselect__trigger {
+  justify-content: space-between;
+  cursor: pointer;
+  font: var(--type-app-body);
+}
+.ds-treeselect__trigger:disabled {
+  cursor: not-allowed;
+}
+.ds-treeselect__value {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ds-treeselect__value--placeholder {
+  color: var(--ds-text-placeholder);
+}
+.ds-treeselect__chevron {
+  flex: 0 0 auto;
+  color: var(--ds-text-muted);
+  font-size: var(--fs-12);
+}
+
+/* `--ds-shadow-pop`, not `--ds-shadow-card` -- the elevation guide names it as
+   the one for dropdowns and popovers specifically, and it is the system's
+   only hard shadow for exactly this reason: it has to read as floating ABOVE
+   the page, not as a card sitting flush on it. It has to sit above whatever
+   the page renders next (see /visit's KPI band) without shifting layout, so
+   it is absolutely positioned rather than reserving space. */
+.ds-treeselect__panel {
+  position: absolute;
+  top: calc(100% + var(--space-4));
+  left: 0;
+  right: 0;
+  z-index: 20;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: var(--space-8) var(--space-12);
+  border-radius: var(--ds-radius-lg);
+  background-color: var(--surface-card);
+  box-shadow: var(--ds-shadow-pop);
+}
+.ds-treeselect__empty {
+  padding-block: var(--space-8);
+  font: var(--type-app-label);
+  color: var(--ds-text-muted);
+}
+
+/* A row is `.ds-disclosure__header.ds-disclosure__header--interactive` --
+   the EXACT class pair the team tree renders its own rows with, added to the
+   shared bleed-and-hover-wash selector further up this file -- so a row here
+   is pixel-for-pixel the same 10px-tall, edge-to-edge, blue-wash-on-hover row
+   as the tree two components below it on the same screen, not a new visual
+   language for the same interaction.
+
+   The caret and the label are two separate <button>s sharing that one row,
+   because the caret toggles a branch and the label picks a value; collapsing
+   them into one control would force a single tap target to do both jobs. The
+   caret reuses `.ds-disclosure__marker` unchanged for its colour and sizing,
+   so only the button reset lives here -- and neither button needs its own
+   focus or disabled styling, since `tokens/base.css` already supplies both at
+   zero specificity for every button in the system. */
+/* A small filled square, not a bare glyph -- the caret is the one tap target
+   in the row that does something OTHER than select, so it gets its own
+   affordance instead of blending into the label like DisclosureRow's marker
+   does in the (non-interactive-by-itself) team tree. Neutral fill, not
+   brand-text: blue here would read as "this is the selected item," which is
+   the option button's job two elements over. */
+.ds-treeselect__caret {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--icon-md);
+  height: var(--icon-md);
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: var(--ds-radius-sm);
+  background-color: var(--surface-sunken);
+  color: var(--ds-text-secondary);
+  font-size: var(--fs-10);
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ds-ease-standard);
+}
+@media (hover: hover) and (pointer: fine) {
+  .ds-treeselect__caret:hover {
+    background-color: var(--brand-tint-weak);
+    color: var(--brand-text);
+  }
+}
+.ds-treeselect__option {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: none;
+  padding: 0;
+  text-align: left;
+  font: var(--type-app-body);
+  color: var(--ds-text-body);
+  cursor: pointer;
+}
+.ds-treeselect__option--selected {
+  color: var(--brand-text);
+  font-weight: var(--fw-semibold);
+}
+
+/* DisclosureRow draws a hairline above a node's children -- right inside a
+   static Card, where it reads as a seam between sections. Inside this small
+   floating panel it reads as a stray cut line instead, so the tree here stays
+   one continuous compact list with no divider. */
+.ds-treeselect__panel .ds-disclosure__children {
+  border-top: none;
+}
+
+/* ============================================================== Tabs */
+
+/* Full-width page structure, as opposed to SegmentedControl's inline toolbar
+   switch. See Tabs.jsx for which to reach for. */
+.ds-tabs {
+  display: flex;
+  width: 100%;
+  border-bottom: var(--border-w) solid var(--border-subtle);
+}
+.ds-tabs__item {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  box-sizing: border-box;
+  /* NOT --control-h-default: on the app surface that is 22px, half of
+     --tap-target-min, and this is primary navigation. See Tabs.jsx. */
+  height: var(--control-h-lg);
+  padding-inline: var(--space-8);
+  border: 0;
+  background-color: transparent;
+  color: var(--ds-text-secondary);
+  font: var(--fw-medium) var(--fs-12) / var(--lh-20) var(--ds-font-ui);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ds-ease-standard),
+    color var(--dur-fast) var(--ds-ease-standard);
+}
+.ds-tabs__label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-6);
+}
+.ds-tabs__count {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+
+/* Drawn on every tab and only coloured on the active one. A border that
+   appears on selection shifts the label by 2px on every switch. */
+.ds-tabs__underline {
+  width: 50%;
+  height: var(--border-w-bold);
+  border-radius: var(--ds-radius-pill);
+  background-color: transparent;
+  transition: background-color var(--dur-fast) var(--ds-ease-standard);
+}
+
+.ds-tabs__item:hover:not(:disabled) {
+  color: var(--ds-text-body);
+}
+/* Press darker — principle 5, and the reason this is a wash rather than the
+   hover tint repeated. */
+.ds-tabs__item:active:not(:disabled) {
+  background-color: var(--brand-tint-strong);
+}
+.ds-tabs__item:focus-visible {
+  outline: var(--border-w-bold) solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+/* Blue label on a blue wash, RED underline. The one interactive red in the
+   system — principle 2 names the active-tab underline explicitly. */
+.ds-tabs__item[aria-selected="true"] {
+  background-color: var(--intent-info-wash);
+  color: var(--brand-text);
+}
+.ds-tabs__item[aria-selected="true"] .ds-tabs__underline {
+  background-color: var(--brand-mark);
+}
+.ds-tabs__item:disabled {
+  color: var(--ds-text-disabled);
+  cursor: not-allowed;
+}
+
+/* ============================================================ Select */
+
+/* The box, the hairline and the focus ring all come from `.ds-field-box`,
+   which this shares with Field. Only the control itself is styled here. */
+.ds-select {
+  width: 100%;
+  height: 100%;
+  /* The chevron stays native. Replacing it means shipping an icon, keeping it
+     in step with the four control heights, and mirroring it for RTL — for a
+     glyph the platform already draws correctly and users already recognise. */
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.ds-select:focus {
+  /* The ring belongs to `.ds-field-box:focus-within`, which is already
+     drawing it. A second outline on the inner control doubles it. */
+  outline: none;
+}
+.ds-select:disabled {
+  cursor: not-allowed;
+}
+
+/* ===================================== Press states — principle 5
+
+   Hover lighter, PRESS DARKER. The hover rules for these live in the
+   pointer-affordance block above and are correctly gated to pointer devices;
+   press is not, because a press state is exactly what a touch device needs —
+   it is the only feedback a tap gets before the view changes. */
+
+.ds-listrow--interactive:active,
+.ds-disclosure__header--interactive:active {
+  background-color: var(--brand-tint-strong);
+}
+
+.ds-chiprow__chip:not(.ds-chiprow__chip--active):active {
+  background-color: var(--brand-tint);
+}
+.ds-chiprow__chip--active:active {
+  background-color: var(--brand-fill-hover);
+}
+
+.ds-legend--interactive:active .ds-legend__label,
+.ds-legend--interactive:active .ds-legend__value {
+  color: var(--brand-text);
+}
+
+/* ============================================ Preview resize handle
+
+   Used by the /dev device-preview harness. Lives here rather than in the
+   harness because it needs :hover / :active / :focus-visible, and inline
+   styles cannot express a pseudo-class — the same reason every other
+   primitive is in this file. */
+
+.ds-preview-handle {
+  flex: 0 0 auto;
+  align-self: stretch;
+  width: var(--space-12);
+  margin-left: var(--space-4);
+  border-radius: var(--ds-radius-pill);
+  background-color: var(--border-subtle);
+  /* `col-resize`, not `ew-resize`: this drags a column edge, and the two
+     cursors are distinguishable on every platform that matters. */
+  cursor: col-resize;
+  touch-action: none;
+  transition: background-color var(--dur-fast) var(--ds-ease-standard);
+}
+.ds-preview-handle:hover,
+.ds-preview-handle:active {
+  background-color: var(--brand-primary);
+}
+.ds-preview-handle:focus-visible {
+  outline: var(--border-w-bold) solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* The previewed frame itself. `outline`, NOT `border`: Tailwind's preflight
+   puts every element in `border-box`, so a 1px border is subtracted from the
+   width — a 390px frame became a 388px viewport, and a 1536px one landed on
+   `xl` instead of `2xl`. An outline is drawn outside the box and costs the
+   viewport nothing. */
+.ds-preview-frame {
+  outline: var(--border-w) solid var(--border-subtle);
+  border-radius: var(--ds-radius-lg);
+  background-color: var(--surface-card);
+}
+
+/* A card used as a CHOICE — one of a group, one always on. The wash is the
+   same `--intent-info-wash` the active tab uses, so "selected" looks the same
+   whichever control expresses it. Outline rather than shadow: the four shadows
+   mean elevation and a selected card is not raised. */
+/* `outline-offset: -2px` draws the ring INSIDE the border box. An outer ring
+   is the first thing an ancestor with `overflow: hidden` eats — and a card
+   like this lives in a horizontal scroll strip, where that ancestor always
+   exists. Inside, it cannot be clipped by anything, costs no layout, and
+   still reads as a 2px brand edge because it covers the hairline underneath. */
+.ds-card--selected {
+  outline: var(--border-w-bold) solid var(--brand-primary);
+  outline-offset: calc(var(--border-w-bold) * -1);
+  background-color: var(--intent-info-wash);
+}
+/* Beats `.ds-card--interactive:hover`, which would otherwise wash the
+   selection back out to the weak tint on pointer-over. */
+.ds-card--interactive.ds-card--selected:hover {
+  background-color: var(--intent-info-wash);
+}
+
+/* ------------------------------------------- Visit KPI: HQ strip card
+
+   A fixed-width stat card for a horizontal scroll strip. Fixed, not `1fr`: in
+   a scroll container a flexible width would stretch the cards to fill when
+   there are two and squeeze them to nothing when there are ninety-seven.
+
+   The width is a variable so the one number that decides how many cards a
+   phone shows at once is in a single place — see HqCard.jsx for the trade. */
+.ds-hq-card {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: var(--space-6);
+  /* `min(..., 100%)` so the card never exceeds the strip's visible width. At
+     19rem it is wider than the content box of a 320px phone, and a strip whose
+     very first card is clipped reads as broken rather than as scrollable. The
+     percentage resolves against the scroll container, so this caps at exactly
+     one whole card. */
+  width: min(var(--ds-hq-card-w, 19rem), 100%);
+  padding: var(--space-12);
+}
+
+/* Small legend, for inside a card. The block padding shrinks with the type —
+   but only when the chip is NOT interactive: a legend you can tap keeps its
+   --tap-target-min hit area whatever size the label is. */
+.ds-legend--sm {
+  gap: var(--space-4);
+  font: var(--fw-regular) var(--fs-10) / var(--lh-20) var(--ds-font-ui);
+}
+.ds-legend--sm:not(.ds-legend--interactive) {
+  padding-block: var(--space-0);
+}
+.ds-legend--sm .ds-legend__dot {
+  width: var(--space-6);
+  height: var(--space-6);
+}

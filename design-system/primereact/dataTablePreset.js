@@ -176,7 +176,7 @@ export function makeDataTablePt() {
   rowGroupFooter: { className: 'bg-table-head type-table-head text-body' },
   rowGroupToggler: {
     className:
-      'inline-flex h-control-sm aspect-square items-center justify-center rounded-sm text-secondary hover:bg-brand-tint-weak hover:text-brand-text',
+      'inline-flex h-control-sm aspect-square items-center justify-center rounded-sm text-ds-secondary hover:bg-brand-tint-weak hover:text-brand-text',
   },
   rowGroupTogglerIcon: { className: 'text-12' },
 
@@ -323,7 +323,7 @@ export function makeDataTablePt() {
        for this would be `h-control-sm` (24px — space.css names "row actions"
        as its use case), giving a 41px row. That is a deliberate restyling
        decision, not a migration one, so it is deliberately NOT taken here. */
-    /* ALWAYS VISIBLE AT REST. This used to be a `text-secondary` (0.65) chevron
+    /* ALWAYS VISIBLE AT REST. This used to be a `text-ds-secondary` (0.65) chevron
        that only gained colour and a tinted background on hover, so it read as
        "the expander appears on hover" — which is how it was reported.
 

@@ -37,6 +37,10 @@
   /* ---- Tracking. Zero unless matching a display heading. ---- */
   --ls-none: 0;
   --ls-tight: -0.148px; /* 24px+ only; imperceptible below that */
+  /* The counterpart at the other end: 10px uppercase eyebrow labels only.
+     Uppercase at that size sets too tight without it, and nothing else in the
+     product is uppercase. */
+  --ls-wide: 0.04em;
 
   /* ---- Role shorthands. Use these as a single `font:` declaration
          instead of assembling type by hand. ---- */

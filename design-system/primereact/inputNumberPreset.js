@@ -9,7 +9,7 @@
  * adds is the wrapper and the optional spinner buttons.
  */
 const SPIN =
-  'inline-flex w-6 items-center justify-center rounded-sm text-secondary ' +
+  'inline-flex w-6 items-center justify-center rounded-sm text-ds-secondary ' +
   'transition-colors hover:bg-brand-tint-weak hover:text-brand-text';
 
 export const inputNumberPt = {

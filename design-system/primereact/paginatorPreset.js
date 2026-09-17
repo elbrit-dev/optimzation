@@ -22,7 +22,7 @@ const cx = (...parts) => parts.filter(Boolean).join(' ');
    640px; that stays a responsive concern for the call site, not the preset, so
    all four are styled here. */
 const PAGER_NAV =
-  'inline-flex h-control-sm aspect-square items-center justify-center rounded-full text-secondary ' +
+  'inline-flex h-control-sm aspect-square items-center justify-center rounded-full text-ds-secondary ' +
   'transition-colors hover:bg-brand-tint-weak hover:text-brand-text disabled:text-disabled disabled:hover:bg-transparent';
 
 export const paginatorPt = {
@@ -41,12 +41,12 @@ export const paginatorPt = {
       'transition-colors',
       context?.active
         ? 'bg-brand-fill text-on-brand'
-        : 'text-secondary hover:bg-brand-tint-weak hover:text-brand-text',
+        : 'text-ds-secondary hover:bg-brand-tint-weak hover:text-brand-text',
     ),
   }),
 
   /* The "out of N" / current-page report slot. */
-  current: { className: 'text-12 text-secondary' },
+  current: { className: 'text-12 text-ds-secondary' },
 
   /* Rows-per-page select.
      The Dropdown's own styling comes from the global registry — it IS a

@@ -48,10 +48,10 @@ export const dropdownPt = {
   },
 
   input: { className: 'flex-1 truncate text-left text-14 text-body' },
-  trigger: { className: 'flex shrink-0 items-center text-muted' },
+  trigger: { className: 'flex shrink-0 items-center text-ds-muted' },
   dropdownIcon: { className: 'text-12' },
-  clearIcon: { className: 'shrink-0 text-12 text-muted hover:text-body' },
-  loadingIcon: { className: 'text-12 text-muted' },
+  clearIcon: { className: 'shrink-0 text-12 text-ds-muted hover:text-body' },
+  loadingIcon: { className: 'text-12 text-ds-muted' },
 
   /* The hidden native <select> and the focus sentinels. lara hid these with
      `p-hidden-accessible`, which `unstyled` removes — landmine 1. Without a
@@ -74,20 +74,20 @@ export const dropdownPt = {
   option: { className: OPTION },
   itemLabel: { className: 'block w-full min-w-0 truncate' },
 
-  itemGroup: { className: 'px-4 py-2 text-12 font-semibold text-secondary' },
+  itemGroup: { className: 'px-4 py-2 text-12 font-semibold text-ds-secondary' },
   itemGroupLabel: { className: 'block' },
 
   header: { className: 'border-b border-line-subtle p-2' },
   footer: { className: 'border-t border-line-subtle p-2' },
-  emptyMessage: { className: 'px-4 py-2.5 text-14 text-secondary' },
+  emptyMessage: { className: 'px-4 py-2.5 text-14 text-ds-secondary' },
 
   filterContainer: { className: 'relative' },
   filterInput: {
     className:
       'h-control w-full rounded-md border border-line-subtle bg-surface px-2 text-12 text-body hover:border-brand-hover',
   },
-  filterIcon: { className: 'absolute right-2 top-1/2 -translate-y-1/2 text-12 text-muted' },
-  filterClearIcon: { className: 'text-12 text-muted hover:text-body' },
+  filterIcon: { className: 'absolute right-2 top-1/2 -translate-y-1/2 text-12 text-ds-muted' },
+  filterClearIcon: { className: 'text-12 text-ds-muted hover:text-body' },
 };
 
 export default dropdownPt;

@@ -30,7 +30,7 @@ const ITEM = cx(
 /* A close/dismiss control. Used by Dialog, Sidebar and OverlayPanel. */
 /* Shared by Dialog, Sidebar (incl. the bottom drawer) and OverlayPanel.
 
-   `text-body` (0.88), not `text-secondary` (0.65). At 0.65 with a brand-tinted
+   `text-body` (0.88), not `text-ds-secondary` (0.65). At 0.65 with a brand-tinted
    hover, the close control read as though it only appeared on hover — the same
    defect the DataTable row expander had, reported on the bottom drawer. A
    dismiss control is the one affordance a modal surface must advertise at
@@ -42,7 +42,7 @@ const CLOSE =
 
 export const dividerPt = {
   root: { className: 'my-3 flex items-center border-t border-line-subtle' },
-  content: { className: 'bg-surface px-2 text-12 text-secondary' },
+  content: { className: 'bg-surface px-2 text-12 text-ds-secondary' },
 };
 
 /* `animate-pulse` replaces lara's own keyframe; the design system has one
@@ -77,15 +77,15 @@ export const tagPt = {
 export const chipPt = {
   root: { className: 'inline-flex items-center gap-1 rounded-full bg-sunken px-3 py-1 text-12 text-body' },
   label: { className: 'leading-none' },
-  icon: { className: 'text-12 text-secondary' },
-  removeIcon: { className: 'cursor-pointer text-12 text-muted hover:text-body' },
+  icon: { className: 'text-12 text-ds-secondary' },
+  removeIcon: { className: 'cursor-pointer text-12 text-ds-muted hover:text-body' },
 };
 
 export const cardPt = {
   root: { className: cx(SURFACE, 'shadow-card') },
   body: { className: 'p-4' },
   title: { className: 'type-app-label text-heading' },
-  subTitle: { className: 'type-app-body text-secondary' },
+  subTitle: { className: 'type-app-body text-ds-secondary' },
   content: { className: 'pt-2' },
   footer: { className: 'pt-3' },
 };
@@ -163,7 +163,7 @@ export const accordionTabPt = {
     ),
   },
   headerTitle: { className: 'flex-1 text-left' },
-  headerIcon: { className: 'text-12 text-secondary' },
+  headerIcon: { className: 'text-12 text-ds-secondary' },
   content: { className: 'border-t border-line-subtle px-3 py-2' },
 };
 
@@ -247,16 +247,16 @@ export const treePt = {
       '[&[data-p-highlight=true]]:bg-info-wash [&[data-p-highlight=true]]:text-brand-text',
     ),
   },
-  toggler: { className: 'inline-flex h-5 w-5 items-center justify-center rounded-sm text-secondary hover:text-brand-text' },
+  toggler: { className: 'inline-flex h-5 w-5 items-center justify-center rounded-sm text-ds-secondary hover:text-brand-text' },
   togglerIcon: { className: 'text-10' },
-  nodeIcon: { className: 'text-12 text-secondary' },
+  nodeIcon: { className: 'text-12 text-ds-secondary' },
   label: { className: 'flex-1 truncate' },
-  emptyMessage: { className: 'px-2 py-1.5 text-12 text-secondary' },
+  emptyMessage: { className: 'px-2 py-1.5 text-12 text-ds-secondary' },
   header: { className: 'mb-2 border-b border-line-subtle pb-2' },
   footer: { className: 'mt-2 border-t border-line-subtle pt-2' },
   filterContainer: { className: 'relative' },
   input: { className: 'h-control w-full rounded-md border border-line-subtle bg-surface px-2 text-12' },
-  searchIcon: { className: 'absolute right-2 top-1/2 -translate-y-1/2 text-12 text-muted' },
+  searchIcon: { className: 'absolute right-2 top-1/2 -translate-y-1/2 text-12 text-ds-muted' },
   loadingOverlay: { className: 'absolute inset-0 flex items-center justify-center bg-surface/70' },
   loadingIcon: { className: 'text-20 text-brand-text' },
 };
@@ -387,5 +387,5 @@ export const tooltipPt = {
 
 export const iconFieldPt = { root: { className: 'relative inline-flex w-full items-center' } };
 export const inputIconPt = {
-  root: { className: 'absolute right-2 top-1/2 -translate-y-1/2 text-12 text-muted' },
+  root: { className: 'absolute right-2 top-1/2 -translate-y-1/2 text-12 text-ds-muted' },
 };
