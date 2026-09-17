@@ -10,12 +10,19 @@
  * A card that names a doctor OWNS a session. A card that does not JOINS the
  * most recent one. That is what lets a page bind the doctor once, on the hero,
  * and drop the other four cards with nothing bound at all.
+ *
+ * A card in SAMPLE MODE owns a session too, keyed on the sample doctor whether
+ * or not anything is bound — which is how five sample cards with nothing else
+ * set on them end up sharing one set of placeholder rows, exactly as five live
+ * cards share one read. A live card with nothing bound beside them joins it, so
+ * ticking the box on one card is enough to fill a whole page.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 
 import { readDoctorInput } from "../DoctorDetail/lib/loadDoctor";
 import { parseDepartments } from "../DoctorDetail/lib/console";
+import { SAMPLE_DOCTOR_ID } from "./sampleData";
 import {
   getRegistryVersion, getSession, latestSession, sessionKey, subscribeToRegistry,
 } from "./session";
@@ -45,15 +52,22 @@ export function useDoctorConsole({
   department,
   period,
   valueFormat,
+  sampleData,
 } = {}) {
-  const { doctorId } = readDoctorInput(doctor);
+  const bound = readDoctorInput(doctor);
+  const sample = !!sampleData;
+  // Sample mode supplies its own doctor, and it OVERRIDES anything bound: the
+  // placeholder figures belong to the sample doctor, and drawing them under a
+  // real doctor's name is the one thing on this page that could actually
+  // mislead someone reviewing it.
+  const doctorId = sample ? SAMPLE_DOCTOR_ID : bound.doctorId;
 
   // Re-resolve when a session appears or goes away, so a card placed ABOVE the
   // one that binds the doctor still attaches once that one mounts.
   const version = useSyncExternalStore(subscribeToRegistry, getRegistryVersion, () => 0);
 
   const key = doctorId
-    ? sessionKey({ doctorId, erpUrl, authToken, employee, roleProfile, pobLimit })
+    ? sessionKey({ doctorId, erpUrl, authToken, employee, roleProfile, pobLimit, sampleData: sample })
     : null;
 
   // The bound doctor row is read through a ref, never as a dependency: a
@@ -65,9 +79,12 @@ export function useDoctorConsole({
   const session = useMemo(() => {
     if (key) {
       return getSession(key, {
-        doctor: doctorRef.current,
+        // The sample doctor is handed over as a plain id, so the session knows
+        // which doctor it holds without a bound row painting a real name over
+        // the placeholder figures.
+        doctor: sample ? SAMPLE_DOCTOR_ID : doctorRef.current,
         erpUrl, authToken, employee, roleProfile, pobLimit,
-        department, period, valueFormat,
+        department, period, valueFormat, sampleData: sample,
       });
     }
     // eslint-disable-next-line no-unused-expressions
@@ -75,7 +92,7 @@ export function useDoctorConsole({
     return latestSession();
     // `version` is a dependency on purpose — it is how a joiner notices.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, version, erpUrl, authToken, employee, roleProfile, pobLimit]);
+  }, [key, version, erpUrl, authToken, employee, roleProfile, pobLimit, sample]);
 
   // Reading starts on the client only. On the server the snapshot is the empty
   // state, which is what the placeholder hero is drawn from.

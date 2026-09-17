@@ -60,6 +60,12 @@ const dataProps = {
     description:
       "Optional role profile override for the reader. Normally left empty — the ERP row is authoritative.",
   },
+  sampleData: {
+    type: "boolean",
+    defaultValue: false,
+    description:
+      "SAMPLE DATA — draw the whole card from realistic PLACEHOLDER figures and make NO ERP READ AT ALL. For reviewing and signing off the design before the real data is wired in: one made-up doctor with a year of support, service, POB, visits and notes across Elbrit, CND and Vasco, so every surface carries content instead of em dashes. Nothing is bound and nothing is fetched — no doctor, no ERP URL, no token — and service and ROI are shown, because half the design is those surfaces. Turning it on for ONE card fills any other doctor card on the page that has nothing bound. TURN IT OFF BEFORE THE PAGE GOES LIVE: while it is on the card shows a doctor who does not exist, whatever is bound beside it.",
+  },
 };
 
 /**
@@ -113,6 +119,11 @@ const card = (name, displayName, description, props = {}) => ({
   name,
   displayName,
   section: SECTION,
+  // Dropped full-width, height from content. Every card is a horizontal band in
+  // the approved design -- none of them is a thing you size by hand -- and a
+  // Studio instance left to guess its own box is how the page ended up with
+  // cards narrower than their content.
+  defaultStyles: { width: "stretch" },
   importPath: "./components/DoctorConsole/" + name,
   description,
   props: { ...dataProps, ...filterProps, ...props, className: { type: "string" } },

@@ -1592,6 +1592,8 @@ PLASMIC.registerComponent(CatalogLetterGroup, {
 PLASMIC.registerComponent(DoctorDetail, {
   name: "DoctorDetail",
   displayName: "Doctor Detail Page (all five)",
+  // Full width, height from content -- it is a whole page, never a hand-sized box.
+  defaultStyles: { width: "stretch" },
   // A convenience only — the five "Doctor · …" cards are ordinary top-level
   // components and are the normal way to build this page. This drops all five
   // at once, in the approved order. It is NOT a container and takes no slot:
@@ -1648,6 +1650,12 @@ PLASMIC.registerComponent(DoctorDetail, {
       defaultValue: "full",
       description:
         "How money reads: full (₹1,24,300) or short (₹1.24L). A DEFAULT — the reader can switch it in Filter. The chart's own axis is always short, because the axis column is 44px and a full figure does not fit.",
+    },
+    sampleData: {
+      type: "boolean",
+      defaultValue: false,
+      description:
+        "SAMPLE DATA — draw the whole page from realistic PLACEHOLDER figures and make NO ERP READ AT ALL. It exists so the design can be reviewed and signed off before the real data is wired in: one made-up doctor (a diabetologist in Erode covered for Elbrit, CND and Vasco) with a year of uneven support, service, POB, visits and notes behind him, so the hero, the totals strip, the coverage rings, the trend, the department table and the activity timeline all carry content instead of em dashes. NOTHING NEEDS BINDING and nothing is fetched — no doctor, no ERP URL, no token — and the service and ROI surfaces are shown, because half the design is those surfaces and a reader below SM never sees them. The placeholder rows go through the same attribution rules as the real ones, so a POB with no visit behind it still lands in Unassigned and a month Ecubix sent as a bare total still shows its missing part. TURN IT OFF BEFORE THE PAGE GOES LIVE: while it is on, this page shows a doctor who does not exist, whatever is bound beside it.",
     },
     onBack: {
       type: "eventHandler",

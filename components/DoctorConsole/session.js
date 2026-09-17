@@ -21,11 +21,19 @@
  * is what makes the five usable in Studio: bind the doctor on one card — the
  * hero, normally — and the rest attach to it. Bind a different doctor on a card
  * and it gets its own session, which is how two doctors can sit side by side.
+ *
+ * SAMPLE MODE is the one session that never reads anything. `sampleData` on a
+ * card hands the session a complete set of placeholder rows up front (see
+ * `sampleData.js`) and `start()` returns without issuing a request, so the
+ * design can be reviewed with no credential, no doctor and no network at all.
+ * It is part of the session KEY, so a sample card and a live card on the same
+ * page are two separate readings and neither can borrow the other's rows.
  */
 
 import { emptyData, loadDoctorData, readDoctorInput } from "../DoctorDetail/lib/loadDoctor";
 import { appendLeadNote } from "../DoctorDetail/lib/erp";
 import { PERIODS, buildConsole, initialUi, parseDepartments } from "../DoctorDetail/lib/console";
+import { sampleConsoleData } from "./sampleData";
 
 /** Live sessions, newest last. Capped so a long-lived tab cannot grow forever. */
 const SESSIONS = new Map();
@@ -61,7 +69,7 @@ export function getRegistryVersion() {
  * handing one reader the other reader's snapshot would quietly widen what they
  * can see.
  */
-export function sessionKey({ doctorId, erpUrl, authToken, employee, roleProfile, pobLimit }) {
+export function sessionKey({ doctorId, erpUrl, authToken, employee, roleProfile, pobLimit, sampleData }) {
   // JSON rather than a joined string: a token or an endpoint could contain any
   // separator we picked, and two different readings collapsing onto one key
   // would show one of them the other's rows.
@@ -72,22 +80,29 @@ export function sessionKey({ doctorId, erpUrl, authToken, employee, roleProfile,
     employee ?? "",
     roleProfile ?? "",
     pobLimit ?? 500,
+    // Placeholder figures and real ones are two different readings of the same
+    // doctor id, so they must never land on the same key.
+    sampleData ? "sample" : "",
   ]);
 }
 
 function createSession(key, config) {
   const { bound, doctorId } = readDoctorInput(config.doctor);
+  const sample = !!config.sampleData;
 
   const session = {
     key,
     doctorId,
     bound,
     config,
+    sample,
     listeners: new Set(),
     refs: 0,
     generation: 0,
     started: false,
-    data: emptyData(doctorId, bound),
+    // In sample mode the rows are in hand before the first render, so there is
+    // no loading state to pass through and nothing to fetch afterwards.
+    data: sample ? sampleConsoleData() : emptyData(doctorId, bound),
     ui: initialUi(config),
     snapshot: null,
     // The insights card registers its own DOM node here, so a totals card
@@ -120,6 +135,10 @@ function createSession(key, config) {
   session.start = () => {
     if (session.started) return;
     session.started = true;
+    // SAMPLE MODE MAKES NO REQUEST. Not "a request whose result is thrown
+    // away" — none at all, which is the whole point: the design has to be
+    // reviewable on a page with no credential bound to it.
+    if (sample) return;
     if (!session.doctorId) return;
     const generation = session.generation;
     const stale = () => session.generation !== generation;
@@ -252,6 +271,13 @@ function createSession(key, config) {
     // notes
     setNoteField: (key, value) => patch((ui) => ({ noteForm: { ...ui.noteForm, [key]: value } })),
     saveNote: async () => {
+      // Sample mode writes nothing either. The composer still closes so the
+      // dialog can be walked through, but there is no Lead behind these figures
+      // and a design review has no business appending a note to ERP.
+      if (sample) {
+        patch({ noteForm: { subject: "", body: "", tag: "Note" }, modal: null, noteSaving: false, noteError: null });
+        return;
+      }
       patch({ noteSaving: true, noteError: null });
       try {
         await appendLeadNote(session.doctorId, {
