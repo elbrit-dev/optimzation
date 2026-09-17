@@ -90,7 +90,13 @@ export function deriveDoctor(lead, fallbackRow, doctorId) {
        */
       seen.set(short, {
         key: short,
-        label: region ? short + " " + region : short,
+        // The label spells the division out -- "Aura & Proxima Chennai", not
+        // "A&P Chennai". The A&P abbreviation earns its place in a KEY, which
+        // has to stay short and stable, and nothing else reads it as a value.
+        // It was never needed for width: "Elbrit West Uttar Pradesh" is 25
+        // characters and renders in full, and the longest A&P name is the same
+        // length.
+        label: region ? division + " " + region : division,
         division, region, department: label,
       });
     } else if (division && seen.has(short)) {
@@ -98,7 +104,7 @@ export function deriveDoctor(lead, fallbackRow, doctorId) {
       // label falls back to the division on its own rather than naming one town
       // and silently hiding the other.
       const entry = seen.get(short);
-      if (entry.region && entry.region !== region) { entry.label = short; entry.region = null; }
+      if (entry.region && entry.region !== region) { entry.label = entry.division; entry.region = null; }
     }
     // GraphQL nests the employee under the role profile; REST returns the role
     // profile as a bare string, so there is nobody to list.
