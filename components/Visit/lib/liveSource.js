@@ -170,14 +170,13 @@ const EMPLOYEES_QUERY = `
    own workaround for an open seat is a placeholder Employee record on a
    dedicated "V..." naming series (e.g. "V01617"), kept Active so the seat
    still shows up in the hierarchy and the reporting chain below it doesn't
-   dangle. Trusting the ID series alone, not the "Vacant_<name>" label on the
-   record -- the ID is the actual naming-series convention; the label is just
-   what someone typed. Known trade-off, checked against both rosters: 2
-   Active placeholders on ERP predate the series and are still on their
-   original "HR-EMP-xxxxx" ID, so those 2 seats will read as filled until
-   they are renumbered onto the "V..." series like the rest. */
-function isVacantId(employeeId) {
-  return /^v/i.test(employeeId ?? '');
+   dangle. The ID series is the primary signal; the "Vacant_<name>" label is
+   also checked as a fallback, because a handful of Active placeholders on ERP
+   predate the series and are still on their original "HR-EMP-xxxxx" ID --
+   without this those seats would read as filled until renumbered onto the
+   "V..." series like the rest. */
+function isVacantId(employeeId, employeeName) {
+  return /^v/i.test(employeeId ?? '') || /^vacant_/i.test(employeeName ?? '');
 }
 
 async function fetchTeam(conn) {
@@ -200,7 +199,7 @@ async function fetchTeam(conn) {
       short: shortDesignation(designation),
       reportsTo: node.reports_to?.name ?? null,
       hq: node.custom_territory?.name ?? '',
-      vacant: isVacantId(node.name),
+      vacant: isVacantId(node.name, node.employee_name),
       onLeave: false, // overlaid below, once actual leave is known
       userId: node.user_id?.name || null,
     };
