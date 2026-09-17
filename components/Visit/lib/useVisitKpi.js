@@ -95,8 +95,10 @@ export function useVisitKpi({
     const scoped = inPeriod(inScope, window);
 
     return {
-      /* The full roster stays available so the scope picker can offer managers
-         outside the current subtree. */
+      /* The full roster stays available so ScopeSelect can find the VIEWER's
+         own manager record regardless of which subtree is currently
+         selected -- `viewerId` may not even be inside `scopeTeam` once the
+         viewer has drilled down to one of their own reports. */
       allTeam: team,
       team: scopeTeam,
       rows: scoped,
@@ -109,6 +111,12 @@ export function useVisitKpi({
          in five days as "in the field". */
       todayRows: inPeriod(inScope, { from: today, to: today }),
       root: scopeTeam.find((m) => m.id === rootId) ?? null,
+      /* The signed-in viewer's OWN id, separate from `root` (the currently
+         SELECTED scope, which changes as they drill down). ScopeSelect uses
+         this -- not `root` -- to restrict the picker to the viewer's own
+         subtree, so drilling into a report's numbers never widens what they
+         are allowed to navigate back out to. */
+      viewerId,
       today,
       window,
       asOf: asOfFrom(scoped),

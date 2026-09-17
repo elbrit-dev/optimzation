@@ -21,7 +21,15 @@ import { MANAGER_LEVELS, shortDesignation } from '../lib/shape';
  *
  * `MANAGER_LEVELS` (shape.js) stops at GM and never includes the CEO --
  * that's what keeps this tree scoped to Sales instead of the whole company;
- * see the comment on shape.js's 'Chief Executive Officer' entry. */
+ * see the comment on shape.js's 'Chief Executive Officer' entry.
+ *
+ * RESTRICTED TO THE VIEWER'S OWN SUBTREE when `viewerId` resolves to a
+ * manager: a ZSM should see and drill into their own org, never their own
+ * manager or a sibling ZSM's branch -- this is a permission boundary, not
+ * just a default. Falls back to the full company tree (every top-level
+ * manager root) only when the viewer can't be resolved to a manager at all
+ * (an unresolvable token, a BE viewer, the dev harness with no viewer) --
+ * there is no "my team" to restrict to in that case. */
 
 function labelFor(member, rootId) {
   const short = shortDesignation(member.designation);
@@ -34,7 +42,7 @@ function labelFor(member, rootId) {
    same reasoning as `subtreeOf` in selectors.js: `reports_to` is a plain link
    field ERPNext does not police for cycles, so a bad edit to it should not
    turn this into an infinite loop. */
-function buildManagerTree(team, rootId) {
+function buildManagerTree(team, rootId, viewerId) {
   const managers = team.filter((m) => MANAGER_LEVELS.has(shortDesignation(m.designation)));
   const byParent = new Map();
   for (const m of managers) {
@@ -54,7 +62,15 @@ function buildManagerTree(team, rootId) {
      under it. */
   const isDeadEndVacant = (m) => m.vacant && !(byParent.get(m.id)?.length);
 
-  const roots = managerRoots(team).filter((m) => !isDeadEndVacant(m));
+  /* The viewer's own node, if they ARE a manager -- restricts the whole tree
+     to just them, so there is no ancestor chain and no sibling branch to
+     navigate into. A dead-end-vacant self (should never happen for a real
+     viewer, but the check stays cheap) still yields no options rather than a
+     phantom root. */
+  const self = viewerId ? managers.find((m) => m.id === viewerId) : null;
+  const roots = self
+    ? (isDeadEndVacant(self) ? [] : [self])
+    : managerRoots(team).filter((m) => !isDeadEndVacant(m));
 
   const toNode = (member, seen) => {
     if (seen.has(member.id)) return { id: member.id, label: labelFor(member, rootId) };
@@ -70,8 +86,8 @@ function buildManagerTree(team, rootId) {
   return roots.map((m) => toNode(m, new Set()));
 }
 
-export function ScopeSelect({ team, value, onChange, rootId }) {
-  const tree = buildManagerTree(team, rootId);
+export function ScopeSelect({ team, value, onChange, rootId, viewerId }) {
+  const tree = buildManagerTree(team, rootId, viewerId);
 
   return (
     <TreeSelect label="Team scope" hideLabel tree={tree} value={value} onChange={onChange} />

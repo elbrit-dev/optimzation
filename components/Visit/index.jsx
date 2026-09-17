@@ -56,7 +56,7 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
      back to them is the same card as the way in. */
   const [hq, setHq] = useState(ALL_HQS);
 
-  const { team, allTeam, rows, todayRows, pob, root, window: win, asOf, source, loading, error } = useVisitKpi({
+  const { team, allTeam, rows, todayRows, pob, root, viewerId, window: win, asOf, source, loading, error } = useVisitKpi({
     scopeId,
     period,
     gqlEnvironment,
@@ -119,6 +119,7 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
       team={allTeam}
       value={root?.id ?? ''}
       rootId={root?.id}
+      viewerId={viewerId}
       onChange={(id) => {
         setScopeId(id);
         /* The selected HQ belongs to the OLD scope. Keeping it would show a
