@@ -314,12 +314,12 @@ export function derivePobs(rows, eventIndex) {
         return;
       }
       q.items.forEach((it, i) => push(q, {
-        item: it.item_name ?? it.item_code, qty: it.qty, amt: it.net_amount,
+        item: it.item_name ?? it.item_code ?? it.item_code__name, qty: it.qty, amt: it.net_amount,
       }, i));
       return;
     }
     // REST shape: already one row per line.
-    push(q, { item: q.item_name ?? q.item_code, qty: q.qty, amt: q.net_amount }, qi);
+    push(q, { item: q.item_name ?? q.item_code ?? q.item_code__name, qty: q.qty, amt: q.net_amount }, qi);
   });
 
   return out.sort((a, b) => b.t - a.t);
