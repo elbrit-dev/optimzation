@@ -518,6 +518,12 @@ export default function DoctorCard({
         roleRows={roleRows}
         initials={initialsOf(name)}
         tone={tone}
+        // The popup reads the doctor's history through the same session the
+        // detail page uses. Everything it needs, this card already has.
+        doctorRow={data}
+        erpUrl={erpUrl}
+        authToken={authToken}
+        employee={employee}
         copied={copied}
         onCopyCode={showCopyCode ? copyCode : undefined}
         showCopyCode={showCopyCode}

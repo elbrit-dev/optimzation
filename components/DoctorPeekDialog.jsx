@@ -1,5 +1,7 @@
-import React, { useCallback, useEffect, useId, useRef } from "react";
-import { ArrowUpRight, Check, Copy, MapPin, Plus, X } from "lucide-react";
+import React, { useCallback, useEffect, useId, useRef, useState } from "react";
+import { ArrowUpRight, Check, ChevronDown, Copy, MapPin, Plus, X } from "lucide-react";
+
+import useDoctorConsole from "./DoctorConsole/useDoctorConsole";
 
 /**
  * DoctorPeekDialog — the doctor card's preview popup.
@@ -20,6 +22,147 @@ import { ArrowUpRight, Check, Copy, MapPin, Plus, X } from "lucide-react";
  * Loaded lazily by DoctorCard, so a list of 200 cards pays for it once,
  * the first time somebody opens one.
  */
+/**
+ * The history the legacy "Dr. Information" screen showed, inside this popup.
+ *
+ * It reads through useDoctorConsole -- the SAME session, reads and derivations
+ * the doctor detail page uses -- so a figure here can never disagree with the
+ * figure on that page, and a reader who opens the popup and then the page sees
+ * one story. The read only happens once a card is actually opened: this file is
+ * itself lazily imported, and the hook is not mounted until then.
+ *
+ * WHAT THE LEGACY SCREEN HAD THAT ERP DOES NOT: "Last 5 Visit Remarks" has no
+ * source. Event carries no remarks field of its own (its 19 custom fields are
+ * all links, coordinates and flags), `description` is empty on every
+ * doctor-linked event, and so is `custom_force_visit_reason`. Rather than
+ * invent one, the section is left out; when a field exists it drops straight in
+ * beside the others. "Sample" is the same story, so that section shows what ERP
+ * does hold -- the service rows that record gifts, gadgets and cards.
+ */
+function Section({ title, count, children, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="overflow-hidden rounded-xl border border-gray-100">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-3 bg-gray-50/60 px-3 py-2 text-left transition-colors hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+      >
+        <span className="text-sm font-semibold text-gray-800">{title}</span>
+        <span className="flex shrink-0 items-center gap-2">
+          {count ? <span className="text-xs font-medium text-gray-500">{count}</span> : null}
+          <ChevronDown size={15} className={"text-gray-400 transition-transform " + (open ? "rotate-180" : "")} />
+        </span>
+      </button>
+      {open ? <div className="divide-y divide-gray-100">{children}</div> : null}
+    </div>
+  );
+}
+
+function Row({ left, sub, right }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 px-3 py-2">
+      <span className="min-w-0">
+        <span className="block truncate text-sm text-gray-800">{left}</span>
+        {sub ? <span className="block truncate text-[11px] text-gray-500">{sub}</span> : null}
+      </span>
+      {right ? <span className="shrink-0 text-xs font-semibold text-gray-700">{right}</span> : null}
+    </div>
+  );
+}
+
+const Empty = ({ what }) => <div className="px-3 py-2 text-[12px] text-gray-500">{what}</div>;
+
+/** "2026-09-03" -> "03-Sep-2026", the form the screen this replaces used. */
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function fday(value) {
+  if (!value) return "";
+  const t = new Date(value);
+  if (Number.isNaN(t.getTime())) return String(value);
+  return String(t.getDate()).padStart(2, "0") + "-" + MON[t.getMonth()] + "-" + t.getFullYear();
+}
+
+export function PeekHistory({ doctor, erpUrl, authToken, employee }) {
+  const c = useDoctorConsole({ doctor, erpUrl, authToken, employee, period: "all" });
+  if (!c) return null;
+  if (c.loading && !c.ready) return <p className="text-[12px] text-gray-500">Loading history…</p>;
+
+  const money = c.money;
+  const mine = c.viewer?.employee ?? null;
+
+  // Last 3 visits, newest first, tagged Self when the reader made the call.
+  const visits = (c.visits ?? []).slice(0, 3);
+
+  // Support is one row per PRODUCT; the month view sums them by period.
+  const byMonth = new Map();
+  (c.support ?? []).forEach((r) => {
+    const k = r.p ?? r.d;
+    if (!k) return;
+    byMonth.set(k, (byMonth.get(k) ?? 0) + (r.amt ?? 0));
+  });
+  const months = [...byMonth.entries()].slice(0, 6);
+
+  const byProduct = new Map();
+  (c.support ?? []).forEach((r) => {
+    const k = r.item || r.brand;
+    if (!k) return;
+    byProduct.set(k, (byProduct.get(k) ?? 0) + (r.amt ?? 0));
+  });
+  const products = [...byProduct.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
+
+  // POB rows are one per LINE, so they are folded back to their quotation.
+  const byQuote = new Map();
+  (c.pobs ?? []).forEach((r) => {
+    const k = r.quotation ?? r.id;
+    const e = byQuote.get(k) ?? { d: r.d, chemist: r.chemist, amt: 0, lines: 0 };
+    e.amt += r.amt ?? 0; e.lines += 1;
+    byQuote.set(k, e);
+  });
+  const pobs = [...byQuote.values()].slice(0, 3);
+
+  const gifts = (c.service ?? []).slice(0, 5);
+
+  return (
+    <div className="space-y-2">
+      <Section title="Last 3 Visit" count={visits.length ? visits.length : null} defaultOpen>
+        {visits.length ? visits.map((v) => (
+          <Row
+            key={v.id}
+            left={fday(v.d)}
+            sub={[v.employee && v.employee === mine ? "Self" : v.role || "—", v.div].filter(Boolean).join(" · ")}
+            right={v.made === false ? "planned" : v.made ? "made" : ""}
+          />
+        )) : <Empty what="No visits recorded." />}
+      </Section>
+
+      <Section title="Last 6 Month Support" count={months.length ? c.money(months.reduce((a, [, v]) => a + v, 0)) : null}>
+        {months.length ? months.map(([label, amt]) => (
+          <Row key={label} left={label} right={money(amt)} />
+        )) : <Empty what="No support booked." />}
+      </Section>
+
+      <Section title="Last 6 Month Product Wise Support" count={products.length ? products.length + " products" : null}>
+        {products.length ? products.map(([item, amt]) => (
+          <Row key={item} left={item} right={money(amt)} />
+        )) : <Empty what="No product lines recorded." />}
+      </Section>
+
+      <Section title="Last Product, Gift & Sample" count={gifts.length ? gifts.length : null}>
+        {gifts.length ? gifts.map((g, i) => (
+          <Row key={g.id ?? i} left={g.title ?? g.service ?? "Service"} sub={[fday(g.d), g.div].filter(Boolean).join(" · ")} right={g.amt != null ? money(g.amt) : ""} />
+        )) : <Empty what={c.canSeeService ? "Nothing recorded." : "Not shown at your level."} />}
+      </Section>
+
+      <Section title="Last 3 POB" count={pobs.length ? pobs.length : null}>
+        {pobs.length ? pobs.map((q, i) => (
+          <Row key={i} left={q.chemist || "Chemist not named"} sub={[fday(q.d), q.lines + (q.lines === 1 ? " line" : " lines")].filter(Boolean).join(" · ")} right={money(q.amt)} />
+        )) : <Empty what="No POB tagged." />}
+      </Section>
+    </div>
+  );
+}
+
 export default function DoctorPeekDialog({
   open,
   onOpenChange,
@@ -38,6 +181,12 @@ export default function DoctorPeekDialog({
   showCopyCode = true,
   showAddPob = false,
   addPobLabel = "Add POB",
+  // Passed straight through from DoctorCard, which already has all three. No
+  // new Studio prop is introduced for this.
+  doctorRow,
+  erpUrl,
+  authToken,
+  employee,
   detailLabel = "Doctor detail",
   onAddPob,
   onOpenDetail,
@@ -221,6 +370,13 @@ export default function DoctorPeekDialog({
                 ))}
               </div>
             </div>
+          ) : null}
+
+          {/* The history the legacy Dr. Information screen carried. Only
+              mounted when the popup is open, and only when the card was given
+              an ERP credential to read with. */}
+          {doctorRow && erpUrl && authToken ? (
+            <PeekHistory doctor={doctorRow} erpUrl={erpUrl} authToken={authToken} employee={employee} />
           ) : null}
         </div>
 
