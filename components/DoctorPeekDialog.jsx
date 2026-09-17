@@ -91,8 +91,25 @@ export function PeekHistory({ doctor, erpUrl, authToken, employee }) {
   const money = c.money;
   const mine = c.viewer?.employee ?? null;
 
-  // Last 3 visits, newest first, tagged Self when the reader made the call.
-  const visits = (c.visits ?? []).slice(0, 3);
+  /*
+   * Grouped by WHO, three dates each, the way the screen this replaces did it:
+   *   Self   22-Apr-2026, 06-Jun-2026, 08-Aug-2026
+   *   BE     20-May-2026, 06-Jun-2026, 08-Aug-2026
+   * "Self" is the reader's own calls; everyone else groups under their seat, so
+   * a manager sees their own line and their team's separately rather than three
+   * rows that happen to be whoever went most recently.
+   */
+  const visitGroups = (() => {
+    const g = new Map();
+    (c.visits ?? []).forEach((v) => {
+      const k = v.employee && v.employee === mine ? "Self" : (v.role || "Unassigned");
+      if (!g.has(k)) g.set(k, []);
+      g.get(k).push(v);
+    });
+    return [...g.entries()]
+      .sort((a, b) => (a[0] === "Self" ? -1 : b[0] === "Self" ? 1 : 0))
+      .map(([who, rows]) => ({ who, rows: rows.slice(0, 3) }));
+  })();
 
   // Support is one row per PRODUCT; the month view sums them by period.
   const byMonth = new Map();
@@ -125,14 +142,18 @@ export function PeekHistory({ doctor, erpUrl, authToken, employee }) {
 
   return (
     <div className="space-y-2">
-      <Section title="Last 3 Visit" count={visits.length ? visits.length : null} defaultOpen>
-        {visits.length ? visits.map((v) => (
-          <Row
-            key={v.id}
-            left={fday(v.d)}
-            sub={[v.employee && v.employee === mine ? "Self" : v.role || "—", v.div].filter(Boolean).join(" · ")}
-            right={v.made === false ? "planned" : v.made ? "made" : ""}
-          />
+      <Section title="Last 3 Visit" count={(c.visits ?? []).length || null} defaultOpen>
+        {visitGroups.length ? visitGroups.map((g) => (
+          <div key={g.who} className="flex items-start justify-between gap-3 px-3 py-2">
+            <span className="shrink-0 text-sm font-medium text-gray-800">{g.who}</span>
+            <span className="min-w-0 text-right text-[12px] leading-5 text-gray-600">
+              {g.rows.map((v) => (
+                <span key={v.id} className="block whitespace-nowrap">
+                  {fday(v.d)}{v.made === false ? " · planned" : ""}
+                </span>
+              ))}
+            </span>
+          </div>
         )) : <Empty what="No visits recorded." />}
       </Section>
 
