@@ -237,17 +237,40 @@ export function rolePrefix(roleId) {
   return prefix || null;
 }
 
+const LADDER_ALIAS = {
+  // ERP issues no ZSM- seat at all (8 SM-, 0 ZSM- across 495 active employees),
+  // and grade.js ranks the two equal at 5. Folded so a ZSM- seat created
+  // tomorrow lands on the SM rung instead of vanishing.
+  ZSM: "SM",
+
+  // Key Account Manager, the Institution Task Force. Peer of ABM, by the
+  // reporting tree rather than by the seat name: E01221 / E01224 / E01239 all
+  // report to E00142 (RBM-VASC-CH-CHE), which is the same manager the three
+  // ABM*-VASC-CH-CHE seats report to. Worth 79 of the 1,998 doctor visits
+  // sampled -- more than RBM and SM combined -- and every one of them was
+  // counted under no rung at all before this.
+  // NOTE: grade.js ranks KAM 1, level with BE. That disagrees with the tree
+  // above and is left alone deliberately: grade.js decides SENIORITY (who may
+  // see service figures), this decides which COLUMN a visit lands in, and the
+  // two questions have different right answers for a specialist seat.
+  KAM: "ABM",
+
+  // Senior RBM. grade.js ranks it 4, between RBM and SM, and its note records
+  // E00181 (SRBM-ELBR-KE-COC) reporting straight to a ZSM with RBMs under him.
+  // One holder, no visits in the sample; folded so it cannot drop silently.
+  SRBM: "RBM",
+};
+
 /**
  * The same seat prefix, folded onto the rung the LADDER uses.
  *
  * Kept separate from rolePrefix on purpose. That one has to stay byte-identical
  * to the calendar's rule -- see its note -- so the folding lives here, where
- * only this page's rungs are decided. SM and ZSM are one grade (grade.js ranks
- * both 5) and ERP only ever issues SM- seats, so ZSM folds onto SM.
+ * only this page's rungs are decided.
  */
 export function ladderRole(roleId) {
   const prefix = rolePrefix(roleId);
-  return prefix === "ZSM" ? "SM" : prefix;
+  return LADDER_ALIAS[prefix] ?? prefix;
 }
 
 /**
