@@ -133,14 +133,13 @@ export default function Hero({
               {clinic.name} · {clinic.addr}
               {clinic.days ? " · " + clinic.days : " · timings not on file"}
             </span>
+            {/* No Add clinic in this row on the WIDE layout: the chip row above
+                already carries one, and two on the same card is a choice the
+                reader has to stop and read. Compact is different -- there the
+                chip row has no room for it, so it sits in the row below beside
+                Map and Directions. */}
             {!compact ? (
               <div className="dx-clinic-acts">
-                {onAddClinic ? (
-                  <button type="button" className="dx-map-btn" onClick={onAddClinic}
-                    aria-label="Add a clinic" style={{ border: "1px solid " + hue, color: hue }}>
-                    + Add clinic
-                  </button>
-                ) : null}
                 <button type="button" className="dx-map-btn" onClick={onOpenMap}
                   style={{ border: "1px solid " + hue, color: hue }}>
                   Map
