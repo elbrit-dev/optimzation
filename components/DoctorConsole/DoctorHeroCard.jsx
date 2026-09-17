@@ -65,7 +65,11 @@ export default function DoctorHeroCard(props) {
         clinics={showClinics ? c.clinics : []}
         clinicIndex={clinicIndex}
         onPickClinic={on.pickClinic}
-        onAddClinic={showClinics && onAddClinic ? () => onAddClinic(ident) : undefined}
+        // Always handed down, so the button SHOWS before anything is wired to
+        // it. The ERP clinic-creation flow comes later; until it does, pressing
+        // it raises the event for whatever the page has bound and does nothing
+        // otherwise.
+        onAddClinic={showClinics ? () => onAddClinic?.(ident) : undefined}
         onOpenMap={() => on.openModal("map")}
         pharmacyCount={c.pharmacies.length}
         onOpenRx={() => on.openModal("rx")}
@@ -83,7 +87,7 @@ export default function DoctorHeroCard(props) {
           // Same gate as the chip in the hero: the action exists only once the
           // page has wired a handler. It carries the doctor's identity so the
           // flow on the other side knows which Lead to attach the address to.
-          onAdd={showClinics && onAddClinic ? () => onAddClinic(ident) : undefined}
+          onAdd={showClinics ? () => onAddClinic?.(ident) : undefined}
         />
       ) : null}
 
