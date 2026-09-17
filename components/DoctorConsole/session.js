@@ -257,12 +257,35 @@ function createSession(key, config) {
       setTimeout(() => {
         const el = session.panelNode;
         if (!el) return;
+
+        /*
+         * An ancestor counts only if it ACTUALLY SCROLLS -- overflow-y first,
+         * size second.
+         *
+         * Size alone is not enough and that is what broke this. A box with a
+         * definite height and overflow visible has scrollHeight > clientHeight
+         * too: its content simply spills out of it. The walk stopped at the
+         * first such box, and scrollTo on an element that does not scroll is a
+         * SILENT no-op -- the panel switched to the timeline and the page never
+         * moved, with nothing in the console to say why. A Studio page stack
+         * with a set height is exactly that box, which is the same shape that
+         * once collapsed every card to zero height.
+         */
+        const scrolls = (node) => {
+          if (!node || node === document.documentElement || node === document.body) return false;
+          const overflowY = getComputedStyle(node).overflowY;
+          return /auto|scroll|overlay/.test(overflowY) && node.scrollHeight > node.clientHeight + 4;
+        };
+
         let p = el.parentElement;
-        while (p && p.scrollHeight <= p.clientHeight + 4) p = p.parentElement;
+        while (p && !scrolls(p)) p = p.parentElement;
+
         const top = el.getBoundingClientRect().top;
-        if (p && p !== document.documentElement && p !== document.body) {
+        if (p) {
           p.scrollTo({ top: p.scrollTop + top - p.getBoundingClientRect().top - 10, behavior: "smooth" });
         } else {
+          // Nothing between here and the root scrolls its own pane, so the
+          // document is what moves.
           window.scrollTo({ top: window.scrollY + top - 10, behavior: "smooth" });
         }
       }, 40);
