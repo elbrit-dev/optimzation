@@ -730,7 +730,6 @@ const styles = String.raw`
 @media (prefers-reduced-motion: reduce) {
   .dx-skeleton { animation: none; }
 }
-.dx-foot { margin: 0; font-size: 11px; line-height: 1.55; color: var(--dx-mute); }
 
 /* A single card placed on its own page.
    It keeps every token and reset .dx-root defines -- the card markup is written

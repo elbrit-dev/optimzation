@@ -564,10 +564,6 @@ export function buildConsole(data, ui, on) {
   const coverageNote = activeRoles + " of " + coverageRows.length + " roles active · "
     + plural(visits.length, "visit", "visits");
 
-  const footNote = "Support, service, POB, visits and notes are ERP figures read live with your own credential."
-    + (firstT ? " On file since " + heroSince + " · " + heroAge + "." : "")
-    + (canSeeService ? " ROI is support earned from a service onward over every rupee of service from that point." : "");
-
   return {
     // identity + status
     doctor, doctorId: data.doctorId, viewer, canSeeService, scoped: data.scoped,
@@ -581,7 +577,7 @@ export function buildConsole(data, ui, on) {
     range, roi, stats, months, coverageRows, activeRoles, table, roleDetail,
     filters, feedGroups, feedShown, cards, bannerOrder, firstT,
     money, count, filterLabel, filterOn, rangeOpts, picker,
-    heroSince, heroAge, heroRoiTill, coverageNote, footNote,
+    heroSince, heroAge, heroRoiTill, coverageNote,
     divisions: [
       { key: "all", label: "All", on: allDivs },
       ...(doctor?.divisions ?? []).map((d) => ({ key: d.key, label: d.label ?? d.key, on: divs.includes(d.key) })),

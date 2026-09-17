@@ -78,7 +78,6 @@ export default function DoctorDetail(props) {
       <div className="dx-stack">
         <DoctorCoverageCard {...props} className="" />
         <DoctorInsightsCard {...props} className="" />
-        <p className="dx-foot">{c.footNote}</p>
       </div>
     </div>
   );
