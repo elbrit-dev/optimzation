@@ -163,7 +163,11 @@ const styles = String.raw`
 .dx-stat-v { margin-top: 3px; font-size: 17px; font-weight: 800; line-height: 1.15; color: var(--dx-blue); }
 .dx-stat-v--accent { color: var(--dx-red); }
 .dx-stat-s { margin-top: 2px; font-size: 10.5px; line-height: 1.35; color: var(--dx-ink-3); }
-.dx-root--compact .dx-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+/* auto-fit, not a fixed 3. The strip is no longer always three cells: a reader
+   below SM now gets Support ALONE, and a fixed three-column grid left that one
+   figure sitting in a third of the card with two empty tracks beside it. This
+   still lands 3 across on a phone when there are four of them. */
+.dx-root--compact .dx-stats { grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); }
 .dx-root--compact .dx-stat { padding: 7px 9px; border-top: 1px solid var(--dx-line-2); }
 .dx-root--compact .dx-stat-l { font-size: 9px; letter-spacing: .06em; }
 .dx-root--compact .dx-stat-v { margin-top: 1px; font-size: 13.5px; line-height: 1.2; }

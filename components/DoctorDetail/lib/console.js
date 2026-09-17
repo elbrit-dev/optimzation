@@ -173,7 +173,31 @@ export function buildConsole(data, ui, on) {
     ? fdate(roi.latestService.d) + " · " + plural(monthsSince(roi.latestService.t), "mo", "mo")
     : "No service in this view";
 
-  const stats = !canSeeService ? [] : [
+  /*
+   * SUPPORT is on the strip for EVERYONE; ROI and service are not.
+   *
+   * The strip used to be all-or-nothing -- a reader below SM got an empty array
+   * and therefore no strip at all, which meant a BE saw no headline figure for
+   * the doctor they actually work. Support is the doctor's OWN contribution
+   * rather than anything the company spends, so there was never a reason to
+   * gate it; it was only ever gated by being in the same array as the numbers
+   * that are.
+   *
+   * ROI STAYS GATED, and not out of caution: roi = support / service, so a
+   * reader who can see ROI and support can divide one by the other and recover
+   * the service figure exactly. Showing "ROI but not service" would hand out
+   * the very number the SM-and-above gate exists to withhold.
+   */
+  const supportStat = {
+    l: "Support",
+    v: money(roi.supTotal),
+    s: support.length
+      ? plural(new Set(support.map((r) => r.p)).size, "month booked", "months booked")
+      : "none in " + range.label,
+    accent: false,
+  };
+
+  const stats = !canSeeService ? [supportStat] : [
     {
       l: "ROI till date",
       v: roiText(roi.tillDate),
@@ -187,6 +211,7 @@ export function buildConsole(data, ui, on) {
       s: service.length ? plural(service.length, "service given", "services given") : "none in " + range.label,
       accent: false,
     },
+    supportStat,
   ];
 
   /* --------------------------------------------------------------- chart */
