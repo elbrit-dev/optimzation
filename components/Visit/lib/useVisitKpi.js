@@ -32,12 +32,13 @@ export const DATA_SOURCE = 'live';
    already only has visits that have actually happened.
 
    `gqlEnvironment` is the /tokens row name the live source resolves its
-   endpoint and token from, and `gqlTokenOverride` -- when non-empty -- is
-   used in place of that row's own token, against the same endpoint. See
-   liveSource.js. The mock ignores both; there is nothing to point them at. */
-function loadDataset({ anchorDate, cutoffHour, gqlEnvironment, gqlTokenOverride }) {
+   ENDPOINT from (never its token). `gqlToken` is the signed-in user's own ERP
+   credential and is REQUIRED live -- see liveSource.js's fetchVisitDataset,
+   which throws rather than falling back to a shared one. The mock ignores
+   both; there is nothing to point them at. */
+function loadDataset({ anchorDate, cutoffHour, gqlEnvironment, gqlToken }) {
   if (DATA_SOURCE === 'mock') return buildMockDataset({ anchorDate, cutoffHour });
-  return fetchVisitDataset({ anchorDate, gqlEnvironment, gqlTokenOverride });
+  return fetchVisitDataset({ anchorDate, gqlEnvironment, gqlToken });
 }
 
 const EMPTY_DATASET = { team: [], rows: [], pob: [], today: '', viewerId: null };
@@ -48,12 +49,12 @@ export function useVisitKpi({
   anchorDate,
   cutoffHour,
   gqlEnvironment = DEFAULT_GQL_ENVIRONMENT,
-  gqlTokenOverride,
+  gqlToken,
 } = {}) {
   const [state, setState] = useState({ dataset: null, error: null, loading: true });
 
   /* Guards a stale response from landing after a newer request has already
-     started -- anchorDate/cutoffHour/gqlEnvironment/gqlTokenOverride changing
+     started -- anchorDate/cutoffHour/gqlEnvironment/gqlToken changing
      mid-flight (dev harness, or the playground sidebar) is the one case this
      can happen in. */
   const requestRef = useRef(0);
@@ -62,14 +63,14 @@ export function useVisitKpi({
     const requestId = (requestRef.current += 1);
     setState((s) => ({ ...s, loading: true, error: null }));
 
-    Promise.resolve(loadDataset({ anchorDate, cutoffHour, gqlEnvironment, gqlTokenOverride }))
+    Promise.resolve(loadDataset({ anchorDate, cutoffHour, gqlEnvironment, gqlToken }))
       .then((dataset) => {
         if (requestRef.current === requestId) setState({ dataset, error: null, loading: false });
       })
       .catch((error) => {
         if (requestRef.current === requestId) setState({ dataset: null, error, loading: false });
       });
-  }, [anchorDate, cutoffHour, gqlEnvironment, gqlTokenOverride]);
+  }, [anchorDate, cutoffHour, gqlEnvironment, gqlToken]);
 
   return useMemo(() => {
     const { dataset, error, loading } = state;

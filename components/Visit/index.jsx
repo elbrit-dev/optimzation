@@ -49,7 +49,7 @@ import { TeamTree } from './ui/TeamTree';
  * controls, 12px body) rather than the console's. Everything inside reads that
  * from the tokens; no component takes a `size` prop for it. */
 
-export function VisitReport({ gqlEnvironment, gqlTokenOverride } = {}) {
+export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
   const [scopeId, setScopeId] = useState(null);
   const [period, setPeriod] = useState('today');
   /* ALL_HQS, not the first HQ: the section opens on the totals, and the way
@@ -60,7 +60,7 @@ export function VisitReport({ gqlEnvironment, gqlTokenOverride } = {}) {
     scopeId,
     period,
     gqlEnvironment,
-    gqlTokenOverride,
+    gqlToken,
   });
 
   const view = useMemo(() => {
