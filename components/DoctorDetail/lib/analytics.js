@@ -224,7 +224,7 @@ export function coverageByRole(ladder, { visits, service }) {
  * Items child rows, not off the parent.
  */
 export function buildTable({
-  divisions, support, service, pob, visits, months, range,
+  divisions, divisionLabel, support, service, pob, visits, months, range,
   canSeeService, pivotOn, ladder, money, count,
 }) {
   const inMonth = (r, y, m) => {
@@ -258,7 +258,9 @@ export function buildTable({
 
   const rows = divisions.map((dv) => ({
     key: "dt-" + dv,
-    label: dv,
+    // The row is GROUPED by the division key and NAMED by the fuller label,
+    // so "Elbrit" reads "Elbrit Chennai" without splitting the row in two.
+    label: divisionLabel?.get?.(dv) ?? dv,
     cells: cellsFor(dv),
   }));
 

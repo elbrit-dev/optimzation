@@ -76,7 +76,29 @@ export function deriveDoctor(lead, fallbackRow, doctorId) {
     const { division, region } = parseDepartment(label);
     const short = shortDivision(division);
     if (division && !seen.has(short)) {
-      seen.set(short, { key: short, label: short, division, region, department: label });
+      /*
+       * `key` stays the DIVISION and `label` gains the region.
+       *
+       * "Elbrit" alone is what the filter chips and the table rows used to say,
+       * and it is ambiguous the moment a reader covers Elbrit in two towns.
+       * "Elbrit Chennai" is the department as ERP writes it, minus the company
+       * suffix. The KEY is deliberately left as the division so that grouping
+       * does not change: a doctor worked by Elbrit Chennai and Elbrit Coimbatore
+       * stays ONE row whose money adds up, rather than splitting into two.
+       * Where that happens the region is dropped again below, because no single
+       * town name would be true of the row.
+       */
+      seen.set(short, {
+        key: short,
+        label: region ? short + " " + region : short,
+        division, region, department: label,
+      });
+    } else if (division && seen.has(short)) {
+      // A second region under the same division: the row covers both, so the
+      // label falls back to the division on its own rather than naming one town
+      // and silently hiding the other.
+      const entry = seen.get(short);
+      if (entry.region && entry.region !== region) { entry.label = short; entry.region = null; }
     }
     // GraphQL nests the employee under the role profile; REST returns the role
     // profile as a bare string, so there is nobody to list.

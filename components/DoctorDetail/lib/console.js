@@ -111,6 +111,15 @@ export function buildConsole(data, ui, on) {
 
   /* ------------------------------------------------------------- scoping */
 
+  /*
+   * key -> the fuller "Elbrit Chennai" name. EVERYTHING that displays a
+   * division goes through this; everything that groups by one uses the key.
+   * Defined up here because the chart pager, the filter summary and the table
+   * all need it.
+   */
+  const divisionLabel = new Map((doctor?.divisions ?? []).map((d) => [d.key, d.label ?? d.key]));
+  const divName = (k) => divisionLabel.get(k) ?? k;
+
   const range = resolveRange(rangeMode);
   const inRange = (r) => r.t >= range.from && r.t <= range.to;
   const byDiv = (rows) => (allDivs ? rows : rows.filter((r) => divs.includes(r.div)));
@@ -229,9 +238,9 @@ export function buildConsole(data, ui, on) {
   // so rather than silently renaming itself to the division.
   const inPlay = allDivs ? (doctor?.divisions ?? []).map((d) => d.key) : divs;
   const pages = divs.length === 1
-    ? [{ k: divs[0], label: divs[0] }]
+    ? [{ k: divs[0], label: divName(divs[0]) }]
     : [{ k: null, label: allDivs ? "All departments" : divs.length + " departments" }]
-      .concat(inPlay.map((k) => ({ k, label: k })));
+      .concat(inPlay.map((k) => ({ k, label: divName(k) })));
   const pIdx = Math.min(ui.chartPage, pages.length - 1);
   const pageDiv = pages[pIdx]?.k ?? null;
 
@@ -335,7 +344,7 @@ export function buildConsole(data, ui, on) {
 
   const table = (() => {
     const built = buildTable({
-      divisions: divisionKeys, support, service, pob: pobs, visits, months,
+      divisions: divisionKeys, divisionLabel, support, service, pob: pobs, visits, months,
       range, canSeeService, pivotOn: ui.pivotOn, ladder: ROLE_LADDER, money, count,
     });
     // Expanding a department shows its PRODUCT lines — support items from
@@ -545,7 +554,7 @@ export function buildConsole(data, ui, on) {
   const refused = named(data.denied);
   // One name reads better than "1 dept"; past that, the count does — four
   // division names do not fit on the filter button at phone width.
-  const deptLabel = allDivs ? "All depts" : divs.length === 1 ? divs[0] : divs.length + " depts";
+  const deptLabel = allDivs ? "All depts" : divs.length === 1 ? divName(divs[0]) : divs.length + " depts";
   const filterLabel = deptLabel + " · " + range.label;
   const filterOn = !allDivs || rangeMode.mode !== "fy";
 
@@ -575,7 +584,7 @@ export function buildConsole(data, ui, on) {
     heroSince, heroAge, heroRoiTill, coverageNote, footNote,
     divisions: [
       { key: "all", label: "All", on: allDivs },
-      ...(doctor?.divisions ?? []).map((d) => ({ key: d.key, label: d.key, on: divs.includes(d.key) })),
+      ...(doctor?.divisions ?? []).map((d) => ({ key: d.key, label: d.label ?? d.key, on: divs.includes(d.key) })),
     ],
     deptLabel,
     // chart
