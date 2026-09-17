@@ -71,6 +71,15 @@ if (!endpoint || !token) {
   process.exit(2);
 }
 
+/*
+ * A stored token may already carry the scheme ("token k:s"). Sending
+ * "token " + token on top of that gives "token token k:s", which ERP rejects
+ * with "Authentication required to access GraphQL schema" -- a message that
+ * blames the schema and says nothing about the header that actually caused it.
+ * lib/erpServer.js guards the same trap.
+ */
+const authHeader = /^token\s/i.test(token) ? token : "token " + token;
+
 const url = endpoint.replace(/\/+$/, "").replace(/(\/api(?:\/method)?\/graphql|\/graphql)\/?$/i, "")
   + "/api/method/graphql";
 
@@ -108,7 +117,7 @@ const PARTS = {
 
   DoctorServices: `DoctorServices(first: 1000, filter: {fieldname: "doctor", operator: EQ, value: $name}) {
     edges { node { name service_amount service_date date service_name__name
-      department__name role_profile__name hq__name workflow_state } }
+      department__name role_profile__name hq__name workflow_state__name } }
   }`,
 
   // custom_total_amount on the PARENT is what the item rows are reconciled
@@ -126,7 +135,7 @@ const PARTS = {
   Quotations: `Quotations(first: 1000, filter: {fieldname: "custom_doctorvisit", operator: EQ, value: $name}) {
     edges { node { name transaction_date customer_name total_qty grand_total status
       custom_event__name custom_doctorvisit__name
-      items { item_code item_name qty rate net_amount } } }
+      items { item_code__name item_name qty rate net_amount } } }
   }`,
 };
 
@@ -136,7 +145,7 @@ async function run(label, body) {
   try {
     res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: "token " + token },
+      headers: { "Content-Type": "application/json", Authorization: authHeader },
       body: JSON.stringify({ query: body, variables: { name: doctor } }),
     });
     json = await res.json();

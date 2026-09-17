@@ -344,16 +344,40 @@ export function eventOwnerIndex(visits) {
  * Whether a visit actually HAPPENED.
  *
  * A plan nobody carried out is still an Event, so the date alone proves
- * nothing. The calendar marks a visit by stamping the EMPLOYEE participant
- * `attending` with a `custom_visit_time`; that pair is the only evidence a call
- * was made. The parent Event's own `attending` is never written.
+ * nothing. TWO signals say a call was made, and they are read together because
+ * each covers a case the other cannot:
+ *
+ *   Event.status == "Completed"   on the PARENT, and maintained: ERP's own
+ *     Event list filtered to Completed returns 1,000+ doctor visits. Being on
+ *     the parent, it is the only one of the two that survives the REST
+ *     fallback, where the child table cannot be read at all.
+ *
+ *   participant attending / custom_visit_time   on the EMPLOYEE participant
+ *     row. Direct evidence, and it carries the TIME as well as the fact, which
+ *     the status never does.
+ *
+ * Either one alone is enough to call it made. The parent's own `attending`
+ * field is NOT one of them: it reads "" on every event inspected, so treating
+ * it as the signal would report every planned call as made.
+ *
+ * WHY THE DOCTOR VISITS LOOK ABSENT IF YOU GO LOOKING: they are all
+ * `event_type: "Private"`, which Frappe shows only to their owner and
+ * participants. A service account reading the Event list sees none of them and
+ * concludes the field is unused. That is also why this page must keep reading
+ * with the signed-in user's own token -- that permission IS the per-rep
+ * boundary on visits.
  */
 function readAttendance(visit) {
-  // The REST fallback cannot read the participant table at all. Reporting
-  // "planned, not made" off an absent child table would libel every rep whose
-  // visits happened to come back over that route.
+  const status = String(visit?.status ?? "").trim().toLowerCase();
+  const completed = status === "completed";
+
+  // The REST fallback cannot read the participant table at all. The status
+  // still came back on the parent though, so this is no longer the blind spot
+  // it was: only an event carrying NO status at all is genuinely unknown, and
+  // reporting "planned, not made" off an absent child table would have libelled
+  // every rep whose visits happened to come back over that route.
   if (visit?.__attendanceUnknown || !Array.isArray(visit?.event_participants)) {
-    return { made: null, at: null, forced: false };
+    return { made: status ? completed : null, at: null, forced: false };
   }
   const rows = visit.event_participants;
   let made = false;
@@ -369,7 +393,10 @@ function readAttendance(visit) {
       if (stamp != null && (at == null || stamp > at)) at = stamp;
     }
   });
-  return { made, at, forced };
+  // A Completed parent counts even when no participant row was stamped -- the
+  // two signals are independent and either is enough. `at` stays null in that
+  // case because only the participant row ever carries the time.
+  return { made: made || completed, at, forced };
 }
 
 /**

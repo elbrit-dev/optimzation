@@ -92,7 +92,7 @@
  */
 
 import { erpList } from "./erp";
-import { SERVICE_MIN_RANK, gradeRank } from "./grade";
+import { ADMIN_MIN_RANK, SERVICE_MIN_RANK, gradeRank } from "./grade";
 
 /** Employee columns the span is built from. Nothing here is optional. */
 const SPAN_FIELDS = [
@@ -243,6 +243,36 @@ export async function resolveScope(viewerRow, { employee, roleProfile } = {}) {
     people: [],
   };
 
+  /*
+   * HEAD OFFICE IS NOT IN THE TREE.
+   *
+   * An Admin / IT / MIS / CEO / GM seat oversees the hierarchy rather than
+   * sitting inside it, so walking `reports_to` from them returns a handful of
+   * direct reports or nobody at all -- and the fail-closed rule below then hands
+   * the people who are meant to see EVERY division a blank page. That is the
+   * "complete doctor" view this bypass exists for.
+   *
+   * It is taken from the viewer's own ERP row and deliberately BEFORE the
+   * `self.name` guard has any say, because these seats are exactly the ones that
+   * may have no sales-hierarchy position to find.
+   *
+   * `unlimited` is a separate flag rather than a span containing everything:
+   * there is no finite set of seats that is honestly "all of them", and building
+   * one would go stale the day a division is added.
+   */
+  if (rank >= ADMIN_MIN_RANK) {
+    return {
+      ...empty,
+      resolved: true,
+      unlimited: true,
+      rank,
+      canSeeService: rank >= SERVICE_MIN_RANK,
+      full: { roleProfiles: new Set(), departments: new Set(), hqs: new Set(), employees: new Set() },
+      focus: null,
+      people: self ? [self] : [],
+    };
+  }
+
   if (!self?.name) return empty;
 
   let subtree = [];
@@ -332,6 +362,10 @@ function intersect(a, b) {
  */
 export function rowInScope(scope, { roleProfile, department, hq, employee } = {}) {
   if (!scope?.resolved) return false;
+  // Head office counts every row, including the untagged ones the test below
+  // would otherwise drop -- an unattributed row is a data defect they are the
+  // ones meant to see.
+  if (scope.unlimited) return true;
 
   const seat = clean(roleProfile);
   if (seat) return scope.roleProfiles.has(seat);
@@ -381,6 +415,26 @@ export function scopeRawRows(scope, { support, service, visits, pobs } = {}) {
    */
   if (!scope?.resolved) {
     return { support: { totals: [], items: [] }, service: [], visits: [], pobs: [] };
+  }
+
+  /*
+   * Head office passes straight through, and it has to happen HERE rather than
+   * relying on rowInScope saying yes to everything. Two things below are not
+   * row tests and would still take data away:
+   *   - the support parent totals are dropped outright, which is what surfaces
+   *     the "unassigned remainder" and makes the headline figure tie out;
+   *   - a POB with no `custom_event` is dropped whatever the scope says, so a
+   *     direct-from-the-doctor-page POB would reach nobody at all.
+   * Both of those are right for a rep and wrong for the people who are meant to
+   * see the complete doctor.
+   */
+  if (scope.unlimited) {
+    return {
+      support: { totals: support?.totals ?? [], items: support?.items ?? [] },
+      service: service ?? [],
+      visits: visits ?? [],
+      pobs: pobs ?? [],
+    };
   }
 
   /* ---- support: the item rows carry the stamp; the parent total does not. */

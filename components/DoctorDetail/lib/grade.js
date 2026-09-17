@@ -31,6 +31,14 @@ const SEAT_RANK = {
   SRBM: 4,
   SM: 5, ZSM: 5,
   GM: 8,
+  // IT sits with the other head-office seats deliberately. It used to be absent,
+  // which ranked a plain "IT" seat at 0 -- the same as no seat at all -- so an IT
+  // holder got an empty doctor page unless their HR designation happened to say
+  // "General Manager" (which is how E00003 scraped through, see above). Note what
+  // rank 9 carries with it: it is >= SERVICE_MIN_RANK, so these seats also see
+  // service and ROI figures. That is intended for head office; it is the reason
+  // this list is a deliberate roster and not a catch-all.
+  IT: 9,
   CEO: 9, ADMIN: 9, MIS: 9,
 };
 
@@ -75,3 +83,17 @@ export function gradeRank({ roleId, designation } = {}) {
  * above them does. An unresolved reader ranks 0 and is refused.
  */
 export const SERVICE_MIN_RANK = 5;
+
+/**
+ * At or above this grade the reader is not IN the sales hierarchy, they oversee
+ * it, so their view of a doctor is the WHOLE doctor -- every division, every HQ,
+ * every seat -- rather than their own subtree.
+ *
+ * 8 rather than 9 so that GM is included alongside CEO / Admin / MIS / IT.
+ *
+ * This is read from the viewer's OWN ERP row and from nothing else. It must never
+ * be driven by the `roleProfile` prop: that one is documented to only ever take
+ * away, and letting it grant this instead would turn a Studio field into a
+ * privilege escalation.
+ */
+export const ADMIN_MIN_RANK = 8;
