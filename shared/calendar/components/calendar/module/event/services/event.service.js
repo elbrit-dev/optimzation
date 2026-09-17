@@ -184,6 +184,29 @@ const isVisitRecorded = isParticipantVisitRecorded;
 // this same code: fixed delays make two of them collide again on every retry.
 const EVENT_SAVE_RETRY_DELAYS_MS = [600, 1400, 3000];
 
+// Total wall-clock budget for a save including its retries.
+//
+// The retries above assume a collision that fails fast — a deadlock (MySQL
+// 1213) is detected and rolled back in milliseconds, so trying again shortly
+// after is nearly free and usually works. A lock *wait* timeout (1205) is the
+// opposite: the request sat holding the connection for the server's whole
+// innodb_lock_wait_timeout, 50s by default, because another transaction is
+// sitting on the row. Retrying that burns another 50s per attempt and the user
+// watches a locked dialog for three and a half minutes before being told it
+// failed. Both arrive here as "contention", so the thing that separates them is
+// not the message — it is how long the attempt took.
+//
+// The budget is therefore generous, not tight. A blocked save DOES usually land
+// on a later attempt once the other transaction commits, so cutting the retries
+// short would turn a slow success into a fast failure and leave the user with no
+// event at all. What it must not do is run forever: four attempts against a 50s
+// timeout is already ~3.5 minutes, and past that the lock is not transient and
+// somebody needs to look at the server.
+//
+// The cost of waiting that long is paid in the UI instead — `onContention` below
+// reports every attempt so the user can see it is working rather than frozen.
+const SAVE_RETRY_TIME_BUDGET_MS = 150_000;
+
 function withJitter(delayMs) {
   return Math.round(delayMs * (0.7 + Math.random() * 0.6));
 }
@@ -394,6 +417,7 @@ export async function findExistingEventByNaturalKey({
 export async function saveEvent(doc, options = {}) {
   let outgoingDoc = doc;
   let data;
+  const startedAt = Date.now();
 
   for (
     let attempt = 0;
@@ -410,17 +434,28 @@ export async function saveEvent(doc, options = {}) {
       });
       break;
     } catch (error) {
+      const elapsedMs = Date.now() - startedAt;
+      const withinTimeBudget = elapsedMs < SAVE_RETRY_TIME_BUDGET_MS;
       const canRetry =
         isDatabaseContentionError(error) &&
-        attempt < EVENT_SAVE_RETRY_DELAYS_MS.length;
+        attempt < EVENT_SAVE_RETRY_DELAYS_MS.length &&
+        withinTimeBudget;
 
       if (!canRetry) {
         if (isDatabaseContentionError(error)) {
           // Nothing retries this in the background any more, so the message must
           // not promise that it will. The user is the retry now, and the form is
           // still open in front of them.
+          //
+          // If we spent minutes on this, the lock was not a passing collision
+          // between two users — something on the server is holding the row and
+          // pressing Save again will just queue behind it.
+          const heldForSeconds = Math.round(elapsedMs / 1000);
+
           throw new Error(
-            "ERP was busy with this event and the save did not go through. Press Save again.",
+            heldForSeconds >= 30
+              ? `ERP kept this event locked for ${heldForSeconds}s across ${attempt + 1} attempts and it was not saved. Something on the server is holding it — report this rather than retrying.`
+              : "ERP was busy with this event and the save did not go through. Press Save again.",
             { cause: error }
           );
         }
@@ -428,7 +463,19 @@ export async function saveEvent(doc, options = {}) {
         throw error;
       }
 
-      await waitForRetry(withJitter(EVENT_SAVE_RETRY_DELAYS_MS[attempt]));
+      const nextDelayMs = withJitter(EVENT_SAVE_RETRY_DELAYS_MS[attempt]);
+
+      // Tell the caller before sleeping. A blocked attempt has already cost the
+      // server's whole lock timeout, so without this the UI sits silent and
+      // locked for minutes and reads as a hung app.
+      options.onContention?.({
+        attempt: attempt + 1,
+        maxAttempts: EVENT_SAVE_RETRY_DELAYS_MS.length + 1,
+        elapsedMs,
+        nextDelayMs,
+      });
+
+      await waitForRetry(nextDelayMs);
     }
   }
 
@@ -436,7 +483,7 @@ export async function saveEvent(doc, options = {}) {
     throw new Error("ERP did not return Event name");
   }
   // invalidate cache only after successful write
-  invalidateCalendarData({ reason: "event:save" });
+  invalidateCalendarData({ broadcast: false, reason: "event:save" });
 
   // Only events that actually want Google Calendar sync (google_calendar set
   // by mapFormToErpEvent) need the nudge — everything else can just wait for
@@ -992,7 +1039,7 @@ export async function deleteEventFromErp(erpName, docname) {
     });
 
     // Success path
-    invalidateCalendarData({ reason: "event:delete" });
+    invalidateCalendarData({ broadcast: false, reason: "event:delete" });
     return true;
 
   } catch (error) {
@@ -1004,7 +1051,7 @@ export async function deleteEventFromErp(erpName, docname) {
       message.includes("does not exist") ||
       message.includes("Missing document")
     ) {
-      invalidateCalendarData({ reason: "event:delete" });
+      invalidateCalendarData({ broadcast: false, reason: "event:delete" });
       return true;
     }
 

@@ -15,46 +15,53 @@
 
 import { AUTH_CONFIG } from "@calendar/components/auth/calendar-users";
 import { graphqlRequest } from "@calendar/lib/graphql-client";
-import { getEndpointConfigFromUrlKeyAsync } from "@/app/graphql-playground/constants";
 
-const LIVE_ERP_TARGET = "ERP";
+import { SERVICE_MIN_RANK, gradeRank } from "./grade";
 
 function stripAuthScheme(token) {
   return String(token ?? "").trim().replace(/^(token|bearer)\s+/i, "");
 }
 
 /**
- * Point the ERP client somewhere, and say whose credential it is.
+ * Point the ERP client somewhere — from the PROPS, and nowhere else.
  *
- * Order matters. An explicitly bound pair wins, then whatever AuthProvider
- * already published (the calendar mounts it; a page that hosts both gets the
- * user's token for free), and only then the shared row in /tokens. That last
- * one is a fallback for the Studio canvas, where no one is signed in — it is
- * reported back as `shared` so the page can say so rather than pretending the
- * numbers are scoped to the reader.
+ * Two sources, both of them the signed-in user's own credential: the bound
+ * `Erp Url` + `Auth Token` pair, or the pair AuthProvider already published on
+ * a page that also mounts the calendar. Nothing else, and no default.
+ *
+ * There used to be a third route — an `Erp Target` name ("ERP", "UAT") resolved
+ * against /tokens — and it is gone deliberately. It sat AHEAD of the bound pair
+ * in every practical case, so a page could say UAT while the component read
+ * production, with nothing on screen to show which. That is not a hypothetical:
+ * the UAT front end was reading `erp.elbrit.org` that way, which meant
+ * permission fixes were applied to an instance the app never talks to.
  */
-export async function ensureErpAuth({ erpUrl, authToken, erpTarget } = {}) {
+export async function ensureErpAuth({ erpUrl, authToken } = {}) {
   const explicitToken = stripAuthScheme(authToken);
+
+  // The bound pair IS the configuration. There is deliberately no "target"
+  // indirection and no /tokens fallback: a name like "ERP" resolved somewhere
+  // else meant the page could say one environment while the component read
+  // another, which is exactly how a UAT front end ended up reading production
+  // — silently, with no way to tell from the screen.
   if (erpUrl && explicitToken) {
     AUTH_CONFIG.erpUrl = String(erpUrl).trim();
     AUTH_CONFIG.authToken = explicitToken;
-    return { scope: "user" };
+    return { scope: "user", endpoint: AUTH_CONFIG.erpUrl };
   }
 
-  if (AUTH_CONFIG.erpUrl && AUTH_CONFIG.authToken) return { scope: "user" };
+  // Not a fallback environment, the same one: whatever AuthProvider published
+  // for the signed-in user on a page that also mounts the calendar. Their own
+  // token is preferable to anything the page could hardcode.
+  if (AUTH_CONFIG.erpUrl && AUTH_CONFIG.authToken) {
+    return { scope: "user", endpoint: AUTH_CONFIG.erpUrl };
+  }
 
-  const config = await getEndpointConfigFromUrlKeyAsync(
-    String(erpTarget || LIVE_ERP_TARGET).trim().toUpperCase()
+  throw new Error(
+    "No ERP endpoint is bound. Set BOTH Erp Url and Auth Token on this component "
+    + "to the signed-in user's credential — there is no default, on purpose, so a "
+    + "page can never read an environment it did not name."
   );
-  const token = stripAuthScheme(config?.authToken);
-  if (!config?.endpointUrl || !token) {
-    throw new Error(
-      "No ERP endpoint is configured for this page. Bind ERP URL + Auth Token to the signed-in user's credential, or add a global token in /tokens."
-    );
-  }
-  AUTH_CONFIG.erpUrl = config.endpointUrl;
-  AUTH_CONFIG.authToken = token;
-  return { scope: "shared" };
 }
 
 /** The GraphQL endpoint with its /api/method/graphql tail removed. */
@@ -190,8 +197,16 @@ export const ROLE_NAMES = {
   Admin: "Administrator",
 };
 
-/** Roles allowed to see what the company SPENT on a doctor. */
-const SERVICE_VISIBLE_TO = ["SM", "ZSM", "Admin"];
+/**
+ * The grade at which service spend becomes visible now lives in grade.js, as a
+ * RANK rather than a list of seat prefixes.
+ *
+ * The list this replaced read ["SM", "ZSM", "Admin"] and was wrong for real
+ * people: E00181 holds seat SRBM-ELBR-KE-COC but is designated Sales Manager
+ * and has RBMs reporting to him, and E00003 is the General Manager sitting on a
+ * seat literally called "IT". Both were refused figures they are entitled to,
+ * because a prefix list can only ever match the seat codes someone remembered.
+ */
 
 /**
  * "BE12-CND-CH-CHE" -> "BE".
@@ -275,6 +290,7 @@ export async function resolveViewer() {
   const roleId = row?.custom_role_profile ?? row?.role_id ?? null;
   const role = rolePrefix(roleId) ?? (email && !row ? null : null);
   const department = parseDepartment(row?.department);
+  const rank = gradeRank({ roleId, designation: row?.designation });
 
   return {
     email,
@@ -283,9 +299,13 @@ export async function resolveViewer() {
     designation: row?.designation ?? null,
     roleId,
     role,
+    rank,
     division: department.division,
     hq: row?.fsl_hq ?? row?.custom_territory ?? null,
-    canSeeService: !!role && SERVICE_VISIBLE_TO.includes(role),
+    canSeeService: rank >= SERVICE_MIN_RANK,
+    // The Employee row itself, so the span walk does not have to fetch it a
+    // second time. `resolveScope` needs `name` and nothing else is re-read.
+    row,
     resolved: !!row,
   };
 }

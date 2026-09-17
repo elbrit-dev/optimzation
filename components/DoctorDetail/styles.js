@@ -286,6 +286,19 @@ const styles = String.raw`
 }
 .dx-arrow--l { left: -13px; }
 .dx-arrow--r { right: -13px; }
+/* Those two offsets put each arrow in the 14px gap between the current card and
+   the peeking one beside it, which is where they belong in the wide layout.
+   Compact drops the peeks, so the same offset hangs the arrows 13px past the
+   card's own edge instead -- over whatever sits beside a narrow card, and far
+   enough to put a horizontal scrollbar on a phone. Tuck them back in.
+   Scoped with a CHILD combinator off the root on purpose. Every other compact
+   rule in this file is a plain descendant selector, so it also matches through
+   an outer compact page root into a card whose own layout prop is "full" --
+   which would land these arrows on top of the banner instead of in the rail
+   gap. dx-banner-stage is a direct child of the card's own root, so this fires
+   only when THAT root is the compact one. */
+.dx-root--compact > .dx-banner-stage .dx-arrow--l { left: 4px; }
+.dx-root--compact > .dx-banner-stage .dx-arrow--r { right: 4px; }
 .dx-dots { display: flex; justify-content: center; gap: 5px; margin-top: 9px; }
 .dx-dot { width: 6px; height: 6px; padding: 0; border: 0; border-radius: 999px; background: #d9dee7; }
 .dx-dot--on { width: 22px; background: var(--dx-ink-2); }
@@ -714,6 +727,32 @@ const styles = String.raw`
   .dx-skeleton { animation: none; }
 }
 .dx-foot { margin: 0; font-size: 11px; line-height: 1.55; color: var(--dx-mute); }
+
+/* A single card placed on its own page.
+   It keeps every token and reset .dx-root defines -- the card markup is written
+   against them -- but drops the PAGE's own frame: the 12px gutter, the grey
+   ground and the full-height stretch belong to a page, not to one card. Without
+   this, a card nested in the one-drop page would be padded twice. */
+/* Standalone helper text. Scoped rules like .dx-tablebar .dx-hint still win
+   over this by specificity, so the table bar keeps its smaller size. */
+.dx-hint { font-size: 10.5px; line-height: 1.5; color: var(--dx-mute); }
+
+.dx-root--card {
+  padding: 0;
+  /* auto, NOT 0. Both drop the page's min-height: 100% stretch -- on a block
+     box auto resolves to the content minimum -- but on a FLEX ITEM auto is the
+     keyword that turns the automatic minimum size back on, and 0 is the one
+     that switches it off. With 0 here, a card in a parent that has a definite
+     height (which is exactly what a Studio page stack is) shrank to height 0
+     and painted its content over the section below: the hero, the totals strip
+     and the filter bar all landed on top of Coverage by role.
+     Do not "fix" this with flex-shrink: 0 -- that is axis-agnostic, so it also
+     stops a card shrinking WIDTHWISE and two cards sharing a row each demand
+     the full width. A hero beside a narrow totals sidebar is a layout these
+     cards are registered separately in order to allow. */
+  min-height: auto;
+  background: transparent;
+}
 `;
 
 export default styles;

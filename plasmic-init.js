@@ -9,6 +9,7 @@ import dynamic from "next/dynamic";
 // import Navigation from "./share/src/app/navigation/components/Navigation";
 import { registerElbritCoreComponents } from './share/src/plasmic-init';
 import { registerDesignSystem } from './design-system/plasmic';
+import { registerDoctorConsoleComponents } from './components/DoctorConsole/plasmic';
 import MyProfile from "./components/features/my-profile";
 import ProfileHeader from "./components/features/profile-header";
 import FirebaseUIComponent from "./components/FirebaseUIComponent";
@@ -1642,21 +1643,27 @@ PLASMIC.registerComponent(CatalogLetterGroup, {
 
 PLASMIC.registerComponent(DoctorDetail, {
   name: "DoctorDetail",
-  displayName: "Doctor Detail Page",
+  displayName: "Doctor Detail Page (all five)",
+  // Full width, height from content -- it is a whole page, never a hand-sized box.
+  defaultStyles: { width: "stretch" },
+  // A convenience only — the five "Doctor · …" cards are ordinary top-level
+  // components and are the normal way to build this page. This drops all five
+  // at once, in the approved order. It is NOT a container and takes no slot:
+  // the cards never needed a parent, only a shared reading, which they get from
+  // the session store whether they are inside this or not.
   description:
     "The whole doctor page as ONE component, built to the design management approved in September 2026: a hero card (identity, ROI, the stat strip, clinic chips and the actions), a swipeable strip of TOTALS — visits, POB, support, notes and service — each showing its last three entries and a way into the timeline, COVERAGE BY ROLE as BE/ABM/RBM/ZSM rings you can open for the per-department split, a MONTHLY TREND of smoothed lines over one rupee axis with visits on their own rail below and a pager through the doctor’s departments, and one panel that switches between a DEPARTMENT TABLE (optionally pivoted by month, expandable to real POB product lines) and an ACTIVITY TIMELINE. One filter above them all — department, value format and period, defaulting to the current Indian financial year — so no two numbers on the page are ever measured over different windows. BIND THE DOCTOR AND THE SIGNED-IN USER’S ERP CREDENTIAL AND YOU ARE DONE: the component runs its own reads and works out who is looking, what they may see, which departments the doctor has and who covers them. Reading with the user’s own token is the point — several reps share a doctor, and ERP’s permissions are what keep one of them out of another’s rows. Service figures (and ROI) are shown only to SM, ZSM and Admin; everyone else sees the page without them, and it says so rather than leaving a blank. EVERY figure is attributed, support included: its department, role profile and product breakdown come off Doctor Support’s item child table (the parent row carries only the month totals, which is why a list read makes it look bare). So the department filter, the chart pager and the table rows all count the same way, and a support month can be opened to its Ecubix product lines. The only thing that ever lands in Unassigned is a month Ecubix sent as a total with no products behind it — shown rather than dropped, so the headline total always ties out.",
   props: {
     doctor: {
       type: "object",
       description:
-        "WHO to show — THE ONLY DATA BINDING REQUIRED. Either the Lead id as a string (\"DR-47718\", e.g. from the URL) or the doctor row you already have: bind currentItem straight from a list and it is unwrapped for you, including a GraphQL edge ({ node }). The row paints the hero instantly while everything else is fetched. Field names are the component’s own business — there is nothing to map.",
-      defaultValue: "DR-47718",
+        "WHO to show — THE ONLY DATA BINDING REQUIRED. Either the Lead id as a string (the page's own route param, e.g. $ctx.params.id) or the doctor row you already have: bind currentItem straight from a list and it is unwrapped for you, including a GraphQL edge ({ node }). The row paints the hero instantly while everything else is fetched. Field names are the component’s own business — there is nothing to map. DELIBERATELY HAS NO DEFAULT: a default here becomes the value the page falls back to when the binding fails, so an unbound page would silently show one real doctor's figures — and their support, POB and service — under someone else's name. Empty shows an honest empty state instead.",
     },
     erpUrl: {
       type: "string",
       defaultValue: "",
       description:
-        "The ERP GraphQL endpoint, bound TOGETHER with Auth Token to the SIGNED-IN USER’S credential — the same pair the calendar page binds on CalendarPage. This is what scopes the page: every read is made as that user, so ERP’s own permissions decide which of a shared doctor’s rows they see. Leave BOTH empty and the page falls back to whatever AuthProvider has already published, and failing that to the shared row in /tokens — which sees everything, so the page says so in a strip across the top rather than letting unscoped figures pass as scoped.",
+        "The ERP GraphQL endpoint, bound TOGETHER with Auth Token to the SIGNED-IN USER’S credential — the same pair the calendar page binds on CalendarPage. REQUIRED, and it is what scopes the page: every read is made as that user, so ERP’s own permissions decide which of a shared doctor’s rows they see. There is NO default and no environment name to fall back on — the only other source is the pair AuthProvider already published for the signed-in user on a page that also mounts the calendar. Bind the endpoint the page actually means: a UAT page pointed at erp.elbrit.org reads production, and nothing on screen would say so.",
     },
     authToken: {
       type: "string",
@@ -1664,11 +1671,31 @@ PLASMIC.registerComponent(DoctorDetail, {
       description:
         "The signed-in user’s ERP token, bound together with ERP URL. There is deliberately NO prop for the viewer’s role: the token identifies them and the component asks ERP (logged user → Employee → role profile). A role prop would let anyone with Studio access hand themselves sight of the service figures.",
     },
-    erpTarget: {
+    employee: {
       type: "string",
       defaultValue: "",
       description:
-        "WHICH ERP to read when no user token is bound — the name of a row in /tokens, where the page prompts \"ERP / UAT / DEV\". LEAVE EMPTY on a normal page. It deliberately does not follow the row flagged \"default\": that flag is a convenience for the query playground and points at whichever instance was last poked. Set UAT on a test page.",
+        "NARROW the page to one Employee's span instead of the reader's own — e.g. an ABM looking at just one of their BEs. Takes an Employee id (E01255). It can only ever take AWAY: it is intersected with what the reader's own token earned, so naming somebody outside their span shows NOTHING rather than more. Leave empty for the reader's full span.",
+    },
+    period: {
+      type: "choice",
+      options: ["fy", "cur", "last", "m3", "all"],
+      defaultValue: "fy",
+      description:
+        "Which period the page OPENS on — fy (the Indian financial year, the default), cur (this month), last (last month), m3 (three months) or all. A DEFAULT, not a lock. Every figure on the page answers to this one window, which is why there is a single period rather than one per card.",
+    },
+    valueFormat: {
+      type: "choice",
+      options: ["full", "short"],
+      defaultValue: "full",
+      description:
+        "How money reads: full (₹1,24,300) or short (₹1.24L). A DEFAULT — the reader can switch it in Filter. The chart's own axis is always short, because the axis column is 44px and a full figure does not fit.",
+    },
+    sampleData: {
+      type: "boolean",
+      defaultValue: false,
+      description:
+        "SAMPLE DATA — draw the whole page from realistic PLACEHOLDER figures and make NO ERP READ AT ALL. It exists so the design can be reviewed and signed off before the real data is wired in: one made-up doctor (a diabetologist in Erode covered for Elbrit, CND and Vasco) with a year of uneven support, service, POB, visits and notes behind him, so the hero, the totals strip, the coverage rings, the trend, the department table and the activity timeline all carry content instead of em dashes. NOTHING NEEDS BINDING and nothing is fetched — no doctor, no ERP URL, no token — and the service and ROI surfaces are shown, because half the design is those surfaces and a reader below SM never sees them. The placeholder rows go through the same attribution rules as the real ones, so a POB with no visit behind it still lands in Unassigned and a month Ecubix sent as a bare total still shows its missing part. TURN IT OFF BEFORE THE PAGE GOES LIVE: while it is on, this page shows a doctor who does not exist, whatever is bound beside it.",
     },
     onBack: {
       type: "eventHandler",
@@ -2810,6 +2837,7 @@ PLASMIC.registerComponent(ProfileHeader, {
 });
 
 registerElbritCoreComponents(PLASMIC)
+registerDoctorConsoleComponents(PLASMIC)
 
 /* Design-system primitives, under an "Elbrit Design System" section in the
    Studio tray. Registered here rather than inside registerElbritCoreComponents

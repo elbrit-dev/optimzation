@@ -58,6 +58,10 @@ async function main() {
     'components/DoctorDetail/lib/queries.js',
     'components/DoctorDetail/lib/derive.js',
     'components/DoctorDetail/lib/analytics.js',
+    'components/DoctorDetail/lib/grade.js',
+    'components/DoctorDetail/lib/scope.js',
+    'components/DoctorDetail/lib/loadDoctor.js',
+    'components/DoctorDetail/lib/console.js',
     'components/DoctorDetail/lib/useContainerMode.js',
     'components/DoctorDetail/styles.js',
     'components/DoctorDetail/ui/parts.jsx',
@@ -68,6 +72,14 @@ async function main() {
     'components/DoctorDetail/ui/DataTable.jsx',
     'components/DoctorDetail/ui/Activity.jsx',
     'components/DoctorDetail/ui/Modals.jsx',
+    'components/DoctorConsole/session.js',
+    'components/DoctorConsole/useDoctorConsole.js',
+    'components/DoctorConsole/shell.jsx',
+    'components/DoctorConsole/DoctorHeroCard.jsx',
+    'components/DoctorConsole/DoctorTotalsCard.jsx',
+    'components/DoctorConsole/DoctorFilterBar.jsx',
+    'components/DoctorConsole/DoctorCoverageCard.jsx',
+    'components/DoctorConsole/DoctorInsightsCard.jsx',
     'components/DoctorDetail/index.jsx',
   ];
   const compiled = new Map();
@@ -79,7 +91,6 @@ async function main() {
     })).code);
   }
 
-  let stub = null;
   let forceCompact = false;
   const cache = new Map();
   // __esModule matters: swc's interop wraps a plain object as { default: obj }
@@ -87,10 +98,6 @@ async function main() {
   cache.set(path.normalize('components/DoctorDetail/lib/useContainerMode.js'), {
     __esModule: true,
     default: () => [{ current: null }, forceCompact],
-  });
-  cache.set(path.normalize('components/DoctorDetail/lib/useDoctorData.js'), {
-    __esModule: true,
-    useDoctorData: () => stub,
   });
 
   function loadSync(file) {
@@ -124,8 +131,9 @@ async function main() {
   }
 
   const derive = loadSync('components/DoctorDetail/lib/derive.js');
+  const sessions = loadSync('components/DoctorConsole/session.js');
 
-  /** Raw ERP payloads -> exactly what useDoctorData would hand the page. */
+  /** Raw ERP payloads -> exactly what the ERP read would hand the session. */
   function build(id, { role, withVisits, errors = {}, denied = {}, blankLead = false }) {
     const raw = RAW[id];
     const canSeeService = ['SM', 'ZSM', 'Admin'].includes(role);
@@ -154,7 +162,9 @@ async function main() {
       pharmacies: derive.derivePharmacies(pobs),
       errors,
       denied,
-      refresh: () => {},
+      scoped: true,
+      endpoint: null,
+      span: null,
     };
   }
 
@@ -169,28 +179,25 @@ async function main() {
       { role: 'ABM', withVisits: true }, 'table'],
     ['DR-49059', 1120, 'FAILURE STATE - profile and POBs failed, support refused 403. Does the hero still render?',
       { role: 'BE', withVisits: true, blankLead: true, errors: { lead: true, pobs: true }, denied: { support: true } }, 'table'],
+    ['DR-47718', 1120, 'DR-47718 - SM - FILTER SHEET open, showing the multi-select department chips',
+      { role: 'SM', withVisits: false }, 'table', { modal: 'filter', divs: ['CND'] }],
   ];
 
-  // A static render cannot click the Data/Activity switch, so the timeline frame
-  // is produced by seeding that one useState. Preview-only surgery on the
-  // COMPILED text — the component itself is untouched.
-  const pageKey = path.normalize('components/DoctorDetail/index.jsx');
-  const pristine = compiled.get(pageKey);
-  const seedView = (view) => {
-    const seeded = pristine.replace(/useState\)\("table"\)/, 'useState)("activity")');
-    if (view === 'activity' && seeded === pristine) {
-      throw new Error('preview: could not seed the activity view — the compiled shape changed');
-    }
-    compiled.set(pageKey, view === 'activity' ? seeded : pristine);
-    cache.delete(pageKey);
-  };
+  // The reading now lives in a module-level session rather than in the page's
+  // own state, which makes a static preview simpler rather than harder: seed the
+  // session with fixture rows and flip its view, and every card draws from it.
+  // No surgery on compiled output any more.
+  const Page = loadSync('components/DoctorDetail/index.jsx').default;
 
   const frames = [];
-  for (const [id, width, label, opts, view] of FRAMES) {
-    stub = build(id, opts);
+  for (const [id, width, label, opts, view, ui] of FRAMES) {
     forceCompact = width < 720;
-    seedView(view);
-    const Page = loadSync('components/DoctorDetail/index.jsx').default;
+    sessions.clearSessions();
+    const session = sessions.getSession(sessions.sessionKey({ doctorId: id }), { doctor: id });
+    // `started` is set so nothing tries to reach ERP if an effect ever does run.
+    session.started = true;
+    session.setData(build(id, opts));
+    session.patch({ view, ...(ui || {}) });
     const html = renderToStaticMarkup(React.createElement(Page, {
       doctor: id,
       onAddClinic: () => {},

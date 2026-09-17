@@ -84,7 +84,16 @@ const POB_FIELDS = `
   name transaction_date customer_name customer_address__name
   address_display territory__name total_qty valid_till
   custom_event__name custom_doctorvisit__name
-  items { item_name item_code net_amount qty rate }
+  /*
+   * item_code__name, NOT item_code. It is a Link to Item, and frappe_graphql
+   * answers a Link asked as a scalar with "Field 'item_code' of type 'Item'
+   * must have a selection of subfields" -- which 400s the WHOLE document, not
+   * just this field. Both POB ladders carried the scalar form, so neither could
+   * ever have answered; the read only works because REST is tried first, and a
+   * POB would have silently come back empty the day that route was refused.
+   * Verified against live ERP with scripts/gql-probe.mjs.
+   */
+  items { item_name item_code__name net_amount qty rate }
 `;
 
 export const POB_QUERIES = [
@@ -154,10 +163,12 @@ const VISIT_QUERY = (varDecl, filterArg) => `query DoctorVisits(${varDecl}) {
       custom_hq__name custom_doctor__name custom_pob_given
       custom_force_visit_reason custom_latitude custom_longitude
       custom_employee_id__name
+      custom_role_profile__name custom_department__name
       custom_employee_id { employee_name employee }
       event_participants {
         reference_doctype__name reference_docname__name attending
         custom_visit_time custom_is_force_visit
+        custom_role_profile__name
       }
     } }
   }
@@ -172,6 +183,7 @@ const VISIT_REST_FIELDS = [
   "name", "subject", "status", "event_type", "event_category", "starts_on", "creation",
   "custom_hq", "custom_doctor", "custom_pob_given", "custom_force_visit_reason",
   "custom_latitude", "custom_longitude", "custom_employee_id",
+  "custom_role_profile", "custom_department",
 ];
 
 /**

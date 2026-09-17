@@ -283,12 +283,17 @@ export default function DoctorCard({
     "fsl_speciality__name",
     "speciality",
   ]);
-  const hq = pick(doctor, hqField, ["territory", "territory__name", "custom_hq__name", "hq"]);
+  const hqDirect = pick(doctor, hqField, ["territory", "territory__name", "custom_hq__name", "hq"]);
   // The city sits under the HQ. It's skipped when it repeats the HQ (an HQ named
   // after its city) or when the HQ line already fell back to it.
   const city = pick(doctor, cityField, ["city"]);
   const tags = useMemo(() => readTags(doctor, tagsField, tagLabelField), [doctor, tagsField, tagLabelField]);
   const roleRows = useMemo(() => readRoleRows(doctor, tagsField), [doctor, tagsField]);
+  // `territory` is null on thousands of Leads whose COVERAGE rows still name the
+  // HQ — the import wrote the child table and skipped the parent field. So the
+  // pin falls back to the first HQ the doctor is actually worked from rather
+  // than going blank on data ERP already has.
+  const hq = hqDirect || (roleRows.find((r) => r.hq)?.hq ?? "");
 
   // C1 / C2 / C3 grading. Always derived, because the PREVIEW shows it either
   // way — the popup is the roomy view, and hiding a grade there would be

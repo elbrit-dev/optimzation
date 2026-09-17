@@ -1160,6 +1160,20 @@ export function AddEditEventDialog({
 	// attempt may already have made and adopt it instead.
 	const previousSubmitFailedRef = useRef(false);
 
+	// One toast, updated in place, for however long a contended save takes. A
+	// blocked attempt costs the server's whole lock timeout (50s by default), so
+	// a save that eventually succeeds can take minutes — and with the dialog held
+	// open and Save spinning, silence reads as a hung app. This says what is
+	// happening and that closing the form would throw the work away.
+	const CONTENTION_TOAST_ID = "event-save-contention";
+
+	const reportSaveContention = ({ attempt, maxAttempts, elapsedMs }) => {
+		toast.loading(
+			`ERP is busy with this event — ${Math.round(elapsedMs / 1000)}s so far, retrying (${attempt} of ${maxAttempts}). Keep this open.`,
+			{ id: CONTENTION_TOAST_ID, duration: Infinity }
+		);
+	};
+
 	const createEventAdoptingPreviousAttempt = async (erpDoc, saveOptions) => {
 		if (!erpDoc.name && previousSubmitFailedRef.current) {
 			const existingName = await findExistingEventByNaturalKey({
@@ -1173,7 +1187,14 @@ export function AddEditEventDialog({
 			}
 		}
 
-		return saveEvent(erpDoc, saveOptions);
+		try {
+			return await saveEvent(erpDoc, {
+				...saveOptions,
+				onContention: reportSaveContention,
+			});
+		} finally {
+			toast.dismiss(CONTENTION_TOAST_ID);
+		}
 	};
 
 	function normalizePobItemsForUI(items = []) {
