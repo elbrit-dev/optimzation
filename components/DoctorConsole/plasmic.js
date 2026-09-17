@@ -55,11 +55,6 @@ const dataProps = {
     description:
       "Optional Employee id to resolve the reader as, when the token cannot be trusted to name them. Normally left empty.",
   },
-  roleProfile: {
-    type: "string",
-    description:
-      "Optional role profile override for the reader. Normally left empty — the ERP row is authoritative.",
-  },
   sampleData: {
     type: "boolean",
     defaultValue: false,
@@ -74,12 +69,6 @@ const dataProps = {
  * Set them on one card only — two cards setting different defaults would fight.
  */
 const filterProps = {
-  department: {
-    type: "array",
-    itemType: { type: "string" },
-    description:
-      "Departments the page OPENS on — exact Elbrit division keys (Elbrit, CND, Vasco, Aura & Proxima …). SEVERAL are allowed and are added together, which is the normal case for SM, ZSM and Admin: they cover more than one division and ‘one or all’ is not a choice they can usefully make. EMPTY means every department. A plain string or a comma list is understood too, so a single bound field still works. Whatever is set here, the reader can change it from the filter bar — and ERP’s own permissions still decide which rows exist to be counted, so widening this cannot widen what anyone sees.",
-  },
   period: {
     type: "choice",
     options: [

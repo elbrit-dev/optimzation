@@ -1625,18 +1625,6 @@ PLASMIC.registerComponent(DoctorDetail, {
       description:
         "NARROW the page to one Employee's span instead of the reader's own — e.g. an ABM looking at just one of their BEs. Takes an Employee id (E01255). It can only ever take AWAY: it is intersected with what the reader's own token earned, so naming somebody outside their span shows NOTHING rather than more. Leave empty for the reader's full span.",
     },
-    roleProfile: {
-      type: "string",
-      defaultValue: "",
-      description:
-        "NARROW the page to a single SEAT, e.g. BE4-ELBR-CO-ERO — useful when a doctor is covered by three BEs and you want one column. Same rule as Employee: intersected with the reader's own span, never added to it. Leave empty for every seat they cover.",
-    },
-    department: {
-      type: "string",
-      defaultValue: "",
-      description:
-        "Which department the page OPENS on, e.g. \"Elbrit\" — the short division key the filter shows, not the full ERP name. A DEFAULT, not a lock: the reader can change it in Filter. Empty opens on all departments.",
-    },
     period: {
       type: "choice",
       options: ["fy", "cur", "last", "m3", "all"],
