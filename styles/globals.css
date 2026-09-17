@@ -1,5 +1,33 @@
 @import "tailwindcss";
 
+/* Elbrit Design System — tokens, then the additive Tailwind bridge, then the
+   primitive styles. Kept at the repo root (NOT under share/) because
+   `npm run copy-shared` degits --force over share/, components/ and shared/,
+   which would delete it on every sync. When it eventually lands in
+   elbrit-dev/playground/share/src/, change these three paths and delete
+   ./design-system.
+
+   `tailwind-strict.css` is deliberately NOT imported. It removes Tailwind's
+   stock palette, and this app still has hundreds of stock-palette call
+   sites (bg-gray-200, text-gray-500) that would stop compiling. netstar is
+   migrated and runs strict; this app is not. Do not add it until an audit reports clean. */
+@import "../design-system/tokens/index.css";
+@import "../design-system/tailwind.css";
+@import "../design-system/components/components.css";
+
+/* PrimeReact's SVG icon components carry `p-icon`, and they carry it even when
+   the component is unstyled — it is emitted by the icon itself, not by the
+   theme. lara sized it (`width: 1rem; height: 1rem`), so dropping the theme
+   collapses every sort arrow, chevron, checkbox tick and close cross to its
+   intrinsic size. This is the one theme rule the design system has to take
+   over wholesale rather than express per component: the class appears on
+   internals of a dozen components, none of which expose it as a distinct pt
+   section. */
+.p-icon {
+    width: var(--icon-md);
+    height: var(--icon-md);
+}
+
 /* Protect PrimeReact component styles from Tailwind reset */
 @layer base {
     /* Ensure PrimeReact components maintain their default styles */
@@ -19,8 +47,12 @@
 @theme inline {
     --color-background: var(--background);
     --color-foreground: var(--foreground);
-    --font-sans: var(--font-geist-sans);
-    --font-mono: var(--font-geist-mono);
+    /* Was Geist (a create-next-app leftover whose --font-geist-* variables
+       were never actually defined, so font-sans emitted an invalid value).
+       The DS bridge already maps these; the mapping is repeated here only
+       because this `@theme inline` block is declared after it. */
+    --font-sans: var(--ds-font-ui);
+    --font-mono: var(--ds-font-mono);
 }
 
 html {
@@ -99,7 +131,7 @@ body {
     background: #f9fafb;
     color: var(--foreground);
     font-family:
-        var(--font-geist-sans),
+        var(--ds-font-ui),
         -apple-system,
         BlinkMacSystemFont,
         "Segoe UI",

@@ -1,0 +1,70 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/npm/oxlint/configuration_schema.json",
+  "plugins": ["react"],
+  "rules": {
+    "no-restricted-syntax": [
+      "error",
+      {
+        "selector": "Literal[value=/^#[0-9a-fA-F]{3,8}$/]",
+        "message": "Raw hex colour. Use a design-system colour token: var(--brand-primary), var(--text-secondary), var(--surface-card). See design-system/tokens/color.css."
+      },
+      {
+        "selector": "Literal[value=/rgba?\\([0-9]/]",
+        "message": "Raw rgb()/rgba() colour. Use a design-system colour token via var(). Alpha washes already exist: --brand-tint, --text-muted, --focus-ring-wash."
+      },
+      {
+        "selector": "Literal[value=/^-?[0-9.]+(px|rem)$/]",
+        "message": "Raw length. Use a token: --space-* for spacing, --control-h* for control heights, --radius-* for radii, --fs-* for type. Note 5/7/11/15px are real steps — do not snap to 8."
+      },
+      {
+        "selector": "Literal[value=/[0-9]+ms|cubic-bezier/]",
+        "message": "Raw duration or easing. The system has one curve and two durations: var(--ease-standard), var(--dur-fast), var(--dur-base)."
+      },
+      {
+        "selector": "Literal[value=/box-shadow|drop-shadow/]",
+        "message": "Ad-hoc shadow. Four shadows exist and depth comes from nothing else: --shadow-hairline, --shadow-field, --shadow-card, --shadow-pop."
+      },
+      {
+        "selector": "Literal[value=/linear-gradient|radial-gradient|conic-gradient|backdrop-filter/]",
+        "message": "Flat surfaces only. No gradients, no glass, no backdrop blur."
+      },
+      {
+        "selector": "JSXAttribute[name.name='className'] > Literal[value=/\\b(bg|text|border|ring|divide|outline|shadow|fill|stroke|placeholder|accent|from|to|via)-(slate|gray|zinc|neutral|stone|blue|indigo|green|emerald|red|amber|orange|cyan|violet|sky|purple|pink|rose|teal|lime|yellow)-[0-9]{2,3}\\b/]",
+        "message": "Stock Tailwind palette class. Use the DS scale: bg-surface, bg-row-alt, text-body, text-secondary, text-muted, border-line, bg-brand, text-approved. See design-system/tailwind.css."
+      },
+      {
+        "selector": "JSXAttribute[name.name='className'] > Literal[value=/\\banimate-(bounce|ping|pulse|spin)\\b/]",
+        "message": "No bounce, no spring, no looping animation. Fades and short slides only, on var(--ease-standard)."
+      }
+    ],
+    "no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "group": ["antd", "antd/*"],
+            "message": "antd is being removed from both apps. Use the design-system primitive: Switch, Button, Field, Tag from '@/design-system'."
+          },
+          {
+            "group": ["**/design-system/components/*"],
+            "message": "Import primitives from '@/design-system', not from a component file directly."
+          },
+          {
+            "group": ["lucide-react", "@heroicons/*", "react-icons/*"],
+            "message": "Icon sets are not interchangeable here. Use <Icon name=\"...\" /> from '@/design-system'."
+          }
+        ]
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["src/design-system/tokens/*.css", "src/design-system/**/*.test.*"],
+      "rules": { "no-restricted-syntax": "off" }
+    },
+    {
+      "files": ["src/design-system/components/*.jsx", "src/design-system/lib/*.js"],
+      "rules": { "no-restricted-imports": "off" }
+    }
+  ]
+}

@@ -443,7 +443,7 @@ export default function RangePicker({
         <div className="flex items-center gap-2 mb-3">
           <Button
             icon="pi pi-arrow-left"
-            className="p-button-text p-button-sm"
+            className="ds-button-text ds-button-sm"
             onClick={() => setViewMode('calendar')}
             aria-label="Back to calendar"
           />
@@ -508,7 +508,7 @@ export default function RangePicker({
           <div className="flex items-center gap-2">
             <Button
               icon="pi pi-arrow-left"
-              className="p-button-text p-button-sm"
+              className="ds-button-text ds-button-sm"
               onClick={() => setViewMode('calendar')}
               aria-label="Back to calendar"
             />
@@ -517,7 +517,7 @@ export default function RangePicker({
           <div className="flex items-center gap-1">
             <Button
               icon="pi pi-chevron-left"
-              className="p-button-text p-button-sm"
+              className="ds-button-text ds-button-sm"
               onClick={() => handleDecadeNavigation(-1)}
               aria-label="Previous decade"
             />
@@ -526,7 +526,7 @@ export default function RangePicker({
             </span>
             <Button
               icon="pi pi-chevron-right"
-              className="p-button-text p-button-sm"
+              className="ds-button-text ds-button-sm"
               onClick={() => handleDecadeNavigation(1)}
               aria-label="Next decade"
             />
@@ -591,7 +591,7 @@ export default function RangePicker({
         <div className="flex items-center justify-between mb-2">
           <Button
             icon="pi pi-chevron-left"
-            className="p-button-text p-button-sm"
+            className="ds-button-text ds-button-sm"
             onClick={() => navigateYear(-1)}
             aria-label="Previous year"
           />
@@ -607,7 +607,7 @@ export default function RangePicker({
           </button>
           <Button
             icon="pi pi-chevron-right"
-            className="p-button-text p-button-sm"
+            className="ds-button-text ds-button-sm"
             onClick={() => navigateYear(1)}
             aria-label="Next year"
           />
@@ -719,7 +719,7 @@ export default function RangePicker({
         <div className="flex items-center justify-between mb-2">
           <Button
             icon="pi pi-chevron-left"
-            className="p-button-text p-button-sm"
+            className="ds-button-text ds-button-sm"
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -754,7 +754,7 @@ export default function RangePicker({
           </div>
           <Button
             icon="pi pi-chevron-right"
-            className="p-button-text p-button-sm"
+            className="ds-button-text ds-button-sm"
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -888,7 +888,7 @@ export default function RangePicker({
         <div className="flex items-center justify-between mb-2">
           <Button
             icon="pi pi-chevron-left"
-            className="p-button-text p-button-sm"
+            className="ds-button-text ds-button-sm"
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -923,7 +923,7 @@ export default function RangePicker({
           </div>
           <Button
             icon="pi pi-chevron-right"
-            className="p-button-text p-button-sm"
+            className="ds-button-text ds-button-sm"
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -1029,7 +1029,7 @@ export default function RangePicker({
         <div className="flex items-center justify-between mb-2">
           <Button
             icon="pi pi-chevron-left"
-            className="p-button-text p-button-sm"
+            className="ds-button-text ds-button-sm"
             onClick={() => navigateYear(-1)}
             aria-label="Previous year"
           />
@@ -1045,7 +1045,7 @@ export default function RangePicker({
           </button>
           <Button
             icon="pi pi-chevron-right"
-            className="p-button-text p-button-sm"
+            className="ds-button-text ds-button-sm"
             onClick={() => navigateYear(1)}
             aria-label="Next year"
           />
@@ -1118,7 +1118,7 @@ export default function RangePicker({
         <div className="flex items-center justify-between mb-2">
           <Button
             icon="pi pi-chevron-left"
-            className="p-button-text p-button-sm"
+            className="ds-button-text ds-button-sm"
             onClick={() => navigateDecade(-1)}
             aria-label="Previous decade"
           />
@@ -1127,7 +1127,7 @@ export default function RangePicker({
           </span>
           <Button
             icon="pi pi-chevron-right"
-            className="p-button-text p-button-sm"
+            className="ds-button-text ds-button-sm"
             onClick={() => navigateDecade(1)}
             aria-label="Next decade"
           />

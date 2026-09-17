@@ -3,10 +3,12 @@ import jmespath from "jmespath";
 import _ from "lodash";
 import jmespath_plus from '@metrichor/jmespath-plus';
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import dynamic from "next/dynamic";
 // import DataProvider from "./share/src/app/datatable/components/DataProviderNew";
 // import DataTableNew from "./share/src/app/datatable/components/DataTableNew";
 // import Navigation from "./share/src/app/navigation/components/Navigation";
 import { registerElbritCoreComponents } from './share/src/plasmic-init';
+import { registerDesignSystem } from './design-system/plasmic';
 import { registerDoctorConsoleComponents } from './components/DoctorConsole/plasmic';
 import MyProfile from "./components/features/my-profile";
 import ProfileHeader from "./components/features/profile-header";
@@ -14,11 +16,21 @@ import FirebaseUIComponent from "./components/FirebaseUIComponent";
 import LoginHelpForm from "./components/LoginHelpForm";
 import HelpSupport from "./components/features/help-support";
 import CalendarPage from "@calendar/components/CalendarPage";
+import { VisitReport } from "./components/Visit";
 import { TAGS, TAG_IDS, EVENT_TYPE_MODES } from "@calendar/components/calendar/constants";
 import NovuInbox from "./components/NovuInbox";
 import PushNotificationToggle from "./components/PushNotificationToggle";
 import NetworkBanner from "./components/NetworkBanner";
-import DevicePrimaryGuard from "./components/DevicePrimaryGuard";
+/* Loaded client-side only. `device-uuid` reads `navigator` at module scope, so
+   a static import throws "navigator is not defined" during any server render —
+   which 500s /plasmic-host, the page Plasmic Studio loads, and fails
+   `next build` at "Collecting page data". The component's own logic is already
+   client-only (every call site sits behind a typeof-window check); it was just
+   the import that ran too early. */
+const DevicePrimaryGuard = dynamic(
+  () => import("./components/DevicePrimaryGuard"),
+  { ssr: false }
+);
 import ApprovalCard from "./components/ApprovalCard";
 import SecondaryDataSummary from "./components/SecondaryDataSummary";
 import SecondaryApprovalSummary from "./components/SecondaryApprovalSummary";
@@ -63,11 +75,30 @@ if (plasmicTag && !allowedTags.includes(plasmicTag)) {
 //   both test and live.
 const plasmicVersion = plasmicTag === "prod" ? "prod" : undefined;
 
+// Which Plasmic project the app loads. Defaults to the live "Elbrit APP New"
+// project; set both env vars in .env.local to point a sandbox build at a
+// duplicated project instead. Both must be set together — a half-set pair
+// would silently load the live design with a sandbox token (or vice versa).
+const projectId =
+  process.env.NEXT_PUBLIC_PLASMIC_PROJECT_ID || "b6mXu8rXhi8fdDd6jwb8oh";
+const projectToken =
+  process.env.NEXT_PUBLIC_PLASMIC_PROJECT_TOKEN ||
+  "hKaQFlYDzP6By8Fk45XBc6AhEoXVcAk3jJA5AvDn7lEnJI4Ho97wv9zkcp0LvOnjUhV0wQ6ZeeXBj5V135I9YA";
+
+if (
+  Boolean(process.env.NEXT_PUBLIC_PLASMIC_PROJECT_ID) !==
+  Boolean(process.env.NEXT_PUBLIC_PLASMIC_PROJECT_TOKEN)
+) {
+  throw new Error(
+    "Set both NEXT_PUBLIC_PLASMIC_PROJECT_ID and NEXT_PUBLIC_PLASMIC_PROJECT_TOKEN, or neither."
+  );
+}
+
 export const PLASMIC = initPlasmicLoader({
   projects: [
     {
-      id: "b6mXu8rXhi8fdDd6jwb8oh",
-      token: "hKaQFlYDzP6By8Fk45XBc6AhEoXVcAk3jJA5AvDn7lEnJI4Ho97wv9zkcp0LvOnjUhV0wQ6ZeeXBj5V135I9YA",
+      id: projectId,
+      token: projectToken,
       version: plasmicVersion,
     },
   ],
@@ -554,6 +585,27 @@ PLASMIC.registerComponent(CalendarPage, {
         "How to read the picked types. A type that ends up off is hidden from the event form, filtered off the calendar, and its data is never fetched — and with Leave off, the 'employee is on approved leave' guard on Add Event stops blocking.",
     },
   },
+});
+
+PLASMIC.registerComponent(VisitReport, {
+  name: "VisitReport",
+  displayName: "Visit Report",
+  description:
+    "Mobile-first daily / month-till-date field-force visit KPI report: attendance, planned vs happened calls, POB, geo-verified vs force visits, an HQ strip with hourly chart, and the manager team tree. Reads live from ERPNext (Events, Employees, LeaveApplications, Quotations) via the /tokens endpoint registry — same registry every other ERP-reading component on this canvas resolves through.",
+  props: {
+    gqlEnvironment: {
+      type: "string",
+      defaultValue: "ERP",
+      helpText:
+        "The /tokens registry row NAME to resolve the ERP endpoint + token from. Leave as 'ERP' unless a UAT/sandbox row exists to point at instead.",
+    },
+    gqlTokenOverride: {
+      type: "string",
+      helpText:
+        "Optional: a raw 'key:secret' credential to use against the SAME endpoint the environment row resolves to, in place of that row's own token. Leave empty to use the registry's token.",
+    },
+  },
+  importPath: "./components/Visit",
 });
 
 PLASMIC.registerComponent(NovuInbox, {
@@ -2786,6 +2838,12 @@ PLASMIC.registerComponent(ProfileHeader, {
 
 registerElbritCoreComponents(PLASMIC)
 registerDoctorConsoleComponents(PLASMIC)
+
+/* Design-system primitives, under an "Elbrit Design System" section in the
+   Studio tray. Registered here rather than inside registerElbritCoreComponents
+   because this app's share/ copy predates the design system and is overwritten
+   by copy-shared; netstar calls it from inside its own core registration. */
+registerDesignSystem(PLASMIC)
 
 // PLASMIC.registerComponent(DataProvider, {
 //   name: "DataProvider",

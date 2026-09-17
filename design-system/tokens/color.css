@@ -1,0 +1,198 @@
+/* Elbrit Design System — colour.
+   Two identities coexist and must not blend: the BRAND is red + navy
+   (identity, print, one nav action, destructive intent); the PRODUCT is
+   blue (every interactive affordance). Red never decorates the tool.
+
+   Raw ramp values are --elbrit-*. Semantic aliases are everything else.
+   Call sites use aliases so surfaces can be re-pointed once. */
+
+:root {
+  /* ---- Identity. Reserved. ---- */
+  --elbrit-red: rgb(220, 38, 39);
+  --elbrit-red-deep: rgb(217, 54, 62);
+  --elbrit-navy: rgb(23, 37, 84);
+  --elbrit-navy-mid: rgb(2, 67, 123);
+
+  /* ---- Product accent. The blue triad: hover lighter, press darker. ---- */
+  --elbrit-blue: rgb(15, 135, 249);
+  --elbrit-blue-bright: rgb(64, 150, 255);
+  --elbrit-blue-deep: rgb(9, 88, 217);
+  /* A fourth step, for the hover of a FILLED control. The triad above hovers
+     LIGHTER, which is right for a tinted surface and wrong for a filled one:
+     white on --elbrit-blue-bright is 2.9:1. Filled controls therefore hover
+     darker instead. 7.55:1 with white. */
+  --elbrit-blue-darker: rgb(10, 76, 189);
+
+  /* ---- Status. One colour, one meaning. ---- */
+  --elbrit-green: rgb(0, 199, 50);
+  --elbrit-amber: rgb(250, 169, 88);
+  --elbrit-error: rgb(255, 77, 79);
+  /* Deeper twins of the three status hues, for use as TEXT. The saturated
+     values above are fills and washes and cannot carry small text: green is
+     2.28:1 on white, amber 1.93:1. Same relationship --brand-text already has
+     to --brand-primary. Measured on white: 5.29, 5.93, 5.33, 5.36. */
+  --elbrit-green-deep: rgb(6, 125, 40);
+  --elbrit-amber-deep: rgb(138, 90, 0);
+  --elbrit-grey-deep: rgb(107, 107, 107);
+  --elbrit-cyan-deep: rgb(14, 116, 144);
+  --elbrit-error-hover: rgb(255, 120, 117);
+  --elbrit-error-border: rgb(255, 163, 158);
+
+  /* ---- Categorical. For charts and event types. NEVER semantic. ---- */
+  --elbrit-magenta: rgb(158, 38, 146);
+  --elbrit-violet: rgb(151, 71, 255);
+  --elbrit-plum: rgb(90, 61, 139);
+  --elbrit-cyan: rgb(19, 194, 194);
+
+  /* Categorical tints, for a chip that pairs the saturated colour as text on
+     a wash of itself. Mirrors what StatusPill does for semantic status. */
+  --cat-blue-wash: color-mix(in srgb, var(--elbrit-blue) 10%, transparent);
+  --cat-magenta-wash: color-mix(in srgb, var(--elbrit-magenta) 10%, transparent);
+  --cat-violet-wash: color-mix(in srgb, var(--elbrit-violet) 10%, transparent);
+  --cat-plum-wash: color-mix(in srgb, var(--elbrit-plum) 10%, transparent);
+  --cat-cyan-wash: color-mix(in srgb, var(--elbrit-cyan) 10%, transparent);
+  --cat-amber-wash: color-mix(in srgb, var(--elbrit-amber) 10%, transparent);
+
+  /* ---- Neutral ramp. Pick by role, not by number. ---- */
+  --elbrit-ink: rgb(0, 0, 0);
+  --elbrit-ink-soft: rgb(50, 49, 48);
+  --elbrit-ink-mute: rgb(67, 67, 67);
+  --elbrit-grey-500: rgb(172, 172, 172);
+  --elbrit-grey-400: rgb(191, 191, 191);
+  --elbrit-placeholder: rgb(161, 169, 184);
+  --elbrit-line: rgb(218, 218, 218);
+  --elbrit-line-soft: rgb(217, 217, 217);
+  --elbrit-surface-mute: rgb(246, 246, 246);
+  --elbrit-surface-grey: rgb(249, 250, 251);
+  --elbrit-surface-tint: rgb(250, 252, 255);
+  --elbrit-canvas: rgb(245, 245, 245);
+  --elbrit-surface: rgb(255, 255, 255);
+
+  /* ---- Interactive ---- */
+  --brand-primary: var(--elbrit-blue);
+  --brand-primary-hover: var(--elbrit-blue-bright);
+  --brand-primary-active: var(--elbrit-blue-deep);
+  --brand-mark: var(--elbrit-red);
+  --brand-wordmark: var(--elbrit-navy);
+
+  /* Low-alpha washes for row hover, nav hover, selected rows. */
+  --brand-tint-weak: rgb(15 135 249 / 0.04);
+  --brand-tint: rgb(15 135 249 / 0.08);
+  --brand-tint-strong: rgb(15 135 249 / 0.12);
+
+  /* ---- Text ---- */
+  --ds-text-body: rgb(0 0 0 / 0.88);
+  --ds-text-heading: var(--elbrit-navy);
+  --ds-text-secondary: rgb(0 0 0 / 0.65);
+  --ds-text-muted: rgb(0 0 0 / 0.45);
+  --ds-text-placeholder: var(--elbrit-placeholder);
+  /* 0.25 measured 1.82:1 on --surface-disabled, i.e. a disabled button's
+     label was effectively invisible rather than merely muted. WCAG 1.4.3
+     exempts disabled controls, which is why it survived an audit — but a
+     label nobody can read is a usability bug whatever the spec permits.
+     0.55 gives 4.65:1 there and ~5:1 on white, and still reads as inactive
+     against 0.88 body text. */
+  --ds-text-disabled: rgb(0 0 0 / 0.55);
+  --ds-text-on-brand: rgb(255, 255, 255);
+  /* --elbrit-blue is 3.59:1 on white. A link is text, so it takes the deeper
+     value like every other text role — this also fixes `:where(a)` in
+     base.css, which every anchor in the app inherits. */
+  --ds-text-link: var(--brand-primary-active);
+
+  /* ---- Surfaces ---- */
+  --surface-page: var(--elbrit-canvas);
+  --surface-card: var(--elbrit-surface);
+  --surface-sunken: var(--elbrit-surface-grey);
+  --surface-row-alt: var(--elbrit-surface-tint);
+  --surface-table-head: var(--elbrit-surface-tint);
+  --surface-disabled: var(--elbrit-surface-mute);
+  --surface-overlay: rgb(0 0 0 / 0.45);
+
+  /* ---- Borders ----
+     218 is the card hairline, 217 the divider / control border. They differ
+     by one value because the source file had two lineages. Kept distinct. */
+  --border-default: var(--elbrit-line);
+  --border-subtle: var(--elbrit-line-soft);
+  --border-strong: var(--elbrit-grey-500);
+  --border-disabled: var(--elbrit-grey-400);
+
+  /* A divider ON a brand or otherwise saturated fill, where the neutral
+     hairlines above would disappear. The only white-alpha border in the set. */
+  --border-on-brand: rgb(255 255 255 / 0.2);
+
+  /* ---- Focus. A ring, never a colour swap. ---- */
+  --focus-ring: var(--elbrit-blue);
+  --focus-ring-wash: rgb(5 145 255 / 0.1);
+
+  /* ---- Status aliases ---- */
+  --status-approved: var(--elbrit-green);
+  --status-pending: var(--elbrit-amber);
+  --status-rejected: var(--elbrit-error);
+  --status-draft: var(--elbrit-grey-500);
+  --status-info: var(--elbrit-blue);
+
+  /* ---- Intent (fill / border / wash triads for banners and inline alerts) ---- */
+  --intent-danger: var(--elbrit-error);
+  --intent-danger-hover: var(--elbrit-error-hover);
+  --intent-danger-border: var(--elbrit-error-border);
+  --intent-danger-wash: rgb(255, 242, 240);
+
+  --intent-warning: var(--elbrit-amber);
+  --intent-warning-border: rgb(255, 214, 102);
+  --intent-warning-wash: rgb(255, 251, 230);
+
+  --intent-success: var(--elbrit-green);
+  --intent-success-border: rgb(183, 235, 143);
+  --intent-success-wash: rgb(246, 255, 237);
+
+  --intent-info: var(--elbrit-blue);
+  --intent-info-border: rgb(145, 202, 255);
+  --intent-info-wash: rgb(230, 244, 255);
+
+  /* ---- Accessible TEXT variants ----
+     The palette's saturated colours are fills, and they do not clear WCAG AA
+     as small text on white: --brand-primary measures 3.59:1 and
+     --intent-danger 3.27:1 against the 4.5:1 floor for normal text.
+
+     These two are the palette's OWN deeper values, aliased for the one job
+     they pass at. Use them for text and icons on a light surface; keep the
+     saturated tokens for fills, where the label sits on the colour rather
+     than beside it.
+
+       --intent-danger-text   rgb(217,54,62)  4.62:1  (--elbrit-red-deep)
+       --brand-text           rgb(9,88,217)   6.16:1  (--brand-primary-active)
+
+     No accessible variant exists for the status colours — green (2.28:1),
+     amber (1.93:1), draft grey (2.27:1) and cyan (2.21:1) cannot be made to
+     pass without leaving the palette. See design-system/README.md
+     "Contrast: what the palette cannot do". */
+  --intent-danger-text: var(--elbrit-red-deep);
+  --brand-text: var(--brand-primary-active);
+
+  /* The rest of the accessible text set, added when the contrast audit was
+     widened past the specimen page. Every one of these is the palette's own
+     hue taken darker — no new colours, and the fills are untouched. */
+  --status-approved-text: var(--elbrit-green-deep);
+  --status-pending-text: var(--elbrit-amber-deep);
+  --status-rejected-text: var(--intent-danger-text);
+  --status-draft-text: var(--elbrit-grey-deep);
+  --status-info-text: var(--brand-text);
+  --cat-cyan-text: var(--elbrit-cyan-deep);
+
+  /* ---- Brand FILL that carries a label ----
+     White on --brand-primary is 3.59:1. That is fine for a fill with no text
+     on it — a checkbox tick, a connector, a focus ring — and not fine for a
+     primary button, a selected segment, the paginator's current page or the
+     calendar's selected day, all of which put a white label on the colour.
+
+     Those use --brand-fill instead: the palette's own --elbrit-blue-deep at
+     6.16:1. Note the hover goes DARKER, unlike the tinted-surface triad,
+     because hovering lighter would drop it back below the floor. */
+  --brand-fill: var(--elbrit-blue-deep);
+  --brand-fill-hover: var(--elbrit-blue-darker);
+
+  /* Same problem, same shape, for destructive fills: white on --intent-danger
+     is 3.27:1. --elbrit-red-deep is 4.62:1 and is already the palette's
+     accessible red. */
+  --intent-danger-fill: var(--elbrit-red-deep);
+}

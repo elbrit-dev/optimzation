@@ -4995,7 +4995,7 @@ export default function DataProviderNew({
         message: 'You have unsaved changes. Reload data for the new date range? Your changes will be discarded.',
         acceptLabel: 'Reload',
         rejectLabel: 'Cancel',
-        acceptClassName: 'p-button-warning',
+        acceptClassName: 'ds-button-warning',
         accept: applyChange,
       });
     } else {
@@ -5100,7 +5100,7 @@ export default function DataProviderNew({
                   setFilterSortSidebarSortOnly(false);
                   setFilterSortSidebarVisible(true);
                 }}
-                className="p-button-outlined shrink-0 whitespace-nowrap"
+                className="ds-button-outlined shrink-0 whitespace-nowrap"
                 severity="secondary"
                 style={{ height: '2rem', fontSize: '0.875rem' }}
               >
@@ -5590,7 +5590,7 @@ export default function DataProviderNew({
                 message: 'You have unsaved changes. Discard?',
                 acceptLabel: 'Discard',
                 rejectLabel: 'Keep editing',
-                acceptClassName: 'p-button-danger',
+                acceptClassName: 'ds-button-danger',
                 accept: closeDrawer,
               });
             } else {

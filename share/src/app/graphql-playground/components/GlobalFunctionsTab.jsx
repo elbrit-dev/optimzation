@@ -89,10 +89,10 @@ export function GlobalFunctionsTab() {
             label="Save"
             className={
               isSaving
-                ? "p-button-secondary"
+                ? "ds-button-secondary"
                 : hasError
-                  ? "p-button-danger"
-                  : "p-button-primary"
+                  ? "ds-button-danger"
+                  : "ds-button-primary"
             }
             onClick={handleSave}
             title={

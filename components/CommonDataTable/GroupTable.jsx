@@ -12,6 +12,7 @@
 import { memo, useCallback, useMemo, useState } from 'react';
 import { isEmpty, isNil, take } from 'lodash';
 import { DataTable } from 'primereact/datatable';
+import { dsDataTableProps } from '@/design-system/primereact/dataTableProps';
 import { Column } from 'primereact/column';
 
 import ColumnFilterInput from './filters/ColumnFilterInput';
@@ -220,6 +221,10 @@ function GroupTable({
 
   return (
     <DataTable
+      /* size is resolved here rather than read from PassThrough context: PrimeReact
+         does not pass `size` down to the nested column.* pt sections, so a preset
+         that assumes it silently widens every small table's cells 8px -> 16px. */
+      {...dsDataTableProps()}
       value={visibleRows}
       // Only the levels that expand carry a key; the deepest level holds the caller's own
       // records, which have no key of ours to resolve.
@@ -237,7 +242,12 @@ function GroupTable({
       onRowToggle={hasGroupRows ? (event) => setExpandedRows(event.data) : undefined}
       rowExpansionTemplate={hasGroupRows ? expansionTemplate : undefined}
       rowClassName={(row) => (row?.__isGroupRow__ ? 'font-medium' : '')}
-      className={`${size === 'small' ? 'p-datatable-sm' : size === 'large' ? 'p-datatable-lg' : ''} w-full ${depth > 0 ? 'border border-gray-200 rounded' : ''}`}
+      /* Cell density is no longer chosen here at all. It comes from
+         --table-cell-px/py, which [data-surface] resolves — this app is
+         data-surface="app", so every table is 12px inline / 8px block. The
+         `size` prop below is PrimeReact's own; it no longer affects padding,
+         which is what stopped the two table trees drifting apart. */
+      className={`w-full ${depth > 0 ? 'border border-line-subtle rounded' : ''}`}
       style={{ minWidth: '100%' }}
     >
       {hasGroupRows && (

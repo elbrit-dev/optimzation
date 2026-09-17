@@ -1,0 +1,58 @@
+/* Elbrit Design System — type.
+   Density before comfort. This is an operational tool: 10-12px carries the
+   field app, 12-14px the console. 20px is the workhorse line-height and is
+   what makes table rows align across both surfaces. */
+
+:root {
+  /* ---- Size scale. 14 steps. There is no step between them. ---- */
+  --fs-6: 6px;    /* micro labels inside calendar day chips. Nothing else. */
+  --fs-8: 8px;    /* secondary meta in dense tables */
+  --fs-10: 10px;  /* field app default: labels, table cells, nav labels */
+  --fs-11: 11px;  /* tile captions */
+  --fs-12: 12px;  /* app body, list rows, chips, console table cells */
+  --fs-13: 13px;  /* occasional dense body */
+  --fs-14: 14px;  /* console body, buttons, inputs */
+  --fs-16: 16px;  /* section titles */
+  --fs-18: 18px;  /* screen titles in the app header */
+  --fs-20: 20px;  /* card headline */
+  --fs-24: 24px;  /* document and page headers */
+  --fs-28: 28px;  /* document sub-headers */
+  --fs-32: 32px;  /* page title — the largest UI size */
+  --fs-64: 64px;  /* hero numerals: a KPI figure, never words */
+
+  /* ---- Line heights ---- */
+  --lh-tight: 100%;   /* chips, pills, single-line badges */
+  --lh-9: 9px;        /* only --fs-11 tile captions */
+  --lh-12: 12px;      /* stacked micro labels at 8-10px */
+  --lh-20: 20px;      /* the workhorse: 10, 12, 13 and 14px all sit on it */
+  --lh-normal: 1.4;   /* section titles, doc headers, 16px+ */
+
+  /* ---- Weights. 400 and 500 do nearly all the work. ---- */
+  --fw-light: 300;
+  --fw-regular: 400;
+  --fw-medium: 500;    /* table heads, active nav, emphasis */
+  --fw-semibold: 600;  /* section and document titles */
+  --fw-bold: 700;      /* tile captions and numerals only */
+
+  /* ---- Tracking. Zero unless matching a display heading. ---- */
+  --ls-none: 0;
+  --ls-tight: -0.148px; /* 24px+ only; imperceptible below that */
+  /* The counterpart at the other end: 10px uppercase eyebrow labels only.
+     Uppercase at that size sets too tight without it, and nothing else in the
+     product is uppercase. */
+  --ls-wide: 0.04em;
+
+  /* ---- Role shorthands. Use these as a single `font:` declaration
+         instead of assembling type by hand. ---- */
+  --type-app-label: var(--fw-regular) var(--fs-10) / var(--lh-20) var(--ds-font-ui);
+  --type-app-body: var(--fw-regular) var(--fs-12) / var(--lh-20) var(--ds-font-ui);
+  --type-app-tile: var(--fw-bold) var(--fs-11) / var(--lh-9) var(--ds-font-ui);
+  --type-console-body: var(--fw-regular) var(--fs-14) / var(--lh-20) var(--ds-font-ui);
+  --type-table-head: var(--fw-medium) var(--fs-12) / var(--lh-20) var(--ds-font-ui);
+  --type-button: var(--fw-regular) var(--fs-14) / var(--lh-20) var(--ds-font-ui);
+  --type-button-sm: var(--fw-regular) var(--fs-12) / var(--lh-20) var(--ds-font-ui);
+  --type-chip: var(--fw-regular) var(--fs-12) / var(--lh-tight) var(--ds-font-display);
+  --type-section: var(--fw-semibold) var(--fs-16) / var(--lh-normal) var(--ds-font-display);
+  --type-doc-head: var(--fw-semibold) var(--fs-24) / var(--lh-normal) var(--ds-font-display);
+  --type-hero-numeral: var(--fw-bold) var(--fs-64) / var(--lh-normal) var(--ds-font-display);
+}

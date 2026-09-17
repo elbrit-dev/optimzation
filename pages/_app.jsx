@@ -5,11 +5,28 @@ import { DataProvider } from '@plasmicapp/host';
 import { startConsoleCapture } from '../lib/consoleCapture';
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import Head from 'next/head';
+import { Roboto, Work_Sans } from 'next/font/google';
+import { PrimeReactProvider } from 'primereact/api';
+import { dsPrimeReactValue } from '../design-system/primereact/registry';
 import Script from 'next/script';
 import localforage from 'localforage';
 import _ from 'lodash';
-import "primereact/resources/themes/lara-light-cyan/theme.css";
+/* The lara-light-cyan THEME is gone: every PrimeReact component now renders
+   `unstyled` through the design system's PassThrough presets, so there is
+   nothing left for lara to select. Its primary was cyan — a colour absent from
+   this palette — and it was leaking onto buttons, inputs, zebra rows and row
+   selection.
+
+   `primereact.min.css` STAYS. It is the component BASE css, not the theme, and
+   it is what hides `p-hidden-accessible`, `p-dropdown-hidden-select` and
+   `p-cell-editor-key-helper`. Drop it and those become visible 1px artefacts —
+   in netstar this rendered a native checkbox next to the styled one on every
+   selectable row. */
 import "primereact/resources/primereact.min.css";
+/* PrimeReact's Editor is Quill, and `unstyled` does nothing for it — it needs
+   Quill's own stylesheet regardless. lara used to supply this; now we do.
+   One call site: share/src/app/datatable/components/DataProviderNew.jsx. */
+import "quill/dist/quill.snow.css";
 // import "antd/dist/antd.css";
 
 // GraphQL Playground styles
@@ -20,6 +37,36 @@ import 'graphiql/style.css';
 import "../share/src/app/graphql-playground/styles/graphql-playground.css";
 
 import "@calendar/styles/globals.css";
+
+/* Elbrit Design System fonts. Roboto is the product face, Work Sans the
+   display face; next/font self-hosts both, so there is no render-blocking
+   request to Google and no layout shift. The hashed family names are read
+   through --font-roboto / --font-work-sans by design-system/tokens/fonts.css. */
+const roboto = Roboto({
+  variable: '--font-roboto',
+  subsets: ['latin'],
+  weight: ['300', '400', '500', '700'],
+  display: 'swap',
+});
+const workSans = Work_Sans({
+  variable: '--font-work-sans',
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
+  display: 'swap',
+});
+
+/* DEVIATION FROM netstar, deliberate.
+
+   netstar keeps `unstyled: false` here and passes `unstyled` as a prop at each
+   of its ~250 render sites, because it migrated component-by-component and its
+   test suite selected on `p-*` classes — flipping the global took it from 73
+   passing tests to 2.
+
+   elbrit-app has 558 render sites and NO test suite, so there is nothing to
+   break and nothing to gain from 558 individual props. The global flip reaches
+   the same end state in one declaration. If a component ever needs the theme
+   back, `unstyled={false}` on that call site still wins over the provider. */
+const primeReactValue = { ...dsPrimeReactValue, unstyled: true };
 
 const flatten = (renameMapOrData, maybeData, options = {}) => {
   const flat = (obj, prefix = '', res = {}) => {
@@ -382,6 +429,16 @@ function MyApp({ Component, pageProps }) {
   }, []);
 
   return (
+    /* display:contents so the wrapper carries the font variables and the
+       density scope without introducing a box that could break Plasmic's
+       page layout. data-surface="app" selects the field-app density: 22px
+       controls and 12px body, vs netstar's console 32/14. */
+    <div
+      style={{ display: 'contents' }}
+      className={`${roboto.variable} ${workSans.variable}`}
+      data-surface="app"
+    >
+    <PrimeReactProvider value={primeReactValue}>
     <DataProvider name="fn" data={fnWithState}>
       <DataProvider name="state" data={globalState}>
         <Head>
@@ -423,6 +480,8 @@ function MyApp({ Component, pageProps }) {
         <Component {...pageProps} />
       </DataProvider>
     </DataProvider>
+    </PrimeReactProvider>
+    </div>
   );
 }
 

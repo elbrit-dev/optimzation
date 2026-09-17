@@ -291,10 +291,10 @@ export function DataTransformerTab({ responseData, activeTabIndex = 0 }) {
                   label={isRunning ? "Applying..." : "Apply"}
                   className={
                     isRunning
-                      ? "p-button-danger"
+                      ? "ds-button-danger"
                       : hasError
-                        ? "p-button-danger"
-                        : "p-button-primary"
+                        ? "ds-button-danger"
+                        : "ds-button-primary"
                   }
                   onClick={handlePlayClick}
                   title={

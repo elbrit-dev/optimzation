@@ -71,6 +71,7 @@ import { computeReportColumnsStructure, generateReportHeaderGroup, getMetricLabe
 import { getAllowedForScope, getAllowedForGroupField, getAllowedForReportGroupField } from '../utils/allowedColumnsUtils';
 import { ReportPivotMetricFilter } from './ReportPivotMetricFilter';
 import { isReportMetricColumn } from '../utils/filterUtils';
+import { dsDataTableProps } from '@/design-system/primereact/dataTableProps';
 
 /** Filter input debounce (shared by column filters and breakdown pivot header filters). */
 const DATA_TABLE_FILTER_DEBOUNCE_MS = 400;
@@ -275,11 +276,11 @@ const BreakdownDialogHost = forwardRef(function BreakdownDialogHost(_props, ref)
         <div className="text-xs text-gray-500">
           Total values: {dialogState.totalCount}
         </div>
-        <DataTable
+        <DataTable {...dsDataTableProps()} size="small"
           value={dialogState.rows}
           showGridlines
           stripedRows
-          className="p-datatable-sm"
+          className=""
           sortMode="single"
         >
           <Column field="value" header="Value" sortable />
@@ -337,11 +338,11 @@ const ObjectDetailsDialogHost = forwardRef(function ObjectDetailsDialogHost(_pro
       style={{ width: '42rem', maxWidth: '95vw' }}
       onHide={() => setDialogState((prev) => ({ ...prev, visible: false }))}
     >
-      <DataTable
+      <DataTable {...dsDataTableProps()} size="small"
         value={dialogState.rows}
         showGridlines
         stripedRows
-        className="p-datatable-sm"
+        className=""
         sortMode="single"
       >
         <Column field="key" header="Key" sortable />
@@ -1205,7 +1206,7 @@ function DataTableNewScrollableTableView({
       style={{ position: 'relative', ...containerStyle }}
     >
       <div ref={tableRef}>
-        <DataTable
+        <DataTable {...dsDataTableProps()} size="small"
           resizableColumns
           columnResizeMode="expand"
           value={useMemo(() => {
@@ -1236,7 +1237,7 @@ function DataTableNewScrollableTableView({
           }}
           showGridlines
           stripedRows
-          className="p-datatable-sm w-full"
+          className="w-full"
           style={{ minWidth: '100%' }}
           filterDisplay={enableFilter ? 'row' : undefined}
           expandedRows={expandedRows}
@@ -2936,11 +2937,11 @@ export default function DataTableNew({
     }, [value, getDataValue]);
 
     return (
-      <DataTable
+      <DataTable {...dsDataTableProps()} size="small"
         value={value}
         showGridlines
         stripedRows
-        className="p-datatable-sm"
+        className=""
         style={{ minWidth: '100%' }}
         sortMode={enableSort ? 'multiple' : undefined}
         removableSort={enableSort}
@@ -3468,7 +3469,7 @@ export default function DataTableNew({
               : `${safeNestedFilteredData.length} row${safeNestedFilteredData.length !== 1 ? 's' : ''}`}
           </div>
           <div className="border border-gray-200 rounded-lg overflow-hidden">
-            <DataTable
+            <DataTable {...dsDataTableProps()} size="small"
               resizableColumns
               columnResizeMode="expand"
               value={nonReportNestedValue}
@@ -3477,7 +3478,7 @@ export default function DataTableNew({
               filterDisplay={enableFilter ? 'row' : undefined}
               showGridlines
               stripedRows
-              className="p-datatable-sm"
+              className=""
               style={{ minWidth: '100%' }}
               expandedRows={expandedRows}
               onRowToggle={(e) => updateExpandedRows(e.data)}
@@ -3881,7 +3882,7 @@ export default function DataTableNew({
           <h5 className="mb-3 text-sm font-semibold">
             {formatHeaderName(nextField)} Breakdown for {getDataValue(rowData, currentField)}
           </h5>
-          <DataTable 
+          <DataTable {...dsDataTableProps()} 
             value={(() => {
               const prefix = `${compositeKey}_`;
               const mapped = nestedRows.map((row, index) => {
@@ -4329,7 +4330,7 @@ export default function DataTableNew({
         <h5 className="mb-3 text-sm font-semibold">
           {formatHeaderName(nextField || innerGroupField)} Breakdown for {getDataValue(rowData, currentField || outerGroupField)}
         </h5>
-        <DataTable 
+        <DataTable {...dsDataTableProps()} 
           value={(() => {
             const prefix = `${structureKey}_`;
             const mapped = nestedRows.map((row, index) => ({

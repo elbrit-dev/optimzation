@@ -45,6 +45,7 @@ import {
 import { getDataKeys, getDataValue } from '../utils/dataAccessUtils';
 import { computeReportColumnsStructure, generateReportHeaderGroup, getMetricLabel, getReportColumns } from '../utils/reportRenderingUtils';
 import { exportReportToXLSX } from '../utils/reportExportUtils';
+import { dsDataTableProps } from '@/design-system/primereact/dataTableProps';
 
 // Date format patterns for detection
 const DATE_PATTERNS = [
@@ -2898,9 +2899,9 @@ export default function DataTableComponent({
           Aggregated by {formatHeaderName(innerGroupField)}
         </div>
         <div className="border border-gray-200 rounded-lg overflow-hidden">
-          <DataTable
+          <DataTable {...dsDataTableProps()} size="small"
             value={nestedRows}
-            className="p-datatable-sm"
+            className=""
             style={{ minWidth: '100%' }}
           >
             {nestedColumns.map((col) => {
@@ -2950,11 +2951,11 @@ export default function DataTableComponent({
                 <div className="text-sm font-semibold text-gray-700 mb-2 p-2 bg-gray-100 border-b">
                   {colLabel} ({breakdown.length} {breakdown.length === 1 ? 'value' : 'values'})
                 </div>
-                <DataTable
+                <DataTable {...dsDataTableProps()} size="small"
                   value={breakdown}
                   showGridlines
                   stripedRows
-                  className="p-datatable-sm"
+                  className=""
                   style={{ minWidth: '100%' }}
                 >
                   <Column field="value" header="Value" />
@@ -3161,7 +3162,7 @@ export default function DataTableComponent({
               : `${nestedData.length} row${nestedData.length !== 1 ? 's' : ''}`}
           </div>
           <div className="border border-gray-200 rounded-lg overflow-hidden">
-            <DataTable
+            <DataTable {...dsDataTableProps()} size="small"
               resizableColumns
               columnResizeMode="expand"
               value={nestedFilteredData}
@@ -3170,7 +3171,7 @@ export default function DataTableComponent({
               filterDisplay={enableFilter ? 'row' : undefined}
               showGridlines
               stripedRows
-              className="p-datatable-sm"
+              className=""
               style={{ minWidth: '100%' }}
             >
               {nestedColumns.map((col) => {
@@ -3378,7 +3379,7 @@ export default function DataTableComponent({
           </div>
         )}
         <div ref={tableRef}>
-      <DataTable
+      <DataTable {...dsDataTableProps()} size="small"
         resizableColumns
         columnResizeMode="expand"
         value={isArray(paginatedData) ? paginatedData : []}
@@ -3393,7 +3394,7 @@ export default function DataTableComponent({
         }}
         showGridlines
         stripedRows
-        className="p-datatable-sm w-full"
+        className="w-full"
         style={{ minWidth: '100%' }}
         filterDisplay={enableFilter ? "row" : undefined}
         expandedRows={expandedRows}

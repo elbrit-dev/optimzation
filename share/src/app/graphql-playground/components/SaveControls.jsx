@@ -2037,7 +2037,7 @@ export const SaveControls = React.forwardRef((props, ref) => {
               }
             }}
             disabled={treeNodes.length === 0}
-            className="p-button-sm p-button-outlined"
+            className="ds-button-sm ds-button-outlined"
             title={selectedKeys && formatFieldName ? String(formatFieldName(selectedKeys)) : 'Select index field'}
             style={{
               width: '100%',
@@ -2161,7 +2161,7 @@ export const SaveControls = React.forwardRef((props, ref) => {
               }
             }}
             disabled={!selectedKeys || monthIndexTreeNodes.length === 0}
-            className="p-button-sm p-button-outlined"
+            className="ds-button-sm ds-button-outlined"
             title={monthIndexKeys && formatFieldName ? String(formatFieldName(monthIndexKeys)) : 'Select month index field'}
             style={{
               width: '100%',
@@ -2234,7 +2234,7 @@ export const SaveControls = React.forwardRef((props, ref) => {
             }
           }}
           disabled={processedDataTreeNodesMemo.length === 0}
-          className="p-button-sm p-button-outlined"
+          className="ds-button-sm ds-button-outlined"
           title="Select search fields"
           style={{
             width: '100%',
@@ -2301,7 +2301,7 @@ export const SaveControls = React.forwardRef((props, ref) => {
             }
           }}
           disabled={processedDataTreeNodesMemo.length === 0}
-          className="p-button-sm p-button-outlined"
+          className="ds-button-sm ds-button-outlined"
           title="Select sort fields"
           style={{
             width: '100%',
@@ -2364,7 +2364,7 @@ export const SaveControls = React.forwardRef((props, ref) => {
         onClick={handleSave}
         icon="pi pi-save"
         label="Save"
-        className="p-button-sm"
+        className="ds-button-sm"
         style={{
           whiteSpace: 'nowrap'
         }}
