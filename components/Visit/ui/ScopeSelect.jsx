@@ -25,7 +25,8 @@ import { MANAGER_LEVELS, shortDesignation } from '../lib/shape';
 
 function labelFor(member, rootId) {
   const short = shortDesignation(member.designation);
-  return `${member.name} · ${short}${member.id === rootId ? ' (my team)' : ''}`;
+  const vacantTag = member.vacant ? ' — vacant' : '';
+  return `${member.name} · ${short}${vacantTag}${member.id === rootId ? ' (my team)' : ''}`;
 }
 
 /* Builds the manager subtree as nested `{ id, label, children }` nodes,
@@ -43,12 +44,22 @@ function buildManagerTree(team, rootId) {
   }
   for (const kids of byParent.values()) kids.sort((a, b) => a.name.localeCompare(b.name));
 
-  const roots = managerRoots(team);
+  /* A vacant seat with no manager reports of its own is a dead end: BEs never
+     appear in this tree, so there is nothing left to show under it and it is
+     dropped rather than offered as an empty "team" of one placeholder (this is
+     always true of a vacant ABM, the lowest manager level). A vacant seat that
+     DOES have manager reports (a vacant RBM/SM/ZSM slot) stays in the tree,
+     labelled "— vacant" by labelFor, because the org beneath it is real even
+     though the seat itself is not -- dropping it would orphan every manager
+     under it. */
+  const isDeadEndVacant = (m) => m.vacant && !(byParent.get(m.id)?.length);
+
+  const roots = managerRoots(team).filter((m) => !isDeadEndVacant(m));
 
   const toNode = (member, seen) => {
     if (seen.has(member.id)) return { id: member.id, label: labelFor(member, rootId) };
     const nextSeen = new Set(seen).add(member.id);
-    const kids = byParent.get(member.id) ?? [];
+    const kids = (byParent.get(member.id) ?? []).filter((kid) => !isDeadEndVacant(kid));
     return {
       id: member.id,
       label: labelFor(member, rootId),

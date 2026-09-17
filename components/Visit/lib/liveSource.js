@@ -264,6 +264,27 @@ async function fetchPobQuotations({ from, to }, conn) {
   }));
 }
 
+/* WHO is asking, according to the SAME token that fetched everything else in
+   this dataset -- never a separately-passed identity prop, for the same
+   reason `gqlToken` itself never leaves this module: threading a viewer
+   identity through as a prop is how a Studio field ends up letting a page
+   author hand themselves someone else's "my team" scope. Resolved once per
+   fetch; failure is silent and falls back to the pre-existing largest-subtree
+   heuristic in useVisitKpi.js, so an unresolvable viewer never blocks the
+   screen. */
+async function resolveViewerEmail(conn) {
+  try {
+    const res = await fetch(`${new URL(conn.endpointUrl).origin}/api/method/frappe.auth.get_logged_user`, {
+      headers: { Authorization: conn.gqlToken ?? '' },
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    return json?.message ?? null;
+  } catch {
+    return null;
+  }
+}
+
 const LEAVE_QUERY = `
   query ApprovedLeaveOn($f: [DBFilterInput], $first: Int) {
     LeaveApplications(filter: $f, first: $first) {
@@ -316,11 +337,12 @@ export async function fetchVisitDataset({
   const gqlToken = normalizeToken(gqlTokenOverride) ?? authToken;
   const conn = { endpointUrl, gqlToken, gqlEnvironment };
 
-  const [rows, team, onLeaveIds, pobQuotations] = await Promise.all([
+  const [rows, team, onLeaveIds, pobQuotations, viewerEmail] = await Promise.all([
     fetchVisitRows({ from: monthStart, to: today }, conn),
     fetchTeam(conn),
     fetchOnLeaveIds(today, conn),
     fetchPobQuotations({ from: monthStart, to: today }, conn),
+    resolveViewerEmail(conn),
   ]);
 
   /* Resolving `ownerEmail` to an employeeId needs `team`, so it happens here
@@ -341,10 +363,17 @@ export async function fetchVisitDataset({
     }))
     .filter((entry) => entry.employeeId != null);
 
+  /* Same email->employeeId map the POB attribution above already built. A
+     viewer whose email matches no employee's userId (Administrator, a
+     service account, an email typo in ERP) resolves to null, same as an
+     unattributed POB owner -- useVisitKpi.js's fallback chain handles it. */
+  const viewerId = viewerEmail ? employeeIdByEmail.get(viewerEmail.toLowerCase()) ?? null : null;
+
   return {
     team: team.map((m) => ({ ...m, onLeave: onLeaveIds.has(m.id) })),
     rows,
     pob,
     today,
+    viewerId,
   };
 }

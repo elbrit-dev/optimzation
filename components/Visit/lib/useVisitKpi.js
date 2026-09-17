@@ -40,7 +40,7 @@ function loadDataset({ anchorDate, cutoffHour, gqlEnvironment, gqlTokenOverride 
   return fetchVisitDataset({ anchorDate, gqlEnvironment, gqlTokenOverride });
 }
 
-const EMPTY_DATASET = { team: [], rows: [], pob: [], today: '' };
+const EMPTY_DATASET = { team: [], rows: [], pob: [], today: '', viewerId: null };
 
 export function useVisitKpi({
   scopeId,
@@ -73,15 +73,20 @@ export function useVisitKpi({
 
   return useMemo(() => {
     const { dataset, error, loading } = state;
-    const { team, rows, pob, today } = dataset ?? EMPTY_DATASET;
+    const { team, rows, pob, today, viewerId } = dataset ?? EMPTY_DATASET;
 
-    /* `largestManagerRoot`, not "whoever has no manager": a live roster can
-       carry more than one reports_to-less-in-effect employee at once --
+    /* Priority: an explicit picker choice, then whoever is actually signed in
+       (resolved from the SAME token that fetched this dataset -- see
+       liveSource.js's resolveViewerEmail), then the largest-subtree
+       heuristic as a last resort for when the viewer can't be resolved to an
+       Employee at all (a shared/service token, an email ERP has no match
+       for). `largestManagerRoot`, not "whoever has no manager": a live roster
+       can carry more than one reports_to-less-in-effect employee at once --
        orphaned test records, vacant-seat placeholders, a dangling manager
        reference -- and neither array order nor alphabetical order picks the
        real org over one of those. Falls back to any reports_to-less employee
        only if the roster has no recognised manager whatsoever. */
-    const rootId = scopeId ?? largestManagerRoot(team)?.id ?? team.find((m) => m.reportsTo == null)?.id;
+    const rootId = scopeId ?? viewerId ?? largestManagerRoot(team)?.id ?? team.find((m) => m.reportsTo == null)?.id;
     const scopeTeam = subtreeOf(team, rootId);
     const window = periodWindow(period, today);
     const ids = new Set(scopeTeam.map((m) => m.id));
