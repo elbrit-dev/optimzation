@@ -3,6 +3,7 @@ import 'primeicons/primeicons.css';
 import '../firebase'; // Initialize Firebase
 import { DataProvider } from '@plasmicapp/host';
 import { startConsoleCapture } from '../lib/consoleCapture';
+import PwaBackGuard from '../components/PwaBackGuard';
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import Head from 'next/head';
 import { Roboto, Work_Sans } from 'next/font/google';
@@ -477,6 +478,12 @@ function MyApp({ Component, pageProps }) {
           `}
         </Script>
         
+        {/* Owns the system back button while the app runs installed: back from
+            home asks before closing, and no back press can reach /login while
+            someone is signed in. Mounted here so it survives every route
+            change — the history sentinel it keeps has to outlive the page. */}
+        <PwaBackGuard />
+
         <Component {...pageProps} />
       </DataProvider>
     </DataProvider>
