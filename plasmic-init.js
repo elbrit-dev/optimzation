@@ -1679,10 +1679,10 @@ PLASMIC.registerComponent(DoctorDetail, {
     },
     period: {
       type: "choice",
-      options: ["fy", "cur", "last", "m3", "all"],
+      options: ["fy", "cur", "last", "m3", "m6"],
       defaultValue: "fy",
       description:
-        "Which period the page OPENS on — fy (the Indian financial year, the default), cur (this month), last (last month), m3 (three months) or all. A DEFAULT, not a lock. Every figure on the page answers to this one window, which is why there is a single period rather than one per card.",
+        "Which period the page OPENS on — fy (the Indian financial year, the default), cur (this month), last (last month), m3 (three months) or m6 (the last six months). A DEFAULT, not a lock. Every figure on the page answers to this one window, which is why there is a single period rather than one per card. `all` is gone on purpose: it read every row a doctor had ever had, back to 2023, to answer a question nobody asked.",
     },
     valueFormat: {
       type: "choice",

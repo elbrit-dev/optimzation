@@ -34,7 +34,13 @@ export const CHART_W = 600;
 export const CHART_H = 184;
 
 /** The period keys the filter actually offers — see `rangeOpts` below. */
-export const PERIODS = new Set(["fy", "cur", "last", "m3", "all"]);
+/*
+ * "all" is deliberately NOT here. All-time made the page read every row a
+ * doctor has ever had -- 2023 and 2024 included -- to answer a question nobody
+ * asked, and on a doctor with years of history that is the slowest thing the
+ * page can do. "m6" replaces it, which is the window people actually wanted.
+ */
+export const PERIODS = new Set(["fy", "cur", "last", "m3", "m6"]);
 
 export const READ_NAMES = {
   lead: "the doctor's profile", support: "support", service: "service",
@@ -171,7 +177,7 @@ export function buildConsole(data, ui, on) {
   const visits = visitAll.filter(inRange);
   const notes = data.notes.filter(inRange);
 
-  const { window: win } = monthWindow([supportAll, serviceAll, pobAll, visitAll]);
+  const { window: win } = monthWindow([supportAll, serviceAll, pobAll, visitAll], range);
   const everything = [...supportAll, ...serviceAll, ...pobAll, ...visitAll];
   const firstT = everything.length ? Math.min(...everything.map((r) => r.t)) : null;
 
@@ -510,7 +516,7 @@ export function buildConsole(data, ui, on) {
     { k: "cur", label: "This month" },
     { k: "last", label: "Last month" },
     { k: "m3", label: "3 months" },
-    { k: "all", label: "All time" },
+    { k: "m6", label: "Last 6 months" },
   ].map((o) => ({ ...o, on: rangeMode.mode === o.k }));
 
   const ny = now().getFullYear();

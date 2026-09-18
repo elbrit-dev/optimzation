@@ -76,7 +76,7 @@ const filterProps = {
       { value: "cur", label: "This month" },
       { value: "last", label: "Last month" },
       { value: "m3", label: "Last 3 months" },
-      { value: "all", label: "All time" },
+      { value: "m6", label: "Last 6 months" },
     ],
     defaultValue: "fy",
     description: "Period the page OPENS on. The reader can change it from the filter bar.",

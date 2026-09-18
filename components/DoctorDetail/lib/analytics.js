@@ -41,8 +41,11 @@ export function resolveRange(range, at = now()) {
   let to = Infinity;
   let label = fyLabel;
 
-  if (mode === "all") {
-    from = -Infinity; to = Infinity; label = "All time";
+  if (mode === "m6") {
+    const p = new Date(ny, nm - 5, 1);
+    from = mStart(p.getFullYear(), p.getMonth());
+    to = mEnd(ny, nm);
+    label = monthLabel(p.getFullYear(), p.getMonth()) + " – " + monthLabel(ny, nm);
   } else if (mode === "cur") {
     from = mStart(ny, nm); to = mEnd(ny, nm); label = monthLabel(ny, nm);
   } else if (mode === "last") {
@@ -74,20 +77,46 @@ export function resolveRange(range, at = now()) {
  * Capped at 36 while walking forward so a single row with a mangled date
  * cannot spin the loop out to the year 3000.
  */
-export function monthWindow(pools, at = now()) {
+export function monthWindow(pools, range, at = now()) {
   const all = pools.flat().filter(Boolean);
   const firstT = all.length ? Math.min(...all.map((r) => r.t)) : at.getTime();
   const first = new Date(firstT);
+
+  /*
+   * THE WINDOW IS THE SELECTED RANGE'S MONTHS. It used to be the months the
+   * DATA happened to occupy, and that is what made the filter look broken.
+   *
+   * The old walk started at the doctor's FIRST record, stopped after 36
+   * iterations and returned slice(-12) of that. For a doctor on file since 2023
+   * the cursor never reached today, so the twelve months it returned were
+   * months 25-36 after their first record -- Jan to Dec 2025 -- no matter what
+   * period the reader had chosen. FY 26-27 then shared no month with the
+   * window at all, buildTable fell through to its own fallback, and the pivot
+   * offered JUL 25 and AUG 25 columns under an "FY 26-27" heading.
+   *
+   * Anchored on the range instead, every period asks for exactly the months it
+   * names. The end is clamped to `at`, so a financial year in progress shows
+   * the months up to now rather than trailing empty columns for months that
+   * have not happened. 24 is a ceiling, not a target: it exists so that a wide
+   * custom range cannot render a pivot hundreds of columns wide.
+   */
+  const rangeEnd = Number.isFinite(range?.to) ? new Date(range.to) : at;
+  const endAt = rangeEnd > at ? at : rangeEnd;
+  const startAt = Number.isFinite(range?.from)
+    ? new Date(range.from)
+    : new Date(endAt.getFullYear(), endAt.getMonth() - 11, 1);
+
   const win = [];
-  const cursor = new Date(first.getFullYear(), first.getMonth(), 1);
-  const end = new Date(at.getFullYear(), at.getMonth(), 1);
-  let guard = 0;
-  while (cursor <= end && guard < 36) {
+  const cursor = new Date(startAt.getFullYear(), startAt.getMonth(), 1);
+  const end = new Date(endAt.getFullYear(), endAt.getMonth(), 1);
+  while (cursor <= end && win.length < 24) {
     win.push({ y: cursor.getFullYear(), m: cursor.getMonth() });
     cursor.setMonth(cursor.getMonth() + 1);
-    guard += 1;
   }
-  return { window: win.slice(-12), firstT, first };
+  // A range entirely in the future would leave this empty; show its own month
+  // rather than nothing, so the chart has an axis to draw.
+  if (!win.length) win.push({ y: end.getFullYear(), m: end.getMonth() });
+  return { window: win, firstT, first };
 }
 
 /* ------------------------------------------------------------------- ROI */
@@ -232,7 +261,15 @@ export function buildTable({
     return x.getFullYear() === y && x.getMonth() === m;
   };
   const windowMonths = months.filter((r) => mEnd(r.y, r.m) >= range.from && mStart(r.y, r.m) <= range.to);
-  const pivotMonths = windowMonths.length ? windowMonths : months.slice(-6);
+  /*
+   * No reaching outside the range for columns. This used to fall back to
+   * months.slice(-6) whenever the range matched nothing, which put months from
+   * a different year under the range's own heading -- the reader saw JUL 25
+   * while the filter said FY 26-27. `months` is now the range's own months, so
+   * the filter is a no-op in practice; it stays as the guard it was meant to
+   * be, and an empty result is shown as empty.
+   */
+  const pivotMonths = windowMonths;
   const blocks = pivotOn ? pivotMonths.map((mo) => ({ mo })).concat([{ mo: null }]) : [{ mo: null }];
 
   const num = (v) => ({ v: v ? money(v) : "—", n: v ?? 0 });
