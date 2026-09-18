@@ -35,12 +35,19 @@ export const CHART_H = 184;
 
 /** The period keys the filter actually offers — see `rangeOpts` below. */
 /*
- * "all" is deliberately NOT here. All-time made the page read every row a
- * doctor has ever had -- 2023 and 2024 included -- to answer a question nobody
- * asked, and on a doctor with years of history that is the slowest thing the
- * page can do. "m6" replaces it, which is the window people actually wanted.
+ * "all" is valid but is NOT offered in the filter sheet or on the Studio prop --
+ * see `rangeOpts`. It stays reachable in code because the doctor card's popup
+ * asks for it deliberately: its sections are "last 3" and "last 6 months", so
+ * they need a wide window to take the last N from, and a gift from 2024 is
+ * exactly what that section is for.
+ *
+ * It costs nothing to allow. The period is a CLIENT-SIDE filter over rows that
+ * are already in hand -- queries.js sends no date filter to ERP, only a
+ * doctor and a row limit -- so all-time reads no more than this month does.
+ * It was dropped from the presets because it is not a useful VIEW of the page,
+ * not because it was slow, and "m6" is what people reached for instead.
  */
-export const PERIODS = new Set(["fy", "cur", "last", "m3", "m6"]);
+export const PERIODS = new Set(["fy", "cur", "last", "m3", "m6", "all"]);
 
 export const READ_NAMES = {
   lead: "the doctor's profile", support: "support", service: "service",

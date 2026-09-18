@@ -41,7 +41,15 @@ export function resolveRange(range, at = now()) {
   let to = Infinity;
   let label = fyLabel;
 
-  if (mode === "m6") {
+  if (mode === "all") {
+    // Not offered in the filter sheet -- see rangeOpts -- but still reachable
+    // in code, and it has to be HANDLED here or it falls through to the fy
+    // default below and silently behaves as the financial year. That is exactly
+    // what happened when m6 was added in place of this branch instead of
+    // beside it: the doctor card's popup asked for all-time, got FY, and its
+    // "last 3" sections quietly lost everything older than April.
+    from = -Infinity; to = Infinity; label = "All time";
+  } else if (mode === "m6") {
     const p = new Date(ny, nm - 5, 1);
     from = mStart(p.getFullYear(), p.getMonth());
     to = mEnd(ny, nm);

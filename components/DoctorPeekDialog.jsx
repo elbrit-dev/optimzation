@@ -171,7 +171,17 @@ export function PeekHistory({ doctor, erpUrl, authToken, employee }) {
 
       <Section title="Last Product, Gift & Sample" count={gifts.length ? gifts.length : null}>
         {gifts.length ? gifts.map((g, i) => (
-          <Row key={g.id ?? i} left={g.title ?? g.service ?? "Service"} sub={[fday(g.d), g.div].filter(Boolean).join(" · ")} right={g.amt != null ? money(g.amt) : ""} />
+          <Row
+            key={g.id ?? i}
+            /* `kind` is Doctor Service's own service_name -- Cash, GIFT CARD,
+               EMI TAKEOVER, Dinner, Travel, gold. It reads as the thing that
+               was actually given, which is the point of the section; the
+               earlier code asked for fields the row does not have and every
+               line came back as the word "Service". */
+            left={g.kind || "Service"}
+            sub={[fday(g.d), g.div, g.ref].filter(Boolean).join(" · ")}
+            right={g.amt != null ? money(g.amt) : ""}
+          />
         )) : <Empty what={c.canSeeService ? "Nothing recorded." : "Not shown at your level."} />}
       </Section>
 
