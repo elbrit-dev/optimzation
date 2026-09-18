@@ -1467,6 +1467,11 @@ export default function DataTableNew({
     // Display config from context (was previously props)
     rowsPerPageOptions = [10, 25, 50, 100],
     defaultRows = 10,
+    // Set by a provider that has made the list continuous (scroll-loading keeps
+    // the visible window equal to every row fetched). The paginator would then
+    // sit on a single page, and its rows-per-page dropdown would fight that
+    // window. Default false: the paginator renders exactly as before.
+    hidePaginator = false,
     tableHeight: scrollHeight,
     scrollable = true,
     enableFullscreenDialog = true,
@@ -4580,7 +4585,7 @@ export default function DataTableNew({
         tableName={tableName}
         scrollHeight={scrollHeight || (scrollable ? scrollHeightValue : undefined)}
       />
-      <PaginatorWrapper />
+      {hidePaginator ? null : <PaginatorWrapper />}
 
       {/* Fullscreen Dialog */}
       {enableFullscreenDialog && (
@@ -4627,7 +4632,7 @@ export default function DataTableNew({
             containerClassName="flex-1"
             containerStyle={{ minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
           />
-          <PaginatorWrapper className="shrink-0" />
+          {hidePaginator ? null : <PaginatorWrapper className="shrink-0" />}
         </div>
       </Dialog>
       )}

@@ -10,43 +10,86 @@ import { usePagingProgress } from './ViewPaginator';
  * It drives the SAME `paging.loadMore()` the button does — raising the query's
  * `first` — so there is no second paging path. Only the trigger is different.
  *
- * Two things to know about the shape of that:
+ * Because `after` + `filter` throws on this ERP (see ViewPaginator), a step
+ * re-fetches rows 1..N rather than appending a page. Rows already on screen
+ * stay there while it runs (the engine only replaces processedData on success),
+ * so the list does not blank — but each step costs more than the last, which is
+ * what `pageStep` is for.
  *
- * - Because `after` + `filter` throws on this ERP (see ViewPaginator), a step
- *   re-fetches rows 1..N rather than appending a page. Rows already on screen
- *   stay there while it runs (the engine only replaces processedData on
- *   success), so the list does not blank — but each step costs more than the
- *   last. Scroll-loading is for the first few hundred rows, not for walking
- *   45,000.
- * - The sentinel has to be in the list's own scroll flow. In the cards view it
- *   is. A DataTableNew scrolls INSIDE itself, so its rows never move the
- *   sentinel — the table view keeps the button.
+ * ## Why this listens for scrolls instead of watching a sentinel
+ *
+ * The obvious build is a 1px probe after the list plus an IntersectionObserver.
+ * It does not work here, because there is no single element whose visibility
+ * means "the reader is at the end":
+ *
+ * - the cards view scrolls the PAGE (or an ancestor), so a probe after the list
+ *   works;
+ * - `DataTableNew` renders `scrollable` with its own `scrollHeight`, so its rows
+ *   scroll INSIDE `.p-datatable-wrapper`. A probe after the table never moves —
+ *   it is either permanently visible (loads everything at once) or permanently
+ *   off screen (loads nothing), and which one you get depends on layout.
+ *
+ * So instead: one capture-phase `scroll` listener, and whatever element reports
+ * the scroll is measured. Scroll events do not bubble, but capture still sees
+ * them, which is how the letter rail tracks nested scrolling too. That covers
+ * the page, any scrolling ancestor, and the table's own box without having to
+ * know which one is in play.
  */
 
-/** The element whose scrolling actually moves the sentinel, or null for the viewport. */
-function nearestScrollParent(node) {
-  let current = node?.parentElement ?? null;
-  while (current && current !== document.body && current !== document.documentElement) {
-    const { overflowY } = window.getComputedStyle(current);
-    if ((overflowY === 'auto' || overflowY === 'scroll')
-      && current.scrollHeight > current.clientHeight + 1) {
-      return current;
-    }
-    current = current.parentElement;
-  }
-  return null;
+/** '400px' | '400' | 400 -> 400. Anything unparseable falls back to 400. */
+function toPixels(value, fallback = 400) {
+  const n = parseFloat(value);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+/** How far the element still has to scroll before its content ends. */
+function distanceToBottom(element) {
+  return element.scrollHeight - element.scrollTop - element.clientHeight;
+}
+
+/** Ignore horizontal-only scrollers: their distance-to-bottom is always 0. */
+function scrollsVertically(element) {
+  return element.scrollHeight > element.clientHeight + 1;
 }
 
 /**
- * Invisible probe at the end of the list. When it comes into view — `rootMargin`
- * ahead of it, so the fetch starts before the reader arrives — it asks for the
- * next batch.
+ * Quiet gap that ends a gesture.
  *
- * @param {boolean} props.hasMore - false stops observing entirely
- * @param {boolean} props.busy - a fetch is already in flight
- * @param {number|string} props.progressKey - changes when new rows land; see below
+ * One flick on a phone emits scroll events for as long as its momentum runs —
+ * dozens of them — so counting raw events would make "three scrolls" mean three
+ * hundredths of a second. Events are grouped into gestures instead: a new one
+ * starts after this long without a scroll. 150ms is below a deliberate
+ * flick-pause-flick rhythm and above the gap between momentum frames.
  */
-export function InfiniteScrollSentinel({
+const GESTURE_GAP_MS = 150;
+
+/** Treat this as "pinned to the very bottom", where no further scroll is possible. */
+const AT_BOTTOM_PX = 8;
+
+/**
+ * Calls `onReachEnd` when a scroll brings the end of the list within
+ * `rootMargin` — at most once per `progressKey`, and at most once per scroll.
+ *
+ * `progressKey` is the row count in hand: it is what makes a batch a batch.
+ *
+ * A batch also costs one scroll gesture. That rate limit is not decoration:
+ * "the end is in view, so load" on its own over-fires badly whenever the
+ * container does not grow with the rows — measured in a headless browser at 19
+ * batches off a single scroll, and 2 before the reader had scrolled at all.
+ *
+ * A gesture, not an event: one flick emits scroll events for as long as its
+ * momentum runs, so "one event" would be satisfied within a frame and mean
+ * nothing. See GESTURE_GAP_MS.
+ *
+ * Requiring SEVERAL gestures per batch is deliberately not offered. Every route
+ * to more rows ends at the bottom of the list, and at the bottom no further
+ * gestures can arrive — so the requirement would have to be waived exactly where
+ * it was meant to bite, and a knob that cannot act in its own case is worse than
+ * none. How often a batch loads is set by `pageStep` against the screen height:
+ * measured over 12 one-screen flicks, a step of 10 rows loads every 2 flicks, 25
+ * every 4, and 50 every 6.
+ */
+export function EndOfListDetector({
   enabled = true,
   hasMore = false,
   busy = false,
@@ -54,57 +97,90 @@ export function InfiniteScrollSentinel({
   rootMargin = '400px',
   onReachEnd,
 }) {
-  const ref = useRef(null);
+  const anchorRef = useRef(null);
   const onReachEndRef = useRef(onReachEnd);
   onReachEndRef.current = onReachEnd;
-  // The batch we last asked for, so one intersection cannot fire twice for the
-  // same set of rows.
   const askedForRef = useRef(null);
-  // One batch per scroll. Starts granted so a list too short to scroll can fill
-  // the first screen; spent on each ask, and granted again by scrolling.
-  //
-  // Without this, "the sentinel is visible" is the only condition, and a list
-  // whose container never grows — rows going into an inner scroller, which is
-  // what DataTableNew does — keeps it visible and loads batch after batch with
-  // no further input. Measured in a browser: 19 batches off a single scroll,
-  // stopping only at maxAutoBatches. Tying a batch to a scroll is what makes
-  // this scroll-loading rather than load-whenever-possible.
-  const ticketRef = useRef(true);
+  // Gestures counted since the last batch, and when the current one last moved.
+  // Starts at zero so the first batch costs the same as every later one.
+  const gesturesRef = useRef(0);
+  const lastScrollAtRef = useRef(0);
 
   useEffect(() => {
     if (!enabled || !hasMore || busy) return undefined;
-    if (typeof IntersectionObserver === 'undefined') return undefined;
-    const element = ref.current;
-    if (!element) return undefined;
+    const anchor = anchorRef.current;
+    if (!anchor || typeof document === 'undefined') return undefined;
 
-    const scrollRoot = nearestScrollParent(element);
-    const grantTicket = () => { ticketRef.current = true; };
-    const scrollTarget = scrollRoot ?? window;
-    scrollTarget.addEventListener('scroll', grantTicket, { passive: true });
+    // The box holding the list: children + this anchor. A scroll counts when it
+    // comes from inside that box (the table's own wrapper) or from something
+    // containing it (the page, a scrolling ancestor) — never from an unrelated
+    // scroller elsewhere on the page.
+    const container = anchor.parentElement ?? anchor;
+    const margin = toPixels(rootMargin);
+    let frame = 0;
 
-    const observer = new IntersectionObserver((entries) => {
-      if (!entries.some((entry) => entry.isIntersecting)) return;
+    const ask = () => {
       if (askedForRef.current === progressKey) return;
-      if (!ticketRef.current) return;
-      ticketRef.current = false;
       askedForRef.current = progressKey;
+      gesturesRef.current = 0;
       onReachEndRef.current?.();
-    }, { root: scrollRoot, rootMargin, threshold: 0 });
-
-    observer.observe(element);
-    return () => {
-      observer.disconnect();
-      scrollTarget.removeEventListener('scroll', grantTicket);
     };
-    // progressKey and busy are deps on purpose: an IntersectionObserver only
-    // reports a CHANGE in intersection, so a sentinel that is still on screen
-    // after a batch lands would never fire again. Re-observing on each of those
-    // re-evaluates it immediately, which is what keeps a short list loading
-    // until the sentinel is finally pushed out of view.
+
+    const measure = (element) => {
+      if (!element || !scrollsVertically(element)) return;
+      const distance = distanceToBottom(element);
+      if (distance > margin) return;
+      // Waived at the very bottom: there is nothing left to scroll there, so no
+      // further events arrive and waiting for one would stall the list on its
+      // last row with more data available.
+      if (gesturesRef.current < 1 && distance > AT_BOTTOM_PX) return;
+      ask();
+    };
+
+    const onScroll = (event) => {
+      const node = event.target;
+      const element = (node === document || node === window || node === document.documentElement)
+        ? document.scrollingElement
+        : node;
+      if (!(element instanceof Element)) return;
+      if (!container.contains(element) && !element.contains(container)) return;
+
+      const now = Date.now();
+      if (now - lastScrollAtRef.current > GESTURE_GAP_MS) gesturesRef.current += 1;
+      lastScrollAtRef.current = now;
+
+      // Measured on the next frame, so a flick costs one measurement per frame
+      // rather than one per event.
+      if (frame) return;
+      frame = requestAnimationFrame(() => { frame = 0; measure(element); });
+    };
+
+    // Checked on mount and after each batch lands, because a list that does not
+    // fill its container has nothing to scroll and would otherwise never start.
+    const initial = container.querySelector('[data-pc-section="wrapper"], .p-datatable-wrapper')
+      ?? container;
+    const initialScroller = scrollsVertically(initial)
+      ? initial
+      : (document.scrollingElement ?? initial);
+    if (!scrollsVertically(initialScroller)) {
+      // Nothing on the page can scroll yet: the rows do not fill the screen.
+      // Fill it — capped by maxAutoBatches, and self-limiting once it scrolls.
+      ask();
+    } else {
+      measure(initialScroller);
+    }
+
+    document.addEventListener('scroll', onScroll, { capture: true, passive: true });
+    return () => {
+      document.removeEventListener('scroll', onScroll, { capture: true });
+      if (frame) cancelAnimationFrame(frame);
+    };
   }, [enabled, hasMore, busy, progressKey, rootMargin]);
 
-  if (!enabled || !hasMore) return null;
-  return <div ref={ref} aria-hidden="true" style={{ height: 1 }} />;
+  // Always rendered, even when there is nothing left to load: it is how the
+  // effect finds the list's container, and removing it would tear down and
+  // rebuild that lookup every time the list reaches its end.
+  return <span ref={anchorRef} aria-hidden="true" />;
 }
 
 const SKELETON_SHELL = 'animate-pulse rounded-xl bg-gray-100';
@@ -112,10 +188,10 @@ const SKELETON_SHELL = 'animate-pulse rounded-xl bg-gray-100';
 /**
  * Placeholder rows shown while a scroll-triggered batch is in flight.
  *
- * The point is for a reader who got to the bottom faster than the network to
- * see that something is coming, rather than an apparently finished list. It is
- * `aria-hidden` with a live status beside it, so a screen reader hears "Loading
- * more" once instead of reading out empty boxes.
+ * The point is the reader who got to the bottom faster than the network: they
+ * should see that something is coming, rather than an apparently finished list.
+ * `aria-hidden` behind one live status, so a screen reader hears "Loading more"
+ * once instead of reading out empty boxes.
  */
 export function LoadMoreSkeleton({ count = 3, variant = 'card', className }) {
   const items = Math.max(1, Math.min(12, Math.floor(Number(count) || 0) || 1));
@@ -133,15 +209,7 @@ export function LoadMoreSkeleton({ count = 3, variant = 'card', className }) {
 }
 
 /**
- * Sentinel + skeletons, positioned at the end of the list.
- *
- * Rendered as a sibling of the children slot in NORMAL FLOW, deliberately not
- * inside the Load-more bar: that bar is `sticky` by default, so it is on screen
- * the whole time a long list is being scrolled — a sentinel inside it would be
- * permanently intersecting and would load every remaining row at once.
- *
- * `progressKey` is the row count in hand. It is what makes a batch a batch: the
- * sentinel asks once per count, and the count only changes when rows land.
+ * Detector + skeletons, rendered as the last thing inside the list's container.
  */
 export function InfiniteScrollLoader({
   paging: pagingProp,
@@ -149,24 +217,39 @@ export function InfiniteScrollLoader({
   rootMargin = '400px',
   skeletonCount = 3,
   skeletonVariant = 'card',
-  // Ceiling on batches loaded by scrolling alone, after which the reader has to
-  // ask. Two reasons, and either one is enough on its own:
-  //
-  //  - if the list's container never grows (rows rendered into an inner
-  //    scroller, as DataTableNew does), the sentinel stays on screen and this
-  //    is the only thing standing between a scroll and fetching all 45,000
-  //    rows, 25 at a time, each request bigger than the last;
-  //  - a list that never ends is worth a pause anyway.
+  // Ceiling on batches loaded by scrolling alone, after which the reader asks
+  // once to continue. A list that never ends is worth a pause, and this is the
+  // backstop if the one-per-scroll rule is ever defeated by a layout.
   maxAutoBatches = 20,
-  // Changing this starts the automatic batches over — the search term, so a new
-  // search is not left with a spent budget from the previous one.
+  // Changing this starts the budget over — the search term, so a new search is
+  // not left with a spent budget from the previous one.
   resetKey,
   className,
 }) {
-  const { paging, enabled, busy, inHand, mayHaveMore } = usePagingProgress(pagingProp, serverOps);
+  const {
+    paging, enabled, busy, inHand, mayHaveMore, pagination, updatePagination,
+  } = usePagingProgress(pagingProp, serverOps);
   const [autoBatches, setAutoBatches] = useState(0);
 
   useEffect(() => { setAutoBatches(0); }, [resetKey]);
+
+  // Keep the visible window equal to everything fetched.
+  //
+  // DataTableNew renders `paginatedData` — sortedData.slice(first, first + rows)
+  // — and `rows` defaults to 10. Without this, scroll-loading would fetch more
+  // rows and show none of them: they would pile up as extra pages behind the
+  // table's own paginator instead of extending the list being scrolled. Only
+  // scroll modes run this (the loader is not rendered for 'button'), because
+  // that is where the list is meant to read as one continuous run.
+  const windowRows = pagination?.rows;
+  const windowFirst = pagination?.first;
+  useEffect(() => {
+    if (!enabled || typeof updatePagination !== 'function') return;
+    const want = Math.max(inHand, Number(paging?.fetchSize) || 0);
+    if (want <= 0) return;
+    if (windowFirst === 0 && windowRows >= want) return;
+    updatePagination(0, want);
+  }, [enabled, updatePagination, inHand, paging?.fetchSize, windowFirst, windowRows]);
 
   const limit = Math.max(0, Math.floor(Number(maxAutoBatches) || 0));
   const autoExhausted = limit > 0 && autoBatches >= limit;
@@ -200,7 +283,7 @@ export function InfiniteScrollLoader({
         </div>
       ) : null}
 
-      <InfiniteScrollSentinel
+      <EndOfListDetector
         enabled={!autoExhausted}
         hasMore={mayHaveMore}
         busy={busy}

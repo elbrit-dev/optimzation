@@ -169,7 +169,7 @@ export function usePagingProgress(pagingProp, serverOpsProp) {
   const contextView = useDataViews();
   const paging = pagingProp ?? contextView?.paging;
   const ops = serverOpsProp ?? contextView?.serverOps;
-  const { rawData, sortedData, searchTerm, filters } = useTableOperations();
+  const { rawData, sortedData, searchTerm, filters, pagination, updatePagination } = useTableOperations();
   const busy = useBusy();
 
   const inHand = Array.isArray(rawData) ? rawData.length : 0;
@@ -205,7 +205,10 @@ export function usePagingProgress(pagingProp, serverOpsProp) {
       : `${format(visible)} of ${format(inHand)} loaded`;
   }
 
-  return { paging, enabled: paging?.enabled === true, busy, inHand, visible, mayHaveMore, label };
+  return {
+    paging, enabled: paging?.enabled === true, busy, inHand, visible, mayHaveMore, label,
+    pagination, updatePagination,
+  };
 }
 
 export function LoadMoreBar({

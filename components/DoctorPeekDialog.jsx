@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useId, useRef, useState } from "react";
-import { ArrowUpRight, Check, ChevronDown, Copy, MapPin, Plus, X } from "lucide-react";
+import { ArrowUpRight, Check, ChevronDown, Copy, Loader2, MapPin, Plus, X } from "lucide-react";
 
 import useDoctorConsole from "./DoctorConsole/useDoctorConsole";
 
@@ -232,6 +232,25 @@ export default function DoctorPeekDialog({
   const restoreRef = useRef(null);
   const titleId = useId();
 
+  /*
+   * Opening the detail page is a ROUTE CHANGE, and a route change on this app
+   * is not instant: the page has to mount and make its own ERP reads. Without
+   * this the reader pressed "Doctor detail", nothing on screen acknowledged it,
+   * and the natural response is to press it again.
+   *
+   * The state is cleared when the dialog closes -- which is what happens on a
+   * successful navigation -- and by a timer, so a page that wires the handler
+   * but never actually navigates is left with a working button rather than a
+   * permanently disabled one.
+   */
+  const [opening, setOpening] = useState(false);
+  useEffect(() => {
+    if (!open) { setOpening(false); return undefined; }
+    if (!opening) return undefined;
+    const t = setTimeout(() => setOpening(false), 10000);
+    return () => clearTimeout(t);
+  }, [open, opening]);
+
   const close = useCallback(() => onOpenChange?.(false), [onOpenChange]);
 
   // Escape closes, Tab stays inside. A dialog the keyboard can walk out of is
@@ -436,11 +455,22 @@ export default function DoctorPeekDialog({
           {onOpenDetail ? (
             <button
               type="button"
-              onClick={onOpenDetail}
-              className="inline-flex min-h-[44px] flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-[#1e2a5a] transition-colors hover:border-indigo-200 hover:bg-indigo-50 active:bg-indigo-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+              onClick={() => { setOpening(true); onOpenDetail(); }}
+              disabled={opening}
+              aria-busy={opening || undefined}
+              className="inline-flex min-h-[44px] flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-[#1e2a5a] transition-colors hover:border-indigo-200 hover:bg-indigo-50 active:bg-indigo-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 disabled:cursor-wait disabled:opacity-70 disabled:hover:border-gray-200 disabled:hover:bg-white"
             >
-              {detailLabel}
-              <ArrowUpRight size={16} />
+              {opening ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+                  Opening…
+                </>
+              ) : (
+                <>
+                  {detailLabel}
+                  <ArrowUpRight size={16} />
+                </>
+              )}
             </button>
           ) : null}
         </div>

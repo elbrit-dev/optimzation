@@ -480,8 +480,16 @@ export default function DataProviderViews({
     // descending sort, presented as the entire table. That applies to a
     // page-size fetch too, which is why turning on paging alone is enough.
     if (fetchIsNarrowed) next.skipCacheWrite = true;
+    // Scroll-loading makes the list continuous — the loader holds the table's
+    // visible window at every row fetched — so DataTableNew's own paginator
+    // would sit on a single page, and its rows-per-page dropdown would fight
+    // that window. Drop it for those modes only.
+    if (enableServerPaging && loadMoreMode !== 'button') next.hideTablePaginator = true;
     return next;
-  }, [__internal, headerTop, headerLeft, headerRight, compact, hideNativeFilterSort, fetchIsNarrowed]);
+  }, [
+    __internal, headerTop, headerLeft, headerRight, compact, hideNativeFilterSort,
+    fetchIsNarrowed, enableServerPaging, loadMoreMode,
+  ]);
 
   // The whole server-paging trick: `overrides.variables` already flows through
   // DataProvider into the GraphQL request (DataProviderNew builds

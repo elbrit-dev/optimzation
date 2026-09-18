@@ -187,14 +187,14 @@ const dataProviderViewsMeta = {
     pageStep: {
       type: 'number',
       description:
-        'Rows each FOLLOWING batch adds, when it should differ from pageSize — e.g. pageSize 50 to fill the first screen, pageStep 25 to top up in smaller steps after that. Leave unset to keep using pageSize for both.',
+        'Rows each FOLLOWING batch adds, when it should differ from pageSize — e.g. pageSize 50 to fill the first screen, pageStep 25 to top up in smaller steps after that. Leave unset to keep using pageSize for both. This is also what paces SCROLL-loading, because a batch loads when the reader nears the end and a bigger step pushes that further away: measured over 12 one-screen phone flicks, a step of 10 rows loaded every 2 flicks, 25 every 4, and 50 every 6.',
     },
     loadMoreMode: {
       type: 'choice',
       options: ['button', 'scroll', 'both'],
       defaultValue: 'button',
       description:
-        'How the next batch is asked for. "button" (default) = tap Load more. "scroll" = it loads by itself when the reader nears the end of the list, with skeleton rows showing while the batch is in flight, so reaching the bottom never looks like the end of the data. "both" = scroll-loading with the button still there as a manual fallback. Scroll-loading needs the list to be in the page\'s own scroll flow: it works in a cards view, but a DataTableNew scrolls INSIDE itself, so keep the button for table views.',
+        'How the next batch is asked for. "button" (default) = tap Load more. "scroll" = it loads by itself when the reader nears the end, with skeleton rows while the batch is in flight, so reaching the bottom never looks like the end of the data. "both" = the same, with the button kept as a manual fallback. Works in the table view as well as in cards: whatever element scrolled is measured, so the table\'s own inner scroller counts. In the scroll modes the table is also made continuous — the visible window is held at every row fetched and DataTableNew\'s own row paginator is hidden, since both would otherwise fight it. Stay on "button" if readers should page the table by hand.',
     },
     infiniteScrollMargin: {
       type: 'string',

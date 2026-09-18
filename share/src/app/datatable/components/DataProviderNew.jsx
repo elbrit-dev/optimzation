@@ -318,6 +318,11 @@ export default function DataProviderNew({
     // Drop the built-in "Filter / Sort" button when the caller supplies its own
     // sort UI. Applied-filter chips are kept either way.
     hideNativeFilterSort = false,
+    // Hide DataTableNew's own row paginator. Set by a caller that has made the
+    // list continuous — scroll-loading keeps the visible window equal to every
+    // row fetched, which leaves that paginator on a single page and its
+    // rows-per-page dropdown fighting the window. Default false: unchanged.
+    hideTablePaginator = false,
     // Keep this fetch out of the query's IndexedDB cache. Set by a caller whose
     // `overrides.variables` narrow the result — a server-side search — because
     // the cache is keyed by query id, so a narrowed result would be read back as
@@ -4660,6 +4665,7 @@ export default function DataProviderNew({
         // DataTable display fields (from config, consumed by DataTableNew via context)
         rowsPerPageOptions,
         defaultRows,
+        hidePaginator: hideTablePaginator,
         tableHeight,
         scrollable,
         enableFullscreenDialog,
@@ -4685,7 +4691,7 @@ export default function DataProviderNew({
     dataSource, offlineData, offlineDataExecuted, formInputOverride, selectOptionsCache,
     selectedQueryKey, executingQuery, availableQueryKeys, resolvedConfig,
     handleSync, handleHardRefresh, lastUpdatedAt, openFilterSortSidebar,
-    rowsPerPageOptions, defaultRows, tableHeight, scrollable, enableFullscreenDialog,
+    rowsPerPageOptions, defaultRows, hideTablePaginator, tableHeight, scrollable, enableFullscreenDialog,
     resolvedWritePermissions,
   ]);
 
@@ -4894,6 +4900,7 @@ export default function DataProviderNew({
         resolvedConfig,
         rowsPerPageOptions,
         defaultRows,
+        hidePaginator: hideTablePaginator,
         tableHeight,
         scrollable,
         enableFullscreenDialog,
@@ -4920,7 +4927,7 @@ export default function DataProviderNew({
     selectOptionsCache,
     selectedQueryKey, executingQuery, availableQueryKeys, resolvedConfig,
     handleSync, handleHardRefresh, lastUpdatedAt, openFilterSortSidebar,
-    rowsPerPageOptions, defaultRows, tableHeight, scrollable, enableFullscreenDialog,
+    rowsPerPageOptions, defaultRows, hideTablePaginator, tableHeight, scrollable, enableFullscreenDialog,
     enableWriteEffective, resolvedWritePermissions,
   ]);
 

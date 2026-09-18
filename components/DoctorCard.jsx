@@ -319,7 +319,18 @@ export default function DoctorCard({
   );
 
   const openDetail = useCallback(() => {
-    setPeekOpen(false);
+    /*
+     * The popup is deliberately LEFT OPEN. It used to close on this press and
+     * then nothing happened for as long as the route took to change and the
+     * detail page took to make its own ERP reads -- the reader was looking at
+     * the list again with no sign their press had registered, and pressing a
+     * second time is the natural response.
+     *
+     * Staying open lets the dialog show its own "Opening…" state, and a
+     * successful navigation unmounts the whole card anyway. If the handler does
+     * not navigate, the dialog clears that state on a timer, so the button
+     * comes back rather than sitting disabled.
+     */
     onDoctorClick?.(payload);
   }, [onDoctorClick, payload]);
 
