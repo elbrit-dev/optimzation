@@ -561,7 +561,14 @@ Two guards on which scrolls count: the element must be **vertically** scrollable
 
 ### What asks for the next batch
 
-"The end is in view, so load" is not enough on its own. Measured in a headless browser against a list whose container never grows: **19 batches off a single scroll**, stopping only when the cap was hit, and 2 batches before the reader had scrolled at all. So a batch also costs **distance**: `scrollDistancePerBatch` pixels of downward scrolling since the last one, defaulting to half the visible height of whatever is scrolling. Scrolling back up to re-read does not count.
+**Nothing loads without scrolling.** That is the rule everything else hangs off, and it is load-bearing: a batch changes the row count, which re-runs the detector's effect, so *any* condition that can be true while the reader sits still fires again on every batch and walks the fetch size up on its own. Two conditions could, and both shipped broken before being caught on a real screen — a list climbed from 50 rows to 310 with nobody touching it:
+
+- the "nothing scrolls, so fill the screen" branch asked unconditionally. It now hands the list to the reader instead (the Load more button comes back), because neither of its two causes — everything already fits, or the real scroller was not found — can be resolved by scrolling;
+- the at-the-bottom relaxation waived the distance *and* the need to have scrolled at all. It now relaxes only the amount.
+
+Measured after the fix: mounted and left alone for three seconds, **0 batches**; scrolling normally, unchanged.
+
+"The end is in view, so load" is not enough on its own either. Measured against a list whose container never grows: **19 batches off a single scroll**, stopping only at the cap. So a batch costs **distance**: `scrollDistancePerBatch` pixels of downward scrolling since the last one, defaulting to half the visible height of whatever is scrolling. Scrolling back up to re-read does not count.
 
 Distance rather than a count of scroll events or gestures. One flick emits events for as long as its momentum runs, so "one event" is satisfied within a frame and means nothing; grouping them into gestures only moves the problem, because a gesture is not a fixed amount of reading. Pixels are, and they are what a caller can reason about. (A `scrollsPerBatch` gesture counter was built first and removed — measured, 12 flicks produced the same 3 batches at a setting of 1 or 3.)
 
@@ -596,6 +603,10 @@ Measured with both mechanisms in place, on layouts that mirror the two views —
 ### `maxAutoBatches`
 
 A ceiling (default 20) on batches loaded by scrolling alone, after which a Load more button appears and continuing resets the budget. A new search resets it too. It is the backstop for the never-growing-container case above, and a reason to pause on a list that would otherwise never end. `0` removes it.
+
+Worth noting what it did in the runaway above: it was the only thing stopping it, and 20 unwanted fetches is not "stopped" in any useful sense — each one re-fetching rows 1..N. Treat it as a seatbelt, not a rate limit.
+
+The progress key is the **visible** row count, not the fetched one. A batch is worth asking for only if the last one gave the reader more to look at, so when a filter swallows everything that arrives the detector stops instead of looping on a growing fetch size.
 
 ### Making it work in the table view
 

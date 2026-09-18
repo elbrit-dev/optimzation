@@ -101,10 +101,13 @@ export function EndOfListDetector({
   loadTrigger = 'near-end',
   scrollDistancePerBatch = 0,
   onReachEnd,
+  onScrollerMissing,
 }) {
   const anchorRef = useRef(null);
   const onReachEndRef = useRef(onReachEnd);
   onReachEndRef.current = onReachEnd;
+  const onScrollerMissingRef = useRef(onScrollerMissing);
+  onScrollerMissingRef.current = onScrollerMissing;
   const askedForRef = useRef(null);
   // Pixels scrolled DOWN since the last batch, and the position each measured
   // scroller was last seen at (a page and an inner box can both report).
@@ -141,14 +144,24 @@ export function EndOfListDetector({
 
     const measure = (element) => {
       if (!element || !scrollsVertically(element)) return;
+
+      // NOTHING loads without scrolling. This is the rule everything else hangs
+      // off: a batch changes the row count, which re-runs this effect, so any
+      // condition that can be true while the reader sits still will fire again
+      // on every batch and walk the fetch size up on its own. That is exactly
+      // what happened — a list climbed from 50 rows to 310 with nobody
+      // touching it.
+      if (travelledRef.current <= 0) return;
+
       const remaining = distanceToBottom(element);
       // 'near-end' waits until the end of the list is within rootMargin.
       // 'distance' drops that and fetches purely on how far has been scrolled,
       // which is a steady prefetch rather than a top-up at the end.
       if (loadTrigger !== 'distance' && remaining > margin) return;
-      // Both modes waive the distance at the very bottom: no more can be
+      // Both modes relax the FULL distance at the very bottom: no more can be
       // travelled there, and holding out for it would strand the reader on the
-      // last row with more data available.
+      // last row with more data available. Some travel is still required — see
+      // above — so this relaxes the amount, never the need to have scrolled.
       if (travelledRef.current < requiredTravel(element) && remaining > AT_BOTTOM_PX) return;
       ask();
     };
@@ -184,9 +197,14 @@ export function EndOfListDetector({
       ? initial
       : (document.scrollingElement ?? initial);
     if (!scrollsVertically(initialScroller)) {
-      // Nothing on the page can scroll yet: the rows do not fill the screen.
-      // Fill it — capped by maxAutoBatches, and self-limiting once it scrolls.
-      ask();
+      // Nothing on the page scrolls. Either everything fits — in which case
+      // there is nothing to do — or the real scroller was not found, and this
+      // used to call for a batch regardless, which meant a list that could not
+      // scroll fetched forever without being touched.
+      //
+      // Neither case can be resolved by scrolling, so hand it to the reader:
+      // the loader puts its Load more button back.
+      onScrollerMissingRef.current?.();
     } else {
       measure(initialScroller);
     }
@@ -252,9 +270,12 @@ export function InfiniteScrollLoader({
   className,
 }) {
   const {
-    paging, enabled, busy, inHand, mayHaveMore, pagination, updatePagination,
+    paging, enabled, busy, inHand, visible, mayHaveMore, pagination, updatePagination,
   } = usePagingProgress(pagingProp, serverOps);
   const [autoBatches, setAutoBatches] = useState(0);
+  // Set when nothing on the page can be scrolled, so scrolling can never ask
+  // for the next batch. The reader gets the button back instead.
+  const [noScroller, setNoScroller] = useState(false);
 
   useEffect(() => { setAutoBatches(0); }, [resetKey]);
 
@@ -293,13 +314,14 @@ export function InfiniteScrollLoader({
         <LoadMoreSkeleton count={skeletonCount} variant={skeletonVariant} className="pt-1" />
       ) : null}
 
-      {/* Out of automatic batches: hand the list back to the reader rather than
-          leaving it looking finished when it is not. */}
-      {autoExhausted && mayHaveMore && !busy ? (
+      {/* Out of automatic batches, or nothing that scrolling can act on: hand
+          the list back to the reader rather than leaving it looking finished
+          when it is not. */}
+      {(autoExhausted || noScroller) && mayHaveMore && !busy ? (
         <div className="flex justify-center py-3">
           <button
             type="button"
-            onClick={() => { setAutoBatches(0); loadMore(); }}
+            onClick={() => { setAutoBatches(0); setNoScroller(false); loadMore(); }}
             className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-[11px] font-semibold text-slate-800 hover:bg-gray-50 sm:text-xs"
           >
             <i className="pi pi-plus text-[10px] text-gray-500" aria-hidden="true" />
@@ -312,11 +334,16 @@ export function InfiniteScrollLoader({
         enabled={!autoExhausted}
         hasMore={mayHaveMore}
         busy={busy}
-        progressKey={inHand}
+        // What the reader can actually SEE, not what was fetched. A batch is
+        // worth asking for only if the last one gave them more to look at; when
+        // a filter swallows everything that arrives, the count does not move and
+        // the detector stops asking instead of looping on a growing fetch size.
+        progressKey={visible}
         rootMargin={rootMargin}
         loadTrigger={loadTrigger}
         scrollDistancePerBatch={scrollDistancePerBatch}
         onReachEnd={onReachEnd}
+        onScrollerMissing={() => setNoScroller(true)}
       />
     </div>
   );
