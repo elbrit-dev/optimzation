@@ -54,6 +54,9 @@ export function useQueryExecution(options) {
     searchTerm = '',
     sortConfig = null,
     graphqlToken = null,
+    // Set by a caller whose variableOverrides narrow the result (server-side
+    // search): the fetch is used on screen but kept out of the shared cache.
+    skipCacheWrite = false,
   } = options;
 
   const [dataSource, setDataSource] = useState(dataSourceProp);
@@ -618,7 +621,11 @@ export function useQueryExecution(options) {
           monthRangeToPass,
           mergedVariables,
           allQueryDocsRef.current,
-          graphqlToken
+          graphqlToken,
+          // Caller-declared: this fetch is narrowed (e.g. a server-side search),
+          // so it must not be written to the query's shared IndexedDB cache,
+          // which is keyed by query id and would hand it back as the full list.
+          { skipCacheWrite: skipCacheWrite === true }
         );
         setProcessedData(finalData);
         if (queryDocToUse.index?.trim() && queryDocToUse.clientSave === true) {
@@ -639,7 +646,7 @@ export function useQueryExecution(options) {
       }
       setExecutingQuery(false);
     }
-  }, [onDataChange, onError, monthRange, executingQuery, variableOverrides, currentQueryDoc, searchTerm, sortConfig, createExecutionKey, executeAndCacheMonthRange, fetchLastUpdatedAt, graphqlToken]);
+  }, [onDataChange, onError, monthRange, executingQuery, variableOverrides, currentQueryDoc, searchTerm, sortConfig, createExecutionKey, executeAndCacheMonthRange, fetchLastUpdatedAt, graphqlToken, skipCacheWrite]);
 
   /**
    * Execute a query and return processed data (similar to transformer's queryFunction).

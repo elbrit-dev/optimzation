@@ -6,8 +6,10 @@ import DataProvider from './DataProvider';
 import AlphabetRail from './views/AlphabetRail';
 import FilterSortPill from './views/FilterSortPill';
 import ProductSearchBar from './views/ProductSearchBar';
+import ServerOpsBridge from './views/ServerOpsBridge';
 import StaleDataBridge from './views/StaleDataBridge';
 import SyncPill from './views/SyncPill';
+import useServerQueryOps from '../hooks/useServerQueryOps';
 import {
   DEFAULT_BOTTOM_GAP,
   LOAD_MORE_RESERVED_SPACE,
@@ -146,6 +148,24 @@ export default function DataProviderViews({
   loadMorePlacement = 'sticky',
   loadMoreBottomGap = DEFAULT_BOTTOM_GAP,
   loadMoreVariant = 'floating',
+  // --- server-side search / sort: cover the WHOLE dataset, not the loaded page.
+  // Without these, searching a 45,000-row doctor list at `first: 25` searches
+  // 25 rows. With them the term and the sort become query variables and the ERP
+  // does the work over every row (see hooks/useServerQueryOps.js).
+  // Requires the query body to expose its filter as a variable, e.g.
+  // `$filter: [DBFilterInput] = [{fieldname: "status", value: "ACTIVE", operator: EQ}]`
+  // — and, for sort, `sortBy: {field: $sortField, direction: $sortDirection}`.
+  enableServerSearch = false,
+  enableServerSort = false,
+  // ERP fieldnames to search. Defaults to the query doc's own searchFields
+  // (with `x__name` reduced to the filterable `x`), so the two cannot drift.
+  serverSearchFields,
+  // Names the list to search in a body that has more than one root selection.
+  serverSearchRootField = '',
+  // Ceiling on the id union used when a term matches several fields at once.
+  // A single-field match ignores it entirely (it filters by LIKE, uncapped).
+  serverSearchMatchLimit = 500,
+  serverSearchDebounceMs = 400,
   // --- cache: paint last session's data instantly, refresh behind it.
   // Variant-only (StaleDataBridge): the underlying DataProvider's loading flow
   // is untouched — this only re-provides the published context while it loads. ---
@@ -224,6 +244,38 @@ export default function DataProviderViews({
   const showPaginatorAtBottom = enableServerPaging && showLoadMore
     && (paginatorPosition === 'bottom' || paginatorPosition === 'both');
 
+  // --- server-side search / sort ---------------------------------------------
+  // The variant holds the search term itself in this mode instead of pushing it
+  // into the engine: the rows coming back are already the server's matches, and
+  // a second client-side pass over them could only drop rows that matched on a
+  // field the client-side search doesn't cover.
+  const [serverTerm, setServerTerm] = useState('');
+  // The sort lives in the engine's context, which is BELOW this component, so a
+  // bridge rendered inside the provider reports it back up. The Filter/Sort
+  // sidebar stays the only place a sort is chosen.
+  const [engineSortConfig, setEngineSortConfig] = useState(null);
+
+  const serverOpsEnabled = enableServerSearch === true || enableServerSort === true;
+
+  // Stabilized for the same reason as `overrides`: Studio hands down a fresh
+  // array literal every render, and this one reaches the hook's probe callback,
+  // which the search effect depends on — an unstable identity would re-arm the
+  // debounce on every render and keep firing probe rounds.
+  const stableServerSearchFields = useStableValue(serverSearchFields);
+
+  const { variables: serverOpsVariables, status: serverOpsStatus, isNarrowed } = useServerQueryOps({
+    enabled: serverOpsEnabled,
+    queryId: presetDataSource,
+    term: serverTerm,
+    sortConfig: engineSortConfig,
+    rootField: serverSearchRootField,
+    searchFields: stableServerSearchFields,
+    matchLimit: serverSearchMatchLimit,
+    debounceMs: serverSearchDebounceMs,
+    serverSearch: enableServerSearch === true,
+    serverSort: enableServerSort === true,
+  });
+
   // An explicit contentClassName wins outright — '' is a valid value meaning
   // "no padding from the provider", so this cannot use ?? on the preset.
   const resolvedContentClass = typeof contentClassName === 'string'
@@ -249,6 +301,15 @@ export default function DataProviderViews({
     stablePageSizeOptions, pageSizeVariable, showPaginatorAtBottom,
   ]);
 
+  // `term` stays the hook's resolved term (what the last probe round actually
+  // ran for), so a count never gets shown against a term it doesn't belong to.
+  // `inputTerm` is what is in the box right now.
+  const serverOps = useMemo(() => ({
+    ...serverOpsStatus,
+    inputTerm: serverTerm,
+    setTerm: setServerTerm,
+  }), [serverOpsStatus, serverTerm]);
+
   const viewCtx = useMemo(() => ({
     views: normalizedViews,
     activeView: resolvedActiveView,
@@ -256,7 +317,8 @@ export default function DataProviderViews({
     isActive: (id) => id === resolvedActiveView,
     keepInactiveMounted,
     paging,
-  }), [normalizedViews, resolvedActiveView, setActiveView, keepInactiveMounted, paging]);
+    serverOps,
+  }), [normalizedViews, resolvedActiveView, setActiveView, keepInactiveMounted, paging, serverOps]);
 
   // Each header element is memoized so `__internal` keeps a stable identity between
   // renders — inline JSX would change every time and defeat the memo below.
@@ -285,9 +347,26 @@ export default function DataProviderViews({
         showRecents={showRecentSearches}
         recentLimit={recentSearchLimit}
         storageKey={recentSearchStorageKey || undefined}
+        // Server-side mode: the input drives this component's term (which
+        // becomes a query variable) rather than the engine's client-side one.
+        // Passed as props because the header is rendered by the engine, ABOVE
+        // DataViewContext — context is not reachable from this slot.
+        {...(enableServerSearch ? {
+          term: serverTerm,
+          onTermChange: setServerTerm,
+          debounceMs: 0, // the hook debounces the network round instead
+          busy: serverOpsStatus.searching,
+          unavailable: !serverOpsStatus.available,
+          unavailableHint: serverOpsStatus.reason
+            ? `Server-side search unavailable: ${serverOpsStatus.reason}`
+            : undefined,
+        } : null)}
       />
     </div>
-  ) : null), [showSearch, searchPlaceholder, showRecentSearches, recentSearchLimit, recentSearchStorageKey]);
+  ) : null), [
+    showSearch, searchPlaceholder, showRecentSearches, recentSearchLimit, recentSearchStorageKey,
+    enableServerSearch, serverTerm, serverOpsStatus.searching, serverOpsStatus.available, serverOpsStatus.reason,
+  ]);
 
   // Compact mode replaces the engine's controls with the variant's own pills —
   // same behaviors underneath (the sort pill opens the native Filter/Sort sidebar,
@@ -306,18 +385,20 @@ export default function DataProviderViews({
         <div className="flex min-w-0 flex-nowrap items-center gap-1.5 sm:gap-2">
           <FilterSortPill />
           <SyncPill />
-          {showPaginatorInHeader ? <PageSizePill /> : null}
+          {/* `paging` is passed explicitly: this slot renders inside the engine's
+              header, which is above DataViewContext in the tree. */}
+          {showPaginatorInHeader ? <PageSizePill paging={paging} /> : null}
         </div>
         {inHeader ? switcher : null}
       </div>
     );
-  }, [compact, inHeader, switcher, showPaginatorInHeader]);
+  }, [compact, inHeader, switcher, showPaginatorInHeader, paging]);
 
   // Non-compact: the engine renders its own controls, so the size pill joins the
   // switcher on the right rather than duplicating a control row.
   const headerRight = useMemo(() => {
     if (compact) return null;
-    const pill = showPaginatorInHeader ? <PageSizePill /> : null;
+    const pill = showPaginatorInHeader ? <PageSizePill paging={paging} /> : null;
     if (!pill) return inHeader ? switcher : null;
     return (
       <div className="flex shrink-0 flex-nowrap items-center gap-1.5 sm:gap-2">
@@ -325,7 +406,18 @@ export default function DataProviderViews({
         {inHeader ? switcher : null}
       </div>
     );
-  }, [compact, inHeader, switcher, showPaginatorInHeader]);
+  }, [compact, inHeader, switcher, showPaginatorInHeader, paging]);
+
+  const hasServerOpsVariables = Object.keys(serverOpsVariables).length > 0;
+  const usesOverrides = (enableServerPaging && pageSizeVariable) || hasServerOpsVariables;
+
+  // Is this fetch something other than "the whole query, in its own order"?
+  // A search narrows it, a sort reorders it (so a limited fetch returns a
+  // different slice of rows), and a page size shortens it. Any of those has to
+  // stay out of the shared cache — see internalForProvider.
+  const fetchIsNarrowed = isNarrowed
+    || Boolean(serverOpsStatus.sortField)
+    || (enableServerPaging === true && Boolean(pageSizeVariable));
 
   const internalForProvider = useMemo(() => {
     const next = { ...__internal };
@@ -335,8 +427,15 @@ export default function DataProviderViews({
     // Hide the engine's controls entirely in compact mode (the pills replace them).
     if (compact) next.showProviderHeader = false;
     if (hideNativeFilterSort) next.hideNativeFilterSort = true;
+    // Only the baseline result may be cached. The engine's IndexedDB cache is
+    // keyed by query id (plus month prefix), NOT by variables, so any fetch that
+    // narrowed, reordered or shortened the dataset would sit there to be painted
+    // as the whole list on the next cold load: 25 search hits, or the Z-end of a
+    // descending sort, presented as the entire table. That applies to a
+    // page-size fetch too, which is why turning on paging alone is enough.
+    if (fetchIsNarrowed) next.skipCacheWrite = true;
     return next;
-  }, [__internal, headerTop, headerLeft, headerRight, compact, hideNativeFilterSort]);
+  }, [__internal, headerTop, headerLeft, headerRight, compact, hideNativeFilterSort, fetchIsNarrowed]);
 
   // The whole server-paging trick: `overrides.variables` already flows through
   // DataProvider into the GraphQL request (DataProviderNew builds
@@ -344,16 +443,21 @@ export default function DataProviderViews({
   // with no engine change. Merged INTO any existing variables so a caller's own
   // overrides (or a token) survive, and stabilized by content — see
   // useStableValue for why identity matters here.
+  // Server-side search and sort ride the same channel: they are query variables,
+  // so the engine re-runs the query and the ERP does the filtering over every
+  // row. With no search and no sort the hook contributes nothing and the request
+  // on the wire is unchanged.
   const overridesWithPaging = useMemo(() => {
-    if (!enableServerPaging || !pageSizeVariable) return overrides;
+    if (!usesOverrides) return overrides;
     return {
       ...(overrides && typeof overrides === 'object' ? overrides : {}),
       variables: {
         ...(overrides?.variables ?? {}),
-        [pageSizeVariable]: fetchSize,
+        ...(enableServerPaging && pageSizeVariable ? { [pageSizeVariable]: fetchSize } : null),
+        ...serverOpsVariables,
       },
     };
-  }, [enableServerPaging, pageSizeVariable, overrides, fetchSize]);
+  }, [usesOverrides, enableServerPaging, pageSizeVariable, overrides, fetchSize, serverOpsVariables]);
   const stableOverrides = useStableValue(overridesWithPaging);
 
   return (
@@ -363,7 +467,7 @@ export default function DataProviderViews({
       offlineData={offlineData}
       onDataChange={onDataChange}
       onError={onError}
-      overrides={enableServerPaging ? stableOverrides : overrides}
+      overrides={usesOverrides ? stableOverrides : overrides}
       __internal={internalForProvider}
     >
       <DataViewContext.Provider value={viewCtx}>
@@ -371,6 +475,9 @@ export default function DataProviderViews({
           {(() => {
             const content = (
               <div className={className ?? 'flex flex-col min-h-0 flex-1'}>
+                {/* Renders nothing; reports the sidebar's sort choice up so it
+                    can become a query variable (see ServerOpsBridge). */}
+                {enableServerSort ? <ServerOpsBridge onSortConfigChange={setEngineSortConfig} /> : null}
                 {viewSwitcherPosition === 'top' ? standaloneSwitcher : null}
                 {showLetterRail ? (
                   <div className={`flex min-h-0 flex-1 gap-1 ${resolvedContentClass}`}>
@@ -397,6 +504,8 @@ export default function DataProviderViews({
                       placement={loadMorePlacement}
                       bottomGap={loadMoreBottomGap}
                       variant={loadMoreVariant}
+                      paging={paging}
+                      serverOps={serverOps}
                     />
                   </>
                 ) : null}

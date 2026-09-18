@@ -49,8 +49,14 @@ function useBusy() {
  * engine's header row is overflow-x-auto, which clips a popup menu on the cross
  * axis too (the reason SyncPill has to position its menu fixed).
  */
-export function PageSizePill({ className }) {
-  const paging = useDataViews()?.paging;
+export function PageSizePill({ className, paging: pagingProp }) {
+  // The context is only a fallback. When this pill sits in the provider's HEADER
+  // it is rendered by DataProviderNew, which is ABOVE DataViewContext.Provider
+  // in the tree (the provider wraps children, and the header is their sibling),
+  // so useDataViews() returns null there. DataProviderViews passes `paging` in
+  // explicitly for that slot.
+  const contextPaging = useDataViews()?.paging;
+  const paging = pagingProp ?? contextPaging;
   const { updatePagination } = useTableOperations();
   const busy = useBusy();
   const options = useSizeOptions(paging?.pageSizeOptions, paging?.fetchSize);
@@ -137,10 +143,11 @@ const VARIANT_INNER = {
  * growing `first` is the only paging that works here. It also means no page can
  * be skipped: row 1..N always come down together.
  *
- * "More may exist" is a heuristic — nothing in the pipeline reads pageInfo, so
- * a full page coming back is the only signal available. With a search or filter
- * active the loaded count is already narrowed, so the button stays enabled
- * rather than claiming the end of the list.
+ * With server-side ops on (`serverOps`), the totals are REAL: the ERP's
+ * totalCount is exact and respects the filter, so the bar can say "25 of 1,984
+ * matches" and stop offering more at the end of the list. Without it, nothing
+ * in the pipeline reads pageInfo, so "a full page came back" is the only signal
+ * available and the count falls back to that heuristic.
  *
  * Placement:
  * - `sticky` (default) sticks to the bottom of the SCROLLING ANCESTOR. It stays
@@ -155,8 +162,12 @@ export function LoadMoreBar({
   placement = 'sticky',
   bottomGap = DEFAULT_BOTTOM_GAP,
   variant = 'floating',
+  paging: pagingProp,
+  serverOps,
 }) {
-  const paging = useDataViews()?.paging;
+  const contextView = useDataViews();
+  const paging = pagingProp ?? contextView?.paging;
+  const ops = serverOps ?? contextView?.serverOps;
   const { rawData, sortedData, searchTerm, filters } = useTableOperations();
   const busy = useBusy();
 
@@ -167,11 +178,33 @@ export function LoadMoreBar({
   const narrowed =
     (typeof searchTerm === 'string' && searchTerm.trim() !== '') ||
     (filters && typeof filters === 'object' && Object.keys(filters).length > 0);
-  const mayHaveMore = narrowed || inHand >= paging.fetchSize;
 
-  const label = visible === inHand
-    ? `${inHand.toLocaleString('en-US')} loaded`
-    : `${visible.toLocaleString('en-US')} of ${inHand.toLocaleString('en-US')} loaded`;
+  const format = (n) => n.toLocaleString('en-US');
+
+  // The server's own count of everything the query matches, when we have it:
+  // the search's match count while a term is active, otherwise the unfiltered
+  // baseline. Both are exact.
+  const serverTotal = ops?.available
+    ? (ops.term ? ops.matchCount : ops.totalCount)
+    : null;
+  const hasServerTotal = Number.isFinite(serverTotal);
+
+  const mayHaveMore = hasServerTotal
+    ? inHand < serverTotal
+    : (narrowed || inHand >= paging.fetchSize);
+
+  let label;
+  if (hasServerTotal) {
+    const noun = ops.term ? (serverTotal === 1 ? 'match' : 'matches') : 'total';
+    label = `${format(Math.min(inHand, serverTotal))} of ${format(serverTotal)} ${noun}`;
+    // The multi-field union is capped, so say so rather than presenting the
+    // first N as the whole answer.
+    if (ops.matchCapped) label += ' (first page of matches)';
+  } else {
+    label = visible === inHand
+      ? `${format(inHand)} loaded`
+      : `${format(visible)} of ${format(inHand)} loaded`;
+  }
 
   const shell = VARIANT_SHELL[variant] ?? VARIANT_SHELL.floating;
   const inner = VARIANT_INNER[variant] ?? VARIANT_INNER.floating;

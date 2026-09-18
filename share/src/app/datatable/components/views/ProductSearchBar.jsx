@@ -34,6 +34,13 @@ function writeRecents(key, list) {
  *
  * The underlying search only matches when the query doc has `clientSave: true`
  * and a `searchFields` map — see useDataPipeline's searchFilteredData.
+ *
+ * Server-side mode: pass `term` + `onTermChange` and the input drives the
+ * CALLER's state instead of the engine's. DataProviderViews uses that to turn
+ * the term into query variables, so the ERP searches every row rather than the
+ * page in memory — and deliberately leaves the engine's own searchTerm empty,
+ * because a client-side pass over server-matched rows can only drop rows that
+ * matched on a field the client search doesn't cover.
  */
 export default function ProductSearchBar({
   placeholder = 'Search product or brand…',
@@ -41,8 +48,21 @@ export default function ProductSearchBar({
   storageKey = DEFAULT_STORAGE_KEY,
   showRecents = true,
   debounceMs = 250,
+  // --- optional controlled mode (server-side search) ---
+  term: termProp,
+  onTermChange,
+  busy = false,
+  unavailable,
+  unavailableHint,
 }) {
-  const { searchTerm, setSearchTerm, clientSave, searchFields } = useTableOperations();
+  const ops = useTableOperations();
+  const { clientSave, searchFields } = ops;
+
+  // Controlled the moment the caller supplies a setter; the engine's own term
+  // is then left alone.
+  const isControlled = typeof onTermChange === 'function';
+  const searchTerm = isControlled ? (termProp ?? '') : (ops.searchTerm ?? '');
+  const setSearchTerm = isControlled ? onTermChange : ops.setSearchTerm;
 
   const [text, setText] = useState(searchTerm ?? '');
   const [open, setOpen] = useState(false);
@@ -118,10 +138,12 @@ export default function ProductSearchBar({
     };
   }, [open]);
 
-  const searchUnavailable = useMemo(
-    () => clientSave !== true || !searchFields || Object.keys(searchFields).length === 0,
-    [clientSave, searchFields],
-  );
+  const searchUnavailable = useMemo(() => {
+    // In server-side mode the caller knows whether search can run (it depends on
+    // the query body, not on clientSave), so its answer wins.
+    if (typeof unavailable === 'boolean') return unavailable;
+    return clientSave !== true || !searchFields || Object.keys(searchFields).length === 0;
+  }, [unavailable, clientSave, searchFields]);
 
   const panelOpen = open && showRecents && recents.length > 0;
 
@@ -137,7 +159,9 @@ export default function ProductSearchBar({
           value={text}
           placeholder={placeholder}
           aria-label={placeholder}
-          title={searchUnavailable ? 'This data source has no searchFields configured' : undefined}
+          title={searchUnavailable
+            ? (unavailableHint || 'This data source has no searchFields configured')
+            : undefined}
           onFocus={() => setOpen(true)}
           onChange={(e) => {
             setText(e.target.value);
@@ -149,7 +173,17 @@ export default function ProductSearchBar({
           }}
           className="w-full rounded-xl border border-transparent bg-gray-100 py-2.5 pl-10 pr-10 text-sm text-slate-800 placeholder:text-gray-400 focus:border-gray-300 focus:bg-white focus:outline-none sm:py-3"
         />
-        {text ? (
+        {/* A server-side search is a network round trip, so it gets a spinner in
+            place of the clear button while it resolves. */}
+        {busy ? (
+          <span
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"
+            role="status"
+            aria-label="Searching"
+          >
+            <i className="pi pi-spinner pi-spin text-xs" aria-hidden="true" />
+          </span>
+        ) : text ? (
           <button
             type="button"
             aria-label="Clear search"

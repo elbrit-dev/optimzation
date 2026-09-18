@@ -321,6 +321,12 @@ The prop descriptions are written as **Studio-facing documentation**, including 
 | `loadMorePlacement` | choice | `sticky` | `sticky` \| `fixed` \| `static` |
 | `loadMoreBottomGap` | string | `4.5rem` | clears the 4rem bottom nav; safe-area inset added on top |
 | `loadMoreVariant` | choice | `floating` | `floating` \| `bar` \| `plain` |
+| `enableServerSearch` | boolean | `false` | search the whole dataset; needs `$filter: [DBFilterInput]` in the body (§5b) |
+| `enableServerSort` | boolean | `false` | sort the whole dataset; needs `sortBy: {field: $sortField, direction: $sortDirection}` |
+| `serverSearchFields` | object | derived | ERP fieldnames, e.g. `['lead_name','custom_specialty','city']` |
+| `serverSearchRootField` | string | — | names the list to search in a multi-root body |
+| `serverSearchMatchLimit` | number | `500` | id-union cap; ignored when a term matches one field |
+| `serverSearchDebounceMs` | number | `400` | quiet period before a term goes to the server |
 | `staleWhileRevalidate` | boolean | `false` | `$ctx.data.main.isRevalidating` during stale window |
 | `cacheKey` | string | `preset:{src}:{name}` | set to unshare snapshots |
 | `presetDataSource`, `presetName`, `offlineData`, `overrides`, `onDataChange`, `onError` | — | — | identical to Elbrit DataProvider |
@@ -336,8 +342,9 @@ The prop descriptions are written as **Studio-facing documentation**, including 
 ### Studio bindings
 
 - `$ctx.data` — unchanged (data, columns, filter/sort state)
-- `$ctx.view` — `{ views, activeView, setActiveView, isActive, keepInactiveMounted, paging }`
+- `$ctx.view` — `{ views, activeView, setActiveView, isActive, keepInactiveMounted, paging, serverOps }`
 - `$ctx.view.paging` — `{ enabled, fetchSize, setFetchSize, loadMore, loadMoreStep, pageSizeOptions, pageSizeVariable, showLoadMore }`
+- `$ctx.view.serverOps` — `{ available, reason, searching, term, inputTerm, setTerm, matchCount, matchCapped, matchedFields, totalCount, sortField, sortDirection, searchableFields, unsearchableFields, error }`. `available: false` + `reason` is the diagnostic when server-side search or sort is configured but the query body cannot support it.
 
 ---
 
@@ -376,10 +383,155 @@ query Doctors($first: Int = 10) { Leads(first: $first, filter: {…}) { … } } 
 
 ### Costs the caller has to accept
 
-1. **Search and sort only cover loaded rows.** These queries are `clientSave: true` with client-side `searchFields`/`sortFields`. At `first: 25` the search bar and the A–Z rail see 25 doctors. Fetching less and searching everything are in direct tension; server-side search would mean driving `filter` from the search term.
+1. ~~**Search and sort only cover loaded rows.**~~ **Fixed in §5b.** This was the original cost: `clientSave: true` queries search and sort in memory, so at `first: 25` the search bar and the A–Z rail saw 25 doctors out of 45,000. §5b pushes both to the server.
 2. **Every size change is a network round-trip.** The `variableOverrides` effect calls `runQuery(dataSource, true)`, which is the direct query path, not the IndexedDB-first path used at mount — so with paging on, the provider fetches live rather than reading cache. Pair it with `staleWhileRevalidate` if instant paint matters.
-3. **The IndexedDB cache is not keyed by variables** — `` `${queryId}_${monthRange}` `` — so results fetched at different sizes overwrite one entry. The cache cannot hold pages separately.
+3. ~~**The IndexedDB cache is not keyed by variables.**~~ **Handled in §5b.** The cache is still keyed `` `${queryId}_${monthRange}` `` and still cannot hold pages separately — but a narrowed fetch is no longer written to it at all, so it can no longer be read back as the full dataset.
 4. **Only works where the variable is declared.** A query without `$first` in its body ignores the variable and keeps its hardcoded limit; the control then does nothing but re-slice locally.
+
+---
+
+## 5b. Server-side search and sort (`useServerQueryOps`)
+
+The ask after §5a: paginating meant search and sort now covered the *page*, not the data. On the doctor list that is 25 rows searched out of 45,682. The provider does have access to all of them — it was simply asking for 25 and then filtering those.
+
+So search and sort become **query variables**, and the ERP does the work over every row. No second data path: the engine already re-runs its query whenever `overrides.variables` changes, which is the same channel §5a's page size rides on.
+
+### What the ERP actually supports
+
+Probed against `erp.elbrit.org` before any code was written, because the design depends entirely on the answers:
+
+| Capability | Result |
+|---|---|
+| `filter: [DBFilterInput]` | `{fieldname, value \| values, operator}`; `LIKE` with `%term%` works |
+| **AND only** | No `orFilter` / `or_filters` argument; `DBFilterInput` has no `logical` field |
+| `sortBy: {field, direction}` | `field` is a `<Doctype>SortField` **enum** — the fieldname in UPPER_SNAKE (`LEAD_NAME`); `direction` is `SortDirection` |
+| `totalCount` | Exact, and respects the filter — the real match count is one cheap request away |
+| `first` / `after` | `after` **with** `filter` still throws `Filter must be a tuple or list` |
+| Enum values in variables | A JSON string (`"LEAD_NAME"`) is accepted for an enum variable, so the client needs no per-doctype enum knowledge |
+
+Two of those shape everything below: **search cannot be one request** (no OR), and **a searched list cannot be cursor-paged** (so Load more keeps growing `first`, exactly as it already did).
+
+### The body has to expose its filter
+
+`Doctors` hardcoded its filter:
+
+```graphql
+Leads(first: $first, filter: {fieldname: "status", value: "ACTIVE", operator: EQ}, sortBy: {direction: ASC, field: NAME})
+```
+
+A hardcoded literal cannot be extended — GraphQL cannot concatenate two lists and the ERP takes exactly one `filter` argument — so the body parameterizes it, with the base clauses as the variable's **default**:
+
+```graphql
+query Doctors(
+  $first: Int = 100
+  $filter: [DBFilterInput] = [{fieldname: "status", value: "ACTIVE", operator: EQ}]
+  $sortField: LeadSortField = NAME
+  $sortDirection: SortDirection = ASC
+) {
+  Leads(first: $first, filter: $filter, sortBy: {field: $sortField, direction: $sortDirection}) { … }
+}
+```
+
+**Why the default and not a prop.** `readQueryShape()` parses the body (with `graphql`'s own `parse` + `valueFromASTUntyped`, not a regex) and reads the base clauses out of that default. The body stays the single source of truth for "which rows does this query mean" — a `serverFilterBase` prop would be the same list written twice, in two places that can disagree.
+
+A body that still hardcodes its filter is not an error: `readQueryShape` reports `filterIsLiteral`, server search reports itself unavailable, and the search box's tooltip says what to add. Nothing breaks.
+
+**Verified against the live ERP** in all four states — no variables (100 rows, `NAME ASC`, identical to the body it replaces), page size only, search + sort + page size, and the explicit return to the base filter. The default values are what make the first of those byte-identical, so **the query doc keeps working unchanged for every page that does not opt in**.
+
+The `Doctors` doc (Firestore `gql/Doctors`, field `body`) becomes:
+
+```graphql
+query Doctors(
+  $first: Int = 100
+  $filter: [DBFilterInput] = [{fieldname: "status", value: "ACTIVE", operator: EQ}]
+  $sortField: LeadSortField = NAME
+  $sortDirection: SortDirection = ASC
+) {
+  Leads(
+    first: $first
+    filter: $filter
+    sortBy: {field: $sortField, direction: $sortDirection}
+  ) {
+    edges {
+      node {
+        city
+        first_name
+        lead_name
+        name
+        custom_category1__name
+        custom_category2__name
+        custom_category3__name
+        custom_address_created
+        custom_latitude
+        custom_latitude_and_longitude
+        custom_longitude
+        custom_specialty__name
+        custom_speciality
+        email_id
+        customer__name
+        custom_category__name
+        territory {
+          name
+          territory_name
+        }
+        custom_role_profile {
+          role_profile_list__name
+          department__name
+          hq__name
+        }
+        status
+      }
+    }
+  }
+}
+```
+
+Only the operation header and the three arguments change; the selection set is the existing one verbatim. Save it through the graphql-playground UI (or PATCH the Firestore doc with `updateMask.fieldPaths=body` so the other ~15 fields survive).
+
+### Search: the two-step id union
+
+For a term, per searchable field, one **id-only** probe: `LIKE %term%` selecting just `name`, which also returns that field's exact `totalCount`. Then:
+
+- **one field matched** → filter the real query with that field's `LIKE` clause. Uncapped, exact count, Load more walks the whole match set.
+- **several matched** → union their ids (bounded by `serverSearchMatchLimit`, default 500) and filter with `name IN [...]`.
+- **none matched** → a deliberately unsatisfiable clause. Not `IN []`: Frappe rejects an empty value list, which would surface as a query error instead of an empty result.
+
+Measured: `"raj"` → 1,984 matches (lead_name), `"cardio"` → 3,064 (custom_specialty), probe round 0.4–0.8 s, main query ~0.2 s.
+
+**Probes are separate requests, not one aliased document.** An aliased document is a single operation, so one unfilterable fieldname fails the whole search and the user gets nothing — verified: `territory_territory_name` returns `Unknown column 'tabLead.territory_territory'` and took the other four fields down with it. As separate requests that field drops out alone, and is remembered so it costs one request per session rather than one per keystroke.
+
+**The search fields are derived, not declared.** From the query doc's own `searchFields`, with `custom_specialty__name` reduced to the filterable `custom_specialty` (Frappe stores a Link's target id — which *is* the name — in the column itself). Two reasons: one source of truth, and the rows that come back are still handed to whatever client-side filtering is active, so a server field with no client counterpart would match a row that is then dropped again on screen. Anything still carrying a `__` or a `.` after the strip is a genuinely nested selection that SQL cannot reach from this table, so it is dropped rather than guessed at. `serverSearchFields` overrides the derivation when a query needs it — note that Doctors' `territory` and `city` are **not** in `searchFields`, so "chennai" finds nothing until they are added.
+
+**The empty-edges retry.** This ERP intermittently answers a probe with a correct `totalCount` and an **empty** `edges` list, with no GraphQL error — reproduced on a repeat of the identical request, both serially and in parallel, so it is a server flake and not a concurrency rule. Taken at face value it would silently drop a field's matches from the union, so an inconsistent probe is retried once; if it still comes back empty and nothing else yielded ids, the search falls back to a `LIKE` on the widest-matching field rather than returning nothing.
+
+### Sort
+
+`ServerOpsBridge` renders nothing and lifts the engine's `sortConfig` up to the variant, because `DataProviderViews` sits *above* the engine and cannot read `TableOperationsContext`. The existing Filter/Sort sidebar stays the only place a sort is chosen — the same rule that got `SortSheet` deleted in §3.9. The field becomes `UPPER_SNAKE`, the direction `ASC`/`DESC`, and the query doc's `sortFields` allow-list is checked first, the same check the engine makes before sorting client-side.
+
+### Clearing has to be sent, not omitted
+
+The engine re-runs on a **change** to `overrides`, so dropping a variable reads as "nothing happened" and the search results would stay on screen after the box was cleared. Once a search or sort has gone to the server, clearing it therefore sends an explicit return to the body's defaults — the base filter, and the sort variables' own default values read out of the body. Before the first search the variables are left out entirely, so the request is byte-identical to today's and the mount still reads the IndexedDB cache first.
+
+### Only the baseline is cached
+
+The cache is keyed by query id, not by variables. A narrowed fetch written there would be read back as the whole dataset on the next cold load — 25 search hits, or the Z-end of a descending sort, presented as the entire table. So `__internal.skipCacheWrite` (new, additive, default false) carries "this fetch is not the baseline" down to the worker, which skips the write. It is set for a search, for a sort, **and for a page-size fetch** — which also fixes §5a's cost 3 for tables already using paging.
+
+### Real counts
+
+The Load-more bar's "a full page came back" heuristic is replaced by `totalCount` whenever server ops are on: `25 of 1,984 matches` while searching, `25 of 31,306 total` otherwise, and the button stops offering more at the end of the list. A capped union says so rather than presenting the first 500 as the whole answer.
+
+### Fixed along the way
+
+`PageSizePill` read `paging` from `DataViewContext` — but a header slot is rendered by `DataProviderNew`, whose header is a *sibling* of `{children}`, and the provider is inside `children`. So `useDataViews()` returned `null` there and the header pill silently rendered nothing at `paginatorPosition: 'header' | 'both'`. It now takes `paging` as a prop, with the context as fallback.
+
+### Costs and limits
+
+1. **A term matching several fields is capped** at `serverSearchMatchLimit` ids. A single-field match is uncapped; the cap only bites on a genuinely ambiguous term.
+2. **Each committed term is a probe round plus a page fetch** — hence a 400 ms debounce and a spinner in the box, rather than the 250 ms a client-side filter needs.
+3. **Search is only as wide as the fields it is given.** Derivation drops what it cannot filter, silently by design; `$ctx.view.serverOps.unsearchableFields` lists them.
+4. **Sorting is by one field**, whatever the sidebar chose. The ERP takes a single `sortBy`.
+5. **The A–Z rail still reads loaded rows.** With `letterRailField` set it dims letters from the pipeline data, which is the fetched page — the rail is a jump control over what is on screen, not an index of the dataset.
+6. **`enableServerSort` needs the sort enum to exist for that doctype.** `LeadSortField` has one value per column in UPPER_SNAKE; a field the enum does not carry is rejected by the server.
 
 ---
 
@@ -387,12 +539,17 @@ query Doctors($first: Int = 10) { Leads(first: $first, filter: {…}) { … } } 
 
 | File | Guarantee |
 |---|---|
-| `DataProviderNew.jsx` | `headerSlots` null and `hideNativeFilterSort` false ⇒ header condition, `selectorsJSX` gating, and sidebar mode all evaluate to the pre-change values. The six new context entries are additions only. |
+| `DataProviderNew.jsx` | `headerSlots` null, `hideNativeFilterSort` false and `skipCacheWrite` false ⇒ header condition, `selectorsJSX` gating, sidebar mode and caching all evaluate to the pre-change values. The six new context entries are additions only. |
 | `FilterSortSidebar.jsx` | `sortOnly` defaults `false` ⇒ original tabs, header text, clear behaviour. |
 | `plasmic-init.js` | Registrations added; `DataProvider` and `DataTableNew` metas untouched. |
 | `DataProvider.jsx` | Not modified — the variant reuses it as-is. |
+| `useQueryExecution.js` | New `skipCacheWrite` option defaults `false`; only `runQuery`'s pipeline call passes it on. |
+| `queryWorker.js` | `executePipeline` gained a trailing `options = {}`; with it absent the cache condition is the original `clientSave === true`. |
+| `ProductSearchBar.jsx` | Controlled mode only engages when `onTermChange` is supplied; otherwise it drives the engine's `setSearchTerm` as before. |
 
 No existing page passes any of the new props. Nothing currently rendered changes.
+
+**Server-side search and sort are off by default** and, even when switched on, contribute no variables until a term is typed or a sort chosen — so a page that enables them but is not used still issues the same request it does today.
 
 ---
 

@@ -318,6 +318,11 @@ export default function DataProviderNew({
     // Drop the built-in "Filter / Sort" button when the caller supplies its own
     // sort UI. Applied-filter chips are kept either way.
     hideNativeFilterSort = false,
+    // Keep this fetch out of the query's IndexedDB cache. Set by a caller whose
+    // `overrides.variables` narrow the result — a server-side search — because
+    // the cache is keyed by query id, so a narrowed result would be read back as
+    // the full dataset on the next cold load. Default false: unchanged caching.
+    skipCacheWrite = false,
     reportDataOverride = null,
     forceBreakdown = null,
     parentColumnName,
@@ -498,6 +503,7 @@ export default function DataProviderNew({
     searchTerm,
     sortConfig,
     graphqlToken,
+    skipCacheWrite,
   });
   const {
     dataSource,

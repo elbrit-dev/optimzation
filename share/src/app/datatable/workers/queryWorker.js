@@ -531,7 +531,7 @@ async function executeMonthIndexQueryWithDateRange(monthIndexQuery, queryDoc, en
 /**
  * Execute full pipeline and cache result to IndexedDB
  */
-async function executePipeline(queryId, queryDoc, endpointUrl, authToken, monthRange, variableOverrides = {}, allQueryDocs = {}, tokenOverride = null) {
+async function executePipeline(queryId, queryDoc, endpointUrl, authToken, monthRange, variableOverrides = {}, allQueryDocs = {}, tokenOverride = null, options = {}) {
     if (!queryId || !queryDoc) {
         throw new Error('queryId and queryDoc are required');
     }
@@ -635,8 +635,14 @@ async function executePipeline(queryId, queryDoc, endpointUrl, authToken, monthR
         tokenOverride
     });
 
-    // Cache result if clientSave is true (skip for offline - data is in json)
-    if (!isOffline && queryDoc.clientSave === true && pipelineResult && typeof pipelineResult === 'object') {
+    // Cache result if clientSave is true (skip for offline - data is in json).
+    //
+    // options.skipCacheWrite is for a fetch that is deliberately NOT the query's
+    // full dataset — a server-side search, for instance. The cache is keyed by
+    // query id (plus month prefix), not by variables, so writing a narrowed
+    // result would leave those few rows to be read back as the whole list on the
+    // next cold load. Such a fetch is served to the screen and then forgotten.
+    if (!isOffline && options.skipCacheWrite !== true && queryDoc.clientSave === true && pipelineResult && typeof pipelineResult === 'object') {
         await indexedDBService._withCacheLock(queryId, async () => {
             await indexedDBService.ensureStoresForPipelineResult(queryId, pipelineResult, yearMonthPrefix, queryDoc);
             await indexedDBService.savePipelineResultEntries(queryId, pipelineResult, yearMonthPrefix, queryDoc);

@@ -176,7 +176,7 @@ const dataProviderViewsMeta = {
       type: 'boolean',
       defaultValue: false,
       description:
-        'Let the page-size control drive the query\'s own limit variable, so the SERVER returns fewer rows. REQUIRES the query body to declare the variable, e.g. query Doctors($first: Int = 10) { Leads(first: $first, ...) } — a query that does not declare it keeps its own hardcoded limit and this does nothing. Note: with clientSave queries, search / sort / the A–Z rail only cover the rows actually loaded.',
+        'Let the page-size control drive the query\'s own limit variable, so the SERVER returns fewer rows. REQUIRES the query body to declare the variable, e.g. query Doctors($first: Int = 10) { Leads(first: $first, ...) } — a query that does not declare it keeps its own hardcoded limit and this does nothing. On its own this means search / sort / the A–Z rail only cover the rows actually loaded: turn on enableServerSearch / enableServerSort to push those to the server instead.',
     },
     pageSize: {
       type: 'number',
@@ -231,6 +231,41 @@ const dataProviderViewsMeta = {
       defaultValue: 'floating',
       description:
         '"floating" = centered white capsule with shadow over the content. "bar" = full-width footer with a top border. "plain" = no background (the original look; it will be unreadable over content when sticky).',
+    },
+    // --- server-side search / sort (cover the whole dataset) ---
+    enableServerSearch: {
+      type: 'boolean',
+      defaultValue: false,
+      description:
+        'Search the WHOLE dataset instead of the loaded page. Without this, a search on a 45,000-row list with pageSize 25 searches 25 rows. With it, the term becomes a query filter and the ERP matches every row, and the Load-more bar shows the real match count. REQUIRES the query body to expose its filter as a variable: $filter: [DBFilterInput] = [{fieldname: "status", value: "ACTIVE", operator: EQ}] passed as filter: $filter (the default keeps the query meaning the same rows as before). Hover the search box to see why it is unavailable when the body is not set up.',
+    },
+    enableServerSort: {
+      type: 'boolean',
+      defaultValue: false,
+      description:
+        'Sort the WHOLE dataset on the server, so "A → Z" orders all 45,000 rows and the first page is the true first page — not the loaded page reshuffled. The existing Filter/Sort sidebar stays the only place a sort is chosen. REQUIRES the body to declare sortBy: {field: $sortField, direction: $sortDirection} with $sortField: <Doctype>SortField (e.g. LeadSortField, values are the fieldname in UPPER_SNAKE) and $sortDirection: SortDirection.',
+    },
+    serverSearchFields: {
+      type: 'object',
+      description:
+        'ERP fieldnames a server-side search looks in, e.g. ["lead_name", "custom_specialty", "city"]. Leave unset to derive them from the query doc\'s own searchFields (a flattened "custom_specialty__name" becomes the filterable "custom_specialty"), which keeps the two from drifting apart. A fieldname the ERP cannot filter on is dropped after its first attempt rather than failing the search.',
+    },
+    serverSearchRootField: {
+      type: 'string',
+      description:
+        'Which root list to search in a body that selects more than one (e.g. Primary fetches targets AND invoices). Leave unset for a single-list query.',
+    },
+    serverSearchMatchLimit: {
+      type: 'number',
+      defaultValue: 500,
+      description:
+        'Cap on matches when a term hits SEVERAL fields at once. The ERP filter is AND-only — there is no OR — so a multi-field search is resolved by collecting matching ids per field and filtering on that union, which has to be bounded. A term matching only one field ignores this entirely and filters by LIKE, uncapped.',
+    },
+    serverSearchDebounceMs: {
+      type: 'number',
+      defaultValue: 400,
+      description:
+        'Quiet period before a typed term goes to the server. Each change costs a probe round plus a re-fetch of the page, so this is longer than a client-side search would need.',
     },
     // --- cache ---
     staleWhileRevalidate: {
