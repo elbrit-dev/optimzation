@@ -157,21 +157,20 @@ const VARIANT_INNER = {
  *   isn't the provider's own content. The caller reserves the space.
  * - `static` leaves it at the end of the list, scrolling away with the content.
  */
-export function LoadMoreBar({
-  className,
-  placement = 'sticky',
-  bottomGap = DEFAULT_BOTTOM_GAP,
-  variant = 'floating',
-  paging: pagingProp,
-  serverOps,
-}) {
+/**
+ * How far through the data we are: rows in hand, whether more exist, and the
+ * label for it. Shared by the Load-more bar and the scroll loader so the two
+ * can never disagree about "all loaded".
+ *
+ * Returns `enabled: false` when paging is off, and callers bail on that — every
+ * hook still runs first.
+ */
+export function usePagingProgress(pagingProp, serverOpsProp) {
   const contextView = useDataViews();
   const paging = pagingProp ?? contextView?.paging;
-  const ops = serverOps ?? contextView?.serverOps;
+  const ops = serverOpsProp ?? contextView?.serverOps;
   const { rawData, sortedData, searchTerm, filters } = useTableOperations();
   const busy = useBusy();
-
-  if (!paging?.enabled || !paging.showLoadMore) return null;
 
   const inHand = Array.isArray(rawData) ? rawData.length : 0;
   const visible = Array.isArray(sortedData) ? sortedData.length : inHand;
@@ -191,7 +190,7 @@ export function LoadMoreBar({
 
   const mayHaveMore = hasServerTotal
     ? inHand < serverTotal
-    : (narrowed || inHand >= paging.fetchSize);
+    : (narrowed || inHand >= (paging?.fetchSize ?? 0));
 
   let label;
   if (hasServerTotal) {
@@ -206,6 +205,26 @@ export function LoadMoreBar({
       : `${format(visible)} of ${format(inHand)} loaded`;
   }
 
+  return { paging, enabled: paging?.enabled === true, busy, inHand, visible, mayHaveMore, label };
+}
+
+export function LoadMoreBar({
+  className,
+  placement = 'sticky',
+  bottomGap = DEFAULT_BOTTOM_GAP,
+  variant = 'floating',
+  paging: pagingProp,
+  serverOps,
+  // 'button' keeps the tap target, 'scroll' drops it and leaves the bar as a
+  // status line (the sentinel does the loading), 'both' keeps it as a manual
+  // fallback next to scroll-loading.
+  mode = 'button',
+}) {
+  const { paging, enabled, busy, inHand, mayHaveMore, label } = usePagingProgress(pagingProp, serverOps);
+
+  if (!enabled || !paging?.showLoadMore) return null;
+
+  const showButton = mode !== 'scroll';
   const shell = VARIANT_SHELL[variant] ?? VARIANT_SHELL.floating;
   const inner = VARIANT_INNER[variant] ?? VARIANT_INNER.floating;
 
@@ -222,7 +241,9 @@ export function LoadMoreBar({
   const content = (
     <div className={inner}>
       <span className="text-[11px] font-medium text-gray-500 sm:text-xs">{label}</span>
-      {mayHaveMore ? (
+      {!mayHaveMore ? (
+        <span className="text-[11px] text-gray-400 sm:text-xs">All loaded</span>
+      ) : showButton ? (
         <button
           type="button"
           onClick={() => paging.loadMore()}
@@ -236,9 +257,14 @@ export function LoadMoreBar({
           />
           {busy ? 'Loading…' : `Load ${paging.loadMoreStep} more`}
         </button>
-      ) : (
-        <span className="text-[11px] text-gray-400 sm:text-xs">All loaded</span>
-      )}
+      ) : busy ? (
+        // Scroll-only: no tap target, so the bar is where "it is fetching" gets
+        // said. The skeleton rows above it carry the same message in place.
+        <span className="inline-flex items-center gap-1.5 text-[11px] text-gray-500 sm:text-xs">
+          <i className="pi pi-spin pi-spinner text-[10px]" aria-hidden="true" />
+          Loading…
+        </span>
+      ) : null}
     </div>
   );
 

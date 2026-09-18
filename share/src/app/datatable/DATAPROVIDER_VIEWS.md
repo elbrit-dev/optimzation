@@ -321,6 +321,11 @@ The prop descriptions are written as **Studio-facing documentation**, including 
 | `loadMorePlacement` | choice | `sticky` | `sticky` \| `fixed` \| `static` |
 | `loadMoreBottomGap` | string | `4.5rem` | clears the 4rem bottom nav; safe-area inset added on top |
 | `loadMoreVariant` | choice | `floating` | `floating` \| `bar` \| `plain` |
+| `loadMoreMode` | choice | `button` | `button` \| `scroll` \| `both` — see §5c |
+| `pageStep` | number | = `pageSize` | rows each following batch adds |
+| `infiniteScrollMargin` | string | `400px` | how far ahead of the end loading starts |
+| `skeletonCount` / `skeletonVariant` | number / choice | `3` / `card` | placeholders while a batch loads |
+| `maxAutoBatches` | number | `20` | batches per scroll session before a tap is needed; `0` = no ceiling |
 | `enableServerSearch` | boolean | `false` | search the whole dataset; needs `$filter: [DBFilterInput]` in the body (§5b) |
 | `enableServerSort` | boolean | `false` | sort the whole dataset; needs `sortBy: {field: $sortField, direction: $sortDirection}` |
 | `serverSearchFields` | object | derived | ERP fieldnames, e.g. `['lead_name','custom_specialty','city']` |
@@ -343,7 +348,7 @@ The prop descriptions are written as **Studio-facing documentation**, including 
 
 - `$ctx.data` — unchanged (data, columns, filter/sort state)
 - `$ctx.view` — `{ views, activeView, setActiveView, isActive, keepInactiveMounted, paging, serverOps }`
-- `$ctx.view.paging` — `{ enabled, fetchSize, setFetchSize, loadMore, loadMoreStep, pageSizeOptions, pageSizeVariable, showLoadMore }`
+- `$ctx.view.paging` — `{ enabled, fetchSize, setFetchSize, loadMore, loadMoreStep, pageSizeOptions, pageSizeVariable, showLoadMore, mode }`
 - `$ctx.view.serverOps` — `{ available, reason, searching, term, inputTerm, setTerm, matchCount, matchCapped, matchedFields, totalCount, sortField, sortDirection, searchableFields, unsearchableFields, error }`. `available: false` + `reason` is the diagnostic when server-side search or sort is configured but the query body cannot support it.
 
 ---
@@ -532,6 +537,53 @@ The Load-more bar's "a full page came back" heuristic is replaced by `totalCount
 4. **Sorting is by one field**, whatever the sidebar chose. The ERP takes a single `sortBy`.
 5. **The A–Z rail still reads loaded rows.** With `letterRailField` set it dims letters from the pipeline data, which is the fetched page — the rail is a jump control over what is on screen, not an index of the dataset.
 6. **`enableServerSort` needs the sort enum to exist for that doctype.** `LeadSortField` has one value per column in UPPER_SNAKE; a field the enum does not carry is rejected by the server.
+
+---
+
+## 5c. Scroll-loading (`InfiniteScroll`)
+
+`loadMoreMode` adds two alternatives to tapping Load more: `scroll` (the list loads itself as you near the end) and `both` (it does, and the button is still there). Default stays `button`, so nothing changes unless a page asks for it.
+
+It drives **the same `paging.loadMore()`** the button does. Only the trigger is new — there is no second paging path, and everything in §5a still applies, including that a step re-fetches rows 1..N rather than appending a page, because `after` + `filter` throws here. That is the real limit on this: each batch costs more than the last, so scroll-loading is for the first few hundred rows. `pageStep` exists for that — open with a full screen (`pageSize: 50`) and top up in smaller steps (`pageStep: 25`) instead of doubling every time.
+
+### The sentinel, and where it is allowed to sit
+
+A 1px probe after the list, watched by an `IntersectionObserver` with `rootMargin: 400px` so the fetch starts before the reader arrives. Its root is the nearest actually-scrolling ancestor, not the viewport, so it works inside a scrolling container.
+
+**It is rendered inside the list's own container, not inside the Load-more bar.** That bar is `sticky` by default, so on a long list it is on screen the entire time — a sentinel inside it would be permanently intersecting and would load every remaining row at once.
+
+**The observer is re-created when the row count or the busy flag changes.** An `IntersectionObserver` only reports a *change* in intersection, so a sentinel still on screen after a batch lands would never fire again. Re-observing re-evaluates it immediately, which is what lets a short list keep filling until the sentinel is finally pushed out of view.
+
+### One batch per scroll
+
+The obvious condition — "the sentinel is visible, so load" — is not enough, and this is the part worth knowing. Measured in a headless browser against a list whose container never grows (rows going into an inner scroller, which is exactly what `DataTableNew` does): **19 batches off a single scroll**, stopping only when the cap was hit, and 2 batches before the reader had scrolled at all.
+
+So a batch costs a ticket. One is granted at mount (a list too short to scroll can still fill the first screen), spent on each ask, and granted again by a `scroll` event on the root. Extra tickets are harmless — a batch also has to be *new* (asked once per row count), so continuous scrolling cannot double-load.
+
+Measured after that change, same harness:
+
+| | list grows (cards) | list never grows (table) |
+|---|---|---|
+| before any scroll | 0 batches | 1 (the initial fill) |
+| one scroll to the end | 1 | 1 — no scroll is possible, so no ticket |
+| five more scrolls | 5 more, one each | still 1 |
+| 40 more | stops at the cap | still 1 |
+
+### `maxAutoBatches`
+
+A ceiling (default 20) on batches loaded by scrolling alone, after which a Load more button appears and continuing resets the budget. A new search resets it too. It is the backstop for the never-growing-container case above, and a reason to pause on a list that would otherwise never end. `0` removes it.
+
+### Skeletons
+
+While a scroll-triggered batch is in flight, placeholder rows render at the end of the list — `skeletonCount` of them, `card` or `row` shaped. The point is the reader who gets to the bottom faster than the network: without them the list looks finished. They are `aria-hidden` behind a single `role="status"` "Loading more", so a screen reader hears it once instead of reading out empty boxes.
+
+Rows already on screen stay there throughout: the engine only replaces `processedData` on success, so a growing re-fetch never blanks the list.
+
+### Limits
+
+1. **The table view should keep the button.** `DataTableNew` scrolls inside itself, so its rows never move the sentinel — `scroll` mode there loads one batch and then sits. Use `both` (or `button`) for a table; `scroll` suits the cards view it was built for.
+2. **`enableServerPaging` has to be on.** Scroll-loading raises the same fetch-size variable; with paging off there is nothing to raise.
+3. **The fetch size is not reset by a search.** Search after scrolling to 300 rows and you fetch 300 matches. Deliberate — resetting it would fire a second query on every search — but it means a long scroll makes later searches heavier.
 
 ---
 

@@ -184,6 +184,41 @@ const dataProviderViewsMeta = {
       description:
         'Rows to fetch initially, and the step "Load more" adds each time. Also sets the engine\'s own row window so sortedData- and paginatedData-bound views agree.',
     },
+    pageStep: {
+      type: 'number',
+      description:
+        'Rows each FOLLOWING batch adds, when it should differ from pageSize — e.g. pageSize 50 to fill the first screen, pageStep 25 to top up in smaller steps after that. Leave unset to keep using pageSize for both.',
+    },
+    loadMoreMode: {
+      type: 'choice',
+      options: ['button', 'scroll', 'both'],
+      defaultValue: 'button',
+      description:
+        'How the next batch is asked for. "button" (default) = tap Load more. "scroll" = it loads by itself when the reader nears the end of the list, with skeleton rows showing while the batch is in flight, so reaching the bottom never looks like the end of the data. "both" = scroll-loading with the button still there as a manual fallback. Scroll-loading needs the list to be in the page\'s own scroll flow: it works in a cards view, but a DataTableNew scrolls INSIDE itself, so keep the button for table views.',
+    },
+    infiniteScrollMargin: {
+      type: 'string',
+      defaultValue: '400px',
+      description:
+        'How far ahead of the end of the list the next batch starts fetching, so it is usually there before the reader arrives. Any CSS length; larger means earlier and more eager.',
+    },
+    skeletonCount: {
+      type: 'number',
+      defaultValue: 3,
+      description: 'Placeholder rows shown at the end of the list while a scroll-triggered batch loads (1–12).',
+    },
+    skeletonVariant: {
+      type: 'choice',
+      options: ['card', 'row'],
+      defaultValue: 'card',
+      description: 'Shape of those placeholders: "card" for a cards view, "row" for a denser list.',
+    },
+    maxAutoBatches: {
+      type: 'number',
+      defaultValue: 20,
+      description:
+        'How many batches scrolling may load before the reader has to tap once to continue (a Load more button appears, and continuing resets the budget). This is also the backstop for a list whose container never grows — a table that scrolls inside itself keeps the sentinel permanently in view, and without a ceiling one scroll would fetch every remaining row. A new search resets it. 0 removes the ceiling.',
+    },
     pageSizeOptions: {
       type: 'object',
       defaultValue: [10, 25, 50, 100, 200],

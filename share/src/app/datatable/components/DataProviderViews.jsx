@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import DataProvider from './DataProvider';
 import AlphabetRail from './views/AlphabetRail';
 import FilterSortPill from './views/FilterSortPill';
+import { InfiniteScrollLoader } from './views/InfiniteScroll';
 import ProductSearchBar from './views/ProductSearchBar';
 import ServerOpsBridge from './views/ServerOpsBridge';
 import StaleDataBridge from './views/StaleDataBridge';
@@ -132,6 +133,10 @@ export default function DataProviderViews({
   // `query Doctors($first: Int = 10) { Leads(first: $first, ...) }`.
   enableServerPaging = false,
   pageSize = 25,
+  // Rows each subsequent batch adds. Defaults to pageSize, so the old
+  // behaviour is unchanged — set it lower to load a big first screen and then
+  // top up in small steps (e.g. pageSize 50, pageStep 25).
+  pageStep,
   pageSizeOptions = DEFAULT_PAGE_SIZE_OPTIONS,
   // GraphQL variable that carries the limit. `first` for the Relay-style ERP
   // queries; name it differently for a query that uses e.g. `limit`.
@@ -148,6 +153,18 @@ export default function DataProviderViews({
   loadMorePlacement = 'sticky',
   loadMoreBottomGap = DEFAULT_BOTTOM_GAP,
   loadMoreVariant = 'floating',
+  // How the next batch is asked for: the button ('button', default), scrolling
+  // to the end ('scroll'), or scrolling with the button still there as a manual
+  // fallback ('both'). Scroll-loading shows skeleton rows while the batch is in
+  // flight, so reaching the end of the list never looks like the end of the data.
+  loadMoreMode = 'button',
+  // How far ahead of the end of the list the next batch starts fetching.
+  infiniteScrollMargin = '400px',
+  skeletonCount = 3,
+  skeletonVariant = 'card',
+  // Ceiling on batches loaded by scrolling alone, after which the reader taps
+  // once to continue. Also the backstop if the list's container never grows.
+  maxAutoBatches = 20,
   // --- server-side search / sort: cover the WHOLE dataset, not the loaded page.
   // Without these, searching a 45,000-row doctor list at `first: 25` searches
   // 25 rows. With them the term and the sort become query variables and the ERP
@@ -235,9 +252,16 @@ export default function DataProviderViews({
     setFetchSizeState(Math.floor(n));
   }, []);
 
+  // The step is its own size so a page can open with a full screen of rows and
+  // then top up in smaller batches. Falls back to pageSize when unset.
+  const stepFetchSize = useMemo(() => {
+    const n = Number(pageStep);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : initialFetchSize;
+  }, [pageStep, initialFetchSize]);
+
   const loadMore = useCallback(() => {
-    setFetchSizeState((current) => current + initialFetchSize);
-  }, [initialFetchSize]);
+    setFetchSizeState((current) => current + stepFetchSize);
+  }, [stepFetchSize]);
 
   const showPaginatorInHeader = enableServerPaging && showPageSizeControl
     && (paginatorPosition === 'header' || paginatorPosition === 'both');
@@ -292,13 +316,14 @@ export default function DataProviderViews({
     fetchSize,
     setFetchSize,
     loadMore,
-    loadMoreStep: initialFetchSize,
+    loadMoreStep: stepFetchSize,
     pageSizeOptions: stablePageSizeOptions,
     pageSizeVariable,
     showLoadMore: showPaginatorAtBottom,
+    mode: loadMoreMode,
   }), [
-    enableServerPaging, fetchSize, setFetchSize, loadMore, initialFetchSize,
-    stablePageSizeOptions, pageSizeVariable, showPaginatorAtBottom,
+    enableServerPaging, fetchSize, setFetchSize, loadMore, stepFetchSize,
+    stablePageSizeOptions, pageSizeVariable, showPaginatorAtBottom, loadMoreMode,
   ]);
 
   // `term` stays the hook's resolved term (what the last probe round actually
@@ -419,6 +444,27 @@ export default function DataProviderViews({
     || Boolean(serverOpsStatus.sortField)
     || (enableServerPaging === true && Boolean(pageSizeVariable));
 
+  // Rendered as the last thing inside the list's own container, so it sits in
+  // the scroll flow the reader is actually moving — and NOT inside the sticky
+  // Load-more bar, which stays on screen and would trigger forever.
+  const scrollLoader = useMemo(() => {
+    if (!enableServerPaging || loadMoreMode === 'button') return null;
+    return (
+      <InfiniteScrollLoader
+        paging={paging}
+        serverOps={serverOps}
+        rootMargin={infiniteScrollMargin}
+        skeletonCount={skeletonCount}
+        skeletonVariant={skeletonVariant}
+        maxAutoBatches={maxAutoBatches}
+        resetKey={serverOpsStatus.term}
+      />
+    );
+  }, [
+    enableServerPaging, loadMoreMode, paging, serverOps, infiniteScrollMargin,
+    skeletonCount, skeletonVariant, maxAutoBatches, serverOpsStatus.term,
+  ]);
+
   const internalForProvider = useMemo(() => {
     const next = { ...__internal };
     if (headerTop || headerLeft || headerRight) {
@@ -481,7 +527,7 @@ export default function DataProviderViews({
                 {viewSwitcherPosition === 'top' ? standaloneSwitcher : null}
                 {showLetterRail ? (
                   <div className={`flex min-h-0 flex-1 gap-1 ${resolvedContentClass}`}>
-                    <div className="min-w-0 flex-1">{children}</div>
+                    <div className="min-w-0 flex-1">{children}{scrollLoader}</div>
                     {/* Rail only on the views that have letter sections (cards).
                         The wrapper row stays constant so toggling views never
                         remounts the slot content. */}
@@ -490,7 +536,7 @@ export default function DataProviderViews({
                     ) : null}
                   </div>
                 ) : (
-                  <div className={resolvedContentClass}>{children}</div>
+                  <div className={resolvedContentClass}>{children}{scrollLoader}</div>
                 )}
                 {showPaginatorAtBottom ? (
                   <>
@@ -506,6 +552,7 @@ export default function DataProviderViews({
                       variant={loadMoreVariant}
                       paging={paging}
                       serverOps={serverOps}
+                      mode={loadMoreMode}
                     />
                   </>
                 ) : null}
