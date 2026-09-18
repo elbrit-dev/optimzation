@@ -18,9 +18,29 @@ import React from "react";
 import { Icon } from "./parts";
 
 export default function DataTable({
-  table, openRow, onToggleRow, pivotOn, onTogglePivot, sortIdx, sortDir, onSort, footnote,
+  table, openRow, onToggleRow, pivotOn, onTogglePivot, sortIdx, sortDir, onSort, compact,
 }) {
-  const { rows, groups, subs, totals, template, minWidth, firstCol } = table;
+  const { rows, groups, subs, totals, firstCol } = table;
+
+  /*
+   * COMPACT GETS NARROWER COLUMNS, not the same ones scrolled.
+   *
+   * buildTable sizes for a desk: a 178px department column and 112px per
+   * figure. On a phone that is 290px before the second column starts, so the
+   * reader saw a department name, one half-column, and had to scroll sideways
+   * for every number -- the table looked empty when the data was there.
+   *
+   * 96 + 66 puts three figures beside the name at 390px. The widths stay in
+   * the grid template rather than in CSS because the header, the sub-header,
+   * every row and the totals row all have to agree on them, and they are one
+   * string shared between those five places.
+   */
+  const firstW = compact ? 96 : table.firstW;
+  const colW = compact ? 66 : 112;
+  const template = compact
+    ? firstW + "px repeat(" + subs.length + "," + colW + "px)"
+    : table.template;
+  const minWidth = compact ? firstW + subs.length * colW + "px" : table.minWidth;
 
   return (
     <div className="dx-tablewrap">
@@ -127,7 +147,6 @@ export default function DataTable({
         </div>
       </div>
 
-      <p className="dx-tablefoot">{footnote}</p>
     </div>
   );
 }

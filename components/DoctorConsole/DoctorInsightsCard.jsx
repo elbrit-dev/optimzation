@@ -80,16 +80,31 @@ export default function DoctorInsightsCard(props) {
             lines={chart.lines}
             markers={chart.lines.map((l) => ({ k: l.k, hue: l.hue, top: l.tops[chart.crossIdx] ?? 0 }))}
             crossLeft={chart.crossLeft}
-            series={chart.SERIES.map((x) => ({
-              k: x.k,
-              label: x.label,
-              hue: x.hue,
-              on: !ui.hidden[x.k],
-              value: x.k === "vis"
-                ? String(chart.selMonth.vis)
-                : (chart.selMonth[x.k] ? money(chart.selMonth[x.k]) : "—"),
-              toggle: () => on.setHidden(x.k),
-            }))}
+            series={chart.SERIES.map((x) => {
+              /*
+               * The legend reads the WHOLE PERIOD until a month is pointed at.
+               *
+               * It used to read chart.selMonth always -- one month -- so on a
+               * doctor whose latest month happens to be empty every chip said
+               * "—" while the table beside it showed real money. The legend is
+               * the chart's overview, so with nothing hovered it totals every
+               * month in the window; hover or tap a month and it becomes that
+               * month, which is what makes the crosshair worth having.
+               */
+              const hovering = chart.hovIdx != null;
+              const row = hovering ? c.months[chart.hovIdx] : null;
+              const total = hovering
+                ? (row?.[x.k] ?? 0)
+                : c.months.reduce((a, m) => a + (m[x.k] ?? 0), 0);
+              return {
+                k: x.k,
+                label: x.label,
+                hue: x.hue,
+                on: !ui.hidden[x.k],
+                value: x.k === "vis" ? String(total) : (total ? money(total) : "—"),
+                toggle: () => on.setHidden(x.k),
+              };
+            })}
             tip={chart.hovIdx != null ? {
               left: chart.hovPct.toFixed(2),
               shift: chart.hovPct < 22 ? "-8px" : chart.hovPct > 78 ? "calc(-100% + 8px)" : "-50%",
@@ -135,7 +150,7 @@ export default function DoctorInsightsCard(props) {
             sortIdx={ui.sortIdx}
             sortDir={ui.sortDir}
             onSort={on.sort}
-            footnote={FOOTNOTE}
+            compact={compact}
           />
         ) : (
           <Activity

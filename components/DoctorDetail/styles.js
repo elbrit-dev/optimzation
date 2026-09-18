@@ -622,6 +622,23 @@ const styles = String.raw`
   overflow: auto; background: rgba(17, 24, 39, .44);
   align-items: flex-start; padding: 16px 14px;
 }
+/* The table on a phone: the same columns, tighter. Padding and type come down
+   so a 74px column still holds a rupee figure, and the sticky sub-header moves
+   up with the shorter group row above it. */
+.dx-root--compact .dx-grp-first,
+.dx-root--compact .dx-grp-cell { padding: 6px 7px; font-size: 8.5px; letter-spacing: .03em; }
+.dx-root--compact .dx-sub { top: 27px; }
+.dx-root--compact .dx-sub-first { padding: 5px 7px; font-size: 10px; }
+.dx-root--compact .dx-sub-cell { padding: 5px 7px; gap: 3px; font-size: 9.5px; }
+.dx-root--compact .dx-sub-cell span { font-size: 8px; }
+.dx-root--compact .dx-row-first { padding: 8px 7px; gap: 5px; }
+.dx-root--compact .dx-row-first span { font-size: 11px; }
+.dx-root--compact .dx-cell { padding: 8px 7px; font-size: 10.5px; }
+.dx-root--compact .dx-subrow-first { padding: 7px 7px 7px 18px; }
+.dx-root--compact .dx-scroll { max-height: 340px; }
+/* 13px each side is 26px of a 390px screen -- about a third of a column. */
+.dx-root--compact .dx-tablewrap { padding-left: 5px; padding-right: 5px; }
+
 .dx-root--compact .dx-veil { align-items: flex-end; padding: 0; }
 .dx-sheet {
   width: 100%; background: #fff; border: 1px solid var(--dx-line);
