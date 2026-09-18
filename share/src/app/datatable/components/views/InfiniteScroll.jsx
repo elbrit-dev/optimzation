@@ -52,17 +52,6 @@ function scrollsVertically(element) {
   return element.scrollHeight > element.clientHeight + 1;
 }
 
-/**
- * Quiet gap that ends a gesture.
- *
- * One flick on a phone emits scroll events for as long as its momentum runs —
- * dozens of them — so counting raw events would make "three scrolls" mean three
- * hundredths of a second. Events are grouped into gestures instead: a new one
- * starts after this long without a scroll. 150ms is below a deliberate
- * flick-pause-flick rhythm and above the gap between momentum frames.
- */
-const GESTURE_GAP_MS = 150;
-
 /** Treat this as "pinned to the very bottom", where no further scroll is possible. */
 const AT_BOTTOM_PX = 8;
 
@@ -72,22 +61,36 @@ const AT_BOTTOM_PX = 8;
  *
  * `progressKey` is the row count in hand: it is what makes a batch a batch.
  *
- * A batch also costs one scroll gesture. That rate limit is not decoration:
- * "the end is in view, so load" on its own over-fires badly whenever the
- * container does not grow with the rows — measured in a headless browser at 19
- * batches off a single scroll, and 2 before the reader had scrolled at all.
+ * A batch also costs distance: `scrollDistancePerBatch` pixels of DOWNWARD
+ * scrolling since the last one, defaulting to half the visible height of
+ * whatever is doing the scrolling. Scrolling back up to re-read something does
+ * not count towards it.
  *
- * A gesture, not an event: one flick emits scroll events for as long as its
- * momentum runs, so "one event" would be satisfied within a frame and mean
- * nothing. See GESTURE_GAP_MS.
+ * That rate limit is not decoration. "The end is in view, so load" on its own
+ * over-fires badly whenever the container does not grow with the rows —
+ * measured in a headless browser at 19 batches off a single scroll, and 2
+ * before the reader had scrolled at all.
  *
- * Requiring SEVERAL gestures per batch is deliberately not offered. Every route
- * to more rows ends at the bottom of the list, and at the bottom no further
- * gestures can arrive — so the requirement would have to be waived exactly where
- * it was meant to bite, and a knob that cannot act in its own case is worse than
- * none. How often a batch loads is set by `pageStep` against the screen height:
- * measured over 12 one-screen flicks, a step of 10 rows loads every 2 flicks, 25
- * every 4, and 50 every 6.
+ * Distance rather than a count of scroll events or gestures, for two reasons.
+ * One flick emits events for as long as its momentum runs, so "one event" is
+ * satisfied within a frame and means nothing; and grouping events into gestures
+ * only moves the problem, because a gesture is not a fixed amount of reading.
+ * Pixels are, and they are what the caller can reason about: "let them get
+ * through about a screen before fetching again".
+ *
+ * `loadTrigger` decides what the distance means:
+ *
+ * - `'near-end'` (default) fetches as the END of the list comes within
+ *   `rootMargin`, and the distance is only a floor between batches. Measured, it
+ *   rarely binds there — reaching the end means reaching the bottom, where it is
+ *   waived — because the list paces itself: a batch pushes the end away by
+ *   whatever it added.
+ * - `'distance'` drops the proximity test, so the distance IS the trigger:
+ *   every N pixels of reading, fetch the next batch. Steady prefetch, and it
+ *   will outrun a reader if N is smaller than the height a batch adds
+ *   (`pageStep` x row height). Measured over 12 one-screen flicks with 20-row
+ *   batches of 80px rows: 500px loaded 14 batches for 12 screens of reading,
+ *   1500px loaded 4.
  */
 export function EndOfListDetector({
   enabled = true,
@@ -95,16 +98,18 @@ export function EndOfListDetector({
   busy = false,
   progressKey = 0,
   rootMargin = '400px',
+  loadTrigger = 'near-end',
+  scrollDistancePerBatch = 0,
   onReachEnd,
 }) {
   const anchorRef = useRef(null);
   const onReachEndRef = useRef(onReachEnd);
   onReachEndRef.current = onReachEnd;
   const askedForRef = useRef(null);
-  // Gestures counted since the last batch, and when the current one last moved.
-  // Starts at zero so the first batch costs the same as every later one.
-  const gesturesRef = useRef(0);
-  const lastScrollAtRef = useRef(0);
+  // Pixels scrolled DOWN since the last batch, and the position each measured
+  // scroller was last seen at (a page and an inner box can both report).
+  const travelledRef = useRef(0);
+  const lastTopRef = useRef(new WeakMap());
 
   useEffect(() => {
     if (!enabled || !hasMore || busy) return undefined;
@@ -122,18 +127,29 @@ export function EndOfListDetector({
     const ask = () => {
       if (askedForRef.current === progressKey) return;
       askedForRef.current = progressKey;
-      gesturesRef.current = 0;
+      travelledRef.current = 0;
       onReachEndRef.current?.();
+    };
+
+    // Minimum distance between batches. Unset means half the visible height of
+    // whatever is scrolling, which is the same rule on a phone and a desktop
+    // without anyone having to pick a number per screen size.
+    const requiredTravel = (element) => {
+      const explicit = Math.max(0, Math.floor(Number(scrollDistancePerBatch) || 0));
+      return explicit > 0 ? explicit : Math.round(element.clientHeight / 2);
     };
 
     const measure = (element) => {
       if (!element || !scrollsVertically(element)) return;
-      const distance = distanceToBottom(element);
-      if (distance > margin) return;
-      // Waived at the very bottom: there is nothing left to scroll there, so no
-      // further events arrive and waiting for one would stall the list on its
+      const remaining = distanceToBottom(element);
+      // 'near-end' waits until the end of the list is within rootMargin.
+      // 'distance' drops that and fetches purely on how far has been scrolled,
+      // which is a steady prefetch rather than a top-up at the end.
+      if (loadTrigger !== 'distance' && remaining > margin) return;
+      // Both modes waive the distance at the very bottom: no more can be
+      // travelled there, and holding out for it would strand the reader on the
       // last row with more data available.
-      if (gesturesRef.current < 1 && distance > AT_BOTTOM_PX) return;
+      if (travelledRef.current < requiredTravel(element) && remaining > AT_BOTTOM_PX) return;
       ask();
     };
 
@@ -145,9 +161,14 @@ export function EndOfListDetector({
       if (!(element instanceof Element)) return;
       if (!container.contains(element) && !element.contains(container)) return;
 
-      const now = Date.now();
-      if (now - lastScrollAtRef.current > GESTURE_GAP_MS) gesturesRef.current += 1;
-      lastScrollAtRef.current = now;
+      // Downward travel only: scrolling back up to re-read something should not
+      // count towards the next batch.
+      const top = element.scrollTop;
+      const previous = lastTopRef.current.get(element);
+      if (typeof previous === 'number' && top > previous) {
+        travelledRef.current += top - previous;
+      }
+      lastTopRef.current.set(element, top);
 
       // Measured on the next frame, so a flick costs one measurement per frame
       // rather than one per event.
@@ -175,7 +196,7 @@ export function EndOfListDetector({
       document.removeEventListener('scroll', onScroll, { capture: true });
       if (frame) cancelAnimationFrame(frame);
     };
-  }, [enabled, hasMore, busy, progressKey, rootMargin]);
+  }, [enabled, hasMore, busy, progressKey, rootMargin, loadTrigger, scrollDistancePerBatch]);
 
   // Always rendered, even when there is nothing left to load: it is how the
   // effect finds the list's container, and removing it would tear down and
@@ -215,6 +236,10 @@ export function InfiniteScrollLoader({
   paging: pagingProp,
   serverOps,
   rootMargin = '400px',
+  loadTrigger = 'near-end',
+  // Minimum downward scrolling between batches, in pixels. 0 = half the visible
+  // height of whatever is scrolling.
+  scrollDistancePerBatch = 0,
   skeletonCount = 3,
   skeletonVariant = 'card',
   // Ceiling on batches loaded by scrolling alone, after which the reader asks
@@ -289,6 +314,8 @@ export function InfiniteScrollLoader({
         busy={busy}
         progressKey={inHand}
         rootMargin={rootMargin}
+        loadTrigger={loadTrigger}
+        scrollDistancePerBatch={scrollDistancePerBatch}
         onReachEnd={onReachEnd}
       />
     </div>

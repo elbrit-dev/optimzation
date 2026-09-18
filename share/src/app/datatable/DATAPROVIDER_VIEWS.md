@@ -323,7 +323,9 @@ The prop descriptions are written as **Studio-facing documentation**, including 
 | `loadMoreVariant` | choice | `floating` | `floating` \| `bar` \| `plain` |
 | `loadMoreMode` | choice | `button` | `button` \| `scroll` \| `both` — see §5c |
 | `pageStep` | number | = `pageSize` | rows each following batch adds; also what paces scroll-loading |
-| `infiniteScrollMargin` | string | `400px` | how far ahead of the end loading starts |
+| `infiniteScrollMargin` | string | `400px` | how far ahead of the end loading starts (`near-end` only) |
+| `loadTrigger` | choice | `near-end` | `near-end` \| `distance` — what asks for the next batch |
+| `scrollDistancePerBatch` | number | `0` | px of downward scrolling per batch; `0` = half the visible height |
 | `skeletonCount` / `skeletonVariant` | number / choice | `3` / `card` | placeholders while a batch loads |
 | `maxAutoBatches` | number | `20` | batches per scroll session before a tap is needed; `0` = no ceiling |
 | `enableServerSearch` | boolean | `false` | search the whole dataset; needs `$filter: [DBFilterInput]` in the body (§5b) |
@@ -557,21 +559,27 @@ So instead there is one capture-phase `scroll` listener, and whatever element re
 
 Two guards on which scrolls count: the element must be **vertically** scrollable (a horizontally-scrolling table wrapper has a distance-to-bottom of 0 and would fire on every sideways nudge), and it must either contain the list's box or be contained by it, so an unrelated scroller elsewhere on the page is ignored.
 
-### One batch per gesture — and what actually paces the loading
+### What asks for the next batch
 
-"The end is in view, so load" is not enough on its own. Measured in a headless browser against a list whose container never grows: **19 batches off a single scroll**, stopping only when the cap was hit, and 2 batches before the reader had scrolled at all. So a batch also costs one scroll **gesture** — not one scroll event, because a single flick emits events for as long as its momentum runs and "one event" would be satisfied within a frame. Events are grouped into bursts separated by 150ms of quiet.
+"The end is in view, so load" is not enough on its own. Measured in a headless browser against a list whose container never grows: **19 batches off a single scroll**, stopping only when the cap was hit, and 2 batches before the reader had scrolled at all. So a batch also costs **distance**: `scrollDistancePerBatch` pixels of downward scrolling since the last one, defaulting to half the visible height of whatever is scrolling. Scrolling back up to re-read does not count.
 
-**Requiring several gestures per batch was tried and removed.** It cannot be made to work: every route to more rows ends at the bottom of the list, and at the bottom no further gestures can arrive — a flick against the end produces no movement and no event. The requirement therefore has to be waived exactly where it was meant to bite, and measurement confirmed it: with the waiver, 12 flicks produced the same 3 batches whether the setting was 1 or 3; without it, a reader pinned on the last row would sit in front of a list that looks finished.
+Distance rather than a count of scroll events or gestures. One flick emits events for as long as its momentum runs, so "one event" is satisfied within a frame and means nothing; grouping them into gestures only moves the problem, because a gesture is not a fixed amount of reading. Pixels are, and they are what a caller can reason about. (A `scrollsPerBatch` gesture counter was built first and removed — measured, 12 flicks produced the same 3 batches at a setting of 1 or 3.)
 
-What genuinely sets the pace is **`pageStep` against the screen height**, because a bigger batch pushes the end of the list further away. Measured over 12 one-screen phone flicks (80px rows, 600px viewport):
+`loadTrigger` decides what that distance means. Measured over 12 one-screen phone flicks, 80px rows, 600px viewport, `pageStep: 20` — so one batch adds 1600px, and the reader covers 12 screens:
 
-| `pageStep` | batches | pace |
+| `scrollDistancePerBatch` | `near-end` | `distance` |
 |---|---|---|
-| 10 | 6 | one per 2 flicks |
-| 25 | 3 | one per 4 flicks |
-| 50 | 2 | one per 6 flicks |
+| auto (= 300) | 3 batches, 110 rows | 23 batches, 510 rows |
+| 500px | 3 batches, 110 rows | 14 batches, 330 rows |
+| 1000px | 3 batches, 110 rows | 7 batches, 190 rows |
+| 1600px | 3 batches, 110 rows | 4 batches, 130 rows |
+| 3000px | 3 batches, 110 rows | 3 batches, 110 rows |
 
-`infiniteScrollMargin` is the other half: it decides how far ahead of the end a batch starts, so it trades "already there when the reader arrives" against fetching rows they may never reach.
+**`near-end` (default) paces itself**, and the distance never binds there — reaching the end of the list means reaching the bottom, where the distance has to be waived or the reader is stranded on the last row with more data available. What sets the pace instead is `pageStep` against the screen height, since a bigger batch pushes the end further away: at 600px flicks, a step of 10 rows loads every 2 flicks, 25 every 4, 50 every 6.
+
+**`distance` drops the proximity test**, so the distance *is* the trigger: every N pixels, fetch. That is the mode to pick for "load a batch each time I scroll about a screen" — but the table above is the warning that comes with it. Below about `pageStep × row height` it outruns the reader (500px loads 330 rows for 12 screens of reading), and every batch re-fetches rows 1..N, so the waste compounds. Setting it *to* that height (1600px here) makes loading track reading almost exactly.
+
+`infiniteScrollMargin` is the other half of `near-end`: how far ahead of the end a batch starts, trading "already there when the reader arrives" against fetching rows they may never reach.
 
 So a batch costs a ticket. One is granted at mount (a list too short to scroll can still fill the first screen), spent on each ask, and granted again by a `scroll` event on the root. Extra tickets are harmless — a batch also has to be *new* (asked once per row count), so continuous scrolling cannot double-load.
 

@@ -160,6 +160,14 @@ export default function DataProviderViews({
   loadMoreMode = 'button',
   // How far ahead of the end of the list the next batch starts fetching.
   infiniteScrollMargin = '400px',
+  // What asks for the next batch: nearing the end of the list ('near-end',
+  // default) or simply having scrolled far enough ('distance').
+  loadTrigger = 'near-end',
+  // Minimum downward scrolling between batches, in pixels — how much reading a
+  // reader has to do before the next fetch. 0 = half the visible height of
+  // whatever is scrolling, which suits a phone and a desktop without picking a
+  // number for each.
+  scrollDistancePerBatch = 0,
   skeletonCount = 3,
   skeletonVariant = 'card',
   // Ceiling on batches loaded by scrolling alone, after which the reader taps
@@ -454,6 +462,8 @@ export default function DataProviderViews({
         paging={paging}
         serverOps={serverOps}
         rootMargin={infiniteScrollMargin}
+        loadTrigger={loadTrigger}
+        scrollDistancePerBatch={scrollDistancePerBatch}
         skeletonCount={skeletonCount}
         skeletonVariant={skeletonVariant}
         maxAutoBatches={maxAutoBatches}
@@ -462,7 +472,7 @@ export default function DataProviderViews({
     );
   }, [
     enableServerPaging, loadMoreMode, paging, serverOps, infiniteScrollMargin,
-    skeletonCount, skeletonVariant, maxAutoBatches, serverOpsStatus.term,
+    loadTrigger, scrollDistancePerBatch, skeletonCount, skeletonVariant, maxAutoBatches, serverOpsStatus.term,
   ]);
 
   const internalForProvider = useMemo(() => {

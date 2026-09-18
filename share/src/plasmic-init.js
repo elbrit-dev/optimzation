@@ -202,6 +202,19 @@ const dataProviderViewsMeta = {
       description:
         'How far ahead of the end of the list the next batch starts fetching, so it is usually there before the reader arrives. Any CSS length; larger means earlier and more eager.',
     },
+    loadTrigger: {
+      type: 'choice',
+      options: ['near-end', 'distance'],
+      defaultValue: 'near-end',
+      description:
+        'What asks for the next batch. "near-end" (default) fetches as the end of the list comes within infiniteScrollMargin — it paces itself, because each batch pushes the end further away. "distance" fetches every scrollDistancePerBatch pixels of scrolling instead, wherever the reader is in the list: a steady prefetch. Measured over 12 one-screen phone flicks with 20-row batches of 80px rows, "distance" at 500px loaded 14 batches for 12 screens of reading, and at 1500px loaded 4 — so set the distance to about what one batch adds (pageStep x row height) or it will outrun the reader, and every batch re-fetches rows 1..N.',
+    },
+    scrollDistancePerBatch: {
+      type: 'number',
+      defaultValue: 0,
+      description:
+        'Minimum DOWNWARD scrolling between batches, in pixels — how much reading someone does before the next fetch. 0 means half the visible height of whatever is scrolling, which suits a phone and a desktop without picking a number for each; 500 on a phone is about two thirds of a screen. Scrolling back up to re-read does not count. With loadTrigger "distance" this IS the trigger. With "near-end" it is only a floor between batches, and in practice it rarely bites there: reaching the end of the list means reaching the bottom, where it has to be waived or the reader would be stranded on the last row.',
+    },
     skeletonCount: {
       type: 'number',
       defaultValue: 3,
