@@ -222,26 +222,60 @@ export function EndOfListDetector({
   return <span ref={anchorRef} aria-hidden="true" />;
 }
 
-const SKELETON_SHELL = 'animate-pulse rounded-xl bg-gray-100';
+const SHIMMER = 'animate-pulse rounded bg-gray-200';
 
 /**
- * Placeholder rows shown while a scroll-triggered batch is in flight.
+ * Placeholder rows shown while a batch is in flight.
  *
  * The point is the reader who got to the bottom faster than the network: they
- * should see that something is coming, rather than an apparently finished list.
+ * should see that something is coming, rather than an apparently finished list
+ * with dead space under it.
+ *
+ * It is shaped like the thing it stands in for — a white card with a border,
+ * carrying an avatar disc and a couple of text bars. The first version was a
+ * plain `bg-gray-100` block, which on this app's light grey page background was
+ * very nearly invisible: the skeletons rendered and still read as empty space,
+ * which is the complaint that produced this one.
+ *
  * `aria-hidden` behind one live status, so a screen reader hears "Loading more"
  * once instead of reading out empty boxes.
  */
 export function LoadMoreSkeleton({ count = 3, variant = 'card', className }) {
   const items = Math.max(1, Math.min(12, Math.floor(Number(count) || 0) || 1));
-  const height = variant === 'row' ? '2.25rem' : '4.5rem';
   return (
-    <div className={`flex flex-col gap-2 ${className ?? ''}`}>
+    <div className={`flex flex-col gap-3 ${className ?? ''}`}>
       <span className="sr-only" role="status">Loading more</span>
-      <div aria-hidden="true" className="flex flex-col gap-2">
+      <div aria-hidden="true" className="flex flex-col gap-3">
         {Array.from({ length: items }, (_, index) => (
-          <div key={index} className={SKELETON_SHELL} style={{ height }} />
+          variant === 'row' ? (
+            <div
+              key={index}
+              className="flex items-center gap-3 rounded-lg border border-gray-100 bg-white px-3 py-2.5"
+            >
+              <div className={`${SHIMMER} h-3 w-1/3`} />
+              <div className={`${SHIMMER} h-3 flex-1`} />
+              <div className={`${SHIMMER} h-3 w-12 shrink-0`} />
+            </div>
+          ) : (
+            <div
+              key={index}
+              className="flex items-start gap-3 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm"
+            >
+              <div className={`${SHIMMER} h-10 w-10 shrink-0 rounded-full`} />
+              <div className="flex min-w-0 flex-1 flex-col gap-2">
+                <div className={`${SHIMMER} h-4 w-2/5`} />
+                <div className={`${SHIMMER} h-3 w-1/4`} />
+                <div className={`${SHIMMER} h-3 w-3/5`} />
+              </div>
+            </div>
+          )
         ))}
+      </div>
+      {/* Says in words what the shapes imply, because a pulse alone can read as
+          a rendering glitch on a slow connection. */}
+      <div className="flex items-center justify-center gap-2 pb-1 text-[11px] font-medium text-gray-400 sm:text-xs">
+        <i className="pi pi-spin pi-spinner text-[10px]" aria-hidden="true" />
+        Loading more…
       </div>
     </div>
   );
@@ -311,7 +345,16 @@ export function InfiniteScrollLoader({
   return (
     <div className={className}>
       {busy && mayHaveMore ? (
-        <LoadMoreSkeleton count={skeletonCount} variant={skeletonVariant} className="pt-1" />
+        <LoadMoreSkeleton count={skeletonCount} variant={skeletonVariant} className="pt-3" />
+      ) : null}
+
+      {/* The end of the list, said plainly. Without it the last row is followed
+          by blank space that looks the same whether more is coming or not —
+          and in scroll mode there is no button there to imply an answer. */}
+      {!busy && !mayHaveMore && inHand > 0 ? (
+        <div className="py-5 text-center text-[11px] font-medium text-gray-400 sm:text-xs">
+          {`That's all ${visible.toLocaleString('en-US')}`}
+        </div>
       ) : null}
 
       {/* Out of automatic batches, or nothing that scrolling can act on: hand

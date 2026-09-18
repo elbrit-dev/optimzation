@@ -619,7 +619,13 @@ Two things follow, both scoped to the scroll modes (the loader is not rendered a
 
 ### Skeletons
 
-While a scroll-triggered batch is in flight, placeholder rows render at the end of the list — `skeletonCount` of them, `card` or `row` shaped. The point is the reader who gets to the bottom faster than the network: without them the list looks finished. They are `aria-hidden` behind a single `role="status"` "Loading more", so a screen reader hears it once instead of reading out empty boxes.
+While a batch is in flight, placeholders render at the end of the list — `skeletonCount` of them, `card` or `row` shaped — under a visible "Loading more…" line. The point is the reader who gets to the bottom faster than the network: without them the list looks finished.
+
+**They are shaped like the thing they stand in for**: a white card with a border, an avatar disc and two or three text bars. The first version was a plain `bg-gray-100` block, which on this app's light grey page background was near enough invisible — the skeletons rendered and the space still read as empty, which is the report that produced the current shape. A pulse alone can also look like a rendering glitch on a slow connection, hence the words next to it.
+
+When there is nothing left, the same space says `That's all 310` rather than trailing off into blank scroll — in scroll mode there is no button down there to imply an answer either way.
+
+They are `aria-hidden` behind a single `role="status"` "Loading more", so a screen reader hears it once instead of reading out empty boxes.
 
 In the **table** view they land below the table's box rather than after the last row, because the rows are inside its scroller and this is not — so use `skeletonVariant: 'row'` there, and note that the Load-more bar's own "Loading…" is the indicator that sits closest to where the reader is looking.
 
