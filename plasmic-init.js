@@ -1700,7 +1700,7 @@ PLASMIC.registerComponent(DoctorDetail, {
     onBack: {
       type: "eventHandler",
       description:
-        "Navigate back, with { doctor, code }. Wire it and the breadcrumb’s \"Doctor lists\" becomes a link; leave it and the crumb is plain text. The component never navigates itself.",
+        "Navigate back, with { doctor, code }. OPTIONAL now: the breadcrumb’s \"Doctor lists\" is always a link to /doctor, so it works with nothing wired. Wire this only when the page wants to handle going back ITSELF — restoring the reader’s scroll position and filters rather than reloading the route — in which case this runs and the link’s own navigation is cancelled.",
       argTypes: [{ name: "payload", type: "object" }],
     },
     onAddClinic: {

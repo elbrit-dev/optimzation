@@ -62,11 +62,25 @@ export default function DoctorDetail(props) {
     >
       <ConsoleStyles />
       <div className="dx-crumbs">
-        {onBack ? (
-          <button type="button" className="dx-crumb-btn" onClick={() => onBack({ doctor: c.doctor, code: c.doctorId })}>
-            Doctor lists
-          </button>
-        ) : <span>Doctor lists</span>}
+        {/*
+          * "Doctor lists" now always goes somewhere: a plain link to /doctor,
+          * which is where the list lives. It used to be inert text unless a
+          * page wired onBack, so on a page that had not, the crumb looked like
+          * a link and did nothing.
+          *
+          * A wired onBack still wins -- the page may want to restore a scroll
+          * position or filters rather than reload the route -- so the handler
+          * runs and the default navigation is cancelled. Unwired, the href is
+          * what happens, which also means middle-click and open-in-new-tab
+          * work, as they should on something that reads as a link.
+          */}
+        <a
+          className="dx-crumb-btn"
+          href="/doctor"
+          onClick={onBack ? (e) => { e.preventDefault(); onBack({ doctor: c.doctor, code: c.doctorId }); } : undefined}
+        >
+          Doctor lists
+        </a>
         <span className="dx-sep">▸</span>
         <span className="dx-here">{c.doctor?.name ?? c.doctorId}</span>
       </div>
