@@ -179,7 +179,13 @@ export function PeekHistory({ doctor, erpUrl, authToken, employee }) {
                earlier code asked for fields the row does not have and every
                line came back as the word "Service". */
             left={g.kind || "Service"}
-            sub={[fday(g.d), g.div, g.ref].filter(Boolean).join(" · ")}
+            /* Date and division only. The row's `ref` (remarks) was in here
+               and came straight back out: ERP's remarks are whole sentences --
+               "NEED INNOVA CAB FROM CROWN RESIDENCE (BASHYAM APARTMENT)
+               KOYAMBEDU ON 31-10-2025 @ 3AM TO DROP CHENNAI AIRPORT" -- which
+               is three wrapped lines inside a popup that is meant to be
+               skimmed. */
+            sub={[fday(g.d), g.div].filter(Boolean).join(" · ")}
             right={g.amt != null ? money(g.amt) : ""}
           />
         )) : <Empty what={c.canSeeService ? "Nothing recorded." : "Not shown at your level."} />}
