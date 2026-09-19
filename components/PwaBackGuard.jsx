@@ -1,23 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/router";
+import { exitApp, isExiting, resumeExitIfPending } from "../lib/appExit";
 
 /**
- * Makes the Android/PWA back gesture behave like a native app's.
+ * Makes the back gesture behave like a native app's: home is the root, and the
+ * root does not fall out of the app.
  *
- * Installed as a PWA the app has no browser chrome, so the system back button
- * IS the app's navigation. Three things were wrong with what the browser does
- * on its own:
+ * Installed as a PWA there is no browser chrome, so the system back button IS
+ * the app's navigation. Two things were wrong with what the browser does on
+ * its own:
  *
  *   1. The home screen is the FIRST entry the PWA opens (`start_url: "/"`), so
- *      back there has nothing to pop and the OS closes the app instantly — no
+ *      back there had nothing to pop and the OS closed the app instantly — no
  *      warning, mid-task, no way to undo.
  *   2. When the session started at /login instead, back from home walked into
- *      the login page. That is not a place a signed-in person should ever land:
- *      it re-runs the sign-in flow and, through NovuInbox's
+ *      the login page. That is not a place a signed-in person should ever
+ *      land: it re-runs the sign-in flow and, through NovuInbox's
  *      `pathname === "/login"` branch, tears down the push subscription — the
  *      "it logged me out on its own" report.
- *   3. Anywhere else in the app back is already correct, and must stay
- *      untouched.
+ *
+ * Anywhere else in the app back is already correct and is left untouched.
  *
  * The mechanism is the one shared/calendar/components/calendar/hooks.js already
  * uses for overlays: a throwaway history entry, plus a CAPTURE-phase popstate
@@ -29,6 +31,15 @@ import { useRouter } from "next/router";
  * must still close the dialog. See rule 2 in `handlePop` — when a layer above
  * our sentinel is what got popped, the event is left alone and the calendar's
  * own handler takes it.
+ *
+ * Back at home raises the "Exit Elbrit One?" prompt. Actually closing the app
+ * is a job in itself — the browser only permits it under a condition that has
+ * to be manufactured — and lives in lib/appExit.js.
+ *
+ * iOS is the exception, and not by choice: Safari never honours close(), and a
+ * home-screen web app has no back button anyway — its left-edge swipe just
+ * stops at the root. There the sentinel simply absorbs the swipe and no prompt
+ * is shown, because an Exit button that cannot exit is worse than none.
  */
 
 /** Marks the throwaway entry that stands between home and leaving the app. */
@@ -51,7 +62,7 @@ const isHomeRoute = (pathname) => HOME_ROUTES.includes(normalise(pathname));
 const isLoginRoute = (pathname) => LOGIN_ROUTES.includes(normalise(pathname));
 
 /**
- * Only an INSTALLED app gets the exit prompt.
+ * Only an INSTALLED app gets the root treatment.
  *
  * In an ordinary browser tab, back from home means "the page I was on before
  * this site" and hijacking it would be wrong — there the browser is already
@@ -81,31 +92,17 @@ const isIOS = () => {
   return /Macintosh/.test(navigator.userAgent || "") && navigator.maxTouchPoints > 1;
 };
 
-/**
- * Can the app be closed from inside at all?
- *
- * On Android back at the root closes the app, so there is something to warn
- * about and something for an Exit button to do. On iOS neither is true: a
- * home-screen web app has no back button, the left-edge swipe simply does
- * nothing once there is no history behind it, and nothing in the platform lets
- * a page close its own app window — the user leaves through the app switcher.
- *
- * So iOS still gets the sentinel, which is what stops a swipe at home walking
- * backwards into the login page, but it must NOT get the prompt. An "Exit"
- * button that cannot exit is the bug we just finished removing from Android.
- */
+/** Safari ignores window.close() outright, so iOS gets no prompt. */
 const canCloseApp = () => !isIOS();
-
 
 export default function PwaBackGuard() {
   const router = useRouter();
   const [confirmingExit, setConfirmingExit] = useState(false);
 
-  // Refs, not state: the popstate listener is registered once and has to read
-  // today's values, not the ones captured when it was attached.
+  // A ref, not state: the popstate listener is registered once and has to read
+  // today's router, not the one captured when it was attached.
   const routerRef = useRef(router);
   routerRef.current = router;
-  const disarmedRef = useRef(false);
 
   /* Firebase restores the session from IndexedDB asynchronously, so
      `currentUser` is null for the first moments after a cold start. Treating
@@ -170,7 +167,8 @@ export default function PwaBackGuard() {
    */
   const armSentinel = useCallback(() => {
     if (typeof window === "undefined") return;
-    if (disarmedRef.current) return;
+    // An exit is unwinding the history; adding to it would fight the walk.
+    if (isExiting()) return;
     if (!isInstalledApp()) return;
     if (!isHomeRoute(window.location.pathname)) return;
     if (window.history.state?.[EXIT_FLAG]) return;
@@ -205,10 +203,11 @@ export default function PwaBackGuard() {
     if (typeof window === "undefined") return undefined;
 
     const handlePop = (event) => {
-      /* 0. An exit is in flight. `confirmExit` rewinds the history itself and
-            swallows the traversal it causes; every rule below would fight it —
-            rule 1 especially, since entry 0 of the session is often /login. */
-      if (disarmedRef.current) return;
+      /* 0. An exit is in flight. lib/appExit.js is walking the history back
+            and swallowing its own pops; every rule below would fight it —
+            rule 1 especially, since the walk passes straight through /login
+            on its way to entry 0. */
+      if (isExiting()) return;
 
       const path = window.location.pathname;
 
@@ -234,17 +233,13 @@ export default function PwaBackGuard() {
       if (window.history.state?.[EXIT_FLAG]) return;
 
       /* 3. The sentinel itself was popped while on home: this back press would
-            have closed the app. Hold the position and ask first.
-
-            Re-arming here also puts us on the LAST history entry — a
-            pushState discards everything forward of it — which is the fact
-            `confirmExit` relies on to know how far back entry 0 is. */
+            have closed the app. Hold the position and ask first. */
       if (isHomeRoute(path) && isInstalledApp()) {
         event.stopImmediatePropagation();
         armSentinel();
-        // iOS cannot close the app and back does not try to, so the swipe is
-        // simply absorbed: home is the root, and back at the root goes
-        // nowhere. Only Android has something to confirm.
+        // iOS cannot close the app and back does not try to, so there the
+        // press is simply absorbed: home is the root and back at the root
+        // goes nowhere.
         if (canCloseApp()) {
           // A second back press with the prompt already up reads as "no".
           setConfirmingExit((open) => !open);
@@ -269,6 +264,11 @@ export default function PwaBackGuard() {
   // constructor, and that write lands on whatever entry is current. Arming
   // before it would have Next overwrite the sentinel's marker.
   useEffect(() => {
+    // An exit already under way landed on this document mid-walk: carry it on
+    // rather than arming anything. Must come first, since armSentinel below
+    // defers to the same flag.
+    resumeExitIfPending();
+
     const firstArm = window.setTimeout(armSentinel, 0);
     router.events?.on("routeChangeComplete", armSentinel);
     return () => {
@@ -281,7 +281,7 @@ export default function PwaBackGuard() {
      without adding logging to a screen people use all day. Read
      `__elbritBackGuard` in the console: `armed` false with `gesture` false
      means nothing has been tapped yet, which is the one state where back still
-     closes the app. */
+     closes the app on Chromium. */
   useEffect(() => {
     if (typeof window === "undefined") return;
     window.__elbritBackGuard = {
@@ -300,69 +300,21 @@ export default function PwaBackGuard() {
       get canClose() {
         return canCloseApp();
       },
+      get exiting() {
+        return isExiting();
+      },
+      get entries() {
+        return window.history.length;
+      },
       arm: armSentinel,
     };
   }, [armSentinel]);
 
   const cancelExit = useCallback(() => setConfirmingExit(false), []);
 
-  /**
-   * Actually closes the app.
-   *
-   * `window.close()` on its own does nothing here, which is why the first
-   * version of this button appeared dead: Chromium only lets a script close a
-   * window that either has an opener or whose back/forward stack holds FEWER
-   * THAN TWO entries. An app someone has been using all morning has dozens, so
-   * the call is refused silently — no exception to catch, no console message
-   * on a phone.
-   *
-   * So the stack has to be cut down to one entry first, and only a real
-   * navigation can do that:
-   *
-   *   1. Rewind to entry 0. The prompt is only ever shown straight after
-   *      `armSentinel` pushed an entry, and a push discards everything forward
-   *      of it, so the current entry is the last one and `length - 1` is
-   *      exactly how far back entry 0 is. The traversal is swallowed, so
-   *      nothing re-renders on the way.
-   *   2. Replace entry 0 with /exit.html. A replacing navigation drops every
-   *      forward entry, which leaves a session history of exactly one — and
-   *      that page closes itself.
-   *
-   * /exit.html is a static page rather than a flag on "/" so this costs an
-   * instant file instead of a full boot of the app, and so there is somewhere
-   * sensible to stand if a browser still refuses to close (iOS never will).
-   */
   const confirmExit = useCallback(() => {
     setConfirmingExit(false);
-    disarmedRef.current = true;
-
-    const leave = () => window.location.replace("/exit.html");
-    const steps = window.history.length - 1;
-    if (steps <= 0) {
-      leave();
-      return;
-    }
-
-    let settled = false;
-    let timer = 0;
-    const settle = (event) => {
-      // Swallowing matters: entry 0 is frequently /login, and letting Next
-      // route there — even for the moment before the page is replaced — is the
-      // exact thing this component exists to prevent.
-      event?.stopImmediatePropagation?.();
-      if (settled) return;
-      settled = true;
-      window.clearTimeout(timer);
-      window.removeEventListener("popstate", settle, true);
-      leave();
-    };
-
-    window.addEventListener("popstate", settle, true);
-    // A traversal past the start of the history is a no-op rather than an
-    // error, so nothing may come back. Leave anyway; the worst case is that
-    // /exit.html cannot close itself and offers a way back instead.
-    timer = window.setTimeout(settle, 600);
-    window.history.go(-steps);
+    exitApp();
   }, []);
 
   useEffect(() => {

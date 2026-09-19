@@ -5,19 +5,19 @@
 <title>Elbrit One</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!--
-  The last thing the app loads on its way out.
+  The last thing the app loads on its way out. See lib/appExit.js.
 
-  components/PwaBackGuard.jsx navigates here with location.replace() from the
-  FIRST history entry, which leaves this document as the only entry in the
-  session. That is deliberate and it is the whole point of this file:
-  Chromium refuses window.close() unless the window has an opener or its
-  back/forward stack holds fewer than two entries. From "/" with a morning's
-  navigation behind it the call is silently ignored; from here it works.
+  The app walks its history back to entry 0 and then REPLACES that entry with
+  this page, which discards every forward entry and leaves this document as the
+  only one in the session. That is the whole point: Chromium refuses
+  window.close() unless the window has an opener or its history holds fewer
+  than two entries, and from here it holds one.
 
-  Everything below the script is the fallback for a browser that still says no
-  — iOS never honours close() — so nobody is left staring at a blank screen.
+  Everything below the script is for the case where the browser still says no.
   It stays hidden until close() has had its chance, otherwise it would flash up
-  in the instant before the window disappears.
+  in the instant before the window disappears. The entry count is printed
+  because it is the one number that says WHY: 1 means the walk worked and the
+  browser refused anyway, more than 1 means the walk did not reach entry 0.
 -->
 <style>
   :root { color-scheme: light dark; }
@@ -46,6 +46,7 @@
     font-weight: 600;
     text-decoration: none;
   }
+  code { font-size: 0.75rem; opacity: 0.5; display: block; margin-top: 16px; }
   @media (prefers-color-scheme: dark) {
     body { background: #14161a; color: rgb(255 255 255 / 0.88); }
     h1 { color: rgb(255 255 255 / 0.92); }
@@ -55,13 +56,20 @@
 </head>
 <body>
 <script>
+  try { sessionStorage.removeItem('__elbritExitInProgress'); } catch (e) {}
+  var entries = history.length;
   try { window.close(); } catch (e) { /* refused — the card below takes over */ }
-  setTimeout(function () { document.body.className = 'stuck'; }, 500);
+  setTimeout(function () {
+    document.body.className = 'stuck';
+    var el = document.getElementById('why');
+    if (el) el.textContent = 'history entries: ' + entries;
+  }, 500);
 </script>
 <div class="card">
   <h1>Elbrit One is closed</h1>
-  <p>This browser will not close the window by itself. Swipe the app away to finish, or carry on where you left off.</p>
+  <p>This browser would not close the window by itself. Swipe the app away to finish, or carry on where you left off.</p>
   <a href="/">Back to Elbrit One</a>
+  <code id="why"></code>
 </div>
 </body>
 </html>

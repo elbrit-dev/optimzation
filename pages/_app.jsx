@@ -483,8 +483,8 @@ function MyApp({ Component, pageProps }) {
           `}
         </Script>
         
-        {/* Owns the system back button while the app runs installed: back from
-            home asks before closing, and no back press can reach /login while
+        {/* Owns the system back button while the app runs installed: home
+            behaves as the root, and no back press can reach /login while
             someone is signed in. Mounted here so it survives every route
             change — the history sentinel it keeps has to outlive the page. */}
         <PwaBackGuard />
