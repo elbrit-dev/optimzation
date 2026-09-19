@@ -454,7 +454,12 @@ function MyApp({ Component, pageProps }) {
           <meta name="msapplication-tap-highlight" content="no" />
           
           <link rel="manifest" href="/manifest.webmanifest" />
-          <link rel="apple-touch-icon" href="/logo.svg" />
+          {/* PNG, not the SVG that used to be here: iOS ignores an SVG
+              apple-touch-icon completely and falls back to a screenshot of the
+              page, which is why the home-screen tile looked blank on iPhone.
+              180x180 is the size iOS asks for and scales down from. */}
+          <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+          <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
           <link rel="shortcut icon" href="/favicon.ico" />
         </Head>
         <Script

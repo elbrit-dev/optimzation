@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Elbrit One</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!--
+  The last thing the app loads on its way out.
+
+  components/PwaBackGuard.jsx navigates here with location.replace() from the
+  FIRST history entry, which leaves this document as the only entry in the
+  session. That is deliberate and it is the whole point of this file:
+  Chromium refuses window.close() unless the window has an opener or its
+  back/forward stack holds fewer than two entries. From "/" with a morning's
+  navigation behind it the call is silently ignored; from here it works.
+
+  Everything below the script is the fallback for a browser that still says no
+  — iOS never honours close() — so nobody is left staring at a blank screen.
+  It stays hidden until close() has had its chance, otherwise it would flash up
+  in the instant before the window disappears.
+-->
+<style>
+  :root { color-scheme: light dark; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: #fff;
+    color: rgb(0 0 0 / 0.88);
+    font: 400 15px/1.5 Roboto, system-ui, -apple-system, "Segoe UI", sans-serif;
+    text-align: center;
+  }
+  .card { max-width: 20rem; visibility: hidden; }
+  body.stuck .card { visibility: visible; }
+  h1 { margin: 0 0 8px; font-size: 1.0625rem; font-weight: 600; color: rgb(23, 37, 84); }
+  p { margin: 0 0 20px; font-size: 0.875rem; color: rgb(0 0 0 / 0.65); }
+  a {
+    display: inline-block;
+    padding: 10px 18px;
+    border-radius: 10px;
+    background: rgb(220, 38, 39);
+    color: #fff;
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-decoration: none;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { background: #14161a; color: rgb(255 255 255 / 0.88); }
+    h1 { color: rgb(255 255 255 / 0.92); }
+    p { color: rgb(255 255 255 / 0.6); }
+  }
+</style>
+</head>
+<body>
+<script>
+  try { window.close(); } catch (e) { /* refused — the card below takes over */ }
+  setTimeout(function () { document.body.className = 'stuck'; }, 500);
+</script>
+<div class="card">
+  <h1>Elbrit One is closed</h1>
+  <p>This browser will not close the window by itself. Swipe the app away to finish, or carry on where you left off.</p>
+  <a href="/">Back to Elbrit One</a>
+</div>
+</body>
+</html>

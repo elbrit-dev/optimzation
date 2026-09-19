@@ -17,12 +17,17 @@
  * Bump CACHE_NAME whenever this file changes. Without it every browser that
  * already has the old cache keeps serving out of it.
  */
-const CACHE_NAME = 'app-cache-v3';
+const CACHE_NAME = 'app-cache-v4';
 
 const PRE_CACHE_URLS = [
   '/',
   '/favicon.ico',
   '/manifest.webmanifest',
+  /* The page the app replaces itself with on the way out (see
+     components/PwaBackGuard.jsx). Without a cached copy, an offline exit falls
+     through to the navigation fallback below and gets the APP's HTML served
+     under /exit.html — the app booting at the URL that is supposed to end it. */
+  '/exit.html',
 ];
 
 /**

@@ -63,6 +63,33 @@ const CLICK_BUSY_TIMEOUT_MS = 25_000;
 // Bounded so a page that never navigates still ends in a readable state.
 const SUCCESS_GRACE_MS = 6_000;
 
+/**
+ * Google sign-in has to change shape inside an iOS home-screen app.
+ *
+ * A popup is the better flow everywhere it works: the page keeps its state and
+ * a cancelled sign-in costs nothing. But an installed iOS web app has no
+ * concept of a second window — `window.open` either hands the user to Safari,
+ * where the sign-in completes in a DIFFERENT storage context the app can never
+ * read, or is blocked outright. Either way the popup flow dead-ends on iPhone
+ * with no error the user can act on.
+ *
+ * Redirect survives it: the app itself navigates to Google and comes back, so
+ * the result lands in the same context that asked for it. Scoped to installed
+ * iOS only, because everywhere else the popup is the better experience and is
+ * what this login has been tested on.
+ */
+const isIOSStandalone = () => {
+  if (typeof window === "undefined") return false;
+  const nav = window.navigator || {};
+  const ios =
+    /iPad|iPhone|iPod/.test(nav.platform || "") ||
+    /iPad|iPhone|iPod/.test(nav.userAgent || "") ||
+    (/Macintosh/.test(nav.userAgent || "") && nav.maxTouchPoints > 1);
+  if (!ios) return false;
+  if (nav.standalone) return true;
+  return !!window.matchMedia?.("(display-mode: standalone)")?.matches;
+};
+
 // Firebase error codes people actually hit here, in words they can act on.
 // Anything unmapped falls through to the raw Firebase message.
 const ERROR_MESSAGES = {
@@ -317,7 +344,7 @@ const FirebaseUIComponent = ({
             defaultCountry: 'IN'
           }
         ],
-        signInFlow: 'popup',
+        signInFlow: isIOSStandalone() ? 'redirect' : 'popup',
         callbacks: {
           signInSuccessWithAuthResult: (authResult) => {
             console.log('Login successful:', authResult.user.phoneNumber || authResult.user.email);
