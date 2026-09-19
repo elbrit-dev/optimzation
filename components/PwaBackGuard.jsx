@@ -65,9 +65,12 @@ const isInstalledApp = () => {
   if (typeof document !== "undefined" && document.referrer?.startsWith("android-app://")) {
     return true;
   }
-  return ["standalone", "fullscreen", "minimal-ui"].some(
-    (mode) => window.matchMedia?.(`(display-mode: ${mode})`)?.matches
-  );
+  /* Asked the other way round on purpose. Testing FOR "standalone" misses
+     fullscreen, minimal-ui, window-controls-overlay and whatever display mode
+     ships next; "browser" is the single mode that means a real tab, and
+     everything else is an app window. */
+  const tab = window.matchMedia?.("(display-mode: browser)");
+  return tab ? !tab.matches : false;
 };
 
 export default function PwaBackGuard() {
@@ -100,6 +103,28 @@ export default function PwaBackGuard() {
   }, []);
 
   /**
+   * Has this document ever been touched?
+   *
+   * THE reason the first version of this guard did nothing. Chrome ships an
+   * intervention — "skip history entries added without user activation" — that
+   * marks any entry a page pushes before the user has interacted as skippable,
+   * and the back button then walks straight past it. A sentinel pushed on
+   * mount is exactly that entry: it existed, it just never got the back press,
+   * and the app closed as if the guard were not there.
+   *
+   * Activation is STICKY, so one tap anywhere arms the guard for the rest of
+   * the document's life. That is also why the calendar's overlay guard has
+   * always worked — it pushes its entry from a tap handler.
+   */
+  const gestureRef = useRef(false);
+  const hasUserActivation = () => {
+    if (typeof navigator !== "undefined" && navigator.userActivation) {
+      return navigator.userActivation.hasBeenActive || gestureRef.current;
+    }
+    return gestureRef.current;
+  };
+
+  /**
    * Keeps exactly one throwaway entry sitting on top of home.
    *
    * The state is SPREAD from Next's own, so the entry keeps `__N` and Next
@@ -113,9 +138,29 @@ export default function PwaBackGuard() {
     if (disarmedRef.current) return;
     if (!isInstalledApp()) return;
     if (!isHomeRoute(window.location.pathname)) return;
+    // Pushing without activation does not fail, it silently produces an entry
+    // the back button ignores — worse than not pushing, because the flag then
+    // reads as armed. Wait for the tap instead; the gesture listener below
+    // calls back here the moment there is one.
+    if (!hasUserActivation()) return;
     if (window.history.state?.[EXIT_FLAG]) return;
     window.history.pushState({ ...window.history.state, [EXIT_FLAG]: true }, "");
   }, []);
+
+  /* Every tap is a chance to arm: the first one lifts Chrome's restriction,
+     and each later one is a cheap no-op once the sentinel is in place. Capture
+     + passive so nothing in the app can swallow it or be slowed by it. */
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const onGesture = () => {
+      gestureRef.current = true;
+      armSentinel();
+    };
+    const events = ["pointerdown", "touchstart", "keydown"];
+    const opts = { capture: true, passive: true };
+    events.forEach((name) => window.addEventListener(name, onGesture, opts));
+    return () => events.forEach((name) => window.removeEventListener(name, onGesture, opts));
+  }, [armSentinel]);
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
@@ -161,11 +206,13 @@ export default function PwaBackGuard() {
     return () => window.removeEventListener("popstate", handlePop, true);
   }, [armSentinel]);
 
-  // Arm on first paint and after every navigation — landing on home by any
-  // route (link, redirect, back from a deep page) has to leave the guard up.
+  // Arm after every navigation — landing on home by any route (link, redirect,
+  // back from a deep page) has to leave the guard up. Both of these no-op
+  // until the screen has been touched; the gesture listener above is what
+  // actually gets the first sentinel onto the stack.
   //
-  // The first arm waits a tick on purpose: Next registers the initial route
-  // with its own `replaceState` from a promise callback in the Router
+  // The first attempt waits a tick on purpose: Next registers the initial
+  // route with its own `replaceState` from a promise callback in the Router
   // constructor, and that write lands on whatever entry is current. Arming
   // before it would have Next overwrite the sentinel's marker.
   useEffect(() => {
@@ -176,6 +223,30 @@ export default function PwaBackGuard() {
       router.events?.off("routeChangeComplete", armSentinel);
     };
   }, [armSentinel, router.events]);
+
+  /* A way to answer "is the guard even on?" from a phone over chrome://inspect
+     without adding logging to a screen people use all day. Read
+     `__elbritBackGuard` in the console: `armed` false with `gesture` false
+     means nothing has been tapped yet, which is the one state where back still
+     closes the app. */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.__elbritBackGuard = {
+      get installed() {
+        return isInstalledApp();
+      },
+      get gesture() {
+        return hasUserActivation();
+      },
+      get armed() {
+        return !!window.history.state?.[EXIT_FLAG];
+      },
+      get onHome() {
+        return isHomeRoute(window.location.pathname);
+      },
+      arm: armSentinel,
+    };
+  }, [armSentinel]);
 
   const cancelExit = useCallback(() => setConfirmingExit(false), []);
 
