@@ -156,6 +156,191 @@ async function walkSubtree(rootEmployeeId) {
   return [...seen.values()];
 }
 
+/* ================================================================== WRITING
+
+   The three below are for the pickers on a WRITE form (Add POB), not for the
+   row tests above. A read decides "may this reader count this row?"; a write
+   has to decide "who may this be logged FOR, and what HQ and department does
+   that person work?" — which needs the people themselves, not the flattened
+   sets `collect` produces.
+
+   They are here rather than in the dialog because they are the same span rule,
+   and a second copy of it in a form is how a write ends up scoped differently
+   from the read beside it.
+================================================================== */
+
+/**
+ * Every active Employee, as SPAN_FIELDS rows.
+ *
+ * Only ever needed for a head-office reader (`scope.unlimited`): they are not
+ * IN the reporting tree, so there is no subtree to walk down from them and the
+ * honest answer to "who may this be logged for" is everybody. Nobody else
+ * reaches this — a rep's picker is built from `scope.people`, which they have
+ * already paid for.
+ */
+export async function fetchAllEmployees() {
+  return erpList("Employee", {
+    fields: SPAN_FIELDS,
+    filters: [["status", "=", "Active"]],
+    limit: 5000,
+  });
+}
+
+/**
+ * One Employee row, as SPAN_FIELDS.
+ *
+ * For the case where the token cannot name the person — a page running on a
+ * shared service credential — and the caller has asserted an employee id
+ * instead. Returns null for an id ERP does not have, so the caller can tell
+ * "not found" apart from "found with nothing under them".
+ */
+export async function fetchEmployeeRow(employeeId) {
+  const id = clean(employeeId);
+  if (!id) return null;
+
+  const rows = await erpList("Employee", {
+    fields: SPAN_FIELDS,
+    filters: [["name", "=", id]],
+    limit: 1,
+  }).catch(() => []);
+
+  return rows[0] ?? null;
+}
+
+/**
+ * One employee and everyone under them, WITHIN rows already in hand.
+ *
+ * The same `reports_to` walk as `walkSubtree`, done locally: both callers
+ * (a rep picking someone on their own team, head office picking anyone at all)
+ * already hold the rows, so re-asking ERP per selection would put a round trip
+ * behind every change of the Employee dropdown.
+ *
+ * Returns [] for an id that is not in `rows` — that is a person outside the
+ * caller's span, and inventing a span for them is exactly what must not happen.
+ */
+export function descendantsOf(rows, rootEmployeeId) {
+  const root = clean(rootEmployeeId);
+  if (!root) return [];
+
+  const self = (rows ?? []).find((row) => clean(row?.name) === root);
+  if (!self) return [];
+
+  const byManager = new Map();
+  for (const row of rows ?? []) {
+    const manager = clean(row?.reports_to);
+    if (!manager) continue;
+    if (!byManager.has(manager)) byManager.set(manager, []);
+    byManager.get(manager).push(row);
+  }
+
+  const out = [self];
+  // A reporting cycle would otherwise loop forever; `seen` is what stops it.
+  const seen = new Set([root]);
+  const queue = [root];
+
+  while (queue.length) {
+    for (const row of byManager.get(queue.shift()) ?? []) {
+      const id = clean(row?.name);
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      out.push(row);
+      queue.push(id);
+    }
+  }
+
+  return out;
+}
+
+/**
+ * Every seat, by name -> { department, hq }.
+ *
+ * 440 rows on this instance, so it is one small read rather than a chunked `in`
+ * filter over whichever seats a span happens to hold. `custom_department` and
+ * `custom_territory` are what the SEAT asserts, which is not always what the
+ * person sitting in it asserts — see `coveragePairs`.
+ */
+export async function fetchRoleProfiles() {
+  const rows = await erpList("Role Profile", {
+    fields: ["name", "custom_department", "custom_territory"],
+    limit: 2000,
+  }).catch(() => []);
+
+  const index = new Map();
+  for (const row of rows) {
+    const name = clean(row?.name);
+    if (!name) continue;
+    index.set(name, {
+      department: clean(row?.custom_department),
+      hq: clean(row?.custom_territory),
+    });
+  }
+  return index;
+}
+
+/**
+ * The (HQ, department) pairs a set of people actually work.
+ *
+ * PAIRS, not an HQ list beside a department list. A manager's people sit in
+ * different HQs carrying different departments, and crossing the two lists
+ * would offer combinations nobody works — HQ-Kottayam beside Aura & Proxima
+ * Madurai, which is how this was wrong before.
+ *
+ * THE SEAT LEADS. A row is stamped with the ROLE PROFILE, not the person —
+ * that is what keeps a predecessor's POBs counting for whoever holds the chair
+ * now — so the division a POB is filed under is read from
+ * `Role Profile.custom_department` first, with `Employee.department` behind it.
+ * Where the seat is silent the Employee row still answers: every SM and ZSM
+ * seat carries `custom_department = null` (verified on all 8), and their real
+ * divisions arrive from the BEs beneath them, who are in the same row set.
+ *
+ * BOTH SOURCES ARE EMITTED WHERE THEY DISAGREE, because each is a true fact and
+ * neither supersedes the other. E00102 sits on seat ABM2-ELBR-CO-ERO, which
+ * says HQ-Erode, while their Employee row says HQ-Salem — they hold both, and
+ * taking only one loses a territory the ABM really covers. Where the two agree,
+ * which is the normal case, the pair dedupes back down to one.
+ *
+ * "Sales - ELPL" is the holding bucket every SM and ZSM sits in and is dropped
+ * from whichever side offers it. Head-office departments (IT, HR) are left in —
+ * they are real rows, and the caller decides whether a head-office seat's own
+ * coverage is the right thing to offer.
+ *
+ * The company suffix is stripped ("Vasco Coimbatore - ELPL" -> "Vasco
+ * Coimbatore") so these compare as equals with the doctor's own role-profile
+ * rows, which carry the docname.
+ */
+export function coveragePairs(rows, seats) {
+  const seen = new Set();
+  const out = [];
+
+  const add = (department, hq) => {
+    if (!department || /^sales\s*-/i.test(department)) return;
+    const name = department.replace(/\s+-\s+[A-Za-z]{2,8}$/, "").trim();
+    if (!name) return;
+
+    const key = hq + "|" + name;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ hq, department: name });
+  };
+
+  for (const row of rows ?? []) {
+    const seat = seats?.get?.(clean(row?.custom_role_profile) ?? clean(row?.role_id));
+
+    const seatDepartment = seat?.department ?? null;
+    const seatHq = seat?.hq ?? null;
+    const ownDepartment = clean(row?.department);
+    const ownHq = clean(row?.fsl_hq) ?? clean(row?.custom_territory);
+
+    // Seat first, then the person. Each pair still comes from ONE asserting
+    // side, with the other only filling in a half the first left blank — so
+    // nothing here invents a combination neither source states.
+    add(seatDepartment ?? ownDepartment, seatHq ?? ownHq);
+    add(ownDepartment ?? seatDepartment, ownHq ?? seatHq);
+  }
+
+  return out;
+}
+
 /**
  * Turn a set of people into the sets the row filters actually test against.
  *

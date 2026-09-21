@@ -17,17 +17,24 @@ import { Textarea } from "@calendar/components/ui/textarea";
 import { Form } from "@calendar/components/ui/form";
 import { RHFComboboxField } from "@calendar/components/calendar/form-fields";
 
-import { AUTH_CONFIG, LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
+import { AUTH_CONFIG } from "@calendar/components/auth/calendar-users";
 import { graphqlRequest } from "@calendar/lib/graphql-client";
-import { ELBRIT_ROLEID, normalizeRoleProfiles } from "@calendar/components/calendar/module/event/graphql/events.query";
-import { getCached } from "@calendar/lib/data-cache";
-import { resolveVisibleRoleIds } from "@calendar/lib/employeeHeirachy";
-import { resolvePobDepartments } from "@calendar/lib/calendar/pobDepartments";
+import { clearCached, getCached } from "@calendar/lib/data-cache";
 import { getAvailableItems, syncPobItemRates, updatePobRow } from "@calendar/lib/helper";
+import { fetchItemsByDepartment } from "@calendar/components/calendar/module/event/services/master-data.service";
+
+// The doctor page's own scoping, not the calendar's. See `loadPobSpan` below
+// for why the two cannot share an answer here.
+import { erpList, resolveViewer } from "./DoctorDetail/lib/erp";
 import {
-  fetchEmployeeNodes,
-  fetchItemsByDepartment,
-} from "@calendar/components/calendar/module/event/services/master-data.service";
+  coveragePairs,
+  descendantsOf,
+  fetchAllEmployees,
+  fetchEmployeeRow,
+  fetchRoleProfiles,
+  resolveScope,
+} from "./DoctorDetail/lib/scope";
+import { ADMIN_MIN_RANK, gradeRank } from "./DoctorDetail/lib/grade";
 import {
   fetchAllCustomers,
   fetchCustomersByTerritory,
@@ -48,12 +55,20 @@ import { getEndpointConfigFromUrlKeyAsync } from "@/app/graphql-playground/const
  * `custom_event`, and by default no `custom_doctorvisit` either, so ERP has no
  * link to resolve and the write is a plain billing document.
  *
+ * WHO may this be logged for is decided by the TOKEN, never by a prop — see
+ * `loadPobSpan`. The EMPLOYEE list is the signed-in person's own span: just
+ * themselves for a BE, their team for an ABM, every division under them for an
+ * RBM / SM / ZSM, and the whole company for Admin / MIS / IT / GM / CEO, who
+ * sit outside the reporting tree rather than on top of it. A login we cannot
+ * resolve to an Employee gets an EMPTY list and a reason, never a full one.
+ *
  * Nothing is offered company-wide. HQ and DEPARTMENT come from the DOCTOR'S own
  * `custom_role_profile` rows — (department, HQ) triples, usually just one, in
  * which case both are auto-selected and the user never touches them; a doctor
- * spanning several leaves the choice open. The employee's own coverage then
- * narrows that set, and the employee list itself is their role subtree. Customer
- * follows the chosen HQ and items follow the chosen department.
+ * spanning several leaves the choice open. The CHOSEN employee's own coverage
+ * then narrows that set, so changing the employee moves HQ and department
+ * together. Customer follows the chosen HQ and items follow the chosen
+ * department.
  *
  * With no links, the reason block is the only record of what this POB belongs
  * to, so a REASON is mandatory and is stored with the doctor, employee, HQ,
@@ -67,30 +82,54 @@ export const DIRECT_POB_MARKER = "DIRECT POB — raised from the Doctor page (no
 
 const EMPTY_ROW = { item__name: "", qty: 1, rate: 0, amount: 0 };
 
-const ROLE_CACHE_KEY = "ELBRIT_ROLE_PROFILES";
-const EMPLOYEE_HQ_CACHE_KEY = "EMPLOYEE_HQ_MAP";
+const SPAN_CACHE_KEY = "DOCTOR_POB_SPAN";
+
+/** Keyed by identity, because the bound-employee fallback changes the answer. */
+const spanCacheKey = (employeeId) => `${SPAN_CACHE_KEY}:${employeeId ?? ""}`;
+
+const SALES_DEPARTMENTS_CACHE_KEY = "POB_SALES_DEPARTMENTS";
 
 /**
- * The employee's HQ.
+ * Every selling division in the company — 28 of them, verified live Sep 2026.
  *
- * NOT part of the calendar's own employee query, which asks for
- * `custom_hq__name` — a field the Employee doctype does not have (the real one
- * is `fsl_hq`), so its HQ prefill silently never fires. Asked for separately
- * here so that bug can be fixed upstream without this depending on it, and so a
- * failure degrades to the full territory list instead of breaking the form.
+ * ERP models the divisions as Departments parented to the `Sales` group:
+ * Elbrit Coimbatore, Vasco Karnataka, CND Trichy, Aura & Proxima Kerala and so
+ * on. The group rows and the head-office departments (IT, HR, Accounts) hang
+ * off `All Departments` instead, so `parent_department = "Sales"` plus
+ * `is_group = 0` is the whole selling roster and nothing else. Note "Sales -
+ * ELPL" is NOT in it — that one is parented to `All departments  - ELPL` and is
+ * the holding bucket SMs and ZSMs sit in, which is exactly right: it is not a
+ * division and must never be billable.
+ *
+ * Only head office is ever offered this (see `departmentOptions`). Everyone
+ * else gets the divisions their own subtree works, so the list is never fetched
+ * for a rep at all.
+ *
+ * `department_name` is the unsuffixed form ("Elbrit Coimbatore") and is what
+ * `fetchItemsByDepartment` matches items on, so it is taken in preference to
+ * the docname.
  */
-const EMPLOYEE_HQ_QUERY = `
-query EmployeeHqs($first: Int!, $filters: [DBFilterInput!]) {
-  Employees(first: $first, filter: $filters) {
-    edges {
-      node {
-        name
-        hq: fsl_hq__name
-      }
-    }
-  }
+async function fetchSalesDepartments() {
+  return getCached(SALES_DEPARTMENTS_CACHE_KEY, async () => {
+    const rows = await erpList("Department", {
+      fields: ["name", "department_name"],
+      filters: [
+        ["parent_department", "=", "Sales"],
+        ["is_group", "=", 0],
+        ["disabled", "=", 0],
+      ],
+      limit: 500,
+    });
+
+    return [
+      ...new Set(
+        rows
+          .map((row) => stripCompanySuffix(row?.department_name || row?.name))
+          .filter(Boolean)
+      ),
+    ].sort();
+  });
 }
-`;
 
 /**
  * The doctor's own (department, HQ) pairs.
@@ -131,11 +170,12 @@ function stripCompanySuffix(text) {
 /**
  * Whether two department names mean the same department.
  *
- * The doctor's child row holds the Department DOCNAME ("Aura & Proxima Kerala -
- * ELPL") while the role hierarchy holds its `department_name` ("Aura & Proxima
- * Kerala"), so an equality test would never match. Same normalise-and-contain
- * rule `fetchItemsByDepartment` applies internally, which is module-private
- * there.
+ * Both sides now carry the Department DOCNAME ("Aura & Proxima Kerala - ELPL")
+ * and both are stripped of the company suffix before they get here, but the
+ * contains-either-way test is kept rather than tightened to equality: the two
+ * are read from different doctypes, and this is the same normalise-and-contain
+ * rule `fetchItemsByDepartment` applies internally to decide which items a
+ * department may bill, which is module-private there.
  */
 function departmentsAlike(left, right) {
   const a = stripCompanySuffix(left).toLowerCase();
@@ -199,26 +239,100 @@ async function ensureErpAuth({ erpUrl, authToken, erpTarget }) {
   AUTH_CONFIG.authToken = token;
 }
 
-async function fetchElbritRoleEdges() {
-  return getCached(ROLE_CACHE_KEY, async () => {
-    const raw = await graphqlRequest(ELBRIT_ROLEID, { first: 1000 });
-    return normalizeRoleProfiles(raw)?.ElbritRoleIDS?.edges ?? [];
-  });
-}
+/**
+ * WHO is filling this in, and who they may fill it in FOR.
+ *
+ * Everything here comes from the TOKEN. The ERP credential the page runs on
+ * names a User, the User names an Employee, and that Employee's own position in
+ * the reporting tree is the span — the same `resolveViewer` + `resolveScope`
+ * pair the doctor detail page reads with, so what a person may WRITE a POB for
+ * can never drift from what they may READ about the doctor beside it.
+ *
+ * ONE SPAN RULE, NO PER-GRADE BRANCH. `resolveScope` walks `Employee.reports_to`
+ * downward, and every stated rule falls out of that walk:
+ *
+ *   BE                      a leaf — the list is just them
+ *   ABM                     their BEs, so the HQs THEY hold and no more
+ *   RBM                     their ABMs and BEs, so their division
+ *   SM / ZSM                every division under them, never the ones they do
+ *                           not carry
+ *   Admin / MIS / IT /      NOT IN THE TREE. IN002 (seat "Admin") reports to
+ *   GM / CEO                E00920 alongside four other IT staff, so walking
+ *                           down from them yields a five-name list — which is
+ *                           exactly what this popup used to show the people
+ *                           meant to see everything. `scope.unlimited` says so
+ *                           and the picker becomes every active employee.
+ *   unresolved              NOTHING, and a reason on screen. A login with no
+ *                           Employee row is the LEAST privileged reader, not
+ *                           the most; the old code fell open to the full
+ *                           company here, which is the same bug pointing the
+ *                           other way.
+ *
+ * WHY NOT THE CALENDAR'S `resolveVisibleRoleIds`, which this replaced. It walks
+ * the Role Profile tree instead of `reports_to`, and it decides "is this person
+ * an admin?" by reading `LOGGED_IN_USER.role` — a global that only AuthProvider
+ * ever fills in, and AuthProvider is on the calendar page, not this one. On the
+ * doctor page that global is null, so the admin branch could not fire; the seat
+ * `Admin` is `is_group = 0` in ERP, which made the walk treat a company-wide
+ * seat as a leaf and hand it four names. Seats are the wrong key besides:
+ * several BEs carry `custom_role_profile` empty, and two people can hold one
+ * seat.
+ *
+ * `fallbackEmployeeId` IS THE BOUND `employee` PROP, AND IT IS ONLY EVER
+ * REACHED WHEN THE TOKEN NAMES NOBODY. Two pages mount this popup and they do
+ * not authenticate alike: the doctor console hands down the signed-in user's
+ * own credential, while a doctor LIST card can be pointed at a shared /tokens
+ * row, and a shared credential belongs to an integration account with no
+ * Employee record. Failing closed there would leave that card with a dead form
+ * and no way to fix it from Studio, so the page is allowed to ASSERT who it is
+ * for and the span is walked from that person instead.
+ *
+ * That is a usability fallback, not a hole. Where the token DOES name an
+ * Employee the prop is never consulted for identity at all, so nobody can widen
+ * their own picker by editing a Studio field; and where it does not, the shared
+ * credential can already write anything ERP allows, so the picker was never the
+ * boundary. Bind the user's own token and it stops being reachable.
+ *
+ * Cached per identity for the session. The token does not change under the
+ * page, and a ZSM's walk is five round trips nobody should pay for twice.
+ */
+async function loadPobSpan(fallbackEmployeeId) {
+  return getCached(spanCacheKey(fallbackEmployeeId), async () => {
+    const viewer = await resolveViewer();
 
-/** { [employeeId]: "HQ-Trichy" }. Empty when ERP won't give up the field. */
-async function fetchEmployeeHqMap() {
-  return getCached(EMPLOYEE_HQ_CACHE_KEY, async () => {
-    const data = await graphqlRequest(EMPLOYEE_HQ_QUERY, {
-      first: 1000,
-      filters: [{ fieldname: "status", operator: "EQ", value: "Active" }],
-    });
+    let row = viewer?.resolved ? viewer.row : null;
+    let identity = row ? "token" : null;
 
-    const map = {};
-    data?.Employees?.edges?.forEach(({ node }) => {
-      if (node?.name && node?.hq) map[node.name] = node.hq;
-    });
-    return map;
+    if (!row && fallbackEmployeeId) {
+      row = await fetchEmployeeRow(fallbackEmployeeId);
+      if (row) identity = "employee";
+    }
+
+    if (!row) return { viewer, identity: null, scope: null, people: [], seats: new Map() };
+
+    const scope = await resolveScope(row);
+
+    // The seats, so the department a POB is filed under comes from the ROLE
+    // PROFILE rather than the person — see `coveragePairs`. 440 rows, one read,
+    // cached with the rest of the span.
+    const seats = await fetchRoleProfiles();
+
+    // Head office has no subtree to offer, so their list is fetched whole.
+    // Everyone else already holds their people from the walk above and pays
+    // nothing more.
+    let people = scope?.unlimited
+      ? await fetchAllEmployees()
+      : (scope?.people ?? []);
+
+    // A FAILED WALK still leaves the person themselves. `resolveScope` refuses
+    // to collapse to "just me" because for READING a doctor that would look
+    // like a working page showing a manager a BE's slice. Here it is the
+    // opposite trade: a BE's correct answer IS just them, so offering the one
+    // name we are sure of unblocks the common case — and the caller keeps the
+    // error on screen, so a manager can see their list is short and why.
+    if (!scope?.resolved && !people.length) people = [row];
+
+    return { viewer, identity, self: row, scope, people, seats };
   });
 }
 
@@ -249,7 +363,15 @@ async function fetchDoctorRoles(doctorId) {
   });
 }
 
-/** The Employee ID behind whatever Studio bound to `employee`. */
+/**
+ * The Employee ID behind whatever Studio bound to `employee`.
+ *
+ * A HINT, never a scope. It says which row of the list starts selected and is
+ * ignored when it names somebody the token cannot log a POB for — the list
+ * itself is built from the span, so binding a stranger's id in Studio adds
+ * nobody. That is the same rule `resolveScope` states for its own `employee`
+ * argument, and it is the reason the viewer's ROLE is not a prop either.
+ */
 function resolveEmployeeId(employee) {
   if (!employee) return null;
   if (typeof employee === "string") return employee.trim() || null;
@@ -261,11 +383,6 @@ function resolveEmployeeId(employee) {
     employee.id ??
     null
   );
-}
-
-function resolveEmployeeEmail(employee) {
-  if (!employee || typeof employee !== "object") return null;
-  return employee.company_email ?? employee.user_id ?? employee.email ?? null;
 }
 
 /** `new Date()` in the shape `<input type="datetime-local">` wants. */
@@ -540,13 +657,13 @@ export default function DoctorPobDialog({
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  const [employeeNodes, setEmployeeNodes] = useState([]);
-  const [roleEdges, setRoleEdges] = useState([]);
+  const [span, setSpan] = useState(null);
   const [fetchedRoles, setFetchedRoles] = useState([]);
   const [doctorTerritory, setDoctorTerritory] = useState(null);
-  const [employeeHqMap, setEmployeeHqMap] = useState({});
   const [customerOptions, setCustomerOptions] = useState([]);
   const [itemOptions, setItemOptions] = useState([]);
+  const [salesDepartments, setSalesDepartments] = useState([]);
+  const [isLoadingDepartments, setIsLoadingDepartments] = useState(false);
   const [isLoadingCustomers, setIsLoadingCustomers] = useState(false);
   const [isLoadingItems, setIsLoadingItems] = useState(false);
 
@@ -587,6 +704,7 @@ export default function DoctorPobDialog({
     });
     setCustomerOptions([]);
     setItemOptions([]);
+    setSalesDepartments([]);
     setFetchedRoles([]);
     setDoctorTerritory(null);
     setBootError(null);
@@ -594,8 +712,17 @@ export default function DoctorPobDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  // Employees, role hierarchy and the employee→HQ map. All cached module-side,
-  // so reopening the popup is instant and only the first open pays for them.
+  /**
+   * The Employee id the page bound, as a STRING.
+   *
+   * Memoised because Studio can hand `employee` down as a fresh object on every
+   * render, and the boot effect below depends on this — on the prop itself it
+   * would re-walk the hierarchy on each render for as long as the popup is open.
+   */
+  const boundEmployeeId = useMemo(() => resolveEmployeeId(employee), [employee]);
+
+  // Who is filling this in and who they may fill it in for. Cached module-side,
+  // so reopening the popup is instant and only the first open pays for the walk.
   useEffect(() => {
     if (!open) return;
 
@@ -606,27 +733,50 @@ export default function DoctorPobDialog({
       try {
         await ensureErpAuth({ erpUrl, authToken, erpTarget });
 
-        const [employees, edges] = await Promise.all([
-          fetchEmployeeNodes(),
-          fetchElbritRoleEdges(),
-        ]);
-        if (cancelled) return;
-        setEmployeeNodes(employees);
-        setRoleEdges(edges);
+        const loaded = await loadPobSpan(boundEmployeeId);
 
-        // Separate and non-fatal: without it the HQ list can't be scoped, which
-        // is worth saying out loud rather than silently widening.
-        try {
-          const hqMap = await fetchEmployeeHqMap();
-          if (!cancelled) setEmployeeHqMap(hqMap);
-        } catch (hqError) {
-          console.error("Failed to load employee HQs", hqError);
-          if (!cancelled) setEmployeeHqMap({});
+        // A degraded answer must not be cached for the rest of the session:
+        // reopening the popup should retry the walk, not repeat a transient
+        // ERP failure until the tab is reloaded.
+        if (!loaded.identity || !loaded.scope?.resolved) {
+          clearCached([spanCacheKey(boundEmployeeId)]);
+        }
+
+        if (cancelled) return;
+        setSpan(loaded);
+
+        // Both of these leave the employee picker empty, and an empty picker is
+        // indistinguishable from a broken one — so each says which it is. They
+        // are NOT widened into a full list: a POB logged against the wrong
+        // person is a real billing document in somebody else's numbers.
+        if (!loaded.identity) {
+          setBootError(
+            "Your ERP login isn't linked to an Employee record, so there is "
+            + "nobody this POB could be logged for. Ask HR to set User ID on "
+            + "your Employee row."
+          );
+        } else if (!loaded.scope?.resolved) {
+          // `resolveScope` swallows a failed walk and returns unresolved rather
+          // than collapsing to "just me" — which would look like a working form
+          // quietly offering a manager only themselves.
+          setBootError(
+            "Couldn't read your reporting line from ERP, so this list shows "
+            + "only you. If you have a team, close this and reopen it before "
+            + "logging anything for them."
+          );
+        } else if (!loaded.people.length) {
+          setBootError(
+            "ERP has no reporting line for you, so there is nobody to log this "
+            + "POB for. Ask HR to set Reports To on the Employee records under "
+            + "you."
+          );
         }
       } catch (error) {
         if (cancelled) return;
-        console.error("Failed to load POB master data", error);
-        setBootError(error?.message || "Couldn't load employees and territories");
+        console.error("Failed to work out who this POB may be logged for", error);
+        setBootError(
+          error?.message || "Couldn't work out who this POB may be logged for"
+        );
       } finally {
         if (!cancelled) setIsLoading(false);
       }
@@ -635,7 +785,7 @@ export default function DoctorPobDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, erpUrl, authToken, erpTarget]);
+  }, [open, boundEmployeeId, erpUrl, authToken, erpTarget]);
 
   // The doctor's own HQ / department rows. Fetched here rather than read off the
   // card, because the Plasmic page query may not select the child table at all.
@@ -664,68 +814,63 @@ export default function DoctorPobDialog({
     };
   }, [open, doctorId, doctorRolesProp, erpUrl, authToken, erpTarget]);
 
-  const myEmployeeId = useMemo(() => {
-    const explicit = resolveEmployeeId(employee);
-    if (explicit) return explicit;
-
-    // Fall back to the calendar's global identity when this card happens to sit
-    // on a page that already has one.
-    const email = resolveEmployeeEmail(employee) ?? LOGGED_IN_USER?.email;
-    if (email) {
-      const match = employeeNodes.find(
-        (node) =>
-          (node.company_email ?? node.user_id ?? "").toLowerCase() ===
-          String(email).toLowerCase()
-      );
-      if (match) return match.name;
-    }
-
-    return LOGGED_IN_USER?.id ?? null;
-  }, [employee, employeeNodes]);
-
-  const roleIdOf = useCallback(
-    (employeeId) => employeeNodes.find((node) => node.name === employeeId)?.role_id ?? null,
-    [employeeNodes]
-  );
-
-  const myRoleId = useMemo(
-    () => (myEmployeeId ? roleIdOf(myEmployeeId) ?? LOGGED_IN_USER?.roleId ?? null : null),
-    [myEmployeeId, roleIdOf]
-  );
-
-  /** Employee IDs inside a role's subtree (the role itself plus everyone under it). */
-  const employeesUnderRole = useCallback(
-    (roleId) => {
-      if (!roleId) return null;
-      const visibleRoleIds = new Set(resolveVisibleRoleIds(roleEdges, roleId));
-      if (!visibleRoleIds.size) return null;
-      return employeeNodes.filter((node) => visibleRoleIds.has(node.role_id));
-    },
-    [employeeNodes, roleEdges]
+  /**
+   * Everyone the token says this POB may be logged for. Fails CLOSED.
+   *
+   * `resolveScope` walks `reports_to` without asking about status, because for
+   * READING a doctor a Left employee's rows still count — they are stamped with
+   * a seat somebody else holds now. Writing is the other way round: a POB
+   * logged for somebody who has left is a billing document against nobody. The
+   * viewer's own row arrives from `resolveViewer`, which does not select
+   * `status` at all, so a missing one reads as active rather than dropping the
+   * person filling the form in.
+   *
+   * Vacant seats (`V…` ids) ARE active and are deliberately kept — ERP writes
+   * real rows against them, and they are exactly the chair a POB may need to
+   * land on while a replacement is being hired.
+   */
+  const spanPeople = useMemo(
+    () => (span?.people ?? []).filter((row) => !row?.status || row.status === "Active"),
+    [span]
   );
 
   /**
-   * Who this POB may be logged for: the signed-in employee and everyone under
-   * them. With no identity to walk down from (the page never bound one) the
-   * list stays open rather than empty — an empty picker would block the form
-   * outright, and ERP still permission-checks the write.
+   * Who this POB may be logged for.
+   *
+   * Empty when the viewer could not be resolved, and that is the point: the
+   * previous build fell back to every active employee whenever it could not
+   * work out who was reading, which on this page was ALWAYS — `LOGGED_IN_USER`
+   * is filled in by AuthProvider, and AuthProvider is on the calendar. The boot
+   * effect puts the reason on screen instead.
    */
-  const employeeOptions = useMemo(() => {
-    const scoped = employeesUnderRole(myRoleId) ?? employeeNodes;
-
-    return scoped
-      .map((node) => ({
-        value: node.name,
-        label: node.employee_name ? `${node.employee_name} (${node.name})` : node.name,
-        role: node.designation?.name ?? null,
-      }))
-      .sort((a, b) => a.label.localeCompare(b.label));
-  }, [employeesUnderRole, myRoleId, employeeNodes]);
-
-  const selectedRoleId = useMemo(
-    () => roleIdOf(selectedEmployee),
-    [roleIdOf, selectedEmployee]
+  const employeeOptions = useMemo(
+    () =>
+      spanPeople
+        .map((row) => ({
+          value: row.name,
+          label: row.employee_name ? `${row.employee_name} (${row.name})` : row.name,
+          role: row.designation ?? null,
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    [spanPeople]
   );
+
+  /**
+   * The default selection: whoever the page bound, else the signed-in employee.
+   *
+   * The bound id has to survive `employeeOptions` to be used, so it can only
+   * ever pick a different row of a list the token already earned.
+   */
+  const defaultEmployeeId = useMemo(() => {
+    if (boundEmployeeId && spanPeople.some((row) => row.name === boundEmployeeId)) {
+      return boundEmployeeId;
+    }
+
+    const selfId = span?.self?.name ?? null;
+    if (selfId && spanPeople.some((row) => row.name === selfId)) return selfId;
+
+    return null;
+  }, [boundEmployeeId, span, spanPeople]);
 
   /* -----------------------------------------------------------------
      HQ + DEPARTMENT — the DOCTOR'S own, not the company's
@@ -739,30 +884,47 @@ export default function DoctorPobDialog({
   ----------------------------------------------------------------- */
 
   /**
-   * The (HQ, department) pairs the CHOSEN employee covers.
+   * The (HQ, department) pairs the CHOSEN employee covers — their own subtree,
+   * read straight off the Employee rows already in hand.
    *
-   * Built per team member rather than as an HQ list crossed with a department
-   * list: a manager's people sit in different HQs carrying different
-   * departments, and crossing the two would invent combinations nobody works —
-   * which is how HQ-Kottayam once ended up beside Aura & Proxima Madurai.
+   * PAIRS, never an HQ list crossed with a department list: a manager's people
+   * sit in different HQs carrying different departments, and crossing the two
+   * invents combinations nobody works — which is how HQ-Kottayam once ended up
+   * beside Aura & Proxima Madurai. A manager's own row contributes nothing
+   * ("Sales - ELPL" is a holding bucket, dropped in `coveragePairs`); their
+   * real divisions arrive from the BEs beneath them, who are in the same rows.
+   *
+   * A HEAD-OFFICE seat returns nothing, deliberately. Admin, MIS and IT carry a
+   * real department of their own — IN002 is "IT - ELPL" out of HQ-Chennai — and
+   * offering IT as the division to bill a doctor under is worse than offering
+   * nothing at all. Empty here means `pairs` below falls through to the
+   * DOCTOR'S own divisions, which is the right answer for somebody who covers
+   * every division equally.
    */
-  const employeePairs = useMemo(() => {
-    const scoped = employeesUnderRole(selectedRoleId);
-    if (!scoped) return [];
+  /**
+   * Is the CHOSEN employee head office — Admin, MIS, IT, GM, CEO?
+   *
+   * Read off their own ERP row (seat prefix, else HR designation), never off a
+   * prop. It decides two things below: that they contribute no coverage pairs
+   * of their own, and that their department picker is the whole selling roster.
+   */
+  const selectedIsHeadOffice = useMemo(() => {
+    if (!selectedEmployee) return false;
+    const self = spanPeople.find((row) => row.name === selectedEmployee);
+    if (!self) return false;
 
-    const seen = new Set();
-    const out = [];
-    scoped.forEach((node) => {
-      const territory = employeeHqMap[node.name] ?? null;
-      resolvePobDepartments(roleEdges, node.role_id).forEach((dept) => {
-        const key = `${territory}|${dept}`;
-        if (seen.has(key)) return;
-        seen.add(key);
-        out.push({ hq: territory, department: dept });
-      });
-    });
-    return out;
-  }, [employeesUnderRole, selectedRoleId, employeeHqMap, roleEdges]);
+    return (
+      gradeRank({
+        roleId: self.custom_role_profile ?? self.role_id,
+        designation: self.designation,
+      }) >= ADMIN_MIN_RANK
+    );
+  }, [spanPeople, selectedEmployee]);
+
+  const employeePairs = useMemo(() => {
+    if (!selectedEmployee || selectedIsHeadOffice) return [];
+    return coveragePairs(descendantsOf(spanPeople, selectedEmployee), span?.seats);
+  }, [spanPeople, selectedEmployee, selectedIsHeadOffice, span]);
 
   /** The (HQ, department) pairs the DOCTOR carries — card's rows, else fetched. */
   const doctorPairs = useMemo(() => {
@@ -808,17 +970,56 @@ export default function DoctorPobDialog({
     return names.sort().map((name) => ({ value: name, label: name }));
   }, [pairs, doctorTerritory, doctorHq]);
 
-  /** The departments of the pairs at the chosen HQ. */
-  const departmentOptions = useMemo(() => {
+  /**
+   * The divisions this doctor is actually mapped to, at the chosen HQ.
+   *
+   * Kept separate from `departmentOptions` because it is what gets AUTO-FILLED
+   * — head office's list is much longer than this, and the extra entries are an
+   * escape hatch, not a reason to make them pick by hand in the normal case.
+   */
+  const ownDepartments = useMemo(() => {
     const atHq = pairs.filter((pair) => !pair.hq || !hq || pair.hq === hq);
-    const names = [
+    return [
       ...new Set((atHq.length ? atHq : pairs).map((pair) => pair.department).filter(Boolean)),
-    ];
-
-    return names.sort().map((name) => ({ value: name, label: name }));
+    ].sort();
   }, [pairs, hq]);
 
-  // Default the employee to whoever is signed in, once the list is in.
+  /**
+   * What the department picker offers.
+   *
+   * A REP gets the divisions this doctor is mapped to and nothing else — they
+   * cannot bill a doctor under a division they do not work, and the intersection
+   * with their own coverage is the point of the pair model.
+   *
+   * HEAD OFFICE GETS ALL 28 SELLING DIVISIONS. Admin, MIS and IT cover every
+   * division equally, and `Lead.custom_role_profile` is not a reliable floor to
+   * hold them to: a great many doctor Leads were bulk-imported with that child
+   * table thin or empty, so restricting head office to it means the one group
+   * able to correct a mapping gap is the group blocked by it. The doctor's own
+   * divisions still sort FIRST and say so on the label, so the normal answer is
+   * still the first thing under the cursor and picking another is a deliberate
+   * act, recorded in the reason block like everything else.
+   */
+  const departmentOptions = useMemo(() => {
+    const own = ownDepartments.map((name) => ({
+      value: name,
+      label: selectedIsHeadOffice && salesDepartments.length
+        ? `${name} · on this doctor`
+        : name,
+    }));
+
+    if (!selectedIsHeadOffice || !salesDepartments.length) return own;
+
+    const covered = new Set(ownDepartments.map((name) => name.toLowerCase()));
+    const rest = salesDepartments
+      .filter((name) => !covered.has(name.toLowerCase()))
+      .map((name) => ({ value: name, label: name }));
+
+    return [...own, ...rest];
+  }, [ownDepartments, selectedIsHeadOffice, salesDepartments]);
+
+  // Default the employee to whoever is signed in, once the list is in. Only
+  // once per open, so it never fights a choice the user has already made.
   const didPrefillEmployee = useRef(false);
   useEffect(() => {
     if (!open) {
@@ -826,12 +1027,11 @@ export default function DoctorPobDialog({
       return;
     }
     if (didPrefillEmployee.current) return;
-    if (!myEmployeeId) return;
-    if (!employeeOptions.some((option) => option.value === myEmployeeId)) return;
+    if (!defaultEmployeeId) return;
 
     didPrefillEmployee.current = true;
-    form.setValue("employee", myEmployeeId);
-  }, [open, myEmployeeId, employeeOptions, form]);
+    form.setValue("employee", defaultEmployeeId);
+  }, [open, defaultEmployeeId, form]);
 
   /**
    * Auto-select whenever there is only one thing to pick, and drop a value the
@@ -850,15 +1050,36 @@ export default function DoctorPobDialog({
     }
   }, [open, hqOptions, hq, form]);
 
+  /*
+   * Department auto-fill only ever touches an EMPTY field.
+   *
+   * The old rule re-asserted the single option whenever the value differed from
+   * it, which was harmless while the list WAS that one option. Now that head
+   * office sees all 28, the same rule would snap their choice straight back to
+   * the doctor's division and make the escape hatch unusable. So: fill when
+   * blank, clear when the current value is no longer on offer, and otherwise
+   * leave the user's choice alone.
+   */
   useEffect(() => {
     if (!open) return;
     const values = departmentOptions.map((option) => option.value);
-    if (departmentOptions.length === 1 && department !== values[0]) {
-      form.setValue("department", values[0], { shouldDirty: true });
-    } else if (department && values.length && !values.includes(department)) {
+
+    if (!department) {
+      // The doctor's own division wins even where 27 others are listed.
+      const fill =
+        ownDepartments.length === 1
+          ? ownDepartments[0]
+          : values.length === 1
+            ? values[0]
+            : null;
+      if (fill) form.setValue("department", fill, { shouldDirty: true });
+      return;
+    }
+
+    if (values.length && !values.includes(department)) {
       form.setValue("department", "", { shouldDirty: true });
     }
-  }, [open, departmentOptions, department, form]);
+  }, [open, departmentOptions, ownDepartments, department, form]);
 
   // Billing runs through the customers of the chosen HQ — the same narrowing the
   // visit POB gets from the visit's own territory.
@@ -918,6 +1139,35 @@ export default function DoctorPobDialog({
     if (customerOptions.some((option) => option.value === customer)) return;
     form.setValue("customer", "");
   }, [customer, customerOptions, isLoadingCustomers, form]);
+
+  /*
+   * The full selling roster, fetched the moment head office is the chosen
+   * employee and not a second before — a rep never needs it, and it is one
+   * small REST read shared by every doctor for the rest of the session.
+   */
+  useEffect(() => {
+    if (!open || !selectedIsHeadOffice || salesDepartments.length) return;
+
+    let cancelled = false;
+    setIsLoadingDepartments(true);
+
+    fetchSalesDepartments()
+      .then((names) => {
+        if (!cancelled) setSalesDepartments(names ?? []);
+      })
+      .catch((error) => {
+        // Non-fatal: the picker falls back to the doctor's own divisions, which
+        // is what a rep gets and is still the right answer most of the time.
+        console.error("Failed to load the sales divisions", error);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingDepartments(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, selectedIsHeadOffice, salesDepartments.length]);
 
   useEffect(() => {
     if (!open || !department) {
@@ -989,6 +1239,13 @@ export default function DoctorPobDialog({
       return;
     }
     if (!values.employee) return toast.error("Select the employee this POB is for");
+    // Defence in depth. The picker is already built from the span, so this can
+    // only fire on a stale selection — but a POB is a real billing document in
+    // somebody's numbers, and it must not land against a person this login was
+    // never entitled to log one for.
+    if (!employeeOptions.some((option) => option.value === values.employee)) {
+      return toast.error("You can't log a POB for that employee");
+    }
     if (!values.hq) return toast.error("Select the HQ");
     if (!values.department) return toast.error("Select the department");
     if (!values.customer) return toast.error("Select a customer for this POB");
@@ -1135,7 +1392,7 @@ export default function DoctorPobDialog({
                     options={departmentOptions}
                     multiple={false}
                     tagsDisplay={false}
-                    loading={isLoading}
+                    loading={isLoading || isLoadingDepartments}
                     placeholder="Select department"
                     searchPlaceholder="Search department"
                   />
@@ -1146,6 +1403,18 @@ export default function DoctorPobDialog({
                     No HQ is mapped to this doctor or this employee, so there is
                     nothing to bill against. Ask MIS to set the Territory on the
                     doctor&apos;s Lead.
+                  </Notice>
+                ) : null}
+
+                {/* Head office may bill a doctor under a division ERP has not
+                    mapped to them — often because the Lead was imported with a
+                    thin coverage table. Saying so keeps it a deliberate act
+                    rather than a silent one. */}
+                {department && ownDepartments.length > 0 && !ownDepartments.includes(department) ? (
+                  <Notice>
+                    {department} isn&apos;t one of the divisions mapped to this
+                    doctor. The POB will still be saved under it, and the reason
+                    block records the choice.
                   </Notice>
                 ) : null}
 
