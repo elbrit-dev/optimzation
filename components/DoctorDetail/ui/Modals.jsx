@@ -325,34 +325,31 @@ export function PharmacyModal({ rows, money, onClose, onAdd }) {
 
 /* ----------------------------------------------------------------- notes */
 
-export function NoteModal({ form, setForm, saving, error, onSave, onClose }) {
+/**
+ * The note composer.
+ *
+ * ONE FIELD. It carried a Subject and a Tag as well, and neither earned its
+ * place: `CRM Note` has nowhere to put them, so both had to be smuggled into
+ * the note text as `[Tag] Subject` and parsed back out — three inputs and an
+ * encoding to capture what people were writing in the note anyway. The tag was
+ * a fixed list of three that nothing filtered or grouped by, and the subject
+ * only ever became the note's title, which the first line of the body gives for
+ * free. Both are still PARSED on read, because notes already written this way
+ * sit in ERP and must keep rendering properly.
+ *
+ * What replaced them is the line in the foot. A note is the one thing on this
+ * page a person types by hand, so who it lands under and when is the thing
+ * worth showing them — and it is exactly what ERP now records.
+ */
+export function NoteModal({ form, setForm, saving, error, author, onSave, onClose }) {
   return (
     <Sheet label="Add note" maxWidth={440} onClose={onClose}>
       <SheetHead title="Add note" onClose={onClose} />
       <div className="dx-sheet-body">
-        <div className="dx-fieldrow">
-          <label className="dx-field" style={{ flex: "2 1 180px" }}>
-            <span>Subject</span>
-            <input
-              type="text"
-              value={form.subject}
-              onChange={(e) => setForm("subject", e.target.value)}
-              placeholder="e.g. Asked for sample stock"
-            />
-          </label>
-          <label className="dx-field" style={{ flex: "1 1 120px" }}>
-            <span>Tag</span>
-            <select value={form.tag} onChange={(e) => setForm("tag", e.target.value)}>
-              <option value="Note">Note</option>
-              <option value="Follow-up">Follow-up</option>
-              <option value="Complaint">Complaint</option>
-            </select>
-          </label>
-        </div>
         <label className="dx-field">
           <span>Note</span>
           <textarea
-            rows={4}
+            rows={6}
             value={form.body}
             onChange={(e) => setForm("body", e.target.value)}
             placeholder="What happened, what was promised, what is next"
@@ -360,11 +357,24 @@ export function NoteModal({ form, setForm, saving, error, onSave, onClose }) {
         </label>
         {error ? <div className="dx-warn" role="alert"><span>{error}</span></div> : null}
       </div>
-      <div className="dx-sheet-foot dx-sheet-foot--end">
-        <button type="button" className="dx-btn" onClick={onClose}>Cancel</button>
-        <button type="button" className="dx-btn dx-btn--blue" disabled={saving || !form.body.trim()} onClick={onSave}>
-          {saving ? "Saving…" : "Save note"}
-        </button>
+      <div className="dx-sheet-foot">
+        {/* Not decoration: this names the attribution ERP will store, so a
+            shared login showing somebody else's name is visible BEFORE the
+            note is written rather than after. */}
+        <span className="dx-note">
+          {author ? "Saved as " + author : "Saved against your ERP login"}
+        </span>
+        <span style={{ display: "flex", gap: 8 }}>
+          <button type="button" className="dx-btn" onClick={onClose}>Cancel</button>
+          <button
+            type="button"
+            className="dx-btn dx-btn--blue"
+            disabled={saving || !form.body.trim()}
+            onClick={onSave}
+          >
+            {saving ? "Saving…" : "Save note"}
+          </button>
+        </span>
       </div>
     </Sheet>
   );

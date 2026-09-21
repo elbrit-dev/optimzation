@@ -298,7 +298,7 @@ function createSession(key, config) {
       // dialog can be walked through, but there is no Lead behind these figures
       // and a design review has no business appending a note to ERP.
       if (sample) {
-        patch({ noteForm: { subject: "", body: "", tag: "Note" }, modal: null, noteSaving: false, noteError: null });
+        patch({ noteForm: { body: "" }, modal: null, noteSaving: false, noteError: null });
         return;
       }
       patch({ noteSaving: true, noteError: null });
@@ -314,7 +314,7 @@ function createSession(key, config) {
           authorName: viewer?.employeeName ?? null,
           authorId: viewer?.employee ?? null,
         });
-        patch({ noteForm: { subject: "", body: "", tag: "Note" }, modal: null, noteSaving: false });
+        patch({ noteForm: { body: "" }, modal: null, noteSaving: false });
         session.refresh();
       } catch (error) {
         patch({ noteSaving: false, noteError: error?.message ?? "Could not save the note." });

@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/router";
-import { exitApp, isExiting, resumeExitIfPending } from "../lib/appExit";
 
 /**
  * Makes the back gesture behave like a native app's: home is the root, and the
@@ -32,14 +31,15 @@ import { exitApp, isExiting, resumeExitIfPending } from "../lib/appExit";
  * our sentinel is what got popped, the event is left alone and the calendar's
  * own handler takes it.
  *
- * Back at home raises the "Exit Elbrit One?" prompt. Actually closing the app
- * is a job in itself — the browser only permits it under a condition that has
- * to be manufactured — and lives in lib/appExit.js.
- *
- * iOS is the exception, and not by choice: Safari never honours close(), and a
- * home-screen web app has no back button anyway — its left-edge swipe just
- * stops at the root. There the sentinel simply absorbs the swipe and no prompt
- * is shown, because an Exit button that cannot exit is worse than none.
+ * There was an "Exit Elbrit One?" prompt here and it has been removed on
+ * purpose. A prompt is only worth showing if its Exit button can exit, and on
+ * the web it cannot be made to, reliably: Chromium refuses window.close()
+ * unless the window has an opener or its session history holds fewer than two
+ * entries, and every attempt to manufacture that condition — walking the
+ * history back to entry 0 and replacing it — ran aground on real handsets.
+ * Safari ignores close() outright whatever the history looks like. People
+ * leave through the app switcher, as they do with any native app. Do not
+ * re-add the button without a mechanism proven on a device.
  */
 
 /** Marks the throwaway entry that stands between home and leaving the app. */
@@ -84,20 +84,8 @@ const isInstalledApp = () => {
   return tab ? !tab.matches : false;
 };
 
-/** iPhone and iPad, including iPadOS, which reports itself as a Mac. */
-const isIOS = () => {
-  if (typeof navigator === "undefined") return false;
-  if (/iPad|iPhone|iPod/.test(navigator.platform || "")) return true;
-  if (/iPad|iPhone|iPod/.test(navigator.userAgent || "")) return true;
-  return /Macintosh/.test(navigator.userAgent || "") && navigator.maxTouchPoints > 1;
-};
-
-/** Safari ignores window.close() outright, so iOS gets no prompt. */
-const canCloseApp = () => !isIOS();
-
 export default function PwaBackGuard() {
   const router = useRouter();
-  const [confirmingExit, setConfirmingExit] = useState(false);
 
   // A ref, not state: the popstate listener is registered once and has to read
   // today's router, not the one captured when it was attached.
@@ -167,8 +155,6 @@ export default function PwaBackGuard() {
    */
   const armSentinel = useCallback(() => {
     if (typeof window === "undefined") return;
-    // An exit is unwinding the history; adding to it would fight the walk.
-    if (isExiting()) return;
     if (!isInstalledApp()) return;
     if (!isHomeRoute(window.location.pathname)) return;
     if (window.history.state?.[EXIT_FLAG]) return;
@@ -203,12 +189,6 @@ export default function PwaBackGuard() {
     if (typeof window === "undefined") return undefined;
 
     const handlePop = (event) => {
-      /* 0. An exit is in flight. lib/appExit.js is walking the history back
-            and swallowing its own pops; every rule below would fight it —
-            rule 1 especially, since the walk passes straight through /login
-            on its way to entry 0. */
-      if (isExiting()) return;
-
       const path = window.location.pathname;
 
       /* 1. The login page is off limits while someone is signed in.
@@ -232,18 +212,11 @@ export default function PwaBackGuard() {
             alone so their handler can close their layer. */
       if (window.history.state?.[EXIT_FLAG]) return;
 
-      /* 3. The sentinel itself was popped while on home: this back press would
-            have closed the app. Hold the position and ask first. */
+      /* 3. The sentinel itself was popped while on home. Home is the root:
+            absorb the press, put the sentinel back, and stay put. */
       if (isHomeRoute(path) && isInstalledApp()) {
         event.stopImmediatePropagation();
         armSentinel();
-        // iOS cannot close the app and back does not try to, so there the
-        // press is simply absorbed: home is the root and back at the root
-        // goes nowhere.
-        if (canCloseApp()) {
-          // A second back press with the prompt already up reads as "no".
-          setConfirmingExit((open) => !open);
-        }
         return;
       }
 
@@ -264,11 +237,6 @@ export default function PwaBackGuard() {
   // constructor, and that write lands on whatever entry is current. Arming
   // before it would have Next overwrite the sentinel's marker.
   useEffect(() => {
-    // An exit already under way landed on this document mid-walk: carry it on
-    // rather than arming anything. Must come first, since armSentinel below
-    // defers to the same flag.
-    resumeExitIfPending();
-
     const firstArm = window.setTimeout(armSentinel, 0);
     router.events?.on("routeChangeComplete", armSentinel);
     return () => {
@@ -297,12 +265,6 @@ export default function PwaBackGuard() {
       get onHome() {
         return isHomeRoute(window.location.pathname);
       },
-      get canClose() {
-        return canCloseApp();
-      },
-      get exiting() {
-        return isExiting();
-      },
       get entries() {
         return window.history.length;
       },
@@ -310,117 +272,5 @@ export default function PwaBackGuard() {
     };
   }, [armSentinel]);
 
-  const cancelExit = useCallback(() => setConfirmingExit(false), []);
-
-  const confirmExit = useCallback(() => {
-    setConfirmingExit(false);
-    exitApp();
-  }, []);
-
-  useEffect(() => {
-    if (!confirmingExit) return undefined;
-    const onKeyDown = (e) => {
-      if (e.key === "Escape") cancelExit();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [confirmingExit, cancelExit]);
-
-  if (!confirmingExit) return null;
-
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="pwa-exit-title"
-      onClick={cancelExit}
-      style={{
-        position: "fixed",
-        inset: 0,
-        // Above every sheet, drawer and Plasmic overlay in the app.
-        zIndex: 2147483000,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "24px",
-        background: "var(--surface-overlay, rgb(0 0 0 / 0.45))",
-        WebkitTapHighlightColor: "transparent",
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          width: "100%",
-          maxWidth: "20rem",
-          borderRadius: "14px",
-          background: "var(--surface-card, #fff)",
-          boxShadow: "0 12px 40px rgb(0 0 0 / 0.24)",
-          padding: "20px",
-          fontFamily: "var(--font-roboto, system-ui, sans-serif)",
-        }}
-      >
-        <h2
-          id="pwa-exit-title"
-          style={{
-            margin: "0 0 6px",
-            fontSize: "1rem",
-            fontWeight: 600,
-            color: "var(--ds-text-heading, rgb(23, 37, 84))",
-          }}
-        >
-          Exit Elbrit One?
-        </h2>
-        <p
-          style={{
-            margin: "0 0 18px",
-            fontSize: "0.8125rem",
-            lineHeight: 1.5,
-            color: "var(--ds-text-secondary, rgb(0 0 0 / 0.65))",
-          }}
-        >
-          Are you sure you want to close the app? You will stay signed in.
-        </p>
-        <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
-          <button
-            type="button"
-            onClick={cancelExit}
-            autoFocus
-            style={{
-              flex: 1,
-              padding: "10px 14px",
-              borderRadius: "10px",
-              border: "1px solid var(--border-default, rgb(0 0 0 / 0.15))",
-              background: "transparent",
-              color: "var(--ds-text-body, rgb(0 0 0 / 0.88))",
-              fontSize: "0.875rem",
-              fontWeight: 500,
-              cursor: "pointer",
-            }}
-          >
-            Stay
-          </button>
-          <button
-            type="button"
-            onClick={confirmExit}
-            style={{
-              flex: 1,
-              padding: "10px 14px",
-              borderRadius: "10px",
-              border: "1px solid transparent",
-              /* Red is the identity colour and this project reserves it for
-                 destructive intent — leaving the app is the one back action
-                 that throws something away. */
-              background: "var(--elbrit-red, rgb(220, 38, 39))",
-              color: "var(--ds-text-on-brand, #fff)",
-              fontSize: "0.875rem",
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            Exit
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+  return null;
 }

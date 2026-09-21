@@ -8,6 +8,23 @@
  * anything dynamic there (a hue, a bar width, a grid template) stays inline
  * here too.
  *
+ * EVERY SELECTOR IN HERE MUST NAME A .dx- CLASS. That is not a convention, it
+ * is the only thing keeping this sheet out of the rest of the app. It is
+ * injected into the HEAD, so its rules are global and are matched against every
+ * element on the page -- the app shell, the design system, CommonDataTable and
+ * the SmartDataTable in share/ included. A single unanchored selector (`table`,
+ * `th`, `.card`) would restyle all of them from whichever page happens to mount
+ * a doctor card.
+ *
+ * As it stands all 307 rules require a .dx- class, and nothing outside
+ * components/Doctor* uses one, so the two cannot meet. Verified by rendering
+ * CommonDataTable with and without a doctor card on the same page: 12 rows, 70
+ * cells, and font size, padding, colour, background, border and every measured
+ * width identical either way.
+ *
+ * So: no bare element selectors, no :root, no *, and nothing scoped only on a
+ * class this app did not prefix.
+ *
  * Three traps live in this file because it is a JS template literal:
  *   - a BACKTICK anywhere, comments included, ends the literal and the build
  *     fails with "Parsing ecmascript source code failed";

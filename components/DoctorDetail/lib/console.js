@@ -126,7 +126,7 @@ export function initialUi({ department, period, valueFormat } = {}) {
     pickOpen: false,
     pickStage: "from",
     pickYear: now().getFullYear(),
-    noteForm: { subject: "", body: "", tag: "Note" },
+    noteForm: { body: "" },
     noteSaving: false,
     noteError: null,
     pobOpen: false,

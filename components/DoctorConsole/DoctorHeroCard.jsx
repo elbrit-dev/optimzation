@@ -104,6 +104,8 @@ export default function DoctorHeroCard(props) {
         <NoteModal
           form={ui.noteForm}
           setForm={on.setNoteField}
+          // The attribution ERP will actually store, shown before the write.
+          author={c.viewer?.employeeName ?? c.viewer?.email ?? null}
           saving={ui.noteSaving}
           error={ui.noteError}
           onSave={on.saveNote}
