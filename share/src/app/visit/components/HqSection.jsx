@@ -3,7 +3,7 @@
 import { Card, Eyebrow, LegendChip, SectionLabel, StackedBar } from '@/design-system';
 import { HqStrip } from './HqStrip';
 import { VisitsByHourChart } from './VisitsByHourChart';
-import { hqLabel } from '../lib/format';
+import { hqLabel } from '../data/format';
 
 /* "Where the visits happened" — one strip of HQ cards that is both the
    comparison and the filter, then the detail for whichever is selected.
@@ -20,7 +20,7 @@ import { hqLabel } from '../lib/format';
 
 export const ALL_HQS = '__all__';
 
-export function HqSection({ hqRows, activeHq, onSelectHq, hourly, geo, totals }) {
+export function HqSection({ hqRows, activeHq, onSelectHq, hourly, geo, totals, showReps = true }) {
   const isAll = activeHq === ALL_HQS;
   const selected = isAll ? null : hqRows.find((h) => h.hq === activeHq);
   const label = isAll ? 'All HQs' : hqLabel(selected?.hq ?? '');
@@ -51,10 +51,18 @@ export function HqSection({ hqRows, activeHq, onSelectHq, hourly, geo, totals })
           <Eyebrow as="h3">Visits by hour · {label}</Eyebrow>
           {detail ? (
             <p className="text-10 text-ds-secondary">
-              <span className="tabular-nums">
-                {detail.activeReps}/{detail.totalReps}
-              </span>{' '}
-              reps active ·{' '}
+              {/* "reps active" is a fact about a TEAM. In My Report the team
+                  is one person, and the ratio would read 0/0 for any
+                  manager — reps are counted as BEs everywhere on this
+                  screen (see byHq), and a manager is not one. */}
+              {showReps ? (
+                <>
+                  <span className="tabular-nums">
+                    {detail.activeReps}/{detail.totalReps}
+                  </span>{' '}
+                  reps active ·{' '}
+                </>
+              ) : null}
               <span className="tabular-nums">{detail.force}</span> force visits
             </p>
           ) : null}

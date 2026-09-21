@@ -15,11 +15,23 @@
  *                                              there is never a time here)
  *   Event.custom_employee_id__name          -> employeeId
  *   Event.custom_doctor__name               -> doctorId
+ *
+ * The two NAME fields are not on the Event at all. A link field's `name` is
+ * the linked record's primary key -- "E01102", "DR-60005" -- so both had to
+ * be resolved from the linked doctype: `employeeName` against the roster
+ * this screen already fetches, `doctorName` from the Lead's own `lead_name`.
+ * See liveSource.js; printing a key where a name belongs is the bug this
+ * note exists to stop coming back.
  *   Event.custom_hq__name                   -> hq
  *   Event.custom_pob_given                  -> pobGiven
  *   participant.custom_visit_time           -> visitTime     (null = not done)
  *   participant.custom_distance             -> distanceKm
  *   participant.custom_is_force_visit       -> forceVisit
+ *
+ * `eventId` IS NOT A ROW KEY. An Event carries an array of participants and
+ * this row is the flattened form, so one Event with two participants is two
+ * rows sharing an eventId. Anything that needs to identify a row uniquely --
+ * a React key, a map -- has to add something to it; see doctorPlan().
  *
  * The two derived facts the whole screen rests on:
  *   PLANNED  = the row exists
@@ -145,6 +157,17 @@ export const ATTENDANCE_LABEL = {
   notReporting: 'Not reporting',
   onLeave: 'On leave',
   vacant: 'Vacant',
+};
+
+/* The heading on the drill-down each chip opens. Not `${ATTENDANCE_LABEL[k]}
+   today` — "Vacant today" would describe an open seat as a thing that is
+   true of this particular Tuesday, and a vacancy is not an attendance
+   record. Same reason the sheet counts vacancies in seats, not people. */
+export const ATTENDANCE_SHEET_TITLE = {
+  working: 'Working today',
+  notReporting: 'Not reporting today',
+  onLeave: 'On leave today',
+  vacant: 'Vacant seats',
 };
 
 /* Tone per state. `notReporting` is danger and `onLeave` is warning, not the

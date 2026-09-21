@@ -20,6 +20,7 @@
  */
 
 import { shortDesignation } from './shape';
+import { monthEnd } from './selectors';
 
 /* ---- Deterministic pseudo-randomness -------------------------------- */
 
@@ -190,7 +191,7 @@ function rowsForRepDay(member, isoDate, cutoffHour) {
  *
  * `cutoffHour` is the "as of" clock. Default 16 matches the reference
  * screenshot's 4:00 PM. */
-export function buildMockDataset({ anchorDate, cutoffHour = 16 } = {}) {
+export function buildMockDataset({ anchorDate, cutoffHour = 16, month, monthTo } = {}) {
   /* Rolls back to the last working day when none is given. The field force
      does not work Sundays, so a real Sunday produces a real screen of zeroes —
      correct, and a useless thing to look at while building. A caller that
@@ -215,18 +216,34 @@ export function buildMockDataset({ anchorDate, cutoffHour = 16 } = {}) {
   const reps = ROSTER.filter((m) => m.designation === FIELD_DESIGNATION);
 
   const rows = [];
-  const cursor = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
-  while (toISODate(cursor) <= today) {
-    if (isWorkingDay(cursor)) {
-      const iso = toISODate(cursor);
-      /* Only TODAY is truncated by the cutoff. Past days are complete, which
-         is what makes month-to-date averages meaningful. */
-      const cut = iso === today ? cutoffHour : 24;
-      for (const rep of reps) rows.push(...rowsForRepDay(rep, iso, cut));
-    }
+  const addDay = (iso) => {
+    /* Only TODAY is truncated by the cutoff. Past days are complete, which
+       is what makes a month average meaningful. */
+    const cut = iso === today ? cutoffHour : 24;
+    for (const rep of reps) rows.push(...rowsForRepDay(rep, iso, cut));
+  };
+
+  /* Mirrors the live source's window exactly, including the second pass
+     for today when the picked month is a past one -- attendance reads
+     today's rows whatever period is showing, so a fixture that omits them
+     would make the mock disagree with live on the one card that is never
+     period-scoped. */
+  const firstMonth = month ?? today.slice(0, 7);
+  const lastMonth = monthTo ?? firstMonth;
+  const selectedEnd = monthEnd(lastMonth);
+  const windowTo = selectedEnd < today ? selectedEnd : today;
+  const [y, m] = firstMonth.split('-').map(Number);
+
+  const cursor = new Date(y, m - 1, 1);
+  while (toISODate(cursor) <= windowTo) {
+    if (isWorkingDay(cursor)) addDay(toISODate(cursor));
     cursor.setDate(cursor.getDate() + 1);
   }
+  if ((today < `${firstMonth}-01` || today > windowTo) && isWorkingDay(anchor)) addDay(today);
 
-  return { team, rows, today, cutoffHour };
+  /* The fixture is generated, so it is never short of rows -- but it has
+     to carry the field, or the screen would read `undefined` from the
+     mock and `false` from live for the same state. */
+  return { team, rows, today, cutoffHour, truncated: false };
 }
 

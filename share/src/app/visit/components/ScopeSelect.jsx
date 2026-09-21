@@ -1,8 +1,8 @@
 'use client';
 
 import { TreeSelect } from '@/design-system';
-import { managerRoots } from '../lib/selectors';
-import { MANAGER_LEVELS, shortDesignation } from '../lib/shape';
+import { managerRoots } from '../data/selectors';
+import { MANAGER_LEVELS, shortDesignation } from '../data/shape';
 
 /* Whose team you are looking at.
  *
@@ -29,7 +29,22 @@ import { MANAGER_LEVELS, shortDesignation } from '../lib/shape';
  * just a default. Falls back to the full company tree (every top-level
  * manager root) only when the viewer can't be resolved to a manager at all
  * (an unresolvable token, a BE viewer, the dev harness with no viewer) --
- * there is no "my team" to restrict to in that case. */
+ * there is no "my team" to restrict to in that case.
+ *
+ * TWO CLICKS, TWO DEPTHS, AND AS MANY BRANCHES AS YOU LIKE. The picker
+ * answers "whose numbers" and "their team or their own" with one control
+ * (`subtreeToggle` -- see TreeSelect): the first click on a manager shows
+ * that manager's own calls, a second widens to everyone under them, a
+ * third unticks. Several can be ticked at once -- two RBMs, or an RBM
+ * plus one ABM from another branch -- and the report sums the union.
+ *
+ * This replaced a Team Report / My Report dropdown, which could only ever
+ * say "own" about whoever was already scoped and had to be kept in step
+ * with this picker by hand.
+ *
+ * Every row offers both depths, including the tree's leaves. A leaf HERE
+ * is a bottom-level ABM — the tree is managers only — and their own calls
+ * against their BEs' is exactly the distinction this exists to make. */
 
 function labelFor(member, rootId) {
   const short = shortDesignation(member.designation);
@@ -66,8 +81,16 @@ function buildManagerTree(team, rootId, viewerId) {
      to just them, so there is no ancestor chain and no sibling branch to
      navigate into. A dead-end-vacant self (should never happen for a real
      viewer, but the check stays cheap) still yields no options rather than a
-     phantom root. */
-  const self = viewerId ? managers.find((m) => m.id === viewerId) : null;
+     phantom root.
+
+     Falls back to `rootId` -- whoever useVisitKpi resolved as the scope --
+     before falling back to every manager root, and that order matters: the
+     report is computed over the resolved root's branch, so offering a node
+     OUTSIDE it hands back a pick that narrows to nobody and looks like a
+     picker that does not work. Only when neither resolves does this open up
+     to the whole company, where nothing has been narrowed to yet. */
+  const anchorId = viewerId ?? rootId;
+  const self = anchorId ? managers.find((m) => m.id === anchorId) : null;
   const roots = self
     ? (isDeadEndVacant(self) ? [] : [self])
     : managerRoots(team).filter((m) => !isDeadEndVacant(m));
@@ -90,6 +113,6 @@ export function ScopeSelect({ team, value, onChange, rootId, viewerId }) {
   const tree = buildManagerTree(team, rootId, viewerId);
 
   return (
-    <TreeSelect label="Team scope" hideLabel tree={tree} value={value} onChange={onChange} />
+    <TreeSelect label="Team scope" hideLabel subtreeToggle tree={tree} value={value} onChange={onChange} />
   );
 }

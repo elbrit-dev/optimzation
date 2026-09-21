@@ -16,7 +16,6 @@ import FirebaseUIComponent from "./components/FirebaseUIComponent";
 import LoginHelpForm from "./components/LoginHelpForm";
 import HelpSupport from "./components/features/help-support";
 import CalendarPage from "@calendar/components/CalendarPage";
-import { VisitReport } from "./components/Visit";
 import { TAGS, TAG_IDS, EVENT_TYPE_MODES } from "@calendar/components/calendar/constants";
 import NovuInbox from "./components/NovuInbox";
 import PushNotificationToggle from "./components/PushNotificationToggle";
@@ -587,26 +586,10 @@ PLASMIC.registerComponent(CalendarPage, {
   },
 });
 
-PLASMIC.registerComponent(VisitReport, {
-  name: "VisitReport",
-  displayName: "Visit Report",
-  description:
-    "Mobile-first daily / month-till-date field-force visit KPI report: attendance, planned vs happened calls, POB, geo-verified vs force visits, an HQ strip with hourly chart, and the manager team tree. Reads live from ERPNext (Events, Employees, LeaveApplications, Quotations) as the SIGNED-IN user, so the default 'my team' scope and every permission-scoped row reflect who is actually looking. Bind gqlToken to the same user credential the other ERP-reading components on this canvas use — there is no shared/service-token fallback.",
-  props: {
-    gqlEnvironment: {
-      type: "string",
-      defaultValue: "ERP",
-      helpText:
-        "The /tokens registry row NAME this resolves the ERP HOST from ('ERP' vs a UAT/sandbox row). Never used for a credential — gqlToken is the only source of that.",
-    },
-    gqlToken: {
-      type: "string",
-      helpText:
-        "REQUIRED. The signed-in user's own ERP token ('key:secret' or already-prefixed 'token key:secret'). There is no fallback: leaving this empty means the report has nothing to authenticate with and throws rather than silently using a shared credential.",
-    },
-  },
-  importPath: "./components/Visit",
-});
+/* VisitReport is registered by registerElbritCoreComponents (share/src/
+   plasmic-init.js), copied from netstar along with the component itself.
+   It used to be imported from ./components/Visit and registered here, which
+   meant a second copy of both the code and this metadata to keep in step. */
 
 PLASMIC.registerComponent(NovuInbox, {
   name: "NovuInbox",

@@ -22,6 +22,7 @@
 
 import { getEndpointConfigFromUrlKeyAsync } from '@/app/graphql-playground/constants';
 import { shortDesignation } from './shape';
+import { monthEnd } from './selectors';
 
 /* LOCAL date, not `new Date().toISOString().slice(0, 10)`. `toISOString`
    reads the UTC date, and east of Greenwich that is still YESTERDAY for the
@@ -43,9 +44,10 @@ function todayLocal() {
    `endpointUrl`); the registry's own stored credential is never read or used
    as a fallback. `gqlToken` is a REQUIRED prop -- the signed-in user's own
    ERP token, bound by whatever page renders this component (a Studio page
-   binds it the same way it already does for CalendarPage/DoctorDetail) --
-   never resolved here, so a shared/service credential can never quietly
-   stand in for the viewer. */
+   binds it the same way it already does for CalendarPage/DoctorDetail; the
+   dev harness on /visit resolves its own convenience default and passes a
+   concrete value down) -- never resolved here, so a shared/service
+   credential can never quietly stand in for the viewer. */
 export const DEFAULT_GQL_ENVIRONMENT = 'ERP';
 const MAX_ROWS = 20000;
 
@@ -77,7 +79,21 @@ async function graphqlRequest(query, variables, { endpointUrl, gqlToken, gqlEnvi
   return json.data;
 }
 
-const VISITS_QUERY = `
+/* A doctor is a CRM Lead on this instance (see shape.js), so `custom_doctor`
+   resolves to the Lead type and the label lives in `lead_name` --
+   `custom_doctor { name }` alone is the Lead's primary key, "DR-60005",
+   which is what the doctor plan was showing where a name belongs.
+
+   This is the ONE field in this module that has not been run against the
+   live schema, and a wrong field name fails the WHOLE GraphQL request --
+   taking the screen down to print a name, which is a bad trade. So the
+   selection is conditional: the first request that comes back complaining
+   about this field drops it, retries, and the module remembers for the
+   rest of the session. Worst case the sheet shows ids again, which is
+   where it started. */
+let doctorNameSupported = true;
+
+const VISITS_QUERY = (withDoctorName) => `
   query VisitsInWindow($f: [DBFilterInput], $first: Int) {
     Events(filter: $f, first: $first) {
       totalCount
@@ -86,7 +102,7 @@ const VISITS_QUERY = `
         subject
         starts_on
         custom_employee_id { name }
-        custom_doctor { name }
+        custom_doctor { name${withDoctorName ? ' lead_name' : ''} }
         custom_hq { name }
         custom_department { name }
         custom_pob_given
@@ -106,18 +122,37 @@ const VISITS_QUERY = `
    Doctor Visit plan Event always carries exactly one participant, but this
    does not assume that. */
 async function fetchVisitRows({ from, to }, conn) {
-  const data = await graphqlRequest(VISITS_QUERY, {
+  const variables = {
     first: MAX_ROWS,
     f: [
       { fieldname: 'event_category', operator: 'EQ', value: 'Doctor Visit plan' },
       { fieldname: 'starts_on', operator: 'GTE', value: `${from} 00:00:00` },
       { fieldname: 'starts_on', operator: 'LTE', value: `${to} 23:59:59` },
     ],
-  }, conn);
+  };
+
+  let data;
+  try {
+    data = await graphqlRequest(VISITS_QUERY(doctorNameSupported), variables, conn);
+  } catch (error) {
+    /* Narrowed to an error that actually names the field, so a timeout or a
+       401 is not mistaken for an unsupported schema and does not silently
+       cost every later request its doctor names. */
+    if (!doctorNameSupported || !/lead_name/i.test(String(error?.message ?? ''))) throw error;
+    console.warn('[visit] custom_doctor.lead_name rejected by this schema; falling back to the doctor id', error);
+    doctorNameSupported = false;
+    data = await graphqlRequest(VISITS_QUERY(false), variables, conn);
+  }
 
   const { totalCount, edges } = data.Events;
-  if (totalCount > edges.length) {
-    console.warn(`[visit] truncated: got ${edges.length} of ${totalCount} events for ${from}..${to} — raise MAX_ROWS`);
+  /* Returned as well as warned. A console line is enough while the window
+     is always one month and the volume is a few hundred visits a day; it
+     is NOT enough now that the picker can ask for a span, because a
+     truncated answer produces totals that look ordinary and are wrong.
+     The screen says so out loud -- see VisitReport. */
+  const truncated = totalCount > edges.length;
+  if (truncated) {
+    console.warn(`[visit] truncated: got ${edges.length} of ${totalCount} events for ${from}..${to} — narrow the month range or raise MAX_ROWS`);
   }
 
   const rows = [];
@@ -129,9 +164,17 @@ async function fetchVisitRows({ from, to }, conn) {
         subject: node.subject ?? '',
         plannedDate: (node.starts_on ?? '').slice(0, 10),
         employeeId: node.custom_employee_id?.name ?? '',
+        /* The ID for now. `custom_employee_id { name }` is the Employee's
+           primary key ("E01102"), not their name -- the same mistake the
+           doctor field had. Resolved against the roster in
+           fetchVisitDataset rather than by asking for `employee_name`
+           here, because that query runs anyway and its answer is the same
+           one every other name on this screen comes from. */
         employeeName: node.custom_employee_id?.name ?? '',
         doctorId: node.custom_doctor?.name ?? '',
-        doctorName: node.custom_doctor?.name ?? '',
+        /* `||`, not `??`: an empty-string lead_name is as useless as a
+           missing one, and the id at least identifies the doctor. */
+        doctorName: node.custom_doctor?.lead_name || node.custom_doctor?.name || '',
         hq: node.custom_hq?.name ?? '',
         department: node.custom_department?.name ?? '',
         pobGiven: Boolean(node.custom_pob_given),
@@ -141,7 +184,7 @@ async function fetchVisitRows({ from, to }, conn) {
       });
     }
   }
-  return rows;
+  return { rows, truncated };
 }
 
 const EMPLOYEES_QUERY = `
@@ -243,11 +286,12 @@ async function fetchPobQuotations({ from, to }, conn) {
   }, conn);
 
   const { totalCount, edges } = data.Quotations;
-  if (totalCount > edges.length) {
-    console.warn(`[visit] truncated: got ${edges.length} of ${totalCount} POB quotations for ${from}..${to} — raise MAX_ROWS`);
+  const truncated = totalCount > edges.length;
+  if (truncated) {
+    console.warn(`[visit] truncated: got ${edges.length} of ${totalCount} POB quotations for ${from}..${to} — narrow the month range or raise MAX_ROWS`);
   }
 
-  return edges.map(({ node }) => ({
+  const entries = edges.map(({ node }) => ({
     ownerEmail: node.owner?.name ?? '',
     doctorId: node.party_name?.name ?? '',
     /* grand_total (post-tax/discount) over total (line-item sum) when both
@@ -256,6 +300,8 @@ async function fetchPobQuotations({ from, to }, conn) {
     amount: Number(node.grand_total ?? node.total ?? 0),
     plannedDate: (node.transaction_date ?? '').slice(0, 10),
   }));
+
+  return { entries, truncated };
 }
 
 /* WHO is asking, according to the SAME token that fetched everything else in
@@ -304,9 +350,9 @@ async function fetchOnLeaveIds(onDate, conn) {
 }
 
 /* Returns the same shape buildMockDataset does: { team, rows, today }.
-   Fetches the whole calendar month up to `today` in one go -- exactly what
-   the mock does -- so 'today' and 'mtd' periods both slice client-side from
-   one dataset (see periodWindow/inPeriod in selectors.js).
+   Fetches ONE calendar month in one go -- whichever `month` is asked for,
+   clamped to today -- so the 'today' and 'month' periods both slice that
+   dataset client-side (see periodWindow/inPeriod in selectors.js).
 
    `gqlEnvironment` is the /tokens row NAME, e.g. "ERP" -- resolved here ONLY
    for its `endpointUrl` (which ERP host to call), never for its stored
@@ -318,6 +364,8 @@ async function fetchOnLeaveIds(onDate, conn) {
    quietly handed a shared one. */
 export async function fetchVisitDataset({
   anchorDate,
+  month,
+  monthTo,
   gqlEnvironment = DEFAULT_GQL_ENVIRONMENT,
   gqlToken: rawGqlToken,
 } = {}) {
@@ -330,18 +378,50 @@ export async function fetchVisitDataset({
   }
 
   const today = anchorDate ?? todayLocal();
-  const monthStart = `${today.slice(0, 7)}-01`;
+  /* `month` is the picked 'YYYY-MM', defaulting to the one today falls
+     in. The window is clamped the same way periodWindow clamps it, so the
+     fetch and the slice cannot disagree about where the current month
+     ends. */
+  const firstMonth = month ?? today.slice(0, 7);
+  const lastMonth = monthTo ?? firstMonth;
+  const windowFrom = `${firstMonth}-01`;
+  const selectedEnd = monthEnd(lastMonth);
+  const windowTo = selectedEnd < today ? selectedEnd : today;
+
+  /* TODAY'S ROWS COME ALONG EVEN WHEN THE WINDOW IS A PAST MONTH.
+     Attendance is a right-now fact whatever period the page is showing
+     (see useVisitKpi), so a dataset for August with no rows for today
+     would report the entire team as not reporting the moment you look at
+     it. A second, one-day query rather than one window stretched from the
+     picked month to now: on a January selection that would be a year of
+     events fetched to answer a question about one morning. */
+  const needsToday = today < windowFrom || today > windowTo;
 
   const { endpointUrl } = await getEndpointConfigFromUrlKeyAsync(gqlEnvironment);
   const conn = { endpointUrl, gqlToken, gqlEnvironment };
 
-  const [rows, team, onLeaveIds, pobQuotations, viewerEmail] = await Promise.all([
-    fetchVisitRows({ from: monthStart, to: today }, conn),
+  const [windowFetch, todayFetch, team, onLeaveIds, pobQuotations, viewerEmail] = await Promise.all([
+    fetchVisitRows({ from: windowFrom, to: windowTo }, conn),
+    needsToday ? fetchVisitRows({ from: today, to: today }, conn) : Promise.resolve({ rows: [], truncated: false }),
     fetchTeam(conn),
     fetchOnLeaveIds(today, conn),
-    fetchPobQuotations({ from: monthStart, to: today }, conn),
+    fetchPobQuotations({ from: windowFrom, to: windowTo }, conn),
     resolveViewerEmail(conn),
   ]);
+
+  const fetched = needsToday ? [...windowFetch.rows, ...todayFetch.rows] : windowFetch.rows;
+
+  /* Names in, ids out. A row arrives carrying the employee's primary key in
+     both fields (see fetchVisitRows); the roster is the one place that maps
+     it to a person, and doing it here means every consumer downstream gets
+     a name without knowing the roster exists. An id with no matching
+     employee keeps the id -- an unknown rep is better identified by their
+     number than by a blank. */
+  const nameByEmployeeId = new Map(team.map((m) => [m.id, m.name]));
+  const rows = fetched.map((r) => ({
+    ...r,
+    employeeName: nameByEmployeeId.get(r.employeeId) || r.employeeId,
+  }));
 
   /* Resolving `ownerEmail` to an employeeId needs `team`, so it happens here
      rather than inside fetchPobQuotations, which only has the quotations
@@ -352,7 +432,7 @@ export async function fetchVisitDataset({
   const employeeIdByEmail = new Map(
     team.filter((m) => m.userId).map((m) => [m.userId.toLowerCase(), m.id]),
   );
-  const pob = pobQuotations
+  const pob = pobQuotations.entries
     .map((q) => ({
       employeeId: employeeIdByEmail.get(q.ownerEmail.toLowerCase()) ?? null,
       doctorId: q.doctorId,
@@ -373,5 +453,8 @@ export async function fetchVisitDataset({
     pob,
     today,
     viewerId,
+    /* True when EITHER query hit MAX_ROWS. One flag, not two: the reader's
+       next move is the same whichever half of the screen is short. */
+    truncated: windowFetch.truncated || todayFetch.truncated || pobQuotations.truncated,
   };
 }

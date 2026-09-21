@@ -1,7 +1,7 @@
 'use client';
 
 import { Card, LegendChip, StackedBar } from '@/design-system';
-import { hqLabel } from '../lib/format';
+import { hqLabel } from '../data/format';
 
 /* One HQ, as a stat card that is also the filter.
  *

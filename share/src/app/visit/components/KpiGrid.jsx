@@ -1,7 +1,7 @@
 'use client';
 
 import { Card, Metric } from '@/design-system';
-import { formatCurrency, formatDecimal, formatPercent } from '../lib/format';
+import { formatCurrency, formatDecimal, formatPercent } from '../data/format';
 
 /* The 2x2 headline grid.
  *
@@ -17,6 +17,12 @@ import { formatCurrency, formatDecimal, formatPercent } from '../lib/format';
  * because there is nothing left for this component to compute once the
  * number is real money instead of a ratio.
  *
+ * `periodSuffix` is the word the two period-scoped labels end with --
+ * 'today', 'MTD' or 'Aug'. A string and not the period id, because the
+ * card cannot work it out on its own once a past month is selectable: it
+ * would need the month AND the dataset's today to tell 'MTD' from 'Aug',
+ * and that is the page's knowledge, not a metric card's.
+ *
  * `callStandard` is the company's per-day call target. It is a business
  * constant, not data, which is why it arrives as a prop rather than being
  * derived — and why the tone flips on it rather than on an arbitrary
@@ -30,17 +36,22 @@ export function KpiGrid({
   callAverage,
   callStandard = 12,
   repCount,
-  period,
+  periodSuffix,
 }) {
   const attainment = planned > 0 ? happened / planned : null;
 
   return (
     /* Two-up when narrow, four-up from @2xl. Never one-up: the four numbers are
-       a comparison, and a single column turns them into a list you scroll. */
-    <div className="grid grid-cols-2 gap-3 @2xl/report:grid-cols-4 @2xl/report:gap-4">
-      <Card>
+       a comparison, and a single column turns them into a list you scroll.
+
+       `auto-rows-fr` plus `h-full` on each card so the four share one height
+       instead of four. A row you read ACROSS should not have a ragged
+       baseline — and it is this height the attendance card beside them
+       stretches to match. */
+    <div className="grid auto-rows-fr grid-cols-2 gap-3 @2xl/report:grid-cols-4 @2xl/report:gap-4">
+      <Card className="h-full">
         <Metric
-          label={period === 'mtd' ? 'Visit plans MTD' : 'Visit plans today'}
+          label={`Visit plans ${periodSuffix}`}
           value={planned}
           caption={repCount ? `planned across ${repCount} reps` : 'planned calls'}
           tone="brand"
@@ -48,7 +59,7 @@ export function KpiGrid({
         />
       </Card>
 
-      <Card>
+      <Card className="h-full">
         <Metric
           label="Visits happened"
           value={happened}
@@ -59,9 +70,9 @@ export function KpiGrid({
         />
       </Card>
 
-      <Card>
+      <Card className="h-full">
         <Metric
-          label={period === 'mtd' ? 'POB collected MTD' : 'POB collected today'}
+          label={`POB collected ${periodSuffix}`}
           value={formatCurrency(pobAmount)}
           /* No `progress` bar here, unlike the other three cards -- a rupee
              total has no natural max to bound it against, and forcing one
@@ -73,7 +84,7 @@ export function KpiGrid({
         />
       </Card>
 
-      <Card>
+      <Card className="h-full">
         <Metric
           label="Call average"
           value={formatDecimal(callAverage)}

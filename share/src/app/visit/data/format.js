@@ -26,6 +26,46 @@ export function formatMonthRange(fromISO, toISO) {
   return `${a.getDate()}–${b.getDate()} ${MONTHS[b.getMonth()]} ${b.getFullYear()}`;
 }
 
+/* A Date -> the 'YYYY-MM' the data layer speaks. Read off local parts,
+   never `toISOString().slice(0, 7)`, which is the UTC month and puts the
+   first of the month into the previous one east of Greenwich. */
+export function toMonthKey(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/* '2026-08' -> 'Aug 2026'. The year is always there: a label naming a month
+   without it makes the reader work out which year it meant. */
+export function formatMonthName(month) {
+  const [y, m] = String(month).split('-').map(Number);
+  return `${MONTHS[m - 1]} ${y}`;
+}
+
+/* '2026-08' -> 'Aug', or 'Aug 2025' when it is not the year of `today`.
+   Dropping the year in the common case keeps a KPI label to two words; a
+   month from another year is a month you chose ON PURPOSE, and the year is
+   the whole reason you chose it. */
+function shortMonth(month, today) {
+  const [y, m] = String(month).split('-').map(Number);
+  return y === Number(today.slice(0, 4)) ? MONTHS[m - 1] : `${MONTHS[m - 1]} ${y}`;
+}
+
+/* What a label tacks on to say WHEN: 'today', 'MTD', 'Aug', 'Jun–Aug'.
+ *
+ * MTD survives as a word even though the period is now just "a month",
+ * because on the month still running that is exactly what the number is —
+ * eleven days, not a month — and "Visit plans Sep" over eleven days of data
+ * would read as a full month that went badly. A range that ENDS in the
+ * current month is the same story, so it keeps the marker too. */
+export function periodSuffix(period, month, today, monthTo) {
+  if (period !== 'month') return 'today';
+  const current = today.slice(0, 7);
+  const first = month ?? current;
+  const last = monthTo ?? first;
+  if (first === last) return first === current ? 'MTD' : shortMonth(first, today);
+  const span = `${shortMonth(first, today)}–${shortMonth(last, today)}`;
+  return last === current ? `${span} MTD` : span;
+}
+
 /* '2026-09-05 16:04:00' -> '4:04 PM'. Reads the string rather than
    constructing a Date, for the same timezone reason as above. */
 export function formatClock(stamp) {

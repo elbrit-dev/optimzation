@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { Field, Icon } from '@/design-system';
 import { HqCard } from './HqCard';
-import { hqLabel } from '../lib/format';
+import { hqLabel } from '../data/format';
 
 /* The HQ selector: a scrolling strip of compact cards, with a search box once
    there are enough of them to need one.

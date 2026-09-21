@@ -79,12 +79,38 @@ export function largestManagerRoot(team) {
 
 /* ---- Period ---------------------------------------------------------- */
 
-export function periodWindow(period, today) {
-  if (period === 'mtd') {
-    return { from: `${today.slice(0, 7)}-01`, to: today };
-  }
-  return { from: today, to: today };
+/* The last calendar day of a 'YYYY-MM'. Day 0 of the NEXT month, which is
+   how you get 28 / 29 / 30 / 31 right with no leap-year table. Built from
+   local Date PARTS, never from an ISO string — `new Date('2026-08-01')` is
+   parsed as UTC by spec, so east of Greenwich it is July 31st and every
+   month here would end a day early. Same trap format.js documents. */
+export function monthEnd(month) {
+  const [y, m] = String(month).split('-').map(Number);
+  const last = new Date(y, m, 0);
+  return `${month}-${String(last.getDate()).padStart(2, '0')}`;
 }
+
+/* One window for both periods. The months are parameters rather than always
+ * being the current one, and `monthTo` defaults to `month` so the common
+ * case — one month — is a one-month range and needs no second concept.
+ *
+ * THE LAST MONTH STOPS AT TODAY. That is what used to be called "month till
+ * date" and it is not a special mode: it falls out of clamping the window to
+ * `today`. A window running to the 30th of a month that is eleven days old
+ * would divide eleven days of visits by a full month of working days (see
+ * callAverage) and report every rep on the screen as behind. A month that is
+ * genuinely over runs to its own last day.
+ *
+ * Both default to the month `today` falls in, so a caller that has picked
+ * nothing gets exactly the old month-till-date behaviour. */
+export function periodWindow(period, today, month, monthTo) {
+  if (period !== 'month') return { from: today, to: today };
+  const first = month ?? today.slice(0, 7);
+  const last = monthTo ?? first;
+  const end = monthEnd(last);
+  return { from: `${first}-01`, to: end < today ? end : today };
+}
+
 
 export function inPeriod(rows, { from, to }) {
   return rows.filter((r) => r.plannedDate >= from && r.plannedDate <= to);
@@ -258,7 +284,7 @@ export function attendance(rows, team) {
 /* Everything one tree row needs, for one manager or one rep. Computed per node
    on expand rather than for the whole tree up front: the live hierarchy is
    five levels deep and most of it is never opened. */
-export function rollupFor(member, team, rows) {
+export function rollupFor(member, team, rows, pobRows = []) {
   const members = subtreeOf(team, member.id);
   const ids = new Set(members.map((m) => m.id));
   const mine = forEmployees(rows, ids);
@@ -270,11 +296,118 @@ export function rollupFor(member, team, rows) {
     happened: happened(mine),
     attainment: attainment(mine),
     pob: pobGiven(mine),
+    /* The subtree's money, so a tree row can say what a territory BROUGHT IN
+       next to what it did. `pobGiven` above is the checkbox count and cannot
+       answer that -- see shape.js for why the two are different fields.
+       Defaults to an empty list, so a caller that has no POB (the mock, or a
+       token that cannot read Quotation) gets 0 rather than a crash. */
+    pobAmount: pobTotal(forEmployees(pobRows, ids)),
     workingReps: reps.filter((m) => repsWithVisits.has(m.id)).length,
     totalReps: reps.filter((m) => !m.vacant).length,
     isLeaf: member.short === 'BE',
     attendance: member.short === 'BE' ? attendanceOf(member, repsWithVisits) : null,
   };
+}
+
+/* ---- Drill-downs: the rows behind a number ---------------------------- */
+
+function groupRowsByEmployee(rows) {
+  const out = new Map();
+  for (const r of rows) {
+    const list = out.get(r.employeeId);
+    if (list) list.push(r);
+    else out.set(r.employeeId, [r]);
+  }
+  return out;
+}
+
+/* The people behind one attendance chip.
+ *
+ * Classified by `attendanceOf`, the SAME function attendance() counts with,
+ * rather than re-testing vacant/onLeave/visits here. A second copy of that
+ * priority order is exactly how a chip that reads 46 opens a list of 45 --
+ * and a drill-down that disagrees with the number it was opened from is
+ * worse than no drill-down.
+ *
+ * Takes today's rows for the same reason attendance() does: who is in the
+ * field is a right-now fact even when the page is showing a month.
+ *
+ * Sorted by calls done, descending. The chip is tapped to find out WHO, and
+ * on a list of forty the thing worth reading first is the spread.
+ */
+export function repsInAttendanceState(team, todayRows, state) {
+  const repsWithVisits = new Set(todayRows.filter((r) => r.visitTime).map((r) => r.employeeId));
+  const rowsByEmployee = groupRowsByEmployee(todayRows);
+  const nameById = new Map(team.map((m) => [m.id, m.name]));
+
+  const out = [];
+  for (const m of team) {
+    if (m.short !== 'BE') continue;
+    if (attendanceOf(m, repsWithVisits) !== state) continue;
+    const mine = rowsByEmployee.get(m.id) ?? [];
+    out.push({
+      id: m.id,
+      name: m.name,
+      hq: m.hq,
+      managerName: nameById.get(m.reportsTo) ?? null,
+      planned: mine.length,
+      happened: happened(mine),
+    });
+  }
+
+  return out.sort((a, b) => b.happened - a.happened || a.name.localeCompare(b.name));
+}
+
+/* Every visit under one tree node, doctor by doctor -- the list a manager
+ * asks for when the ratio on their row is not the answer they wanted.
+ *
+ * Scoped with subtreeOf + forEmployees, so an RBM's plan is their whole
+ * region's and a BE's is their own, off one code path.
+ *
+ * POB is a separate doctype joined on (rep, doctor, day) -- see shape.js for
+ * why that join is ASSUMED rather than verified. Summed, not first-wins: one
+ * call can carry more than one quotation. The same rep visiting the same
+ * doctor twice in a day would show the day's total against both rows; that
+ * is the known limit of a join with no visit reference on it, and it is
+ * still better than dropping the money from the row entirely.
+ */
+export function doctorPlan(member, team, rows, pobRows = []) {
+  const ids = new Set(subtreeOf(team, member.id).map((m) => m.id));
+  const mine = forEmployees(rows, ids);
+
+  const pobByVisit = new Map();
+  for (const p of pobRows) {
+    if (!ids.has(p.employeeId)) continue;
+    const key = `${p.employeeId}|${p.doctorId}|${p.plannedDate}`;
+    pobByVisit.set(key, (pobByVisit.get(key) ?? 0) + (p.amount || 0));
+  }
+
+  return mine
+    /* `id` is the event id PLUS the row's index, because eventId is not
+       unique across VisitRows and was never meant to be: one Event with two
+       participants is two visits (see fetchVisitRows), and React saw two
+       children keyed EV279571. The index is taken before the sort below, so
+       it is stable for a given input rather than shifting with the order. */
+    .map((r, i) => ({
+      id: `${r.eventId}#${i}`,
+      doctorName: r.doctorName,
+      employeeName: r.employeeName,
+      plannedDate: r.plannedDate,
+      visitTime: r.visitTime,
+      forceVisit: r.forceVisit,
+      pob: pobByVisit.get(`${r.employeeId}|${r.doctorId}|${r.plannedDate}`) ?? null,
+    }))
+    /* Done first in the order they happened, then everything still open.
+       The rows carry no planned TIME (the doctype is all-day -- see
+       shape.js), so there is no schedule to sort the pending ones into;
+       putting them after the completed ones makes the list answer "what is
+       left" by where you stop reading. */
+    .sort((a, b) => {
+      if (a.visitTime && b.visitTime) return a.visitTime.localeCompare(b.visitTime);
+      if (a.visitTime) return -1;
+      if (b.visitTime) return 1;
+      return a.doctorName.localeCompare(b.doctorName);
+    });
 }
 
 /* ---- Clock ------------------------------------------------------------- */

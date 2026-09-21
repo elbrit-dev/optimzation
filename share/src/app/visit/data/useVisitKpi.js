@@ -36,16 +36,22 @@ export const DATA_SOURCE = 'live';
    credential and is REQUIRED live -- see liveSource.js's fetchVisitDataset,
    which throws rather than falling back to a shared one. The mock ignores
    both; there is nothing to point them at. */
-function loadDataset({ anchorDate, cutoffHour, gqlEnvironment, gqlToken }) {
-  if (DATA_SOURCE === 'mock') return buildMockDataset({ anchorDate, cutoffHour });
-  return fetchVisitDataset({ anchorDate, gqlEnvironment, gqlToken });
+function loadDataset({ anchorDate, cutoffHour, month, monthTo, gqlEnvironment, gqlToken }) {
+  if (DATA_SOURCE === 'mock') return buildMockDataset({ anchorDate, cutoffHour, month, monthTo });
+  return fetchVisitDataset({ anchorDate, month, monthTo, gqlEnvironment, gqlToken });
 }
 
-const EMPTY_DATASET = { team: [], rows: [], pob: [], today: '', viewerId: null };
+const EMPTY_DATASET = { team: [], rows: [], pob: [], today: '', viewerId: null, truncated: false };
 
 export function useVisitKpi({
   scopeId,
   period = 'today',
+  /* 'YYYY-MM', or undefined for the month today falls in. Unlike `period`
+     and `scopeId` this is NOT a client-side slice: the dataset only ever
+     holds one month, so changing it refetches. That is the whole reason it
+     is a parameter of the hook and not of periodWindow alone. */
+  month,
+  monthTo,
   anchorDate,
   cutoffHour,
   gqlEnvironment = DEFAULT_GQL_ENVIRONMENT,
@@ -63,18 +69,18 @@ export function useVisitKpi({
     const requestId = (requestRef.current += 1);
     setState((s) => ({ ...s, loading: true, error: null }));
 
-    Promise.resolve(loadDataset({ anchorDate, cutoffHour, gqlEnvironment, gqlToken }))
+    Promise.resolve(loadDataset({ anchorDate, cutoffHour, month, monthTo, gqlEnvironment, gqlToken }))
       .then((dataset) => {
         if (requestRef.current === requestId) setState({ dataset, error: null, loading: false });
       })
       .catch((error) => {
         if (requestRef.current === requestId) setState({ dataset: null, error, loading: false });
       });
-  }, [anchorDate, cutoffHour, gqlEnvironment, gqlToken]);
+  }, [anchorDate, cutoffHour, month, monthTo, gqlEnvironment, gqlToken]);
 
   return useMemo(() => {
     const { dataset, error, loading } = state;
-    const { team, rows, pob, today, viewerId } = dataset ?? EMPTY_DATASET;
+    const { team, rows, pob, today, viewerId, truncated } = dataset ?? EMPTY_DATASET;
 
     /* Priority: an explicit picker choice, then whoever is actually signed in
        (resolved from the SAME token that fetched this dataset -- see
@@ -89,7 +95,7 @@ export function useVisitKpi({
        only if the roster has no recognised manager whatsoever. */
     const rootId = scopeId ?? viewerId ?? largestManagerRoot(team)?.id ?? team.find((m) => m.reportsTo == null)?.id;
     const scopeTeam = subtreeOf(team, rootId);
-    const window = periodWindow(period, today);
+    const window = periodWindow(period, today, month, monthTo);
     const ids = new Set(scopeTeam.map((m) => m.id));
     const inScope = forEmployees(rows, ids);
     const scoped = inPeriod(inScope, window);
@@ -100,12 +106,28 @@ export function useVisitKpi({
          selected -- `viewerId` may not even be inside `scopeTeam` once the
          viewer has drilled down to one of their own reports. */
       allTeam: team,
+      /* The window, UNSCOPED. `rows`/`todayRows` below are pre-narrowed to
+         one subtree, which is the wrong pool for a caller whose selection
+         is a UNION of branches -- a union is not a subtree, so there is no
+         single rootId that could have produced it. Worse, a caller that
+         narrowed from the scoped set would silently drop any pick outside
+         it and look like a control that does nothing. Narrowing costs a
+         filter either way; the wider pool is the one that can answer every
+         question the picker can ask. */
+      allRows: inPeriod(rows, window),
+      allTodayRows: inPeriod(rows, { from: today, to: today }),
+      allPob: inPeriod(pob ?? [], window),
       team: scopeTeam,
       rows: scoped,
       /* Same scoping as `rows` -- forEmployees then inPeriod -- because a
          PobEntry is shaped with the same employeeId/plannedDate fields on
          purpose (see shape.js). */
-      pob: inPeriod(forEmployees(pob, ids), window),
+      /* `pob ?? []` because a dataset is allowed to have no POB at all --
+         the mock fixture carries none, and a live token that cannot read
+         Quotation returns none. Without the default this crashed on
+         `undefined.filter` and took the whole screen with it, rather than
+         showing the visit numbers it DID have and an em dash for the money. */
+      pob: inPeriod(forEmployees(pob ?? [], ids), window),
       /* Always today, whatever the period. Attendance is a right-now fact:
          computing it from a month of rows would count anyone who worked once
          in five days as "in the field". */
@@ -122,7 +144,12 @@ export function useVisitKpi({
       asOf: asOfFrom(scoped),
       loading,
       error,
+      /* The source could not return every row in the window. Not an
+         error -- the numbers rendered are real, they are just not all of
+         them -- so it rides alongside the data rather than replacing it,
+         and the screen says so above the cards. */
+      truncated: Boolean(truncated),
       source: DATA_SOURCE,
     };
-  }, [state, scopeId, period]);
+  }, [state, scopeId, period, month, monthTo]);
 }

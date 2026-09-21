@@ -1,7 +1,7 @@
 'use client';
 
 import { toneFill } from '@/design-system';
-import { formatHour } from '../lib/format';
+import { formatHour } from '../data/format';
 
 /* Nine stacked bars, hand-rolled.
  *
