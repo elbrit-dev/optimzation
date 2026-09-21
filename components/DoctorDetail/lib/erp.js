@@ -362,27 +362,114 @@ export async function resolveViewer() {
   };
 }
 
+/** "2026-09-21 11:02:33" — the only datetime shape Frappe accepts on a write. */
+function erpDateTime(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  const pad = (n) => String(n).padStart(2, "0");
+  return (
+    d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + " "
+    + pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds())
+  );
+}
+
+function escapeHtml(text) {
+  return String(text ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/**
+ * The marker that opens the author line of a note this page wrote.
+ *
+ * An em dash is what a signature looks like to a reader and what the parser
+ * keys on, so the one line serves both. Exported because `deriveNotes` reads
+ * it back and the two must never drift.
+ */
+export const NOTE_AUTHOR_MARK = "— ";
+
 /**
  * Append a note to the doctor's Lead.
  *
- * `notes` is a child table, so there is no way to add one row without sending
- * the parent — which puts the whole Lead through validation. A great many
- * doctor Leads were bulk-imported with `custom_doctor_code` empty while the
- * field is mandatory, and those Leads cannot be saved AT ALL until ERP is
- * fixed. That failure is caught and named here rather than surfacing as a wall
- * of Frappe HTML, because it is not something the reader did wrong and not
- * something they can fix from this page.
+ * `notes` is a child table (`CRM Note`), so there is no way to add one row
+ * without sending the parent — which puts the whole Lead through validation. A
+ * great many doctor Leads were bulk-imported with `custom_doctor_code` empty
+ * while the field is mandatory, and those Leads cannot be saved AT ALL until
+ * ERP is fixed. That failure is caught and named below rather than surfacing as
+ * a wall of Frappe HTML, because it is not something the reader did wrong and
+ * not something they can fix from this page.
+ *
+ * ------------------------------------------------------------------ WHO AND
+ * WHEN, RECORDED TWICE ON PURPOSE
+ *
+ * `CRM Note` has exactly three fields — `note` (Text Editor), `added_by`
+ * (Link -> User) and `added_on` (Datetime). Verified on the doctype; there is
+ * no field for a subject, a tag, or an employee.
+ *
+ * So both stamps are written to the ERP fields AND repeated inside the note
+ * text:
+ *
+ *   `added_on` was previously never set at all, which left every note relying
+ *   on the child row's `creation` — a value Frappe controls, not us.
+ *
+ *   `added_by` is only as good as the credential. Where the page runs on the
+ *   signed-in user's own token it is exactly right; where a card is pointed at
+ *   a shared /tokens row it is the integration account, and every note in ERP
+ *   would read "api@elbrit.org" no matter who typed it. The author line inside
+ *   the text carries the EMPLOYEE — name and id — which no token can blur, and
+ *   `deriveNotes` prefers it when reading back.
+ *
+ * The subject and tag have nowhere structural to live either, so they lead the
+ * text as `[Tag] Subject` and are parsed back out on read. The body is written
+ * as one `<div>` per line because `note` is a Text Editor: a bare "
+" renders
+ * as nothing at all, so a multi-line note would arrive in ERP as one run-on
+ * paragraph.
  */
-export async function appendLeadNote(doctorId, { subject, body, tag, author }) {
+export async function appendLeadNote(
+  doctorId,
+  { subject, body, tag, author, authorName, authorId } = {}
+) {
   const { authToken } = AUTH_CONFIG;
   if (!authToken) throw new Error("Missing ERP auth configuration");
+  if (!doctorId) throw new Error("No doctor to attach this note to");
 
+  const text = String(body ?? "").trim();
+  if (!text) throw new Error("A note needs something written in it");
+
+  /*
+   * Read the CURRENT rows back and resend them untouched. Frappe matches child
+   * rows on `name`, so the existing ones keep their own `added_on`, `added_by`
+   * and `creation`; dropping `name` would make it delete and recreate every
+   * note on the doctor, resetting the whole history to today.
+   */
   const current = await erpRest("/api/resource/Lead/" + encodeURIComponent(doctorId));
   const existing = Array.isArray(current?.data?.notes) ? current.data.notes : [];
-  const heading = [tag && tag !== "Note" ? "[" + tag + "]" : null, subject?.trim()]
-    .filter(Boolean)
-    .join(" ");
-  const text = [heading, body?.trim()].filter(Boolean).join("\n");
+
+  /*
+   * The tag is ALWAYS written, "Note" included.
+   *
+   * It used to be omitted for the default, which left the heading as a bare
+   * line of prose — indistinguishable from the first line of the body, so the
+   * SUBJECT was silently lost on the way back in. "Note" is the default in the
+   * composer, so that was the common case, not the edge. `[Note] ` costs six
+   * characters in the ERP desk and is what makes the heading parseable.
+   */
+  const heading = [
+    tag ? "[" + String(tag).trim() + "]" : null,
+    String(subject ?? "").trim() || null,
+  ].filter(Boolean).join(" ");
+
+  const signature = [authorName, authorId ? "(" + authorId + ")" : null]
+    .filter(Boolean).join(" ") || author || null;
+
+  const lines = [
+    heading || null,
+    ...text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean),
+    signature ? NOTE_AUTHOR_MARK + signature : null,
+  ].filter(Boolean);
+
+  const html = lines.map((line) => "<div>" + escapeHtml(line) + "</div>").join("");
 
   const response = await fetch(
     erpRestBase() + "/api/resource/Lead/" + encodeURIComponent(doctorId),
@@ -394,7 +481,16 @@ export async function appendLeadNote(doctorId, { subject, body, tag, author }) {
         Authorization: "token " + authToken,
       },
       body: JSON.stringify({
-        notes: [...existing, { note: text, added_by: author ?? undefined }],
+        notes: [
+          ...existing,
+          {
+            note: html,
+            // Both stamps are set explicitly. ERP defaults neither on a REST
+            // write, which is why `added_on` used to come back null.
+            added_by: author ?? undefined,
+            added_on: erpDateTime(new Date()),
+          },
+        ],
       }),
     }
   );
@@ -415,18 +511,6 @@ export async function appendLeadNote(doctorId, { subject, body, tag, author }) {
   return true;
 }
 
-/**
- * Role and department for the employees who touched this doctor's rows.
- *
- * Keyed by EMPLOYEE ID only. There is deliberately no lookup by login: the only
- * record that names a person here is the doctor visit, through
- * `custom_employee_id`. A Quotation names nobody, and its `owner` is whoever
- * saved it — often an admin or an integration account — so resolving by login
- * would quietly file other people's POBs under theirs.
- *
- * Anything that fails to resolve stays unresolved: a visit whose rep has left
- * the company is still a real visit and must not vanish from the count.
- */
 export async function fetchEmployeeIndex({ employeeIds = [] } = {}) {
   const byId = new Map();
   const ids = [...new Set(employeeIds.filter(Boolean))];

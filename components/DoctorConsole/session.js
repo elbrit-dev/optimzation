@@ -303,9 +303,16 @@ function createSession(key, config) {
       }
       patch({ noteSaving: true, noteError: null });
       try {
+        const viewer = session.data.viewer;
         await appendLeadNote(session.doctorId, {
           ...session.ui.noteForm,
-          author: session.data.viewer?.email,
+          // WHO, from the token and nothing else. `author` is the ERP User the
+          // credential belongs to; `authorName`/`authorId` are the Employee
+          // behind it, signed into the note text so the attribution survives a
+          // page running on a shared credential. See `appendLeadNote`.
+          author: viewer?.email,
+          authorName: viewer?.employeeName ?? null,
+          authorId: viewer?.employee ?? null,
         });
         patch({ noteForm: { subject: "", body: "", tag: "Note" }, modal: null, noteSaving: false });
         session.refresh();

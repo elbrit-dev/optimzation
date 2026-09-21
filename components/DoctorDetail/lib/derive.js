@@ -470,29 +470,110 @@ export function deriveVisits(rows, employeeIndex) {
     .sort((a, b) => b.t - a.t);
 }
 
-/** Lead.notes[].note is HTML and is flattened, never injected. */
+/**
+ * Split a Text Editor value into the LINES it renders as.
+ *
+ * `stripHtml` collapses every run of whitespace, newlines included, into single
+ * spaces — right for a one-line summary and useless for parsing, because the
+ * structure a note carries (heading, body, author) is exactly the line breaks
+ * it throws away. So the block tags are turned into separators FIRST and each
+ * piece is stripped on its own.
+ */
+function htmlLines(value) {
+  if (value == null) return [];
+  return String(value)
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|li|h[1-6])>/gi, "\n")
+    .split("\n")
+    .map((line) => stripHtml(line))
+    .filter(Boolean);
+}
+
+const NOTE_TAGS = ["Note", "Follow-up", "Complaint"];
+/** "[Follow-up] Asked for sample stock" -> tag + subject. */
+const TAG_LINE = /^\[([^\]]{1,32})\]\s*(.*)$/;
+/** The author line `appendLeadNote` signs a note with. */
+const AUTHOR_LINE = /^—\s*(.+)$/;
+
+/**
+ * The doctor's notes, with WHO wrote each one and WHEN.
+ *
+ * Both are read from two places and the note's own text wins. `added_by` is a
+ * Link to User, so at best it is an email and at worst — on a page running a
+ * shared credential — it is the integration account for every note on the
+ * instance. `appendLeadNote` therefore signs the text with the EMPLOYEE, and
+ * that signature is preferred here. Notes written before this, and any written
+ * in the ERP desk, carry no signature and fall back to `added_by` exactly as
+ * they did.
+ *
+ * `added_on` is likewise preferred over the row's `creation`: creation is when
+ * Frappe wrote the row, which is the same thing right up until somebody edits
+ * the Lead and Frappe rewrites the table.
+ *
+ * SORTED ON THE FULL TIMESTAMP, not on `T()`. `T` floors an ERP datetime to
+ * local midnight — correct for grouping a feed by day, wrong here, because
+ * several notes on one doctor on one day is the normal case and flooring them
+ * makes the order arbitrary.
+ */
 export function deriveNotes(lead) {
   const rows = Array.isArray(lead?.notes) ? lead.notes : [];
   return rows
     .map((n, i) => {
       const raw = n?.added_on ?? n?.creation ?? null;
       const t = T(raw);
-      const body = stripHtml(n?.note);
-      if (!body && t == null) return null;
-      const title = body.length > 80 ? body.slice(0, 77).trimEnd() + "…" : body || "Note";
+
+      const lines = htmlLines(n?.note);
+
+      // The signature, if this page wrote the note. Taken off the end so it
+      // never shows up in the body twice.
+      let signedBy = null;
+      if (lines.length) {
+        const signature = AUTHOR_LINE.exec(lines[lines.length - 1]);
+        if (signature) {
+          signedBy = signature[1].trim() || null;
+          lines.pop();
+        }
+      }
+
+      // The heading, if the first line carries one. A body that happens to open
+      // with a bracket is not mistaken for a tag: only the tags the composer can
+      // actually produce are accepted.
+      let tag = "Note";
+      let subject = null;
+      if (lines.length) {
+        const head = TAG_LINE.exec(lines[0]);
+        if (head && NOTE_TAGS.some((t2) => t2.toLowerCase() === head[1].trim().toLowerCase())) {
+          tag = NOTE_TAGS.find((t2) => t2.toLowerCase() === head[1].trim().toLowerCase());
+          subject = head[2].trim() || null;
+          lines.shift();
+        }
+      }
+
+      const body = lines.join(" ").trim();
+      if (!body && !subject && t == null) return null;
+
+      const title =
+        subject
+        || (body.length > 80 ? body.slice(0, 77).trimEnd() + "…" : body)
+        || "Note";
+
       return {
         k: "note",
         id: n?.name ?? "note-" + i,
         d: raw ? String(raw).slice(0, 10) : null,
         t,
-        tag: "Note",
+        // The full timestamp, so the row can say the TIME and not just the day.
+        at: raw ?? null,
+        ts: raw ? new Date(String(raw).replace(" ", "T")).getTime() : null,
+        tag,
+        subject,
         title,
         body,
-        by: n?.added_by__name ?? n?.added_by ?? null,
+        by: signedBy ?? n?.added_by__name ?? n?.added_by ?? null,
       };
     })
     .filter((n) => n && n.t != null)
-    .sort((a, b) => b.t - a.t);
+    .sort((a, b) => (b.ts ?? b.t) - (a.ts ?? a.t));
 }
 
 const CLINIC_HUES = ["#1e3a8a", "#047857", "#a02019", "#6d28d9", "#b45309"];
@@ -570,4 +651,3 @@ export function derivePharmacies(pobs) {
   return [...map.values()].sort((a, b) => b.pob - a.pob);
 }
 
-export { UNASSIGNED };

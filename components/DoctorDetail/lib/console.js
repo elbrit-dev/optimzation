@@ -30,6 +30,26 @@ import {
 } from "./analytics";
 import { TONE } from "../ui/parts";
 
+/**
+ * The clock time a note was written, for the line under it.
+ *
+ * Notes are the one thing on this page a person types by hand, and several
+ * land on the same doctor on the same day — so the feed, which groups by day,
+ * needs the time to put them in an order a reader can follow. Everything else
+ * here is dated by ERP to the day and gets none.
+ *
+ * An ERP datetime ("2026-09-21 11:02:33") is not what `new Date()` parses on
+ * every browser until the space becomes a T. A value that is only a date, or
+ * that will not parse, yields nothing rather than a misleading midnight.
+ */
+function noteTime(raw) {
+  const text = String(raw ?? "");
+  if (!text.includes(":")) return null;
+  const at = new Date(text.replace(" ", "T"));
+  if (Number.isNaN(at.getTime())) return null;
+  return at.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
+}
+
 export const CHART_W = 600;
 export const CHART_H = 184;
 
@@ -442,9 +462,14 @@ export function buildConsole(data, ui, on) {
         : r.attendanceKnown ? "Planned — not marked as made" : null,
     }));
     notes.forEach((r) => out.push({
-      k: "note", id: "note-" + r.id, t: r.t, d: r.d, div: "",
+      k: "note", id: "note-" + r.id, t: r.t, d: r.d, div: r.tag === "Note" ? "" : r.tag,
       title: r.title, amt: null,
-      meta: [r.by, r.body !== r.title ? r.body : null].filter(Boolean).join(" · "),
+      // WHO and WHEN lead the meta line — a note nobody can be traced back to
+      // is not much of a record. The time is worth the characters because
+      // several notes land on one doctor on one day and the feed groups by day,
+      // so the date alone does not order them for a reader.
+      meta: [r.by, noteTime(r.at), r.body !== r.title ? r.body : null]
+        .filter(Boolean).join(" · "),
     }));
     return out.sort((a, b) => b.t - a.t);
   })();
