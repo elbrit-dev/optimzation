@@ -15,6 +15,12 @@ import { Button } from "@calendar/components/ui/button";
 import { Input } from "@calendar/components/ui/input";
 import { Textarea } from "@calendar/components/ui/textarea";
 import { Form } from "@calendar/components/ui/form";
+import { Calendar } from "@calendar/components/ui/calendar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@calendar/components/ui/popover";
 import { RHFComboboxField } from "@calendar/components/calendar/form-fields";
 
 import { AUTH_CONFIG } from "@calendar/components/auth/calendar-users";
@@ -556,53 +562,260 @@ const SHEET_CSS = `
   }
 }
 
-/* ORDER LINES — a card per line on a phone, one ruled row per line above it. */
+/* ORDER LINES — one card per line, identical at every width.
+
+   There used to be two layouts: a card on a phone and, above 640px, a ruled
+   table with its own header row driven by a second grid-template. Two layouts
+   is two things to keep right, and the table gained nothing — a POB is three or
+   four lines, not a spreadsheet.
+
+   An UNPRICED line shows only its item picker. The old row always rendered a
+   quantity box and an amount, so a line you had not chosen an item for yet sat
+   there showing "1" and "0.00" — two numbers that meant nothing, on the step
+   where the user has the least idea what to do.
+
+   Quantity is a STEPPER, not a bare number field. This is filled in at a clinic
+   door on a phone, where every quantity is a small number and summoning a
+   numeric keyboard to type "2" is the slowest way to say it. The input stays,
+   so a bulk line can still be typed and the field remains reachable by
+   keyboard and screen reader. */
 .pob-sheet .pob-line {
   display: grid;
-  gap: 0.5rem 0.75rem;
-  align-items: center;
   grid-template-columns: minmax(0, 1fr) 2.25rem;
-  grid-template-areas:
-    "no   del"
-    "item item"
-    "qty  amt";
+  gap: 0.625rem 0.75rem;
+  align-items: center;
   padding: 0.75rem;
   border: 1px solid var(--line);
   border-radius: 0.875rem;
   background: #fff;
 }
-.pob-sheet .pob-line-no { grid-area: no; }
-.pob-sheet .pob-line-item { grid-area: item; min-width: 0; }
-.pob-sheet .pob-line-qty { grid-area: qty; }
-.pob-sheet .pob-line-amt { grid-area: amt; }
-.pob-sheet .pob-line-del { grid-area: del; }
-.pob-sheet .pob-line-amount {
+.pob-sheet .pob-line-item { min-width: 0; }
+
+/* The priced half, once an item is on the line. */
+.pob-sheet .pob-line-foot {
+  grid-column: 1 / -1;
   display: flex;
-  height: 2.75rem;
   align-items: center;
-  justify-content: flex-end;
-  padding-right: 0.25rem;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.pob-sheet .pob-line-money { text-align: right; line-height: 1.25; }
+.pob-sheet .pob-line-total { font-size: 1rem; font-weight: 700; letter-spacing: -0.01em; }
+
+.pob-sheet .pob-step {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 0.625rem;
+  background: #fff;
+  overflow: hidden;
+}
+.pob-sheet .pob-step button {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  font-size: 1.25rem;
+  line-height: 1;
+  color: var(--muted);
+  transition: background-color 0.12s, color 0.12s;
+}
+.pob-sheet .pob-step button:hover:not(:disabled) { background: var(--ground); color: var(--ink); }
+.pob-sheet .pob-step button:disabled { opacity: 0.3; }
+/* Beats the generic number-input rule above, which is the same specificity
+   and would otherwise win on source order alone. */
+.pob-sheet .pob-step input[type="number"] {
+  width: 3rem;
+  height: 2.5rem;
+  padding: 0;
+  text-align: center;
+  font-weight: 600;
+  border-width: 0 1px;
+  border-radius: 0;
+  border-color: var(--line);
+}
+.pob-sheet .pob-step input[type="number"]::-webkit-outer-spin-button,
+.pob-sheet .pob-step input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.pob-sheet .pob-step input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+
+/* BILLED ON — a trigger that matches the comboboxes beside it, and a popover
+   that belongs to this sheet rather than to the browser. */
+.pob-sheet .pob-when {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  height: 2.75rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  background: #fff;
+  color: var(--ink);
+  font-weight: 500;
+  text-align: left;
+}
+.pob-sheet .pob-when:hover { border-color: #c7cedf; }
+.pob-sheet .pob-when-day { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pob-sheet .pob-when-time {
+  flex-shrink: 0;
+  padding: 0.125rem 0.5rem;
+  border-radius: 0.5rem;
+  background: var(--ground);
+  color: var(--muted);
+  font-size: 0.8125rem;
   font-weight: 600;
 }
-.pob-sheet .pob-line-head { display: none; }
-@media (min-width: 640px) {
-  .pob-sheet .pob-line-head {
-    display: grid;
-    border-bottom: 0;
-    padding: 0 0 0.25rem;
-  }
-  .pob-sheet .pob-line {
-    grid-template-columns: 1.75rem minmax(0, 1fr) 4.5rem 6.5rem 2.25rem;
-    grid-template-areas: "no item qty amt del";
-    padding: 0.5rem 0;
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-    border-bottom: 1px solid var(--line);
-  }
-  .pob-sheet .pob-lines > .pob-line:last-of-type { border-bottom: 0; }
+
+.pob-when-pop { padding: 0.625rem; }
+.pob-when-chips { display: flex; gap: 0.375rem; padding-bottom: 0.5rem; }
+.pob-when-chips button {
+  flex: 1;
+  padding: 0.4375rem 0.5rem;
+  border: 1px solid #e5e9f2;
+  border-radius: 0.625rem;
+  background: #fff;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #6b7591;
+  transition: background-color 0.12s, color 0.12s, border-color 0.12s;
+}
+.pob-when-chips button:hover { border-color: #c7cedf; color: #131a2e; }
+.pob-when-chips button[data-on] {
+  border-color: #4f46e5;
+  background: #eef0ff;
+  color: #4f46e5;
+}
+.pob-when-time-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+  padding-top: 0.625rem;
+  border-top: 1px solid #e5e9f2;
+}
+.pob-when-time-row .pob-label { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #6b7591; }
+.pob-when-time-row input {
+  width: 8.5rem;
+  height: 2.5rem;
+  padding: 0 0.625rem;
+  border: 1px solid #e5e9f2;
+  border-radius: 0.625rem;
+  font-weight: 600;
 }
 `;
+
+/**
+ * BILLED ON — the date, with the time kept quietly beside it.
+ *
+ * This was a bare `<input type="datetime-local">`, which hands the whole job to
+ * the browser. Chrome answers with a two-pane calendar and a pair of scrolling
+ * hour/minute columns in its own blue, sized and aligned to nothing else on the
+ * sheet — the one control on the form that does not look like the form.
+ *
+ * The app's own `DateTimePicker` cannot be reused here: it calls `useCalendar`,
+ * which THROWS outside a CalendarProvider, and this popup runs on the doctor
+ * page where there is none. So it is built from the same two primitives that
+ * one is built from — both context-free — and the sheet keeps one voice.
+ *
+ * THE DATE LEADS AND THE TIME FOLLOWS, because that is what the field means:
+ * ERP dates a Quotation by the DAY, and the time survives only in the reason
+ * block. Today and Yesterday are chips because a POB raised without a visit is
+ * almost always being caught up on the day or the day after.
+ *
+ * The value stays a `datetime-local` string ("2026-09-21T14:06") rather than a
+ * Date, so everything downstream — the save, the reason block — is untouched.
+ */
+function PobWhen({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+
+  const parsed = value ? new Date(value) : null;
+  const when = parsed && !Number.isNaN(parsed.getTime()) ? parsed : null;
+
+  const setDay = (day) => {
+    if (!day) return;
+    const next = new Date(day);
+    // Carry the time across, so picking a date never silently resets it.
+    next.setHours(when ? when.getHours() : 0, when ? when.getMinutes() : 0, 0, 0);
+    onChange(toLocalInputValue(next));
+    setOpen(false);
+  };
+
+  const setTime = (text) => {
+    const [h, m] = String(text || "").split(":").map(Number);
+    if (!Number.isFinite(h) || !Number.isFinite(m)) return;
+    const next = new Date(when ?? new Date());
+    next.setHours(h, m, 0, 0);
+    onChange(toLocalInputValue(next));
+  };
+
+  const isToday = when && when.toDateString() === new Date().toDateString();
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const isYesterday = when && when.toDateString() === yesterday.toDateString();
+
+  const dayLabel = !when
+    ? "Pick a date"
+    : isToday ? "Today"
+    : isYesterday ? "Yesterday"
+    : when.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+
+  const timeLabel = when
+    ? when.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })
+    : "";
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button type="button" id="pob-visit-at" className="pob-when">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className="h-4 w-4 shrink-0 text-[var(--muted)]">
+            <rect x="3" y="5" width="18" height="16" rx="2.5" />
+            <path d="M8 3v4M16 3v4M3 10h18" strokeLinecap="round" />
+          </svg>
+          <span className="pob-when-day">{dayLabel}</span>
+          {timeLabel ? <span className="pob-when-time pob-num">{timeLabel}</span> : null}
+        </button>
+      </PopoverTrigger>
+
+      {/* This popover is non-modal, so inside the dialog react-remove-scroll
+          cancels any scroll that starts in the portalled content. Stopping the
+          events in the capture phase keeps them away from that listener. */}
+      <PopoverContent
+        align="start"
+        className="w-auto p-0"
+        onWheelCapture={(e) => e.stopPropagation()}
+        onTouchMoveCapture={(e) => e.stopPropagation()}
+      >
+        <div className="pob-when-pop">
+          <div className="pob-when-chips">
+            <button type="button" data-on={isToday ? "" : undefined} onClick={() => setDay(new Date())}>
+              Today
+            </button>
+            <button type="button" data-on={isYesterday ? "" : undefined} onClick={() => setDay(yesterday)}>
+              Yesterday
+            </button>
+          </div>
+
+          {/* v9 renamed `initialFocus` to `autoFocus`; the old name is silently ignored. */}
+          <Calendar mode="single" selected={when ?? undefined} onSelect={setDay} autoFocus />
+
+          <label className="pob-when-time-row">
+            <span className="pob-label">Time</span>
+            <Input
+              type="time"
+              className="pob-num"
+              value={when ? toLocalInputValue(when).slice(11, 16) : ""}
+              onChange={(e) => setTime(e.target.value)}
+            />
+          </label>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 /** A ruled section head: label, hairline to the edge, optional aside. */
 function Rule({ title, hint }) {
@@ -1442,13 +1655,10 @@ export default function DoctorPobDialog({
 
                   <div className="flex flex-col gap-2">
                     <label htmlFor="pob-visit-at">Billed on</label>
-                    <Input
-                      id="pob-visit-at"
-                      type="datetime-local"
-                      className="pob-num"
+                    <PobWhen
                       value={visitAt}
-                      onChange={(e) =>
-                        form.setValue("visitAt", e.target.value, { shouldDirty: true })
+                      onChange={(next) =>
+                        form.setValue("visitAt", next, { shouldDirty: true })
                       }
                     />
                   </div>
@@ -1494,71 +1704,90 @@ export default function DoctorPobDialog({
                   </p>
                 ) : (
                   <div className="space-y-2">
-                    {/* Column heads sit on the same grid as the rows, so the
-                        figures line up down the sheet. */}
-                    <div className="pob-line pob-line-head">
-                      <span className="pob-line-no" />
-                      <span className="pob-line-item pob-label">Item</span>
-                      <span className="pob-line-qty pob-label">Qty</span>
-                      <span className="pob-line-amt pob-label text-right">Amount</span>
-                      <span className="pob-line-del" />
-                    </div>
+                    <div className="pob-lines space-y-2">
+                      {(pobItems ?? []).map((row, index) => {
+                        const qty = Number(row.qty) || 1;
+                        const rate = Number(row.rate) || 0;
+                        const setQty = (next) =>
+                          updatePobRow(form, index, { qty: Math.max(1, next) });
 
-                    <div className="pob-lines space-y-2 sm:space-y-0">
-                      {(pobItems ?? []).map((row, index) => (
-                        <div key={index} className="pob-line">
-                          <span className="pob-line-no pob-label pob-num">
-                            <span className="sm:hidden">Line </span>
-                            {String(index + 1).padStart(2, "0")}
-                          </span>
+                        return (
+                          <div key={index} className="pob-line">
+                            <div className="pob-line-item">
+                              <RHFComboboxField
+                                name={`fsl_doctor_item.${index}.item__name`}
+                                options={getAvailableItems(itemOptions, pobItems, row.item__name)}
+                                tagsDisplay={false}
+                                multiple={false}
+                                loading={isLoadingItems}
+                                placeholder="Select item"
+                                searchPlaceholder="Search item by name or code"
+                              />
+                            </div>
 
-                          <div className="pob-line-item">
-                            <RHFComboboxField
-                              name={`fsl_doctor_item.${index}.item__name`}
-                              options={getAvailableItems(itemOptions, pobItems, row.item__name)}
-                              tagsDisplay={false}
-                              multiple={false}
-                              loading={isLoadingItems}
-                              placeholder="Select item"
-                              searchPlaceholder="Search item by name or code"
-                            />
+                            <button
+                              type="button"
+                              className="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--muted)] transition-colors hover:bg-rose-50 hover:text-rose-600"
+                              aria-label={`Remove line ${index + 1}`}
+                              onClick={() => removeRow(index)}
+                            >
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
+                                <path d="M18 6 6 18M6 6l12 12" strokeLinecap="round" />
+                              </svg>
+                            </button>
+
+                            {/* Nothing is priced until an item is on the line,
+                                so until then there is nothing to show. */}
+                            {row.item__name ? (
+                              <div className="pob-line-foot">
+                                <div className="pob-step">
+                                  <button
+                                    type="button"
+                                    onClick={() => setQty(qty - 1)}
+                                    disabled={qty <= 1}
+                                    aria-label={`One fewer, line ${index + 1}`}
+                                  >
+                                    &#8722;
+                                  </button>
+                                  <Input
+                                    type="number"
+                                    min={1}
+                                    inputMode="numeric"
+                                    aria-label={`Quantity, line ${index + 1}`}
+                                    className="pob-num"
+                                    value={row.qty}
+                                    onChange={(e) => {
+                                      // Clearing the field yields NaN, which would
+                                      // then fail on a value the user cannot see.
+                                      const parsed = Number(e.target.value);
+                                      setQty(Number.isFinite(parsed) ? parsed : 1);
+                                    }}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => setQty(qty + 1)}
+                                    aria-label={`One more, line ${index + 1}`}
+                                  >
+                                    +
+                                  </button>
+                                </div>
+
+                                {/* The unit price sits under the total because
+                                    without it the total is a number the user has
+                                    no way to check. */}
+                                <div className="pob-line-money">
+                                  <div className="pob-num pob-line-total">
+                                    ₹{Number(row.amount ?? 0).toFixed(2)}
+                                  </div>
+                                  <div className="pob-note pob-num">
+                                    ₹{rate.toFixed(2)} each
+                                  </div>
+                                </div>
+                              </div>
+                            ) : null}
                           </div>
-
-                          <div className="pob-line-qty">
-                            <Input
-                              type="number"
-                              min={1}
-                              inputMode="numeric"
-                              aria-label={`Quantity, line ${index + 1}`}
-                              className="pob-num"
-                              value={row.qty}
-                              onChange={(e) => {
-                                // Clearing the field yields NaN, which then fails
-                                // on a value the user can't see.
-                                const parsed = Number(e.target.value);
-                                updatePobRow(form, index, {
-                                  qty: Number.isFinite(parsed) && parsed > 0 ? parsed : 1,
-                                });
-                              }}
-                            />
-                          </div>
-
-                          <div className="pob-line-amt pob-line-amount pob-num">
-                            {Number(row.amount ?? 0).toFixed(2)}
-                          </div>
-
-                          <button
-                            type="button"
-                            className="pob-line-del flex h-9 w-9 items-center justify-center rounded-lg text-[var(--muted)] transition-colors hover:bg-rose-50 hover:text-rose-600"
-                            aria-label={`Remove line ${index + 1}`}
-                            onClick={() => removeRow(index)}
-                          >
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
-                              <path d="M18 6 6 18M6 6l12 12" strokeLinecap="round" />
-                            </svg>
-                          </button>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
 
                     <button
