@@ -102,7 +102,16 @@ export default function RangePicker({
   disabled = false,
   className = '',
   style = {},
-  mode = 'month' // 'month' | 'week' | 'date' | 'quarter' | 'year'
+  mode = 'month', // 'month' | 'week' | 'date' | 'quarter' | 'year'
+  // One click picks one unit and the panel closes, instead of the
+  // two-click start/end dance. onChange still emits a [start, end] pair
+  // spanning that single unit, so switching this on does not change how a
+  // caller reads the value and the existing range callers are untouched.
+  single = false,
+  // Latest selectable unit, inclusive. Pass a Date; null (the default) is
+  // the old unrestricted behaviour. See isBeyondMax for what "inclusive"
+  // means for a unit that has started but not finished.
+  maxDate = null,
 }) {
   // Use Unix timestamp (Date object) for atomic updates - store first day of the month, date-level only
   const [currentViewDate, setCurrentViewDate] = useState(() => {
@@ -277,8 +286,107 @@ export default function RangePicker({
     return '';
   };
 
+  // Turns a resolved start/end pair into the [Date, Date] a caller gets,
+  // and closes the panel. Lifted out of handleSelection so single-pick mode
+  // emits through exactly this path rather than growing a second conversion
+  // to drift from.
+  const emitRange = (finalStart, finalEnd) => {
+    let startDate, endDate;
+    
+    if (mode === 'month') {
+      // Use native Date constructor (year, month, day) - creates dates in local timezone
+      startDate = new Date(finalStart.year, finalStart.month, 1);
+      const lastDay = dayjs().year(finalEnd.year).month(finalEnd.month).daysInMonth();
+      endDate = new Date(finalEnd.year, finalEnd.month, lastDay);
+    } else if (mode === 'week') {
+      // Use stored date if available, otherwise calculate using dayjs - date level only
+      let startWeekDate;
+      let endWeekDate;
+      
+      if (finalStart.date) {
+        const dateStr = dayjs(finalStart.date).format('YYYY-MM-DD');
+        startWeekDate = dayjs(dateStr);
+      } else {
+        const weekDate = dayjs().year(finalStart.year).isoWeek(finalStart.week);
+        startWeekDate = weekDate.startOf('isoWeek');
+      }
+      
+      if (finalEnd.date) {
+        const dateStr = dayjs(finalEnd.date).format('YYYY-MM-DD');
+        endWeekDate = dayjs(dateStr);
+      } else {
+        const weekDate = dayjs().year(finalEnd.year).isoWeek(finalEnd.week);
+        endWeekDate = weekDate.startOf('isoWeek');
+      }
+      
+      // Create dates using native constructor from date strings to preserve local timezone
+      const startStr = startWeekDate.format('YYYY-MM-DD');
+      const endStr = endWeekDate.endOf('isoWeek').format('YYYY-MM-DD');
+      const [startY, startM, startD] = startStr.split('-').map(Number);
+      const [endY, endM, endD] = endStr.split('-').map(Number);
+      startDate = new Date(startY, startM - 1, startD);
+      endDate = new Date(endY, endM - 1, endD);
+    } else if (mode === 'date') {
+      // Use native Date constructor - creates dates in local timezone
+      startDate = new Date(finalStart.year, finalStart.month, finalStart.day);
+      endDate = new Date(finalEnd.year, finalEnd.month, finalEnd.day);
+    } else if (mode === 'quarter') {
+      const startMonth = finalStart.quarter * 3;
+      const endMonth = finalEnd.quarter * 3 + 2;
+      const lastDay = dayjs().year(finalEnd.year).month(endMonth).daysInMonth();
+      startDate = new Date(finalStart.year, startMonth, 1);
+      endDate = new Date(finalEnd.year, endMonth, lastDay);
+    } else if (mode === 'year') {
+      startDate = new Date(finalStart.year, 0, 1);
+      endDate = new Date(finalEnd.year, 11, 31);
+    }
+
+    if (onChange) {
+      onChange([startDate, endDate]);
+    }
+
+    // Close the panel after applying
+    setIsOpen(false);
+    overlayRef.current?.hide();
+  };
+
+  // The first day of whatever unit a `selection` names. One place that knows
+  // the five shapes it comes in, so the max-date test is not a fifth copy of
+  // that switch.
+  const unitStart = (selection) => {
+    if (mode === 'month') return dayjs().year(selection.year).month(selection.month).startOf('month');
+    if (mode === 'week') {
+      if (selection.date) return dayjs(selection.date);
+      return dayjs().year(selection.year).isoWeek(selection.week).startOf('isoWeek');
+    }
+    if (mode === 'date') return dayjs().year(selection.year).month(selection.month).date(selection.day);
+    if (mode === 'quarter') return dayjs().year(selection.year).month(selection.quarter * 3).startOf('month');
+    return dayjs().year(selection.year).startOf('year');
+  };
+
+  // A unit is out when it STARTS after maxDate, not when it ENDS after it.
+  // Passing today therefore leaves the running month, quarter and year
+  // selectable -- they have begun, they are just not over -- and rules out
+  // the next one. Anything else would make "no future" also mean "not this
+  // month", which is the period people look at most.
+  const isBeyondMax = (selection) => {
+    if (!maxDate) return false;
+    return unitStart(selection).isAfter(dayjs(maxDate), 'day');
+  };
+
   const handleSelection = (selection) => {
     if (disabled) return;
+    // Belt and braces with the per-cell `disabled` below: week mode draws
+    // its cells as divs, which have no disabled attribute to set.
+    if (isBeyondMax(selection)) return;
+
+    if (single) {
+      setStartSelection(selection);
+      setEndSelection(selection);
+      emitRange(selection, selection);
+      return;
+    }
+
 
     if (!startSelection || (startSelection && endSelection)) {
       // Start new selection
@@ -330,64 +438,7 @@ export default function RangePicker({
       setStartSelection(finalStart);
       setEndSelection(finalEnd);
 
-      // Convert to date range and call onChange - use native Date constructor for local timezone dates
-      let startDate, endDate;
-      
-      if (mode === 'month') {
-        // Use native Date constructor (year, month, day) - creates dates in local timezone
-        startDate = new Date(finalStart.year, finalStart.month, 1);
-        const lastDay = dayjs().year(finalEnd.year).month(finalEnd.month).daysInMonth();
-        endDate = new Date(finalEnd.year, finalEnd.month, lastDay);
-      } else if (mode === 'week') {
-        // Use stored date if available, otherwise calculate using dayjs - date level only
-        let startWeekDate;
-        let endWeekDate;
-        
-        if (finalStart.date) {
-          const dateStr = dayjs(finalStart.date).format('YYYY-MM-DD');
-          startWeekDate = dayjs(dateStr);
-        } else {
-          const weekDate = dayjs().year(finalStart.year).isoWeek(finalStart.week);
-          startWeekDate = weekDate.startOf('isoWeek');
-        }
-        
-        if (finalEnd.date) {
-          const dateStr = dayjs(finalEnd.date).format('YYYY-MM-DD');
-          endWeekDate = dayjs(dateStr);
-        } else {
-          const weekDate = dayjs().year(finalEnd.year).isoWeek(finalEnd.week);
-          endWeekDate = weekDate.startOf('isoWeek');
-        }
-        
-        // Create dates using native constructor from date strings to preserve local timezone
-        const startStr = startWeekDate.format('YYYY-MM-DD');
-        const endStr = endWeekDate.endOf('isoWeek').format('YYYY-MM-DD');
-        const [startY, startM, startD] = startStr.split('-').map(Number);
-        const [endY, endM, endD] = endStr.split('-').map(Number);
-        startDate = new Date(startY, startM - 1, startD);
-        endDate = new Date(endY, endM - 1, endD);
-      } else if (mode === 'date') {
-        // Use native Date constructor - creates dates in local timezone
-        startDate = new Date(finalStart.year, finalStart.month, finalStart.day);
-        endDate = new Date(finalEnd.year, finalEnd.month, finalEnd.day);
-      } else if (mode === 'quarter') {
-        const startMonth = finalStart.quarter * 3;
-        const endMonth = finalEnd.quarter * 3 + 2;
-        const lastDay = dayjs().year(finalEnd.year).month(endMonth).daysInMonth();
-        startDate = new Date(finalStart.year, startMonth, 1);
-        endDate = new Date(finalEnd.year, endMonth, lastDay);
-      } else if (mode === 'year') {
-        startDate = new Date(finalStart.year, 0, 1);
-        endDate = new Date(finalEnd.year, 11, 31);
-      }
-
-      if (onChange) {
-        onChange([startDate, endDate]);
-      }
-
-      // Close the panel after applying
-      setIsOpen(false);
-      overlayRef.current?.hide();
+      emitRange(finalStart, finalEnd);
     }
   };
 
@@ -620,13 +671,14 @@ export default function RangePicker({
             const isStart = startSelection && startSelection.year === currentYear && startSelection.month === index;
             const isEnd = endSelection && endSelection.year === currentYear && endSelection.month === index;
             const isInMiddle = inRange && !isStart && !isEnd;
+            const isOut = isBeyondMax({ year: currentYear, month: index });
 
             return (
               <button
                 key={index}
                 type="button"
                 onClick={() => handleSelection({ year: currentYear, month: index })}
-                disabled={disabled}
+                disabled={disabled || isOut}
                 className={`
                   px-3 py-2 text-sm font-medium rounded-md transition-all min-h-[44px]
                   ${isSelected
@@ -639,7 +691,7 @@ export default function RangePicker({
                   }
                   ${isStart && endSelection ? 'rounded-l-md' : ''}
                   ${isEnd && startSelection ? 'rounded-r-md' : ''}
-                  ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+                  ${disabled || isOut ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
                 `}
                 style={{ minWidth: '60px' }}
               >
@@ -810,7 +862,7 @@ export default function RangePicker({
                         : 'text-gray-700 hover:bg-gray-100'
                     }
                     ${isToday && !isSelected ? 'border border-blue-400' : ''}
-                    cursor-pointer
+                    ${isBeyondMax({ year: week.year, week: week.weekNum, date: week.start }) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
                   `}
                   onClick={() => {
                     handleSelection({
@@ -963,7 +1015,7 @@ export default function RangePicker({
                   key={day}
                   type="button"
                   onClick={() => handleSelection({ year: currentYear, month: currentMonth, day })}
-                  disabled={disabled}
+                  disabled={disabled || isBeyondMax({ year: currentYear, month: currentMonth, day })}
                   className={`
                     h-10 flex items-center justify-center text-sm rounded transition-all min-h-[44px]
                     ${isSelected
@@ -1064,7 +1116,7 @@ export default function RangePicker({
                 key={q.quarter}
                 type="button"
                 onClick={() => handleSelection({ year: currentYear, quarter: q.quarter })}
-                disabled={disabled}
+                disabled={disabled || isBeyondMax({ year: currentYear, quarter: q.quarter })}
                 className={`
                   px-4 py-6 text-sm font-medium rounded-md transition-all min-h-[80px]
                   ${isSelected
@@ -1146,7 +1198,7 @@ export default function RangePicker({
                 key={year}
                 type="button"
                 onClick={() => handleSelection({ year })}
-                disabled={disabled}
+                disabled={disabled || isBeyondMax({ year })}
                 className={`
                   px-4 py-3 text-sm font-medium rounded-md transition-all min-h-[44px]
                   ${isSelected

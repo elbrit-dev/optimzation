@@ -16,10 +16,21 @@ import { cx } from '../lib/cx';
 
    A leaf (no `children`) still renders its header, with a bullet instead of a
    caret and no press affordance — passing `expandable={false}` is not
-   required, absence of children is enough. */
+   required, absence of children is enough.
+
+   `action` is a SECOND destination for the same row: a control that goes
+   somewhere instead of opening the node. It renders outside the header
+   rather than inside it because an expandable header IS a <button>, and a
+   button inside a button is invalid markup that browsers resolve by
+   silently dropping one of them — the reason this is a slot at all and not
+   something a caller can put in `header` themselves.
+
+   Without an action the markup is untouched, down to the header's
+   edge-to-edge hover bleed. */
 
 export function DisclosureRow({
   header,
+  action,
   children,
   expanded = false,
   onToggle,
@@ -31,23 +42,38 @@ export function DisclosureRow({
   const canExpand = expandable ?? Boolean(children);
   const Tag = canExpand ? 'button' : 'div';
 
+  const head = (
+    <Tag
+      type={canExpand ? 'button' : undefined}
+      onClick={canExpand ? onToggle : undefined}
+      aria-expanded={canExpand ? expanded : undefined}
+      className={cx(
+        'ds-disclosure__header',
+        canExpand && 'ds-disclosure__header--interactive',
+        action != null && 'ds-disclosure__header--with-action',
+      )}
+    >
+      <span className="ds-disclosure__marker" aria-hidden="true">
+        {canExpand ? (expanded ? '▾' : '▸') : '·'}
+      </span>
+      <span className="ds-disclosure__body">{header}</span>
+    </Tag>
+  );
+
   return (
     <div
       className={cx('ds-disclosure', className)}
       style={{ '--ds-disclosure-depth': depth }}
       {...rest}
     >
-      <Tag
-        type={canExpand ? 'button' : undefined}
-        onClick={canExpand ? onToggle : undefined}
-        aria-expanded={canExpand ? expanded : undefined}
-        className={cx('ds-disclosure__header', canExpand && 'ds-disclosure__header--interactive')}
-      >
-        <span className="ds-disclosure__marker" aria-hidden="true">
-          {canExpand ? (expanded ? '▾' : '▸') : '·'}
-        </span>
-        <span className="ds-disclosure__body">{header}</span>
-      </Tag>
+      {action != null ? (
+        <div className="ds-disclosure__line">
+          {head}
+          <span className="ds-disclosure__action">{action}</span>
+        </div>
+      ) : (
+        head
+      )}
       {canExpand && expanded ? <div className="ds-disclosure__children">{children}</div> : null}
     </div>
   );

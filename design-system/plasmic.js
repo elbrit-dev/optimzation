@@ -30,6 +30,7 @@ import { ListRow } from './components/ListRow';
 import { Metric } from './components/Metric';
 import { ProgressBar } from './components/ProgressBar';
 import { SectionLabel } from './components/SectionLabel';
+import { Sheet } from './components/Sheet';
 import { SegmentedControl } from './components/SegmentedControl';
 import { Select } from './components/Select';
 import { StackedBar } from './components/StackedBar';
@@ -423,6 +424,12 @@ const disclosureRowMeta = {
   importName: 'DisclosureRow',
   props: {
     header: { type: 'slot', defaultValue: 'Bishnu Charan Behera' },
+    action: {
+      type: 'slot',
+      hidePlaceholder: true,
+      description:
+        'A control beside the header, outside its press target. A button belongs HERE and never in header: an expandable header is itself a button.',
+    },
     children: { type: 'slot', hidePlaceholder: true },
     expanded: {
       type: 'boolean',
@@ -555,6 +562,27 @@ const sectionLabelMeta = {
   },
 };
 
+const sheetMeta = {
+  name: 'DsSheet',
+  displayName: 'DS Sheet',
+  section: SECTION,
+  importPath: './design-system/components/Sheet',
+  importName: 'Sheet',
+  props: {
+    open: { type: 'boolean', defaultValue: true },
+    title: { type: 'string', defaultValue: 'Working today' },
+    subtitle: { type: 'string', defaultValue: '20 people in this scope' },
+    surface: {
+      type: 'choice',
+      options: ['app', 'console'],
+      description:
+        'The sheet portals to document.body, outside the wrapper that carries data-surface. Pass what that wrapper has, or it renders at the other density.',
+    },
+    children: { type: 'slot', hidePlaceholder: true },
+    onClose: { type: 'eventHandler', argTypes: [] },
+  },
+};
+
 const REGISTRY = [
   [Button, buttonMeta],
   [Field, fieldMeta],
@@ -577,6 +605,7 @@ const REGISTRY = [
   [DisclosureRow, disclosureRowMeta],
   [Eyebrow, eyebrowMeta],
   [SectionLabel, sectionLabelMeta],
+  [Sheet, sheetMeta],
 ];
 
 /**

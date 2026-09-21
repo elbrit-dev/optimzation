@@ -176,6 +176,30 @@
   color: var(--brand-text);
 }
 
+/* GHOST STAYS HOLLOW THROUGH EVERY STATE, and it takes these four rules to
+   say so. `.ds-btn--primary:hover` above is three selectors to ghost's one,
+   so on hover it dropped a solid brand fill under a brand-coloured label —
+   6.16:1 text on 3.59:1 ground is 1.1:1, which is to say the label
+   disappeared. A ghost button that fills in on hover has also stopped being
+   the thing it was chosen for.
+
+   The pair is the system's own: hover is the weak tint, press the strong
+   one, and the border steps through the same hover/active blues the
+   bordered types use. Later in the file than the filled rules and at equal
+   specificity, which is what makes them win. */
+.ds-btn--ghost:hover:not(:disabled) {
+  background-color: var(--brand-tint-weak);
+}
+.ds-btn--ghost:active:not(:disabled) {
+  background-color: var(--brand-tint-strong);
+}
+.ds-btn--ghost.ds-btn--primary:hover:not(:disabled) {
+  border-color: var(--brand-primary-hover);
+}
+.ds-btn--ghost.ds-btn--primary:active:not(:disabled) {
+  border-color: var(--brand-primary-active);
+}
+
 /* --- disabled. Text and link types go transparent instead of grey. --- */
 .ds-btn:disabled,
 .ds-btn[aria-disabled="true"] {
@@ -606,6 +630,49 @@
   color: var(--ds-text-muted);
 }
 
+/* A legend row that stays on ONE line at every width. Four labelled counts
+   do not fit across a phone at the 12px step, and letting them wrap puts
+   half the legend on a second line — which reads as two groups and moves
+   the last chips under the reader's thumb.
+
+   THE ROW IS ITS OWN CONTAINER and the type step is read off the CONTAINER
+   width, not the viewport: full 12px on a wide card, stepping down only as
+   far as it must. A media query would get this wrong in the one case that
+   matters — this legend sits in a card that is a third of a desktop grid,
+   where the window is wide and the space for the chips is not.
+
+   Gaps are `max(px, em)`: they shrink with the step so the chip stays
+   proportioned, but stop at the point where the value of one chip starts
+   reading as part of the next one's label. */
+.ds-legend-row {
+  container-type: inline-size;
+}
+.ds-legend-row__inner {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: max(var(--space-6), 0.6em);
+  font-size: clamp(8px, 3.4cqw, var(--fs-12));
+}
+.ds-legend-row__inner .ds-legend {
+  min-width: 0;
+  gap: max(var(--space-4), 0.34em);
+  font-size: inherit;
+}
+.ds-legend-row__inner .ds-legend__label {
+  white-space: nowrap;
+}
+/* Under ~400px the chevron is the first thing to go. It costs four glyphs
+   and four gaps — the difference between an 8px label and an 11px one — and
+   of the two, legible labels are worth more than a 7px affordance for a
+   press the hover wash and the pressed state already report. */
+@container (max-width: 400px) {
+  .ds-legend-row__inner .ds-legend__chevron {
+    display: none;
+  }
+}
+
 /* =========================================================== ChipRow */
 
 /* Horizontal scroll with no visible scrollbar, shared by ChipRow and by any
@@ -816,6 +883,44 @@
 .ds-disclosure__children {
   border-top: var(--border-w) solid var(--border-subtle);
 }
+/* The header-plus-action line. The two share ONE grid cell and the action
+   is laid into the bottom-right of it, rather than taking a column of its
+   own beside the header.
+
+   That is the difference between a row and a row with a thing bolted to it.
+   Given its own column, the action steals width from the header's
+   right-hand figures, which stop sharing a right edge with the control
+   underneath them; overlaid, the control lands directly below the figure it
+   belongs to, where the eye already is.
+
+   THE HEADER MUST RESERVE THE LANE. Nothing here can measure the header's
+   right-hand column, so a header whose content runs the full height would
+   be overlapped. `.ds-disclosure__action-lane` is the reservation: put one
+   as the last line of whatever column the action lands under. It is sized
+   from the same token the control is, so the two cannot drift. */
+.ds-disclosure__line {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+.ds-disclosure__line > * {
+  grid-column: 1;
+  grid-row: 1;
+}
+.ds-disclosure__header--with-action {
+  min-width: 0;
+}
+.ds-disclosure__action {
+  display: flex;
+  justify-self: end;
+  align-self: end;
+  /* Clear of the header's own block padding, so the control sits on the
+     baseline of the last line of content rather than on the row's edge. */
+  margin-block-end: var(--space-10);
+}
+.ds-disclosure__action-lane {
+  display: block;
+  height: var(--control-h-sm);
+}
 
 /* ==================================== Pointer affordances (desktop only)
 
@@ -933,28 +1038,49 @@
    so only the button reset lives here -- and neither button needs its own
    focus or disabled styling, since `tokens/base.css` already supplies both at
    zero specificity for every button in the system. */
-/* A small filled square, not a bare glyph -- the caret is the one tap target
-   in the row that does something OTHER than select, so it gets its own
-   affordance instead of blending into the label like DisclosureRow's marker
-   does in the (non-interactive-by-itself) team tree. Neutral fill, not
-   brand-text: blue here would read as "this is the selected item," which is
+/* The caret is the one target in the row that does something OTHER than
+   select, so it has to read as its own control -- but it was reading as a
+   BADGE: a 16px grey square holding a 10px triangle looks like a status
+   marker sitting next to the name, not like something you press.
+
+   What makes it legible now is size and motion, not decoration. A 24px
+   square with a real chevron at icon-sm is a control at a glance; the
+   resting fill is gone, because a permanent grey box is exactly what made
+   it look inert, and the wash on hover plus the 90° turn between states
+   say "pressable" far better than a tint ever did. Neutral, not
+   brand-text: blue here would read as "this is the selected item", which is
    the option button's job two elements over. */
 .ds-treeselect__caret {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: var(--icon-md);
-  height: var(--icon-md);
+  width: var(--control-h-sm);
+  height: var(--control-h-sm);
   flex: 0 0 auto;
   border: 0;
   border-radius: var(--ds-radius-sm);
-  background-color: var(--surface-sunken);
+  background-color: transparent;
   color: var(--ds-text-secondary);
-  font-size: var(--fs-10);
-  line-height: 1;
   padding: 0;
   cursor: pointer;
-  transition: background-color var(--dur-fast) var(--ds-ease-standard);
+  transition: background-color var(--dur-fast) var(--ds-ease-standard),
+    color var(--dur-fast) var(--ds-ease-standard);
+}
+/* One glyph, turned, rather than two that have to be recognised as a pair.
+   The rotation is the state change, so the eye tracks a movement instead of
+   re-reading a shape. */
+.ds-treeselect__caret .ds-icon {
+  transition: transform var(--dur-fast) var(--ds-ease-standard);
+}
+.ds-treeselect__caret[aria-expanded="true"] .ds-icon {
+  transform: rotate(90deg);
+}
+/* Keeps the labels in one column when a row has no branch to open. An empty
+   lane rather than the team tree's bullet: a dot on every bottom-level ABM
+   is twenty marks that mean "nothing here". */
+.ds-treeselect__caret-spacer {
+  flex: 0 0 auto;
+  width: var(--control-h-sm);
 }
 @media (hover: hover) and (pointer: fine) {
   .ds-treeselect__caret:hover {
@@ -1207,4 +1333,177 @@
 .ds-legend--sm .ds-legend__dot {
   width: var(--space-6);
   height: var(--space-6);
+}
+
+/* ============================================================== Sheet
+
+   The scrim is the positioning context and the dismiss target; the panel is
+   a column with a fixed head and a scrolling body, so the title of a
+   sixty-row list stays put while the rows move under it.
+
+   `max-block-size: 85dvh` and not `vh`: on mobile Safari `vh` is the
+   LARGEST viewport, so a sheet sized in vh has its last row under the URL
+   bar until the reader scrolls the page — which the scroll lock has just
+   stopped them doing. The 15% left over is what tells you there is a page
+   behind this. */
+
+.ds-sheet-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-sheet);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background-color: var(--surface-overlay);
+}
+.ds-sheet {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 100%;
+  /* Wider than the phone column it usually opens over, capped so it does not
+     become a full-width banner on a desktop where it is still a sheet. */
+  max-inline-size: 30rem;
+  max-block-size: 85dvh;
+  overflow: hidden;
+  border-start-start-radius: var(--ds-radius-xl);
+  border-start-end-radius: var(--ds-radius-xl);
+  background-color: var(--surface-card);
+  box-shadow: var(--ds-shadow-pop);
+}
+.ds-sheet:focus-visible {
+  outline: none;
+}
+.ds-sheet__head {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-12);
+  padding: var(--space-16) var(--space-16) var(--space-12);
+  border-bottom: var(--border-w) solid var(--border-subtle);
+}
+.ds-sheet__heading {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.ds-sheet__title {
+  margin: 0;
+  font: var(--type-section);
+  color: var(--ds-text-heading);
+}
+.ds-sheet__subtitle {
+  margin: 0;
+  font: var(--type-app-label);
+  color: var(--ds-text-secondary);
+}
+/* 22px of visual inside a 44px hit area, the same trade every other small
+   control in the system makes. On a sheet it matters more than anywhere
+   else: this is the way out. */
+.ds-sheet__close {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: var(--tap-target-min);
+  height: var(--tap-target-min);
+  margin: calc(var(--space-11) * -1);
+  padding: 0;
+  border: 0;
+  border-radius: var(--ds-radius-circle);
+  background: none;
+  color: var(--ds-text-secondary);
+  font-size: var(--icon-md);
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ds-ease-standard);
+}
+.ds-sheet__close:focus-visible {
+  outline: var(--border-w-bold) solid var(--focus-ring);
+  outline-offset: -2px;
+}
+.ds-sheet__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-inline: var(--space-16);
+  padding-block: var(--space-4) var(--space-16);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .ds-sheet__close:hover {
+    background-color: var(--surface-sunken);
+    color: var(--ds-text-body);
+  }
+}
+
+/* The action slot's control is at row density — 24px — and that is not a
+   tap target. Rather than inflating the button (which would make the row
+   taller than the name it belongs to), the press area grows past the visual
+   with a pseudo-element: `(44px - 100%) / -2` resolves against the button's
+   own height, so the overflow is whatever is missing, split top and bottom.
+   Same trade LegendChip makes with padding, in the one place padding cannot
+   work because the control's height is fixed. */
+.ds-disclosure__action .ds-btn {
+  position: relative;
+}
+.ds-disclosure__action .ds-btn::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  inset-block: calc((var(--tap-target-min) - 100%) / -2);
+}
+
+/* TreeSelect's depth mark: empty / `–` this node only / `✓` this branch.
+   16px so it sits on the 20px option line without lifting it, and the two
+   selected states differ by FILL rather than by glyph alone — a dash and a
+   tick are a small difference to spot across a panel of twenty rows, a
+   hollow box and a solid one are not. */
+.ds-treeselect__option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+}
+.ds-treeselect__mark {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+  border: var(--border-w) solid var(--border-default);
+  border-radius: var(--ds-radius-sm);
+  background-color: var(--surface-card);
+  font-size: var(--fs-10);
+  line-height: 1;
+  /* Unselected shows nothing. The glyph stays in the DOM so the box does not
+     change size between states. */
+  color: transparent;
+}
+.ds-treeselect__mark--self {
+  border-color: var(--brand-primary);
+  color: var(--brand-text);
+}
+.ds-treeselect__mark--all {
+  border-color: var(--brand-primary);
+  background-color: var(--brand-fill);
+  color: var(--ds-text-on-brand);
+}
+
+/* A row the selection already contains through a ticked ancestor. Muted, so
+   it reads as "in, but not by your hand" -- a full-strength tick would make
+   it indistinguishable from the branch you actually chose, and an empty box
+   would say it is out when it is not. Not a disabled GREY: the row is
+   included, and grey is this system's word for unavailable. */
+.ds-treeselect__mark--covered {
+  border-color: var(--brand-primary);
+  background-color: var(--brand-tint-strong);
+  color: var(--brand-text);
+}
+.ds-treeselect__option--covered {
+  color: var(--ds-text-secondary);
+  font-weight: var(--fw-regular);
+  cursor: default;
 }

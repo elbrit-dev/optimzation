@@ -31,6 +31,10 @@ export { ListRow } from './components/ListRow';
 export { Metric } from './components/Metric';
 export { ProgressBar } from './components/ProgressBar';
 export { SectionLabel } from './components/SectionLabel';
+/* Sheet is an overlay, not a quantity — it portals to document.body and
+   owns focus while it is open. See Sheet.jsx for why the portal is load-
+   bearing rather than a z-index trick. */
+export { Sheet } from './components/Sheet';
 export { StackedBar } from './components/StackedBar';
 
 export { cx } from './lib/cx';

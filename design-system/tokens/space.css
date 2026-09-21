@@ -104,6 +104,10 @@
   --console-topbar-h: 56px;
   --console-content-max: 1200px;
   --tap-target-min: 44px; /* a 22px visual control still needs this hit area */
+  /* Modal layer. One value, because the system has exactly one thing that
+     covers the page: a Sheet. TreeSelect's panel sits at 20 and is not a
+     peer of this -- it belongs to the field it drops out of. */
+  --z-sheet: 1000;
 }
 
 /* ---- Surface density scopes ----
