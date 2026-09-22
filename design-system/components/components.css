@@ -607,6 +607,22 @@
   color: var(--ds-text-secondary);
   text-align: left;
 }
+/* One column of the hourly chart, as a control. The button is full height and
+   mostly empty — the drawn bar sits at the bottom of it — so the affordance
+   has to be painted on the WHOLE column or it lands on a three-pixel bar at
+   9am. A faint wash behind the column reads as "this whole strip is one
+   thing", which is also what makes the hit area legible before you tap it. */
+.ds-hourbar {
+  cursor: pointer;
+  border-radius: var(--ds-radius-sm);
+  /* The bar is sized in % of this element, so it must not gain padding. */
+  transition: background-color var(--motion-fast, 120ms) ease;
+}
+.ds-hourbar:focus-visible {
+  outline: var(--border-w-bold) solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 .ds-legend--interactive {
   cursor: pointer;
 }
@@ -950,6 +966,10 @@
 
   .ds-legend--interactive:hover .ds-legend__chevron {
     color: var(--brand-text);
+  }
+
+  .ds-hourbar:hover {
+    background-color: var(--brand-tint-weak);
   }
 }
 

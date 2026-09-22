@@ -20,7 +20,16 @@ import { hqLabel } from '../data/format';
 
 export const ALL_HQS = '__all__';
 
-export function HqSection({ hqRows, activeHq, onSelectHq, hourly, geo, totals, showReps = true }) {
+export function HqSection({
+  hqRows,
+  activeHq,
+  onSelectHq,
+  hourly,
+  geo,
+  totals,
+  showReps = true,
+  onDrillVisits,
+}) {
   const isAll = activeHq === ALL_HQS;
   const selected = isAll ? null : hqRows.find((h) => h.hq === activeHq);
   const label = isAll ? 'All HQs' : hqLabel(selected?.hq ?? '');
@@ -69,7 +78,10 @@ export function HqSection({ hqRows, activeHq, onSelectHq, hourly, geo, totals, s
         </div>
 
         <div className="mt-3">
-          <VisitsByHourChart data={hourly} />
+          <VisitsByHourChart
+            data={hourly}
+            onSelectHour={onDrillVisits ? (hour) => onDrillVisits({ hour }) : undefined}
+          />
         </div>
 
         <div className="mt-4">
@@ -81,9 +93,31 @@ export function HqSection({ hqRows, activeHq, onSelectHq, hourly, geo, totals, s
               { key: 'force', value: geo.force, tone: 'danger', label: 'Force visit' },
             ]}
           />
+          {/* This legend is the CHART's legend as much as the bar's — both are
+              built from the same rows and the same two tones, which is why the
+              chart above does not carry a second one.
+
+              Interactive, so it is also the way into a series across the whole
+              window: the bars answer "who was out at 2pm", these answer "show
+              me every force visit today", which is the question the red is
+              there to provoke in the first place. `size` drops back to the
+              default when pressable — LegendChip refuses to shrink a tap
+              target, and a 15px control is not one.
+
+              A zero segment stays a plain span: there are no rows behind it. */}
           <div className="flex gap-4">
-            <LegendChip label="Geo-verified" value={geo.verified} tone="success" />
-            <LegendChip label="Force visit" value={geo.force} tone="danger" />
+            <LegendChip
+              label="Geo-verified"
+              value={geo.verified}
+              tone="success"
+              onClick={onDrillVisits && geo.verified > 0 ? () => onDrillVisits({ tone: 'verified' }) : undefined}
+            />
+            <LegendChip
+              label="Force visit"
+              value={geo.force}
+              tone="danger"
+              onClick={onDrillVisits && geo.force > 0 ? () => onDrillVisits({ tone: 'force' }) : undefined}
+            />
           </div>
           {totalDone === 0 ? (
             <p className="text-10 text-ds-muted">No completed visits in this window yet.</p>

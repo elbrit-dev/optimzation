@@ -1,31 +1,24 @@
 'use client';
 
 import { useMemo } from 'react';
-import { ListRow, Sheet, StatusPill } from '@/design-system';
+import { Sheet } from '@/design-system';
 import { doctorPlan } from '../data/selectors';
 import { formatClock, formatCurrency } from '../data/format';
+import { SHEET_ROW_LIMIT, VisitListRow, limitNote } from './VisitListRow';
 
 /* One tree node's plan, doctor by doctor.
  *
  * This is the bottom of the drill: the report aggregates upward from these
- * rows, and this sheet is the only place on the screen that shows one.
+ * rows, and this sheet is the only place on the screen that shows a whole
+ * plan — the calls that happened AND the ones still open. Its counterpart,
+ * VisitsByHourSheet, can only ever show the former.
+ *
  * Opened from a node's "Dr plan" button, so an RBM sees their whole region's
  * calls and a BE sees their own — the same selector, scoped by subtree.
  *
- * CAPPED AT 60 ROWS. A region's month is several thousand visits, and a
- * scroll container with a thousand list rows in it janks on the hardware
- * this runs on. The cap is stated in the subtitle rather than hidden behind
- * a fade: a list that silently stops is a list you cannot trust. Sorted
- * completed-first, so the sixty shown are the sixty that happened.
- *
- * The status is the screen's own green/red vocabulary — geo-verified, force
- * visit, pending — not a generic done/not-done. A force visit IS done; it is
- * the fact that it was logged away from the planned location that the
- * footer's "red = force visit" is teaching the reader to look for. Where the
- * rep gave a reason for the override, the row carries it under the name, so
- * the answer to "why is this one red" is on the same screen as the red. */
-
-const PLAN_LIMIT = 60;
+ * Capped, sorted completed-first, so the sixty shown are the sixty that
+ * happened. The row itself — the pill, the force-visit line, the way the
+ * facts are joined — is VisitListRow's, shared with the hourly sheet. */
 
 export function DoctorPlanSheet({ member, team, rows, pob, periodLabel, onClose }) {
   const plan = useMemo(
@@ -34,7 +27,7 @@ export function DoctorPlanSheet({ member, team, rows, pob, periodLabel, onClose 
   );
 
   const done = plan.filter((v) => v.visitTime).length;
-  const shown = plan.slice(0, PLAN_LIMIT);
+  const shown = plan.slice(0, SHEET_ROW_LIMIT);
   /* Whose name is already in the title. Repeating it on all sixty rows of a
      rep's own plan is noise; on a manager's it is the only way to tell one
      rep's calls from another's. */
@@ -44,7 +37,7 @@ export function DoctorPlanSheet({ member, team, rows, pob, periodLabel, onClose 
     periodLabel,
     `${plan.length} visits planned`,
     `${done} done`,
-    plan.length > PLAN_LIMIT ? `showing first ${PLAN_LIMIT}` : null,
+    limitNote(plan.length),
   ]
     .filter(Boolean)
     .join(' · ');
@@ -61,45 +54,20 @@ export function DoctorPlanSheet({ member, team, rows, pob, periodLabel, onClose 
         <p className="py-4 text-12 text-ds-secondary">No visits planned in this period.</p>
       ) : (
         shown.map((v) => (
-          <ListRow
+          <VisitListRow
             key={v.id}
-            dense
-            title={v.doctorName}
-            /* `|| null` and not just the join: a pending call on a rep's own
-               plan has no time, no rep name and no money, and an empty
-               string still renders a 20px line of nothing under the name. */
-            subtitle={
-              [
-                formatClock(v.visitTime),
-                showRep ? v.employeeName : null,
-                v.pob ? `${formatCurrency(v.pob)} POB` : null,
-              ]
-                .filter(Boolean)
-                .join(' · ') || null
-            }
-            trailing={
-              <StatusPill
-                status={v.visitTime ? (v.forceVisit ? 'danger' : 'success') : 'neutral'}
-                showDot={false}
-              >
-                {v.visitTime ? (v.forceVisit ? 'Force visit' : 'Visited') : 'Pending'}
-              </StatusPill>
-            }
-          >
-            {/* The pill says a call was forced; this says why. It is the one
-                thing a manager wants next after seeing the red, and without it
-                the only way to get it is to open the Event in ERPNext.
-
-                Its own line rather than another ' · ' segment in the subtitle:
-                the field is free text a rep typed on a phone, so it is a
-                sentence, not a fact of the same size as a time or an amount,
-                and it wraps. Rendered only when the reason is non-empty --
-                the field is not mandatory, and 'Force visit · —' teaches the
-                reader nothing. */}
-            {v.forceVisitReason ? (
-              <span className="text-10 text-danger">{v.forceVisitReason}</span>
-            ) : null}
-          </ListRow>
+            visit={v}
+            /* "Visited", not the screen's usual "Geo verified": this is the
+               one list that also holds calls which have NOT happened, so the
+               contrast the reader needs from the green pill is against
+               "Pending" beside it, not against the red. */
+            verifiedLabel="Visited"
+            facts={[
+              formatClock(v.visitTime),
+              showRep ? v.employeeName : null,
+              v.pob ? `${formatCurrency(v.pob)} POB` : null,
+            ]}
+          />
         ))
       )}
     </Sheet>

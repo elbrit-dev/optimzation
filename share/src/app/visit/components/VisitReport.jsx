@@ -22,6 +22,7 @@ import { PeriodTabs } from './PeriodTabs';
 import { AttendanceCard } from './AttendanceCard';
 import { AttendanceSheet } from './AttendanceSheet';
 import { DoctorPlanSheet } from './DoctorPlanSheet';
+import { VisitsByHourSheet } from './VisitsByHourSheet';
 import { KpiGrid } from './KpiGrid';
 import { ALL_HQS, HqSection } from './HqSection';
 import { TeamTree } from './TeamTree';
@@ -115,9 +116,10 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
   /* ALL_HQS, not the first HQ: the section opens on the totals, and the way
      back to them is the same card as the way in. */
   const [hq, setHq] = useState(ALL_HQS);
-  /* null, { kind: 'attendance', state } or { kind: 'plan', memberId }. One
-     slot, so opening a doctor plan from inside the tree closes an
-     attendance sheet rather than stacking a second scrim on the first. */
+  /* null, { kind: 'attendance', state }, { kind: 'plan', memberId } or
+     { kind: 'hour', selection }. One slot, so opening a doctor plan from
+     inside the tree closes an attendance sheet rather than stacking a
+     second scrim on the first. */
   const [sheet, setSheet] = useState(null);
 
   /* undefined, not null, for both: `useVisitKpi` and `periodWindow` read
@@ -223,6 +225,12 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
       activeHq,
       totals,
       hourly: visitsByHour(hqScoped),
+      /* The exact rows the chart and the geo bar were built from, handed on
+         so the sheet behind them re-filters the SAME list rather than
+         re-deriving the HQ scope from scratch. A drill-down that recomputes
+         its own pool is the one way it can disagree with the bar it came
+         from -- see the `sheet` note at the top. */
+      chartRows: hqScoped,
       geo: geoSplit(hqScoped),
       planned: planned(scoped.rows),
       happened: happenedCount,
@@ -439,6 +447,7 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
                   hourly={view.hourly}
                   geo={view.geo}
                   totals={view.totals}
+                  onDrillVisits={(selection) => setSheet({ kind: 'hour', selection })}
                 />
               </div>
 
@@ -456,7 +465,7 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
               />
             </div>
 
-            {/* Both sheets are always mounted and closed by their own open
+            {/* All three sheets are always mounted and closed by their own open
                 prop rather than conditionally rendered, so Sheet's effect —
                 focus capture, scroll lock, the restore on the way out — runs
                 as a clean open/close pair instead of a mount/unmount race
@@ -476,6 +485,20 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
               rows={rows}
               pob={pob}
               periodLabel={planLabel}
+              onClose={() => setSheet(null)}
+            />
+            <VisitsByHourSheet
+              selection={sheet?.kind === 'hour' ? sheet.selection : null}
+              rows={view.chartRows}
+              periodLabel={planLabel}
+              /* Which HQ the bar was drawn for. The sheet is opened from a
+                 card that is already filtered, and without this its title
+                 reads the same whether you tapped 2pm on Hubballi or on all
+                 three HQs. */
+              scopeLabel={view.activeHq === ALL_HQS ? 'All HQs' : hqLabel(view.activeHq)}
+              /* Only worth a column on each row when the rows can differ.
+                 Filtered to one HQ they cannot, and the subtitle says it. */
+              showHq={view.activeHq === ALL_HQS}
               onClose={() => setSheet(null)}
             />
           </>

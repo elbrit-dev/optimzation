@@ -203,21 +203,70 @@ export function geoSplit(rows) {
    into the nearest edge bucket rather than vanishing. */
 export const CHART_HOURS = [9, 10, 11, 12, 13, 14, 15, 16, 17];
 
+/* Which column a row belongs to, or null if it is not a completed visit.
+   Pulled out of visitsByHour because the sheet BEHIND the chart has to fold
+   the 8:55am and the 6:30pm call into the same edge buckets the bar counted.
+   Two copies of this rule is a bar that says 14 opening a list of 12. */
+export function chartHourOf(row) {
+  if (!row.visitTime) return null;
+  const raw = Number(row.visitTime.slice(11, 13));
+  if (!Number.isFinite(raw)) return null;
+  return Math.min(Math.max(raw, CHART_HOURS[0]), CHART_HOURS[CHART_HOURS.length - 1]);
+}
+
 export function visitsByHour(rows) {
   const buckets = new Map(CHART_HOURS.map((h) => [h, { hour: h, verified: 0, force: 0 }]));
-  const first = CHART_HOURS[0];
-  const last = CHART_HOURS[CHART_HOURS.length - 1];
 
   for (const r of rows) {
-    if (!r.visitTime) continue;
-    const raw = Number(r.visitTime.slice(11, 13));
-    if (!Number.isFinite(raw)) continue;
-    const hour = Math.min(Math.max(raw, first), last);
+    const hour = chartHourOf(r);
+    if (hour == null) continue;
     const bucket = buckets.get(hour);
     if (r.forceVisit) bucket.force += 1;
     else bucket.verified += 1;
   }
   return CHART_HOURS.map((h) => buckets.get(h));
+}
+
+/* The rows behind one bar, or behind one legend chip.
+ *
+ * COMPLETED VISITS ONLY, because that is what the chart plots: a bar is a
+ * count of calls that HAPPENED at an hour, and a pending call has no hour to
+ * sit at. This is the one drill-down on the screen that cannot show a plan.
+ *
+ * `hour` filters to a column, `tone` to a series ('verified' | 'force'), and
+ * both together to one segment of one bar. Null means "don't filter on this",
+ * so the legend can ask for every force visit in the window.
+ *
+ * Sorted by clock time: the question a bar raises is "what was happening at
+ * 2pm", and the answer reads in the order it happened. */
+export function visitsIn(rows, { hour = null, tone = null } = {}) {
+  const out = [];
+
+  rows.forEach((r, i) => {
+    const h = chartHourOf(r);
+    if (h == null) return;
+    if (hour != null && h !== hour) return;
+    if (tone === 'force' && !r.forceVisit) return;
+    if (tone === 'verified' && r.forceVisit) return;
+
+    out.push({
+      /* Same reason as doctorPlan: eventId is not unique across VisitRows.
+         The index is over the UNFILTERED input, so a row keeps its key
+         whichever bar or chip opened it. */
+      id: `${r.eventId}#${i}`,
+      hour: h,
+      doctorName: r.doctorName,
+      employeeName: r.employeeName,
+      hq: r.hq,
+      visitTime: r.visitTime,
+      forceVisit: r.forceVisit,
+      /* Same rule as doctorPlan: both facts belong to a forced call only. */
+      forceVisitReason: r.forceVisit ? (r.forceVisitReason ?? '') : '',
+      distanceKm: r.forceVisit ? r.distanceKm : null,
+    });
+  });
+
+  return out.sort((a, b) => a.visitTime.localeCompare(b.visitTime));
 }
 
 export function byHq(rows, team) {
@@ -395,10 +444,14 @@ export function doctorPlan(member, team, rows, pobRows = []) {
       plannedDate: r.plannedDate,
       visitTime: r.visitTime,
       forceVisit: r.forceVisit,
-      /* Carried only on a forced call. A reason left over on a row whose
+      /* Both carried only on a forced call. A reason left over on a row whose
          flag is off is a half-edited record, and showing it would tell the
-         reader a visit was forced when the data says it was not. */
+         reader a visit was forced when the data says it was not. The distance
+         is dropped on an ordinary row for a plainer reason: it is 0.2km on
+         every one of them, which is noise. Same rule as visitsIn, so the two
+         sheets that show a forced call describe it identically. */
       forceVisitReason: r.forceVisit ? (r.forceVisitReason ?? '') : '',
+      distanceKm: r.forceVisit ? r.distanceKm : null,
       pob: pobByVisit.get(`${r.employeeId}|${r.doctorId}|${r.plannedDate}`) ?? null,
     }))
     /* Done first in the order they happened, then everything still open.

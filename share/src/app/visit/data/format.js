@@ -102,6 +102,17 @@ export function formatDecimal(value, places = 1) {
   return value.toFixed(places);
 }
 
+/* How far from the planned location a call was logged. Metres under a
+   kilometre, because "0.4 km" is the distance that decides whether a visit is
+   geo-verified and three decimal places of a kilometre is the wrong unit to
+   make that call in. Rounded to whole metres and one decimal km -- the GPS
+   this comes from is not accurate enough to justify more. */
+export function formatDistance(km) {
+  if (km == null || !Number.isFinite(km)) return '—';
+  if (km < 1) return `${Math.round(km * 1000)} m`;
+  return `${km.toFixed(1)} km`;
+}
+
 /* ₹1,800 under a lakh, ₹1.8 L up to a crore, ₹1.20 Cr above -- the Indian
    grouping the reference design itself uses ("POB COLLECTED ₹1.8 L"), not a
    Western thousands/millions split that would put the decimal in the wrong
