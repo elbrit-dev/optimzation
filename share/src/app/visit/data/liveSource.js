@@ -110,6 +110,7 @@ const VISITS_QUERY = (withDoctorName) => `
           custom_visit_time
           custom_distance
           custom_is_force_visit
+          custom_force_visit_reason
         }
       } }
     }
@@ -181,6 +182,13 @@ async function fetchVisitRows({ from, to }, conn) {
         visitTime: p?.custom_visit_time ?? null,
         distanceKm: p?.custom_distance ?? null,
         forceVisit: Boolean(p?.custom_is_force_visit),
+        /* What the rep typed when they logged the call away from the planned
+           location. There is a `custom_force_visit_reason` on the EVENT too,
+           but nothing writes it -- the field the app captures is this one, on
+           the participant, alongside the distance and the flag it explains.
+           Trimmed because the control is a free-text Small Text and a
+           whitespace-only answer is a missing one. */
+        forceVisitReason: (p?.custom_force_visit_reason ?? '').trim(),
       });
     }
   }

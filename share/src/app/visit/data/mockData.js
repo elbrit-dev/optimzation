@@ -109,6 +109,19 @@ const DOCTORS = [
   'Dr Imran Sheikh', 'Dr Ananya Rao', 'Dr K Venkatesh', 'Dr Neha Kulkarni',
 ];
 
+/* What reps actually type into custom_force_visit_reason. The empty string is
+   in the list on purpose and not as an oversight: the field is not mandatory,
+   a good share of forced calls carry no reason at all, and the sheet has to
+   look right for those too. */
+const FORCE_VISIT_REASONS = [
+  'Doctor shifted to another clinic for the day',
+  'Met at the hospital OP block instead of the clinic',
+  'Camp duty at a nearby PHC',
+  'Clinic closed, met at the doctor’s residence',
+  'Poor GPS accuracy inside the hospital building',
+  '',
+];
+
 /* ---- Date helpers ---------------------------------------------------- */
 
 function toISODate(d) {
@@ -177,6 +190,8 @@ function rowsForRepDay(member, isoDate, cutoffHour) {
          independently produced rows that were 40m away and flagged forced. */
       distanceKm: done ? (forceVisit ? 2 + rng() * 12 : rng() * 0.4) : null,
       forceVisit,
+      /* Only a forced call has one, same as the live rows. */
+      forceVisitReason: forceVisit ? pick(rng, FORCE_VISIT_REASONS) : '',
     });
   }
   return rows;

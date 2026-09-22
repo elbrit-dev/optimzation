@@ -395,6 +395,10 @@ export function doctorPlan(member, team, rows, pobRows = []) {
       plannedDate: r.plannedDate,
       visitTime: r.visitTime,
       forceVisit: r.forceVisit,
+      /* Carried only on a forced call. A reason left over on a row whose
+         flag is off is a half-edited record, and showing it would tell the
+         reader a visit was forced when the data says it was not. */
+      forceVisitReason: r.forceVisit ? (r.forceVisitReason ?? '') : '',
       pob: pobByVisit.get(`${r.employeeId}|${r.doctorId}|${r.plannedDate}`) ?? null,
     }))
     /* Done first in the order they happened, then everything still open.

@@ -136,7 +136,6 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
     today,
     window: win,
     asOf,
-    source,
     truncated,
     loading,
     error,
@@ -481,12 +480,6 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
             />
           </>
         )}
-
-        <p className="pb-6 text-10 text-ds-muted">
-          {source === 'mock'
-            ? 'Showing generated sample data. Hierarchy, HQs and volumes mirror the live ERPNext instance; no visit is real. Green = geo-verified, red = force visit.'
-            : 'Live data from ERPNext. Green = geo-verified, red = force visit.'}
-        </p>
       </div>
     </div>
   );

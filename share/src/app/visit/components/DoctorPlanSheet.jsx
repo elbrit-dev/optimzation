@@ -21,7 +21,9 @@ import { formatClock, formatCurrency } from '../data/format';
  * The status is the screen's own green/red vocabulary — geo-verified, force
  * visit, pending — not a generic done/not-done. A force visit IS done; it is
  * the fact that it was logged away from the planned location that the
- * footer's "red = force visit" is teaching the reader to look for. */
+ * footer's "red = force visit" is teaching the reader to look for. Where the
+ * rep gave a reason for the override, the row carries it under the name, so
+ * the answer to "why is this one red" is on the same screen as the red. */
 
 const PLAN_LIMIT = 60;
 
@@ -83,7 +85,21 @@ export function DoctorPlanSheet({ member, team, rows, pob, periodLabel, onClose 
                 {v.visitTime ? (v.forceVisit ? 'Force visit' : 'Visited') : 'Pending'}
               </StatusPill>
             }
-          />
+          >
+            {/* The pill says a call was forced; this says why. It is the one
+                thing a manager wants next after seeing the red, and without it
+                the only way to get it is to open the Event in ERPNext.
+
+                Its own line rather than another ' · ' segment in the subtitle:
+                the field is free text a rep typed on a phone, so it is a
+                sentence, not a fact of the same size as a time or an amount,
+                and it wraps. Rendered only when the reason is non-empty --
+                the field is not mandatory, and 'Force visit · —' teaches the
+                reader nothing. */}
+            {v.forceVisitReason ? (
+              <span className="text-10 text-danger">{v.forceVisitReason}</span>
+            ) : null}
+          </ListRow>
         ))
       )}
     </Sheet>

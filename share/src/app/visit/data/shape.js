@@ -27,6 +27,7 @@
  *   participant.custom_visit_time           -> visitTime     (null = not done)
  *   participant.custom_distance             -> distanceKm
  *   participant.custom_is_force_visit       -> forceVisit
+ *   participant.custom_force_visit_reason   -> forceVisitReason ('' = none)
  *
  * `eventId` IS NOT A ROW KEY. An Event carries an array of participants and
  * this row is the flattened form, so one Event with two participants is two
@@ -51,6 +52,7 @@
  * @property {string|null} visitTime     'YYYY-MM-DD HH:mm:ss', or null
  * @property {number|null} distanceKm
  * @property {boolean}     forceVisit
+ * @property {string}      forceVisitReason  free text, '' when none was given
  *
  * A TeamMember is one node of the reporting hierarchy. `reportsTo` is
  * Employee.reports_to; `designation` is the raw ERPNext designation, which is
