@@ -476,6 +476,38 @@ const navigationMeta = {
       description:
         'Optional map of iconKey → { active, inactive, defaultProps, … }. Defaults to built-in icon map when omitted.',
     },
+    confirmOnExit: {
+      type: 'boolean',
+      defaultValue: true,
+      displayName: 'confirmOnExit',
+      description:
+        'Ask before a back press closes the app. Guarded on the root tab only; back elsewhere still goes back.',
+    },
+    exitPaths: {
+      type: 'object',
+      displayName: 'exitPaths',
+      description:
+        'Array of routes the back press is guarded on. Defaults to the item marked isDefault (the home tab).',
+    },
+    exitConfirmTitle: { type: 'string', defaultValue: 'Leave the app?' },
+    exitConfirmMessage: {
+      type: 'string',
+      defaultValue: 'You are about to close Elbrit. Anything unsaved on this screen will be lost.',
+    },
+    exitConfirmLabel: { type: 'string', defaultValue: 'Quit' },
+    exitCancelLabel: { type: 'string', defaultValue: 'Stay' },
+    exitConfirmSurface: {
+      type: 'string',
+      displayName: 'exitConfirmSurface',
+      description:
+        'data-surface value for the confirmation sheet, so it renders at the screen’s density.',
+    },
+    onExit: {
+      type: 'eventHandler',
+      description:
+        'Fired when the user confirms quitting. Handle it to close the app yourself (native shell); left unset, the app steps back out of its own history.',
+      argTypes: [],
+    },
   },
 };
 

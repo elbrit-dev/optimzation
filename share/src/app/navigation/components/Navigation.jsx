@@ -4,6 +4,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { useRouter, usePathname } from 'next/navigation';
 import { useSwipeNavigation } from '@/hooks/useSwipeNavigation';
+import { Button, Sheet } from '@/design-system';
+import { useExitConfirm } from '../hooks/useExitConfirm';
 import ChatIconActive from '@/components/icons/ChatIconActive';
 import ChatIconInactive from '@/components/icons/ChatIconInactive';
 import DoctorIconActive from '@/components/icons/DoctorIconActive';
@@ -108,7 +110,15 @@ const Navigation = ({
   mobileWidth = '100%', // Default: full width
   mobileHeight = '4rem', // Default: h-16
   showCollapse = true, // Default: true
-  iconMap = ICON_MAP // Allow custom icon mapping
+  iconMap = ICON_MAP, // Allow custom icon mapping
+  confirmOnExit = true, // Ask before a back press leaves the app
+  exitPaths, // Routes the back press is guarded on; defaults to the isDefault item
+  exitConfirmTitle = 'Leave the app?',
+  exitConfirmMessage = 'You are about to close Elbrit. Anything unsaved on this screen will be lost.',
+  exitConfirmLabel = 'Quit',
+  exitCancelLabel = 'Stay',
+  exitConfirmSurface,
+  onExit,
 }) => {
   // Debug: Component initialization
 
@@ -264,6 +274,24 @@ const Navigation = ({
   // Check if current route has mobileFullscreen enabled
   const currentItem = activeIndex !== null ? resolvedItems[activeIndex] : null;
   const isMobileFullscreen = activeIndex !== null && currentItem?.mobileFullscreen === true;
+
+  /* Back on a root tab is what closes the app on Android, so that is the only
+     route the confirmation belongs on. With no explicit list, the default
+     item (the home tab) is that root. */
+  const guardedPaths = useMemo(() => {
+    if (Array.isArray(exitPaths) && exitPaths.length > 0) return exitPaths;
+    const defaultItem = resolvedItems.find(item => item.isDefault === true) || resolvedItems[0];
+    const path = defaultItem?.path || defaultItem?.route;
+    return path ? [path] : [];
+  }, [exitPaths, resolvedItems]);
+
+  const isExitRoute = mounted && guardedPaths.some(path => pathname === path);
+
+  const { exitConfirmOpen, confirmExit, cancelExit } = useExitConfirm({
+    enabled: confirmOnExit !== false,
+    isExitRoute,
+    onExit,
+  });
 
   return (
     <>
@@ -425,6 +453,24 @@ const Navigation = ({
           </div>
         </motion.nav>
       )}
+
+      {/* Quit confirmation — same Sheet every other overlay in the app uses */}
+      <Sheet
+        open={exitConfirmOpen}
+        onClose={cancelExit}
+        title={exitConfirmTitle}
+        surface={exitConfirmSurface}
+      >
+        <p className="text-sm text-ds-secondary">{exitConfirmMessage}</p>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button type="default" size="app" onClick={cancelExit}>
+            {exitCancelLabel}
+          </Button>
+          <Button type="primary" size="app" danger onClick={confirmExit}>
+            {exitConfirmLabel}
+          </Button>
+        </div>
+      </Sheet>
     </>
   );
 };
