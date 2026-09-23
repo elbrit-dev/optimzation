@@ -49,6 +49,13 @@ export function StackedBar({ segments = [], size = 'lg', label, className, style
               style={{
                 width: `${(s.value / total) * 100}%`,
                 backgroundColor: toneFill(s.tone),
+                /* A segment that is a SUBDIVISION of its neighbour rather
+                   than a category beside it — the joint half of a green
+                   block — carries its own style: the same hue at lower
+                   opacity, so the bar still reads as its three blocks. The
+                   tone stays set either way, because it is what the label
+                   and any legend chip colour themselves from. */
+                ...s.style,
               }}
             />
           ))

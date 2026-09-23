@@ -51,9 +51,9 @@ export function KpiGrid({
     <div className="grid auto-rows-fr grid-cols-2 gap-3 @2xl/report:grid-cols-4 @2xl/report:gap-4">
       <Card className="h-full">
         <Metric
-          label={`Visit plans ${periodSuffix}`}
+          label={`Visits planned ${periodSuffix}`}
           value={planned}
-          caption={repCount ? `planned across ${repCount} reps` : 'planned calls'}
+          caption={repCount ? `planned across ${repCount} reps` : 'planned visits'}
           tone="brand"
           dot
         />
@@ -61,7 +61,7 @@ export function KpiGrid({
 
       <Card className="h-full">
         <Metric
-          label="Visits happened"
+          label="Visits done"
           value={happened}
           caption={attainment == null ? 'no plan' : `${formatPercent(attainment)} of plan`}
           tone={attainment != null && attainment >= 0.8 ? 'success' : 'warning'}
@@ -78,7 +78,7 @@ export function KpiGrid({
              total has no natural max to bound it against, and forcing one
              (the plan? the standard?) would imply a target this figure
              doesn't have yet. */
-          caption={pobPerCall != null ? `${formatCurrency(pobPerCall)} / call` : 'no completed visits'}
+          caption={pobPerCall != null ? `${formatCurrency(pobPerCall)} / visit` : 'no visits done'}
           tone="brand"
           dot
         />
@@ -88,7 +88,7 @@ export function KpiGrid({
         <Metric
           label="Call average"
           value={formatDecimal(callAverage)}
-          caption={`calls ÷ reps working · std ${callStandard}`}
+          caption={`visits ÷ reps reported · std ${callStandard}`}
           tone={callAverage != null && callAverage >= callStandard ? 'success' : 'danger'}
           dot
           progress={{ value: callAverage ?? 0, max: callStandard }}

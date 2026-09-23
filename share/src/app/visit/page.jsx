@@ -16,8 +16,9 @@ import { DEFAULT_GQL_ENVIRONMENT } from './data/liveSource';
  *     token from. Only the row NAME (`gqlEnvironment`) ever becomes React
  *     state or a prop; the resolved bearer token is fetched fresh, once per
  *     dataset load, inside data/liveSource.js and never leaves that module.
- *   - Token override — for hitting the same environment with a different key,
- *     without editing a /tokens row. Committed on blur/Enter, not per
+ *   - Token override — a key to use INSTEAD of the one the /tokens row holds,
+ *     for hitting the same environment with somebody else's permissions
+ *     without editing that row. Committed on blur/Enter, not per
  *     keystroke, so typing a token does not fire a live ERP request per
  *     character. Empty means "use whatever Environment resolves to."
  *   - Layout width — the same width presets and drag handle this page always
@@ -61,6 +62,7 @@ const PRESETS = [
 
 const MIN_WIDTH = 260;
 const MAX_WIDTH = 2560;
+
 
 export default function VisitPage() {
   const [width, setWidth] = useState(null);
@@ -149,7 +151,7 @@ export default function VisitPage() {
     <div className="flex min-h-dvh bg-page">
       {/* The playground rail. Its own scroll, independent of the report's --
           a tall report should not carry the environment picker off-screen. */}
-      <aside className="flex w-60 shrink-0 flex-col gap-5 overflow-y-auto border-r border-line-subtle bg-surface p-3">
+      <aside className="ds-scrollbar flex w-60 shrink-0 flex-col gap-5 overflow-y-auto border-r border-line-subtle bg-surface p-3">
         <div>
           <Eyebrow as="h2">Playground</Eyebrow>
           <p className="mt-1 text-10 text-ds-muted">Dev controls for this screen only.</p>
@@ -214,7 +216,7 @@ export default function VisitPage() {
       {/* `overflow-auto`, not hidden: the report is taller than the window at
           every width, and a clipped stage means the page simply cannot be
           scrolled to the bottom. */}
-      <div className="flex flex-1 justify-center overflow-auto">
+      <div className="ds-scrollbar flex flex-1 justify-center overflow-auto">
         <div
           ref={frameRef}
           /* The outline only appears once a width is pinned. At "Fit" the

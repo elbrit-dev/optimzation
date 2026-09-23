@@ -48,6 +48,17 @@ export function Avatar({ name, src, size = 'md', color, className, style, ...res
   const box = SIZE_VAR[size] ?? SIZE_VAR.md;
   const label = String(name ?? '');
 
+  /* DECORATIVE WHEN THE CALLER SAYS SO. An avatar standing on its own has to
+     name the person it depicts, which is why the hidden label exists. Sat
+     next to that person's name — as in a card header — the same label makes
+     a screen reader say the name twice, and puts a second copy of it in the
+     DOM where every text query trips over it.
+
+     `aria-hidden` is the caller declaring "the name is already adjacent", so
+     the label and the tooltip both come off: a tooltip on a node that is not
+     in the accessibility tree is decoration nobody can reach anyway. */
+  const decorative = rest['aria-hidden'] === true || rest['aria-hidden'] === 'true';
+
   return (
     <span
       className={cx('ds-avatar', className)}
@@ -57,16 +68,16 @@ export function Avatar({ name, src, size = 'md', color, className, style, ...res
         backgroundColor: src ? 'transparent' : (color ?? hashHue(label)),
         ...style,
       }}
-      title={label || undefined}
+      title={decorative ? undefined : label || undefined}
       {...rest}
     >
       {src ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} alt={label} className="ds-avatar__img" />
+        <img src={src} alt={decorative ? '' : label} className="ds-avatar__img" />
       ) : (
         <span aria-hidden="true">{initialsOf(label)}</span>
       )}
-      {src ? null : <span className="ds-visually-hidden">{label}</span>}
+      {src || decorative ? null : <span className="ds-visually-hidden">{label}</span>}
     </span>
   );
 }

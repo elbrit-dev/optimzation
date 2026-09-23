@@ -11,11 +11,19 @@ import {
   happened,
   planned,
   pobTotal,
+  resolveSelection,
   subtreeOf,
   visitsByHour,
 } from '../data/selectors';
-import { countWorkingDays, formatMonthName, hqLabel, periodSuffix, toMonthKey } from '../data/format';
-import { shortDesignation } from '../data/shape';
+import {
+  countWorkingDays,
+  formatMonthName,
+  hqLabel,
+  periodSuffix,
+  toMonthKey,
+  workingDaysBetween,
+} from '../data/format';
+import { isHqTerritory, shortDesignation } from '../data/shape';
 import { ReportHeader } from './ReportHeader';
 import { ScopeSelect } from './ScopeSelect';
 import { PeriodTabs } from './PeriodTabs';
@@ -139,6 +147,7 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
     window: win,
     asOf,
     truncated,
+    ready,
     loading,
     error,
   } = useVisitKpi({
@@ -167,10 +176,17 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
      Memoised because this array is the picker's `value`, and TreeSelect runs
      an effect off it — a fresh identity every render would re-run that
      effect on every keystroke elsewhere on the page. */
-  const selection = useMemo(() => {
-    const live = (picks ?? []).filter((pick) => team.some((m) => m.id === pick.id));
-    return live.length ? live : defaultPicks;
-  }, [picks, team, defaultPicks]);
+  /* null vs [] is the whole reason the top can be unticked -- see
+     resolveSelection. Conflating them is what made clearing the last node
+     snap straight back to the default. */
+  const selection = useMemo(
+    () => resolveSelection(picks, team, defaultPicks),
+    [picks, team, defaultPicks],
+  );
+
+  /* Distinct from "the scope resolved to one person". Nothing is selected at
+     all, which is a state the reader asked for rather than a dead end. */
+  const nothingSelected = selection.length === 0;
 
   /* The one narrowing, and the only place ids from several branches meet.
      A Set, so a branch and a member of it overlap into one count rather
@@ -193,14 +209,43 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
   const isMine = scoped.team.length <= 1;
   const focus = selection.length === 1 ? team.find((m) => m.id === selection[0].id) : null;
 
+  /* ATTENDANCE FOLLOWS THE PERIOD. It used to be a right-now fact in both
+     views — today's rows, even under month figures — which meant a card
+     reading "2 reported / 219 not reported" sat on top of a month in which
+     220 people had been out working. The two numbers were each true and read
+     as a contradiction, because one of them answered a question nobody on
+     this screen had asked.
+   *
+   * `attendanceRows` is therefore the period's rows in month view and
+   * today's in today view, and `overRange` travels with them so the states
+   * are classified the same way the card counted them — see attendanceOf. */
+  const overRange = period === 'month';
+  const attendanceRows = overRange ? scoped.rows : scoped.todayRows;
+  /* THE DAYS THE ATTENDANCE STATES ARE MEASURED OVER: every working day in
+     the window, Monday to Saturday. It is the calendar rather than the plan
+     because a day nobody scheduled is still a day nobody reported — see
+     daysOf. Memoised on the window's ends, since it is rebuilt into a day
+     record for every person in scope. */
+  const calendar = useMemo(
+    () => (overRange ? workingDaysBetween(win.from, win.to) : [today]),
+    [overRange, win.from, win.to, today],
+  );
+
   const view = useMemo(() => {
-    const att = attendance(scoped.todayRows, scoped.team);
+    const att = attendance(attendanceRows, scoped.team, overRange, calendar);
     const hqRows = byHq(scoped.rows, scoped.team);
     /* A selected HQ can vanish when the scope changes. Falling back to the
        totals is safe; falling back to hqRows[0] would silently show a
        different territory under the same heading. */
     const activeHq = hqRows.some((h) => h.hq === hq) ? hq : ALL_HQS;
-    const hqScoped = activeHq === ALL_HQS ? scoped.rows : scoped.rows.filter((r) => r.hq === activeHq);
+    /* "All HQs" means all the REAL HQs, not everything. byHq only counts a
+       territory whose name starts with "HQ-" (see isHqTerritory), so the
+       chart and the geo split beside those cards have to draw from the same
+       pool -- otherwise the bars would include visits filed against a state
+       or an unset territory that no card above them is counting. */
+    const hqScoped = activeHq === ALL_HQS
+      ? scoped.rows.filter((r) => isHqTerritory(r.hq))
+      : scoped.rows.filter((r) => r.hq === activeHq);
 
     /* Summed from the cards rather than recomputed, so the "All HQs" card can
        never disagree with the ones beside it. */
@@ -217,7 +262,12 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
     );
 
     const happenedCount = happened(scoped.rows);
-    const pobAmount = pobTotal(pob);
+    /* NULL, NOT ZERO, until the quotations land. They are the last wave (see
+       liveSource) and the money cards are the only thing on this screen that
+       waits for them; showing the total as ₹0 for that second would be a
+       figure rather than a gap, and formatCurrency already draws a null as an
+       em dash. */
+    const pobAmount = ready.pob ? pobTotal(pob) : null;
 
     return {
       att,
@@ -238,7 +288,7 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
       /* Same "don't divide when there's nothing to divide by" rule as
          callAverage below -- a rupee figure over zero completed visits is
          not "infinite per call", it is not a figure at all yet. */
-      pobPerCall: happenedCount > 0 ? pobAmount / happenedCount : null,
+      pobPerCall: pobAmount != null && happenedCount > 0 ? pobAmount / happenedCount : null,
       /* Per rep PER DAY, so the month view is comparable to the daily standard
          of 12 rather than reporting five days' work as one rep's score.
 
@@ -253,7 +303,7 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
       ),
       repCount: scoped.team.filter((m) => m.short === 'BE' && !m.vacant).length,
     };
-  }, [scoped, pob, hq, isMine, win.from, win.to]);
+  }, [scoped, attendanceRows, overRange, calendar, pob, ready.pob, hq, isMine, win.from, win.to]);
 
 
   /* The two ways the page has to name its period in words. Derived HERE, not
@@ -354,12 +404,12 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
                  below already says how many branches were summed. One person
                  is My Report; anything wider is a team, however many
                  branches it was assembled from. */
-              title={isMine ? 'My Report' : 'Team Report'}
+              title={isMine ? 'My report' : 'Team report'}
+              caption={scopeCaption}
             />
             {/* Below the header when narrow, where full width is worth more
                 than adjacency; beside it from @2xl. */}
             <div className="@2xl/report:hidden">{scopePicker}</div>
-            {scopeCaption ? <p className="text-10 text-ds-secondary">{scopeCaption}</p> : null}
           </div>
 
           <div className="flex flex-col gap-3 @2xl/report:w-72 @2xl/report:shrink-0">
@@ -385,15 +435,31 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
             the cards because it changes how you read them, and present at
             all because the alternative is a total that looks ordinary and
             is short. */}
-        {truncated && !error ? (
+        {/* `truncated` is an OBJECT now, so this must test its fields: the
+            object itself is always truthy and the banner would never go
+            away. The window is split by date until each page fits (see
+            fetchWindowed), so this only fires when a SINGLE DAY exceeds the
+            page size — at which point there is nothing left to narrow and
+            the old "pick fewer months" advice was unusable anyway. */}
+        {(truncated.visits || truncated.pob) && !error ? (
           <p className="rounded-lg border border-warning/30 bg-warning/5 p-3 text-12 text-warning">
-            This range holds more visits than can be loaded at once — the figures below
-            are incomplete. Pick fewer months.
+            One day in this range holds more{' '}
+            {truncated.visits && truncated.pob ? 'visits and orders' : truncated.visits ? 'visits' : 'orders'}
+            {' '}than can be loaded at once, so the figures below are short. Pick a narrower range.
           </p>
         ) : null}
 
         {loading && !error ? (
           <p className="text-12 text-ds-secondary">Loading…</p>
+        ) : nothingSelected ? (
+          /* An asked-for empty, not a failure — so it reads as an instruction
+             rather than an error, and the picker above it stays the way out.
+             Rendering the cards over an empty scope would be worse than this:
+             a grid of zeros and em dashes looks like a team that did nothing,
+             which is a different claim entirely. */
+          <p className="rounded-lg border border-line-subtle p-4 text-12 text-ds-secondary">
+            No team selected. Pick one or more managers above to see their visits.
+          </p>
         ) : (
           <>
             {/* Summary band. Full width at every size: these five numbers are the
@@ -414,6 +480,9 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
                     counts={view.att.counts}
                     working={view.att.working}
                     inScope={view.att.inScope}
+                    /* Day-based over a range, so the four counts can double
+                       up on the same person -- see attendanceStatesOf. */
+                    overlapping={view.att.overlapping}
                     onDrill={(state) => setSheet({ kind: 'attendance', state })}
                   />
                 </div>
@@ -462,6 +531,9 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
                 pob={pob}
                 rootIds={selection.map((pick) => pick.id)}
                 onDoctorPlan={(member) => setSheet({ kind: 'plan', memberId: member.id })}
+                /* The tree classifies attendance the same way the card above
+                   it does, or the two disagree about the same person. */
+                overRange={overRange}
               />
             </div>
 
@@ -473,7 +545,14 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
             <AttendanceSheet
               state={sheet?.kind === 'attendance' ? sheet.state : null}
               team={scoped.team}
-              todayRows={scoped.todayRows}
+              /* THE ROWS THE CARD COUNTED, and the flag it counted them
+                 under. A sheet that re-derived either would be free to
+                 disagree with the chip that opened it. */
+              rows={attendanceRows}
+              overRange={overRange}
+              /* The same calendar the card counted with, so the list a chip
+                 opens is measured over the same days. */
+              calendar={calendar}
               onClose={() => setSheet(null)}
             />
             <DoctorPlanSheet
@@ -485,11 +564,18 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
               rows={rows}
               pob={pob}
               periodLabel={planLabel}
+              /* A month window is thirty days, so a clock time alone cannot
+                 say WHEN a call happened — the card leads with the date. On
+                 Today it would repeat the heading on every row. */
+              showDate={period === 'month'}
               onClose={() => setSheet(null)}
             />
             <VisitsByHourSheet
               selection={sheet?.kind === 'hour' ? sheet.selection : null}
               rows={view.chartRows}
+              /* Only to resolve each attendee's rung for the card's role
+                 pill; the rows themselves are already scoped. */
+              team={team}
               periodLabel={planLabel}
               /* Which HQ the bar was drawn for. The sheet is opened from a
                  card that is already filtered, and without this its title
@@ -499,6 +585,9 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
               /* Only worth a column on each row when the rows can differ.
                  Filtered to one HQ they cannot, and the subtitle says it. */
               showHq={view.activeHq === ALL_HQS}
+              /* Same reason as the doctor plan sheet: a 2pm bar over a month
+                 is thirty different afternoons. */
+              showDate={period === 'month'}
               onClose={() => setSheet(null)}
             />
           </>

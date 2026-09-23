@@ -607,6 +607,111 @@
   color: var(--ds-text-secondary);
   text-align: left;
 }
+/* A card that is also a control — the doctor rows in the visit drill-downs.
+   The lift on hover is the affordance: a card that only changes border colour
+   reads as selected rather than as pressable. Kept to 1px and a shadow step,
+   because a row of these lifting 4px at a time is a list that squirms.
+
+   `transform` and `box-shadow` only: both are compositor properties, so a
+   sixty-row sheet does not relayout on every pointer move. */
+.ds-card-row {
+  border-radius: var(--ds-radius-lg);
+  border: var(--border-w) solid var(--border-subtle);
+  background-color: var(--surface-card);
+  box-shadow: var(--ds-shadow-card);
+  transition:
+    transform var(--motion-fast, 120ms) ease,
+    box-shadow var(--motion-fast, 120ms) ease,
+    border-color var(--motion-fast, 120ms) ease;
+}
+/* No focus rule on the card itself: it is a <div> and never takes focus. The
+   ring belongs to the header button inside it, which already has one — it
+   just needed the card's corner radius to sit on. */
+
+/* THE PADDING LIVES ON THE HEADER, not on the card. DisclosureRow sets
+   `padding-inline: 0` on its header so a plain row can bleed its hover tint
+   to the edge; inside a card that left the content sitting on the border.
+   Padding the card itself instead would double up on the header's own
+   padding-block and push the expanded children out of alignment with it. */
+.ds-card-row > .ds-disclosure__header,
+.ds-card-row > .ds-disclosure__line > .ds-disclosure__header {
+  /* BORDER-BOX IS LOAD-BEARING HERE, not boilerplate. The header carries
+     `width: 100%`, and this stylesheet does not assume a global border-box
+     reset -- .ds-sheet sets its own, which is the tell. Without it the
+     padding is ADDED to the full width and the header overflows its card by
+     exactly 24px, which is what clipped the doctor codes against the edge of
+     the sheet. Measured, not guessed: scrollWidth 458 against offsetWidth
+     448 on a 480px body. */
+  /* CANCELS THE EDGE-TO-EDGE BLEED. `.ds-disclosure__header--interactive`
+     deliberately sets `margin-inline: -12px` and `width: calc(100% + 24px)`
+     so its hover wash runs to the edges of a padded card in a PLAIN list.
+     Inside a bordered card that is exactly wrong twice over: the header
+     sticks 12px out of each side, which is the 24px that pushed the doctor
+     codes past the edge of the sheet, and its hover tint and focus ring
+     paint outside the card's own border.
+
+     Measured before: parent content box 446px, header 470px. After: 446. */
+  box-sizing: border-box;
+  margin-inline: 0;
+  width: 100%;
+  padding-inline: var(--space-12);
+  /* So the hover wash and the focus outline follow the card's corners
+     instead of squaring them off. An outline tracks border-radius. */
+  border-radius: var(--ds-radius-lg);
+}
+/* NO TREE LINES ON A CARD, for the same reason the caret below is hidden:
+   they hang off a marker this row does not draw. A card's children are its
+   own detail — the attendees of one call, the days behind one figure — not a
+   level of a hierarchy, and a rule bracketing them implies a parent-child
+   relationship with the row above that is not what a card means. Suppressed
+   rather than never applied, because the tree rules are the general case and
+   this is the exception. */
+.ds-card-row > .ds-disclosure__children {
+  padding: var(--space-8) var(--space-12);
+  margin-left: 0;
+  border-left: none;
+}
+.ds-card-row > .ds-disclosure__header[aria-expanded='true']::after,
+.ds-card-row > .ds-disclosure__line > .ds-disclosure__header[aria-expanded='true']::after,
+.ds-card-row > .ds-disclosure__children > .ds-disclosure::before,
+.ds-card-row > .ds-disclosure__children > .ds-disclosure:last-child::after {
+  display: none;
+}
+
+/* NO CARET COLUMN ON A CARD. DisclosureRow reserves --icon-md plus a gap at
+   the start of every row for its marker, which is right for a dense tree
+   where the carets form a vertical spine you scan down. A card is not in a
+   spine: the caret has nothing to line up with, so it reads as a stray tick
+   floating beside the avatar and costs ~24px of every card's width — width
+   the doctor's name and code were being truncated to pay for.
+
+   The card supplies its own affordance instead, attached to the thing it
+   actually reveals ("3 attended ⌄" — see DoctorCard), which is both smaller
+   and says what it does. */
+.ds-card-row > .ds-disclosure__header > .ds-disclosure__marker,
+.ds-card-row > .ds-disclosure__line > .ds-disclosure__header > .ds-disclosure__marker {
+  display: none;
+}
+
+/* Cards are separate objects and need air between them. A stacked list of
+   bordered cards with no gap reads as one table with heavy rules. */
+.ds-card-row + .ds-card-row {
+  margin-top: var(--space-8);
+}
+
+/* Centred, not top-aligned. DisclosureRow aligns its marker to the first
+   line because a plain row is one line tall; a card is four, and a caret
+   pinned to the top of it reads as belonging to the name rather than to the
+   whole card. */
+.ds-card-row > .ds-disclosure__header,
+.ds-card-row > .ds-disclosure__line > .ds-disclosure__header {
+  align-items: center;
+}
+.ds-card-row:active {
+  transform: none;
+  box-shadow: var(--ds-shadow-card);
+}
+
 /* One column of the hourly chart, as a control. The button is full height and
    mostly empty — the drawn bar sits at the bottom of it — so the affordance
    has to be painted on the WHOLE column or it lands on a three-pixel bar at
@@ -723,6 +828,92 @@
 }
 .ds-scroll-x > * {
   scroll-snap-align: start;
+}
+
+/* =========================================================== Chart
+
+   A chart's own box.
+
+   NO FOCUS RING ON A MOUSE CLICK. Recharts 3 makes the chart surface itself
+   focusable — it ships arrow-key navigation — so clicking a bar focuses the
+   whole SVG and Chrome paints a black rectangle around the entire plot area.
+   Around a BAR that would be odd; around the whole chart it reads as an
+   error state.
+
+   `:focus-visible` is what makes this safe rather than a straight removal:
+   the ring is dropped only when the browser judges it unwanted (a pointer
+   press) and kept whenever focus arrives from the keyboard, which is the one
+   case where the chart's own key handling needs to be visible. An earlier
+   version of this rule targeted `path`/`rect`/`g` and missed the element
+   that was actually taking focus.
+
+   NO TEXT SELECTION either: dragging across a bar otherwise highlights the
+   axis labels, which is how a pressed column ends up with a blue "1PM" under
+   it. A chart is a control surface, not prose.
+
+   `display: block` on the SVG stops the inline-element baseline gap, which
+   otherwise leaves a few pixels under the axis and makes two charts stacked
+   in a column look unevenly spaced. */
+.ds-chart {
+  -webkit-user-select: none;
+  user-select: none;
+}
+.ds-chart svg {
+  display: block;
+}
+.ds-chart :focus:not(:focus-visible),
+.ds-chart:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ======================================================= Scrollbar
+
+   THE SCROLLBAR, WHEN IT SHOULD BE SEEN. `.ds-scroll-x` above hides its bar
+   because a strip of pills signals its own overflow by the cut-off item.
+   That reasoning does not carry to a scroll region with no card edge to cut
+   — a sheet of rows, a chart track — where the bar IS the only thing saying
+   there is more.
+
+   Thin and plum, the treatment the data tables have always used, lifted out
+   of globals.css so it is a design-system decision rather than a table one.
+   Both the standard `scrollbar-*` properties and the WebKit pseudo-elements,
+   because Safari and older Chrome honour only the latter and Firefox only
+   the former; neither alone covers the field.
+
+   The track is transparent rather than tinted: over a card, a grey gutter
+   reads as a second border down the edge. The thumb is the only painted
+   part, and it is `--border-strong` rather than the brand colour — a
+   scrollbar is furniture, and a plum bar down a sheet competes with the
+   green and red the reader is there to look at. */
+.ds-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+  -webkit-overflow-scrolling: touch;
+}
+.ds-scrollbar::-webkit-scrollbar {
+  width: var(--space-8);
+  height: var(--space-8);
+}
+.ds-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.ds-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: var(--ds-radius-lg);
+  /* An inset border with `background-clip: padding-box` is what makes the
+     thumb narrower than its track without a second element — the border is
+     transparent, so it reads as breathing room on both sides. */
+  border: var(--border-w-bold) solid transparent;
+  background-clip: padding-box;
+  transition: background var(--dur-fast) var(--ds-ease-standard);
+}
+
+/* Pointer devices only. A touch device has no hover to resolve, and an
+   unguarded rule leaves the thumb stuck in its hover colour after a flick. */
+@media (hover: hover) and (pointer: fine) {
+  .ds-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: var(--ds-text-muted);
+  }
 }
 
 .ds-chiprow {
@@ -859,12 +1050,36 @@
 
 /* ==================================================== DisclosureRow */
 
+/* NO INDENT HERE. It used to be `depth * 12px`, which looked right in the
+   abstract and compounded in practice: a node's children are rendered INSIDE
+   that node's own `__children` box, so an absolute depth padding is added on
+   top of every ancestor's. The steps came out 12, 36, 72, 120 — quadratic —
+   and by the fourth level a row had lost a third of its width, which is what
+   clipped the legend under the bars in the visit tree.
+
+   One step per level, applied by the container that does the nesting, is
+   both linear and self-evidently so. `--ds-disclosure-depth` is still set by
+   the component: a caller that wants to key something else off the level can
+   read it, and nothing here needs to. */
 .ds-disclosure {
-  /* Indent is a custom property times one step, so nesting is not capped at
-     whatever depth the stylesheet happened to anticipate. */
-  padding-left: calc(var(--ds-disclosure-depth, 0) * var(--space-12));
+  min-width: 0;
+  /* WHERE THE CARET SITS on its row: the header's top padding plus half the
+     marker's line box. Every piece of the tree line — the drop out of an open
+     caret, the elbow into a child's, the mask that ends the run — is placed
+     from this one number, derived from the marker's own rules, so a change to
+     the row's density moves all of them together. */
+  --ds-disclosure-caret-y: calc(var(--space-10) + var(--lh-20) / 2);
 }
 .ds-disclosure__header {
+  position: relative;
+  /* WHERE THE CARET'S CENTRE FALLS inside this header's PADDING box, which is
+     what an absolutely positioned pseudo measures from — not the content box
+     the marker itself is laid out in. Plain headers have no inline padding so
+     the two agree; an interactive one pads 12px for its hover bleed and needs
+     that added, or the line that drops out of the caret misses it by exactly
+     that much. Declared here and overridden with the padding, so the offset
+     cannot drift from the rule that causes it. */
+  --ds-disclosure-rail-x: calc(var(--icon-md) / 2);
   display: flex;
   align-items: flex-start;
   gap: var(--space-8);
@@ -896,8 +1111,87 @@
   flex: 1 1 auto;
   min-width: 0;
 }
+/* THE GROOVE DROPS OUT OF THE CARET that opened the group.
+ *
+ * Half of --icon-md, which is the marker column's own width, so the rule
+ * falls down the centre of the caret above it: the line is then visibly the
+ * consequence of that control rather than a decorative margin, and a reader
+ * scanning a deep tree can follow any row back up to the caret it belongs to.
+ *
+ * 14px per level in total — 8 to the rule, 6 from the rule to the row. Small
+ * on purpose: depth is carried by the line, not by the distance, so five
+ * levels cost 70px instead of the 300 the old quadratic indent wanted. On a
+ * 430px phone that is the difference between a legend that fits and one that
+ * reads "Pendi…".
+ *
+ * NO HAIRLINE ACROSS THE TOP. It used to draw one, which made sense when it
+ * was the only mark of nesting; beside the groove it cuts the bracket the
+ * groove is drawing, and on a tree of cards it read as a seam between two
+ * sections rather than as one group hanging off a parent. */
 .ds-disclosure__children {
+  margin-left: calc(var(--icon-md) / 2);
+  padding-left: var(--space-6);
+  border-left: var(--border-w) solid var(--border-subtle);
+}
+
+/* THE FIRST SEGMENT, OUT OF THE OPEN CARET ITSELF.
+ *
+ * The children's rule can only start where their box does, which is BELOW the
+ * whole parent row — and on this tree a row is three lines and a bar tall, so
+ * the line began some sixty pixels under the caret it was supposed to hang
+ * from and read as an unrelated margin rule. This is the piece that closes
+ * that gap: from the caret down to the bottom of its own row, where the
+ * children's box picks it up at the same x.
+ *
+ * Drawn on the HEADER because the header is the only box that knows how tall
+ * the row is; `bottom: 0` is a measurement nothing else here can make. Only
+ * when open, because a closed row has nothing to join. */
+.ds-disclosure__header[aria-expanded='true']::after {
+  content: '';
+  position: absolute;
+  top: var(--ds-disclosure-caret-y);
+  bottom: 0;
+  /* The centre of the marker column, which is where the caret is drawn and
+     where the children's own rule sits. */
+  left: var(--ds-disclosure-rail-x);
+  border-left: var(--border-w) solid var(--border-subtle);
+}
+
+/* CARET TO CARET. The vertical rule drops from the parent's caret; this is the
+ * elbow that carries it across to each child's. Without it the line runs past
+ * a column of carets without touching any of them, which is a margin with a
+ * border on it rather than a tree.
+ *
+ * The stub is positioned, not drawn in flow, because the row it points at is
+ * a flex header whose height varies with what the caller puts in it — on the
+ * visit tree that is three lines and a bar. */
+.ds-disclosure__children > .ds-disclosure {
+  position: relative;
+}
+.ds-disclosure__children > .ds-disclosure::before {
+  content: '';
+  position: absolute;
+  top: var(--ds-disclosure-caret-y);
+  /* From the rule (just outside the padding) to the centre of this row's own
+     marker column, which is where the next level's rule will drop from. */
+  left: calc(-1 * var(--space-6));
+  width: calc(var(--space-6) + var(--icon-md) / 2);
   border-top: var(--border-w) solid var(--border-subtle);
+}
+
+/* THE RULE STOPS AT THE LAST ELBOW. Left to run, the border continues to the
+   bottom of the group and hangs below the final row pointing at nothing.
+   Masked rather than measured: the container cannot know where its last
+   child's caret falls, but the child can, and it is sitting on the card the
+   mask is painted in. */
+.ds-disclosure__children > .ds-disclosure:last-child::after {
+  content: '';
+  position: absolute;
+  top: calc(var(--ds-disclosure-caret-y) + var(--border-w));
+  bottom: 0;
+  left: calc(-1 * var(--space-6) - var(--border-w));
+  width: var(--border-w);
+  background-color: var(--surface-card);
 }
 /* The header-plus-action line. The two share ONE grid cell and the action
    is laid into the bottom-right of it, rather than taking a column of its
@@ -932,6 +1226,13 @@
   /* Clear of the header's own block padding, so the control sits on the
      baseline of the last line of content rather than on the row's edge. */
   margin-block-end: var(--space-10);
+}
+/* Laid over the FIRST line instead of the last, for a header whose control
+   belongs beside its title rather than under its figures. Same reservation
+   rule — the lane just moves to the top of the column. */
+.ds-disclosure__action--start {
+  align-self: start;
+  margin-block: var(--space-10) 0;
 }
 .ds-disclosure__action-lane {
   display: block;
@@ -971,6 +1272,12 @@
   .ds-hourbar:hover {
     background-color: var(--brand-tint-weak);
   }
+
+  .ds-card-row:hover {
+    transform: translateY(-1px);
+    border-color: var(--brand-primary);
+    box-shadow: var(--ds-shadow-pop);
+  }
 }
 
 /* The tint has to reach the card edge to read as a row rather than as a
@@ -981,6 +1288,9 @@
 .ds-disclosure__header--interactive {
   margin-inline: calc(var(--space-12) * -1);
   padding-inline: var(--space-12);
+  /* The bleed moves the caret 12px in from the padding edge; the tree line
+     has to follow it. See --ds-disclosure-rail-x where it is declared. */
+  --ds-disclosure-rail-x: calc(var(--space-12) + var(--icon-md) / 2);
   width: calc(100% + var(--space-12) * 2);
   border-radius: var(--ds-radius-md);
   transition: background-color var(--dur-fast) var(--ds-ease-standard);
@@ -1124,12 +1434,19 @@
   font-weight: var(--fw-semibold);
 }
 
-/* DisclosureRow draws a hairline above a node's children -- right inside a
-   static Card, where it reads as a seam between sections. Inside this small
-   floating panel it reads as a stray cut line instead, so the tree here stays
-   one continuous compact list with no divider. */
+/* NO GROOVE IN THE PICKER. In a panel this short the nesting is legible from
+   the indent alone, and a second vertical rule a few pixels inside the panel's
+   own border reads as a scrollbar that does not scroll. */
 .ds-treeselect__panel .ds-disclosure__children {
-  border-top: none;
+  border-left: none;
+  padding-left: var(--space-12);
+  margin-left: 0;
+}
+/* And no drops or elbows, which have nothing left to join. */
+.ds-treeselect__panel .ds-disclosure__header[aria-expanded='true']::after,
+.ds-treeselect__panel .ds-disclosure__children > .ds-disclosure::before,
+.ds-treeselect__panel .ds-disclosure__children > .ds-disclosure:last-child::after {
+  display: none;
 }
 
 /* ============================================================== Tabs */
@@ -1442,6 +1759,18 @@
 .ds-sheet__close:focus-visible {
   outline: var(--border-w-bold) solid var(--focus-ring);
   outline-offset: -2px;
+}
+/* Pinned under the heading: controls that filter the body have to stay
+   reachable while the body scrolls, or the reader scrolls back up to change
+   a search and loses their place in the answer. */
+.ds-sheet__toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: var(--space-8);
+  padding: var(--space-8) var(--space-16);
+  border-bottom: var(--border-w) solid var(--border-subtle);
+  background-color: var(--surface-card);
 }
 .ds-sheet__body {
   flex: 1 1 auto;

@@ -113,6 +113,21 @@ export function ScopeSelect({ team, value, onChange, rootId, viewerId }) {
   const tree = buildManagerTree(team, rootId, viewerId);
 
   return (
-    <TreeSelect label="Team scope" hideLabel subtreeToggle tree={tree} value={value} onChange={onChange} />
+    /* `allowEmpty`: the third click on the LAST selection clears it rather
+       than wrapping back to "this node alone". That wrap is TreeSelect's
+       default because an empty picker usually means a screen of zeroes that
+       reads as a data fault -- but this report answers an empty scope in
+       words ("No team selected"), so the guard is not earning anything here
+       and it made the top of the tree impossible to untick. */
+    <TreeSelect
+      label="Team scope"
+      hideLabel
+      subtreeToggle
+      allowEmpty
+      tree={tree}
+      value={value}
+      onChange={onChange}
+      placeholder="No team selected"
+    />
   );
 }

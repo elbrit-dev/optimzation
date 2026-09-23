@@ -55,7 +55,7 @@ export function HqStrip({ heading, hqRows, totals, activeHq, allKey, onSelect })
 
       <div
         role="radiogroup"
-        aria-label="Headquarters"
+        aria-label="HQ"
         className="ds-scroll-x flex gap-2"
       >
         <HqCard

@@ -56,8 +56,11 @@ function ValueSkeleton() {
  * Props:
  *   visible              boolean
  *   onHide               () => void
- *   filterDefs           Array<{ key, label, fieldtype, options, value_field? }>
- *                        — from Report API message.data.filters
+ *   filterDefs           Array<{ key, label, fieldtype, options, value_field?, sortOnly? }>
+ *                        — from Report API message.data.filters.
+ *                          `sortOnly: true` keeps a field in the sort pane and
+ *                          out of the tab rail, for fields worth ordering by
+ *                          whose value list nobody would pick from.
  *   fetchFilterValues    async (key, { page, pageLength, search }) => Array<{ value, label }>
  *                        — from SmartDataProvider via context
  *   currentSortConfig    { field, direction } | null
@@ -112,7 +115,13 @@ export default function FilterSortSidebar({
   }, [dateRange?.start, dateRange?.end]);
 
   // ── Current filter key (for the active tab) ───────────────────────────────
-  const currentFilterDef = activeTabIndex > 0 ? filterDefs[activeTabIndex - 1] : null;
+  /* THE TABS ARE THE FILTERABLE DEFS ONLY. A def marked `sortOnly` still
+     appears in the sort pane but gets no tab: some fields are worth ordering
+     by and pointless to pick values from -- a visit-date tab lists every date
+     in the range, a visit-time tab lists clock hours, and neither is a
+     question a reader asks. The sort pane keeps reading the full list. */
+  const tabDefs = useMemo(() => filterDefs.filter((d) => !d.sortOnly), [filterDefs]);
+  const currentFilterDef = activeTabIndex > 0 ? tabDefs[activeTabIndex - 1] : null;
   const currentKey = currentFilterDef?.key ?? null;
 
   // Invalidate non-active filter tabs when cascade selections change
@@ -287,7 +296,7 @@ export default function FilterSortSidebar({
               </button>
 
               {/* One tab per filterDef */}
-              {filterDefs.map((def, idx) => {
+              {tabDefs.map((def, idx) => {
                 const tabIndex = idx + 1;
                 const selectedCount = (selectedFilterValues[def.key] ?? []).length;
                 const isActive = activeTabIndex === tabIndex;

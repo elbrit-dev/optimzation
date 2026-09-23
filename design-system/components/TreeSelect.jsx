@@ -42,6 +42,15 @@ import { Icon } from './Icon';
  * to be pressed first and a control that does nothing reads as broken.
  * Wrapping gives it somewhere to go.
  *
+ * `allowEmpty` opts OUT of that wrap, and the caller takes on the reason it
+ * exists: it must render something for an empty selection that reads as a
+ * choice rather than as a fault. The screen of zeroes is the thing being
+ * guarded against, not the empty value itself — a consumer that answers
+ * "nothing selected" in words has already solved it, and for that consumer
+ * the wrap is the bug, because the top of the tree can never be cleared.
+ * Default stays off, so a caller gets the safe behaviour by not thinking
+ * about it.
+ *
  * A NODE UNDER A TICKED BRANCH IS ALREADY IN. It renders as included —
  * muted, and labelled "included via <ancestor>" — rather than as an empty
  * box, because an empty box next to a ticked parent says the opposite of
@@ -206,6 +215,10 @@ export function TreeSelect({
      hold half of it. */
   value,
   subtreeToggle = false,
+  /* Lets the last selection be cleared. Off by default -- see the note on
+     the wrap above; a caller turning this on owes the reader an empty
+     state that reads as a choice. */
+  allowEmpty = false,
   onChange,
   placeholder = 'Select…',
   disabled = false,
@@ -307,12 +320,13 @@ export function TreeSelect({
       onChange?.(next);
       return;
     }
-    /* Third click clears it -- unless it is the last one standing, which
-       cycles back to "this node alone" instead. A dead click is the worst
+    /* Third click clears it -- unless it is the last one standing AND the
+       caller has not taken responsibility for the empty state, in which case
+       it cycles back to "this node alone" instead. A dead click is the worst
        of the three options here: refusing to clear is correct, but a
        control that does NOTHING when pressed reads as broken, and the row
        most likely to be pressed first is the sole default selection. */
-    if (list.length === 1) {
+    if (list.length === 1 && !allowEmpty) {
       onChange?.([{ id: nodeId, includeSubtree: false }]);
       return;
     }
@@ -373,8 +387,11 @@ export function TreeSelect({
         </span>
       </button>
 
+      {/* The panel is capped at 320px and scrolls past that — on a 400-person
+          roster it always does — so it takes the DS scrollbar rather than the
+          platform's grey slab inside a popover. */}
       {open ? (
-        <div className="ds-treeselect__panel">
+        <div className="ds-treeselect__panel ds-scrollbar">
           {tree.length === 0 ? (
             <p className="ds-treeselect__empty">No options.</p>
           ) : (

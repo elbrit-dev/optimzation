@@ -28,11 +28,43 @@
  *   participant.custom_distance             -> distanceKm
  *   participant.custom_is_force_visit       -> forceVisit
  *   participant.custom_force_visit_reason   -> forceVisitReason ('' = none)
+ *   participant.reference_doctype__name     -> participantRefType
+ *   participant.reference_docname__name     -> participantRef
+ *
+ * TWO DIFFERENT PEOPLE LIVE ON THIS ROW, and the difference is the whole
+ * reason `participantId` exists:
+ *
+ *   employeeId    - Event.custom_employee_id. WHOSE PLAN this is, and what
+ *                   every KPI, HQ card, chart bar and tree node aggregates
+ *                   on. Unchanged and load-bearing.
+ *   participantId - the child row's own person. WHO ACTUALLY ATTENDED. The
+ *                   participant table is a DYNAMIC link: on a Doctor Visit
+ *                   plan it points at an Employee, so the value is already
+ *                   the roster key ("E00869"); on the calendar-synced events
+ *                   it points at a User and has to be resolved by login
+ *                   email. null when it resolves to nobody on the roster --
+ *                   deliberately NOT promoted into employeeId, because a
+ *                   wrong id there is a wrong number everywhere.
+ *
+ * On a single-participant Event the two are the same person. They diverge on
+ * a joint call, which is what the drill-down sheets group and expand.
+ *
+ * JOINT CALLS ARE ~21% OF THE PLAN. Of 400 live September events, 315 had one
+ * participant, 84 had two and one had three: 486 rows for 400 calls.
+ *
+ * WHICH MEANS COUNTING ROWS OVER-COUNTS. `planned()` and `happened()` count
+ * VisitRows, and all the rows of a joint call carry the same `employeeId`, so
+ * one plan attended by a rep and their manager scores two planned visits
+ * against that rep. Everything aggregate on this screen inherits that. It is
+ * recorded here rather than fixed because the fix moves every number on the
+ * dashboard, which is a decision and not a cleanup.
  *
  * `eventId` IS NOT A ROW KEY. An Event carries an array of participants and
  * this row is the flattened form, so one Event with two participants is two
  * rows sharing an eventId. Anything that needs to identify a row uniquely --
  * a React key, a map -- has to add something to it; see doctorPlan().
+ * Conversely, GROUPING by eventId is how the sheets rebuild the call that
+ * the flattening took apart -- see visitsIn / doctorPlan.
  *
  * The two derived facts the whole screen rests on:
  *   PLANNED  = the row exists
@@ -46,6 +78,11 @@
  * @property {string}      employeeName
  * @property {string}      doctorId
  * @property {string}      doctorName
+ * @property {string}      doctorCity      Lead.city, '' when unset
+ * @property {string}      doctorSpecialty   Lead.custom_specialty ('CARDIO',
+ *                                         'CP', 'GP', 'ORTHO'…), '' when unset
+ * @property {string[]}    doctorCategories  Lead.custom_category + 1,2,3 with the
+ *                                         blanks dropped ('C', 'LILR', 'EC10')
  * @property {string}      hq
  * @property {string}      department
  * @property {boolean}     pobGiven
@@ -53,6 +90,18 @@
  * @property {number|null} distanceKm
  * @property {boolean}     forceVisit
  * @property {string}      forceVisitReason  free text, '' when none was given
+ * @property {string}      participantRef     the dynamic link's value
+ * @property {string}      participantRefType 'Employee' | 'User' | ''
+ * @property {string|null} participantId     that person as a roster employee
+ * @property {string}      participantName   resolved name, else the email
+ * @property {number}      participantCount  DISTINCT people on the event, 1
+ *                                         for a solo call. Read off the
+ *                                         Event's own participant table, not
+ *                                         counted from these rows: scope the
+ *                                         screen to one rep and their
+ *                                         manager's row is filtered out, so a
+ *                                         row count would call every joint
+ *                                         call in that scope solo.
  *
  * A TeamMember is one node of the reporting hierarchy. `reportsTo` is
  * Employee.reports_to; `designation` is the raw ERPNext designation, which is
@@ -71,7 +120,20 @@
  * @property {string|null} reportsTo
  * @property {string}      hq
  * @property {boolean}     vacant
- * @property {boolean}     onLeave
+ * @property {boolean}     onLeave         out TODAY (the leave calendar as
+ *                                          of now)
+ * @property {boolean}     onLeaveInWindow had approved leave at any point in
+ *                                          the SELECTED window. attendanceOf
+ *                                          reads whichever the period asks
+ *                                          for; only `vacant` is as-of-now in
+ *                                          both.
+ * @property {string|null} roleProfile  Employee.custom_role_profile. The node
+ *                                  in the Role Profile TREE this person sits
+ *                                  at; the roster is narrowed to the subtree
+ *                                  under "Sales" (see liveSource's inSales).
+ *                                  null for the 65 active employees who have
+ *                                  none, who fall back to the designation
+ *                                  ladder rather than being dropped.
  * @property {string|null} userId   Employee.user_id -- the login this person
  *                                  is, used only to match a Quotation's
  *                                  `owner` back to a TeamMember (see
@@ -110,6 +172,20 @@
 /* ERPNext stores the long form. Every label on the screen wants the short
    one, and the mapping belongs here rather than in a component so a new
    designation shows up as itself instead of as `undefined`. */
+/* An HQ is a Territory whose name starts with "HQ-", and nothing else is.
+ *
+ * The Territory tree carries states, zones and countries alongside the HQs --
+ * "Tn-Coimbatore", "India" -- and an Event or an Employee can be pointed at
+ * any of them. Treated as HQs those become cards for places nobody has an HQ
+ * in, and an unset territory ('') becomes a nameless card sitting in the
+ * strip. Neither is a territory a rep can be said to work in.
+ *
+ * The prefix is the only signal available: Territory has no "is an HQ" flag,
+ * and `is_group` marks the branches of the tree rather than this distinction. */
+export function isHqTerritory(hq) {
+  return /^HQ-/.test(String(hq ?? ''));
+}
+
 export const DESIGNATION_SHORT = {
   'Business Executive': 'BE',
   'Area Business Manager': 'ABM',
@@ -154,10 +230,25 @@ export const MANAGER_LEVELS = new Set(['ABM', 'RBM', 'SM', 'ZSM', 'GM']);
    `working` first because it is the one you want to read at a glance. */
 export const ATTENDANCE = ['working', 'notReporting', 'onLeave', 'vacant'];
 
+/* REPORTED, not "working". A rep who logged a visit has REPORTED it; whether
+   they were working is a thing this screen cannot know — it sees the log, not
+   the day. "Not reported" says what is actually true (nothing has come in
+   yet) instead of accusing somebody of not working because their phone had no
+   signal at 9am.
+ *
+ * ABSENT, not "on leave". The chip's job is to account for a rep who filed
+ * nothing, and "Absent" is the shorter word for it — it also stops the state
+ * reading as a leave-calendar report, which it is not: over a range it means
+ * "logged nothing, and was away for part of it" (see attendanceOf).
+ *
+ * THE KEYS STILL SAY `working` AND `onLeave`. They are the data layer's —
+ * attendanceOf(), attendance(), rollupFor().workingReps — and renaming them
+ * would touch every selector and its tests to change nothing a reader can
+ * see. The words are here; the keys are plumbing. */
 export const ATTENDANCE_LABEL = {
-  working: 'Working',
-  notReporting: 'Not reporting',
-  onLeave: 'On leave',
+  working: 'Reported',
+  notReporting: 'Not reported',
+  onLeave: 'Absent',
   vacant: 'Vacant',
 };
 
@@ -166,11 +257,23 @@ export const ATTENDANCE_LABEL = {
    true of this particular Tuesday, and a vacancy is not an attendance
    record. Same reason the sheet counts vacancies in seats, not people. */
 export const ATTENDANCE_SHEET_TITLE = {
-  working: 'Working today',
-  notReporting: 'Not reporting today',
-  onLeave: 'On leave today',
+  working: 'Reported today',
+  notReporting: 'Not reported today',
+  onLeave: 'Absent today',
   vacant: 'Vacant seats',
 };
+
+/* The same headings when the card is counting a RANGE rather than a day.
+   "today" comes off all three, because it would be a lie: over August these
+   are the people who reported, or did not, or were away, at some point in
+   August. Leave is windowed too — see attendanceOf.
+
+   A vacancy is not an attendance record either way, so it never took the
+   suffix and needs no second form. */
+export function attendanceSheetTitle(state, overRange = false) {
+  if (!overRange) return ATTENDANCE_SHEET_TITLE[state];
+  return state === 'vacant' ? ATTENDANCE_SHEET_TITLE.vacant : ATTENDANCE_LABEL[state];
+}
 
 /* Tone per state. `notReporting` is danger and `onLeave` is warning, not the
    other way round: leave is planned and expected, a silent rep is not. */
@@ -179,4 +282,61 @@ export const ATTENDANCE_TONE = {
   notReporting: 'danger',
   onLeave: 'warning',
   vacant: 'neutral',
+};
+
+/* ---- THE SCREEN'S WORDS ------------------------------------------------
+ *
+ * Every user-facing word on /visit is fixed here or in a LABEL map above.
+ * Two components inventing their own phrasing is how the same call ended up
+ * pilled "Visited" on a card header and "Geo verified" on the attendee row
+ * INSIDE THAT SAME CARD, under a legend that said "Geo-verified".
+ *
+ * THE TWO NOUNS. They are not synonyms and the distinction is load-bearing:
+ *
+ *   VISIT — one rep attending one doctor. The unit every KPI, bar, chart
+ *           column and tree rollup counts.
+ *   CALL  — one doctor meeting. A joint call is ONE call and TWO visits,
+ *           which is why the drill-down sheets say "12 calls · 14 visits"
+ *           rather than picking one and being wrong on 21% of the plan.
+ *
+ * Say "call" only where that distinction is actually being drawn, or in
+ * `call average`, which is the industry's name for the metric and not ours
+ * to rename.
+ *
+ * THE TWO VERBS. `planned` and `done` — never "happened", "completed",
+ * "visited" or "achieved", which are four words for one state.
+ *
+ * CASE. Labels and titles are sentence case ("Visits done", "Force visit").
+ * Captions under a figure are lower case ("no plan", "42% of plan"): they
+ * finish the label's sentence rather than starting one.
+ *
+ * EMPTY STATES are "No <thing> <scope>." — one line, a full stop, no
+ * apology and no "yet". */
+
+/* The three states a visit can be in, and the only three words for them.
+ *
+ * A FORCE VISIT IS DONE. That is the distinction the red is teaching, and a
+ * done/not-done pill would erase it — which is the whole reason this is a
+ * three-state vocabulary and not a boolean. */
+export const VISIT_STATUS = ['verified', 'force', 'pending'];
+
+/* ONE WORD EACH. They were "Geo verified" and "Force visit", which is what a
+   reader meeting them for the first time needs — but they are not met once:
+   they are on every legend, every pill and every attendee row on the screen,
+   several times per card. At that repetition the qualifier stops being read
+   and only costs width, which is what pushed the legend into scrolling.
+   Green means logged where it was meant to be; the screen teaches that once.
+
+   Nothing that composes them may assume a short word — see VisitsByHourSheet,
+   which now says "Force visits" by adding the noun rather than an "s". */
+export const VISIT_STATUS_LABEL = {
+  verified: 'Geo',
+  force: 'Force',
+  pending: 'Pending',
+};
+
+export const VISIT_STATUS_TONE = {
+  verified: 'success',
+  force: 'danger',
+  pending: 'neutral',
 };

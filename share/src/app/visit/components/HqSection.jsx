@@ -4,6 +4,7 @@ import { Card, Eyebrow, LegendChip, SectionLabel, StackedBar } from '@/design-sy
 import { HqStrip } from './HqStrip';
 import { VisitsByHourChart } from './VisitsByHourChart';
 import { hqLabel } from '../data/format';
+import { VISIT_STATUS_LABEL } from '../data/shape';
 
 /* "Where the visits happened" — one strip of HQ cards that is both the
    comparison and the filter, then the detail for whichever is selected.
@@ -35,7 +36,6 @@ export function HqSection({
   const label = isAll ? 'All HQs' : hqLabel(selected?.hq ?? '');
 
   const detail = isAll ? totals : selected;
-  const totalDone = geo.verified + geo.force;
 
   return (
     /* `min-w-0`: the card strip inside scrolls, and a flex/grid item
@@ -87,10 +87,13 @@ export function HqSection({
         <div className="mt-4">
           <StackedBar
             size="md"
-            label={`Geo-verified: ${geo.verified}, Force visit: ${geo.force}`}
+            label={
+              `${VISIT_STATUS_LABEL.verified}: ${geo.verified}, `
+              + `${VISIT_STATUS_LABEL.force}: ${geo.force}`
+            }
             segments={[
-              { key: 'verified', value: geo.verified, tone: 'success', label: 'Geo-verified' },
-              { key: 'force', value: geo.force, tone: 'danger', label: 'Force visit' },
+              { key: 'verified', value: geo.verified, tone: 'success', label: VISIT_STATUS_LABEL.verified },
+              { key: 'force', value: geo.force, tone: 'danger', label: VISIT_STATUS_LABEL.force },
             ]}
           />
           {/* This legend is the CHART's legend as much as the bar's — both are
@@ -107,21 +110,22 @@ export function HqSection({
               A zero segment stays a plain span: there are no rows behind it. */}
           <div className="flex gap-4">
             <LegendChip
-              label="Geo-verified"
+              label={VISIT_STATUS_LABEL.verified}
               value={geo.verified}
               tone="success"
               onClick={onDrillVisits && geo.verified > 0 ? () => onDrillVisits({ tone: 'verified' }) : undefined}
             />
             <LegendChip
-              label="Force visit"
+              label={VISIT_STATUS_LABEL.force}
               value={geo.force}
               tone="danger"
               onClick={onDrillVisits && geo.force > 0 ? () => onDrillVisits({ tone: 'force' }) : undefined}
             />
           </div>
-          {totalDone === 0 ? (
-            <p className="text-10 text-ds-muted">No completed visits in this window yet.</p>
-          ) : null}
+          {/* The "nothing happened yet" sentence used to live here too. It is
+              the chart's now (VisitsByHourChart renders it in place of its
+              bars), because that is where the emptiness is actually visible —
+              saying it twice in one card read as two different problems. */}
         </div>
       </Card>
     </section>

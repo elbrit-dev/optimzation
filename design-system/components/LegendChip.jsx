@@ -21,6 +21,13 @@ export function LegendChip({
   label,
   value,
   tone = 'neutral',
+  /* Styles merged into the swatch, for a series that is a SUBDIVISION of its
+     tone rather than the tone itself — the joint half of a green segment,
+     say, which is the same green at lower opacity. An object rather than a
+     colour so the chip can match whatever the bar did, including the opacity
+     that carries the distinction; the tone stays set regardless, because it
+     is what everything else about the chip reads from. */
+  dotStyle,
   size = 'default',
   onClick,
   showChevron,
@@ -32,7 +39,7 @@ export function LegendChip({
 
   const body = (
     <>
-      <span className="ds-legend__dot" style={{ backgroundColor: toneFill(tone) }} aria-hidden="true" />
+      <span className="ds-legend__dot" style={{ backgroundColor: toneFill(tone), ...dotStyle }} aria-hidden="true" />
       <span className="ds-legend__label">{label}</span>
       {value != null ? <span className="ds-legend__value">{value}</span> : null}
       {chevron ? (

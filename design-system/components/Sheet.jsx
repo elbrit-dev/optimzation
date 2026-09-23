@@ -45,6 +45,11 @@ export function Sheet({
   onClose,
   title,
   subtitle,
+  /* A strip that does not scroll, between the heading and the body. For the
+     controls that act ON the body — a search, a filter — which are useless
+     the moment they scroll away from the list they filter. Anything that
+     belongs WITH the rows goes in `children` instead. */
+  toolbar = null,
   surface,
   children,
   className,
@@ -155,7 +160,11 @@ export function Sheet({
             <i className="pi pi-times" aria-hidden="true" />
           </button>
         </div>
-        <div className="ds-sheet__body">{children}</div>
+        {toolbar != null ? <div className="ds-sheet__toolbar">{toolbar}</div> : null}
+        {/* The body is the one part that scrolls, and a sheet full of rows
+            has no cut-off card edge to signal that — so it takes the DS
+            scrollbar rather than the platform's grey slab. */}
+        <div className="ds-sheet__body ds-scrollbar">{children}</div>
       </div>
     </div>,
     document.body,

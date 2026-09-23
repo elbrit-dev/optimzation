@@ -122,6 +122,31 @@ const FORCE_VISIT_REASONS = [
   '',
 ];
 
+/* Real values from the live Specialty list. Mixed case is theirs, not a typo
+   -- the badge uppercases for display. '' is real: not every doctor has one. */
+const DOCTOR_SPECIALTIES = [
+  'CARDIO', 'ORTHO', 'GP', 'CP', 'NEURO', 'Diabeto', 'GYNAE', 'PHYSICIAN',
+  'Chest Phy', 'NEPHRO', '',
+];
+
+/* A doctor carries up to FOUR category links, and the live data uses them as
+   four different scales: a commercial grade, a value/reach band, a focus
+   bucket, and sometimes a campaign. Modelled as four pools so the fixture
+   produces the same SHAPE as live ("C · LILR · EC10"), not four values drawn
+   from one bag. Each is independently optional, which is why the card has to
+   cope with one tag, four, or none. */
+const DOCTOR_CATEGORY_POOLS = [
+  ['C', 'SC', 'E', ''],
+  ['LILR', 'LIHR', 'HILR', 'HIHR', ''],
+  ['EC10', 'EC20', 'C20', 'AEC10', ''],
+  ['A&P FOCUS 20', 'KA E FOCUS 20', '', '', ''],
+];
+
+const DOCTOR_CITIES = [
+  'Gobi', 'Marthandam', 'Hubballi', 'Erode', 'Hyderabad', 'Davangere',
+  'Bhatkal', 'Nagercoil', 'Tiruppur', '',
+];
+
 /* ---- Date helpers ---------------------------------------------------- */
 
 function toISODate(d) {
@@ -148,7 +173,22 @@ const FIELD_DESIGNATION = 'Business Executive';
 /* One rep, one day. `cutoffHour` is what makes "as of 4:00 PM" real: visits
    after it simply have not happened yet, so the afternoon bars taper the way
    a live dashboard does instead of showing a full day at 10am. */
-function rowsForRepDay(member, isoDate, cutoffHour) {
+/* ROUGHLY A FIFTH OF CALLS ARE JOINT, because that is what the live data
+   holds: of 400 September events, 315 carried one participant, 84 carried two
+   and one carried three. An earlier version of this fixture emitted one
+   participant per event on the strength of three sampled records -- which
+   turned out to be the wrong event category entirely -- and so never
+   exercised the grouping the drill-down sheet is built on.
+
+   The manager is the second attendee, because that is what a joint call is:
+   somebody going along with somebody else.
+
+   NOTE this reproduces production's row inflation, deliberately. Both rows
+   carry the REP's employeeId (it is the Event's field), so a joint call
+   counts twice in planned/happened -- see shape.js. A fixture that quietly
+   avoided that would make the mock disagree with live on exactly the numbers
+   people check the mock against. */
+function rowsForRepDay(member, isoDate, cutoffHour, manager) {
   const rng = makeRng(seedFrom(member.id, isoDate));
   const planned = intBetween(rng, 9, 16);
 
@@ -165,6 +205,18 @@ function rowsForRepDay(member, isoDate, cutoffHour) {
   for (let i = 0; i < planned; i += 1) {
     const doctorName = pick(rng, DOCTORS);
     const doctorId = `DR-${79000 + Math.floor(rng() * 900)}`;
+    /* Keyed off the doctor id, not the call: a doctor's town and grade belong
+       to the doctor, so the same DR- code must not change city between two
+       visits in the same list. */
+    const doctorSeed = seedFrom(doctorId);
+    const doctorCity = DOCTOR_CITIES[doctorSeed % DOCTOR_CITIES.length];
+    const doctorSpecialty = DOCTOR_SPECIALTIES[doctorSeed % DOCTOR_SPECIALTIES.length];
+    /* Each pool offset by the slot index so the four do not move in lockstep
+       off one seed -- otherwise every doctor lands on the same row of every
+       pool and the fixture only ever shows two of the combinations. */
+    const doctorCategories = DOCTOR_CATEGORY_POOLS
+      .map((pool, slot) => pool[seedFrom(doctorId, String(slot)) % pool.length])
+      .filter(Boolean);
 
     /* Visits cluster 9am-6pm with a lunchtime peak, which is what the live
        custom_visit_time histogram looks like. */
@@ -173,14 +225,25 @@ function rowsForRepDay(member, isoDate, cutoffHour) {
     const done = !inactive && rng() < completionTarget && hour < cutoffHour;
 
     const forceVisit = done && rng() < 0.11;
+    /* Decided before the row is built so both attendees share the event id,
+       which is what groupByEvent rejoins them on. */
+    const joint = Boolean(manager) && rng() < 0.21;
+    const eventId =`EV${280000 + seedFrom(member.id, isoDate, String(i)) % 9999}`;
+
     rows.push({
-      eventId: `EV${280000 + seedFrom(member.id, isoDate, String(i)) % 9999}`,
+      eventId,
       subject: `${doctorName.replace(/\s+/g, '')}-Visit-${member.name.replace(/\s+/g, '')}`,
       plannedDate: isoDate,
       employeeId: member.id,
       employeeName: member.name,
+      /* Same person as employeeId on a solo call; they part company on the
+         manager's row below, exactly as they do live. */
+      planOwnerId: member.id,
       doctorId,
       doctorName,
+      doctorCity,
+      doctorSpecialty,
+      doctorCategories,
       hq: member.hq,
       department: HQS.find((h) => h.hq === member.hq)?.department ?? '',
       pobGiven: done && rng() < 0.62,
@@ -192,7 +255,46 @@ function rowsForRepDay(member, isoDate, cutoffHour) {
       forceVisit,
       /* Only a forced call has one, same as the live rows. */
       forceVisitReason: forceVisit ? pick(rng, FORCE_VISIT_REASONS) : '',
+      participantRef: member.id,
+      participantRefType: 'Employee',
+      participantId: member.id,
+      participantName: member.name,
+      /* One now, corrected to 2 below if this call turns out to be joint --
+         both rows of one event have to carry the same count, or the bar
+         would report the rep's half as solo and the manager's as joint. */
+      participantCount: 1,
     });
+
+    /* The manager's participant row on the SAME event. Same plan, same
+       doctor, same employeeId -- what differs is the person and the half of
+       the record that belongs to them: they arrive at their own time and
+       geo-verify or force independently of the rep beside them.
+
+       That independence is the whole point of the expandable table. A joint
+       call where the rep was at the clinic and the manager logged from the
+       car park is two different facts under one doctor's name. */
+    if (joint) {
+      const mgrForce = done && rng() < 0.2;
+      rows.push({
+        ...rows[rows.length - 1],
+        visitTime: done ? stamp(isoDate, hour, intBetween(rng, 0, 59)) : null,
+        distanceKm: done ? (mgrForce ? 2 + rng() * 12 : rng() * 0.4) : null,
+        forceVisit: mgrForce,
+        forceVisitReason: mgrForce ? pick(rng, FORCE_VISIT_REASONS) : '',
+        /* Attributed to the MANAGER, while planOwnerId stays the rep's --
+           inherited untouched from the spread above. That is the whole fix:
+           one call, two people, one planned visit each, and the plan still
+           belongs to the rep. */
+        employeeId: manager.id,
+        employeeName: manager.name,
+        participantRef: manager.id,
+        participantId: manager.id,
+        participantName: manager.name,
+        participantCount: 2,
+      });
+      /* The rep's row belongs to the same event, so it says 2 as well. */
+      rows[rows.length - 2].participantCount = 2;
+    }
   }
   return rows;
 }
@@ -226,6 +328,20 @@ export function buildMockDataset({ anchorDate, cutoffHour = 16, month, monthTo }
     hq: m.hq,
     vacant: Boolean(m.vacant),
     onLeave: Boolean(m.onLeave),
+    /* The fixture has no leave calendar to overlap a window against, so the
+       two flags are the same value here -- attendanceOf falls back to this
+       one anyway when the windowed flag is absent. */
+    onLeaveInWindow: Boolean(m.onLeave),
+    /* One open-ended spell, so the Absent drill-down has something shaped
+       like the live data to draw. The fixture has no leave calendar of its
+       own; what matters here is the SHAPE — a range and a type — because
+       that is what leaveDaysOf cuts against the window. */
+    leave: m.onLeave ? [{ from: '1970-01-01', to: '2999-12-31', type: 'Casual Leave' }] : [],
+    /* null, like the 65 live employees who have no profile set. The fixture
+       is the sales ladder end to end, so there is nothing here for the Sales
+       narrowing to remove -- it is the live roster that carries CRM, Accounts
+       and HR alongside the field force. */
+    roleProfile: null,
   }));
 
   const reps = ROSTER.filter((m) => m.designation === FIELD_DESIGNATION);
@@ -235,7 +351,9 @@ export function buildMockDataset({ anchorDate, cutoffHour = 16, month, monthTo }
     /* Only TODAY is truncated by the cutoff. Past days are complete, which
        is what makes a month average meaningful. */
     const cut = iso === today ? cutoffHour : 24;
-    for (const rep of reps) rows.push(...rowsForRepDay(rep, iso, cut));
+    for (const rep of reps) {
+      rows.push(...rowsForRepDay(rep, iso, cut, ROSTER.find((m) => m.id === rep.reportsTo)));
+    }
   };
 
   /* Mirrors the live source's window exactly, including the second pass

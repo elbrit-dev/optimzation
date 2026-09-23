@@ -36,10 +36,15 @@ export const DATA_SOURCE = 'live';
    credential and is REQUIRED live -- see liveSource.js's fetchVisitDataset,
    which throws rather than falling back to a shared one. The mock ignores
    both; there is nothing to point them at. */
-function loadDataset({ anchorDate, cutoffHour, month, monthTo, gqlEnvironment, gqlToken }) {
+function loadDataset({ anchorDate, cutoffHour, month, monthTo, gqlEnvironment, gqlToken, onWave }) {
   if (DATA_SOURCE === 'mock') return buildMockDataset({ anchorDate, cutoffHour, month, monthTo });
-  return fetchVisitDataset({ anchorDate, month, monthTo, gqlEnvironment, gqlToken });
+  return fetchVisitDataset({ anchorDate, month, monthTo, gqlEnvironment, gqlToken, onWave });
 }
+
+/* WHAT A DATASET WITH NO `ready` MEANS: all of it. The mock builds one
+   synchronously and complete, and so did the live source before it learned to
+   arrive in waves — neither should have to say so. */
+const ALL_READY = { today: true, window: true, pob: true };
 
 const EMPTY_DATASET = { team: [], rows: [], pob: [], today: '', viewerId: null, truncated: false };
 
@@ -69,7 +74,16 @@ export function useVisitKpi({
     const requestId = (requestRef.current += 1);
     setState((s) => ({ ...s, loading: true, error: null }));
 
-    Promise.resolve(loadDataset({ anchorDate, cutoffHour, month, monthTo, gqlEnvironment, gqlToken }))
+    /* EACH WAVE LANDS AS IT ARRIVES. The first one carries today and the
+       roster — enough to paint the view the screen opens on — and the month
+       and the money follow into the same state. `loading` below is what keeps
+       this honest: a wave that has not answered the question the reader is
+       currently asking does not get rendered as if it had. */
+    const onWave = (dataset) => {
+      if (requestRef.current === requestId) setState({ dataset, error: null, loading: false });
+    };
+
+    Promise.resolve(loadDataset({ anchorDate, cutoffHour, month, monthTo, gqlEnvironment, gqlToken, onWave }))
       .then((dataset) => {
         if (requestRef.current === requestId) setState({ dataset, error: null, loading: false });
       })
@@ -81,6 +95,18 @@ export function useVisitKpi({
   return useMemo(() => {
     const { dataset, error, loading } = state;
     const { team, rows, pob, today, viewerId, truncated } = dataset ?? EMPTY_DATASET;
+    const ready = dataset?.ready ?? ALL_READY;
+
+    /* STILL LOADING, AS FAR AS THIS READER IS CONCERNED. The dataset arrives
+       in waves (see liveSource): today first, then the picked window, then
+       the money. A month view rendered off the today-only wave would not look
+       like a half-loaded screen — it would look like a month in which the
+       team made fifty visits, which is a wrong answer rather than a missing
+       one. So the screen keeps its existing "Loading…" until the wave that
+       can answer the question the reader is actually asking has landed.
+
+       Today's view never waits for the month, which is the entire point. */
+    const waitingOnPeriod = period === 'month' ? !ready.window : !ready.today;
 
     /* Priority: an explicit picker choice, then whoever is actually signed in
        (resolved from the SAME token that fetched this dataset -- see
@@ -128,9 +154,12 @@ export function useVisitKpi({
          `undefined.filter` and took the whole screen with it, rather than
          showing the visit numbers it DID have and an em dash for the money. */
       pob: inPeriod(forEmployees(pob ?? [], ids), window),
-      /* Always today, whatever the period. Attendance is a right-now fact:
-         computing it from a month of rows would count anyone who worked once
-         in five days as "in the field". */
+      /* Today's slice, kept separate from the window's whatever the period
+         is showing. The DAY view's attendance reads this one; the month
+         view's reads the window (see VisitReport). Both exist because the
+         question genuinely differs — "who is out right now" is not "who
+         reported at some point in August" — and neither can be derived
+         from the other. */
       todayRows: inPeriod(inScope, { from: today, to: today }),
       root: scopeTeam.find((m) => m.id === rootId) ?? null,
       /* The signed-in viewer's OWN id, separate from `root` (the currently
@@ -142,13 +171,27 @@ export function useVisitKpi({
       today,
       window,
       asOf: asOfFrom(scoped),
-      loading,
+      loading: loading || waitingOnPeriod,
+      /* WHICH PARTS ARE IN, for the one card that can say so itself. The money
+         cards render an amount, and an amount is a claim — ₹0 while the
+         quotations are still in flight is a wrong one — so KpiGrid shows them
+         as pending rather than as zero until `pob` is true. Everything else
+         reads `loading` and never sees this. */
+      ready,
       error,
       /* The source could not return every row in the window. Not an
          error -- the numbers rendered are real, they are just not all of
          them -- so it rides alongside the data rather than replacing it,
-         and the screen says so above the cards. */
-      truncated: Boolean(truncated),
+         and the screen says so above the cards.
+
+         An OBJECT, `{ visits, pob }`, because the two overflow at very
+         different volumes and the advice for each is different. Normalised
+         here so the mock (which never truncates) and an older boolean both
+         still read correctly. */
+      truncated: {
+        visits: Boolean(truncated === true || truncated?.visits),
+        pob: Boolean(truncated?.pob),
+      },
       source: DATA_SOURCE,
     };
   }, [state, scopeId, period, month, monthTo]);

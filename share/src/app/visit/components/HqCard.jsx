@@ -2,6 +2,7 @@
 
 import { Card, LegendChip, StackedBar } from '@/design-system';
 import { hqLabel } from '../data/format';
+import { VISIT_STATUS_LABEL } from '../data/shape';
 
 /* One HQ, as a stat card that is also the filter.
  *
@@ -43,7 +44,7 @@ export function HqCard({ label, planned, happened, verified, force, selected, on
          reader nothing on their own. */
       aria-label={
         `${name}: ${happened} of ${planned} visits — `
-        + `${verified} geo verified, ${force} force visit, ${unvisited} yet to visit`
+        + `${verified} geo verified, ${force} force visit, ${unvisited} pending`
       }
     >
       <div className="flex items-baseline justify-between gap-3">
@@ -56,11 +57,11 @@ export function HqCard({ label, planned, happened, verified, force, selected, on
 
       <StackedBar
         size="sm"
-        label={`${verified} geo verified, ${force} force visit, ${unvisited} yet to visit`}
+        label={`${verified} geo verified, ${force} force visit, ${unvisited} pending`}
         segments={[
-          { key: 'verified', value: verified, tone: 'success', label: 'Geo verified' },
-          { key: 'force', value: force, tone: 'danger', label: 'Force visit' },
-          { key: 'unvisited', value: unvisited, tone: 'neutral', label: 'Yet to visit' },
+          { key: 'verified', value: verified, tone: 'success', label: VISIT_STATUS_LABEL.verified },
+          { key: 'force', value: force, tone: 'danger', label: VISIT_STATUS_LABEL.force },
+          { key: 'unvisited', value: unvisited, tone: 'neutral', label: VISIT_STATUS_LABEL.pending },
         ]}
       />
 
@@ -69,9 +70,9 @@ export function HqCard({ label, planned, happened, verified, force, selected, on
           of this in words — without it a screen reader hears every count
           twice. */}
       <div className="flex items-center justify-between gap-2" aria-hidden="true">
-        <LegendChip size="sm" tone="success" label="Geo verified" value={verified} />
-        <LegendChip size="sm" tone="danger" label="Force visit" value={force} />
-        <LegendChip size="sm" tone="neutral" label="Yet to visit" value={unvisited} />
+        <LegendChip size="sm" tone="success" label={VISIT_STATUS_LABEL.verified} value={verified} />
+        <LegendChip size="sm" tone="danger" label={VISIT_STATUS_LABEL.force} value={force} />
+        <LegendChip size="sm" tone="neutral" label={VISIT_STATUS_LABEL.pending} value={unvisited} />
       </div>
     </Card>
   );

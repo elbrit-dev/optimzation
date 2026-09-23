@@ -15,6 +15,16 @@ function parseISODate(iso) {
   return new Date(y, m - 1, d);
 }
 
+/* "5 Sep" — the short form, for a fact sitting beside a clock time on a card.
+   `formatDayHeading` spells the weekday and the year because it heads a whole
+   day's list; that is three times the width for a slot that has to sit next
+   to "2:10 PM" without dwarfing it. Built from local parts for the same
+   timezone reason parseISODate exists. */
+export function formatPlanDay(iso) {
+  const d = parseISODate(iso);
+  return `${d.getDate()} ${MONTHS[d.getMonth()]}`;
+}
+
 export function formatDayHeading(iso) {
   const d = parseISODate(iso);
   return `${DAYS[d.getDay()]}, ${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
@@ -77,10 +87,15 @@ export function formatClock(stamp) {
   return `${h12}:${m} ${suffix}`;
 }
 
-/* Chart axis: 9 -> '9a', 12 -> '12p', 17 -> '5p'. Short because nine of these
-   have to fit across 338px without rotating. */
+/* Chart axis and sheet titles: 9 -> '9AM', 12 -> '12PM', 17 -> '5PM'.
+ *
+ * It was '9a' / '5p', on the grounds that nine of these had to fit across
+ * 338px without rotating. They do still have to fit — but a lone 'a' after a
+ * numeral is not a word anyone reads as "am", and the axis was paying for
+ * width it no longer needs now that the chart draws only the hours that
+ * happened (see VisitsByHourChart). */
 export function formatHour(hour) {
-  const suffix = hour >= 12 ? 'p' : 'a';
+  const suffix = hour >= 12 ? 'PM' : 'AM';
   const h12 = hour % 12 === 0 ? 12 : hour % 12;
   return `${h12}${suffix}`;
 }
@@ -133,15 +148,32 @@ export function hqLabel(hq) {
   return String(hq ?? '').replace(/^HQ-\s*/, '');
 }
 
-export function countWorkingDays(fromISO, toISO) {
+/* Every working day in the window, as 'YYYY-MM-DD'. Sunday is the only day
+   off — this is a field force, and Saturday is a working day.
+
+   THE DAYS THEMSELVES, not just how many, because the attendance drill-down
+   needs to name the ones a rep was silent on and those include days nobody
+   planned for them. Built by walking local Date parts for the same timezone
+   reason parseISODate exists. */
+export function workingDaysBetween(fromISO, toISO) {
   const end = parseISODate(toISO);
   const cursor = parseISODate(fromISO);
-  let n = 0;
+  const out = [];
   while (cursor <= end) {
-    if (cursor.getDay() !== 0) n += 1;
+    if (cursor.getDay() !== 0) {
+      out.push(
+        `${cursor.getFullYear()}-`
+        + `${String(cursor.getMonth() + 1).padStart(2, '0')}-`
+        + `${String(cursor.getDate()).padStart(2, '0')}`,
+      );
+    }
     cursor.setDate(cursor.getDate() + 1);
   }
-  return n;
+  return out;
+}
+
+export function countWorkingDays(fromISO, toISO) {
+  return workingDaysBetween(fromISO, toISO).length;
 }
 
 /* Attainment -> tone. ONE copy: HqCard and TeamTree both colour a bar by "how
