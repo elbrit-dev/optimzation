@@ -35,6 +35,10 @@ import { Icon } from './Icon';
  * cycle is what single-select could not have: with one slot, "off" is not
  * a state you can leave the control in.
  *
+ * A LEAF CYCLES IN TWO, not three: with nothing under it, "alone" and
+ * "whole branch" name the same set of people, and offering both makes one
+ * click a no-op that still changes how the row looks.
+ *
  * The LAST remaining selection cannot be cleared — it cycles back to `–`
  * instead. An empty picker reports on nobody, which is a screen of zeroes
  * that looks like a data fault rather than like a choice; but REFUSING the
@@ -309,7 +313,12 @@ export function TreeSelect({
       onChange?.([...list, { id: nodeId, includeSubtree: false }]);
       return;
     }
-    if (!list[at].includeSubtree) {
+    /* A LEAF HAS NO SECOND STEP. "This node alone" and "this node's whole
+       branch" are the same selection when there is no branch, so widening
+       would be a click that changes nothing and leaves the row looking
+       differently selected than it was. Two states for a leaf, three for a
+       node with children. */
+    if (!list[at].includeSubtree && descendantIds(tree, nodeId).length > 0) {
       /* Widening absorbs everything below, so any pick down there stops
          meaning anything and is dropped. Leaving them would show dashes
          under a tick that change no number if you clear them. */

@@ -41,6 +41,18 @@ export function DoctorPlanSheet({ member, team, rows, pob, periodLabel, showDate
      plan look empty rather than filtered. */
   const [filters, setFilters] = useState(BLANK_FILTERS);
 
+  /* CLEARED WHEN THE PERSON CHANGES. The sheet stays mounted between opens —
+     `open` only decides whether it renders — so without this a search typed
+     on one rep's plan is still applied when the next rep's opens, and their
+     plan reads as empty rather than as filtered. Adjusted during render
+     rather than in an effect: an effect would paint the new person's plan
+     through the old person's filter first. */
+  const [filteredFor, setFilteredFor] = useState(member?.id ?? null);
+  if ((member?.id ?? null) !== filteredFor) {
+    setFilteredFor(member?.id ?? null);
+    setFilters(BLANK_FILTERS);
+  }
+
   const calls = useMemo(
     () => (member ? groupByEvent(doctorPlan(member, team, rows, pob)) : []),
     [member, team, rows, pob],

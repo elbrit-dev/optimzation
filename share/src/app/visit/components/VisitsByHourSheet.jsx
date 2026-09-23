@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from 'react';
 import { Sheet } from '@/design-system';
-import { groupByEvent, visitsIn } from '../data/selectors';
+import { filterPlan, groupByEvent, visitsIn } from '../data/selectors';
+import { PlanControls } from './PlanControls';
 import { formatHour } from '../data/format';
 import { VISIT_STATUS_LABEL } from '../data/shape';
 import { useIncrementalList } from './useIncrementalList';
@@ -41,6 +42,10 @@ function titleFor(selection) {
   return hour != null ? `${series} at ${formatHour(hour)}` : series;
 }
 
+/* Everything off. One reference rather than a literal that has to be kept in
+   step with the controls. Same shape the doctor plan sheet uses. */
+const BLANK_FILTERS = { values: {}, sorts: {}, query: '' };
+
 export function VisitsByHourSheet({
   selection,
   rows,
@@ -53,6 +58,27 @@ export function VisitsByHourSheet({
 }) {
   const [openId, setOpenId] = useState(null);
 
+  /* THE SAME CONTROLS AS THE DOCTOR PLAN SHEET, over the same shape of list —
+     grouped calls — so one implementation serves both and a reader who has
+     filtered one already knows the other. This list is wider than that one:
+     a 2pm bar at company scope is every rep's afternoon, which is why the Rep
+     tab earns its place here and culls itself out on a single person's plan
+     (see PLAN_FILTER_DEFS). Reset with the selection below: a search that
+     survives tapping a different bar makes that bar look empty rather than
+     filtered. */
+  const [filters, setFilters] = useState(BLANK_FILTERS);
+
+  /* CLEARED WHEN THE BAR CHANGES, for the reason DoctorPlanSheet documents:
+     the sheet stays mounted between opens, so a search typed against the 2pm
+     bar would still be applied when the 9am bar opens — and that hour would
+     read as empty rather than as filtered. */
+  const selectionKey = `${selection?.hour ?? ''}|${selection?.tone ?? ''}`;
+  const [filteredFor, setFilteredFor] = useState(selectionKey);
+  if (selectionKey !== filteredFor) {
+    setFilteredFor(selectionKey);
+    setFilters(BLANK_FILTERS);
+  }
+
   const visits = useMemo(
     () => (selection ? visitsIn(rows, selection, team) : []),
     [selection, rows, team],
@@ -62,14 +88,19 @@ export function VisitsByHourSheet({
      same doctor listed twice with no hint the two lines are one call. */
   const calls = useMemo(() => groupByEvent(visits), [visits]);
 
+  /* THE CONTROLS RUN OVER THE WHOLE SELECTION, not the page on screen — every
+     row is in memory and the paging below is a rendering budget, not a data
+     one. Same call, same reason, as the doctor plan sheet. */
+  const shownCalls = useMemo(() => filterPlan(calls, filters), [calls, filters]);
+
   const forced = visits.filter((v) => v.forceVisit).length;
-  /* Paged by CALL, because a call is what a card is. Reset keyed on the
-     selection so tapping a different bar starts at the top rather than
-     scrolled deep into a list that no longer exists. */
-  const { shown, hasMore, sentinelRef } = useIncrementalList(calls.length, {
-    resetKey: `${selection?.hour ?? ''}|${selection?.tone ?? ''}`,
+  /* Paged by CALL, because a call is what a card is. Reset on the selection
+     AND on the controls: tapping a different bar, or searching after
+     scrolling to row sixty, should land at the top of the answer. */
+  const { shown, hasMore, sentinelRef } = useIncrementalList(shownCalls.length, {
+    resetKey: [selection?.hour ?? '', selection?.tone ?? '', JSON.stringify(filters)].join('|'),
   });
-  const visible = calls.slice(0, shown);
+  const visible = shownCalls.slice(0, shown);
 
   const subtitle = [
     periodLabel,
@@ -84,7 +115,9 @@ export function VisitsByHourSheet({
     /* Only when there are any, and only when the selection has not already
        narrowed to them — "12 force visits · 12 force" is not a second fact. */
     forced > 0 && selection?.tone !== 'force' ? `${forced} force visits` : null,
-    hasMore ? `showing ${shown} of ${calls.length}` : null,
+    /* Against what the FILTERS left, not the whole selection: with a search
+       applied, "showing 30 of 237" counts a list that is not on screen. */
+    hasMore ? `showing ${shown} of ${shownCalls.length}` : null,
   ]
     .filter(Boolean)
     .join(' · ');
@@ -96,11 +129,30 @@ export function VisitsByHourSheet({
       surface="app"
       title={titleFor(selection)}
       subtitle={subtitle}
+      /* Pinned under the heading, same as the plan sheet: a search that
+         scrolls away is one the reader scrolls back up to change. Only once
+         there is something to sift. */
+      toolbar={
+        calls.length > 0 ? (
+          <PlanControls
+            calls={calls}
+            value={filters}
+            onChange={setFilters}
+            resultCount={shownCalls.length}
+            totalCount={calls.length}
+          />
+        ) : null
+      }
     >
       {calls.length === 0 ? (
         <p className="py-4 text-12 text-ds-secondary">
           No visits in this {selection?.hour != null ? 'hour' : 'period'}.
         </p>
+      ) : shownCalls.length === 0 ? (
+        /* A DIFFERENT EMPTY. The hour is not empty — the controls emptied it,
+           and "no visits in this hour" would be a lie about the data rather
+           than a report on the filter. */
+        <p className="py-4 text-12 text-ds-secondary">No calls match these filters.</p>
       ) : (
         visible.map((call) => (
           <VisitEventGroup

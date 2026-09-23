@@ -13,11 +13,11 @@ import { MANAGER_LEVELS, shortDesignation } from '../data/shape';
  * reporting hierarchy (ZSM -> SM -> RBM -> ABM) so picking a scope means
  * navigating the org, not scanning an alphabetised wall of names.
  *
- * Only managers are offered -- selecting a BE would render a "team report"
- * for a team of one -- but the tree still has to be built from the WHOLE
- * roster: an ABM's parent is an RBM, whose parent is an SM, and skipping the
- * non-manager rows would be fine here since BEs are leaves, but skipping a
- * manager level would orphan everyone under it.
+ * EVERY PERSON IS PICKABLE, reps included. Managers used to be the only
+ * options, on the grounds that a BE scope is a team report for a team of
+ * one -- which it is, and which is a report people want: a manager checking
+ * one rep's day, a rep looking at their own. A rep is a leaf, so the picker
+ * offers them as a single tick rather than the two depths a manager gets.
  *
  * `MANAGER_LEVELS` (shape.js) stops at GM and never includes the CEO --
  * that's what keeps this tree scoped to Sales instead of the whole company;
@@ -42,9 +42,11 @@ import { MANAGER_LEVELS, shortDesignation } from '../data/shape';
  * say "own" about whoever was already scoped and had to be kept in step
  * with this picker by hand.
  *
- * Every row offers both depths, including the tree's leaves. A leaf HERE
- * is a bottom-level ABM — the tree is managers only — and their own calls
- * against their BEs' is exactly the distinction this exists to make. */
+ * BOTH DEPTHS ARE OFFERED WHEREVER THERE IS A BRANCH — an ABM's own calls
+ * against their BEs' is exactly the distinction this exists to make. A rep
+ * has no branch, so they cycle in two rather than three: "alone" and "whole
+ * branch" name the same person, and a click between them would change the
+ * row without changing a number. */
 
 function labelFor(member, rootId) {
   const short = shortDesignation(member.designation);
@@ -58,19 +60,32 @@ function labelFor(member, rootId) {
    field ERPNext does not police for cycles, so a bad edit to it should not
    turn this into an infinite loop. */
 function buildManagerTree(team, rootId, viewerId) {
-  const managers = team.filter((m) => MANAGER_LEVELS.has(shortDesignation(m.designation)));
+  /* EVERYONE, reps included. It was managers only, on the grounds that a BE
+     scope is a team report for a team of one — true, and still a report
+     somebody wants: a manager checking one rep's day, or a rep looking at
+     their own. A rep is a leaf here, and TreeSelect gives a leaf a two-step
+     toggle, so picking one is a single click with no meaningless "and their
+     branch" step after it.
+
+     A VACANT REP IS STILL DROPPED. `isDeadEndVacant` below already removes
+     any vacant seat with nothing under it, which is every vacant BE: an empty
+     seat has no calls to report and offering it is offering a screen of
+     zeroes. */
+  const people = team.filter(
+    (m) => MANAGER_LEVELS.has(shortDesignation(m.designation)) || !m.vacant,
+  );
   const byParent = new Map();
-  for (const m of managers) {
+  for (const m of people) {
     const key = m.reportsTo ?? '__root__';
     if (!byParent.has(key)) byParent.set(key, []);
     byParent.get(key).push(m);
   }
   for (const kids of byParent.values()) kids.sort((a, b) => a.name.localeCompare(b.name));
 
-  /* A vacant seat with no manager reports of its own is a dead end: BEs never
-     appear in this tree, so there is nothing left to show under it and it is
-     dropped rather than offered as an empty "team" of one placeholder (this is
-     always true of a vacant ABM, the lowest manager level). A vacant seat that
+  /* A vacant seat with nobody under it is a dead end — there is no one to
+     report on, so it is dropped rather than offered as an empty "team" of one
+     placeholder. That covers every vacant BE and every vacant bottom-level
+     ABM. A vacant seat that
      DOES have manager reports (a vacant RBM/SM/ZSM slot) stays in the tree,
      labelled "— vacant" by labelFor, because the org beneath it is real even
      though the seat itself is not -- dropping it would orphan every manager
@@ -90,7 +105,7 @@ function buildManagerTree(team, rootId, viewerId) {
      picker that does not work. Only when neither resolves does this open up
      to the whole company, where nothing has been narrowed to yet. */
   const anchorId = viewerId ?? rootId;
-  const self = anchorId ? managers.find((m) => m.id === anchorId) : null;
+  const self = anchorId ? people.find((m) => m.id === anchorId) : null;
   const roots = self
     ? (isDeadEndVacant(self) ? [] : [self])
     : managerRoots(team).filter((m) => !isDeadEndVacant(m));

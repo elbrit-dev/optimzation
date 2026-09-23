@@ -305,6 +305,7 @@ export function visitsIn(rows, { hour = null, tone = null } = {}, team = []) {
       doctorSpecialty: r.doctorSpecialty,
       doctorCategories: r.doctorCategories ?? [],
       doctorName: r.doctorName,
+      employeeId: r.employeeId,
       employeeName: r.employeeName,
       /* Who attended, falling back to whose plan it is. On the single
          participant events the live data actually holds these are the same
@@ -445,6 +446,11 @@ export function groupByEvent(visits) {
  * match runs over both fields (see planFilterValues). */
 export const PLAN_FILTER_DEFS = [
   { key: 'doctor', label: 'Doctor', fieldtype: 'Link' },
+  /* WHO WENT. Only worth a tab where a list spans several people — the hourly
+     sheet, which is everybody's 2pm — so on one rep's own plan it culls itself
+     out (see PlanControls) unless joint calls put a second name in there, and
+     then it answers "which of these did my manager come on". */
+  { key: 'rep', label: 'Rep', fieldtype: 'Link' },
   { key: 'hq', label: 'HQ', fieldtype: 'Link' },
   { key: 'city', label: 'City', fieldtype: 'Data' },
   /* THE DOCTOR'S OWN ATTRIBUTES, not the call's. They are what a reader
@@ -475,6 +481,17 @@ const PLAN_FIELD = {
      readers below normalise rather than branching, and "category is EC10"
      means "EC10 is among them" rather than "EC10 is the whole of it". */
   category: (c) => c.doctorCategories ?? [],
+  /* EVERY ATTENDEE, which makes this the second multi-valued field: a joint
+     call belongs to both the rep and the manager who came along, and picking
+     either should keep it. Reads the grouped call's participants, so it works
+     the same on the hourly sheet and on a doctor plan. */
+  /* Falls back to the plan owner when the attendee did not resolve to a
+     roster id — the same fallback the attribution itself makes (see
+     liveSource's attributeRows), so the tab lists the person every other
+     number on the screen already credits the call to. */
+  rep: (c) => [...new Set(
+    (c.participants ?? []).map((p) => p.participantId ?? p.employeeId).filter(Boolean),
+  )],
   /* NO ENTRY FOR THE SORT-ONLY FIELDS. A field with no tab has no value list
      to build and nothing that can send values for it, so giving it a reader
      here would only be a way to filter by something the panel never offers.
@@ -498,6 +515,9 @@ function planValuesOf(key, call) {
 
 const PLAN_COMPARE = {
   doctor: (a, b) => (a.doctorName ?? '').localeCompare(b.doctorName ?? ''),
+  /* By the FIRST attendee's name -- on a solo call the only one, on a joint
+     call the rep whose plan it is, which is the name the card leads with. */
+  rep: (a, b) => (a.participants?.[0]?.participantName ?? '').localeCompare(b.participants?.[0]?.participantName ?? ''),
   hq: (a, b) => (a.hq ?? '').localeCompare(b.hq ?? ''),
   city: (a, b) => (a.doctorCity ?? '').localeCompare(b.doctorCity ?? ''),
   specialty: (a, b) => (a.doctorSpecialty ?? '').localeCompare(b.doctorSpecialty ?? ''),
@@ -679,6 +699,12 @@ export function planChips(calls, { values = {}, sorts = {} } = {}) {
    what a person recognises. */
 function planValueLabel(key, call, value) {
   if (key === 'doctor') return `${call.doctorName ?? value} · ${value}`;
+  /* The attendee's own name, looked up on the call that offered the value --
+     a raw employee id is not a person anybody recognises. */
+  if (key === 'rep') {
+    const who = call.participants?.find((p) => (p.participantId ?? p.employeeId) === value);
+    return who?.participantName || who?.employeeName || value;
+  }
   if (key === 'hq') return value.replace(/^HQ-\s*/, '');
   return value;
 }
@@ -1151,6 +1177,7 @@ export function doctorPlan(member, team, rows, pobRows = []) {
          differ and the HQ is worth a column. It was simply missing here,
          which is why the card rendered a blank right rail. */
       hq: r.hq,
+      employeeId: r.employeeId,
       employeeName: r.employeeName,
       participantName: r.participantName || r.employeeName,
       participantId: r.participantId ?? null,
