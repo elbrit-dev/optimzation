@@ -53,16 +53,28 @@ export function VisitEventGroup({
      which is what "2 attended · 1 forced" was gesturing at without ever
      naming the person responsible. */
   const facts = [
+    /* HOW MANY DAYS, when the card is a whole month's visits to one doctor
+       (see groupByDoctor). It leads the fact line because it is the reason
+       this card differs from its neighbours — the times below it are details
+       of it. A doctor seen once says nothing here: "1 day visit" on every
+       other card is a label, not a fact. */
+    group.dayCount > 1 ? `${group.dayCount} day visits` : null,
     /* A PENDING CALL HAS NO TIME, so it falls back to the day it is planned
        for. Without this the whole fact line was empty on a pending card --
        no time, no money -- and a row that says nothing but the doctor's name
        reads as a rendering fault rather than as work still to do. The plan is
        all-day (see shape.js), so a date is the most precise thing there is. */
-    group.visitTime
-      ? [showDate && group.plannedDate ? formatPlanDay(group.plannedDate) : null, formatClock(group.visitTime)]
-        .filter(Boolean)
-        .join(' · ')
-      : (group.plannedDate ? `Planned ${formatPlanDay(group.plannedDate)}` : null),
+    /* AND NOT A SINGLE TIME once the card covers several days: the earliest
+       arrival of three visits is a fact about one of them, printed where a
+       reader would take it for the card's. The dates and times are all in the
+       table, one per row, which is where three of them belong. */
+    group.dayCount > 1
+      ? null
+      : group.visitTime
+        ? [showDate && group.plannedDate ? formatPlanDay(group.plannedDate) : null, formatClock(group.visitTime)]
+          .filter(Boolean)
+          .join(' · ')
+        : (group.plannedDate ? `Planned ${formatPlanDay(group.plannedDate)}` : null),
     group.pob ? `${formatCurrency(group.pob)} POB` : null,
   ].filter(Boolean);
 
@@ -72,11 +84,27 @@ export function VisitEventGroup({
 
      A rung the roster could not resolve is dropped rather than shown as a
      blank segment, which would read as a fourth status. */
-  const roles = participants
+  /* ONE SEGMENT PER RUNG, not per attendance. On a single call those are the
+     same thing; on a doctor seen three times by the same rep they are not,
+     and "BE BE BE" said nothing the day count beside it does not say better.
+     The outcome shown for a rung is the optimistic one, matching the group's
+     own rule: forced only when every one of that rung's attendances was
+     forced, pending only when none of them happened. */
+  const roles = [...participants
     .filter((p) => p.participantShort)
-    .map((p) => {
-      const status = visitStatus(p);
-      return { label: p.participantShort, tone: status.tone, status: status.label };
+    .reduce((acc, p) => {
+      const seen = acc.get(p.participantShort) ?? [];
+      seen.push(p);
+      acc.set(p.participantShort, seen);
+      return acc;
+    }, new Map())]
+    .map(([label, visits]) => {
+      const done = visits.filter((v) => v.visitTime);
+      const status = visitStatus({
+        visitTime: done.length ? done[0].visitTime : null,
+        forceVisit: done.length > 0 && done.every((v) => v.forceVisit),
+      });
+      return { label, tone: status.tone, status: status.label };
     });
 
   return (
@@ -125,7 +153,15 @@ export function VisitEventGroup({
           clock time and a status pill already announce. */}
       <table className="w-full table-fixed border-collapse text-11">
         <tbody>
-          {participants.map((p) => {
+          {/* IN THE ORDER THEY HAPPENED. Within one call the attendees arrive
+              in whatever order the plan listed them, which groupByEvent
+              preserves; across a merged card the rows are separate days and
+              want to read down the calendar. Pending rows, having no moment,
+              settle at the end rather than heading the list. */}
+          {[...participants].sort((a, b) => {
+            if (!a.visitTime || !b.visitTime) return (a.visitTime ? -1 : 0) + (b.visitTime ? 1 : 0);
+            return a.visitTime.localeCompare(b.visitTime);
+          }).map((p) => {
             const status = visitStatus(p);
             const note = forceNote(p);
 
@@ -140,9 +176,18 @@ export function VisitEventGroup({
                   {note ? <span className="block text-10 text-danger">{note}</span> : null}
                 </td>
                 {/* Fixed and tabular so the times stack into a readable
-                    column. 'Pending' is the widest thing that lands here. */}
-                <td className="w-16 py-1 tabular-nums text-ds-secondary">
-                  {formatClock(p.visitTime) || '—'}
+                    column. 'Pending' is the widest thing that lands here.
+
+                    THE DATE JOINS THE TIME over a window wider than a day —
+                    on a card merged by doctor these rows are different days,
+                    and a column of bare clock times would read as one
+                    afternoon's worth of visits. Stacked rather than widened:
+                    the name beside it has the width to lose. */}
+                <td className="w-20 py-1 tabular-nums text-ds-secondary">
+                  {showDate && p.plannedDate ? (
+                    <span className="block text-10">{formatPlanDay(p.plannedDate)}</span>
+                  ) : null}
+                  <span className="block">{formatClock(p.visitTime) || '—'}</span>
                 </td>
                 <td className="w-24 py-1 text-right">
                   <StatusPill status={status.tone} showDot={false}>

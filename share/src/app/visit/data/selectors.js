@@ -439,6 +439,81 @@ export function groupByEvent(visits) {
   return [...groups.values()];
 }
 
+/* ONE CARD PER DOCTOR, for a window wider than a day.
+ *
+ * groupByEvent answers "who was on this call". Over a month that leaves the
+ * same doctor listed once per visit — three cards, same name, same code, same
+ * specialty, differing only in a clock time — and the reader has to notice
+ * the repetition to learn the one fact that matters about it: this doctor was
+ * seen three times.
+ *
+ * So the merge is by DOCTOR and the repetition becomes a count. Every visit
+ * survives as a row inside, carrying its own date, because "three times" is
+ * the headline and "which three days" is the detail behind it.
+ *
+ * NOT FOR THE DAY VIEW. There every row is the same date, and merging would
+ * hide a second visit to the same doctor behind a count of two — which is the
+ * one thing a single day is meant to show plainly. */
+export function groupByDoctor(calls) {
+  const out = new Map();
+
+  for (const call of calls) {
+    /* The doctor's id, falling back to the call's own. A row with no doctor
+       cannot merge with another one: two unnamed calls are not the same
+       doctor twice, and pretending otherwise collapses unrelated work. */
+    const key = call.doctorId || `#${call.id}`;
+    let group = out.get(key);
+
+    if (!group) {
+      group = {
+        ...call,
+        /* Keyed on the doctor now, so React keeps the card across a re-sort
+           rather than re-mounting it under a new event id. */
+        id: `DR:${key}`,
+        participants: [],
+        dayList: [],
+        pob: null,
+      };
+      out.set(key, group);
+    }
+
+    /* Each attendance keeps the date of ITS OWN call, which the table reads.
+       Without this every row inside a merged card would carry the date of
+       whichever visit happened to create the group. */
+    for (const p of call.participants ?? []) {
+      group.participants.push({ ...p, plannedDate: p.plannedDate ?? call.plannedDate });
+    }
+    if (call.plannedDate) group.dayList.push(call.plannedDate);
+    /* SUMMED across days, unlike the per-call rule that takes one attendee's
+       figure once: two visits on two days are two quotations, not one
+       quotation counted twice. */
+    if (call.pob != null) group.pob = (group.pob ?? 0) + call.pob;
+  }
+
+  for (const group of out.values()) {
+    const days = [...new Set(group.dayList)].sort();
+    group.days = days;
+    group.dayCount = days.length;
+    /* The EARLIEST of them, so a card sorts by when this doctor first came up
+       rather than by whichever visit was appended last. */
+    group.plannedDate = days[0] ?? group.plannedDate;
+    delete group.dayList;
+
+    const done = group.participants.filter((p) => p.visitTime);
+    group.attended = done.length;
+    group.visitTime = done.length
+      ? done.reduce((a, b) => (a.visitTime <= b.visitTime ? a : b)).visitTime
+      : null;
+    /* Same optimistic rule as a single call: red only when every attendance
+       was forced. A doctor seen properly on Monday and forced on Friday is
+       not a forced relationship. */
+    group.forceVisit = done.length > 0 && done.every((p) => p.forceVisit);
+    group.mixed = done.length > 1 && done.some((p) => p.forceVisit) && !group.forceVisit;
+  }
+
+  return [...out.values()];
+}
+
 /* ---- The plan sheet's filter and sort -------------------------------- */
 
 /* THE FIELDS FilterSortSidebar IS DRIVEN BY. Its model is that every sortable
@@ -515,6 +590,31 @@ const PLAN_FIELD = {
    heading an ascending one with a run of blanks. */
 const doneAt = (c) => c.visitTime ?? '';
 
+/* THE TWO ENDS OF A CARD, because a card is not always one moment. Merged by
+ * doctor (see groupByDoctor) it covers several days, and `visitTime` is only
+ * the earliest of them — so "latest first" would rank a doctor seen on the
+ * 1st and the 23rd by the 1st, and bury the most recent visit in the plan at
+ * the bottom of a list that claims to lead with it.
+ *
+ * An unmerged call has one attendance per attendee and both ends collapse to
+ * the same moment, which is why this needs no second code path. */
+function visitEnds(call) {
+  const times = (call.participants ?? []).map((p) => p.visitTime).filter(Boolean);
+  if (times.length === 0) {
+    const at = doneAt(call);
+    return { first: at, last: at };
+  }
+  return {
+    first: times.reduce((a, b) => (a <= b ? a : b)),
+    last: times.reduce((a, b) => (a >= b ? a : b)),
+  };
+}
+
+/* The end that answers the order being asked for: ascending reads oldest
+   first and wants each card's earliest, descending reads newest first and
+   wants its latest. */
+const endFor = (call, direction) => (direction === 'asc' ? visitEnds(call).first : visitEnds(call).last);
+
 /* WHAT A CALL ANSWERS FOR A FIELD, always as a list. A scalar field answers
    with one entry, the category field with up to four, and a blank with none —
    so "has none of the picked values" and "has no value at all" are the same
@@ -541,13 +641,23 @@ const PLAN_COMPARE = {
      day alone: within one date a reader scanning a plan wants the morning
      before the afternoon, and two calls on the same date are otherwise left
      in whatever order the roster produced them. */
-  visitDate: (a, b) => doneAt(a).localeCompare(doneAt(b)) || a.plannedDate.localeCompare(b.plannedDate),
+  /* BY THE MOMENT IT HAPPENED — whichever END of the card the direction is
+     asking about, so a doctor merged across a month sorts by their most
+     recent visit under "latest first" and by their first under "oldest
+     first". Falls back to the planned day: not by the day alone, because
+     within one date a reader scanning a plan wants the morning before the
+     afternoon, and two calls on the same date would otherwise sit in
+     whatever order the roster produced them. */
+  visitDate: (a, b, dir) =>
+    endFor(a, dir).localeCompare(endFor(b, dir)) || a.plannedDate.localeCompare(b.plannedDate),
   /* TIME OF DAY, across dates — 9am on the 5th before 2pm on the 4th. That is
      the whole reason it is a separate order from the date: the same field read
-     for a different question. Sort only; there is no visit-time FIELD above,
-     because the tab that would have gone with it listed clock hours (see the
-     `sortOnly` note on PLAN_FILTER_DEFS). */
-  visitTime: (a, b) => doneAt(a).slice(11).localeCompare(doneAt(b).slice(11)),
+     for a different question. Reads the same end as above, so a merged card
+     is ranked by the clock time of the visit the reader is being shown first.
+     Sort only; there is no visit-time FIELD above, because the tab that would
+     have gone with it listed clock hours (see `sortOnly` on
+     PLAN_FILTER_DEFS). */
+  visitTime: (a, b, dir) => endFor(a, dir).slice(11).localeCompare(endFor(b, dir).slice(11)),
 };
 
 /* Everything the sidebar's Apply does, in one pure pass.
@@ -597,8 +707,11 @@ export function filterPlan(calls, { values = {}, sorts = {}, query = '' } = {}) 
   /* Sorted on a COPY: `filter` already returns one, but that is an accident
      of this implementation, and a caller's array reordered underneath it is
      the kind of bug that surfaces three components away. */
+  /* The DIRECTION is handed to the comparator as well as applied to its
+     answer: the date and time orders use it to pick which end of a merged
+     card to rank by (see endFor), and every other comparator ignores it. */
   return [...out].sort(
-    (a, b) => pendingLast(a, b) || (direction === 'asc' ? compare(a, b) : -compare(a, b)),
+    (a, b) => pendingLast(a, b) || (direction === 'asc' ? compare(a, b, 'asc') : -compare(a, b, 'desc')),
   );
 }
 
