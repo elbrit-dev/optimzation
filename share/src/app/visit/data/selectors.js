@@ -484,6 +484,10 @@ export function groupByDoctor(calls) {
       group.participants.push({ ...p, plannedDate: p.plannedDate ?? call.plannedDate });
     }
     if (call.plannedDate) group.dayList.push(call.plannedDate);
+    /* CALLS, not attendances. A joint call is one visit that two people were
+       on, so counting rows would report "2 visits" for a doctor seen once by
+       a rep and their manager together. */
+    group.visitCount = (group.visitCount ?? 0) + 1;
     /* SUMMED across days, unlike the per-call rule that takes one attendee's
        figure once: two visits on two days are two quotations, not one
        quotation counted twice. */

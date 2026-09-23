@@ -58,7 +58,13 @@ export function VisitEventGroup({
        this card differs from its neighbours — the times below it are details
        of it. A doctor seen once says nothing here: "1 day visit" on every
        other card is a label, not a fact. */
-    group.dayCount > 1 ? `${group.dayCount} day visits` : null,
+    group.dayCount > 1
+      ? `${group.dayCount} day visits`
+      /* TWICE IN ONE DAY is still a repeat visit, and the day count cannot
+         say so — "1 day visit" is what every other card would read. Named in
+         visits instead, beside the date they share, so a doctor seen at 10am
+         and again at 4pm does not look like a doctor seen once. */
+      : group.visitCount > 1 ? `${group.visitCount} visits` : null,
     /* A PENDING CALL HAS NO TIME, so it falls back to the day it is planned
        for. Without this the whole fact line was empty on a pending card --
        no time, no money -- and a row that says nothing but the doctor's name
@@ -71,7 +77,13 @@ export function VisitEventGroup({
     group.dayCount > 1
       ? null
       : group.visitTime
-        ? [showDate && group.plannedDate ? formatPlanDay(group.plannedDate) : null, formatClock(group.visitTime)]
+        ? [
+          showDate && group.plannedDate ? formatPlanDay(group.plannedDate) : null,
+          /* DROPPED when the day holds more than one visit: the earliest of
+             them is a fact about one, printed where it reads as the card's.
+             The times are all in the table. */
+          group.visitCount > 1 ? null : formatClock(group.visitTime),
+        ]
           .filter(Boolean)
           .join(' · ')
         : (group.plannedDate ? `Planned ${formatPlanDay(group.plannedDate)}` : null),
@@ -106,6 +118,35 @@ export function VisitEventGroup({
       });
       return { label, tone: status.tone, status: status.label };
     });
+
+  /* THE ATTENDANCES, CUT INTO DAYS.
+   *
+   * In date order, and within a day in arrival order: across a merged card
+   * the rows are separate visits and want to read down the calendar, and
+   * within one call "who got there first" is the comparison the table exists
+   * to make. A pending attendance has no moment, so it settles at the end of
+   * its own day rather than heading it.
+   *
+   * ONE SECTION WHEN THERE IS ONE DAY, and then it goes unheaded (see the
+   * table below) — which is every card in the day view and every
+   * single-visit card in the month view. */
+  const grouped = (group.dayCount ?? 1) > 1;
+  const days = [...participants
+    .reduce((acc, p) => {
+      const day = p.plannedDate ?? group.plannedDate ?? null;
+      const list = acc.get(day) ?? [];
+      list.push(p);
+      acc.set(day, list);
+      return acc;
+    }, new Map())]
+    .map(([day, people]) => ({
+      day,
+      people: [...people].sort((a, b) => {
+        if (!a.visitTime || !b.visitTime) return (a.visitTime ? -1 : 0) + (b.visitTime ? 1 : 0);
+        return a.visitTime.localeCompare(b.visitTime);
+      }),
+    }))
+    .sort((a, b) => String(a.day ?? '').localeCompare(String(b.day ?? '')));
 
   return (
     <DisclosureRow
@@ -152,52 +193,58 @@ export function VisitEventGroup({
           be a third of the table's height to label columns that a name, a
           clock time and a status pill already announce. */}
       <table className="w-full table-fixed border-collapse text-11">
-        <tbody>
-          {/* IN THE ORDER THEY HAPPENED. Within one call the attendees arrive
-              in whatever order the plan listed them, which groupByEvent
-              preserves; across a merged card the rows are separate days and
-              want to read down the calendar. Pending rows, having no moment,
-              settle at the end rather than heading the list. */}
-          {[...participants].sort((a, b) => {
-            if (!a.visitTime || !b.visitTime) return (a.visitTime ? -1 : 0) + (b.visitTime ? 1 : 0);
-            return a.visitTime.localeCompare(b.visitTime);
-          }).map((p) => {
-            const status = visitStatus(p);
-            const note = forceNote(p);
+        {/* ONE SECTION PER DAY on a merged card, headed by the date — so the
+            date is stated once where it changes instead of on every row
+            underneath it. A column repeating "11 Sep" three times is three
+            readings of one fact, and it competes for width with the name.
 
-            return (
-              <tr key={p.id} className="align-baseline">
-                <td className="py-1 pr-2">
-                  <span className="block truncate">{p.participantName}</span>
-                  {/* Under the name rather than in a column of its own: it is
-                      free text of no fixed width, and giving it a column
-                      would size that column to the longest reason anyone has
-                      ever typed. */}
-                  {note ? <span className="block text-10 text-danger">{note}</span> : null}
-                </td>
-                {/* Fixed and tabular so the times stack into a readable
-                    column. 'Pending' is the widest thing that lands here.
-
-                    THE DATE JOINS THE TIME over a window wider than a day —
-                    on a card merged by doctor these rows are different days,
-                    and a column of bare clock times would read as one
-                    afternoon's worth of visits. Stacked rather than widened:
-                    the name beside it has the width to lose. */}
-                <td className="w-20 py-1 tabular-nums text-ds-secondary">
-                  {showDate && p.plannedDate ? (
-                    <span className="block text-10">{formatPlanDay(p.plannedDate)}</span>
-                  ) : null}
-                  <span className="block">{formatClock(p.visitTime) || '—'}</span>
-                </td>
-                <td className="w-24 py-1 text-right">
-                  <StatusPill status={status.tone} showDot={false}>
-                    {status.label}
-                  </StatusPill>
-                </td>
+            A card covering ONE day has no heading: the fact line above the
+            table already says which day it was, and a lone section header
+            would be a label for a group of one. */}
+        {days.map(({ day, people }) => (
+          <tbody key={day ?? 'undated'}>
+            {day && grouped ? (
+              <tr>
+                <th
+                  colSpan={3}
+                  scope="colgroup"
+                  className="border-t border-line-subtle pt-2 pb-1 text-left text-10 font-semibold uppercase tracking-wide text-ds-secondary first:border-t-0 first:pt-0"
+                >
+                  {formatPlanDay(day)}
+                </th>
               </tr>
-            );
-          })}
-        </tbody>
+            ) : null}
+
+            {people.map((p) => {
+              const status = visitStatus(p);
+              const note = forceNote(p);
+
+              return (
+                <tr key={p.id} className="align-baseline">
+                  <td className="py-1 pr-2">
+                    <span className="block truncate">{p.participantName}</span>
+                    {/* Under the name rather than in a column of its own: it
+                        is free text of no fixed width, and giving it a column
+                        would size that column to the longest reason anyone
+                        has ever typed. */}
+                    {note ? <span className="block text-10 text-danger">{note}</span> : null}
+                  </td>
+                  {/* Fixed and tabular so the times stack into a readable
+                      column. 'Pending' is the widest thing that lands here.
+                      No date: the section above carries it. */}
+                  <td className="w-16 py-1 tabular-nums text-ds-secondary">
+                    {formatClock(p.visitTime) || '—'}
+                  </td>
+                  <td className="w-24 py-1 text-right">
+                    <StatusPill status={status.tone} showDot={false}>
+                      {status.label}
+                    </StatusPill>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        ))}
       </table>
     </DisclosureRow>
   );
