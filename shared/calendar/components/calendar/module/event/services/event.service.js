@@ -492,6 +492,13 @@ export async function saveEvent(doc, options = {}) {
     void enqueueGoogleCalendarSync(data.saveDoc.doc.name);
   }
 
+  // Only events that actually want Google Calendar sync (google_calendar set
+  // by mapFormToErpEvent) need the nudge — everything else can just wait for
+  // nothing, since sync_with_google_calendar is always 0 on the wire now.
+  if (outgoingDoc.google_calendar) {
+    void enqueueGoogleCalendarSync(data.saveDoc.doc.name);
+  }
+
   if (options.shareWithUserIds?.length) {
     const shareOptions = {
       skipExistingCheck: options.skipExistingShareCheck,

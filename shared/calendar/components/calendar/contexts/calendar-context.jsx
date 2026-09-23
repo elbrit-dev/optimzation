@@ -16,6 +16,8 @@ import {
 	buildLeaveNotifications,
 	filterCalendarEvents,
 } from "@calendar/components/calendar/contexts/calendar-context/selectors";
+import { applyDoctorVisitTeamTitles, createTeamNameResolver } from "@calendar/lib/calendar/doctor-visit-title";
+import { VISIT_FILTER } from "@calendar/lib/calendar/visit-filter";
 import { resolveEnabledTagIds, TAG_IDS } from "@calendar/components/calendar/constants";
 import { useAuth } from "@calendar/components/auth/auth-context";
 import { toast } from "sonner";
@@ -166,6 +168,7 @@ export function CalendarProvider({
 	const [mobileLayer, setMobileLayer] = useState("month-expanded");
 	const [showOnlyApprovedLeaves, setShowOnlyApprovedLeaves] = useState(false);
 	const [showOnlyTodoList, setShowOnlyTodoList] = useState(false);
+	const [agendaVisitFilter, setAgendaVisitFilter] = useState(VISIT_FILTER.ALL);
 	const [territoryDoctors, setTerritoryDoctors] = useState([]);
 	const updateSettings = (newPartialSettings) => {
 		setSettings({
@@ -401,7 +404,14 @@ export function CalendarProvider({
 	// holds documents ERP has actually stored. There is no second, local list of
 	// not-yet-saved events to merge in — and so no way for the calendar to show
 	// an event that does not exist, or to hide one that does.
-	const allEvents = serverEvents;
+	const resolveOwnerTeamName = useMemo(
+		() => createTeamNameResolver(users, elbritRoleEdges),
+		[users, elbritRoleEdges]
+	);
+	const allEvents = useMemo(
+		() => applyDoctorVisitTeamTitles(serverEvents, resolveOwnerTeamName),
+		[serverEvents, resolveOwnerTeamName]
+	);
 	useEffect(() => {
 		let cancelled = false;
 
@@ -592,6 +602,7 @@ export function CalendarProvider({
 		elbritRoleLoading, customerOptions, setCustomerOptions,
 		showOnlyApprovedLeaves,
 		setShowOnlyApprovedLeaves, showOnlyTodoList, setShowOnlyTodoList,
+		agendaVisitFilter, setAgendaVisitFilter,
 		enableGoogleCalendarSync,
 	};
 

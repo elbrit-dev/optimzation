@@ -182,6 +182,16 @@ export default function DataProviderViews({
   // — and, for sort, `sortBy: {field: $sortField, direction: $sortDirection}`.
   enableServerSearch = false,
   enableServerSort = false,
+  // Same idea for the Filter/Sort sidebar's filter selections: without this the
+  // sidebar filters only the rows already fetched, so on a 45,000-row list a
+  // filter applied at `first: 25` narrowed 25 rows. With it the selections
+  // become AND-ed clauses on the same `$filter` variable the search uses, and
+  // the ERP applies them over every row.
+  //
+  // The sidebar's VALUE LIST is still built from loaded rows -- this changes
+  // what a chosen value matches, not which values are offered. Declare the
+  // fields you want filterable in the query doc's searchFields.
+  enableServerFilter = false,
   // ERP fieldnames to search. Defaults to the query doc's own searchFields
   // (with `x__name` reduced to the filterable `x`), so the two cannot drift.
   serverSearchFields,
@@ -286,8 +296,9 @@ export default function DataProviderViews({
   // bridge rendered inside the provider reports it back up. The Filter/Sort
   // sidebar stays the only place a sort is chosen.
   const [engineSortConfig, setEngineSortConfig] = useState(null);
+  const [engineFilterValues, setEngineFilterValues] = useState(null);
 
-  const serverOpsEnabled = enableServerSearch === true || enableServerSort === true;
+  const serverOpsEnabled = enableServerSearch === true || enableServerSort === true || enableServerFilter === true;
 
   // Stabilized for the same reason as `overrides`: Studio hands down a fresh
   // array literal every render, and this one reaches the hook's probe callback,
@@ -306,6 +317,8 @@ export default function DataProviderViews({
     debounceMs: serverSearchDebounceMs,
     serverSearch: enableServerSearch === true,
     serverSort: enableServerSort === true,
+    filterValues: engineFilterValues,
+    serverFilter: enableServerFilter === true,
   });
 
   // An explicit contentClassName wins outright — '' is a valid value meaning
@@ -416,7 +429,13 @@ export default function DataProviderViews({
       // pills can never sit flush against each other.
       <div className={`flex w-full min-w-0 flex-nowrap items-center justify-between gap-2 sm:gap-3 ${HEADER_SLOT_PADDING}`}>
         <div className="flex min-w-0 flex-nowrap items-center gap-1.5 sm:gap-2">
-          <FilterSortPill />
+          {/* sortOnly={false} so this opens the FULL Filter and Sort, not just Sort.
+             The search bar no longer owns filtering alone: the worker is handed
+             `tableFilters` and `searchTerm` together, so a sidebar filter narrows the
+             search result rather than replacing it. The filter's value list is built
+             from the data actually loaded, so under enableServerSearch it offers only
+             values present in the current server-narrowed result. */}
+          <FilterSortPill sortOnly={false} defaultLabel="Filter / Sort" />
           <SyncPill />
           {/* `paging` is passed explicitly: this slot renders inside the engine's
               header, which is above DataViewContext in the tree. */}
@@ -541,7 +560,12 @@ export default function DataProviderViews({
               <div className={className ?? 'flex flex-col min-h-0 flex-1'}>
                 {/* Renders nothing; reports the sidebar's sort choice up so it
                     can become a query variable (see ServerOpsBridge). */}
-                {enableServerSort ? <ServerOpsBridge onSortConfigChange={setEngineSortConfig} /> : null}
+                {enableServerSort || enableServerFilter ? (
+                  <ServerOpsBridge
+                    onSortConfigChange={enableServerSort ? setEngineSortConfig : undefined}
+                    onFilterValuesChange={enableServerFilter ? setEngineFilterValues : undefined}
+                  />
+                ) : null}
                 {viewSwitcherPosition === 'top' ? standaloneSwitcher : null}
                 {showLetterRail ? (
                   <div className={`flex min-h-0 flex-1 gap-1 ${resolvedContentClass}`}>

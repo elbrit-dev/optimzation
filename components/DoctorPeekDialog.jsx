@@ -85,11 +85,43 @@ function fday(value) {
 
 export function PeekHistory({ doctor, erpUrl, authToken, employee }) {
   const c = useDoctorConsole({ doctor, erpUrl, authToken, employee, period: "all" });
+  /*
+   * Both pieces of state are declared BEFORE the early returns below. React
+   * counts hooks by call order, so a useState sitting after `if (!c) return`
+   * would be skipped on the first render and shift every later hook by one.
+   */
+  const [dept, setDept] = useState("all");
+  const [openItem, setOpenItem] = useState(null);
+
   if (!c) return null;
   if (c.loading && !c.ready) return <p className="text-[12px] text-gray-500">Loading history…</p>;
 
   const money = c.money;
   const mine = c.viewer?.employee ?? null;
+
+  /*
+   * ONE department picker for the whole history.
+   *
+   * A doctor worked by three divisions has three separate stories -- Elbrit
+   * Coimbatore's support has nothing to do with CND's visits -- and stacking
+   * them into one list reads as a single larger story that is true of nobody.
+   * The tabs are the doctor's OWN divisions, the same list the detail page's
+   * filter offers, so the two never disagree about which departments exist.
+   *
+   * Every section below answers to this, which is why the filter is applied
+   * once here rather than per section.
+   */
+  const divisions = c.doctor?.divisions ?? [];
+  const tabs = divisions.length > 1
+    ? [{ key: "all", label: "All" }, ...divisions.map((d) => ({ key: d.key, label: d.label ?? d.key }))]
+    : [];
+  const pick = tabs.length && tabs.some((t) => t.key === dept) ? dept : "all";
+  const inDept = (r) => pick === "all" || r.div === pick;
+
+  const visitsIn = (c.visits ?? []).filter(inDept);
+  const supportIn = (c.support ?? []).filter(inDept);
+  const pobsIn = (c.pobs ?? []).filter(inDept);
+  const serviceIn = (c.service ?? []).filter(inDept);
 
   /*
    * Grouped by WHO, three dates each, the way the screen this replaces did it:
@@ -101,7 +133,7 @@ export function PeekHistory({ doctor, erpUrl, authToken, employee }) {
    */
   const visitGroups = (() => {
     const g = new Map();
-    (c.visits ?? []).forEach((v) => {
+    visitsIn.forEach((v) => {
       const k = v.employee && v.employee === mine ? "Self" : (v.role || "Unassigned");
       if (!g.has(k)) g.set(k, []);
       g.get(k).push(v);
@@ -113,7 +145,7 @@ export function PeekHistory({ doctor, erpUrl, authToken, employee }) {
 
   // Support is one row per PRODUCT; the month view sums them by period.
   const byMonth = new Map();
-  (c.support ?? []).forEach((r) => {
+  supportIn.forEach((r) => {
     const k = r.p ?? r.d;
     if (!k) return;
     byMonth.set(k, (byMonth.get(k) ?? 0) + (r.amt ?? 0));
@@ -121,7 +153,7 @@ export function PeekHistory({ doctor, erpUrl, authToken, employee }) {
   const months = [...byMonth.entries()].slice(0, 6);
 
   const byProduct = new Map();
-  (c.support ?? []).forEach((r) => {
+  supportIn.forEach((r) => {
     const k = r.item || r.brand;
     if (!k) return;
     byProduct.set(k, (byProduct.get(k) ?? 0) + (r.amt ?? 0));
@@ -130,7 +162,7 @@ export function PeekHistory({ doctor, erpUrl, authToken, employee }) {
 
   // POB rows are one per LINE, so they are folded back to their quotation.
   const byQuote = new Map();
-  (c.pobs ?? []).forEach((r) => {
+  pobsIn.forEach((r) => {
     const k = r.quotation ?? r.id;
     const e = byQuote.get(k) ?? { d: r.d, chemist: r.chemist, amt: 0, lines: 0 };
     e.amt += r.amt ?? 0; e.lines += 1;
@@ -138,11 +170,50 @@ export function PeekHistory({ doctor, erpUrl, authToken, employee }) {
   });
   const pobs = [...byQuote.values()].slice(0, 3);
 
-  const gifts = (c.service ?? []).slice(0, 5);
+  const gifts = serviceIn.slice(0, 5);
+
+  /*
+   * A product's own months. Support arrives as one row per product per month,
+   * so the product list sums them and this splits one product back out again --
+   * no second read, and the two can never disagree because they are the same
+   * rows added up differently.
+   */
+  const monthsFor = (item) => {
+    const m = new Map();
+    supportIn.forEach((r) => {
+      if ((r.item || r.brand) !== item) return;
+      const k = r.p ?? r.d;
+      if (!k) return;
+      m.set(k, (m.get(k) ?? 0) + (r.amt ?? 0));
+    });
+    return [...m.entries()];
+  };
 
   return (
     <div className="space-y-2">
-      <Section title="Last 3 Visit" count={(c.visits ?? []).length || null} defaultOpen>
+      {/* Only when there is a choice to make: a doctor with one division would
+          get a single tab that does nothing but take up a row. */}
+      {tabs.length ? (
+        <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-0.5" role="tablist" aria-label="Department">
+          {tabs.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              role="tab"
+              aria-selected={pick === t.key}
+              onClick={() => { setDept(t.key); setOpenItem(null); }}
+              className={"shrink-0 whitespace-nowrap rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition-colors "
+                + (pick === t.key
+                  ? "border-[#1e2a5a] bg-[#1e2a5a] text-white"
+                  : "border-gray-200 bg-white text-gray-600 hover:border-indigo-200 hover:bg-indigo-50")}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      <Section title="Last 3 Visit" count={visitsIn.length || null} defaultOpen>
         {visitGroups.length ? visitGroups.map((g) => (
           <div key={g.who} className="flex items-start justify-between gap-3 px-3 py-2">
             <span className="shrink-0 text-sm font-medium text-gray-800">{g.who}</span>
@@ -164,9 +235,36 @@ export function PeekHistory({ doctor, erpUrl, authToken, employee }) {
       </Section>
 
       <Section title="Last 6 Month Product Wise Support" count={products.length ? products.length + " products" : null}>
-        {products.length ? products.map(([item, amt]) => (
-          <Row key={item} left={item} right={money(amt)} />
-        )) : <Empty what="No product lines recorded." />}
+        {products.length ? products.map(([item, amt]) => {
+          const open = openItem === item;
+          const rows = open ? monthsFor(item) : [];
+          return (
+            <div key={item}>
+              <button
+                type="button"
+                onClick={() => setOpenItem(open ? null : item)}
+                aria-expanded={open}
+                className="flex w-full items-baseline justify-between gap-3 px-3 py-2 text-left transition-colors hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+              >
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <ChevronDown size={13} className={"shrink-0 text-gray-400 transition-transform " + (open ? "rotate-180" : "-rotate-90")} />
+                  <span className="truncate text-sm text-gray-800">{item}</span>
+                </span>
+                <span className="shrink-0 text-xs font-semibold text-gray-700">{money(amt)}</span>
+              </button>
+              {open ? (
+                <div className="bg-gray-50/70 pb-1">
+                  {rows.length ? rows.map(([label, v]) => (
+                    <div key={label} className="flex items-baseline justify-between gap-3 py-1 pl-9 pr-3">
+                      <span className="truncate text-[12px] text-gray-600">{label}</span>
+                      <span className="shrink-0 text-[12px] font-medium text-gray-700">{money(v)}</span>
+                    </div>
+                  )) : <div className="py-1 pl-9 pr-3 text-[12px] text-gray-500">No months recorded.</div>}
+                </div>
+              ) : null}
+            </div>
+          );
+        }) : <Empty what="No product lines recorded." />}
       </Section>
 
       <Section title="Last Product, Gift & Sample" count={gifts.length ? gifts.length : null}>

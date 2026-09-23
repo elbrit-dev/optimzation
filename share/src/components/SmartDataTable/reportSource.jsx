@@ -168,6 +168,10 @@ const _DEFAULT_FORMATTERS = {
 // Returns { columns, columnGroups, rows } in SmartDataTable pipeline format.
 // formatStep() will wrap raw cell values into { value, repr } after this.
 
+/* Exported as `parseFrappeResponse` at the bottom of this file. The dev
+   harness at /dev/smart-table uses it so the e2e specs exercise this real
+   parser — identity group, month groups, totals group — rather than a
+   hand-rolled stand-in that could drift from it. */
 function _parseFrappeResponse(frappeColumns, result, selectedColumns) {
   const monthGroups = {};  // { 'YYYY-MM': [{ field, label, type }] }
   const flatChildren = [];
@@ -541,10 +545,30 @@ const STOCK_METRICS = {
   batch_stock_in_days: 'BATCH_STOCK_IN_DAYS',
 };
 
+// secondary_config: four dimensions, four metrics. Verified against UAT
+// (uat.elbrit.org) -- prod has no SECONDARY in its ReportName enum yet, so a
+// config naming it only runs on UAT/DEV until the app ships to prod.
+// Item is item_name here, as in SALES -- rows come back as "BRITORVA 10".
+const SECONDARY_DIMENSIONS = {
+  Department: 'DEPARTMENT', HQ: 'HQ', Customer: 'CUSTOMER', Item: 'ITEM',
+};
+
+const SECONDARY_FILTER_KEYS = {
+  department: 'DEPARTMENT', hq: 'HQ', customer: 'CUSTOMER', item: 'ITEM',
+};
+
+// Keys are the row fieldnames the server returns, not the enum names:
+// CLOSING_BALANCE comes back as closing_balance, labelled "Closing Value".
+const SECONDARY_METRICS = {
+  sales_qty: 'SALES_QTY', sales_value: 'SALES_VALUE',
+  closing_qty: 'CLOSING_QTY', closing_balance: 'CLOSING_BALANCE',
+};
+
 /** Mirror of report_registry.py's REPORTS, keyed by ReportName enum value. */
 const REPORTS = {
   SALES: { dimensions: SALES_DIMENSIONS, filterKeys: SALES_FILTER_KEYS, metrics: SALES_METRICS },
   STOCK: { dimensions: STOCK_DIMENSIONS, filterKeys: STOCK_FILTER_KEYS, metrics: STOCK_METRICS },
+  SECONDARY: { dimensions: SECONDARY_DIMENSIONS, filterKeys: SECONDARY_FILTER_KEYS, metrics: SECONDARY_METRICS },
 };
 
 const DEFAULT_REPORT_KEY = 'SALES';
@@ -690,6 +714,27 @@ function _buildSortInput(sortBy, groupByEnums, report) {
 }
 
 /**
+ * `filters.period_data_by` as a ReportDimension enum, or null.
+ *
+ * Splits each period in _meta.meta_period_data into a `breakdown` array, one
+ * entry per value of that dimension. It need not be in group_by. Accepts the
+ * enum ("HQ"), the group_by label ("Department") or the filter key ("hq"). It
+ * must be a dimension of this report: the server fails the whole report on any
+ * other, with an internal error that does not name the field.
+ */
+function _resolvePeriodDataBy(value, report, reportKey) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+  const enums = new Set(Object.values(report.dimensions));
+  const dimEnum = enums.has(raw.toUpperCase())
+    ? raw.toUpperCase()
+    : report.dimensions[raw] ?? report.filterKeys[raw];
+  if (dimEnum) return dimEnum;
+  console.warn(`[customReportV2] period_data_by "${raw}" is not a dimension of report ${reportKey} — dropping`);
+  return null;
+}
+
+/**
  * Translate the flat V1-shaped gqlVars (`{ filters: {...}, sort_by, page, limit }`)
  * into customReportV2's structured `CustomReportV2Input`.
  */
@@ -723,6 +768,8 @@ export function buildCustomReportV2Input(gqlVars, drillDown = null) {
 
   const sort = _buildSortInput(gqlVars.sort_by, groupByEnums, report);
 
+  const periodDataBy = _resolvePeriodDataBy(filters.period_data_by, report, reportKey);
+
   // Generic name/value passthrough for report-specific knobs that aren't a
   // dimension, metric, or ReportOptionsInput field -- e.g. STOCK's
   // expiry_months. Config supplies filters.params as a plain object; the
@@ -746,6 +793,7 @@ export function buildCustomReportV2Input(gqlVars, drillDown = null) {
       // had to wait on -- 5.4x the cost of the rest of the report. Dropdown
       // values come from the reportFilterValues query instead, one dimension at
       // a time, when a dropdown is actually opened.
+      ...(periodDataBy && { period_data_by: periodDataBy }),
     },
     page: gqlVars.page,
     limit: gqlVars.limit,
@@ -1288,3 +1336,5 @@ export async function graphqlFetchReportFilterValues(rawApiConfig, key, {
     hasMore: !!group.truncated,
   };
 }
+
+export { _parseFrappeResponse as parseFrappeResponse };

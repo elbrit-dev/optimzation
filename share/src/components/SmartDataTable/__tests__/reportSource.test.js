@@ -73,6 +73,40 @@ describe('buildCustomReportV2Input', () => {
     expect(input.options.display_in_lakhs).toBe(true);
   });
 
+  describe('period_data_by', () => {
+    const secondary = period_data_by => ({ report: 'SECONDARY', filters: { group_by: ['Department'], period_data_by } });
+
+    it('passes an enum through to options.period_data_by', () => {
+      expect(buildCustomReportV2Input(secondary('DEPARTMENT')).options.period_data_by).toBe('DEPARTMENT');
+    });
+
+    it('accepts a group_by label or a filter key', () => {
+      expect(buildCustomReportV2Input(secondary('Customer')).options.period_data_by).toBe('CUSTOMER');
+      expect(buildCustomReportV2Input(secondary('hq')).options.period_data_by).toBe('HQ');
+    });
+
+    it('does not require the dimension to be in group_by', () => {
+      expect(buildCustomReportV2Input(secondary('ITEM')).options.period_data_by).toBe('ITEM');
+    });
+
+    it('resolves against the named report (STOCK spells Item as item_code)', () => {
+      const input = buildCustomReportV2Input({ report: 'STOCK', filters: { group_by: ['Item'], period_data_by: 'item_code' } });
+      expect(input.options.period_data_by).toBe('ITEM');
+    });
+
+    it('drops a dimension the report does not define, with a warning', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const input = buildCustomReportV2Input(secondary('BRAND'));
+      expect(input.options).not.toHaveProperty('period_data_by');
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('period_data_by "BRAND"'));
+    });
+
+    it('is omitted when not set', () => {
+      expect(buildCustomReportV2Input(secondary(undefined)).options).not.toHaveProperty('period_data_by');
+      expect(buildCustomReportV2Input(secondary('')).options).not.toHaveProperty('period_data_by');
+    });
+  });
+
   it('does not request inline filter values (deprecated and ignored server-side)', () => {
     const input = buildCustomReportV2Input({ filters: { group_by: ['HQ'] } });
     expect(input.options).not.toHaveProperty('include_filter_values');

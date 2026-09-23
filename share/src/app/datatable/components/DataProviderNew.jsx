@@ -4618,6 +4618,11 @@ export default function DataProviderNew({
         setSearchTerm,
         sortConfig,
         setSortConfig,
+        // The sidebar's applied filter selections, { fieldKey: [value, ...] }.
+        // Exposed for the same reason sortConfig is: DataProviderViews sits ABOVE
+        // the engine and cannot read this context, so ServerOpsBridge lifts it out
+        // to be turned into server-side filter clauses.
+        preFilterValues,
         // Sync / freshness (exposed for custom header controls, e.g. the Views variant's refresh pill)
         handleSync,
         handleHardRefresh,
@@ -4690,7 +4695,7 @@ export default function DataProviderNew({
     queryFunction, effectiveMainConfig, mainColumnTypesOverride, jsonObjectColumns, enableDivideBy1Lakh, enableReport, chartColumns, chartHeight,
     dataSource, offlineData, offlineDataExecuted, formInputOverride, selectOptionsCache,
     selectedQueryKey, executingQuery, availableQueryKeys, resolvedConfig,
-    handleSync, handleHardRefresh, lastUpdatedAt, openFilterSortSidebar,
+    handleSync, handleHardRefresh, lastUpdatedAt, openFilterSortSidebar, preFilterValues,
     rowsPerPageOptions, defaultRows, hideTablePaginator, tableHeight, scrollable, enableFullscreenDialog,
     resolvedWritePermissions,
   ]);
@@ -4867,6 +4872,11 @@ export default function DataProviderNew({
         setSearchTerm,
         sortConfig,
         setSortConfig,
+        // The sidebar's applied filter selections, { fieldKey: [value, ...] }.
+        // Exposed for the same reason sortConfig is: DataProviderViews sits ABOVE
+        // the engine and cannot read this context, so ServerOpsBridge lifts it out
+        // to be turned into server-side filter clauses.
+        preFilterValues,
         handleSync,
         handleHardRefresh,
         lastUpdatedAt,
@@ -4926,7 +4936,7 @@ export default function DataProviderNew({
     dataSource, offlineData, offlineDataExecuted,
     selectOptionsCache,
     selectedQueryKey, executingQuery, availableQueryKeys, resolvedConfig,
-    handleSync, handleHardRefresh, lastUpdatedAt, openFilterSortSidebar,
+    handleSync, handleHardRefresh, lastUpdatedAt, openFilterSortSidebar, preFilterValues,
     rowsPerPageOptions, defaultRows, hideTablePaginator, tableHeight, scrollable, enableFullscreenDialog,
     enableWriteEffective, resolvedWritePermissions,
   ]);

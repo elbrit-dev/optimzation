@@ -641,7 +641,7 @@ const SHEET_CSS = `
 }
 .pob-sheet .pob-step input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 
-/* BILLED ON — a trigger that matches the comboboxes beside it, and a popover
+/* VISITED ON — a trigger that matches the comboboxes beside it, and a popover
    that belongs to this sheet rather than to the browser. */
 .pob-sheet .pob-when {
   display: flex;
@@ -709,7 +709,7 @@ const SHEET_CSS = `
 `;
 
 /**
- * BILLED ON — the date, with the time kept quietly beside it.
+ * VISITED ON — the date, with the time kept quietly beside it.
  *
  * This was a bare `<input type="datetime-local">`, which hands the whole job to
  * the browser. Chrome answers with a two-pane calendar and a pair of scrolling
@@ -1562,7 +1562,7 @@ export default function DoctorPobDialog({
                     </span>
                   ) : null}
                   <span className={doctorId ? "ml-2" : undefined}>
-                    Billed without a visit
+                    POB without visit
                   </span>
                 </p>
               </ModalDescription>
@@ -1654,7 +1654,7 @@ export default function DoctorPobDialog({
                   />
 
                   <div className="flex flex-col gap-2">
-                    <label htmlFor="pob-visit-at">Billed on</label>
+                    <label htmlFor="pob-visit-at">Visited on</label>
                     <PobWhen
                       value={visitAt}
                       onChange={(next) =>
@@ -1682,7 +1682,7 @@ export default function DoctorPobDialog({
               <Section title="Reason" hint="Required">
                 <Textarea
                   rows={3}
-                  placeholder="Why this is billed without a visit"
+                  placeholder="Why this POB has no visit"
                   value={reason}
                   onChange={(e) =>
                     form.setValue("reason", e.target.value, { shouldDirty: true })

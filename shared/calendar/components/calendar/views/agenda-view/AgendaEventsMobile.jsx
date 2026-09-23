@@ -39,6 +39,11 @@ import { navigateDate } from "@calendar/components/calendar/helpers";
 import { ChevronDown } from "lucide-react";
 import FilterEvents from "@calendar/components/calendar/header/filter";
 import {
+  AgendaVisitFilter,
+  VisitTime,
+} from "@calendar/components/calendar/views/agenda-view/agenda-visit-filter";
+import { matchesVisitFilter } from "@calendar/lib/calendar/visit-filter";
+import {
   DoctorPlanGroupLabel,
   getPlanGroupKey,
   getPlanOwnerId,
@@ -58,7 +63,9 @@ export const AgendaEventsMobile = () => {
     setView,
     selectedDate,
     setSelectedDate,
-    showOnlyApprovedLeaves,showOnlyTodoList
+    showOnlyApprovedLeaves,showOnlyTodoList,
+    agendaVisitFilter,
+    setAgendaVisitFilter,
   } = useCalendar();
 
   const scrollRef = useRef(null);
@@ -152,10 +159,14 @@ export const AgendaEventsMobile = () => {
       );
     });
 
+    data = data.filter((event) =>
+      matchesVisitFilter(event, agendaVisitFilter)
+    );
+
     if (showOnlyApprovedLeaves) {
       return data.filter(
         (event) =>
-          event.tags === TAG_IDS.LEAVE 
+          event.tags === TAG_IDS.LEAVE
       );
     }
     if (showOnlyTodoList) {
@@ -164,7 +175,7 @@ export const AgendaEventsMobile = () => {
       );
     }
     return data;
-  }, [events, selectedDate, showOnlyApprovedLeaves,showOnlyTodoList]);
+  }, [events, selectedDate, showOnlyApprovedLeaves, showOnlyTodoList, agendaVisitFilter]);
 
   /* ===============================
      GROUP BY DATE (FIXED)
@@ -242,9 +253,12 @@ export const AgendaEventsMobile = () => {
                   <p className="font-medium text-sm truncate">{event.title}</p>
                 </div>
 
-                <p className="text-xs text-muted-foreground truncate">
-                  {ownerName}
-                </p>
+                <div className="flex items-center gap-2">
+                  <p className="min-w-0 flex-1 text-xs text-muted-foreground truncate">
+                    {ownerName}
+                  </p>
+                  <VisitTime event={event} />
+                </div>
               </div>
             </div>
 
@@ -277,7 +291,13 @@ export const AgendaEventsMobile = () => {
       >
         <div className="mb-4 mx-4 flex justify-between items-center">
           <CommandInput placeholder="Search..." />
-          <FilterEvents variant={true}/>
+          <div className="flex items-center gap-2">
+            <AgendaVisitFilter
+              value={agendaVisitFilter}
+              onChange={setAgendaVisitFilter}
+            />
+            <FilterEvents variant={true}/>
+          </div>
         </div>
 
         <CommandList className="px-2 border-t max-h-none overflow-visible">

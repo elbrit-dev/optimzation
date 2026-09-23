@@ -28,6 +28,30 @@ export const DEFAULT_CONFIG = {
   enableGridlines: true,
   emptyMessage: 'No records found.',
 
+  /* Render the PrimeReact DataTable in `unstyled` mode with the design
+     system's PassThrough preset instead of the lara-light-cyan theme plus the
+     CSS override sheet. See design-system/primereact/dataTablePreset.js.
+
+     ON by default. The preset is verified across all six view shapes (flat,
+     tree, pivot, tree-pivot) by computed style — header / filter / body cell
+     padding and borders, filter input height, column resizer, row height,
+     zebra, frozen columns and the sticky resizer — and by the eight
+     screenshot baselines in e2e/smart-table/visual.spec.js.
+
+     This was blocked for a while, and not on styling: `unstyled` stops
+     PrimeReact emitting its `p-*` classes, and the whole e2e selector layer
+     was built on them, so turning it on took the suite from 73 passing to 2.
+     The unblock was to emit stable `data-table-part` attributes from a
+     hooks-only PassThrough (design-system/primereact/dataTableHooks.js) that
+     applies in BOTH modes, and to move every selector onto those. `pt` is
+     independent of `unstyled`, which is what made that possible.
+
+     Setting this to `false` is a styling-only escape hatch — the hooks still
+     apply, so the suite keeps passing either way and a visual regression can
+     be bisected to one table. Note it also opts the row-expansion child tables
+     out, so a tree does not end up half-themed. */
+  unstyled: true,
+
   // Scrolling
   scrollHeight: '600px',
 

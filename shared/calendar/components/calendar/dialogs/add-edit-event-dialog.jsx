@@ -42,6 +42,7 @@ import { buildParticipantsWithDetails, getAvailableItems, normalizeMeetingTimes,
 import { Button } from "@calendar/components/ui/button";
 import { MapPin, Video } from "lucide-react";
 import { resolveDisplayValueFromEvent } from "@calendar/lib/calendar/resolveDisplay";
+import { composeDoctorVisitTitle, createTeamNameResolver } from "@calendar/lib/calendar/doctor-visit-title";
 import Tiptap from "@calendar/components/calendar/module/todo/components/TodoWysiwyg";
 import { mapDoctorVisitToQuotation } from "@calendar/components/calendar/module/event/mappers/quotation-to-erp";
 import { calculateDistanceKm, findOverlappingHqEvent, getDisabledHqDates } from "@calendar/components/calendar/helpers";
@@ -1114,18 +1115,18 @@ export function AddEditEventDialog({
 		);
 	}, [startDate, allDay]);
 
+	const resolveOwnerTeamName = useMemo(
+		() => createTeamNameResolver(users, elbritRoleEdges),
+		[users, elbritRoleEdges]
+	);
 	const buildDoctorVisitTitle = (doctorId, values) => {
 		const doc = doctorOptions.find(d => d.value === doctorId);
 		if (!doc) return values.title || "DV";
 
-		const doctorName = doc.label.replace(/\s+/g, "");
-		const ownerName = (
-			event?.ownerFullName ||
-			LOGGED_IN_USER.name ||
-			"Emp"
-		).replace(/\s+/g, "");
-
-		return `${doctorName}-Visit-${ownerName}`;
+		return composeDoctorVisitTitle(
+			doc.label,
+			resolveOwnerTeamName(event?.ownerEmployeeId || LOGGED_IN_USER.id)
+		);
 	};
 	const createLocalEventId = (prefix = "local-event") =>
 		`${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;

@@ -14,8 +14,10 @@ import {
   noMatchClause,
   readProbeResult,
   readQueryShape,
+  toFilterFieldname,
   toSortDirectionValue,
   toSortEnumValue,
+  valueInClause,
 } from '../utils/serverQueryOps';
 
 /**
@@ -85,6 +87,11 @@ export default function useServerQueryOps({
   debounceMs = 400,
   serverSearch = true,
   serverSort = true,
+  // Sidebar filter selections, { fieldKey: [value, ...] }, lifted out of the
+  // engine by ServerOpsBridge. Same channel as search: they become clauses on
+  // the query's filter variable so the ERP narrows every row, not the page.
+  filterValues = null,
+  serverFilter = true,
 } = {}) {
   const [queryDoc, setQueryDoc] = useState(null);
   const [docError, setDocError] = useState(null);
@@ -99,6 +106,7 @@ export default function useServerQueryOps({
   // be sent explicitly rather than by omission (see the `variables` memo).
   const [everSearched, setEverSearched] = useState(false);
   const [everSorted, setEverSorted] = useState(false);
+  const [everFiltered, setEverFiltered] = useState(false);
 
   // Fields the ERP refused to filter on (a flattened path that is not a real
   // column). Remembered so a failing field costs one request per session, not
@@ -363,8 +371,33 @@ export default function useServerQueryOps({
     return { field: enumValue, direction: toSortDirectionValue(sortConfig?.direction) };
   }, [available, serverSort, shape, sortConfig?.field, sortConfig?.direction, queryDoc?.sortFields]);
 
+  // Keyed on contents: the sidebar hands back a fresh object every apply, so
+  // identity would rebuild the clauses (and re-run the query) on every render.
+  const filterSignature = signature(filterValues ?? null);
+
+  const filterClauses = useMemo(() => {
+    if (!available || !serverFilter || !shape?.ok || !shape.filterVariable) return null;
+    const selections = filterValues && typeof filterValues === 'object' ? filterValues : null;
+    if (!selections) return null;
+    const clauses = [];
+    Object.keys(selections).forEach((fieldKey) => {
+      // The same allow-list search derives from, for the same reason: a field
+      // the query doc does not declare has no client-side counterpart, so a row
+      // matched on it would be dropped again on screen. A flattened path the
+      // ERP cannot filter on returns null here and is skipped rather than
+      // guessed at -- a wrong guess is an "Unknown column" error, not a miss.
+      const fieldname = toFilterFieldname(fieldKey);
+      if (!fieldname) return;
+      const clause = valueInClause(fieldname, selections[fieldKey]);
+      if (clause) clauses.push(clause);
+    });
+    return clauses.length ? clauses : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [available, serverFilter, shape, filterSignature]);
+
   useEffect(() => { if (search?.clauses) setEverSearched(true); }, [search]);
   useEffect(() => { if (sort) setEverSorted(true); }, [sort]);
+  useEffect(() => { if (filterClauses) setEverFiltered(true); }, [filterClauses]);
 
   const variables = useMemo(() => {
     if (!available || !shape?.ok) return EMPTY_VARIABLES;
@@ -378,9 +411,14 @@ export default function useServerQueryOps({
     // rather than dropping the variable. Dropping it would empty the overrides
     // object, and the engine re-runs on a CHANGE to overrides — an absent key
     // reads as "nothing to do", so the search results would stay on screen.
+    // Search and filter share one variable, so they are composed rather than
+    // one overwriting the other: the term narrows to matching rows, the filter
+    // clauses narrow those further -- the same AND the client-side worker does
+    // when it is handed `searchTerm` and `tableFilters` together.
     if (shape.filterVariable) {
-      if (search?.clauses) out[shape.filterVariable] = [...baseFilter, ...search.clauses];
-      else if (everSearched) out[shape.filterVariable] = [...baseFilter];
+      const extra = [...(search?.clauses ?? []), ...(filterClauses ?? [])];
+      if (extra.length) out[shape.filterVariable] = [...baseFilter, ...extra];
+      else if (everSearched || everFiltered) out[shape.filterVariable] = [...baseFilter];
     }
 
     // Same reasoning for sort: a cleared sort is sent as an explicit return to
@@ -402,7 +440,7 @@ export default function useServerQueryOps({
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [available, shape, search, sort, everSearched, everSorted, baseSignature]);
+  }, [available, shape, search, sort, filterClauses, everSearched, everSorted, everFiltered, baseSignature]);
 
   const status = useMemo(() => {
     if (!available) {
@@ -428,7 +466,7 @@ export default function useServerQueryOps({
   // True while any variable is narrowing or reordering the query, i.e. the
   // result is NOT the query's full baseline. The caller uses this to keep such
   // a result out of the shared IndexedDB cache.
-  const isNarrowed = Boolean(search?.clauses);
+  const isNarrowed = Boolean(search?.clauses) || Boolean(filterClauses);
 
   return { variables, status, isNarrowed };
 }

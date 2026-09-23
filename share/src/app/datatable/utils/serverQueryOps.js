@@ -40,7 +40,7 @@ export const DEFAULT_ID_FIELD = 'name';
  * that SQL cannot reach from this table, so it is dropped rather than guessed
  * at — a wrong guess is an "Unknown column" error, not a missed row.
  */
-function toFilterFieldname(path) {
+export function toFilterFieldname(path) {
   const raw = String(path ?? '').trim();
   if (!raw || raw.includes('.')) return null;
   const stripped = raw.endsWith('__name') ? raw.slice(0, -'__name'.length) : raw;
@@ -236,6 +236,27 @@ export function buildCountQuery(rootField) {
 
 export function likeClause(fieldname, term) {
   return { fieldname, value: `%${String(term).trim()}%`, operator: 'LIKE' };
+}
+
+/**
+ * One AND-ed clause per filtered field: `fieldname IN [selected values]`.
+ *
+ * Unlike search, this needs no probe and no id union. Search means "the term
+ * in ANY field", which the ERP's AND-only filter list cannot express; a filter
+ * means "this field is one of these values", which is exactly one clause, and
+ * several filtered fields AND together — the same semantics the client-side
+ * worker already applies.
+ *
+ * A single value is sent as EQ rather than IN: both work, but EQ is what the
+ * body's own default clauses look like, so a one-value filter reads the same
+ * on the wire as a hand-written one.
+ */
+export function valueInClause(fieldname, values) {
+  const list = (Array.isArray(values) ? values : [values])
+    .filter((v) => v !== null && v !== undefined && String(v).length > 0);
+  if (!fieldname || list.length === 0) return null;
+  if (list.length === 1) return { fieldname, value: list[0], operator: 'EQ' };
+  return { fieldname, operator: 'IN', values: list };
 }
 
 export function idInClause(ids, idField = DEFAULT_ID_FIELD) {

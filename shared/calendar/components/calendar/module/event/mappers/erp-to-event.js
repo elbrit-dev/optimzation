@@ -4,6 +4,7 @@ import { TAG_FORM_CONFIG } from "@calendar/lib/calendar/form-config";
 import { TAG_IDS } from "@calendar/components/calendar/constants";
 import { normalizeStatus } from "@calendar/components/calendar/helpers";
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
+import { composeDoctorVisitTitle } from "@calendar/lib/calendar/doctor-visit-title";
 /**
  * ERP GraphQL → Calendar Event
  * Employees & Doctors are derived ONLY from participants
@@ -46,7 +47,9 @@ function buildOwnerFullName(owner) {
   return parts.length ? parts.join(" ") : null;
 }
 
-function buildDoctorVisitTitle(node, ownerFullName) {
+// The team suffix is added by the calendar context, which holds the role
+// hierarchy. The owner's name is deliberately not part of the title.
+function buildDoctorVisitTitle(node) {
   const subject = node?.subject ?? "";
   const doctorNameFromSubject =
     subject.split("-")[0]?.trim() || subject.trim();
@@ -55,11 +58,7 @@ function buildDoctorVisitTitle(node, ownerFullName) {
     return subject || "";
   }
 
-  if (!ownerFullName) {
-    return `${doctorNameFromSubject}-Visit`;
-  }
-
-  return `${doctorNameFromSubject}-Visit-${ownerFullName.replace(/\s+/g, "")}`;
+  return composeDoctorVisitTitle(doctorNameFromSubject);
 }
 
 export function mapErpGraphqlEventToCalendar(node) {
@@ -183,7 +182,7 @@ export function mapErpGraphqlEventToCalendar(node) {
     id: node.name,
     title:
       tag === TAG_IDS.DOCTOR_VISIT_PLAN
-        ? buildDoctorVisitTitle(node, ownerFullName)
+        ? buildDoctorVisitTitle(node)
         : (node.subject || ""),
     description: node.description ?? "",
     status: normalizeStatus(node.status),

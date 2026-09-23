@@ -12,6 +12,7 @@ import { registerDesignSystem } from './design-system/plasmic';
 import { registerDoctorConsoleComponents } from './components/DoctorConsole/plasmic';
 import MyProfile from "./components/features/my-profile";
 import ProfileHeader from "./components/features/profile-header";
+import SummaryCard from "./components/features/summary-card";
 import FirebaseUIComponent from "./components/FirebaseUIComponent";
 import LoginHelpForm from "./components/LoginHelpForm";
 import HelpSupport from "./components/features/help-support";
@@ -2754,6 +2755,157 @@ PLASMIC.registerComponent(MyProfile, {
   },
   styleSections: true,
   importPath: "./components/features/my-profile",
+});
+
+PLASMIC.registerComponent(SummaryCard, {
+  name: "SummaryCard",
+  displayName: "Summary Card",
+  description:
+    "Click-to-open achievement card for the incentive dashboard. Collapsed it shows the title, the progress bar, Inc.Primary and Target; clicking it opens the Model breakdown (Sales / Returns / Offers). Switch \"Total card\" on for the Total Summary - it has no level beneath it, so the HQ list is disabled. Off, it is a department (or standalone HQ) card, and the HQ array you pass renders as nested cards inside it, each opening on its own click.",
+  props: {
+    variant: {
+      type: "choice",
+      displayName: "Variant",
+      options: ["primary", "secondary"],
+      defaultValue: "primary",
+      description:
+        "primary - incentive against target, with the Sales / Returns / Offers breakdown. secondary - a team's sales and closing figures with its HQs as tiles behind a Show/Hide HQ button. Each variant reads a different payload; the props below say which one they belong to.",
+    },
+    data: {
+      type: "object",
+      displayName: "Data",
+      description:
+        "PRIMARY: { Name (or hq), Target (a number, or { value, month } at HQ level), color, Incentive, Model: [{ Name, tot_title, Total, data: [{ Title, Values }] }] } - the same shape at every level. SECONDARY: the team payload, wrapped or not - { data: { Team, HQ?, distributors, sales: { quantity, value }, closing: { quantity, value }, customer, total_qty, total_sales_value, total_closing_qty, total_closing_value }, Team }.",
+    },
+    total: {
+      type: "boolean",
+      displayName: "Total card",
+      defaultValue: false,
+      description: "On for the Total Summary card, in either variant. Nothing sits under a total, so the HQ list is ignored - on the primary variant no HQ cards open under it, and on the secondary one the HQ shelf and its Show/Hide button are gone.",
+    },
+    hq: {
+      type: "object",
+      displayName: "HQ list",
+      description: "PRIMARY: the department's HQ array - each entry opens as its own card under the department. SECONDARY: the team's HQ array, each rendered as a tile. Left empty, it falls back to data.HQ.",
+      hidden: (props) => props.variant !== "secondary" && !!props.total,
+    },
+    trend: {
+      type: "object",
+      displayName: "Trend (day-wise)",
+      description:
+        "Total card only - switch \"Total card\" on and this appears. Day-wise points for the trend strip: [{ date: \"2026-09-01\", value: 235000, breakdown: [{ name: \"Aura & Proxima Chennai - ELPL\", value: 45000 }] }]. `date` also accepts day/label, `value` also accepts total/Incentive/qty, and `breakdown` also accepts departments/items - each row is hovered to show that day's department split. Leave it empty and no chart renders at all; there is never an empty frame. On the primary variant the strip sits inside the card's opened body, on the secondary one under the figures.",
+      hidden: (props) => !props.total,
+    },
+    trendType: {
+      type: "choice",
+      displayName: "Trend shape",
+      options: ["wave", "line", "bars", "lollipop", "stacked", "multiples"],
+      defaultValue: "wave",
+      hidden: (props) => !props.total,
+      description:
+        "Total card only, alongside Trend. wave - smooth filled area, the shape of the month at a glance. line - the same curve without the fill, better for comparing small day-to-day differences. bars - one bar per day on a zero baseline. lollipop - stem and dot, the lightest of the discrete forms. stacked - each day split by department, with a legend; the only shape that puts the breakdown in the plot rather than only in the tooltip. multiples - only for days that carry Sales / Returns / Offers: one small chart per measure, each on its own scale, which is the readable way to show figures an order of magnitude apart. All of them carry the same per-day tooltip and all of them disappear when there is no data.",
+    },
+    defaultExpanded: {
+      type: "boolean",
+      displayName: "Open by default",
+      description:
+        "Unset, a primary card starts closed and a secondary card starts with its HQ shelf open - each variant's natural state. Set it to override that.",
+    },
+    currency: {
+      type: "string",
+      displayName: "Currency symbol",
+      defaultValue: "₹",
+      description: "Prefixed to the figures inside the Model boxes. Empty means no symbol.",
+    },
+    gap: {
+      type: "number",
+      displayName: "Card spacing",
+      defaultValue: 10,
+      description: "Pixels between one card and the next - including between a department and the HQ cards that open under it.",
+    },
+    accentColor: {
+      type: "string",
+      displayName: "Accent colour",
+      defaultValue: "#3b82f6",
+      description: "Secondary variant only: the colour of the rules beside the Sales and Closing figures.",
+      hidden: (props) => props.variant !== "secondary",
+    },
+    onHqClick: {
+      type: "eventHandler",
+      displayName: "SECONDARY - on HQ tile click",
+      description: "Secondary variant only. Fires when one of the HQ tiles is clicked; the click stops there, so it never also fires the card. Leave it unset and the tiles are not clickable.",
+      argTypes: [
+        { name: "level", type: "string" },
+        { name: "team", type: "string" },
+        { name: "hq", type: "string" },
+        { name: "node", type: "object" },
+      ],
+    },
+    autoColor: {
+      type: "boolean",
+      displayName: "Colour per department",
+      defaultValue: true,
+      description:
+        "Gives each department its own colour, picked from a built-in palette by its name, so the same department always gets the same colour and neighbours never clash. The HQ cards that open under it inherit that colour. Switch it off to use the `color` on the data instead. Either way the border is drawn at low opacity, not at full strength.",
+      hidden: (props) => props.variant === "secondary",
+    },
+    onToggle: {
+      type: "eventHandler",
+      displayName: "On card click (both variants)",
+      description:
+        "PRIMARY: fires when a card opens or closes - the card itself or one of its nested HQ cards; `level` is total / department / hq. SECONDARY: fires when the main card is clicked and nothing else - showing and hiding the HQ shelf is the Show/Hide HQ button's job, and that button does not fire this event. `level` is team, `department` carries the team name, and `open` says whether the shelf happens to be showing. An HQ tile's own click does not fire this either. Leave it unset and the card is not clickable at all.",
+      argTypes: [
+        { name: "open", type: "boolean" },
+        { name: "level", type: "string" },
+        { name: "department", type: "string" },
+        { name: "hq", type: "string" },
+        { name: "node", type: "object" },
+      ],
+    },
+    onSalesClick: {
+      type: "eventHandler",
+      displayName: "PRIMARY - on Sales box click",
+      description:
+        "Fires when the Sales box is clicked, on whichever card it belongs to. `section` is that box's Model entry ({ Name, tot_title, Total, data }) and `node` the card - so the box inside HQ-Chennai reports the department, HQ-Chennai and the Sales figures. Leave it unset and the box is not clickable at all. The click never reaches the card, so it cannot close it.",
+      argTypes: [
+        { name: "level", type: "string" },
+        { name: "department", type: "string" },
+        { name: "hq", type: "string" },
+        { name: "section", type: "object" },
+        { name: "node", type: "object" },
+      ],
+      hidden: (props) => props.variant === "secondary",
+    },
+    onReturnsClick: {
+      type: "eventHandler",
+      displayName: "PRIMARY - on Returns box click",
+      description: "Same as the Sales handler, for the Returns box.",
+      argTypes: [
+        { name: "level", type: "string" },
+        { name: "department", type: "string" },
+        { name: "hq", type: "string" },
+        { name: "section", type: "object" },
+        { name: "node", type: "object" },
+      ],
+      hidden: (props) => props.variant === "secondary",
+    },
+    onOffersClick: {
+      type: "eventHandler",
+      displayName: "PRIMARY - on Offers box click",
+      description: "Same as the Sales handler, for the Offers box.",
+      argTypes: [
+        { name: "level", type: "string" },
+        { name: "department", type: "string" },
+        { name: "hq", type: "string" },
+        { name: "section", type: "object" },
+        { name: "node", type: "object" },
+      ],
+      hidden: (props) => props.variant === "secondary",
+    },
+    className: { type: "string" },
+  },
+  styleSections: true,
+  importPath: "./components/features/summary-card",
 });
 
 PLASMIC.registerComponent(ProfileHeader, {

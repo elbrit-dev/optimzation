@@ -320,6 +320,12 @@ const dataProviderViewsMeta = {
       description:
         'Sort the WHOLE dataset on the server, so "A → Z" orders all 45,000 rows and the first page is the true first page — not the loaded page reshuffled. The existing Filter/Sort sidebar stays the only place a sort is chosen. REQUIRES the body to declare sortBy: {field: $sortField, direction: $sortDirection} with $sortField: <Doctype>SortField (e.g. LeadSortField, values are the fieldname in UPPER_SNAKE) and $sortDirection: SortDirection.',
     },
+    enableServerFilter: {
+      type: 'boolean',
+      defaultValue: false,
+      description:
+        'Apply the FILTER selections from the Filter/Sort sidebar on the server, so a filter covers all 45,000 rows instead of only the loaded page. The selections become AND-ed clauses on the same $filter variable that enableServerSearch uses, so a search and a filter compose rather than replace one another. REQUIRES the same $filter: [DBFilterInput] variable in the body. NOTE: this changes what a chosen value MATCHES, not which values are offered -- the sidebar still builds its value list from the rows already loaded, so declare the fields you want filterable in the searchFields of the query doc.',
+    },
     serverSearchFields: {
       type: 'object',
       description:

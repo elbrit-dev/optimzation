@@ -42,9 +42,14 @@ import {
 
 import { Avatar, AvatarFallback } from "@calendar/components/ui/avatar";
 import { EventParticipantAvatars } from "@calendar/components/calendar/views/shared/event-participant-avatars";
+import {
+  AgendaVisitFilter,
+  VisitTime,
+} from "@calendar/components/calendar/views/agenda-view/agenda-visit-filter";
 
 import { ICON_MAP } from "@calendar/components/calendar/mobile/MobileAddEventBar";
 import { STATUS, TAG_IDS } from "@calendar/components/calendar/constants";
+import { VISIT_FILTER, matchesVisitFilter } from "@calendar/lib/calendar/visit-filter";
 import {
   DoctorPlanGroupLabel,
   getPlanGroupKey,
@@ -66,11 +71,22 @@ export const AgendaEvents = ({ scope = "all"}) => {
     setActiveDate,
     mobileLayer,
     view,showOnlyApprovedLeaves,showOnlyTodoList,
+    agendaVisitFilter,
+    setAgendaVisitFilter,
   } = useCalendar();
 
   const isMobile = useMediaQuery("(max-width: 768px)");
 
   const [doctorAccordionOpen, setDoctorAccordionOpen] = useState({});
+
+  // Mobile only: the visit filter sits on the month agenda list (the full agenda
+  // mode has its own list, AgendaEventsMobile) and visit times show on the
+  // cards. The desktop sidebar and agenda view are deliberately left alone, and
+  // the week list has no filter, so the selection only applies in month view.
+  const showVisitFilter = isMobile && view === "month";
+  const activeVisitFilter = showVisitFilter
+    ? agendaVisitFilter
+    : VISIT_FILTER.ALL;
 
   const startX = useRef(0);
   const startY = useRef(0);
@@ -208,12 +224,19 @@ export const AgendaEvents = ({ scope = "all"}) => {
         (event) => event.tags === TAG_IDS.TODO_LIST
       );
     }
-  
+
+    if (activeVisitFilter !== VISIT_FILTER.ALL) {
+      result = result.filter((event) =>
+        matchesVisitFilter(event, activeVisitFilter)
+      );
+    }
+
     return result;
   }, [
     scopedEvents,
     showOnlyApprovedLeaves,
     showOnlyTodoList,
+    activeVisitFilter,
   ]);
 
   /* ===============================
@@ -294,9 +317,12 @@ export const AgendaEvents = ({ scope = "all"}) => {
                   <SyncStatusBadge event={event} className="text-[10px]" />
                 </div>
 
-                <p className="text-xs text-muted-foreground truncate">
-                  {ownerName}
-                </p>
+                <div className="flex items-center gap-2">
+                  <p className="min-w-0 flex-1 text-xs text-muted-foreground truncate">
+                    {ownerName}
+                  </p>
+                  {isMobile && <VisitTime event={event} />}
+                </div>
               </div>
             </div>
 
@@ -328,6 +354,15 @@ export const AgendaEvents = ({ scope = "all"}) => {
         {scope === "all" && (
           <div className="mb-4 mx-4">
             <CommandInput placeholder="Type a command or search..." />
+          </div>
+        )}
+
+        {showVisitFilter && (
+          <div className="sticky top-0 z-10 -mt-4 mb-2 flex justify-end bg-background px-4 py-2">
+            <AgendaVisitFilter
+              value={agendaVisitFilter}
+              onChange={setAgendaVisitFilter}
+            />
           </div>
         )}
 
