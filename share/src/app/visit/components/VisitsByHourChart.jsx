@@ -73,9 +73,20 @@ export function VisitsByHourChart({ data, label, onSelectHour }) {
         onSelect={onSelectHour}
         /* EVERY HOUR KEEPS ITS LABEL. The axis is the only thing carrying
            WHICH hours these are now that the empty ones are dropped, so
-           thinning it would leave 9AM and 2PM indistinguishable. A working
-           day is rarely more than a dozen columns, so they fit. */
+           thinning it would leave 9AM and 2PM indistinguishable. */
         tickInterval={0}
+        /* AND THE TRACK SCROLLS RATHER THAN SQUEEZING THEM. This used to say
+           a working day is rarely more than a dozen columns, so they fit —
+           measured on a real one, thirteen hours in a 366px card leaves 0.8px
+           between "10AM" and "11AM", which is touching. A field day runs
+           10am to 10pm often enough that the dozen is the normal case, not
+           the edge.
+
+           44px is the floor the person trend already uses, and it is what the
+           label needs: 27px of text plus room to tell one column from the
+           next. Wider than 13 × 44 and nothing scrolls, so a desktop card is
+           unchanged. */
+        minColumnWidth={44}
         /* Grows with the container: a chart that stays phone-sized on a 27"
            screen is the bug this rule exists for. */
         className="h-32 @2xl/report:h-40 @5xl/report:h-48"
