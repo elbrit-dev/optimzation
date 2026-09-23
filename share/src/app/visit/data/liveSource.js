@@ -562,7 +562,19 @@ const EMPLOYEES_QUERY = `
    without this those seats would read as filled until renumbered onto the
    "V..." series like the rest. */
 function isVacantId(employeeId, employeeName) {
-  return /^v/i.test(employeeId ?? '') || /^vacant_/i.test(employeeName ?? '');
+  /* V FOLLOWED BY DIGITS, not any V. Checked against the live roster: all 71
+     placeholders are on the V-series and every real employee is on the
+     E-series, so the digits cost nothing today and stop a future employee
+     whose id begins with a letter V from being reported as an empty seat —
+     which would drop a real person out of every headcount on the screen.
+
+     THE NAME CHECK IS TOLERANT OF TYPING, because the live records are:
+     "Vacant _ Amit Kumar Thakur" has a space before the underscore, and
+     "\tVacant_Marimuthu K(E00886)" begins with a tab, which the anchored
+     pattern could not match at all. Both are on the V-series so neither was
+     mis-read — but a placeholder still on its original HR-EMP id, which is
+     the only reason this fallback exists, would have been. */
+  return /^v\d/i.test(employeeId ?? '') || /^vacant\s*_/i.test((employeeName ?? '').trim());
 }
 
 async function fetchTeam(conn) {

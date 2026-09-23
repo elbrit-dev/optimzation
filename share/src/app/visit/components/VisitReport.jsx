@@ -292,16 +292,22 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
       /* Per rep PER DAY, so the month view is comparable to the daily standard
          of 12 rather than reporting five days' work as one rep's score.
 
-         The divisor in My Report is the one person, counted directly.
-         `activeReps` cannot supply it: it counts BEs only, so a manager
-         reading their own calls would divide by zero and get an em dash
-         where their own average belongs. */
+         The divisor is everyone who reported — see activeReps, which counts
+         the whole roster now rather than the BEs among them, so the visits on
+         top and the people underneath are the same population. My Report
+         states the one person directly rather than deriving them: a viewer
+         with no call logged yet is still one person, not zero, and their
+         average is "nothing yet" rather than an em dash. */
       callAverage: callAverage(
         scoped.rows,
         isMine ? (happenedCount > 0 ? 1 : 0) : activeReps(scoped.rows, scoped.team),
         countWorkingDays(win.from, win.to),
       ),
-      repCount: scoped.team.filter((m) => m.short === 'BE' && !m.vacant).length,
+      /* "Planned across N reps" — the same population as the divisor above
+         and as the attendance card, because managers carry plans of their own
+         (their joint calls) and counting the plan without counting them
+         spreads it across fewer people than it actually covers. */
+      repCount: scoped.team.filter((m) => !m.vacant).length,
     };
   }, [scoped, attendanceRows, overRange, calendar, pob, ready.pob, hq, isMine, win.from, win.to]);
 

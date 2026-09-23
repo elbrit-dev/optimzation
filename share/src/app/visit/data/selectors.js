@@ -178,9 +178,21 @@ export function callAverage(rows, workingCount, workingDays = 1) {
    that manager as a "rep working" here while every other rep-count on the
    screen still excludes them. */
 export function activeReps(rows, team) {
-  const beIds = new Set(team.filter((m) => m.short === 'BE').map((m) => m.id));
+  /* EVERYONE ON THE ROSTER WHO LOGGED A CALL, not the BEs among them.
+   *
+   * It counted BEs only while every OTHER number on this screen counted the
+   * whole sales roster — the attendance card, the tree's headcounts — and
+   * that made the call average a ratio of two different populations: every
+   * visit on top, only the BEs' share of the people underneath. On live
+   * September data, 275 of 952 completed visits (29%) were made by managers
+   * on joint calls, so the card read 5.95 where the honest figure is 3.66.
+   *
+   * The vacant are excluded for the reason they always are: a seat nobody
+   * sits in cannot have reported, and dividing by it reports a team as worse
+   * than it is. */
+  const ids = new Set(team.filter((m) => !m.vacant).map((m) => m.id));
   const set = new Set();
-  for (const r of rows) if (r.visitTime && beIds.has(r.employeeId)) set.add(r.employeeId);
+  for (const r of rows) if (r.visitTime && ids.has(r.employeeId)) set.add(r.employeeId);
   return set.size;
 }
 
@@ -722,7 +734,13 @@ export function byHq(rows, team) {
 
   const repsWithVisits = new Set(rows.filter((r) => r.visitTime).map((r) => r.employeeId));
   for (const m of team) {
-    if (m.short !== 'BE' || m.vacant) continue;
+    /* EVERY PERSON IN THE TERRITORY, managers included — same population as
+       activeReps above and as the attendance card, so "6 of 219 active" on an
+       HQ card and "9 of 319 reported" on the card above it are counts of the
+       same kind of thing. It was BEs only, which left a manager's own calls
+       raising the numerator of the HQ strip while they were absent from its
+       denominator. */
+    if (m.vacant) continue;
     /* Only a real HQ gets a card. A rep whose territory is a state, a zone
        or unset is not a rep "in an HQ", and counting them would put a
        headcount denominator under a card for a place that does not exist --
