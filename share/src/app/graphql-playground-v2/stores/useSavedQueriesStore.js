@@ -30,6 +30,18 @@ export const useSavedQueriesStore = create((set, get) => ({
     }
   },
 
+  setQueryDisabled: async (queryId, disabled) => {
+    try {
+      await firestoreService.setQueryDisabled(queryId, disabled);
+      set((state) => ({
+        queries: state.queries.map((q) => (q.id === queryId ? { ...q, disabled: !!disabled } : q)),
+      }));
+    } catch (error) {
+      console.error('Error updating query disabled state:', error);
+      throw error;
+    }
+  },
+
   deleteQuery: async (queryId) => {
     try {
       await firestoreService.deleteQuery(queryId);

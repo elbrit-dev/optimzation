@@ -10,7 +10,7 @@ import { InputText } from 'primereact/inputtext';
 import { Skeleton } from 'primereact/skeleton';
 import { Tag } from 'primereact/tag';
 import { Tooltip } from 'primereact/tooltip';
-import { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { usePlaygroundStore } from '../stores/usePlaygroundStore';
 import { useSavedQueriesStore } from '../stores/useSavedQueriesStore';
 
@@ -82,41 +82,35 @@ function TooltipContent({ query, formatRelativeTime }) {
     query.readTransformerCodeUpdatedAt ||
     query.writeTransformerCodeUpdatedAt;
 
+  const labelStyle = { color: '#9ca3af', whiteSpace: 'nowrap' };
+  const valueStyle = { color: '#ffffff', fontWeight: 500, textAlign: 'right', wordBreak: 'break-word' };
+  const rows = [
+    ['Body updated', formatRelativeTime(query.bodyUpdatedAt)],
+    ['Variables', formatRelativeTime(query.variablesUpdatedAt)],
+    ...(transformerUpdatedAt ? [['Transformer', formatRelativeTime(transformerUpdatedAt)]] : []),
+    ...(query.lastUpdatedBy ? [['Updated by', query.lastUpdatedBy]] : []),
+  ];
+
   return (
-    <div style={{ padding: '0.5rem', lineHeight: '1.6', maxWidth: '250px' }}>
-      <div style={{ fontWeight: 600, marginBottom: '0.5rem', paddingBottom: '0.5rem', borderBottom: '1px solid rgba(255,255,255,0.2)' }}>
+    <div style={{ padding: '0.25rem', lineHeight: '1.5', minWidth: '180px', maxWidth: '260px', color: '#ffffff' }}>
+      <div style={{ fontWeight: 600, fontSize: '0.75rem', marginBottom: '0.375rem', paddingBottom: '0.375rem', borderBottom: '1px solid rgba(255,255,255,0.2)' }}>
         Query Details
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem', fontSize: '0.75rem' }}>
-        <div>
-          <span style={{ color: '#9ca3af' }}>Body updated:</span>
-          <span style={{ color: '#ffffff', marginLeft: '0.25rem' }}>{formatRelativeTime(query.bodyUpdatedAt)}</span>
-        </div>
-        <div>
-          <span style={{ color: '#9ca3af' }}>Variables:</span>
-          <span style={{ color: '#ffffff', marginLeft: '0.25rem' }}>{formatRelativeTime(query.variablesUpdatedAt)}</span>
-        </div>
-        {transformerUpdatedAt && (
-          <div>
-            <span style={{ color: '#9ca3af' }}>Transformer:</span>
-            <span style={{ color: '#ffffff', marginLeft: '0.25rem' }}>{formatRelativeTime(transformerUpdatedAt)}</span>
-          </div>
-        )}
-        {query.lastUpdatedBy && (
-          <div>
-            <span style={{ color: '#9ca3af' }}>Last updated by:</span>
-            <span style={{ color: '#ffffff', marginLeft: '0.25rem', wordBreak: 'break-word', display: 'block', marginTop: '0.25rem' }}>
-              {query.lastUpdatedBy}
-            </span>
-          </div>
-        )}
+      <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', columnGap: '0.75rem', rowGap: '0.25rem', fontSize: '0.75rem' }}>
+        {rows.map(([label, value]) => (
+          <React.Fragment key={label}>
+            <span style={labelStyle}>{label}</span>
+            <span style={valueStyle}>{value}</span>
+          </React.Fragment>
+        ))}
       </div>
     </div>
   );
 }
 
 // QueryItem component with tooltip
-function QueryItem({ query, isSelected, onQueryClick, onDelete, formatRelativeTime }) {
+function QueryItem({ query, isSelected, onQueryClick, onDelete, onToggleDisabled, formatRelativeTime }) {
+  const isDisabled = query.disabled === true;
   // Check if query has any timestamp data to show
   const hasTimestampData = query.bodyUpdatedAt || query.variablesUpdatedAt || query.transformerCodeUpdatedAt || query.readTransformerCodeUpdatedAt || query.writeTransformerCodeUpdatedAt || query.lastUpdatedBy;
 
@@ -173,6 +167,7 @@ function QueryItem({ query, isSelected, onQueryClick, onDelete, formatRelativeTi
           }`}
         style={{
           backgroundColor: isSelected ? '#eff6ff' : '#ffffff',
+          opacity: isDisabled ? 0.6 : 1,
         }}
         onClick={(e) => onQueryClick(query, e)}
       >
@@ -190,25 +185,30 @@ function QueryItem({ query, isSelected, onQueryClick, onDelete, formatRelativeTi
               </p>
             )}
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <div className="flex items-center gap-1.5">
-              <Tag
-                value={query.clientSave ? 'Client' : 'Live'}
-                severity={query.clientSave ? 'success' : 'warning'}
-                style={{ fontSize: '10px', padding: '2px 6px', minWidth: '3rem', textAlign: 'center' }}
-              />
-            </div>
-            {hasTimestampData && (
-              <span
-                className={`${tooltipTargetId} inline-flex items-center justify-center text-gray-400 hover:text-gray-600 transition-colors cursor-help flex-shrink-0`}
-                onClick={handleInfoIconClick}
-              >
-                <i className="pi pi-info-circle text-xs"></i>
-              </span>
-            )}
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {/* Fixed width + centred text so LIVE / CLIENT / DISABLED line up down the list */}
+            <Tag
+              value={isDisabled ? 'Disabled' : (query.clientSave ? 'Client' : 'Live')}
+              severity={isDisabled ? 'danger' : (query.clientSave ? 'success' : 'warning')}
+              style={{ fontSize: '10px', padding: '2px 0', width: '4.25rem', justifyContent: 'center', marginRight: '0.25rem' }}
+            />
+            {/* Keep the slot even without timestamps so the action icons stay in columns */}
+            <span
+              className={`query-card-action ${hasTimestampData ? `${tooltipTargetId} text-gray-400 hover:text-gray-600 cursor-help` : 'invisible'} transition-colors`}
+              onClick={handleInfoIconClick}
+            >
+              <i className="pi pi-info-circle text-xs"></i>
+            </span>
+            <Button
+              icon={isDisabled ? 'pi pi-play' : 'pi pi-ban'}
+              className="ds-button-text ds-button-sm query-card-action"
+              onClick={(e) => onToggleDisabled(query, e)}
+              tooltip={isDisabled ? 'Enable query' : 'Disable query'}
+              tooltipOptions={{ position: 'top' }}
+            />
             <Button
               icon="pi pi-trash"
-              className="ds-button-text ds-button-sm ds-button-danger"
+              className="ds-button-text ds-button-sm ds-button-danger query-card-action"
               onClick={(e) => onDelete(query.id, query.name, e)}
               tooltip="Delete query"
               tooltipOptions={{ position: 'top' }}
@@ -221,7 +221,7 @@ function QueryItem({ query, isSelected, onQueryClick, onDelete, formatRelativeTi
 }
 
 export function SavedQueries() {
-  const { queries, loading, selectedQueryId, setSelectedQueryId, loadQueries, deleteQuery } = useSavedQueriesStore();
+  const { queries, loading, selectedQueryId, setSelectedQueryId, loadQueries, deleteQuery, setQueryDisabled } = useSavedQueriesStore();
   const currentQuery = usePlaygroundStore((state) => state.query);
   const { setQuery, setVariables, setTransformerFunction, setSelectedEnvironment } = usePlaygroundStore();
   const [searchTerm, setSearchTerm] = useState('');
@@ -338,6 +338,42 @@ export function SavedQueries() {
     });
   };
 
+  const handleToggleDisabled = (query, event) => {
+    event.stopPropagation();
+    event.preventDefault();
+
+    const toggle = async () => {
+      try {
+        await setQueryDisabled(query.id, !query.disabled);
+      } catch (error) {
+        console.error('Error toggling query:', error);
+      }
+    };
+
+    // Re-enabling is harmless; disabling cuts the query off everywhere, so confirm.
+    if (query.disabled) {
+      toggle();
+      return;
+    }
+    confirmDialog({
+      message: (
+        <div>
+          <p style={{ marginBottom: '0.5rem' }}>
+            Disable "{query.name}"?
+          </p>
+          <p style={{ fontSize: '0.8125rem', color: '#9ca3af' }}>
+            Data tables will stop index-checking, caching and running it, and it
+            won't be available as a nested query. You can re-enable it any time.
+          </p>
+        </div>
+      ),
+      header: 'Disable Query',
+      acceptLabel: 'Disable',
+      rejectLabel: 'Cancel',
+      accept: toggle,
+    });
+  };
+
   return (
     <div className="h-full flex flex-col bg-gray-50 border-r border-gray-200">
       <style dangerouslySetInnerHTML={{
@@ -359,6 +395,18 @@ export function SavedQueries() {
         }
         .saved-query-card .ds-button-text .p-button-icon {
           margin: 0 !important;
+        }
+        /* Info, disable and delete share one square box so they sit evenly spaced */
+        .saved-query-card .query-card-action,
+        .saved-query-card .ds-button-text.query-card-action {
+          display: inline-flex !important;
+          align-items: center;
+          justify-content: center;
+          width: 1.75rem !important;
+          min-width: 1.75rem !important;
+          height: 1.75rem !important;
+          padding: 0 !important;
+          flex-shrink: 0;
         }
       `}} />
       {/* Search Bar */}
@@ -416,6 +464,7 @@ export function SavedQueries() {
                 isSelected={isSelected}
                 onQueryClick={handleQueryClick}
                 onDelete={handleDeleteQuery}
+                onToggleDisabled={handleToggleDisabled}
                 formatRelativeTime={formatRelativeTime}
               />
             );

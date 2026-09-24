@@ -7,6 +7,15 @@ import offlineDocs from '@/resource/offline';
  */
 
 /**
+ * Disabled queries (toggled in graphql-playground-v2) are invisible to every
+ * registry consumer: no startup index check, no change watcher, no execution,
+ * no nested lookup. The playground reads Firestore directly, so it still lists them.
+ */
+export function isQueryDisabled(doc) {
+  return doc?.disabled === true;
+}
+
+/**
  * Convert offline doc to getAllQueries array format
  */
 function offlineDocToQuery(doc) {
@@ -33,7 +42,7 @@ export async function getAllQueries() {
   const offlineQueries = Object.values(offlineDocs)
     .filter((doc) => doc.json != null && doc.body)
     .map(offlineDocToQuery);
-  const merged = [...offlineQueries, ...firebaseQueries];
+  const merged = [...offlineQueries, ...firebaseQueries.filter((q) => !isQueryDisabled(q))];
   merged.sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
   return merged;
 }
@@ -48,7 +57,12 @@ export async function loadQuery(id) {
   if (offline && offline.json != null && offline.body) {
     return { ...offline, _offline: true };
   }
-  return firestoreService.loadQuery(id);
+  const doc = await firestoreService.loadQuery(id);
+  if (isQueryDisabled(doc)) {
+    console.warn(`Query "${id}" is disabled — skipping`);
+    return null;
+  }
+  return doc;
 }
 
 export const queryRegistry = {

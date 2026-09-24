@@ -817,6 +817,11 @@ export function useQueryExecution(options) {
               await checkIndexedDBAndLoadData(dataSource, queryDoc, initialMonthRange);
             }
             isInitialLoadRef.current = false;
+          } else {
+            // Disabled in the playground (registry hides it) or deleted.
+            setCurrentQueryDoc(null);
+            isInitialLoadRef.current = false;
+            if (onError) onError({ severity: 'warn', summary: 'Query unavailable', detail: `Query "${dataSource}" is disabled or does not exist`, life: 5000 });
           }
         } catch (e) {
           setCurrentQueryDoc(null);

@@ -89,6 +89,18 @@ export const firestoreService = {
   },
 
   /**
+   * Enable or disable a saved query. Disabled queries are hidden from the
+   * query registry, so providers never index-check, cache or execute them.
+   * @param {string} operationName - The operation name (document ID)
+   * @param {boolean} disabled
+   * @returns {Promise<void>}
+   */
+  async setQueryDisabled(operationName, disabled) {
+    const docRef = doc(db, DEFAULT_COLLECTION, operationName);
+    await updateDoc(docRef, { disabled: !!disabled });
+  },
+
+  /**
    * Delete a GraphQL query
    * @param {string} operationName - The operation name (document ID)
    * @returns {Promise<void>}
