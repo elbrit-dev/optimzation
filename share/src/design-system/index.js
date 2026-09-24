@@ -38,11 +38,11 @@ export { Sheet } from './components/Sheet';
 export { StackedBar } from './components/StackedBar';
 
 /* The field app's task strip, and the two pieces it is built from. The ring
-   and the badge stand alone; RingTabBar is Tabs for an open list of work
-   items — see its header for which tab control to reach for. */
+   and the badge stand alone; RingNav is a strip of links to work items, not
+   tabs — see its header for when to reach for which. */
 export { CountBadge } from './components/CountBadge';
 export { ProgressRing } from './components/ProgressRing';
-export { RingTabBar } from './components/RingTabBar';
+export { RingNav } from './components/RingNav';
 
 export { cx } from './lib/cx';
 export { TONES, toneFill, toneText } from './lib/tone';

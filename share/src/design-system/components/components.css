@@ -1917,11 +1917,11 @@
   background-color: var(--brand-fill);
 }
 
-/* ======================================================== RingTabBar
+/* =========================================================== RingNav
 
-   A scrolling strip of task tiles. Scroll and snap come from .ds-scroll-x,
-   whose block padding (4px) is exactly what the badge overhangs by — so the
-   badge is not clipped by the strip's own overflow.
+   A scrolling strip of task tiles, each a link. Scroll and snap come from
+   .ds-scroll-x, whose block padding (4px) is exactly what the badge
+   overhangs by — so the badge is not clipped by the strip's own overflow.
 
    STORY-TRAY SIZED, AND RESPONSIVE TO THE STRIP — NOT THE SCREEN.
    The strip is a size container, and the ring is 18% of its width, clamped
@@ -1937,31 +1937,33 @@
    its shape at any size. Text does not: a font size of "14% of the ring"
    would land between the steps of the type scale, so caption, label and
    badge take one step up at a 420px strip instead (the ring is ~76px by
-   then). */
-.ds-ringtabs {
+   then).
+
+   NO SELECTED STATE. These are links to other pages; see RingNav.jsx. */
+.ds-ringnav {
   container-type: inline-size;
   /* Inline-size containment means the strip cannot size to its tiles; it
      has to be given a width. Full width is what a tray always is anyway. */
   width: 100%;
   min-width: 0;
-  --ds-ringtab-size: clamp(var(--ds-ring-size), 18cqi, var(--ds-ring-size-max));
-  --ds-ringtab-adornment: max(var(--ds-ring-adornment), calc(var(--ds-ringtab-size) * 0.27));
+  --ds-ringnav-size: clamp(var(--ds-ring-size), 18cqi, var(--ds-ring-size-max));
+  --ds-ringnav-adornment: max(var(--ds-ring-adornment), calc(var(--ds-ringnav-size) * 0.27));
   /* Glyph with a date caption under it, and alone. 15/58 and 22/58 — the
      mock's own ratios. */
-  --ds-ringtab-glyph: calc(var(--ds-ringtab-size) * 0.26);
-  --ds-ringtab-glyph-alone: calc(var(--ds-ringtab-size) * 0.38);
-  --ds-ringtab-status-glyph: calc(var(--ds-ringtab-adornment) * 0.6);
+  --ds-ringnav-glyph: calc(var(--ds-ringnav-size) * 0.26);
+  --ds-ringnav-glyph-alone: calc(var(--ds-ringnav-size) * 0.38);
+  --ds-ringnav-status-glyph: calc(var(--ds-ringnav-adornment) * 0.6);
   display: flex;
   /* 11px, the mock's gap, and a real step. Not 12. */
   gap: var(--space-11);
 }
 /* The ring, and anything inside it, reads the story size; a standalone
    ProgressRing keeps the fixed --ds-ring-size. */
-.ds-ringtab .ds-ring {
-  width: var(--ds-ringtab-size);
-  height: var(--ds-ringtab-size);
+.ds-ringnav__item .ds-ring {
+  width: var(--ds-ringnav-size);
+  height: var(--ds-ringnav-size);
 }
-.ds-ringtab {
+.ds-ringnav__item {
   display: flex;
   flex: 0 0 auto;
   flex-direction: column;
@@ -1969,23 +1971,25 @@
   gap: var(--space-4);
   /* The ring plus room for its badge to overhang without touching the next
      tile. */
-  width: calc(var(--ds-ringtab-size) + var(--space-4));
+  width: calc(var(--ds-ringnav-size) + var(--space-4));
   padding: var(--space-0);
-  border: 0;
-  background: none;
   color: var(--ds-text-heading);
   font: inherit;
+  /* An anchor: no link underline, no link colour — the tile is the
+     affordance. */
+  text-decoration: none;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
-.ds-ringtab__ring {
+.ds-ringnav__ring {
   position: relative;
   display: block;
   border-radius: var(--ds-radius-circle);
 }
-.ds-ringtab__disc {
+.ds-ringnav__disc {
   position: absolute;
   /* 6px on the 58px ring; the gap between ring and disc grows with both. */
-  inset: calc(var(--ds-ringtab-size) * 0.1);
+  inset: calc(var(--ds-ringnav-size) * 0.1);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1999,7 +2003,7 @@
 /* The hover and press washes are drawn OVER the disc rather than replacing
    its fill: the tints are alpha, and an alpha fill on the disc would let the
    page show through the middle of the ring. */
-.ds-ringtab__disc::after {
+.ds-ringnav__disc::after {
   content: '';
   position: absolute;
   inset: 0;
@@ -2010,23 +2014,23 @@
 }
 /* 8px, not the mock's 6.5 — off-scale, and below every legibility floor
    this system keeps. --fs-6 is reserved for calendar day chips. */
-.ds-ringtab__caption {
+.ds-ringnav__caption {
   font: var(--fw-bold) var(--fs-8) / var(--lh-tight) var(--ds-font-ui);
   letter-spacing: var(--ls-wide);
   text-transform: uppercase;
   white-space: nowrap;
 }
-.ds-ringtab__badge {
+.ds-ringnav__badge {
   position: absolute;
   top: calc(var(--space-4) * -1);
   right: calc(var(--space-4) * -1);
   /* A cut-out, not a decorative border: it separates the badge from the ring
      it overlaps, which would otherwise read as one red blob. */
   border: var(--border-w-bold) solid var(--surface-card);
-  min-width: var(--ds-ringtab-adornment);
-  height: var(--ds-ringtab-adornment);
+  min-width: var(--ds-ringnav-adornment);
+  height: var(--ds-ringnav-adornment);
 }
-.ds-ringtab__status {
+.ds-ringnav__status {
   position: absolute;
   right: var(--space-0);
   bottom: var(--space-0);
@@ -2034,14 +2038,14 @@
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  width: var(--ds-ringtab-adornment);
-  height: var(--ds-ringtab-adornment);
+  width: var(--ds-ringnav-adornment);
+  height: var(--ds-ringnav-adornment);
   border: var(--border-w) solid var(--border-default);
   border-radius: var(--ds-radius-circle);
   background-color: var(--surface-card);
   box-shadow: var(--ds-shadow-card);
 }
-.ds-ringtab__label {
+.ds-ringnav__label {
   max-width: 100%;
   overflow: hidden;
   font: var(--fw-semibold) var(--fs-11) / var(--lh-12) var(--ds-font-ui);
@@ -2049,72 +2053,53 @@
   white-space: nowrap;
   transition: color var(--dur-fast) var(--ds-ease-standard);
 }
-/* On every tile, coloured only on the selected one — same reason as Tabs:
-   an underline that appears on selection shifts the label on every switch. */
-.ds-ringtab__underline {
-  width: 50%;
-  height: var(--border-w-bold);
-  border-radius: var(--ds-radius-pill);
-  background-color: transparent;
-  transition: background-color var(--dur-fast) var(--ds-ease-standard);
-}
 
 /* One type step up once the strip is wide enough that the ring is ~76px —
    tablet, or a phone in landscape. Stays on the scale; see the note above. */
 @container (min-width: 420px) {
   /* 16px between tiles. On the tiles, not as the strip's `gap`: a container
      query styles descendants, never the container itself. */
-  .ds-ringtab + .ds-ringtab {
+  .ds-ringnav__item + .ds-ringnav__item {
     margin-inline-start: calc(var(--space-16) - var(--space-11));
   }
-  .ds-ringtab__caption {
+  .ds-ringnav__caption {
     font-size: var(--fs-10);
   }
-  .ds-ringtab__label {
+  .ds-ringnav__label {
     font-size: var(--fs-12);
     line-height: var(--lh-20);
   }
-  .ds-ringtab__badge {
+  .ds-ringnav__badge {
     font-size: var(--fs-11);
   }
 }
 
 /* Focus is a ring round the RING, not round the whole tile — the tile's box
    is taller than it looks, and a rectangle round a circle reads as a bug. */
-.ds-ringtab:focus-visible {
+.ds-ringnav__item:focus-visible {
   outline: none;
 }
-.ds-ringtab:focus-visible .ds-ringtab__ring {
+.ds-ringnav__item:focus-visible .ds-ringnav__ring {
   outline: var(--border-w-bold) solid var(--focus-ring);
   outline-offset: var(--space-2);
 }
 
-/* Selected: Tabs' treatment — blue label, info-wash, RED underline. */
-.ds-ringtab[aria-selected="true"] .ds-ringtab__disc {
-  background-color: var(--intent-info-wash);
+/* A tile with nowhere to go: seen, not pressable. */
+.ds-ringnav__item[aria-disabled="true"] {
+  cursor: default;
 }
-.ds-ringtab[aria-selected="true"] .ds-ringtab__label {
-  color: var(--brand-text);
-}
-.ds-ringtab[aria-selected="true"] .ds-ringtab__underline {
-  background-color: var(--brand-mark);
-}
-
-.ds-ringtab:disabled {
-  cursor: not-allowed;
-}
-.ds-ringtab:disabled .ds-ringtab__disc {
+.ds-ringnav__item[aria-disabled="true"] .ds-ringnav__disc {
   background-color: var(--surface-disabled);
 }
-.ds-ringtab:disabled .ds-ringtab__label {
+.ds-ringnav__item[aria-disabled="true"] .ds-ringnav__label {
   color: var(--ds-text-disabled);
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .ds-ringtab:not(:disabled):hover .ds-ringtab__disc::after {
+  .ds-ringnav__item:not([aria-disabled="true"]):hover .ds-ringnav__disc::after {
     background-color: var(--brand-tint-weak);
   }
-  .ds-ringtab:not(:disabled):not([aria-selected="true"]):hover .ds-ringtab__label {
+  .ds-ringnav__item:not([aria-disabled="true"]):hover .ds-ringnav__label {
     color: var(--brand-text);
   }
 }
@@ -2122,6 +2107,6 @@
 /* Press darker. Not gated: it is the only feedback a tap gets. After the
    hover block, because the two selectors are equally specific and a press is
    always also a hover. */
-.ds-ringtab:active:not(:disabled) .ds-ringtab__disc::after {
+.ds-ringnav__item:not([aria-disabled="true"]):active .ds-ringnav__disc::after {
   background-color: var(--brand-tint-strong);
 }

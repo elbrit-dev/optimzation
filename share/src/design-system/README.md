@@ -95,7 +95,7 @@ design-system/
     controls    Button.jsx  Field.jsx  Select.jsx  Switch.jsx
                 SegmentedControl.jsx  Tabs.jsx  ChipRow.jsx
     labels      StatusPill.jsx  Tag.jsx  Eyebrow.jsx  SectionLabel.jsx
-                RingTabBar.jsx
+                RingNav.jsx
     quantities  Metric.jsx  ProgressBar.jsx  StackedBar.jsx  LegendChip.jsx
                 ProgressRing.jsx  CountBadge.jsx
     containers  Card.jsx  ListRow.jsx  DisclosureRow.jsx
@@ -154,7 +154,7 @@ what it looks like.
 | `ChipRow` | `SegmentedControl` | ChipRow selects from an OPEN, data-driven list — 2 HQs today, 97 tomorrow — so it scrolls horizontally and sizes to content. SegmentedControl divides a fixed, small, known set with equal-width items. |
 | `StatusPill` | `Tag` | Status is semantic and closed. Tag is categorical and open, and its colours carry no meaning. |
 | `StackedBar` | two `ProgressBar`s | Parts of a whole belong in one track, where the segments cannot drift out of sync. |
-| `RingTabBar` | `Tabs` / `ChipRow` | An open list of WORK ITEMS, each carrying its own progress ring, count and due date. Scrolls like ChipRow, switches the page like Tabs, and borrows Tabs' selected treatment (red underline included). For tabs that each hold a page in Studio, use `RingTabs` + `RingTabPanel` from ElbritCoreLib (harness: `/ring-tabs`). |
+| `RingNav` | `Tabs` / `ChipRow` | An open list of WORK ITEMS, each carrying its own progress ring, count and due date, each a LINK to its own page. Scrolls like ChipRow; unlike Tabs it switches nothing on this page, so it has no selected state and no red underline. In Studio use "Elbrit Ring Nav" from ElbritCoreLib, which routes through next/link (harness: `/ring-nav`). |
 
 **The task strip's red is `danger`, not the brand red.** The source mock drew
 its rings and badges in `--elbrit-red` (the mark). Here they mean "owed", so

@@ -41,7 +41,7 @@ import { Tag } from './components/Tag';
 import { TreeSelect } from './components/TreeSelect';
 import { CountBadge } from './components/CountBadge';
 import { ProgressRing } from './components/ProgressRing';
-import { RingTabBar } from './components/RingTabBar';
+import { RingNav } from './components/RingNav';
 
 const SECTION = 'Elbrit Design System';
 
@@ -587,9 +587,8 @@ const sheetMeta = {
 };
 
 /* ---- The task strip ----------------------------------------------------
-   RingTabBar is the bare, controlled tablist. To get tabs that each hold a
-   page, use "Elbrit Ring Tabs" from ElbritCoreLib, which wraps this with
-   per-tab panels and $ctx. */
+   RingNav is the bare strip of links, rendering plain anchors. In a Next app
+   use "Elbrit Ring Nav" from ElbritCoreLib, which routes through next/link. */
 
 const progressRingMeta = {
   name: 'DsProgressRing',
@@ -634,57 +633,32 @@ const countBadgeMeta = {
   },
 };
 
-const ringTabBarMeta = {
-  name: 'DsRingTabBar',
-  displayName: 'DS Ring Tab Bar',
+const ringNavMeta = {
+  name: 'DsRingNav',
+  displayName: 'DS Ring Nav',
   section: SECTION,
-  importPath: './src/design-system/components/RingTabBar',
-  importName: 'RingTabBar',
+  importPath: './src/design-system/components/RingNav',
+  importName: 'RingNav',
   /* Stretch, never hug: the strip is a size container and sizes its rings
      from its own width, so it cannot take its width from them. */
   defaultStyles: { width: 'stretch' },
   props: {
     items: {
       type: 'object',
-      defaultValue: [
-        {
-          id: 'secondary',
-          label: 'Secondary',
-          icon: 'calendar-clock',
-          caption: '5 Aug',
-          captionTone: 'danger',
-          count: 14,
-          segments: [
-            { key: 'done', value: 6, tone: 'success' },
-            { key: 'owed', value: 14, tone: 'danger' },
-          ],
-          statusIcon: 'pencil',
-        },
-        {
-          id: 'leave',
-          label: 'Leave',
-          icon: 'calendar',
-          iconTone: 'success',
-          segments: [{ key: 'done', value: 1, tone: 'success' }],
-          statusIcon: 'check-square',
-          statusTone: 'neutral',
-        },
-      ],
       description:
-        'Array of { id, label, icon, caption, captionTone, iconTone, segments, count, countTone, '
-        + 'statusIcon, statusTone, ariaLabel, disabled }. icon / statusIcon are '
-        + 'PrimeIcons names. Tones: brand, success, warning, danger, neutral.',
+        'Array of { id, label, href, target, icon, caption, captionTone, iconTone, segments, count, '
+        + 'countTone, statusIcon, statusTone, ariaLabel, disabled }. A tile with no href is shown '
+        + 'but not pressable. icon / statusIcon are PrimeIcons names. Tones: brand, success, '
+        + 'warning, danger, neutral. No sample data: renders nothing until items is set. Plain '
+        + 'anchors: for client-side routing use Elbrit Ring Nav.',
     },
-    value: { type: 'string', defaultValue: 'secondary' },
-    ariaLabel: { type: 'string', defaultValue: 'Sections' },
-    onChange: { type: 'eventHandler', argTypes: [{ name: 'id', type: 'string' }] },
-  },
-  states: {
-    value: {
-      type: 'writable',
-      variableType: 'text',
-      valueProp: 'value',
-      onChangeProp: 'onChange',
+    ariaLabel: { type: 'string', defaultValue: 'Shortcuts' },
+    onItemClick: {
+      type: 'eventHandler',
+      argTypes: [
+        { name: 'id', type: 'string' },
+        { name: 'href', type: 'string' },
+      ],
     },
   },
 };
@@ -714,7 +688,7 @@ const REGISTRY = [
   [Sheet, sheetMeta],
   [ProgressRing, progressRingMeta],
   [CountBadge, countBadgeMeta],
-  [RingTabBar, ringTabBarMeta],
+  [RingNav, ringNavMeta],
 ];
 
 /**

@@ -1,17 +1,22 @@
 /* Studio and the harness editor both hand this whatever was typed, so it
-   accepts the loose shapes and returns exactly what RingTabBar renders.
+   accepts the loose shapes and returns exactly what the design-system RingNav
+   renders.
 
    Accepted per entry:
-     - a string                     "Leave" -> { id: 'leave', label: 'Leave' }
+     - a string                     "Leave" -> { id: 'leave', label: 'Leave' },
+                                    with no href, so shown but not pressable
      - { id?, label?, ...item }     id falls back to the label, label to the id
+     - `href: '/leave'`             where the tile goes; trimmed, and an empty
+                                    string counts as none
+     - `target: '_blank'`           open in a new tab (external links)
      - `progress: 30`               percent done (0-100, clamped): green for
                                     done, red for the rest owed
      - `segments: [...]`            the full ProgressRing contract; wins over
                                     `progress` when both are given
 
    Dropped: nulls, entries with neither id nor label, and every repeat of an
-   id after its first — two tabs with one id would select together and share
-   one panel, which is never what was meant. */
+   id after its first — the id is the tile's React key, and two tiles sharing
+   one would be reconciled as one. */
 
 function slug(text) {
   return String(text)
@@ -36,7 +41,13 @@ function progressSegments(progress) {
   ];
 }
 
-export function normalizeRingTab(raw) {
+function cleanHref(href) {
+  if (typeof href !== 'string') return undefined;
+  const trimmed = href.trim();
+  return trimmed === '' ? undefined : trimmed;
+}
+
+export function normalizeRingNavItem(raw) {
   if (raw == null) return null;
   if (typeof raw === 'string' || typeof raw === 'number') {
     const label = String(raw).trim();
@@ -55,20 +66,22 @@ export function normalizeRingTab(raw) {
     ...rest,
     id,
     label: rawLabel ?? id,
+    href: cleanHref(raw.href),
+    target: typeof raw.target === 'string' && raw.target !== '' ? raw.target : undefined,
     segments: Array.isArray(raw.segments) ? raw.segments : progressSegments(progress),
     disabled: raw.disabled === true,
   };
 }
 
-export function normalizeRingTabs(tabs) {
-  if (!Array.isArray(tabs)) return [];
+export function normalizeRingNavItems(items) {
+  if (!Array.isArray(items)) return [];
   const seen = new Set();
   const out = [];
-  for (const raw of tabs) {
-    const tab = normalizeRingTab(raw);
-    if (!tab || seen.has(tab.id)) continue;
-    seen.add(tab.id);
-    out.push(tab);
+  for (const raw of items) {
+    const item = normalizeRingNavItem(raw);
+    if (!item || seen.has(item.id)) continue;
+    seen.add(item.id);
+    out.push(item);
   }
   return out;
 }
