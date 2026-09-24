@@ -1,4 +1,5 @@
 import React from "react";
+import { createPortal } from "react-dom";
 import {
   Area,
   Bar,
@@ -8,6 +9,7 @@ import {
   Legend,
   Line,
   ReferenceLine,
+  Rectangle,
   ResponsiveContainer,
   Scatter,
   Tooltip,
@@ -82,6 +84,56 @@ const measureKind = (name) => {
   return null;
 };
 
+/* A day that sold a little did not sell nothing. Against a month whose peak is
+   in the millions, a few thousand rounds to a zero-height bar and the day reads
+   as empty - the one thing the chart must never say about a day that has data.
+   Two pixels is enough to see and too small to misread as a quantity; a true zero
+   still draws nothing, so the difference between none and a little survives. */
+const MIN_BAR_PX = 2;
+
+/**
+ * Every bar is drawn through here, because two things have to be decided from
+ * the segment itself and recharts' own props cannot see either.
+ *
+ * A zero draws nothing. `minPointSize` could not be used for this: its callback
+ * is handed value[1], which on a stacked bar is the top of the running stack,
+ * not the segment's own size - so a Returns segment of exactly 0 sitting on top
+ * of 1,673 of Sales looked non-zero and got the minimum height, painting an
+ * orange bar for a day with no returns. The segment's extent is value[1] minus
+ * value[0], and that is what decides here.
+ *
+ * A day that sold a little did not sell nothing, so anything non-zero is given
+ * MIN_BAR_PX: against a month peaking in the millions a few thousand would
+ * otherwise round to nothing and read as an empty day. It grows from the
+ * baseline end, so the bar keeps the edge it is measured from.
+ *
+ * The radius is then clamped to the bar's own half-height, because a 4px corner
+ * on a 2px bar rounds into a capsule and reads as a curve rather than a value.
+ */
+const ClampedBar = (props) => {
+  const { radius, width, height, y, value } = props;
+
+  const own = Array.isArray(value)
+    ? (Number(value[1]) || 0) - (Number(value[0]) || 0)
+    : Number(value) || 0;
+  if (!own) return null;
+
+  let h = Math.abs(Number(height) || 0);
+  let top = Number(y) || 0;
+  if (h < MIN_BAR_PX) {
+    // Keep the baseline edge: upward bars grow up, downward bars grow down.
+    if (own >= 0) top = top + h - MIN_BAR_PX;
+    h = MIN_BAR_PX;
+  }
+
+  const corners = Array.isArray(radius)
+    ? radius
+    : [radius || 0, radius || 0, radius || 0, radius || 0];
+  const cap = Math.max(0, Math.min(h / 2, Math.abs(Number(width) || 0) / 2));
+
+  return <Rectangle {...props} y={top} height={h} radius={corners.map((v) => Math.min(v || 0, cap))} />;
+};
+
 const isNum = (n) => typeof n === "number" && Number.isFinite(n);
 
 const num = (v) => {
@@ -96,22 +148,17 @@ const pick = (obj, keys) => {
   return undefined;
 };
 
-/** Normalise one point, whatever the API called its fields. */
-const readPoint = (p) => {
-  const raw = pick(p, ["date", "Date", "day", "Day", "label", "Label", "name"]);
-  const value = num(pick(p, ["value", "Value", "total", "Total", "Incentive", "amount", "qty", "quantity"]));
-  const list = pick(p, ["breakdown", "Breakdown", "departments", "Departments", "items", "teams", "data"]);
-  const breakdown = Array.isArray(list)
-    ? list
-        .map((d) => ({
-          name: String(pick(d, ["name", "Name", "department", "Department", "Team", "team", "hq", "HQ"]) ?? ""),
-          value: num(pick(d, ["value", "Value", "total", "Total", "Incentive", "amount", "qty", "quantity"])),
-        }))
-        .filter((d) => d.name || d.value !== null)
-    : [];
-  // A day may also carry its measures - Sales / Returns / Offers - either as a
-  // `series` object or as plain keys on the point itself.
-  const bag = pick(p, ["series", "Series", "measures", "Measures"]);
+const VALUE_KEYS = ["value", "Value", "total", "Total", "Incentive", "amount", "qty", "quantity"];
+const NAME_KEYS = ["name", "Name", "department", "Department", "Team", "team", "hq", "HQ"];
+
+/**
+ * The measures - Sales / Returns / Offers - carried either as a `series` object
+ * or as plain keys. Read the same way for a day and for one department within
+ * that day, so that filtering to a measure can follow all the way down into the
+ * breakdown instead of stopping at the headline.
+ */
+const readMeasures = (o) => {
+  const bag = pick(o, ["series", "Series", "measures", "Measures"]);
   const measures = {};
   if (bag && typeof bag === "object" && !Array.isArray(bag)) {
     Object.entries(bag).forEach(([k, v]) => {
@@ -124,12 +171,29 @@ const readPoint = (p) => {
       ["Returns", ["returns", "Returns", "credit", "Credit", "creditNote", "credit_note"]],
       ["Offers", ["offers", "Offers", "offer", "Offer"]],
     ].forEach(([label, keys]) => {
-      const n = num(pick(p, keys));
+      const n = num(pick(o, keys));
       if (n !== null) measures[label] = n;
     });
   }
+  return measures;
+};
 
-  return { raw, value, breakdown, measures };
+/** Normalise one point, whatever the API called its fields. */
+const readPoint = (p) => {
+  const raw = pick(p, ["date", "Date", "day", "Day", "label", "Label", "name"]);
+  const value = num(pick(p, VALUE_KEYS));
+  const list = pick(p, ["breakdown", "Breakdown", "departments", "Departments", "items", "teams", "data"]);
+  const breakdown = Array.isArray(list)
+    ? list
+        .map((d) => ({
+          name: String(pick(d, NAME_KEYS) ?? ""),
+          value: num(pick(d, VALUE_KEYS)),
+          measures: readMeasures(d),
+        }))
+        .filter((d) => d.name || d.value !== null)
+    : [];
+
+  return { raw, value, breakdown, measures: readMeasures(p) };
 };
 
 const shortDate = (raw, locale) => {
@@ -203,14 +267,33 @@ const CSS = `
 .tr__swatch { width: 9px; height: 9px; border-radius: 2px; flex: 0 0 auto; }
 .tr__legendName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   max-width: 190px; }
+.tr__legendValue { font-weight: 700; color: #0f172a; font-variant-numeric: tabular-nums; }
+/* The measures legend doubles as the filter, so it is a real button: reachable
+   by keyboard, and it says which measure is isolated rather than only showing
+   it. The department legend of a stacked chart stays a plain key. */
+.tr__legendItem[data-interactive="true"] { cursor: pointer; border: 0; background: none;
+  font-family: inherit; font-size: 11px; color: #475569; text-align: left;
+  padding: 3px 7px; margin: -3px -7px; border-radius: 7px;
+  transition: background .12s ease, opacity .12s ease; }
+.tr__legendItem[data-interactive="true"]:hover { background: #f1f5f9; }
+.tr__legendItem[data-interactive="true"]:focus-visible { outline: 2px solid #2a78d6;
+  outline-offset: 1px; }
+.tr__legendItem[data-dim="true"] { opacity: .4; }
 
 /* ---- tooltip ---- */
 .tr__tip { min-width: 170px; max-width: 270px; padding: 9px 10px; border-radius: 8px;
   background: #0f172a; color: #e2e8f0; box-shadow: 0 6px 20px rgba(15,23,42,.22); }
-/* Opt-in: the tooltip clears the point by its own height, so it reads above the
-   curve rather than over the rows below it. Shifting by 100% rather than a fixed
-   number keeps it right whether it lists three rows or nine. */
-.tr--tipAbove .tr__tip { transform: translateY(calc(-100% - 22px)); }
+/* The tooltip is portalled to <body> and placed against the pointer in viewport
+   coordinates. Fixed rather than absolute for three reasons at once: it is
+   clipped by no ancestor, it outranks whatever card comes next, and a fixed box
+   is outside the document's scrollable overflow, so a tall tooltip can no
+   longer stretch the page the way the old transform-shifted one did. */
+.tr__tipLayer { position: fixed; z-index: 2147483000; pointer-events: none;
+  max-width: min(300px, calc(100vw - 16px)); }
+.tr__tipLayer[data-y="above"] { transform: translateY(calc(-100% - 18px)); }
+.tr__tipLayer[data-y="below"] { transform: translateY(18px); }
+.tr__tipLayer[data-x="center"] { translate: -50%; }
+.tr__tipLayer[data-x="end"] { translate: -100%; }
 .tr__tipDate { font-size: 11px; color: #94a3b8; }
 .tr__tipTotal { margin-top: 2px; font-size: 14px; font-weight: 700; color: #fff;
   font-variant-numeric: tabular-nums; }
@@ -228,40 +311,74 @@ const CSS = `
   text-transform: uppercase; color: #64748b; margin-bottom: 2px; }
 `;
 
+/* Where the pointer is, in viewport coordinates. The portalled tooltip is no
+   longer inside the chart, so it cannot be placed from recharts' chart-relative
+   coordinate - it is placed against the cursor instead. Module-level because
+   every chart on the page wants the same one value. */
+const POINTER = { x: 0, y: 0 };
+
 function useStyles() {
   React.useEffect(() => {
-    if (typeof document === "undefined" || document.getElementById(STYLE_ID)) return;
-    const el = document.createElement("style");
-    el.id = STYLE_ID;
-    el.textContent = CSS;
-    document.head.appendChild(el);
+    if (typeof document === "undefined") return undefined;
+    if (!document.getElementById(STYLE_ID)) {
+      const el = document.createElement("style");
+      el.id = STYLE_ID;
+      el.textContent = CSS;
+      document.head.appendChild(el);
+    }
+    const onMove = (e) => {
+      POINTER.x = e.clientX;
+      POINTER.y = e.clientY;
+    };
+    window.addEventListener("pointermove", onMove, { passive: true, capture: true });
+    return () => window.removeEventListener("pointermove", onMove, { capture: true });
   }, []);
 }
 
 /* -------------------------------------------------------------------------- */
 
 /** The day's total on top, then the departments behind it, biggest first. */
-function TrendTooltip({ active, payload, locale, formatValue, maxRows, colorOf, measures }) {
+function TrendTooltip({ active, payload, locale, formatValue, maxRows, colorOf, measures, tipAbove, only }) {
   if (!active || !payload || !payload.length) return null;
   const point = payload[0]?.payload;
   if (!point) return null;
 
-  // Both stories, in the order they are asked about: what the day was made of
-  // (Sales / Returns / Offers), then who made it (the departments).
-  const measureRows = measures
-    ? measures
-        .map((m) => ({ name: m.name, value: point.measures?.[m.name] ?? null }))
-        .filter((r) => r.value !== null)
-    : [];
+  /* With a measure isolated in the legend, the whole tooltip is about that
+     measure: the headline is its figure for the day and the departments are its
+     split, not the day's overall one. Showing Offers on the chart while the
+     rows underneath still added up to Sales was the tooltip disagreeing with
+     the chart it belongs to. */
+  const headline = only ? point.measures?.[only] ?? null : point.value;
+
+  // Unfiltered, the day is told as two stories: what it was made of (Sales /
+  // Returns / Offers), then who made it. Filtered, the first story is already
+  // the headline, so it is not repeated.
+  const measureRows =
+    !only && measures
+      ? measures
+          .map((m) => ({ name: m.name, value: point.measures?.[m.name] ?? null }))
+          .filter((r) => r.value !== null)
+      : [];
+
   const deptRows = (point.breakdown || [])
-    .slice()
+    .map((r) => ({
+      name: r.name,
+      value: only ? r.measures?.[only] ?? null : r.value,
+    }))
+    .filter((r) => r.value !== null)
     .sort((a, b) => Math.abs(b.value || 0) - Math.abs(a.value || 0));
 
-  return (
+  const deptCaption = only
+    ? `${only} by department`
+    : measureRows.length
+      ? "By department"
+      : null;
+
+  const body = (
     <div className="tr__tip">
       <div className="tr__tipDate">{longDate(point.raw, locale)}</div>
       <div className="tr__tipTotal">
-        {point.value === null ? "No data" : formatValue(point.value)}
+        {headline === null || headline === undefined ? "No data" : formatValue(headline)}
       </div>
       {measureRows.length ? (
         <div className="tr__tipRows">
@@ -279,10 +396,13 @@ function TrendTooltip({ active, payload, locale, formatValue, maxRows, colorOf, 
 
       {deptRows.length ? (
         <div className="tr__tipRows">
-          {measureRows.length ? <div className="tr__tipCaption">By department</div> : null}
+          {deptCaption ? <div className="tr__tipCaption">{deptCaption}</div> : null}
           {deptRows.slice(0, maxRows).map((row, j) => (
             <div className="tr__tipRow" key={`d-${row.name}-${j}`}>
-              {colorOf && !measureRows.length ? (
+              {/* Departments are only colour-coded when they ARE the series;
+                  under a measure they share that measure's one colour, so a
+                  swatch per row would say nothing. */}
+              {colorOf && !measureRows.length && !only ? (
                 <span className="tr__tipSwatch" style={{ background: colorOf(row.name) }} />
               ) : null}
               <span className="tr__tipName">{row.name}</span>
@@ -297,6 +417,34 @@ function TrendTooltip({ active, payload, locale, formatValue, maxRows, colorOf, 
         </div>
       ) : null}
     </div>
+  );
+
+  // Rendered in place on the server; in the browser it goes to <body>, where no
+  // card can clip it and nothing painted later can cover it.
+  if (typeof document === "undefined" || typeof window === "undefined") return body;
+
+  const pad = 12;
+  const { x, y } = POINTER;
+  const vw = window.innerWidth || 0;
+  const vh = window.innerHeight || 0;
+  // Above the cursor by default - it keeps the tooltip off the row it describes
+  // - but near the top of the screen there is no room, and a tooltip running off
+  // the top is worse than one sitting under the cursor.
+  const placeY = tipAbove !== false && y > vh * 0.38 ? "above" : "below";
+  // Centred on the cursor, except near an edge, where it anchors to that edge
+  // instead of hanging off the screen.
+  const placeX = x < 170 ? "start" : x > vw - 170 ? "end" : "center";
+
+  return createPortal(
+    <div
+      className="tr__tipLayer"
+      data-x={placeX}
+      data-y={placeY}
+      style={{ left: Math.min(Math.max(x, pad), Math.max(vw - pad, pad)), top: y }}
+    >
+      {body}
+    </div>,
+    document.body
   );
 }
 
@@ -351,12 +499,18 @@ export default function TrendChart({
           breakdown: d.breakdown,
           measures: d.measures,
         };
-        if (multi) measures.forEach((m) => (flat[m.name] = d.measures?.[m.name] ?? 0));
+        /* Plotted as magnitudes. Returns and credits arrive negative because
+           they are deductions, and drawn as-is they hang below the baseline,
+           which makes the chart about sign rather than size and squashes every
+           other series into the top half. The bar says how much; the label
+           says which way. The tooltip keeps the real signed figure, so nothing
+           is hidden - only the direction is normalised. */
+        if (multi) measures.forEach((m) => (flat[m.name] = Math.abs(d.measures?.[m.name] ?? 0)));
         if (type === "stacked" && !multi) {
           series.forEach((s) => (flat[s.name] = 0));
           d.breakdown.forEach((r) => {
             const key = rest.has(r.name) ? OTHER : r.name;
-            if (key in flat) flat[key] += r.value || 0;
+            if (key in flat) flat[key] += Math.abs(r.value || 0);
           });
         }
         return flat;
@@ -367,10 +521,34 @@ export default function TrendChart({
   // Nothing to plot is not an empty chart - it is no chart.
   if (!rows.some((d) => d.value !== null)) return null;
 
-  const hasNegative =
-    rows.some((d) => (d.value || 0) < 0) ||
-    (multi && rows.some((d) => Object.values(d.measures || {}).some((v) => v < 0)));
+  // Measures and stacked departments are plotted as magnitudes now, so only the
+  // single headline series can still cross the baseline.
+  const hasNegative = !multi && type !== "stacked" && rows.some((d) => (d.value || 0) < 0);
   const legendItems = multi ? measures : type === "stacked" ? series : [];
+
+  /* Clicking a measure in the legend isolates it; clicking it again brings the
+     others back. Only the measures legend is interactive - the department
+     legend of a stacked chart is a key, not a control. The isolated name is
+     kept rather than a list of hidden ones so that a click always means the
+     same thing: "show me this one". */
+  const [only, setOnly] = React.useState(null);
+  const shown = only ? measures.filter((m) => m.name === only) : measures;
+
+  /* The legend carries each measure's total for the period, so the numbers are
+     readable without hovering a single day. */
+  const measureTotals = React.useMemo(() => {
+    const t = {};
+    measures.forEach((m) => {
+      t[m.name] = rows.reduce((sum, d) => sum + (d.measures?.[m.name] ?? 0), 0);
+    });
+    return t;
+  }, [measures, rows]);
+
+  /* A measure that disappears from the data should not stay latched as the
+     filter, or the chart would render empty with no way back. */
+  React.useEffect(() => {
+    if (only && !measures.some((m) => m.name === only)) setOnly(null);
+  }, [measures, only]);
   const colorOf = legendItems.length
     ? (name) =>
         (legendItems.find((s) => s.name === name) ||
@@ -381,16 +559,16 @@ export default function TrendChart({
   const tooltip = (
     <Tooltip
       cursor={{ fill: "rgba(15,23,42,.05)" }}
-      wrapperStyle={{ outline: "none", zIndex: 5 }}
-      allowEscapeViewBox={{ x: false, y: true }}
-      offset={14}
+      wrapperStyle={{ outline: "none" }}
       content={
         <TrendTooltip
           locale={locale}
           formatValue={formatValue}
           maxRows={maxRows}
           colorOf={colorOf}
-          measures={multi ? measures : null}
+          measures={multi ? shown : null}
+          only={only}
+          tipAbove={tipAbove}
         />
       }
     />
@@ -423,6 +601,43 @@ export default function TrendChart({
     />
   );
 
+  /* One legend, used by both the single plot and the small multiples - it is
+     the only way back once a measure has been isolated, so every layout that
+     can filter has to render it. */
+  const legend =
+    legendItems.length > 1 ? (
+      <div className="tr__legend">
+        {legendItems.map((item) =>
+          multi ? (
+            <button
+              type="button"
+              className="tr__legendItem"
+              key={item.name}
+              data-interactive="true"
+              data-dim={!only || only === item.name ? undefined : "true"}
+              aria-pressed={only === item.name}
+              onClick={(e) => {
+                // The card underneath is clickable; isolating a measure is not
+                // also a request to open or close it.
+                e.stopPropagation();
+                setOnly((v) => (v === item.name ? null : item.name));
+              }}
+            >
+              <span className="tr__swatch" style={{ background: item.color }} />
+              <span className="tr__legendName">{item.name}</span>
+              <span className="tr__legendValue">{formatValue(measureTotals[item.name])}</span>
+            </button>
+          ) : (
+            /* A stacked chart's department legend is a key, not a control. */
+            <span className="tr__legendItem" key={item.name}>
+              <span className="tr__swatch" style={{ background: item.color }} />
+              <span className="tr__legendName">{item.name}</span>
+            </span>
+          )
+        )}
+      </div>
+    ) : null;
+
   const common = {
     data,
     margin: { top: 6, right: 2, bottom: 0, left: 2 },
@@ -445,7 +660,7 @@ export default function TrendChart({
           </span>
         </div>
 
-        {measures.map((m, mi) => (
+        {shown.map((m, mi) => (
           <div className="tr__multiple" key={m.name}>
             <div className="tr__multipleHead">
               <span className="tr__swatch" style={{ background: m.color }} />
@@ -459,16 +674,16 @@ export default function TrendChart({
                   <ReferenceLine y={0} stroke="#eef2f7" />
                   <Tooltip
                     cursor={{ stroke: "rgba(15,23,42,.18)", strokeWidth: 1 }}
-                    wrapperStyle={{ outline: "none", zIndex: 5 }}
-                    allowEscapeViewBox={{ x: false, y: true }}
-                    offset={14}
+                    wrapperStyle={{ outline: "none" }}
                     content={
                       <TrendTooltip
                         locale={locale}
                         formatValue={formatValue}
                         maxRows={maxRows}
                         colorOf={colorOf}
-                        measures={measures}
+                        measures={shown}
+                        only={only}
+                        tipAbove={tipAbove}
                       />
                     }
                   />
@@ -486,7 +701,7 @@ export default function TrendChart({
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
-            {mi === measures.length - 1 ? (
+            {mi === shown.length - 1 ? (
               <div className="tr__multipleAxis">
                 <span>{shortDate(rows[0]?.raw, locale)}</span>
                 <span>{shortDate(rows[rows.length - 1]?.raw, locale)}</span>
@@ -494,6 +709,7 @@ export default function TrendChart({
             ) : null}
           </div>
         ))}
+        {legend}
       </div>
     );
   }
@@ -552,7 +768,12 @@ export default function TrendChart({
             ) : null}
 
             {!multi && type === "bars" ? (
-              <Bar dataKey="value" radius={[4, 4, 0, 0]} isAnimationActive={false}>
+              <Bar
+                dataKey="value"
+                radius={[4, 4, 0, 0]}
+                shape={<ClampedBar />}
+                isAnimationActive={false}
+              >
                 {data.map((d, i) => (
                   <Cell key={i} fill={(d.value || 0) < 0 ? negativeColor : accent} />
                 ))}
@@ -561,7 +782,7 @@ export default function TrendChart({
 
             {!multi && type === "lollipop" ? (
               <>
-                <Bar dataKey="value" barSize={1.5} isAnimationActive={false}>
+                <Bar dataKey="value" barSize={1.5} shape={<ClampedBar />} isAnimationActive={false}>
                   {data.map((d, i) => (
                     <Cell key={i} fill={(d.value || 0) < 0 ? negativeColor : accent} fillOpacity={0.4} />
                   ))}
@@ -581,6 +802,7 @@ export default function TrendChart({
                     dataKey={s.name}
                     stackId="day"
                     fill={s.color}
+                    shape={<ClampedBar />}
                     isAnimationActive={false}
                     radius={i === series.length - 1 ? [4, 4, 0, 0] : 0}
                     // a hairline of the surface between segments, so touching
@@ -592,7 +814,7 @@ export default function TrendChart({
               : null}
 
             {multi && type === "wave"
-              ? measures.map((m) => (
+              ? shown.map((m) => (
                   <Area
                     key={m.name}
                     type="natural"
@@ -609,7 +831,7 @@ export default function TrendChart({
               : null}
 
             {multi && type === "line"
-              ? measures.map((m) => (
+              ? shown.map((m) => (
                   <Line
                     key={m.name}
                     type="natural"
@@ -624,26 +846,28 @@ export default function TrendChart({
               : null}
 
             {multi && (type === "bars" || type === "lollipop")
-              ? measures.map((m) => (
+              ? shown.map((m) => (
                   <Bar
                     key={m.name}
                     dataKey={m.name}
                     fill={m.color}
                     radius={[3, 3, 0, 0]}
+                    shape={<ClampedBar />}
                     isAnimationActive={false}
                   />
                 ))
               : null}
 
             {multi && type === "stacked"
-              ? measures.map((m, i) => (
+              ? shown.map((m, i) => (
                   <Bar
                     key={m.name}
                     dataKey={m.name}
                     stackId="day"
                     fill={m.color}
+                    shape={<ClampedBar />}
                     isAnimationActive={false}
-                    radius={i === measures.length - 1 ? [4, 4, 0, 0] : 0}
+                    radius={i === shown.length - 1 ? [4, 4, 0, 0] : 0}
                     stroke="#fff"
                     strokeWidth={1}
                   />
@@ -653,16 +877,7 @@ export default function TrendChart({
         </ResponsiveContainer>
       </div>
 
-      {legendItems.length > 1 ? (
-        <div className="tr__legend">
-          {legendItems.map((s) => (
-            <span className="tr__legendItem" key={s.name}>
-              <span className="tr__swatch" style={{ background: s.color }} />
-              <span className="tr__legendName">{s.name}</span>
-            </span>
-          ))}
-        </div>
-      ) : null}
+      {legend}
     </div>
   );
 }

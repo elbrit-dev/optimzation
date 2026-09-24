@@ -401,7 +401,7 @@ export default function DoctorCard({
             }
           : undefined
       }
-      className={`rounded-2xl border bg-white p-4 shadow-sm ${
+      className={`flex h-full flex-col rounded-2xl border bg-white p-4 shadow-sm ${
         selected ? "border-indigo-300 ring-1 ring-indigo-200" : "border-gray-100"
       } ${
         actsOnClick
@@ -413,7 +413,7 @@ export default function DoctorCard({
           : ""
       } ${className ?? ""}`}
     >
-      <div className="flex items-start gap-3">
+      <div className="flex flex-1 items-start gap-3">
         {showAvatar ? (
           <div
             className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold ${tone.avatar}`}
@@ -422,7 +422,7 @@ export default function DoctorCard({
           </div>
         ) : null}
 
-        <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 flex-1 flex-col self-stretch">
           <div className="flex items-start justify-between gap-3">
             {/* LEFT — name, speciality, division chips */}
             <div className="min-w-0">
@@ -495,8 +495,16 @@ export default function DoctorCard({
           {/* ADD POB — the same POB the doctor visit captures, raised straight
               from the list. Its own button, so the card click keeps opening the
               doctor. */}
+          {/* mt-auto, not mt-3: the content above a card varies -- a doctor may
+              have a category line or not, and one department chip or three that
+              wrap to a second row -- so a button that simply follows the content
+              lands at a different height on every card in the grid. Pushed to
+              the bottom instead, every card's Add POB sits on the same line.
+              This needs the three flex/h-full classes above it: the card is a
+              full-height column, its content row takes the slack, and the
+              column it sits in is itself a flex column. */}
           {showAddPob ? (
-            <div className="mt-3 flex justify-end">
+            <div className="mt-auto flex justify-end pt-3">
               <button
                 type="button"
                 onClick={openPob}

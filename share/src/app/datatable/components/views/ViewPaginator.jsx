@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTableOperations } from '../../contexts/TableOperationsContext';
 import { useDataViews } from '../../contexts/ViewContext';
 
@@ -45,9 +45,20 @@ function useBusy() {
 }
 
 /**
- * Compact page-size pill: "▤ 25 / page". A native <select> on purpose — the
- * engine's header row is overflow-x-auto, which clips a popup menu on the cross
- * axis too (the reason SyncPill has to position its menu fixed).
+ * Compact page-size pill: "▤ 25 / page".
+ *
+ * This WAS a native <select>, because the engine's header row is
+ * overflow-x-auto and that clips on the cross axis too, so an absolutely
+ * positioned menu gets cut off. The cost was that the list came from the OS:
+ * a system-styled column with a blue highlight, matching nothing else on the
+ * page and sized for a desktop mouse.
+ *
+ * It now uses the same escape SyncPill already uses two files over — a button
+ * plus a menu positioned FIXED at the button's rect — so the popup clears the
+ * clip while still being ours to style. Everything that made the select work is
+ * kept: the chosen size is the button's own label, the options still come from
+ * useSizeOptions, and choosing one still goes through both paging.setFetchSize
+ * and updatePagination.
  */
 export function PageSizePill({ className, paging: pagingProp }) {
   // The context is only a fallback. When this pill sits in the provider's HEADER
@@ -61,36 +72,98 @@ export function PageSizePill({ className, paging: pagingProp }) {
   const busy = useBusy();
   const options = useSizeOptions(paging?.pageSizeOptions, paging?.fetchSize);
 
-  if (!paging?.enabled || options.length === 0) return null;
+  const [open, setOpen] = useState(false);
+  const [anchor, setAnchor] = useState(null);
+  const wrapRef = useRef(null);
 
-  const onChange = (event) => {
-    const next = Number(event.target.value);
+  // Same lifecycle as SyncPill's menu: an outside click closes it, and so does
+  // any scroll or resize — a fixed menu would otherwise stay put while the
+  // button it belongs to slides away underneath.
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDocClick = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    };
+    const close = () => setOpen(false);
+    document.addEventListener('mousedown', onDocClick);
+    document.addEventListener('scroll', close, { capture: true, passive: true });
+    window.addEventListener('resize', close);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('scroll', close, { capture: true });
+      window.removeEventListener('resize', close);
+    };
+  }, [open]);
+
+  const toggle = useCallback(() => {
+    setOpen((was) => {
+      if (was) return false;
+      const rect = wrapRef.current?.getBoundingClientRect();
+      if (rect) setAnchor({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+      return true;
+    });
+  }, []);
+
+  const choose = useCallback((next) => {
+    setOpen(false);
     if (!Number.isFinite(next) || next <= 0) return;
-    paging.setFetchSize(next);
+    paging?.setFetchSize(next);
     // Keep the engine's client-side window in step with the fetch size, so both
     // sortedData- and paginatedData-bound views show the same rows.
     if (typeof updatePagination === 'function') updatePagination(0, next);
-  };
+  }, [paging, updatePagination]);
+
+  // Hooks first, THEN the bail-out. React counts hooks by call order, so an
+  // early return above them would shift every hook on a later render.
+  if (!paging?.enabled || options.length === 0) return null;
 
   return (
-    <div
-      className={`${PILL_BASE} px-1.5 sm:px-2 ${busy ? 'opacity-60' : ''} ${className ?? ''}`}
-      style={PILL_HEIGHT}
-    >
-      <i className="pi pi-list text-[10px] text-gray-500" aria-hidden="true" />
-      <select
-        value={paging.fetchSize}
-        onChange={onChange}
+    <div ref={wrapRef} className={`relative inline-flex shrink-0 ${className ?? ''}`}>
+      <button
+        type="button"
+        onClick={toggle}
         disabled={busy}
+        aria-haspopup="listbox"
+        aria-expanded={open}
         aria-label="Rows to load"
-        className="cursor-pointer appearance-none border-0 bg-transparent pr-3 text-[11px] font-semibold text-slate-800 outline-none sm:text-xs"
-        style={{ backgroundImage: 'none' }}
+        className={`${PILL_BASE} gap-1 px-1.5 hover:bg-gray-50 disabled:opacity-60 sm:px-2 ${busy ? 'opacity-60' : ''}`}
+        style={PILL_HEIGHT}
       >
-        {options.map((n) => (
-          <option key={n} value={n}>{`${n} / page`}</option>
-        ))}
-      </select>
-      <i className="pi pi-chevron-down -ml-2 text-[9px] text-gray-500" aria-hidden="true" />
+        <i className="pi pi-list text-[10px] text-gray-500" aria-hidden="true" />
+        {`${paging.fetchSize} / page`}
+        <i
+          className={`pi pi-chevron-down text-[9px] text-gray-500 transition-transform ${open ? 'rotate-180' : ''}`}
+          aria-hidden="true"
+        />
+      </button>
+
+      {open && anchor ? (
+        <div
+          role="listbox"
+          aria-label="Rows to load"
+          style={{ position: 'fixed', top: anchor.top, right: anchor.right, zIndex: 2000 }}
+          className="min-w-[8.5rem] overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-xl"
+        >
+          {options.map((n) => {
+            const on = n === paging.fetchSize;
+            return (
+              <button
+                key={n}
+                type="button"
+                role="option"
+                aria-selected={on}
+                onClick={() => choose(n)}
+                className={`flex w-full items-center justify-between gap-3 px-3 py-1.5 text-left text-xs hover:bg-gray-50 ${
+                  on ? 'font-semibold text-slate-900' : 'text-slate-700'
+                }`}
+              >
+                <span>{`${n} / page`}</span>
+                {on ? <i className="pi pi-check text-[10px] text-indigo-600" aria-hidden="true" /> : null}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
     </div>
   );
 }

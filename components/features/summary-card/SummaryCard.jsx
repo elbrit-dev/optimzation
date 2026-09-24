@@ -156,15 +156,9 @@ const CSS = `
 /* Each card sizes itself off ITS OWN width, not the viewport's: the same card
    has to work full-bleed, in a narrow dashboard column, and nested inside a
    department, and only a container query can tell those apart. */
-/* Same clip as the secondary card, and for the same reason: the trend
-   tooltip's wrapper keeps its box at the cursor while the transform draws the
-   tip higher, and that leftover box would otherwise extend the page. The
-   margin is what keeps this honest - the legend badge sits at top: -9px on
-   purpose, so the clip region has to reach past the border before it bites. */
 .esc-card { position: relative; width: 100%; background: #fff;
   border: 1px solid var(--esc-border, #e5e7eb); border-radius: 12px;
-  padding: 16px 16px 14px; transition: box-shadow .18s ease;
-  overflow: clip; overflow-clip-margin: 14px;
+  padding: 20px 20px 18px; transition: box-shadow .18s ease;
   container-type: inline-size; container-name: esc; }
 .esc-card[data-open="true"] { box-shadow: 0 1px 3px rgba(16,24,40,.08); }
 .esc-card[data-clickable="true"] { cursor: pointer; }
@@ -178,30 +172,30 @@ const CSS = `
   white-space: nowrap; text-overflow: ellipsis; }
 
 .esc-card__head { display: flex; align-items: center; gap: 10px; }
-.esc-card__title { margin: 0; font-size: clamp(17px, 2cqi, 22px); font-weight: 700;
+.esc-card__title { margin: 0; font-size: clamp(20px, 2.3cqi, 25px); font-weight: 700;
   line-height: 1.25; letter-spacing: -.01em; flex: 1 1 auto; min-width: 0; }
 
 /* ---- progress ---- */
-.esc-progress { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
-.esc-progress__track { flex: 1 1 auto; height: 10px; border-radius: 999px;
+.esc-progress { display: flex; align-items: center; gap: 10px; margin-top: 18px; }
+.esc-progress__track { flex: 1 1 auto; height: 12px; border-radius: 999px;
   background: #e5e7eb; overflow: hidden; }
 .esc-progress__fill { height: 100%; border-radius: 999px; background: #16a34a;
   transition: width .45s cubic-bezier(.22,.61,.36,1); }
 .esc-progress__fill[data-neg="true"] { background: #dc2626; }
-.esc-progress__pct { flex: 0 0 auto; font-size: clamp(12px, 1cqi, 14px); font-weight: 600;
+.esc-progress__pct { flex: 0 0 auto; font-size: clamp(13px, 1.15cqi, 15px); font-weight: 600;
   color: #374151; font-variant-numeric: tabular-nums; }
 .esc-progress__trophy { flex: 0 0 auto; color: #eab308; }
 
 /* ---- headline figures ---- */
-.esc-kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; margin-top: 10px; }
-.esc-kpi { display: flex; align-items: center; gap: 8px; font-size: clamp(13.5px, 1.5cqi, 16px);
+.esc-kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; margin-top: 16px; }
+.esc-kpi { display: flex; align-items: center; gap: 10px; font-size: clamp(16px, 1.75cqi, 18px);
   min-width: 0; }
 .esc-kpi__label, .esc-kpi__num { white-space: nowrap; }
 /* On a very narrow card the label is what gives way - the figure itself stays
    whole, and the two stay on one line. */
 .esc-kpi__label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .esc-kpi__num { flex: 0 0 auto; }
-.esc-kpi__dot { flex: 0 0 auto; width: 10px; height: 10px; border-radius: 50%; }
+.esc-kpi__dot { flex: 0 0 auto; width: 12px; height: 12px; border-radius: 50%; }
 .esc-kpi__dot[data-kind="value"] { background: #16a34a; }
 .esc-kpi__dot[data-kind="target"] { background: #d1d5db; }
 .esc-kpi__label { color: #374151; }
@@ -271,23 +265,38 @@ const CSS = `
 .esc-trend + .esc-sections { margin-top: 18px; }
 
 /* ---- responsive, by card width ---- */
-/* Too narrow for three boxes abreast: stack them, and each one then has the
-   full width back, so its figures return to full size. */
-@container esc (max-width: 940px) {
+/* The Model boxes step down 3 -> 2 -> 1 rather than falling straight from three
+   to one. On the middle rung a third box would otherwise sit half-width beside
+   an empty half, so the last box takes the whole row when it is the odd one
+   out - :last-child:nth-child(odd) is exactly that condition, and it leaves a
+   card with two or four boxes alone. */
+@container esc (max-width: 940px) and (min-width: 621px) {
+  .esc-sections { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .esc-section:last-child:nth-child(odd) { grid-column: 1 / -1; }
+}
+@container esc (max-width: 620px) {
   .esc-sections { grid-template-columns: minmax(0, 1fr); }
-  .esc-card__title { font-size: 17px; }
-  .esc-kpi { font-size: 13.5px; }
+}
+
+/* Too narrow for three boxes abreast: the type steps down with them, and each
+   box has more width back, so its figures stay readable. */
+@container esc (max-width: 940px) {
+  .esc-card__title { font-size: 20px; }
+  .esc-kpi { font-size: 16px; }
   .esc-metric__label, .esc-metric__value { font-size: 13px; }
   .esc-metric__pct { font-size: 11px; }
   .esc-section__total { font-size: 13px; }
   .esc-section__total small { font-size: 11px; }
   .esc-section__legend { font-size: 12px; }
-  .esc-progress__pct { font-size: 12px; }
+  .esc-progress__pct { font-size: 13px; }
 }
 @container esc (max-width: 520px) {
   .esc-card__title { font-size: 16px; }
-  .esc-kpis { gap: 6px 10px; }
+  .esc-kpis { gap: 6px 10px; margin-top: 11px; }
   .esc-kpi { gap: 6px; font-size: clamp(11.5px, 3.1cqi, 13.5px); }
+  .esc-kpi__dot { width: 9px; height: 9px; }
+  .esc-progress { margin-top: 12px; }
+  .esc-progress__track { height: 9px; }
   .esc-metric__label, .esc-metric__value { font-size: clamp(11px, 3.2cqi, 13px); }
   .esc-section__total { font-size: clamp(11.5px, 3.1cqi, 13px); }
 }
@@ -295,6 +304,7 @@ const CSS = `
   .esc-card__title { font-size: 15.5px; }
   .esc-kpi { gap: 4px; font-size: clamp(10.5px, 3.2cqi, 12px); }
   .esc-kpi__dot { width: 8px; height: 8px; }
+  .esc-progress__track { height: 8px; }
   /* three figures no longer fit abreast here, so wrap them instead of clipping */
   .esc-section__grid { gap: 8px; grid-template-columns: repeat(auto-fit, minmax(86px, 1fr)); }
   .esc-metric__label, .esc-metric__value { font-size: clamp(10.5px, 3.6cqi, 12.5px); }
@@ -303,12 +313,17 @@ const CSS = `
 /* Phone viewports: trim the card's own chrome (padding is not a container thing). */
 @media (max-width: 520px) {
   .esc-card { padding: 14px 12px 12px; border-radius: 10px; }
-    .esc-sections { gap: 14px 10px; }
+  .esc-sections { gap: 14px 10px; }
+  .esc-progress__pct { font-size: 11.5px; }
 }
 
 /* Fallback for engines without container queries: fall back to the viewport. */
 @supports not (container-type: inline-size) {
   @media (max-width: 860px) {
+    .esc-sections { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .esc-section:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  }
+  @media (max-width: 600px) {
     .esc-sections { grid-template-columns: minmax(0, 1fr); }
   }
   .esc-metric__label, .esc-metric__value { font-size: 13px; }

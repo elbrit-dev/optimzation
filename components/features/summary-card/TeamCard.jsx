@@ -123,17 +123,12 @@ const CSS = `
 .tc-card[data-clickable="true"] { cursor: pointer; }
 .tc-card[data-clickable="true"]:hover { border-color: #cbd5e1; }
 .tc-card:focus-visible { outline: 2px solid var(--tc-accent, #2563eb); outline-offset: 2px; }
-/* overflow:clip is load-bearing, not cosmetic. The trend tooltip is lifted
-   over the curve with a transform, and a transform moves what you see without
-   moving the layout box: recharts' tooltip wrapper stays down at the cursor,
-   as tall as the tooltip, hanging past the bottom of the strip. Unclipped it
-   joins the page's scroll area, so hovering the chart grew the page and raised
-   a scrollbar over an empty box. The tooltip itself is drawn inside the card,
-   so nothing visible is lost. clip rather than hidden - this must not
-   become a scroll container. */
+/* Deliberately NOT clipped. Clipping here did stop the old tooltip from
+   stretching the page, but it also cut off the tooltip itself and the chart,
+   whose SVG surface draws outside its box on purpose. The tooltip is portalled
+   to <body> instead, so there is nothing left to clip against. */
 .tc-card { position: relative; width: 100%; background: #fff;
   border: 1px solid var(--tc-border, #e5e7eb); border-radius: 12px;
-  overflow: clip;
   container-type: inline-size; container-name: tc; }
 
 /* ---- header ---- */
