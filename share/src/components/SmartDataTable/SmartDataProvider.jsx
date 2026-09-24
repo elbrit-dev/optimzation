@@ -825,8 +825,17 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
 
   const plasmicData = useMemo(() => {
     const views = {};
-    for (const [viewId, view] of Object.entries(storeViews)) {
-      if (!view.pagination) continue; // guard: view partially initialised or being torn down
+    // Config views are registered in an effect, so on the first render the store has
+    // none of them. Plasmic bindings (`$ctx.data.views.main.data.totals`) are evaluated
+    // on that render, and on the live site an unguarded one throws "Cannot read
+    // properties of undefined (reading 'data')" — Studio's canvas swallows it, which is
+    // why it only reproduces live. Expose every configured view as 'idle' from the start.
+    const viewIds = new Set([...Object.keys(reportConfig?.views ?? {}), ...Object.keys(storeViews)]);
+    for (const viewId of viewIds) {
+      const view = storeViews[viewId]?.pagination
+        ? storeViews[viewId]
+        : reportConfig?.views?.[viewId] ? { pagination: { first: 0, rows: 10 }, totalRecords: 0 } : null;
+      if (!view) continue; // guard: view partially initialised or being torn down
       const perPage     = view.pagination.rows;
       const currentPage = Math.floor(view.pagination.first / perPage);
       const totalPages  = Math.ceil(view.totalRecords / perPage) || 1;
@@ -871,7 +880,7 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
       };
     }
     return { views, fetchedAt: lastFetchedAt };
-  }, [storeViews, lastFetchedAt, openDrawerView, closeDrawerView, store]);
+  }, [storeViews, reportConfig, lastFetchedAt, openDrawerView, closeDrawerView, store]);
 
   return (
     <SmartDataConfigContext.Provider value={effectiveConfig}>
