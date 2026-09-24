@@ -365,6 +365,22 @@ const TOAST_EDGE = {
   center: 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2',
 };
 
+/* Each message section is pt'd separately from `root` (see toast.esm.js) and
+   inherits NOTHING from it — unstyled with only `root` set (the previous
+   state here) rendered every toast as bare text with no card, no icon colour,
+   and no close button styling, sitting in the fixed box but invisible as a
+   distinct notification. */
+const TOAST_SEVERITY_ICON = {
+  success: 'text-success',
+  info: 'text-info',
+  warn: 'text-warning',
+  error: 'text-danger',
+};
+
+// `state.messages[index].message.severity` — see getPTOptions() in toast.esm.js,
+// which merges the Toast's own {props, state} into every section's params.
+const toastSeverity = ({ state, index }) => state?.messages?.[index]?.message?.severity;
+
 export const toastPt = {
   root: ({ props }) => ({
     className: cx(
@@ -372,6 +388,16 @@ export const toastPt = {
       TOAST_EDGE[props?.position] ?? TOAST_EDGE['top-right'],
     ),
   }),
+  message: { className: cx(SURFACE, 'shadow-pop') },
+  content: { className: 'flex items-start gap-2 p-3' },
+  icon: (options) => ({
+    className: cx('mt-0.5 shrink-0 text-16', TOAST_SEVERITY_ICON[toastSeverity(options)] ?? 'text-ds-secondary'),
+  }),
+  text: { className: 'flex-1 min-w-0' },
+  summary: { className: 'block text-13 font-semibold text-body' },
+  detail: { className: 'block text-12 text-ds-secondary mt-0.5' },
+  closeButton: { className: cx(CLOSE, '-m-1 shrink-0') },
+  buttonicon: { className: 'text-12' },
 };
 
 export const confirmDialogPt = {

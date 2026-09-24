@@ -5,57 +5,47 @@ Shared foundation for **netstar** (web console) and **elbrit-app** (field app).
 Lives in netstar at `src/design-system/`. **netstar is the only place to edit
 it.**
 
-## Getting it into elbrit-app — WIRED, as a root-level copy
+## Getting it into elbrit-app — at `share/src/design-system`, path for path
 
-elbrit-app now consumes this, but **not** through the sync path below, and not
-from `share/`. The intended route is still:
+elbrit-app's `share/src/` mirrors netstar's `src/` — the datatable and the
+Visit report already live there — and the design system now does too:
 
 ```
-netstar (VICTORVICKIE/Elbrit-Play)  src/
-        |
-        |  publish step — mechanism unknown, someone owns this
-        v
-elbrit-dev/playground               share/src/
-        |
-        |  npm run copy-shared  (degit --force)
-        v
-elbrit-app (elbrit-dev/optimzation) share/src/
+netstar      src/design-system/           <- edit here, and only here
+elbrit-app   share/src/design-system/     <- a copy, minus __tests__
 ```
 
-That middle step has no owner, so `share/src/design-system` does not exist. The
-port copied `src/design-system/` to **`elbrit-app/design-system/`** — repo root,
-outside everything `copy-shared` overwrites. Anywhere under `share/`,
-`components/` or `shared/` would be deleted by the next sync.
+Same relative path on both sides, so a port is a directory copy and every
+import inside the system resolves unchanged. `share/` is safe from syncs:
+`npm run copy-shared` degits only `components/` and `shared/`.
 
-When it does reach `elbrit-dev/playground/share/src/`, collapse the two copies:
-repoint the three `@import`s in `elbrit-app/styles/globals.css` and the
-`registerDesignSystem` import in `elbrit-app/plasmic-init.js`, then delete
-`elbrit-app/design-system/`. Until then the two copies drift, and **netstar is
-still the only place to edit** — re-copy, never edit in elbrit-app.
+It was first ported to `elbrit-app/design-system/` at the repo root, on the
+belief that `copy-shared` overwrote `share/`. It does not, and the root
+copy forced elbrit-app to register the primitives by hand from its own
+plasmic-init — so it was moved.
 
-What the port touched:
+**Registration is netstar's, in both apps.** `registerElbritCoreComponents`
+calls `registerDesignSystem`; elbrit-app's root `plasmic-init.js` calls only
+`registerElbritCoreComponents` from `share/src/plasmic-init.js` (netstar's
+registrar, copied). Never add a second `registerDesignSystem` call in the
+app: it registers every primitive twice.
+
+What elbrit-app wires by hand:
 
 | File | Change |
 | --- | --- |
-| `elbrit-app/design-system/` | copy of this directory, minus `__tests__` |
-| `elbrit-app/styles/globals.css` | tokens + `tailwind.css` + `components.css`, after `@import "tailwindcss"` |
-| `elbrit-app/pages/_app.jsx` | Roboto + Work Sans via `next/font/google`; `display:contents` wrapper carrying the variables and `data-surface="app"` |
-| `elbrit-app/plasmic-init.js` | `registerDesignSystem(PLASMIC)` after `registerElbritCoreComponents` |
+| `elbrit-app/styles/globals.css` | tokens + `tailwind.css` + `components.css` from `../share/src/design-system/`, after `@import "tailwindcss"` |
+| `elbrit-app/pages/_app.jsx` | `dsPrimeReactValue` from `share/src/design-system/primereact/registry`; Roboto + Work Sans via `next/font/google`; `display:contents` wrapper carrying the variables and `data-surface="app"` |
+| `elbrit-app/jsconfig.json` | `@/design-system` -> `./share/src/design-system` |
 
-Two notes for anyone repeating this:
+The copy is byte-for-byte: nothing in it is app-specific. To port, replace
+the folder wholesale (minus `__tests__`) and diff to confirm.
 
-- **`registerDesignSystem` is called separately in elbrit-app.** The claim that
-  it comes free via `registerElbritCoreComponents` holds only in netstar —
-  elbrit-app's `share/src/plasmic-init.js` is an older copy that predates the
-  design system, and `copy-shared` would overwrite any edit to it.
 - **The Geist mapping was already dead.** elbrit-app's `@theme inline` set
   `--font-sans: var(--font-geist-sans)`, but nothing ever defined that
   variable — `_document.jsx` declares the faces as `GeistVF`/`GeistMonoVF`. So
   `font-sans` had been emitting an invalid value. It now maps to `--ds-font-ui`.
 
-Verified by build and by the served stylesheet: tokens, `ds-*` primitive
-styles, `data-surface="app"` and `--font-roboto` all present;
-`next build` exits 0.
 
 ---
 
@@ -101,10 +91,18 @@ design-system/
   tailwind-strict.css  removes Tailwind's stock palette — opt in per surface
   components/
     components.css     primitive styles (all classes prefixed `ds-`)
-    Button.jsx  Card.jsx  Field.jsx  Icon.jsx
-    SegmentedControl.jsx  StatusPill.jsx  Switch.jsx  Tag.jsx
+
+    controls    Button.jsx  Field.jsx  Select.jsx  Switch.jsx
+                SegmentedControl.jsx  Tabs.jsx  ChipRow.jsx
+    labels      StatusPill.jsx  Tag.jsx  Eyebrow.jsx  SectionLabel.jsx
+                RingTabBar.jsx
+    quantities  Metric.jsx  ProgressBar.jsx  StackedBar.jsx  LegendChip.jsx
+                ProgressRing.jsx  CountBadge.jsx
+    containers  Card.jsx  ListRow.jsx  DisclosureRow.jsx
+    other       Icon.jsx  Avatar.jsx
   lib/cx.js        class joiner; the DS has no runtime dependencies
-  plasmic.js       Studio registration for all eight primitives
+  lib/tone.js      the ONE tone vocabulary — see below
+  plasmic.js       Studio registration for every primitive
   index.js         public barrel — import from here
   .oxlintrc.json   adherence rules
 ```
@@ -114,13 +112,12 @@ Wired up in:
 | File | What it does |
 | --- | --- |
 | `netstar/src/app/globals.css` | imports tokens + bridge + primitive styles |
-| `elbrit-app/styles/globals.css` | same three imports, via root `design-system/` (not `share/` — see above) |
+| `elbrit-app/styles/globals.css` | same three imports, from `share/src/design-system/` |
 | `netstar/src/plasmic-init.js` | `registerElbritCoreComponents` calls `registerDesignSystem` |
-| `elbrit-app/plasmic-init.js` | calls `registerDesignSystem` directly — its `share/` copy predates the DS |
+| `elbrit-app/share/src/plasmic-init.js` | the same `registerElbritCoreComponents`, copied — it calls `registerDesignSystem` |
 
-In netstar the primitives come free with `registerElbritCoreComponents`;
-elbrit-app calls `registerDesignSystem` itself for the reason above. Either way
-they appear under an "Elbrit Design System" section in the Studio tray.
+In both apps the primitives come free with `registerElbritCoreComponents`, and
+appear under an "Elbrit Design System" section in the Studio tray.
 `registerDesignSystem` stays exported for a consumer that wants the primitives
 without the core data components — but call it once. Calling it *and* a
 `registerElbritCoreComponents` that already invokes it registers every
@@ -145,6 +142,51 @@ import { Button, Card, Field, Icon, StatusPill, Switch, Tag } from '@/design-sys
 
 Never import a component file directly — `@/design-system` only. The oxlint
 config enforces it.
+
+### Which control, when
+
+Four pairs get confused. The distinction is what the control *changes*, not
+what it looks like.
+
+| Use | Not | Because |
+| --- | --- | --- |
+| `Tabs` | `SegmentedControl` | Tabs change WHAT you are looking at and span the page. SegmentedControl changes HOW the same data renders (Cards vs Table) and sits in a toolbar, sized to content. |
+| `ChipRow` | `SegmentedControl` | ChipRow selects from an OPEN, data-driven list — 2 HQs today, 97 tomorrow — so it scrolls horizontally and sizes to content. SegmentedControl divides a fixed, small, known set with equal-width items. |
+| `StatusPill` | `Tag` | Status is semantic and closed. Tag is categorical and open, and its colours carry no meaning. |
+| `StackedBar` | two `ProgressBar`s | Parts of a whole belong in one track, where the segments cannot drift out of sync. |
+| `RingTabBar` | `Tabs` / `ChipRow` | An open list of WORK ITEMS, each carrying its own progress ring, count and due date. Scrolls like ChipRow, switches the page like Tabs, and borrows Tabs' selected treatment (red underline included). For tabs that each hold a page in Studio, use `RingTabs` + `RingTabPanel` from ElbritCoreLib (harness: `/ring-tabs`). |
+
+**The task strip's red is `danger`, not the brand red.** The source mock drew
+its rings and badges in `--elbrit-red` (the mark). Here they mean "owed", so
+rings take `toneFill('danger')` and badges `--intent-danger-fill`. Its
+`conic-gradient` rings are SVG arcs (`ProgressRing`), per principle 4, and its
+6.5px date caption is `--fs-8`.
+
+**The active-tab underline is the one interactive red in the system.**
+Principle 2 names it. Everything else on a `Tabs` item is blue — the label
+takes `--brand-text`, the wash `--intent-info-wash`. Do not "correct" the
+underline to blue.
+
+### One tone vocabulary — `lib/tone.js`
+
+Every component that colours something by meaning resolves through
+`toneFill()` / `toneText()`. Two names exist for each tone and both are
+accepted:
+
+| Outcome (bars, metrics) | Status (pills) | Fill token |
+| --- | --- | --- |
+| `brand` | `info` | `--brand-primary` |
+| `success` | `approved` | `--status-approved` |
+| `warning` | `pending` | `--status-pending` |
+| `danger` | `rejected` | `--status-rejected` |
+| `neutral` | `draft` | `--status-draft` |
+
+Both sets are kept because neither reads in the other's context — "a draft
+progress bar" and "an approved bar segment" are both nonsense. What is *not*
+kept is a second copy of the map inside a component: that is how one green
+drifts from another. `toneText` exists because the saturated fills fail as
+small text (green 2.28:1, amber 1.93:1); a bar segment can be
+`--status-approved`, the label beside it cannot.
 
 ### Surface density
 
@@ -219,7 +261,7 @@ why the bridge is worth adopting before anything else.
 | --- | --- |
 | `bg-white` | `bg-surface` |
 | `bg-gray-50` | `bg-sunken` or `bg-row-alt` |
-| `text-gray-500` | `text-secondary` / `text-muted` |
+| `text-gray-500` | `text-ds-secondary` / `text-ds-muted` |
 | `text-gray-900` | `text-body` / `text-heading` |
 | `border-gray-200` | `border-line` / `border-line-subtle` |
 | `bg-blue-600 hover:bg-blue-700` | `bg-brand hover:bg-brand-hover` |
@@ -302,7 +344,7 @@ purpose, to satisfy a principle the old code violated:
 wildcard applies to everything registered in that namespace regardless of
 which `@theme` block declared it. Because strict is imported *after*
 `tailwind.css`, the wildcard also deletes every DS colour — `bg-surface`,
-`text-secondary` and `bg-brand` silently stop compiling while `bg-white`
+`text-ds-secondary` and `bg-brand` silently stop compiling while `bg-white`
 survives. This was a real bug during the migration.
 
 **Spacing is left alone, even in strict.** Tailwind's numeric steps land on the
@@ -411,7 +453,7 @@ What was fixed, using the palette's own deeper values rather than new colours:
   `--intent-danger-text` (4.62:1).
 - `SegmentedControl`'s inactive label was muted on a *tint* (3.33:1) — the
   guide permits muted only at "12px+ on white". Now secondary.
-- The specimen page itself used `text-muted` at 8px and 10px, violating the
+- The specimen page itself used `text-ds-muted` at 8px and 10px, violating the
   guide's own contrast floor.
 
 Disabled text (`rgba(0,0,0,0.25)`, 1.83:1) is reported but is exempt: WCAG

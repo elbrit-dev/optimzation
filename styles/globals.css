@@ -1,19 +1,19 @@
 @import "tailwindcss";
 
 /* Elbrit Design System — tokens, then the additive Tailwind bridge, then the
-   primitive styles. Kept at the repo root (NOT under share/) because
-   `npm run copy-shared` degits --force over share/, components/ and shared/,
-   which would delete it on every sync. When it eventually lands in
-   elbrit-dev/playground/share/src/, change these three paths and delete
-   ./design-system.
+   primitive styles. Lives at share/src/design-system, the same path as
+   netstar's src/design-system, so a port is a directory copy and the share/
+   registrar (share/src/plasmic-init.js) registers it exactly as netstar does.
+   share/ is safe there: `npm run copy-shared` degits only components/ and
+   shared/, never share/.
 
    `tailwind-strict.css` is deliberately NOT imported. It removes Tailwind's
    stock palette, and this app still has hundreds of stock-palette call
    sites (bg-gray-200, text-gray-500) that would stop compiling. netstar is
    migrated and runs strict; this app is not. Do not add it until an audit reports clean. */
-@import "../design-system/tokens/index.css";
-@import "../design-system/tailwind.css";
-@import "../design-system/components/components.css";
+@import "../share/src/design-system/tokens/index.css";
+@import "../share/src/design-system/tailwind.css";
+@import "../share/src/design-system/components/components.css";
 
 /* PrimeReact's SVG icon components carry `p-icon`, and they carry it even when
    the component is unstyled — it is emitted by the icon itself, not by the

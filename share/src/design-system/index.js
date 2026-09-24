@@ -20,7 +20,7 @@ export { TreeSelect } from './components/TreeSelect';
 export { Tabs } from './components/Tabs';
 export { Tag } from './components/Tag';
 
-/* Quantitative + list primitives. Added for the Visit report screen, but
+/* Quantitative + list primitives. Added for the Team Report screen, but
    nothing in them knows about visits — keep it that way. */
 export { Avatar, initialsOf } from './components/Avatar';
 export { ChipRow } from './components/ChipRow';
@@ -36,6 +36,13 @@ export { SectionLabel } from './components/SectionLabel';
    bearing rather than a z-index trick. */
 export { Sheet } from './components/Sheet';
 export { StackedBar } from './components/StackedBar';
+
+/* The field app's task strip, and the two pieces it is built from. The ring
+   and the badge stand alone; RingTabBar is Tabs for an open list of work
+   items — see its header for which tab control to reach for. */
+export { CountBadge } from './components/CountBadge';
+export { ProgressRing } from './components/ProgressRing';
+export { RingTabBar } from './components/RingTabBar';
 
 export { cx } from './lib/cx';
 export { TONES, toneFill, toneText } from './lib/tone';

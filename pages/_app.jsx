@@ -8,7 +8,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import Head from 'next/head';
 import { Roboto, Work_Sans } from 'next/font/google';
 import { PrimeReactProvider } from 'primereact/api';
-import { dsPrimeReactValue } from '../design-system/primereact/registry';
+import { dsPrimeReactValue } from '../share/src/design-system/primereact/registry';
 import Script from 'next/script';
 import localforage from 'localforage';
 import _ from 'lodash';

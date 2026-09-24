@@ -13,6 +13,10 @@ import { SmartDataTable } from './components/SmartDataTable/SmartDataTable.jsx';
 import { ReportControls } from './app/report-table/components/ReportControls.jsx';
 import { ViewSwitcher } from './components/ViewSwitcher.jsx';
 import { VisitReport } from './app/visit/components/VisitReport.jsx';
+import RingTabs from './app/ring-tabs/components/RingTabs.jsx';
+import RingTabPanel from './app/ring-tabs/components/RingTabPanel.jsx';
+import { DEFAULT_RING_TABS } from './app/ring-tabs/data/defaultRingTabs.js';
+import { registerDesignSystem } from './design-system/plasmic';
 
 /* Registered HERE rather than hand-written in each consuming app, which is
    the whole point of this file: an app gets it by calling
@@ -555,6 +559,108 @@ const eventTimelineMeta = {
   },
 };
 
+/* Same parent/child split as DataProviderViews + DataView: the parent owns
+   the tab CONFIG and the selection, each RingTabPanel is one page canvas and
+   shows itself when its tabId is active. Harness: /ring-tabs. */
+const ringTabsMeta = {
+  name: 'RingTabs',
+  displayName: 'Elbrit Ring Tabs',
+  section: 'ElbritCoreLib',
+  providesData: true,
+  importPath: './src/app/ring-tabs/components/RingTabs',
+  isDefaultExport: true,
+  // The strip sizes its rings from its own width, so it must not hug them.
+  defaultStyles: { width: 'stretch' },
+  description:
+    "The field app task strip (Secondary, Support, Expense, Leave…) as page navigation. Each tile is a tab with a progress ring, a count badge, a due-date caption and a status dot, all driven by the tabs config — bind it to a query. Drop one Elbrit Ring Tab Panel per tab into the slot and build that tab's page inside it. State is on $ctx.ringTabs: activeTab, activeTabConfig, tabs, setActiveTab(id).",
+  props: {
+    tabs: {
+      type: 'object',
+      displayName: 'tabs',
+      description:
+        'Array of tab configs, or plain strings. Each: { id, label, icon, caption, captionTone, iconTone, count, countTone, progress: 0-100 (percent done) | segments: [{ value, tone }], statusIcon, statusTone, ariaLabel, disabled }. icon / statusIcon are PrimeIcons names ("wallet", "pencil"). Tones: brand, success, warning, danger, neutral; countTone is danger or brand. progress fills green for done and red for the rest. Each id must match a Ring Tab Panel tabId.',
+      defaultValue: DEFAULT_RING_TABS,
+    },
+    value: {
+      type: 'string',
+      displayName: 'value',
+      description:
+        'Leave unset for the strip to own its selection. Set it to drive the active tab from your own state. An unknown or disabled id falls back to the first enabled tab.',
+    },
+    defaultValue: {
+      type: 'string',
+      displayName: 'defaultValue',
+      description: 'Tab opened first when uncontrolled. Defaults to the first enabled tab.',
+    },
+    onChange: {
+      type: 'eventHandler',
+      description: 'Fired with the new tab id when the rep opens a different tab. Not fired for re-pressing the open one.',
+      argTypes: [{ name: 'tabId', type: 'string' }],
+    },
+    keepInactiveMounted: {
+      type: 'boolean',
+      defaultValue: true,
+      description:
+        'Keep hidden pages mounted so a half-filled form or a scroll position survives a glance at another tab. Turn off to unmount (and refetch) on every switch.',
+    },
+    stickyBar: {
+      type: 'boolean',
+      defaultValue: false,
+      description: 'Pin the strip to the top of the nearest scrolling ancestor while the page scrolls under it.',
+    },
+    ariaLabel: { type: 'string', defaultValue: 'Sections', description: 'Accessible name of the strip.' },
+    className: { type: 'string' },
+    barClassName: {
+      type: 'string',
+      description: "Replaces the strip's default inset (px-4 pt-1.5 pb-0.5). An empty string means no inset.",
+    },
+    contentClassName: { type: 'string', description: 'Classes on the box that holds the panels.' },
+    children: {
+      type: 'slot',
+      defaultValue: DEFAULT_RING_TABS.map((tab) => ({
+        type: 'component',
+        name: 'RingTabPanel',
+        props: {
+          tabId: tab.id,
+          children: { type: 'text', value: `${tab.label} page` },
+        },
+      })),
+    },
+  },
+  states: {
+    value: {
+      type: 'writable',
+      variableType: 'text',
+      valueProp: 'value',
+      onChangeProp: 'onChange',
+    },
+  },
+};
+
+const ringTabPanelMeta = {
+  name: 'RingTabPanel',
+  displayName: 'Elbrit Ring Tab Panel',
+  section: 'ElbritCoreLib',
+  importPath: './src/app/ring-tabs/components/RingTabPanel',
+  isDefaultExport: true,
+  parentComponentName: 'RingTabs',
+  description:
+    "One tab's page inside Elbrit Ring Tabs. Shows its children only while its tabId is the active tab. To edit a hidden page in Studio, set the parent's value to this tabId.",
+  props: {
+    tabId: {
+      type: 'string',
+      displayName: 'tabId',
+      description: "Must match an id in the parent's tabs config.",
+    },
+    keepMounted: {
+      type: 'boolean',
+      description: "Overrides the parent's keepInactiveMounted for this one page.",
+    },
+    className: { type: 'string' },
+    children: 'slot',
+  },
+};
+
 const smartDataProviderMeta = {
   name: 'SmartDataProvider',
   displayName: 'Elbrit SmartDataProvider',
@@ -698,6 +804,9 @@ export function registerElbritCoreComponents(loader) {
   loader.registerComponent(ReportControls, reportControlsMeta);
   loader.registerComponent(ViewSwitcher, viewSwitcherMeta);
   loader.registerComponent(VisitReport, visitReportMeta);
+  loader.registerComponent(RingTabs, ringTabsMeta);
+  loader.registerComponent(RingTabPanel, ringTabPanelMeta);
+  registerDesignSystem(loader);
 }
 
 const ElbritCoreLib = initPlasmicLoader({
@@ -717,7 +826,9 @@ ElbritCoreLib.components = {
   SmartDataTable,
   ReportControls,
   ViewSwitcher,
+  RingTabs,
+  RingTabPanel,
 };
 
 export { ElbritCoreLib };
-export { DataProvider, DataProviderViews, DataView, DataTableNew, Navigation, EventTimeline, SmartDataProvider, SmartDataTable, ReportControls, ViewSwitcher };
+export { DataProvider, DataProviderViews, DataView, DataTableNew, Navigation, EventTimeline, SmartDataProvider, SmartDataTable, ReportControls, ViewSwitcher, RingTabs, RingTabPanel };

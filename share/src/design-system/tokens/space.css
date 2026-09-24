@@ -75,6 +75,19 @@
   --ds-bar-h-md: var(--space-8);
   --ds-bar-h-lg: var(--space-10);
 
+  /* ---- Ring. A StackedBar bent into a circle, sized for the one place the
+     product has one: the field app's task strip (RingTabBar), where the ring
+     carries an icon and a date inside it. The stroke is NOT a token — it is a
+     ratio of this diameter, fixed in ProgressRing.jsx, so a ring at another
+     size keeps its proportions instead of going spindly or fat.
+     `adornment` is the count badge and status dot that sit on the ring's
+     edge: one size, so the two corners read as a pair. ---- */
+  --ds-ring-size: 58px;
+  /* RingTabBar grows its rings with the strip, story-tray style, up to this.
+     88px is where a tablet strip stops gaining anything but emptiness. */
+  --ds-ring-size-max: 88px;
+  --ds-ring-adornment: 16px;
+
   /* ---- Avatar sizes. `md` is the header identity, `sm` the one that sits
      inline in a list row at app density. ---- */
   --ds-avatar-sm: 24px;

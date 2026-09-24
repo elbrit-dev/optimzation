@@ -8,7 +8,6 @@ import dynamic from "next/dynamic";
 // import DataTableNew from "./share/src/app/datatable/components/DataTableNew";
 // import Navigation from "./share/src/app/navigation/components/Navigation";
 import { registerElbritCoreComponents } from './share/src/plasmic-init';
-import { registerDesignSystem } from './design-system/plasmic';
 import { registerDoctorConsoleComponents } from './components/DoctorConsole/plasmic';
 import MyProfile from "./components/features/my-profile";
 import ProfileHeader from "./components/features/profile-header";
@@ -2971,14 +2970,12 @@ PLASMIC.registerComponent(ProfileHeader, {
   importPath: "./components/features/profile-header",
 });
 
+/* Also registers the design-system primitives (the "Elbrit Design System"
+   tray section) and Elbrit Ring Tabs: both come from netstar's own registrar,
+   copied to share/src/plasmic-init.js. Do not call registerDesignSystem here
+   as well -- every primitive would register twice. */
 registerElbritCoreComponents(PLASMIC)
 registerDoctorConsoleComponents(PLASMIC)
-
-/* Design-system primitives, under an "Elbrit Design System" section in the
-   Studio tray. Registered here rather than inside registerElbritCoreComponents
-   because this app's share/ copy predates the design system and is overwritten
-   by copy-shared; netstar calls it from inside its own core registration. */
-registerDesignSystem(PLASMIC)
 
 // PLASMIC.registerComponent(DataProvider, {
 //   name: "DataProvider",

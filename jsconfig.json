@@ -13,6 +13,9 @@
       // share-only modules are aliased explicitly below.
       "@/lib/graphqlErrorReport": ["./share/src/lib/graphqlErrorReport.js"],
       "@/lib/safeRedirect": ["./share/src/lib/safeRedirect.js"],
+      // The design system mirrors netstar's src/design-system path-for-path.
+      "@/design-system": ["./share/src/design-system"],
+      "@/design-system/*": ["./share/src/design-system/*"],
       "@/*": ["./*"],
       "@shared/*": ["./shared/components/src/*"],
       "@calendar/*": ["./shared/calendar/*"]

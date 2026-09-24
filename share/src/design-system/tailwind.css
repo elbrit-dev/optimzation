@@ -31,14 +31,18 @@
   --color-surface-disabled: var(--surface-disabled);
 
   /* ---- Text: text-body, text-ds-secondary, text-ds-muted ----
-     NOT `--color-secondary` / `--color-muted`: shared/calendar/styles/globals.css
-     runs its own separate Tailwind v4 build via `@config`, which defines shadcn's
-     `secondary`/`muted` as near-white BACKGROUND tokens (`hsl(0 0% 96.1%)`), and
-     that stylesheet is imported globally in pages/_app.jsx after this one — so
-     its `.text-secondary`/`.text-muted` won the cascade and rendered DS body
-     text invisible. Renamed here instead of touching the calendar's shadcn
-     tokens, which dozens of shared/calendar/** files rely on for their own,
-     correct meaning. */
+     NOT `--color-secondary` / `--color-muted`, even though nothing in THIS
+     app collides with them. The consuming app (Elbrit-App) imports this
+     module's screens alongside a shadcn Tailwind build that defines
+     `secondary`/`muted` as near-white BACKGROUND tokens, loaded after this
+     stylesheet — there the unprefixed utilities win the cascade and render
+     DS body text invisible.
+
+     The prefix lives here rather than only there so the two copies of this
+     module stay byte-identical. When they differed, every port of a screen
+     had to re-apply the rename by hand, and one missed line is invisible
+     text in production. A slightly odd token name in the prototype is the
+     cheaper half of that trade. */
   --color-body: var(--ds-text-body);
   --color-heading: var(--ds-text-heading);
   --color-ds-secondary: var(--ds-text-secondary);

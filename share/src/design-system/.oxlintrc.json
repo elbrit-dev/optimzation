@@ -30,7 +30,7 @@
       },
       {
         "selector": "JSXAttribute[name.name='className'] > Literal[value=/\\b(bg|text|border|ring|divide|outline|shadow|fill|stroke|placeholder|accent|from|to|via)-(slate|gray|zinc|neutral|stone|blue|indigo|green|emerald|red|amber|orange|cyan|violet|sky|purple|pink|rose|teal|lime|yellow)-[0-9]{2,3}\\b/]",
-        "message": "Stock Tailwind palette class. Use the DS scale: bg-surface, bg-row-alt, text-body, text-secondary, text-muted, border-line, bg-brand, text-approved. See design-system/tailwind.css."
+        "message": "Stock Tailwind palette class. Use the DS scale: bg-surface, bg-row-alt, text-body, text-ds-secondary, text-ds-muted, border-line, bg-brand, text-approved. See design-system/tailwind.css."
       },
       {
         "selector": "JSXAttribute[name.name='className'] > Literal[value=/\\banimate-(bounce|ping|pulse|spin)\\b/]",

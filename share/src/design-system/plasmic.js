@@ -17,28 +17,31 @@
    is closed. That is deliberate: a Studio user cannot invent a sixth button
    type or an off-scale size through the props panel. */
 
-import { Avatar } from './components/Avatar';
 import { Button } from './components/Button';
 import { Card } from './components/Card';
+import { Field } from './components/Field';
+import { Icon } from './components/Icon';
+import { SegmentedControl } from './components/SegmentedControl';
+import { Avatar } from './components/Avatar';
 import { ChipRow } from './components/ChipRow';
 import { DisclosureRow } from './components/DisclosureRow';
 import { Eyebrow } from './components/Eyebrow';
-import { Field } from './components/Field';
-import { Icon } from './components/Icon';
 import { LegendChip } from './components/LegendChip';
 import { ListRow } from './components/ListRow';
 import { Metric } from './components/Metric';
 import { ProgressBar } from './components/ProgressBar';
 import { SectionLabel } from './components/SectionLabel';
 import { Sheet } from './components/Sheet';
-import { SegmentedControl } from './components/SegmentedControl';
 import { Select } from './components/Select';
 import { StackedBar } from './components/StackedBar';
 import { StatusPill } from './components/StatusPill';
-import { Switch } from './components/Switch';
 import { Tabs } from './components/Tabs';
+import { Switch } from './components/Switch';
 import { Tag } from './components/Tag';
 import { TreeSelect } from './components/TreeSelect';
+import { CountBadge } from './components/CountBadge';
+import { ProgressRing } from './components/ProgressRing';
+import { RingTabBar } from './components/RingTabBar';
 
 const SECTION = 'Elbrit Design System';
 
@@ -278,7 +281,7 @@ const iconMeta = {
 };
 
 /* ---- Quantitative and list primitives ----------------------------------
-   Added with the Visit KPI report. None of them knows anything about visits;
+   Added with the Visit KPI screen. None of them knows anything about visits;
    they are the generic shapes that screen turned out to need. */
 
 const TONE_CHOICE = {
@@ -292,7 +295,7 @@ const avatarMeta = {
   name: 'DsAvatar',
   displayName: 'DS Avatar',
   section: SECTION,
-  importPath: './design-system/components/Avatar',
+  importPath: './src/design-system/components/Avatar',
   importName: 'Avatar',
   defaultStyles: { width: 'hug' },
   props: {
@@ -310,7 +313,7 @@ const metricMeta = {
   name: 'DsMetric',
   displayName: 'DS Metric',
   section: SECTION,
-  importPath: './design-system/components/Metric',
+  importPath: './src/design-system/components/Metric',
   importName: 'Metric',
   props: {
     label: { type: 'string', defaultValue: 'Visits happened' },
@@ -329,7 +332,7 @@ const progressBarMeta = {
   name: 'DsProgressBar',
   displayName: 'DS Progress Bar',
   section: SECTION,
-  importPath: './design-system/components/ProgressBar',
+  importPath: './src/design-system/components/ProgressBar',
   importName: 'ProgressBar',
   props: {
     value: { type: 'number', defaultValue: 60 },
@@ -345,7 +348,7 @@ const stackedBarMeta = {
   name: 'DsStackedBar',
   displayName: 'DS Stacked Bar',
   section: SECTION,
-  importPath: './design-system/components/StackedBar',
+  importPath: './src/design-system/components/StackedBar',
   importName: 'StackedBar',
   props: {
     segments: {
@@ -367,7 +370,7 @@ const legendChipMeta = {
   name: 'DsLegendChip',
   displayName: 'DS Legend Chip',
   section: SECTION,
-  importPath: './design-system/components/LegendChip',
+  importPath: './src/design-system/components/LegendChip',
   importName: 'LegendChip',
   defaultStyles: { width: 'hug' },
   props: {
@@ -383,7 +386,7 @@ const chipRowMeta = {
   name: 'DsChipRow',
   displayName: 'DS Chip Row',
   section: SECTION,
-  importPath: './design-system/components/ChipRow',
+  importPath: './src/design-system/components/ChipRow',
   importName: 'ChipRow',
   props: {
     items: {
@@ -404,7 +407,7 @@ const listRowMeta = {
   name: 'DsListRow',
   displayName: 'DS List Row',
   section: SECTION,
-  importPath: './design-system/components/ListRow',
+  importPath: './src/design-system/components/ListRow',
   importName: 'ListRow',
   props: {
     title: { type: 'string', defaultValue: 'Hubballi' },
@@ -420,7 +423,7 @@ const disclosureRowMeta = {
   name: 'DsDisclosureRow',
   displayName: 'DS Disclosure Row',
   section: SECTION,
-  importPath: './design-system/components/DisclosureRow',
+  importPath: './src/design-system/components/DisclosureRow',
   importName: 'DisclosureRow',
   props: {
     header: { type: 'slot', defaultValue: 'Bishnu Charan Behera' },
@@ -446,7 +449,7 @@ const tabsMeta = {
   name: 'DsTabs',
   displayName: 'DS Tabs',
   section: SECTION,
-  importPath: './design-system/components/Tabs',
+  importPath: './src/design-system/components/Tabs',
   importName: 'Tabs',
   props: {
     items: {
@@ -467,7 +470,7 @@ const selectMeta = {
   name: 'DsSelect',
   displayName: 'DS Select',
   section: SECTION,
-  importPath: './design-system/components/Select',
+  importPath: './src/design-system/components/Select',
   importName: 'Select',
   props: {
     label: { type: 'string', defaultValue: 'Team scope' },
@@ -501,7 +504,7 @@ const treeSelectMeta = {
   name: 'DsTreeSelect',
   displayName: 'DS Tree Select',
   section: SECTION,
-  importPath: './design-system/components/TreeSelect',
+  importPath: './src/design-system/components/TreeSelect',
   importName: 'TreeSelect',
   props: {
     label: { type: 'string', defaultValue: 'Team scope' },
@@ -542,7 +545,7 @@ const eyebrowMeta = {
   name: 'DsEyebrow',
   displayName: 'DS Eyebrow',
   section: SECTION,
-  importPath: './design-system/components/Eyebrow',
+  importPath: './src/design-system/components/Eyebrow',
   importName: 'Eyebrow',
   defaultStyles: { width: 'hug' },
   props: {
@@ -554,7 +557,7 @@ const sectionLabelMeta = {
   name: 'DsSectionLabel',
   displayName: 'DS Section Label',
   section: SECTION,
-  importPath: './design-system/components/SectionLabel',
+  importPath: './src/design-system/components/SectionLabel',
   importName: 'SectionLabel',
   defaultStyles: { width: 'hug' },
   props: {
@@ -566,7 +569,7 @@ const sheetMeta = {
   name: 'DsSheet',
   displayName: 'DS Sheet',
   section: SECTION,
-  importPath: './design-system/components/Sheet',
+  importPath: './src/design-system/components/Sheet',
   importName: 'Sheet',
   props: {
     open: { type: 'boolean', defaultValue: true },
@@ -580,6 +583,109 @@ const sheetMeta = {
     },
     children: { type: 'slot', hidePlaceholder: true },
     onClose: { type: 'eventHandler', argTypes: [] },
+  },
+};
+
+/* ---- The task strip ----------------------------------------------------
+   RingTabBar is the bare, controlled tablist. To get tabs that each hold a
+   page, use "Elbrit Ring Tabs" from ElbritCoreLib, which wraps this with
+   per-tab panels and $ctx. */
+
+const progressRingMeta = {
+  name: 'DsProgressRing',
+  displayName: 'DS Progress Ring',
+  section: SECTION,
+  importPath: './src/design-system/components/ProgressRing',
+  importName: 'ProgressRing',
+  defaultStyles: { width: 'hug' },
+  props: {
+    segments: {
+      type: 'object',
+      defaultValue: [
+        { key: 'done', value: 6, tone: 'success', label: 'Done' },
+        { key: 'owed', value: 14, tone: 'danger', label: 'Pending' },
+      ],
+      description:
+        'Same contract as DS Stacked Bar: [{ key, value, tone, label }]. Shares of the TOTAL; '
+        + 'a zero segment draws nothing. Pass the remainder as its own segment.',
+    },
+    label: { type: 'string', description: 'Accessible name. Defaults to the segment list.' },
+    children: { type: 'slot', hidePlaceholder: true, description: 'Centred inside the ring.' },
+  },
+};
+
+const countBadgeMeta = {
+  name: 'DsCountBadge',
+  displayName: 'DS Count Badge',
+  section: SECTION,
+  importPath: './src/design-system/components/CountBadge',
+  importName: 'CountBadge',
+  defaultStyles: { width: 'hug' },
+  props: {
+    value: { type: 'number', defaultValue: 14, description: 'Renders nothing at 0.' },
+    max: { type: 'number', defaultValue: 99, description: 'Above this it reads "99+".' },
+    tone: {
+      type: 'choice',
+      options: ['danger', 'brand'],
+      defaultValue: 'danger',
+      description: 'danger = overdue or owed; brand = new but not late.',
+    },
+    label: { type: 'string', description: 'Accessible name, e.g. "14 pending".' },
+  },
+};
+
+const ringTabBarMeta = {
+  name: 'DsRingTabBar',
+  displayName: 'DS Ring Tab Bar',
+  section: SECTION,
+  importPath: './src/design-system/components/RingTabBar',
+  importName: 'RingTabBar',
+  /* Stretch, never hug: the strip is a size container and sizes its rings
+     from its own width, so it cannot take its width from them. */
+  defaultStyles: { width: 'stretch' },
+  props: {
+    items: {
+      type: 'object',
+      defaultValue: [
+        {
+          id: 'secondary',
+          label: 'Secondary',
+          icon: 'calendar-clock',
+          caption: '5 Aug',
+          captionTone: 'danger',
+          count: 14,
+          segments: [
+            { key: 'done', value: 6, tone: 'success' },
+            { key: 'owed', value: 14, tone: 'danger' },
+          ],
+          statusIcon: 'pencil',
+        },
+        {
+          id: 'leave',
+          label: 'Leave',
+          icon: 'calendar',
+          iconTone: 'success',
+          segments: [{ key: 'done', value: 1, tone: 'success' }],
+          statusIcon: 'check-square',
+          statusTone: 'neutral',
+        },
+      ],
+      description:
+        'Array of { id, label, icon, caption, captionTone, iconTone, segments, count, countTone, '
+        + 'statusIcon, statusTone, ariaLabel, disabled }. icon / statusIcon are '
+        + 'PrimeIcons names. Tones: brand, success, warning, danger, neutral.',
+    },
+    value: { type: 'string', defaultValue: 'secondary' },
+    ariaLabel: { type: 'string', defaultValue: 'Sections' },
+    onChange: { type: 'eventHandler', argTypes: [{ name: 'id', type: 'string' }] },
+  },
+  states: {
+    value: {
+      type: 'writable',
+      variableType: 'text',
+      valueProp: 'value',
+      onChangeProp: 'onChange',
+    },
   },
 };
 
@@ -606,6 +712,9 @@ const REGISTRY = [
   [Eyebrow, eyebrowMeta],
   [SectionLabel, sectionLabelMeta],
   [Sheet, sheetMeta],
+  [ProgressRing, progressRingMeta],
+  [CountBadge, countBadgeMeta],
+  [RingTabBar, ringTabBarMeta],
 ];
 
 /**

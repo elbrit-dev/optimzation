@@ -29,7 +29,7 @@
          everything registered in that namespace regardless of which @theme
          block declared it, so because this file is imported after
          tailwind.css, `--color-*: initial` also deletes every DS colour —
-         leaving `bg-surface`, `text-secondary` and `bg-brand` uncompiled
+         leaving `bg-surface`, `text-ds-secondary` and `bg-brand` uncompiled
          while `bg-white` survives. Resetting per family removes exactly the
          stock ramp and nothing else. ---- */
   --color-slate-*: initial;
