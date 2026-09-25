@@ -133,7 +133,7 @@ export function EventDefaultDialog({ event, setOpen }) {
 
               <DeleteEventDialog
                 className="w-full sm:w-auto"
-                onConfirm={() => handleDelete(event.erpName, undefined, event)}
+                onConfirm={() => handleDelete(event.erpName, event.erpDoctype, event)}
               />
             </div>
           ) : (
@@ -149,7 +149,7 @@ export function EventDefaultDialog({ event, setOpen }) {
               {(canDelete || isFailedSync) && (
                 <DeleteEventDialog
                   className="w-full sm:w-auto"
-                  onConfirm={() => handleDelete(event.erpName, undefined, event)}
+                  onConfirm={() => handleDelete(event.erpName, event.erpDoctype, event)}
                 />
               )}
             </>
@@ -176,7 +176,7 @@ export function EventDetailsFields({
 
   return (
     <div className="space-y-5">
-      <DetailGrid>
+      <DetailGrid columns={config.details.columns}>
         {gridFields.map((field) => {
           const Icon = ICONS[field.type] ?? ICONS["text"];
           const value = resolveDisplayValueFromEvent({
@@ -186,7 +186,12 @@ export function EventDetailsFields({
           });
           if (!value) return null;
           return (
-            <DetailItem key={field.key} icon={Icon} label={field.label}>
+            <DetailItem
+              key={field.key}
+              icon={Icon}
+              label={field.label}
+              className={field.fullWidth ? "col-span-2" : ""}
+            >
               {value}
             </DetailItem>
           );

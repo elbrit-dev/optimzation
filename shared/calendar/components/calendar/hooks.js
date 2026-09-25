@@ -3,6 +3,7 @@ import { TAG_IDS } from "@calendar/components/calendar/constants";
 import { useRef } from "react";
 import { toast } from "sonner";
 import { deleteEventFromErp } from "@calendar/components/calendar/module/event/services/event.service";
+import { deleteTravelRequest } from "@calendar/components/calendar/module/travel-request/services/travel-request.service";
 const OVERLAY_HISTORY_FLAG = "__calendarOverlayLayer";
 
 function isEditableElement(element) {
@@ -97,10 +98,12 @@ export const useSubmissionRouter = ({
 	handleLeave,
 	handleTodo,
 	handleDoctorVisitPlan,
+	handleTravelRequest,
 	handleDefaultEvent,
 }) => {
 	return {
 		[TAG_IDS.LEAVE]: handleLeave,
+		[TAG_IDS.TRAVEL_REQUEST]: handleTravelRequest,
 		[TAG_IDS.TODO_LIST]: handleTodo,
 		[TAG_IDS.DOCTOR_VISIT_PLAN]: async (values) => {
 			if (isEditing) return handleDefaultEvent(values);
@@ -122,7 +125,8 @@ export function useDeleteEvent({ removeEvent, onClose }) {
       // Every event on the calendar is a document ERP has stored, so there is no
       // local-only case to discard: deleting means deleting in ERP, and the row
       // only leaves the calendar once ERP has confirmed it.
-      await deleteEventFromErp(erpName, docname);
+      if (docname === "Travel Request") await deleteTravelRequest(erpName);
+      else await deleteEventFromErp(erpName, docname);
       removeEvent(erpName);
       onClose?.();
       toast.success("Event deleted.");

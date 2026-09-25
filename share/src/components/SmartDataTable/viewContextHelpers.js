@@ -31,18 +31,39 @@ function resolveStatus(view) {
   return view.loaded ? 'success' : 'idle';
 }
 
-/** Returns the `data`, `state`, and `meta` slices that are identical across all consumers. */
+const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+const obj = (v) => (isObj(v) ? v : {});
+const arr = (v) => (Array.isArray(v) ? v : []);
+
+// The `_meta` keys a binding reads as objects (`meta.meta_today_totals.x`). Before the
+// first fetch — or when the API leaves one out — they must still be objects, or the
+// binding throws "Cannot read properties of null" and takes the whole provider down.
+const META_OBJECT_KEYS = ['meta_totals', 'meta_today_totals', 'meta_filter_values', 'meta_pagination'];
+
+function buildMeta(metaCol) {
+  const meta = { ...obj(metaCol) };
+  for (const key of META_OBJECT_KEYS) meta[key] = obj(meta[key]);
+  return meta;
+}
+
+/**
+ * Returns the `data`, `state`, and `meta` slices that are identical across all consumers.
+ *
+ * Plasmic bindings dot straight into this shape with no optional chaining, so every
+ * container here is an object or array, never null/undefined — whatever state the view
+ * is in. Only leaves (numbers, strings, `error`) may be null.
+ */
 export function buildViewDataState(view) {
   return {
-    meta: view.metaCol ?? null,
+    meta: buildMeta(view.metaCol),
     data: {
-      rows:       (view.rows ?? []).map(flattenRow),
-      columns:    view.columns ?? null,
-      groups:     view.columnGroups ?? null,
-      count:      view.totalRecords,
-      totals:     view.metaTotals      ?? {},
-      todayTotals: view.metaTodayTotals ?? {},
-      dimensions: view.filterDefs,
+      rows:       arr(view.rows).map(flattenRow),
+      columns:    arr(view.columns),
+      groups:     arr(view.columnGroups),
+      count:      view.totalRecords ?? 0,
+      totals:     obj(view.metaTotals),
+      todayTotals: obj(view.metaTodayTotals),
+      dimensions: arr(view.filterDefs),
       // So a binding on `data` alone can tell what the rows mean: `loading` for the
       // spinner, `status` for what happened once it stops, `error` for the message
       // when that outcome was a failure (null in every other status).
@@ -53,14 +74,14 @@ export function buildViewDataState(view) {
     state: {
       loading: !!view.loading,
       status:  resolveStatus(view),
-      error:   view.error,
-      filters: view.filters,
-      sort:    view.sortBy,
-      page:    view.pagination,
+      error:   view.error ?? null,
+      filters: obj(view.filters),
+      sort:    obj(view.sortBy),
+      page:    obj(view.pagination),
       // Raw control outputs, keyed by the control's `key` in the report config
       // (e.g. controls.dateRange = { start, end }, controls.lakhs = { value }).
       // `filters` above is the table's column filter row — a different thing.
-      controls: view.viewParams?._controls ?? {},
+      controls: obj(view.viewParams?._controls),
     },
   };
 }

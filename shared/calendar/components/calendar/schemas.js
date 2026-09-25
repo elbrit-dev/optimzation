@@ -2,6 +2,7 @@ import { z } from "zod";
 import { differenceInCalendarDays } from "date-fns";
 import { TAG_FORM_CONFIG } from "@calendar/lib/calendar/form-config";
 import { TAG_IDS } from "@calendar/components/calendar/constants";
+import { TRAVEL_MODE_OPTIONS, isTravelAttachmentRequired } from "@calendar/components/calendar/module/travel-request/helpers/travel-request.helper";
 
 /* =====================================================
    POB ITEM SCHEMA
@@ -83,6 +84,14 @@ export const eventSchema = z
     attending: z.enum(["Yes", "No","Maybe",""]).optional(),
     custom_latitude: z.coerce.number().nullable().optional(),
     custom_longitude: z.coerce.number().nullable().optional(),
+
+    /* ---------- Travel Request ---------- */
+    travelMode: z.string().optional(),
+    travelFunding: z.string().optional(),
+    travelSponsorDetails: z.string().optional(),
+    travelFrom: z.string().trim().optional(),
+    travelTo: z.string().trim().optional(),
+    travelAttachment: z.any().optional(),
   })
   .superRefine((data, ctx) => {
     const config = TAG_FORM_CONFIG[data.tags] ?? TAG_FORM_CONFIG.DEFAULT;
@@ -102,7 +111,7 @@ export const eventSchema = z
       if (isEmpty) {
         ctx.addIssue({
           path: [field],
-          message: `The ${field} is required`,
+          message: config.requiredMessages?.[field] ?? `The ${field} is required`,
           code: z.ZodIssueCode.custom,
         });
       }
@@ -193,6 +202,24 @@ export const eventSchema = z
       ctx.addIssue({
         path: ["custom_force_visit_reason"],
         message: "Force visit reason is required",
+        code: z.ZodIssueCode.custom,
+      });
+    }
+
+    /* ---------------------------------------------
+       TRAVEL REQUEST: BOOKING PROOF
+       Flight tickets and cab bookings come with a screenshot; a hotel may be
+       requested before anything is booked.
+    --------------------------------------------- */
+    if (
+      data.tags === TAG_IDS.TRAVEL_REQUEST &&
+      isTravelAttachmentRequired(data.travelMode) &&
+      !(data.travelAttachment instanceof File) &&
+      !(typeof data.travelAttachment === "string" && data.travelAttachment)
+    ) {
+      ctx.addIssue({
+        path: ["travelAttachment"],
+        message: `Attach the ${TRAVEL_MODE_OPTIONS.find((o) => o.value === data.travelMode)?.attachmentLabel.toLowerCase() ?? "booking"}`,
         code: z.ZodIssueCode.custom,
       });
     }

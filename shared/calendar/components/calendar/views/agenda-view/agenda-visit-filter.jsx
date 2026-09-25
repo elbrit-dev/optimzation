@@ -17,7 +17,7 @@ import {
   formatVisitTime,
 } from "@calendar/lib/calendar/visit-filter";
 
-export function AgendaVisitFilter({ value, onChange, className }) {
+export function AgendaVisitFilter({ value, onChange, className, compact = false }) {
   const isActive = value !== VISIT_FILTER.ALL;
   const current =
     VISIT_FILTER_OPTIONS.find((option) => option.value === value) ??
@@ -32,6 +32,7 @@ export function AgendaVisitFilter({ value, onChange, className }) {
           aria-label="Filter doctor visits"
           className={cn(
             "shrink-0 gap-1.5 px-2",
+            compact && "h-7 gap-1 px-2 text-xs [&_svg]:size-3.5",
             isActive && "border-primary text-primary",
             className
           )}

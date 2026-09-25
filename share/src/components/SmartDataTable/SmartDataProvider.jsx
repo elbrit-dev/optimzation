@@ -5,7 +5,7 @@ import { SmartDataCache } from './smartDataCache';
 import { DataProvider as PlasmicDataProvider } from '@plasmicapp/loader-nextjs';
 import { useStore } from 'zustand';
 import { SmartDataContext, SmartDataConfigContext } from './SmartDataContext';
-import { createSmartDataStore, registerStoreInstance } from './useSmartDataStore';
+import { createSmartDataStore, registerStoreInstance, DEFAULT_VIEW_STATE } from './useSmartDataStore';
 import {
   graphqlQueryReportDataSource, graphqlFetchReportFilterValues, resolveIndexGqlVars,
   resolveDrillDown, graphqlFetchDrillDown, drillDownKey, resolveVariablesMap,
@@ -148,6 +148,14 @@ async function fetchApiIndexValue(resolvedApi, view, viewId) {
  *
  * Per-view api/table/controls override their root counterparts via deepMerge (api & table) or replace (controls).
  */
+// Keys that libraries probe on arbitrary objects (promise/JSON/React/Object.prototype
+// checks). Answering those with a placeholder view would make `views` look like a
+// thenable or a React element, so only plain view-id-like names get the fallback.
+const RESERVED_VIEW_KEYS = new Set(['then', 'toJSON', 'constructor', 'prototype', 'valueOf', 'toString', 'length']);
+function isPlaceholderViewKey(key) {
+  return !RESERVED_VIEW_KEYS.has(key) && !/^[_$@]/.test(key) && !(key in Object.prototype);
+}
+
 function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: rawReportConfig, config: commonConfig, overrides, reportName, children }) {
   // One store per provider instance. View ids are only unique within a report config,
   // so two providers on the same page (e.g. Primary/Secondary tabs) would otherwise
@@ -824,24 +832,14 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
   }, []);
 
   const plasmicData = useMemo(() => {
-    const views = {};
-    // Config views are registered in an effect, so on the first render the store has
-    // none of them. Plasmic bindings (`$ctx.data.views.main.data.totals`) are evaluated
-    // on that render, and on the live site an unguarded one throws "Cannot read
-    // properties of undefined (reading 'data')" — Studio's canvas swallows it, which is
-    // why it only reproduces live. Expose every configured view as 'idle' from the start.
-    const viewIds = new Set([...Object.keys(reportConfig?.views ?? {}), ...Object.keys(storeViews)]);
-    for (const viewId of viewIds) {
-      const view = storeViews[viewId]?.pagination
-        ? storeViews[viewId]
-        : reportConfig?.views?.[viewId] ? { pagination: { first: 0, rows: 10 }, totalRecords: 0 } : null;
-      if (!view) continue; // guard: view partially initialised or being torn down
+    const s = () => store.getState();
+
+    const buildView = (viewId, view) => {
       const perPage     = view.pagination.rows;
       const currentPage = Math.floor(view.pagination.first / perPage);
       const totalPages  = Math.ceil(view.totalRecords / perPage) || 1;
-      const s           = () => store.getState();
 
-      views[viewId] = {
+      return {
         ...buildViewDataState(view),
         actions: {
           column: {
@@ -878,8 +876,37 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
           },
         },
       };
+    };
+
+    // Plasmic bindings dot straight into $ctx.data (`$ctx.data.views.main.meta.meta_today_totals`)
+    // and, on the live site, one that hits undefined/null throws and the error boundary
+    // replaces the whole provider — Studio's canvas swallows the same error, so it only
+    // shows up live. Two gaps caused that:
+    //  1. Config views are registered in an effect, so on the first render the store has
+    //     none of them. Every configured view is exposed as 'idle' from the start.
+    //  2. A binding naming a view id this report doesn't declare (typo, or a config that
+    //     differs between UAT and prod). Lookups of unknown ids get an idle placeholder
+    //     too. The placeholder is not an own key, so the Studio data picker and
+    //     Object.keys() still list only real views.
+    // buildViewDataState() guarantees the same inside each view: containers are never null.
+    const views = {};
+    const viewIds = new Set([...Object.keys(reportConfig?.views ?? {}), ...Object.keys(storeViews)]);
+    for (const viewId of viewIds) {
+      // pagination missing = partially initialised or being torn down; show it idle.
+      views[viewId] = buildView(viewId, storeViews[viewId]?.pagination ? storeViews[viewId] : DEFAULT_VIEW_STATE);
     }
-    return { views, fetchedAt: lastFetchedAt };
+
+    const placeholders = {};
+    const viewsWithFallback = new Proxy(views, {
+      get(target, key, receiver) {
+        if (typeof key !== 'string' || key in target || !isPlaceholderViewKey(key)) {
+          return Reflect.get(target, key, receiver);
+        }
+        return (placeholders[key] ??= buildView(key, DEFAULT_VIEW_STATE));
+      },
+    });
+
+    return { views: viewsWithFallback, fetchedAt: lastFetchedAt };
   }, [storeViews, reportConfig, lastFetchedAt, openDrawerView, closeDrawerView, store]);
 
   return (

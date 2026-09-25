@@ -257,9 +257,12 @@ export function normalizeNonMeetingDates(
   endDateTouched
 ) {
   if (!startDate) return;
+  // These types have their own time control, so the time they hold is the
+  // user's choice and must not be reset to "now".
   if (
     selectedTag === TAG_IDS.MEETING ||
-    selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN 
+    selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN ||
+    selectedTag === TAG_IDS.TRAVEL_REQUEST
   ) return;
   if (endDateTouched) return;
 

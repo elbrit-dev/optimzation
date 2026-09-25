@@ -47,7 +47,7 @@ import {
   VisitTime,
 } from "@calendar/components/calendar/views/agenda-view/agenda-visit-filter";
 
-import { ICON_MAP } from "@calendar/components/calendar/mobile/MobileAddEventBar";
+import { getEventIcon } from "@calendar/components/calendar/mobile/MobileAddEventBar";
 import { STATUS, TAG_IDS } from "@calendar/components/calendar/constants";
 import { VISIT_FILTER, matchesVisitFilter } from "@calendar/lib/calendar/visit-filter";
 import {
@@ -274,7 +274,7 @@ export const AgendaEvents = ({ scope = "all"}) => {
   =============================== */
 
   const renderEventCard = (event) => {
-    const TagIcon = ICON_MAP[event.tags];
+    const TagIcon = getEventIcon(event);
     const ownerName =
       users.find((user) => user.id === event.ownerEmployeeId)?.name ??
       event.ownerEmployeeId;
@@ -357,9 +357,12 @@ export const AgendaEvents = ({ scope = "all"}) => {
           </div>
         )}
 
-        {showVisitFilter && (
-          <div className="sticky top-0 z-10 -mt-4 mb-2 flex justify-end bg-background px-4 py-2">
+        {/* The filter rides on the first date heading; with nothing to list
+            there is no heading, so it keeps a row of its own to be undone. */}
+        {showVisitFilter && groupedAndSortedEvents.length === 0 && (
+          <div className="flex justify-end px-4 py-2">
             <AgendaVisitFilter
+              compact
               value={agendaVisitFilter}
               onChange={setAgendaVisitFilter}
             />
@@ -368,7 +371,7 @@ export const AgendaEvents = ({ scope = "all"}) => {
 
         <CommandList className="px-2 border-t max-h-none overflow-visible">
 
-          {groupedAndSortedEvents.map(([groupKey, groupedEvents]) => {
+          {groupedAndSortedEvents.map(([groupKey, groupedEvents], groupIndex) => {
 
             const hqEvents = groupedEvents.filter(
               (event) =>
@@ -421,9 +424,20 @@ export const AgendaEvents = ({ scope = "all"}) => {
               <CommandGroup
                 key={groupKey}
                 heading={
-                  agendaModeGroupBy === "date"
-                    ? format(parseISO(groupKey), "EEEE, MMMM d, yyyy")
-                    : toCapitalize(groupedEvents[0].color)
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="min-w-0 truncate">
+                      {agendaModeGroupBy === "date"
+                        ? format(parseISO(groupKey), "EEEE, MMMM d, yyyy")
+                        : toCapitalize(groupedEvents[0].color)}
+                    </span>
+                    {showVisitFilter && groupIndex === 0 && (
+                      <AgendaVisitFilter
+                        compact
+                        value={agendaVisitFilter}
+                        onChange={setAgendaVisitFilter}
+                      />
+                    )}
+                  </div>
                 }
               >
                 {/* DOCTOR EVENTS */}

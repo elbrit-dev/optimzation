@@ -5,6 +5,7 @@ import { Toaster } from "sonner";
 import { Calendar } from "@calendar/components/calendar/calendar";
 import { CalendarSkeleton } from "@calendar/components/calendar/skeletons/calendar-skeleton";
 import { AuthProvider } from "@calendar/components/auth/auth-context";
+import { DEFAULT_DISABLED_TAG_IDS, EVENT_TYPE_MODES } from "@calendar/components/calendar/constants";
 
 export default function CalendarPage({
   erpUrl,
@@ -16,8 +17,8 @@ export default function CalendarPage({
   enableGoogleCalendarSync = false,
   // `eventTypes` is the set you pick; `eventTypesMode` says whether that set is
   // the enabled one or the disabled one. Pick nothing and every type is on.
-  eventTypes,
-  eventTypesMode,
+  eventTypes = DEFAULT_DISABLED_TAG_IDS,
+  eventTypesMode = EVENT_TYPE_MODES.DISABLED,
 }) {
   return (
     <AuthProvider

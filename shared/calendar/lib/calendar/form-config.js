@@ -342,6 +342,50 @@ export const TAG_FORM_CONFIG = {
       ],
     },
   },
+  [TAG_IDS.TRAVEL_REQUEST]: {
+    // The only participant is the employee raising it, so there is no picker.
+    hide: ["title", "color", "doctor", "allocated_to", "endDate", "employees"],
+    show: ["startDate", "description"],
+    required: ["startDate", "travelMode", "travelFrom", "travelTo"],
+    requiredMessages: {
+      startDate: "Departure date and time is required",
+      travelMode: "Choose Flight, Taxi or Hotel",
+      travelFrom: "Travel From is required",
+      travelTo: "Travel To is required",
+    },
+    fixedColor: DEFAULT_COLORS.TRAVEL_REQUEST,
+    labels: {
+      startDate: "Departure Date",
+      description: "Notes",
+    },
+    employee: {
+      autoSelectLoggedIn: true,
+      multiselect: false,
+    },
+    ui: {
+      lockTagOnEdit: true,
+      showTags: false,
+      // A draft can still be corrected or withdrawn; once submitted (or
+      // cancelled) it belongs to procurement.
+      allowEdit: (event) => event.status === "Draft",
+      allowDelete: (event) => event.status === "Draft",
+    },
+    details: {
+      columns: 2,
+      fields: [
+        { key: "travelMode", label: "Travel Type", type: "text" },
+        { key: "status", label: "Status", type: "text" },
+        { key: "travelFunding", label: "Funding", type: "text" },
+        { key: "travelFrom", label: "From", type: "text" },
+        { key: "travelTo", label: "To", type: "text" },
+        { key: "travelSponsorDetails", label: "Sponsor Details", type: "text" },
+        { key: "attachment", label: "Booking", type: "file" },
+        { key: "owner", label: "Requested by", type: "owner", fullWidth: true },
+        { key: "description", label: "Details", type: "text" },
+      ],
+    },
+  },
+
   Other: {
     hide: ["color", "allocated_to", "doctor"],
     show: ["title", "startDate", "endDate", "employees"],

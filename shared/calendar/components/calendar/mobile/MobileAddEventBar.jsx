@@ -10,9 +10,10 @@ import { motion, AnimatePresence } from "framer-motion";
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 import { isLeafRole, resolveLoggedInRoleId } from "@calendar/lib/employeeHeirachy";
 import { isEmployeeOnApprovedLeave } from "@calendar/lib/calendar/leaveDay";
+import { TRAVEL_MODES, canUseTravelRequest, normalizeTravelMode } from "@calendar/components/calendar/module/travel-request/helpers/travel-request.helper";
 import {
   Plus,
-  Building2, Users, Cake, Calendar, Stethoscope, ListChecks, HelpCircle,
+  Building2, Users, Cake, Calendar, Stethoscope, ListChecks, HelpCircle, Plane, Car, Hotel,
 } from "lucide-react";
 
 export const ICON_MAP = {
@@ -22,8 +23,23 @@ export const ICON_MAP = {
   // [TAG_IDS.BIRTHDAY]: Cake,              // Celebration
   [TAG_IDS.DOCTOR_VISIT_PLAN]: Stethoscope, // Medical appointment
   [TAG_IDS.TODO_LIST]: ListChecks,       // Tasks / checklist
+  [TAG_IDS.TRAVEL_REQUEST]: Plane,       // Flight / cab / hotel request
   [TAG_IDS.OTHER]: HelpCircle,           // Uncategorized / miscellaneous
 };
+
+const TRAVEL_MODE_ICON_MAP = {
+  [TRAVEL_MODES.FLIGHT]: Plane,
+  [TRAVEL_MODES.TAXI]: Car,
+  [TRAVEL_MODES.HOTEL]: Hotel,
+};
+
+// A travel request shows what is being booked; everything else, its type.
+export function getEventIcon(event) {
+  if (event?.tags === TAG_IDS.TRAVEL_REQUEST) {
+    return TRAVEL_MODE_ICON_MAP[normalizeTravelMode(event.travelMode)] ?? ICON_MAP[TAG_IDS.TRAVEL_REQUEST];
+  }
+  return ICON_MAP[event?.tags];
+}
 
 export default function MobileAddEventBar({ date: propDate }) {
   const {
@@ -120,6 +136,9 @@ export default function MobileAddEventBar({ date: propDate }) {
       if (tag.id === TAG_IDS.HQ_TOUR_PLAN) return !shouldHideHqTourPlanTag;
       if (tag.id === TAG_IDS.DOCTOR_VISIT_PLAN) {
         return hasValidHqTourPlan || canCreateDoctorVisitDirectly;
+      }
+      if (tag.id === TAG_IDS.TRAVEL_REQUEST) {
+        return canUseTravelRequest(LOGGED_IN_USER.roleId);
       }
       return true;
     });

@@ -4,7 +4,7 @@ import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { deepMerge } from './varUtils';
 
-const DEFAULT_VIEW_STATE = {
+export const DEFAULT_VIEW_STATE = {
   filters: {},
   sortBy: {},
   pagination: { first: 0, rows: 50 },

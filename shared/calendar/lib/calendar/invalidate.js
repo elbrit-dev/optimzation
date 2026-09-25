@@ -8,7 +8,7 @@ import { notifyCalendarDataChanged } from "@calendar/lib/calendar/realtime";
 // TTL — so dropping the range cache alone makes the calendar refetch events
 // while re-merging the exact same stale leaves and todos. Every caller that
 // invalidates must drop all of them together.
-const CALENDAR_DATA_CACHE_KEYS = ["LEAVE_APPLICATIONS", "TODO_LIST"];
+const CALENDAR_DATA_CACHE_KEYS = ["LEAVE_APPLICATIONS", "TODO_LIST", "TRAVEL_REQUESTS"];
 
 /**
  * Single entry point for "the calendar's data is no longer trustworthy".

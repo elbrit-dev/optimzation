@@ -30,7 +30,8 @@ export const DEFAULT_COLORS = {
   LEAVE_REJECTED: COLORS.RED,
   EVENT: COLORS.BLUE,
   EVENT_COMPLETED: COLORS.GREEN,
-  HQ_TOUR_PLAN:COLORS.PURPLE
+  HQ_TOUR_PLAN:COLORS.PURPLE,
+  TRAVEL_REQUEST: COLORS.TEAL,
 };
 
 export const STATUS = {
@@ -46,6 +47,8 @@ export const TAG_IDS = {
   DOCTOR_VISIT_PLAN: "Doctor Visit plan",
   TODO_LIST: "Todo List",
   MEETING: "Meeting",
+  // Offered in the Add Event form only; saved as a Travel Request + Task, never an Event.
+  TRAVEL_REQUEST: "Travel Request",
   OTHER: "Other",
 };
 export const STATUS_MAP = {
@@ -100,6 +103,7 @@ export const TAGS = [
   { id: TAG_IDS.DOCTOR_VISIT_PLAN, label: "DR Tour Plan" },
   { id: TAG_IDS.TODO_LIST, label: "Todo List" },
   { id: TAG_IDS.MEETING, label: "Meeting" },
+  { id: TAG_IDS.TRAVEL_REQUEST, label: "Travel Request" },
   // { id: TAG_IDS.OTHER, label: "Other" },
 ];
 /**
@@ -123,6 +127,14 @@ export const EVENT_TYPE_MODES = {
 };
 
 export const ALL_TAG_IDS = TAGS.map((tag) => tag.id);
+
+// What the calendar ships with when nobody picks: Leave, Meeting and Todo off,
+// so HQ Tour Plan, DR Tour Plan and Travel Request are the live types.
+export const DEFAULT_DISABLED_TAG_IDS = [
+  TAG_IDS.LEAVE,
+  TAG_IDS.MEETING,
+  TAG_IDS.TODO_LIST,
+];
 
 export function resolveEnabledTagIds(
   eventTypes,
@@ -256,5 +268,13 @@ export function buildEventDefaultValues({ event, defaultTag }) {
       LOGGED_IN_USER.escalation_approver ??
       "",
     fsl_doctor_item: event?.fsl_doctor_item ?? [],
+    // Preselected so the attachment field is there from the start.
+    travelMode: event?.travelMode ?? "Flight", // TRAVEL_MODES.FLIGHT (ERP option)
+    travelFunding: event?.travelFunding ?? "Require Full Funding",
+    travelSponsorDetails: event?.travelSponsorDetails ?? "",
+    travelFrom: event?.travelFrom ?? "",
+    travelTo: event?.travelTo ?? "",
+    // An existing booking proof is its URL; a newly chosen one is a File.
+    travelAttachment: event?.attachment || undefined,
   };
 }

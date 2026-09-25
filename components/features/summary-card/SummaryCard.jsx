@@ -653,9 +653,9 @@ export default function SummaryCard({
         data={data}
         hq={asArray(hq) || asArray(unwrapTeam(data)?.HQ)}
         total={total}
-        // The HQ shelf is part of how this variant reads, so it starts open
-        // unless asked otherwise; a primary card starts closed unless asked.
-        defaultExpanded={defaultExpanded ?? true}
+        // Both variants start closed: the HQ shelf opens when someone asks for
+        // it with the Show HQ button, not before.
+        defaultExpanded={Boolean(defaultExpanded)}
         currency={currency}
         accentColor={accentColor}
         trend={trendPoints}

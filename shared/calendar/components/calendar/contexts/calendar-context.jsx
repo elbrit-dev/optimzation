@@ -136,6 +136,7 @@ export function CalendarProvider({
 	);
 	const includeLeaves = enabledTagIds.includes(TAG_IDS.LEAVE);
 	const includeTodos = enabledTagIds.includes(TAG_IDS.TODO_LIST);
+	const includeTravelRequests = enabledTagIds.includes(TAG_IDS.TRAVEL_REQUEST);
 	const [settings, setSettings] = useLocalStorage("calendar-settings", {
 		...DEFAULT_SETTINGS,
 		badgeVariant: badge,
@@ -302,10 +303,10 @@ export function CalendarProvider({
 			start,
 			end,
 			currentView,
-			{ force, includeLeaves, includeTodos }
+			{ force, includeLeaves, includeTodos, includeTravelRequests }
 		);
 		return nextEvents;
-	}, [currentView, selectedDate, includeLeaves, includeTodos]);
+	}, [currentView, selectedDate, includeLeaves, includeTodos, includeTravelRequests]);
 
 	// Guards against an older, slower fetch landing after a newer one and
 	// clobbering the current range's events.
@@ -348,7 +349,7 @@ export function CalendarProvider({
 			startOfYear(anchorDate),
 			endOfYear(anchorDate),
 			"year",
-			{ force: true, includeLeaves, includeTodos }
+			{ force: true, includeLeaves, includeTodos, includeTravelRequests }
 		);
 
 		if (token !== reloadTokenRef.current) {

@@ -1,11 +1,6 @@
 "use client";
 
-export async function uploadLeaveMedicalCertificate(values, leaveName,erpUrl,authToken) {
-  if (!values?.medicalAttachment || !leaveName) return;
-
-  const formData = new FormData();
-
-  const query = `
+const UPLOAD_FILE_MUTATION = `
     mutation UploadFile(
       $file: Upload!
       $attached_to_doctype: String
@@ -26,16 +21,27 @@ export async function uploadLeaveMedicalCertificate(values, leaveName,erpUrl,aut
     }
   `;
 
+export async function uploadFileToDoc({
+  file,
+  doctype,
+  docname,
+  fieldname,
+  erpUrl,
+  authToken,
+  isPrivate = true,
+}) {
+  const formData = new FormData();
+
   formData.append(
     "operations",
     JSON.stringify({
-      query,
+      query: UPLOAD_FILE_MUTATION,
       variables: {
         file: null,
-        attached_to_doctype: "Leave Application",
-        attached_to_name: leaveName,
-        fieldname: "custom_attachement",
-        is_private: true,
+        attached_to_doctype: doctype ?? null,
+        attached_to_name: docname ?? null,
+        fieldname: fieldname ?? null,
+        is_private: isPrivate,
       },
     })
   );
@@ -47,7 +53,7 @@ export async function uploadLeaveMedicalCertificate(values, leaveName,erpUrl,aut
     })
   );
 
-  formData.append("0", values.medicalAttachment);
+  formData.append("0", file);
 
   const res = await fetch(erpUrl, {
     method: "POST",
@@ -66,4 +72,17 @@ export async function uploadLeaveMedicalCertificate(values, leaveName,erpUrl,aut
     fileUrl: uploaded?.file_url,
     fileName: uploaded?.name,
   };
+}
+
+export async function uploadLeaveMedicalCertificate(values, leaveName,erpUrl,authToken) {
+  if (!values?.medicalAttachment || !leaveName) return;
+
+  return uploadFileToDoc({
+    file: values.medicalAttachment,
+    doctype: "Leave Application",
+    docname: leaveName,
+    fieldname: "custom_attachement",
+    erpUrl,
+    authToken,
+  });
 }

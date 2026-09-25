@@ -13,7 +13,7 @@ import {
   getFirstLetters,
   getColorClass
 } from "@calendar/components/calendar/helpers";
-import { ICON_MAP } from "../../mobile/MobileAddEventBar";
+import { getEventIcon } from "../../mobile/MobileAddEventBar";
 
 export function AgendaEventsDoctorTourPlan({ events }) {
   const [open, setOpen] = useState(false);
@@ -46,7 +46,7 @@ export function AgendaEventsDoctorTourPlan({ events }) {
       {/* Accordion Body */}
       {open &&
         events.map((event) => {
-          const TagIcon = ICON_MAP[event.tags];
+          const TagIcon = getEventIcon(event);
           const ownerName =
             users.find((user) => user.id === event.ownerEmployeeId)?.name ??
             event.ownerEmployeeId;

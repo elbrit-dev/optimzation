@@ -59,7 +59,27 @@ import {
 import { isLeafRole, resolveLoggedInRoleId, resolveSuperiorShareUserIds } from "@calendar/lib/employeeHeirachy";
 import { resolvePobDepartments } from "@calendar/lib/calendar/pobDepartments";
 import { saveDocToErp } from "@calendar/components/calendar/module/todo/services/todo.service";
-import { uploadLeaveMedicalCertificate } from "@calendar/lib/file.service";
+import { uploadFileToDoc, uploadLeaveMedicalCertificate } from "@calendar/lib/file.service";
+import {
+	TRAVEL_FUNDING_OPTIONS,
+	TRAVEL_MODE_OPTIONS,
+	TRAVEL_MODES,
+	TRAVEL_REQUEST_PROJECT,
+	canUseTravelRequest,
+	isTravelAttachmentRequired,
+	roundUpToQuarterHour,
+} from "@calendar/components/calendar/module/travel-request/helpers/travel-request.helper";
+import {
+	buildItineraryRow,
+	mapErpTravelRequestToCalendar,
+	mapFormToErpTravelRequest,
+	mapTravelRequestToTask,
+} from "@calendar/components/calendar/module/travel-request/mappers/travel-request.mapper";
+import {
+	findProcurementTaskName,
+	saveProcurementTask,
+	saveTravelRequest,
+} from "@calendar/components/calendar/module/travel-request/services/travel-request.service";
 import { fetchDocSharesByDocument } from "@calendar/components/calendar/module/event/services/docshare.service";
 import { cn } from "@calendar/lib/utils";
 
@@ -97,7 +117,12 @@ export function AddEditEventDialog({
 	// Only the event types this deployment enables can be created here, and a new
 	// event must start on one of them.
 	const availableTags = useMemo(
-		() => getAvailableTags(enabledTagIds),
+		() =>
+			getAvailableTags(enabledTagIds).filter(
+				(tag) =>
+					tag.id !== TAG_IDS.TRAVEL_REQUEST ||
+					canUseTravelRequest(LOGGED_IN_USER.roleId)
+			),
 		[enabledTagIds]
 	);
 	const isEditing = !!event;
@@ -134,6 +159,7 @@ export function AddEditEventDialog({
 	const leavePeriod = useWatch({ control: form.control, name: "leavePeriod", });
 	const { doctor, employees, hqTerritory, tags: selectedTag, attending, enableGoogleMeet, forceVisit: isForceVisitSelected } = useWatch({ control: form.control });
 	const pobGiven = useWatch({ control: form.control, name: "pob_given", });
+	const travelMode = useWatch({ control: form.control, name: "travelMode" });
 	const customer = useWatch({ control: form.control, name: "customer", });
 	const pobItems = useWatch({ control: form.control, name: "fsl_doctor_item" });
 	const currentLatitude = useWatch({ control: form.control, name: "custom_latitude" });
@@ -1027,10 +1053,15 @@ export function AddEditEventDialog({
 
 		const currentValues = form.getValues();
 		endDateTouchedRef.current = false;
+		// Departure starts at the next quarter hour — a slot the time picker lists.
+		const startValue =
+			selectedTag === TAG_IDS.TRAVEL_REQUEST
+				? roundUpToQuarterHour(baseDate, now)
+				: baseDate;
 
 		form.reset({
 			...currentValues,
-			startDate: baseDate,
+			startDate: startValue,
 			endDate: tagConfig.dateOnly
 				? baseDate
 				: addMinutes(baseDate, 60),
@@ -1144,6 +1175,7 @@ export function AddEditEventDialog({
 			halfDayDate: undefined,
 			halfDayPosition: "FIRST_DAY",
 			medicalAttachment: undefined, allocated_to: undefined,
+			travelMode: TRAVEL_MODES.FLIGHT, travelFunding: TRAVEL_FUNDING_OPTIONS[0], travelSponsorDetails: "", travelFrom: "", travelTo: "", travelAttachment: undefined,
 			assignedTo: [], custom_latitude: undefined, custom_longitude: undefined,
 			hqTerritory: "",
 			allDay: false,
@@ -1152,6 +1184,7 @@ export function AddEditEventDialog({
 	};
 	const finalize = (message) => {
 		toast.success(message);
+		travelRequestDraftRef.current = {};
 		resetAndCloseDialog();
 	};
 	// Set when a submit from this form has already failed. A save can fail on the
@@ -1160,6 +1193,10 @@ export function AddEditEventDialog({
 	// insert a duplicate. Before re-creating, look for the document the previous
 	// attempt may already have made and adopt it instead.
 	const previousSubmitFailedRef = useRef(false);
+	// A travel request is three ERP writes (Travel Request, Task, Event). What an
+	// attempt already created is kept here, so pressing Save again after a later
+	// step failed updates those documents instead of filing duplicates.
+	const travelRequestDraftRef = useRef({});
 
 	// One toast, updated in place, for however long a contended save takes. A
 	// blocked attempt costs the server's whole lock timeout (50s by default), so
@@ -1998,6 +2035,84 @@ export function AddEditEventDialog({
 			toast.error(message);
 		}
 	};
+	// Travel requests are not calendar Events: they live only in ERP as a
+	// Travel Request plus a Procurement Task.
+	const handleTravelRequest = async (values) => {
+		const employee = {
+			id: LOGGED_IN_USER.id,
+			name: LOGGED_IN_USER.name,
+			email: LOGGED_IN_USER.email,
+		};
+		const draft = travelRequestDraftRef.current;
+		// Editing a draft updates the request (and its Task) in place.
+		if (isEditing && !draft.travelRequestName) {
+			draft.travelRequestName = event.erpName;
+		}
+
+		// Upload first (public, unattached) so the request is written once,
+		// already carrying its proof link. A proof kept from before is its URL.
+		if (values.travelAttachment instanceof File && !draft.proofUrl) {
+			const upload = await uploadFileToDoc({
+				file: values.travelAttachment,
+				erpUrl: AUTH_CONFIG.erpUrl,
+				authToken: AUTH_CONFIG.authToken,
+				isPrivate: false,
+			});
+			draft.proofUrl = upload?.fileUrl;
+		} else if (typeof values.travelAttachment === "string") {
+			draft.proofUrl = values.travelAttachment;
+		}
+
+		if (isEditing || !draft.travelRequestSaved) {
+			const savedTravelRequest = await saveTravelRequest(
+				mapFormToErpTravelRequest(values, {
+					employee,
+					proofUrl: draft.proofUrl,
+					existingName: draft.travelRequestName,
+				})
+			);
+			draft.travelRequestName = savedTravelRequest.name;
+			draft.travelRequestSaved = true;
+		}
+
+		if (isEditing && draft.taskName === undefined) {
+			draft.taskName = await findProcurementTaskName(
+				TRAVEL_REQUEST_PROJECT,
+				draft.travelRequestName
+			);
+		}
+		if (isEditing || !draft.taskName) {
+			const savedTask = await saveProcurementTask(
+				mapTravelRequestToTask(values, {
+					travelRequestName: draft.travelRequestName,
+					employee,
+					existingName: draft.taskName,
+				})
+			);
+			draft.taskName = savedTask.name;
+		}
+
+		// Shown on the calendar straight away, in the same shape the calendar
+		// reads Travel Requests back from ERP.
+		const calendarTravelRequest = mapErpTravelRequestToCalendar({
+			name: draft.travelRequestName,
+			docstatus: 0,
+			travel_funding: values.travelFunding,
+			details_of_sponsor: values.travelSponsorDetails,
+			travel_proof: draft.proofUrl,
+			description: values.description,
+			employee_name: employee.name,
+			employee: { name: employee.id, company_email: employee.email },
+			itinerary: [buildItineraryRow(values)],
+		});
+		if (calendarTravelRequest) {
+			const entry = { ...calendarTravelRequest, ownerFullName: employee.name };
+			if (isEditing) updateEvent(entry);
+			else addEvent(entry);
+		}
+
+		finalize(isEditing ? "Travel request updated" : "Travel request saved as draft");
+	};
 	const handleTodo = async (values) => {
 		const todoDoc = mapFormToErpTodo(values, employeeResolvers, {
 			erpName: event?.erpName,
@@ -2042,6 +2157,7 @@ export function AddEditEventDialog({
 		handleLeave,
 		handleTodo,
 		handleDoctorVisitPlan,
+		handleTravelRequest,
 		handleDefaultEvent,
 	});
 
@@ -2217,6 +2333,103 @@ export function AddEditEventDialog({
 									</div>
 								))}
 							</div>
+						)}
+
+						{/* ================= TRAVEL REQUEST ================= */}
+						{selectedTag === TAG_IDS.TRAVEL_REQUEST && (
+							<>
+								<FormField
+									control={form.control}
+									name="travelMode"
+									render={({ field, fieldState }) => (
+										<RHFFieldWrapper
+											label="Travel Type"
+											error={fieldState.error && "Choose Flight, Cab or Hotel"}
+										>
+											<div className="flex flex-wrap gap-2">
+												{TRAVEL_MODE_OPTIONS.map((option) => (
+													<button
+														key={option.value}
+														type="button"
+														onClick={() => {
+															field.onChange(option.value);
+															form.setValue("travelAttachment", undefined);
+														}}
+														className={`px-4 py-1 rounded-full ${field.value === option.value
+															? "bg-primary text-white"
+															: "bg-muted"
+															}`}
+													>
+														{option.value}
+													</button>
+												))}
+											</div>
+										</RHFFieldWrapper>
+									)}
+								/>
+								<div className="grid grid-cols-2 gap-3">
+									{[
+										{ name: "travelFrom", label: "Travel From" },
+										{ name: "travelTo", label: "Travel To" },
+									].map(({ name, label }) => (
+										<FormField
+											key={name}
+											control={form.control}
+											name={name}
+											render={({ field, fieldState }) => (
+												<RHFFieldWrapper
+													label={label}
+													error={fieldState.error && `${label} is required`}
+												>
+													<FormControl>
+														<Input
+															placeholder="City / place"
+															{...field}
+															value={field.value ?? ""}
+														/>
+													</FormControl>
+												</RHFFieldWrapper>
+											)}
+										/>
+									))}
+								</div>
+								<div className="grid grid-cols-2 gap-3">
+									<FormField
+										control={form.control}
+										name="travelFunding"
+										render={({ field }) => (
+											<RHFFieldWrapper label="Travel Funding">
+												<select
+													className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+													value={field.value ?? TRAVEL_FUNDING_OPTIONS[0]}
+													onChange={(e) => field.onChange(e.target.value)}
+												>
+													{TRAVEL_FUNDING_OPTIONS.map((option) => (
+														<option key={option} value={option}>
+															{option}
+														</option>
+													))}
+												</select>
+											</RHFFieldWrapper>
+										)}
+									/>
+									<FormField
+										control={form.control}
+										name="travelSponsorDetails"
+										render={({ field }) => (
+											<RHFFieldWrapper label="Sponsor Details">
+												<FormControl>
+													<Input
+														placeholder="Name, location"
+														{...field}
+														value={field.value ?? ""}
+													/>
+												</FormControl>
+											</RHFFieldWrapper>
+										)}
+									/>
+								</div>
+							</>
 						)}
 
 						{/* ================= LEAVE TYPE ================= */}
@@ -2433,7 +2646,8 @@ export function AddEditEventDialog({
 							<div
 								className={`grid gap-3 ${(isFieldVisible("startDate") &&
 									isFieldVisible("endDate")) ||
-									selectedTag === TAG_IDS.TODO_LIST
+									selectedTag === TAG_IDS.TODO_LIST ||
+									selectedTag === TAG_IDS.TRAVEL_REQUEST
 									? "grid-cols-2"
 									: "grid-cols-1"
 									}`}
@@ -2446,6 +2660,23 @@ export function AddEditEventDialog({
 											name="startDate"
 											label={getFieldLabel("startDate", "Date")}
 											hideTime
+											// Date and time are separate controls here, and the
+											// date-only picker zeroes the time — keep the one chosen.
+											onChange={
+												selectedTag === TAG_IDS.TRAVEL_REQUEST
+													? (date) => {
+														const current = form.getValues("startDate");
+														const next = new Date(date);
+														if (current) {
+															next.setHours(current.getHours(), current.getMinutes(), 0, 0);
+														}
+														form.setValue("startDate", next, {
+															shouldDirty: true,
+															shouldValidate: true,
+														});
+													}
+													: undefined
+											}
 											/* Doctor Tour Plan restriction */
 											minDate={
 												selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN &&
@@ -2467,6 +2698,22 @@ export function AddEditEventDialog({
 											}
 										/>
 									)}
+
+								{selectedTag === TAG_IDS.TRAVEL_REQUEST && (
+									<FormField
+										control={form.control}
+										name="startDate"
+										render={({ field }) => (
+											<RHFFieldWrapper label="Departure Time">
+												<TimePicker
+													value={field.value}
+													onChange={field.onChange}
+													use24Hour={false}
+												/>
+											</RHFFieldWrapper>
+										)}
+									/>
+								)}
 
 								{isFieldVisible("endDate") &&
 									!isEditReadOnlyField("endDate") && (
@@ -2779,6 +3026,37 @@ export function AddEditEventDialog({
 							/>
 						)}
 
+						{/* ================= TRAVEL BOOKING PROOF ================= */}
+						{selectedTag === TAG_IDS.TRAVEL_REQUEST && travelMode && (
+							<FormField
+								control={form.control}
+								name="travelAttachment"
+								render={({ field, fieldState }) => (
+									<RHFFieldWrapper
+										label={`${TRAVEL_MODE_OPTIONS.find((o) => o.value === travelMode)?.attachmentLabel}${isTravelAttachmentRequired(travelMode) ? "" : " (optional)"}`}
+										error={fieldState.error?.message}
+									>
+										<Input
+											type="file"
+											accept="image/*,application/pdf"
+											onChange={(e) =>
+												field.onChange(e.target.files?.[0])
+											}
+										/>
+										{typeof field.value === "string" && field.value ? (
+											<a
+												href={new URL(field.value, AUTH_CONFIG.erpUrl ?? window.location.href).href}
+												target="_blank"
+												rel="noreferrer"
+												className="mt-2 text-sm text-blue-600 underline break-all"
+											>
+												Current attachment
+											</a>
+										) : null}
+									</RHFFieldWrapper>
+								)}
+							/>
+						)}
 						{/* ================= MEDICAL ATTACHMENT ================= */}
 						{selectedTag === TAG_IDS.LEAVE && requiresMedical && (
 							<FormField

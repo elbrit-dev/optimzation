@@ -66,7 +66,12 @@ export function DetailItem({ icon: Icon, label, children, className = "" }) {
 }
 
 /** Compact single-column list with hairline dividers between rows (Format A). */
-export function DetailGrid({ children, className = "" }) {
+export function DetailGrid({ children, className = "", columns = 1 }) {
+  if (columns === 2) {
+    return (
+      <div className={`grid grid-cols-2 gap-x-4 ${className}`}>{children}</div>
+    );
+  }
   return (
     <div className={`flex flex-col divide-y divide-border ${className}`}>{children}</div>
   );

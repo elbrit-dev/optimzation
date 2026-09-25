@@ -15,6 +15,7 @@ import SummaryCard from "./components/features/summary-card";
 import FirebaseUIComponent from "./components/FirebaseUIComponent";
 import LoginHelpForm from "./components/LoginHelpForm";
 import HelpSupport from "./components/features/help-support";
+import SupportReport from "./components/features/support-report";
 import CalendarPage from "@calendar/components/CalendarPage";
 import { TAGS, TAG_IDS, EVENT_TYPE_MODES } from "@calendar/components/calendar/constants";
 import NovuInbox from "./components/NovuInbox";
@@ -296,6 +297,32 @@ PLASMIC.registerComponent(HelpSupport, {
   },
   styleSections: true,
   importPath: "./components/features/help-support",
+});
+PLASMIC.registerComponent(SupportReport, {
+  name: "SupportReport",
+  displayName: "Support Report",
+  description:
+    "Doctor Support report on live ERP data: qty, doctors, products and value by month, team tree, doctors, brands and HQ. What it shows is limited by the token's ERP permissions, and it opens at the token owner's own team.",
+  props: {
+    url: {
+      type: "string",
+      displayName: "GraphQL URL",
+      description: "ERP GraphQL URL, for example https://erp.elbrit.org/api/method/graphql.",
+    },
+    token: {
+      type: "string",
+      displayName: "Auth token",
+      description: "The signed-in user's ERP token, key:secret (the \"token \" prefix is optional).",
+    },
+    className: {
+      type: "string",
+      displayName: "className",
+      description: "Applied to the root element so width and spacing can be set from Studio.",
+      defaultValue: "",
+    },
+  },
+  styleSections: true,
+  importPath: "./components/features/support-report",
 });
 
 PLASMIC.registerFunction(useCallback, {

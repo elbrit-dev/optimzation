@@ -33,7 +33,7 @@ import {
 
 import { Avatar, AvatarFallback } from "@calendar/components/ui/avatar";
 import { EventParticipantAvatars } from "@calendar/components/calendar/views/shared/event-participant-avatars";
-import { ICON_MAP } from "@calendar/components/calendar/mobile/MobileAddEventBar";
+import { getEventIcon } from "@calendar/components/calendar/mobile/MobileAddEventBar";
 import { STATUS, TAG_IDS } from "@calendar/components/calendar/constants";
 import { navigateDate } from "@calendar/components/calendar/helpers";
 import { ChevronDown } from "lucide-react";
@@ -217,7 +217,7 @@ export const AgendaEventsMobile = () => {
   =============================== */
 
   const renderEventCard = (event) => {
-    const TagIcon = ICON_MAP[event.tags];
+    const TagIcon = getEventIcon(event);
     const ownerName =
       users.find((user) => user.id === event.ownerEmployeeId)?.name ??
       event.ownerEmployeeId;

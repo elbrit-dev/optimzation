@@ -1,5 +1,6 @@
 import { format, parseISO, isValid } from "date-fns";
 import { formatTime } from "@calendar/components/calendar/helpers";
+import { AUTH_CONFIG } from "@calendar/components/auth/calendar-users";
 
 function formatOwnerSummary(event) {
   const ownerId = event.ownerEmployeeId ?? event.owner?.id ?? null;
@@ -129,6 +130,22 @@ export function resolveDisplayValueFromEvent({
         d,
         use24HourFormat
       )}`;
+    }
+
+    case "file": {
+      if (!value) return null;
+      // ERP stores files as site-relative paths (/files/…).
+      let href = value;
+      try {
+        href = new URL(value, AUTH_CONFIG.erpUrl ?? undefined).href;
+      } catch {
+        /* keep as-is */
+      }
+      return (
+        <a href={href} target="_blank" rel="noreferrer" className="text-blue-600 underline">
+          View attachment
+        </a>
+      );
     }
 
     default:

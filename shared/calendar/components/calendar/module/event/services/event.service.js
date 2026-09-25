@@ -24,6 +24,7 @@ import { clearCached, getCached } from "@calendar/lib/data-cache";
 import { GOOGLE_CALENDAR_BY_USER } from "@calendar/components/calendar/google-auth/queries";
 import { fetchAllTodoList } from "@calendar/components/calendar/module/todo/services/todo.service";
 import { fetchAllLeaveApplications } from "@calendar/components/calendar/module/leave/services/leave.service";
+import { fetchAllTravelRequests } from "@calendar/components/calendar/module/travel-request/services/travel-request.service";
 import {
   enqueueDocShareSync,
   fetchDocShareNamesForUser,
@@ -769,10 +770,15 @@ export async function fetchEventsByRange(startDate, endDate, view, options = {})
   // includeLeaves / includeTodos follow the calendar's enabled event types: a
   // disabled type costs no query. They are part of the cache key because they
   // change the shape of the result.
-  const { force = false, includeLeaves = true, includeTodos = true } = options;
+  const {
+    force = false,
+    includeLeaves = true,
+    includeTodos = true,
+    includeTravelRequests = true,
+  } = options;
   const cacheKey = `${buildRangeCacheKey(view, startDate, endDate)}:${
     includeLeaves ? "L" : "-"
-  }${includeTodos ? "T" : "-"}`;
+  }${includeTodos ? "T" : "-"}${includeTravelRequests ? "R" : "-"}`;
 
   if (!force) {
     const cached = getCachedEvents(cacheKey);
@@ -789,7 +795,7 @@ export async function fetchEventsByRange(startDate, endDate, view, options = {})
     startDate,
     endDate,
     generation,
-    { includeLeaves, includeTodos }
+    { includeLeaves, includeTodos, includeTravelRequests }
   )
     .finally(() => {
       // A forced fetch may have replaced this entry — only clear our own.
@@ -864,7 +870,11 @@ async function fetchEventsByRangeUncached(
   startDate,
   endDate,
   generation,
-  { includeLeaves = true, includeTodos = true } = {}
+  {
+    includeLeaves = true,
+    includeTodos = true,
+    includeTravelRequests = true,
+  } = {}
 ) {
   const filter = [
     {
@@ -902,6 +912,7 @@ async function fetchEventsByRangeUncached(
     leavesResult,
     todoResult,
     sharedEventNamesResult,
+    travelRequestsResult,
   ] = await Promise.allSettled([
     fetchQuotationsByNames(uniqueQuotationNames),
     // Two queries per calendar load that are pure waste while these types are
@@ -909,6 +920,7 @@ async function fetchEventsByRangeUncached(
     includeLeaves ? fetchAllLeaveApplications() : [],
     includeTodos ? fetchAllTodoList() : [],
     fetchDocShareNamesForUser(LOGGED_IN_USER.email),
+    includeTravelRequests ? fetchAllTravelRequests() : [],
   ]);
   const quotationMap =
     quotationResult.status === "fulfilled"
@@ -945,6 +957,13 @@ async function fetchEventsByRangeUncached(
     console.error(
       "Failed to fetch leave applications",
       leavesResult.reason
+    );
+  }
+
+  if (travelRequestsResult.status === "rejected") {
+    console.error(
+      "Failed to fetch travel requests",
+      travelRequestsResult.reason
     );
   }
 
@@ -1000,7 +1019,16 @@ async function fetchEventsByRangeUncached(
   // --------------------------------------------
   // 6️⃣ MERGE LEAVES + TODOS
   // --------------------------------------------
-  const merged = [...events, ...leaves, ...todolist];
+  // Travel requests are their own doctype (never Events): keep the ones that
+  // depart inside this range.
+  const travelRequests =
+    travelRequestsResult.status === "fulfilled"
+      ? travelRequestsResult.value.filter((request) => {
+          const departure = new Date(request.startDate);
+          return departure >= startDate && departure <= endDate;
+        })
+      : [];
+  const merged = [...events, ...leaves, ...todolist, ...travelRequests];
   setCachedEvents(cacheKey, merged, generation);
 
   return merged;

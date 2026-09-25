@@ -165,6 +165,7 @@ const CSS = `
 .tc-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px 20px; padding: 16px 20px 18px; }
 .tc-stat { border-left: 2px solid var(--tc-accent, #3b82f6); padding-left: 12px; min-width: 0; }
+.tc-stat__figs { display: contents; }
 .tc-stat__label { font-size: 10.5px; font-weight: 700; letter-spacing: .08em;
   text-transform: uppercase; color: #64748b; }
 .tc-stat__value { margin-top: 4px; font-size: clamp(18px, 2cqi, 26px); font-weight: 700;
@@ -233,7 +234,15 @@ const CSS = `
 @container tc (max-width: 380px) {
   .tc-head { flex-direction: column; gap: 10px; }
   .tc-toggle { align-self: flex-start; }
-  .tc-stats { grid-template-columns: minmax(0, 1fr); }
+  /* One row per figure, using the width instead of leaving it empty: the label
+     holds the left edge and the numbers sit against the right. */
+  .tc-stats { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .tc-stat { display: flex; align-items: center; justify-content: space-between;
+    gap: 14px; padding: 2px 0 2px 10px; }
+  .tc-stat__label { flex: 0 0 auto; }
+  .tc-stat__figs { display: block; flex: 1 1 auto; min-width: 0; text-align: right; }
+  .tc-stat__value { margin-top: 0; font-size: clamp(17px, 6.4cqi, 21px); }
+  .tc-stat__money { margin-top: 1px; font-size: 11.5px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -267,10 +276,14 @@ function Stat({ label, value, qty, currency }) {
   return (
     <div className="tc-stat">
       <div className="tc-stat__label">{label}</div>
-      <div className="tc-stat__value" data-empty={quantity ? "false" : "true"}>
-        {quantity || "—"}
+      {/* display:contents on wide cards, so this wrapper only exists for the
+          narrow layout, where the figures move opposite the label */}
+      <div className="tc-stat__figs">
+        <div className="tc-stat__value" data-empty={quantity ? "false" : "true"}>
+          {quantity || "—"}
+        </div>
+        <div className="tc-stat__money">{money || "No value"}</div>
       </div>
-      <div className="tc-stat__money">{money || "No value"}</div>
     </div>
   );
 }
@@ -353,7 +366,7 @@ export default function TeamCard({
   total = false,
   trend,
   trendType = "wave",
-  defaultExpanded = true,
+  defaultExpanded = false,
   currency = "₹",
   accentColor = "#3b82f6",
   onToggle,
