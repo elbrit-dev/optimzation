@@ -48,7 +48,9 @@ export function StackedBar({ segments = [], size = 'lg', label, className, style
               className="ds-bar__fill"
               style={{
                 width: `${(s.value / total) * 100}%`,
-                backgroundColor: toneFill(s.tone),
+                /* `color` (any CSS colour) wins over the tone — as in
+                   ProgressRing, for a category no tone names. */
+                backgroundColor: s.color || toneFill(s.tone),
                 /* A segment that is a SUBDIVISION of its neighbour rather
                    than a category beside it — the joint half of a green
                    block — carries its own style: the same hue at lower

@@ -170,91 +170,6 @@ async function graphqlRequest(query, variables, { endpointUrl, gqlToken, gqlEnvi
   return json.data;
 }
 
-/* A doctor is a CRM Lead on this instance (see shape.js), so `custom_doctor`
-   resolves to the Lead type and the label lives in `lead_name` --
-   `custom_doctor { name }` alone is the Lead's primary key, "DR-60005",
-   which is what the doctor plan was showing where a name belongs.
-
-   It used to be selected conditionally, behind a flag that dropped it on the
-   first complaint, because nobody had run it against the live schema. It has
-   now been run: `lead_name` is populated on 400/400 September events. The
-   guess, and the flag that hedged it, are gone.
-
-   THE PARTICIPANT'S IDENTITY IS A `__name` SCALAR, NOT `{ name }`. This
-   schema exposes every link field twice -- as an object, and as a flat
-   `<field>__name` string -- and for `event_participants.reference_docname`
-   only the scalar is usable. The object form is typed `BaseDocType`, a
-   GraphQL INTERFACE, and this Frappe build cannot resolve a dynamic link to
-   a concrete type: asking for `reference_docname { name }` returns a 500
-   from inside the resolver ("handle_field_error() missing 1 required
-   positional argument"), which names no field and so cannot even be caught
-   and retried. Selecting it bare is rejected at validation instead.
-
-   Confirmed by introspection against erp.elbrit.org:
-     reference_docname         INTERFACE  BaseDocType
-     reference_docname__name   SCALAR     String      <- this one
-
-   NOTE the comment style below is `#`. GraphQL has no block comments, and a
-   JS-style one inside the document is a parse error, not a comment. */
-
-const VISITS_QUERY = () => `
-  query VisitsInWindow($f: [DBFilterInput], $first: Int) {
-    Events(filter: $f, first: $first) {
-      totalCount
-      edges { node {
-        name
-        subject
-        starts_on
-        custom_employee_id { name }
-        # A doctor is a CRM Lead. city is a plain scalar; the category is a
-        # link to Category List, so it takes the __name shadow like every
-        # other link here. NO BACKTICKS IN THIS DOCUMENT -- it is a JS
-        # template literal, and a backtick ends it mid-query.
-        custom_doctor {
-          name
-          lead_name
-          city
-          custom_specialty__name
-          # FOUR separate category links, not a child table. A doctor carries a
-          # commercial grade (C / SC / E), a value-vs-reach band (LILR / HIHR),
-          # a focus bucket (EC10 / C20) and sometimes a campaign (A&P FOCUS 20).
-          # Any of them can be empty; the card joins whatever is set.
-          custom_category__name
-          custom_category1__name
-          custom_category2__name
-          custom_category3__name
-        }
-        custom_hq { name }
-        custom_department { name }
-        custom_pob_given
-        event_participants {
-          # Scalars. The object forms of these two cannot be resolved -- see above.
-          reference_doctype__name
-          reference_docname__name
-          custom_visit_time
-          custom_distance
-          custom_is_force_visit
-          custom_force_visit_reason
-        }
-      } }
-    }
-  }
-`;
-
-/* One VisitRow per participant, not per Event: an Event with no participant
-   is a plan nobody has been assigned to yet, which shape.js's PLANNED /
-   HAPPENED model (one rep per row) has nothing to show for.
-
-   JOINT CALLS ARE COMMON, and an older note here guessed the opposite. Of
-   400 live September events: 315 carry one participant, 84 carry two, one
-   carries three -- 486 participant rows for 400 calls. Roughly a fifth of
-   the plan is somebody going along with somebody else.
-
-   That is why these rows carry `planOwnerId` (the Event's employee) and NOT
-   an `employeeId`. Attribution is decided in fetchVisitDataset, from the
-   participant, because stamping every row of a joint call with the plan
-   owner counted one doctor twice against that rep and credited the person
-   who actually came along with nothing. */
 /* One day either side of a 'YYYY-MM-DD', and the midpoint between two.
    Built from local Date PARTS for the reason todayLocal documents: parsing
    an ISO date string is a UTC operation, and east of Greenwich that shifts
@@ -304,235 +219,6 @@ async function fetchWindowed({ from, to }, fetchOnce, merge) {
     fetchWindowed({ from: shiftDay(mid, 1), to }, fetchOnce, merge),
   ]);
   return merge(left, right);
-}
-
-async function fetchVisitRows({ from, to }, conn) {
-  return fetchWindowed(
-    { from, to },
-    (window) => fetchVisitRowsPage(window, conn),
-    (a, b) => ({ rows: [...a.rows, ...b.rows], truncated: a.truncated || b.truncated }),
-  );
-}
-
-/* A window cut into equal date shards, fetched at once.
- *
- * WHY, when fetchWindowed already splits: it only splits on OVERFLOW, so a
- * month that fits is one query — and that query costs about a second, almost
- * all of it the ERP counting and joining rows rather than sending them.
- * Measured on Sep 2026: 1099 events, 1093ms as one query, ~350ms as four
- * week-sized ones in parallel. The work is the same; the waiting is not.
- *
- * This is the only lever the ERP leaves for a big window. Cursor paging is
- * out -- `after` plus a `filter` throws, still, checked against the live
- * instance -- and there are no aggregate resolvers to ask for a summary
- * instead of rows. The date window is the only pagination key there is, so
- * the window is what gets cut.
- *
- * CONCURRENCY IS CAPPED. A month is 4 shards, but a twelve-month range would
- * be 52, and firing 52 queries at a production ERP to make one screen paint
- * faster is a way to make everyone else's screen slower. Six at a time keeps
- * a month fully parallel and a year merely quick.
- *
- * Each shard still goes through fetchWindowed, so a shard that overflows
- * halves itself exactly as before -- the cap is a floor on request count,
- * never a ceiling on completeness. */
-const SHARD_DAYS = 7;
-const SHARD_CONCURRENCY = 6;
-
-function shardRange({ from, to }, days = SHARD_DAYS) {
-  const span = daysBetween(from, to);
-  /* Not worth cutting: a range this short is one fast query, and three
-     round trips to save nothing is worse than one. */
-  if (span < days) return [{ from, to }];
-
-  const out = [];
-  for (let start = 0; start <= span; start += days) {
-    const end = Math.min(start + days - 1, span);
-    out.push({ from: shiftDay(from, start), to: shiftDay(from, end) });
-  }
-  return out;
-}
-
-async function inPool(items, limit, run) {
-  const results = new Array(items.length);
-  let next = 0;
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (next < items.length) {
-      const i = next++;
-      results[i] = await run(items[i]);
-    }
-  });
-  await Promise.all(workers);
-  return results;
-}
-
-async function fetchVisitRowsSharded({ from, to }, conn) {
-  const shards = shardRange({ from, to });
-  if (shards.length === 1) return fetchVisitRows({ from, to }, conn);
-
-  const parts = await inPool(shards, SHARD_CONCURRENCY, (shard) => fetchVisitRows(shard, conn));
-  return {
-    rows: parts.flatMap((p) => p.rows),
-    truncated: parts.some((p) => p.truncated),
-  };
-}
-
-async function fetchVisitRowsPage({ from, to }, conn) {
-  const variables = {
-    first: MAX_ROWS,
-    f: [
-      { fieldname: 'event_category', operator: 'EQ', value: 'Doctor Visit plan' },
-      { fieldname: 'starts_on', operator: 'GTE', value: `${from} 00:00:00` },
-      { fieldname: 'starts_on', operator: 'LTE', value: `${to} 23:59:59` },
-    ],
-  };
-
-  /* NO RETRY LADDER. Every optional selection this query used to guess at
-     has been checked against the live schema -- by introspection and by a
-     real read -- so there is nothing left for a fallback to discover:
-
-       custom_doctor.lead_name    populated on 400/400 September events
-       reference_doctype__name    'Employee' on all 486 participant rows
-       reference_docname__name    the employee id itself, e.g. "E00869"
-
-     A fallback guarding a verified field is not safety, it is a second code
-     path nobody exercises. The last one was worse than useless: it swallowed
-     a server-side 500 that deserved to be read and fixed. If this query ever
-     starts failing, it should fail loudly. */
-  const data = await graphqlRequest(VISITS_QUERY(), variables, conn);
-
-  const { totalCount, edges } = data.Events;
-  /* Returned as well as warned. A console line is enough while the window
-     is always one month and the volume is a few hundred visits a day; it
-     is NOT enough now that the picker can ask for a span, because a
-     truncated answer produces totals that look ordinary and are wrong.
-     The screen says so out loud -- see VisitReport. */
-  const truncated = totalCount > edges.length;
-  if (truncated) {
-    console.info(`[visit] ${from}..${to} holds ${totalCount} events, over the ${MAX_ROWS} page size — splitting the window`);
-  }
-
-  /* Distinct people on one Event's participant table. A row whose reference
-     is blank cannot be matched against another, so it counts as its own
-     person rather than collapsing every blank into one. */
-  const uniqueParticipants = (list) => {
-    if (!list?.length) return 1;
-    const seen = new Set();
-    let blanks = 0;
-    for (const p of list) {
-      const ref = (p?.reference_docname__name ?? '').trim();
-      if (ref) seen.add(ref);
-      else blanks += 1;
-    }
-    return Math.max(seen.size + blanks, 1);
-  };
-
-  const rows = [];
-  for (const { node } of edges) {
-    /* An event with no participant table at all still produces ONE row --
-       the plan exists and somebody owns it -- which is what `[null]` is
-       for. Its participantCount is 1, not 0: one person was expected. */
-    const participants = node.event_participants?.length ? node.event_participants : [null];
-    for (const p of participants) {
-      rows.push({
-        eventId: node.name,
-        subject: node.subject ?? '',
-        plannedDate: (node.starts_on ?? '').slice(0, 10),
-        /* WHOSE PLAN it is, which is not always who went -- see the joint
-           call note above. Kept separate from `employeeId` (resolved in
-           fetchVisitDataset) because the POB join still hangs off the plan
-           owner: a quotation is raised by the rep who owns the call, not by
-           whoever came along to it. */
-        planOwnerId: node.custom_employee_id?.name ?? '',
-        /* `employeeId` and `employeeName` are NOT set here. They are the
-           attribution every KPI aggregates on, and who a visit belongs to
-           cannot be decided from the Event alone -- it needs the participant
-           resolved against the roster. Both are filled in fetchVisitDataset.
-           `custom_employee_id { name }` is in any case the Employee's
-           primary key ("E01102"), not their name. */
-        doctorId: node.custom_doctor?.name ?? '',
-        /* `||`, not `??`: an empty-string lead_name is as useless as a
-           missing one, and the id at least identifies the doctor. */
-        doctorName: node.custom_doctor?.lead_name || node.custom_doctor?.name || '',
-        /* The doctor's own town and clinical specialty, for the card in the
-           drill-downs. SPECIALTY, NOT custom_category: the category is a
-           commercial grade (E, EC30, FOCUS 20) and the badge wanted the
-           practice — CARDIO, ORTHO, GP, CP. "CP" on the reference design is
-           a Specialty record, which is what settled it.
-
-           Both come off the Lead and describe the DOCTOR, not
-           the call -- which is why `hq` below stays the EVENT's territory:
-           that is what byHq groups on and what the HQ strip filters by, and
-           a doctor's own territory quietly disagreeing with it would make
-           the sheet's header contradict the card that opened it. */
-        doctorCity: node.custom_doctor?.city ?? '',
-        doctorSpecialty: node.custom_doctor?.custom_specialty__name ?? '',
-        /* An ARRAY, in the doctype's own order, with the blanks removed here
-           rather than in the component: which of the four slots a grade
-           happens to sit in is an ERPNext fact, and nothing above this line
-           should have to know there are four of them. */
-        doctorCategories: [
-          node.custom_doctor?.custom_category__name,
-          node.custom_doctor?.custom_category1__name,
-          node.custom_doctor?.custom_category2__name,
-          node.custom_doctor?.custom_category3__name,
-        ].filter(Boolean),
-        hq: node.custom_hq?.name ?? '',
-        department: node.custom_department?.name ?? '',
-        pobGiven: Boolean(node.custom_pob_given),
-        visitTime: p?.custom_visit_time ?? null,
-        distanceKm: p?.custom_distance ?? null,
-        forceVisit: Boolean(p?.custom_is_force_visit),
-        /* What the rep typed when they logged the call away from the planned
-           location. There is a `custom_force_visit_reason` on the EVENT too,
-           but nothing writes it -- the field the app captures is this one, on
-           the participant, alongside the distance and the flag it explains.
-           Trimmed because the control is a free-text Small Text and a
-           whitespace-only answer is a missing one. */
-        forceVisitReason: (p?.custom_force_visit_reason ?? '').trim(),
-        /* WHO ACTUALLY ATTENDED, as a login email. The participant is the
-           only record of that: `custom_employee_id` is on the EVENT, so two
-           participants on one Event would otherwise both be credited to one
-           rep -- the calls counted twice against the same person and the
-           second attendee nowhere.
-
-           Guarded on reference_doctype because the child table is generic:
-           it can point at a Contact or a Lead just as easily as a User, and
-           a Lead's name resolved through the employee roster would silently
-           match nobody. Resolved to an employeeId in fetchVisitDataset,
-           where the roster exists. */
-        /* AN EMPLOYEE ID ALREADY, on a Doctor Visit plan. The child table is
-           a dynamic link, so what it points AT has to be read before the
-           value means anything -- and on this event category it is always
-           `Employee`, giving "E00869" straight out. Checked across 400 live
-           September events: 486 participant rows, every one of them
-           reference_doctype = Employee.
-
-           The `User` arm is not speculation either: the Google-Calendar-
-           synced events on this instance use it, and there the value is a
-           login address that only the roster can turn into an employee. Two
-           reference types, both seen in the data, resolved in
-           fetchVisitDataset where the roster exists. Anything else -- a
-           Contact, a Lead -- is left alone rather than pushed through a
-           lookup that would silently match nobody. */
-        participantRef: (p?.reference_docname__name ?? '').trim(),
-        participantRefType: p?.reference_doctype__name ?? '',
-        /* HOW MANY PEOPLE WERE ON THIS CALL, read off the Event rather than
-           counted downstream. A joint call is one plan two people attended,
-           and the flattened rows cannot answer it on their own: scope the
-           screen to a rep and their manager's row is gone, so counting rows
-           per eventId would report every joint call in that scope as solo.
-           The Event knows, so the Event says.
-
-           UNIQUE, because the child table does not stop the same person
-           being added twice — seen on the calendar-synced events, where a
-           re-sync appends rather than replaces. Counted on the resolved
-           reference, so two rows pointing at one employee are one person. */
-        participantCount: uniqueParticipants(node.event_participants),
-      });
-    }
-  }
-  return { rows, truncated };
 }
 
 const EMPLOYEES_QUERY = `
@@ -715,7 +401,7 @@ const POB_QUERY = `
    the quotation's `owner` email, not by employeeId: resolving owner -> BE is
    fetchVisitDataset's job below, once `team` (and its userId) is available,
    so this function stays a plain, independently-testable "ask ERPNext for
-   quotations in a window" the same shape as fetchVisitRows/fetchTeam.
+   quotations in a window" the same shape as fetchTeam.
 
    `party_name` is a DYNAMIC Link -- its target doctype depends on
    `quotation_to` ("Lead" here, "Customer" for a distributor quotation) --
@@ -835,6 +521,76 @@ async function fetchLeave({ from, to }, conn) {
   return byEmployee;
 }
 
+/* ---- Visits COUNTED on the server --------------------------------------
+ *
+ * A month is ~55,000 visits on production — about 38 MB as the rows the
+ * report used to download and count. The "Elbrit Visit Summary" server script
+ * (server/elbrit_visit_summary.py) counts them where they are and sends one
+ * line per (person, planned day, event HQ, status, joint, hour) with how many
+ * visits it stands for: a few thousand lines. Each becomes a COUNT ROW here —
+ * a row with the fields every count reads and `n`, which the selectors add
+ * instead of 1 (see selectors.weightOf). Checked on UAT: the counts equal the
+ * rows' own, bucket for bucket.
+ *
+ * The rows themselves are fetched only when a list is opened — the Dr plan,
+ * or the visits behind a bar of the hourly chart — by loadVisitRows below.
+ *
+ * `sales` is the Sales roster's [id, login email] pairs: attribution (the
+ * participant when they are in it, else the plan owner — see attributeRows)
+ * needs it, and sending it keeps "who is Sales" decided in one place. */
+async function postMethod(method, body, { endpointUrl, gqlToken }) {
+  const res = await fetch(`${new URL(endpointUrl).origin}/api/method/${method}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: gqlToken ?? '', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  });
+  let json;
+  try {
+    json = await res.json();
+  } catch {
+    throw new Error(`[visit] ERP returned a non-JSON response (HTTP ${res.status})`);
+  }
+  if (!res.ok || json.exc_type || !json.message) {
+    throw new Error(`[visit] ${method}: ${json.exc_type || `HTTP ${res.status}`}`);
+  }
+  return json.message;
+}
+
+/* The hour a count line says, as the visit time a row would carry — so
+   chartHourOf reads the same bar. -1 is a done visit with no readable hour:
+   'NA' where the hour sits keeps it out of every bar, as the row's own time
+   did. */
+function countVisitTime(day, hour) {
+  return hour >= 0 ? `${day} ${String(hour).padStart(2, '0')}:00:00` : `${day} NA:00:00`;
+}
+
+export async function fetchVisitCounts({ from, to }, sales, conn, nameByEmployeeId = new Map()) {
+  const m = await postMethod('elbrit_visit_summary', { from, to, sales }, conn);
+  return m.rows.map(([e, d, h, s, j, hr, n]) => {
+    const employeeId = m.employees[e];
+    const plannedDate = m.days[d];
+    return {
+      employeeId,
+      employeeName: nameByEmployeeId.get(employeeId) || employeeId,
+      plannedDate,
+      hq: m.hqs[h],
+      visitTime: s === 0 ? null : countVisitTime(plannedDate, hr),
+      forceVisit: s === 2,
+      participantCount: j ? 2 : 1,
+      pobGiven: false,
+      n,
+    };
+  });
+}
+
+/* The rows behind ONE list, attributed exactly as the report attributes
+   them. `request` is { mode: 'plan', member } or { mode: 'visits',
+   employees, hq ('*' = every HQ- territory), hour, tone }, over { from, to }. */
+export async function loadVisitRows(request, sales, conn, nameByEmployeeId, employeeIdByEmail) {
+  const m = await postMethod('elbrit_visit_rows', { ...request, sales }, conn);
+  return attributeRows(m.rows, nameByEmployeeId, employeeIdByEmail);
+}
+
 /* Returns the same shape buildMockDataset does: { team, rows, today }.
    Fetches ONE calendar month in one go -- whichever `month` is asked for,
    clamped to today -- so the 'today' and 'month' periods both slice that
@@ -911,8 +667,6 @@ export async function fetchVisitDataset({
     cached(`leave:${scope}:${today}`, () => fetchLeave({ from: today, to: today }, conn)),
     cached(`viewer:${scope}`, () => resolveViewerEmail(conn)),
   ]);
-  const todayFetch = await cached(`visits:${scope}:${today}`, () =>
-    fetchVisitRows({ from: today, to: today }, conn));
 
   /* WAVES 2 AND 3 START HERE -- after today's query has come back, before
      anything else is awaited. The timing is measured, not tidy:
@@ -932,11 +686,11 @@ export async function fetchVisitDataset({
      awaited yet cannot surface as an unhandled rejection; the real handling
      is the await further down, which rethrows. */
   const parked = (p) => { p.catch(() => {}); return p; };
-  const windowPromise = parked(Promise.all([
-    fetchVisitRowsSharded({ from: windowFrom, to: windowTo }, conn),
-    cached(`leave:${scope}:${windowFrom}:${windowTo}`, () =>
-      fetchLeave({ from: windowFrom, to: windowTo }, conn)),
-  ]));
+  /* The window's leave does not need the roster, so it starts now; the
+     visits COUNTS do (attribution needs the Sales roster) and start the
+     moment it lands, below. */
+  const leaveWindowPromise = parked(cached(`leave:${scope}:${windowFrom}:${windowTo}`, () =>
+    fetchLeave({ from: windowFrom, to: windowTo }, conn)));
   const pobPromise = parked(fetchPobQuotations({ from: windowFrom, to: windowTo }, conn));
 
   const [allTeam, salesProfiles, leaveToday, viewerEmail] = await rosterPromise;
@@ -955,7 +709,7 @@ export async function fetchVisitDataset({
   }
 
   /* Names in, ids out. A row arrives carrying the employee's primary key in
-     both fields (see fetchVisitRows); the roster is the one place that maps
+     both fields (see elbrit_visit_rows); the roster is the one place that maps
      it to a person, and doing it here means every consumer downstream gets
      a name without knowing the roster exists. An id with no matching
      employee keeps the id -- an unknown rep is better identified by their
@@ -974,7 +728,15 @@ export async function fetchVisitDataset({
      unattributed POB owner -- useVisitKpi.js's fallback chain handles it. */
   const viewerId = viewerEmail ? employeeIdByEmail.get(viewerEmail.toLowerCase()) ?? null : null;
 
-  const todayRows = attributeRows(todayFetch.rows, nameByEmployeeId, employeeIdByEmail);
+  /* WHO IS SALES, as [id, login email] — what the server's attribution
+     needs, the same roster attributeRows uses here. */
+  const sales = team.map((m) => [m.id, m.userId ?? '']);
+  const windowCountsPromise = parked(fetchVisitCounts({ from: windowFrom, to: windowTo }, sales, conn, nameByEmployeeId));
+  const todayRows = todayInWindow
+    ? []
+    : await fetchVisitCounts({ from: today, to: today }, sales, conn, nameByEmployeeId);
+  /* The rows behind one list, fetched when it is opened (see loadVisitRows). */
+  const loadRows = (request) => loadVisitRows(request, sales, conn, nameByEmployeeId, employeeIdByEmail);
 
   /* The dataset as it stands after each wave. `ready` is the load-bearing
      part: a consumer must not render a month total off a dataset whose month
@@ -999,6 +761,10 @@ export async function fetchVisitDataset({
     today,
     viewerId,
     ready,
+    /* COUNT ROWS, not visits: the numbers read them (selectors.weightOf);
+       the lists that need real visits ask `loadRows`. */
+    countsOnly: true,
+    loadRows,
     /* WHICH dataset hit the cap, not just THAT one did. These are three
        different doctypes with three different volumes: a single month of
        visits is a few thousand rows, while the POB quotations behind the
@@ -1009,11 +775,13 @@ export async function fetchVisitDataset({
   });
 
   const NO_LEAVE = new Map();
-  onWave?.(build({
+  /* Today inside the window comes with the window's counts — one call, not
+     two for the same day — so there is no separate first wave then. */
+  if (!todayInWindow) onWave?.(build({
     rows: todayRows,
     leaveInWindow: NO_LEAVE,
     pob: [],
-    truncated: { visits: todayFetch.truncated, pob: false },
+    truncated: { visits: false, pob: false },
     /* Says what is KNOWN, not what is on screen: the money cards read an
        amount, and an amount of zero is a claim rather than a blank. The
        consumer decides what to show while `pob` is false. */
@@ -1021,21 +789,21 @@ export async function fetchVisitDataset({
   }));
 
   /* ---- WAVE 2: the picked window ---------------------------------------
-     Sharded by date and run in parallel (see fetchVisitRowsSharded), because
-     rows scanned is the only thing this ERP charges for and the date window
-     is the only lever it leaves. The leave spells over the same window come
+     The window's visits COUNTED on the server (see fetchVisitCounts) — a
+     month is ~55,000 visits on production, too many to download and count
+     here. The leave spells over the same window come
      along rather than following: the Absent bucket is part of the month's
      attendance, not a detail of it, and a month view without them would show
      people as not-reported who were on approved leave. */
-  const [windowFetch, leaveInWindow] = await windowPromise;
+  const [windowRows, leaveInWindow] = await Promise.all([windowCountsPromise, leaveWindowPromise]);
 
-  const windowRows = attributeRows(windowFetch.rows, nameByEmployeeId, employeeIdByEmail);
   /* REPLACED, not merged, when today falls inside the window: the window
      query already returned today's events, and concatenating would count
      every one of this morning's visits twice. Outside the window the two are
      disjoint by construction and both are needed. */
   const rows = todayInWindow ? windowRows : [...windowRows, ...todayRows];
-  const visitsTruncated = windowFetch.truncated || todayFetch.truncated;
+  /* Counted on the server, over the whole window: nothing is ever cut off. */
+  const visitsTruncated = false;
 
   onWave?.(build({
     rows,

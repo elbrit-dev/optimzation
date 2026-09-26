@@ -77,6 +77,20 @@ export function largestManagerRoot(team) {
   return roots.reduce((best, r) => (subtreeOf(team, r.id).length > subtreeOf(team, best.id).length ? r : best));
 }
 
+/* EVERYONE, as picks: each person at the top of their own chain — whose
+   manager is not in the roster (or who has none) — with their whole branch.
+   Together they cover the roster exactly once, including the teams that
+   hang off a manager outside Sales and the vacant seats' orphans, which the
+   single largest root leaves out (on production: 24 of 407 people). The
+   default scope for a viewer who is not in the roster at all — IT, admins —
+   who should see the whole field force. */
+export function everyonePicks(team) {
+  const ids = new Set(team.map((m) => m.id));
+  return team
+    .filter((m) => !m.reportsTo || !ids.has(m.reportsTo))
+    .map((m) => ({ id: m.id, includeSubtree: true }));
+}
+
 /* ---- Period ---------------------------------------------------------- */
 
 /* The last calendar day of a 'YYYY-MM'. Day 0 of the NEXT month, which is
@@ -123,21 +137,30 @@ export function forEmployees(rows, employeeIds) {
 
 /* ---- The headline numbers -------------------------------------------- */
 
-export const planned = (rows) => rows.length;
+/* HOW MANY VISITS A ROW STANDS FOR. A raw row is one visit. A COUNT row —
+   what the elbrit_visit_summary server script sends instead of the month's
+   raw rows — stands for `n` identical visits (same person, day, HQ, status,
+   joint-ness and hour). Every count on the screen goes through this, so the
+   same selectors read either, and a count row reads exactly as its `n` raw
+   rows would. */
+export const weightOf = (r) => r.n ?? 1;
 
-export const happened = (rows) => rows.reduce((n, r) => n + (r.visitTime ? 1 : 0), 0);
+export const planned = (rows) => rows.reduce((n, r) => n + weightOf(r), 0);
+
+export const happened = (rows) => rows.reduce((n, r) => n + (r.visitTime ? weightOf(r) : 0), 0);
 
 /* Returns null rather than 0 for an empty plan. A rep with no plan has no
    attainment; showing 0% would read as failure rather than as absence, and
    the vacant seats in every team make this the common case, not the edge. */
 export function attainment(rows) {
-  if (rows.length === 0) return null;
-  return happened(rows) / rows.length;
+  const total = planned(rows);
+  if (total === 0) return null;
+  return happened(rows) / total;
 }
 
 export function pobGiven(rows) {
   const done = rows.filter((r) => r.visitTime);
-  return { given: done.filter((r) => r.pobGiven).length, of: done.length };
+  return { given: planned(done.filter((r) => r.pobGiven)), of: planned(done) };
 }
 
 /* The real ₹ figure `pobGiven` above can't provide -- see shape.js's PobEntry
@@ -216,16 +239,17 @@ export function geoSplit(rows) {
   };
   for (const r of rows) {
     const joint = isJoint(r);
+    const n = weightOf(r);
     if (!r.visitTime) {
-      if (joint) out.jointPending += 1;
+      if (joint) out.jointPending += n;
       continue;
     }
     if (r.forceVisit) {
-      out.force += 1;
-      if (joint) out.jointForce += 1;
+      out.force += n;
+      if (joint) out.jointForce += n;
     } else {
-      out.verified += 1;
-      if (joint) out.jointVerified += 1;
+      out.verified += n;
+      if (joint) out.jointVerified += n;
     }
   }
   return out;
@@ -272,8 +296,8 @@ export function visitsByHour(rows) {
        a missing bucket would throw, and a chart is not worth a blank screen. */
     const bucket = buckets.get(hour);
     if (!bucket) continue;
-    if (r.forceVisit) bucket.force += 1;
-    else bucket.verified += 1;
+    if (r.forceVisit) bucket.force += weightOf(r);
+    else bucket.verified += weightOf(r);
   }
   return CHART_HOURS.map((h) => buckets.get(h));
 }
@@ -871,14 +895,15 @@ export function byHq(rows, team) {
   for (const r of rows) {
     if (!isHqTerritory(r.hq)) continue;
     const entry = ensure(r.hq);
-    entry.planned += 1;
+    const n = weightOf(r);
+    entry.planned += n;
     if (!r.visitTime) continue;
-    entry.happened += 1;
+    entry.happened += n;
     /* verified and force are counted here rather than derived as
        `happened - force` by the caller: a force flag on a row that never
        happened would otherwise silently subtract from the verified count. */
-    if (r.forceVisit) entry.force += 1;
-    else entry.verified += 1;
+    if (r.forceVisit) entry.force += n;
+    else entry.verified += n;
   }
 
   return [...out.values()].sort((a, b) => b.happened - a.happened || a.hq.localeCompare(b.hq));
@@ -1066,7 +1091,10 @@ export function rollupFor(member, team, rows, pobRows = [], overRange = false) {
     jointVerified: geo.jointVerified,
     jointForce: geo.jointForce,
     jointPending: geo.jointPending,
-    pob: pobGiven(own),
+    /* No checkbox-POB count here: nothing shows it, and the visits now
+       arrive as server-side counts that do not carry the flag (see
+       liveSource.fetchVisitCounts) — a field that would read 0 is worse than
+       none. The money below is the POB that is shown. */
     /* THIS PERSON'S money, for the same reason as the visit counts above: a
        manager's row showing their branch's turnover says nothing about them
        and repeats what their own manager's row already said. `pobGiven` above
@@ -1132,16 +1160,17 @@ function daysOf(rows, calendar = []) {
        it fell on a Sunday would make the card disagree with the bar beside
        it, and a visit that happened is a day that was reported. */
     const day = byDate.get(r.plannedDate) ?? blank(r.plannedDate);
-    day.planned += 1;
+    const n = weightOf(r);
+    day.planned += n;
     if (r.visitTime) {
-      day.happened += 1;
+      day.happened += n;
       /* THE SPLIT PER DAY, so the trend can draw the same two-colour stack
          the hourly chart does. Counted here rather than derived later: a
          force flag on a row that never happened would otherwise subtract
          from the verified count, which is the trap geoSplit's own comment
          records. */
-      if (r.forceVisit) day.force += 1;
-      else day.verified += 1;
+      if (r.forceVisit) day.force += n;
+      else day.verified += n;
     }
     byDate.set(r.plannedDate, day);
   }
@@ -1210,7 +1239,7 @@ export function repsInAttendanceState(team, rows, state, overRange = false, cale
       name: m.name,
       short: m.short,
       hq: m.hq,
-      planned: mine.length,
+      planned: planned(mine),
       happened: happened(mine),
       verified: geo.verified,
       force: geo.force,
@@ -1295,7 +1324,7 @@ export function doctorPlan(member, team, rows, pobRows = []) {
   return mine
     /* `id` is the event id PLUS the row's index, because eventId is not
        unique across VisitRows and was never meant to be: one Event with two
-       participants is two visits (see fetchVisitRows), and React saw two
+       participants is two visits (see elbrit_visit_rows), and React saw two
        children keyed EV279571. The index is taken before the sort below, so
        it is stable for a given input rather than shifting with the order. */
     .map((r, i) => ({

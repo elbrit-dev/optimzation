@@ -272,6 +272,11 @@ export function makeDataTablePt() {
     columnFilter: {
       className: 'flex w-full items-center gap-1 [&_input]:h-control [&_input]:w-full [&_input]:text-12',
     },
+    /* The wrapper around the filter template. PrimeReact's base sheet gave it
+       `flex: 1 1 auto; width: 1%` (`.p-column-filter-row .p-column-filter-element`);
+       unstyled drops that, so it shrank to its content — multiselect triggers and
+       the date field rendered narrow instead of filling the column. */
+    filterInput: { className: 'min-w-0 flex-1' },
 
     /* The override sheet hid these two entirely
        (`.p-column-filter-clear-button.p-hidden-space { display: none }` and the

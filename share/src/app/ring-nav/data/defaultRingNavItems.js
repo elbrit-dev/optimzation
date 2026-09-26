@@ -23,7 +23,13 @@ export const DEFAULT_RING_NAV_ITEMS = [
     caption: '5 Aug',
     captionTone: 'danger',
     count: 14,
-    progress: 30,
+    /* Any number of parts, each its own colour: approved, awaiting
+       approval, still in Draft. */
+    segments: [
+      { value: 4, tone: 'success', label: 'Approved' },
+      { value: 2, tone: 'warning', label: 'Pending' },
+      { value: 14, tone: 'danger', label: 'Draft' },
+    ],
     statusIcon: 'pencil',
   },
   {
@@ -34,7 +40,13 @@ export const DEFAULT_RING_NAV_ITEMS = [
     caption: '5 Aug',
     captionTone: 'danger',
     count: 75,
-    progress: 37,
+    /* A colour no tone names: `color` takes any CSS colour. */
+    segments: [
+      { value: 30, tone: 'success', label: 'Approved' },
+      { value: 14, tone: 'warning', label: 'Pending' },
+      { value: 75, tone: 'danger', label: 'Draft' },
+      { value: 12, color: '#7c3aed', label: 'Revisit' },
+    ],
     statusIcon: 'pencil',
   },
   {

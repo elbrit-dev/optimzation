@@ -17,6 +17,10 @@ import { toneFill } from '../lib/tone';
       the remainder as its own segment (usually `danger` for "still owed"),
       so the empty part is something you named on purpose.
 
+   A segment's colour is its `tone` (lib/tone.js); `color` — any CSS colour
+   or token, "#7c3aed", "var(--brand-primary)" — overrides it, for a category
+   the five tones do not name. As many segments as there are categories.
+
    Segments are separated by a small gap, only when there are two or more: a
    single full segment is a closed ring, not a ring with a notch in it.
 
@@ -87,7 +91,7 @@ export function ProgressRing({ segments = [], label, children, className, style,
               /* Negative: a positive offset pulls the dash BACK along the
                  path, and this needs it moved forward to `start`. */
               strokeDashoffset={-a.start}
-              style={{ stroke: toneFill(a.tone), ...a.style }}
+              style={{ stroke: a.color || toneFill(a.tone), ...a.style }}
             />
           ))
         )}
