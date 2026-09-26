@@ -1,7 +1,7 @@
 'use client';
 
 import Editor from '@monaco-editor/react';
-import { Button } from '@/design-system';
+import { Button } from 'primereact/button';
 import { Toast } from 'primereact/toast';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { firestoreService } from '@/app/graphql-playground/services/firestoreService';
@@ -76,34 +76,42 @@ export function GlobalFunctions() {
   }, [functionsCode, isSaving]);
 
   return (
-    <div className="h-full flex flex-col overflow-hidden bg-sunken">
-      <Toast unstyled ref={toast} />
-      <div className="flex-shrink-0 px-3 py-1.5 border-b border-line-subtle bg-sunken">
+    <div className="h-full flex flex-col overflow-hidden bg-gray-50">
+      <Toast ref={toast} />
+      <div className="flex-shrink-0 px-3 py-1.5 border-b border-gray-200 bg-gray-50">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-body">Global Functions</h3>
-          <Button icon={<i className={isSaving ? "pi pi-spin pi-spinner" : "pi pi-save"} />} className={`ds-button-sm ${
+          <h3 className="text-sm font-semibold text-gray-700">Global Functions</h3>
+          <Button
+            icon={isSaving ? "pi pi-spin pi-spinner" : "pi pi-save"}
+            label="Save"
+            className={`ds-button-sm ${
               isSaving
                 ? "ds-button-secondary"
                 : hasError
                   ? "ds-button-danger"
                   : "ds-button-primary"
-            }`} onClick={handleSave} title={
+            }`}
+            onClick={handleSave}
+            title={
               isSaving
                 ? "Saving..."
                 : hasError
                   ? "Previous save had an error - Click to save again"
                   : "Save global functions"
-            } loading={isSaving} disabled={isLoading}>Save</Button>
+            }
+            loading={isSaving}
+            disabled={isLoading}
+          />
         </div>
       </div>
       <div className="flex-1 flex flex-col overflow-hidden p-2" style={{ minHeight: 0 }}>
         {/* Monaco Editor */}
-        <div className="flex-1 border border-line rounded-lg overflow-hidden" style={{ minHeight: 0, height: '100%' }}>
+        <div className="flex-1 border border-gray-300 rounded-lg overflow-hidden" style={{ minHeight: 0, height: '100%' }}>
           {isLoading ? (
             <div className="flex items-center justify-center h-full">
               <div className="text-center">
-                <i className="pi pi-spin pi-spinner text-xl text-ds-muted mb-1.5"></i>
-                <p className="text-sm text-ds-secondary">Loading global functions...</p>
+                <i className="pi pi-spin pi-spinner text-xl text-gray-400 mb-1.5"></i>
+                <p className="text-sm text-gray-500">Loading global functions...</p>
               </div>
             </div>
           ) : (
@@ -115,7 +123,7 @@ export function GlobalFunctions() {
               theme="vs-light"
               options={{
                 minimap: { enabled: false },
-                fontSize: 'var(--fs-12)',
+                fontSize: 12,
                 scrollBeyondLastLine: false,
                 wordWrap: 'on',
               }}

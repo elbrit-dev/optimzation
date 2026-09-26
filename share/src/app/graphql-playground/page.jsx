@@ -229,12 +229,11 @@ function GraphQLPlayground() {
 
 
   return (
-    <div className="flex flex-col bg-sunken" style={{ height: 'calc(100vh - 65px)' }}>
-      <ConfirmDialog unstyled />
+    <div className="flex flex-col bg-gray-50" style={{ height: 'calc(100vh - 65px)' }}>
+      <ConfirmDialog />
       {/* Controls Bar */}
       <div className="graphiql-controls-bar">
         <Dropdown
-unstyled
           value={selectedEndpoint}
           onChange={handleEndpointChange}
           options={endpointOptions}
@@ -299,7 +298,6 @@ unstyled
         </div>
         <div className="graphiql-tab-triggers">
           <SelectButton
-unstyled
             value={activeMainTab}
             onChange={(e) => {
               // If switching to Data Transformer tab (index 1), trigger query execution first
@@ -337,7 +335,6 @@ unstyled
         <SaveControlsWrapper saveControlsRef={saveControlsRef} />
         
         <TabView
-unstyled
           activeIndex={activeMainTab}
           onTabChange={(e) => {
             setActiveMainTab(e.index);
@@ -345,7 +342,7 @@ unstyled
           className="graphiql-main-tabview"
           style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
         >
-          <TabPanel unstyled>
+          <TabPanel>
             <div className="h-full overflow-hidden">
               <GraphiQLWrapper
                 key={endpointUrl}
@@ -372,10 +369,10 @@ unstyled
               </GraphiQLWrapper>
             </div>
           </TabPanel>
-          <TabPanel unstyled>
+          <TabPanel>
             <DataTransformerTab responseData={transformedData} activeTabIndex={activeTabIndex} />
           </TabPanel>
-          <TabPanel unstyled>
+          <TabPanel>
             <GlobalFunctionsTab />
           </TabPanel>
         </TabView>

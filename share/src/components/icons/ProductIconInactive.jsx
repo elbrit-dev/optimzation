@@ -1,4 +1,4 @@
-const ProductIconInactive = ({ className, width = 17, height = 21, stroke = "var(--brand-primary)", strokeWidth = 1.5, ...props }) => (
+const ProductIconInactive = ({ className, width = 17, height = 21, stroke = "#0F87F9", strokeWidth = 1.5, ...props }) => (
   <svg 
     width={width} 
     height={height} 

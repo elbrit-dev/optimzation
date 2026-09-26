@@ -16,7 +16,7 @@ export function GraphiQLWrapper({ children, ...props }) {
   if (!GraphiQLModule) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="text-ds-secondary">Loading GraphQL Playground...</div>
+        <div className="text-gray-600">Loading GraphQL Playground...</div>
       </div>
     );
   }

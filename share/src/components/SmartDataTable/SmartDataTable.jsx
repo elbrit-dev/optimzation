@@ -7,8 +7,6 @@ import { ColumnGroup } from 'primereact/columngroup';
 import { Row } from 'primereact/row';
 import { Dialog } from 'primereact/dialog';
 import * as XLSX from 'xlsx';
-import { Button } from '@/design-system';
-import { dsDataTableProps } from '@/design-system/primereact/dataTableProps';
 
 import { useSmartDataContext, useSmartDataConfig, useSmartDataStoreApi, useSmartDataSelector } from './SmartDataContext';
 import { INDEX_LOADING_MESSAGE, resolveConfig, isRowClickEnabledAtDepth } from './smartDataTableConfig';
@@ -23,6 +21,7 @@ import { DateRangeFilter } from './filters/DateRangeFilter';
 import { MultiselectFilter } from './filters/MultiselectFilter';
 import { SmartTableToolbar, ColumnVisibilityDropdown, GroupByReorder } from './SmartTableToolbar';
 import { useGroupBy } from './SmartDataControls';
+import { dsDataTableProps } from '@/design-system/primereact/dataTableProps';
 
 // ─── Export utilities (module-scope, no hooks) ───────────────────────────────
 
@@ -633,20 +632,6 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
      makeToggleHandler, expandIfNeeded],
   );
 
-  /* Unstyled + a design-system PassThrough preset.
-   *
-   * `unstyled` stops PrimeReact emitting its own `p-*` classes, which is what
-   * detaches lara-light-cyan — the theme can only style what it can select.
-   * With it on, the override sheet becomes dead weight for this component and
-   * the cyan/#f8f8fa/gray-300 leaks cannot recur.
-   *
-   * The flag stays readable per view (`config.unstyled: false` opts back out)
-   * so a regression can be bisected to one table rather than the whole app.
-   */
-  const unstyledTable = cfg.unstyled !== false;
-
-  const dsTableProps = dsDataTableProps({ unstyled: unstyledTable });
-
   const canExpand = useMemo(() => makeCanExpand(drill), [drill]);
 
   const rowExpansionTemplate = useCallback((rowData) => (
@@ -654,12 +639,12 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
       rowData={rowData}
       drill={drill}
       renderChildren={childRows => (
-        <div className="px-6 py-2 bg-sunken">
-          <InnerDataTable rows={childRows} columns={visibleColumns} columnGroups={columnGroups} labelColDefs={labelColDefs} depth={1} onSignal={onSignal} rowClickLevels={effectiveRowClickLevels} _parent={{ data: (({ _children, ...rest }) => rest)(rowData), _parent: null }} drill={drill} unstyled={unstyledTable} />
+        <div className="px-6 py-2 bg-gray-50">
+          <InnerDataTable rows={childRows} columns={visibleColumns} columnGroups={columnGroups} labelColDefs={labelColDefs} depth={1} onSignal={onSignal} rowClickLevels={effectiveRowClickLevels} _parent={{ data: (({ _children, ...rest }) => rest)(rowData), _parent: null }} drill={drill} />
         </div>
       )}
     />
-  ), [visibleColumns, columnGroups, labelColDefs, onSignal, effectiveRowClickLevels, drill, unstyledTable]);
+  ), [visibleColumns, columnGroups, labelColDefs, onSignal, effectiveRowClickLevels, drill]);
 
   // ── Column group header (built when meta.column_group === true) ────────────
   // Uses visibleColumns so hidden columns are excluded from the group header too.
@@ -725,7 +710,7 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
 
   if (error && !loading) {
     return (
-      <div className="flex items-center gap-2 px-4 py-3 rounded-md border border-danger-border bg-danger-wash text-danger text-sm">
+      <div className="flex items-center gap-2 px-4 py-3 rounded-md border border-red-200 bg-red-50 text-red-700 text-sm">
         <i className="pi pi-exclamation-triangle flex-none" />
         <span>{error}</span>
       </div>
@@ -746,7 +731,6 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
 
   // ── Shared DataTable props ─────────────────────────────────────────────────
   const sharedTableProps = {
-    ...dsTableProps,
     value: rows,
     sortMode: cfg.enableMultiSort ? 'multiple' : 'single',
     multiSortMeta: Object.entries(viewState?.sortBy ?? {}).map(([field, direction]) => ({ field, order: direction === 'asc' ? 1 : -1 })),
@@ -793,12 +777,6 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
 
       {/* Fullscreen dialog */}
       <Dialog
-unstyled
-        /* `.p-dialog` was the e2e handle for this; it does not survive
-           `unstyled`. `data-maximized` replaces the old
-           `.p-dialog-maximized, .p-dialog[data-p-maximized="true"]` pair,
-           which was two guesses at the same thing. */
-        pt={{ root: { 'data-testid': 'fullscreen-dialog', 'data-maximized': String(isMaximized) } }}
         visible={isFullscreen}
         showHeader={false}
         maximizable
@@ -806,7 +784,7 @@ unstyled
         modal
         style={{ width: '70vw', height: '90vh' }}
         contentStyle={{
-          padding: 'var(--space-16)',
+          padding: '1rem',
           paddingBottom: 0,
           overflow: 'hidden',
           display: 'flex',
@@ -837,45 +815,42 @@ unstyled
 
       {/* Export levels dialog — shown when expandable tree data has multiple depths */}
       <Dialog
-unstyled
-        pt={{ root: { 'data-testid': 'export-levels-dialog' } }}
         header="Export grouped data"
         visible={exportLevelsVisible}
         style={{ width: '90vw', maxWidth: '480px' }}
         onHide={() => setExportLevelsVisible(false)}
         footer={
           <div className="flex gap-2 justify-end">
-            <Button
-              type="default"
+            <button
+              type="button"
               disabled={exportDialogLoading}
               onClick={() => setExportLevelsVisible(false)}
+              className="px-4 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Cancel
-            </Button>
-            {/* Blue, not the green this used to be: green is the "approved"
-                status colour, and blue carries every interactive affordance.
-                The old markup also set hover to the same green as its base,
-                so it had no hover state at all. */}
-            <Button
-              type="primary"
-              icon={<i className={exportDialogLoading ? 'pi pi-spin pi-spinner' : 'pi pi-download'} />}
-              loading={exportDialogLoading}
-              disabled={!exportSelectedLevels.length}
+            </button>
+            <button
+              type="button"
+              disabled={!exportSelectedLevels.length || exportDialogLoading}
               onClick={handleDialogExport}
+              className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
             >
-              {exportDialogLoading ? 'Exporting…' : 'Export'}
-            </Button>
+              {exportDialogLoading
+                ? <><i className="pi pi-spin pi-spinner"></i> Exporting…</>
+                : <><i className="pi pi-download"></i> Export</>
+              }
+            </button>
           </div>
         }
       >
-        <p className="mb-3 text-sm text-ds-secondary">
+        <p className="mb-3 text-sm text-gray-600">
           Select which levels to export. Each selected level becomes a separate sheet in the Excel file.
         </p>
         {drillDownMeta && (
           // The table only holds the levels the user expanded, so exporting what
           // is on screen would quietly omit the rest. This re-fetches the whole
           // tree in one request -- correct, and slow enough to warn about.
-          <p className="mb-3 text-sm text-warning bg-warning-wash border border-warning-border rounded p-2">
+          <p className="mb-3 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
             This report loads rows as you expand them, so exporting fetches the full
             tree first. It can take a minute or more for a wide date range.
           </p>
@@ -891,7 +866,7 @@ unstyled
                     prev.includes(i) ? prev.filter(v => v !== i) : [...prev, i]
                   )
                 }
-                className="w-4 h-4 text-brand rounded"
+                className="w-4 h-4 text-blue-600 rounded"
               />
               <span>{labelColDefs[i]?.header ?? `Level ${i + 1}`}</span>
             </label>
@@ -906,11 +881,7 @@ export const SmartDataTable = memo(SmartDataTableInner);
 
 // ─── Inner expansion table ───────────────────────────────────────────────────
 
-/* `unstyled` is threaded down rather than re-read from config, so a table that
-   opts out of the design-system rendering opts its expansion children out too.
-   Mixing the two modes in one tree would show as a lara-styled child table
-   nested inside a design-system parent. */
-function InnerDataTable({ rows, columns, columnGroups, labelColDefs = [], depth = 0, onSignal, rowClickLevels, _parent = null, drill = null, unstyled = true }) {
+function InnerDataTable({ rows, columns, columnGroups, labelColDefs = [], depth = 0, onSignal, rowClickLevels, _parent = null, drill = null }) {
   const [filters, setFilters] = useState({});
   const [sortMeta, setSortMeta] = useState([]);
   const [expandedRows, setExpandedRows] = useState(null);
@@ -943,12 +914,12 @@ function InnerDataTable({ rows, columns, columnGroups, labelColDefs = [], depth 
       rowData={rowData}
       drill={drill}
       renderChildren={childRows => (
-        <div className="px-6 py-2 bg-sunken">
-          <InnerDataTable rows={childRows} columns={columns} columnGroups={columnGroups} labelColDefs={labelColDefs} depth={depth + 1} onSignal={onSignal} rowClickLevels={rowClickLevels} _parent={{ data: (({ _children, ...rest }) => rest)(rowData), _parent }} drill={drill} unstyled={unstyled} />
+        <div className="px-6 py-2 bg-gray-50">
+          <InnerDataTable rows={childRows} columns={columns} columnGroups={columnGroups} labelColDefs={labelColDefs} depth={depth + 1} onSignal={onSignal} rowClickLevels={rowClickLevels} _parent={{ data: (({ _children, ...rest }) => rest)(rowData), _parent }} drill={drill} />
         </div>
       )}
     />
-  ), [columns, columnGroups, labelColDefs, depth, onSignal, rowClickLevels, _parent, drill, unstyled]);
+  ), [columns, columnGroups, labelColDefs, depth, onSignal, rowClickLevels, _parent, drill]);
 
   // One handler per table instance, holding this table's own open-row set.
   const toggleDrill = useMemo(() => drill?.makeToggleHandler?.() ?? null, [drill]);
@@ -1043,8 +1014,7 @@ function InnerDataTable({ rows, columns, columnGroups, labelColDefs = [], depth 
   }, [columnGroups, columns, filters, onFilter, labelColDefs, depth, expandable]);
 
   return (
-    <DataTable
-      {...dsDataTableProps({ unstyled, size: 'small' })}
+    <DataTable {...dsDataTableProps()}
       value={processedRows}
       size="small"
       showGridlines

@@ -1,4 +1,4 @@
-const DoctorIconInactive = ({ className, width = 18, height = 19, stroke = "var(--brand-primary)", ...props }) => (
+const DoctorIconInactive = ({ className, width = 18, height = 19, stroke = "#0F87F9", ...props }) => (
   <svg 
     width={width} 
     height={height} 

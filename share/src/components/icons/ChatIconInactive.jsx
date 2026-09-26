@@ -1,4 +1,4 @@
-const ChatIconInactive = ({ className, width = 21, height = 21, stroke = "var(--brand-primary)", strokeWidth = 1.5, ...props }) => (
+const ChatIconInactive = ({ className, width = 21, height = 21, stroke = "#0F87F9", strokeWidth = 1.5, ...props }) => (
   <svg 
     width={width} 
     height={height} 

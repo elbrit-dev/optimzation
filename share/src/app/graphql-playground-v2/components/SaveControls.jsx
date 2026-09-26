@@ -10,7 +10,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Timestamp } from 'firebase/firestore';
 import { parse, print } from 'graphql';
 import { parse as parseJsonc, stripComments } from 'jsonc-parser';
-import { Button } from '@/design-system';
+import { Button } from 'primereact/button';
 import { InputText } from 'primereact/inputtext';
 import { confirmDialog } from 'primereact/confirmdialog';
 import { OverlayPanel } from 'primereact/overlaypanel';
@@ -445,12 +445,6 @@ export function SaveControls() {
 
     const startIso = start.toISOString().slice(0, 10);
     const endIso = end.toISOString().slice(0, 10);
-
-    // Only keep an active month range in step with the variables. Date variables alone
-    // don't make a month query — otherwise clearing the picker would snap straight back.
-    if (!month) {
-      return;
-    }
 
     if (
       month &&
@@ -1859,49 +1853,49 @@ export function SaveControls() {
       return (
         <div className="space-y-3">
           {currentValidating && (
-            <div className="bg-info-wash border border-info-border rounded p-3 mb-2">
+            <div className="bg-blue-50 border border-blue-200 rounded p-3 mb-2">
               <div className="flex items-center gap-2">
-                <i className="pi pi-spin pi-spinner text-brand"></i>
-                <p className="text-sm text-brand-active">Validating queries...</p>
+                <i className="pi pi-spin pi-spinner text-blue-600"></i>
+                <p className="text-sm text-blue-800">Validating queries...</p>
               </div>
             </div>
           )}
           {!currentValidating && (currentResults.index || currentResults.monthIndex) &&
             ((currentResults.index && currentResults.index.valid === false) ||
               (currentResults.monthIndex && currentResults.monthIndex.valid === false)) && (
-              <div className="bg-danger-wash border border-danger-border rounded p-3 mb-2">
-                <p className="text-sm font-semibold text-danger mb-1">Validation Failed</p>
-                <p className="text-xs text-danger">
+              <div className="bg-red-50 border border-red-200 rounded p-3 mb-2">
+                <p className="text-sm font-semibold text-red-800 mb-1">Validation Failed</p>
+                <p className="text-xs text-red-700">
                   Please fix the errors below before saving.
                 </p>
               </div>
             )}
           <div>
             <p className="font-semibold text-sm mb-1">Query Name:</p>
-            <p className="text-sm text-body font-mono">{operationName}</p>
+            <p className="text-sm text-gray-700 font-mono">{operationName}</p>
           </div>
           <div>
             <p className="font-semibold text-sm mb-1">URL Key:</p>
-            <p className="text-sm text-body font-mono">{urlKey || 'Not selected'}</p>
+            <p className="text-sm text-gray-700 font-mono">{urlKey || 'Not selected'}</p>
           </div>
           <div>
             <p className="font-semibold text-sm mb-1">Type:</p>
-            <p className="text-sm text-body">{clientSave ? 'Client' : 'Live'}</p>
+            <p className="text-sm text-gray-700">{clientSave ? 'Client' : 'Live'}</p>
           </div>
           <div>
             <p className="font-semibold text-sm mb-1">Variables:</p>
             <div style={{
-              padding: 'var(--space-12)',
-              borderRadius: 'var(--ds-radius-md)',
-              border: '1px solid var(--border-default)',
-              backgroundColor: 'var(--elbrit-surface-grey)',
+              padding: '0.75rem',
+              borderRadius: '0.375rem',
+              border: '1px solid #d1d5db',
+              backgroundColor: '#f9fafb',
               maxHeight: '200px',
               overflow: 'auto'
             }}>
               {(() => {
                 try {
                   if (!variables || !variables.trim()) {
-                    return <p className="text-sm text-ds-secondary font-mono">No variables</p>;
+                    return <p className="text-sm text-gray-500 font-mono">No variables</p>;
                   }
                   // Try to parse and format the variables
                   let parsedVariables = {};
@@ -1912,17 +1906,17 @@ export function SaveControls() {
                       const stripped = stripComments(variables);
                       parsedVariables = JSON.parse(stripped);
                     } catch {
-                      return <p className="text-sm text-danger font-mono">Invalid JSON</p>;
+                      return <p className="text-sm text-red-600 font-mono">Invalid JSON</p>;
                     }
                   }
                   const formattedJson = JSON.stringify(parsedVariables, null, 2);
                   return (
-                    <pre className="text-xs text-body font-mono" style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                    <pre className="text-xs text-gray-700 font-mono" style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                       {formattedJson}
                     </pre>
                   );
                 } catch (error) {
-                  return <p className="text-sm text-danger font-mono">Error parsing variables</p>;
+                  return <p className="text-sm text-red-600 font-mono">Error parsing variables</p>;
                 }
               })()}
             </div>
@@ -1931,21 +1925,21 @@ export function SaveControls() {
             <div>
               <p className="font-semibold text-sm mb-1">Index Field:</p>
               <div style={{
-                padding: 'var(--space-12)',
-                borderRadius: 'var(--ds-radius-md)',
-                border: currentIndexError ? '2px solid var(--intent-danger)' : '1px solid var(--border-default)',
-                backgroundColor: currentIndexError ? 'var(--intent-danger-wash)' : 'var(--elbrit-surface-grey)'
+                padding: '0.75rem',
+                borderRadius: '0.375rem',
+                border: currentIndexError ? '2px solid #dc2626' : '1px solid #d1d5db',
+                backgroundColor: currentIndexError ? '#fef2f2' : '#f9fafb'
               }}>
-                <p className="text-sm text-body font-mono">{selectedPath || 'Not selected'}</p>
+                <p className="text-sm text-gray-700 font-mono">{selectedPath || 'Not selected'}</p>
                 {currentIndexError && (
                   <div style={{
-                    marginTop: 'var(--space-8)',
-                    padding: 'var(--space-8)',
-                    backgroundColor: 'var(--intent-danger-wash)',
-                    border: '1px solid var(--intent-danger)',
-                    borderRadius: 'var(--ds-radius-md)',
-                    fontSize: 'var(--fs-12)',
-                    color: 'var(--intent-danger)'
+                    marginTop: '0.5rem',
+                    padding: '0.5rem',
+                    backgroundColor: '#fee2e2',
+                    border: '1px solid #dc2626',
+                    borderRadius: '0.375rem',
+                    fontSize: '0.75rem',
+                    color: '#dc2626'
                   }}>
                     <strong>Error:</strong> {currentIndexError}
                   </div>
@@ -1957,7 +1951,7 @@ export function SaveControls() {
             <>
               <div>
                 <p className="font-semibold text-sm mb-1">Month:</p>
-                <p className="text-sm text-body font-mono">
+                <p className="text-sm text-gray-700 font-mono">
                   {`${month[0].toLocaleDateString('en-US', { month: '2-digit', year: 'numeric' })} - ${month[1].toLocaleDateString('en-US', { month: '2-digit', year: 'numeric' })}`}
                 </p>
               </div>
@@ -1965,21 +1959,21 @@ export function SaveControls() {
                 <div>
                   <p className="font-semibold text-sm mb-1">Month Index Field:</p>
                   <div style={{
-                    padding: 'var(--space-12)',
-                    borderRadius: 'var(--ds-radius-md)',
-                    border: currentMonthIndexError ? '2px solid var(--intent-danger)' : '1px solid var(--border-default)',
-                    backgroundColor: currentMonthIndexError ? 'var(--intent-danger-wash)' : 'var(--elbrit-surface-grey)'
+                    padding: '0.75rem',
+                    borderRadius: '0.375rem',
+                    border: currentMonthIndexError ? '2px solid #dc2626' : '1px solid #d1d5db',
+                    backgroundColor: currentMonthIndexError ? '#fef2f2' : '#f9fafb'
                   }}>
-                    <p className="text-sm text-body font-mono">{monthIndexPath || 'Not selected'}</p>
+                    <p className="text-sm text-gray-700 font-mono">{monthIndexPath || 'Not selected'}</p>
                     {currentMonthIndexError && (
                       <div style={{
-                        marginTop: 'var(--space-8)',
-                        padding: 'var(--space-8)',
-                        backgroundColor: 'var(--intent-danger-wash)',
-                        border: '1px solid var(--intent-danger)',
-                        borderRadius: 'var(--ds-radius-md)',
-                        fontSize: 'var(--fs-12)',
-                        color: 'var(--intent-danger)'
+                        marginTop: '0.5rem',
+                        padding: '0.5rem',
+                        backgroundColor: '#fee2e2',
+                        border: '1px solid #dc2626',
+                        borderRadius: '0.375rem',
+                        fontSize: '0.75rem',
+                        color: '#dc2626'
                       }}>
                         <strong>Error:</strong> {currentMonthIndexError}
                       </div>
@@ -1992,10 +1986,10 @@ export function SaveControls() {
           <div>
             <p className="font-semibold text-sm mb-1">Search Fields:</p>
             <div style={{
-              padding: 'var(--space-12)',
-              borderRadius: 'var(--ds-radius-md)',
-              border: '1px solid var(--border-default)',
-              backgroundColor: 'var(--elbrit-surface-grey)',
+              padding: '0.75rem',
+              borderRadius: '0.375rem',
+              border: '1px solid #d1d5db',
+              backgroundColor: '#f9fafb',
               maxHeight: '200px',
               overflow: 'auto'
             }}>
@@ -2005,10 +1999,10 @@ export function SaveControls() {
                     if (!Array.isArray(nestedPaths) || nestedPaths.length === 0) return null;
                     return (
                       <div key={topLevelKey} className="mb-2">
-                        <p className="text-xs font-semibold text-ds-secondary mb-1">{topLevelKey}:</p>
+                        <p className="text-xs font-semibold text-gray-600 mb-1">{topLevelKey}:</p>
                         <ul className="list-disc list-inside space-y-1 ml-2">
                           {nestedPaths.map((path, idx) => (
-                            <li key={idx} className="text-xs text-body font-mono">
+                            <li key={idx} className="text-xs text-gray-700 font-mono">
                               {path || '<all fields>'}
                             </li>
                           ))}
@@ -2018,17 +2012,17 @@ export function SaveControls() {
                   })}
                 </div>
               ) : (
-                <p className="text-xs text-ds-secondary italic">No search fields selected</p>
+                <p className="text-xs text-gray-500 italic">No search fields selected</p>
               )}
             </div>
           </div>
           <div>
             <p className="font-semibold text-sm mb-1">Sort Fields:</p>
             <div style={{
-              padding: 'var(--space-12)',
-              borderRadius: 'var(--ds-radius-md)',
-              border: '1px solid var(--border-default)',
-              backgroundColor: 'var(--elbrit-surface-grey)',
+              padding: '0.75rem',
+              borderRadius: '0.375rem',
+              border: '1px solid #d1d5db',
+              backgroundColor: '#f9fafb',
               maxHeight: '200px',
               overflow: 'auto'
             }}>
@@ -2038,10 +2032,10 @@ export function SaveControls() {
                     if (!Array.isArray(nestedPaths) || nestedPaths.length === 0) return null;
                     return (
                       <div key={topLevelKey} className="mb-2">
-                        <p className="text-xs font-semibold text-ds-secondary mb-1">{topLevelKey}:</p>
+                        <p className="text-xs font-semibold text-gray-600 mb-1">{topLevelKey}:</p>
                         <ul className="list-disc list-inside space-y-1 ml-2">
                           {nestedPaths.map((path, idx) => (
-                            <li key={idx} className="text-xs text-body font-mono">
+                            <li key={idx} className="text-xs text-gray-700 font-mono">
                               {path || '<all fields>'}
                             </li>
                           ))}
@@ -2051,7 +2045,7 @@ export function SaveControls() {
                   })}
                 </div>
               ) : (
-                <p className="text-xs text-ds-secondary italic">No sort fields selected</p>
+                <p className="text-xs text-gray-500 italic">No sort fields selected</p>
               )}
             </div>
           </div>
@@ -2381,10 +2375,10 @@ export function SaveControls() {
             index: validatedIndexQuery,
             variables: validVariablesString,
             month: month !== null,
-            // saveQuery merges, so a cleared month must blank these or the old ones linger
-            ...(month && Array.isArray(month) && month[0]
-              ? { monthDate: month[0].toISOString(), monthIndex: validatedMonthIndexQuery }
-              : { monthDate: null, monthIndex: '' }),
+            ...(month && Array.isArray(month) && month[0] && {
+              monthDate: month[0].toISOString(),
+              monthIndex: validatedMonthIndexQuery,
+            }),
             ...(currentTransformerCode && {
               transformerCode: currentTransformerCode,
             }),
@@ -2419,8 +2413,8 @@ export function SaveControls() {
         .graphiql-save-controls {
           display: flex;
           flex-direction: column;
-          gap: var(--space-12);
-          padding: var(--space-16);
+          gap: 0.75rem;
+          padding: 1rem;
           height: 100%;
           overflow-y: auto;
         }
@@ -2429,31 +2423,31 @@ export function SaveControls() {
           display: flex;
           align-items: center;
           justify-content: center;
-          gap: var(--space-8);
+          gap: 0.5rem;
         }
 
         .graphiql-save-toggle-label {
           font-size: 0.75rem;
           font-weight: 500;
-          color: var(--ds-text-secondary);
+          color: #6b7280;
           white-space: nowrap;
         }
 
         .graphiql-save-toggle-switch {
           position: relative;
           width: 2.75rem;
-          height: var(--control-h-sm);
+          height: 1.5rem;
           border-radius: 9999px;
           transition: background-color 0.2s ease;
           cursor: pointer;
         }
 
         .graphiql-save-toggle-switch.live {
-          background-color: var(--intent-warning);
+          background-color: #fbbf24;
         }
 
         .graphiql-save-toggle-switch.client {
-          background-color: var(--intent-success);
+          background-color: #10b981;
         }
 
         .graphiql-save-toggle-switch-handle {
@@ -2465,7 +2459,7 @@ export function SaveControls() {
           background-color: white;
           border-radius: 50%;
           transition: transform 0.2s ease;
-          box-shadow: var(--ds-shadow-card);
+          box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
         }
 
         .graphiql-save-toggle-switch.client .graphiql-save-toggle-switch-handle {
@@ -2483,56 +2477,56 @@ export function SaveControls() {
         }
 
         .graphiql-index-selector.has-selection .p-button {
-          border-color: var(--brand-primary);
-          background: var(--intent-info-wash);
+          border-color: #3b82f6;
+          background: #eff6ff;
         }
 
         .graphiql-index-selector.has-selection .p-button:hover {
-          background: var(--brand-tint);
-          border-color: var(--brand-primary);
+          background: #dbeafe;
+          border-color: #2563eb;
         }
 
         .graphiql-index-selector .p-button {
           width: 100%;
           justify-content: space-between;
-          padding: var(--space-8) var(--space-12);
+          padding: 0.5rem 0.75rem;
           font-size: 0.875rem;
-          border: 1px solid var(--border-default);
+          border: 1px solid #d1d5db;
           background: white;
-          color: var(--ds-text-body);
+          color: #374151;
           transition: all 0.2s ease;
           display: flex;
           align-items: center;
         }
 
         .graphiql-index-selector .p-button:not(.p-disabled):hover {
-          background: var(--elbrit-surface-grey);
-          border-color: var(--ds-text-muted);
-          color: var(--ds-text-body);
+          background: #f9fafb;
+          border-color: #9ca3af;
+          color: #111827;
         }
 
         .graphiql-index-selector .p-button:not(.p-disabled):focus {
-          border-color: var(--brand-primary);
-          box-shadow: 0 0 0 var(--border-w-bold) var(--focus-ring-wash);
+          border-color: #3b82f6;
+          box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
           outline: none;
         }
 
         .graphiql-index-selector .p-button.p-disabled {
           opacity: 0.5;
           cursor: not-allowed;
-          background: var(--elbrit-surface-mute);
+          background: #f3f4f6;
         }
 
         .graphiql-index-selector .p-button.p-disabled:hover {
-          background: var(--elbrit-surface-mute);
-          border-color: var(--border-default);
+          background: #f3f4f6;
+          border-color: #d1d5db;
         }
 
         .graphiql-index-overlay {
           padding: 0;
           border-radius: 8px;
-          box-shadow: var(--ds-shadow-pop);
-          border: 1px solid var(--border-subtle);
+          box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+          border: 1px solid #e5e7eb;
           overflow: hidden;
         }
 
@@ -2556,21 +2550,21 @@ export function SaveControls() {
           display: flex;
           align-items: center;
           justify-content: center;
-          gap: var(--space-12);
+          gap: 0.75rem;
         }
 
         .graphiql-write-toggle-switch {
           position: relative;
           width: 2.75rem;
-          height: var(--control-h-sm);
+          height: 1.5rem;
           border-radius: 9999px;
           cursor: pointer;
           transition: background-color 0.2s ease;
-          background-color: var(--border-default);
+          background-color: #d1d5db;
         }
 
         .graphiql-write-toggle-switch.enabled {
-          background-color: var(--brand-primary);
+          background-color: #3b82f6;
         }
 
         .graphiql-write-toggle-switch-handle {
@@ -2579,10 +2573,10 @@ export function SaveControls() {
           left: 0.125rem;
           width: 1.25rem;
           height: 1.25rem;
-          background-color: var(--surface-card);
+          background-color: #ffffff;
           border-radius: 50%;
           transition: transform 0.2s ease;
-          box-shadow: var(--ds-shadow-card);
+          box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
         }
 
         .graphiql-write-toggle-switch.enabled .graphiql-write-toggle-switch-handle {
@@ -2592,7 +2586,7 @@ export function SaveControls() {
         .graphiql-write-schema-list {
           list-style: none;
           margin: 0;
-          padding: var(--space-8) 0;
+          padding: 0.5rem 0;
         }
 
         .graphiql-write-schema-item {
@@ -2600,31 +2594,31 @@ export function SaveControls() {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          padding: var(--space-8) var(--space-16);
+          padding: 0.5rem 1rem;
           background: transparent;
           border: none;
           text-align: left;
           font-size: 0.875rem;
-          color: var(--ds-text-body);
+          color: #374151;
           cursor: pointer;
           transition: background-color 0.2s ease;
         }
 
         .graphiql-write-schema-item:hover {
-          background-color: var(--elbrit-surface-mute);
+          background-color: #f3f4f6;
         }
 
         .graphiql-write-schema-item.active {
-          background-color: var(--intent-info-wash);
-          color: var(--brand-primary-active);
+          background-color: #e0f2fe;
+          color: #0369a1;
         }
       `}</style>
       <div className="graphiql-save-controls flex flex-col gap-2 p-2 h-full overflow-y-auto">
         {/* Live/Client Toggle */}
         <div className="flex flex-col gap-1.5" style={{ width: '100%', minWidth: '280px', maxWidth: '280px' }}>
-          <h3 className="text-sm font-semibold text-body">Strategy</h3>
+          <h3 className="text-sm font-semibold text-gray-700">Strategy</h3>
           <div className="graphiql-save-toggle flex items-center justify-center gap-3">
-            <span className={`graphiql-save-toggle-label ${!clientSave ? 'text-warning font-semibold' : 'text-ds-secondary'}`}>
+            <span className={`graphiql-save-toggle-label ${!clientSave ? 'text-yellow-700 font-semibold' : 'text-gray-600'}`}>
               Live
             </span>
             <div
@@ -2633,7 +2627,7 @@ export function SaveControls() {
             >
               <div className="graphiql-save-toggle-switch-handle"></div>
             </div>
-            <span className={`graphiql-save-toggle-label ${clientSave ? 'text-success font-semibold' : 'text-ds-secondary'}`}>
+            <span className={`graphiql-save-toggle-label ${clientSave ? 'text-green-700 font-semibold' : 'text-gray-600'}`}>
               Client
             </span>
           </div>
@@ -2641,9 +2635,9 @@ export function SaveControls() {
 
         {/* Enable Write Toggle */}
         <div className="flex flex-col gap-1.5" style={{ width: '100%', minWidth: '280px', maxWidth: '280px' }}>
-          <h3 className="text-sm font-semibold text-body">Write</h3>
+          <h3 className="text-sm font-semibold text-gray-700">Write</h3>
           <div className="graphiql-write-toggle">
-            <span className={`graphiql-save-toggle-label ${!enableWrite ? 'text-body font-semibold' : 'text-ds-secondary'}`}>
+            <span className={`graphiql-save-toggle-label ${!enableWrite ? 'text-gray-700 font-semibold' : 'text-gray-500'}`}>
               Disable
             </span>
             <div className="graphiql-save-toggle flex items-center justify-center">
@@ -2657,7 +2651,7 @@ export function SaveControls() {
                 <div className="graphiql-write-toggle-switch-handle"></div>
               </div>
             </div>
-            <span className={`graphiql-save-toggle-label ${enableWrite ? 'text-brand font-semibold' : 'text-ds-secondary'}`}>
+            <span className={`graphiql-save-toggle-label ${enableWrite ? 'text-blue-700 font-semibold' : 'text-gray-500'}`}>
               Enable
             </span>
           </div>
@@ -2666,26 +2660,33 @@ export function SaveControls() {
         {/* Write Schema Selector */}
         {enableWrite && (
           <div className="flex flex-col gap-1.5" style={{ width: '100%', minWidth: '280px', maxWidth: '280px' }}>
-            <h3 className="text-sm font-semibold text-body">Write Schema</h3>
+            <h3 className="text-sm font-semibold text-gray-700">Write Schema</h3>
             <div className={`graphiql-index-selector ${Object.keys(writeSchemaSelectionKeys).some(key => writeSchemaSelectionKeys[key]?.checked) ? 'has-selection' : ''}`}>
-              <Button type="default" size="sm" onClick={(e) => {
+              <Button
+                type="button"
+                onClick={(e) => {
                   if (writeSchemaOp.current) {
                     writeSchemaOp.current.toggle(e);
                   }
-                }} disabled={!schema || writeSchemaTreeNodes.length === 0} className="w-full" title={Object.keys(writeSchemaSelectionKeys).some(key => writeSchemaSelectionKeys[key]?.checked) 
+                }}
+                disabled={!schema || writeSchemaTreeNodes.length === 0}
+                className="ds-button-sm ds-button-outlined w-full"
+                title={Object.keys(writeSchemaSelectionKeys).some(key => writeSchemaSelectionKeys[key]?.checked) 
                   ? `Selected fields: ${Object.keys(writeSchemaSelectionKeys).filter(key => writeSchemaSelectionKeys[key]?.checked).length}` 
-                  : 'Select write schema fields'} style={{
+                  : 'Select write schema fields'}
+                style={{
                   justifyContent: 'space-between',
                   textAlign: 'left',
-                  padding: 'var(--space-8) var(--space-12)'
-                }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-8)', flex: 1, minWidth: 0 }}>
-                  <i className="pi pi-database" style={{ fontSize: 'var(--fs-14)', color: 'var(--ds-text-secondary)', flexShrink: 0 }}></i>
+                  padding: '0.5rem 0.75rem'
+                }}
+              >
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, minWidth: 0 }}>
+                  <i className="pi pi-database" style={{ fontSize: '0.875rem', color: '#6b7280', flexShrink: 0 }}></i>
                   <span style={{
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
-                    color: Object.keys(writeSchemaSelectionKeys).some(key => writeSchemaSelectionKeys[key]?.checked) ? 'var(--ds-text-body)' : 'var(--ds-text-muted)',
+                    color: Object.keys(writeSchemaSelectionKeys).some(key => writeSchemaSelectionKeys[key]?.checked) ? '#374151' : '#9ca3af',
                     fontWeight: Object.keys(writeSchemaSelectionKeys).some(key => writeSchemaSelectionKeys[key]?.checked) ? '500' : '400'
                   }}>
                     {(() => {
@@ -2706,10 +2707,9 @@ export function SaveControls() {
                     })()}
                   </span>
                 </span>
-                <i className="pi pi-chevron-down" style={{ fontSize: 'var(--fs-12)', color: 'var(--ds-text-secondary)', marginLeft: 'var(--space-8)', flexShrink: 0 }}></i>
+                <i className="pi pi-chevron-down" style={{ fontSize: '0.75rem', color: '#6b7280', marginLeft: '0.5rem', flexShrink: 0 }}></i>
               </Button>
               <OverlayPanel
-unstyled
                 ref={writeSchemaOp}
                 dismissable
                 className="graphiql-index-overlay"
@@ -2718,7 +2718,6 @@ unstyled
                 <div className="graphiql-overlay-scroll">
                   {writeSchemaTreeNodes.length > 0 ? (
                     <Tree
-unstyled
                       value={writeSchemaTreeNodes}
                       selectionMode="checkbox"
                       selectionKeys={writeSchemaSelectionKeys}
@@ -2732,10 +2731,10 @@ unstyled
                       className="w-full"
                     />
                   ) : (
-                    <div className="px-4 py-6 text-sm text-ds-secondary text-center bg-sunken rounded-lg">
-                      <i className="pi pi-info-circle text-ds-muted mb-2" style={{ fontSize: 'var(--fs-20)' }}></i>
-                      <p className="font-medium text-ds-secondary mb-1">No schema available</p>
-                      <p className="text-xs text-ds-secondary">
+                    <div className="px-4 py-6 text-sm text-gray-500 text-center bg-gray-50 rounded-lg">
+                      <i className="pi pi-info-circle text-gray-400 mb-2" style={{ fontSize: '1.25rem' }}></i>
+                      <p className="font-medium text-gray-600 mb-1">No schema available</p>
+                      <p className="text-xs text-gray-500">
                         {!schema ? 'Please select an environment to load the schema.' : 'Schema loaded but no query root fields found.'}
                       </p>
                     </div>
@@ -2745,9 +2744,8 @@ unstyled
             </div>
             {/* Doctype Name - below Write Schema */}
             <div className="flex flex-col gap-1.5" style={{ width: '100%', minWidth: '280px', maxWidth: '280px' }}>
-              <h3 className="text-sm font-semibold text-body">Doctype Name</h3>
+              <h3 className="text-sm font-semibold text-gray-700">Doctype Name</h3>
               <InputText
-unstyled
                 value={writeDocTypeName}
                 onChange={(e) => setWriteDocTypeName(e.target.value)}
                 placeholder="e.g. Secondary Data Entry"
@@ -2760,33 +2758,39 @@ unstyled
         {/* Index Field Selector - Only show when clientSave is enabled */}
         {clientSave && (
           <div className="flex flex-col gap-1.5" style={{ width: '100%', minWidth: '280px', maxWidth: '280px' }}>
-            <h3 className="text-sm font-semibold text-body">Index Field</h3>
+            <h3 className="text-sm font-semibold text-gray-700">Index Field</h3>
             <div className={`graphiql-index-selector ${selectedKeys ? 'has-selection' : ''}`}>
-              <Button type="default" size="sm" onClick={(e) => {
+              <Button
+                type="button"
+                onClick={(e) => {
                   if (treeNodes.length > 0 && indexFieldOp.current) {
                     indexFieldOp.current.toggle(e);
                   }
-                }} disabled={treeNodes.length === 0} className="w-full" title={selectedKeys && formatFieldName ? String(formatFieldName(selectedKeys)) : 'Select index field'} style={{
+                }}
+                disabled={treeNodes.length === 0}
+                className="ds-button-sm ds-button-outlined w-full"
+                title={selectedKeys && formatFieldName ? String(formatFieldName(selectedKeys)) : 'Select index field'}
+                style={{
                   justifyContent: 'space-between',
                   textAlign: 'left',
-                  padding: 'var(--space-8) var(--space-12)'
-                }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-8)', flex: 1, minWidth: 0 }}>
-                  <i className="pi pi-sitemap" style={{ fontSize: 'var(--fs-14)', color: 'var(--ds-text-secondary)', flexShrink: 0 }}></i>
+                  padding: '0.5rem 0.75rem'
+                }}
+              >
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, minWidth: 0 }}>
+                  <i className="pi pi-sitemap" style={{ fontSize: '0.875rem', color: '#6b7280', flexShrink: 0 }}></i>
                   <span style={{
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
-                    color: selectedKeys ? 'var(--ds-text-body)' : 'var(--ds-text-muted)',
+                    color: selectedKeys ? '#374151' : '#9ca3af',
                     fontWeight: selectedKeys ? '500' : '400'
                   }}>
                     {selectedKeys ? (formatFieldName ? formatFieldName(selectedKeys) : String(selectedKeys)) : 'Select index field'}
                   </span>
                 </span>
-                <i className="pi pi-chevron-down" style={{ fontSize: 'var(--fs-12)', color: 'var(--ds-text-secondary)', marginLeft: 'var(--space-8)', flexShrink: 0 }}></i>
+                <i className="pi pi-chevron-down" style={{ fontSize: '0.75rem', color: '#6b7280', marginLeft: '0.5rem', flexShrink: 0 }}></i>
               </Button>
               <OverlayPanel
-unstyled
                 ref={indexFieldOp}
                 dismissable
                 className="graphiql-index-overlay"
@@ -2795,7 +2799,6 @@ unstyled
                 {treeNodes.length > 0 ? (
                   <div className="graphiql-overlay-scroll">
                     <Tree
-unstyled
                       value={treeNodes}
                       selectionMode="single"
                       selectionKeys={selectedKeys}
@@ -2810,10 +2813,10 @@ unstyled
                     />
                   </div>
                 ) : (
-                  <div className="px-4 py-6 text-sm text-ds-secondary text-center bg-sunken rounded-lg">
-                    <i className="pi pi-info-circle text-ds-muted mb-2" style={{ fontSize: 'var(--fs-20)' }}></i>
-                    <p className="font-medium text-ds-secondary mb-1">No query fields available</p>
-                    <p className="text-xs text-ds-secondary">
+                  <div className="px-4 py-6 text-sm text-gray-500 text-center bg-gray-50 rounded-lg">
+                    <i className="pi pi-info-circle text-gray-400 mb-2" style={{ fontSize: '1.25rem' }}></i>
+                    <p className="font-medium text-gray-600 mb-1">No query fields available</p>
+                    <p className="text-xs text-gray-500">
                       Please write a GraphQL query in the editor.
                     </p>
                   </div>
@@ -2825,20 +2828,7 @@ unstyled
 
         {/* Month Picker (range) */}
         <div className="flex flex-col gap-1.5" style={{ width: '100%', minWidth: '280px', maxWidth: '280px' }}>
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-body">Month</h3>
-            {month && (
-              <button
-                type="button"
-                onClick={() => setMonth(null)}
-                title="Not a month query: variables keep their dates, saved as a plain query"
-                className="inline-flex items-center gap-1 text-xs text-ds-secondary hover:text-body"
-              >
-                <i className="pi pi-times text-10" aria-hidden="true" />
-                Clear
-              </button>
-            )}
-          </div>
+          <h3 className="text-sm font-semibold text-gray-700">Month</h3>
           <RangePicker
             mode="month"
             value={month}
@@ -2850,33 +2840,39 @@ unstyled
         {/* Month Index Field Selector - Only show when clientSave is enabled and month is selected */}
         {clientSave && month && (
           <div className="flex flex-col gap-1.5" style={{ width: '100%', minWidth: '280px', maxWidth: '280px' }}>
-            <h3 className="text-sm font-semibold text-body">Month Index Field</h3>
+            <h3 className="text-sm font-semibold text-gray-700">Month Index Field</h3>
             <div className={`graphiql-index-selector ${sanitizedMonthIndexKey ? 'has-selection' : ''}`}>
-              <Button type="default" size="sm" onClick={(e) => {
+              <Button
+                type="button"
+                onClick={(e) => {
                   if (monthIndexTreeNodes.length > 0 && monthIndexFieldOp.current) {
                     monthIndexFieldOp.current.toggle(e);
                   }
-                }} disabled={!selectedKeys || monthIndexTreeNodes.length === 0} className="w-full" title={sanitizedMonthIndexKey && formatFieldName ? String(formatFieldName(sanitizedMonthIndexKey)) : 'Select month index field'} style={{
+                }}
+                disabled={!selectedKeys || monthIndexTreeNodes.length === 0}
+                className="ds-button-sm ds-button-outlined w-full"
+                title={sanitizedMonthIndexKey && formatFieldName ? String(formatFieldName(sanitizedMonthIndexKey)) : 'Select month index field'}
+                style={{
                   justifyContent: 'space-between',
                   textAlign: 'left',
-                  padding: 'var(--space-8) var(--space-12)'
-                }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-8)', flex: 1, minWidth: 0 }}>
-                  <i className="pi pi-sitemap" style={{ fontSize: 'var(--fs-14)', color: 'var(--ds-text-secondary)', flexShrink: 0 }}></i>
+                  padding: '0.5rem 0.75rem'
+                }}
+              >
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, minWidth: 0 }}>
+                  <i className="pi pi-sitemap" style={{ fontSize: '0.875rem', color: '#6b7280', flexShrink: 0 }}></i>
                   <span style={{
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
-                    color: sanitizedMonthIndexKey ? 'var(--ds-text-body)' : 'var(--ds-text-muted)',
+                    color: sanitizedMonthIndexKey ? '#374151' : '#9ca3af',
                     fontWeight: sanitizedMonthIndexKey ? '500' : '400'
                   }}>
                     {monthIndexLabel}
                   </span>
                 </span>
-                <i className="pi pi-chevron-down" style={{ fontSize: 'var(--fs-12)', color: 'var(--ds-text-secondary)', marginLeft: 'var(--space-8)', flexShrink: 0 }}></i>
+                <i className="pi pi-chevron-down" style={{ fontSize: '0.75rem', color: '#6b7280', marginLeft: '0.5rem', flexShrink: 0 }}></i>
               </Button>
               <OverlayPanel
-unstyled
                 ref={monthIndexFieldOp}
                 dismissable
                 className="graphiql-index-overlay"
@@ -2885,7 +2881,6 @@ unstyled
                 {monthIndexTreeNodes.length > 0 ? (
                   <div className="graphiql-overlay-scroll">
                     <Tree
-unstyled
                       value={monthIndexTreeNodes}
                       selectionMode="single"
                       selectionKeys={sanitizedMonthIndexKey}
@@ -2900,10 +2895,10 @@ unstyled
                     />
                   </div>
                 ) : (
-                  <div className="px-4 py-6 text-sm text-ds-secondary text-center bg-sunken rounded-lg">
-                    <i className="pi pi-info-circle text-ds-muted mb-2" style={{ fontSize: 'var(--fs-20)' }}></i>
-                    <p className="font-medium text-ds-secondary mb-1">No month index fields available</p>
-                    <p className="text-xs text-ds-secondary">
+                  <div className="px-4 py-6 text-sm text-gray-500 text-center bg-gray-50 rounded-lg">
+                    <i className="pi pi-info-circle text-gray-400 mb-2" style={{ fontSize: '1.25rem' }}></i>
+                    <p className="font-medium text-gray-600 mb-1">No month index fields available</p>
+                    <p className="text-xs text-gray-500">
                       Please select an index field first.
                     </p>
                   </div>
@@ -2915,24 +2910,31 @@ unstyled
 
         {/* Search Fields Selector - Always show regardless of clientSave */}
         <div className="flex flex-col gap-1.5" style={{ width: '100%', minWidth: '280px', maxWidth: '280px' }}>
-          <h3 className="text-sm font-semibold text-body">Search Fields</h3>
+          <h3 className="text-sm font-semibold text-gray-700">Search Fields</h3>
           <div className={`graphiql-index-selector ${Object.keys(searchFields).length > 0 ? 'has-selection' : ''}`}>
-            <Button type="default" size="sm" onClick={(e) => {
+            <Button
+              type="button"
+              onClick={(e) => {
                 if (searchFieldsTreeOp.current) {
                   searchFieldsTreeOp.current.toggle(e);
                 }
-              }} disabled={processedDataTreeNodesMemo.length === 0} className="w-full" title="Select search fields" style={{
+              }}
+              disabled={processedDataTreeNodesMemo.length === 0}
+              className="ds-button-sm ds-button-outlined w-full"
+              title="Select search fields"
+              style={{
                 justifyContent: 'space-between',
                 textAlign: 'left',
-                padding: 'var(--space-8) var(--space-12)'
-              }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-8)', flex: 1, minWidth: 0 }}>
-                <i className="pi pi-search" style={{ fontSize: 'var(--fs-14)', color: 'var(--ds-text-secondary)', flexShrink: 0 }}></i>
+                padding: '0.5rem 0.75rem'
+              }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, minWidth: 0 }}>
+                <i className="pi pi-search" style={{ fontSize: '0.875rem', color: '#6b7280', flexShrink: 0 }}></i>
                 <span style={{
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
-                  color: Object.keys(searchFields).length > 0 ? 'var(--ds-text-body)' : 'var(--ds-text-muted)',
+                  color: Object.keys(searchFields).length > 0 ? '#374151' : '#9ca3af',
                   fontWeight: Object.keys(searchFields).length > 0 ? '500' : '400'
                 }}>
                   {Object.keys(searchFields).length > 0
@@ -2940,10 +2942,9 @@ unstyled
                     : 'Select search fields'}
                 </span>
               </span>
-              <i className="pi pi-chevron-down" style={{ fontSize: 'var(--fs-12)', color: 'var(--ds-text-secondary)', marginLeft: 'var(--space-8)', flexShrink: 0 }}></i>
+              <i className="pi pi-chevron-down" style={{ fontSize: '0.75rem', color: '#6b7280', marginLeft: '0.5rem', flexShrink: 0 }}></i>
             </Button>
             <OverlayPanel
-unstyled
               ref={searchFieldsTreeOp}
               dismissable
               className="graphiql-index-overlay"
@@ -2952,7 +2953,6 @@ unstyled
               {searchFieldsTreeNodes.length > 0 ? (
                 <div className="graphiql-overlay-scroll">
                   <Tree
-unstyled
                     value={searchFieldsTreeNodes}
                     selectionMode="checkbox"
                     selectionKeys={searchFieldsSelectionKeys}
@@ -2967,10 +2967,10 @@ unstyled
                   />
                 </div>
               ) : (
-                <div className="px-4 py-6 text-sm text-ds-secondary text-center bg-sunken rounded-lg">
-                  <i className="pi pi-info-circle text-ds-muted mb-2" style={{ fontSize: 'var(--fs-20)' }}></i>
-                  <p className="font-medium text-ds-secondary mb-1">No processed data available</p>
-                  <p className="text-xs text-ds-secondary">
+                <div className="px-4 py-6 text-sm text-gray-500 text-center bg-gray-50 rounded-lg">
+                  <i className="pi pi-info-circle text-gray-400 mb-2" style={{ fontSize: '1.25rem' }}></i>
+                  <p className="font-medium text-gray-600 mb-1">No processed data available</p>
+                  <p className="text-xs text-gray-500">
                     Execute a query and apply transformer to see available fields.
                   </p>
                 </div>
@@ -2981,24 +2981,31 @@ unstyled
 
         {/* Sort Fields Selector - Always show regardless of clientSave */}
         <div className="flex flex-col gap-1.5" style={{ width: '100%', minWidth: '280px', maxWidth: '280px' }}>
-          <h3 className="text-sm font-semibold text-body">Sort Fields</h3>
+          <h3 className="text-sm font-semibold text-gray-700">Sort Fields</h3>
           <div className={`graphiql-index-selector ${Object.keys(sortFields).length > 0 ? 'has-selection' : ''}`}>
-            <Button type="default" size="sm" onClick={(e) => {
+            <Button
+              type="button"
+              onClick={(e) => {
                 if (sortFieldsTreeOp.current) {
                   sortFieldsTreeOp.current.toggle(e);
                 }
-              }} disabled={processedDataTreeNodesMemo.length === 0} className="w-full" title="Select sort fields" style={{
+              }}
+              disabled={processedDataTreeNodesMemo.length === 0}
+              className="ds-button-sm ds-button-outlined w-full"
+              title="Select sort fields"
+              style={{
                 justifyContent: 'space-between',
                 textAlign: 'left',
-                padding: 'var(--space-8) var(--space-12)'
-              }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-8)', flex: 1, minWidth: 0 }}>
-                <i className="pi pi-sort" style={{ fontSize: 'var(--fs-14)', color: 'var(--ds-text-secondary)', flexShrink: 0 }}></i>
+                padding: '0.5rem 0.75rem'
+              }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, minWidth: 0 }}>
+                <i className="pi pi-sort" style={{ fontSize: '0.875rem', color: '#6b7280', flexShrink: 0 }}></i>
                 <span style={{
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
-                  color: Object.keys(sortFields).length > 0 ? 'var(--ds-text-body)' : 'var(--ds-text-muted)',
+                  color: Object.keys(sortFields).length > 0 ? '#374151' : '#9ca3af',
                   fontWeight: Object.keys(sortFields).length > 0 ? '500' : '400'
                 }}>
                   {Object.keys(sortFields).length > 0
@@ -3006,10 +3013,9 @@ unstyled
                     : 'Select sort fields'}
                 </span>
               </span>
-              <i className="pi pi-chevron-down" style={{ fontSize: 'var(--fs-12)', color: 'var(--ds-text-secondary)', marginLeft: 'var(--space-8)', flexShrink: 0 }}></i>
+              <i className="pi pi-chevron-down" style={{ fontSize: '0.75rem', color: '#6b7280', marginLeft: '0.5rem', flexShrink: 0 }}></i>
             </Button>
             <OverlayPanel
-unstyled
               ref={sortFieldsTreeOp}
               dismissable
               className="graphiql-index-overlay"
@@ -3018,7 +3024,6 @@ unstyled
               {sortFieldsTreeNodes.length > 0 ? (
                 <div className="graphiql-overlay-scroll">
                   <Tree
-unstyled
                     value={sortFieldsTreeNodes}
                     selectionMode="checkbox"
                     selectionKeys={sortFieldsSelectionKeys}
@@ -3033,10 +3038,10 @@ unstyled
                   />
                 </div>
               ) : (
-                <div className="px-4 py-6 text-sm text-ds-secondary text-center bg-sunken rounded-lg">
-                  <i className="pi pi-info-circle text-ds-muted mb-2" style={{ fontSize: 'var(--fs-20)' }}></i>
-                  <p className="font-medium text-ds-secondary mb-1">No processed data available</p>
-                  <p className="text-xs text-ds-secondary">
+                <div className="px-4 py-6 text-sm text-gray-500 text-center bg-gray-50 rounded-lg">
+                  <i className="pi pi-info-circle text-gray-400 mb-2" style={{ fontSize: '1.25rem' }}></i>
+                  <p className="font-medium text-gray-600 mb-1">No processed data available</p>
+                  <p className="text-xs text-gray-500">
                     Execute a query and apply transformer to see available fields.
                   </p>
                 </div>
@@ -3047,9 +3052,16 @@ unstyled
 
         {/* Save Button */}
         <div className="flex flex-col gap-1.5" style={{ width: '100%', minWidth: '280px', maxWidth: '280px' }}>
-          <Button size="sm" onClick={handleSave} icon={<i className="pi pi-save" />} className="w-full" style={{
+          <Button
+            type="button"
+            onClick={handleSave}
+            icon="pi pi-save"
+            label="Save"
+            className="ds-button-sm w-full"
+            style={{
               whiteSpace: 'nowrap'
-            }}>Save</Button>
+            }}
+          />
         </div>
       </div>
     </>

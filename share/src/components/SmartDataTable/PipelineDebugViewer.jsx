@@ -8,7 +8,7 @@ import { useSmartDataContext } from './SmartDataContext';
 const EDITOR_OPTIONS = {
   readOnly: true,
   minimap: { enabled: false },
-  fontSize: 'var(--fs-12)',
+  fontSize: 12,
   wordWrap: 'off',
   scrollBeyondLastLine: false,
   lineNumbers: 'on',
@@ -91,27 +91,27 @@ export function PipelineDebugViewer() {
   if (viewEntries.length === 0) return null;
 
   return (
-    <div className="bg-surface rounded-lg shadow-card border border-line-subtle p-6">
-      <h2 className="text-base font-semibold text-body mb-4 flex items-center gap-2">
-        <i className="pi pi-code text-brand" />
+    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+      <h2 className="text-base font-semibold text-gray-700 mb-4 flex items-center gap-2">
+        <i className="pi pi-code text-cyan-500" />
         Pipeline Debug
       </h2>
 
-      <TabView unstyled>
+      <TabView>
         {viewEntries.map(([viewId, { name }]) => {
           const steps = snapshots[viewId] ?? [];
           return (
-            <TabPanel unstyled key={viewId} header={name ?? viewId}>
+            <TabPanel key={viewId} header={name ?? viewId}>
               {steps.length === 0 ? (
-                <p className="text-sm text-ds-muted py-4">Waiting for first fetch…</p>
+                <p className="text-sm text-gray-400 py-4">Waiting for first fetch…</p>
               ) : (
-                <TabView unstyled scrollable>
+                <TabView scrollable>
                   {steps.map(({ stepName, state }) => {
                     const display = state._rawUniGrid ?? state;
                     const rowCount = display.rows?.length ?? 0;
                     return (
-                      <TabPanel unstyled key={stepName} header={stepName}>
-                        <div className="text-xs text-ds-secondary mb-1">
+                      <TabPanel key={stepName} header={stepName}>
+                        <div className="text-xs text-gray-500 mb-1">
                           {rowCount} rows
                           {state.totalRecords != null ? ` / ${state.totalRecords} total` : ''}
                         </div>

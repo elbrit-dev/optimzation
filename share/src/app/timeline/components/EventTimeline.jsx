@@ -128,15 +128,15 @@ export default function EventTimeline({ events = [], align = 'alternate', onEven
 
   if (sortedEvents.length === 0) {
     return (
-      <div className={`${rootClass} rounded-lg border border-line-subtle bg-surface p-8 text-center text-ds-secondary text-sm`}>
-        <i className="pi pi-inbox text-32 text-ds-muted mb-2 block" aria-hidden />
-        No events to display. Pass a non-empty <code className="text-body">events</code> array.
+      <div className={`${rootClass} rounded-lg border border-gray-200 bg-white p-8 text-center text-gray-500 text-sm`}>
+        <i className="pi pi-inbox text-3xl text-gray-300 mb-2 block" aria-hidden />
+        No events to display. Pass a non-empty <code className="text-gray-700">events</code> array.
       </div>
     );
   }
 
   const markerClassName =
-    'elbrit-event-timeline__marker flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 border-brand bg-info-wash text-brand';
+    'elbrit-event-timeline__marker flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 border-blue-500 bg-blue-50 text-blue-600';
 
   const marker = (item) => {
     if (item == null || typeof item !== 'object') return null;
@@ -146,7 +146,7 @@ export default function EventTimeline({ events = [], align = 'alternate', onEven
       return (
         <button
           type="button"
-          className={`${markerClassName} cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2`}
+          className={`${markerClassName} cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2`}
           aria-label={item.title ? `Event: ${item.title}` : 'Event marker'}
           onClick={(e) => {
             e.stopPropagation();
@@ -170,9 +170,9 @@ export default function EventTimeline({ events = [], align = 'alternate', onEven
     const summary = formatDataSummary(item.data);
     const interactive = typeof onEventClick === 'function' && item?.clickable === true;
     const cardClass = [
-      'rounded-lg border border-line-subtle bg-surface p-3 shadow-card',
+      'rounded-lg border border-gray-100 bg-white p-3 shadow-sm',
       interactive
-        ? 'cursor-pointer transition-[box-shadow,transform,border-color] duration-150 ease-standard motion-safe:hover:-translate-y-0.5 motion-safe:hover:shadow-card hover:border-line-subtle active:translate-y-0 active:shadow-card focus:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2'
+        ? 'cursor-pointer transition-[box-shadow,transform,border-color] duration-150 ease-out motion-safe:hover:-translate-y-0.5 motion-safe:hover:shadow-md hover:border-gray-200 active:translate-y-0 active:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2'
         : '',
     ]
       .filter(Boolean)
@@ -195,19 +195,15 @@ export default function EventTimeline({ events = [], align = 'alternate', onEven
         onClick={interactive ? () => handleItemClick(item, 'card') : undefined}
         onKeyDown={onCardKeyDown}
       >
-        <div className="font-semibold text-body">{item.title || 'Untitled'}</div>
-        <div className="mt-1 text-xs text-ds-secondary">{formatted}</div>
-        {summary ? <div className="mt-2 text-sm text-ds-secondary">{summary}</div> : null}
+        <div className="font-semibold text-gray-900">{item.title || 'Untitled'}</div>
+        <div className="mt-1 text-xs text-gray-500">{formatted}</div>
+        {summary ? <div className="mt-2 text-sm text-gray-600">{summary}</div> : null}
       </div>
     );
   };
 
   return (
     <Timeline
-      /* Styling AND layout come from the global registry: Timeline injects its
-         own layout CSS, which `unstyled` removes along with the theme. See
-         design-system/primereact/timelinePreset.js. */
-      unstyled
       className={rootClass}
       value={sortedEvents}
       dataKey="id"

@@ -667,8 +667,8 @@ const viewSwitcherMeta = {
     height: {
       type: 'string',
       displayName: 'height',
-      description:
-        'Escape hatch only — leave it empty. The control now follows the design system control scale (22px on an app surface, 32px on a console one), which is what lines it up with the other toolbar controls. The old 1.75rem/28px default was not on that scale.',
+      defaultValue: '1.75rem',
+      description: 'CSS height of the control, e.g. "1.75rem" or "32px". Defaults to 1.75rem to line up with SmartDataProvider\'s other toolbar controls.',
     },
     className: { type: 'string' },
   },

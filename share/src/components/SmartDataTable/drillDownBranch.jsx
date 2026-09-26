@@ -31,7 +31,7 @@ export function DrillDownBranch({ rowData, drill, renderChildren }) {
 
   if (!node || node.status === 'loading') {
     return (
-      <div className="px-6 py-3 text-sm text-ds-secondary flex items-center gap-2">
+      <div className="px-6 py-3 text-sm text-gray-500 flex items-center gap-2">
         <span className="pi pi-spin pi-spinner" aria-hidden="true" />
         Loading{'\u2026'}
       </div>
@@ -43,9 +43,9 @@ export function DrillDownBranch({ rowData, drill, renderChildren }) {
     // so it is surfaced rather than swallowed into a generic message.
     const traceId = node.error?.extensions?.trace_id ?? node.error?.trace_id;
     return (
-      <div className="px-6 py-3 text-sm text-danger flex items-center gap-3">
+      <div className="px-6 py-3 text-sm text-red-600 flex items-center gap-3">
         <span>{node.error?.message ?? 'Could not load rows'}</span>
-        {traceId && <span className="text-xs text-ds-muted font-mono">{traceId}</span>}
+        {traceId && <span className="text-xs text-gray-400 font-mono">{traceId}</span>}
         <button
           type="button"
           className="text-xs underline"
@@ -58,7 +58,7 @@ export function DrillDownBranch({ rowData, drill, renderChildren }) {
   }
 
   if (!node.rows?.length) {
-    return <div className="px-6 py-3 text-sm text-ds-secondary">No rows</div>;
+    return <div className="px-6 py-3 text-sm text-gray-500">No rows</div>;
   }
 
   // `limit` pages the fetched level, so a node with more children than one page
@@ -68,7 +68,7 @@ export function DrillDownBranch({ rowData, drill, renderChildren }) {
     <>
       {renderChildren(node.rows)}
       {node.status === 'loadingMore' && (
-        <div className="px-6 py-2 text-sm text-ds-secondary flex items-center gap-2">
+        <div className="px-6 py-2 text-sm text-gray-500 flex items-center gap-2">
           <span className="pi pi-spin pi-spinner" aria-hidden="true" />
           Loading more{'\u2026'}
         </div>

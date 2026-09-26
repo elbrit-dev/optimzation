@@ -1,7 +1,7 @@
 'use client';
 
 import Editor from '@monaco-editor/react';
-import { Button } from '@/design-system';
+import { Button } from 'primereact/button';
 import { Toast } from 'primereact/toast';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { firestoreService } from '../services/firestoreService';
@@ -76,41 +76,50 @@ export function GlobalFunctionsTab() {
   }, [functionsCode, isSaving]);
 
   return (
-    <div className="h-full flex flex-col overflow-hidden bg-sunken">
-      <Toast unstyled ref={toast} />
+    <div className="h-full flex flex-col overflow-hidden bg-gray-50">
+      <Toast ref={toast} />
       <div className="flex-1 flex flex-col overflow-hidden p-4" style={{ minHeight: 0 }}>
         {/* Header section with label and Save button */}
         <div className="flex items-center justify-between mb-2">
-          <label className="text-sm font-medium text-body">
+          <label className="text-sm font-medium text-gray-700">
             Global Function:
           </label>
-          <Button icon={<i className={isSaving ? "pi pi-spin pi-spinner" : "pi pi-save"} />} className={
+          <Button
+            icon={isSaving ? "pi pi-spin pi-spinner" : "pi pi-save"}
+            label="Save"
+            className={
               isSaving
                 ? "ds-button-secondary"
                 : hasError
                   ? "ds-button-danger"
                   : "ds-button-primary"
-            } onClick={handleSave} title={
+            }
+            onClick={handleSave}
+            title={
               isSaving
                 ? "Saving..."
                 : hasError
                   ? "Previous save had an error - Click to save again"
                   : "Save global functions"
-            } loading={isSaving} disabled={isLoading} style={{
+            }
+            loading={isSaving}
+            disabled={isLoading}
+            style={{
               minWidth: '100px',
-              padding: 'var(--space-8) var(--space-16)',
-              fontSize: 'var(--fs-14)',
+              padding: '0.5rem 1rem',
+              fontSize: '0.875rem',
               fontWeight: '500'
-            }}>Save</Button>
+            }}
+          />
         </div>
         
         {/* Monaco Editor */}
-        <div className="flex-1 border border-line rounded-lg overflow-hidden" style={{ minHeight: 0, height: '100%' }}>
+        <div className="flex-1 border border-gray-300 rounded-lg overflow-hidden" style={{ minHeight: 0, height: '100%' }}>
           {isLoading ? (
             <div className="flex items-center justify-center h-full">
               <div className="text-center">
-                <i className="pi pi-spin pi-spinner text-24 text-ds-muted mb-2"></i>
-                <p className="text-sm text-ds-secondary">Loading global functions...</p>
+                <i className="pi pi-spin pi-spinner text-2xl text-gray-400 mb-2"></i>
+                <p className="text-sm text-gray-500">Loading global functions...</p>
               </div>
             </div>
           ) : (
@@ -122,7 +131,7 @@ export function GlobalFunctionsTab() {
               theme="vs-light"
               options={{
                 minimap: { enabled: false },
-                fontSize: 'var(--fs-12)',
+                fontSize: 12,
                 scrollBeyondLastLine: false,
                 wordWrap: 'on',
               }}

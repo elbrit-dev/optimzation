@@ -5,7 +5,6 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getSafeRedirect } from '@/lib/safeRedirect';
-import { Button } from '@/design-system';
 
 export default function LoginPage() {
   return (
@@ -179,15 +178,15 @@ function LoginForm() {
   ];
 
   return (
-    <div className="min-h-screen bg-sunken flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
-        className="w-full max-w-md bg-surface rounded-lg shadow-card border border-line-subtle overflow-hidden"
+        className="w-full max-w-md bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden"
       >
         {/* Header */}
-        <div className="bg-surface border-b border-line-subtle px-6 py-5">
+        <div className="bg-white border-b border-gray-200 px-6 py-5">
           <div className="flex items-center justify-center mb-4">
             <img 
               src="/elbrit.jpeg" 
@@ -195,12 +194,12 @@ function LoginForm() {
               className="h-10 sm:h-12 object-contain"
             />
           </div>
-          <h1 className="text-xl font-semibold text-body mb-1 text-center">Sign In</h1>
-          <p className="text-sm text-ds-secondary text-center">Access your account to continue</p>
+          <h1 className="text-xl font-semibold text-gray-900 mb-1 text-center">Sign In</h1>
+          <p className="text-sm text-gray-600 text-center">Access your account to continue</p>
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-line-subtle bg-sunken">
+        <div className="flex border-b border-gray-200 bg-gray-50">
           {tabs.map((tab) => (
             <button
               key={tab.id}
@@ -213,8 +212,8 @@ function LoginForm() {
               }}
               className={`flex-1 px-4 py-3 text-sm font-medium transition-all flex items-center justify-center gap-2 ${
                 activeTab === tab.id
-                  ? 'text-brand border-b-2 border-brand bg-surface'
-                  : 'text-ds-secondary hover:text-body hover:bg-surface'
+                  ? 'text-blue-600 border-b-2 border-blue-600 bg-white'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-white'
               }`}
             >
               {tab.icon}
@@ -237,7 +236,7 @@ function LoginForm() {
                 className="space-y-4"
               >
                 <div>
-                  <label htmlFor="email" className="block text-sm font-medium text-body mb-1.5">
+                  <label htmlFor="email" className="block text-sm font-medium text-gray-900 mb-1.5">
                     Email Address
                   </label>
                   <input
@@ -246,12 +245,12 @@ function LoginForm() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
-                    className="w-full px-3 py-2 text-sm border border-line rounded-lg focus:ring-2 focus:ring-focus focus:border-brand outline-none transition"
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
                     placeholder="you@example.com"
                   />
                 </div>
                 <div>
-                  <label htmlFor="password" className="block text-sm font-medium text-body mb-1.5">
+                  <label htmlFor="password" className="block text-sm font-medium text-gray-900 mb-1.5">
                     Password
                   </label>
                   <div className="login-password-input-wrapper">
@@ -310,9 +309,13 @@ function LoginForm() {
                     </button>
                   </div>
                 </div>
-                <Button htmlType="submit" size="lg" block loading={loading}>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-blue-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow-md"
+                >
                   {loading ? 'Signing in...' : 'Sign In'}
-                </Button>
+                </button>
               </motion.form>
             )}
 
@@ -330,7 +333,7 @@ function LoginForm() {
                 {phoneStep === 'number' ? (
                   <form onSubmit={handlePhoneNumberSubmit} className="space-y-4">
                     <div>
-                      <label htmlFor="phone" className="block text-sm font-medium text-body mb-1.5">
+                      <label htmlFor="phone" className="block text-sm font-medium text-gray-900 mb-1.5">
                         Phone Number
                       </label>
                       <input
@@ -339,19 +342,23 @@ function LoginForm() {
                         value={phoneNumber}
                         onChange={(e) => setPhoneNumber(e.target.value)}
                         required
-                        className="w-full px-3 py-2 text-sm border border-line rounded-lg focus:ring-2 focus:ring-focus focus:border-brand outline-none transition"
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
                         placeholder="+1234567890"
                       />
-                      <p className="text-xs text-ds-secondary mt-1">Include country code (e.g., +1 for US)</p>
+                      <p className="text-xs text-gray-500 mt-1">Include country code (e.g., +1 for US)</p>
                     </div>
-                    <Button htmlType="submit" size="lg" block loading={loading}>
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="w-full bg-blue-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow-md"
+                    >
                       {loading ? 'Sending code...' : 'Send Verification Code'}
-                    </Button>
+                    </button>
                   </form>
                 ) : (
                   <form onSubmit={handlePhoneCodeVerify} className="space-y-4">
                     <div>
-                      <label htmlFor="code" className="block text-sm font-medium text-body mb-1.5">
+                      <label htmlFor="code" className="block text-sm font-medium text-gray-900 mb-1.5">
                         Verification Code
                       </label>
                       <input
@@ -360,33 +367,31 @@ function LoginForm() {
                         value={verificationCode}
                         onChange={(e) => setVerificationCode(e.target.value)}
                         required
-                        className="w-full px-3 py-2 text-sm border border-line rounded-lg focus:ring-2 focus:ring-focus focus:border-brand outline-none transition text-center text-24 tracking-widest"
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-center text-2xl tracking-widest"
                         placeholder="000000"
                         maxLength={6}
                       />
-                      <p className="text-xs text-ds-secondary mt-1">Enter the 6-digit code sent to your phone</p>
+                      <p className="text-xs text-gray-500 mt-1">Enter the 6-digit code sent to your phone</p>
                     </div>
                     <div className="flex gap-2">
-                      <Button
-                        type="default"
-                        size="lg"
-                        className="flex-1"
+                      <button
+                        type="button"
                         onClick={() => {
                           setPhoneStep('number');
                           setVerificationCode('');
                           setConfirmationResult(null);
                         }}
+                        className="flex-1 bg-white border border-gray-300 text-gray-700 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
                       >
                         Back
-                      </Button>
-                      <Button
-                        htmlType="submit"
-                        size="lg"
-                        className="flex-1"
-                        loading={loading}
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={loading}
+                        className="flex-1 bg-blue-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow-md"
                       >
                         {loading ? 'Verifying...' : 'Verify Code'}
-                      </Button>
+                      </button>
                     </div>
                   </form>
                 )}
@@ -403,20 +408,20 @@ function LoginForm() {
                 className="space-y-4"
               >
                 <div className="text-center py-6">
-                  <div className="inline-flex items-center justify-center w-12 h-12 bg-sunken rounded-lg mb-4">
-                    <svg className="w-6 h-6 text-body" viewBox="0 0 24 24" fill="currentColor">
+                  <div className="inline-flex items-center justify-center w-12 h-12 bg-gray-100 rounded-lg mb-4">
+                    <svg className="w-6 h-6 text-gray-700" viewBox="0 0 24 24" fill="currentColor">
                       <path d="M11.4 24H0V12.6h11.4V24zM24 24H12.6V12.6H24V24zM11.4 11.4H0V0h11.4v11.4zM24 11.4H12.6V0H24v11.4z"/>
                     </svg>
                   </div>
-                  <h3 className="text-base font-semibold text-body mb-1">Microsoft Account</h3>
-                  <p className="text-sm text-ds-secondary mb-6">
+                  <h3 className="text-base font-semibold text-gray-900 mb-1">Microsoft Account</h3>
+                  <p className="text-sm text-gray-600 mb-6">
                     Sign in with your Microsoft account
                   </p>
                 </div>
                 <button
                   onClick={handleMicrosoftLogin}
                   disabled={loading}
-                  className="w-full bg-surface border border-line text-body py-2.5 rounded-lg text-sm font-medium hover:bg-brand-tint-weak hover:border-line-strong transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-card hover:shadow-card"
+                  className="w-full bg-white border border-gray-300 text-gray-700 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-50 hover:border-gray-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-sm hover:shadow-md"
                 >
                   {loading ? (
                     'Signing in...'
@@ -438,7 +443,7 @@ function LoginForm() {
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="mt-4 p-3 bg-danger-wash border border-danger-border rounded-lg text-danger text-sm"
+              className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm"
             >
               <div className="flex items-start gap-2">
                 <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -452,7 +457,7 @@ function LoginForm() {
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="mt-4 p-3 bg-success-wash border border-success-border rounded-lg text-success text-sm"
+              className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm"
             >
               <div className="flex items-start gap-2">
                 <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

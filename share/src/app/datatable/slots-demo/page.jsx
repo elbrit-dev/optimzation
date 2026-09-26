@@ -68,27 +68,27 @@ function SlotsDemoPage() {
   }), []);
 
   return (
-    <div className="min-h-screen bg-sunken flex flex-col">
+    <div className="min-h-screen bg-gray-50 flex flex-col">
       <main className="flex-1 flex flex-col min-h-0 p-4">
         <div className="mb-4">
-          <h1 className="text-xl font-semibold text-body">Per-Slot Demo</h1>
-          <p className="text-sm text-ds-secondary mt-1">
+          <h1 className="text-xl font-semibold text-gray-800">Per-Slot Demo</h1>
+          <p className="text-sm text-gray-500 mt-1">
             Single DataProvider, two slots. Left: sales_team + hq + customer_name. Right: customer_name + item_name. Independent filters/sort/pagination. Click group cells to open the drawer.
           </p>
         </div>
 
         <DataProvider __internal={{ config: slotsConfig }} offlineData={offlineData}>
           <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 min-h-0">
-            <div className="flex flex-col min-h-0 border border-line-subtle rounded-lg overflow-hidden bg-surface">
-              <div className="shrink-0 px-4 py-2 bg-info-wash border-b border-info-border font-medium text-brand-active">
+            <div className="flex flex-col min-h-0 border border-gray-200 rounded-lg overflow-hidden bg-white">
+              <div className="shrink-0 px-4 py-2 bg-blue-50 border-b border-blue-100 font-medium text-blue-800">
                 Grouped by: sales_team, hq, customer_name
               </div>
               <div className="flex-1 min-h-0 p-4">
                 <DataTableNew slotId="salesTeamHq" tableName="sales_team_hq" />
               </div>
             </div>
-            <div className="flex flex-col min-h-0 border border-line-subtle rounded-lg overflow-hidden bg-surface">
-              <div className="shrink-0 px-4 py-2 bg-success-wash border-b border-success-border font-medium text-success">
+            <div className="flex flex-col min-h-0 border border-gray-200 rounded-lg overflow-hidden bg-white">
+              <div className="shrink-0 px-4 py-2 bg-green-50 border-b border-green-100 font-medium text-green-800">
                 Grouped by: customer_name, item_name
               </div>
               <div className="flex-1 min-h-0 p-4">

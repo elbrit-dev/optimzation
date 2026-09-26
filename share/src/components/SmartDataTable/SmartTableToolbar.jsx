@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Button } from '@/design-system';
 
 // ─── Generic Toolbar ─────────────────────────────────────────────────────────
 
@@ -23,28 +22,30 @@ import { Button } from '@/design-system';
  * }} ActionDef
  */
 
-/* Toolbar buttons get exactly two fills: brand blue for anything interactive,
-   and danger red for destructive intent. A categorical colour (violet, plum,
-   cyan) must never be used as chrome — those exist to distinguish data series,
-   and the old map used them for the fullscreen and group-by buttons.
-
-   `action.color` is still accepted for compatibility, but only 'red' changes
-   anything now; 'green', 'purple' and 'indigo' resolve to the default. */
+const COLOR_CLASSES = {
+  default: { on: 'bg-blue-600 text-white hover:bg-blue-700', off: 'bg-gray-200 text-gray-700 hover:bg-gray-300' },
+  green:   { on: 'bg-green-600 text-white hover:bg-green-700', off: 'bg-green-600 text-white hover:bg-green-700' },
+  purple:  { on: 'bg-purple-600 text-white hover:bg-purple-700', off: 'bg-purple-600 text-white hover:bg-purple-700' },
+  indigo:  { on: 'bg-indigo-600 text-white hover:bg-indigo-700', off: 'bg-indigo-600 text-white hover:bg-indigo-700' },
+  red:     { on: 'bg-red-600 text-white hover:bg-red-700', off: 'bg-red-600 text-white hover:bg-red-700' },
+};
 
 function ActionItem({ action }) {
   if (action.type === 'custom') return action.render();
 
-  const danger = (action.color ?? 'default') === 'red';
+  const scheme = COLOR_CLASSES[action.color ?? 'default'];
+  const colorCls = action.active ? scheme.on : scheme.off;
 
   return (
-    <Button
-      type={action.active || danger ? 'primary' : 'default'}
-      danger={danger}
-      disabled={action.disabled}
+    <button
+      type="button"
       onClick={action.onClick}
+      disabled={action.disabled}
       title={action.title}
-      icon={<i className={`pi ${action.icon}`} />}
-    />
+      className={`p-2 rounded-lg transition-colors flex items-center justify-center disabled:bg-gray-300 disabled:cursor-not-allowed ${colorCls}`}
+    >
+      <i className={`pi ${action.icon} text-base`}></i>
+    </button>
   );
 }
 
@@ -142,15 +143,10 @@ export function GroupByReorder({ groups, onChange }) {
   const dropdownContent = isOpen && mounted ? (
     <div
       ref={dropdownRef}
-      /* Test hook. The panel is portalled to <body> and has no semantic role,
-         so the e2e page object previously matched it by a `.column-visibility-
-         dropdown` class that never existed — every toolbar test timed out. A
-         data-testid survives restyling; a utility-class selector does not. */
-      data-testid="group-by-panel"
-      className="fixed z-[9999] bg-surface border border-line-subtle rounded-lg shadow-pop overflow-hidden"
+      className="fixed z-[9999] bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden"
       style={{ top: `${position.top}px`, left: `${position.left}px`, minWidth: '200px', maxWidth: '320px' }}
     >
-      <div className="px-3 py-2 border-b border-line-subtle text-10 font-medium text-ds-secondary uppercase tracking-wide">
+      <div className="px-3 py-2 border-b border-gray-100 text-[10px] font-medium text-gray-500 uppercase tracking-wide">
         Group by order — drag to reorder
       </div>
       <div className="py-1">
@@ -163,13 +159,13 @@ export function GroupByReorder({ groups, onChange }) {
             onDrop={e => handleDrop(e, idx)}
             onDragEnd={() => { setDragIdx(null); setOverIdx(null); }}
             className={`flex items-center gap-2 px-3 py-2 cursor-grab select-none text-sm transition-colors
-              ${dragIdx === idx ? 'opacity-40 bg-sunken' : ''}
-              ${overIdx === idx && dragIdx !== idx ? 'bg-info-wash border-t-2 border-info-border' : 'hover:bg-brand-tint-weak'}
+              ${dragIdx === idx ? 'opacity-40 bg-gray-50' : ''}
+              ${overIdx === idx && dragIdx !== idx ? 'bg-blue-50 border-t-2 border-blue-400' : 'hover:bg-gray-50'}
             `}
           >
-            <i className="pi pi-bars text-ds-muted text-xs flex-none" />
-            <span className="flex-1 truncate text-body">{group}</span>
-            <span className="flex-none w-5 h-5 rounded-full bg-brand-tint text-brand text-10 font-bold flex items-center justify-center leading-none">
+            <i className="pi pi-bars text-gray-400 text-xs flex-none" />
+            <span className="flex-1 truncate text-gray-800">{group}</span>
+            <span className="flex-none w-5 h-5 rounded-full bg-indigo-100 text-indigo-600 text-[10px] font-bold flex items-center justify-center leading-none">
               {idx + 1}
             </span>
             <div className="flex-none flex flex-col">
@@ -178,24 +174,24 @@ export function GroupByReorder({ groups, onChange }) {
                 onClick={() => moveItem(idx, -1)}
                 disabled={idx === 0}
                 title="Move up"
-                className="w-4 h-3.5 flex items-center justify-center text-ds-muted hover:text-brand disabled:opacity-30 disabled:hover:text-ds-muted leading-none"
+                className="w-4 h-3.5 flex items-center justify-center text-gray-400 hover:text-indigo-600 disabled:opacity-30 disabled:hover:text-gray-400 leading-none"
               >
-                <i className="pi pi-chevron-up text-10" />
+                <i className="pi pi-chevron-up text-[9px]" />
               </button>
               <button
                 type="button"
                 onClick={() => moveItem(idx, 1)}
                 disabled={idx === groups.length - 1}
                 title="Move down"
-                className="w-4 h-3.5 flex items-center justify-center text-ds-muted hover:text-brand disabled:opacity-30 disabled:hover:text-ds-muted leading-none"
+                className="w-4 h-3.5 flex items-center justify-center text-gray-400 hover:text-indigo-600 disabled:opacity-30 disabled:hover:text-gray-400 leading-none"
               >
-                <i className="pi pi-chevron-down text-10" />
+                <i className="pi pi-chevron-down text-[9px]" />
               </button>
             </div>
           </div>
         ))}
       </div>
-      <div className="px-3 py-2 bg-sunken border-t border-line-subtle text-xs text-ds-secondary">
+      <div className="px-3 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-500">
         {groups.length} group{groups.length !== 1 ? 's' : ''} active
       </div>
     </div>
@@ -208,14 +204,12 @@ export function GroupByReorder({ groups, onChange }) {
         type="button"
         onClick={() => { setIsOpen(o => !o); updatePosition(); }}
         title={`Group by: ${groups.join(' → ')}`}
-        className={`relative h-control aspect-square rounded-md border transition-colors flex items-center justify-center ${
-          isOpen
-            ? 'bg-brand border-transparent text-on-brand hover:bg-brand-hover'
-            : 'bg-surface border-line-subtle text-body hover:border-brand-hover hover:text-brand-hover'
+        className={`relative p-2 rounded-lg transition-colors flex items-center justify-center ${
+          isOpen ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
         }`}
       >
         <i className="pi pi-sort-alt text-base" />
-        <span className="absolute -top-1 -right-1 bg-brand text-on-brand text-10 font-bold rounded-full w-5 h-5 flex items-center justify-center leading-none">
+        <span className="absolute -top-1 -right-1 bg-indigo-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center leading-none">
           {groups.length}
         </span>
       </button>
@@ -325,19 +319,18 @@ export function ColumnVisibilityDropdown({ columns, columnGroups, hiddenColumns,
   const dropdownContent = isOpen && mounted ? (
     <div
       ref={dropdownRef}
-      data-testid="column-visibility-panel"
-      className="fixed z-[9999] bg-surface border border-line-subtle rounded-lg shadow-pop overflow-hidden"
+      className="fixed z-[9999] bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden"
       style={{ top: `${position.top}px`, left: `${position.left}px`, minWidth: '200px', maxWidth: '360px' }}
     >
-      <div className="p-2 border-b border-line-subtle">
+      <div className="p-2 border-b border-gray-100">
         <div className="relative">
-          <i className="pi pi-search absolute left-2 top-1/2 -translate-y-1/2 text-ds-muted text-10"></i>
+          <i className="pi pi-search absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-[10px]"></i>
           <input
             type="text"
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
             placeholder="Search columns..."
-            className="w-full pl-7 pr-7 py-1 text-xs border border-line-subtle rounded focus:outline-none focus:ring-1 focus:ring-focus"
+            className="w-full pl-7 pr-7 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
             autoFocus
             onClick={e => e.stopPropagation()}
           />
@@ -345,34 +338,34 @@ export function ColumnVisibilityDropdown({ columns, columnGroups, hiddenColumns,
             <button
               type="button"
               onClick={e => { e.stopPropagation(); setSearchTerm(''); }}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-ds-muted hover:text-ds-secondary"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
             >
-              <i className="pi pi-times text-10"></i>
+              <i className="pi pi-times text-[10px]"></i>
             </button>
           )}
         </div>
       </div>
 
-      <div className="px-2 py-1 border-b border-line-subtle flex gap-2 text-10">
-        <button type="button" onClick={e => { e.stopPropagation(); showAll(); }} className="text-brand hover:text-brand-hover transition-colors">Show all</button>
-        <span className="text-ds-muted">|</span>
-        <button type="button" onClick={e => { e.stopPropagation(); hideAll(); }} className="text-ds-secondary hover:text-danger transition-colors">Hide all</button>
+      <div className="px-2 py-1 border-b border-gray-100 flex gap-2 text-[10px]">
+        <button type="button" onClick={e => { e.stopPropagation(); showAll(); }} className="text-blue-600 hover:text-blue-800 transition-colors">Show all</button>
+        <span className="text-gray-300">|</span>
+        <button type="button" onClick={e => { e.stopPropagation(); hideAll(); }} className="text-gray-500 hover:text-red-600 transition-colors">Hide all</button>
         {hiddenCount > 0 && (
           <>
-            <span className="text-ds-muted">|</span>
-            <span className="text-ds-secondary">{hiddenCount} hidden</span>
+            <span className="text-gray-300">|</span>
+            <span className="text-gray-500">{hiddenCount} hidden</span>
           </>
         )}
       </div>
 
       <div className="max-h-48 overflow-y-auto">
         {filteredColumns.length === 0 ? (
-          <div className="px-3 py-3 text-center text-xs text-ds-secondary">No matches</div>
+          <div className="px-3 py-3 text-center text-xs text-gray-500">No matches</div>
         ) : groupedSections ? (
           groupedSections.map(section => (
             <div key={section.id}>
               {section.label && (
-                <div className="px-2 py-1 text-10 font-semibold text-ds-muted uppercase tracking-wide bg-sunken border-b border-line-subtle sticky top-0">
+                <div className="px-2 py-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wide bg-gray-50 border-b border-gray-100 sticky top-0">
                   {section.label}
                 </div>
               )}
@@ -381,16 +374,16 @@ export function ColumnVisibilityDropdown({ columns, columnGroups, hiddenColumns,
                 return (
                   <label
                     key={col.field}
-                    className={`flex items-center gap-2 px-2 py-1.5 cursor-pointer transition-colors text-xs ${isHidden ? 'hover:bg-brand-tint-weak' : 'bg-info-wash hover:bg-brand-tint'}`}
+                    className={`flex items-center gap-2 px-2 py-1.5 cursor-pointer transition-colors text-xs ${isHidden ? 'hover:bg-gray-50' : 'bg-blue-50 hover:bg-blue-100'}`}
                     onClick={e => e.stopPropagation()}
                   >
                     <input
                       type="checkbox"
                       checked={!isHidden}
                       onChange={() => toggleColumn(col.field)}
-                      className="w-3.5 h-3.5 text-brand border-line rounded focus:ring-focus"
+                      className="w-3.5 h-3.5 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                     />
-                    <span className={`truncate ${isHidden ? 'text-ds-secondary' : 'text-brand-active font-medium'}`}>
+                    <span className={`truncate ${isHidden ? 'text-gray-500' : 'text-blue-900 font-medium'}`}>
                       {col.header}
                     </span>
                   </label>
@@ -404,16 +397,16 @@ export function ColumnVisibilityDropdown({ columns, columnGroups, hiddenColumns,
             return (
               <label
                 key={col.field}
-                className={`flex items-center gap-2 px-2 py-1.5 cursor-pointer transition-colors text-xs ${isHidden ? 'hover:bg-brand-tint-weak' : 'bg-info-wash hover:bg-brand-tint'}`}
+                className={`flex items-center gap-2 px-2 py-1.5 cursor-pointer transition-colors text-xs ${isHidden ? 'hover:bg-gray-50' : 'bg-blue-50 hover:bg-blue-100'}`}
                 onClick={e => e.stopPropagation()}
               >
                 <input
                   type="checkbox"
                   checked={!isHidden}
                   onChange={() => toggleColumn(col.field)}
-                  className="w-3.5 h-3.5 text-brand border-line rounded focus:ring-focus"
+                  className="w-3.5 h-3.5 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                 />
-                <span className={`truncate ${isHidden ? 'text-ds-secondary' : 'text-brand-active font-medium'}`}>
+                <span className={`truncate ${isHidden ? 'text-gray-500' : 'text-blue-900 font-medium'}`}>
                   {col.header}
                 </span>
               </label>
@@ -422,7 +415,7 @@ export function ColumnVisibilityDropdown({ columns, columnGroups, hiddenColumns,
         )}
       </div>
 
-      <div className="px-3 py-2 bg-sunken border-t border-line-subtle text-xs text-ds-secondary">
+      <div className="px-3 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-500">
         {columns.length} columns total
       </div>
     </div>
@@ -435,17 +428,13 @@ export function ColumnVisibilityDropdown({ columns, columnGroups, hiddenColumns,
         type="button"
         onClick={() => { setIsOpen(o => !o); updatePosition(); }}
         title={hiddenCount > 0 ? `${hiddenCount} column${hiddenCount !== 1 ? 's' : ''} hidden` : 'Toggle column visibility'}
-        /* Same geometry and states as ActionItem's Button, hand-written only
-           because this trigger needs a positioned badge child and a ref. */
-        className={`relative h-control aspect-square rounded-md border transition-colors flex items-center justify-center ${
-          hiddenCount > 0
-            ? 'bg-brand border-transparent text-on-brand hover:bg-brand-hover'
-            : 'bg-surface border-line-subtle text-body hover:border-brand-hover hover:text-brand-hover'
+        className={`relative p-2 rounded-lg transition-colors flex items-center justify-center ${
+          hiddenCount > 0 ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
         }`}
       >
         <i className="pi pi-eye text-base"></i>
         {hiddenCount > 0 && (
-          <span className="absolute -top-1 -right-1 bg-danger text-on-brand text-10 font-bold rounded-full w-5 h-5 flex items-center justify-center leading-none">
+          <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center leading-none">
             {hiddenCount > 99 ? '99+' : hiddenCount}
           </span>
         )}

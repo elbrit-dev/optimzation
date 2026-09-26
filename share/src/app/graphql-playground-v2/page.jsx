@@ -4,7 +4,7 @@ import { getEndpointConfigFromUrlKeyAsync, getInitialEndpointAsync } from '@/app
 import { fetchGraphQLRequest } from '@/app/graphql-playground/utils/query-pipeline';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { parse as parseJsonc, stripComments } from 'jsonc-parser';
-import { Button } from '@/design-system';
+import { Button } from 'primereact/button';
 import { ConfirmDialog, confirmDialog } from 'primereact/confirmdialog';
 import { Splitter, SplitterPanel } from 'primereact/splitter';
 import { TabMenu } from 'primereact/tabmenu';
@@ -132,18 +132,16 @@ function GraphQLPlaygroundV2() {
   }, [query, selectedEnvironment, setResponse, clearTransformerLogs, incrementExecuteTrigger, requestAllEditorsFlush]);
 
   return (
-    <div className="flex flex-col bg-sunken graphql-playground-v2" style={{ height: 'calc(100vh - 65px)' }}>
-      <ConfirmDialog unstyled />
+    <div className="flex flex-col bg-gray-50 graphql-playground-v2" style={{ height: 'calc(100vh - 65px)' }}>
+      <ConfirmDialog />
       <Splitter
-unstyled
         style={{ height: '100%' }}
       >
         {/* Left Panel: Tab View with GraphQL Explorer, Saved Queries, and Global Functions */}
-        <SplitterPanel unstyled size={20} className="flex flex-col min-w-0">
+        <SplitterPanel size={20} className="flex flex-col min-w-0">
           <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-            <div className="flex items-center border-b border-line-subtle bg-sunken px-3" style={{ flexShrink: 0 }}>
+            <div className="flex items-center border-b border-gray-200 bg-gray-50 px-3" style={{ flexShrink: 0 }}>
               <TabMenu
-unstyled
                 model={leftTabMenuItems}
                 activeIndex={activeLeftTab}
                 onTabChange={(e) => setActiveLeftTab(e.index)}
@@ -173,11 +171,10 @@ unstyled
         </SplitterPanel>
 
         {/* Middle Panel: Tab View with Query, Transformer Function, and Save Controls */}
-        <SplitterPanel unstyled size={30} className="flex flex-col min-w-0">
+        <SplitterPanel size={30} className="flex flex-col min-w-0">
           <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-            <div className="flex items-center justify-between border-b border-line-subtle bg-sunken px-3">
+            <div className="flex items-center justify-between border-b border-gray-200 bg-gray-50 px-3">
               <TabMenu
-unstyled
                 model={middleTabMenuItems}
                 activeIndex={activeMiddleTab}
                 onTabChange={(e) => {
@@ -193,7 +190,12 @@ unstyled
                   }
                 }}
               />
-              <Button type="text" size="sm" icon={<i className="pi pi-plus" />} onClick={handleNewSession}>New</Button>
+              <Button
+                label="New"
+                icon="pi pi-plus"
+                className="ds-button-sm ds-button-text"
+                onClick={handleNewSession}
+              />
             </div>
             <div className="flex-1 min-h-0 overflow-hidden">
               <div
@@ -223,17 +225,22 @@ unstyled
         </SplitterPanel>
 
         {/* Right Panel: Tab View with JSON Viewer, Table Viewer, and Transformer Console */}
-        <SplitterPanel unstyled size={50} className="flex flex-col min-w-0">
+        <SplitterPanel size={50} className="flex flex-col min-w-0">
           <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
             {/* Header with Execute button and tabs - above the splitter like middle panel TabMenu */}
-            <div className="flex items-center border-b border-line-subtle bg-sunken px-3" style={{ flexShrink: 0 }}>
+            <div className="flex items-center border-b border-gray-200 bg-gray-50 px-3" style={{ flexShrink: 0 }}>
               <div className="px-0 py-1.5">
-                <Button size="sm" icon={<i className={isExecuting || isTransforming ? "pi pi-spin pi-spinner" : "pi pi-play"} />} onClick={handleExecute} disabled={!query || !query.trim() || isExecuting || isTransforming}>{isExecuting ? "Executing..." : isTransforming ? "Applying..." : "Execute"}</Button>
+                <Button
+                  icon={isExecuting || isTransforming ? "pi pi-spin pi-spinner" : "pi pi-play"}
+                  label={isExecuting ? "Executing..." : isTransforming ? "Applying..." : "Execute"}
+                  onClick={handleExecute}
+                  disabled={!query || !query.trim() || isExecuting || isTransforming}
+                  className="ds-button-sm"
+                />
               </div>
               <div className="flex-1"></div>
               <div className="flex items-center">
                 <TabMenu
-unstyled
                   model={tabMenuItems}
                   activeIndex={activeTab}
                   onTabChange={(e) => setActiveTab(e.index)}
@@ -242,8 +249,8 @@ unstyled
             </div>
             {/* Splitter for JSON/Table | Transformer Console - same pattern as QueryTabContent */}
             <div className="flex-1 min-h-0 overflow-hidden">
-              <Splitter unstyled style={{ height: 'calc(100dvh - 164px)' }} layout="vertical" className="flex-1">
-                <SplitterPanel unstyled size={70} className="flex flex-col h-full min-h-0">
+              <Splitter style={{ height: 'calc(100dvh - 164px)' }} layout="vertical" className="flex-1">
+                <SplitterPanel size={70} className="flex flex-col h-full min-h-0">
                   <div className="h-full flex flex-col overflow-hidden">
                     <div className="flex-1 overflow-hidden min-h-0">
                       <div
@@ -261,7 +268,7 @@ unstyled
                     </div>
                   </div>
                 </SplitterPanel>
-                <SplitterPanel unstyled size={1} className="flex flex-col h-full min-h-0">
+                <SplitterPanel size={1} className="flex flex-col h-full min-h-0">
                   <TransformerConsoleViewer />
                 </SplitterPanel>
               </Splitter>

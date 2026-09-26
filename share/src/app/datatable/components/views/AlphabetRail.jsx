@@ -190,7 +190,7 @@ export default function AlphabetRail({ field, className }) {
     >
       {scrub ? (
         <div
-          className="pointer-events-none absolute right-full mr-2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-body/90 text-base font-bold text-on-brand shadow-pop"
+          className="pointer-events-none absolute right-full mr-2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-slate-800/90 text-base font-bold text-white shadow-lg"
           style={{ top: scrub.top }}
           aria-hidden="true"
         >
@@ -208,12 +208,12 @@ export default function AlphabetRail({ field, className }) {
             disabled={!present}
             aria-current={isActive ? 'true' : undefined}
             onClick={() => jumpTo(letter)}
-            className={`flex h-4 w-4 items-center justify-center rounded-full text-10 font-bold leading-none transition-colors ${
+            className={`flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold leading-none transition-colors ${
               isActive
-                ? 'bg-danger text-on-brand'
+                ? 'bg-red-600 text-white'
                 : present
-                  ? 'text-ds-secondary hover:text-body'
-                  : 'cursor-default text-ds-muted'
+                  ? 'text-slate-500 hover:text-slate-800'
+                  : 'cursor-default text-gray-200'
             }`}
           >
             {letter}

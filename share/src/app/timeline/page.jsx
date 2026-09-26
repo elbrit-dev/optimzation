@@ -2,7 +2,7 @@
 
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import Editor from '@monaco-editor/react';
-import { Button } from '@/design-system';
+import { Button } from 'primereact/button';
 import { Splitter, SplitterPanel } from 'primereact/splitter';
 import { Toast } from 'primereact/toast';
 import ProtectedRoute from '@/components/ProtectedRoute';
@@ -116,12 +116,12 @@ function TimelinePlaygroundContent() {
   const timelineOnClick = onEventClickRef.current != null ? invokePlaygroundOnEventClick : undefined;
 
   return (
-    <div className="flex h-[calc(100dvh-4rem)] min-h-[480px] flex-col bg-sunken">
+    <div className="flex h-[calc(100dvh-4rem)] min-h-[480px] flex-col bg-gray-50">
       <div className="min-h-0 min-w-0 flex-1 p-3 sm:p-4">
-        <Splitter unstyled className="h-full min-h-0 min-w-0 border border-line-subtle rounded-lg bg-surface shadow-card">
-          <SplitterPanel unstyled className="flex min-w-0 flex-col" size={70} minSize={20}>
-            <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-line-subtle sm:border-r">
-              <div className="shrink-0 border-b border-line-subtle bg-sunken px-3 py-1.5 text-sm font-medium text-body">
+        <Splitter className="h-full min-h-0 min-w-0 border border-gray-200 rounded-lg bg-white shadow-sm">
+          <SplitterPanel className="flex min-w-0 flex-col" size={70} minSize={20}>
+            <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-gray-200 sm:border-r">
+              <div className="shrink-0 border-b border-gray-200 bg-gray-50 px-3 py-1.5 text-sm font-medium text-gray-700">
                 Viewer
               </div>
               <div className="min-h-0 min-w-0 flex-1 overflow-auto">
@@ -135,19 +135,26 @@ function TimelinePlaygroundContent() {
               </div>
             </div>
           </SplitterPanel>
-          <SplitterPanel unstyled className="flex min-w-0 flex-col" size={30} minSize={15}>
+          <SplitterPanel className="flex min-w-0 flex-col" size={30} minSize={15}>
             <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
-              <div className="flex shrink-0 items-center justify-between gap-2 border-b border-line-subtle bg-sunken px-3 py-1.5">
-                <div className="min-w-0 text-sm font-medium text-body">
+              <div className="flex shrink-0 items-center justify-between gap-2 border-b border-gray-200 bg-gray-50 px-3 py-1.5">
+                <div className="min-w-0 text-sm font-medium text-gray-700">
                   Editor{' '}
-                  <span className="font-normal text-ds-secondary">
-                    (only items with <code className="text-xs text-ds-secondary">clickable: true</code> fire when{' '}
-                    <code className="text-xs text-ds-secondary">onEventClick</code> is set; missing is off)
+                  <span className="font-normal text-gray-500">
+                    (only items with <code className="text-xs text-gray-600">clickable: true</code> fire when{' '}
+                    <code className="text-xs text-gray-600">onEventClick</code> is set; missing is off)
                   </span>
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">
-                  <Button size="sm" icon={<i className="pi pi-play" />} onClick={run}>Run</Button>
-                  <Button type="default" size="sm" icon={<i className="pi pi-refresh" />} onClick={reset}>Reset</Button>
+                  <Button type="button" label="Run" icon="pi pi-play" size="small" onClick={run} />
+                  <Button
+                    type="button"
+                    label="Reset"
+                    icon="pi pi-refresh"
+                    size="small"
+                    severity="secondary"
+                    onClick={reset}
+                  />
                 </div>
               </div>
               <div className="min-h-0 min-w-0 flex-1">
@@ -171,7 +178,7 @@ function TimelinePlaygroundContent() {
         </Splitter>
       </div>
 
-      <Toast unstyled ref={toastRef} position="top-right" />
+      <Toast ref={toastRef} position="top-right" />
     </div>
   );
 }

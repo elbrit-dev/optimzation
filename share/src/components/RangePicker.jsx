@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { OverlayPanel } from 'primereact/overlaypanel';
-import { Button } from '@/design-system';
+import { Button } from 'primereact/button';
 import { InputText } from 'primereact/inputtext';
 import { Divider } from 'primereact/divider';
 import dayjs from 'dayjs';
@@ -492,10 +492,15 @@ export default function RangePicker({
     return (
       <>
         <div className="flex items-center gap-2 mb-3">
-          <Button type="text" size="sm" icon={<i className="pi pi-arrow-left" />} onClick={() => setViewMode('calendar')} aria-label="Back to calendar"/>
-          <span className="text-base font-semibold text-body">Select Month</span>
+          <Button
+            icon="pi pi-arrow-left"
+            className="ds-button-text ds-button-sm"
+            onClick={() => setViewMode('calendar')}
+            aria-label="Back to calendar"
+          />
+          <span className="text-base font-semibold text-gray-700">Select Month</span>
         </div>
-        <Divider unstyled />
+        <Divider />
         <div className="grid grid-cols-3 gap-2 mt-2">
           {MONTHS.map((month, index) => (
             <button
@@ -504,10 +509,10 @@ export default function RangePicker({
               onClick={() => handleMonthClick(index)}
               disabled={disabled}
               className={`
-                px-3 py-2 text-sm font-medium rounded-md transition-all min-h-tap
+                px-3 py-2 text-sm font-medium rounded-md transition-all min-h-[44px]
                 ${currentMonth === index
-                  ? 'bg-brand text-on-brand font-semibold'
-                  : 'bg-sunken text-body hover:bg-brand-tint-weak'
+                  ? 'bg-blue-600 text-white font-semibold'
+                  : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
                 }
                 ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
               `}
@@ -552,18 +557,33 @@ export default function RangePicker({
       <>
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <Button type="text" size="sm" icon={<i className="pi pi-arrow-left" />} onClick={() => setViewMode('calendar')} aria-label="Back to calendar"/>
-            <span className="text-base font-semibold text-body">Select Year</span>
+            <Button
+              icon="pi pi-arrow-left"
+              className="ds-button-text ds-button-sm"
+              onClick={() => setViewMode('calendar')}
+              aria-label="Back to calendar"
+            />
+            <span className="text-base font-semibold text-gray-700">Select Year</span>
           </div>
           <div className="flex items-center gap-1">
-            <Button type="text" size="sm" icon={<i className="pi pi-chevron-left" />} onClick={() => handleDecadeNavigation(-1)} aria-label="Previous decade"/>
-            <span className="text-xs text-ds-secondary px-2">
+            <Button
+              icon="pi pi-chevron-left"
+              className="ds-button-text ds-button-sm"
+              onClick={() => handleDecadeNavigation(-1)}
+              aria-label="Previous decade"
+            />
+            <span className="text-xs text-gray-500 px-2">
               {currentDecadeStart} - {currentDecadeEnd}
             </span>
-            <Button type="text" size="sm" icon={<i className="pi pi-chevron-right" />} onClick={() => handleDecadeNavigation(1)} aria-label="Next decade"/>
+            <Button
+              icon="pi pi-chevron-right"
+              className="ds-button-text ds-button-sm"
+              onClick={() => handleDecadeNavigation(1)}
+              aria-label="Next decade"
+            />
           </div>
         </div>
-        <Divider unstyled />
+        <Divider />
         <div className="grid grid-cols-3 gap-2 mt-2">
           {yearPickerYears.map((year) => (
             <button
@@ -572,10 +592,10 @@ export default function RangePicker({
               onClick={() => handleYearClick(year)}
               disabled={disabled}
               className={`
-                px-4 py-3 text-sm font-medium rounded-md transition-all min-h-tap
+                px-4 py-3 text-sm font-medium rounded-md transition-all min-h-[44px]
                 ${currentYear === year
-                  ? 'bg-brand text-on-brand font-semibold'
-                  : 'bg-sunken text-body hover:bg-brand-tint-weak'
+                  ? 'bg-blue-600 text-white font-semibold'
+                  : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
                 }
                 ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
               `}
@@ -620,20 +640,30 @@ export default function RangePicker({
     return (
       <>
         <div className="flex items-center justify-between mb-2">
-          <Button type="text" size="sm" icon={<i className="pi pi-chevron-left" />} onClick={() => navigateYear(-1)} aria-label="Previous year"/>
+          <Button
+            icon="pi pi-chevron-left"
+            className="ds-button-text ds-button-sm"
+            onClick={() => navigateYear(-1)}
+            aria-label="Previous year"
+          />
           <button
             onClick={handleYearButtonClick}
-            className={`text-base font-semibold text-body min-w-[80px] text-center px-2 py-1 hover:bg-brand-tint-weak rounded min-h-tap transition-colors ${
+            className={`text-base font-semibold text-gray-700 min-w-[80px] text-center px-2 py-1 hover:bg-gray-100 rounded min-h-[44px] transition-colors ${
               viewMode === 'year' 
-                ? 'bg-brand-tint text-brand border border-info-border' 
+                ? 'bg-blue-100 text-blue-700 border border-blue-300' 
                 : ''
             }`}
           >
             {currentYear}
           </button>
-          <Button type="text" size="sm" icon={<i className="pi pi-chevron-right" />} onClick={() => navigateYear(1)} aria-label="Next year"/>
+          <Button
+            icon="pi pi-chevron-right"
+            className="ds-button-text ds-button-sm"
+            onClick={() => navigateYear(1)}
+            aria-label="Next year"
+          />
         </div>
-        <Divider unstyled />
+        <Divider />
         <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mt-2">
           {MONTHS.map((month, index) => {
             const inRange = isMonthInRange(index);
@@ -650,14 +680,14 @@ export default function RangePicker({
                 onClick={() => handleSelection({ year: currentYear, month: index })}
                 disabled={disabled || isOut}
                 className={`
-                  px-3 py-2 text-sm font-medium rounded-md transition-all min-h-tap
+                  px-3 py-2 text-sm font-medium rounded-md transition-all min-h-[44px]
                   ${isSelected
-                    ? 'bg-brand text-on-brand font-semibold'
+                    ? 'bg-blue-600 text-white font-semibold'
                     : inRange
                       ? isInMiddle
-                        ? 'bg-info-wash text-brand'
-                        : 'bg-brand-tint text-brand'
-                      : 'bg-sunken text-body hover:bg-brand-tint-weak'
+                        ? 'bg-blue-50 text-blue-600'
+                        : 'bg-blue-100 text-blue-700'
+                      : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
                   }
                   ${isStart && endSelection ? 'rounded-l-md' : ''}
                   ${isEnd && startSelection ? 'rounded-r-md' : ''}
@@ -739,48 +769,60 @@ export default function RangePicker({
     return (
       <>
         <div className="flex items-center justify-between mb-2">
-          <Button type="text" size="sm" icon={<i className="pi pi-chevron-left" />} onClick={(e) => {
+          <Button
+            icon="pi pi-chevron-left"
+            className="ds-button-text ds-button-sm"
+            onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
               navigateMonth(-1);
-            }} onMouseDown={(e) => {
+            }}
+            onMouseDown={(e) => {
               e.preventDefault();
-            }} aria-label="Previous month"/>
+            }}
+            aria-label="Previous month"
+          />
           <div className="flex items-center gap-2 relative">
             <button
               onClick={handleMonthButtonClick}
-              className={`text-base font-semibold px-2 py-1 hover:bg-brand-tint-weak rounded min-h-tap transition-colors ${
+              className={`text-base font-semibold px-2 py-1 hover:bg-gray-100 rounded min-h-[44px] transition-colors ${
                 viewMode === 'month' 
-                  ? 'bg-brand-tint text-brand border border-info-border' 
-                  : 'text-body'
+                  ? 'bg-blue-100 text-blue-700 border border-blue-300' 
+                  : 'text-gray-700'
               }`}
             >
               {MONTHS_FULL[currentMonth]}
             </button>
             <button
               onClick={handleYearButtonClick}
-              className={`text-base font-semibold px-2 py-1 hover:bg-brand-tint-weak rounded min-h-tap transition-colors ${
+              className={`text-base font-semibold px-2 py-1 hover:bg-gray-100 rounded min-h-[44px] transition-colors ${
                 viewMode === 'year' 
-                  ? 'bg-brand-tint text-brand border border-info-border' 
-                  : 'text-body'
+                  ? 'bg-blue-100 text-blue-700 border border-blue-300' 
+                  : 'text-gray-700'
               }`}
             >
               {currentYear}
             </button>
           </div>
-          <Button type="text" size="sm" icon={<i className="pi pi-chevron-right" />} onClick={(e) => {
+          <Button
+            icon="pi pi-chevron-right"
+            className="ds-button-text ds-button-sm"
+            onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
               navigateMonth(1);
-            }} onMouseDown={(e) => {
+            }}
+            onMouseDown={(e) => {
               e.preventDefault();
-            }} aria-label="Next month"/>
+            }}
+            aria-label="Next month"
+          />
         </div>
-        <Divider unstyled />
+        <Divider />
         <div className="mt-2">
           <div className="grid grid-cols-7 gap-1 mb-1">
             {DAYS_OF_WEEK.map(day => (
-              <div key={day} className="text-xs font-medium text-ds-secondary text-center py-1">
+              <div key={day} className="text-xs font-medium text-gray-600 text-center py-1">
                 {day}
               </div>
             ))}
@@ -812,14 +854,14 @@ export default function RangePicker({
                   className={`
                     h-8 flex items-center justify-center text-sm rounded
                     ${isSelected
-                      ? 'bg-brand text-on-brand font-semibold'
+                      ? 'bg-blue-600 text-white font-semibold'
                       : inRange
                         ? isInMiddle
-                          ? 'bg-info-wash text-brand'
-                          : 'bg-brand-tint text-brand'
-                        : 'text-body hover:bg-brand-tint-weak'
+                          ? 'bg-blue-50 text-blue-600'
+                          : 'bg-blue-100 text-blue-700'
+                        : 'text-gray-700 hover:bg-gray-100'
                     }
-                    ${isToday && !isSelected ? 'border border-info-border' : ''}
+                    ${isToday && !isSelected ? 'border border-blue-400' : ''}
                     ${isBeyondMax({ year: week.year, week: week.weekNum, date: week.start }) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
                   `}
                   onClick={() => {
@@ -830,7 +872,6 @@ export default function RangePicker({
                       date: week.start
                     });
                   }}
-                  data-out-of-range={isBeyondMax({ year: week.year, week: week.weekNum, date: week.start }) || undefined}
                   title={`Week ${week.weekNum}: ${week.start.toLocaleDateString()} - ${weekEnd.toLocaleDateString()}`}
                 >
                   {day}
@@ -838,7 +879,7 @@ export default function RangePicker({
               );
             })}
           </div>
-          <div className="mt-2 text-xs text-ds-secondary">
+          <div className="mt-2 text-xs text-gray-600">
             Click on any day to select its week
           </div>
         </div>
@@ -897,48 +938,60 @@ export default function RangePicker({
     return (
       <>
         <div className="flex items-center justify-between mb-2">
-          <Button type="text" size="sm" icon={<i className="pi pi-chevron-left" />} onClick={(e) => {
+          <Button
+            icon="pi pi-chevron-left"
+            className="ds-button-text ds-button-sm"
+            onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
               navigateMonth(-1);
-            }} onMouseDown={(e) => {
+            }}
+            onMouseDown={(e) => {
               e.preventDefault();
-            }} aria-label="Previous month"/>
+            }}
+            aria-label="Previous month"
+          />
           <div className="flex items-center gap-2 relative">
             <button
               onClick={handleMonthButtonClick}
-              className={`text-base font-semibold px-2 py-1 hover:bg-brand-tint-weak rounded min-h-tap transition-colors ${
+              className={`text-base font-semibold px-2 py-1 hover:bg-gray-100 rounded min-h-[44px] transition-colors ${
                 viewMode === 'month' 
-                  ? 'bg-brand-tint text-brand border border-info-border' 
-                  : 'text-body'
+                  ? 'bg-blue-100 text-blue-700 border border-blue-300' 
+                  : 'text-gray-700'
               }`}
             >
               {MONTHS_FULL[currentMonth]}
             </button>
             <button
               onClick={handleYearButtonClick}
-              className={`text-base font-semibold px-2 py-1 hover:bg-brand-tint-weak rounded min-h-tap transition-colors ${
+              className={`text-base font-semibold px-2 py-1 hover:bg-gray-100 rounded min-h-[44px] transition-colors ${
                 viewMode === 'year' 
-                  ? 'bg-brand-tint text-brand border border-info-border' 
-                  : 'text-body'
+                  ? 'bg-blue-100 text-blue-700 border border-blue-300' 
+                  : 'text-gray-700'
               }`}
             >
               {currentYear}
             </button>
           </div>
-          <Button type="text" size="sm" icon={<i className="pi pi-chevron-right" />} onClick={(e) => {
+          <Button
+            icon="pi pi-chevron-right"
+            className="ds-button-text ds-button-sm"
+            onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
               navigateMonth(1);
-            }} onMouseDown={(e) => {
+            }}
+            onMouseDown={(e) => {
               e.preventDefault();
-            }} aria-label="Next month"/>
+            }}
+            aria-label="Next month"
+          />
         </div>
-        <Divider unstyled />
+        <Divider />
         <div className="mt-2">
           <div className="grid grid-cols-7 gap-1 mb-1">
             {DAYS_OF_WEEK.map(day => (
-              <div key={day} className="text-xs font-medium text-ds-secondary text-center py-1">
+              <div key={day} className="text-xs font-medium text-gray-600 text-center py-1">
                 {day}
               </div>
             ))}
@@ -964,16 +1017,16 @@ export default function RangePicker({
                   onClick={() => handleSelection({ year: currentYear, month: currentMonth, day })}
                   disabled={disabled || isBeyondMax({ year: currentYear, month: currentMonth, day })}
                   className={`
-                    h-10 flex items-center justify-center text-sm rounded transition-all min-h-tap
+                    h-10 flex items-center justify-center text-sm rounded transition-all min-h-[44px]
                     ${isSelected
-                      ? 'bg-brand text-on-brand font-semibold'
+                      ? 'bg-blue-600 text-white font-semibold'
                       : inRange
                         ? isInMiddle
-                          ? 'bg-info-wash text-brand'
-                          : 'bg-brand-tint text-brand'
-                        : 'bg-sunken text-body hover:bg-brand-tint-weak'
+                          ? 'bg-blue-50 text-blue-600'
+                          : 'bg-blue-100 text-blue-700'
+                        : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
                     }
-                    ${isToday && !isSelected ? 'border-2 border-info-border' : ''}
+                    ${isToday && !isSelected ? 'border-2 border-blue-400' : ''}
                     ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
                   `}
                 >
@@ -1026,20 +1079,30 @@ export default function RangePicker({
     return (
       <>
         <div className="flex items-center justify-between mb-2">
-          <Button type="text" size="sm" icon={<i className="pi pi-chevron-left" />} onClick={() => navigateYear(-1)} aria-label="Previous year"/>
+          <Button
+            icon="pi pi-chevron-left"
+            className="ds-button-text ds-button-sm"
+            onClick={() => navigateYear(-1)}
+            aria-label="Previous year"
+          />
           <button
             onClick={handleYearButtonClick}
-            className={`text-base font-semibold text-body min-w-[80px] text-center px-2 py-1 hover:bg-brand-tint-weak rounded min-h-tap transition-colors ${
+            className={`text-base font-semibold text-gray-700 min-w-[80px] text-center px-2 py-1 hover:bg-gray-100 rounded min-h-[44px] transition-colors ${
               viewMode === 'year' 
-                ? 'bg-brand-tint text-brand border border-info-border' 
+                ? 'bg-blue-100 text-blue-700 border border-blue-300' 
                 : ''
             }`}
           >
             {currentYear}
           </button>
-          <Button type="text" size="sm" icon={<i className="pi pi-chevron-right" />} onClick={() => navigateYear(1)} aria-label="Next year"/>
+          <Button
+            icon="pi pi-chevron-right"
+            className="ds-button-text ds-button-sm"
+            onClick={() => navigateYear(1)}
+            aria-label="Next year"
+          />
         </div>
-        <Divider unstyled />
+        <Divider />
         <div className="grid grid-cols-2 gap-3 mt-2">
           {quarters.map((q) => {
             const inRange = isQuarterInRange(q.quarter);
@@ -1057,12 +1120,12 @@ export default function RangePicker({
                 className={`
                   px-4 py-6 text-sm font-medium rounded-md transition-all min-h-[80px]
                   ${isSelected
-                    ? 'bg-brand text-on-brand font-semibold'
+                    ? 'bg-blue-600 text-white font-semibold'
                     : inRange
                       ? isInMiddle
-                        ? 'bg-info-wash text-brand'
-                        : 'bg-brand-tint text-brand'
-                      : 'bg-sunken text-body hover:bg-brand-tint-weak'
+                        ? 'bg-blue-50 text-blue-600'
+                        : 'bg-blue-100 text-blue-700'
+                      : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
                   }
                   ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
                 `}
@@ -1105,13 +1168,23 @@ export default function RangePicker({
     return (
       <>
         <div className="flex items-center justify-between mb-2">
-          <Button type="text" size="sm" icon={<i className="pi pi-chevron-left" />} onClick={() => navigateDecade(-1)} aria-label="Previous decade"/>
-          <span className="text-base font-semibold text-body min-w-[120px] text-center">
+          <Button
+            icon="pi pi-chevron-left"
+            className="ds-button-text ds-button-sm"
+            onClick={() => navigateDecade(-1)}
+            aria-label="Previous decade"
+          />
+          <span className="text-base font-semibold text-gray-700 min-w-[120px] text-center">
             {currentDecade} - {currentDecade + 11}
           </span>
-          <Button type="text" size="sm" icon={<i className="pi pi-chevron-right" />} onClick={() => navigateDecade(1)} aria-label="Next decade"/>
+          <Button
+            icon="pi pi-chevron-right"
+            className="ds-button-text ds-button-sm"
+            onClick={() => navigateDecade(1)}
+            aria-label="Next decade"
+          />
         </div>
-        <Divider unstyled />
+        <Divider />
         <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mt-2">
           {years.map((year) => {
             const inRange = isYearInRange(year);
@@ -1127,14 +1200,14 @@ export default function RangePicker({
                 onClick={() => handleSelection({ year })}
                 disabled={disabled || isBeyondMax({ year })}
                 className={`
-                  px-4 py-3 text-sm font-medium rounded-md transition-all min-h-tap
+                  px-4 py-3 text-sm font-medium rounded-md transition-all min-h-[44px]
                   ${isSelected
-                    ? 'bg-brand text-on-brand font-semibold'
+                    ? 'bg-blue-600 text-white font-semibold'
                     : inRange
                       ? isInMiddle
-                        ? 'bg-info-wash text-brand'
-                        : 'bg-brand-tint text-brand'
-                      : 'bg-sunken text-body hover:bg-brand-tint-weak'
+                        ? 'bg-blue-50 text-blue-600'
+                        : 'bg-blue-100 text-blue-700'
+                      : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
                   }
                   ${isStart && endSelection ? 'rounded-l-md' : ''}
                   ${isEnd && startSelection ? 'rounded-r-md' : ''}
@@ -1162,7 +1235,6 @@ export default function RangePicker({
     <div className={`month-range-picker ${className}`} style={style}>
       <div className="relative">
         <InputText
-unstyled
           ref={inputRef}
           value={displayValue}
           placeholder={placeholder[0] && placeholder[1] ? `${placeholder[0]} - ${placeholder[1]}` : placeholder[0] || defaultPlaceholder}
@@ -1171,21 +1243,18 @@ unstyled
           onClick={handleToggle}
           className="w-full cursor-pointer"
           style={{
-            fontSize: 'var(--fs-14)',
-            height: 'var(--control-h)',
-            // Clearance for the calendar glyph: its right inset + its own
-            // width + a gap, so the text never runs under it.
-            paddingRight: 'calc(var(--space-12) + var(--icon-md) + var(--space-12))'
+            fontSize: '0.875rem',
+            height: '2rem',
+            paddingRight: '2.5rem'
           }}
         />
         <i
-          className="pi pi-calendar absolute right-3 top-1/2 -translate-y-1/2 text-ds-muted pointer-events-none"
-          style={{ fontSize: 'var(--fs-14)' }}
+          className="pi pi-calendar absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+          style={{ fontSize: '0.875rem' }}
         />
       </div>
 
       <OverlayPanel
-unstyled
         ref={overlayRef}
         dismissable
         className="month-range-picker-overlay"

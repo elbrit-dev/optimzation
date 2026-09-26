@@ -48,18 +48,18 @@ export function QueryTabContent() {
   };
   return (
     <div className="h-full flex flex-col">
-      <Splitter unstyled style={{ height: 'calc(100dvh - 164px)' }} layout="vertical" className="flex-1">
-        <SplitterPanel unstyled size={70} className="flex flex-col h-full min-h-0">
-          <div className="px-3 py-1.5 border-b border-line-subtle bg-sunken">
-            <h3 className="text-sm font-semibold text-body">{operationName}</h3>
+      <Splitter style={{ height: 'calc(100dvh - 164px)' }} layout="vertical" className="flex-1">
+        <SplitterPanel size={70} className="flex flex-col h-full min-h-0">
+          <div className="px-3 py-1.5 border-b border-gray-200 bg-gray-50">
+            <h3 className="text-sm font-semibold text-gray-700">{operationName}</h3>
           </div>
           <div className="flex-1 overflow-hidden p-2">
             <QueryEditor onQueryChange={handleQueryChange} />
           </div>
         </SplitterPanel>
-        <SplitterPanel unstyled size={30} className="flex flex-col h-full min-h-0">
-          <div className="px-3 py-1.5 border-b border-line-subtle bg-sunken">
-            <h3 className="text-sm font-semibold text-body">Variables</h3>
+        <SplitterPanel size={30} className="flex flex-col h-full min-h-0">
+          <div className="px-3 py-1.5 border-b border-gray-200 bg-gray-50">
+            <h3 className="text-sm font-semibold text-gray-700">Variables</h3>
           </div>
           <div className="flex-1 overflow-hidden p-2">
             <VariablesEditor />

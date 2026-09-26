@@ -22,7 +22,7 @@ export function DrawerTabBar({ tabs, activeId, onSelect }) {
   }, [tabs]);
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0, gap: 'var(--space-2)' }}>
+    <div style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0, gap: 2 }}>
       {canLeft && (
         <button
           type="button"
@@ -67,14 +67,14 @@ export function DrawerTabBar({ tabs, activeId, onSelect }) {
 }
 
 const tabStyle = {
-  padding: 'var(--space-6) var(--space-16)',
+  padding: '6px 16px',
   border: 'none',
   borderBottom: '2px solid transparent',
   background: 'none',
   cursor: 'pointer',
   whiteSpace: 'nowrap',
-  fontSize: 'var(--fs-14)',
-  color: 'var(--ds-text-secondary)',
+  fontSize: 14,
+  color: '#6b7280',
   transition: 'color 0.15s',
   flexShrink: 0,
 };
@@ -82,17 +82,17 @@ const tabStyle = {
 const activeTabStyle = {
   ...tabStyle,
   fontWeight: 600,
-  color: 'var(--ds-text-body)',
-  borderBottom: '2px solid var(--ds-text-body)',
+  color: '#111827',
+  borderBottom: '2px solid #111827',
 };
 
 const arrowStyle = {
-  padding: '0 var(--space-10)',
+  padding: '0 10px',
   border: 'none',
   background: 'none',
   cursor: 'pointer',
-  fontSize: 'var(--fs-20)',
+  fontSize: 20,
   lineHeight: 1,
-  color: 'var(--ds-text-secondary)',
+  color: '#6b7280',
   flexShrink: 0,
 };

@@ -1014,8 +1014,6 @@ export function SmartDataProvider({ config, dataSource, overrides, toolbarExtra,
 function SmartDrawer({ visible, tabs, activeId, onTabSelect, onHide }) {
   return (
     <Sidebar
-unstyled
-      pt={{ root: { 'data-testid': 'smart-drawer' } }}
       visible={visible}
       position="bottom"
       style={{ height: '100dvh' }}
@@ -1027,12 +1025,12 @@ unstyled
       appendTo="self"
       className="smart-drawer-sidebar"
     >
-      <div style={{ padding: 'var(--space-20)' }}>
+      <div style={{ padding: 20 }}>
         {tabs.map(({ id, config: tabCfg = {}, error }) => (
           <div key={id} style={{ display: activeId === id ? 'block' : 'none' }}>
             {error
               ? (
-                <div className="flex items-center gap-2 px-4 py-3 rounded-md border border-danger-border bg-danger-wash text-danger text-sm">
+                <div className="flex items-center gap-2 px-4 py-3 rounded-md border border-red-200 bg-red-50 text-red-700 text-sm">
                   <i className="pi pi-exclamation-triangle flex-none" />
                   <span>{error}</span>
                 </div>

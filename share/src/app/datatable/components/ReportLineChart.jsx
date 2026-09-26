@@ -166,7 +166,7 @@ export default function ReportLineChart({
     }
 
     return (
-      <div className="bg-surface border border-line rounded-lg shadow-pop p-3">
+      <div className="bg-white border border-gray-300 rounded-lg shadow-lg p-3">
         <p className="font-semibold mb-2">{formatXAxisLabel(label)}</p>
         {payload.map((entry, index) => (
           <p key={index} style={{ color: entry.color }} className="text-sm">
@@ -193,7 +193,7 @@ export default function ReportLineChart({
           data={chartData}
           margin={{ top: 30, right: 30, left: 30, bottom: 0 }}
         >
-          <CartesianGrid strokeDasharray="3 3" stroke="var(--border-default)" />
+          <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
           <XAxis
             dataKey="period"
             tickFormatter={formatXAxisLabel}
@@ -201,11 +201,11 @@ export default function ReportLineChart({
             tickMargin={20}
             textAnchor="end"
             height={80}
-            stroke="var(--ds-text-secondary)"
+            stroke="#666"
             fontSize={12}
           />
           <YAxis
-            stroke="var(--ds-text-secondary)"
+            stroke="#666"
             fontSize={12}
             tickFormatter={(value) => {
               if (value >= 1000000) {
@@ -217,14 +217,13 @@ export default function ReportLineChart({
             }}
           />
           <Tooltip
-unstyled
             wrapperStyle={{ zIndex: 1000 }}
             content={customTooltip} />
           <Legend
             wrapperStyle={{
               position: 'absolute',
               bottom: 0,
-              lineHeight: 'var(--lh-20)'
+              lineHeight: '24px'
             }}
             formatter={(value) => formatHeaderName(value)}
           />

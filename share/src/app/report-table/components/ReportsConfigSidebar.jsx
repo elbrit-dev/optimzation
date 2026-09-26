@@ -43,7 +43,7 @@ function configureMonaco(monaco) {
 
 const EDITOR_OPTIONS = {
   minimap: { enabled: false },
-  fontSize: 'var(--fs-12)',
+  fontSize: 12,
   wordWrap: 'on',
   scrollBeyondLastLine: false,
   lineNumbers: 'on',
@@ -72,7 +72,7 @@ function HighlightMatch({ text, query }) {
   return (
     <>
       {text.slice(0, idx)}
-      <mark className="bg-warning-wash text-warning rounded-sm not-italic">{text.slice(idx, idx + q.length)}</mark>
+      <mark className="bg-yellow-200 text-yellow-900 rounded-sm not-italic">{text.slice(idx, idx + q.length)}</mark>
       {text.slice(idx + q.length)}
     </>
   );
@@ -80,41 +80,41 @@ function HighlightMatch({ text, query }) {
 
 function ValueChip({ value, query }) {
   if (value === null || value === undefined)
-    return <span className="text-11 font-mono text-ds-muted italic">null</span>;
+    return <span className="text-[11px] font-mono text-gray-400 italic">null</span>;
   if (typeof value === 'function') {
     const code = value.toString();
     const preview = code.split('\n')[0].slice(0, 48);
     return (
-      <span className="text-11 font-mono text-warning italic" title={code}>
+      <span className="text-[11px] font-mono text-orange-500 italic" title={code}>
         {preview}{code.length > 48 ? ' …' : ''}
       </span>
     );
   }
   if (typeof value === 'boolean')
     return (
-      <span className={`text-11 font-mono font-semibold ${value ? 'text-brand' : 'text-ds-muted'}`}>
+      <span className={`text-[11px] font-mono font-semibold ${value ? 'text-violet-600' : 'text-slate-400'}`}>
         <HighlightMatch text={String(value)} query={query} />
       </span>
     );
   if (typeof value === 'number')
     return (
-      <span className="text-11 font-mono text-brand">
+      <span className="text-[11px] font-mono text-blue-600">
         <HighlightMatch text={String(value)} query={query} />
       </span>
     );
   if (typeof value === 'string')
     return (
       <span
-        className="text-11 font-mono text-success max-w-[180px] truncate inline-block align-bottom"
+        className="text-[11px] font-mono text-emerald-700 max-w-[180px] truncate inline-block align-bottom"
         title={value}
       >
         &quot;<HighlightMatch text={value} query={query} />&quot;
       </span>
     );
   if (Array.isArray(value) && value.length === 0)
-    return <span className="text-11 font-mono text-ds-muted">[ ]</span>;
+    return <span className="text-[11px] font-mono text-gray-400">[ ]</span>;
   if (typeof value === 'object' && Object.keys(value).length === 0)
-    return <span className="text-11 font-mono text-ds-muted">{'{}'}</span>;
+    return <span className="text-[11px] font-mono text-gray-400">{'{}'}</span>;
   return null;
 }
 
@@ -224,10 +224,10 @@ function ReportConfigReadableView({ configString }) {
     if (node.leaf) {
       return (
         <span className="flex items-center gap-1.5 min-w-0 overflow-hidden">
-          <span className="text-11 font-medium text-ds-secondary shrink-0">
+          <span className="text-[11px] font-medium text-gray-600 shrink-0">
             <HighlightMatch text={data.key} query={filterValue} />
           </span>
-          <span className="text-10 text-ds-muted shrink-0">:</span>
+          <span className="text-[10px] text-gray-300 shrink-0">:</span>
           <ValueChip value={data.value} query={filterValue} />
         </span>
       );
@@ -235,10 +235,10 @@ function ReportConfigReadableView({ configString }) {
     const count = data.isArray ? data.value.length : Object.keys(data.value ?? {}).length;
     return (
       <span className="flex items-center gap-1.5">
-        <span className="text-11 font-semibold text-body">
+        <span className="text-[11px] font-semibold text-gray-800">
           <HighlightMatch text={data.key} query={filterValue} />
         </span>
-        <span className="text-10 font-mono text-ds-muted bg-sunken rounded px-1 py-0.5 leading-none">
+        <span className="text-[10px] font-mono text-gray-400 bg-gray-100 rounded px-1 py-0.5 leading-none">
           {data.isArray ? `[${count}]` : `{${count}}`}
         </span>
       </span>
@@ -247,7 +247,7 @@ function ReportConfigReadableView({ configString }) {
 
   if (error) {
     return (
-      <div className="m-3 p-3 text-xs text-danger bg-danger-wash border border-danger-border rounded-lg">
+      <div className="m-3 p-3 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg">
         <span className="font-semibold">Parse error:</span> {error}
       </div>
     );
@@ -255,7 +255,7 @@ function ReportConfigReadableView({ configString }) {
 
   if (!config) {
     return (
-      <div className="flex items-center justify-center h-full text-xs text-ds-muted px-4 text-center">
+      <div className="flex items-center justify-center h-full text-xs text-gray-400 px-4 text-center">
         Select or load a config to view.
       </div>
     );
@@ -264,28 +264,27 @@ function ReportConfigReadableView({ configString }) {
   return (
     <div className="flex flex-col h-full min-h-0 overflow-hidden">
       {/* Custom search bar with icon on the left */}
-      <div className="px-3 py-2 border-b border-line-subtle shrink-0">
+      <div className="px-3 py-2 border-b border-gray-100 shrink-0">
         <div className="relative">
-          <i className="pi pi-search absolute left-2.5 top-1/2 -translate-y-1/2 text-ds-muted pointer-events-none" style={{ fontSize: 'var(--fs-11)' }} />
+          <i className="pi pi-search absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" style={{ fontSize: '0.7rem' }} />
           <input
             value={filterValue}
             onChange={(e) => setFilterValue(e.target.value)}
             placeholder="Search keys or values…"
-            className="w-full pl-7 pr-7 py-1.5 text-xs border border-line-subtle rounded-md focus:outline-none focus:ring-1 focus:ring-focus bg-surface"
+            className="w-full pl-7 pr-7 py-1.5 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white"
           />
           {filterValue && (
             <button
               type="button"
               onClick={() => setFilterValue('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-ds-muted hover:text-ds-secondary"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
             >
-              <i className="pi pi-times" style={{ fontSize: 'var(--fs-10)' }} />
+              <i className="pi pi-times" style={{ fontSize: '0.65rem' }} />
             </button>
           )}
         </div>
       </div>
       <Tree
-unstyled
         value={displayNodes}
         expandedKeys={expandedKeys}
         onToggle={(e) => setExpandedKeys(e.value)}
@@ -296,8 +295,8 @@ unstyled
           wrapper: { className: 'flex-1 overflow-y-auto min-h-0 pt-0' },
           container: { className: 'p-0 m-0' },
           node: { className: 'py-0' },
-          content: { className: 'py-0.5 px-2 rounded hover:bg-brand-tint-weak transition-colors' },
-          toggler: { className: 'w-5 h-5 shrink-0 text-ds-muted hover:bg-brand-tint rounded transition-colors' },
+          content: { className: 'py-0.5 px-2 rounded hover:bg-gray-50 transition-colors' },
+          toggler: { className: 'w-5 h-5 shrink-0 text-gray-400 hover:bg-gray-200 rounded transition-colors' },
           label: { className: 'text-xs' },
         }}
       />
@@ -310,7 +309,7 @@ unstyled
 function CodeBlock({ children }) {
   if (!children?.trim()) return null;
   return (
-    <pre className="mt-1.5 text-xs font-mono bg-sunken text-body rounded p-2 overflow-x-auto whitespace-pre-wrap break-words border border-line-subtle">
+    <pre className="mt-1.5 text-xs font-mono bg-gray-100 text-gray-800 rounded p-2 overflow-x-auto whitespace-pre-wrap break-words border border-gray-200">
       <code>{children.trim()}</code>
     </pre>
   );
@@ -318,17 +317,17 @@ function CodeBlock({ children }) {
 
 function ReportDocsPanel() {
   return (
-    <div className="flex flex-col h-full min-h-0 text-body">
-      <div className="shrink-0 px-3 py-2 border-b border-line-subtle bg-sunken">
-        <div className="text-xs font-semibold text-body">reportConfig reference</div>
-        <p className="text-11 text-ds-muted mt-0.5">SmartDataProvider + SmartDataTable</p>
+    <div className="flex flex-col h-full min-h-0 text-gray-800">
+      <div className="shrink-0 px-3 py-2 border-b border-gray-200 bg-gray-50">
+        <div className="text-xs font-semibold text-gray-900">reportConfig reference</div>
+        <p className="text-[11px] text-gray-400 mt-0.5">SmartDataProvider + SmartDataTable</p>
       </div>
 
       <div className="flex-1 overflow-y-auto min-h-0 px-3 py-3 space-y-3">
 
         {/* Shape */}
         <section>
-          <div className="text-10 font-bold uppercase tracking-wider text-ds-muted mb-1.5">Shape</div>
+          <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Shape</div>
           <CodeBlock>{`{
   api:      { ... },
   table:    { ... },
@@ -339,7 +338,7 @@ function ReportDocsPanel() {
 
         {/* api */}
         <section>
-          <div className="text-10 font-bold uppercase tracking-wider text-ds-muted mb-1.5">api</div>
+          <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">api</div>
           <CodeBlock>{`api: {
   urlKey: 'myApi',
   reportApiVersion: 'v1',  // 'v1' (default) | 'v2' — see below
@@ -367,44 +366,44 @@ function ReportDocsPanel() {
     },
   },
 }`}</CodeBlock>
-          <p className="text-11 text-ds-secondary mt-1.5">
-            <code className="font-mono text-brand">reportApiVersion</code> selects which
-            backend field <code className="font-mono text-brand">graphqlQueryReportDataSource</code>{' '}
-            calls. Defaults to <code className="font-mono text-brand">&apos;v1&apos;</code> (legacy{' '}
-            <code className="font-mono text-brand">customReport</code>, unchanged behavior) so
+          <p className="text-[11px] text-gray-500 mt-1.5">
+            <code className="font-mono text-blue-700">reportApiVersion</code> selects which
+            backend field <code className="font-mono text-blue-700">graphqlQueryReportDataSource</code>{' '}
+            calls. Defaults to <code className="font-mono text-blue-700">&apos;v1&apos;</code> (legacy{' '}
+            <code className="font-mono text-blue-700">customReport</code>, unchanged behavior) so
             existing configs are unaffected. Set to{' '}
-            <code className="font-mono text-brand">&apos;v2&apos;</code> per <em>view</em> (it can
-            be overridden inside <code className="font-mono text-brand">views.&lt;id&gt;.api</code>{' '}
-            just like any other api field) once that view&apos;s <code className="font-mono text-brand">group_by</code>{' '}
-            /<code className="font-mono text-brand">selected_columns</code> have been checked against{' '}
-            <code className="font-mono text-brand">customReportV2</code>&apos;s stricter validation
+            <code className="font-mono text-blue-700">&apos;v2&apos;</code> per <em>view</em> (it can
+            be overridden inside <code className="font-mono text-blue-700">views.&lt;id&gt;.api</code>{' '}
+            just like any other api field) once that view&apos;s <code className="font-mono text-blue-700">group_by</code>{' '}
+            /<code className="font-mono text-blue-700">selected_columns</code> have been checked against{' '}
+            <code className="font-mono text-blue-700">customReportV2</code>&apos;s stricter validation
             (e.g. target metrics require grouping by Department or HQ).
           </p>
-          <p className="text-11 text-ds-secondary mt-1.5">
-            On <code className="font-mono text-brand">&apos;v2&apos;</code> the sidebar filter
+          <p className="text-[11px] text-gray-500 mt-1.5">
+            On <code className="font-mono text-blue-700">&apos;v2&apos;</code> the sidebar filter
             dropdowns are served by the{' '}
-            <code className="font-mono text-brand">reportFilterValues</code> query, one dimension
+            <code className="font-mono text-blue-700">reportFilterValues</code> query, one dimension
             at a time when a dropdown is opened, instead of riding along on the report. The report no
             longer returns them at all &mdash;{' '}
-            <code className="font-mono text-brand">_meta.meta_filter_values</code> is always{' '}
-            <code className="font-mono text-brand">{'{}'}</code> &mdash; so the tab list is a fixed
+            <code className="font-mono text-blue-700">_meta.meta_filter_values</code> is always{' '}
+            <code className="font-mono text-blue-700">{'{}'}</code> &mdash; so the tab list is a fixed
             ten dimensions rather than whatever the response happened to carry. v1 views keep using{' '}
-            <code className="font-mono text-brand">elbrit_sales_filter_api</code>.
+            <code className="font-mono text-blue-700">elbrit_sales_filter_api</code>.
           </p>
-          <p className="text-11 text-ds-secondary mt-1.5">
-            <code className="font-mono text-brand">drillDown</code> makes the first request
-            ask for only the top <code className="font-mono text-brand">initialDepth</code>{' '}
-            levels of <code className="font-mono text-brand">group_by</code>, and fetches each
+          <p className="text-[11px] text-gray-500 mt-1.5">
+            <code className="font-mono text-blue-700">drillDown</code> makes the first request
+            ask for only the top <code className="font-mono text-blue-700">initialDepth</code>{' '}
+            levels of <code className="font-mono text-blue-700">group_by</code>, and fetches each
             node&apos;s children from the{' '}
-            <code className="font-mono text-brand">reportDrillDown</code> query when the user
-            expands it. A five-level <code className="font-mono text-brand">group_by</code> over
+            <code className="font-mono text-blue-700">reportDrillDown</code> query when the user
+            expands it. A five-level <code className="font-mono text-blue-700">group_by</code> over
             a year returns ~204k rows and takes over a minute in one call; the same request split
             this way renders in seconds and each expand costs one bounded query.
           </p>
-          <p className="text-11 text-ds-secondary mt-1.5">
+          <p className="text-[11px] text-gray-500 mt-1.5">
             It is <strong>ignored unless the view also resolves to{' '}
-            <code className="font-mono text-brand">&apos;v2&apos;</code></strong> &mdash;{' '}
-            <code className="font-mono text-brand">reportDrillDown</code> has no v1 equivalent.
+            <code className="font-mono text-blue-700">&apos;v2&apos;</code></strong> &mdash;{' '}
+            <code className="font-mono text-blue-700">reportDrillDown</code> has no v1 equivalent.
             Two things change for views that enable it: the inline column-filter row is hidden
             (it can only filter rows already fetched, so it would silently filter a partial tree
             &mdash; use the sidebar filters, which go to the server), and Export re-fetches at
@@ -414,7 +413,7 @@ function ReportDocsPanel() {
 
         {/* controls */}
         <section>
-          <div className="text-10 font-bold uppercase tracking-wider text-ds-muted mb-1.5">controls</div>
+          <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">controls</div>
           <div className="space-y-1.5">
             {[
               { type: 'dateRange',  desc: 'Date range picker → { start, end }',          ex: "{ key: 'dates',   type: 'dateRange',  label: 'Date Range' }" },
@@ -422,13 +421,13 @@ function ReportDocsPanel() {
               { type: 'filterSort', desc: 'Filter + sort sidebar → { filters, sort }',    ex: "{ key: 'filters', type: 'filterSort', label: 'Filters' }" },
               { type: 'refresh',    desc: 'Refetch button, shows last-fetched time',       ex: "{ key: 'reload',  type: 'refresh' }" },
             ].map(({ type, desc, ex }) => (
-              <details key={type} className="group border border-line-subtle rounded bg-sunken/40 open:bg-surface open:border-line-subtle open:shadow-card">
+              <details key={type} className="group border border-gray-100 rounded bg-gray-50/40 open:bg-white open:border-gray-200 open:shadow-sm">
                 <summary className="cursor-pointer select-none px-2.5 py-1.5 list-none flex items-center gap-2 [&::-webkit-details-marker]:hidden">
-                  <i className="pi pi-chevron-right text-10 text-ds-muted group-open:rotate-90 transition-transform shrink-0" />
-                  <code className="text-11 font-mono text-brand shrink-0">{type}</code>
-                  <span className="text-11 text-ds-secondary truncate">{desc}</span>
+                  <i className="pi pi-chevron-right text-[9px] text-gray-400 group-open:rotate-90 transition-transform shrink-0" />
+                  <code className="text-[11px] font-mono text-blue-700 shrink-0">{type}</code>
+                  <span className="text-[11px] text-gray-500 truncate">{desc}</span>
                 </summary>
-                <div className="px-2.5 pb-2 border-t border-line-subtle">
+                <div className="px-2.5 pb-2 border-t border-gray-100">
                   <CodeBlock>{ex}</CodeBlock>
                 </div>
               </details>
@@ -438,7 +437,7 @@ function ReportDocsPanel() {
 
         {/* table */}
         <section>
-          <div className="text-10 font-bold uppercase tracking-wider text-ds-muted mb-1.5">table <span className="normal-case font-normal text-ds-muted">(all optional, defaults shown)</span></div>
+          <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">table <span className="normal-case font-normal text-gray-400">(all optional, defaults shown)</span></div>
           <div className="space-y-0.5">
             {[
               ['scrollHeight',           "'600px'",  'Fixed body height; enables scroll'],
@@ -456,12 +455,12 @@ function ReportDocsPanel() {
               ['enableGridlines',        'true',      'Row/column borders'],
               ['emptyMessage',           "'No records found.'", 'Empty state text'],
             ].map(([key, def, note]) => (
-              <div key={key} className="flex items-baseline justify-between gap-2 py-1 px-2 rounded hover:bg-brand-tint-weak">
+              <div key={key} className="flex items-baseline justify-between gap-2 py-1 px-2 rounded hover:bg-gray-50">
                 <div className="flex items-baseline gap-1.5 shrink-0">
-                  <code className="text-11 font-mono text-brand">{key}</code>
-                  <code className="text-11 font-mono text-ds-muted">{def}</code>
+                  <code className="text-[11px] font-mono text-blue-700">{key}</code>
+                  <code className="text-[11px] font-mono text-gray-400">{def}</code>
                 </div>
-                <span className="text-11 text-ds-muted text-right">{note}</span>
+                <span className="text-[11px] text-gray-400 text-right">{note}</span>
               </div>
             ))}
           </div>
@@ -469,10 +468,10 @@ function ReportDocsPanel() {
 
         {/* context */}
         <section>
-          <div className="text-10 font-bold uppercase tracking-wider text-ds-muted mb-1.5">Plasmic context</div>
-          <p className="text-11 text-ds-secondary mb-2">
-            Bind via <code className="font-mono text-brand">data.views.[viewId]</code> in Plasmic Studio.
-            Top-level also has <code className="font-mono text-brand">fetchedAt</code>.
+          <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Plasmic context</div>
+          <p className="text-[11px] text-gray-500 mb-2">
+            Bind via <code className="font-mono text-blue-700">data.views.[viewId]</code> in Plasmic Studio.
+            Top-level also has <code className="font-mono text-blue-700">fetchedAt</code>.
           </p>
           <div className="space-y-1.5">
             {[
@@ -522,17 +521,17 @@ function ReportDocsPanel() {
                 ],
               },
             ].map(({ key, desc, rows }) => (
-              <details key={key} className="group border border-line-subtle rounded bg-sunken/40 open:bg-surface open:border-line-subtle open:shadow-card">
+              <details key={key} className="group border border-gray-100 rounded bg-gray-50/40 open:bg-white open:border-gray-200 open:shadow-sm">
                 <summary className="cursor-pointer select-none px-2.5 py-1.5 list-none flex items-center gap-2 [&::-webkit-details-marker]:hidden">
-                  <i className="pi pi-chevron-right text-10 text-ds-muted group-open:rotate-90 transition-transform shrink-0" />
-                  <code className="text-11 font-mono text-brand shrink-0">{key}</code>
-                  <span className="text-11 text-ds-secondary truncate">{desc}</span>
+                  <i className="pi pi-chevron-right text-[9px] text-gray-400 group-open:rotate-90 transition-transform shrink-0" />
+                  <code className="text-[11px] font-mono text-blue-700 shrink-0">{key}</code>
+                  <span className="text-[11px] text-gray-500 truncate">{desc}</span>
                 </summary>
-                <div className="px-2.5 pb-1.5 border-t border-line-subtle space-y-0">
+                <div className="px-2.5 pb-1.5 border-t border-gray-100 space-y-0">
                   {rows.map(([k, note]) => (
-                    <div key={k} className="flex items-baseline justify-between gap-2 py-0.5 px-1 rounded hover:bg-brand-tint-weak">
-                      <code className="text-11 font-mono text-brand shrink-0">{k}</code>
-                      <span className="text-11 text-ds-muted text-right">{note}</span>
+                    <div key={k} className="flex items-baseline justify-between gap-2 py-0.5 px-1 rounded hover:bg-gray-50">
+                      <code className="text-[11px] font-mono text-blue-700 shrink-0">{k}</code>
+                      <span className="text-[11px] text-gray-400 text-right">{note}</span>
                     </div>
                   ))}
                 </div>
@@ -543,7 +542,7 @@ function ReportDocsPanel() {
 
         {/* views */}
         <section>
-          <div className="text-10 font-bold uppercase tracking-wider text-ds-muted mb-1.5">views</div>
+          <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">views</div>
           <CodeBlock>{`views: {
   main: {
     name: 'Orders',
@@ -665,10 +664,10 @@ function ContextPanel() {
     if (node.leaf) {
       return (
         <span className="flex items-center gap-1.5 min-w-0 overflow-hidden">
-          <span className="text-11 font-medium text-ds-secondary shrink-0">
+          <span className="text-[11px] font-medium text-gray-600 shrink-0">
             <HighlightMatch text={data.key} query={filterValue} />
           </span>
-          <span className="text-10 text-ds-muted shrink-0">:</span>
+          <span className="text-[10px] text-gray-300 shrink-0">:</span>
           <ValueChip value={data.value} query={filterValue} />
         </span>
       );
@@ -676,10 +675,10 @@ function ContextPanel() {
     const count = data.isArray ? data.value.length : Object.keys(data.value ?? {}).length;
     return (
       <span className="flex items-center gap-1.5">
-        <span className="text-11 font-semibold text-body">
+        <span className="text-[11px] font-semibold text-gray-800">
           <HighlightMatch text={data.key} query={filterValue} />
         </span>
-        <span className="text-10 font-mono text-ds-muted bg-sunken rounded px-1 py-0.5 leading-none">
+        <span className="text-[10px] font-mono text-gray-400 bg-gray-100 rounded px-1 py-0.5 leading-none">
           {data.isArray ? `[${count}]` : `{${count}}`}
         </span>
       </span>
@@ -690,7 +689,7 @@ function ContextPanel() {
 
   if (!hasViews) {
     return (
-      <div className="flex items-center justify-center h-full text-xs text-ds-muted px-4 text-center">
+      <div className="flex items-center justify-center h-full text-xs text-gray-400 px-4 text-center">
         No views registered yet. Load a report config to see context data.
       </div>
     );
@@ -698,28 +697,27 @@ function ContextPanel() {
 
   return (
     <div className="flex flex-col h-full min-h-0 overflow-hidden">
-      <div className="px-3 py-2 border-b border-line-subtle shrink-0">
+      <div className="px-3 py-2 border-b border-gray-100 shrink-0">
         <div className="relative">
-          <i className="pi pi-search absolute left-2.5 top-1/2 -translate-y-1/2 text-ds-muted pointer-events-none" style={{ fontSize: 'var(--fs-11)' }} />
+          <i className="pi pi-search absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" style={{ fontSize: '0.7rem' }} />
           <input
             value={filterValue}
             onChange={(e) => setFilterValue(e.target.value)}
             placeholder="Search keys or values…"
-            className="w-full pl-7 pr-7 py-1.5 text-xs border border-line-subtle rounded-md focus:outline-none focus:ring-1 focus:ring-focus bg-surface"
+            className="w-full pl-7 pr-7 py-1.5 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white"
           />
           {filterValue && (
             <button
               type="button"
               onClick={() => setFilterValue('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-ds-muted hover:text-ds-secondary"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
             >
-              <i className="pi pi-times" style={{ fontSize: 'var(--fs-10)' }} />
+              <i className="pi pi-times" style={{ fontSize: '0.65rem' }} />
             </button>
           )}
         </div>
       </div>
       <Tree
-unstyled
         value={displayNodes}
         expandedKeys={expandedKeys}
         onToggle={(e) => setExpandedKeys(e.value)}
@@ -730,8 +728,8 @@ unstyled
           wrapper: { className: 'flex-1 overflow-y-auto min-h-0 pt-0' },
           container: { className: 'p-0 m-0' },
           node: { className: 'py-0' },
-          content: { className: 'py-0.5 px-2 rounded hover:bg-brand-tint-weak transition-colors' },
-          toggler: { className: 'w-5 h-5 shrink-0 text-ds-muted hover:bg-brand-tint rounded transition-colors' },
+          content: { className: 'py-0.5 px-2 rounded hover:bg-gray-50 transition-colors' },
+          toggler: { className: 'w-5 h-5 shrink-0 text-gray-400 hover:bg-gray-200 rounded transition-colors' },
           label: { className: 'text-xs' },
         }}
       />
@@ -885,7 +883,7 @@ export default function ReportsConfigSidebar({ onConfigLoad }) {
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); handleDelete(option.name); }}
-        className="shrink-0 p-1 rounded hover:bg-danger-wash text-danger opacity-0 group-hover:opacity-100 transition-opacity ml-auto"
+        className="shrink-0 p-1 rounded hover:bg-red-100 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity ml-auto"
         title="Delete"
       >
         <i className="pi pi-trash text-xs" />
@@ -894,19 +892,18 @@ export default function ReportsConfigSidebar({ onConfigLoad }) {
   );
 
   return (
-    <div className="flex flex-col h-full overflow-hidden bg-surface border-l border-line-subtle">
-      <Toast unstyled ref={toast} />
-      <ConfirmDialog unstyled />
+    <div className="flex flex-col h-full overflow-hidden bg-white border-l border-gray-200">
+      <Toast ref={toast} />
+      <ConfirmDialog />
 
       {/* Config selector header */}
-      <div className="px-3 py-2 border-b border-line-subtle bg-sunken space-y-2 shrink-0">
+      <div className="px-3 py-2 border-b border-gray-200 bg-gray-50 space-y-2 shrink-0">
         <div className="flex items-center gap-1.5">
-          <i className="pi pi-folder-open text-primary" style={{ fontSize: 'var(--fs-14)' }} />
+          <i className="pi pi-folder-open text-primary" style={{ fontSize: '0.9rem' }} />
           <span className="font-semibold text-sm text-primary">Config</span>
         </div>
         <div className="flex items-center gap-2">
           <Dropdown
-unstyled
             value={selectedName}
             onChange={(e) => handleSelect(e.value)}
             options={configs}
@@ -915,25 +912,25 @@ unstyled
             placeholder="Select a config…"
             className="config-preset-dropdown flex-1 min-w-0"
             panelClassName="preset-dropdown-panel"
-            style={{ height: 'var(--control-h)' }}
+            style={{ height: '2rem' }}
             itemTemplate={itemTemplate}
             emptyMessage="No configs yet"
           />
           <button type="button" onClick={handleNew}
-            className="flex items-center justify-center w-8 h-8 rounded-md bg-brand hover:bg-brand-hover text-on-brand transition-colors shrink-0"
+            className="flex items-center justify-center w-8 h-8 rounded-md bg-green-600 hover:bg-green-700 text-white transition-colors shrink-0"
             title="New config">
             <i className="pi pi-plus text-sm" />
           </button>
           {selectedName && (
             <button type="button" onClick={handleApply}
-              className="flex items-center justify-center w-8 h-8 rounded-md bg-brand hover:bg-brand-hover text-on-brand transition-colors shrink-0"
+              className="flex items-center justify-center w-8 h-8 rounded-md bg-cyan-600 hover:bg-cyan-700 text-white transition-colors shrink-0"
               title="Apply">
               <i className="pi pi-play text-sm" />
             </button>
           )}
           {isDirty && selectedName && (
             <button type="button" onClick={handleSave} disabled={saving}
-              className="flex items-center justify-center w-8 h-8 rounded-md bg-brand hover:bg-brand-hover text-on-brand disabled:opacity-40 transition-colors shrink-0"
+              className="flex items-center justify-center w-8 h-8 rounded-md bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-40 transition-colors shrink-0"
               title="Save">
               <i className={`pi text-sm ${saving ? 'pi-spin pi-spinner' : 'pi-save'}`} />
             </button>
@@ -942,17 +939,14 @@ unstyled
       </div>
 
       {/* Tab buttons */}
-      {/* `flex-wrap` on the row and `whitespace-nowrap` on each button: in a
-          narrow sidebar the labels were breaking mid-word ("Config" over
-          "Read"). Whole buttons moving to a second line reads properly. */}
-      <div className="flex flex-wrap gap-1 px-3 py-2 border-b border-line-subtle bg-sunken/50 shrink-0">
+      <div className="flex gap-1 px-3 py-2 border-b border-gray-200 bg-gray-50/50 shrink-0">
         {[TAB_READ, TAB_EDIT, TAB_DOCS, TAB_CONTEXT].map((tab) => (
           <button
             key={tab}
             type="button"
             onClick={() => setActiveTab(tab)}
-            className={`px-3 py-1.5 text-xs font-medium rounded whitespace-nowrap transition-colors ${
-              activeTab === tab ? 'bg-brand-fill text-on-brand' : 'text-ds-secondary hover:bg-brand-tint'
+            className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${
+              activeTab === tab ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-200'
             }`}
           >
             {tab === TAB_READ ? 'Config Read' : tab === TAB_EDIT ? 'Config Edit' : tab === TAB_CONTEXT ? 'Context' : 'Docs'}
@@ -973,11 +967,11 @@ unstyled
 
         <div className={`absolute inset-0 flex flex-col ${activeTab === TAB_READ ? '' : 'hidden'}`}>
           {!selectedName ? (
-            <div className="flex items-center justify-center flex-1 text-xs text-ds-muted px-4 text-center">
+            <div className="flex items-center justify-center flex-1 text-xs text-gray-400 px-4 text-center">
               Select a config to view
             </div>
           ) : loading ? (
-            <div className="flex items-center justify-center flex-1 text-xs text-ds-muted">Loading…</div>
+            <div className="flex items-center justify-center flex-1 text-xs text-gray-400">Loading…</div>
           ) : (
             <div className="flex-1 overflow-hidden min-h-0">
               <ReportConfigReadableView configString={liveValueRef.current || seedValue} />
@@ -987,11 +981,11 @@ unstyled
 
         <div className={`absolute inset-0 flex flex-col ${activeTab === TAB_EDIT ? '' : 'hidden'}`}>
           {!selectedName ? (
-            <div className="flex items-center justify-center flex-1 text-xs text-ds-muted px-4 text-center">
+            <div className="flex items-center justify-center flex-1 text-xs text-gray-400 px-4 text-center">
               Select a config to edit
             </div>
           ) : loading ? (
-            <div className="flex items-center justify-center flex-1 text-xs text-ds-muted">Loading…</div>
+            <div className="flex items-center justify-center flex-1 text-xs text-gray-400">Loading…</div>
           ) : (
             <Editor
               key={selectedName}

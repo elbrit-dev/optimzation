@@ -5,9 +5,8 @@ import { DataTable } from 'primereact/datatable';
 import { Column } from 'primereact/column';
 import { ColumnGroup } from 'primereact/columngroup';
 import { Row } from 'primereact/row';
-import { dsDataTableProps } from '@/design-system/primereact/dataTableProps';
 import ProtectedRoute from '@/components/ProtectedRoute';
-import { Card } from '@/design-system';
+import { dsDataTableProps } from '@/design-system/primereact/dataTableProps';
 
 export default function ColumnGroupDemoPage() {
   const [sales] = useState([
@@ -84,17 +83,16 @@ export default function ColumnGroupDemoPage() {
 
   return (
     <ProtectedRoute>
-      <div className="min-h-screen bg-sunken flex flex-col">
+      <div className="min-h-screen bg-gray-50 flex flex-col">
         <main className="flex-1 flex flex-col min-h-0 p-4">
           <div className="mb-4">
-            <h1 className="text-xl font-semibold text-body">Column Group Demo</h1>
-            <p className="text-sm text-ds-secondary mt-1">
+            <h1 className="text-xl font-semibold text-gray-800">Column Group Demo</h1>
+            <p className="text-sm text-gray-500 mt-1">
               Mixed headers: Product has no sub-headers (rowSpan); Sale Rate has nested sub-headers (Sales/Profits, Last Year/This Year).
             </p>
           </div>
-          <Card padding="console">
-            <DataTable
-              {...dsDataTableProps()}
+          <div className="card">
+            <DataTable {...dsDataTableProps()}
               value={sales}
               headerColumnGroup={headerGroup}
               footerColumnGroup={footerGroup}
@@ -107,7 +105,7 @@ export default function ColumnGroupDemoPage() {
               <Column field="lastYearProfit" body={lastYearProfitBodyTemplate} />
               <Column field="thisYearProfit" body={thisYearProfitBodyTemplate} />
             </DataTable>
-          </Card>
+          </div>
         </main>
       </div>
     </ProtectedRoute>

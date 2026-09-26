@@ -106,7 +106,7 @@ export default function SingleSelectFilter({ value, options, onChange, placehold
     <div
       ref={dropdownRef}
       data-pr-is-overlay
-      className="fixed z-[9999] bg-surface border border-line-subtle rounded-lg shadow-pop overflow-hidden"
+      className="fixed z-[9999] bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden"
       style={{
         top: `${position.top}px`,
         left: `${position.left}px`,
@@ -116,15 +116,15 @@ export default function SingleSelectFilter({ value, options, onChange, placehold
       }}
     >
       {/* Search Input */}
-      <div className="p-2 border-b border-line-subtle">
+      <div className="p-2 border-b border-gray-100">
         <div className="relative">
-          <i className="pi pi-search absolute left-2 top-1/2 -translate-y-1/2 text-ds-muted text-10"></i>
+          <i className="pi pi-search absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-[10px]"></i>
           <input
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Search..."
-            className="w-full pl-7 pr-7 py-1 text-xs border border-line-subtle rounded focus:outline-none focus:ring-1 focus:ring-focus focus:border-brand"
+            className="w-full pl-7 pr-7 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
             autoFocus
             onClick={(e) => e.stopPropagation()}
           />
@@ -132,9 +132,9 @@ export default function SingleSelectFilter({ value, options, onChange, placehold
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); setSearchTerm(''); }}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-ds-muted hover:text-ds-secondary"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
             >
-              <i className="pi pi-times text-10"></i>
+              <i className="pi pi-times text-[10px]"></i>
             </button>
           )}
         </div>
@@ -143,7 +143,7 @@ export default function SingleSelectFilter({ value, options, onChange, placehold
       {/* Options List - single select, no checkboxes */}
       <div className="max-h-40 overflow-y-auto">
         {isEmpty(filteredOptions) ? (
-          <div className="px-3 py-3 text-center text-xs text-ds-secondary">
+          <div className="px-3 py-3 text-center text-xs text-gray-500">
             No matches
           </div>
         ) : (
@@ -154,7 +154,7 @@ export default function SingleSelectFilter({ value, options, onChange, placehold
                 key={opt.value}
                 type="button"
                 onClick={(e) => { e.stopPropagation(); selectValue(opt.value); }}
-                className={`w-full text-left flex items-center gap-2 px-2 py-1.5 cursor-pointer transition-colors text-xs ${isSelected ? 'bg-info-wash hover:bg-brand-tint text-brand-active font-medium' : 'hover:bg-brand-tint-weak text-body'
+                className={`w-full text-left flex items-center gap-2 px-2 py-1.5 cursor-pointer transition-colors text-xs ${isSelected ? 'bg-blue-50 hover:bg-blue-100 text-blue-900 font-medium' : 'hover:bg-gray-50 text-gray-700'
                   }`}
               >
                 <span className="truncate">{opt.label}</span>
@@ -166,7 +166,7 @@ export default function SingleSelectFilter({ value, options, onChange, placehold
 
       {/* Footer */}
       {fieldName && (
-        <div className="px-3 py-2 bg-sunken border-t border-line-subtle text-xs text-ds-secondary">
+        <div className="px-3 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-500">
           Total {fieldName}: {options.length}
         </div>
       )}
@@ -181,14 +181,14 @@ export default function SingleSelectFilter({ value, options, onChange, placehold
           type="button"
           onClick={() => !loading && setIsOpen(!isOpen)}
           disabled={loading}
-          className={`w-full flex items-center justify-between px-2 text-xs border rounded bg-surface hover:border-line-strong focus:outline-none focus:ring-1 focus:ring-focus transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${!hasValue ? 'border-line text-ds-secondary' : 'border-info-border text-brand bg-info-wash'
+          className={`w-full flex items-center justify-between px-2 text-xs border rounded bg-white hover:border-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${!hasValue ? 'border-gray-300 text-gray-500' : 'border-blue-400 text-blue-700 bg-blue-50'
             } ${className || ''}`}
           style={style}
         >
           <span className="truncate">
             {loading ? 'Loading...' : (!hasValue ? placeholder : (selectedOption?.label ?? String(value)))}
           </span>
-          <i className={`pi ${isOpen ? 'pi-chevron-up' : 'pi-chevron-down'} text-10 ml-1 shrink-0`}></i>
+          <i className={`pi ${isOpen ? 'pi-chevron-up' : 'pi-chevron-down'} text-[10px] ml-1 shrink-0`}></i>
         </button>
       </div>
 

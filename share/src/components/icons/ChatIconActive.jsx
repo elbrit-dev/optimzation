@@ -1,4 +1,4 @@
-const ChatIconActive = ({ className, width = 21, height = 21, fill = "var(--brand-primary)", ...props }) => (
+const ChatIconActive = ({ className, width = 21, height = 21, fill = "#0F87F9", ...props }) => (
   <svg 
     width={width} 
     height={height} 

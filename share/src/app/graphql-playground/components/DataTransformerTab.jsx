@@ -3,7 +3,7 @@
 import DataProviderNew from '@/app/datatable/components/DataProviderNew';
 import DataTableComponent from '@/app/datatable/components/DataTableNew';
 import Editor from '@monaco-editor/react';
-import { Button } from '@/design-system';
+import { Button } from 'primereact/button';
 import { Splitter, SplitterPanel } from 'primereact/splitter';
 import { TabPanel, TabView } from 'primereact/tabview';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -225,27 +225,26 @@ export function DataTransformerTab({ responseData, activeTabIndex = 0 }) {
   // Always show splitter layout, conditionally render table or message
   return (
     <div className="h-full overflow-hidden">
-      <Splitter unstyled style={{ height: '100%' }} layout="horizontal">
+      <Splitter style={{ height: '100%' }} layout="horizontal">
         {/* Left side: Table/TabView or Message*/}
-        <SplitterPanel unstyled className="flex flex-col min-w-0" size={70} minSize={30}>
+        <SplitterPanel className="flex flex-col min-w-0" size={70} minSize={30}>
           <div className="h-full flex flex-col overflow-hidden min-h-0">
             {isExecuting ? (
-              <div className="flex items-center justify-center h-full bg-sunken">
+              <div className="flex items-center justify-center h-full bg-gray-50">
                 <div className="text-center p-8">
-                  <i className="pi pi-spin pi-spinner text-32 text-ds-muted mb-4"></i>
-                  <p className="text-ds-secondary font-medium">Executing query...</p>
+                  <i className="pi pi-spin pi-spinner text-4xl text-gray-400 mb-4"></i>
+                  <p className="text-gray-600 font-medium">Executing query...</p>
                 </div>
               </div>
             ) : !rawResponseData || queryKeys.length === 0 ? (
-              <div className="flex items-center justify-center h-full bg-sunken">
+              <div className="flex items-center justify-center h-full bg-gray-50">
                 <div className="text-center p-8">
-                  <i className="pi pi-info-circle text-32 text-ds-muted mb-4"></i>
-                  <p className="text-ds-secondary font-medium">Run query to unlock Data Transformer</p>
+                  <i className="pi pi-info-circle text-4xl text-gray-400 mb-4"></i>
+                  <p className="text-gray-600 font-medium">Run query to unlock Data Transformer</p>
                 </div>
               </div>
             ) : queryKeys.length > 1 ? (
               <TabView
-unstyled
                 activeIndex={activeTab}
                 onTabChange={(e) => {
                   setActiveTab(e.index);
@@ -256,8 +255,8 @@ unstyled
                 {queryKeys.map((queryKey) => {
                   const tableData = memoizedDataByKey[queryKey] ?? (processedData ? getDataValue(processedData, queryKey) : rawResponseData?.[queryKey]);
                   return (
-                    <TabPanel unstyled key={queryKey} header={queryKey}>
-                      <div className="h-full overflow-auto" style={{ height: '100%', overflow: 'auto', flex: 1, minHeight: 0, padding: 'var(--space-8)' }}>
+                    <TabPanel key={queryKey} header={queryKey}>
+                      <div className="h-full overflow-auto" style={{ height: '100%', overflow: 'auto', flex: 1, minHeight: 0, padding: '0.5rem' }}>
                         <MemoizedDataTable
                           data={tableData}
                           enableFullscreenDialog={false}
@@ -268,7 +267,7 @@ unstyled
                 })}
               </TabView>
             ) : (
-              <div className="h-full overflow-auto" style={{ height: '100%', overflow: 'auto', flex: 1, minHeight: 0, padding: 'var(--space-8)' }}>
+              <div className="h-full overflow-auto" style={{ height: '100%', overflow: 'auto', flex: 1, minHeight: 0, padding: '0.5rem' }}>
                 <MemoizedDataTable
                   data={memoizedDataByKey[queryKeys[0]] ?? (processedData ? getDataValue(processedData, queryKeys[0]) : rawResponseData?.[queryKeys[0]])}
                   enableFullscreenDialog={false}
@@ -279,34 +278,43 @@ unstyled
         </SplitterPanel>
 
         {/* Right side: Controls */}
-        <SplitterPanel unstyled className="flex flex-col min-w-0 border-l border-line-subtle" size={30} minSize={20}>
-          <div className="h-full flex flex-col overflow-hidden p-4 bg-sunken">
+        <SplitterPanel className="flex flex-col min-w-0 border-l border-gray-200" size={30} minSize={20}>
+          <div className="h-full flex flex-col overflow-hidden p-4 bg-gray-50">
             {/* Monaco Editor */}
             <div className="flex-1 flex flex-col overflow-hidden" style={{ minHeight: 0 }}>
               <div className="flex items-center justify-between mb-2">
-                <label className="text-xs font-medium text-body">
+                <label className="text-xs font-medium text-gray-700">
                   Transformer Function:
                 </label>
-                <Button icon={<i className={isRunning ? "pi pi-spin pi-spinner" : "pi pi-play"} />} className={
+                <Button
+                  icon={isRunning ? "pi pi-spin pi-spinner" : "pi pi-play"}
+                  label={isRunning ? "Applying..." : "Apply"}
+                  className={
                     isRunning
                       ? "ds-button-danger"
                       : hasError
                         ? "ds-button-danger"
                         : "ds-button-primary"
-                  } onClick={handlePlayClick} title={
+                  }
+                  onClick={handlePlayClick}
+                  title={
                     isRunning
                       ? "Click to interrupt execution"
                       : hasError
                         ? "Previous execution had an error - Click to apply again"
                         : "Apply transformer function"
-                  } loading={isRunning} disabled={!transformerCode || transformerCode.trim() === '' || !rawResponseData || !currentTabInfo.hasSuccessfulQuery} style={{
+                  }
+                  loading={isRunning}
+                  disabled={!transformerCode || transformerCode.trim() === '' || !rawResponseData || !currentTabInfo.hasSuccessfulQuery}
+                  style={{
                     minWidth: '100px',
-                    padding: 'var(--space-8) var(--space-16)',
-                    fontSize: 'var(--fs-14)',
+                    padding: '0.5rem 1rem',
+                    fontSize: '0.875rem',
                     fontWeight: '500'
-                  }}>{isRunning ? "Applying..." : "Apply"}</Button>
+                  }}
+                />
               </div>
-              <div className="flex-1 border border-line rounded-lg overflow-hidden" style={{ minHeight: 0, height: '100%' }}>
+              <div className="flex-1 border border-gray-300 rounded-lg overflow-hidden" style={{ minHeight: 0, height: '100%' }}>
                 <Editor
                   height="100%"
                   language="javascript"
@@ -317,7 +325,7 @@ unstyled
                   theme="vs-light"
                   options={{
                     minimap: { enabled: false },
-                    fontSize: 'var(--fs-12)',
+                    fontSize: 12,
                     scrollBeyondLastLine: false,
                     wordWrap: 'on',
                   }}
