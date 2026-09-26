@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useCallback, useImperativeHandle } from 'react';
-import { Button } from 'primereact/button';
+import { Button } from '@/design-system';
 import { Calendar } from 'primereact/calendar';
 import { confirmDialog } from 'primereact/confirmdialog';
 import { Tree } from 'primereact/tree';
@@ -1501,49 +1501,49 @@ export const SaveControls = React.forwardRef((props, ref) => {
       return (
         <div className="space-y-3">
           {currentValidating && (
-            <div className="bg-blue-50 border border-blue-200 rounded p-3 mb-2">
+            <div className="bg-info-wash border border-info-border rounded p-3 mb-2">
               <div className="flex items-center gap-2">
-                <i className="pi pi-spin pi-spinner text-blue-600"></i>
-                <p className="text-sm text-blue-800">Validating queries...</p>
+                <i className="pi pi-spin pi-spinner text-brand"></i>
+                <p className="text-sm text-brand-active">Validating queries...</p>
               </div>
             </div>
           )}
           {!currentValidating && (currentResults.index || currentResults.monthIndex) &&
             ((currentResults.index && currentResults.index.valid === false) ||
               (currentResults.monthIndex && currentResults.monthIndex.valid === false)) && (
-              <div className="bg-red-50 border border-red-200 rounded p-3 mb-2">
-                <p className="text-sm font-semibold text-red-800 mb-1">Validation Failed</p>
-                <p className="text-xs text-red-700">
+              <div className="bg-danger-wash border border-danger-border rounded p-3 mb-2">
+                <p className="text-sm font-semibold text-danger mb-1">Validation Failed</p>
+                <p className="text-xs text-danger">
                   Please fix the errors below before saving.
                 </p>
               </div>
             )}
           <div>
             <p className="font-semibold text-sm mb-1">Query Name:</p>
-            <p className="text-sm text-gray-700 font-mono">{operationName}</p>
+            <p className="text-sm text-body font-mono">{operationName}</p>
           </div>
           <div>
             <p className="font-semibold text-sm mb-1">URL Key:</p>
-            <p className="text-sm text-gray-700 font-mono">{urlKey || 'Not selected'}</p>
+            <p className="text-sm text-body font-mono">{urlKey || 'Not selected'}</p>
           </div>
           <div>
             <p className="font-semibold text-sm mb-1">Type:</p>
-            <p className="text-sm text-gray-700">{clientSave ? 'Client' : 'Live'}</p>
+            <p className="text-sm text-body">{clientSave ? 'Client' : 'Live'}</p>
           </div>
           <div>
             <p className="font-semibold text-sm mb-1">Variables:</p>
             <div style={{
-              padding: '0.75rem',
-              borderRadius: '0.375rem',
-              border: '1px solid #d1d5db',
-              backgroundColor: '#f9fafb',
+              padding: 'var(--space-12)',
+              borderRadius: 'var(--ds-radius-md)',
+              border: '1px solid var(--border-default)',
+              backgroundColor: 'var(--elbrit-surface-grey)',
               maxHeight: '200px',
               overflow: 'auto'
             }}>
               {(() => {
                 try {
                   if (!variablesString || !variablesString.trim()) {
-                    return <p className="text-sm text-gray-500 font-mono">No variables</p>;
+                    return <p className="text-sm text-ds-secondary font-mono">No variables</p>;
                   }
                   // Try to parse and format the variables
                   let parsedVariables = {};
@@ -1554,17 +1554,17 @@ export const SaveControls = React.forwardRef((props, ref) => {
                       const stripped = stripComments(variablesString);
                       parsedVariables = JSON.parse(stripped);
                     } catch {
-                      return <p className="text-sm text-red-600 font-mono">Invalid JSON</p>;
+                      return <p className="text-sm text-danger font-mono">Invalid JSON</p>;
                     }
                   }
                   const formattedJson = JSON.stringify(parsedVariables, null, 2);
                   return (
-                    <pre className="text-xs text-gray-700 font-mono" style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                    <pre className="text-xs text-body font-mono" style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                       {formattedJson}
                     </pre>
                   );
                 } catch (error) {
-                  return <p className="text-sm text-red-600 font-mono">Error parsing variables</p>;
+                  return <p className="text-sm text-danger font-mono">Error parsing variables</p>;
                 }
               })()}
             </div>
@@ -1573,21 +1573,21 @@ export const SaveControls = React.forwardRef((props, ref) => {
             <div>
               <p className="font-semibold text-sm mb-1">Index Field:</p>
               <div style={{
-                padding: '0.75rem',
-                borderRadius: '0.375rem',
-                border: currentIndexError ? '2px solid #dc2626' : '1px solid #d1d5db',
-                backgroundColor: currentIndexError ? '#fef2f2' : '#f9fafb'
+                padding: 'var(--space-12)',
+                borderRadius: 'var(--ds-radius-md)',
+                border: currentIndexError ? '2px solid var(--intent-danger)' : '1px solid var(--border-default)',
+                backgroundColor: currentIndexError ? 'var(--intent-danger-wash)' : 'var(--elbrit-surface-grey)'
               }}>
-                <p className="text-sm text-gray-700 font-mono">{selectedPath || 'Not selected'}</p>
+                <p className="text-sm text-body font-mono">{selectedPath || 'Not selected'}</p>
                 {currentIndexError && (
                   <div style={{
-                    marginTop: '0.5rem',
-                    padding: '0.5rem',
-                    backgroundColor: '#fee2e2',
-                    border: '1px solid #dc2626',
-                    borderRadius: '0.375rem',
-                    fontSize: '0.75rem',
-                    color: '#dc2626'
+                    marginTop: 'var(--space-8)',
+                    padding: 'var(--space-8)',
+                    backgroundColor: 'var(--intent-danger-wash)',
+                    border: '1px solid var(--intent-danger)',
+                    borderRadius: 'var(--ds-radius-md)',
+                    fontSize: 'var(--fs-12)',
+                    color: 'var(--intent-danger)'
                   }}>
                     <strong>Error:</strong> {currentIndexError}
                   </div>
@@ -1599,27 +1599,27 @@ export const SaveControls = React.forwardRef((props, ref) => {
             <>
               <div>
                 <p className="font-semibold text-sm mb-1">Month:</p>
-                <p className="text-sm text-gray-700 font-mono">{month ? month.toLocaleDateString('en-US', { month: '2-digit', year: 'numeric' }) : 'Not selected'}</p>
+                <p className="text-sm text-body font-mono">{month ? month.toLocaleDateString('en-US', { month: '2-digit', year: 'numeric' }) : 'Not selected'}</p>
               </div>
               {clientSave && (
                 <div>
                   <p className="font-semibold text-sm mb-1">Month Index Field:</p>
                   <div style={{
-                    padding: '0.75rem',
-                    borderRadius: '0.375rem',
-                    border: currentMonthIndexError ? '2px solid #dc2626' : '1px solid #d1d5db',
-                    backgroundColor: currentMonthIndexError ? '#fef2f2' : '#f9fafb'
+                    padding: 'var(--space-12)',
+                    borderRadius: 'var(--ds-radius-md)',
+                    border: currentMonthIndexError ? '2px solid var(--intent-danger)' : '1px solid var(--border-default)',
+                    backgroundColor: currentMonthIndexError ? 'var(--intent-danger-wash)' : 'var(--elbrit-surface-grey)'
                   }}>
-                    <p className="text-sm text-gray-700 font-mono">{monthIndexPath || 'Not selected'}</p>
+                    <p className="text-sm text-body font-mono">{monthIndexPath || 'Not selected'}</p>
                     {currentMonthIndexError && (
                       <div style={{
-                        marginTop: '0.5rem',
-                        padding: '0.5rem',
-                        backgroundColor: '#fee2e2',
-                        border: '1px solid #dc2626',
-                        borderRadius: '0.375rem',
-                        fontSize: '0.75rem',
-                        color: '#dc2626'
+                        marginTop: 'var(--space-8)',
+                        padding: 'var(--space-8)',
+                        backgroundColor: 'var(--intent-danger-wash)',
+                        border: '1px solid var(--intent-danger)',
+                        borderRadius: 'var(--ds-radius-md)',
+                        fontSize: 'var(--fs-12)',
+                        color: 'var(--intent-danger)'
                       }}>
                         <strong>Error:</strong> {currentMonthIndexError}
                       </div>
@@ -1632,10 +1632,10 @@ export const SaveControls = React.forwardRef((props, ref) => {
           <div>
             <p className="font-semibold text-sm mb-1">Search Fields:</p>
             <div style={{
-              padding: '0.75rem',
-              borderRadius: '0.375rem',
-              border: '1px solid #d1d5db',
-              backgroundColor: '#f9fafb',
+              padding: 'var(--space-12)',
+              borderRadius: 'var(--ds-radius-md)',
+              border: '1px solid var(--border-default)',
+              backgroundColor: 'var(--elbrit-surface-grey)',
               maxHeight: '200px',
               overflow: 'auto'
             }}>
@@ -1645,10 +1645,10 @@ export const SaveControls = React.forwardRef((props, ref) => {
                     if (!Array.isArray(nestedPaths) || nestedPaths.length === 0) return null;
                     return (
                       <div key={topLevelKey} className="mb-2">
-                        <p className="text-xs font-semibold text-gray-600 mb-1">{topLevelKey}:</p>
+                        <p className="text-xs font-semibold text-ds-secondary mb-1">{topLevelKey}:</p>
                         <ul className="list-disc list-inside space-y-1 ml-2">
                           {nestedPaths.map((path, idx) => (
-                            <li key={idx} className="text-xs text-gray-700 font-mono">
+                            <li key={idx} className="text-xs text-body font-mono">
                               {path || '<all fields>'}
                             </li>
                           ))}
@@ -1658,17 +1658,17 @@ export const SaveControls = React.forwardRef((props, ref) => {
                   })}
                 </div>
               ) : (
-                <p className="text-xs text-gray-500 italic">No search fields selected</p>
+                <p className="text-xs text-ds-secondary italic">No search fields selected</p>
               )}
             </div>
           </div>
           <div>
             <p className="font-semibold text-sm mb-1">Sort Fields:</p>
             <div style={{
-              padding: '0.75rem',
-              borderRadius: '0.375rem',
-              border: '1px solid #d1d5db',
-              backgroundColor: '#f9fafb',
+              padding: 'var(--space-12)',
+              borderRadius: 'var(--ds-radius-md)',
+              border: '1px solid var(--border-default)',
+              backgroundColor: 'var(--elbrit-surface-grey)',
               maxHeight: '200px',
               overflow: 'auto'
             }}>
@@ -1678,10 +1678,10 @@ export const SaveControls = React.forwardRef((props, ref) => {
                     if (!Array.isArray(nestedPaths) || nestedPaths.length === 0) return null;
                     return (
                       <div key={topLevelKey} className="mb-2">
-                        <p className="text-xs font-semibold text-gray-600 mb-1">{topLevelKey}:</p>
+                        <p className="text-xs font-semibold text-ds-secondary mb-1">{topLevelKey}:</p>
                         <ul className="list-disc list-inside space-y-1 ml-2">
                           {nestedPaths.map((path, idx) => (
-                            <li key={idx} className="text-xs text-gray-700 font-mono">
+                            <li key={idx} className="text-xs text-body font-mono">
                               {path || '<all fields>'}
                             </li>
                           ))}
@@ -1691,7 +1691,7 @@ export const SaveControls = React.forwardRef((props, ref) => {
                   })}
                 </div>
               ) : (
-                <p className="text-xs text-gray-500 italic">No sort fields selected</p>
+                <p className="text-xs text-ds-secondary italic">No sort fields selected</p>
               )}
             </div>
           </div>
@@ -2012,7 +2012,7 @@ export const SaveControls = React.forwardRef((props, ref) => {
     <div className="graphiql-save-controls">
       {/* Live/Client Toggle */}
       <div className="graphiql-save-toggle">
-        <span className={`graphiql-save-toggle-label ${!clientSave ? 'text-yellow-700 font-semibold' : 'text-gray-600'}`}>
+        <span className={`graphiql-save-toggle-label ${!clientSave ? 'text-warning font-semibold' : 'text-ds-secondary'}`}>
           Live
         </span>
         <div
@@ -2021,7 +2021,7 @@ export const SaveControls = React.forwardRef((props, ref) => {
         >
           <div className="graphiql-save-toggle-switch-handle"></div>
         </div>
-        <span className={`graphiql-save-toggle-label ${clientSave ? 'text-green-700 font-semibold' : 'text-gray-600'}`}>
+        <span className={`graphiql-save-toggle-label ${clientSave ? 'text-success font-semibold' : 'text-ds-secondary'}`}>
           Client
         </span>
       </div>
@@ -2029,38 +2029,32 @@ export const SaveControls = React.forwardRef((props, ref) => {
       {/* Index Field Selector - Only show when clientSave is enabled */}
       {clientSave && (
         <div className={`graphiql-index-selector ${selectedKeys ? 'has-selection' : ''}`}>
-          <Button
-            type="button"
-            onClick={(e) => {
+          <Button type="default" size="sm" onClick={(e) => {
               if (treeNodes.length > 0 && indexFieldOp.current) {
                 indexFieldOp.current.toggle(e);
               }
-            }}
-            disabled={treeNodes.length === 0}
-            className="ds-button-sm ds-button-outlined"
-            title={selectedKeys && formatFieldName ? String(formatFieldName(selectedKeys)) : 'Select index field'}
-            style={{
+            }} disabled={treeNodes.length === 0} title={selectedKeys && formatFieldName ? String(formatFieldName(selectedKeys)) : 'Select index field'} style={{
               width: '100%',
               justifyContent: 'space-between',
               textAlign: 'left',
-              padding: '0.5rem 0.75rem'
-            }}
-          >
-            <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, minWidth: 0 }}>
-              <i className="pi pi-sitemap" style={{ fontSize: '0.875rem', color: '#6b7280', flexShrink: 0 }}></i>
+              padding: 'var(--space-8) var(--space-12)'
+            }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-8)', flex: 1, minWidth: 0 }}>
+              <i className="pi pi-sitemap" style={{ fontSize: 'var(--fs-14)', color: 'var(--ds-text-secondary)', flexShrink: 0 }}></i>
               <span style={{
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
-                color: selectedKeys ? '#374151' : '#9ca3af',
+                color: selectedKeys ? 'var(--ds-text-body)' : 'var(--ds-text-muted)',
                 fontWeight: selectedKeys ? '500' : '400'
               }}>
                 {selectedKeys ? (formatFieldName ? formatFieldName(selectedKeys) : String(selectedKeys)) : 'Select index field'}
               </span>
             </span>
-            <i className="pi pi-chevron-down" style={{ fontSize: '0.75rem', color: '#6b7280', marginLeft: '0.5rem', flexShrink: 0 }}></i>
+            <i className="pi pi-chevron-down" style={{ fontSize: 'var(--fs-12)', color: 'var(--ds-text-secondary)', marginLeft: 'var(--space-8)', flexShrink: 0 }}></i>
           </Button>
           <OverlayPanel
+unstyled
             ref={indexFieldOp}
             dismissable
             className="graphiql-index-overlay"
@@ -2068,6 +2062,7 @@ export const SaveControls = React.forwardRef((props, ref) => {
           >
             {treeNodes.length > 0 ? (
               <Tree
+unstyled
                 value={treeNodes}
                 selectionMode="single"
                 selectionKeys={selectedKeys}
@@ -2081,10 +2076,10 @@ export const SaveControls = React.forwardRef((props, ref) => {
                 className="w-full"
               />
             ) : (
-              <div className="px-4 py-6 text-sm text-gray-500 text-center bg-gray-50 rounded-lg">
-                <i className="pi pi-info-circle text-gray-400 mb-2" style={{ fontSize: '1.25rem' }}></i>
-                <p className="font-medium text-gray-600 mb-1">No query fields available</p>
-                <p className="text-xs text-gray-500">
+              <div className="px-4 py-6 text-sm text-ds-secondary text-center bg-sunken rounded-lg">
+                <i className="pi pi-info-circle text-ds-muted mb-2" style={{ fontSize: 'var(--fs-20)' }}></i>
+                <p className="font-medium text-ds-secondary mb-1">No query fields available</p>
+                <p className="text-xs text-ds-secondary">
                   Please write a GraphQL query in the editor.
                 </p>
               </div>
@@ -2096,6 +2091,7 @@ export const SaveControls = React.forwardRef((props, ref) => {
       {/* Month Picker */}
       <div className="graphiql-month-picker">
         <Calendar
+unstyled
           value={month}
           onChange={(e) => setMonth(e.value)}
           view="month"
@@ -2106,9 +2102,9 @@ export const SaveControls = React.forwardRef((props, ref) => {
           className="w-full"
           inputStyle={{
             width: '100%',
-            padding: '0.5rem 0.75rem',
+            padding: 'var(--space-8) var(--space-12)',
             paddingRight: month ? '2.5rem' : '0.75rem',
-            fontSize: '0.875rem'
+            fontSize: 'var(--fs-14)'
           }}
         />
         {month && (
@@ -2126,26 +2122,26 @@ export const SaveControls = React.forwardRef((props, ref) => {
               background: 'transparent',
               border: 'none',
               cursor: 'pointer',
-              padding: '0.25rem',
+              padding: 'var(--space-4)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: '#6b7280',
-              borderRadius: '4px',
+              color: 'var(--ds-text-secondary)',
+              borderRadius: 'var(--ds-radius-sm)',
               transition: 'all 0.2s ease',
               zIndex: 10
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.background = '#fee2e2';
-              e.currentTarget.style.color = '#dc2626';
+              e.currentTarget.style.background = 'var(--intent-danger-wash)';
+              e.currentTarget.style.color = 'var(--intent-danger)';
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.background = 'transparent';
-              e.currentTarget.style.color = '#6b7280';
+              e.currentTarget.style.color = 'var(--ds-text-secondary)';
             }}
             title="Clear month"
           >
-            <i className="pi pi-times" style={{ fontSize: '0.875rem' }}></i>
+            <i className="pi pi-times" style={{ fontSize: 'var(--fs-14)' }}></i>
           </button>
         )}
       </div>
@@ -2153,30 +2149,23 @@ export const SaveControls = React.forwardRef((props, ref) => {
       {/* Month Index Field Selector - Only show when clientSave is enabled and month is selected */}
       {clientSave && month && (
         <div className={`graphiql-index-selector ${monthIndexKeys ? 'has-selection' : ''}`}>
-          <Button
-            type="button"
-            onClick={(e) => {
+          <Button type="default" size="sm" onClick={(e) => {
               if (monthIndexTreeNodes.length > 0 && monthIndexFieldOp.current) {
                 monthIndexFieldOp.current.toggle(e);
               }
-            }}
-            disabled={!selectedKeys || monthIndexTreeNodes.length === 0}
-            className="ds-button-sm ds-button-outlined"
-            title={monthIndexKeys && formatFieldName ? String(formatFieldName(monthIndexKeys)) : 'Select month index field'}
-            style={{
+            }} disabled={!selectedKeys || monthIndexTreeNodes.length === 0} title={monthIndexKeys && formatFieldName ? String(formatFieldName(monthIndexKeys)) : 'Select month index field'} style={{
               width: '100%',
               justifyContent: 'space-between',
               textAlign: 'left',
-              padding: '0.5rem 0.75rem'
-            }}
-          >
-            <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, minWidth: 0 }}>
-              <i className="pi pi-sitemap" style={{ fontSize: '0.875rem', color: '#6b7280', flexShrink: 0 }}></i>
+              padding: 'var(--space-8) var(--space-12)'
+            }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-8)', flex: 1, minWidth: 0 }}>
+              <i className="pi pi-sitemap" style={{ fontSize: 'var(--fs-14)', color: 'var(--ds-text-secondary)', flexShrink: 0 }}></i>
               <span style={{
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
-                color: monthIndexKeys ? '#374151' : '#9ca3af',
+                color: monthIndexKeys ? 'var(--ds-text-body)' : 'var(--ds-text-muted)',
                 fontWeight: monthIndexKeys ? '500' : '400'
               }}>
                 {(() => {
@@ -2189,9 +2178,10 @@ export const SaveControls = React.forwardRef((props, ref) => {
                 })()}
               </span>
             </span>
-            <i className="pi pi-chevron-down" style={{ fontSize: '0.75rem', color: '#6b7280', marginLeft: '0.5rem', flexShrink: 0 }}></i>
+            <i className="pi pi-chevron-down" style={{ fontSize: 'var(--fs-12)', color: 'var(--ds-text-secondary)', marginLeft: 'var(--space-8)', flexShrink: 0 }}></i>
           </Button>
           <OverlayPanel
+unstyled
             ref={monthIndexFieldOp}
             dismissable
             className="graphiql-index-overlay"
@@ -2199,6 +2189,7 @@ export const SaveControls = React.forwardRef((props, ref) => {
           >
             {monthIndexTreeNodes.length > 0 ? (
               <Tree
+unstyled
                 value={monthIndexTreeNodes}
                 selectionMode="single"
                 selectionKeys={monthIndexKeys}
@@ -2212,10 +2203,10 @@ export const SaveControls = React.forwardRef((props, ref) => {
                 className="w-full"
               />
             ) : (
-              <div className="px-4 py-6 text-sm text-gray-500 text-center bg-gray-50 rounded-lg">
-                <i className="pi pi-info-circle text-gray-400 mb-2" style={{ fontSize: '1.25rem' }}></i>
-                <p className="font-medium text-gray-600 mb-1">No month index fields available</p>
-                <p className="text-xs text-gray-500">
+              <div className="px-4 py-6 text-sm text-ds-secondary text-center bg-sunken rounded-lg">
+                <i className="pi pi-info-circle text-ds-muted mb-2" style={{ fontSize: 'var(--fs-20)' }}></i>
+                <p className="font-medium text-ds-secondary mb-1">No month index fields available</p>
+                <p className="text-xs text-ds-secondary">
                   Please select an index field first.
                 </p>
               </div>
@@ -2226,30 +2217,23 @@ export const SaveControls = React.forwardRef((props, ref) => {
 
       {/* Search Fields Selector - Always show regardless of clientSave */}
       <div className={`graphiql-index-selector ${Object.keys(searchFields).length > 0 ? 'has-selection' : ''}`}>
-        <Button
-          type="button"
-          onClick={(e) => {
+        <Button type="default" size="sm" onClick={(e) => {
             if (searchFieldsTreeOp.current) {
               searchFieldsTreeOp.current.toggle(e);
             }
-          }}
-          disabled={processedDataTreeNodesMemo.length === 0}
-          className="ds-button-sm ds-button-outlined"
-          title="Select search fields"
-          style={{
+          }} disabled={processedDataTreeNodesMemo.length === 0} title="Select search fields" style={{
             width: '100%',
             justifyContent: 'space-between',
             textAlign: 'left',
-            padding: '0.5rem 0.75rem'
-          }}
-        >
-          <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, minWidth: 0 }}>
-            <i className="pi pi-search" style={{ fontSize: '0.875rem', color: '#6b7280', flexShrink: 0 }}></i>
+            padding: 'var(--space-8) var(--space-12)'
+          }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-8)', flex: 1, minWidth: 0 }}>
+            <i className="pi pi-search" style={{ fontSize: 'var(--fs-14)', color: 'var(--ds-text-secondary)', flexShrink: 0 }}></i>
             <span style={{
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
-              color: Object.keys(searchFields).length > 0 ? '#374151' : '#9ca3af',
+              color: Object.keys(searchFields).length > 0 ? 'var(--ds-text-body)' : 'var(--ds-text-muted)',
               fontWeight: Object.keys(searchFields).length > 0 ? '500' : '400'
             }}>
               {Object.keys(searchFields).length > 0
@@ -2257,9 +2241,10 @@ export const SaveControls = React.forwardRef((props, ref) => {
                 : 'Select search fields'}
             </span>
           </span>
-          <i className="pi pi-chevron-down" style={{ fontSize: '0.75rem', color: '#6b7280', marginLeft: '0.5rem', flexShrink: 0 }}></i>
+          <i className="pi pi-chevron-down" style={{ fontSize: 'var(--fs-12)', color: 'var(--ds-text-secondary)', marginLeft: 'var(--space-8)', flexShrink: 0 }}></i>
         </Button>
         <OverlayPanel
+unstyled
           ref={searchFieldsTreeOp}
           dismissable
           className="graphiql-index-overlay"
@@ -2267,6 +2252,7 @@ export const SaveControls = React.forwardRef((props, ref) => {
         >
           {searchFieldsTreeNodes.length > 0 ? (
             <Tree
+unstyled
               value={searchFieldsTreeNodes}
               selectionMode="checkbox"
               selectionKeys={searchFieldsSelectionKeys}
@@ -2280,10 +2266,10 @@ export const SaveControls = React.forwardRef((props, ref) => {
               className="w-full"
             />
           ) : (
-            <div className="px-4 py-6 text-sm text-gray-500 text-center bg-gray-50 rounded-lg">
-              <i className="pi pi-info-circle text-gray-400 mb-2" style={{ fontSize: '1.25rem' }}></i>
-              <p className="font-medium text-gray-600 mb-1">No processed data available</p>
-              <p className="text-xs text-gray-500">
+            <div className="px-4 py-6 text-sm text-ds-secondary text-center bg-sunken rounded-lg">
+              <i className="pi pi-info-circle text-ds-muted mb-2" style={{ fontSize: 'var(--fs-20)' }}></i>
+              <p className="font-medium text-ds-secondary mb-1">No processed data available</p>
+              <p className="text-xs text-ds-secondary">
                 Execute a query and apply transformer to see available fields.
               </p>
             </div>
@@ -2293,30 +2279,23 @@ export const SaveControls = React.forwardRef((props, ref) => {
 
       {/* Sort Fields Selector - Always show regardless of clientSave */}
       <div className={`graphiql-index-selector ${Object.keys(sortFields).length > 0 ? 'has-selection' : ''}`}>
-        <Button
-          type="button"
-          onClick={(e) => {
+        <Button type="default" size="sm" onClick={(e) => {
             if (sortFieldsTreeOp.current) {
               sortFieldsTreeOp.current.toggle(e);
             }
-          }}
-          disabled={processedDataTreeNodesMemo.length === 0}
-          className="ds-button-sm ds-button-outlined"
-          title="Select sort fields"
-          style={{
+          }} disabled={processedDataTreeNodesMemo.length === 0} title="Select sort fields" style={{
             width: '100%',
             justifyContent: 'space-between',
             textAlign: 'left',
-            padding: '0.5rem 0.75rem'
-          }}
-        >
-          <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, minWidth: 0 }}>
-            <i className="pi pi-sort" style={{ fontSize: '0.875rem', color: '#6b7280', flexShrink: 0 }}></i>
+            padding: 'var(--space-8) var(--space-12)'
+          }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-8)', flex: 1, minWidth: 0 }}>
+            <i className="pi pi-sort" style={{ fontSize: 'var(--fs-14)', color: 'var(--ds-text-secondary)', flexShrink: 0 }}></i>
             <span style={{
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
-              color: Object.keys(sortFields).length > 0 ? '#374151' : '#9ca3af',
+              color: Object.keys(sortFields).length > 0 ? 'var(--ds-text-body)' : 'var(--ds-text-muted)',
               fontWeight: Object.keys(sortFields).length > 0 ? '500' : '400'
             }}>
               {Object.keys(sortFields).length > 0
@@ -2324,9 +2303,10 @@ export const SaveControls = React.forwardRef((props, ref) => {
                 : 'Select sort fields'}
             </span>
           </span>
-          <i className="pi pi-chevron-down" style={{ fontSize: '0.75rem', color: '#6b7280', marginLeft: '0.5rem', flexShrink: 0 }}></i>
+          <i className="pi pi-chevron-down" style={{ fontSize: 'var(--fs-12)', color: 'var(--ds-text-secondary)', marginLeft: 'var(--space-8)', flexShrink: 0 }}></i>
         </Button>
         <OverlayPanel
+unstyled
           ref={sortFieldsTreeOp}
           dismissable
           className="graphiql-index-overlay"
@@ -2334,6 +2314,7 @@ export const SaveControls = React.forwardRef((props, ref) => {
         >
           {sortFieldsTreeNodes.length > 0 ? (
             <Tree
+unstyled
               value={sortFieldsTreeNodes}
               selectionMode="checkbox"
               selectionKeys={sortFieldsSelectionKeys}
@@ -2347,10 +2328,10 @@ export const SaveControls = React.forwardRef((props, ref) => {
               className="w-full"
             />
           ) : (
-            <div className="px-4 py-6 text-sm text-gray-500 text-center bg-gray-50 rounded-lg">
-              <i className="pi pi-info-circle text-gray-400 mb-2" style={{ fontSize: '1.25rem' }}></i>
-              <p className="font-medium text-gray-600 mb-1">No processed data available</p>
-              <p className="text-xs text-gray-500">
+            <div className="px-4 py-6 text-sm text-ds-secondary text-center bg-sunken rounded-lg">
+              <i className="pi pi-info-circle text-ds-muted mb-2" style={{ fontSize: 'var(--fs-20)' }}></i>
+              <p className="font-medium text-ds-secondary mb-1">No processed data available</p>
+              <p className="text-xs text-ds-secondary">
                 Execute a query and apply transformer to see available fields.
               </p>
             </div>
@@ -2359,16 +2340,9 @@ export const SaveControls = React.forwardRef((props, ref) => {
       </div>
 
       {/* Save Button */}
-      <Button
-        type="button"
-        onClick={handleSave}
-        icon="pi pi-save"
-        label="Save"
-        className="ds-button-sm"
-        style={{
+      <Button size="sm" onClick={handleSave} icon={<i className="pi pi-save" />} style={{
           whiteSpace: 'nowrap'
-        }}
-      />
+        }}>Save</Button>
     </div>
   );
 });

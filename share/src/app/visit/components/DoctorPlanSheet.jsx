@@ -31,7 +31,7 @@ const BLANK_FILTERS = { values: {}, sorts: {}, query: '' };
  * every group stay open turns it into the flat list this replaced, and the
  * reader loses the doctor-per-line shape that makes it skimmable. */
 
-export function DoctorPlanSheet({ member, team, rows, pob, periodLabel, showDate = false, onClose }) {
+export function DoctorPlanSheet({ member, team, rows, pob, periodLabel, showDate = false, loading = false, onClose }) {
   /* Keyed by event id rather than an index, so it survives the list
      re-sorting or the period changing under it. */
   const [openId, setOpenId] = useState(null);
@@ -125,7 +125,11 @@ export function DoctorPlanSheet({ member, team, rows, pob, periodLabel, showDate
         ) : null
       }
     >
-      {calls.length === 0 ? (
+      {loading ? (
+        /* The plan is fetched when the sheet opens (the report's numbers are
+           counts, not rows) — "no visits" before it lands would be a lie. */
+        <p className="py-4 text-12 text-ds-secondary">Loading visits…</p>
+      ) : calls.length === 0 ? (
         /* Says whose plan is empty and why it can be. A manager who joined no
            calls this period is the normal case now, not a broken screen, and
            the old "No visits planned in this period." read as the latter. */

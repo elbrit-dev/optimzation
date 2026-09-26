@@ -8,7 +8,7 @@ function SkeletonBar({ row, col }) {
   const delay = `${((row * 6 + col) * 30) % 600}ms`;
   return (
     <div
-      className={`h-3 rounded bg-gray-200 animate-pulse ${w}`}
+      className={`h-3 rounded bg-surface-disabled animate-pulse ${w}`}
       style={{ animationDelay: delay }}
     />
   );
@@ -20,11 +20,13 @@ function SkeletonBar({ row, col }) {
  */
 export function LoadingOverlay({ message = 'Loading data…' }) {
   if (message == null) return null;
+  // Flat translucent scrim, not a backdrop blur: the system has no glass
+  // surfaces, and blur over a scrolling virtualised table is expensive.
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center rounded backdrop-blur-[2px]">
+    <div className="absolute inset-0 z-50 flex items-center justify-center rounded bg-surface/70">
       <div className="flex items-center gap-3">
-        <span className="inline-block h-5 w-5 shrink-0 animate-spin rounded-full border-[3px] border-gray-200 border-t-blue-500" />
-        <span className="text-sm text-gray-600">{message}</span>
+        <span className="inline-block h-5 w-5 shrink-0 animate-spin rounded-full border-2 border-line-subtle border-t-brand" />
+        <span className="text-sm text-ds-secondary">{message}</span>
       </div>
     </div>
   );
@@ -47,14 +49,14 @@ export function TableSkeleton({ columns = [], rowCount = 10, colCount: colCountP
     <div className="relative w-full">
 
       {/* ── Table skeleton ──────────────────────────────────── */}
-      <div className="w-full overflow-hidden rounded border border-gray-300">
+      <div className="w-full overflow-hidden rounded border border-line">
 
         {/* Column headers */}
-        <div className="flex divide-x divide-gray-200 border-b-2 border-gray-300 bg-gray-100">
+        <div className="flex divide-x divide-line-subtle border-b-2 border-line bg-sunken">
           {Array.from({ length: colCount }).map((_, i) => (
             <div key={i} className="flex-1 px-4 py-3">
               <div
-                className={`h-3 rounded bg-gray-300 animate-pulse ${WIDTHS[i % WIDTHS.length]}`}
+                className={`h-3 rounded bg-surface-disabled animate-pulse ${WIDTHS[i % WIDTHS.length]}`}
                 style={{ animationDelay: `${(i * 40) % 300}ms` }}
               />
             </div>
@@ -62,11 +64,11 @@ export function TableSkeleton({ columns = [], rowCount = 10, colCount: colCountP
         </div>
 
         {/* Filter row */}
-        <div className="flex divide-x divide-gray-200 border-b border-gray-200 bg-white">
+        <div className="flex divide-x divide-line-subtle border-b border-line-subtle bg-surface">
           {Array.from({ length: colCount }).map((_, i) => (
             <div key={i} className="flex-1 px-3 py-2">
               <div
-                className="h-8 w-full rounded bg-gray-100 animate-pulse"
+                className="h-8 w-full rounded bg-sunken animate-pulse"
                 style={{ animationDelay: `${(i * 30) % 300}ms` }}
               />
             </div>
@@ -77,10 +79,10 @@ export function TableSkeleton({ columns = [], rowCount = 10, colCount: colCountP
         {Array.from({ length: rowCount }).map((_, row) => (
           <div
             key={row}
-            className={`flex divide-x divide-gray-100 border-b border-gray-100 ${row % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}
+            className={`flex divide-x divide-line-subtle border-b border-line-subtle ${row % 2 === 0 ? 'bg-surface' : 'bg-sunken'}`}
           >
             {Array.from({ length: colCount }).map((_, col) => (
-              <div key={col} className="flex-1 px-4 py-[11px]">
+              <div key={col} className="flex-1 px-4 py-field">
                 <SkeletonBar row={row} col={col} />
               </div>
             ))}

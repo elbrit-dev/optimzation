@@ -21,9 +21,9 @@ export default function UserProfile({ showLogout = true }) {
         />
       )}
       <div className="flex flex-col">
-        <span className="text-sm font-medium text-gray-900">{displayName}</span>
+        <span className="text-sm font-medium text-body">{displayName}</span>
         {user.email && (
-          <span className="text-xs text-gray-500">{user.email}</span>
+          <span className="text-xs text-ds-secondary">{user.email}</span>
         )}
       </div>
       {showLogout && <LogoutButton className="ml-2" />}

@@ -1,4 +1,3 @@
-import { Descriptions } from "antd";
 
 /**
  * Default configuration for DataTable

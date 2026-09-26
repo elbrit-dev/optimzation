@@ -47,20 +47,20 @@ export class SmartDataErrorBoundary extends Component {
 
     return (
       <div className="flex flex-col items-center justify-center p-4 sm:p-10 gap-4 min-h-[200px]">
-        <div className="bg-white border border-red-200 rounded-lg shadow-sm w-full max-w-2xl p-4 sm:p-6 flex flex-col items-center gap-4">
+        <div className="bg-surface border border-danger-border rounded-lg shadow-card w-full max-w-2xl p-4 sm:p-6 flex flex-col items-center gap-4">
 
           {/* Icon + heading */}
           <div className="flex flex-col items-center gap-2 text-center">
-            <span className="w-12 h-12 rounded-full bg-red-50 border border-red-200 flex items-center justify-center">
-              <i className="pi pi-exclamation-triangle text-red-500 text-xl" />
+            <span className="w-12 h-12 rounded-full bg-danger-wash border border-danger-border flex items-center justify-center">
+              <i className="pi pi-exclamation-triangle text-danger text-xl" />
             </span>
-            <p className="text-gray-800 font-semibold text-base">Failed to render {label}</p>
-            <p className="text-gray-500 text-sm max-w-md">{error.message}</p>
+            <p className="text-body font-semibold text-base">Failed to render {label}</p>
+            <p className="text-ds-secondary text-sm max-w-md">{error.message}</p>
           </div>
 
           {/* Stack trace — dev only */}
           {isDev && (
-            <pre className="w-full bg-gray-50 border border-gray-200 rounded-md p-3 text-[11px] text-gray-600 leading-relaxed overflow-auto max-h-52 whitespace-pre-wrap break-all">
+            <pre className="w-full bg-sunken border border-line-subtle rounded-md p-3 text-11 text-ds-secondary leading-relaxed overflow-auto max-h-52 whitespace-pre-wrap break-all">
               {error.stack}
               {errorInfo?.componentStack && `\n\nComponent stack:${errorInfo.componentStack}`}
             </pre>
@@ -70,14 +70,14 @@ export class SmartDataErrorBoundary extends Component {
           <div className="flex flex-wrap justify-center gap-2">
             <button
               onClick={this.handleCopy}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-line-subtle bg-surface text-body hover:bg-brand-tint-weak transition-colors"
             >
-              <i className={`pi ${copied ? 'pi-check text-green-600' : 'pi-copy text-gray-500'} text-xs`} />
+              <i className={`pi ${copied ? 'pi-check text-success' : 'pi-copy text-ds-secondary'} text-xs`} />
               {copied ? 'Copied!' : 'Copy debug info'}
             </button>
             <button
               onClick={this.handleReset}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-info-border bg-info-wash text-brand hover:bg-brand-tint transition-colors"
             >
               <i className="pi pi-refresh text-xs" />
               Retry

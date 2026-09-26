@@ -121,6 +121,10 @@ export default function DataProviderViews({
   // The pill opens the ORIGINAL Filter/Sort sidebar — only the button is
   // restyled. Defaults to on when the search bar is enabled.
   compactHeader,
+  // Hide the provider's control row ENTIRELY — month picker, sync, pills and
+  // anything slotted into the row — for a child that brings its own header
+  // (Secondary Entry). The month then comes from the query's own variables.
+  hideProviderHeader = false,
   // --- A–Z letter rail (provider-owned; jumps to [data-letter] sections in the slot) ---
   showLetterRail = false,
   letterRailField = '',
@@ -514,10 +518,16 @@ export default function DataProviderViews({
     // would sit on a single page, and its rows-per-page dropdown would fight
     // that window. Drop it for those modes only.
     if (enableServerPaging && loadMoreMode !== 'button') next.hideTablePaginator = true;
+    // No row at all: the engine's controls AND the slots, since the engine
+    // still draws the row for slotted content alone.
+    if (hideProviderHeader) {
+      next.showProviderHeader = false;
+      delete next.headerSlots;
+    }
     return next;
   }, [
     __internal, headerTop, headerLeft, headerRight, compact, hideNativeFilterSort,
-    fetchIsNarrowed, enableServerPaging, loadMoreMode,
+    fetchIsNarrowed, enableServerPaging, loadMoreMode, hideProviderHeader,
   ]);
 
   // The whole server-paging trick: `overrides.variables` already flows through

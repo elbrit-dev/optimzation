@@ -4,14 +4,16 @@
  * config can carry an `onItemClick` function. Accepts either a bare items
  * array or
  *
- *   { items: [...], stickyBar?, inset?, ariaLabel?,
+ *   { items: [...], stickyBar?, inset?, ariaLabel?, data?, now?, refreshEvery?,
  *     onItemClick?: (id, href) => void }
  *
  * Every key but `items` mirrors a RingNav prop of the same name, so what runs
  * here is exactly what Studio's props panel would pass. */
 
 const BOOLEAN_KEYS = ['stickyBar', 'inset'];
-const STRING_KEYS = ['ariaLabel'];
+const STRING_KEYS = ['ariaLabel', 'now'];
+const OBJECT_KEYS = ['data'];
+const NUMBER_KEYS = ['refreshEvery'];
 
 function evaluate(trimmed) {
   try {
@@ -50,6 +52,16 @@ export function evaluateRingNavSource(source) {
   for (const key of STRING_KEYS) {
     if (parsed[key] == null) continue;
     if (typeof parsed[key] !== 'string') return { ok: false, error: `${key} must be a string.` };
+    props[key] = parsed[key];
+  }
+  for (const key of OBJECT_KEYS) {
+    if (parsed[key] == null) continue;
+    if (typeof parsed[key] !== 'object' || Array.isArray(parsed[key])) return { ok: false, error: `${key} must be an object.` };
+    props[key] = parsed[key];
+  }
+  for (const key of NUMBER_KEYS) {
+    if (parsed[key] == null) continue;
+    if (typeof parsed[key] !== 'number') return { ok: false, error: `${key} must be a number.` };
     props[key] = parsed[key];
   }
   for (const key of BOOLEAN_KEYS) {

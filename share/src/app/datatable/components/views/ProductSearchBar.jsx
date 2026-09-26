@@ -151,7 +151,7 @@ export default function ProductSearchBar({
     <div ref={wrapRef} className="relative w-full min-w-0">
       <div className="relative">
         <i
-          className="pi pi-search absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400"
+          className="pi pi-search absolute left-3 top-1/2 -translate-y-1/2 text-sm text-ds-muted"
           aria-hidden="true"
         />
         <input
@@ -171,7 +171,7 @@ export default function ProductSearchBar({
             if (e.key === 'Enter') applyNow(text);
             else if (e.key === 'Escape') setOpen(false);
           }}
-          className="w-full rounded-xl border border-transparent bg-gray-100 py-2.5 pl-10 pr-10 text-sm text-slate-800 placeholder:text-gray-400 focus:border-gray-300 focus:bg-white focus:outline-none sm:py-3"
+          className="w-full rounded-xl border border-transparent bg-sunken py-2.5 pl-10 pr-10 text-sm text-body placeholder:text-ds-muted focus:border-line focus:bg-surface focus-visible:ring-2 focus-visible:ring-focus sm:py-3"
         />
         {/* A server-side search is a network round trip, so it gets a spinner in
             place of the clear button while it resolves. */}
@@ -188,7 +188,7 @@ export default function ProductSearchBar({
             type="button"
             aria-label="Clear search"
             onClick={() => applyNow('')}
-            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1.5 text-gray-400 hover:bg-gray-200 hover:text-gray-600"
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1.5 text-ds-muted hover:bg-brand-tint hover:text-ds-secondary"
           >
             <i className="pi pi-times text-xs" aria-hidden="true" />
           </button>
@@ -198,9 +198,9 @@ export default function ProductSearchBar({
       {panelOpen && anchor ? (
         <div
           style={{ position: 'fixed', top: anchor.top, left: anchor.left, width: anchor.width, zIndex: 2000 }}
-          className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl"
+          className="overflow-hidden rounded-xl border border-line-subtle bg-surface shadow-pop"
         >
-          <div className="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+          <div className="px-4 pt-3 pb-1 text-11 font-semibold uppercase tracking-wide text-ds-muted">
             Recent searches
           </div>
           <ul className="max-h-64 overflow-y-auto py-1">
@@ -209,11 +209,11 @@ export default function ProductSearchBar({
                 <button
                   type="button"
                   onClick={() => applyNow(entry)}
-                  className="flex w-full items-center gap-3 border-t border-gray-100 px-4 py-3 text-left first:border-t-0 hover:bg-gray-50"
+                  className="flex w-full items-center gap-3 border-t border-line-subtle px-4 py-3 text-left first:border-t-0 hover:bg-brand-tint-weak"
                 >
-                  <i className="pi pi-search text-xs text-gray-400" aria-hidden="true" />
-                  <span className="flex-1 truncate text-sm font-medium text-slate-800">{entry}</span>
-                  <span className="shrink-0 text-xs text-gray-400">Recent</span>
+                  <i className="pi pi-search text-xs text-ds-muted" aria-hidden="true" />
+                  <span className="flex-1 truncate text-sm font-medium text-body">{entry}</span>
+                  <span className="shrink-0 text-xs text-ds-muted">Recent</span>
                 </button>
               </li>
             ))}

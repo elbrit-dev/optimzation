@@ -92,8 +92,8 @@ export function TransformerFunction() {
 
   return (
     <div className="h-full w-full min-h-0 overflow-hidden flex flex-col">
-      <div className="flex-shrink-0 px-3 py-1.5 border-b border-gray-200 bg-gray-50">
-        <h3 className="text-sm font-semibold text-gray-700">Transformer</h3>
+      <div className="flex-shrink-0 px-3 py-1.5 border-b border-line-subtle bg-sunken">
+        <h3 className="text-sm font-semibold text-body">Transformer</h3>
       </div>
       <div className="flex-1 min-h-0 overflow-hidden">
         <Editor

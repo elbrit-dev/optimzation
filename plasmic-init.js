@@ -12,6 +12,8 @@ import { registerDoctorConsoleComponents } from './components/DoctorConsole/plas
 import MyProfile from "./components/features/my-profile";
 import ProfileHeader from "./components/features/profile-header";
 import SummaryCard from "./components/features/summary-card";
+import HomeOverview from "./components/features/home-overview";
+import SectionPage from "./components/features/section-page";
 import FirebaseUIComponent from "./components/FirebaseUIComponent";
 import LoginHelpForm from "./components/LoginHelpForm";
 import HelpSupport from "./components/features/help-support";
@@ -2995,6 +2997,177 @@ PLASMIC.registerComponent(ProfileHeader, {
   },
   styleSections: true,
   importPath: "./components/features/profile-header",
+});
+
+PLASMIC.registerComponent(HomeOverview, {
+  name: "HomeOverview",
+  displayName: "Home Overview",
+  description:
+    "The home page overview below the entry rings. Desktop: a command board (Primary achievement vs pace with Sales / Returns / Offers and the units furthest behind; Visit, Secondary and Support cards; a Needs-your-attention strip). Phone: the same four as a swipe deck. Then Field activity, Team ranking, Sell-through and Support value rails; tiles open a detail panel. Reads live as the token's user: Primary and Secondary from the Sales Summary engine (customReportV2 SALES / SECONDARY - Target Invest targets, the report's own rules and permission scoping), Field activity from the Doctor Visit plan events (the Visit Report's query) and Support from the Support Report's reads. No period picker: each section shows this month to date, or last month when this one has nothing yet. Units are departments for a token that sees several, HQs for one that sees a single department.",
+  props: {
+    url: {
+      type: "string",
+      displayName: "GraphQL URL",
+      description: "ERP GraphQL URL, for example https://erp.elbrit.org/api/method/graphql. Every section reads from this one ERP.",
+    },
+    token: {
+      type: "string",
+      displayName: "Auth token",
+      description: "The signed-in user's ERP token, key:secret (the \"token \" prefix is optional). The ERP's permissions for this token decide what every section shows.",
+    },
+    userName: {
+      type: "string",
+      displayName: "User name",
+      description: "Optional. Shown in the greeting: \"Good evening, <name>\". Live, it defaults to the token owner's first name.",
+    },
+    scope: {
+      type: "string",
+      displayName: "Scope line",
+      description: "Optional. The line under the greeting. Live, it defaults to the token owner's role profile and department.",
+    },
+    asOf: {
+      type: "string",
+      displayName: "As of date",
+      description: "Optional ISO date/time to treat as \"today\": it decides the month read, the pace and the greeting. Empty means now.",
+    },
+    updatedAt: {
+      type: "string",
+      displayName: "Updated at",
+      description: "Optional. Shown top-right on desktop as \"Updated 25 Sep 26 · 13:03\". Live, it defaults to when the data finished loading.",
+    },
+    primary: {
+      type: "object",
+      displayName: "Primary data (override)",
+      advanced: true,
+      description:
+        "Leave empty to read it live. Bound, it replaces the live read, in the live read's shape: { period: { label, closed, pace, left, day }, level: \"dept\" | \"hq\", units: [{ name, target, inc, net, gross, credit, expired, breakage, ret, prod, inv, claim, hqs: [...] }], totals: { same figures } }.",
+    },
+    secondary: {
+      type: "object",
+      displayName: "Secondary data (override)",
+      advanced: true,
+      description: "Leave empty to read it live. Bound, it replaces the live read: { period: { label }, level, depts: [{ name, dist, s, c, o, sv, cv, hqs: [...], customers: [{ name, hq, s, c }] }], hqs: [...] } - s sold, c closing, o opening (Nos), sv / cv values.",
+    },
+    visit: {
+      type: "object",
+      displayName: "Visit data (override)",
+      advanced: true,
+      description:
+        "Leave empty to read it live. Bound, it replaces the live read: { live, period, level, hours: [\"10AM\", …], byDept: [unit], byHq: [unit], reps: { reported, total (filled seats), vacant } }, a unit being { name, plan, geo: [per hour], force: [per hour], people: [...], reps: { reported, notYet, vacant } }.",
+    },
+    support: {
+      type: "object",
+      displayName: "Support data (override)",
+      advanced: true,
+      description:
+        "Leave empty to read it live. Bound, it replaces the live read: { months: [{ label, value, qty, doctors }], selected: { label, labels, value, qty, doctors, prevValue, prevLabel }, managers: [{ name, role, value, qty, doctors, months, topDoctors, brands }], topDoctors, brands, health? }.",
+    },
+    sampleData: {
+      type: "boolean",
+      displayName: "Sample data (preview)",
+      defaultValue: true,
+      description:
+        "Shows the design's sample figures while there is no URL/token and no data bound - for laying the page out in Studio. As soon as a token is given the sample is gone, so live and sample figures never mix.",
+    },
+    viewport: {
+      type: "choice",
+      displayName: "Layout",
+      options: ["auto", "desktop", "mobile"],
+      defaultValue: "auto",
+      description: "auto picks desktop (command board, scroll arrows, dialog panels) at 768px of component width and up, mobile (swipe deck, bottom-sheet panels) below.",
+    },
+    primaryPath: { type: "string", displayName: "Primary page", defaultValue: "/home/primary", description: "Where Primary's See all / Open go. Empty leaves it to On open." },
+    secondaryPath: { type: "string", displayName: "Secondary page", defaultValue: "/home/secondary", description: "Where Secondary's See all / Open go. Empty leaves it to On open." },
+    visitPath: { type: "string", displayName: "Visit page", defaultValue: "/home/visit", description: "Where Field activity's See all and the Visit card's Open go. Empty leaves it to On open." },
+    supportPath: { type: "string", displayName: "Support page", defaultValue: "/home/support", description: "Where Support's See all / Open go. Empty leaves it to On open." },
+    onOpenPrimary: {
+      type: "eventHandler",
+      displayName: "On open Primary",
+      description: "Fires from Team ranking See all and the Primary card Open. Give it a Go to page action for this section's page; once wired, the built-in redirect for this section is off.",
+      argTypes: [],
+    },
+    onOpenSecondary: {
+      type: "eventHandler",
+      displayName: "On open Secondary",
+      description: "Fires from Sell-through See all and the Secondary card Open. Give it a Go to page action for this section's page; once wired, the built-in redirect for this section is off.",
+      argTypes: [],
+    },
+    onOpenVisit: {
+      type: "eventHandler",
+      displayName: "On open Visit",
+      description: "Fires from Field activity See all and the Visit card Open. Give it a Go to page action for this section's page; once wired, the built-in redirect for this section is off.",
+      argTypes: [],
+    },
+    onOpenSupport: {
+      type: "eventHandler",
+      displayName: "On open Support",
+      description: "Fires from Support value See all and the Support card Open. Give it a Go to page action for this section's page; once wired, the built-in redirect for this section is off.",
+      argTypes: [],
+    },
+    onOpen: {
+      type: "eventHandler",
+      displayName: "On open",
+      description:
+        "\"See all\" and \"Open\" fire this (section = primary | secondary | visit | support) and then go to that section's page from the page props above. Wire it only for extra actions - navigation is built in. Tiles open the built-in detail panel instead and do not fire it.",
+      argTypes: [
+        { name: "section", type: "string" },
+        { name: "hq", type: "string" },
+      ],
+    },
+    className: {
+      type: "string",
+      displayName: "className",
+      description: "Applied to the root element so width and spacing can be set from Studio.",
+      defaultValue: "",
+    },
+  },
+  styleSections: true,
+  importPath: "./components/features/home-overview",
+});
+PLASMIC.registerComponent(SectionPage, {
+  name: "SectionPage",
+  displayName: "Section Page",
+  description:
+    "The page a Home Overview \"See all\" / \"Open\" lands on: a sticky header with a back arrow, the section name (Primary, Visit, Secondary, Support), the period and two stat chips, above an open slot for that section's report. Nothing is fetched here - fill the title, period and chips yourself (typed in or bound), and drop the report component into the slot.",
+  props: {
+    title: {
+      type: "string",
+      displayName: "Title",
+      defaultValue: "Primary",
+      description: "The section name in the header: Primary, Visit, Secondary or Support.",
+    },
+    period: {
+      type: "string",
+      displayName: "Period",
+      defaultValue: "Sep 2026 · Day 25 of 30",
+      description: "The small line under the title, e.g. \"Sep 2026 · Day 25 of 30\" or \"Today · Fri 25 Sep 2026\". Empty hides it.",
+    },
+    stat1Value: { type: "string", displayName: "Stat 1 value", defaultValue: "45.6%", description: "First chip's figure, e.g. 45.6%. Empty hides the chip." },
+    stat1Label: { type: "string", displayName: "Stat 1 label", defaultValue: "of target", description: "First chip's words beside the figure, e.g. \"of target\"." },
+    stat1Tone: { type: "choice", displayName: "Stat 1 colour", options: ["default", "red", "green", "amber", "blue"], defaultValue: "default", description: "Colour of the first chip's figure." },
+    stat2Value: { type: "string", displayName: "Stat 2 value", defaultValue: "4", description: "Second chip's figure, e.g. 4. Empty hides the chip." },
+    stat2Label: { type: "string", displayName: "Stat 2 label", defaultValue: "teams at risk", description: "Second chip's words beside the figure, e.g. \"teams at risk\"." },
+    stat2Tone: { type: "choice", displayName: "Stat 2 colour", options: ["default", "red", "green", "amber", "blue"], defaultValue: "red", description: "Colour of the second chip's figure." },
+    children: {
+      type: "slot",
+      displayName: "Report",
+      description: "The section's report component - Support Report, Visit Report, a Summary Card list, and so on.",
+      defaultValue: { type: "text", value: "Drop this section's report here" },
+    },
+    showBack: { type: "boolean", displayName: "Show back arrow", defaultValue: true, description: "Off hides the back arrow." },
+    onBack: {
+      type: "eventHandler",
+      displayName: "On back",
+      description: "Fires when the back arrow is tapped - wire it to go back to Home.",
+      argTypes: [],
+    },
+    sticky: { type: "boolean", displayName: "Sticky header", defaultValue: true, description: "Keeps the header pinned while the report scrolls." },
+    stickyTop: { type: "number", displayName: "Sticky offset (px)", defaultValue: 0, description: "Distance from the top the header pins at - set it to the app header's height (e.g. 64) when the page has one above it." },
+    contentPadding: { type: "boolean", displayName: "Pad the report area", defaultValue: false, description: "Off (the default): the report fills the full width under the header, using its own spacing. On: adds the design's side and top spacing around the slot, for a report that has none." },
+    className: { type: "string", displayName: "className", defaultValue: "", description: "Applied to the root element so width and spacing can be set from Studio." },
+  },
+  styleSections: true,
+  importPath: "./components/features/section-page",
 });
 
 /* Also registers the design-system primitives (the "Elbrit Design System"

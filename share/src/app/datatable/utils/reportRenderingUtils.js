@@ -213,14 +213,14 @@ export function generateReportHeaderGroup(
     if (!addon) return labelText;
     return (
       <div className="flex flex-col items-stretch gap-1.5 min-w-0 w-full text-left">
-        <span className="block text-xs leading-tight text-gray-800 truncate">{labelText}</span>
+        <span className="block text-xs leading-tight text-body truncate">{labelText}</span>
         <div className="w-full min-w-0">{addon}</div>
       </div>
     );
   };
 
   const leafTitleOnly = (labelText) => (
-    <span className="block text-xs leading-tight text-gray-800 truncate">{labelText}</span>
+    <span className="block text-xs leading-tight text-body truncate">{labelText}</span>
   );
 
   /** Leaf header content: stacked label + filter, or title-only row when metric filters occupy the row below */

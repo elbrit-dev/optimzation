@@ -193,6 +193,11 @@ export function useVisitKpi({
         pob: Boolean(truncated?.pob),
       },
       source: DATA_SOURCE,
+      /* COUNT ROWS in `rows` (live): the lists that need real visits fetch
+         them with `loadRows` when they open. The mock carries real rows and
+         neither. */
+      countsOnly: Boolean(dataset?.countsOnly),
+      loadRows: dataset?.loadRows ?? null,
     };
   }, [state, scopeId, period, month, monthTo]);
 }

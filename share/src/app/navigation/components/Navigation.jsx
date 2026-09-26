@@ -305,7 +305,7 @@ const Navigation = ({
             width: isCollapsed ? '5rem' : desktopWidth
           }}
           transition={{ duration: 0.3 }}
-          className="bg-white border-r border-gray-200 flex flex-col shadow-sm overflow-x-hidden"
+          className="bg-surface border-r border-line-subtle flex flex-col shadow-card overflow-x-hidden"
           style={{
             height: desktopHeight === 'auto' ? 'auto' : desktopHeight,
           }}
@@ -328,10 +328,10 @@ const Navigation = ({
                     onClick={() => handleItemClick(index)}
                     disabled={isDisabled}
                     className={`w-full ${isCollapsed ? 'flex justify-center px-1 py-2' : 'text-left px-4 py-3'} rounded-lg ${isCollapsed ? 'mb-0.5' : 'mb-1'} transition-colors ${isDisabled
-                      ? 'opacity-50 cursor-not-allowed text-gray-400'
+                      ? 'opacity-50 cursor-not-allowed text-ds-muted'
                       : isActive
-                        ? 'bg-blue-50 text-blue-700 font-medium'
-                        : 'text-gray-700 hover:bg-gray-100'
+                        ? 'bg-info-wash text-brand font-medium'
+                        : 'text-body hover:bg-brand-tint-weak'
                       }`}
                     whileHover={isDisabled ? {} : { scale: 1.02 }}
                     whileTap={isDisabled ? {} : { scale: 0.98 }}
@@ -356,7 +356,7 @@ const Navigation = ({
             {showCollapse && (
               <motion.button
                 onClick={() => setIsCollapsed(!isCollapsed)}
-                className={`w-full ${isCollapsed ? 'px-1 py-2' : 'px-4 py-3'} rounded-lg ${isCollapsed ? 'mt-1' : 'mt-2'} text-gray-700 hover:bg-gray-100 transition-colors flex items-center ${isCollapsed ? 'justify-center' : 'justify-start gap-3'}`}
+                className={`w-full ${isCollapsed ? 'px-1 py-2' : 'px-4 py-3'} rounded-lg ${isCollapsed ? 'mt-1' : 'mt-2'} text-body hover:bg-brand-tint-weak transition-colors flex items-center ${isCollapsed ? 'justify-center' : 'justify-start gap-3'}`}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
               >
@@ -379,7 +379,7 @@ const Navigation = ({
         <motion.nav
           initial={false}
           animate={{ y: 0, opacity: 1 }}
-          className="bg-white border-t border-gray-200 shadow-lg safe-area-bottom flex-shrink-0 z-10 fixed bottom-0 left-0 right-0"
+          className="bg-surface border-t border-line-subtle shadow-pop safe-area-bottom flex-shrink-0 z-10 fixed bottom-0 left-0 right-0"
           style={{
             width: mobileWidth,
             height: mobileHeight,
@@ -394,10 +394,10 @@ const Navigation = ({
                   onClick={() => handleItemClick(index)}
                   disabled={isDisabled}
                   className={`relative flex flex-col items-center justify-center flex-1 h-full rounded-lg transition-colors ${isDisabled
-                    ? 'opacity-50 cursor-not-allowed text-gray-400'
+                    ? 'opacity-50 cursor-not-allowed text-ds-muted'
                     : activeIndex === index
-                      ? 'text-blue-600'
-                      : 'text-gray-500'
+                      ? 'text-brand'
+                      : 'text-ds-secondary'
                     }`}
                   whileTap={isDisabled ? {} : { scale: 0.9 }}
                 >
@@ -441,7 +441,7 @@ const Navigation = ({
             {/* Active indicator */}
             {activeIndex !== null && (
               <motion.div
-                className="absolute bottom-0 h-1 bg-blue-600 rounded-t-full"
+                className="absolute bottom-0 h-1 bg-brand rounded-t-full"
                 layoutId="activeIndicator"
                 transition={{ type: 'spring', stiffness: 300, damping: 30 }}
                 style={{

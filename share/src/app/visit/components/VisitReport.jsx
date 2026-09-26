@@ -12,6 +12,7 @@ import {
   planned,
   pobTotal,
   resolveSelection,
+  everyonePicks,
   subtreeOf,
   visitsByHour,
 } from '../data/selectors';
@@ -30,6 +31,7 @@ import { PeriodTabs } from './PeriodTabs';
 import { AttendanceCard } from './AttendanceCard';
 import { AttendanceSheet } from './AttendanceSheet';
 import { DoctorPlanSheet } from './DoctorPlanSheet';
+import { useListRows } from '../data/useListRows';
 import { VisitsByHourSheet } from './VisitsByHourSheet';
 import { KpiGrid } from './KpiGrid';
 import { ALL_HQS, HqSection } from './HqSection';
@@ -150,6 +152,8 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
     ready,
     loading,
     error,
+    countsOnly,
+    loadRows,
   } = useVisitKpi({
     /* No scopeId: the hook resolves the viewer for `root`, which is only
        used here as the DEFAULT pick. Everything else reads the unscoped
@@ -165,9 +169,14 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
   /* The viewer and their whole branch, until something is ticked. Memoised
      on the id alone so the picker is not handed a new array every render --
      TreeSelect keys an effect off it. */
+  /* A viewer who is IN the roster starts on their own branch. One who is
+     not — IT, an admin: the token resolves to no sales employee — starts on
+     EVERYONE (see everyonePicks), not on whichever single branch is
+     largest, which left out whole teams. */
   const defaultPicks = useMemo(
-    () => (root ? [{ id: root.id, includeSubtree: true }] : []),
-    [root?.id],
+    () => (viewerId ? (root ? [{ id: root.id, includeSubtree: true }] : []) : everyonePicks(team)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [viewerId, root?.id, team],
   );
   /* A pick can name somebody the roster no longer contains. Dropping those
      and falling back keeps the report on SOMETHING rather than reporting on
@@ -311,6 +320,29 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
     };
   }, [scoped, attendanceRows, overRange, calendar, pob, ready.pob, hq, isMine, win.from, win.to]);
 
+
+  /* THE ROWS BEHIND AN OPEN LIST, live. The numbers above are server-side
+     counts (useVisitKpi's `countsOnly`), so a list asks the ERP for exactly
+     the visits it shows, over the same window and scope the numbers were
+     counted over: the Dr plan for one person, or the done visits of the
+     scope in the selected HQ at one hour / of one tone. The mock carries
+     real rows and keeps using them. */
+  const planRequest = countsOnly && sheet?.kind === 'plan' && win
+    ? { mode: 'plan', member: sheet.memberId, from: win.from, to: win.to }
+    : null;
+  const hourRequest = countsOnly && sheet?.kind === 'hour' && win
+    ? {
+        mode: 'visits',
+        employees: scoped.team.map((m) => m.id),
+        hq: view.activeHq === ALL_HQS ? '*' : view.activeHq,
+        hour: sheet.selection?.hour ?? null,
+        tone: sheet.selection?.tone ?? null,
+        from: win.from,
+        to: win.to,
+      }
+    : null;
+  const planList = useListRows(loadRows, planRequest);
+  const hourList = useListRows(loadRows, hourRequest);
 
   /* The two ways the page has to name its period in words. Derived HERE, not
      in the components that print them: telling "MTD" from "Aug" needs both
@@ -567,7 +599,8 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
                  after the roster under it changed. */
               member={sheet?.kind === 'plan' ? (team.find((m) => m.id === sheet.memberId) ?? null) : null}
               team={team}
-              rows={rows}
+              rows={countsOnly ? planList.rows : rows}
+              loading={countsOnly && planList.loading}
               pob={pob}
               periodLabel={planLabel}
               /* A month window is thirty days, so a clock time alone cannot
@@ -578,7 +611,8 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
             />
             <VisitsByHourSheet
               selection={sheet?.kind === 'hour' ? sheet.selection : null}
-              rows={view.chartRows}
+              rows={countsOnly ? hourList.rows : view.chartRows}
+              loading={countsOnly && hourList.loading}
               /* Only to resolve each attendee's rung for the card's role
                  pill; the rows themselves are already scoped. */
               team={team}

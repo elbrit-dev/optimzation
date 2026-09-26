@@ -13,7 +13,16 @@ import { SmartDataTable } from './components/SmartDataTable/SmartDataTable.jsx';
 import { ReportControls } from './app/report-table/components/ReportControls.jsx';
 import { ViewSwitcher } from './components/ViewSwitcher.jsx';
 import { VisitReport } from './app/visit/components/VisitReport.jsx';
+import { SecondaryEntry } from './app/secondary-entry/components/SecondaryEntry.jsx';
+import { SecondaryApproval } from './app/secondary-approval/components/SecondaryApproval.jsx';
+import { DoctorSupportEntry } from './app/doctor-support/components/DoctorSupportEntry.jsx';
+import { DoctorSupportApproval } from './app/doctor-support/components/DoctorSupportApproval.jsx';
 import RingNav from './app/ring-nav/components/RingNav.jsx';
+import { visitReportMeta } from './app/visit/plasmic.meta.js';
+import { secondaryEntryMeta } from './app/secondary-entry/plasmic.meta.js';
+import { secondaryApprovalMeta } from './app/secondary-approval/plasmic.meta.js';
+import { doctorSupportApprovalMeta, doctorSupportEntryMeta } from './app/doctor-support/plasmic.meta.js';
+import { ringNavMeta } from './app/ring-nav/plasmic.meta.js';
 import { registerDesignSystem } from './design-system/plasmic';
 
 /* Registered HERE rather than hand-written in each consuming app, which is
@@ -21,27 +30,6 @@ import { registerDesignSystem } from './design-system/plasmic';
    registerElbritCoreComponents, the same way it gets DataProvider. The
    alternative -- a second copy of the component and a second copy of this
    metadata in the app -- is a fork, and it drifts. */
-const visitReportMeta = {
-  name: 'VisitReport',
-  displayName: 'Visit Report',
-  section: 'ElbritCoreLib',
-  description:
-    'Mobile-first field-force visit KPI report: attendance, planned vs happened calls, POB, geo-verified vs force visits, an HQ strip with hourly chart, and the manager team tree. The period is today or any month back through the picker; the scope picker takes several branches at once, each either the manager alone or their whole subtree. Attendance chips and per-node Dr plan buttons open the rows behind the numbers. Reads live from ERPNext (Events, Employees, LeaveApplications, Quotations) as the SIGNED-IN user, so the default my-team scope and every permission-scoped row reflect who is actually looking. Bind gqlToken to the same user credential the other ERP-reading components on this canvas use -- there is no shared/service-token fallback.',
-  props: {
-    gqlEnvironment: {
-      type: 'string',
-      defaultValue: 'ERP',
-      helpText:
-        "The /tokens registry row NAME this resolves the ERP HOST from ('ERP' vs a UAT/sandbox row). Never used for a credential -- gqlToken is the only source of that.",
-    },
-    gqlToken: {
-      type: 'string',
-      helpText:
-        "REQUIRED. The signed-in user's own ERP token ('key:secret' or already-prefixed 'token key:secret'). There is no fallback: leaving this empty means the report has nothing to authenticate with and throws rather than silently using a shared credential.",
-    },
-  },
-};
-
 const dataProviderMeta = {
   name: 'DataProvider',
   displayName: 'Elbrit DataProvider',
@@ -162,6 +150,12 @@ const dataProviderViewsMeta = {
       type: 'boolean',
       description:
         'Compact control row: hides the engine\'s own header controls and renders [⛭ sort pill] [⟳ 5 Aug, 11:25] … [Cards | Table] on one line, mobile-sized. Only the buttons are restyled — the sort pill opens the ORIGINAL Filter/Sort sidebar (searchFields/sortFields from the query doc) and the refresh pill runs the same sync. Defaults to ON whenever showSearch is on; set false to keep the engine header alongside the search bar. Note: month-range queries need the engine header for the month picker — keep this off for those.',
+    },
+    hideProviderHeader: {
+      type: 'boolean',
+      defaultValue: false,
+      description:
+        'Hide the provider\'s control row entirely — month picker, sync, Filter/Sort and anything in the row (including a header-positioned view switcher). For a slot child that brings its own header, e.g. Secondary Entry. The month range then comes from the query\'s own startDate/endDate variables.',
     },
     hideNativeFilterSort: {
       type: 'boolean',
@@ -560,46 +554,6 @@ const eventTimelineMeta = {
 /* The field app's task strip as shortcuts: each tile links to its task's
    page through next/link. No tabs, no panels, no selected state.
    Harness: /ring-nav. */
-const ringNavMeta = {
-  name: 'RingNav',
-  displayName: 'Elbrit Ring Nav',
-  section: 'ElbritCoreLib',
-  importPath: './src/app/ring-nav/components/RingNav',
-  isDefaultExport: true,
-  // The strip sizes its rings from its own width, so it must not hug them.
-  defaultStyles: { width: 'stretch' },
-  description:
-    "The field app task strip (Secondary, Support, Expense, Leave…) as a row of shortcuts. Each tile shows a progress ring, a count badge, a due-date caption and a status dot, and links to its item's href — a tap navigates there (client-side, via next/link). No tile is ever highlighted, including the one for the current page. Renders nothing until items is set — there is no sample data; bind it to a query.",
-  props: {
-    items: {
-      type: 'object',
-      displayName: 'items',
-      description:
-        'Array of item configs, or plain strings. Each: { id, label, href, target, icon, caption, captionTone, iconTone, count, countTone, progress: 0-100 (percent done) | segments: [{ value, tone }], statusIcon, statusTone, ariaLabel, disabled }. href is where the tile goes; with no href the tile is shown but not pressable. target: "_blank" opens a new tab. icon / statusIcon are PrimeIcons names ("wallet", "pencil"). Tones: brand, success, warning, danger, neutral; countTone is danger or brand. progress fills green for done and red for the rest.',
-    },
-    onItemClick: {
-      type: 'eventHandler',
-      description:
-        'Fired when a tile is pressed, just before it navigates — for analytics, or to run an action first. Args: id, href.',
-      argTypes: [
-        { name: 'id', type: 'string' },
-        { name: 'href', type: 'string' },
-      ],
-    },
-    stickyBar: {
-      type: 'boolean',
-      defaultValue: false,
-      description: 'Pin the strip to the top of the nearest scrolling ancestor while the page scrolls under it.',
-    },
-    inset: {
-      type: 'boolean',
-      defaultValue: true,
-      description: 'The default page-edge inset (px-4 pt-1.5 pb-0.5). Turn off to place the strip flush and inset it yourself.',
-    },
-    ariaLabel: { type: 'string', defaultValue: 'Shortcuts', description: 'Accessible name of the strip.' },
-    className: { type: 'string' },
-  },
-};
 
 const smartDataProviderMeta = {
   name: 'SmartDataProvider',
@@ -713,8 +667,8 @@ const viewSwitcherMeta = {
     height: {
       type: 'string',
       displayName: 'height',
-      defaultValue: '1.75rem',
-      description: 'CSS height of the control, e.g. "1.75rem" or "32px". Defaults to 1.75rem to line up with SmartDataProvider\'s other toolbar controls.',
+      description:
+        'Escape hatch only — leave it empty. The control now follows the design system control scale (22px on an app surface, 32px on a console one), which is what lines it up with the other toolbar controls. The old 1.75rem/28px default was not on that scale.',
     },
     className: { type: 'string' },
   },
@@ -744,6 +698,10 @@ export function registerElbritCoreComponents(loader) {
   loader.registerComponent(ReportControls, reportControlsMeta);
   loader.registerComponent(ViewSwitcher, viewSwitcherMeta);
   loader.registerComponent(VisitReport, visitReportMeta);
+  loader.registerComponent(SecondaryEntry, secondaryEntryMeta);
+  loader.registerComponent(SecondaryApproval, secondaryApprovalMeta);
+  loader.registerComponent(DoctorSupportEntry, doctorSupportEntryMeta);
+  loader.registerComponent(DoctorSupportApproval, doctorSupportApprovalMeta);
   loader.registerComponent(RingNav, ringNavMeta);
   registerDesignSystem(loader);
 }

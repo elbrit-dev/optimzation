@@ -129,24 +129,24 @@ const DEV_VIEWS = [
 
 function ReportTableDev() {
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-sunken">
       <main className="max-w-[1600px] mx-auto px-4 py-8 flex flex-col gap-8">
         <SmartDataProvider>
           {DEV_VIEWS.map(({ key, title, flat, grouped, breakdown }) => (
-            <section key={key} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <h2 className="text-lg font-medium text-gray-800 mb-1">{title}</h2>
-              <p className="text-xs text-gray-400 mb-4">data from <code>/api/report-table-dev</code></p>
+            <section key={key} className="bg-surface rounded-lg shadow-card border border-line-subtle p-6">
+              <h2 className="text-lg font-medium text-body mb-1">{title}</h2>
+              <p className="text-xs text-ds-muted mb-4">data from <code>/api/report-table-dev</code></p>
               <div className="flex flex-col gap-6">
                 <div>
-                  <h3 className="text-sm font-medium text-gray-600 mb-2">Flat</h3>
+                  <h3 className="text-sm font-medium text-ds-secondary mb-2">Flat</h3>
                   <SmartDataTable viewId={`dev-${key}-flat`} dataSource={flat} loadingMessage="Loading…" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-medium text-gray-600 mb-2">Grouped</h3>
+                  <h3 className="text-sm font-medium text-ds-secondary mb-2">Grouped</h3>
                   <SmartDataTable viewId={`dev-${key}-grouped`} dataSource={grouped} loadingMessage="Loading…" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-medium text-gray-600 mb-2">Breakdown (by Month)</h3>
+                  <h3 className="text-sm font-medium text-ds-secondary mb-2">Breakdown (by Month)</h3>
                   <SmartDataTable viewId={`dev-${key}-breakdown`} dataSource={breakdown} loadingMessage="Loading…" />
                 </div>
               </div>

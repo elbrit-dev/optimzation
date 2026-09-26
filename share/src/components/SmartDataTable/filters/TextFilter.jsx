@@ -3,6 +3,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { debounce } from 'lodash';
 import { InputText } from 'primereact/inputtext';
+import { inputTextPt } from '@/design-system/primereact/inputTextPreset';
 
 export const TextFilter = memo(function TextFilter({ field, value, onFilter, debounceMs = 300 }) {
   const committedStr = value?.value != null ? String(value.value) : '';
@@ -32,6 +33,7 @@ export const TextFilter = memo(function TextFilter({ field, value, onFilter, deb
 
   return (
     <InputText
+unstyled
       value={draft}
       onChange={(e) => {
         const raw = e.target.value;
@@ -43,8 +45,12 @@ export const TextFilter = memo(function TextFilter({ field, value, onFilter, deb
       }}
       onBlur={(e) => commit(e.currentTarget.value)}
       placeholder="Search..."
-      className="p-column-filter"
-      style={{ width: '100%' }}
+      /* A lara filter class used to be applied here, so our own code was
+         reaching for a theme class to get its font size (via an `!important`
+         rule in globals.css). Geometry now comes from the design-system
+         preset, and the width from the enclosing `columnFilter` pt section. */
+      unstyled
+      pt={inputTextPt}
     />
   );
 });

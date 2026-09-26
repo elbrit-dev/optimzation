@@ -209,14 +209,15 @@ export function TableViewer() {
     <div className="h-full flex flex-col">
       <div className="flex-1 overflow-hidden">
         {!rawResponseData || queryKeys.length === 0 ? (
-          <div className="flex items-center justify-center h-full bg-gray-50">
+          <div className="flex items-center justify-center h-full bg-sunken">
             <div className="text-center p-4">
-              <i className="pi pi-info-circle text-3xl text-gray-400 mb-2"></i>
-              <p className="text-sm text-gray-600 font-medium">Run query to see table data</p>
+              <i className="pi pi-info-circle text-32 text-ds-muted mb-2"></i>
+              <p className="text-sm text-ds-secondary font-medium">Run query to see table data</p>
             </div>
           </div>
         ) : queryKeys.length > 1 ? (
           <TabView
+unstyled
             activeIndex={activeTab}
             onTabChange={(e) => setActiveTab(e.index)}
             className="h-full"
@@ -225,7 +226,7 @@ export function TableViewer() {
             {queryKeys.map((queryKey) => {
               const tableData = memoizedDataByKey[queryKey];
               return (
-                <TabPanel key={queryKey} header={queryKey}>
+                <TabPanel unstyled key={queryKey} header={queryKey}>
                   <div className="h-full overflow-auto p-2">
                     <DataProviderNew config={{ dataSource: null, drawerTabs: [], enableFullscreenDialog: true }} offlineData={tableData} __internal={{ skipConfirmDialog: true }}>
                       <DataTableComponent />

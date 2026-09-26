@@ -76,9 +76,12 @@ function renderTable({ rows, drillDownMeta, drillDown = {}, ctx = {} } = {}) {
   return { store, ctx: value };
 }
 
-/** PrimeReact renders its expander as a button inside the row. */
+/* PrimeReact renders its expander as a button inside the row.
+   Selected via the design-system pt hook rather than `.p-row-toggler`, because
+   that class is one of the ones `unstyled` removes — and SmartDataTable now
+   renders unstyled by default. See design-system/primereact/dataTableHooks.js. */
 function expanderIn(rowEl) {
-  return rowEl.querySelector('button.p-row-toggler');
+  return rowEl.querySelector('button[data-table-part="row-toggler"]');
 }
 
 function rowByText(text) {

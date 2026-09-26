@@ -19,6 +19,15 @@ import { serializeGraphQLField } from '../utils/graphqlSchemaSerialization';
 const EMPTY_OFFLINE_DATA = [];
 
 /**
+ * A month query that isn't client-saved runs live: the worker only accepts a
+ * single-month range for `month: true`, so hand it the doc as a plain range
+ * query and let the whole picked range become startDate/endDate in one request.
+ */
+function liveMonthRangeDoc(queryDoc) {
+  return queryDoc?.month === true && queryDoc.clientSave !== true ? { ...queryDoc, month: false } : queryDoc;
+}
+
+/**
  * Hook: query execution state and runQuery pipeline.
  * Owns: dataSource, selectedQueryKey, savedQueries, executingQuery, processedData, monthRange, hasMonthSupport,
  * queryVariables, currentQueryDoc, lastUpdatedAt, loadingFromCache, offlineDataExecuted; runQuery and helpers.
@@ -584,7 +593,9 @@ export function useQueryExecution(options) {
         waited += pollIntervalMs;
       }
       if (!workerRef.current) throw new Error('Worker is not available.');
-      if (!isOffline && queryDocToUse.month === true && monthRange?.length === 2) {
+      // The per-month path reads its result back from IndexedDB, so it only works for
+      // cached (clientSave) queries; live month queries take one request for the whole range.
+      if (!isOffline && queryDocToUse.month === true && queryDocToUse.clientSave === true && monthRange?.length === 2) {
         const finalData = await executeAndCacheMonthRange(queryId, queryDocToUse, monthRange, finalEndpointUrl, finalAuthToken, mergedVariables, graphqlToken);
         setProcessedData(finalData);
         if (queryDocToUse.index?.trim() && queryDocToUse.clientSave === true) {
@@ -615,7 +626,7 @@ export function useQueryExecution(options) {
         }
         const finalData = await workerRef.current.executePipeline(
           queryId,
-          queryDocToUse,
+          liveMonthRangeDoc(queryDocToUse),
           finalEndpointUrl,
           finalAuthToken,
           monthRangeToPass,
@@ -709,12 +720,12 @@ export function useQueryExecution(options) {
           { year: monthRange[1].getFullYear(), month: monthRange[1].getMonth(), day: monthRange[1].getDate() },
         ]
       : undefined;
-    if (queryDocToUse.month === true && monthRange?.length === 2) {
+    if (queryDocToUse.month === true && queryDocToUse.clientSave === true && monthRange?.length === 2) {
       return executeAndCacheMonthRange(queryId, queryDocToUse, monthRange, finalEndpointUrl, finalAuthToken, mergedVariables, graphqlToken);
     }
     return workerRef.current.executePipeline(
       queryId,
-      queryDocToUse,
+      liveMonthRangeDoc(queryDocToUse),
       finalEndpointUrl,
       finalAuthToken,
       monthRangeToPass,

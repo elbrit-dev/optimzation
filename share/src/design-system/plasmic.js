@@ -358,7 +358,8 @@ const stackedBarMeta = {
         { key: 'absent', value: 2, tone: 'danger', label: 'Not reporting' },
       ],
       description:
-        'Percentages are of the segment TOTAL. For a partly-filled track add a '
+        'Any number of [{ key, value, tone, color, label }]. Percentages are of the segment TOTAL. '
+        + 'color (any CSS colour) overrides tone. For a partly-filled track add a '
         + 'trailing neutral segment for the remainder.',
     },
     size: { type: 'choice', options: ['sm', 'md', 'lg'], defaultValue: 'lg' },
@@ -605,7 +606,8 @@ const progressRingMeta = {
         { key: 'owed', value: 14, tone: 'danger', label: 'Pending' },
       ],
       description:
-        'Same contract as DS Stacked Bar: [{ key, value, tone, label }]. Shares of the TOTAL; '
+        'Same contract as DS Stacked Bar: any number of [{ key, value, tone, color, label }] — color '
+        + '(any CSS colour) overrides tone. Shares of the TOTAL; '
         + 'a zero segment draws nothing. Pass the remainder as its own segment.',
     },
     label: { type: 'string', description: 'Accessible name. Defaults to the segment list.' },
@@ -649,7 +651,8 @@ const ringNavMeta = {
         'Array of { id, label, href, target, icon, caption, captionTone, iconTone, segments, count, '
         + 'countTone, statusIcon, statusTone, ariaLabel, disabled }. A tile with no href is shown '
         + 'but not pressable. icon / statusIcon are PrimeIcons names. Tones: brand, success, '
-        + 'warning, danger, neutral. No sample data: renders nothing until items is set. Plain '
+        + 'warning, danger, neutral. segments: any number of { value, tone, color, label }, color any '
+        + 'CSS colour (wins over tone). No sample data: renders nothing until items is set. Plain '
         + 'anchors: for client-side routing use Elbrit Ring Nav.',
     },
     ariaLabel: { type: 'string', defaultValue: 'Shortcuts' },

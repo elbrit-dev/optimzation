@@ -2,7 +2,7 @@
 
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { startCase } from 'lodash';
-import { Button } from 'primereact/button';
+import { Button } from '@/design-system';
 import { Dialog } from 'primereact/dialog';
 import { InputText } from 'primereact/inputtext';
 import { TabPanel, TabView } from 'primereact/tabview';
@@ -58,9 +58,9 @@ function DataTablePageContent({ onCellEditComplete, config }) {
     return (
       <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center">
         <div className="mb-4">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-2 border-gray-200 border-t-blue-600"></div>
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-2 border-line-subtle border-t-brand"></div>
         </div>
-        <p className="text-sm text-gray-500">Loading data...</p>
+        <p className="text-sm text-ds-secondary">Loading data...</p>
       </div>
     );
   }
@@ -69,10 +69,10 @@ function DataTablePageContent({ onCellEditComplete, config }) {
     return (
       <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center">
         <div className="mb-4">
-          <i className="pi pi-table text-6xl text-gray-300"></i>
+          <i className="pi pi-table text-64 text-ds-muted"></i>
         </div>
-        <h3 className="text-lg font-semibold text-gray-700 mb-2">No Data Available</h3>
-        <p className="text-sm text-gray-500 max-w-md">
+        <h3 className="text-lg font-semibold text-body mb-2">No Data Available</h3>
+        <p className="text-sm text-ds-secondary max-w-md">
           Please select a query from the dropdown above and click <strong>Execute</strong> to see the table data.
         </p>
       </div>
@@ -87,9 +87,9 @@ function DataTablePageContent({ onCellEditComplete, config }) {
         </div>
       )}
       {isMultiSlot ? (
-        <TabView className="flex-1 flex flex-col min-h-0" renderActiveOnly={false}>
+        <TabView unstyled className="flex-1 flex flex-col min-h-0" renderActiveOnly={false}>
           {slotIds.map((slotId) => (
-            <TabPanel key={slotId} header={getSlotTabName(slotId)} className="flex-1 flex flex-col min-h-0">
+            <TabPanel unstyled key={slotId} header={getSlotTabName(slotId)} className="flex-1 flex flex-col min-h-0">
               <div className="flex-1 min-h-0 flex flex-col">
                 <DataTableNew
                   slotId={slotId}
@@ -399,30 +399,31 @@ function DataTablePage() {
   }, [presetJsValue, applyConfig]);
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      <Toast ref={toast} />
+    <div className="min-h-screen bg-sunken flex flex-col">
+      <Toast unstyled ref={toast} />
       <Dialog
+unstyled
         header="Save preset"
         visible={saveLocalAsFirebaseDialogVisible}
         onHide={() => setSaveLocalAsFirebaseDialogVisible(false)}
         style={{ width: '24rem' }}
         footer={
           <div className="flex gap-2 justify-end">
-            <Button label="Cancel" severity="secondary" onClick={() => setSaveLocalAsFirebaseDialogVisible(false)} />
-            <Button label="Save" icon="pi pi-save" onClick={handleSaveLocalAsFirebaseConfirm} disabled={!saveLocalAsFirebaseName?.trim()} />
+            <Button type="default" onClick={() => setSaveLocalAsFirebaseDialogVisible(false)}>Cancel</Button>
+            <Button icon={<i className="pi pi-save" />} onClick={handleSaveLocalAsFirebaseConfirm} disabled={!saveLocalAsFirebaseName?.trim()}>Save</Button>
           </div>
         }
       >
-        <p className="text-sm text-gray-600 mb-3">Local presets cannot be overwritten. Create a new Firebase preset based on it?</p>
+        <p className="text-sm text-ds-secondary mb-3">Local presets cannot be overwritten. Create a new Firebase preset based on it?</p>
         <label className="font-medium text-sm mb-1">Preset name</label>
-        <InputText value={saveLocalAsFirebaseName} onChange={(e) => setSaveLocalAsFirebaseName(e.target.value)} placeholder="Enter preset name" className="w-full" />
+        <InputText unstyled value={saveLocalAsFirebaseName} onChange={(e) => setSaveLocalAsFirebaseName(e.target.value)} placeholder="Enter preset name" className="w-full" />
       </Dialog>
       <main className="flex-1 flex flex-col min-h-0">
         {isLoading ? (
           <div className="flex items-center justify-center min-h-[calc(100vh-180px)]">
             <div className="text-center">
-              <div className="inline-block animate-spin rounded-full h-8 w-8 border-2 border-gray-200 border-t-blue-600 mb-3"></div>
-              <p className="text-sm text-gray-500">Loading...</p>
+              <div className="inline-block animate-spin rounded-full h-8 w-8 border-2 border-line-subtle border-t-brand mb-3"></div>
+              <p className="text-sm text-ds-secondary">Loading...</p>
             </div>
           </div>
         ) : (
@@ -447,13 +448,13 @@ function DataTablePage() {
               </div>
             ) : (
               <div className="flex-1 min-h-0 flex flex-col">
-                <Splitter style={{ height: '100%' }} layout="horizontal" className="h-full flex-1 min-h-0">
-                  <SplitterPanel className="flex flex-col min-w-0 h-full" size={80} minSize={30}>
+                <Splitter unstyled style={{ height: '100%' }} layout="horizontal" className="h-full flex-1 min-h-0">
+                  <SplitterPanel unstyled className="flex flex-col min-w-0 h-full" size={80} minSize={30}>
                     <div className="flex flex-col min-w-0 h-full p-3 sm:p-4 md:p-6">
                       <DataTablePageContent onCellEditComplete={handleCellEditComplete} config={configState} />
                     </div>
                   </SplitterPanel>
-                  <SplitterPanel className="flex flex-col min-w-0 overflow-hidden border-l border-gray-200" size={20} minSize={2}>
+                  <SplitterPanel unstyled className="flex flex-col min-w-0 overflow-hidden border-l border-line-subtle" size={20} minSize={2}>
                     <DataTableControls
                       config={configState}
                       dataSource={dataSource}

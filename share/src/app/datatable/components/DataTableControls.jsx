@@ -11,6 +11,7 @@ import { deserializeJsToConfig } from '../config/configSerializer';
 import { getOrderedConfigEntries, isEmptyValue } from '../config/configReadableView';
 import { getDataKeys } from '../utils/dataAccessUtils';
 import DatatableDocsPanel from './DatatableDocsPanel';
+import { Button } from '@/design-system';
 
 function ConfigReadableView({ presetJsValue }) {
   const { config, error } = useMemo(() => {
@@ -27,7 +28,7 @@ function ConfigReadableView({ presetJsValue }) {
 
   if (error) {
     return (
-      <div className="p-5 text-sm text-red-600 bg-red-50 rounded-lg">
+      <div className="p-5 text-sm text-danger bg-danger-wash rounded-lg">
         <span className="font-medium">Parse error:</span> {error}
       </div>
     );
@@ -35,7 +36,7 @@ function ConfigReadableView({ presetJsValue }) {
 
   if (!config) {
     return (
-      <div className="p-5 text-sm text-gray-500">
+      <div className="p-5 text-sm text-ds-secondary">
         Select or load a preset to view config.
       </div>
     );
@@ -49,8 +50,8 @@ function ConfigReadableView({ presetJsValue }) {
         if (isEmptyValue(value)) return null;
 
         return (
-          <li key={key} className="py-1.5 px-3 space-y-1 border-b border-gray-100 last:border-0">
-            <span className="text-sm font-semibold text-gray-700 uppercase tracking-wide">{label}:</span>
+          <li key={key} className="py-1.5 px-3 space-y-1 border-b border-line-subtle last:border-0">
+            <span className="text-sm font-semibold text-body uppercase tracking-wide">{label}:</span>
             <ConfigValueDisplay value={value} />
           </li>
         );
@@ -69,13 +70,13 @@ function FunctionCodeBlock({ value }) {
       <button
         type="button"
         onClick={() => setExpanded((e) => !e)}
-        className="text-left w-full text-xs font-mono bg-gray-100 hover:bg-gray-200 rounded px-2 py-1.5 text-gray-800 transition-colors flex items-center gap-1.5"
+        className="text-left w-full text-xs font-mono bg-sunken hover:bg-brand-tint rounded px-2 py-1.5 text-body transition-colors flex items-center gap-1.5"
       >
-        <i className={`pi pi-chevron-${expanded ? 'down' : 'right'} text-[10px] shrink-0`} />
+        <i className={`pi pi-chevron-${expanded ? 'down' : 'right'} text-10 shrink-0`} />
         <span className="truncate">{isLong ? firstLine + '…' : code}</span>
       </button>
       {expanded && (
-        <pre className="mt-1 text-xs font-mono bg-gray-100 rounded p-2 text-gray-800 whitespace-pre-wrap break-words overflow-visible">
+        <pre className="mt-1 text-xs font-mono bg-sunken rounded p-2 text-body whitespace-pre-wrap break-words overflow-visible">
           <code>{code}</code>
         </pre>
       )}
@@ -85,7 +86,7 @@ function FunctionCodeBlock({ value }) {
 
 function ConfigValueDisplay({ value, depth = 0 }) {
   if (value === null || value === undefined) {
-    return <span className="text-gray-400 text-sm"> null</span>;
+    return <span className="text-ds-muted text-sm"> null</span>;
   }
   if (typeof value === 'function') {
     return <FunctionCodeBlock value={value} />;
@@ -97,12 +98,12 @@ function ConfigValueDisplay({ value, depth = 0 }) {
     return <span className="text-sm font-mono"> {value}</span>;
   }
   if (typeof value === 'string') {
-    return <span className="text-sm text-gray-800 break-words"> {value || '(empty)'}</span>;
+    return <span className="text-sm text-body break-words"> {value || '(empty)'}</span>;
   }
   if (Array.isArray(value)) {
-    if (value.length === 0) return <span className="text-sm text-gray-400"> []</span>;
+    if (value.length === 0) return <span className="text-sm text-ds-muted"> []</span>;
     return (
-      <ul className="list-[circle] list-outside pl-7 mt-1 space-y-0.5 text-sm text-gray-800">
+      <ul className="list-[circle] list-outside pl-7 mt-1 space-y-0.5 text-sm text-body">
         {value.map((item, i) => (
           <li key={i}>
             {(typeof item === 'object' && item !== null && !Array.isArray(item)) || typeof item === 'function' ? (
@@ -117,12 +118,12 @@ function ConfigValueDisplay({ value, depth = 0 }) {
   }
   if (typeof value === 'object') {
     const entries = Object.entries(value);
-    if (entries.length === 0) return <span className="text-sm text-gray-400"> {'{}'}</span>;
+    if (entries.length === 0) return <span className="text-sm text-ds-muted"> {'{}'}</span>;
     return (
       <ul className="list-[circle] list-outside pl-7 mt-1 space-y-0.5 text-sm">
         {entries.map(([k, v]) => (
           <li key={k}>
-            <span className="text-xs font-medium text-gray-600 mr-1">{k}:</span>
+            <span className="text-xs font-medium text-ds-secondary mr-1">{k}:</span>
             <ConfigValueDisplay value={v} depth={depth + 1} />
           </li>
         ))}
@@ -178,7 +179,7 @@ function ColumnNamesList({ columns = [] }) {
 
   if (columns.length === 0) {
     return (
-      <div className="p-5 text-sm text-gray-500">
+      <div className="p-5 text-sm text-ds-secondary">
         No column names available. Load data first.
       </div>
     );
@@ -186,33 +187,26 @@ function ColumnNamesList({ columns = [] }) {
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      <div className="p-2 @3xs:p-4 space-y-2 border-b border-gray-200">
+      <div className="p-2 @3xs:p-4 space-y-2 border-b border-line-subtle">
         <div className="flex flex-wrap gap-2 items-center">
           <InputText
+unstyled
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search columns..."
             className="flex-1 min-w-[120px] text-sm"
-            style={{ height: '2rem' }}
+            style={{ height: 'var(--control-h)' }}
           />
-          <button
-            type="button"
-            onClick={handleCopyAll}
-            className="px-3 py-1.5 text-xs font-medium bg-gray-100 hover:bg-gray-200 rounded transition-colors"
-          >
+          <Button type="default" size="sm" onClick={handleCopyAll}>
             Copy all
-          </button>
+          </Button>
           {search.trim() && (
-            <button
-              type="button"
-              onClick={handleCopyMatching}
-              className="px-3 py-1.5 text-xs font-medium bg-gray-100 hover:bg-gray-200 rounded transition-colors"
-            >
+            <Button type="default" size="sm" onClick={handleCopyMatching}>
               Copy matching
-            </button>
+            </Button>
           )}
         </div>
-        <div className="text-xs text-gray-500">
+        <div className="text-xs text-ds-secondary">
           Showing {filtered.length} of {columns.length} columns
         </div>
       </div>
@@ -220,13 +214,13 @@ function ColumnNamesList({ columns = [] }) {
         {filtered.map((col) => (
           <li
             key={col}
-            className="flex items-center justify-between gap-2 py-1.5 px-2 rounded hover:bg-gray-50 group"
+            className="flex items-center justify-between gap-2 py-1.5 px-2 rounded hover:bg-brand-tint-weak group"
           >
-            <code className="text-sm font-mono text-gray-800 truncate">{col}</code>
+            <code className="text-sm font-mono text-body truncate">{col}</code>
             <button
               type="button"
               onClick={() => handleCopyOne(col)}
-              className="shrink-0 p-1.5 rounded text-gray-400 hover:bg-gray-200 hover:text-gray-700 transition-colors"
+              className="shrink-0 p-1.5 rounded text-ds-muted hover:bg-brand-tint hover:text-body transition-colors"
               title="Copy"
             >
               <i className="pi pi-copy text-xs"></i>
@@ -289,7 +283,7 @@ export default function DataTableControls({
   const presetItemTemplate = (option) => (
     <div className="flex items-center gap-2 w-full group">
       <div className="flex items-center gap-2 min-w-0 flex-shrink-0">
-        <i className={`pi ${option.source === 'firebase' ? 'pi-cloud' : 'pi-folder'} text-xs ${option.source === 'firebase' ? 'text-blue-500' : 'text-gray-500'}`}></i>
+        <i className={`pi ${option.source === 'firebase' ? 'pi-cloud' : 'pi-folder'} text-xs ${option.source === 'firebase' ? 'text-brand' : 'text-ds-secondary'}`}></i>
         <span className="truncate">{option.label}</span>
       </div>
       {option.source === 'firebase' && onDeletePreset && (
@@ -299,7 +293,7 @@ export default function DataTableControls({
             e.stopPropagation();
             onDeletePreset(option.label);
           }}
-          className="ml-auto shrink-0 p-1.5 rounded hover:bg-red-100 text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+          className="ml-auto shrink-0 p-1.5 rounded hover:bg-danger-wash text-danger opacity-0 group-hover:opacity-100 transition-opacity"
           title="Delete preset"
         >
           <i className="pi pi-trash text-xs"></i>
@@ -312,15 +306,16 @@ export default function DataTableControls({
   const showSaveApply = (activeTab === TAB_READ || activeTab === TAB_EDIT) && isConfigDirty;
 
   return (
-    <div className="@container h-full flex flex-col bg-white border-l border-gray-200">
-      <div className="border-b border-gray-200 bg-white hidden @[200px]:flex flex-1 flex-col min-h-0 overflow-hidden">
-        <div className="px-2 @3xs:px-4 py-2 @3xs:py-3 bg-gray-50 border-b border-gray-200 space-y-2">
+    <div className="@container h-full flex flex-col bg-surface border-l border-line-subtle">
+      <div className="border-b border-line-subtle bg-surface hidden @[200px]:flex flex-1 flex-col min-h-0 overflow-hidden">
+        <div className="px-2 @3xs:px-4 py-2 @3xs:py-3 bg-sunken border-b border-line-subtle space-y-2">
           <div className="flex items-center gap-2">
             <i className="pi pi-database text-base @3xs:text-lg text-primary"></i>
             <span className="font-semibold text-sm @3xs:text-base text-primary">DataSource</span>
           </div>
           <div className="flex items-center gap-2">
             <Dropdown
+unstyled
               value={dataSource}
               onChange={(e) => onDataSourceChange?.(e.value)}
               options={dataSourceOptions}
@@ -328,7 +323,7 @@ export default function DataTableControls({
               optionValue="id"
               placeholder="Select data source..."
               className="config-preset-dropdown flex-1 min-w-0"
-              style={{ height: '2rem' }}
+              style={{ height: 'var(--control-h)' }}
               disabled={!dataSourceOptions?.length}
             />
           </div>
@@ -336,7 +331,7 @@ export default function DataTableControls({
             <i className="pi pi-sliders-h text-base @3xs:text-lg text-primary"></i>
             <span className="font-semibold text-sm @3xs:text-base text-primary">Overrides</span>
             {providerOverrides && Object.keys(providerOverrides).length > 0 && (
-              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-green-100 text-green-700">Active</span>
+              <span className="text-10 font-medium px-1.5 py-0.5 rounded bg-success-wash text-success">Active</span>
             )}
           </div>
           <div className="flex items-start gap-2">
@@ -344,7 +339,7 @@ export default function DataTableControls({
               value={overridesDraft}
               onChange={(e) => onOverridesDraftChange?.(e.target.value)}
               placeholder={'DataProvider overrides — e.g.\n{ "token": "Bearer ...", "variables": { "region": "IN" } }'}
-              className="flex-1 min-w-0 text-xs font-mono border border-gray-300 rounded px-2 py-1.5 resize-y"
+              className="flex-1 min-w-0 text-xs font-mono border border-line rounded px-2 py-1.5 resize-y"
               rows={3}
               title="Passed as-is to <DataProvider overrides={...}>: token, variables, and (non-preset flows only) config"
             />
@@ -352,7 +347,7 @@ export default function DataTableControls({
               <button
                 type="button"
                 onClick={onApplyOverrides}
-                className="flex items-center justify-center w-8 h-8 rounded-md bg-blue-600 hover:bg-blue-700 text-white transition-colors"
+                className="flex items-center justify-center w-8 h-8 rounded-md bg-brand hover:bg-brand-hover text-on-brand transition-colors"
                 title="Apply overrides"
               >
                 <i className="pi pi-check text-sm"></i>
@@ -361,7 +356,7 @@ export default function DataTableControls({
                 <button
                   type="button"
                   onClick={onClearOverrides}
-                  className="flex items-center justify-center w-8 h-8 rounded-md bg-gray-200 hover:bg-gray-300 text-gray-700 transition-colors"
+                  className="flex items-center justify-center h-control aspect-square rounded-md border transition-colors bg-surface border-line-subtle text-body hover:border-brand-hover hover:text-brand-hover"
                   title="Clear overrides"
                 >
                   <i className="pi pi-times text-sm"></i>
@@ -376,6 +371,7 @@ export default function DataTableControls({
           </div>
           <div className="flex items-center gap-2">
             <Dropdown
+unstyled
               value={selectedPresetKey}
               onChange={(e) => onPresetSelect?.(e.value)}
               options={presetDropdownOptions}
@@ -385,13 +381,13 @@ export default function DataTableControls({
               optionGroupChildren="items"
               placeholder="Select a preset..."
               className="config-preset-dropdown flex-1 min-w-0"
-              style={{ height: '2rem' }}
+              style={{ height: 'var(--control-h)' }}
               panelClassName="preset-dropdown-panel"
               itemTemplate={presetItemTemplate}
             />
             <button
               onClick={onCreateNewPreset}
-              className="flex items-center justify-center w-8 h-8 rounded-md bg-green-600 hover:bg-green-700 text-white transition-colors shrink-0"
+              className="flex items-center justify-center w-8 h-8 rounded-md bg-brand hover:bg-brand-hover text-on-brand transition-colors shrink-0"
               title="Create new preset"
             >
               <i className="pi pi-plus text-sm"></i>
@@ -401,7 +397,7 @@ export default function DataTableControls({
                 <button
                   onClick={onSavePreset}
                   disabled={presetSaving || !selectedPresetKey}
-                  className="flex items-center justify-center w-8 h-8 rounded-md bg-blue-600 hover:bg-blue-700 text-white disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors shrink-0"
+                  className="flex items-center justify-center w-8 h-8 rounded-md bg-brand hover:bg-brand-hover text-on-brand disabled:bg-surface-disabled disabled:cursor-not-allowed transition-colors shrink-0"
                   title="Save"
                 >
                   <i className={`pi text-sm ${presetSaving ? 'pi-spin pi-spinner' : 'pi-save'}`}></i>
@@ -413,7 +409,7 @@ export default function DataTableControls({
                     onApplyPreset?.(toApply);
                   }}
                   disabled={!presetJsValue}
-                  className="flex items-center justify-center w-8 h-8 rounded-md bg-green-600 hover:bg-green-700 text-white disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors shrink-0"
+                  className="flex items-center justify-center w-8 h-8 rounded-md bg-brand hover:bg-brand-hover text-on-brand disabled:bg-surface-disabled disabled:cursor-not-allowed transition-colors shrink-0"
                   title="Apply"
                 >
                   <i className="pi pi-check text-sm"></i>
@@ -423,32 +419,32 @@ export default function DataTableControls({
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2 px-2 @3xs:px-4 py-2 border-b border-gray-200 bg-gray-50/50">
+        <div className="flex flex-wrap gap-2 px-2 @3xs:px-4 py-2 border-b border-line-subtle bg-sunken/50">
           <button
             type="button"
             onClick={() => setActiveTab(TAB_READ)}
-            className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${activeTab === TAB_READ ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-200'}`}
+            className={`px-3 py-1.5 text-xs font-medium rounded whitespace-nowrap transition-colors ${activeTab === TAB_READ ? 'bg-brand-fill text-on-brand' : 'text-ds-secondary hover:bg-brand-tint'}`}
           >
             Config Read
           </button>
           <button
             type="button"
             onClick={() => setActiveTab(TAB_EDIT)}
-            className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${activeTab === TAB_EDIT ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-200'}`}
+            className={`px-3 py-1.5 text-xs font-medium rounded whitespace-nowrap transition-colors ${activeTab === TAB_EDIT ? 'bg-brand-fill text-on-brand' : 'text-ds-secondary hover:bg-brand-tint'}`}
           >
             Config Edit
           </button>
           <button
             type="button"
             onClick={() => setActiveTab(TAB_INFO)}
-            className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${activeTab === TAB_INFO ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-200'}`}
+            className={`px-3 py-1.5 text-xs font-medium rounded whitespace-nowrap transition-colors ${activeTab === TAB_INFO ? 'bg-brand-fill text-on-brand' : 'text-ds-secondary hover:bg-brand-tint'}`}
           >
             Info
           </button>
           <button
             type="button"
             onClick={() => setActiveTab(TAB_DOCS)}
-            className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${activeTab === TAB_DOCS ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-200'}`}
+            className={`px-3 py-1.5 text-xs font-medium rounded whitespace-nowrap transition-colors ${activeTab === TAB_DOCS ? 'bg-brand-fill text-on-brand' : 'text-ds-secondary hover:bg-brand-tint'}`}
           >
             Docs
           </button>
@@ -472,7 +468,7 @@ export default function DataTableControls({
               theme="vs"
               options={{
                 minimap: { enabled: false },
-                fontSize: 13,
+                fontSize: 'var(--fs-13)',
                 lineNumbers: 'on',
                 scrollBeyondLastLine: false,
                 wordWrap: 'on',

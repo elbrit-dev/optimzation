@@ -19,8 +19,8 @@ function ViewSection({ viewId, viewCfg }) {
   const { name, view } = viewCfg;
 
   return (
-    <section className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-6">
-      <h2 className="text-lg font-medium text-gray-800 mb-4">{name}</h2>
+    <section className="bg-surface rounded-lg shadow-card border border-line-subtle p-4 sm:p-6">
+      <h2 className="text-lg font-medium text-body mb-4">{name}</h2>
       {resolvedControls?.length > 0 && (
         <div className="mb-3">
           <ReportControls controls={resolvedControls} viewIds={[viewId]} apiFilters={resolvedApi?.variables?.filters} />
@@ -53,8 +53,8 @@ function ReportTable({ reportConfig }) {
 
   if (!tokenReady) {
     return (
-      <div className="flex flex-col items-center justify-center w-full min-h-[400px] gap-3 text-gray-400">
-        <svg className="animate-spin w-8 h-8 text-gray-300" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+      <div className="flex flex-col items-center justify-center w-full min-h-[400px] gap-3 text-ds-muted">
+        <svg className="animate-spin w-8 h-8 text-ds-muted" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
         </svg>
@@ -64,7 +64,7 @@ function ReportTable({ reportConfig }) {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-sunken">
       <main className="max-w-[1600px] mx-auto px-4 py-4 sm:py-8 flex flex-col gap-6 sm:gap-8">
         <SmartDataProviderImpl
           reportConfig={reportConfig}
@@ -90,9 +90,9 @@ function ReportTable({ reportConfig }) {
 function EmptyState() {
   return (
     <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center">
-      <i className="pi pi-file-edit text-6xl text-gray-300 mb-4" />
-      <h3 className="text-lg font-semibold text-gray-700 mb-2">No Config Selected</h3>
-      <p className="text-sm text-gray-500 max-w-sm">
+      <i className="pi pi-file-edit text-64 text-ds-muted mb-4" />
+      <h3 className="text-lg font-semibold text-body mb-2">No Config Selected</h3>
+      <p className="text-sm text-ds-secondary max-w-sm">
         Choose a config from the sidebar to load the report.
       </p>
     </div>
@@ -112,15 +112,15 @@ function ReportTablePage() {
 
   return (
     <div className="flex flex-col overflow-hidden" style={{ height: 'calc(100vh - 65px)' }}>
-      <Splitter style={{ height: '100%' }} layout="horizontal" className="flex-1 min-h-0">
-        <SplitterPanel className="flex flex-col min-w-0 overflow-auto" size={80} minSize={30}>
+      <Splitter unstyled style={{ height: '100%' }} layout="horizontal" className="flex-1 min-h-0">
+        <SplitterPanel unstyled className="flex flex-col min-w-0 overflow-auto" size={80} minSize={30}>
           {activeConfig ? (
             <ReportTable key={configKey} reportConfig={activeConfig} />
           ) : (
             <EmptyState />
           )}
         </SplitterPanel>
-        <SplitterPanel className="flex flex-col min-w-0 overflow-hidden" size={20} minSize={2}>
+        <SplitterPanel unstyled className="flex flex-col min-w-0 overflow-hidden" size={20} minSize={2}>
           <ReportsConfigSidebar onConfigLoad={handleConfigLoad} />
         </SplitterPanel>
       </Splitter>

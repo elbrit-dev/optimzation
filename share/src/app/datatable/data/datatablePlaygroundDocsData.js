@@ -133,7 +133,7 @@ groupDrawerAccess: false,`,
   rowColumnStyles: {
     body: 'Conditional row/cell classes or styles by field values (structure matches rowColumnStylesUtils expectations).',
     example: `rowColumnStyles: [
-  { field: 'status', value: 'HOLD', className: 'bg-amber-50' },
+  { field: 'status', value: 'HOLD', className: 'bg-warning-wash' },
 ]`,
   },
   outerGroupField: {

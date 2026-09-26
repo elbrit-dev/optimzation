@@ -54,6 +54,7 @@ export function VisitsByHourSheet({
   scopeLabel,
   showHq = true,
   showDate = false,
+  loading = false,
   onClose,
 }) {
   const [openId, setOpenId] = useState(null);
@@ -144,7 +145,9 @@ export function VisitsByHourSheet({
         ) : null
       }
     >
-      {calls.length === 0 ? (
+      {loading ? (
+        <p className="py-4 text-12 text-ds-secondary">Loading visits…</p>
+      ) : calls.length === 0 ? (
         <p className="py-4 text-12 text-ds-secondary">
           No visits in this {selection?.hour != null ? 'hour' : 'period'}.
         </p>

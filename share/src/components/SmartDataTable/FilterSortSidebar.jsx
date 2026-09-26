@@ -2,8 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Sidebar } from 'primereact/sidebar';
-import { Button } from 'primereact/button';
-import { InputText } from 'primereact/inputtext';
+import { Button, Field, Icon } from '@/design-system';
 import { LoadingOverlay } from './TableSkeleton';
 import { logSmartDataEvent } from './smartDataLogger.js';
 
@@ -40,8 +39,8 @@ function ValueSkeleton() {
     <div className="absolute inset-0 space-y-2 p-2 animate-pulse overflow-hidden">
       {Array.from({ length: 100 }).map((_, i) => (
         <div key={i} className="flex items-center gap-3">
-          <div className="w-4 h-4 bg-gray-200 rounded flex-shrink-0" />
-          <div className="h-3 bg-gray-200 rounded" style={{ width: `${60 + (i % 3) * 15}%` }} />
+          <div className="w-4 h-4 bg-surface-disabled rounded flex-shrink-0" />
+          <div className="h-3 bg-surface-disabled rounded" style={{ width: `${60 + (i % 3) * 15}%` }} />
         </div>
       ))}
     </div>
@@ -268,30 +267,39 @@ export default function FilterSortSidebar({
 
   return (
     <Sidebar
+unstyled
+      /* Selector contract for e2e/pages/SmartTablePage.js. `.p-sidebar` and
+         `.p-sidebar-close` used to stand in for these, and both vanish under
+         `unstyled`; these attributes do not. */
+      pt={{
+        root: { 'data-testid': 'filter-sidebar' },
+        closeButton: { 'data-testid': 'filter-sidebar-close' },
+      }}
       visible={visible}
       onHide={onHide}
       position={isMobile ? 'bottom' : 'left'}
       blockScroll
       className={isMobile ? 'w-full' : ''}
       style={isMobile ? { height: '80vh' } : { width: '600px', maxWidth: '90vw' }}
-      header={<h2 className="text-lg font-semibold text-gray-800 m-0">Filter and Sort</h2>}
+      header={<h2 className="text-lg font-semibold text-body m-0">Filter and Sort</h2>}
     >
       <div className="flex flex-col h-full">
         <div className="flex-1 overflow-hidden flex min-h-0">
 
           {/* ── Left tab navigation ─────────────────────────────────────── */}
-          <div className="w-28 border-r border-gray-200 bg-gray-50 overflow-y-auto flex-shrink-0">
+          <div className="w-28 border-r border-line-subtle bg-sunken overflow-y-auto flex-shrink-0">
             <div className="p-2">
               {/* Sort tab */}
               <button
+                data-testid="filter-sidebar-tab"
                 onClick={() => setActiveTabIndex(0)}
                 className={`w-full text-left px-2 py-2 rounded-md mb-1 transition-colors text-sm ${
-                  activeTabIndex === 0 ? 'bg-blue-100 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-100'
+                  activeTabIndex === 0 ? 'bg-brand-tint text-brand font-medium' : 'text-body hover:bg-brand-tint-weak'
                 }`}
               >
                 <span className="flex items-center justify-between">
                   <span className="text-xs">Sort by</span>
-                  {Object.keys(selectedSorts).length > 0 && <span className="w-2 h-2 bg-blue-600 rounded-full flex-shrink-0" />}
+                  {Object.keys(selectedSorts).length > 0 && <span className="w-2 h-2 bg-brand rounded-full flex-shrink-0" />}
                 </span>
               </button>
 
@@ -304,15 +312,16 @@ export default function FilterSortSidebar({
                 return (
                   <button
                     key={def.key}
+                    data-testid="filter-sidebar-tab"
                     onClick={() => setActiveTabIndex(tabIndex)}
                     className={`w-full text-left px-2 py-2 rounded-md mb-1 transition-colors text-sm ${
-                      isActive ? 'bg-blue-100 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-100'
+                      isActive ? 'bg-brand-tint text-brand font-medium' : 'text-body hover:bg-brand-tint-weak'
                     }`}
                   >
                     <span className="flex items-center justify-between gap-1">
                       <span className="text-xs truncate">{def.label}</span>
                       {selectedCount > 0 && (
-                        <span className="px-1.5 py-0.5 text-xs font-medium bg-blue-600 text-white rounded-full min-w-[1.25rem] text-center flex-shrink-0">
+                        <span className="px-1.5 py-0.5 text-xs font-medium bg-brand text-on-brand rounded-full min-w-[1.25rem] text-center flex-shrink-0">
                           {selectedCount}
                         </span>
                       )}
@@ -324,19 +333,19 @@ export default function FilterSortSidebar({
           </div>
 
           {/* ── Right content area ──────────────────────────────────────── */}
-          <div className="flex-1 overflow-hidden bg-white min-h-0 flex flex-col">
+          <div className="flex-1 overflow-hidden bg-surface min-h-0 flex flex-col">
 
             {/* Sort tab */}
             {activeTabIndex === 0 && (
               <div className="pl-4 flex-1 overflow-y-auto min-h-0">
                 <div className="space-y-1">
                   {sortOptions.length === 0 ? (
-                    <p className="text-sm text-gray-500 p-2">No sort fields available</p>
+                    <p className="text-sm text-ds-secondary p-2">No sort fields available</p>
                   ) : (
                     sortOptions.map((opt, idx) => {
                       const isChecked = selectedSorts[opt.value] === opt.direction;
                       return (
-                        <label key={idx} className="flex items-center cursor-pointer p-2 rounded hover:bg-gray-50">
+                        <label key={idx} data-testid="sort-option" className="flex items-center cursor-pointer p-2 rounded hover:bg-brand-tint-weak">
                           <input
                             type="checkbox"
                             checked={isChecked}
@@ -347,9 +356,9 @@ export default function FilterSortSidebar({
                               }
                               return { ...prev, [opt.value]: opt.direction };
                             })}
-                            className="mr-3 w-4 h-4 text-blue-600"
+                            className="mr-3 w-4 h-4 text-brand"
                           />
-                          <span className="text-sm text-gray-700 flex-1">{opt.label}</span>
+                          <span className="text-sm text-body flex-1">{opt.label}</span>
                         </label>
                       );
                     })
@@ -391,25 +400,28 @@ export default function FilterSortSidebar({
 
                   {/* Search row */}
                   <div className="mb-3 flex items-center gap-2 flex-shrink-0 pr-3">
-                    <div className="p-inputgroup flex-1">
-                      <InputText
-                        value={search}
-                        onChange={e => setTabSearch(prev => ({ ...prev, [key]: e.target.value }))}
-                        onKeyDown={e => { if (e.key === 'Enter') { clearTimeout(debounceRef.current); loadValues(key, 1, searchTerm, true); } }}
-                        placeholder="Search…"
-                        style={{ height: '2rem' }}
-                      />
-                      {search && (
-                        <span
-                          className="p-inputgroup-addon cursor-pointer hover:bg-gray-100"
-                          style={{ height: '2rem' }}
+                    {/* A DS Field with the clear button as its suffix. This was a
+                        lara `p-inputgroup`, whose CSS `unstyled` drops — the ×
+                        addon lost its frame and sat loose beside the input. */}
+                    <Field
+                      value={search}
+                      onChange={v => setTabSearch(prev => ({ ...prev, [key]: v }))}
+                      onKeyDown={e => { if (e.key === 'Enter') { clearTimeout(debounceRef.current); loadValues(key, 1, searchTerm, true); } }}
+                      placeholder="Search…"
+                      aria-label="Search values"
+                      className="min-w-0 flex-1"
+                      suffix={search ? (
+                        <button
+                          type="button"
                           onClick={() => setTabSearch(prev => ({ ...prev, [key]: '' }))}
+                          aria-label="Clear search"
+                          className="flex items-center text-ds-secondary hover:text-body"
                         >
-                          <i className="pi pi-times text-xs text-gray-500" />
-                        </span>
-                      )}
-                    </div>
-                    <span className="text-xs text-gray-500 whitespace-nowrap">
+                          <Icon name="times" size="sm" />
+                        </button>
+                      ) : null}
+                    />
+                    <span className="text-xs text-ds-secondary whitespace-nowrap">
                       {selectedValues.length} selected
                     </span>
                   </div>
@@ -425,18 +437,18 @@ export default function FilterSortSidebar({
                     {items.map((item, idx) => {
                       const isSelected = selectedValues.includes(item.value);
                       return (
-                        <label key={`${item.value}-${idx}`} className="flex items-center cursor-pointer p-2 rounded hover:bg-gray-50">
+                        <label key={`${item.value}-${idx}`} data-testid="filter-option" className="flex items-center cursor-pointer p-2 rounded hover:bg-brand-tint-weak">
                           <input
                             type="checkbox"
                             checked={isSelected}
                             onChange={() => toggleValue(item.value)}
-                            className="mr-3 w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                            className="mr-3 w-4 h-4 text-brand border-line rounded focus:ring-focus"
                           />
-                          <span className="text-sm text-gray-700 flex-1 truncate" title={item.label}>
+                          <span className="text-sm text-body flex-1 truncate" title={item.label}>
                             {item.label}
                           </span>
                           {item.count != null && (
-                            <span className="ml-2 px-1.5 py-0.5 text-xs text-gray-500 bg-gray-100 rounded-full flex-shrink-0">
+                            <span className="ml-2 px-1.5 py-0.5 text-xs text-ds-secondary bg-sunken rounded-full flex-shrink-0">
                               {item.count.toLocaleString()}
                             </span>
                           )}
@@ -446,7 +458,7 @@ export default function FilterSortSidebar({
 
                     {/* Empty state (after load) */}
                     {tv && !loading && items.length === 0 && (
-                      <p className="text-sm text-gray-500 p-2">
+                      <p className="text-sm text-ds-secondary p-2">
                         {search ? 'No values match your search' : 'No values available'}
                       </p>
                     )}
@@ -457,13 +469,13 @@ export default function FilterSortSidebar({
                     {/* Loading spinner for subsequent pages */}
                     {loading && items.length > 0 && (
                       <div className="flex items-center justify-center py-3">
-                        <i className="pi pi-spin pi-spinner text-blue-500 text-lg" />
+                        <i className="pi pi-spin pi-spinner text-brand text-lg" />
                       </div>
                     )}
 
                     {/* End of list indicator */}
                     {!hasMore && items.length > 0 && !loading && (
-                      <p className="text-xs text-gray-400 text-center py-2">All values loaded</p>
+                      <p className="text-xs text-ds-muted text-center py-2">All values loaded</p>
                     )}
                   </div>
                 </div>
@@ -473,22 +485,10 @@ export default function FilterSortSidebar({
         </div>
 
         {/* Footer */}
-        <div className="border-t border-gray-200 p-4 bg-gray-50">
+        <div className="border-t border-line-subtle p-4 bg-sunken">
           <div className="flex gap-2">
-            <Button
-              label="Clear"
-              icon="pi pi-times"
-              onClick={handleClear}
-              className="ds-button-outlined flex-1"
-              disabled={!hasActiveFilters}
-            />
-            <Button
-              label="Apply"
-              icon="pi pi-check"
-              onClick={handleApply}
-              className="flex-1"
-              disabled={!hasActiveFilters}
-            />
+            <Button type="default" data-testid="filter-clear" icon={<i className="pi pi-times" />} onClick={handleClear} className="flex-1" disabled={!hasActiveFilters}>Clear</Button>
+            <Button data-testid="filter-apply" icon={<i className="pi pi-check" />} onClick={handleApply} className="flex-1" disabled={!hasActiveFilters}>Apply</Button>
           </div>
         </div>
       </div>

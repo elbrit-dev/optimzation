@@ -11,9 +11,12 @@
      - `target: '_blank'`           open in a new tab (external links)
      - `progress: 30`               percent done (0-100, clamped): green for
                                     done, red for the rest owed
-     - `segments: [...]`            the full ProgressRing contract; wins over
-                                    `progress` when both are given
-
+     - `segments: [...]`            any number of parts, drawn in proportion:
+                                    [{ value, tone?, color?, label? }] — tone
+                                    one of brand / success / warning / danger /
+                                    neutral, or color any CSS colour (wins over
+                                    tone). Wins over `progress` when both are
+                                    given
    Dropped: nulls, entries with neither id nor label, and every repeat of an
    id after its first — the id is the tile's React key, and two tiles sharing
    one would be reconciled as one. */

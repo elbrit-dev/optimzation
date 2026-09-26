@@ -3,6 +3,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { debounce } from 'lodash';
 import { InputText } from 'primereact/inputtext';
+import { inputTextPt } from '@/design-system/primereact/inputTextPreset';
 
 export const NumericFilter = memo(function NumericFilter({ field, value, onFilter, debounceMs = 400 }) {
   const committedStr = value?.value != null ? String(value.value) : '';
@@ -32,6 +33,7 @@ export const NumericFilter = memo(function NumericFilter({ field, value, onFilte
 
   return (
     <InputText
+unstyled
       value={draft}
       inputMode="decimal"
       onChange={(e) => {
@@ -45,8 +47,8 @@ export const NumericFilter = memo(function NumericFilter({ field, value, onFilte
       onBlur={(e) => commit(e.currentTarget.value)}
       placeholder="<, >, <=, >=, =, <>"
       title="Numeric filters: <10, >10, <=10, >=10, =10, 10<>20 (range)"
-      className="p-column-filter"
-      style={{ width: '100%' }}
+      unstyled
+      pt={inputTextPt}
     />
   );
 });

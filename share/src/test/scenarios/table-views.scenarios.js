@@ -23,7 +23,9 @@ export const tableViewScenarios = [
     ],
     sortTests: [
       { column: 'Invoice Count', order: 'asc',  expectFirstValue: '1' },
-      { column: 'Total Qty',     order: 'desc', expectFirstValue: '710' },
+      // Float columns render through the Currency/Float formatter, which always
+      // shows 2 decimals — the cell reads "710.00", never "710".
+      { column: 'Total Qty',     order: 'desc', expectFirstValue: '710.00' },
     ],
     hiddenColumnTest: { column: 'Customer Count', assertGone: true },
   },
@@ -131,7 +133,13 @@ export const tableViewScenarios = [
     hasColumnGroups:  true,
     hasTreeRows:      true,
     hasSidebarFilter: false,
-    expectedRowCount: 10,
+    // 8, not 10. The mock's breakdown fixture is a strict subset of the
+    // non-pivot department_hq one — it omits 'Vasco Karnataka - ELPL' and
+    // 'Micro Labs Karnataka - ELPL' — so this view has 8 roots out of 18 rows.
+    // The old 10 was copied from the non-pivot variant and never held.
+    // If the two fixtures are meant to carry the same departments, fix the
+    // mock in src/app/api/report-mock/route.js and raise this back to 10.
+    expectedRowCount: 8,
     expectedGroupLabels: ['Jan 2026', 'Feb 2026', 'Total'],
     identityGroupColumns: ['Invoice Count', 'Customer Count'],
     filterTests: [

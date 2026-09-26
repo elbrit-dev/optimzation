@@ -1,4 +1,4 @@
-const PlannerIconActive = ({ className, width = 18, height = 20, fill = "#0F87F9", ...props }) => (
+const PlannerIconActive = ({ className, width = 18, height = 20, fill = "var(--brand-primary)", ...props }) => (
   <svg 
     width={width} 
     height={height} 

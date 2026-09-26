@@ -112,7 +112,7 @@ export const parseQueryToTreeNodes = (queryString, parentPath = '') => {
           key: displayPath,
           label: React.createElement('div', { className: 'flex items-center gap-2' },
             React.createElement('span', { className: 'font-medium' }, fieldName),
-            hasAlias && React.createElement('span', { className: 'text-xs text-gray-400' }, `(alias: ${originalFieldName})`)
+            hasAlias && React.createElement('span', { className: 'text-xs text-ds-muted' }, `(alias: ${originalFieldName})`)
           ),
           data: {
             name: fieldName,

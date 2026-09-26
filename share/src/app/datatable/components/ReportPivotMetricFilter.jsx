@@ -38,6 +38,7 @@ export const ReportPivotMetricFilter = memo(function ReportPivotMetricFilter({
   return (
     <div className="multiselect-filter-container w-full min-w-0">
       <InputText
+unstyled
         value={draft}
         inputMode="decimal"
         onChange={(e) => {
@@ -60,8 +61,7 @@ export const ReportPivotMetricFilter = memo(function ReportPivotMetricFilter({
         }}
         placeholder="<, >, <=, >=, =, <>"
         title="Numeric filters: <10, >10, <=10, >=10, =10, 10<>20 (range)"
-        className="p-column-filter"
-        style={{ width: '100%' }}
+                style={{ width: '100%' }}
       />
     </div>
   );

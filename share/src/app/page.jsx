@@ -5,7 +5,7 @@ import { useState, useCallback, useRef } from 'react';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { firestoreService } from '@/app/graphql-playground/services/firestoreService';
 import { GQL_COLLECTIONS } from '@/app/graphql-playground/constants';
-import { Button } from 'primereact/button';
+import { Button } from '@/design-system';
 import { Dialog } from 'primereact/dialog';
 import { Dropdown } from 'primereact/dropdown';
 import { InputText } from 'primereact/inputtext';
@@ -91,23 +91,23 @@ function Home() {
   }, [uploadCollection, customUploadCollection]);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-sunken">
       <main className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-4 sm:py-6 md:py-8">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
           <Link
             href="/datatable"
-            className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow duration-200 group"
+            className="bg-surface rounded-lg shadow-card border border-line-subtle p-6 hover:shadow-card transition-shadow duration-200 group"
           >
             <div className="flex items-start justify-between">
               <div className="flex-1">
-                <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors">
+                <h2 className="text-lg sm:text-xl font-semibold text-body mb-2 group-hover:text-brand transition-colors">
                   Data Table
                 </h2>
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-ds-secondary">
                   View, filter, sort, and analyze your data with advanced table controls
                 </p>
               </div>
-              <div className="ml-4 text-gray-400 group-hover:text-blue-600 transition-colors">
+              <div className="ml-4 text-ds-muted group-hover:text-brand transition-colors">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                 </svg>
@@ -116,19 +116,38 @@ function Home() {
           </Link>
 
           <Link
-            href="/navigation"
-            className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow duration-200 group"
+            href="/visit"
+            className="bg-surface rounded-lg shadow-card border border-line-subtle p-6 hover:shadow-card transition-shadow duration-200 group"
           >
             <div className="flex items-start justify-between">
               <div className="flex-1">
-                <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors">
+                <h2 className="text-lg sm:text-xl font-semibold text-body mb-2 group-hover:text-brand transition-colors">
+                  Visit KPI
+                </h2>
+                <p className="text-sm text-ds-secondary">
+                  Live ERPNext visit performance by team and HQ — Today / Month till date
+                </p>
+              </div>
+              <div className="ml-4 text-ds-muted group-hover:text-brand transition-colors">
+                <i className="pi pi-map-marker text-24" aria-hidden />
+              </div>
+            </div>
+          </Link>
+
+          <Link
+            href="/navigation"
+            className="bg-surface rounded-lg shadow-card border border-line-subtle p-6 hover:shadow-card transition-shadow duration-200 group"
+          >
+            <div className="flex items-start justify-between">
+              <div className="flex-1">
+                <h2 className="text-lg sm:text-xl font-semibold text-body mb-2 group-hover:text-brand transition-colors">
                   Navigation
                 </h2>
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-ds-secondary">
                   Navigate through the application and explore different sections
                 </p>
               </div>
-              <div className="ml-4 text-gray-400 group-hover:text-blue-600 transition-colors">
+              <div className="ml-4 text-ds-muted group-hover:text-brand transition-colors">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
                 </svg>
@@ -138,18 +157,18 @@ function Home() {
 
           <Link
             href="/graphql-playground-v2"
-            className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow duration-200 group"
+            className="bg-surface rounded-lg shadow-card border border-line-subtle p-6 hover:shadow-card transition-shadow duration-200 group"
           >
             <div className="flex items-start justify-between">
               <div className="flex-1">
-                <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors">
+                <h2 className="text-lg sm:text-xl font-semibold text-body mb-2 group-hover:text-brand transition-colors">
                   GraphQL Playground
                 </h2>
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-ds-secondary">
                   Modern GraphQL playground with Monaco Editor and query management
                 </p>
               </div>
-              <div className="ml-4 text-gray-400 group-hover:text-blue-600 transition-colors">
+              <div className="ml-4 text-ds-muted group-hover:text-brand transition-colors">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
                 </svg>
@@ -159,57 +178,57 @@ function Home() {
 
           <Link
             href="/timeline"
-            className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow duration-200 group"
+            className="bg-surface rounded-lg shadow-card border border-line-subtle p-6 hover:shadow-card transition-shadow duration-200 group"
           >
             <div className="flex items-start justify-between">
               <div className="flex-1">
-                <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors">
+                <h2 className="text-lg sm:text-xl font-semibold text-body mb-2 group-hover:text-brand transition-colors">
                   Event Timeline
                 </h2>
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-ds-secondary">
                   PrimeReact timeline for activity, financial, and performance events — edit data in the JS editor and run
                 </p>
               </div>
-              <div className="ml-4 text-gray-400 group-hover:text-blue-600 transition-colors">
-                <i className="pi pi-clock text-2xl" aria-hidden />
+              <div className="ml-4 text-ds-muted group-hover:text-brand transition-colors">
+                <i className="pi pi-clock text-24" aria-hidden />
               </div>
             </div>
           </Link>
 
           <Link
             href="/report-table"
-            className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow duration-200 group"
+            className="bg-surface rounded-lg shadow-card border border-line-subtle p-6 hover:shadow-card transition-shadow duration-200 group"
           >
             <div className="flex items-start justify-between">
               <div className="flex-1">
-                <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors">
+                <h2 className="text-lg sm:text-xl font-semibold text-body mb-2 group-hover:text-brand transition-colors">
                   Report Table
                 </h2>
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-ds-secondary">
                   View and analyze report data in a structured table format
                 </p>
               </div>
-              <div className="ml-4 text-gray-400 group-hover:text-blue-600 transition-colors">
-                <i className="pi pi-file-excel text-2xl" aria-hidden />
+              <div className="ml-4 text-ds-muted group-hover:text-brand transition-colors">
+                <i className="pi pi-file-excel text-24" aria-hidden />
               </div>
             </div>
           </Link>
 
           <Link
             href="/test-suite"
-            className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow duration-200 group"
+            className="bg-surface rounded-lg shadow-card border border-line-subtle p-6 hover:shadow-card transition-shadow duration-200 group"
           >
             <div className="flex items-start justify-between">
               <div className="flex-1">
-                <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors">
+                <h2 className="text-lg sm:text-xl font-semibold text-body mb-2 group-hover:text-brand transition-colors">
                   Test Suite
                 </h2>
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-ds-secondary">
                   Unit test results, coverage metrics, and per-file breakdowns
                 </p>
               </div>
-              <div className="ml-4 text-gray-400 group-hover:text-blue-600 transition-colors">
-                <i className="pi pi-check-circle text-2xl" aria-hidden />
+              <div className="ml-4 text-ds-muted group-hover:text-brand transition-colors">
+                <i className="pi pi-check-circle text-24" aria-hidden />
               </div>
             </div>
           </Link>
@@ -219,38 +238,38 @@ function Home() {
               client-side navigation interception silently no-ops on it. */}
           <a
             href="/migration"
-            className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow duration-200 group"
+            className="bg-surface rounded-lg shadow-card border border-line-subtle p-6 hover:shadow-card transition-shadow duration-200 group"
           >
             <div className="flex items-start justify-between">
               <div className="flex-1">
-                <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors">
+                <h2 className="text-lg sm:text-xl font-semibold text-body mb-2 group-hover:text-brand transition-colors">
                   Migration
                 </h2>
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-ds-secondary">
                   Ecubix → ERPNext secondary sales data migration workspace
                 </p>
               </div>
-              <div className="ml-4 text-gray-400 group-hover:text-blue-600 transition-colors">
-                <i className="pi pi-sync text-2xl" aria-hidden />
+              <div className="ml-4 text-ds-muted group-hover:text-brand transition-colors">
+                <i className="pi pi-sync text-24" aria-hidden />
               </div>
             </div>
           </a>
 
           <Link
             href="/tokens"
-            className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow duration-200 group"
+            className="bg-surface rounded-lg shadow-card border border-line-subtle p-6 hover:shadow-card transition-shadow duration-200 group"
           >
             <div className="flex items-start justify-between">
               <div className="flex-1">
-                <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors">
+                <h2 className="text-lg sm:text-xl font-semibold text-body mb-2 group-hover:text-brand transition-colors">
                   Global Tokens
                 </h2>
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-ds-secondary">
                   Manage GraphQL endpoints, tokens, and the default environment from one place
                 </p>
               </div>
-              <div className="ml-4 text-gray-400 group-hover:text-blue-600 transition-colors">
-                <i className="pi pi-key text-2xl" aria-hidden />
+              <div className="ml-4 text-ds-muted group-hover:text-brand transition-colors">
+                <i className="pi pi-key text-24" aria-hidden />
               </div>
             </div>
           </Link>
@@ -258,19 +277,19 @@ function Home() {
           <button
             type="button"
             onClick={() => setDownloadDialogVisible(true)}
-            className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow duration-200 group text-left w-full"
+            className="bg-surface rounded-lg shadow-card border border-line-subtle p-6 hover:shadow-card transition-shadow duration-200 group text-left w-full"
           >
             <div className="flex items-start justify-between">
               <div className="flex-1">
-                <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors">
+                <h2 className="text-lg sm:text-xl font-semibold text-body mb-2 group-hover:text-brand transition-colors">
                   Download GQL Collection
                 </h2>
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-ds-secondary">
                   Export a GQL collection as JSON
                 </p>
               </div>
-              <div className="ml-4 text-gray-400 group-hover:text-blue-600 transition-colors">
-                <i className="pi pi-download text-2xl" />
+              <div className="ml-4 text-ds-muted group-hover:text-brand transition-colors">
+                <i className="pi pi-download text-24" />
               </div>
             </div>
           </button>
@@ -278,39 +297,41 @@ function Home() {
           <button
             type="button"
             onClick={() => setUploadDialogVisible(true)}
-            className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow duration-200 group text-left w-full"
+            className="bg-surface rounded-lg shadow-card border border-line-subtle p-6 hover:shadow-card transition-shadow duration-200 group text-left w-full"
           >
             <div className="flex items-start justify-between">
               <div className="flex-1">
-                <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors">
+                <h2 className="text-lg sm:text-xl font-semibold text-body mb-2 group-hover:text-brand transition-colors">
                   Upload GQL Collection
                 </h2>
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-ds-secondary">
                   Import JSON into a GQL collection
                 </p>
               </div>
-              <div className="ml-4 text-gray-400 group-hover:text-blue-600 transition-colors">
-                <i className="pi pi-upload text-2xl" />
+              <div className="ml-4 text-ds-muted group-hover:text-brand transition-colors">
+                <i className="pi pi-upload text-24" />
               </div>
             </div>
           </button>
         </div>
 
         <Dialog
+unstyled
           header="Download Collection"
           visible={downloadDialogVisible}
           onHide={() => setDownloadDialogVisible(false)}
           style={{ width: '24rem' }}
           footer={
             <div className="flex gap-2 justify-end">
-              <Button label="Cancel" severity="secondary" onClick={() => setDownloadDialogVisible(false)} />
-              <Button label="Download" icon="pi pi-download" loading={isExporting} onClick={handleDownload} />
+              <Button type="default" onClick={() => setDownloadDialogVisible(false)}>Cancel</Button>
+              <Button icon={<i className="pi pi-download" />} loading={isExporting} onClick={handleDownload}>Download</Button>
             </div>
           }
         >
           <div className="flex flex-col gap-3">
             <label className="font-medium">Collection</label>
             <Dropdown
+unstyled
               value={selectedCollection}
               options={collectionOptions}
               onChange={(e) => setSelectedCollection(e.value)}
@@ -319,6 +340,7 @@ function Home() {
             />
             {selectedCollection === '__custom__' && (
               <InputText
+unstyled
                 value={customDownloadCollection}
                 onChange={(e) => setCustomDownloadCollection(e.target.value)}
                 placeholder="Collection name"
@@ -329,19 +351,15 @@ function Home() {
         </Dialog>
 
         <Dialog
+unstyled
           header="Upload Collection"
           visible={uploadDialogVisible}
           onHide={() => setUploadDialogVisible(false)}
           style={{ width: '24rem' }}
           footer={
             <div className="flex gap-2 justify-end">
-              <Button label="Cancel" severity="secondary" onClick={() => setUploadDialogVisible(false)} />
-              <Button
-                label="Choose File"
-                icon="pi pi-file"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isImporting}
-              />
+              <Button type="default" onClick={() => setUploadDialogVisible(false)}>Cancel</Button>
+              <Button icon={<i className="pi pi-file" />} onClick={() => fileInputRef.current?.click()} disabled={isImporting}>Choose File</Button>
             </div>
           }
         >
@@ -355,6 +373,7 @@ function Home() {
           <div className="flex flex-col gap-3">
             <label className="font-medium">Target collection</label>
             <Dropdown
+unstyled
               value={uploadCollection}
               options={collectionOptions}
               onChange={(e) => setUploadCollection(e.value)}
@@ -363,19 +382,20 @@ function Home() {
             />
             {uploadCollection === '__custom__' && (
               <InputText
+unstyled
                 value={customUploadCollection}
                 onChange={(e) => setCustomUploadCollection(e.target.value)}
                 placeholder="Collection name"
                 className="w-full"
               />
             )}
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-ds-secondary">
               Select a JSON file with format: {"{ collection, documents }"}
             </p>
           </div>
         </Dialog>
 
-        <Toast ref={toastRef} />
+        <Toast unstyled ref={toastRef} />
       </main>
     </div>
   );

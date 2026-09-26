@@ -1,4 +1,4 @@
-const ProductIconActive = ({ className, width = 17, height = 21, fill = "#0F87F9", ...props }) => (
+const ProductIconActive = ({ className, width = 17, height = 21, fill = "var(--brand-primary)", ...props }) => (
   <svg 
     width={width} 
     height={height} 

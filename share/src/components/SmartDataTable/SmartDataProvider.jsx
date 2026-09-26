@@ -9,6 +9,7 @@ import { createSmartDataStore, registerStoreInstance, DEFAULT_VIEW_STATE } from 
 import {
   graphqlQueryReportDataSource, graphqlFetchReportFilterValues, resolveIndexGqlVars,
   resolveDrillDown, graphqlFetchDrillDown, drillDownKey, resolveVariablesMap,
+  resolveReportApiVersion,
   samePathValues,
 } from './reportSource.jsx';
 import { fetchElbritFilterValues, resolveControlDateRange } from './elbritFilterApi.js';
@@ -707,6 +708,8 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
       sortBy: view.sortBy,
       pagination: view.pagination ?? { first: 0, rows: 50 },
       viewParams: view.viewParams ?? {},
+      // Drill-down children must be scoped by the same sort as the parent.
+      apiVersion: resolveReportApiVersion(resolvedApi),
     });
 
     await drillSlot();
@@ -1011,6 +1014,8 @@ export function SmartDataProvider({ config, dataSource, overrides, toolbarExtra,
 function SmartDrawer({ visible, tabs, activeId, onTabSelect, onHide }) {
   return (
     <Sidebar
+unstyled
+      pt={{ root: { 'data-testid': 'smart-drawer' } }}
       visible={visible}
       position="bottom"
       style={{ height: '100dvh' }}
@@ -1022,12 +1027,12 @@ function SmartDrawer({ visible, tabs, activeId, onTabSelect, onHide }) {
       appendTo="self"
       className="smart-drawer-sidebar"
     >
-      <div style={{ padding: 20 }}>
+      <div style={{ padding: 'var(--space-20)' }}>
         {tabs.map(({ id, config: tabCfg = {}, error }) => (
           <div key={id} style={{ display: activeId === id ? 'block' : 'none' }}>
             {error
               ? (
-                <div className="flex items-center gap-2 px-4 py-3 rounded-md border border-red-200 bg-red-50 text-red-700 text-sm">
+                <div className="flex items-center gap-2 px-4 py-3 rounded-md border border-danger-border bg-danger-wash text-danger text-sm">
                   <i className="pi pi-exclamation-triangle flex-none" />
                   <span>{error}</span>
                 </div>

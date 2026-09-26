@@ -102,13 +102,14 @@ export function GraphQLExplorer() {
   }), [schema, debouncedQuery, handleQueryEdit]);
 
   return (
-    <div className="h-full w-full flex flex-col bg-gray-50 border-r border-gray-200 overflow-hidden">
+    <div className="h-full w-full flex flex-col bg-sunken border-r border-line-subtle overflow-hidden">
       {/* Environment Selector */}
-      <div className="px-3 py-1.5 border-b border-gray-200 bg-gray-50 shrink-0">
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">
+      <div className="px-3 py-1.5 border-b border-line-subtle bg-sunken shrink-0">
+        <label className="block text-sm font-medium text-body mb-1.5">
           Environment:
         </label>
         <Dropdown
+unstyled
           value={selectedEnvironment}
           options={dropdownOptions}
           onChange={handleEnvironmentChange}
@@ -127,16 +128,16 @@ export function GraphQLExplorer() {
           className="flex-1 min-h-0 overflow-y-auto relative"
         >
           {schemaLoading && (
-            <div className="absolute inset-0 flex items-center justify-center bg-gray-50 bg-opacity-75 z-10">
+            <div className="absolute inset-0 flex items-center justify-center bg-sunken bg-opacity-75 z-10">
               <div className="text-center">
-                <div className="text-sm text-gray-600 mb-1.5">Loading schema...</div>
-                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-900 mx-auto"></div>
+                <div className="text-sm text-ds-secondary mb-1.5">Loading schema...</div>
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-line-strong mx-auto"></div>
               </div>
             </div>
           )}
 
           {error && (
-            <div className="p-2 m-2 bg-red-50 border border-red-200 rounded text-red-700">
+            <div className="p-2 m-2 bg-danger-wash border border-danger-border rounded text-danger">
               <div className="text-sm font-semibold mb-1">Error loading schema</div>
               <div className="text-xs">{error}</div>
             </div>
@@ -145,8 +146,8 @@ export function GraphQLExplorer() {
           {!schemaLoading && !error && !schema && (
             <div className="h-full flex items-center justify-center min-h-[400px]">
               <div className="text-center p-4">
-                <h2 className="text-lg font-semibold text-gray-700 mb-1.5">GraphQL Explorer</h2>
-                <p className="text-sm text-gray-500">Select an environment to load the schema</p>
+                <h2 className="text-lg font-semibold text-body mb-1.5">GraphQL Explorer</h2>
+                <p className="text-sm text-ds-secondary">Select an environment to load the schema</p>
               </div>
             </div>
           )}

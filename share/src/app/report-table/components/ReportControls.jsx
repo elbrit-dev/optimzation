@@ -8,7 +8,7 @@ import {
   useSmartDataSelector,
   useSmartDataStoreApi,
 } from '@/components/SmartDataTable/SmartDataContext';
-import { Switch } from 'antd';
+import { Switch } from '@/design-system';
 import dayjs from 'dayjs';
 import { useEffect, useMemo, useState } from 'react';
 
@@ -64,16 +64,16 @@ function ToggleControl({ def, viewIds }) {
     <div
       className="flex items-center gap-2 px-3 h-9 sm:h-8 border rounded-md cursor-default"
       style={{
-        borderColor: (value || hovered) ? '#06b6d4' : '#d1d5db',
+        borderColor: (value || hovered) ? 'var(--elbrit-cyan)' : 'var(--border-default)',
         transition: 'border-color 0.2s',
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <label className="text-xs sm:text-sm font-medium text-gray-700 whitespace-nowrap select-none">
+      <label className="text-xs sm:text-sm font-medium text-body whitespace-nowrap select-none">
         {def.label ?? def.key}
       </label>
-      <Switch checked={value} onChange={handleChange} size="small" />
+      <Switch checked={value} onChange={handleChange} label={def.label ?? def.key} />
     </div>
   );
 }
@@ -114,16 +114,16 @@ function FilterSortControl({ def, viewIds }) {
       <button
         type="button"
         onClick={() => setVisible(true)}
-        className="flex items-center gap-2 px-3 h-9 sm:h-8 border rounded-md bg-white transition-colors"
-        style={{ borderColor: isActive ? '#6366f1' : '#d1d5db' }}
+        className="flex items-center gap-2 px-3 h-9 sm:h-8 border rounded-md bg-surface transition-colors"
+        style={{ borderColor: isActive ? 'var(--elbrit-plum)' : 'var(--border-default)' }}
       >
-        <i className="pi pi-filter" style={{ fontSize: '0.75rem', color: isActive ? '#6366f1' : '#6b7280' }} />
-        <span className="text-xs font-medium whitespace-nowrap" style={{ color: isActive ? '#6366f1' : '#374151' }}>
+        <i className="pi pi-filter" style={{ fontSize: 'var(--fs-12)', color: isActive ? 'var(--elbrit-plum)' : 'var(--ds-text-secondary)' }} />
+        <span className="text-xs font-medium whitespace-nowrap" style={{ color: isActive ? 'var(--elbrit-plum)' : 'var(--ds-text-body)' }}>
           {def.label ?? 'Filter & Sort'}
         </span>
         {isActive && (
-          <span className="flex items-center justify-center w-4 h-4 rounded-full text-white text-xs font-bold"
-            style={{ backgroundColor: '#6366f1', fontSize: '0.6rem' }}>
+          <span className="flex items-center justify-center w-4 h-4 rounded-full text-on-brand text-xs font-bold"
+            style={{ backgroundColor: 'var(--elbrit-plum)', fontSize: 'var(--fs-10)' }}>
             {activeCount}
           </span>
         )}
@@ -197,16 +197,16 @@ function RefreshControl({ def }) {
       type="button"
       onClick={refresh}
       disabled={isLoading}
-      className="flex items-center gap-1.5 px-3 h-9 sm:h-8 border rounded-md bg-white text-gray-600"
+      className="flex items-center gap-1.5 px-3 h-9 sm:h-8 border rounded-md bg-surface text-ds-secondary"
       style={{
-        borderColor: hovered && !isLoading ? '#06b6d4' : '#d1d5db',
+        borderColor: hovered && !isLoading ? 'var(--elbrit-cyan)' : 'var(--border-default)',
         transition: 'border-color 0.2s',
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <i className={isLoading ? 'pi pi-spin pi-spinner' : 'pi pi-refresh'} style={{ fontSize: '0.75rem' }} />
-      {label && <span style={{ fontSize: '0.75rem', whiteSpace: 'nowrap' }}>{label}</span>}
+      <i className={isLoading ? 'pi pi-spin pi-spinner' : 'pi pi-refresh'} style={{ fontSize: 'var(--fs-12)' }} />
+      {label && <span style={{ fontSize: 'var(--fs-12)', whiteSpace: 'nowrap' }}>{label}</span>}
     </button>
   );
 }
@@ -262,29 +262,29 @@ export function FilterChips({ viewIds }) {
   }
 
   return (
-    <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+    <div className="mb-4 p-3 bg-sunken border border-line-subtle rounded-lg">
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-xs font-medium text-gray-600 mr-1">Active Filters:</span>
+        <span className="text-xs font-medium text-ds-secondary mr-1">Active Filters:</span>
         {activeFilters.map(def => (
           <div
             key={def.key}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-100 text-blue-800 rounded-full text-xs font-medium"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-tint text-brand-active rounded-full text-xs font-medium"
           >
             <span>{def.label}: {filterSortOutput.filters[def.key].join(', ')}</span>
             <button
               type="button"
               onClick={() => clearOne(def.key)}
-              className="ml-1 hover:bg-blue-200 rounded-full p-0.5 transition-colors"
+              className="ml-1 hover:bg-brand-tint-strong rounded-full p-0.5 transition-colors"
               title="Remove filter"
             >
-              <i className="pi pi-times text-[10px]" />
+              <i className="pi pi-times text-10" />
             </button>
           </div>
         ))}
         <button
           type="button"
           onClick={clearAll}
-          className="inline-flex items-center gap-1 px-3 py-1.5 bg-red-100 text-red-700 rounded-full text-xs font-medium hover:bg-red-200 transition-colors"
+          className="inline-flex items-center gap-1 px-3 py-1.5 text-danger rounded-full text-xs font-medium hover:bg-danger-wash transition-colors"
           title="Clear all filters"
         >
           <i className="pi pi-times-circle text-xs" />
