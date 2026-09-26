@@ -180,7 +180,7 @@ TASKS = [
      "link": "custom_ref_secondary_data_entry", "prefix": "Secondary Data Entry-",
      "hide_empty": False},
     # A seat with no Doctor Support in the month gets no entry tile.
-    {"id": "doctor-support", "label": "Support", "icon": "heart",
+    {"id": "doctor-support", "label": "Support", "icon": "file-check",
      "doctype": "Doctor Support", "child": "Support Items",
      "rp": "role_profile", "status": "status",
      "link": "reference", "prefix": "Doctor Support-",
