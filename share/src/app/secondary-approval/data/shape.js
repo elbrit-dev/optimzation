@@ -95,7 +95,7 @@ function decidedRole(state) {
    "Secondary Data Entry-<entry>-<seat>" — a fallback for rows whose link to
    the entry did not resolve. */
 function parseTrackerName(name, roleProfile) {
-  let s = String(name ?? '').replace(/^Secondary Data Entry-/, '');
+  let s = String(name ?? '').replace(/^(Secondary Data Entry|Doctor Support)-/, '');
   if (roleProfile && s.endsWith(`-${roleProfile}`)) s = s.slice(0, -(roleProfile.length + 1));
   const m = s.match(/^(.*)-(\d{4}-\d{2}-\d{2})$/);
   return m ? { stockist: m[1], date: m[2] } : { stockist: s, date: null };
@@ -156,6 +156,8 @@ export function normalizeSlice(row) {
     entryName: pick(sde, ['name']) ?? null,
     stockist: pick(sde, ['distributor__name', 'distributor.name']) ?? fallback.stockist ?? '',
     ebsCode: pick(sde, ['distributor.whg_ebs_code']) ?? null,
+    /* A doctor's specialty and city, when the server sends them. */
+    note: pick(sde, ['distributor.note']) ?? null,
     hq: pick(row, ['hq__name', 'hq.name', 'hq']) ?? pick(sde, ['distributor.territory__name']) ?? null,
     date,
     month: date ? String(date).slice(0, 7) : null,

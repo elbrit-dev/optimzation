@@ -8,6 +8,7 @@ import { StockistCard } from './StockistCard';
 import { ProductPickerSheet } from './ProductPickerSheet';
 import { ProductCard } from './ProductCard';
 import { PinnedBar, PinnedBarSpacer } from './PinnedBar';
+import { useTask } from '../data/task';
 
 /* One stockist, quantity by item, for this seat — its own page state: it
  * replaces the list, and "All stockists" takes the reader back to the card
@@ -81,6 +82,7 @@ function formSignature(lines) {
 }
 
 export function EntryForm({ entry, products, canEdit, readOnlyReason, onBack, onSave, onDirtyChange, bottomGap = 'var(--space-12)' }) {
+  const task = useTask();
   const rootRef = useRef(null);
   const [barHeight, setBarHeight] = useState(0);
   const [lines, setLines] = useState(() => toFormLines(entry, products));
@@ -213,13 +215,16 @@ export function EntryForm({ entry, products, canEdit, readOnlyReason, onBack, on
                   showPrices={false}
                   tray={[
                     {
-                      label: 'Sales',
-                      value: <QtyInput ariaLabel={`${l.item} sales`} value={l.salesQty} disabled={!editable} onChange={(v) => setLine(i, { salesQty: v })} />,
+                      label: task.qtyLabel,
+                      value: <QtyInput ariaLabel={`${l.item} ${task.qtyLabel.toLowerCase()}`} value={l.salesQty} disabled={!editable} onChange={(v) => setLine(i, { salesQty: v })} />,
                     },
-                    {
-                      label: 'Closing',
-                      value: <QtyInput ariaLabel={`${l.item} closing`} value={l.closingQty} disabled={!editable} onChange={(v) => setLine(i, { closingQty: v })} />,
-                    },
+                    /* Closing only where the task keys it (Secondary). */
+                    ...(task.closing
+                      ? [{
+                          label: 'Closing',
+                          value: <QtyInput ariaLabel={`${l.item} closing`} value={l.closingQty} disabled={!editable} onChange={(v) => setLine(i, { closingQty: v })} />,
+                        }]
+                      : []),
                     { label: 'Value', value: value ? formatMoney(value) : '—', caption: l.pack || undefined },
                   ]}
                 />
@@ -248,7 +253,7 @@ export function EntryForm({ entry, products, canEdit, readOnlyReason, onBack, on
       {!canEdit && readOnlyReason ? <p className="text-11 text-ds-muted">{readOnlyReason}</p> : null}
       {!editable && canEdit ? (
         <p className="text-11 text-ds-muted">
-          Submitted {formatQty(entry.salesQty)} sales · {formatQty(entry.closingQty)} closing — now with the approvers.
+          Submitted {task.closing ? `${formatQty(entry.salesQty)} sales · ${formatQty(entry.closingQty)} closing` : `${formatQty(entry.salesQty)} qty`} — now with the approvers.
         </p>
       ) : null}
       {error ? <p role="alert" className="text-12 text-danger-text">{error}</p> : null}
@@ -265,7 +270,7 @@ export function EntryForm({ entry, products, canEdit, readOnlyReason, onBack, on
           <span className="text-12 text-ds-secondary">Entry total</span>
           <span className="flex flex-col items-end">
             <span className="text-14 font-semibold tabular-nums text-heading">
-              {formatQty(totalSales)} sales · {formatQty(totalClosing)} closing
+              {task.closing ? `${formatQty(totalSales)} sales · ${formatQty(totalClosing)} closing` : `${formatQty(totalSales)} qty`}
             </span>
             <span className="text-10 tabular-nums text-ds-muted">{formatMoney(total)}</span>
           </span>

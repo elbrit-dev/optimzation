@@ -243,6 +243,9 @@ export function normalizeEntry(row, roleProfile) {
     ebsCode,
     otherEbsCodes,
     hq,
+    /* A line about the party beyond its code — a doctor's specialty, say —
+       when the server sends one (`distributor.note`). */
+    note: pick(row, ['distributor.note', 'party_note']) ?? null,
     date,
     month: date.slice(0, 7),
     status,

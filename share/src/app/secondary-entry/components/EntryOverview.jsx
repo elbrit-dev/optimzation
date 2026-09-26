@@ -6,6 +6,7 @@ import { STATUS_LABEL, STATUS_TONE } from '../data/shape';
 import { formatMoney, formatQty } from '../data/format';
 import { ACCEPT_ATTR } from '../data/sheetFile';
 import { canSubmit } from '../data/selectors';
+import { partyCount, useTask } from '../data/task';
 import { StockistCard } from './StockistCard';
 import { PinnedBar, PinnedBarSpacer } from './PinnedBar';
 
@@ -27,10 +28,11 @@ function Dot({ tone }) {
    are the list's filter, so the figure and the rows behind it are one tap
    apart — AttendanceCard's pattern. */
 function ProgressCard({ counts, entered, onDrill, partial = false }) {
+  const task = useTask();
   return (
     <Card className="flex h-full flex-col gap-2">
       <div className="flex items-baseline justify-between gap-3">
-        <Eyebrow as="h2">Stockists entered</Eyebrow>
+        <Eyebrow as="h2">{task.Parties} entered</Eyebrow>
         <span className="shrink-0 tabular-nums">
           <span className="text-20 font-semibold text-heading">{entered}</span>
           <span className="text-12 text-ds-muted">/{counts.all}{partial ? '+' : ''}</span>
@@ -65,10 +67,14 @@ const MATRIX_COLUMNS = ['draft', 'pending', 'approved'];
    the rupee value sits under it, small. An empty cell drops to muted rather
    than disappearing, so the columns never shift. */
 function ValueCard({ matrix }) {
-  const rows = [
-    { key: 'sales', label: 'Sales' },
-    { key: 'closing', label: 'Closing' },
-  ];
+  const task = useTask();
+  /* Closing only where the task keys it (Secondary); Doctor Support is qty. */
+  const rows = task.closing
+    ? [
+        { key: 'sales', label: task.qtyLabel },
+        { key: 'closing', label: 'Closing' },
+      ]
+    : [{ key: 'sales', label: task.qtyLabel }];
   return (
     <Card className="flex h-full flex-col gap-3">
       <Eyebrow as="h2">Quantity by status</Eyebrow>
@@ -156,6 +162,7 @@ function Step({ number, done, current, title, caption, action, connector = false
  * The result of an upload lands below, as a status rather than as a toast,
  * so it is still there when the reader looks back. */
 function BulkEntryCard({ pendingCount, sheetRows, downloaded, onDownload, onUpload, busy, message }) {
+  const task = useTask();
   const inputRef = useRef(null);
   const nothingPending = pendingCount === 0;
   const disabled = nothingPending || busy;
@@ -172,7 +179,7 @@ function BulkEntryCard({ pendingCount, sheetRows, downloaded, onDownload, onUplo
         <div className="min-w-0 flex-1">
           <h2 className="text-14 font-semibold leading-snug text-heading">Bulk entry via Excel</h2>
           <p className="text-11 leading-snug text-ds-muted">
-            {nothingPending ? 'Every stockist has figures.' : 'All pending stockists, one sheet.'}
+            {nothingPending ? `Every ${task.party} has figures.` : `All pending ${task.parties}, one sheet.`}
           </p>
         </div>
         <StatusPill status={nothingPending ? 'success' : 'info'} showDot={false} className="shrink-0">
@@ -189,7 +196,7 @@ function BulkEntryCard({ pendingCount, sheetRows, downloaded, onDownload, onUplo
           title="Download sheet"
           /* What the sheet holds, in the reader's words: whose figures and
              how many lines to fill (one per stockist × product). */
-          caption={`${pendingCount} stockist${pendingCount === 1 ? '' : 's'} · ${sheetRows} item${sheetRows === 1 ? '' : 's'}`}
+          caption={`${partyCount(task, pendingCount)} · ${sheetRows} item${sheetRows === 1 ? '' : 's'}`}
           action={
             <Button
               type={downloaded ? 'default' : 'primary'}
@@ -271,6 +278,7 @@ export function EntryOverview({
      whole month is in hand. */
   infinite,
 }) {
+  const task = useTask();
   const chips = [
     { key: 'draft', label: <span className="inline-flex items-center gap-1.5"><Dot tone="danger" />Draft</span>, count: counts.draft },
     { key: 'pending', label: <span className="inline-flex items-center gap-1.5"><Dot tone="warning" />Pending</span>, count: counts.pending },
@@ -320,7 +328,7 @@ export function EntryOverview({
             act on — the count, Select all for what is in view, Clear. The
             pinned bar underneath keeps only the send. */}
         <div className="flex items-center justify-between gap-2">
-          <SectionLabel>Stockists</SectionLabel>
+          <SectionLabel>{task.Parties}</SectionLabel>
           <span className="flex min-w-0 items-center gap-3 text-11">
             {pickedCount ? (
               <span className="shrink-0 font-semibold text-heading">{pickedCount} selected</span>
@@ -339,7 +347,7 @@ export function EntryOverview({
             ) : null}
           </span>
         </div>
-        <ChipRow items={chips} value={filter} onChange={onFilterChange} ariaLabel="Filter stockists by status" />
+        <ChipRow items={chips} value={filter} onChange={onFilterChange} ariaLabel={`Filter ${task.parties} by status`} />
         {entries.length ? (
           <div className="grid grid-cols-[minmax(0,1fr)] gap-2 @2xl/entry:grid-cols-[repeat(2,minmax(0,1fr))]">
             {entries.map((e) => (
@@ -398,6 +406,7 @@ export function EntryOverview({
  * keeps loading under a filter too: a Draft view of 25 loaded rows can hold
  * none, and only more pages can fill it. */
 function ListEnd({ infinite }) {
+  const task = useTask();
   const { hasMore, loading, loaded, onReachEnd } = infinite;
   const ref = useRef(null);
   const askRef = useRef(onReachEnd);
@@ -421,7 +430,7 @@ function ListEnd({ infinite }) {
     <div ref={ref} className="flex items-center justify-center gap-2 py-3 text-11 text-ds-muted" aria-live="polite">
       {/* Words, not a spinner: the system ships no looping animation. */}
       {loading ? (
-        <span>Loading more stockists…</span>
+        <span>Loading more {task.parties}…</span>
       ) : hasMore ? (
         /* Reachable without scrolling too: a tap works where the observer
            does not exist, and for anyone who would rather ask. */
@@ -429,7 +438,7 @@ function ListEnd({ infinite }) {
           Load more
         </Button>
       ) : (
-        <span>All {loaded} stockists loaded</span>
+        <span>All {partyCount(task, loaded)} loaded</span>
       )}
     </div>
   );
@@ -443,6 +452,7 @@ function ListEnd({ infinite }) {
  * Pinned to the screen over the list — see PinnedBar for why fixed and
  * portalled rather than sticky. */
 function SelectionBar({ selection, anchorRef, bottomGap, onHeight }) {
+  const task = useTask();
   const [confirming, setConfirming] = useState(false);
   const count = selection.selected.size;
   useEffect(() => {
@@ -461,7 +471,7 @@ function SelectionBar({ selection, anchorRef, bottomGap, onHeight }) {
       {confirming ? (
         <>
           <p className="text-12 text-body">
-            Send <span className="font-semibold">{count} stockist{count === 1 ? '' : 's'}</span> for approval? They move to
+            Send <span className="font-semibold">{partyCount(task, count)}</span> for approval? They move to
             the approvers and can no longer be edited.
           </p>
           <div className="grid grid-cols-2 gap-2">

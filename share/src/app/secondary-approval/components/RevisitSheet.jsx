@@ -2,12 +2,14 @@
 
 import { useEffect, useState } from 'react';
 import { Button, Field, Sheet } from '@/design-system';
+import { partyCount, useTask } from '@/app/secondary-entry/data/task';
 
 /* Send a whole submission back for revisit: one reason for every stockist in
  * it that waits on the viewer. A revisit keeps the approval open — the BE
  * corrects and it comes straight back to the viewer — and the ERP requires
  * the reason, so the button stays off until there is one. */
 export function RevisitSheet({ open, onClose, onConfirm, count, raiserName, busy, error }) {
+  const task = useTask();
   const [reason, setReason] = useState('');
   useEffect(() => {
     if (open) setReason('');
@@ -17,7 +19,7 @@ export function RevisitSheet({ open, onClose, onConfirm, count, raiserName, busy
     <Sheet
       open={open}
       onClose={busy ? () => {} : onClose}
-      title={`Send ${count} stockist${count === 1 ? '' : 's'} back for revisit?`}
+      title={`Send ${partyCount(task, count)} back for revisit?`}
       subtitle={raiserName ? `${raiserName} corrects them, and they come back to you to approve.` : undefined}
       surface="app"
     >

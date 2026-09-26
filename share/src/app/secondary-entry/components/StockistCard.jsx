@@ -3,6 +3,7 @@
 import { Avatar, Card, Icon, StatusPill, cx } from '@/design-system';
 import { STATUS_LABEL, STATUS_TONE } from '../data/shape';
 import { formatMoney, formatQty, hqLabel } from '../data/format';
+import { useTask } from '../data/task';
 
 /* The EBS code chip, at the StatusPill's own 22px box so every chip on the
    card is the same height. Colour sits in its own constant: cx joins without
@@ -73,6 +74,7 @@ export function StockistCard({
   expanded,
   children,
 }) {
+  const task = useTask();
   const products = entry.lines.length;
   const hq = hqLabel(entry.hq);
   const codes = [entry.ebsCode, ...(entry.otherEbsCodes ?? [])].filter(Boolean);
@@ -81,9 +83,10 @@ export function StockistCard({
   const interactive = canOpen;
   const pillText = STATUS_LABEL[entry.status];
   const pillTone = STATUS_TONE[entry.status];
+  /* Closing only where the task keys it (Secondary). */
   const shownFigures = [
-    { label: 'Sales', qty: entry.salesQty, value: entry.salesValue },
-    { label: 'Closing', qty: entry.closingQty, value: entry.closingValue },
+    { label: task.qtyLabel, qty: entry.salesQty, value: entry.salesValue },
+    ...(task.closing ? [{ label: 'Closing', qty: entry.closingQty, value: entry.closingValue }] : []),
     { label: 'Products', qty: products },
   ];
 
@@ -91,6 +94,7 @@ export function StockistCard({
     entry.stockist,
     entry.ebsCode,
     entry.otherEbsCodes?.length ? `also ${entry.otherEbsCodes.join(', ')}` : null,
+    entry.note,
     hq,
     pillText,
     ...shownFigures.map((f) => `${f.label.toLowerCase()} ${formatQty(f.qty)}`),
@@ -166,14 +170,15 @@ export function StockistCard({
               under three codes is three codes, not one with a footnote — and
               the HQ pinned to the far right. The chips clip rather than wrap
               so every card keeps the same height. */}
-          {codes.length || hq ? (
+          {codes.length || entry.note || hq ? (
             <span className="flex w-full min-w-0 items-center justify-between gap-3">
               <span className="flex min-w-0 items-center gap-1 overflow-hidden">
                 {codes.map((code) => (
-                  <span key={code} className={cx(CHIP, CHIP_NEUTRAL)} title="EBS code">
+                  <span key={code} className={cx(CHIP, CHIP_NEUTRAL)} title={task.codeLabel}>
                     {code}
                   </span>
                 ))}
+                {entry.note ? <span className={cx(CHIP, CHIP_NEUTRAL, 'min-w-0 truncate')}>{entry.note}</span> : null}
               </span>
               {hq ? (
                 <span className="flex shrink-0 items-center gap-1 text-11 text-ds-muted">
@@ -189,7 +194,12 @@ export function StockistCard({
       {/* ROW 2 — THE FIGURES, in ProductCard's grey tray across the card's
           full width, so a stockist and the products under it read as one
           family on both the entry and the approval screens. */}
-      <span className="grid w-full grid-cols-3 gap-2 rounded-xl bg-sunken px-3 py-2.5" aria-hidden={interactive || undefined}>
+      {/* One column per figure: three with closing, two without. */}
+      <span
+        className="grid w-full gap-2 rounded-xl bg-sunken px-3 py-2.5"
+        style={{ gridTemplateColumns: `repeat(${shownFigures.length}, minmax(0, 1fr))` }}
+        aria-hidden={interactive || undefined}
+      >
         {shownFigures.map((f) => (
           <Figure key={f.label} label={f.label} qty={f.qty} value={f.value} />
         ))}

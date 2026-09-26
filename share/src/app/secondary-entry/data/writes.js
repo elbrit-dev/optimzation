@@ -28,8 +28,11 @@
  * (same rule as /visit's liveSource).
  */
 
-export const DOCTYPE = 'Secondary Data Entry';
-const CHILD_DOCTYPE = 'Secondary Data Table';
+import { SECONDARY } from './task';
+
+/* The doctype and fields written come from the TASK (see task.js):
+   Secondary Data Entry by default, Doctor Support for that screen. */
+export const DOCTYPE = SECONDARY.doctype;
 
 export const LINE_DRAFT = 'Draft';
 export const LINE_SUBMITTED = 'Submitted';
@@ -38,62 +41,67 @@ function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
-function childRoleProfile(child) {
-  return child.custom_role_profile ?? child.custom_role_profile__name ?? null;
+function childRoleProfile(child, f = SECONDARY.fields) {
+  return child[f.roleProfile] ?? child[`${f.roleProfile}__name`] ?? null;
 }
 
 function childItem(child) {
   return child.item ?? child.item__name ?? null;
 }
 
+/* The figures a form line writes, in the task's field names: qty and its
+   value at the line's price (PTS), and closing where the task keys it. */
+function lineFigures(form, f) {
+  const price = Number(form.price) || 0;
+  const qty = Number(form.salesQty) || 0;
+  const out = { [f.qty]: qty, [f.value]: round2(qty * price) };
+  if (f.closingQty) {
+    const closingQty = Number(form.closingQty) || 0;
+    out[f.closingQty] = closingQty;
+    out[f.closingValue] = round2(closingQty * price);
+  }
+  if (f.rate && price > 0) out[f.rate] = price;
+  return out;
+}
+
 /* Pure: the document with `roleProfile`'s lines set from `lines`. Other
-   seats' children are returned as the same objects, untouched. */
-export function applySeatLines(doc, { roleProfile, lines, submit }) {
+   seats' children are returned as the same objects, untouched. `task` says
+   which child table and fields (Secondary by default). */
+export function applySeatLines(doc, { roleProfile, lines, submit }, task = SECONDARY) {
   if (!roleProfile) throw new Error('No seat (roleProfile) to write lines for.');
+  const children = Array.isArray(doc[task.childTable]) ? doc[task.childTable] : [];
+  const f = task.fields;
   const status = submit ? LINE_SUBMITTED : LINE_DRAFT;
   const byItem = new Map(lines.filter((l) => l.item).map((l) => [l.item, l]));
-  const children = Array.isArray(doc.items) ? doc.items : [];
-  const template = children.find((c) => childRoleProfile(c) === roleProfile) ?? {};
+  const template = children.find((c) => childRoleProfile(c, f) === roleProfile) ?? {};
 
   const touched = new Set();
   const nextChildren = children.map((child) => {
-    if (childRoleProfile(child) !== roleProfile) return child;
+    if (childRoleProfile(child, f) !== roleProfile) return child;
     const form = byItem.get(childItem(child));
-    const next = { ...child, custom_status: status };
+    const next = { ...child, [f.status]: status };
     if (form) {
       touched.add(form.item);
-      const price = Number(form.price) || 0;
-      next.sales_qty = Number(form.salesQty) || 0;
-      next.closing_qty = Number(form.closingQty) || 0;
-      next.sales_value = round2(next.sales_qty * price);
-      next.closing_balance = round2(next.closing_qty * price);
-      if (price > 0) next.rate = price;
+      Object.assign(next, lineFigures(form, f));
     }
     return next;
   });
 
   for (const form of byItem.values()) {
     if (touched.has(form.item)) continue;
-    const price = Number(form.price) || 0;
-    const salesQty = Number(form.salesQty) || 0;
-    const closingQty = Number(form.closingQty) || 0;
     nextChildren.push({
-      doctype: CHILD_DOCTYPE,
-      parentfield: 'items',
+      doctype: task.childDoctype,
+      parentfield: task.childTable,
       item: form.item,
-      custom_role_profile: roleProfile,
-      custom_hq: template.custom_hq ?? template.custom_hq__name,
-      custom_department: template.custom_department ?? template.custom_department__name,
-      custom_status: status,
-      rate: price,
-      sales_qty: salesQty,
-      closing_qty: closingQty,
-      sales_value: round2(salesQty * price),
-      closing_balance: round2(closingQty * price),
+      [f.roleProfile]: roleProfile,
+      [f.hq]: template[f.hq] ?? template[`${f.hq}__name`],
+      [f.department]: template[f.department] ?? template[`${f.department}__name`],
+      [f.status]: status,
+      ...lineFigures(form, f),
     });
   }
 
-  return { ...doc, items: nextChildren };
+  return { ...doc, [task.childTable]: nextChildren };
 }
 
 function normalizeToken(raw) {
@@ -128,7 +136,7 @@ export function erpErrorMessage(json, status) {
   return `ERP request failed (HTTP ${status})`;
 }
 
-export function createErpWriter({ endpointUrl, gqlToken }) {
+export function createErpWriter({ endpointUrl, gqlToken, task = SECONDARY }) {
   const token = normalizeToken(gqlToken);
   if (!endpointUrl) throw new Error('No ERP endpoint configured for writes.');
   if (!token) {
@@ -157,7 +165,7 @@ export function createErpWriter({ endpointUrl, gqlToken }) {
   }
 
   async function fetchDoc(name) {
-    const qs = new URLSearchParams({ doctype: DOCTYPE, name });
+    const qs = new URLSearchParams({ doctype: task.doctype, name });
     return call(`/api/method/frappe.client.get?${qs}`);
   }
 
@@ -186,7 +194,7 @@ export function createErpWriter({ endpointUrl, gqlToken }) {
         try {
           return await call('/api/method/frappe.client.save', {
             method: 'POST',
-            body: { doc: JSON.stringify(applySeatLines(doc, opts)) },
+            body: { doc: JSON.stringify(applySeatLines(doc, opts, task)) },
           });
         } catch (e) {
           if (!e.timestampClash || attempt >= 2) throw e;
@@ -198,8 +206,10 @@ export function createErpWriter({ endpointUrl, gqlToken }) {
 
 /* The harness's stand-in. It also plays the part of the server script —
    a submitted seat gets its tracker row — so the screen can be exercised end
-   to end without ERP. Nothing here runs in production. */
-export function createMockWriter({ getRows, setRows, delayMs = 350, seat = null }) {
+   to end without ERP. Nothing here runs in production. Its rows are in the
+   server scripts' shape (Secondary's field names) for every task, so it
+   writes them with Secondary's mapping; `task` only names the tracker. */
+export function createMockWriter({ getRows, setRows, delayMs = 350, seat = null, task = SECONDARY }) {
   return {
     live: false,
     async whoAmI() {
@@ -216,7 +226,7 @@ export function createMockWriter({ getRows, setRows, delayMs = 350, seat = null 
         trackers.push({
           role_profile: opts.roleProfile,
           status: 'ABM Approval Waiting',
-          tracker: `Secondary Data Entry-${next.distributor?.name ?? next.distributor}-${next.date}-${opts.roleProfile}`,
+          tracker: `${task.trackerPrefix}-${next.distributor?.name ?? next.distributor}-${next.date}-${opts.roleProfile}`,
         });
         next.custom_status_tracker = trackers;
       }

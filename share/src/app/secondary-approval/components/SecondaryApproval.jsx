@@ -3,6 +3,7 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Card, ChipRow, Icon, Sheet, StatusPill, cx } from '@/design-system';
 import { TableOperationsContext } from '@/app/datatable/contexts/TableOperationsContext';
+import { SECONDARY, TaskProvider } from '@/app/secondary-entry/data/task';
 import { getEndpointConfigFromUrlKeyAsync } from '@/app/graphql-playground/constants';
 import { useUnsavedGuard } from '@/app/secondary-entry/components/useUnsavedGuard';
 import { PinnedBarSpacer } from '@/app/secondary-entry/components/PinnedBar';
@@ -32,7 +33,8 @@ import { DecisionBar } from './DecisionBar';
  * on each is the ERP's workflow's answer for this user (writer.actions,
  * frappe's get_transitions), asked for the submission on screen: Approve
  * where it offers "Approve to Verification", Revisit where it offers
- * "Revisit". `viewer` (the signed-in user's email) only labels their own
+ * "Revisit". Who is looking is the token's user — the server script's
+ * `user`, or the ERP's answer for the token — and only labels their own
  * submission "Self".
  *
  * Decisions go through Frappe's standard workflow actions as the signed-in
@@ -65,11 +67,13 @@ function Skeleton() {
 
 export function SecondaryApproval({
   rows: rowsProp,
-  viewer: viewerProp,
   gqlEnvironment = 'ERP',
   gqlToken,
   today: todayProp,
-  title = 'Secondary approvals',
+  /* Which task this screen is for (secondary-entry/data/task.js) —
+     Secondary by default; DoctorSupportApproval passes Doctor Support. */
+  task = SECONDARY,
+  title,
   onBack,
   onDecided,
   /* Gap under the pinned decision bar; e.g. calc(4rem + var(--space-12))
@@ -86,7 +90,7 @@ export function SecondaryApproval({
      every month for the switcher. */
   const [pinnedMonth, setPinnedMonth] = useState(null);
   const serverMode = rowsProp == null && !slot && Boolean(gqlToken?.trim());
-  const server = useServerApprovals({ enabled: serverMode, gqlEnvironment, gqlToken, month: pinnedMonth ?? undefined });
+  const server = useServerApprovals({ enabled: serverMode, gqlEnvironment, gqlToken, month: pinnedMonth ?? undefined, method: task.approvalMethod });
   const sourceRows = rowsProp ?? slot?.rawData ?? server.data?.trackers;
   const baseSlices = useMemo(() => normalizeSlices(sourceRows), [sourceRows]);
 
@@ -94,7 +98,12 @@ export function SecondaryApproval({
      back — so a decided card turns at once instead of after a refetch. */
   const [patches, setPatches] = useState(() => new Map());
   useEffect(() => setPatches(new Map()), [sourceRows]);
-  const viewer = (viewerProp || '').toLowerCase() || null;
+  /* WHO IS LOOKING comes from the token, not a prop: the server script says
+     (its `user`); with rows from elsewhere the ERP is asked who the token
+     is, once (writer.whoAmI, below). It only labels their own submission
+     "Self" and a just-decided stockist's decider until the refetch. */
+  const [askedViewer, setAskedViewer] = useState(null);
+  const viewer = String((serverMode ? server.data?.user : askedViewer) ?? '').toLowerCase() || null;
   /* tracker → { approve, revisit }, from the ERP (see writer.actions). */
   const [allowed, setAllowed] = useState(() => new Map());
   const slices = useMemo(
@@ -172,6 +181,25 @@ export function SecondaryApproval({
     return writer;
   }, [writerProp, gqlToken, gqlEnvironment]);
   const canDecide = Boolean(writerProp) || Boolean(gqlToken?.trim());
+
+  /* Not from the server script: ask the ERP who the token is. */
+  useEffect(() => {
+    setAskedViewer(null);
+    if (serverMode || !canDecide) return undefined;
+    let stale = false;
+    (async () => {
+      try {
+        const writer = await getWriter();
+        const who = await writer.whoAmI?.();
+        if (!stale) setAskedViewer(who ?? null);
+      } catch {
+        /* Unknown: nothing is labelled Self. */
+      }
+    })();
+    return () => {
+      stale = true;
+    };
+  }, [serverMode, canDecide, getWriter]);
 
   /* Ask the ERP what this user may do on the stockists on screen — only
      those not asked yet; a decision forgets its trackers, so they are asked
@@ -330,6 +358,7 @@ export function SecondaryApproval({
   const readOnlyNote = !canDecide ? "Read-only: bind gqlToken (the signed-in user's ERP token) to decide." : null;
 
   return (
+    <TaskProvider value={task}>
     <section ref={rootRef} className={cx('@container/approval flex w-full scroll-mt-3 flex-col gap-3', className)}>
       <header className="flex items-center gap-2">
         {onHeaderBack ? (
@@ -342,7 +371,7 @@ export function SecondaryApproval({
             <Icon name="chevron-left" />
           </button>
         ) : null}
-        <h1 className="min-w-0 flex-1 truncate text-16 font-semibold text-heading">{title}</h1>
+        <h1 className="min-w-0 flex-1 truncate text-16 font-semibold text-heading">{title ?? task.approvalTitle}</h1>
         {pillTone ? (
           <StatusPill status={pillTone} showDot={false} className="shrink-0">
             {progress.percent}% · {progress.done} of {progress.total} done
@@ -455,6 +484,7 @@ export function SecondaryApproval({
         </div>
       </Sheet>
     </section>
+    </TaskProvider>
   );
 }
 

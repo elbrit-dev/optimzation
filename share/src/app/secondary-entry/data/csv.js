@@ -8,7 +8,20 @@
  * The Entry column (the ERP docname) is what makes the upload unambiguous
  * when two stockists share a display name. */
 
-export const SHEET_COLUMNS = ['Entry', 'Stockist', 'Product', 'Sales Qty', 'Closing Qty'];
+import { SECONDARY } from './task';
+
+/* The columns, per task: Secondary keys sales and closing, Doctor Support
+   one qty. The party column is named for the task (Stockist / Doctor). */
+export function sheetColumns(task = SECONDARY) {
+  return task.closing ? ['Entry', task.Party, 'Product', 'Sales Qty', 'Closing Qty'] : ['Entry', task.Party, 'Product', 'Qty'];
+}
+export const SHEET_COLUMNS = sheetColumns(SECONDARY);
+
+/* The columns an upload must carry (lower-cased) — the party column is only
+   for the reader. */
+export function requiredColumns(task = SECONDARY) {
+  return task.closing ? ['entry', 'product', 'sales qty', 'closing qty'] : ['entry', 'product', 'qty'];
+}
 
 function escapeCell(value) {
   const s = String(value ?? '');
@@ -18,8 +31,8 @@ function escapeCell(value) {
 /* The sheet as a table, header first. Pending stockists only; a stockist
    with no lines yet gets one row per offered product so the sheet has
    something to fill. */
-export function buildSheetRows(entries, products = []) {
-  const rows = [SHEET_COLUMNS];
+export function buildSheetRows(entries, products = [], task = SECONDARY) {
+  const rows = [sheetColumns(task)];
   for (const e of entries) {
     /* No lines yet: every product — except those another seat carries on
        this stockist, which are theirs to fill, not this seat's. */
@@ -28,15 +41,19 @@ export function buildSheetRows(entries, products = []) {
       ? e.lines
       : products.filter((p) => !taken.has(p.item)).map((p) => ({ item: p.item, salesQty: '', closingQty: '' }));
     for (const l of items) {
-      rows.push([e.name, e.stockist, l.item, l.salesQty || '', l.closingQty || '']);
+      rows.push(
+        task.closing
+          ? [e.name, e.stockist, l.item, l.salesQty || '', l.closingQty || '']
+          : [e.name, e.stockist, l.item, l.salesQty || ''],
+      );
     }
   }
   return rows;
 }
 
 /* The same table as CSV text. */
-export function buildSheet(entries, products = []) {
-  return buildSheetRows(entries, products)
+export function buildSheet(entries, products = [], task = SECONDARY) {
+  return buildSheetRows(entries, products, task)
     .map((r) => r.map(escapeCell).join(','))
     .join('\r\n');
 }
@@ -81,8 +98,8 @@ function parseRows(text) {
 }
 
 /* CSV text → { byEntry, errors }. */
-export function parseSheet(text) {
-  return parseSheetRows(parseRows(String(text ?? '').replace(/^﻿/, '')));
+export function parseSheet(text, task = SECONDARY) {
+  return parseSheetRows(parseRows(String(text ?? '').replace(/^﻿/, '')), task);
 }
 
 /* A table from any format → { byEntry: Map<entryName, [{ item, salesQty,
@@ -90,7 +107,7 @@ export function parseSheet(text) {
    (a spreadsheet stores 40 as a number), so everything is stringified first.
    The header can sit below a title row someone added: the first row that
    carries all four required columns is taken as the header. */
-export function parseSheetRows(input) {
+export function parseSheetRows(input, task = SECONDARY) {
   /* Blank rows are KEPT (the loop below skips them) so the row numbers in
      error messages match the file. */
   const rows = (Array.isArray(input) ? input : []).map((r) =>
@@ -99,7 +116,7 @@ export function parseSheetRows(input) {
   const errors = [];
   if (!rows.some((r) => r.some((c) => c.trim() !== ''))) return { byEntry: new Map(), errors: ['The file is empty.'] };
 
-  const required = ['entry', 'product', 'sales qty', 'closing qty'];
+  const required = requiredColumns(task);
   const headerIndex = rows.findIndex((r) => {
     const cells = r.map((h) => h.trim().toLowerCase());
     return required.every((c) => cells.includes(c));
@@ -110,10 +127,10 @@ export function parseSheetRows(input) {
   const col = (name) => header.indexOf(name.toLowerCase());
   const iEntry = col('Entry');
   const iProduct = col('Product');
-  const iSales = col('Sales Qty');
-  const iClosing = col('Closing Qty');
-  if (iEntry < 0 || iProduct < 0 || iSales < 0 || iClosing < 0) {
-    return { byEntry: new Map(), errors: [`Missing columns — expected ${SHEET_COLUMNS.join(', ')}.`] };
+  const iSales = col(task.closing ? 'Sales Qty' : 'Qty');
+  const iClosing = task.closing ? col('Closing Qty') : -1;
+  if (iEntry < 0 || iProduct < 0 || iSales < 0 || (task.closing && iClosing < 0)) {
+    return { byEntry: new Map(), errors: [`Missing columns — expected ${sheetColumns(task).join(', ')}.`] };
   }
 
   /* "1,200" is how Excel users type a thousand-and-two-hundred. */
@@ -126,7 +143,7 @@ export function parseSheetRows(input) {
     const entry = r[iEntry]?.trim();
     const item = r[iProduct]?.trim();
     const salesRaw = r[iSales]?.trim() ?? '';
-    const closingRaw = r[iClosing]?.trim() ?? '';
+    const closingRaw = iClosing >= 0 ? (r[iClosing]?.trim() ?? '') : '';
     if (!entry || !item) return;
     if (salesRaw === '' && closingRaw === '') return;
     const salesQty = toQty(salesRaw);

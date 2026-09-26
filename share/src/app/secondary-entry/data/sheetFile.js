@@ -19,7 +19,8 @@
  * (`cellFormula/cellHTML/cellStyles/bookVBA: false`), and only the first
  * worksheet that carries the expected header is converted. */
 
-import { parseSheet, parseSheetRows } from './csv';
+import { parseSheet, parseSheetRows, requiredColumns, sheetColumns } from './csv';
+import { SECONDARY } from './task';
 
 export const ACCEPTED_EXTENSIONS = ['.csv', '.tsv', '.txt', '.xlsx', '.xlsm', '.xlsb', '.xls', '.ods'];
 
@@ -43,8 +44,8 @@ function extensionOf(name) {
   return m ? m[0] : '';
 }
 
-function hasHeader(rows) {
-  const required = ['entry', 'product', 'sales qty', 'closing qty'];
+function hasHeader(rows, task) {
+  const required = requiredColumns(task);
   return rows.some((r) => {
     const cells = (r ?? []).map((c) => String(c ?? '').trim().toLowerCase());
     return required.every((c) => cells.includes(c));
@@ -52,7 +53,7 @@ function hasHeader(rows) {
 }
 
 /* → { byEntry, errors }, the same shape as csv.parseSheet, for any format. */
-export async function readSheetFile(file) {
+export async function readSheetFile(file, task = SECONDARY) {
   if (!file) return { byEntry: new Map(), errors: ['No file chosen.'] };
   if (file.size > MAX_BYTES) {
     return { byEntry: new Map(), errors: ['That file is over 10 MB — a bulk entry sheet is a few KB.'] };
@@ -60,7 +61,7 @@ export async function readSheetFile(file) {
   const ext = extensionOf(file.name);
 
   if (ext === '.csv' || ext === '.txt' || (!ext && /csv|text/.test(file.type))) {
-    return parseSheet(await file.text());
+    return parseSheet(await file.text(), task);
   }
   if (ext && !ACCEPTED_EXTENSIONS.includes(ext)) {
     return { byEntry: new Map(), errors: [`"${file.name}" is not a spreadsheet. Upload CSV, Excel (.xlsx, .xls, .xlsm, .xlsb) or .ods.`] };
@@ -95,7 +96,7 @@ export async function readSheetFile(file) {
     const sheet = workbook.Sheets[name];
     if (!sheet) continue;
     const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '', blankrows: true });
-    if (hasHeader(rows)) return parseSheetRows(rows);
+    if (hasHeader(rows, task)) return parseSheetRows(rows, task);
   }
-  return { byEntry: new Map(), errors: ['No sheet in this file has the columns Entry, Stockist, Product, Sales Qty, Closing Qty.'] };
+  return { byEntry: new Map(), errors: [`No sheet in this file has the columns ${sheetColumns(task).join(', ')}.`] };
 }

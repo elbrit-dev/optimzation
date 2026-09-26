@@ -20,6 +20,7 @@ import {
 import { buildSheet } from '../data/csv';
 import { readSheetFile } from '../data/sheetFile';
 import { createErpWriter } from '../data/writes';
+import { SECONDARY, TaskProvider, partyCount } from '../data/task';
 import { EntryOverview, EntryOverviewSkeleton } from './EntryOverview';
 import { EntryForm } from './EntryForm';
 import { useUnsavedGuard } from './useUnsavedGuard';
@@ -67,7 +68,10 @@ export function SecondaryEntry({
   gqlToken,
   productsQueryId = 'Items',
   products: productsProp,
-  title = 'Secondary entry',
+  /* Which task this screen is for (data/task.js) — Secondary by default;
+     DoctorSupportEntry passes Doctor Support. */
+  task = SECONDARY,
+  title,
   onBack,
   onSaved,
   /* Gap under the pinned bars (bulk send on the list, save / submit on a
@@ -83,7 +87,7 @@ export function SecondaryEntry({
      as the signed-in user (data/useServerEntries.js): every entry they may
      see, no cap, only their seat's lines. */
   const serverMode = rowsProp == null && !slot && Boolean(gqlToken?.trim());
-  const server = useServerEntries({ enabled: serverMode, gqlEnvironment, gqlToken, month: monthProp, seat: roleProfileProp });
+  const server = useServerEntries({ enabled: serverMode, gqlEnvironment, gqlToken, month: monthProp, seat: roleProfileProp, method: task.entryMethod });
   const sourceRows = useMemo(
     () => toRowArray(rowsProp ?? slot?.rawData ?? server.data?.entries),
     [rowsProp, slot?.rawData, server.data],
@@ -166,10 +170,10 @@ export function SecondaryEntry({
     if (writerProp) return writerProp;
     if (writerRef.current?.token === gqlToken && writerRef.current?.env === gqlEnvironment) return writerRef.current.writer;
     const { endpointUrl } = await getEndpointConfigFromUrlKeyAsync(gqlEnvironment);
-    const writer = createErpWriter({ endpointUrl, gqlToken });
+    const writer = createErpWriter({ endpointUrl, gqlToken, task });
     writerRef.current = { writer, token: gqlToken, env: gqlEnvironment };
     return writer;
-  }, [writerProp, gqlToken, gqlEnvironment]);
+  }, [writerProp, gqlToken, gqlEnvironment, task]);
 
   const signedIn = Boolean(writerProp) || Boolean(gqlToken?.trim());
   useEffect(() => {
@@ -199,11 +203,11 @@ export function SecondaryEntry({
   const seatProblem = roleProfile
     ? null
     : !signedIn
-      ? { title: 'Not signed in to ERP', text: "Bind gqlToken (the signed-in user's ERP token) to load your stockists.", retry: false }
+      ? { title: 'Not signed in to ERP', text: `Bind gqlToken (the signed-in user's ERP token) to load your ${task.parties}.`, retry: false }
       : !asked
         ? 'finding'
         : askError
-          ? { title: 'Something went wrong', text: `Could not load your stockists from ERP: ${askError}`, retry: true }
+          ? { title: 'Something went wrong', text: `Could not load your ${task.parties} from ERP: ${askError}`, retry: true }
           : { title: 'No seat for this user', text: 'ERP has no active Employee with a role profile for this user, so there are no lines to enter. Ask for your Employee record to be set up.', retry: true };
 
   const canEdit = Boolean(roleProfile) && signedIn;
@@ -297,9 +301,9 @@ export function SecondaryEntry({
       setSelected(new Set(toSend.filter((e) => failed.some((f) => f.startsWith(`${e.stockist}:`))).map((e) => e.name)));
     } else {
       clearSelection();
-      flash(`${sent} stockist${sent === 1 ? '' : 's'} sent for approval.`);
+      flash(`${partyCount(task, sent)} sent for approval.`);
     }
-  }, [entries, selected, saveEntry, refetch, clearSelection, flash]);
+  }, [entries, selected, saveEntry, refetch, clearSelection, flash, task]);
 
   const selection = canEdit
     ? {
@@ -336,9 +340,12 @@ export function SecondaryEntry({
 
   const [downloaded, setDownloaded] = useState(false);
   const onDownload = () => {
-    downloadText(`secondary-entry-${month ?? 'period'}.csv`, buildSheet(pending, products));
+    downloadText(`${task.fileStem}-${month ?? 'period'}.csv`, buildSheet(pending, products, task));
     setDownloaded(true);
-    setBulkMessage({ tone: 'neutral', text: 'Fill Sales Qty and Closing Qty, keep the Entry column, then re-upload.' });
+    setBulkMessage({
+      tone: 'neutral',
+      text: task.closing ? 'Fill Sales Qty and Closing Qty, keep the Entry column, then re-upload.' : 'Fill Qty, keep the Entry column, then re-upload.',
+    });
   };
 
   const onUpload = async (file) => {
@@ -350,7 +357,7 @@ export function SecondaryEntry({
     setBulkMessage(null);
     try {
       /* Any format back — the download is CSV, but Excel re-saves as .xlsx. */
-      const { byEntry, errors } = await readSheetFile(file);
+      const { byEntry, errors } = await readSheetFile(file, task);
       const pendingByName = new Map(pending.map((e) => [e.name, e]));
       const priceOf = new Map(products.map((p) => [p.item, p.price]));
       let filled = 0;
@@ -359,7 +366,7 @@ export function SecondaryEntry({
       for (const [name, sheetLines] of byEntry) {
         const entry = pendingByName.get(name);
         if (!entry) {
-          failed.push(`${name}: not a pending stockist — skipped.`);
+          failed.push(`${name}: not a pending ${task.party} — skipped.`);
           continue;
         }
         const own = new Map(entry.lines.map((l) => [l.item, l.price]));
@@ -380,7 +387,7 @@ export function SecondaryEntry({
       setBulkMessage({
         tone: failed.length ? 'danger' : 'neutral',
         text: [
-          filled ? `Filled ${filled} stockist${filled === 1 ? '' : 's'} as drafts — review and submit each.` : null,
+          filled ? `Filled ${partyCount(task, filled)} as drafts — review and submit each.` : null,
           resubmitted ? `Resubmitted ${resubmitted} sent back for revisit — back with the approver.` : null,
           !filled && !resubmitted ? 'Nothing was saved.' : null,
           ...failed.slice(0, 4),
@@ -436,13 +443,14 @@ export function SecondaryEntry({
   }, [openName]);
 
   return (
+    <TaskProvider value={task}>
     <section ref={rootRef} className={cx('@container/entry flex w-full scroll-mt-3 flex-col gap-3 @2xl/entry:gap-4', className)}>
       <header className="flex items-center gap-2">
         {onHeaderBack ? (
           <button
             type="button"
             onClick={onHeaderBack}
-            aria-label={openName != null ? 'Back to all stockists' : 'Back'}
+            aria-label={openName != null ? `Back to all ${task.parties}` : 'Back'}
             /* Just the chevron, flush with the content edge — no box around
                it. Feedback is the glyph's colour: lighter on hover, the
                brand on press. */
@@ -451,7 +459,7 @@ export function SecondaryEntry({
             <Icon name="chevron-left" />
           </button>
         ) : null}
-        <h1 className="min-w-0 flex-1 truncate text-16 font-semibold text-heading @2xl/entry:text-20">{title}</h1>
+        <h1 className="min-w-0 flex-1 truncate text-16 font-semibold text-heading @2xl/entry:text-20">{title ?? task.entryTitle}</h1>
         {prog.total && !prog.remaining ? (
           <StatusPill status="success" className="shrink-0">
             All entered
@@ -475,7 +483,7 @@ export function SecondaryEntry({
           ) : null}
         </div>
       ) : !entries.length ? (
-        <p className="py-10 text-center text-12 text-ds-muted">No secondary entries for this period.</p>
+        <p className="py-10 text-center text-12 text-ds-muted">No {task.Party.toLowerCase()} entries for this period.</p>
       ) : openEntry ? (
         /* A dedicated page state, not an overlay: the stockist replaces the
            list, and back returns to it with the opened card in view. */
@@ -545,6 +553,7 @@ export function SecondaryEntry({
         </div>
       </Sheet>
     </section>
+    </TaskProvider>
   );
 }
 

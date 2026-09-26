@@ -84,7 +84,7 @@ export const chipPt = {
 export const cardPt = {
   root: { className: cx(SURFACE, 'shadow-card') },
   body: { className: 'p-4' },
-  title: { className: 'type-app-label text-heading' },
+  title: { className: 'type-section text-heading' },
   subTitle: { className: 'type-app-body text-ds-secondary' },
   content: { className: 'pt-2' },
   footer: { className: 'pt-3' },
@@ -300,7 +300,7 @@ export const dialogPt = {
     ),
   },
   header: { className: 'flex items-center justify-between gap-4 border-b border-line-subtle p-4' },
-  headerTitle: { className: 'type-app-label text-heading' },
+  headerTitle: { className: 'type-section text-heading' },
   headerIcons: { className: 'flex items-center gap-1' },
   closeButton: { className: CLOSE },
   closeButtonIcon: { className: 'text-12' },

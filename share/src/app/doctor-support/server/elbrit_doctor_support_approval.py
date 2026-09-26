@@ -1,39 +1,43 @@
 # =====================================================================
 # SERVER SCRIPT — the source of truth for the ERP's copy. Keep in step.
 #
-#   Name        : Elbrit Secondary Approval
+#   Name        : Elbrit Doctor Support Approval
 #   Script Type : API
-#   API Method  : elbrit_secondary_approval
+#   API Method  : elbrit_doctor_support_approval
 #   Allow Guest : NO
 #
-#   GET /api/method/elbrit_secondary_approval                the month to open
-#   GET /api/method/elbrit_secondary_approval?month=2026-09  that month
+#   GET /api/method/elbrit_doctor_support_approval                the month to open
+#   GET /api/method/elbrit_doctor_support_approval?month=2026-09  that month
 #
-# The Secondary Approval screen's data for the CALLER, in one call, NO CAP,
-# only what is shown. READ-ONLY (decisions stay the app's workflow calls).
+# The Doctor Support Approval screen's data for the CALLER — the Secondary
+# Approval script (elbrit_secondary_approval) for Doctor Support, answering
+# in the SAME shape so the one screen reads both. READ-ONLY (decisions stay
+# the app's workflow calls on the Operational Tracker).
 # AS THE TOKEN'S USER: every list is frappe.get_list, so the ERP's own
 # permissions decide — the "Operational Tracker Restriction" which
-# trackers, the entry permission which lines can be read.
+# trackers, the Doctor Support permission which records can be read.
 #
-#   months    every month the caller has a Secondary tracker in, with how
-#             many wait — light (names and states only), for the switcher.
-#             A tracker's month is its ENTRY'S `date` field (the Secondary
-#             Data Entry's own date) — not the date written into the names,
-#             which can be mistyped; only an entry that cannot be read
-#             falls back to the name's date.
-#   month     the month sent: \`month\`, else the PRIOR month — the entry
-#             month, as Ring Nav and Secondary Entry use
-#   trackers  that month's trackers, each shaped as the SecondaryApproval
-#             query's node, its entry carrying ONLY THE TRACKER'S OWN SEAT'S
-#             lines. (The saved query sent every seat's lines under every
-#             seat's tracker — a stockist shared by four seats, four times.)
+#   months    every month the caller has a Doctor Support tracker in, with
+#             how many wait. A tracker's month is its Doctor Support's own
+#             `date` field; only a record that cannot be read falls back to
+#             the date in the names.
+#   month     the month sent: `month`, else the PRIOR month
+#   trackers  that month's trackers, each with its Doctor Support carrying
+#             ONLY THE TRACKER'S OWN SEAT'S lines — under the key
+#             custom_ref_secondary_data_entry, Secondary's name for it, with
+#             the doctor as `distributor` (distributor__name = the doctor's
+#             name, whg_ebs_code = their id, note = specialty and city) and a
+#             line's qty / amount as sales_qty / sales_value.
+#
+# A tracker names its Doctor Support in `reference` ("DR-4725-2026-11-28").
 #
 # safe_exec: no import, no .format(), no set literals, no tuple
 # unpacking, no underscore-prefixed names.
 # =====================================================================
 
-PREFIX = "Secondary Data Entry-"
-LINE = "`tabSecondary Data Table`"
+DOCTYPE = "Doctor Support"
+PREFIX = "Doctor Support-"
+LINE = "`tabSupport Items`"
 CHUNK = 500
 
 
@@ -53,7 +57,7 @@ def chunks(values):
 
 
 def entry_of(tracker_name, seat):
-    # "Secondary Data Entry-<stockist>-<YYYY-MM-DD>-<seat>" -> "<stockist>-<YYYY-MM-DD>"
+    # "Doctor Support-<doctor>-<YYYY-MM-DD>-<seat>" -> "<doctor>-<YYYY-MM-DD>"
     n = tracker_name or ""
     if n.startswith(PREFIX):
         n = n[len(PREFIX):]
@@ -63,7 +67,7 @@ def entry_of(tracker_name, seat):
 
 
 def month_of(entry_name):
-    # "<stockist>-<YYYY-MM-DD>" -> "YYYY-MM"
+    # "<doctor>-<YYYY-MM-DD>" -> "YYYY-MM"
     d = (entry_name or "")[-10:]
     if len(d) == 10 and d[4] == "-" and d[7] == "-" and valid_month(d[:7]):
         return d[:7]
@@ -84,23 +88,22 @@ def waiting_state(ws):
 
 me = frappe.session.user
 today_month = frappe.utils.nowdate()[:7]
-base = [["reference_doctype", "=", "Secondary Data Entry"]]
+base = [["reference_doctype", "=", DOCTYPE]]
 
 # ---- light: every visible tracker, for the months and their counts
 light = frappe.get_list("Operational Tracker", filters=base,
-                        fields=["name", "role_profile", "workflow_state",
-                                "custom_ref_secondary_data_entry"],
+                        fields=["name", "role_profile", "workflow_state", "reference"],
                         limit_page_length=0)
 # Each tracker's entry, and that entry's own `date` — the month it is for.
 light_entries = []
 for t in light:
-    e = t.get("custom_ref_secondary_data_entry") or entry_of(t.get("name"), t.get("role_profile"))
+    e = t.get("reference") or entry_of(t.get("name"), t.get("role_profile"))
     t["entry"] = e
     if e and e not in light_entries:
         light_entries.append(e)
 entry_date = {}
 for part in chunks(light_entries):
-    for d in frappe.get_list("Secondary Data Entry", filters=[["name", "in", part]],
+    for d in frappe.get_list(DOCTYPE, filters=[["name", "in", part]],
                              fields=["name", "date"], limit_page_length=0):
         entry_date[d.get("name")] = str(d.get("date") or "")
 
@@ -145,13 +148,13 @@ if month:
             filters=base + [["name", "in", part]],
             fields=["name", "role_profile", "workflow_state", "next_role", "next_approver",
                     "custom_fallback_approver", "user", "modified_by", "modified", "hq",
-                    "data", "reason_for_rejection", "custom_ref_secondary_data_entry"],
+                    "data", "reason_for_rejection", "reference"],
             order_by="modified desc", limit_page_length=0)
     rows = sorted(rows, key=lambda t: str(t.get("modified") or ""), reverse=True)
 
     entry_names = []
     for t in rows:
-        e = t.get("custom_ref_secondary_data_entry") or entry_of(t.get("name"), t.get("role_profile"))
+        e = t.get("reference") or entry_of(t.get("name"), t.get("role_profile"))
         t["entry"] = e
         if e and e not in entry_names:
             entry_names.append(e)
@@ -161,16 +164,14 @@ if month:
     lines = {}
     item_codes = []
     for part in chunks(entry_names):
-        for d in frappe.get_list("Secondary Data Entry", filters=[["name", "in", part]],
-                                 fields=["name", "date", "distributor"], limit_page_length=0):
+        for d in frappe.get_list(DOCTYPE, filters=[["name", "in", part]],
+                                 fields=["name", "date", "doctor"], limit_page_length=0):
             head[d.get("name")] = d
         for r in frappe.get_list(
-                "Secondary Data Entry", filters=[["name", "in", part]],
+                DOCTYPE, filters=[["name", "in", part]],
                 fields=["name", LINE + ".idx as idx", LINE + ".item as item",
-                        LINE + ".sales_qty as sales_qty", LINE + ".sales_value as sales_value",
-                        LINE + ".closing_qty as closing_qty",
-                        LINE + ".closing_balance as closing_balance",
-                        LINE + ".custom_role_profile as rp"],
+                        LINE + ".qty as sales_qty", LINE + ".amount as sales_value",
+                        LINE + ".role_profile as rp"],
                 order_by=LINE + ".idx asc", limit_page_length=0):
             if not r.get("item"):
                 continue
@@ -187,17 +188,26 @@ if month:
                                   fields=["name", "brand"], limit_page_length=0):
             brand[it.get("name")] = it.get("brand")
 
+    # the doctors (Lead): display name, specialty and city, HQ
     dist_codes = []
     for n in head:
-        c = head[n].get("distributor")
+        c = head[n].get("doctor")
         if c and c not in dist_codes:
             dist_codes.append(c)
     dist = {}
     for part in chunks(dist_codes):
-        for c in frappe.get_list("Customer", filters=[["name", "in", part]],
-                                 fields=["name", "whg_ebs_code", "territory"], limit_page_length=0):
-            dist[c.get("name")] = {"whg_ebs_code": c.get("whg_ebs_code"),
-                                   "territory__name": c.get("territory")}
+        for c in frappe.get_list("Lead", filters=[["name", "in", part]],
+                                 fields=["name", "lead_name", "custom_specialty", "city", "territory"],
+                                 limit_page_length=0):
+            bits = []
+            if c.get("custom_specialty"):
+                bits.append(c.get("custom_specialty"))
+            if c.get("city"):
+                bits.append(c.get("city"))
+            dist[c.get("name")] = {"lead_name": c.get("lead_name"),
+                                   "whg_ebs_code": c.get("name"),
+                                   "territory__name": c.get("territory"),
+                                   "note": " · ".join(bits) or None}
 
     full_name = {}
     for t in rows:
@@ -218,15 +228,15 @@ if month:
                     "item": {"brand__name": brand.get(r.get("item"))},
                     "sales_qty": r.get("sales_qty"),
                     "sales_value": r.get("sales_value"),
-                    "closing_qty": r.get("closing_qty"),
-                    "closing_balance": r.get("closing_balance"),
+                    "closing_qty": 0,
+                    "closing_balance": 0,
                     "custom_role_profile__name": r.get("rp"),
                 })
             entry = {
                 "name": h.get("name"),
                 "date": str(h.get("date") or ""),
-                "distributor__name": h.get("distributor"),
-                "distributor": dist.get(h.get("distributor")),
+                "distributor__name": (dist.get(h.get("doctor")) or {}).get("lead_name") or h.get("doctor"),
+                "distributor": dist.get(h.get("doctor")) or {"whg_ebs_code": h.get("doctor")},
                 "items": items,
             }
         trackers.append({

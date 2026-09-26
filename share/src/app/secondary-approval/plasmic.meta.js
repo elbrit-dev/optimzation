@@ -12,11 +12,6 @@ export const secondaryApprovalMeta = {
   description:
     "An approver's month of secondary submissions: done-of-total progress, one chip per person who raised figures, and a card per submission — stockists on Secondary Entry's stockist card, Approve / Revisit per stockist or for the whole submission from the pinned bar (Revisit sends it back to the BE with a reason). Drop it on the page on its own and bind gqlToken (the signed-in user's own ERP token) and gqlEnvironment: it loads from the ERP's elbrit_secondary_approval server script as that user — one month at a time with a month switcher, every tracker they may see (no cap), each with only its own seat's lines. Approve / Revisit appear exactly where the ERP workflow allows this user those actions. It also still works inside an Elbrit DataProvider (Views) on SecondaryApproval, or with rows passed in.",
   props: {
-    viewer: {
-      type: 'string',
-      helpText:
-        "The signed-in user's email — only labels their own submission Self. Who may approve or revisit what is the ERP's answer (its workflow, asked per tracker), not this.",
-    },
     gqlToken: {
       type: 'string',
       helpText:

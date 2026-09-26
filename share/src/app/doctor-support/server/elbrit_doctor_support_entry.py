@@ -1,51 +1,50 @@
 # =====================================================================
 # SERVER SCRIPT — the source of truth for the ERP's copy. Keep in step.
 #
-#   Name        : Elbrit Secondary Entry
+#   Name        : Elbrit Doctor Support Entry
 #   Script Type : API
-#   API Method  : elbrit_secondary_entry
+#   API Method  : elbrit_doctor_support_entry
 #   Allow Guest : NO
 #
-#   GET /api/method/elbrit_secondary_entry                 last month
-#   GET /api/method/elbrit_secondary_entry?month=2026-09
-#   GET /api/method/elbrit_secondary_entry?seat=BE4-...    a seat override
+#   GET /api/method/elbrit_doctor_support_entry                 last month
+#   GET /api/method/elbrit_doctor_support_entry?month=2026-09
+#   GET /api/method/elbrit_doctor_support_entry?seat=BE4-...    a seat override
 #
-# The Secondary Entry screen's data for the CALLER, in one call, with NO
-# CAP and only what the screen shows. READ-ONLY (saving stays the app's
-# REST get -> save of the whole document).
+# The Doctor Support Entry screen's data for the CALLER — the Secondary
+# Entry script (elbrit_secondary_entry) for Doctor Support, answering in the
+# SAME shape so the one screen reads both (see secondary-entry/data/task.js).
+# READ-ONLY (saving stays the app's REST get -> save of the whole document).
 #
-# WHICH ENTRIES: every Secondary Data Entry the caller may see for the
-# month — frappe.get_list, so the "Secondary Data Entry Permission Query"
-# decides. Nothing narrows them here.
+# WHICH RECORDS: every Doctor Support the caller may see for the month —
+# frappe.get_list, so the ERP's Doctor Support permission query decides. One
+# Doctor Support is one DOCTOR (a Lead) for one date.
 #
-# WHICH LINES: an entry carries several seats' lines; only the caller's
-# seat's are sent (their active Employee's role_id, or `seat`). The other
-# seats' products go as names only (`other_items`), so the picker can leave
-# them out. This is what made the saved GraphQL query heavy: it sent every
-# seat's lines of every entry (July, uncapped: 9 MB).
+# WHICH LINES: a Doctor Support carries several seats' Support Items; only
+# the caller's seat's are sent (their active Employee's role_id, or `seat`).
+# Other seats' products go as names only (`other_items`).
 #
-# VALUES as the saved query's transformer priced them: sales_value =
-# sales_qty x the item's custom_last_pts, closing_balance = closing_qty x
-# the same.
+# SHAPE, mapped to Secondary's names: a Support Item's qty is sent as
+# sales_qty (valued at the item's custom_last_pts into sales_value — the
+# screen writes it back as qty and amount), its status as custom_status;
+# closing is 0 (Doctor Support keys none). The doctor goes as the
+# `distributor` object: customer_name = the Lead's name, whg_ebs_code = the
+# doctor's id, territory, and `note` = specialty and city. The approval rows
+# (custom_approver_table) go as custom_status_tracker.
 #
-# AS THE TOKEN'S USER: every list is frappe.get_list, so the caller's ERP
-# permissions decide what comes back — with ONE exception, below.
-#
-# THE SEAT'S APPROVAL ROW comes with its tracker's state and note, so a
-# revisit shows. A BE's permissions do not reach Operational Tracker, so
-# those two fields are read directly (frappe.db.get_value) — the one read
-# past permissions — and ONLY for the caller's own seat's trackers, never
-# for a `seat` override.
+# THE SEAT'S APPROVAL ROW comes with its tracker's state and note — read
+# directly (frappe.db.get_value), the one read past permissions, and ONLY for
+# the caller's own seat's trackers. The document's own copy of the state
+# (custom_approver_table.status) is not kept up to date, so the tracker's is
+# what counts.
 #
 # Answer: { user, seat, month, entries: [<row>], products: [<item>] }
-# A row is shaped as the SecondaryEntry query's node, so the screen reads
-# it unchanged.
 #
 # safe_exec: no import, no .format(), no set literals, no tuple
 # unpacking, no underscore-prefixed names.
 # =====================================================================
 
-LINE = "`tabSecondary Data Table`"
+DOCTYPE = "Doctor Support"
+LINE = "`tabSupport Items`"
 MIRROR = "`tabsecondary tracker`"
 CHUNK = 500
 
@@ -105,8 +104,8 @@ products = []
 
 if seat:
     # ---- every entry the caller may see this month
-    docs = frappe.get_list("Secondary Data Entry", filters=[in_month],
-                           fields=["name", "date", "distributor"],
+    docs = frappe.get_list(DOCTYPE, filters=[in_month],
+                           fields=["name", "date", "doctor"],
                            order_by="name asc", limit_page_length=0)
     names = []
     by_name = {}
@@ -116,7 +115,7 @@ if seat:
         by_name[n] = {
             "name": n,
             "date": str(d.get("date") or ""),
-            "distributor__name": d.get("distributor"),
+            "distributor__name": d.get("doctor"),
             "distributor": None,
             "items": [],
             "other_items": [],
@@ -127,12 +126,12 @@ if seat:
     item_codes = []
     seen_items = {}
     for r in frappe.get_list(
-            "Secondary Data Entry",
-            filters=[["Secondary Data Table", "custom_role_profile", "=", seat], in_month],
+            DOCTYPE,
+            filters=[["Support Items", "role_profile", "=", seat], in_month],
             fields=["name",
                     LINE + ".name as line", LINE + ".idx as idx", LINE + ".item as item",
-                    LINE + ".sales_qty as sales_qty", LINE + ".closing_qty as closing_qty",
-                    LINE + ".custom_status as custom_status", LINE + ".custom_hq as custom_hq"],
+                    LINE + ".qty as sales_qty",
+                    LINE + ".status as custom_status", LINE + ".hq as custom_hq"],
             order_by=LINE + ".idx asc", limit_page_length=0):
         row = by_name.get(r.get("name"))
         if not row:
@@ -143,7 +142,7 @@ if seat:
             "item__name": code,
             "custom_status": r.get("custom_status"),
             "sales_qty": num(r.get("sales_qty")),
-            "closing_qty": num(r.get("closing_qty")),
+            "closing_qty": 0,
             "custom_hq__name": r.get("custom_hq"),
             "custom_role_profile__name": seat,
         })
@@ -153,8 +152,8 @@ if seat:
 
     # ---- other seats' products, as names only
     for r in frappe.get_list(
-            "Secondary Data Entry",
-            filters=[["Secondary Data Table", "custom_role_profile", "!=", seat], in_month],
+            DOCTYPE,
+            filters=[["Support Items", "role_profile", "!=", seat], in_month],
             fields=["name", LINE + ".item as item"],
             limit_page_length=0):
         row = by_name.get(r.get("name"))
@@ -165,7 +164,7 @@ if seat:
     # ---- the seat's approval row, and its tracker's state and note
     tracker_rows = []
     for r in frappe.get_list(
-            "Secondary Data Entry",
+            DOCTYPE,
             filters=[["secondary tracker", "role_profile", "=", seat], in_month],
             fields=["name", MIRROR + ".role_profile as rp", MIRROR + ".status as st",
                     MIRROR + ".tracker as tracker"],
@@ -211,7 +210,7 @@ if seat:
                 if (line.get("custom_status") or "").lower() == "draft":
                     line["custom_status"] = "Submitted"
 
-    # ---- the stockists' identity (EBS codes, territory)
+    # ---- the doctors' identity (the Lead: name, code, specialty, city, HQ)
     dist_codes = []
     for n in names:
         c = by_name[n]["distributor__name"]
@@ -219,16 +218,22 @@ if seat:
             dist_codes.append(c)
     dist = {}
     for part in chunks(dist_codes):
-        for c in frappe.get_list("Customer", filters=[["name", "in", part]],
-                                 fields=["name", "customer_name", "whg_ebs_code",
-                                         "whg_other_ebs_codes", "territory"],
+        for c in frappe.get_list("Lead", filters=[["name", "in", part]],
+                                 fields=["name", "lead_name", "custom_specialty",
+                                         "city", "territory"],
                                  limit_page_length=0):
+            bits = []
+            if c.get("custom_specialty"):
+                bits.append(c.get("custom_specialty"))
+            if c.get("city"):
+                bits.append(c.get("city"))
             dist[c.get("name")] = {
                 "name": c.get("name"),
-                "customer_name": c.get("customer_name"),
-                "whg_ebs_code": c.get("whg_ebs_code"),
-                "whg_other_ebs_codes": c.get("whg_other_ebs_codes"),
+                "customer_name": c.get("lead_name") or c.get("name"),
+                "whg_ebs_code": c.get("name"),
+                "whg_other_ebs_codes": None,
                 "territory__name": c.get("territory"),
+                "note": " · ".join(bits) or None,
             }
 
     # ---- the products: the picker's list, and the prices lines are valued at
@@ -265,7 +270,10 @@ if seat:
 
     for n in names:
         row = by_name[n]
-        row["distributor"] = dist.get(row["distributor__name"])
+        row["distributor"] = dist.get(row["distributor__name"]) or {
+            "name": row["distributor__name"], "customer_name": row["distributor__name"],
+            "whg_ebs_code": row["distributor__name"], "whg_other_ebs_codes": None,
+            "territory__name": None, "note": None}
         for line in row["items"]:
             p = price.get(line["item__name"]) or {}
             pts = num(p.get("custom_last_pts"))
@@ -273,7 +281,7 @@ if seat:
             line["custom_last_ptr"] = num(p.get("custom_last_ptr"))
             line["custom_last_mrp"] = num(p.get("custom_last_mrp"))
             line["sales_value"] = round(line["sales_qty"] * pts, 2)
-            line["closing_balance"] = round(line["closing_qty"] * pts, 2)
+            line["closing_balance"] = 0
         entries.append(row)
 
 frappe.response["message"] = {

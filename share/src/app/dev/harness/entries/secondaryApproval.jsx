@@ -41,7 +41,8 @@ const mockMode = {
           </button>
         </RailSection>
       ),
-      props: (p) => ({ ...p, rows, viewer, today: MOCK_TODAY, writer }),
+      /* The mock writer answers "who is this" for the picked viewer. */
+      props: (p) => ({ ...p, rows, today: MOCK_TODAY, writer }),
     };
   },
 };
@@ -51,8 +52,8 @@ export const secondaryApprovalHarness = {
   title: 'Secondary Approval',
   component: SecondaryApproval,
   meta: secondaryApprovalMeta,
-  /* The viewer is who the token really is — the ERP's answer. */
-  bind: ({ envName, token, who }) => ({ gqlEnvironment: envName, gqlToken: token, viewer: who?.email ?? '' }),
+  /* Who is looking is the token's user — the component asks, no prop. */
+  bind: ({ envName, token }) => ({ gqlEnvironment: envName, gqlToken: token }),
   hidden: ['className'],
   /* Bars pinned to the screen's bottom land on the device's screen, not the
      window's (the Stage sets --harness-bottom). */

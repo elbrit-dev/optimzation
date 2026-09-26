@@ -20,7 +20,7 @@
  *   {
  *     id, title, component, meta,          meta = the Plasmic registration
  *     bind(ctx) → props                    what "acting as" fills in
- *                                          (gqlToken, gqlEnvironment, viewer…)
+ *                                          (gqlToken, gqlEnvironment…)
  *     hidden: [prop names]                 not shown in the Props panel
  *     defaults: { prop: value }            starting props (sample data…) —
  *                                          shown and edited in the Props panel

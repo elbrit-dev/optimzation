@@ -147,6 +147,14 @@ export function createDecisionWriter({ endpointUrl, gqlToken, fetchImpl = fetch 
 
   return {
     live: true,
+    /* Who the token is — the ERP's answer, for labelling their own
+       submission "Self" when the rows did not come from the server script
+       (which says so itself). */
+    async whoAmI() {
+      if (!auth) return null;
+      const user = await call('/api/method/frappe.auth.get_logged_user');
+      return typeof user === 'string' && user ? user : null;
+    },
     /* names → Map(name → { approve, revisit }): what the ERP's workflow lets
        this user do on each tracker now. A tracker the ERP will not answer
        for gets neither. */
@@ -188,6 +196,10 @@ export function createMockWriter({ getRows, setRows, viewer }) {
   const lower = (x) => String(x ?? '').toLowerCase();
   return {
     live: false,
+    /* The mock's signed-in user, as the ERP would answer for a token. */
+    async whoAmI() {
+      return v || null;
+    },
     async actions(names) {
       const byName = new Map(getRows().map((r) => [r.name, r]));
       return new Map(

@@ -15,10 +15,13 @@ import { ViewSwitcher } from './components/ViewSwitcher.jsx';
 import { VisitReport } from './app/visit/components/VisitReport.jsx';
 import { SecondaryEntry } from './app/secondary-entry/components/SecondaryEntry.jsx';
 import { SecondaryApproval } from './app/secondary-approval/components/SecondaryApproval.jsx';
+import { DoctorSupportEntry } from './app/doctor-support/components/DoctorSupportEntry.jsx';
+import { DoctorSupportApproval } from './app/doctor-support/components/DoctorSupportApproval.jsx';
 import RingNav from './app/ring-nav/components/RingNav.jsx';
 import { visitReportMeta } from './app/visit/plasmic.meta.js';
 import { secondaryEntryMeta } from './app/secondary-entry/plasmic.meta.js';
 import { secondaryApprovalMeta } from './app/secondary-approval/plasmic.meta.js';
+import { doctorSupportApprovalMeta, doctorSupportEntryMeta } from './app/doctor-support/plasmic.meta.js';
 import { ringNavMeta } from './app/ring-nav/plasmic.meta.js';
 import { registerDesignSystem } from './design-system/plasmic';
 
@@ -691,6 +694,8 @@ export function registerElbritCoreComponents(loader) {
   loader.registerComponent(VisitReport, visitReportMeta);
   loader.registerComponent(SecondaryEntry, secondaryEntryMeta);
   loader.registerComponent(SecondaryApproval, secondaryApprovalMeta);
+  loader.registerComponent(DoctorSupportEntry, doctorSupportEntryMeta);
+  loader.registerComponent(DoctorSupportApproval, doctorSupportApprovalMeta);
   loader.registerComponent(RingNav, ringNavMeta);
   registerDesignSystem(loader);
 }

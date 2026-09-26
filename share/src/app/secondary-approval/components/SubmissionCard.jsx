@@ -6,6 +6,7 @@ import { StockistCard } from '@/app/secondary-entry/components/StockistCard';
 import { ProductCard } from '@/app/secondary-entry/components/ProductCard';
 import { formatMoney, formatQty } from '@/app/secondary-entry/data/format';
 import { STATUS_TONE, monthLabel } from '../data/shape';
+import { partyCount, useTask } from '@/app/secondary-entry/data/task';
 
 /* The submission — everything one person raised for one month — as ONE
  * card: what it is and where it is (title, pill), WHO raised it (with the
@@ -138,6 +139,7 @@ function Choice({ pressed, tone, onClick, children, disabled }) {
  * A stockist sent back and still waiting on the BE's correction shows the
  * reason, and "Revisit" in its pill — it is waiting, but not on a decision. */
 export function StockistLine({ slice, mine = false, revisitable = false, choice, onChoose, onReason, busy = false }) {
+  const task = useTask();
   const [open, setOpen] = useState(false);
   const rejectedNote = slice.status === 'rejected' && slice.reason;
   const revisitNote = slice.revisitNote;
@@ -148,6 +150,7 @@ export function StockistLine({ slice, mine = false, revisitable = false, choice,
         stockist: slice.stockist,
         ebsCode: slice.ebsCode,
         otherEbsCodes: [],
+        note: slice.note,
         hq: slice.hq,
         status: revisitNote ? 'revisit' : slice.status,
         statusText: slice.state,
@@ -176,8 +179,8 @@ export function StockistLine({ slice, mine = false, revisitable = false, choice,
                       clickable={false}
                       showPrices={false}
                       tray={[
-                        { label: 'Sales', value: formatQty(l.salesQty), caption: formatMoney(l.salesValue) },
-                        { label: 'Closing', value: formatQty(l.closingQty), caption: formatMoney(l.closingValue) },
+                        { label: task.qtyLabel, value: formatQty(l.salesQty), caption: formatMoney(l.salesValue) },
+                        ...(task.closing ? [{ label: 'Closing', value: formatQty(l.closingQty), caption: formatMoney(l.closingValue) }] : []),
                       ]}
                     />
                   </li>
@@ -248,6 +251,7 @@ function Stat({ label, value, caption }) {
 /* Who raised it — avatar and name — and under it the three figures that size
    the submission, side by side in one grey tray. */
 export function RaiserCard({ submission: g }) {
+  const task = useTask();
   const mon = monthLabel(g.month);
   return (
     <div className="flex flex-col gap-3 rounded-xl border border-line-subtle p-3">
@@ -259,9 +263,9 @@ export function RaiserCard({ submission: g }) {
         <span className="min-w-0 truncate text-13 font-semibold text-heading">{g.isSelf ? `You · ${g.raiserName}` : g.raiserName}</span>
       </span>
       <div className="grid grid-cols-3 rounded-xl bg-sunken">
-        <Stat label="Stockists" value={g.stockists} caption="this month" />
-        <Stat label="Total qty" value={formatQty(g.salesQty)} caption="units billed" />
-        <Stat label="Value" value={formatMoney(g.value)} caption={`${mon} secondary`} />
+        <Stat label={task.Parties} value={g.stockists} caption="this month" />
+        <Stat label="Total qty" value={formatQty(g.salesQty)} caption={task.qtyCaption} />
+        <Stat label="Value" value={formatMoney(g.value)} caption={`${mon} ${task.valueNoun}`} />
       </div>
     </div>
   );
@@ -277,6 +281,7 @@ export function SubmissionCard({
   onChoose,
   onReason,
 }) {
+  const task = useTask();
   const actionable = canDecide && g.mine.length > 0;
   const reasons = [...new Set(g.slices.filter((s) => s.status === 'rejected' && s.reason).map((s) => s.reason))];
 
@@ -322,7 +327,7 @@ export function SubmissionCard({
           <span className="text-11 font-semibold text-heading">Total</span>
           <span className="tabular-nums">
             <span className="text-10 text-ds-muted">
-              {g.slices.length} {g.slices.length === 1 ? 'stockist' : 'stockists'} ·{' '}
+              {partyCount(task, g.slices.length)} ·{' '}
             </span>
             <span className="text-12 font-bold text-heading">{formatMoney(g.value)}</span>
           </span>

@@ -98,7 +98,7 @@ function Control({ control, value, setValue, boundValue, overridden, setOverridd
 
 /* THE COMPONENT'S PROPS, read from its Plasmic registration — so this panel
    is exactly what a Studio page can set. Props driven by who you are acting
-   as (the token, the environment, the viewer) show as "auto" and can be
+   as (the token, the environment) show as "auto" and can be
    overridden. Event handlers are wired and report to the browser console. */
 export function PropsPanel({ meta, bound, hidden, values, defaults = {}, setValues, overridden, setOverridden, errors }) {
   /* Event handlers are wired by the harness (they report to the console),

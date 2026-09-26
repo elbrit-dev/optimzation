@@ -19,12 +19,13 @@ function authHeader(token) {
   return /^(token|bearer|basic)\s/i.test(t) ? t : `token ${t}`;
 }
 
-export async function fetchServerEntries({ endpointUrl, token, month, seat, fetchImpl = fetch }) {
+/* `method` is the task's server script (task.entryMethod) — Secondary's by default. */
+export async function fetchServerEntries({ endpointUrl, token, month, seat, method = 'elbrit_secondary_entry', fetchImpl = fetch }) {
   const params = {};
   if (month) params.month = month;
   if (seat) params.seat = seat;
   const qs = Object.keys(params).length ? `?${new URLSearchParams(params)}` : '';
-  const res = await fetchImpl(`${new URL(endpointUrl).origin}/api/method/elbrit_secondary_entry${qs}`, {
+  const res = await fetchImpl(`${new URL(endpointUrl).origin}/api/method/${method}${qs}`, {
     headers: { Authorization: authHeader(token), Accept: 'application/json' },
   });
   const json = await res.json().catch(() => ({}));
@@ -33,7 +34,7 @@ export async function fetchServerEntries({ endpointUrl, token, month, seat, fetc
 }
 
 /* → { data: { seat, month, entries, products } | null, error, reload } */
-export function useServerEntries({ enabled, gqlEnvironment = 'ERP', gqlToken, month, seat }) {
+export function useServerEntries({ enabled, gqlEnvironment = 'ERP', gqlToken, month, seat, method }) {
   const [state, setState] = useState({ data: null, error: null });
   const [attempt, setAttempt] = useState(0);
   const run = useRef(0);
@@ -46,7 +47,7 @@ export function useServerEntries({ enabled, gqlEnvironment = 'ERP', gqlToken, mo
       try {
         const { endpointUrl } = await getEndpointConfigFromUrlKeyAsync(gqlEnvironment);
         if (!endpointUrl) throw new Error(`No endpoint registered for "${gqlEnvironment}".`);
-        const data = await fetchServerEntries({ endpointUrl, token: gqlToken, month, seat });
+        const data = await fetchServerEntries({ endpointUrl, token: gqlToken, month, seat, method });
         if (run.current === id) setState({ data, error: null });
       } catch (error) {
         console.error('[secondary-entry] could not load from ERP.', error);
@@ -54,7 +55,7 @@ export function useServerEntries({ enabled, gqlEnvironment = 'ERP', gqlToken, mo
       }
     })();
     return undefined;
-  }, [enabled, gqlEnvironment, gqlToken, month, seat, attempt]);
+  }, [enabled, gqlEnvironment, gqlToken, month, seat, method, attempt]);
 
   const reload = useCallback(() => setAttempt((n) => n + 1), []);
   return { ...state, reload };

@@ -19,9 +19,10 @@ function authHeader(token) {
   return /^(token|bearer|basic)\s/i.test(t) ? t : `token ${t}`;
 }
 
-export async function fetchServerApprovals({ endpointUrl, token, month, fetchImpl = fetch }) {
+/* `method` is the task's server script (task.approvalMethod) — Secondary's by default. */
+export async function fetchServerApprovals({ endpointUrl, token, month, method = 'elbrit_secondary_approval', fetchImpl = fetch }) {
   const qs = month ? `?${new URLSearchParams({ month })}` : '';
-  const res = await fetchImpl(`${new URL(endpointUrl).origin}/api/method/elbrit_secondary_approval${qs}`, {
+  const res = await fetchImpl(`${new URL(endpointUrl).origin}/api/method/${method}${qs}`, {
     headers: { Authorization: authHeader(token), Accept: 'application/json' },
   });
   const json = await res.json().catch(() => ({}));
@@ -30,7 +31,7 @@ export async function fetchServerApprovals({ endpointUrl, token, month, fetchImp
 }
 
 /* → { data: { month, months: [{ month, waiting }], trackers } | null, error, reload } */
-export function useServerApprovals({ enabled, gqlEnvironment = 'ERP', gqlToken, month }) {
+export function useServerApprovals({ enabled, gqlEnvironment = 'ERP', gqlToken, month, method }) {
   const [state, setState] = useState({ data: null, error: null });
   const [attempt, setAttempt] = useState(0);
   const run = useRef(0);
@@ -45,7 +46,7 @@ export function useServerApprovals({ enabled, gqlEnvironment = 'ERP', gqlToken, 
       try {
         const { endpointUrl } = await getEndpointConfigFromUrlKeyAsync(gqlEnvironment);
         if (!endpointUrl) throw new Error(`No endpoint registered for "${gqlEnvironment}".`);
-        const data = await fetchServerApprovals({ endpointUrl, token: gqlToken, month });
+        const data = await fetchServerApprovals({ endpointUrl, token: gqlToken, month, method });
         if (run.current === id) setState({ data, error: null });
       } catch (error) {
         console.error('[secondary-approval] could not load from ERP.', error);
@@ -53,7 +54,7 @@ export function useServerApprovals({ enabled, gqlEnvironment = 'ERP', gqlToken, 
       }
     })();
     return undefined;
-  }, [enabled, gqlEnvironment, gqlToken, month, attempt]);
+  }, [enabled, gqlEnvironment, gqlToken, month, method, attempt]);
 
   const reload = useCallback(() => setAttempt((n) => n + 1), []);
   return { ...state, reload };
