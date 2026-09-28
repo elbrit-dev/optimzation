@@ -35,7 +35,7 @@ export const doctorSupportEntryMeta = {
     roleProfile: {
       type: 'string',
       helpText:
-        "Optional override of the seat entering. Leave empty: the seat is the ERP's answer for the signed-in user (their active Employee's role_id).",
+        "Optional override of the seat entering. Leave empty: the seat is the ERP's answer for the signed-in user (their active Employee's custom_role_profile).",
     },
     gqlToken: shared.gqlToken,
     gqlEnvironment: shared.gqlEnvironment,

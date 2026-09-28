@@ -12,7 +12,9 @@
  *   - once ALL of a seat's lines are out of Draft, the save creates that
  *     seat's Operational Tracker and appends its tracker row with status
  *     "<next role> Approval Waiting";
- *   - approvers move the tracker row on from there.
+ *   - approvers move the tracker row on from there; a Rework (the workflow's
+ *     "Revisit", only while it waits) sends it to "Rework", back with the
+ *     seat to correct and resubmit.
  *
  * Rows arrive from DataProvider (`SecondaryEntry` query, after its
  * transformer), so field names are read tolerantly: a link comes back either
@@ -43,15 +45,21 @@ export const STATUS_TONE = {
   revisit: 'danger',
 };
 
-/* The approver's "Revisit" leaves the approval WAITING and writes its reason
-   onto the tracker as "Revisit (from <state>): <reason>" — the note outlives
-   the revisit (it is still there after the next approval), so it only means
-   "sent back" while the tracker is waiting. Returns the reason, or null. */
+/* The approver's "Revisit" (Rework, as people say it) moves the tracker to
+   the flat "Rework" state, back with the BE; the app then writes its reason
+   onto the tracker as "Revisit (from <state>): <reason>". The note outlives
+   the rework (it is still there after the resubmit), so only the STATE says
+   "sent back". */
+export const REWORK_STATE = 'Rework';
+export const isRework = (state) => String(state ?? '').trim().toLowerCase() === 'rework';
+
+/* The reason a tracker in Rework was sent back, or null when it is not in
+   Rework. A rework raised in the ERP's own form may carry no note. */
 export function revisitReason(note, trackerState) {
-  const m = String(note ?? '').match(/^Revisit \(from [^)]*\):\s*([\s\S]*)$/);
-  if (!m) return null;
-  if (trackerState && !/approval waiting$/i.test(String(trackerState))) return null;
-  return m[1].trim() || 'No reason given.';
+  if (!isRework(trackerState)) return null;
+  const text = String(note ?? '');
+  const m = text.match(/^Revisit \(from [^)]*\):\s*([\s\S]*)$/);
+  return (m ? m[1] : text).trim() || 'No reason given.';
 }
 
 function pick(obj, keys) {
@@ -195,16 +203,14 @@ export function normalizeEntry(row, roleProfile) {
   const anyDraftLine = lines.some((l) => String(l.lineStatus ?? '').toLowerCase() === 'draft');
   if (roleProfile) {
     if (tracker && !anyDraftLine) {
-      statusText = trackerStatusText(tracker);
+      /* The tracker's own state first: the record's copy of it is not always
+         kept up to date (Doctor Support's never moves past submission). Needs
+         custom_status_tracker { tracker { workflow_state__name
+         reason_for_rejection } } in the query, as the server scripts send. */
+      statusText = pick(tracker, ['tracker.workflow_state__name', 'tracker.workflow_state']) ?? trackerStatusText(tracker);
       status = bucketFromText(statusText) ?? 'pending';
-      /* Needs custom_status_tracker { tracker { workflow_state__name
-         reason_for_rejection } } in the query; without it a revisit reads as
-         plain Pending. */
-      const reason = revisitReason(
-        pick(tracker, ['tracker.reason_for_rejection']),
-        pick(tracker, ['tracker.workflow_state__name', 'tracker.workflow_state']) ?? statusText,
-      );
-      if (status === 'pending' && reason) {
+      const reason = revisitReason(pick(tracker, ['tracker.reason_for_rejection']), statusText);
+      if (reason) {
         status = 'revisit';
         statusText = reason;
       }

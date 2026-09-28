@@ -42,12 +42,13 @@
 #
 # SECONDARY ENTRY — every entry the caller may see for the entry month (the
 # "Secondary Data Entry Permission Query" decides), each in ONE bucket for
-# the caller's seat (their active Employee's role_id). Within an entry only
+# the caller's seat (their active Employee's custom_role_profile). Within an entry only
 # the seat's lines count — an entry carries several seats' lines:
 #   approved  its approval row says "... Approved and Waiting for
 #             Verification" or verified — green at once, MIS verifying is
 #             not waited for — whatever its lines say
-#   rejected  its approval row says Rejected — back to the BE (likewise)
+#   rejected  its approval row says Rejected, or Rework (sent back while
+#             waiting) — back to the BE (likewise)
 #   draft     otherwise: none of the seat's lines yet, or any still Draft
 #   waiting   otherwise: all out of Draft, "... Approval Waiting" (or no
 #             row yet)
@@ -94,7 +95,7 @@ def bucket_of(ws):
     s = (ws or "").lower()
     if not s:
         return "waiting"
-    if "rejected" in s:
+    if "rejected" in s or s == "rework":
         return "rejected"
     if s.endswith("approval waiting"):
         return "waiting"
@@ -165,7 +166,9 @@ emp = frappe.get_list("Employee",
                       limit_page_length=1)
 seat = ""
 if emp:
-    seat = emp[0].get("role_id") or emp[0].get("custom_role_profile") or ""
+    # custom_role_profile, as the ERP's tracker scripts route on it: role_id
+    # is stale for some people (an old seat, e.g. from before a promotion).
+    seat = emp[0].get("custom_role_profile") or emp[0].get("role_id") or ""
 
 items = []
 # The tasks on the strip, each with an entry tile and an approval tile. The

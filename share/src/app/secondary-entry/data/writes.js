@@ -172,7 +172,9 @@ export function createErpWriter({ endpointUrl, gqlToken, task = SECONDARY }) {
   return {
     live: true,
     /* Who the token's user is, and their seat: their active Employee's
-       role_id — the ERP's answer, as its own scripts resolve it. */
+       custom_role_profile, as the ERP's own tracker scripts resolve it
+       (role_id is stale for some people: an old seat, e.g. from before a
+       promotion), with role_id only as the fallback. */
     async whoAmI() {
       const user = await call('/api/method/frappe.auth.get_logged_user');
       const [emp] =
@@ -185,7 +187,7 @@ export function createErpWriter({ endpointUrl, gqlToken, task = SECONDARY }) {
             limit_page_length: 1,
           },
         })) ?? [];
-      return { user, seat: emp?.role_id || emp?.custom_role_profile || null };
+      return { user, seat: emp?.custom_role_profile || emp?.role_id || null };
     },
     async saveSeat(name, opts) {
       for (let attempt = 1; ; attempt += 1) {

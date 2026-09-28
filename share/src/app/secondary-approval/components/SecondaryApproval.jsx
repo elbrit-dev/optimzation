@@ -113,16 +113,15 @@ export function SecondaryApproval({
         ? baseSlices.map((s) => {
             const p = patches.get(s.name);
             if (!p) return s;
-            /* A revisit restarts the approval at "<ROLE> Approval Waiting",
-               routed back to the viewer, with the reason as its note. */
+            /* A rework moves the approval to "Rework", back with the BE, with
+               the reason as its note. */
             if (p.action === 'revisit') {
               return {
                 ...s,
                 state: p.state,
                 status: 'pending',
-                atRole: p.state.replace(/ Approval Waiting$/, ''),
+                atRole: null,
                 decidedRole: null,
-                nextApprover: viewer,
                 modifiedBy: viewer,
                 reason: `Revisit (from ${s.state}): ${p.reason}`,
                 revisitNote: p.reason,

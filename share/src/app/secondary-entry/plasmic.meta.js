@@ -16,7 +16,7 @@ export const secondaryEntryMeta = {
     roleProfile: {
       type: 'string',
       helpText:
-        "Optional override of the seat entering, e.g. 'BE7-VASC-CO-NAG'. Leave empty: the seat is the ERP's answer for the signed-in user (their active Employee's role_id). Which stockists show is the ERP's permission rules; only the seat's lines within each are shown and written.",
+        "Optional override of the seat entering, e.g. 'BE7-VASC-CO-NAG'. Leave empty: the seat is the ERP's answer for the signed-in user (their active Employee's custom_role_profile). Which stockists show is the ERP's permission rules; only the seat's lines within each are shown and written.",
     },
     gqlToken: {
       type: 'string',

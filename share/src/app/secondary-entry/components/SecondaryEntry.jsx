@@ -38,7 +38,7 @@ import { useUnsavedGuard } from './useUnsavedGuard';
  * WHICH LINES: one ERP entry is shared by several seats, so every status,
  * total and write is for ONE seat (`roleProfile`) — this screen's job, as
  * the ERP's permissions are per document, not per line. Unset, the seat is
- * the ERP's answer for the signed-in user (their Employee's role_id).
+ * the ERP's answer for the signed-in user (their Employee's custom_role_profile).
  *
  * Writes go straight to ERP as the signed-in user (`gqlToken`, required to
  * save). See data/writes.js for why that is a REST get → save round-trip. */

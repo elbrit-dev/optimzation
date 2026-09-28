@@ -10,14 +10,15 @@
  * happen exactly as before (compared field by field on UAT):
  *
  *   approve                    apply_workflow "Approve to Verification"
- *   revisit, waiting           store the note — the approval is already
- *                              waiting on the approver; the workflow's
- *                              "Revisit" there is a same-state no-op
- *   revisit, approved (not     apply_workflow "Revisit" (back to "ABM Approval
- *   yet verified)              Waiting", re-routed by Before Save), then the note
+ *   revisit (Rework), waiting  apply_workflow "Revisit" (to the flat "Rework"
+ *                              state, back with the BE), then the note
+ *
+ * NO REWORK AFTER APPROVAL: once approved, a tracker is not sent back, though
+ * the workflow still lists "Revisit" from "Approved and Waiting for
+ * Verification" — the app neither offers nor applies it there.
  *
  * The note is written in the ERP's own format, "Revisit (from <state>):
- * <reason>", which is how both screens recognise a stockist sent back.
+ * <reason>"; the "Rework" state is what says a stockist was sent back.
  *
  * WHO MAY DO WHAT IS THE ERP'S: `actions(names)` asks it (frappe's
  * get_transitions — the workflow's own rules for this user on this
@@ -25,7 +26,7 @@
  * Verification" and Revisit where it lists "Revisit". Nothing here decides
  * who approves whom. (Ramu, RBM, on a tracker waiting on his ABM is offered
  * only "Approve" and "Reject" — the RBM step that changes nothing — so he
- * gets no buttons there.)
+ * gets no buttons there.) Revisit is offered only while it waits.
  *
  * What IS checked is the ERP's own answer after a write: an approval that
  * did not reach "Approved and Waiting for Verification" is reported as a
@@ -67,6 +68,8 @@ export function erpErrorMessage(body, status) {
 
 export const WAITING = / Approval Waiting$/;
 export const UNVERIFIED = / Approved and Waiting for Verification$/;
+export const REWORK = /^Rework$/;
+const ALREADY_APPROVED = 'Already approved — it can no longer be sent back for rework.';
 
 /* The note both screens read as "sent back": the ERP's own format. */
 export function revisitNote(fromState, reason) {
@@ -109,24 +112,21 @@ export function createDecisionWriter({ endpointUrl, gqlToken, fetchImpl = fetch 
     }
     if (action === 'revisit') {
       if (!String(reason ?? '').trim()) return { name, ok: false, state, error: 'A reason is required to send it back.' };
-      if (WAITING.test(state)) {
+      if (!WAITING.test(state)) {
+        const error = /approved|verified/i.test(state) ? ALREADY_APPROVED : `Cannot send back for rework from state: ${state}`;
+        return { name, ok: false, state, error };
+      }
+      const after = await applyWorkflow(doc, 'Revisit');
+      if (!REWORK.test(after?.workflow_state ?? '')) {
+        return { name, ok: false, state: after?.workflow_state ?? state, error: 'The ERP did not send it back — your role may not be allowed to.' };
+      }
+      try {
         await setNote(name, revisitNote(state, reason));
-        return { name, ok: true, state, error: null };
+      } catch (e) {
+        /* Sent back, but without its reason: say so, the item is not lost. */
+        return { name, ok: true, state: after.workflow_state, error: `Sent back, but the reason was not saved: ${e.message}` };
       }
-      if (UNVERIFIED.test(state)) {
-        const after = await applyWorkflow(doc, 'Revisit');
-        if (!WAITING.test(after?.workflow_state ?? '')) {
-          return { name, ok: false, state: after?.workflow_state ?? state, error: 'The ERP did not send it back — your role may not be allowed to.' };
-        }
-        try {
-          await setNote(name, revisitNote(state, reason));
-        } catch (e) {
-          /* Moved back, but without its reason: say so, the item is not lost. */
-          return { name, ok: true, state: after.workflow_state, error: `Sent back, but the reason was not saved: ${e.message}` };
-        }
-        return { name, ok: true, state: after.workflow_state, error: null };
-      }
-      return { name, ok: false, state, error: `Cannot revisit from state: ${state}` };
+      return { name, ok: true, state: after.workflow_state, error: null };
     }
     return { name, ok: false, state, error: `Unknown action "${action}"` };
   }
@@ -165,7 +165,8 @@ export function createDecisionWriter({ endpointUrl, gqlToken, fetchImpl = fetch 
           const doc = await getTracker(name);
           const list = await call('/api/method/frappe.model.workflow.get_transitions', { doc });
           const acts = new Set((Array.isArray(list) ? list : []).map((t) => t?.action));
-          return [name, { approve: acts.has('Approve to Verification'), revisit: acts.has('Revisit') }];
+          const waiting = WAITING.test(doc?.workflow_state ?? '');
+          return [name, { approve: acts.has('Approve to Verification'), revisit: waiting && acts.has('Revisit') }];
         } catch {
           return [name, { approve: false, revisit: false }];
         }
@@ -188,9 +189,9 @@ export function createDecisionWriter({ endpointUrl, gqlToken, fetchImpl = fetch 
 /* The in-memory stand-in for the harness: plays the ERP's part on the mock
    rows — the same outcomes and refusals as createDecisionWriter, and, for
    `actions`, the routing the ERP's workflow applies: a waiting tracker is
-   the viewer's to approve or revisit when it is routed to them (next or
-   fallback approver); one they approved that MIS has not verified is theirs
-   to revisit. Here, and only here, because here the mock IS the ERP. */
+   the viewer's to approve or send back for rework when it is routed to them
+   (next or fallback approver); an approved one is no one's to send back.
+   Here, and only here, because here the mock IS the ERP. */
 export function createMockWriter({ getRows, setRows, viewer }) {
   const v = String(viewer ?? '').toLowerCase();
   const lower = (x) => String(x ?? '').toLowerCase();
@@ -208,8 +209,7 @@ export function createMockWriter({ getRows, setRows, viewer }) {
           const state = r?.workflow_state__name ?? '';
           const routed = Boolean(v) && (lower(r?.next_approver__name) === v || lower(r?.custom_fallback_approver__name) === v);
           const waiting = WAITING.test(state) && routed;
-          const approvedByMe = UNVERIFIED.test(state) && Boolean(v) && lower(r?.modified_by__name) === v;
-          return [name, { approve: waiting, revisit: waiting || approvedByMe }];
+          return [name, { approve: waiting, revisit: waiting }];
         }),
       );
     },
@@ -222,22 +222,20 @@ export function createMockWriter({ getRows, setRows, viewer }) {
         if (!d) return row;
         const state = row.workflow_state__name ?? '';
         const waiting = state.match(/^(\S+) Approval Waiting$/);
-        const verifying = state.match(/^(\S+) Approved and Waiting for Verification$/);
         if (d.action === 'revisit') {
-          if (!waiting && !verifying) {
-            results.push({ name: row.name, ok: false, error: `Cannot revisit from state: ${state}` });
+          if (!waiting) {
+            const error = /approved|verified/i.test(state) ? ALREADY_APPROVED : `Cannot send back for rework from state: ${state}`;
+            results.push({ name: row.name, ok: false, error });
             return row;
           }
           if (!d.reason) {
             results.push({ name: row.name, ok: false, error: 'A reason is required to send it back.' });
             return row;
           }
-          const back = waiting ? state : 'ABM Approval Waiting';
-          results.push({ name: row.name, ok: true, state: back, error: null });
+          results.push({ name: row.name, ok: true, state: 'Rework', error: null });
           return {
             ...row,
-            workflow_state__name: back,
-            next_approver__name: viewer ?? row.next_approver__name,
+            workflow_state__name: 'Rework',
             modified_by__name: viewer ?? row.modified_by__name,
             reason_for_rejection: `Revisit (from ${state}): ${d.reason}`,
           };

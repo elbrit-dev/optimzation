@@ -65,7 +65,7 @@ describe('who decides — the ERP', () => {
     expect(groupSubmissions([a, b]).flatMap((g) => g.mine)).toEqual([]);
   });
 
-  it('the mock writer plays the ERP: routed to me while waiting; approved by me until verified', async () => {
+  it('the mock writer plays the ERP: routed to me while waiting; nothing once approved', async () => {
     const w = createMockWriter({ getRows: () => rows, setRows: () => {}, viewer: MOCK_VIEWER });
     const other = createMockWriter({ getRows: () => rows, setRows: () => {}, viewer: 'someone@elbrit.org' });
     const waiting = slices.find((s) => s.status === 'pending' && s.nextApprover === MOCK_VIEWER);
@@ -73,7 +73,7 @@ describe('who decides — the ERP', () => {
     const verified = slices.find((s) => s.state === 'Approved and Verified');
     const got = await w.actions([waiting.name, approvedByMe.name, verified.name]);
     expect(got.get(waiting.name)).toEqual({ approve: true, revisit: true });
-    expect(got.get(approvedByMe.name)).toEqual({ approve: false, revisit: true });
+    expect(got.get(approvedByMe.name)).toEqual({ approve: false, revisit: false });
     expect(got.get(verified.name)).toEqual({ approve: false, revisit: false });
     expect((await other.actions([waiting.name])).get(waiting.name)).toEqual({ approve: false, revisit: false });
   });
@@ -142,7 +142,7 @@ describe('writes', () => {
       if (u.pathname.endsWith('apply_workflow')) {
         calls.push(['workflow', body.doc.name, body.action]);
         const from = trackers[body.doc.name];
-        trackers[body.doc.name] = body.action === 'Revisit' ? 'ABM Approval Waiting' : approveTo ?? from;
+        trackers[body.doc.name] = body.action === 'Revisit' ? 'Rework' : approveTo ?? from;
         return ok({ name: body.doc.name, workflow_state: trackers[body.doc.name] });
       }
       if (u.pathname.endsWith('set_value')) {
@@ -162,23 +162,38 @@ describe('writes', () => {
     expect(fetchImpl.mock.calls[0][1].headers.Authorization).toBe('token k:s');
   });
 
-  it('revisits a WAITING item by storing the note, in the ERP\'s format', async () => {
+  it('sends a WAITING item to Rework through the workflow\'s "Revisit", then the note', async () => {
     const { w, calls } = fakeErp({ T1: 'ABM Approval Waiting' });
     const [res] = await w.decide([{ name: 'T1', action: 'revisit', reason: ' Qty off ' }]);
-    expect(res).toEqual({ name: 'T1', ok: true, state: 'ABM Approval Waiting', error: null });
-    expect(calls).toEqual([['get', 'T1'], ['note', 'T1', 'Revisit (from ABM Approval Waiting): Qty off']]);
-  });
-
-  it('revisits an APPROVED item through the workflow\'s "Revisit", then the note', async () => {
-    const { w, calls } = fakeErp({ T1: 'ABM Approved and Waiting for Verification' });
-    const [res] = await w.decide([{ name: 'T1', action: 'revisit', reason: 'Second look' }]);
-    expect(res.ok).toBe(true);
-    expect(res.state).toBe('ABM Approval Waiting');
+    expect(res).toEqual({ name: 'T1', ok: true, state: 'Rework', error: null });
     expect(calls).toEqual([
       ['get', 'T1'],
       ['workflow', 'T1', 'Revisit'],
-      ['note', 'T1', 'Revisit (from ABM Approved and Waiting for Verification): Second look'],
+      ['note', 'T1', 'Revisit (from ABM Approval Waiting): Qty off'],
     ]);
+  });
+
+  it('does not send an APPROVED item back for rework, though the workflow would', async () => {
+    const { w, calls } = fakeErp({ T1: 'ABM Approved and Waiting for Verification' });
+    const [res] = await w.decide([{ name: 'T1', action: 'revisit', reason: 'Second look' }]);
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/Already approved/);
+    expect(calls).toEqual([['get', 'T1']]);
+  });
+
+  it('reports a Revisit the ERP did not take to Rework as a failure, with no note', async () => {
+    const silent = fakeErp({ T1: 'ABM Approval Waiting' });
+    const real = silent.fetchImpl.getMockImplementation();
+    silent.fetchImpl.mockImplementation(async (url, init) => {
+      if (String(url).includes('apply_workflow')) {
+        return { ok: true, json: async () => ({ message: { name: 'T1', workflow_state: 'ABM Approval Waiting' } }) };
+      }
+      return real(url, init);
+    });
+    const [res] = await silent.w.decide([{ name: 'T1', action: 'revisit', reason: 'x' }]);
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/did not send it back/);
+    expect(silent.calls.filter((c) => c[0] === 'note')).toEqual([]);
   });
 
   it('checks the answer the ERP gives after a write', async () => {
@@ -198,7 +213,7 @@ describe('writes', () => {
     ]);
     expect(res.map((x) => [x.name, x.ok])).toEqual([['A', false], ['V', false], ['R', false]]);
     expect(res[0].error).toMatch(/did not approve/);
-    expect(res[1].error).toMatch(/Cannot revisit from state: Approved and Verified/);
+    expect(res[1].error).toMatch(/Already approved/);
     expect(res[2].error).toMatch(/reason is required/);
     expect(calls.filter((c) => c[0] === 'note')).toEqual([]);
   });
@@ -219,11 +234,15 @@ describe('writes', () => {
     ]);
   });
 
-  it('asks the ERP what may be done: Approve = "Approve to Verification", Revisit = "Revisit"', async () => {
+  it('asks the ERP what may be done: Approve = "Approve to Verification", Rework = "Revisit" while waiting', async () => {
     const offered = { W: ['Approve', 'Approve to Verification', 'Reject', 'Revisit'], U: ['Revisit'], R: ['Approve', 'Reject'] };
+    const states = { W: 'ABM Approval Waiting', U: 'ABM Approved and Waiting for Verification', R: 'ABM Approval Waiting' };
     const fetchImpl = vi.fn(async (url, init) => {
       const u = new URL(url);
-      if (u.pathname.endsWith('frappe.client.get')) return { ok: true, json: async () => ({ message: { name: u.searchParams.get('name') } }) };
+      if (u.pathname.endsWith('frappe.client.get')) {
+        const name = u.searchParams.get('name');
+        return { ok: true, json: async () => ({ message: { name, workflow_state: states[name] } }) };
+      }
       if (u.pathname.endsWith('get_transitions')) {
         const { doc } = JSON.parse(init.body);
         return { ok: true, json: async () => ({ message: offered[doc.name].map((action) => ({ action })) }) };
@@ -233,7 +252,8 @@ describe('writes', () => {
     const w = createDecisionWriter({ endpointUrl: 'https://erp.example.com/api/method/graphql', gqlToken: 'k:s', fetchImpl });
     const got = await w.actions(['W', 'U', 'R']);
     expect(got.get('W')).toEqual({ approve: true, revisit: true });
-    expect(got.get('U')).toEqual({ approve: false, revisit: true });
+    /* Approved: the workflow still offers "Revisit"; the app does not. */
+    expect(got.get('U')).toEqual({ approve: false, revisit: false });
     /* An RBM on a tracker waiting on his ABM is offered only the step that
        changes nothing: no buttons. */
     expect(got.get('R')).toEqual({ approve: false, revisit: false });
@@ -269,16 +289,22 @@ describe('writes', () => {
 describe('revisit', () => {
   const slices = normalizeSlices(buildMockRows());
 
-  it('reads a waiting revisit note, and ignores it once decided again', () => {
-    const [waiting] = normalizeSlices([{ name: 'T', workflow_state__name: 'ABM Approval Waiting', reason_for_rejection: 'Revisit (from ABM Approval Waiting): Recheck closing.' }]);
-    expect(waiting.revisitNote).toBe('Recheck closing.');
+  it('reads a Rework, with its note, and ignores the note once resubmitted', () => {
+    const [rework] = normalizeSlices([{ name: 'T', workflow_state__name: 'Rework', next_role__name: 'ABM', reason_for_rejection: 'Revisit (from ABM Approval Waiting): Recheck closing.' }]);
+    expect(rework.revisitNote).toBe('Recheck closing.');
+    expect(rework.status).toBe('pending');
+    expect(rework.atRole).toBeNull();
+    const [bare] = normalizeSlices([{ name: 'T', workflow_state__name: 'Rework' }]);
+    expect(bare.revisitNote).toBe('No reason given.');
+    const [again] = normalizeSlices([{ name: 'T', workflow_state__name: 'ABM Approval Waiting', reason_for_rejection: 'Revisit (from ABM Approval Waiting): Recheck closing.' }]);
+    expect(again.revisitNote).toBeNull();
     const [approved] = normalizeSlices([{ name: 'T', workflow_state__name: 'ABM Approved and Waiting for Verification', reason_for_rejection: 'Revisit (from ABM Approval Waiting): Recheck closing.' }]);
     expect(approved.revisitNote).toBeNull();
     const [plain] = normalizeSlices([{ name: 'T', workflow_state__name: 'ABM Rejected', reason_for_rejection: 'Wrong figures' }]);
     expect(plain.revisitNote).toBeNull();
   });
 
-  it('mock writer revisits waiting and approved-unverified, refuses the rest', async () => {
+  it('mock writer sends waiting items to Rework, refuses approved ones', async () => {
     let rows = buildMockRows();
     const w = createMockWriter({ getRows: () => rows, setRows: (r) => (rows = r), viewer: MOCK_VIEWER });
     const waiting = rows.find((r) => r.workflow_state__name === 'ABM Approval Waiting');
@@ -292,11 +318,11 @@ describe('revisit', () => {
       { name: verified.name, action: 'revisit', reason: 'Fix C' },
     ]);
     const ok = Object.fromEntries(res.map((r) => [r.name, r.ok]));
-    expect([ok[waiting.name], ok[unverified.name], ok[verified.name]]).toEqual([true, true, false]);
-    const back = normalizeSlices(rows).find((s) => s.name === unverified.name);
-    expect(back.status).toBe('pending');
-    expect(back.revisitNote).toBe('Fix B');
-    expect(back.nextApprover).toBe(MOCK_VIEWER);
+    expect([ok[waiting.name], ok[unverified.name], ok[verified.name]]).toEqual([true, false, false]);
+    const back = normalizeSlices(rows).find((s) => s.name === waiting.name);
+    expect(back.state).toBe('Rework');
+    expect(back.revisitNote).toBe('Fix A');
+    expect(normalizeSlices(rows).find((s) => s.name === unverified.name).state).toBe('ABM Approved and Waiting for Verification');
   });
 });
 

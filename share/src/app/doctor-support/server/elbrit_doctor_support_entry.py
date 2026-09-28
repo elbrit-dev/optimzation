@@ -20,7 +20,7 @@
 # Doctor Support is one DOCTOR (a Lead) for one date.
 #
 # WHICH LINES: a Doctor Support carries several seats' Support Items; only
-# the caller's seat's are sent (their active Employee's role_id, or `seat`).
+# the caller's seat's are sent (their active Employee's custom_role_profile, or `seat`).
 # Other seats' products go as names only (`other_items`).
 #
 # SHAPE, mapped to Secondary's names: a Support Item's qty is sent as
@@ -93,7 +93,9 @@ emp = frappe.get_list("Employee",
                       fields=["role_id", "custom_role_profile"],
                       limit_page_length=1)
 if emp:
-    own_seat = emp[0].get("role_id") or emp[0].get("custom_role_profile") or ""
+    # custom_role_profile, as the ERP's tracker scripts route on it: role_id
+    # is stale for some people (an old seat, e.g. from before a promotion).
+    own_seat = emp[0].get("custom_role_profile") or emp[0].get("role_id") or ""
 # `seat` picks whose lines to show within entries the caller can already
 # see (the whole entry was theirs to read). It never widens the tracker
 # read below, which is the caller's OWN seat only.

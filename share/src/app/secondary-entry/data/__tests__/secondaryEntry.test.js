@@ -288,21 +288,29 @@ describe('sent back for revisit', () => {
     custom_status_tracker: [{ role_profile__name: 'BE7-A', status__name: trackerState, tracker: { workflow_state__name: trackerState, reason_for_rejection: note } }],
   });
 
-  it('a waiting approval with a revisit note is the seat\'s to correct', () => {
-    const e = normalizeEntry(row('ABM Approval Waiting', 'Revisit (from ABM Approval Waiting): Recheck closing.'), 'BE7-A');
+  it('a tracker in Rework is the seat\'s to correct, with its reason', () => {
+    const e = normalizeEntry(row('Rework', 'Revisit (from ABM Approval Waiting): Recheck closing.'), 'BE7-A');
     expect(e.status).toBe('revisit');
     expect(e.statusText).toBe('Recheck closing.');
     expect(canSubmit(e)).toBe(true);
   });
 
-  it('the note is ignored once approved again, and without it it is plain pending', () => {
+  it('the note is ignored once resubmitted or approved: only the Rework state sends it back', () => {
+    expect(normalizeEntry(row('ABM Approval Waiting', 'Revisit (from ABM Approval Waiting): x'), 'BE7-A').status).toBe('pending');
     expect(normalizeEntry(row('ABM Approved and Waiting for Verification', 'Revisit (from ABM Approval Waiting): x'), 'BE7-A').status).toBe('approved');
-    expect(normalizeEntry(row('ABM Approval Waiting', null), 'BE7-A').status).toBe('pending');
+    expect(normalizeEntry(row('Rework', null), 'BE7-A')).toMatchObject({ status: 'revisit', statusText: 'No reason given.' });
   });
 
-  it('parses the ERP note', () => {
-    expect(revisitReason('Revisit (from ABM Approved and Waiting for Verification): Second look', 'ABM Approval Waiting')).toBe('Second look');
-    expect(revisitReason('Wrong figures', 'ABM Approval Waiting')).toBeNull();
+  it('reads the tracker\'s own state over the record\'s stale copy', () => {
+    const r = row('ABM Approved and Waiting for Verification', null);
+    r.custom_status_tracker[0].status__name = 'ABM Approval Waiting';
+    expect(normalizeEntry(r, 'BE7-A').status).toBe('approved');
+  });
+
+  it('parses the ERP note, only in Rework', () => {
+    expect(revisitReason('Revisit (from ABM Approval Waiting): Second look', 'Rework')).toBe('Second look');
+    expect(revisitReason('Wrong figures', 'Rework')).toBe('Wrong figures');
+    expect(revisitReason('Revisit (from ABM Approval Waiting): Second look', 'ABM Approval Waiting')).toBeNull();
   });
 });
 
@@ -343,12 +351,12 @@ describe('documents are the ERP\'s, lines are ours', () => {
     expect(entries[1].otherItems).toEqual(['Y']);
   });
 
-  it('asks the ERP for the seat: the token user\'s active Employee role_id', async () => {
+  it('asks the ERP for the seat: the token user\'s active Employee custom_role_profile, over a stale role_id', async () => {
     const calls = [];
     const real = globalThis.fetch;
     globalThis.fetch = vi.fn(async (url, init) => {
       calls.push([String(url).split('/api/method/')[1], init?.body ? JSON.parse(init.body) : null]);
-      const message = String(url).includes('get_logged_user') ? 'be@x.org' : [{ role_id: 'BE4-ELBR-CO-ERO' }];
+      const message = String(url).includes('get_logged_user') ? 'be@x.org' : [{ role_id: 'BE2-ELBR-TE-HYD', custom_role_profile: 'BE4-ELBR-CO-ERO' }];
       return { ok: true, json: async () => ({ message }) };
     });
     try {

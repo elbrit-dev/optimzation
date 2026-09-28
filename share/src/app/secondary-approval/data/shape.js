@@ -15,7 +15,7 @@
  * arrays, `x__name` scalars or `{ name }` objects, since the saved query can
  * drift from what this file was written against. */
 
-import { lineRoleProfile, revisitReason } from '@/app/secondary-entry/data/shape';
+import { isRework, lineRoleProfile, revisitReason } from '@/app/secondary-entry/data/shape';
 
 export const STATUS_LABEL = {
   pending: 'Pending',
@@ -167,7 +167,8 @@ export function normalizeSlice(row) {
     raiserName: typeof raiserName === 'string' ? raiserName.trim() : null,
     state,
     status: bucket,
-    atRole: bucket === 'pending' ? waitingRole(state, pick(row, ['next_role__name', 'next_role'])) : null,
+    /* In Rework it is with the BE, not waiting on any approver. */
+    atRole: bucket === 'pending' && !isRework(state) ? waitingRole(state, pick(row, ['next_role__name', 'next_role'])) : null,
     decidedRole: bucket === 'pending' ? null : decidedRole(state),
     nextApprover: String(pick(row, ['next_approver__name', 'next_approver.name', 'next_approver']) ?? '').toLowerCase() || null,
     fallbackApprover:
@@ -176,7 +177,7 @@ export function normalizeSlice(row) {
     modifiedBy: String(pick(row, ['modified_by__name', 'modified_by.name', 'modified_by']) ?? '').toLowerCase() || null,
     modified: row?.modified ?? null,
     reason: pick(row, ['reason_for_rejection']) ?? null,
-    /* Sent back for revisit and still waiting on the BE's correction — the
+    /* In Rework, waiting on the BE's correction — the
        approver's reason, else null (see secondary-entry revisitReason). */
     revisitNote: revisitReason(pick(row, ['reason_for_rejection']), state),
     lines,
