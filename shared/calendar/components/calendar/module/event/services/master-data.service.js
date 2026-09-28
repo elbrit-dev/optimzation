@@ -25,7 +25,14 @@ export async function fetchEmployeeNodes() {
       filters: [ACTIVE_EMPLOYEE_FILTER],
     });
 
-    return data?.Employees?.edges?.map(({ node }) => node) || [];
+    const nodes = data?.Employees?.edges?.map(({ node }) => node) || [];
+    // An empty list is ERP's intermittent empty reply, not a company with no
+    // staff. Throwing keeps it out of the cache (getCached drops rejections),
+    // so the next call really asks again instead of reusing "nobody".
+    if (!nodes.length) {
+      throw new Error("ERP returned no employees");
+    }
+    return nodes;
   });
 }
 
@@ -48,7 +55,8 @@ export async function fetchEmployees() {
 
 export async function searchEmployees(search) {
   const query = search?.trim().toLowerCase() ?? "";
-  const employees = await fetchEmployeeNodes();
+  // The picker's search handler has no catch; a failed load finds nobody.
+  const employees = await fetchEmployeeNodes().catch(() => []);
 
   const filteredEmployees = !query
     ? employees

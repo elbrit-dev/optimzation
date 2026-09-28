@@ -413,48 +413,77 @@ export function CalendarProvider({
 		() => applyDoctorVisitTeamTitles(serverEvents, resolveOwnerTeamName),
 		[serverEvents, resolveOwnerTeamName]
 	);
-	useEffect(() => {
-		let cancelled = false;
+	/* TEAM DATA MUST BE KNOWN TO BE MISSING, NOT JUST EMPTY. When the employee
+	   list or the role hierarchy fails to load (a weak mobile network), the
+	   bootstrap falls back to "the logged-in user is the only employee" -- and
+	   the upward share then finds no managers and saves the event shared with
+	   nobody, silently. That is how BE Dharun Raj R's 11 events of 26 Sep 2026
+	   reached none of his three managers. So the failure is kept here, and a
+	   save that would share with managers asks for ensureTeamData() first. */
+	const [teamDataError, setTeamDataError] = useState(null);
+	const mountedRef = useRef(true);
 
-		async function hydrateBootstrapData() {
-			const {
-				users: nextUsers,
-				employeeOptions: nextEmployeeOptions,
-				elbritRoleEdges: nextRoleEdges,
-				customerOptions: nextCustomerOptions,
-				errors,
-			} = await fetchCalendarBootstrapData();
+	const applyBootstrapData = useCallback((data) => {
+		const {
+			users: nextUsers,
+			employeeOptions: nextEmployeeOptions,
+			elbritRoleEdges: nextRoleEdges,
+			customerOptions: nextCustomerOptions,
+			errors,
+		} = data;
 
-			if (cancelled) {
-				return;
-			}
+		setUsers(nextUsers);
+		setEmployeeOptions(nextEmployeeOptions);
+		setElbritRoleEdges(nextRoleEdges);
+		setCustomerOptions(nextCustomerOptions);
+		setUsersLoading(false);
+		setElbritRoleLoading(false);
 
-			setUsers(nextUsers);
-			setEmployeeOptions(nextEmployeeOptions);
-			setElbritRoleEdges(nextRoleEdges);
-			setCustomerOptions(nextCustomerOptions);
-			setUsersLoading(false);
-			setElbritRoleLoading(false);
-
-			if (errors.employees) {
-				console.error("Failed to fetch employees", errors.employees);
-			}
-
-			if (errors.roles) {
-				console.error("Failed to fetch ElbritRoleIDS", errors.roles);
-			}
-
-			if (errors.customers) {
-				console.error("Failed to fetch customers", errors.customers);
-			}
+		if (errors.employees) {
+			console.error("Failed to fetch employees", errors.employees);
 		}
 
-		hydrateBootstrapData();
+		if (errors.roles) {
+			console.error("Failed to fetch ElbritRoleIDS", errors.roles);
+		}
+
+		if (errors.customers) {
+			console.error("Failed to fetch customers", errors.customers);
+		}
+
+		// An empty hierarchy is as good as a failed one for sharing: it has no
+		// managers in it.
+		// A users list of just the logged-in person is the self-only fallback:
+		// it has no managers in it either.
+		const failed =
+			errors.employees || errors.roles || !nextRoleEdges?.length || (nextUsers?.length ?? 0) <= 1;
+		setTeamDataError(failed ? errors.employees || errors.roles || new Error("Team data came back empty") : null);
+		return !failed;
+	}, []);
+
+	useEffect(() => {
+		mountedRef.current = true;
+
+		fetchCalendarBootstrapData().then((data) => {
+			if (mountedRef.current) applyBootstrapData(data);
+		});
 
 		return () => {
-			cancelled = true;
+			mountedRef.current = false;
 		};
-	}, []);
+	}, [applyBootstrapData]);
+
+	const teamDataReady = !usersLoading && !elbritRoleLoading && !teamDataError;
+
+	/* Loads the team data again if it is missing. Resolves true when it is now
+	   complete. Failed loads are not cached (data-cache drops rejections), so
+	   this really asks ERP again. */
+	const ensureTeamData = useCallback(async () => {
+		if (teamDataReady) return true;
+		const data = await fetchCalendarBootstrapData();
+		if (!mountedRef.current) return false;
+		return applyBootstrapData(data);
+	}, [teamDataReady, applyBootstrapData]);
 	const employeeRoleMap = useMemo(() => {
 		return buildEmployeeRoleMap(users);
 	}, [users]);
@@ -601,6 +630,7 @@ export function CalendarProvider({
 		setHqTerritoryOptions,
 		elbritRoleEdges, allowedEmployeeIds,
 		elbritRoleLoading, customerOptions, setCustomerOptions,
+		teamDataReady, ensureTeamData,
 		showOnlyApprovedLeaves,
 		setShowOnlyApprovedLeaves, showOnlyTodoList, setShowOnlyTodoList,
 		agendaVisitFilter, setAgendaVisitFilter,

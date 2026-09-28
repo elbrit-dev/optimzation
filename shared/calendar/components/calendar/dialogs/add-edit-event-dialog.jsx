@@ -113,7 +113,7 @@ export function AddEditEventDialog({
 		setEmployeeOptions, territoryDoctors, setTerritoryDoctors,
 		setDoctorOptions, customerOptions, setCustomerOptions, selectedDate, allowedEmployeeIds,
 		setHqTerritoryOptions, users, elbritRoleEdges, enabledTagIds, enableGoogleCalendarSync: calendarSyncEnabled,
-		addEvent, updateEvent } = useCalendar();
+		addEvent, updateEvent, teamDataReady, ensureTeamData } = useCalendar();
 	// Only the event types this deployment enables can be created here, and a new
 	// event must start on one of them.
 	const availableTags = useMemo(
@@ -680,15 +680,29 @@ export function AddEditEventDialog({
 	// role_id still reads BE8-…, an RBM whose role_id still reads ABM2-…). Rooting
 	// the walk at that stale value found no parent at all, so the auto-share to
 	// the reporting officer and above silently produced an empty list.
+	// EDITING REPAIRS MISSING SHARES, but only for the owner. Sharing used to
+	// happen on create alone, so an event saved while the team data was missing
+	// stayed unshared however often it was edited. Now the owner's edit sends
+	// their managers again; the share sync re-reads existing shares on an edit
+	// (skipExistingShareCheck is false then) and adds only the missing ones. A
+	// manager editing someone else's event must not share it with the
+	// manager's own bosses, so for them this stays empty.
+	const isOwnEvent = useMemo(() => {
+		if (!isEditing) return true;
+		const me = String(LOGGED_IN_USER.email || "").toLowerCase();
+		const ownerEmail = String(event?.ownerEmail || event?.owner?.email || "").toLowerCase();
+		if (me && ownerEmail) return ownerEmail === me;
+		return !!LOGGED_IN_USER.id && event?.ownerEmployeeId === LOGGED_IN_USER.id;
+	}, [isEditing, event?.ownerEmail, event?.owner?.email, event?.ownerEmployeeId]);
 	const superiorUserIds = useMemo(() => {
-		if (isEditing) return [];
+		if (!isOwnEvent) return [];
 		if (!resolvedLoggedInRoleId) return [];
 		return resolveSuperiorShareUserIds(
 			elbritRoleEdges,
 			shareUsers,
 			resolvedLoggedInRoleId
 		).filter((userId) => userId !== LOGGED_IN_USER.email);
-	}, [resolvedLoggedInRoleId, elbritRoleEdges, isEditing, shareUsers]);
+	}, [resolvedLoggedInRoleId, elbritRoleEdges, isOwnEvent, shareUsers]);
 	// Shared with the inline POB editor in the visit details dialog, so both
 	// offer the same item list.
 	const currentUserDepartments = useMemo(
@@ -2166,6 +2180,27 @@ export function AddEditEventDialog({
 	// ----------------------------------------------------
 
 	const onSubmit = async (values) => {
+		// NO SAVE WITH INCOMPLETE TEAM DATA. An event is shared with the owner's
+		// managers from the employee list and role hierarchy; if either failed to
+		// load, saving now would reach no manager and say nothing (Dharun Raj R,
+		// 26 Sep 2026) and the visit title would lose its team name too. So load
+		// them once more and ask for Save again. Leave (never shared) and Travel
+		// Requests (not an Event) do not depend on it.
+		if (
+			values.tags !== TAG_IDS.LEAVE &&
+			values.tags !== TAG_IDS.TRAVEL_REQUEST &&
+			!teamDataReady
+		) {
+			const loaded = await ensureTeamData();
+			if (loaded) {
+				toast.info("Your team list has just loaded. Please press Save again.");
+			} else {
+				toast.error(
+					"Couldn't load your team list, so this can't reach your managers yet. Check your connection and press Save again."
+				);
+			}
+			return;
+		}
 		try {
 			const handler =
 				submitHandlers[values.tags] ||

@@ -30,7 +30,13 @@ async function fetchElbritRoleEdges() {
     });
 
     const normalizedData = normalizeRoleProfiles(rawData);
-    return normalizedData?.ElbritRoleIDS?.edges ?? [];
+    const edges = normalizedData?.ElbritRoleIDS?.edges ?? [];
+    // Same as the employee list: an empty hierarchy must not be cached, or a
+    // retry would reuse it and the upward share would never find a manager.
+    if (!edges.length) {
+      throw new Error("ERP returned no role profiles");
+    }
+    return edges;
   });
 }
 
