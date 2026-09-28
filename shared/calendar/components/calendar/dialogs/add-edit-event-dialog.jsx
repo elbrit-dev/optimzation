@@ -61,22 +61,26 @@ import { resolvePobDepartments } from "@calendar/lib/calendar/pobDepartments";
 import { saveDocToErp } from "@calendar/components/calendar/module/todo/services/todo.service";
 import { uploadFileToDoc, uploadLeaveMedicalCertificate } from "@calendar/lib/file.service";
 import {
-	TRAVEL_FUNDING_OPTIONS,
 	TRAVEL_MODE_OPTIONS,
 	TRAVEL_MODES,
 	TRAVEL_REQUEST_PROJECT,
 	canUseTravelRequest,
 	isTravelAttachmentRequired,
-	roundUpToQuarterHour,
+	resolveTravelRequester,
 } from "@calendar/components/calendar/module/travel-request/helpers/travel-request.helper";
 import {
 	buildItineraryRow,
 	mapErpTravelRequestToCalendar,
 	mapFormToErpTravelRequest,
+	mapTravelRequestToApprovalTodo,
 	mapTravelRequestToTask,
 } from "@calendar/components/calendar/module/travel-request/mappers/travel-request.mapper";
 import {
+	approveTravelRequest,
+	fetchTravelApprovers,
+	findApprovalTodos,
 	findProcurementTaskName,
+	saveApprovalTodo,
 	saveProcurementTask,
 	saveTravelRequest,
 } from "@calendar/components/calendar/module/travel-request/services/travel-request.service";
@@ -121,9 +125,9 @@ export function AddEditEventDialog({
 			getAvailableTags(enabledTagIds).filter(
 				(tag) =>
 					tag.id !== TAG_IDS.TRAVEL_REQUEST ||
-					canUseTravelRequest(LOGGED_IN_USER.roleId)
+					canUseTravelRequest(resolveTravelRequester(users, LOGGED_IN_USER))
 			),
-		[enabledTagIds]
+		[enabledTagIds, users]
 	);
 	const isEditing = !!event;
 	const [leaveBalance, setLeaveBalance] = useState(null);
@@ -1067,10 +1071,10 @@ export function AddEditEventDialog({
 
 		const currentValues = form.getValues();
 		endDateTouchedRef.current = false;
-		// Departure starts at the next quarter hour — a slot the time picker lists.
+		// Only the departure date is asked for a travel request.
 		const startValue =
 			selectedTag === TAG_IDS.TRAVEL_REQUEST
-				? roundUpToQuarterHour(baseDate, now)
+				? startOfDay(baseDate)
 				: baseDate;
 
 		form.reset({
@@ -1189,7 +1193,7 @@ export function AddEditEventDialog({
 			halfDayDate: undefined,
 			halfDayPosition: "FIRST_DAY",
 			medicalAttachment: undefined, allocated_to: undefined,
-			travelMode: TRAVEL_MODES.FLIGHT, travelFunding: TRAVEL_FUNDING_OPTIONS[0], travelSponsorDetails: "", travelFrom: "", travelTo: "", travelAttachment: undefined,
+			travelMode: TRAVEL_MODES.FLIGHT, travelFrom: "", travelTo: "", travelAttachment: undefined,
 			assignedTo: [], custom_latitude: undefined, custom_longitude: undefined,
 			hqTerritory: "",
 			allDay: false,
@@ -1207,7 +1211,7 @@ export function AddEditEventDialog({
 	// insert a duplicate. Before re-creating, look for the document the previous
 	// attempt may already have made and adopt it instead.
 	const previousSubmitFailedRef = useRef(false);
-	// A travel request is three ERP writes (Travel Request, Task, Event). What an
+	// A travel request is several ERP writes (Travel Request, Task, GM ToDos). What an
 	// attempt already created is kept here, so pressing Save again after a later
 	// step failed updates those documents instead of filing duplicates.
 	const travelRequestDraftRef = useRef({});
@@ -2050,7 +2054,7 @@ export function AddEditEventDialog({
 		}
 	};
 	// Travel requests are not calendar Events: they live only in ERP as a
-	// Travel Request plus a Procurement Task.
+	// Travel Request plus a Procurement Task and a ToDo for each GM to approve.
 	const handleTravelRequest = async (values) => {
 		const employee = {
 			id: LOGGED_IN_USER.id,
@@ -2106,13 +2110,39 @@ export function AddEditEventDialog({
 			draft.taskName = savedTask.name;
 		}
 
+		// One approval ToDo per GM, so the request shows on each GM's calendar.
+		// Editing a draft updates the ToDos already filed for it.
+		if (!draft.approvalTodosSaved) {
+			const [approvers, existingTodos] = await Promise.all([
+				fetchTravelApprovers(),
+				isEditing ? findApprovalTodos(draft.travelRequestName) : [],
+			]);
+			if (!approvers.length) {
+				toast.warning("No GM found to approve this travel request.");
+			}
+			draft.approvalTodos ??= {};
+			for (const approver of approvers) {
+				const existingName =
+					draft.approvalTodos[approver.email] ??
+					existingTodos.find((todo) => todo.allocatedTo === approver.email)?.name;
+				const savedTodo = await saveApprovalTodo(
+					mapTravelRequestToApprovalTodo(values, {
+						travelRequestName: draft.travelRequestName,
+						employee,
+						approver,
+						existingName,
+					})
+				);
+				draft.approvalTodos[approver.email] = savedTodo.name;
+			}
+			draft.approvalTodosSaved = true;
+		}
+
 		// Shown on the calendar straight away, in the same shape the calendar
 		// reads Travel Requests back from ERP.
 		const calendarTravelRequest = mapErpTravelRequestToCalendar({
 			name: draft.travelRequestName,
 			docstatus: 0,
-			travel_funding: values.travelFunding,
-			details_of_sponsor: values.travelSponsorDetails,
 			travel_proof: draft.proofUrl,
 			description: values.description,
 			employee_name: employee.name,
@@ -2150,7 +2180,30 @@ export function AddEditEventDialog({
 			...calendarTodo,
 			erpName: savedTodo.name,
 			id: savedTodo.name,
+			referenceType: event?.referenceType,
+			referenceName: event?.referenceName,
 		};
+
+		// A GM closing their approval ToDo approves the travel request.
+		if (
+			event?.referenceType === "Travel Request" &&
+			event?.referenceName &&
+			event.status !== "Closed" &&
+			values.status === "Closed"
+		) {
+			try {
+				await approveTravelRequest(event.referenceName, {
+					closedTodoName: savedTodo.name,
+				});
+				toast.success(`Travel request ${event.referenceName} approved`);
+			} catch (error) {
+				toast.error(
+					error?.response?.errors?.[0]?.message ||
+					error?.message ||
+					"Todo closed, but the travel request could not be approved."
+				);
+			}
+		}
 
 		if (event?.erpName) {
 			updateEvent(savedCalendarTodo);
@@ -2379,7 +2432,7 @@ export function AddEditEventDialog({
 									render={({ field, fieldState }) => (
 										<RHFFieldWrapper
 											label="Travel Type"
-											error={fieldState.error && "Choose Flight, Cab or Hotel"}
+											error={fieldState.error && "Choose Flight, Taxi or Hotel"}
 										>
 											<div className="flex flex-wrap gap-2">
 												{TRAVEL_MODE_OPTIONS.map((option) => (
@@ -2427,42 +2480,6 @@ export function AddEditEventDialog({
 											)}
 										/>
 									))}
-								</div>
-								<div className="grid grid-cols-2 gap-3">
-									<FormField
-										control={form.control}
-										name="travelFunding"
-										render={({ field }) => (
-											<RHFFieldWrapper label="Travel Funding">
-												<select
-													className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-													value={field.value ?? TRAVEL_FUNDING_OPTIONS[0]}
-													onChange={(e) => field.onChange(e.target.value)}
-												>
-													{TRAVEL_FUNDING_OPTIONS.map((option) => (
-														<option key={option} value={option}>
-															{option}
-														</option>
-													))}
-												</select>
-											</RHFFieldWrapper>
-										)}
-									/>
-									<FormField
-										control={form.control}
-										name="travelSponsorDetails"
-										render={({ field }) => (
-											<RHFFieldWrapper label="Sponsor Details">
-												<FormControl>
-													<Input
-														placeholder="Name, location"
-														{...field}
-														value={field.value ?? ""}
-													/>
-												</FormControl>
-											</RHFFieldWrapper>
-										)}
-									/>
 								</div>
 							</>
 						)}
@@ -2681,8 +2698,7 @@ export function AddEditEventDialog({
 							<div
 								className={`grid gap-3 ${(isFieldVisible("startDate") &&
 									isFieldVisible("endDate")) ||
-									selectedTag === TAG_IDS.TODO_LIST ||
-									selectedTag === TAG_IDS.TRAVEL_REQUEST
+									selectedTag === TAG_IDS.TODO_LIST
 									? "grid-cols-2"
 									: "grid-cols-1"
 									}`}
@@ -2695,23 +2711,6 @@ export function AddEditEventDialog({
 											name="startDate"
 											label={getFieldLabel("startDate", "Date")}
 											hideTime
-											// Date and time are separate controls here, and the
-											// date-only picker zeroes the time — keep the one chosen.
-											onChange={
-												selectedTag === TAG_IDS.TRAVEL_REQUEST
-													? (date) => {
-														const current = form.getValues("startDate");
-														const next = new Date(date);
-														if (current) {
-															next.setHours(current.getHours(), current.getMinutes(), 0, 0);
-														}
-														form.setValue("startDate", next, {
-															shouldDirty: true,
-															shouldValidate: true,
-														});
-													}
-													: undefined
-											}
 											/* Doctor Tour Plan restriction */
 											minDate={
 												selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN &&
@@ -2733,22 +2732,6 @@ export function AddEditEventDialog({
 											}
 										/>
 									)}
-
-								{selectedTag === TAG_IDS.TRAVEL_REQUEST && (
-									<FormField
-										control={form.control}
-										name="startDate"
-										render={({ field }) => (
-											<RHFFieldWrapper label="Departure Time">
-												<TimePicker
-													value={field.value}
-													onChange={field.onChange}
-													use24Hour={false}
-												/>
-											</RHFFieldWrapper>
-										)}
-									/>
-								)}
 
 								{isFieldVisible("endDate") &&
 									!isEditReadOnlyField("endDate") && (

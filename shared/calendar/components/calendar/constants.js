@@ -270,8 +270,6 @@ export function buildEventDefaultValues({ event, defaultTag }) {
     fsl_doctor_item: event?.fsl_doctor_item ?? [],
     // Preselected so the attachment field is there from the start.
     travelMode: event?.travelMode ?? "Flight", // TRAVEL_MODES.FLIGHT (ERP option)
-    travelFunding: event?.travelFunding ?? "Require Full Funding",
-    travelSponsorDetails: event?.travelSponsorDetails ?? "",
     travelFrom: event?.travelFrom ?? "",
     travelTo: event?.travelTo ?? "",
     // An existing booking proof is its URL; a newly chosen one is a File.

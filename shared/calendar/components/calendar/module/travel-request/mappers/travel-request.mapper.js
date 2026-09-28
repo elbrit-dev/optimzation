@@ -1,10 +1,9 @@
-import { addMinutes, format } from "date-fns";
+import { endOfDay, format, startOfDay } from "date-fns";
 import { DEFAULT_COLORS, TAG_IDS } from "@calendar/components/calendar/constants";
 import {
   TRAVEL_MODES,
   TRAVEL_REQUEST_PROJECT,
   TRAVEL_REQUEST_PURPOSE,
-  normalizeTravelFunding,
   normalizeTravelMode,
 } from "@calendar/components/calendar/module/travel-request/helpers/travel-request.helper";
 
@@ -14,9 +13,10 @@ export function buildTravelRequestTitle({ travelMode, travelFrom, travelTo }) {
   return route ? `${mode}: ${route}` : mode || "Travel Request";
 }
 
-/* A hotel is also a lodging request on the row. */
+/* A hotel is also a lodging request on the row. Only the departure date is
+   asked for, so the time is always midnight. */
 export function buildItineraryRow({ travelMode, travelFrom, travelTo, startDate }) {
-  const departure = format(new Date(startDate), "yyyy-MM-dd HH:mm:ss");
+  const departure = format(startOfDay(new Date(startDate)), "yyyy-MM-dd HH:mm:ss");
   const row = {
     travel_from: travelFrom,
     travel_to: travelTo,
@@ -40,10 +40,6 @@ export function mapFormToErpTravelRequest(values, { employee, proofUrl, existing
     ...(existingName && { name: existingName }),
     docstatus: 0,
     travel_type: "Domestic",
-    travel_funding: normalizeTravelFunding(values.travelFunding),
-    ...(values.travelSponsorDetails?.trim() && {
-      details_of_sponsor: values.travelSponsorDetails.trim(),
-    }),
     ...(proofUrl && { travel_proof: proofUrl }),
     purpose_of_travel: TRAVEL_REQUEST_PURPOSE,
     employee: employee.id,
@@ -71,11 +67,9 @@ export function mapTravelRequestToTask(values, { travelRequestName, employee, ex
       `Travel Request: ${travelRequestName}`,
       `Employee: ${employee.name} (${employee.id})`,
       `Type: ${normalizeTravelMode(values.travelMode)}`,
-      `Funding: ${normalizeTravelFunding(values.travelFunding)}`,
-      values.travelSponsorDetails?.trim() && `Sponsor: ${values.travelSponsorDetails.trim()}`,
       `From: ${values.travelFrom}`,
       `To: ${values.travelTo}`,
-      `Departure: ${format(new Date(values.startDate), "dd MMM yyyy, hh:mm a")}`,
+      `Departure: ${format(new Date(values.startDate), "dd MMM yyyy")}`,
       values.description,
     ]
       .filter(Boolean)
@@ -83,9 +77,43 @@ export function mapTravelRequestToTask(values, { travelRequestName, employee, ex
   };
 }
 
+// The GM's approval ToDo, linked to its request through reference_type/name.
+// Marking it Closed approves (submits) the request.
+export function mapTravelRequestToApprovalTodo(
+  values,
+  { travelRequestName, employee, approver, existingName } = {}
+) {
+  return {
+    ...(existingName && { name: existingName }),
+    doctype: "ToDo",
+    custom_subject: `Approve travel request: ${buildTravelRequestTitle(values)} (${employee.name})`,
+    description: [
+      `Travel Request: ${travelRequestName}`,
+      `Requested by: ${employee.name} (${employee.id})`,
+      `Type: ${normalizeTravelMode(values.travelMode)}`,
+      `From: ${values.travelFrom}`,
+      `To: ${values.travelTo}`,
+      `Departure: ${format(new Date(values.startDate), "dd MMM yyyy")}`,
+      values.description,
+      "Mark this ToDo as Closed to approve the request.",
+    ]
+      .filter(Boolean)
+      .join("<br>"),
+    status: "Open",
+    priority: "Medium",
+    date: format(new Date(values.startDate), "yyyy-MM-dd"),
+    allocated_to: approver.email,
+    assigned_by: employee.id,
+    custom_assigned_to: [{ employee: approver.value }],
+    reference_type: "Travel Request",
+    reference_name: travelRequestName,
+    docstatus: 0,
+  };
+}
+
 const TRAVEL_REQUEST_STATUS = {
   0: "Draft",
-  1: "Submitted",
+  1: "Approved",
   2: "Cancelled",
 };
 
@@ -128,11 +156,9 @@ export function mapErpTravelRequestToCalendar(node) {
     title: buildTravelRequestTitle(values),
     ...values,
     status: TRAVEL_REQUEST_STATUS[Number(node.docstatus)] ?? "Draft",
-    travelFunding: normalizeTravelFunding(node.travel_funding),
-    travelSponsorDetails: node.details_of_sponsor ?? "",
     attachment: node.travel_proof ?? "",
-    startDate: departure.toISOString(),
-    endDate: addMinutes(departure, 60).toISOString(),
+    startDate: startOfDay(departure).toISOString(),
+    endDate: endOfDay(departure).toISOString(),
     // ERP's description opens with the title line; only the notes belong here.
     description: String(node.description ?? "")
       .replace(buildTravelRequestTitle(values), "")

@@ -87,8 +87,6 @@ export const eventSchema = z
 
     /* ---------- Travel Request ---------- */
     travelMode: z.string().optional(),
-    travelFunding: z.string().optional(),
-    travelSponsorDetails: z.string().optional(),
     travelFrom: z.string().trim().optional(),
     travelTo: z.string().trim().optional(),
     travelAttachment: z.any().optional(),

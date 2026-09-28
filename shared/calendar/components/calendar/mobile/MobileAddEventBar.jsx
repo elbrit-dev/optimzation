@@ -10,7 +10,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 import { isLeafRole, resolveLoggedInRoleId } from "@calendar/lib/employeeHeirachy";
 import { isEmployeeOnApprovedLeave } from "@calendar/lib/calendar/leaveDay";
-import { TRAVEL_MODES, canUseTravelRequest, normalizeTravelMode } from "@calendar/components/calendar/module/travel-request/helpers/travel-request.helper";
+import { TRAVEL_MODES, canUseTravelRequest, normalizeTravelMode, resolveTravelRequester } from "@calendar/components/calendar/module/travel-request/helpers/travel-request.helper";
 import {
   Plus,
   Building2, Users, Cake, Calendar, Stethoscope, ListChecks, HelpCircle, Plane, Car, Hotel,
@@ -138,12 +138,13 @@ export default function MobileAddEventBar({ date: propDate }) {
         return hasValidHqTourPlan || canCreateDoctorVisitDirectly;
       }
       if (tag.id === TAG_IDS.TRAVEL_REQUEST) {
-        return canUseTravelRequest(LOGGED_IN_USER.roleId);
+        return canUseTravelRequest(resolveTravelRequester(users, LOGGED_IN_USER));
       }
       return true;
     });
   }, [
     enabledTagIds,
+    users,
     shouldHideHqTourPlanTag,
     hasValidHqTourPlan,
     canCreateDoctorVisitDirectly,

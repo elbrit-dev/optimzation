@@ -75,6 +75,9 @@ export function mapErpTodoToCalendar(todo) {
     allocated_to:
       todo.allocated_to__name || todo.allocated_to,
     assignedTo,
+    // Set on the GM's travel-request approval ToDos.
+    referenceType: todo.reference_type ?? undefined,
+    referenceName: todo.reference_name ?? undefined,
   };
 }
 

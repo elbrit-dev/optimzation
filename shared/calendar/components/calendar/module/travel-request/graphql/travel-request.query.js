@@ -6,8 +6,6 @@ query TravelRequests($first: Int) {
       node {
         name
         docstatus
-        travel_funding
-        details_of_sponsor
         travel_proof
         description
         employee_name
@@ -69,6 +67,31 @@ export const DELETE_DOC_MUTATION = `
 mutation DeleteDoc($doctype: String!, $name: String!) {
   deleteDoc(doctype: $doctype, name: $name) {
     name
+  }
+}
+`;
+
+// The GM approval ToDos filed for one request (one per GM).
+export const TRAVEL_APPROVAL_TODOS_QUERY = `
+query TravelApprovalTodos($filter: [DBFilterInput!]) {
+  ToDoes(first: 20, filter: $filter) {
+    edges {
+      node {
+        name
+        status
+        allocated_to__name
+      }
+    }
+  }
+}
+`;
+
+export const SAVE_TODO_MUTATION = `
+mutation SaveToDo($doc: String!) {
+  saveDoc(doctype: "ToDo", doc: $doc) {
+    doc {
+      name
+    }
   }
 }
 `;

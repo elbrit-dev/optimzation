@@ -348,12 +348,13 @@ export const TAG_FORM_CONFIG = {
     show: ["startDate", "description"],
     required: ["startDate", "travelMode", "travelFrom", "travelTo"],
     requiredMessages: {
-      startDate: "Departure date and time is required",
+      startDate: "Departure date is required",
       travelMode: "Choose Flight, Taxi or Hotel",
       travelFrom: "Travel From is required",
       travelTo: "Travel To is required",
     },
     fixedColor: DEFAULT_COLORS.TRAVEL_REQUEST,
+    dateOnly: true,
     labels: {
       startDate: "Departure Date",
       description: "Notes",
@@ -365,8 +366,8 @@ export const TAG_FORM_CONFIG = {
     ui: {
       lockTagOnEdit: true,
       showTags: false,
-      // A draft can still be corrected or withdrawn; once submitted (or
-      // cancelled) it belongs to procurement.
+      // A draft can still be corrected or withdrawn; once the GM approves it
+      // (or it is cancelled) it belongs to procurement.
       allowEdit: (event) => event.status === "Draft",
       allowDelete: (event) => event.status === "Draft",
     },
@@ -375,10 +376,8 @@ export const TAG_FORM_CONFIG = {
       fields: [
         { key: "travelMode", label: "Travel Type", type: "text" },
         { key: "status", label: "Status", type: "text" },
-        { key: "travelFunding", label: "Funding", type: "text" },
         { key: "travelFrom", label: "From", type: "text" },
         { key: "travelTo", label: "To", type: "text" },
-        { key: "travelSponsorDetails", label: "Sponsor Details", type: "text" },
         { key: "attachment", label: "Booking", type: "file" },
         { key: "owner", label: "Requested by", type: "owner", fullWidth: true },
         { key: "description", label: "Details", type: "text" },

@@ -257,8 +257,9 @@ export function normalizeNonMeetingDates(
   endDateTouched
 ) {
   if (!startDate) return;
-  // These types have their own time control, so the time they hold is the
-  // user's choice and must not be reset to "now".
+  // Meetings and visit plans have their own time control, so the time they
+  // hold is the user's choice; a travel request keeps midnight (date only).
+  // Neither must be reset to "now".
   if (
     selectedTag === TAG_IDS.MEETING ||
     selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN ||
