@@ -1,7 +1,7 @@
 'use client';
 
 import { Avatar, cx } from '@/design-system';
-import { hqLabel } from '../data/format';
+import { hqLabel, formatCurrency } from '../data/format';
 import { Chevron, PinIcon } from './icons';
 
 /* The doctor, as a card: initials, name, code, territory.
@@ -120,6 +120,9 @@ export function DoctorCard({
   note,
   roles = [],
   trailing,
+  /* POB on this visit: an amount (₹) when an order is known, `true` when the
+     visit only says POB was given. Shown as a chip either way. */
+  pob = null,
   expandable = false,
   expanded = false,
   className,
@@ -263,11 +266,18 @@ export function DoctorCard({
 
           Indented to clear the avatar so the two rows read as one block
           rather than as a card with a caption bolted underneath. */}
-      {note || roles.length || trailing ? (
+      {note || roles.length || trailing || pob ? (
         <span className="flex w-full items-center justify-between gap-3 pl-[calc(var(--ds-avatar-md)+var(--space-12))]">
           <span className="flex min-w-0 items-center gap-2 text-11 text-ds-muted">
             <span className="min-w-0 truncate">{note}</span>
             {roles.length ? <RoleGroup roles={roles} /> : null}
+            {/* POB GIVEN: an order came out of this visit. Brand tint, not
+                green — green on this screen means geo-verified. */}
+            {pob ? (
+              <span className="shrink-0 whitespace-nowrap rounded-chip bg-brand-tint-weak px-2 py-0.5 text-10 font-semibold text-brand-text">
+                {typeof pob === 'number' ? `POB ${formatCurrency(pob)}` : 'POB'}
+              </span>
+            ) : null}
             {expandable ? <Chevron open={expanded} /> : null}
           </span>
           {/* shrink-0 is safe now: it is the last thing on a row of its own,

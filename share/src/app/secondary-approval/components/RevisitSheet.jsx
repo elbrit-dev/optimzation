@@ -19,7 +19,7 @@ export function RevisitSheet({ open, onClose, onConfirm, count, raiserName, busy
     <Sheet
       open={open}
       onClose={busy ? () => {} : onClose}
-      title={`Send ${partyCount(task, count)} back for revisit?`}
+      title={`Send ${partyCount(task, count)} back for rework?`}
       subtitle={raiserName ? `${raiserName} corrects them, and they come back to you to approve.` : undefined}
       surface="app"
     >
@@ -32,7 +32,7 @@ export function RevisitSheet({ open, onClose, onConfirm, count, raiserName, busy
       >
         <Field
           size="app"
-          label="Reason for revisit"
+          label="Reason for rework"
           placeholder="What should be corrected…"
           value={reason}
           onChange={setReason}

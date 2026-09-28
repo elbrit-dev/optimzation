@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { cx } from '../lib/cx';
 import { Icon } from './Icon';
 
@@ -236,6 +237,10 @@ export function TreeSelect({
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(() => new Set(pathTo(tree, value) ?? []));
   const rootRef = useRef(null);
+  const triggerRef = useRef(null);
+  const panelRef = useRef(null);
+  /* Where the floating panel sits — see below. */
+  const [place, setPlace] = useState(null);
 
   /* Re-expand to the current value whenever it changes -- including from
      OUTSIDE, e.g. another control on the page reassigning scope -- so the
@@ -264,7 +269,9 @@ export function TreeSelect({
   useEffect(() => {
     if (!open) return undefined;
     const onPointerDown = (event) => {
-      if (rootRef.current && !rootRef.current.contains(event.target)) setOpen(false);
+      /* The panel is portalled out of the root, so it counts as inside too. */
+      if (rootRef.current?.contains(event.target) || panelRef.current?.contains(event.target)) return;
+      setOpen(false);
     };
     const onKeyDown = (event) => {
       if (event.key === 'Escape') setOpen(false);
@@ -276,6 +283,45 @@ export function TreeSelect({
       document.removeEventListener('keydown', onKeyDown);
     };
   }, [open]);
+
+  /* THE PANEL FLOATS. It is portalled to <body> and fixed under the trigger,
+     so no ancestor can clip it — an overflow-hidden card, a scrolling
+     screen, or a page too short to hold it (Visit with no team picked was
+     one short line, and cut the panel off). Below the trigger when there is
+     room, above it when there is more there; never taller than the room.
+     Re-placed on scroll (any scroller, hence capture) and resize. */
+  const placePanel = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const r = trigger.getBoundingClientRect();
+    const vh = window.innerHeight;
+    const GAP = 4;
+    const EDGE = 8;
+    const below = vh - r.bottom - GAP - EDGE;
+    const above = r.top - GAP - EDGE;
+    const want = Math.min(320, panelRef.current?.scrollHeight || 320);
+    const up = below < want && above > below;
+    setPlace({
+      left: r.left,
+      width: r.width,
+      top: up ? undefined : r.bottom + GAP,
+      bottom: up ? vh - r.top + GAP : undefined,
+      maxHeight: Math.max(120, Math.min(320, up ? above : below)),
+    });
+  }, []);
+  useLayoutEffect(() => {
+    if (!open) {
+      setPlace(null);
+      return undefined;
+    }
+    placePanel();
+    window.addEventListener('scroll', placePanel, true);
+    window.addEventListener('resize', placePanel);
+    return () => {
+      window.removeEventListener('scroll', placePanel, true);
+      window.removeEventListener('resize', placePanel);
+    };
+  }, [open, placePanel]);
 
   /* id -> the label of the ticked branch that already contains it. Built
      once per render off the picks, so a row does not have to walk the tree
@@ -373,6 +419,7 @@ export function TreeSelect({
       ) : null}
 
       <button
+        ref={triggerRef}
         type="button"
         id={triggerId}
         className={cx(
@@ -399,8 +446,14 @@ export function TreeSelect({
       {/* The panel is capped at 320px and scrolls past that — on a 400-person
           roster it always does — so it takes the DS scrollbar rather than the
           platform's grey slab inside a popover. */}
-      {open ? (
-        <div className="ds-treeselect__panel ds-scrollbar">
+      {open && typeof document !== 'undefined' ? createPortal(
+        <div
+          ref={panelRef}
+          /* The trigger's surface (app / console tokens) travels with it. */
+          data-surface={rootRef.current?.closest('[data-surface]')?.getAttribute('data-surface') || undefined}
+          className="ds-treeselect__panel ds-treeselect__panel--floating ds-scrollbar"
+          style={place ? { ...place, right: 'auto' } : { visibility: 'hidden' }}
+        >
           {tree.length === 0 ? (
             <p className="ds-treeselect__empty">No options.</p>
           ) : (
@@ -418,7 +471,8 @@ export function TreeSelect({
               />
             ))
           )}
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </div>
   );

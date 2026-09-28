@@ -314,7 +314,28 @@ export function visitsByHour(rows) {
  *
  * Sorted by clock time: the question a bar raises is "what was happening at
  * 2pm", and the answer reads in the order it happened. */
-export function visitsIn(rows, { hour = null, tone = null } = {}, team = []) {
+/* POB BY VISIT: the quotation(s) a rep raised for a doctor on a day, keyed
+   on the PLAN OWNER (see doctorPlan for why), with the amount and the
+   quotation names — the names are what the expanded card fetches the items
+   of. Shared by both drill-downs so they attach POB identically. */
+export function indexPob(pobRows = []) {
+  const out = new Map();
+  for (const p of pobRows) {
+    const key = `${p.employeeId}|${p.doctorId}|${p.plannedDate}`;
+    const hit = out.get(key) ?? { amount: 0, quotations: [] };
+    hit.amount += p.amount || 0;
+    if (p.quotation && !hit.quotations.includes(p.quotation)) hit.quotations.push(p.quotation);
+    out.set(key, hit);
+  }
+  return out;
+}
+
+function pobFor(index, r) {
+  return index.get(`${r.planOwnerId ?? r.employeeId}|${r.doctorId}|${r.plannedDate}`) ?? null;
+}
+
+export function visitsIn(rows, { hour = null, tone = null } = {}, team = [], pobRows = []) {
+  const pobIndex = indexPob(pobRows);
   /* `team` is optional and only supplies the attendee's RUNG for the role
      pill on the card. Defaulting to an empty roster degrades to no rung
      rather than throwing, so a caller that only wants the rows still works. */
@@ -358,6 +379,12 @@ export function visitsIn(rows, { hour = null, tone = null } = {}, team = []) {
       /* Same rule as doctorPlan: both facts belong to a forced call only. */
       forceVisitReason: r.forceVisit ? (r.forceVisitReason ?? '') : '',
       distanceKm: r.forceVisit ? r.distanceKm : null,
+      /* The POB raised on this visit, as the doctor plan sheet carries it. */
+      pob: pobFor(pobIndex, r)?.amount ?? null,
+      pobQuotations: pobFor(pobIndex, r)?.quotations ?? [],
+      /* The visit's own "POB Given" tick — the only POB the ERP records on a
+         visit today; amounts and items come from a quotation when there is one. */
+      pobGiven: Boolean(r.pobGiven),
     });
   });
 
@@ -435,6 +462,7 @@ export function groupByEvent(visits) {
            plan owner's row has the money on it, and that row is not reliably
            first. */
         pob: null,
+        pobQuotations: [],
       };
       groups.set(key, group);
     }
@@ -448,6 +476,8 @@ export function groupByEvent(visits) {
        NOT summed, which would multiply one quotation by the number of
        people standing in the room. */
     group.pob = group.participants.find((p) => p.pob != null)?.pob ?? null;
+    group.pobQuotations = [...new Set(group.participants.flatMap((p) => p.pobQuotations ?? []))];
+    group.pobGiven = group.participants.some((p) => p.pobGiven);
     /* The earliest arrival is the call's time. A group headed by the LAST
        one would sort a joint call after solo calls that finished before it
        started. */
@@ -497,6 +527,7 @@ export function groupByDoctor(calls) {
         participants: [],
         dayList: [],
         pob: null,
+        pobQuotations: [],
       };
       out.set(key, group);
     }
@@ -516,6 +547,8 @@ export function groupByDoctor(calls) {
        figure once: two visits on two days are two quotations, not one
        quotation counted twice. */
     if (call.pob != null) group.pob = (group.pob ?? 0) + call.pob;
+    for (const q of call.pobQuotations ?? []) if (!group.pobQuotations.includes(q)) group.pobQuotations.push(q);
+    if (call.pobGiven) group.pobGiven = true;
   }
 
   for (const group of out.values()) {
@@ -1315,11 +1348,7 @@ export function doctorPlan(member, team, rows, pobRows = []) {
      which is the only thing that knows a person's designation. */
   const shortById = new Map(team.map((m) => [m.id, m.short]));
 
-  const pobByVisit = new Map();
-  for (const p of pobRows) {
-    const key = `${p.employeeId}|${p.doctorId}|${p.plannedDate}`;
-    pobByVisit.set(key, (pobByVisit.get(key) ?? 0) + (p.amount || 0));
-  }
+  const pobIndex = indexPob(pobRows);
 
   return mine
     /* `id` is the event id PLUS the row's index, because eventId is not
@@ -1367,7 +1396,9 @@ export function doctorPlan(member, team, rows, pobRows = []) {
          raise it, and keying on them would leave a joint call's money on
          neither row. Falls back to employeeId for rows with no separate
          owner recorded. */
-      pob: pobByVisit.get(`${r.planOwnerId ?? r.employeeId}|${r.doctorId}|${r.plannedDate}`) ?? null,
+      pob: pobFor(pobIndex, r)?.amount ?? null,
+      pobQuotations: pobFor(pobIndex, r)?.quotations ?? [],
+      pobGiven: Boolean(r.pobGiven),
     }))
     /* Done first in the order they happened, then everything still open.
        The rows carry no planned TIME (the doctype is all-day -- see

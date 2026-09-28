@@ -55,6 +55,10 @@ export function VisitsByHourSheet({
   showHq = true,
   showDate = false,
   loading = false,
+  /* POB, matched to each visit as the doctor plan sheet does it, and the
+     loader for an expanded card's items. */
+  pob = [],
+  loadPob = null,
   onClose,
 }) {
   const [openId, setOpenId] = useState(null);
@@ -81,8 +85,8 @@ export function VisitsByHourSheet({
   }
 
   const visits = useMemo(
-    () => (selection ? visitsIn(rows, selection, team) : []),
-    [selection, rows, team],
+    () => (selection ? visitsIn(rows, selection, team, pob) : []),
+    [selection, rows, team, pob],
   );
   /* The SAME card the doctor plan sheet uses, so one visit reads identically
      whichever drill-down found it -- and a joint call stops appearing as the
@@ -165,6 +169,7 @@ export function VisitsByHourSheet({
                territory every card would repeat what the subtitle says. */
             showHq={showHq}
             showDate={showDate}
+            loadPob={loadPob}
             expanded={openId === call.id}
             onToggle={() => setOpenId(openId === call.id ? null : call.id)}
           />

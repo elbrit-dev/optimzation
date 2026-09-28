@@ -284,7 +284,7 @@ export function EntryOverview({
     { key: 'pending', label: <span className="inline-flex items-center gap-1.5"><Dot tone="warning" />Pending</span>, count: counts.pending },
     { key: 'approved', label: <span className="inline-flex items-center gap-1.5"><Dot tone="success" />Approved</span>, count: counts.approved },
     ...(counts.revisit
-      ? [{ key: 'revisit', label: <span className="inline-flex items-center gap-1.5"><Dot tone="danger" />Revisit</span>, count: counts.revisit }]
+      ? [{ key: 'revisit', label: <span className="inline-flex items-center gap-1.5"><Dot tone="danger" />Rework</span>, count: counts.revisit }]
       : []),
     ...(counts.rejected
       ? [{ key: 'rejected', label: <span className="inline-flex items-center gap-1.5"><Dot tone="danger" />Rejected</span>, count: counts.rejected }]
@@ -474,6 +474,14 @@ function SelectionBar({ selection, anchorRef, bottomGap, onHeight }) {
             Send <span className="font-semibold">{partyCount(task, count)}</span> for approval? They move to
             the approvers and can no longer be edited.
           </p>
+          {selection.summary ? (
+            <div className={cx('grid gap-2', task.closing ? 'grid-cols-4' : 'grid-cols-3')}>
+              <BarFigure label="Products" value={String(selection.summary.products)} />
+              <BarFigure label={task.closing ? 'Sales' : 'Qty'} value={formatQty(selection.summary.qty)} />
+              {task.closing ? <BarFigure label="Closing" value={formatQty(selection.summary.closing)} /> : null}
+              <BarFigure label="Value" value={formatMoney(selection.summary.value)} />
+            </div>
+          ) : null}
           <div className="grid grid-cols-2 gap-2">
             <Button type="default" size="lg" block disabled={selection.busy} onClick={() => setConfirming(false)}>
               Back
@@ -492,6 +500,16 @@ function SelectionBar({ selection, anchorRef, bottomGap, onHeight }) {
       )}
     </Card>
     </PinnedBar>
+  );
+}
+
+/* One figure in the send confirmation. */
+function BarFigure({ label, value }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5 rounded-lg bg-sunken px-2 py-1.5">
+      <span className="truncate text-10 font-semibold uppercase tracking-wide text-ds-muted">{label}</span>
+      <span className="truncate text-13 font-bold tabular-nums text-heading">{value}</span>
+    </div>
   );
 }
 

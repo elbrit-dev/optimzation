@@ -1296,6 +1296,22 @@
   transition: background-color var(--dur-fast) var(--ds-ease-standard);
 }
 
+/* THE TREE'S BLEED MUST SURVIVE A PAGE RESET. The children's rule and the
+   elbows are placed from the container, the caret and its drop from the
+   header — the two agree only while the header really sits 12px out on the
+   left. A page CSS reset that zeroes `margin` on buttons (seen on the app's
+   Plasmic page: carets 12px right of their rules, every row 24px too wide,
+   "No plan" clipped) cancels the rule above, whose specificity is one
+   class. Restated here at three, so a generic reset cannot win; cards keep
+   their own no-bleed rule (`:not(.ds-card-row)`). */
+.ds-disclosure:not(.ds-card-row) > .ds-disclosure__header--interactive,
+.ds-disclosure:not(.ds-card-row) > .ds-disclosure__line > .ds-disclosure__header--interactive {
+  margin-inline: calc(var(--space-12) * -1);
+  padding-inline: var(--space-12);
+  width: calc(100% + var(--space-12) * 2);
+  box-sizing: border-box;
+}
+
 /* ========================================================= TreeSelect */
 
 /* Positions the panel against the trigger; the trigger itself is a
@@ -1347,6 +1363,12 @@
   border-radius: var(--ds-radius-lg);
   background-color: var(--surface-card);
   box-shadow: var(--ds-shadow-pop);
+}
+/* Portalled to <body> and fixed under (or over) its trigger — see
+   TreeSelect. Above the app's bottom sheets, since a picker can sit in one. */
+.ds-treeselect__panel--floating {
+  position: fixed;
+  z-index: 1100;
 }
 .ds-treeselect__empty {
   padding-block: var(--space-8);

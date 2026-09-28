@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { DOCTOR_SUPPORT, SECONDARY } from '@/app/secondary-entry/data/task';
 import { applySeatLines } from '@/app/secondary-entry/data/writes';
 import { buildSheetRows, parseSheetRows } from '@/app/secondary-entry/data/csv';
@@ -90,5 +90,35 @@ describe('DoctorSupportEntry', () => {
     expect(screen.getByText('Doctors entered')).toBeInTheDocument();
     expect(screen.getByText('Diabeto · Maduranthagam')).toBeInTheDocument();
     expect(screen.queryByText('Closing')).toBeNull();
+  });
+
+  it('submits zero quantities, after a confirmation with the totals', async () => {
+    const { default: userEvent } = await import('@testing-library/user-event');
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        message: {
+          user: 'be@x.org', seat: 'BE3-X', month: '2026-08',
+          entries: [{
+            name: 'DR-9-2026-08-28', date: '2026-08-28', distributor__name: 'DR-9',
+            distributor: { name: 'DR-9', customer_name: 'Dr Zero', whg_ebs_code: 'DR-9' },
+            items: [{ name: 'l1', item__name: 'CILNITAB 10', custom_status: 'Draft', sales_qty: 0, closing_qty: 0, custom_last_pts: 100, sales_value: 0, closing_balance: 0, custom_role_profile__name: 'BE3-X' }],
+            other_items: [], custom_status_tracker: [],
+          }],
+          products: [],
+        },
+      }),
+    })));
+    render(<DoctorSupportEntry gqlToken="k:s" />);
+    await userEvent.click(await screen.findByRole('button', { name: /Dr Zero/ }));
+    const submit = await screen.findByRole('button', { name: 'Submit for approval' });
+    expect(submit).toBeEnabled();
+    await userEvent.click(submit);
+    const sheet = await screen.findByRole('dialog', { name: 'Submit for approval?' });
+    expect(within(sheet).getByText('Dr Zero')).toBeInTheDocument();
+    expect(within(sheet).getByText('Products')).toBeInTheDocument();
+    expect(within(sheet).getByText('Total qty')).toBeInTheDocument();
+    expect(within(sheet).getByText('Value')).toBeInTheDocument();
+    expect(within(sheet).getByText(/Every quantity is 0/)).toBeInTheDocument();
   });
 });

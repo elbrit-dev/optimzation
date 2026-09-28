@@ -28,7 +28,8 @@ export const STATUS_LABEL = {
   pending: 'Pending',
   approved: 'Approved',
   rejected: 'Rejected',
-  revisit: 'Revisit',
+  /* The workflow's Revisit, as people say it. */
+  revisit: 'Rework',
 };
 
 /* Draft is the colour of "still yours to do", which on this screen is the

@@ -177,11 +177,13 @@ describe('bulk send eligibility', () => {
     expect(submitBlocker({ ...base, status: 'draft' })).toBeNull();
   });
 
-  it('refuses what is already sent, and blank entries', () => {
+  it('refuses what is already sent and entries with no products, but sends zero quantities', () => {
     expect(submitBlocker({ ...base, status: 'pending' })).toBe('Already with approvers');
     expect(submitBlocker({ ...base, status: 'approved' })).toBe('Already approved');
-    expect(submitBlocker({ status: 'draft', lines: [{ salesQty: 0, closingQty: 0 }] })).toBe('Nothing filled yet');
+    expect(submitBlocker({ status: 'draft', lines: [] })).toBe('Add a product first');
     expect(canSubmit({ status: 'draft', lines: [] })).toBe(false);
+    expect(submitBlocker({ status: 'draft', lines: [{ salesQty: 0, closingQty: 0 }] })).toBe(null);
+    expect(canSubmit({ status: 'draft', lines: [{ salesQty: 0, closingQty: 0 }] })).toBe(true);
   });
 
   it('the mock month has 14 sendable drafts', () => {

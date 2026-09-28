@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 vi.mock('@/app/graphql-playground/constants', () => ({
@@ -31,7 +31,7 @@ const ANSWERS = {
 describe('SecondaryApproval from the server script', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it('loads one month, lists the months with work, and fetches another on switch', async () => {
+  it('loads last month only, with no month switcher', async () => {
     const calls = [];
     vi.stubGlobal(
       'fetch',
@@ -47,9 +47,8 @@ describe('SecondaryApproval from the server script', () => {
     );
     render(<SecondaryApproval gqlToken="k:s" />);
     expect(await screen.findByRole('tab', { name: /Vignesh/ })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('tab', { name: /Aug/ }));
-    expect(await screen.findByRole('tab', { name: /Ravikumar/ })).toBeInTheDocument();
-    expect(calls.filter((c) => c.startsWith('elbrit'))).toEqual(['elbrit_secondary_approval', 'elbrit_secondary_approval?month=2026-08']);
+    expect(screen.queryByRole('tab', { name: /Aug/ })).toBeNull();
+    expect(calls.filter((c) => c.startsWith('elbrit'))).toEqual(['elbrit_secondary_approval']);
   });
 
   it('knows who is looking from the token (the script user), with no viewer prop', async () => {
@@ -66,6 +65,29 @@ describe('SecondaryApproval from the server script', () => {
     render(<SecondaryApproval gqlToken="k:s" />);
     expect(await screen.findByRole('tab', { name: /Self/ })).toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: /Vignesh/ })).toBeNull();
+  });
+
+  it('opens a line in a bottom sheet with its products, Rework and Approve', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url) => {
+        const u = new URL(String(url));
+        if (u.pathname.endsWith('elbrit_secondary_approval')) return { ok: true, json: async () => ({ message: ANSWERS[''] }) };
+        if (u.pathname.endsWith('get_transitions')) {
+          return { ok: true, json: async () => ({ message: [{ action: 'Approve to Verification' }, { action: 'Revisit' }] }) };
+        }
+        return { ok: true, json: async () => ({ message: { name: 'x', workflow_state: 'ABM Approval Waiting' } }) };
+      }),
+    );
+    render(<SecondaryApproval gqlToken="k:s" />);
+    await userEvent.click(await screen.findByRole('button', { name: /Emc Pharmacy/ }));
+    const sheet = await screen.findByRole('dialog', { name: 'Emc Pharmacy' });
+    expect(within(sheet).getByText('BRITORVA 10')).toBeInTheDocument();
+    await userEvent.click(await within(sheet).findByRole('button', { name: 'Rework' }));
+    expect(within(sheet).getByRole('button', { name: 'Approve' })).toBeInTheDocument();
+    expect(within(sheet).getByLabelText('Reason for rework')).toBeInTheDocument();
+    await userEvent.click(within(sheet).getByRole('button', { name: 'Done' }));
+    expect(await screen.findByText('Rework — add a reason')).toBeInTheDocument();
   });
 
   it('says what went wrong when the script fails', async () => {

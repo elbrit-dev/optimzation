@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Avatar, Card, Field, Icon, StatusPill, cx, toneFill } from '@/design-system';
+import { Avatar, Button, Card, Field, Icon, Sheet, StatusPill, cx, toneFill } from '@/design-system';
 import { StockistCard } from '@/app/secondary-entry/components/StockistCard';
 import { ProductCard } from '@/app/secondary-entry/components/ProductCard';
 import { formatMoney, formatQty } from '@/app/secondary-entry/data/format';
@@ -123,89 +123,111 @@ function Choice({ pressed, tone, onClick, children, disabled }) {
   );
 }
 
-/* One stockist — Secondary Entry's own StockistCard, so an approver sees the
- * stockist exactly as the BE did: avatar, name, EBS chip, HQ, the tracker's
- * status, and Sales / Closing / Products. Tapping it opens in place (the
- * pill's chevron turns) to its products, each on the entry page's
- * ProductCard in its compact form: the brand with the variant as a chip, and
- * Sales / Closing in the grey tray the catalogue shows prices in.
+/* One stockist (or doctor) — Secondary Entry's own StockistCard, so an
+ * approver sees it exactly as the BE did: avatar, name, code chip, HQ, the
+ * tracker's status, and the figures. Tapping it opens a BOTTOM SHEET with its
+ * products, each on the entry page's ProductCard in its compact form, and —
+ * when it waits on the viewer — Rework / Approve (one they approved that
+ * verification has not taken yet: Rework alone). Rework asks for its reason
+ * there, which the BE reads against this line. Picking does not send: the
+ * pinned bar sends every choice at once, and the card shows what was picked.
  *
- * LINE BY LINE, IN PLACE. When the stockist waits on the viewer the card
- * carries its own Revisit / Approve underneath; one the viewer approved that
- * verification has not taken yet carries Revisit alone. A revisit asks for
- * its reason right there — the BE reads it against this stockist. Picking
- * does not send: the pinned bar sends every choice at once.
- *
- * A stockist sent back and still waiting on the BE's correction shows the
- * reason, and "Revisit" in its pill — it is waiting, but not on a decision. */
+ * "Rework" is the ERP workflow's Revisit: the approval stays open and the BE
+ * corrects and resubmits. One sent back and still waiting on the BE shows the
+ * reason, and "Rework" in its pill. */
 export function StockistLine({ slice, mine = false, revisitable = false, choice, onChoose, onReason, busy = false }) {
   const task = useTask();
   const [open, setOpen] = useState(false);
   const rejectedNote = slice.status === 'rejected' && slice.reason;
   const revisitNote = slice.revisitNote;
+  const decides = mine || revisitable;
+  const notes = (
+    <>
+      {rejectedNote ? <p className="text-11 text-danger-text">Reason: {slice.reason}</p> : null}
+      {revisitNote ? (
+        <p className="flex items-start gap-1.5 rounded-lg bg-danger-wash px-2.5 py-1.5 text-11 text-danger-text">
+          <Icon name="replay" size="var(--fs-10)" className="mt-0.5 shrink-0" />
+          <span>
+            <span className="font-semibold">Sent back for rework: </span>
+            {revisitNote}
+          </span>
+        </p>
+      ) : null}
+    </>
+  );
   return (
-    <StockistCard
-      entry={{
-        name: slice.name,
-        stockist: slice.stockist,
-        ebsCode: slice.ebsCode,
-        otherEbsCodes: [],
-        note: slice.note,
-        hq: slice.hq,
-        status: revisitNote ? 'revisit' : slice.status,
-        statusText: slice.state,
-        salesQty: slice.salesQty,
-        salesValue: slice.value,
-        closingQty: slice.closingQty,
-        closingValue: slice.closingValue,
-        lines: slice.lines,
-      }}
-      onOpen={() => setOpen((o) => !o)}
-      expanded={open}
-    >
-      {open || rejectedNote || revisitNote || mine || revisitable ? (
-        <>
-          {open ? (
-            slice.lines.length ? (
-              <ul className="flex flex-col gap-1.5 border-t border-line-subtle pt-2.5">
-                {slice.lines.map((l) => (
-                  <li key={l.item}>
-                    <ProductCard
-                      data={{ item_name: l.item }}
-                      brand={l.brand || undefined}
-                      singleProduct
-                      variantChip={Boolean(l.brand)}
-                      compact
-                      clickable={false}
-                      showPrices={false}
-                      tray={[
-                        { label: task.qtyLabel, value: formatQty(l.salesQty), caption: formatMoney(l.salesValue) },
-                        ...(task.closing ? [{ label: 'Closing', value: formatQty(l.closingQty), caption: formatMoney(l.closingValue) }] : []),
-                      ]}
-                    />
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="border-t border-line-subtle pt-2.5 text-11 text-ds-muted">No product lines.</p>
-            )
-          ) : null}
-          {rejectedNote ? <p className="text-11 text-danger-text">Reason: {slice.reason}</p> : null}
-          {revisitNote ? (
-            <p className="flex items-start gap-1.5 rounded-lg bg-danger-wash px-2.5 py-1.5 text-11 text-danger-text">
-              <Icon name="replay" size="var(--fs-10)" className="mt-0.5 shrink-0" />
-              <span>
-                <span className="font-semibold">Sent back for revisit: </span>
-                {revisitNote}
-              </span>
-            </p>
-          ) : null}
-          {mine || revisitable ? (
-            <div className="flex flex-col gap-2 border-t border-line-subtle pt-2.5">
+    <>
+      <StockistCard
+        entry={{
+          name: slice.name,
+          stockist: slice.stockist,
+          ebsCode: slice.ebsCode,
+          otherEbsCodes: [],
+          note: slice.note,
+          hq: slice.hq,
+          status: revisitNote ? 'revisit' : slice.status,
+          statusText: slice.state,
+          salesQty: slice.salesQty,
+          salesValue: slice.value,
+          closingQty: slice.closingQty,
+          closingValue: slice.closingValue,
+          lines: slice.lines,
+        }}
+        onOpen={() => setOpen(true)}
+      >
+        {rejectedNote || revisitNote || choice?.action ? (
+          <>
+            {notes}
+            {/* What was picked for this line, until the pinned bar sends it. */}
+            {choice?.action ? (
+              <p className={cx('flex items-center gap-1.5 text-11 font-semibold', choice.action === 'revisit' ? 'text-danger-text' : 'text-brand-text')}>
+                <Icon name="check" size="var(--fs-10)" />
+                {choice.action === 'revisit' ? `Rework${choice.reason?.trim() ? `: ${choice.reason.trim()}` : ' — add a reason'}` : 'Approve'}
+              </p>
+            ) : null}
+          </>
+        ) : null}
+      </StockistCard>
+
+      <Sheet open={open} onClose={() => setOpen(false)} title={slice.stockist} subtitle={[slice.ebsCode, slice.hq].filter(Boolean).join(' · ') || undefined} surface="app">
+        <div className="flex flex-col gap-3">
+          {slice.lines.length ? (
+            <ul className="flex flex-col gap-1.5">
+              {slice.lines.map((l) => (
+                <li key={l.item}>
+                  <ProductCard
+                    data={{ item_name: l.item }}
+                    brand={l.brand || undefined}
+                    singleProduct
+                    variantChip={Boolean(l.brand)}
+                    compact
+                    clickable={false}
+                    showPrices={false}
+                    tray={[
+                      { label: task.qtyLabel, value: formatQty(l.salesQty), caption: formatMoney(l.salesValue) },
+                      ...(task.closing ? [{ label: 'Closing', value: formatQty(l.closingQty), caption: formatMoney(l.closingValue) }] : []),
+                    ]}
+                  />
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-11 text-ds-muted">No product lines.</p>
+          )}
+          <div className="flex items-baseline justify-between gap-3 px-1">
+            <span className="text-11 font-semibold text-heading">Total</span>
+            <span className="text-12 font-bold tabular-nums text-heading">
+              {task.closing ? `${formatQty(slice.salesQty)} sales · ${formatQty(slice.closingQty)} closing · ` : `${formatQty(slice.salesQty)} qty · `}
+              {formatMoney(slice.value)}
+            </span>
+          </div>
+          {notes}
+          {decides ? (
+            <div className="flex flex-col gap-2 border-t border-line-subtle pt-3">
               <div className="flex gap-2" role="group" aria-label={`Decision for ${slice.stockist}`}>
                 {revisitable ? (
                   <Choice tone="danger" pressed={choice?.action === 'revisit'} disabled={busy} onClick={() => onChoose(choice?.action === 'revisit' ? null : 'revisit')}>
-                    Revisit
+                    Rework
                   </Choice>
                 ) : null}
                 {mine ? (
@@ -217,7 +239,7 @@ export function StockistLine({ slice, mine = false, revisitable = false, choice,
               {choice?.action === 'revisit' ? (
                 <Field
                   size="app"
-                  label="Reason for revisit"
+                  label="Reason for rework"
                   placeholder="What should be corrected…"
                   value={choice.reason ?? ''}
                   onChange={onReason}
@@ -225,22 +247,26 @@ export function StockistLine({ slice, mine = false, revisitable = false, choice,
                   error={choice.reason?.trim() ? undefined : 'Required to send back.'}
                 />
               ) : null}
+              <p className="text-10 text-ds-muted">Picked decisions are sent together from the bar at the bottom.</p>
             </div>
           ) : null}
-        </>
-      ) : null}
-    </StockistCard>
+          <Button type="default" size="lg" block onClick={() => setOpen(false)}>
+            Done
+          </Button>
+        </div>
+      </Sheet>
+    </>
   );
 }
 
 
-/* ---- who raised it, and what it adds up to ---- */
+/* ---- what it adds up to ---- */
 
-/* One figure in the tray: ProductCard's price-tray type — a small uppercase
-   label, the number in bold, and a muted caption that says what it counts. */
-function Stat({ label, value, caption }) {
+/* One metric: a small uppercase label, the number in bold, and a muted
+   caption saying what it counts — the price tray's type, as its own card. */
+function MetricCard({ label, value, caption }) {
   return (
-    <div className="flex min-w-0 flex-col gap-0.5 px-3 py-2.5">
+    <div className="flex min-w-0 flex-col gap-0.5 rounded-xl border border-line-subtle bg-surface px-3 py-2.5">
       <span className="truncate text-10 font-semibold uppercase tracking-wide text-ds-muted">{label}</span>
       <span className="truncate text-16 font-bold tabular-nums text-heading">{value}</span>
       <span className="truncate text-10 text-ds-muted">{caption}</span>
@@ -248,25 +274,22 @@ function Stat({ label, value, caption }) {
   );
 }
 
-/* Who raised it — avatar and name — and under it the three figures that size
-   the submission, side by side in one grey tray. */
-export function RaiserCard({ submission: g }) {
+/* What the submission adds up to — one card per figure. Who raised it is the
+   chip above, so it is not repeated here. Closing only where the task keys it. */
+export function SubmissionMetrics({ submission: g }) {
   const task = useTask();
   const mon = monthLabel(g.month);
+  const figures = [
+    { label: task.Parties, value: String(g.stockists), caption: 'this month' },
+    { label: task.closing ? 'Sales qty' : 'Total qty', value: formatQty(g.salesQty), caption: task.qtyCaption },
+    ...(task.closing ? [{ label: 'Closing qty', value: formatQty(g.closingQty), caption: 'in stock' }] : []),
+    { label: 'Value', value: formatMoney(g.value), caption: `${mon} ${task.valueNoun}` },
+  ];
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-line-subtle p-3">
-      {/* Just who: the avatar and the name. Role and HQ are left off — the
-          stockist cards below carry the HQ, and here they were a second line
-          saying nothing the reader needed to decide. */}
-      <span className="flex min-w-0 items-center gap-2.5">
-        <Avatar name={g.raiserName} size="sm" aria-hidden="true" />
-        <span className="min-w-0 truncate text-13 font-semibold text-heading">{g.isSelf ? `You · ${g.raiserName}` : g.raiserName}</span>
-      </span>
-      <div className="grid grid-cols-3 rounded-xl bg-sunken">
-        <Stat label={task.Parties} value={g.stockists} caption="this month" />
-        <Stat label="Total qty" value={formatQty(g.salesQty)} caption={task.qtyCaption} />
-        <Stat label="Value" value={formatMoney(g.value)} caption={`${mon} ${task.valueNoun}`} />
-      </div>
+    <div className={cx('grid gap-2', figures.length === 4 ? 'grid-cols-2' : 'grid-cols-3')}>
+      {figures.map((f) => (
+        <MetricCard key={f.label} {...f} />
+      ))}
     </div>
   );
 }
@@ -290,7 +313,7 @@ export function SubmissionCard({
       {/* No stockists · units line under the title: the person card's tray
           right below says both, with what they count. */}
       <div className="flex items-start justify-between gap-3">
-        <h2 className="shrink-0 text-14 font-semibold text-heading">Secondary sales — {monthLabel(g.month)}</h2>
+        <h2 className="shrink-0 text-14 font-semibold text-heading">{task.cardTitle} — {monthLabel(g.month)}</h2>
         {/* The title never gives way; a long workflow state truncates inside
             the pill, and its title attribute has the whole of it. The pill is
             `flex: 0 0 auto` by design, so the wrapper is what shrinks and the
@@ -302,7 +325,7 @@ export function SubmissionCard({
         </span>
       </div>
 
-      <RaiserCard submission={g} />
+      <SubmissionMetrics submission={g} />
 
       {reasons.length ? (
         <div>

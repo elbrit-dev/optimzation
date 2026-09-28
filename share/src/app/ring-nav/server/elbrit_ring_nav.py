@@ -63,16 +63,17 @@
 #
 # SECONDARY APPROVAL — ONLY for someone with work waiting on them, in the
 # entry window: a Secondary tracker in "... Approval Waiting" whose
-# next_approver is the caller (any month — old work is still work). No
+# next_approver is the caller, of the entry month (last month — as the
+# Approval screen shows). No
 # queue, no tile: a BE, or an approver who is clear, gets none.
-#   waiting   those trackers
-#   approved  the Secondary trackers the caller can see (the "Operational
-#             Tracker Restriction" permission query decides) approved, whose
-#             ENTRY is of the month by its own `date` field (not the names)
-#             — from "Waiting for Verification" on; "... Verification
-#             Rejected" is not
-# The IT role profile ALWAYS gets it, as an overview: every Secondary
-# tracker they can see that waits, and the month's approved.
+#   waiting   the PEOPLE (sales persons who raised figures) with at least
+#             one of those trackers — not stockists: one person raises many
+#   approved  the PEOPLE whose every tracker of the month the caller can see
+#             (the "Operational Tracker Restriction" decides) is approved —
+#             from "Waiting for Verification" on; "... Verification Rejected"
+#             is not. A tracker's month is its record's own `date` field.
+# The IT role profile ALWAYS gets it, as an overview: the people with anything
+# of the entry month waiting, and the people fully approved.
 #
 # safe_exec: no import, no .format(), no set literals, no tuple
 # unpacking, no underscore-prefixed names.
@@ -322,24 +323,39 @@ def entry_tile(task):
     })
 
 
-def approved_in_month(task):
-    # Approved trackers the caller can see whose RECORD is of the month — by
-    # the record's own `date` field, not the date in the names (those can be
-    # mistyped). A record the caller cannot read is not counted.
+def month_people(task):
+    # The approval tile counts PEOPLE — the sales persons who raised figures
+    # (a tracker's `user`) — not stockists: one person raises many. Only the
+    # entry month's trackers, by the record's own `date` field (not the date
+    # in the names): we operate on last month alone, as the Approval screen
+    # does. A record the caller cannot read is not counted.
+    #   waiting   people with at least one tracker waiting on the caller (IT:
+    #             waiting on anyone)
+    #   approved  people whose every tracker of the month is approved
     of_month = {}
     for r in frappe.get_list(task["doctype"], filters=[in_month],
                              fields=["name"], limit_page_length=0):
         of_month[r.get("name")] = 1
-    n = 0
-    for t in frappe.get_list("Operational Tracker", filters=[
-            ["reference_doctype", "=", task["doctype"]],
-            ["workflow_state", "like", "%Approved%"],
-            ["workflow_state", "not like", "%Rejected%"]],
-            fields=["name", "role_profile", task["link"]],
-            limit_page_length=0):
-        if of_month.get(record_of(t, task)):
-            n = n + 1
-    return n
+    waiting = {}
+    settled = {}     # person -> 1 while every tracker is approved, 0 otherwise
+    for t in frappe.get_list("Operational Tracker",
+                             filters=[["reference_doctype", "=", task["doctype"]]],
+                             fields=["name", "role_profile", "user", "workflow_state",
+                                     "next_approver", task["link"]],
+                             limit_page_length=0):
+        if not of_month.get(record_of(t, task)):
+            continue
+        who = t.get("user") or t.get("role_profile") or t.get("name")
+        ws = t.get("workflow_state") or ""
+        if ws.endswith(" Approval Waiting") and (always or t.get("next_approver") == me):
+            waiting[who] = 1
+        ok = 1 if ("Approved" in ws and "Rejected" not in ws) or ws == "Approved and Verified" else 0
+        settled[who] = min(settled.get(who, 1), ok)
+    approved = 0
+    for who in settled:
+        if settled[who] and not waiting.get(who):
+            approved = approved + 1
+    return len(waiting), approved
 
 
 def approval_tile(task):
@@ -347,17 +363,13 @@ def approval_tile(task):
     # Only for someone with work WAITING ON THEM: no queue, no tile — a BE,
     # or an approver who is clear, gets none. The IT role profile always gets
     # it, as the overview of every tracker of the task they can see.
-    waiting_ot = [["reference_doctype", "=", task["doctype"]],
-                  ["workflow_state", "like", "% Approval Waiting"]]
-    if always:
-        waiting = count("Operational Tracker", waiting_ot)
-    elif entry_window:
-        waiting = count("Operational Tracker", waiting_ot + [["next_approver", "=", me]])
-    else:
-        waiting = 0
+    if not (always or entry_window):
+        return
+    counted = month_people(task)
+    waiting = counted[0]
+    approved = counted[1]
     if not (always or waiting > 0):
         return
-    approved = approved_in_month(task)
     items.append({
         "id": task["id"] + "-approval",
         "label": task["label"],
@@ -369,8 +381,8 @@ def approval_tile(task):
         "caption": due_label if waiting else "Clear",   # the due date, while any waits
         "captionTone": "danger" if waiting else "success",
         "segments": [
-            {"key": "approved", "value": approved, "tone": "success", "label": "Approved"},
-            {"key": "waiting", "value": waiting, "tone": "danger", "label": "Waiting for approval"},
+            {"key": "approved", "value": approved, "tone": "success", "label": "People approved"},
+            {"key": "waiting", "value": waiting, "tone": "danger", "label": "People waiting for approval"},
         ],
     })
 

@@ -31,7 +31,7 @@ const BLANK_FILTERS = { values: {}, sorts: {}, query: '' };
  * every group stay open turns it into the flat list this replaced, and the
  * reader loses the doctor-per-line shape that makes it skimmable. */
 
-export function DoctorPlanSheet({ member, team, rows, pob, periodLabel, showDate = false, loading = false, onClose }) {
+export function DoctorPlanSheet({ member, team, rows, pob, loadPob = null, periodLabel, showDate = false, loading = false, onClose }) {
   /* Keyed by event id rather than an index, so it survives the list
      re-sorting or the period changing under it. */
   const [openId, setOpenId] = useState(null);
@@ -147,6 +147,7 @@ export function DoctorPlanSheet({ member, team, rows, pob, periodLabel, showDate
             key={call.id}
             group={call}
             showDate={showDate}
+            loadPob={loadPob}
             expanded={openId === call.id}
             onToggle={() => setOpenId(openId === call.id ? null : call.id)}
           />

@@ -437,6 +437,8 @@ async function fetchPobQuotationsPage({ from, to }, conn) {
   }
 
   const entries = edges.map(({ node }) => ({
+    /* The quotation itself, so an expanded card can fetch its items. */
+    quotation: node.name ?? null,
     ownerEmail: node.owner?.name ?? '',
     doctorId: node.party_name?.name ?? '',
     /* grand_total (post-tax/discount) over total (line-item sum) when both
@@ -554,6 +556,34 @@ async function postMethod(method, body, { endpointUrl, gqlToken }) {
     throw new Error(`[visit] ${method}: ${json.exc_type || `HTTP ${res.status}`}`);
   }
   return json.message;
+}
+
+/* THE ITEMS OF A VISIT'S POB, fetched when its card is opened — the month
+   list only carries each quotation's total. As the signed-in user, so the
+   ERP's permissions decide; one call for all the card's quotations.
+   -> [{ quotation, item, itemName, qty, rate, amount }] */
+export async function loadPobItems(quotations, conn) {
+  const names = [...new Set((quotations ?? []).filter(Boolean))];
+  if (!names.length) return [];
+  const QI = '`tabQuotation Item`';
+  const rows = await postMethod('frappe.client.get_list', {
+    doctype: 'Quotation',
+    filters: [['name', 'in', names]],
+    fields: ['name', `${QI}.idx as idx`, `${QI}.item_code as item_code`, `${QI}.item_name as item_name`,
+      `${QI}.qty as qty`, `${QI}.rate as rate`, `${QI}.amount as amount`],
+    order_by: `name asc, ${QI}.idx asc`,
+    limit_page_length: 0,
+  }, conn);
+  return (Array.isArray(rows) ? rows : [])
+    .filter((r) => r.item_code)
+    .map((r) => ({
+      quotation: r.name,
+      item: r.item_code,
+      itemName: r.item_name || r.item_code,
+      qty: Number(r.qty) || 0,
+      rate: Number(r.rate) || 0,
+      amount: Number(r.amount) || 0,
+    }));
 }
 
 /* The hour a count line says, as the visit time a row would carry — so
@@ -737,6 +767,8 @@ export async function fetchVisitDataset({
     : await fetchVisitCounts({ from: today, to: today }, sales, conn, nameByEmployeeId);
   /* The rows behind one list, fetched when it is opened (see loadVisitRows). */
   const loadRows = (request) => loadVisitRows(request, sales, conn, nameByEmployeeId, employeeIdByEmail);
+  /* The items behind a card's POB, fetched when it is opened. */
+  const loadPob = (quotations) => loadPobItems(quotations, conn);
 
   /* The dataset as it stands after each wave. `ready` is the load-bearing
      part: a consumer must not render a month total off a dataset whose month
@@ -765,6 +797,7 @@ export async function fetchVisitDataset({
        the lists that need real visits ask `loadRows`. */
     countsOnly: true,
     loadRows,
+    loadPob,
     /* WHICH dataset hit the cap, not just THAT one did. These are three
        different doctypes with three different volumes: a single month of
        visits is a few thousand rows, while the POB quotations behind the
@@ -832,6 +865,7 @@ export async function fetchVisitDataset({
       doctorId: q.doctorId,
       amount: q.amount,
       plannedDate: q.plannedDate,
+      quotation: q.quotation,
     }))
     .filter((entry) => entry.employeeId != null);
 

@@ -40,12 +40,27 @@ export function filterByStatus(entries, status) {
   return entries.filter((e) => e.status === status);
 }
 
-/* Whether an entry can go for approval in bulk: still the seat's to send
-   (draft, or sent back) AND something is filled in. An entry with no
-   quantities is a blank submission — the approver would only send it back. */
+/* Whether an entry can go for approval: still the seat's to send (draft, or
+   sent back) AND it has at least one product line. Zero quantities are a
+   real answer ("nothing sold this month") and go as 0; an entry with NO
+   lines cannot, because the ERP raises the approval from the lines. */
 export function canSubmit(entry) {
   if (entry.status !== 'draft' && entry.status !== 'rejected' && entry.status !== 'revisit') return false;
-  return entry.lines.some((l) => l.salesQty > 0 || l.closingQty > 0);
+  return entry.lines.length > 0;
+}
+
+/* What a submission adds up to — for the confirmation before it goes. */
+export function submissionTotals(entries) {
+  const out = { count: entries.length, products: 0, qty: 0, closing: 0, value: 0 };
+  for (const e of entries) {
+    out.products += e.lines.length;
+    for (const l of e.lines) {
+      out.qty += Number(l.salesQty) || 0;
+      out.closing += Number(l.closingQty) || 0;
+      out.value += (Number(l.salesQty) || 0) * (Number(l.price) || 0);
+    }
+  }
+  return out;
 }
 
 /* Why an entry cannot be picked for a bulk send, in the words its card
@@ -53,7 +68,7 @@ export function canSubmit(entry) {
 export function submitBlocker(entry) {
   if (entry.status === 'pending') return 'Already with approvers';
   if (entry.status === 'approved') return 'Already approved';
-  if (!entry.lines.some((l) => l.salesQty > 0 || l.closingQty > 0)) return 'Nothing filled yet';
+  if (!entry.lines.length) return 'Add a product first';
   return null;
 }
 

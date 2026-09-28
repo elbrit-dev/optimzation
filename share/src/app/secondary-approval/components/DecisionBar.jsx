@@ -46,7 +46,7 @@ export function DecisionBar({
           <>
             <div className="flex items-baseline justify-between gap-3 text-12">
               <span className="text-heading">
-                <span className="font-semibold">{toApprove}</span> to approve · <span className="font-semibold">{toRevisit}</span> to revisit
+                <span className="font-semibold">{toApprove}</span> to approve · <span className="font-semibold">{toRevisit}</span> to rework
               </span>
               <span className="flex items-center gap-3">
                 {undecided ? (
@@ -60,7 +60,7 @@ export function DecisionBar({
               </span>
             </div>
             <Button type="primary" size="lg" block loading={busy === 'choices'} disabled={missingReason || Boolean(busy)} onClick={onSendChoices}>
-              {missingReason ? 'Add a reason to each revisit' : `Send ${picked.length} decision${picked.length === 1 ? '' : 's'}`}
+              {missingReason ? 'Add a reason to each rework' : `Send ${picked.length} decision${picked.length === 1 ? '' : 's'}`}
             </Button>
             {undecided ? <p className="text-10 text-ds-muted">{undecided} not decided yet — they stay pending.</p> : null}
           </>
@@ -68,7 +68,7 @@ export function DecisionBar({
           <>
             <div className="grid grid-cols-2 gap-2">
               <Button type="default" size="lg" danger block loading={busy === 'revisit'} disabled={Boolean(busy) || !g.mine.length} onClick={onRevisit}>
-                Revisit all{partlyMine ? ` ${g.mine.length}` : ''}
+                Rework all{partlyMine ? ` ${g.mine.length}` : ''}
               </Button>
               <Button type="primary" size="lg" block loading={busy === 'approve'} disabled={Boolean(busy) || !g.mine.length} onClick={onApprove}>
                 Approve all{partlyMine ? ` ${g.mine.length}` : ''}

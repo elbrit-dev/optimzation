@@ -1,13 +1,13 @@
 'use client';
 
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Card, ChipRow, Icon, Sheet, StatusPill, cx } from '@/design-system';
+import { Button, Card, Icon, Sheet, StatusPill, cx } from '@/design-system';
 import { TableOperationsContext } from '@/app/datatable/contexts/TableOperationsContext';
 import { SECONDARY, TaskProvider } from '@/app/secondary-entry/data/task';
 import { getEndpointConfigFromUrlKeyAsync } from '@/app/graphql-playground/constants';
 import { useUnsavedGuard } from '@/app/secondary-entry/components/useUnsavedGuard';
 import { PinnedBarSpacer } from '@/app/secondary-entry/components/PinnedBar';
-import { bucketOfState, monthLabel, normalizeSlices } from '../data/shape';
+import { bucketOfState, normalizeSlices } from '../data/shape';
 import { doneCount, scopeSubmissions } from '../data/selectors';
 import { createDecisionWriter } from '../data/writes';
 import { useServerApprovals } from '../data/useServerApprovals';
@@ -88,7 +88,8 @@ export function SecondaryApproval({
      as the signed-in user (data/useServerApprovals.js): ONE month at a time,
      no cap, each tracker with only its own seat's lines, and a light list of
      every month for the switcher. */
-  const [pinnedMonth, setPinnedMonth] = useState(null);
+  /* Always LAST month — the server script's default; there is no switcher. */
+  const pinnedMonth = null;
   const serverMode = rowsProp == null && !slot && Boolean(gqlToken?.trim());
   const server = useServerApprovals({ enabled: serverMode, gqlEnvironment, gqlToken, month: pinnedMonth ?? undefined, method: task.approvalMethod });
   const sourceRows = rowsProp ?? slot?.rawData ?? server.data?.trackers;
@@ -148,10 +149,8 @@ export function SecondaryApproval({
     [slices, viewer, today, pinnedMonth, allowed],
   );
   const { submissions: ranked } = scoped;
-  /* From the server script the rows are already ONE month, and the months
-     with work waiting come in its summary. */
+  /* From the server script the rows are already ONE month — last month. */
   const period = serverMode ? (server.data?.month ?? scoped.period) : scoped.period;
-  const workMonths = serverMode ? (server.data?.months ?? []).filter((m) => m.waiting > 0) : scoped.workMonths;
   /* The chips keep the order they first appeared in: ranked (waiting first)
      on arrival, but a decision must not reshuffle the strip under the
      reader's thumb. New submissions join at the end. */
@@ -312,7 +311,7 @@ export function SecondaryApproval({
         }
         const approved = decisions.filter((d) => d.action === 'approve').length;
         const revisited = decisions.length - approved;
-        flash([approved ? `${approved} approved` : null, revisited ? `${revisited} sent back for revisit` : null].filter(Boolean).join(' · ') + '.');
+        flash([approved ? `${approved} approved` : null, revisited ? `${revisited} sent back for rework` : null].filter(Boolean).join(' · ') + '.');
         return true;
       } catch (e) {
         setError(e?.message || 'Could not reach ERP.');
@@ -396,24 +395,6 @@ export function SecondaryApproval({
         <p className="py-10 text-center text-12 text-ds-muted">Nothing to approve.</p>
       ) : (
         <>
-          {/* More than one month with work waiting — a late month, or a
-              future-dated one the ERP should not have — gets a switcher;
-              the usual single month gets nothing. */}
-          {workMonths.length > 1 || (workMonths.length === 1 && workMonths[0].month !== period) ? (
-            <ChipRow
-              ariaLabel="Month"
-              value={period}
-              onChange={setPinnedMonth}
-              items={[...new Set([period, ...workMonths.map((w) => w.month)])]
-                .sort()
-                .reverse()
-                .map((m) => ({
-                  key: m,
-                  label: `${monthLabel(m)}${m.slice(0, 4) !== today.slice(0, 4) ? ` '${m.slice(2, 4)}` : ''}`,
-                  count: workMonths.find((w) => w.month === m)?.waiting ?? 0,
-                }))}
-            />
-          ) : null}
           <SubmissionStrip submissions={submissions} value={current.key} onChange={setSelectedKey} />
           {notice ? (
             <div role="status" className="flex items-center gap-2 rounded-lg bg-success-wash px-3 py-2 text-12 font-medium text-success">
@@ -473,7 +454,7 @@ export function SecondaryApproval({
       />
 
       <Sheet open={guard.confirmOpen} onClose={guard.cancel} title="Discard decisions?" surface="app">
-        <p className="text-sm text-ds-secondary">The approvals and revisits you picked are not sent yet. Leave without sending them?</p>
+        <p className="text-sm text-ds-secondary">The approvals and reworks you picked are not sent yet. Leave without sending them?</p>
         <div className="mt-4 flex justify-end gap-2">
           <Button type="default" size="app" onClick={guard.cancel}>
             Keep deciding

@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { DisclosureRow, StatusPill } from '@/design-system';
 import { formatClock, formatCurrency, formatPlanDay } from '../data/format';
 import { DoctorCard } from './DoctorCard';
@@ -38,6 +39,9 @@ export function VisitEventGroup({
      "12:31 PM" is thirty possible days, so the date leads when the window is
      wider than one -- see the `period` wiring in VisitReport. */
   showDate = false,
+  /* Fetches the items behind the card's POB (dataset.loadPob); null where
+     there is no ERP to ask (the mock). */
+  loadPob = null,
 }) {
   const { participants } = group;
 
@@ -87,7 +91,6 @@ export function VisitEventGroup({
           .filter(Boolean)
           .join(' · ')
         : (group.plannedDate ? `Planned ${formatPlanDay(group.plannedDate)}` : null),
-    group.pob ? `${formatCurrency(group.pob)} POB` : null,
   ].filter(Boolean);
 
   /* One segment per attendee, in the order they arrived (groupByEvent keeps
@@ -167,6 +170,7 @@ export function VisitEventGroup({
              belongs in that slot is when it happened and who was there. */
           note={facts.join(' · ') || null}
           roles={roles}
+          pob={group.pob || (group.pobGiven ? true : null)}
           /* The card draws its own chevron on the attendee line; DisclosureRow's
              marker column is hidden for .ds-card-row. */
           expandable
@@ -246,6 +250,75 @@ export function VisitEventGroup({
           </tbody>
         ))}
       </table>
+      {group.pob || group.pobGiven ? <PobSection group={group} open={expanded} loadPob={loadPob} /> : null}
     </DisclosureRow>
+  );
+}
+
+/* THE ORDER BEHIND THE POB CHIP — a section of its own under the visits,
+ * headed like the day sections, with the quotation's items as a table.
+ * Fetched the first time the card opens (the month list only carries each
+ * quotation's total), as the signed-in user. */
+function PobSection({ group, open, loadPob }) {
+  const quotations = group.pobQuotations ?? [];
+  const key = quotations.join('|');
+  const [state, setState] = useState({ key: null, items: null, error: null });
+  useEffect(() => {
+    if (!open || !loadPob || !quotations.length || state.key === key) return undefined;
+    let stale = false;
+    setState({ key, items: null, error: null });
+    loadPob(quotations)
+      .then((items) => !stale && setState({ key, items, error: null }))
+      .catch((e) => !stale && setState({ key, items: null, error: e?.message || 'ERP did not answer.' }));
+    return () => {
+      stale = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, loadPob, key]);
+
+  const items = state.key === key ? state.items : null;
+  return (
+    <section className="mt-2 border-t border-line-subtle pt-2" aria-label="POB">
+      <h4 className="flex items-baseline justify-between pb-1 text-10 font-semibold uppercase tracking-wide text-ds-secondary">
+        <span>POB</span>
+        {group.pob ? <span className="tabular-nums normal-case tracking-normal">{formatCurrency(group.pob)}</span> : null}
+      </h4>
+      {!quotations.length ? (
+        /* The visit says POB was given, but no order (quotation) is recorded
+           for it, so there are no items to list. */
+        <p className="text-11 text-ds-muted">POB given on this visit — no order items are recorded in the ERP.</p>
+      ) : !loadPob ? (
+        <p className="text-11 text-ds-muted">Items are not available here.</p>
+      ) : state.error && state.key === key ? (
+        <p className="text-11 text-danger">Could not load the items: {state.error}</p>
+      ) : !items ? (
+        <p className="text-11 text-ds-muted">Loading items…</p>
+      ) : !items.length ? (
+        <p className="text-11 text-ds-muted">No item lines on this order.</p>
+      ) : (
+        <table className="w-full table-fixed border-collapse text-11">
+          <thead>
+            <tr className="text-10 text-ds-muted">
+              <th scope="col" className="pb-1 text-left font-medium">Product</th>
+              <th scope="col" className="w-10 pb-1 text-right font-medium">Qty</th>
+              <th scope="col" className="w-16 pb-1 text-right font-medium">Rate</th>
+              <th scope="col" className="w-20 pb-1 text-right font-medium">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((it, i) => (
+              <tr key={`${it.quotation}#${i}`} className="align-baseline">
+                <td className="py-1 pr-2">
+                  <span className="block truncate" title={it.itemName}>{it.itemName}</span>
+                </td>
+                <td className="py-1 text-right tabular-nums">{it.qty}</td>
+                <td className="py-1 text-right tabular-nums text-ds-secondary">{formatCurrency(it.rate)}</td>
+                <td className="py-1 text-right tabular-nums">{formatCurrency(it.amount)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </section>
   );
 }

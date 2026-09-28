@@ -198,6 +198,8 @@ export function useVisitKpi({
          neither. */
       countsOnly: Boolean(dataset?.countsOnly),
       loadRows: dataset?.loadRows ?? null,
+      /* The items behind a card's POB, on demand (null for the mock). */
+      loadPob: dataset?.loadPob ?? null,
     };
   }, [state, scopeId, period, month, monthTo]);
 }

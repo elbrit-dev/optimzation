@@ -28,6 +28,7 @@ export const SECONDARY = {
   codeLabel: 'EBS code',
   /* The approver's person card: "Jul secondary", total qty "units billed". */
   valueNoun: 'secondary',
+  cardTitle: 'Secondary sales',
   qtyCaption: 'units billed',
   /* Closing stock is keyed and shown alongside sales. */
   closing: true,
@@ -64,6 +65,7 @@ export const DOCTOR_SUPPORT = {
   qtyLabel: 'Qty',
   codeLabel: 'Doctor code',
   valueNoun: 'support',
+  cardTitle: 'Doctor support',
   qtyCaption: 'units',
   closing: false,
   entryTitle: 'Doctor support',

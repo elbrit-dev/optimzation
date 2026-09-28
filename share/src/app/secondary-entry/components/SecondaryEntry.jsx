@@ -16,6 +16,7 @@ import {
   productOptions,
   progress,
   statusMatrix,
+  submissionTotals,
 } from '../data/selectors';
 import { buildSheet } from '../data/csv';
 import { readSheetFile } from '../data/sheetFile';
@@ -308,6 +309,8 @@ export function SecondaryEntry({
   const selection = canEdit
     ? {
         selected,
+        /* What the picked ones add up to, for the send confirmation. */
+        summary: submissionTotals(entries.filter((e) => selected.has(e.name))),
         busy: sendingBulk,
         error: sendError,
         onCancel: clearSelection,
@@ -388,7 +391,7 @@ export function SecondaryEntry({
         tone: failed.length ? 'danger' : 'neutral',
         text: [
           filled ? `Filled ${partyCount(task, filled)} as drafts — review and submit each.` : null,
-          resubmitted ? `Resubmitted ${resubmitted} sent back for revisit — back with the approver.` : null,
+          resubmitted ? `Resubmitted ${resubmitted} sent back for rework — back with the approver.` : null,
           !filled && !resubmitted ? 'Nothing was saved.' : null,
           ...failed.slice(0, 4),
         ].filter(Boolean).join(' '),

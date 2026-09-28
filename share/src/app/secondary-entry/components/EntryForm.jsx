@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Card, Icon, cx } from '@/design-system';
+import { Button, Card, Icon, Sheet, cx } from '@/design-system';
 import { entryValue } from '../data/selectors';
 import { formatMoney, formatMonth, formatQty } from '../data/format';
 import { StockistCard } from './StockistCard';
@@ -124,7 +124,12 @@ export function EntryForm({ entry, products, canEdit, readOnlyReason, onBack, on
     }),
     [entry, lines, totalSales, totalClosing, total],
   );
-  const hasAnyQty = lines.some((l) => Number(l.salesQty) > 0 || Number(l.closingQty) > 0);
+  /* Zero quantities may be submitted ("nothing sold"); a submission needs
+     at least one product line, which is what the ERP raises it from. */
+  const canSend = lines.length > 0;
+  const allZero = totalSales === 0 && totalClosing === 0;
+  /* Submit asks first — a submission leaves the seat's hands. */
+  const [confirming, setConfirming] = useState(false);
 
   const setLine = (index, patch) => setLines((prev) => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)));
 
@@ -157,7 +162,7 @@ export function EntryForm({ entry, products, canEdit, readOnlyReason, onBack, on
         className="flex w-fit items-center gap-1 rounded-md text-12 font-medium text-brand-text transition-colors hover:text-brand-hover"
       >
         <Icon name="chevron-left" size="sm" />
-        All stockists
+        All {task.parties}
       </button>
 
       {/* THE SAME CARD the list showed — so the reader knows at a glance
@@ -170,7 +175,7 @@ export function EntryForm({ entry, products, canEdit, readOnlyReason, onBack, on
       <p className="truncate px-1 text-11 text-ds-muted">
         {formatMonth(entry.month)} entry · quantity by item
         {editable && entry.status === 'rejected' ? ' · sent back, correct and resubmit' : ''}
-        {revisit ? ' · sent back for revisit' : ''}
+        {revisit ? ' · sent back for rework' : ''}
         {!editable && entry.statusText ? ` · ${entry.statusText}` : ''}
       </p>
       {/* The approver's reason, where the BE will act on it — statusText
@@ -179,7 +184,7 @@ export function EntryForm({ entry, products, canEdit, readOnlyReason, onBack, on
         <p role="note" className="flex items-start gap-2 rounded-lg bg-danger-wash px-3 py-2 text-12 text-danger-text">
           <Icon name="replay" size="sm" className="mt-px shrink-0" />
           <span>
-            <span className="font-semibold">Sent back for revisit: </span>
+            <span className="font-semibold">Sent back for rework: </span>
             {entry.statusText}
           </span>
         </p>
@@ -277,7 +282,7 @@ export function EntryForm({ entry, products, canEdit, readOnlyReason, onBack, on
         </div>
         {editable ? (
           revisit ? (
-            <Button type="primary" size="lg" block loading={saving === 'submit'} disabled={saving != null || !hasAnyQty} onClick={() => run(true)}>
+            <Button type="primary" size="lg" block loading={saving === 'submit'} disabled={saving != null || !canSend} onClick={() => setConfirming(true)}>
               Resubmit for approval
             </Button>
           ) : (
@@ -285,7 +290,7 @@ export function EntryForm({ entry, products, canEdit, readOnlyReason, onBack, on
               <Button type="default" size="lg" block loading={saving === 'draft'} disabled={saving != null || !lines.length} onClick={() => run(false)}>
                 Save draft
               </Button>
-              <Button type="primary" size="lg" block loading={saving === 'submit'} disabled={saving != null || !hasAnyQty} onClick={() => run(true)}>
+              <Button type="primary" size="lg" block loading={saving === 'submit'} disabled={saving != null || !canSend} onClick={() => setConfirming(true)}>
                 Submit for approval
               </Button>
             </div>
@@ -293,6 +298,54 @@ export function EntryForm({ entry, products, canEdit, readOnlyReason, onBack, on
         ) : null}
       </Card>
       </PinnedBar>
+
+      {/* What is about to go, before it goes: the approvers get exactly this. */}
+      <Sheet
+        open={confirming}
+        onClose={() => setConfirming(false)}
+        title={revisit ? 'Resubmit for approval?' : 'Submit for approval?'}
+        subtitle={entry.stockist}
+        surface="app"
+      >
+        <div className="grid grid-cols-2 gap-2">
+          <SummaryFigure label="Products" value={String(lines.length)} />
+          <SummaryFigure label={task.closing ? 'Sales qty' : 'Total qty'} value={formatQty(totalSales)} />
+          {task.closing ? <SummaryFigure label="Closing qty" value={formatQty(totalClosing)} /> : null}
+          <SummaryFigure label="Value" value={formatMoney(total)} />
+        </div>
+        {allZero ? (
+          <p className="mt-3 text-12 text-ds-secondary">Every quantity is 0 — it goes to the approvers as nothing this month.</p>
+        ) : null}
+        <p className="mt-3 text-12 text-ds-secondary">It moves to the approvers and can no longer be edited, unless they send it back.</p>
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <Button type="default" size="lg" block onClick={() => setConfirming(false)}>
+            Back
+          </Button>
+          <Button
+            type="primary"
+            size="lg"
+            block
+            loading={saving === 'submit'}
+            disabled={saving != null}
+            onClick={async () => {
+              setConfirming(false);
+              await run(true);
+            }}
+          >
+            {revisit ? 'Resubmit' : 'Submit'}
+          </Button>
+        </div>
+      </Sheet>
+    </div>
+  );
+}
+
+/* One figure in the submit confirmation. */
+function SummaryFigure({ label, value }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5 rounded-xl bg-sunken px-3 py-2.5">
+      <span className="truncate text-10 font-semibold uppercase tracking-wide text-ds-muted">{label}</span>
+      <span className="truncate text-16 font-bold tabular-nums text-heading">{value}</span>
     </div>
   );
 }

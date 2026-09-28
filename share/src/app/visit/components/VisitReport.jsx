@@ -154,6 +154,7 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
     error,
     countsOnly,
     loadRows,
+    loadPob,
   } = useVisitKpi({
     /* No scopeId: the hook resolves the viewer for `root`, which is only
        used here as the DEFAULT pick. Everything else reads the unscoped
@@ -602,6 +603,7 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
               rows={countsOnly ? planList.rows : rows}
               loading={countsOnly && planList.loading}
               pob={pob}
+              loadPob={loadPob}
               periodLabel={planLabel}
               /* A month window is thirty days, so a clock time alone cannot
                  say WHEN a call happened — the card leads with the date. On
@@ -613,6 +615,9 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
               selection={sheet?.kind === 'hour' ? sheet.selection : null}
               rows={countsOnly ? hourList.rows : view.chartRows}
               loading={countsOnly && hourList.loading}
+              /* POB, matched to each visit as the doctor plan sheet does it. */
+              pob={pob}
+              loadPob={loadPob}
               /* Only to resolve each attendee's rung for the card's role
                  pill; the rows themselves are already scoped. */
               team={team}
