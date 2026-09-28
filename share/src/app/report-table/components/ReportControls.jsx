@@ -1,5 +1,6 @@
 'use client';
 
+import FyMonthPicker from '@/components/FyMonthPicker';
 import RangePicker from '@/components/RangePicker';
 import FilterSortSidebar from '@/components/SmartDataTable/FilterSortSidebar';
 import { resolveControlDateRange } from '@/components/SmartDataTable/elbritFilterApi.js';
@@ -10,7 +11,7 @@ import {
 } from '@/components/SmartDataTable/SmartDataContext';
 import { Switch } from 'antd';
 import dayjs from 'dayjs';
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 
 /**
  * Emit a control's output into viewParams._controls[key] for every view.
@@ -162,6 +163,18 @@ function DateRangeControl({ def, viewIds, apiFilters }) {
     });
   }
 
+  // Month mode (the default) uses the Doctor Support report's FY month picker;
+  // week / quarter / year modes keep the generic RangePicker.
+  if ((def.mode ?? 'month') === 'month') {
+    return (
+      <FyMonthPicker
+        value={value}
+        onChange={handleChange}
+        className="w-full h-9 sm:h-8 sm:w-auto sm:flex-none"
+      />
+    );
+  }
+
   return (
     <div className="w-full sm:w-44 sm:flex-none">
       <RangePicker
@@ -261,37 +274,36 @@ export function FilterChips({ viewIds }) {
     emitControlOutput(store, viewIds, fsKey, { ...filterSortOutput, filters: {} });
   }
 
+  // Rendered inline on the controls row, straight after the Filter & Sort button,
+  // so the tags read as part of that control rather than a separate panel below.
   return (
-    <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-xs font-medium text-gray-600 mr-1">Active Filters:</span>
-        {activeFilters.map(def => (
-          <div
-            key={def.key}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-100 text-blue-800 rounded-full text-xs font-medium"
-          >
-            <span>{def.label}: {filterSortOutput.filters[def.key].join(', ')}</span>
-            <button
-              type="button"
-              onClick={() => clearOne(def.key)}
-              className="ml-1 hover:bg-blue-200 rounded-full p-0.5 transition-colors"
-              title="Remove filter"
-            >
-              <i className="pi pi-times text-[10px]" />
-            </button>
-          </div>
-        ))}
-        <button
-          type="button"
-          onClick={clearAll}
-          className="inline-flex items-center gap-1 px-3 py-1.5 bg-red-100 text-red-700 rounded-full text-xs font-medium hover:bg-red-200 transition-colors"
-          title="Clear all filters"
+    <>
+      {activeFilters.map(def => (
+        <div
+          key={def.key}
+          className="inline-flex items-center gap-1.5 px-3 h-9 sm:h-8 bg-blue-100 text-blue-800 rounded-full text-xs font-medium max-w-full"
         >
-          <i className="pi pi-times-circle text-xs" />
-          <span>Clear All</span>
-        </button>
-      </div>
-    </div>
+          <span className="truncate">{def.label}: {filterSortOutput.filters[def.key].join(', ')}</span>
+          <button
+            type="button"
+            onClick={() => clearOne(def.key)}
+            className="ml-1 hover:bg-blue-200 rounded-full p-0.5 transition-colors"
+            title="Remove filter"
+          >
+            <i className="pi pi-times text-[10px]" />
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={clearAll}
+        className="inline-flex items-center gap-1 px-3 h-9 sm:h-8 bg-red-100 text-red-700 rounded-full text-xs font-medium hover:bg-red-200 transition-colors"
+        title="Clear all filters"
+      >
+        <i className="pi pi-times-circle text-xs" />
+        <span>Clear All</span>
+      </button>
+    </>
   );
 }
 
@@ -334,21 +346,36 @@ export function ReportControls({ controls, viewIds, apiFilters, extra }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const hasFilterSort = controls.some((def) => def.type === 'filterSort');
+  // With a toolbarExtra slot (e.g. Cards / Table), the sync button moves down to
+  // share a second row with it: sync at the left end, the slot at the right.
+  // Without one, sync stays on the main row as before.
+  const refreshControls = controls.filter((def) => def.type === 'refresh');
+  const mainControls = extra ? controls.filter((def) => def.type !== 'refresh') : controls;
 
   return (
-    <>
+    <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-3 sm:gap-4">
-        {controls.map((def, i) => {
+        {mainControls.map((def, i) => {
           if (def.type === 'toggle')     return <ToggleControl key={i} def={def} viewIds={viewIds} />;
           if (def.type === 'dateRange')  return <DateRangeControl key={i} def={def} viewIds={viewIds} apiFilters={apiFilters} />;
-          if (def.type === 'filterSort') return <FilterSortControl key={i} def={def} viewIds={viewIds} />;
+          if (def.type === 'filterSort') return (
+            <Fragment key={i}>
+              <FilterSortControl def={def} viewIds={viewIds} />
+              <FilterChips viewIds={viewIds} />
+            </Fragment>
+          );
           if (def.type === 'refresh')    return <RefreshControl key={i} def={def} />;
           return null;
         })}
-        {extra}
       </div>
-      {hasFilterSort && <FilterChips viewIds={viewIds} />}
-    </>
+      {extra && (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            {refreshControls.map((def, i) => <RefreshControl key={i} def={def} />)}
+          </div>
+          <div className="ml-auto">{extra}</div>
+        </div>
+      )}
+    </div>
   );
 }

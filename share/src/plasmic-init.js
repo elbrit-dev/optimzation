@@ -579,7 +579,7 @@ const smartDataProviderMeta = {
       type: 'slot',
       displayName: 'Toolbar Extra',
       description:
-        'Rendered inline inside the built-in controls row (next to Pivot / Display in Lakhs / Filter & Sort), instead of appended below like the main slot.',
+        'Rendered on a row under the built-in controls, at the right end, with the sync/refresh button at the left end (e.g. a Cards / Table switcher).',
     },
   },
 };
