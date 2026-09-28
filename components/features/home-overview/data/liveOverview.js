@@ -488,14 +488,14 @@ export async function fetchVisit(conn, today) {
      already decided what it may see, so nothing narrows it further here.
      The reps denominator is likewise every Sales employee this token reads. */
   let rows = visitRows(todays, team), mode = "today", P = monthsToTry(today)[0], read = todays.length;
-  if (!rows.some((r) => isHqTerritory(r.hq))) {
+  if (!rows.length) {
     mode = "window";
     for (const Q of monthsToTry(today)) {
       const parts = await inPool(weeks(Q.fromDate, Q.toDate), VISIT_CONCURRENCY, ([a, b]) => visitsIn(conn, a, b));
       read = parts.reduce((n, x) => n + x.length, 0);
       rows = visitRows(parts.flat(), team);
       P = Q;
-      if (rows.some((r) => isHqTerritory(r.hq))) break;
+      if (rows.length) break;
     }
   }
   console.info(`[home-overview] visit: ${read} Doctor Visit plan events read for ${mode === "today" ? t : P.fromDate + ".." + P.toDate}, ${rows.length} participant rows, roster ${team.length}`);
@@ -504,8 +504,14 @@ export async function fetchVisit(conn, today) {
 
 const hhmm = (ts) => { const h = Number(String(ts).slice(11, 13)), m = String(ts).slice(14, 16); return Number.isFinite(h) ? `${h % 12 || 12}:${m} ${h < 12 ? "AM" : "PM"}` : ""; };
 
-function shapeVisit(all, team, P, mode) {
-  const rows = all.filter((r) => isHqTerritory(r.hq));
+/* A visit with no department (or no HQ) on the Event still counts: it lands
+   in a "No department" / "No HQ" group rather than vanishing. Seen 26 Sep
+   2026: 1,307 of August's 54,326 visit events carry no department -- 94 of
+   them SM Suresh R's own, which his ERP login lists and the overview used to
+   drop. The group also puts the missing field in front of whoever can fix it. */
+export const NO_DEPT = "No department", NO_HQ = "No HQ";
+
+function shapeVisit(rows, team, P, mode) {
   if (!rows.length) return null;
 
   /* The design's 10 AM - 4 PM, widened to take in any earlier or later call. */
@@ -514,37 +520,36 @@ function shapeVisit(all, team, P, mode) {
   const span = Array.from({ length: hi - lo + 1 }, (_, i) => lo + i);
   const hourly = (rs) => { const b = visitsByHour(rs); return { geo: span.map((x) => b[x].verified), force: span.map((x) => b[x].force) }; };
 
-  /* Units: departments when the token sees visits in more than one, the HQs
-     of its one department otherwise -- the same rule as Primary. */
-  /* Both groupings -- departments and HQs -- are built; the view picks one
-     for every section at once, from the viewer's scope (see the model). */
-  const depts = new Set(rows.map((r) => r.dept).filter(Boolean));
-  let unitOfRow, unitOfMember;
-
-  // Per person, from the rows attributed to them.
-  const stat = new Map();
-  for (const r of rows) {
-    const s = stat.get(r.employeeId) || { plan: 0, geo: 0, force: 0, joint: 0, first: null };
-    s.plan += 1;
-    if (r.visitTime) {
-      if (r.forceVisit) s.force += 1; else s.geo += 1;
-      if ((r.participantCount ?? 1) > 1) s.joint += 1;
-      if (!s.first || r.visitTime < s.first) s.first = r.visitTime;
-    }
-    stat.set(r.employeeId, s);
-  }
   const byId = new Map(team.map((m) => [m.id, m]));
   const kidsOf = new Map();
   for (const m of team) { if (!kidsOf.has(m.reportsTo)) kidsOf.set(m.reportsTo, []); kidsOf.get(m.reportsTo).push(m); }
 
-  /* The people behind one unit, as a tree: its own members, and the managers
-     above them up to the top of the ladder so the tree reads SM > RBM > ABM >
-     BE. A manager's figures are their whole branch within the unit. */
-  function peopleOf(unit) {
-    const members = team.filter((m) => unitOfMember(m) === unit);
+  /* Per person, from the rows given -- one unit's rows, so a manager on a
+     joint call in CND Coimbatore shows those calls there, not the month. */
+  const statsOf = (rs) => {
+    const stat = new Map();
+    for (const r of rs) {
+      const s = stat.get(r.employeeId) || { plan: 0, geo: 0, force: 0, joint: 0, first: null };
+      s.plan += 1;
+      if (r.visitTime) {
+        if (r.forceVisit) s.force += 1; else s.geo += 1;
+        if ((r.participantCount ?? 1) > 1) s.joint += 1;
+        if (!s.first || r.visitTime < s.first) s.first = r.visitTime;
+      }
+      stat.set(r.employeeId, s);
+    }
+    return stat;
+  };
+
+  /* A unit's people: its own members and everyone who logged a call in it,
+     with the managers above them up to the top of the ladder so the tree
+     reads SM > RBM > ABM > BE. A manager's figures are their branch within
+     the unit. */
+  function peopleOf(members, stat) {
     const keep = new Set(members.map((m) => m.id));
-    for (const m of members) { let p = byId.get(m.reportsTo), guard = 0; while (p && guard++ < 8) { keep.add(p.id); p = byId.get(p.reportsTo); } }
-    const roots = [...keep].map((id) => byId.get(id)).filter((m) => !keep.has(m.reportsTo));
+    for (const id of stat.keys()) if (byId.has(id)) keep.add(id);
+    for (const id of [...keep]) { let p = byId.get(byId.get(id)?.reportsTo), guard = 0; while (p && guard++ < 8) { keep.add(p.id); p = byId.get(p.reportsTo); } }
+    const roots = [...keep].map((id) => byId.get(id)).filter((m) => m && !keep.has(m.reportsTo));
     const out = [];
     const walk = (m, lvl) => {
       const idx = out.length;
@@ -568,28 +573,38 @@ function shapeVisit(all, team, P, mode) {
 
   /* Reporting per unit: filled seats that logged a call (with their first
      call time), those that have not, and the vacant seats. */
-  function repsOf(unit) {
-    const members = team.filter((m) => unitOfMember(m) === unit);
+  function repsOf(members, stat) {
     const reported = [], notYet = [], vacant = [];
-    for (const m of members) {
+    const seen = new Set();
+    const add = (m) => {
+      if (!m || seen.has(m.id)) return;
+      seen.add(m.id);
       const s = stat.get(m.id), who = { name: m.name, role: m.short || "—", hq: String(m.hq || "").replace(/^HQ-\s*/, "") };
       if (m.vacant) vacant.push(who);
       else if (s && s.geo + s.force > 0) reported.push({ ...who, time: hhmm(s.first) });
       else notYet.push(who);
-    }
+    };
+    members.forEach(add);
+    for (const id of stat.keys()) add(byId.get(id));
     reported.sort((a, b) => a.time.localeCompare(b.time));
     return { reported, notYet, vacant };
   }
 
+  /* Both groupings -- departments and HQs -- are built; the view picks one
+     for every section at once, from the viewer's scope (see the model). */
   const unitsBy = (lvl) => {
-    unitOfRow = (r) => (lvl === "dept" ? r.dept : r.hq);
-    unitOfMember = (m) => (lvl === "dept" ? m.dept : m.hq);
-    return [...new Set(rows.map(unitOfRow).filter(Boolean))].map((name) => {
+    const unitOfRow = (r) => (lvl === "dept" ? r.dept || NO_DEPT : isHqTerritory(r.hq) ? r.hq : NO_HQ);
+    const unitOfMember = (m) => (lvl === "dept" ? m.dept : m.hq);
+    const names = [...new Set(rows.map(unitOfRow))];
+    return names.map((name) => {
       const rs = rows.filter((r) => unitOfRow(r) === name);
-      return { name, plan: rs.length, ...hourly(rs), people: peopleOf(name), reps: repsOf(name) };
-    }).sort((a, b) => b.plan - a.plan);
+      const stat = statsOf(rs);
+      const members = name === NO_DEPT || name === NO_HQ ? [] : team.filter((m) => unitOfMember(m) === name);
+      return { name, plan: rs.length, ...hourly(rs), people: peopleOf(members, stat), reps: repsOf(members, stat) };
+    }).sort((a, b) => (a.name === NO_DEPT || a.name === NO_HQ) - (b.name === NO_DEPT || b.name === NO_HQ) || b.plan - a.plan);
   };
   const byDept = unitsBy("dept"), byHq = unitsBy("hq");
+  const depts = new Set(rows.map((r) => r.dept).filter(Boolean));
 
   const isToday = mode === "today";
   const att = attendance(rows, team, !isToday);
