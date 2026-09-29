@@ -365,7 +365,7 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
 
   /* The picker's value when nothing has been chosen: the month the
      DATASET's today falls in, as a one-month range. Memoised on the date
-     string because RangePicker re-reads `value` in an effect, and a fresh
+     string because the picker derives its selection from `value`, and a fresh
      array on every render would have it resetting mid-interaction. Built
      from local Date parts for the timezone reason toMonthKey documents. */
   const defaultRange = useMemo(() => {

@@ -52,11 +52,49 @@ function formatDateForApi(date) {
   return dayjs(date).format('YYYY-MM-DD');
 }
 
+/**
+ * dateLimit (a top-level reportConfig key, so a page can set it through the
+ * provider's `overrides` without replacing the whole `controls` array) locks
+ * every dateRange control to a window:
+ *   'currentFY'           — this Indian financial year (Apr–Mar)
+ *   'lastFY'              — the one before it
+ *   { from, to }          — explicit 'YYYY-MM-DD' bounds; either may be left out
+ * Returns [min, max] as Dates (either may be null), or null for no limit.
+ */
+export function resolveDateLimit(limit) {
+  if (!limit) return null;
+  if (limit === 'currentFY' || limit === 'lastFY') {
+    const now = dayjs();
+    const fy = (now.month() >= 3 ? now.year() : now.year() - 1) - (limit === 'lastFY' ? 1 : 0);
+    return [new Date(fy, 3, 1), new Date(fy + 1, 2, 31)];
+  }
+  if (typeof limit === 'object') {
+    const from = limit.from ? dayjs(limit.from).startOf('day').toDate() : null;
+    const to   = limit.to   ? dayjs(limit.to).endOf('day').toDate()     : null;
+    return from || to ? [from, to] : null;
+  }
+  return null;
+}
+
+// Pull a [start, end] pair inside the limit. A range that misses it entirely
+// becomes the limit's latest month (never later than today).
+function clampRange(range, limit) {
+  if (!limit || !range) return range;
+  const [min, max] = limit;
+  const latest = dayjs(max && max < new Date() ? max : new Date());
+  let [s, e] = range;
+  if (min && s < min) s = min;
+  if (max && e > max) e = max;
+  if (s > e) return [latest.startOf('month').toDate(), latest.endOf('month').toDate()];
+  return [s, e];
+}
+
 // Priority for a dateRange control's initial value:
 //   P1. `def.value`        — explicit prop override passed in by the caller
 //   P2. `apiFilters`       — the API's current from_date/to_date (e.g. current period)
 //   P3. `def.defaultValue` — static default from the report config
 //   P4. current month      — final fallback so the picker never opens empty
+// Whichever wins is then clamped into dateLimit.
 function parseDateRangeDefault(def, apiFilters) {
   if (Array.isArray(def.value)) return def.value.map((d) => new Date(d));
   if (apiFilters?.from_date && apiFilters?.to_date) {
@@ -66,8 +104,8 @@ function parseDateRangeDefault(def, apiFilters) {
   return [dayjs().startOf('month').toDate(), dayjs().endOf('month').toDate()];
 }
 
-function parseDefault(def, apiFilters) {
-  if (def.type === 'dateRange') return parseDateRangeDefault(def, apiFilters);
+function parseDefault(def, apiFilters, limit) {
+  if (def.type === 'dateRange') return clampRange(parseDateRangeDefault(def, apiFilters), limit);
   if (def.value !== undefined) return def.value;
   return def.defaultValue ?? (def.type === 'toggle' ? false : null);
 }
@@ -162,8 +200,8 @@ function FilterSortControl({ def, viewIds }) {
   );
 }
 
-function DateRangeControl({ def, viewIds, apiFilters }) {
-  const [value, setValue] = useState(() => parseDefault(def, apiFilters));
+function DateRangeControl({ def, viewIds, apiFilters, limit }) {
+  const [value, setValue] = useState(() => parseDefault(def, apiFilters, limit));
   const store = useSmartDataStoreApi();
 
   function handleChange(range) {
@@ -181,6 +219,8 @@ function DateRangeControl({ def, viewIds, apiFilters }) {
       <FyMonthPicker
         value={value}
         onChange={handleChange}
+        min={limit?.[0] ?? undefined}
+        max={limit?.[1] ?? undefined}
         className="w-full h-9 sm:h-8 sm:w-auto sm:flex-none"
       />
     );
@@ -342,8 +382,9 @@ export function FilterChips({ viewIds }) {
   );
 }
 
-export function ReportControls({ controls, viewIds, apiFilters, extra }) {
+export function ReportControls({ controls, viewIds, apiFilters, dateLimit, extra }) {
   const store = useSmartDataStoreApi();
+  const limit = useMemo(() => resolveDateLimit(dateLimit), [dateLimit]);
 
   // SmartDataTable initializes views in its own useEffect, which fires after ours.
   // Wait until all views exist before pushing defaultValues into the store.
@@ -363,7 +404,7 @@ export function ReportControls({ controls, viewIds, apiFilters, extra }) {
       defaults.forEach(def => {
         let output;
         if (def.type === 'dateRange') {
-          const parsed = parseDefault(def, apiFilters);
+          const parsed = parseDefault(def, apiFilters, limit);
           output = {
             start: formatDateForApi(parsed?.[0]),
             end:   formatDateForApi(parsed?.[1]),
@@ -399,7 +440,7 @@ export function ReportControls({ controls, viewIds, apiFilters, extra }) {
           so THEY can still wrap. */}
       <div className="flex flex-wrap items-center gap-1.5 sm:gap-3">
         {mainControls.filter((def) => def.type === 'dateRange').map((def, i) => (
-          <DateRangeControl key={`d${i}`} def={def} viewIds={viewIds} apiFilters={apiFilters} />
+          <DateRangeControl key={`d${i}`} def={def} viewIds={viewIds} apiFilters={apiFilters} limit={limit} />
         ))}
         <div className="flex flex-nowrap items-center gap-1.5 sm:gap-3 min-w-0 max-w-full overflow-x-auto [&>*]:shrink-0" data-rc-scroll="1">
           {mainControls.map((def, i) => {

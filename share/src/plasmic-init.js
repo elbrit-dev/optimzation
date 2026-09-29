@@ -571,7 +571,11 @@ const smartDataProviderMeta = {
     overrides: {
       type: 'object',
       displayName: 'Config Overrides',
-      description: 'Deep-merged onto the loaded reportConfig. Objects merge recursively; arrays replace.',
+      description:
+        'Deep-merged onto the loaded reportConfig. Objects merge recursively; arrays replace. '
+        + 'Add dateLimit to lock the date picker (months, quarters, years, presets, ‹ ›) to a window: '
+        + '{ "dateLimit": "currentFY" }, "lastFY", or { "dateLimit": { "from": "2026-04-01", "to": "2027-03-31" } }. '
+        + 'The starting period is pulled inside it too.',
       defaultValue: {},
     },
     children: 'slot',

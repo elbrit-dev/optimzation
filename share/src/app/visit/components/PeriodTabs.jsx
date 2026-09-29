@@ -1,7 +1,7 @@
 'use client';
 
 import { Tabs } from '@/design-system';
-import RangePicker from '@/components/RangePicker';
+import FyMonthPicker from '@/components/FyMonthPicker';
 
 /* Today / Month, and which month.
  *
@@ -16,22 +16,15 @@ import RangePicker from '@/components/RangePicker';
  * still running IS — periodWindow clamps the window to today, so nothing
  * about it is special-cased.
  *
- * THE PICKER IS THE SHARED `RangePicker` in month mode — the same control the
- * report-table and datatable headers use — rather than a select of the last
- * twenty-four months. Three reasons it is worth pulling a PrimeReact overlay
- * onto this screen for: a month GRID is how you get to March 2025 in two
- * clicks instead of fourteen scroll-lines; the reader already knows this
- * control from the other two screens; and there is then one month picker in
- * netstar to fix rather than two to keep in step.
+ * THE PICKER IS THE SHARED `FyMonthPicker` -- the one SmartDataProvider's
+ * date control uses, so the reader meets the same Month / Quarter / Financial
+ * year tabs, presets and ‹ › steps on every report. It picks a contiguous run
+ * of months; the source splits a long window by date (liveSource.js), and
+ * periodWindow / periodSuffix already take a first and last month.
  *
- * `single`, so one click picks one month and the panel closes — the picker's
- * own addition, not a wrapper here. The report reads ONE month at a time by
- * design: the source fetches a window in a single page (MAX_ROWS in
- * liveSource.js) and a month of a few hundred visits a day is about what that
- * holds, so a control that invited a six-month span would be inviting a
- * truncated answer. It still emits a [start, end] pair, and periodWindow
- * still takes two months, so the day the source can serve a span this is one
- * prop away rather than a rewrite.
+ * LOCKED TO THE CURRENT FINANCIAL YEAR (Apr–Mar). `min` is 1 April of the FY
+ * the dataset's today falls in, so earlier months, quarters and years are
+ * greyed out and "Last FY" is not offered.
  *
  * `maxDate` is the DATASET's today, not the browser's. Months after it are
  * greyed out: there is nothing to report on a month that has not happened,
@@ -46,18 +39,23 @@ const ITEMS = [
   { id: 'month', label: 'Month' },
 ];
 
+// 1 April of the Indian FY that `date` falls in.
+function fyStart(date) {
+  const d = date ?? new Date();
+  return new Date(d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1, 3, 1);
+}
+
 export function PeriodTabs({ value, range, maxDate, onChange, onRangeChange }) {
   return (
     <div className="flex flex-col gap-3">
       <Tabs items={ITEMS} value={value} onChange={onChange} ariaLabel="Period" />
       {value === 'month' ? (
-        <RangePicker
-          mode="month"
-          single
-          maxDate={maxDate}
+        <FyMonthPicker
+          min={fyStart(maxDate)}
+          max={maxDate ?? undefined}
           value={range}
           onChange={onRangeChange}
-          placeholder={['Month', 'Month']}
+          className="w-full h-9 sm:h-8 sm:w-auto sm:flex-none"
         />
       ) : null}
     </div>

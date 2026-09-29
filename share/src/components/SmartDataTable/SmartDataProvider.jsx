@@ -1003,6 +1003,7 @@ export function SmartDataProvider({ config, dataSource, overrides, toolbarExtra,
           controls={rootControls}
           viewIds={controlViewIds}
           apiFilters={mergedConfig.api?.variables?.filters}
+          dateLimit={mergedConfig.dateLimit}
           extra={toolbarExtra}
         />
       )}
