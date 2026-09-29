@@ -2,9 +2,33 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Sidebar } from 'primereact/sidebar';
-import { Button, Field, Icon } from '@/design-system';
+import { Field, Icon } from '@/design-system';
 import { LoadingOverlay } from './TableSkeleton';
 import { logSmartDataEvent } from './smartDataLogger.js';
+import { filterIcon } from './filterIcons.js';
+
+/* Same design language as FyMonthPicker (the Doctor Support picker) and the
+   report controls: white surfaces, #D0D5DD borders, #101828 for whatever is
+   selected, blue on hover. Hover is gated to real pointers. */
+const PANEL_CSS = `
+.fss-root{color:#101828}
+.fss-root .fss-tab{color:#344054;background:transparent}
+.fss-root .fss-tab.fss-on{background:#101828;color:#fff}
+.fss-root .fss-tab .fss-ic{color:#667085}
+.fss-root .fss-tab.fss-on .fss-ic{color:#fff}
+.fss-root .fss-row{border:1px solid transparent}
+.fss-root .fss-row.fss-sel{background:#F9FAFB;border-color:#EAECF0}
+.fss-root input[type=checkbox]{accent-color:#101828}
+.fss-root .fss-btn{height:40px;border-radius:10px;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;transition:border-color .15s,background .15s}
+.fss-root .fss-btn:disabled{opacity:.4;cursor:default}
+.fss-root .fss-clear{background:#fff;border:1px solid #D0D5DD;color:#344054}
+.fss-root .fss-apply{background:#101828;border:1px solid #101828;color:#fff}
+@media (hover:hover) and (pointer:fine){
+.fss-root .fss-tab:not(.fss-on):hover{background:#F2F4F7}
+.fss-root .fss-row:not(.fss-sel):hover{background:#F9FAFB}
+.fss-root .fss-clear:not(:disabled):hover{border-color:#1F4FD8}
+.fss-root .fss-apply:not(:disabled):hover{background:#344054}
+}`;
 
 // ─── Mobile hook ─────────────────────────────────────────────────────────────
 
@@ -281,25 +305,27 @@ unstyled
       blockScroll
       className={isMobile ? 'w-full' : ''}
       style={isMobile ? { height: '80vh' } : { width: '600px', maxWidth: '90vw' }}
-      header={<h2 className="text-lg font-semibold text-body m-0">Filter and Sort</h2>}
+      header={<h2 className="m-0" style={{ fontSize: 16, fontWeight: 650, color: '#101828' }}>Filter and Sort</h2>}
     >
-      <div className="flex flex-col h-full">
+      <div className="fss-root flex flex-col h-full">
+        <style>{PANEL_CSS}</style>
         <div className="flex-1 overflow-hidden flex min-h-0">
 
           {/* ── Left tab navigation ─────────────────────────────────────── */}
-          <div className="w-28 border-r border-line-subtle bg-sunken overflow-y-auto flex-shrink-0">
+          <div className="w-36 overflow-y-auto flex-shrink-0" style={{ background: '#F9FAFB', borderRight: '1px solid #EAECF0' }}>
             <div className="p-2">
               {/* Sort tab */}
               <button
                 data-testid="filter-sidebar-tab"
                 onClick={() => setActiveTabIndex(0)}
-                className={`w-full text-left px-2 py-2 rounded-md mb-1 transition-colors text-sm ${
-                  activeTabIndex === 0 ? 'bg-brand-tint text-brand font-medium' : 'text-body hover:bg-brand-tint-weak'
-                }`}
+                className={`fss-tab w-full text-left px-2.5 py-2 rounded-lg mb-1 transition-colors${activeTabIndex === 0 ? ' fss-on' : ''}`}
               >
-                <span className="flex items-center justify-between">
-                  <span className="text-xs">Sort by</span>
-                  {Object.keys(selectedSorts).length > 0 && <span className="w-2 h-2 bg-brand rounded-full flex-shrink-0" />}
+                <span className="flex items-center gap-2">
+                  <i className="fss-ic pi pi-sort-alt flex-shrink-0" style={{ fontSize: '0.8rem' }} />
+                  <span className="text-xs font-semibold flex-1">Sort by</span>
+                  {Object.keys(selectedSorts).length > 0 && (
+                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: activeTabIndex === 0 ? '#fff' : '#101828' }} />
+                  )}
                 </span>
               </button>
 
@@ -314,14 +340,16 @@ unstyled
                     key={def.key}
                     data-testid="filter-sidebar-tab"
                     onClick={() => setActiveTabIndex(tabIndex)}
-                    className={`w-full text-left px-2 py-2 rounded-md mb-1 transition-colors text-sm ${
-                      isActive ? 'bg-brand-tint text-brand font-medium' : 'text-body hover:bg-brand-tint-weak'
-                    }`}
+                    className={`fss-tab w-full text-left px-2.5 py-2 rounded-lg mb-1 transition-colors${isActive ? ' fss-on' : ''}`}
                   >
-                    <span className="flex items-center justify-between gap-1">
-                      <span className="text-xs truncate">{def.label}</span>
+                    <span className="flex items-center gap-2">
+                      <i className={`fss-ic ${filterIcon(def)} flex-shrink-0`} style={{ fontSize: '0.8rem' }} />
+                      <span className="text-xs font-semibold truncate flex-1">{def.label}</span>
                       {selectedCount > 0 && (
-                        <span className="px-1.5 py-0.5 text-xs font-medium bg-brand text-on-brand rounded-full min-w-[1.25rem] text-center flex-shrink-0">
+                        <span
+                          className="px-1.5 text-center flex-shrink-0 rounded-full font-bold"
+                          style={{ minWidth: 18, fontSize: 10, lineHeight: '18px', background: isActive ? '#fff' : '#101828', color: isActive ? '#101828' : '#fff' }}
+                        >
                           {selectedCount}
                         </span>
                       )}
@@ -333,7 +361,7 @@ unstyled
           </div>
 
           {/* ── Right content area ──────────────────────────────────────── */}
-          <div className="flex-1 overflow-hidden bg-surface min-h-0 flex flex-col">
+          <div className="flex-1 overflow-hidden min-h-0 flex flex-col pt-2" style={{ background: '#fff' }}>
 
             {/* Sort tab */}
             {activeTabIndex === 0 && (
@@ -345,7 +373,7 @@ unstyled
                     sortOptions.map((opt, idx) => {
                       const isChecked = selectedSorts[opt.value] === opt.direction;
                       return (
-                        <label key={idx} data-testid="sort-option" className="flex items-center cursor-pointer p-2 rounded hover:bg-brand-tint-weak">
+                        <label key={idx} data-testid="sort-option" className={`fss-row flex items-center cursor-pointer px-2.5 py-2 mr-3 rounded-lg${isChecked ? ' fss-sel' : ''}`}>
                           <input
                             type="checkbox"
                             checked={isChecked}
@@ -356,9 +384,9 @@ unstyled
                               }
                               return { ...prev, [opt.value]: opt.direction };
                             })}
-                            className="mr-3 w-4 h-4 text-brand"
+                            className="mr-3 w-4 h-4"
                           />
-                          <span className="text-sm text-body flex-1">{opt.label}</span>
+                          <span className="text-[13px] flex-1" style={{ fontWeight: isChecked ? 600 : 400 }}>{opt.label}</span>
                         </label>
                       );
                     })
@@ -421,7 +449,7 @@ unstyled
                         </button>
                       ) : null}
                     />
-                    <span className="text-xs text-ds-secondary whitespace-nowrap">
+                    <span className="text-xs whitespace-nowrap" style={{ color: '#667085' }}>
                       {selectedValues.length} selected
                     </span>
                   </div>
@@ -437,18 +465,18 @@ unstyled
                     {items.map((item, idx) => {
                       const isSelected = selectedValues.includes(item.value);
                       return (
-                        <label key={`${item.value}-${idx}`} data-testid="filter-option" className="flex items-center cursor-pointer p-2 rounded hover:bg-brand-tint-weak">
+                        <label key={`${item.value}-${idx}`} data-testid="filter-option" className={`fss-row flex items-center cursor-pointer px-2.5 py-2 rounded-lg${isSelected ? ' fss-sel' : ''}`}>
                           <input
                             type="checkbox"
                             checked={isSelected}
                             onChange={() => toggleValue(item.value)}
-                            className="mr-3 w-4 h-4 text-brand border-line rounded focus:ring-focus"
+                            className="mr-3 w-4 h-4"
                           />
-                          <span className="text-sm text-body flex-1 truncate" title={item.label}>
+                          <span className="text-[13px] flex-1 truncate" title={item.label} style={{ fontWeight: isSelected ? 600 : 400 }}>
                             {item.label}
                           </span>
                           {item.count != null && (
-                            <span className="ml-2 px-1.5 py-0.5 text-xs text-ds-secondary bg-sunken rounded-full flex-shrink-0">
+                            <span className="ml-2 px-1.5 py-0.5 text-[11px] rounded-full flex-shrink-0" style={{ color: '#667085', background: '#F2F4F7' }}>
                               {item.count.toLocaleString()}
                             </span>
                           )}
@@ -469,7 +497,7 @@ unstyled
                     {/* Loading spinner for subsequent pages */}
                     {loading && items.length > 0 && (
                       <div className="flex items-center justify-center py-3">
-                        <i className="pi pi-spin pi-spinner text-brand text-lg" />
+                        <i className="pi pi-spin pi-spinner text-lg" style={{ color: '#101828' }} />
                       </div>
                     )}
 
@@ -485,10 +513,14 @@ unstyled
         </div>
 
         {/* Footer */}
-        <div className="border-t border-line-subtle p-4 bg-sunken">
+        <div className="p-4" style={{ borderTop: '1px solid #EAECF0', background: '#fff' }}>
           <div className="flex gap-2">
-            <Button type="default" data-testid="filter-clear" icon={<i className="pi pi-times" />} onClick={handleClear} className="flex-1" disabled={!hasActiveFilters}>Clear</Button>
-            <Button data-testid="filter-apply" icon={<i className="pi pi-check" />} onClick={handleApply} className="flex-1" disabled={!hasActiveFilters}>Apply</Button>
+            <button type="button" data-testid="filter-clear" onClick={handleClear} className="fss-btn fss-clear flex-1" disabled={!hasActiveFilters}>
+              <i className="pi pi-times" style={{ fontSize: '0.7rem' }} /> Clear
+            </button>
+            <button type="button" data-testid="filter-apply" onClick={handleApply} className="fss-btn fss-apply flex-1" disabled={!hasActiveFilters}>
+              <i className="pi pi-check" style={{ fontSize: '0.7rem' }} /> Apply
+            </button>
           </div>
         </div>
       </div>

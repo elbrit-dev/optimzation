@@ -3,6 +3,7 @@
 import FyMonthPicker from '@/components/FyMonthPicker';
 import RangePicker from '@/components/RangePicker';
 import FilterSortSidebar from '@/components/SmartDataTable/FilterSortSidebar';
+import { filterIcon, shortFilterValue } from '@/components/SmartDataTable/filterIcons';
 import { resolveControlDateRange } from '@/components/SmartDataTable/elbritFilterApi.js';
 import {
   useSmartDataContext,
@@ -21,6 +22,26 @@ import { Fragment, useEffect, useMemo, useState } from 'react';
  * its own SmartDataProvider — two report tabs sharing control keys (`dateRange`, `lakhs`)
  * and view ids (`main`) no longer overwrite each other.
  */
+/* Same design language as FyMonthPicker (the Doctor Support picker): white
+   controls on a #D0D5DD border, #101828 for anything on/selected, blue border
+   on hover. Hover is gated to real pointers so a tap doesn't leave it stuck. */
+const CONTROLS_CSS = `
+.rc-root .rc-ctl{background:#fff;border:1px solid #D0D5DD;border-radius:8px;color:#101828;transition:border-color .15s}
+.rc-root .rc-ctl.rc-on{border-color:#101828}
+.rc-root .rc-sw.ant-switch-checked{background:#101828}
+.rc-root .rc-x{color:#D0D5DD}
+.rc-root .rc-gx{color:#667085}
+.rc-root .rc-clear{color:#C4262B;background:transparent}
+.rc-root [data-rc-scroll]{scrollbar-width:none}
+.rc-root [data-rc-scroll]::-webkit-scrollbar{display:none}
+@media (hover:hover) and (pointer:fine){
+.rc-root .rc-hb:hover{border-color:#1F4FD8}
+.rc-root .rc-sw.ant-switch-checked:hover:not(.ant-switch-disabled){background:#344054}
+.rc-root .rc-x:hover{color:#fff;background:rgba(255,255,255,.18)}
+.rc-root .rc-gx:hover{color:#101828;background:#F2F4F7}
+.rc-root .rc-clear:hover{background:#FEF3F2}
+}`;
+
 function emitControlOutput(store, viewIds, key, output) {
   const state = store.getState();
   viewIds.forEach(id => state.setControlOutput(id, key, output));
@@ -53,7 +74,6 @@ function parseDefault(def, apiFilters) {
 
 function ToggleControl({ def, viewIds }) {
   const [value, setValue] = useState(parseDefault(def));
-  const [hovered, setHovered] = useState(false);
   const store = useSmartDataStoreApi();
 
   function handleChange(checked) {
@@ -62,20 +82,10 @@ function ToggleControl({ def, viewIds }) {
   }
 
   return (
-    <div
-      className="flex items-center gap-2 px-3 h-9 sm:h-8 border rounded-md cursor-default"
-      style={{
-        borderColor: (value || hovered) ? '#06b6d4' : '#d1d5db',
-        transition: 'border-color 0.2s',
-      }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-    >
-      <label className="text-xs sm:text-sm font-medium text-gray-700 whitespace-nowrap select-none">
-        {def.label ?? def.key}
-      </label>
-      <Switch checked={value} onChange={handleChange} size="small" />
-    </div>
+    <label className={`rc-ctl rc-hb flex items-center gap-2 px-3 h-9 sm:h-8 cursor-pointer select-none${value ? ' rc-on' : ''}`}>
+      <span className="text-[13px] font-semibold whitespace-nowrap">{def.label ?? def.key}</span>
+      <Switch className="rc-sw" checked={value} onChange={handleChange} size="small" />
+    </label>
   );
 }
 
@@ -115,16 +125,13 @@ function FilterSortControl({ def, viewIds }) {
       <button
         type="button"
         onClick={() => setVisible(true)}
-        className="flex items-center gap-2 px-3 h-9 sm:h-8 border rounded-md bg-white transition-colors"
-        style={{ borderColor: isActive ? '#6366f1' : '#d1d5db' }}
+        className={`rc-ctl rc-hb flex items-center gap-2 px-3 h-9 sm:h-8${isActive ? ' rc-on' : ''}`}
       >
-        <i className="pi pi-filter" style={{ fontSize: '0.75rem', color: isActive ? '#6366f1' : '#6b7280' }} />
-        <span className="text-xs font-medium whitespace-nowrap" style={{ color: isActive ? '#6366f1' : '#374151' }}>
-          {def.label ?? 'Filter & Sort'}
-        </span>
+        <i className="pi pi-filter" style={{ fontSize: '0.75rem', color: isActive ? '#101828' : '#667085' }} />
+        <span className="text-[13px] font-semibold whitespace-nowrap">{def.label ?? 'Filter & Sort'}</span>
         {isActive && (
-          <span className="flex items-center justify-center w-4 h-4 rounded-full text-white text-xs font-bold"
-            style={{ backgroundColor: '#6366f1', fontSize: '0.6rem' }}>
+          <span className="flex items-center justify-center h-4 px-1 rounded-full font-bold"
+            style={{ minWidth: 16, backgroundColor: '#101828', color: '#fff', fontSize: '0.6rem' }}>
             {activeCount}
           </span>
         )}
@@ -197,7 +204,6 @@ function RefreshControl({ def }) {
     return null;
   });
   const isLoading = loadingPhase != null;
-  const [hovered, setHovered] = useState(false);
   const label = loadingPhase === 'index'
     ? 'Checking…'
     : isLoading
@@ -210,16 +216,11 @@ function RefreshControl({ def }) {
       type="button"
       onClick={refresh}
       disabled={isLoading}
-      className="flex items-center gap-1.5 px-3 h-9 sm:h-8 border rounded-md bg-white text-gray-600"
-      style={{
-        borderColor: hovered && !isLoading ? '#06b6d4' : '#d1d5db',
-        transition: 'border-color 0.2s',
-      }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      className="rc-ctl rc-hb flex items-center gap-1.5 px-3 h-9 sm:h-8"
+      style={{ color: '#344054' }}
     >
       <i className={isLoading ? 'pi pi-spin pi-spinner' : 'pi pi-refresh'} style={{ fontSize: '0.75rem' }} />
-      {label && <span style={{ fontSize: '0.75rem', whiteSpace: 'nowrap' }}>{label}</span>}
+      {label && <span className="text-xs font-medium whitespace-nowrap">{label}</span>}
     </button>
   );
 }
@@ -268,40 +269,70 @@ export function FilterChips({ viewIds }) {
     emitControlOutput(store, viewIds, fsKey, { ...filterSortOutput, filters });
   }
 
+  function clearValue(key, value) {
+    const fsKey = getFilterSortKey();
+    if (!fsKey) return;
+    const rest = (filterSortOutput.filters?.[key] ?? []).filter(v => v !== value);
+    const filters = { ...(filterSortOutput.filters ?? {}), [key]: rest };
+    emitControlOutput(store, viewIds, fsKey, { ...filterSortOutput, filters });
+  }
+
   function clearAll() {
     const fsKey = getFilterSortKey();
     if (!fsKey) return;
     emitControlOutput(store, viewIds, fsKey, { ...filterSortOutput, filters: {} });
   }
 
-  // Rendered inline on the controls row, straight after the Filter & Sort button,
-  // so the tags read as part of that control rather than a separate panel below.
+  // Rendered inline on the controls row, straight after the Filter & Sort button.
+  // One white group per field, holding one dark chip per selected value (the
+  // date picker's selected-cell look), so each value can be removed on its own.
   return (
     <>
       {activeFilters.map(def => (
         <div
           key={def.key}
-          className="inline-flex items-center gap-1.5 px-3 h-9 sm:h-8 bg-blue-100 text-blue-800 rounded-full text-xs font-medium max-w-full"
+          className="rc-ctl inline-flex items-center gap-1 pl-3 pr-1 h-9 sm:h-8 max-w-full min-w-0"
         >
-          <span className="truncate">{def.label}: {filterSortOutput.filters[def.key].join(', ')}</span>
+          <i className={`${filterIcon(def)} mr-1 shrink-0`} style={{ fontSize: '0.8rem', color: '#667085' }} title={def.label} aria-label={def.label} />
+          <div className="flex items-center gap-1 min-w-0 overflow-x-auto" data-rc-scroll="1">
+            {filterSortOutput.filters[def.key].map(value => (
+              <span
+                key={value}
+                className="inline-flex items-center gap-1 pl-2 pr-1 h-6 rounded-md text-xs font-semibold whitespace-nowrap shrink-0"
+                style={{ background: '#101828', color: '#fff' }}
+                title={`${def.label}: ${value}`}
+              >
+                <span className="truncate" style={{ maxWidth: '9rem' }}>{shortFilterValue(value)}</span>
+                <button
+                  type="button"
+                  onClick={() => clearValue(def.key, value)}
+                  className="rc-x flex items-center justify-center w-4 h-4 rounded"
+                  title={`Remove ${value}`}
+                  aria-label={`Remove ${def.label}: ${value}`}
+                >
+                  <i className="pi pi-times" style={{ fontSize: '0.55rem' }} />
+                </button>
+              </span>
+            ))}
+          </div>
           <button
             type="button"
             onClick={() => clearOne(def.key)}
-            className="ml-1 hover:bg-blue-200 rounded-full p-0.5 transition-colors"
-            title="Remove filter"
+            className="rc-gx flex items-center justify-center w-6 h-6 rounded-md shrink-0"
+            title={`Clear ${def.label}`}
+            aria-label={`Clear ${def.label}`}
           >
-            <i className="pi pi-times text-[10px]" />
+            <i className="pi pi-times" style={{ fontSize: '0.65rem' }} />
           </button>
         </div>
       ))}
       <button
         type="button"
         onClick={clearAll}
-        className="inline-flex items-center gap-1 px-3 h-9 sm:h-8 bg-red-100 text-red-700 rounded-full text-xs font-medium hover:bg-red-200 transition-colors"
+        className="rc-clear inline-flex items-center px-2 h-9 sm:h-8 rounded-md text-xs font-semibold whitespace-nowrap"
         title="Clear all filters"
       >
-        <i className="pi pi-times-circle text-xs" />
-        <span>Clear All</span>
+        Clear all
       </button>
     </>
   );
@@ -353,8 +384,11 @@ export function ReportControls({ controls, viewIds, apiFilters, extra }) {
   const mainControls = extra ? controls.filter((def) => def.type !== 'refresh') : controls;
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+    // w-full + self-stretch: the host (a Plasmic stack) often centres its
+    // children, which shrank this block to its content and floated it mid-page.
+    <div className="rc-root flex flex-col gap-2 w-full self-stretch min-w-0">
+      <style>{CONTROLS_CSS}</style>
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
         {mainControls.map((def, i) => {
           if (def.type === 'toggle')     return <ToggleControl key={i} def={def} viewIds={viewIds} />;
           if (def.type === 'dateRange')  return <DateRangeControl key={i} def={def} viewIds={viewIds} apiFilters={apiFilters} />;
