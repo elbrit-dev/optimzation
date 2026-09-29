@@ -437,9 +437,20 @@
 .ds-segmented--pill .ds-segmented__item {
   border-radius: var(--ds-radius-pill);
 }
+/* `block`: the control fills its row and every segment takes an equal
+   share, so two labels of different lengths still read as one even pair. */
+.ds-segmented--block {
+  display: flex;
+  width: 100%;
+}
+.ds-segmented--block .ds-segmented__item {
+  flex: 1 1 0;
+  min-width: 0;
+}
 .ds-segmented__item {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: var(--space-6);
   height: 100%;
   padding-inline: var(--space-8);
@@ -463,10 +474,15 @@
   outline: var(--border-w-bold) solid var(--focus-ring);
   outline-offset: -2px;
 }
+/* The chosen segment is lifted off the track, not boxed in: the card's
+   soft shadow rather than a 1px ring (which read as a separate, cramped
+   button), and a heavier heading-coloured label so the choice is clear at
+   a glance. */
 .ds-segmented__item[aria-selected="true"] {
   background-color: var(--surface-card);
-  box-shadow: var(--ds-shadow-hairline), 0 0 0 1px var(--border-subtle);
-  color: var(--ds-text-body);
+  box-shadow: var(--ds-shadow-card);
+  color: var(--ds-text-heading);
+  font-weight: var(--fw-medium);
 }
 .ds-segmented__item:disabled {
   color: var(--ds-text-disabled);

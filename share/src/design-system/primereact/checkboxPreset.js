@@ -43,9 +43,17 @@ const BOX_CHECKED =
    input is what receives focus and the click. */
 const INPUT = 'sr-only';
 
+/* The checkbox's input is also where the CLICK lands: PrimeReact 10 puts
+   onChange on the <input> alone, and the styled box has no handler. As
+   `sr-only` it was a 1px target, so a box with no <label> around it (the
+   /tokens Default column) could not be ticked. So, as lara does, it is laid
+   over the box — invisible, full size, on top — inside the `relative` root.
+   Still the element that takes focus and the click. */
+const CHECKBOX_INPUT = 'absolute inset-0 z-[1] m-0 h-full w-full cursor-pointer appearance-none opacity-0 disabled:cursor-default';
+
 export const checkboxPt = {
   root: { className: 'relative inline-flex items-center' },
-  input: { className: INPUT },
+  input: { className: CHECKBOX_INPUT },
   box: { className: cx(BOX, BOX_CHECKED) },
   icon: { className: 'text-10 text-on-brand' },
 };

@@ -174,18 +174,22 @@ items = []
 # The tasks on the strip, each with an entry tile and an approval tile. The
 # same rules for both; only where the records live differs:
 #   doctype      the record a seat fills (one per stockist / doctor per date)
+#   party        its stockist / doctor field; party_doctype the record that
+#                lists which seats it is assigned to (Role Profile table)
 #   child        its lines' child doctype; rp / status their seat and status
 #   link         the Operational Tracker field naming the record
 #   prefix       tracker names: "<prefix><record>-<seat>"
 TASKS = [
     {"id": "secondary", "label": "Secondary", "icon": "calendar-clock",
      "doctype": "Secondary Data Entry", "child": "Secondary Data Table",
+     "party": "distributor", "party_doctype": "Customer",
      "rp": "custom_role_profile", "status": "custom_status",
      "link": "custom_ref_secondary_data_entry", "prefix": "Secondary Data Entry-",
      "hide_empty": False},
     # A seat with no Doctor Support in the month gets no entry tile.
     {"id": "doctor-support", "label": "Support", "icon": "file-check",
      "doctype": "Doctor Support", "child": "Support Items",
+     "party": "doctor", "party_doctype": "Lead",
      "rp": "role_profile", "status": "status",
      "link": "reference", "prefix": "Doctor Support-",
      "hide_empty": True},
@@ -218,10 +222,23 @@ def entry_tile(task):
     # unit -> the approval's state
     state_of = {}
     if seat:
-        # ONE seat: a unit is a record; only the seat's lines count.
+        # ONE seat: a unit is a record OF THE SEAT'S — its stockist / doctor
+        # lists the seat (Role Profile table; read past permissions, names
+        # only), or the seat has lines on it (below) — and only the seat's
+        # lines count. The ERP lets a BE read far more records than theirs.
+        assigned = {}
+        for r in frappe.get_all("Role Profile Multiselect",
+                                filters={"parenttype": task["party_doctype"], "role_profile_list": seat},
+                                fields=["parent"], limit_page_length=0):
+            assigned[r.get("parent")] = 1
+        # The IT role profile (`always`: the USER's role profile) is the one
+        # exception: every record of the month; everyone else only what is
+        # assigned to their seat.
+        see_all = always
         for r in frappe.get_list(task["doctype"], filters=[in_month],
-                                 fields=["name"], limit_page_length=0):
-            has_draft[r.get("name")] = 1      # no line of the seat's yet
+                                 fields=["name", task["party"]], limit_page_length=0):
+            if see_all or assigned.get(r.get(task["party"])):
+                has_draft[r.get("name")] = 1      # no line of the seat's yet
         seen = {}
         for r in frappe.get_list(
                 task["doctype"],

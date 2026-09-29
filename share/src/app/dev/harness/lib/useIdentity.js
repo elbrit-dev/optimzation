@@ -6,6 +6,10 @@
  *                           convenience, as the old /visit page had)
  *               'user'      any ERP user — their token remembered here, or
  *                           minted with the admin token (not on production)
+ *
+ * THE ADMIN TOKEN is the one typed here, else the environment row's own
+ * token from /tokens — so picking an environment is enough to list people
+ * and mint their tokens.
  *               'token'     a token pasted by hand
  *
  * Every piece is stored PER ENVIRONMENT and only used once that
@@ -35,6 +39,8 @@ export function useIdentity(envName) {
   const [adminToken, setAdminToken] = useStoredState(`admin.${envName}`, '');
   const [tokens, setTokens] = useStoredState(`tokens.${envName}`, {});
   const [acting, setActing] = useStoredState(`acting.${envName}`, { kind: 'registry' });
+  const admin = adminToken || resolved?.registryToken || '';
+  const adminSource = adminToken ? 'typed' : resolved?.registryToken ? 'tokens' : null;
 
   /* The token the screen gets. */
   const token = useMemo(() => {
@@ -65,9 +71,9 @@ export function useIdentity(envName) {
   const [people, setPeople] = useState({ list: [], loading: false, error: null });
   const loadPeople = useCallback(async () => {
     if (!resolved) return;
-    const t = adminToken || resolved.registryToken;
+    const t = admin;
     if (!t) {
-      setPeople({ list: [], loading: false, error: new Error('Add an admin token to list people.') });
+      setPeople({ list: [], loading: false, error: new Error('No admin token: type one, or give this environment a token in /tokens.') });
       return;
     }
     setPeople((p) => ({ ...p, loading: true, error: null }));
@@ -76,7 +82,7 @@ export function useIdentity(envName) {
     } catch (error) {
       setPeople({ list: [], loading: false, error });
     }
-  }, [resolved, adminToken]);
+  }, [resolved, admin]);
   useEffect(() => {
     setPeople({ list: [], loading: false, error: null });
   }, [envName]);
@@ -101,13 +107,13 @@ export function useIdentity(envName) {
   const mintFor = useCallback(
     async (email) => {
       if (!resolved) throw new Error('Environment not resolved yet.');
-      if (!adminToken) throw new Error('Add an admin token for this environment first.');
-      const t = await mintToken(resolved, adminToken, email);
+      if (!admin) throw new Error('No admin token: type one, or give this environment a token in /tokens.');
+      const t = await mintToken(resolved, admin, email);
       rememberToken(email, t);
       setActing({ kind: 'user', email });
       return t;
     },
-    [resolved, adminToken, rememberToken, setActing],
+    [resolved, admin, rememberToken, setActing],
   );
 
   const person = acting?.kind === 'user' ? people.list.find((p) => p.email === acting.email) ?? { email: acting.email } : null;
@@ -116,6 +122,7 @@ export function useIdentity(envName) {
     env: resolved,
     envError: env.name === envName ? env.error : null,
     adminToken,
+    adminSource,
     setAdminToken,
     acting,
     actAs,

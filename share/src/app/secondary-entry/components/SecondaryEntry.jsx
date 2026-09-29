@@ -19,7 +19,7 @@ import {
   submissionTotals,
 } from '../data/selectors';
 import { buildSheet } from '../data/csv';
-import { readSheetFile } from '../data/sheetFile';
+import { XLSX_MIME, buildGridWorkbook, readSheetFile } from '../data/sheetFile';
 import { createErpWriter } from '../data/writes';
 import { SECONDARY, TaskProvider, partyCount } from '../data/task';
 import { EntryOverview, EntryOverviewSkeleton } from './EntryOverview';
@@ -44,7 +44,10 @@ import { useUnsavedGuard } from './useUnsavedGuard';
  * save). See data/writes.js for why that is a REST get → save round-trip. */
 
 function downloadText(filename, text) {
-  const blob = new Blob([`﻿${text}`], { type: 'text/csv;charset=utf-8' });
+  downloadBlob(filename, new Blob([`﻿${text}`], { type: 'text/csv;charset=utf-8' }));
+}
+
+function downloadBlob(filename, blob) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -342,12 +345,26 @@ export function SecondaryEntry({
   );
 
   const [downloaded, setDownloaded] = useState(false);
-  const onDownload = () => {
-    downloadText(`${task.fileStem}-${month ?? 'period'}.csv`, buildSheet(pending, products, task));
+  /* The sheet's layout: one row per stockist × product, or products down
+     and stockists across (data/csv.js). The upload reads either. */
+  const [sheetLayout, setSheetLayout] = useState('grid');
+  const onDownload = async () => {
+    const grid = sheetLayout === 'grid';
+    const stem = `${task.fileStem}-${month ?? 'period'}`;
+    if (grid) {
+      /* An .xlsx: each stockist's name merged over its Sales and Closing. */
+      downloadBlob(`${stem}-grid.xlsx`, new Blob([await buildGridWorkbook(pending, products, task)], { type: XLSX_MIME }));
+    } else {
+      downloadText(`${stem}.csv`, buildSheet(pending, products, task));
+    }
     setDownloaded(true);
     setBulkMessage({
       tone: 'neutral',
-      text: task.closing ? 'Fill Sales Qty and Closing Qty, keep the Entry column, then re-upload.' : 'Fill Qty, keep the Entry column, then re-upload.',
+      text: grid
+        ? `Fill each ${task.party}'s ${task.closing ? 'Sales and Closing columns' : 'column'}, keep the header row as it is, then re-upload.`
+        : task.closing
+          ? 'Fill Sales Qty and Closing Qty, keep the Entry column, then re-upload.'
+          : 'Fill Qty, keep the Entry column, then re-upload.',
     });
   };
 
@@ -529,6 +546,8 @@ export function SecondaryEntry({
               pendingCount={pending.length}
               sheetRows={sheetRows}
               downloaded={downloaded}
+              layout={sheetLayout}
+              onLayoutChange={setSheetLayout}
               onDownload={onDownload}
               onUpload={onUpload}
               busy={bulkBusy}

@@ -1,4 +1,15 @@
-/* Bulk entry via a spreadsheet: one row per stockist × product.
+/* Bulk entry via a spreadsheet, in either of two LAYOUTS — the upload reads
+ * both, whichever comes back:
+ *
+ *   rows   one row per stockist × product: Entry, Stockist, Product, Sales
+ *          Qty, Closing Qty (Doctor Support: Qty).
+ *   grid   products down the first column, stockists across the first row
+ *          as their ERP ENTRY ("<stockist>-<date>", so a column is never
+ *          ambiguous when two stockists share a name) — for Secondary over
+ *          two merged cells with Sales and Closing under them; Doctor
+ *          Support one column per doctor. A cell a stockist does not take
+ *          (another seat carries that product there) holds "-". Downloaded
+ *          as .xlsx, so the cells can merge.
  *
  * FORMAT-FREE HERE. This module works on a table — an array of rows, each an
  * array of cells — which is what every format becomes once read: data/
@@ -51,9 +62,68 @@ export function buildSheetRows(entries, products = [], task = SECONDARY) {
   return rows;
 }
 
-/* The same table as CSV text. */
-export function buildSheet(entries, products = [], task = SECONDARY) {
-  return buildSheetRows(entries, products, task)
+/* Products down, stockists across: "Product" over the product column, a
+   column per stockist headed by its entry — for Secondary two, the entry
+   over both (merged: see gridMerges) with Sales and Closing under.
+   Products in the order of the product list, then any a stockist carries
+   that the list does not. */
+export const GRID_PRODUCT = 'Product';
+const NOT_TAKEN = '-';
+
+export function buildGridRows(entries, products = [], task = SECONDARY) {
+  const order = [];
+  const seen = new Set();
+  const add = (item) => {
+    if (item && !seen.has(item)) {
+      seen.add(item);
+      order.push(item);
+    }
+  };
+  const itemsOf = entries.map((e) => {
+    const taken = new Set(e.otherItems ?? []);
+    const own = e.lines.length ? e.lines : products.filter((p) => !taken.has(p.item)).map((p) => ({ item: p.item, salesQty: '', closingQty: '' }));
+    return { entry: e, taken, byItem: new Map(own.map((l) => [l.item, l])) };
+  });
+  const listed = new Set(itemsOf.flatMap((x) => [...x.byItem.keys()]));
+  products.forEach((p) => listed.has(p.item) && add(p.item));
+  itemsOf.forEach((x) => [...x.byItem.keys()].forEach(add));
+
+  const header = [GRID_PRODUCT];
+  const kinds = [''];
+  for (const { entry } of itemsOf) {
+    if (task.closing) {
+      header.push(entry.name, '');
+      kinds.push('Sales', 'Closing');
+    } else {
+      header.push(entry.name);
+    }
+  }
+  const rows = task.closing ? [header, kinds] : [header];
+  for (const item of order) {
+    const row = [item];
+    for (const { taken, byItem } of itemsOf) {
+      const l = byItem.get(item);
+      const cells = l ? [l.salesQty || '', l.closingQty || ''] : taken.has(item) ? [NOT_TAKEN, NOT_TAKEN] : ['', ''];
+      row.push(...(task.closing ? cells : cells.slice(0, 1)));
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
+/* The grid's merged cells, as SheetJS ranges: each stockist's name over its
+   Sales and Closing columns, and "Product" over the row beneath it
+   (Secondary only — Doctor Support has one column per doctor). */
+export function gridMerges(entryCount, task = SECONDARY) {
+  if (!task.closing) return [];
+  const merges = [{ s: { r: 0, c: 0 }, e: { r: 1, c: 0 } }];
+  for (let i = 0; i < entryCount; i += 1) merges.push({ s: { r: 0, c: 1 + i * 2 }, e: { r: 0, c: 2 + i * 2 } });
+  return merges;
+}
+
+/* The sheet as CSV text, in either layout. */
+export function buildSheet(entries, products = [], task = SECONDARY, layout = 'rows') {
+  return (layout === 'grid' ? buildGridRows(entries, products, task) : buildSheetRows(entries, products, task))
     .map((r) => r.map(escapeCell).join(','))
     .join('\r\n');
 }
@@ -115,6 +185,8 @@ export function parseSheetRows(input, task = SECONDARY) {
   );
   const errors = [];
   if (!rows.some((r) => r.some((c) => c.trim() !== ''))) return { byEntry: new Map(), errors: ['The file is empty.'] };
+  const grid = gridHeader(rows);
+  if (grid) return parseGrid(rows, grid, task);
 
   const required = requiredColumns(task);
   const headerIndex = rows.findIndex((r) => {
@@ -140,6 +212,7 @@ export function parseSheetRows(input, task = SECONDARY) {
 
   const byEntry = new Map();
   rows.slice(1).forEach((r, idx) => {
+    if (isNotTaken(r[iSales]) && (iClosing < 0 || isNotTaken(r[iClosing]))) return;
     const entry = r[iEntry]?.trim();
     const item = r[iProduct]?.trim();
     const salesRaw = r[iSales]?.trim() ?? '';
@@ -154,6 +227,74 @@ export function parseSheetRows(input, task = SECONDARY) {
     }
     if (!byEntry.has(entry)) byEntry.set(entry, []);
     byEntry.get(entry).push({ item, salesQty, closingQty });
+  });
+  return { byEntry, errors };
+}
+
+/* The grid layout's header: a row starting "Product" (the rows layout
+   starts "Entry"), the entries across it; for Secondary, the Sales /
+   Closing row under it. → the Product row's index, or -1. */
+export function gridHeaderIndex(rows) {
+  return gridHeader(rows)?.at ?? -1;
+}
+
+function gridHeader(rows) {
+  const first = (r) => String(r?.[0] ?? '').trim().toLowerCase();
+  const isKinds = (r) => (r ?? []).some((c) => /^(sales|closing)$/i.test(String(c ?? '').trim()));
+  for (let i = 0; i < rows.length; i += 1) {
+    if (first(rows[i]) !== GRID_PRODUCT.toLowerCase()) continue;
+    return isKinds(rows[i + 1]) ? { at: i, kinds: i + 1, dataAt: i + 2 } : { at: i, kinds: null, dataAt: i + 1 };
+  }
+  return null;
+}
+
+/* A cell that stands for "not this stockist's" — or a dash someone typed. */
+function isNotTaken(raw) {
+  return ['—', '–', '-', 'n/a', 'na'].includes(String(raw ?? '').trim().toLowerCase());
+}
+
+function parseGrid(rows, { at, kinds: kindsAt, dataAt }, task) {
+  const header = rows[at];
+  const kinds = kindsAt != null ? rows[kindsAt] : null;
+  /* Each entry's columns: sales (Doctor Support: qty) and closing, as the
+     Sales / Closing row names them. The entry heads its columns — a merged
+     cell's value sits in the first of its cells, so a blank header cell
+     belongs to the last entry seen. */
+  const width = Math.max(header.length, kinds?.length ?? 0);
+  const columns = new Map();
+  let entry = '';
+  for (let j = 1; j < width; j += 1) {
+    entry = String(header[j] ?? '').trim() || entry;
+    if (!entry) continue;
+    if (!columns.has(entry)) columns.set(entry, { entry, sales: -1, closing: -1 });
+    const c = columns.get(entry);
+    if (task.closing && /^closing$/i.test(String(kinds?.[j] ?? '').trim())) c.closing = j;
+    else if (c.sales < 0) c.sales = j;
+  }
+  if (!columns.size) return { byEntry: new Map(), errors: [`The header row names no ${task.parties} — keep it as downloaded.`] };
+
+  const toQty = (raw) => (raw === '' ? 0 : Number(raw.replace(/[,\s]/g, '')));
+  const byEntry = new Map();
+  const errors = [];
+  rows.slice(dataAt).forEach((r, idx) => {
+    const item = String(r[0] ?? '').trim();
+    if (!item) return;
+    for (const c of columns.values()) {
+      const cell = (j) => (j >= 0 ? String(r[j] ?? '').trim() : '');
+      let salesRaw = cell(c.sales);
+      let closingRaw = cell(c.closing);
+      if (isNotTaken(salesRaw)) salesRaw = '';
+      if (isNotTaken(closingRaw)) closingRaw = '';
+      if (salesRaw === '' && closingRaw === '') continue;
+      const salesQty = toQty(salesRaw);
+      const closingQty = toQty(closingRaw);
+      if (![salesQty, closingQty].every((n) => Number.isInteger(n) && n >= 0)) {
+        errors.push(`Row ${dataAt + 1 + idx}, ${c.entry}: quantities must be whole numbers ≥ 0.`);
+        continue;
+      }
+      if (!byEntry.has(c.entry)) byEntry.set(c.entry, []);
+      byEntry.get(c.entry).push({ item, salesQty, closingQty });
+    }
   });
   return { byEntry, errors };
 }

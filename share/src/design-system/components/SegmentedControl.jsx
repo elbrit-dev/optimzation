@@ -44,6 +44,8 @@ export function SegmentedControl({
   defaultValue,
   onChange,
   shape = 'default',
+  /* Fill the row, segments of equal width. */
+  block = false,
   ariaLabel = 'View',
   className,
   style,
@@ -73,7 +75,7 @@ export function SegmentedControl({
     <div
       role="tablist"
       aria-label={ariaLabel}
-      className={cx('ds-segmented', shape === 'pill' && 'ds-segmented--pill', className)}
+      className={cx('ds-segmented', shape === 'pill' && 'ds-segmented--pill', block && 'ds-segmented--block', className)}
       style={style}
       {...rest}
     >

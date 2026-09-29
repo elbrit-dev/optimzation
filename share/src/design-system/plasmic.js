@@ -214,6 +214,7 @@ const segmentedControlMeta = {
     value: { type: 'string' },
     defaultValue: { type: 'string' },
     shape: { type: 'choice', options: ['default', 'pill'], defaultValue: 'default' },
+    block: { type: 'boolean', defaultValue: false, description: 'Fill the row; every segment the same width.' },
     ariaLabel: { type: 'string', defaultValue: 'View' },
     onChange: {
       type: 'eventHandler',

@@ -15,9 +15,11 @@
 # SAME shape so the one screen reads both (see secondary-entry/data/task.js).
 # READ-ONLY (saving stays the app's REST get -> save of the whole document).
 #
-# WHICH RECORDS: every Doctor Support the caller may see for the month —
-# frappe.get_list, so the ERP's Doctor Support permission query decides. One
-# Doctor Support is one DOCTOR (a Lead) for one date.
+# WHICH RECORDS: the Doctor Supports of the month that are the SEAT'S —
+# their doctor's Lead lists the seat (its Role Profile table), or the seat
+# already has lines on them — among those the caller may see
+# (frappe.get_list: the ERP's permission rules). One Doctor Support is one
+# DOCTOR (a Lead) for one date.
 #
 # WHICH LINES: a Doctor Support carries several seats' Support Items; only
 # the caller's seat's are sent (their active Employee's custom_role_profile, or `seat`).
@@ -124,6 +126,16 @@ if seat:
             "custom_status_tracker": [],
         }
 
+    # ---- WHICH ARE THE SEAT'S: the doctors whose Lead lists the seat
+    # (its Role Profile table) — the ERP lets a BE read far more entries
+    # than are theirs. Read past permissions (frappe.get_all): only the
+    # names of the doctors assigned to the seat.
+    assigned = {}
+    for r in frappe.get_all("Role Profile Multiselect",
+                            filters={"parenttype": "Lead", "role_profile_list": seat},
+                            fields=["parent"], limit_page_length=0):
+        assigned[r.get("parent")] = 1
+
     # ---- the seat's own lines
     item_codes = []
     seen_items = {}
@@ -151,6 +163,21 @@ if seat:
         if code and not seen_items.get(code):
             seen_items[code] = 1
             item_codes.append(code)
+
+    # An entry is the seat's when its doctor is assigned to the seat, or
+    # the seat already has lines on it (never hide work already entered).
+    # The IT role profile is the one exception — the USER's role profile, as
+    # Ring Nav's overview decides it (an IT person's Employee seat may be
+    # empty or "Admin"): it sees every record of the month; everyone else
+    # only what is assigned to their seat. Not with a `seat` override: that
+    # is IT looking at a seat, which then sees what that seat sees.
+    see_all = (not frappe.form_dict.get("seat")) and frappe.db.get_value("User", me, "role_profile_name") == "IT"
+    mine = []
+    for n in names:
+        row = by_name[n]
+        if see_all or assigned.get(row["distributor__name"]) or row["items"]:
+            mine.append(n)
+    names = mine
 
     # ---- other seats' products, as names only
     for r in frappe.get_list(

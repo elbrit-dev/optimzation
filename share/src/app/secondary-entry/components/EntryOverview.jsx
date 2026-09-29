@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Button, Card, ChipRow, Eyebrow, Icon, LegendChip, SectionLabel, StackedBar, StatusPill, cx, toneFill } from '@/design-system';
+import { Button, Card, ChipRow, Eyebrow, Icon, LegendChip, SectionLabel, SegmentedControl, StackedBar, StatusPill, cx, toneFill } from '@/design-system';
 import { STATUS_LABEL, STATUS_TONE } from '../data/shape';
 import { formatMoney, formatQty } from '../data/format';
 import { ACCEPT_ATTR } from '../data/sheetFile';
@@ -161,7 +161,13 @@ function Step({ number, done, current, title, caption, action, connector = false
  * button); after it, step 1 shows a tick and the primary button moves down.
  * The result of an upload lands below, as a status rather than as a toast,
  * so it is still there when the reader looks back. */
-function BulkEntryCard({ pendingCount, sheetRows, downloaded, onDownload, onUpload, busy, message }) {
+/* The sheet's two layouts (data/csv.js); the upload reads either. */
+const LAYOUTS = (task) => [
+  { id: 'grid', label: `Products × ${task.parties}` },
+  { id: 'rows', label: 'One row per product' },
+];
+
+function BulkEntryCard({ pendingCount, sheetRows, downloaded, onDownload, onUpload, busy, message, layout = 'grid', onLayoutChange }) {
   const task = useTask();
   const inputRef = useRef(null);
   const nothingPending = pendingCount === 0;
@@ -186,6 +192,17 @@ function BulkEntryCard({ pendingCount, sheetRows, downloaded, onDownload, onUplo
           {nothingPending ? 'All filled' : `${pendingCount} pending`}
         </StatusPill>
       </div>
+
+      {onLayoutChange ? (
+        <div className="flex flex-col gap-1">
+          <SegmentedControl block items={LAYOUTS(task)} value={layout} onChange={onLayoutChange} ariaLabel="Sheet layout" />
+          <p className="text-10 text-ds-muted">
+            {layout === 'grid'
+              ? `Products down, ${task.parties} across. Either layout uploads.`
+              : `A row per ${task.party} and product. Either layout uploads.`}
+          </p>
+        </div>
+      ) : null}
 
       <div className="flex flex-col gap-3 rounded-lg bg-sunken p-3">
         <Step

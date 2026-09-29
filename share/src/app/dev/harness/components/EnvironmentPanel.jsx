@@ -7,7 +7,8 @@ import { listEnvironments } from '../lib/erp';
 import { DROPDOWN_STYLE, FieldLabel, RailSection } from './RailSection';
 
 /* Which ERP, and the admin token the harness uses there to list people and
-   (not on production) mint their tokens. */
+   (not on production) mint their tokens — the one typed here, else the
+   environment's own token from /tokens. */
 export function EnvironmentPanel({ envName, setEnvName, identity }) {
   const [options, setOptions] = useState([envName]);
   useEffect(() => {
@@ -39,15 +40,16 @@ export function EnvironmentPanel({ envName, setEnvName, identity }) {
       <Field
         label="Admin token"
         type={show ? 'text' : 'password'}
-        placeholder="key:secret"
+        placeholder={identity.adminSource === 'tokens' ? `From /tokens (${envName})` : 'key:secret'}
         value={adminInput}
         onChange={setAdminInput}
         onBlur={() => identity.setAdminToken(adminInput.trim())}
         onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
         hint={
-          env?.production
+          (env?.production
             ? 'Lists people here. Production never mints tokens — paste a user’s own.'
-            : 'Lists people and mints their tokens here. Kept in this browser only.'
+            : 'Lists people and mints their tokens here. Kept in this browser only.') +
+          (identity.adminSource === 'tokens' ? ` Empty: using the ${envName} token from /tokens.` : '')
         }
         suffix={
           <button type="button" onClick={() => setShow((v) => !v)} aria-label={show ? 'Hide token' : 'Show token'} className="flex items-center text-ds-secondary">
