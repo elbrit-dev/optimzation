@@ -1,4 +1,5 @@
 import React from "react";
+import { createPortal } from "react-dom";
 import { Trophy } from "lucide-react";
 import TeamCard from "./TeamCard";
 import TrendChart from "./TrendChart";
@@ -199,11 +200,16 @@ const CSS = `
 .esc-kpi__dot[data-kind="value"] { background: #16a34a; }
 .esc-kpi__dot[data-kind="target"] { background: #d1d5db; }
 .esc-kpi__label { color: #374151; }
-/* Sticky headline row: pins under --esc-sticky-top while the opened card scrolls
-   past. It bleeds over the card's side padding so the Model boxes scrolling
-   underneath never show at its edges. */
-.esc-kpis[data-sticky="true"] { position: sticky; top: var(--esc-sticky-top, 0px); z-index: 2;
-  background: #fff; margin-left: -20px; margin-right: -20px; padding: 8px 20px; }
+/* Sticky headline row. CSS sticky cannot do this: it only pins inside its own
+   card, and a closed card is barely taller than the row, so the row left with
+   it. Once the row passes the pin line a copy is shown fixed on <body> instead,
+   lined up with the card, and it stays for the rest of the page. */
+.esc-pin, .esc-pin *, .esc-pin *::before, .esc-pin *::after { box-sizing: border-box; }
+.esc-pin { position: fixed; z-index: 30; background: #fff; color: #111827;
+  border: 1px solid var(--esc-border, #e5e7eb); border-top: 0; border-radius: 0 0 12px 12px;
+  padding: 10px 20px; box-shadow: 0 4px 12px rgba(16,24,40,.08);
+  container-type: inline-size; container-name: esc; animation: esc-in .15s ease-out both; }
+.esc-pin .esc-kpis { margin-top: 0; }
 .esc-kpi__num { font-weight: 600; font-variant-numeric: tabular-nums; }
 
 /* ---- opening ----
@@ -320,7 +326,7 @@ const CSS = `
   .esc-card { padding: 14px 12px 12px; border-radius: 10px; }
   .esc-sections { gap: 14px 10px; }
   .esc-progress__pct { font-size: 11.5px; }
-  .esc-kpis[data-sticky="true"] { margin-left: -12px; margin-right: -12px; padding: 6px 12px; }
+  .esc-pin { padding: 8px 12px; border-radius: 0 0 10px 10px; }
 }
 
 /* Fallback for engines without container queries: fall back to the viewport. */
@@ -338,17 +344,22 @@ const CSS = `
 
 @media (prefers-reduced-motion: reduce) {
   .esc-progress__fill, .esc-card { transition: none; }
-  .esc-body[data-open="true"], .esc-card[data-depth="1"] { animation: none; }
+  .esc-body[data-open="true"], .esc-card[data-depth="1"], .esc-pin { animation: none; }
 }
 `;
 
 function useStyles() {
   React.useEffect(() => {
-    if (typeof document === "undefined" || document.getElementById(STYLE_ID)) return;
-    const el = document.createElement("style");
-    el.id = STYLE_ID;
-    el.textContent = CSS;
-    document.head.appendChild(el);
+    if (typeof document === "undefined") return;
+    // Rewritten rather than skipped when it already exists: after a hot reload
+    // the old sheet is still in <head>, and rules added since would be missing.
+    let el = document.getElementById(STYLE_ID);
+    if (!el) {
+      el = document.createElement("style");
+      el.id = STYLE_ID;
+      document.head.appendChild(el);
+    }
+    if (el.textContent !== CSS) el.textContent = CSS;
   }, []);
 }
 
@@ -429,6 +440,65 @@ function Section({ section, index, target, currency, tone, onSectionClick }) {
   );
 }
 
+function Kpis({ value, target }) {
+  return (
+    <>
+      <span className="esc-kpi">
+        <i className="esc-kpi__dot" data-kind="value" />
+        <span className="esc-kpi__label">Inc.Primary:</span>
+        <b className="esc-kpi__num">{fmtNumber(value, DECIMALS)}</b>
+      </span>
+      <span className="esc-kpi">
+        <i className="esc-kpi__dot" data-kind="target" />
+        <span className="esc-kpi__label">Target:</span>
+        <b className="esc-kpi__num">{fmtNumber(target, 0)}</b>
+      </span>
+    </>
+  );
+}
+
+/**
+ * Watches the headline row and says when it has scrolled past its pin line, and
+ * where the card is, so a fixed copy can be drawn over it. The pin line is the
+ * row's --esc-sticky-top, read back resolved (so var(--sp-header-h) becomes the
+ * Section Page header's real height). Scroll is listened for in the capture
+ * phase, so it works whichever element the page actually scrolls in.
+ */
+function usePin(ref, enabled) {
+  const [pin, setPin] = React.useState(null);
+  React.useEffect(() => {
+    if (!enabled || typeof window === "undefined") return undefined;
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      const row = ref.current;
+      const card = row?.closest(".esc-card");
+      if (!row || !card) return;
+      const top = parseFloat(getComputedStyle(row).getPropertyValue("--esc-sticky-top")) || 0;
+      if (row.getBoundingClientRect().top >= top) {
+        setPin((p) => (p ? null : p));
+        return;
+      }
+      const r = card.getBoundingClientRect();
+      const font = getComputedStyle(card).fontFamily;
+      setPin((p) =>
+        p && p.top === top && p.left === r.left && p.width === r.width ? p : { top, left: r.left, width: r.width, font }
+      );
+    };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(measure); };
+    measure();
+    window.addEventListener("scroll", schedule, { capture: true, passive: true });
+    window.addEventListener("resize", schedule);
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", schedule, { capture: true });
+      window.removeEventListener("resize", schedule);
+      setPin(null);
+    };
+  }, [ref, enabled]);
+  return pin;
+}
+
 /* -------------------------------------------------------------------------- */
 /* one card — recursive, so a department renders its HQ cards with itself      */
 /* -------------------------------------------------------------------------- */
@@ -471,6 +541,9 @@ function Card({ node, kids, currency, depth, parentLabel, startOpen, isTotal, on
   };
 
   const [open, setOpen] = React.useState(Boolean(startOpen));
+
+  const kpiRef = React.useRef(null);
+  const pin = usePin(kpiRef, Boolean(sticky));
 
   const toggle = () => {
     if (!hasBody) return;
@@ -524,8 +597,8 @@ function Card({ node, kids, currency, depth, parentLabel, startOpen, isTotal, on
       </div>
 
       <div
+        ref={kpiRef}
         className="esc-kpis"
-        data-sticky={sticky ? "true" : "false"}
         // No offset given: pin just under the Section Page header when the card
         // sits in one (it publishes its height), otherwise at the very top.
         style={
@@ -534,17 +607,32 @@ function Card({ node, kids, currency, depth, parentLabel, startOpen, isTotal, on
             : undefined
         }
       >
-        <span className="esc-kpi">
-          <i className="esc-kpi__dot" data-kind="value" />
-          <span className="esc-kpi__label">Inc.Primary:</span>
-          <b className="esc-kpi__num">{fmtNumber(value, DECIMALS)}</b>
-        </span>
-        <span className="esc-kpi">
-          <i className="esc-kpi__dot" data-kind="target" />
-          <span className="esc-kpi__label">Target:</span>
-          <b className="esc-kpi__num">{fmtNumber(target, 0)}</b>
-        </span>
+        <Kpis value={value} target={target} />
       </div>
+
+      {/* On <body>, so no transformed or overflow-clipped ancestor can break it. */}
+      {pin && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              className="esc-pin"
+              aria-hidden="true"
+              // A portal still bubbles through React to the card: keep a tap on
+              // the pinned row from opening or closing the card behind it.
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                // Positioning is inline so the pin holds even without the sheet.
+                position: "fixed", zIndex: 30,
+                top: pin.top, left: pin.left, width: pin.width, fontFamily: pin.font,
+                "--esc-border": dim(accent, 0.45),
+              }}
+            >
+              <div className="esc-kpis">
+                <Kpis value={value} target={target} />
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
 
       {(hasSections || hasTrend) && (
         <div

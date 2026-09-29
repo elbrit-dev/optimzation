@@ -24,7 +24,7 @@ import { gql, makeConn } from "../../support-report/data/erpClient";
 import { isHqTerritory, shortDesignation } from "@/app/visit/data/shape";
 import { attendance, visitsByHour } from "@/app/visit/data/selectors";
 import { fetchMonth, fetchMonthCount, fetchOrg } from "../../support-report/data/supportSource";
-import { NO_RP, buildTree, subtreeIds } from "../../support-report/data/model";
+import { NO_RP, buildTree, divOf, stripCo, subtreeIds } from "../../support-report/data/model";
 import { FY_MON, MON, describePeriod, fyOfIdx, fyStart, idxOf, monOf, ymOfIdx } from "../period";
 
 export { makeConn };
@@ -621,6 +621,8 @@ function shapeVisit(rows, team, P, mode) {
   };
 }
 
+const DIV_SHORT = { ELBR: "Elbrit", VASC: "Vasco", AURA: "Aura & Proxima", CND: "CND", ITF: "ITF" };
+
 /* Who is looking, for the greeting. */
 export async function fetchViewer(conn) {
   const org = await fetchOrg(conn);
@@ -629,6 +631,7 @@ export async function fetchViewer(conn) {
   if (!me) return { name: email === "administrator" ? "Administrator" : "", scope: "All India" };
   return {
     name: String(me.name).split(/\s+/)[0],
-    scope: [me.rp || me.designation, me.dept && me.dept.replace(/\s+-\s+ELPL$/i, "")].filter(Boolean).join(" · "),
+    // "Zonal Sales Manager - CND": the Employee's designation and division.
+    scope: [me.designation, me.dept && (DIV_SHORT[divOf(me.dept)] || stripCo(me.dept))].filter(Boolean).join(" - "),
   };
 }

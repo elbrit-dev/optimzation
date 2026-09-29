@@ -385,7 +385,8 @@ function VisitRow({ L, view, open, pop }) {
   const between = { justifyContent: "space-between" };
   return (
     <Row L={L} kicker={V.kicker} dot={V.live ? "#16a34a" : null} title="Field activity" onSeeAll={() => open("visit")}>
-      <Tile width={L.wideW} onClick={() => pop({ mode: "visit", u: null, f: "all" })}>
+      {/* The row total goes where "See all" goes, not to a panel. */}
+      <Tile width={L.wideW} onClick={() => open("visit")}>
         <span style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
           <span style={{ fontSize: 14, fontWeight: 600 }}>Visits by hour</span>
           <span style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em" }}>{V.done}<span style={{ fontSize: 13, fontWeight: 500, color: "#8a93a3" }}> / {V.plan}</span></span>
@@ -462,7 +463,7 @@ function PrimaryRow({ L, view, open, pop, railRef }) {
       {/* The Sell-through card's shape, on target vs Inc. Primary: the bar and
           the percentage take the unit's band colour. */}
       {P.tiles.map((t) => (
-        <Tile key={t.key ?? "all"} width={L.landW} onClick={() => pop({ mode: "pri", k: t.key })} style={{ boxShadow: t.all ? "0 0 0 1.5px #2563eb" : "0 0 0 1px #e4e7ec" }}>
+        <Tile key={t.key ?? "all"} width={L.landW} onClick={() => (t.all ? open("primary") : pop({ mode: "pri", k: t.key }))} style={{ boxShadow: t.all ? "0 0 0 1.5px #2563eb" : "0 0 0 1px #e4e7ec" }}>
           <span style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
             <span style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3 }}>{t.all ? t.name : t.short}</span>
             <span style={{ fontSize: 12, color: "#8a93a3", whiteSpace: "nowrap" }}>Target {t.tgtC}</span>
@@ -517,7 +518,7 @@ function SecondaryRow({ L, view, open, pop }) {
   return (
     <Row L={L} kicker={"Secondary · " + (S.period.label || "")} title="Sell-through by team" onSeeAll={() => open("secondary")}>
       {S.tiles.map((t) => (
-        <Tile key={t.key ?? "all"} width={L.landW} onClick={() => pop({ mode: "sec", k: t.key })} style={{ boxShadow: t.all ? "0 0 0 1.5px #2563eb" : "0 0 0 1px #e4e7ec" }}>
+        <Tile key={t.key ?? "all"} width={L.landW} onClick={() => (t.all ? open("secondary") : pop({ mode: "sec", k: t.key }))} style={{ boxShadow: t.all ? "0 0 0 1.5px #2563eb" : "0 0 0 1px #e4e7ec" }}>
           <span style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
             <span style={{ fontSize: 14, fontWeight: 600 }}>{t.name}</span>
             <span style={{ fontSize: 12, color: "#8a93a3", whiteSpace: "nowrap" }}>{t.dist} {t.dist === 1 ? "distributor" : "distributors"}</span>
@@ -545,7 +546,7 @@ function SupportRow({ L, view, open, pop }) {
   const { U } = view;
   return (
     <Row L={L} kicker={U.kicker} title="Support value" onSeeAll={() => open("support")}>
-      <Tile width={L.wideW} onClick={() => pop({ mode: "sup", k: -1 })}>
+      <Tile width={L.wideW} onClick={() => open("support")}>
         <span style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
             <span style={{ fontSize: 32, fontWeight: 700, letterSpacing: "-0.035em", lineHeight: 1 }}>{U.latest}</span>

@@ -6,7 +6,7 @@
  * Pure apart from `set`, which is the component's setState. */
 
 import {
-  MN, NO_RP, TEAMT, TITLE, agg, avBg, dIni, divInfo, divOf, dlt, fyL, fyS, inr, inrF, inrS, ini, leavesOf,
+  MN, NO_RP, TEAMT, TITLE, agg, avBg, dIni, divInfo, divOf, dlt, fyL, fyOfYm, fyS, inr, inrF, inrS, ini, leavesOf,
   num, roleChip, roleLabel, stripHq, subtreeIds,
 } from "./data/model";
 
@@ -22,16 +22,22 @@ function fmtStamp(s) {
 
 export function buildView({ s, set, tl, onFile, months, tree, DOC, mob, fill, cache, openDrawer }) {
   const { TL, FYS, fy0 } = tl;
-  const fyMin = FYS[0];
   const fyMax = FYS[FYS.length - 1];
   const fb = (fy) => (fy - fy0) * 12;
   const avail = (i) => i >= 0 && i < TL.length && onFile[TL[i].ym] > 0;
   const loaded = (i) => avail(i) && !!months[TL[i].ym];
-  let LATEST = 0;
-  for (let i = TL.length - 1; i >= 0; i--) if (avail(i)) { LATEST = i; break; }
+  /* The picker is locked to the current financial year (or the latest one on
+     file when this year has nothing yet). Earlier months still load for the
+     "vs" comparison, but can't be selected. */
+  const now = new Date();
+  const nowFy = fyOfYm(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`);
+  const curFy = FYS.includes(nowFy) ? nowFy : fyMax;
+  const pickable = (i) => avail(i) && TL[i].fy === curFy;
+  let LATEST = fb(curFy);
+  for (let i = TL.length - 1; i >= 0; i--) if (pickable(i)) { LATEST = i; break; }
 
   /* ── Period ── */
-  let R = (s.months || [LATEST]).filter(avail).sort((a, b) => a - b);
+  let R = (s.months || [LATEST]).filter(pickable).sort((a, b) => a - b);
   if (!R.length) R = [LATEST];
   const inR = new Set(R);
   const R0 = R[0];
@@ -42,8 +48,8 @@ export function buildView({ s, set, tl, onFile, months, tree, DOC, mob, fill, ca
   else { const pp = R.map((i) => i - 12); P = pp.every(avail) ? pp : null; }
   const ml = (i) => TL[i].s + " " + TL[i].y;
   const contig = R.every((v, i) => !i || v === R[i - 1] + 1);
-  const fyMs = (f) => Array.from({ length: 12 }, (_, j) => fb(f) + j).filter(avail);
-  const qMs = (f, k) => [0, 1, 2].map((j) => fb(f) + k * 3 + j).filter(avail);
+  const fyMs = (f) => Array.from({ length: 12 }, (_, j) => fb(f) + j).filter(pickable);
+  const qMs = (f, k) => [0, 1, 2].map((j) => fb(f) + k * 3 + j).filter(pickable);
   const same = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
   const qHit = (() => { for (const f of FYS) for (let k = 0; k < 4; k++) { const m = qMs(f, k); if (m.length && same(m, R)) return "Q" + (k + 1) + " " + fyS(f) + (m.includes(LATEST) && m.length < 3 ? " · to date" : ""); } return null; })();
   const fyHit = (() => { for (const f of FYS) { const m = fyMs(f); if (m.length > 1 && same(m, R)) return fyL(f) + (m.includes(LATEST) && m.length < 12 ? " · to date" : ""); } return null; })();
@@ -51,7 +57,7 @@ export function buildView({ s, set, tl, onFile, months, tree, DOC, mob, fill, ca
     : contig ? (TL[R0].y === TL[rEnd].y ? TL[R0].s + "–" + ml(rEnd) : ml(R0) + " – " + ml(rEnd)) : R.length + " months";
   const vs = !P ? "no earlier data on file" : R.length === 1 ? "vs " + ml(P[0]) : "vs same months last year";
   const sub = R.length === 1 ? "Month · " + fyS(TL[R0].fy) : contig ? R.length + " months · " + vs : R.map((i) => TL[i].s).join(", ");
-  const shiftOk = (dir) => R.every((i) => avail(i + dir));
+  const shiftOk = (dir) => R.every((i) => pickable(i + dir));
 
   /* ── Scope ── */
   const { root, viewer, N, rpNode } = tree;
@@ -138,10 +144,10 @@ export function buildView({ s, set, tl, onFile, months, tree, DOC, mob, fill, ca
   };
 
   /* ── Months to load, most urgent first ── */
-  const cfy = s.cfy != null ? s.cfy : TL[rEnd].fy;
+  const cfy = curFy;
   const cb = fb(cfy);
   const six = Array.from({ length: 6 }, (_, j) => rEnd - 5 + j).filter((i) => i >= 0);
-  const pfy = s.pfy != null ? s.pfy : TL[rEnd].fy;
+  const pfy = curFy;
   const needed = [...R, ...(P || []), ...six, ...Array.from({ length: 12 }, (_, k) => cb + k), ...(s.pop === "month" ? Array.from({ length: 12 }, (_, k) => fb(pfy) + k) : [])]
     .filter(avail).map((i) => TL[i].ym);
 
@@ -166,8 +172,7 @@ export function buildView({ s, set, tl, onFile, months, tree, DOC, mob, fill, ca
   const trend = {
     sub: (isM ? "All India" : selN.length > 1 ? selN.length + " team members" : selN[0].name) + " · " + label,
     fyLabel: fyL(cfy), qty: num(CC.q),
-    fyPrev: () => cfy > fyMin && set({ cfy: cfy - 1 }), fyNext: () => cfy < fyMax && set({ cfy: cfy + 1 }),
-    fyPrevOp: cfy > fyMin ? 1 : 0.35, fyNextOp: cfy < fyMax ? 1 : 0.35,
+    fyLocked: true, fyPrev: () => {}, fyNext: () => {}, fyPrevOp: 0, fyNextOp: 0,
     bars: mv.map((v, k) => {
       const i = cb + k, on = inR.has(i), wait = v === "wait", has = v && !wait;
       return {
@@ -178,7 +183,7 @@ export function buildView({ s, set, tl, onFile, months, tree, DOC, mob, fill, ca
         bg: has ? (on ? "#1F4FD8" : "#D6E0FA") : wait ? "#EEF1F5" : "transparent",
         dash: v ? "transparent" : "#D0D5DD",
         lc: on ? "#101828" : v ? "#667085" : "#98A2B3", fw: on ? 700 : 400, cur: v ? "pointer" : "default",
-        onClick: () => { if (v) set({ months: [i], cfy: null }); },
+        onClick: () => { if (v && pickable(i)) set({ months: [i], anchor: null, cfy: null }); },
       };
     }),
   };
@@ -188,29 +193,38 @@ export function buildView({ s, set, tl, onFile, months, tree, DOC, mob, fill, ca
   const cst = (on, ok) => ({ tick: on ? "✓" : "", tfg: on ? "#fff" : "transparent", bg: on ? "#101828" : ok ? "#fff" : "#F9FAFB", fg: on ? "#fff" : ok ? "#101828" : "#98A2B3", bd: on ? "#101828" : ok ? "#EAECF0" : "#F2F4F7", sfg: on ? "#D0D5DD" : ok ? "#667085" : "#98A2B3", cur: ok ? "pointer" : "default" });
   const togM = (ms) => () => {
     if (!ms.length) return;
-    set((x) => { const cur = (x.months || [LATEST]).filter(avail); const all = ms.every((z) => cur.includes(z)); let nx = all ? cur.filter((z) => !ms.includes(z)) : cur.concat(ms.filter((z) => !cur.includes(z))); if (!nx.length) nx = ms.slice(); return { months: nx, cfy: null }; });
+    set((x) => { const cur = (x.months || [LATEST]).filter(pickable); const all = ms.every((z) => cur.includes(z)); let nx = all ? cur.filter((z) => !ms.includes(z)) : cur.concat(ms.filter((z) => !cur.includes(z))); if (!nx.length) nx = ms.slice(); return { months: nx, cfy: null }; });
   };
   const cellQty = (ms) => { const a = aggS(ms); return a.pending ? "…" : inrS(a.a); };
   let cells;
   if (pm === "quarter") cells = [0, 1, 2, 3].map((k) => { const ms = qMs(pfy, k), ok = ms.length > 0, on = ok && ms.every((z) => inR.has(z)); return { key: k, label: "Q" + (k + 1) + " · " + MN[k * 3] + "–" + MN[k * 3 + 2], sub: ok ? cellQty(ms) + (ms.length < 3 ? (ms.includes(LATEST) ? " · to date" : " · " + ms.length + "/3 mo") : "") : "no data", onClick: togM(ms), ...cst(on, ok) }; });
-  else if (pm === "fy") cells = FYS.map((f) => { const ms = fyMs(f), ok = ms.length > 0, on = ok && ms.every((z) => inR.has(z)); return { key: f, label: fyL(f), sub: ok ? cellQty(ms) + (ms.length < 12 ? (ms.includes(LATEST) ? " · " + ms.length + " months to date" : " · " + ms.length + " months on file") : "") : "no data", onClick: togM(ms), ...cst(on, ok) }; });
-  else cells = MN.map((m, k) => { const i = fb(pfy) + k, ok = avail(i); return { key: k, label: m, sub: ok ? cellQty([i]) : i > LATEST ? "not yet" : "no data", onClick: togM(ok ? [i] : []), ...cst(inR.has(i), ok) }; });
-  const lastN = (n) => { const out = []; for (let i = LATEST; i >= 0 && out.length < n; i--) if (avail(i)) out.unshift(i); return out; };
+  else if (pm === "fy") cells = [curFy].map((f) => { const ms = fyMs(f), ok = ms.length > 0, on = ok && ms.every((z) => inR.has(z)); return { key: f, label: fyL(f), sub: ok ? cellQty(ms) + (ms.length < 12 ? (ms.includes(LATEST) ? " · " + ms.length + " months to date" : " · " + ms.length + " months on file") : "") : "no data", onClick: togM(ms), ...cst(on, ok) }; });
+  else {
+    /* From / to: the first tap picks the start month and waits, the second
+       sets the end (the same month again = that month alone). */
+    const anchor = s.anchor != null && pickable(s.anchor) ? s.anchor : null;
+    const tapM = (i) => () => {
+      if (anchor == null) return set({ months: [i], anchor: i, cfy: null });
+      const [a, b] = anchor <= i ? [anchor, i] : [i, anchor];
+      const ms = [];
+      for (let j = a; j <= b; j++) if (pickable(j)) ms.push(j);
+      set({ months: ms, anchor: null, cfy: null });
+    };
+    cells = MN.map((m, k) => { const i = fb(pfy) + k, ok = pickable(i); return { key: k, label: m, sub: i === anchor ? "from" : ok ? cellQty([i]) : i > LATEST ? "not yet" : "no data", onClick: ok ? tapM(i) : () => {}, ...cst(inR.has(i), ok) }; });
+  }
   const runs = [];
-  TL.forEach((t, i) => { if (!avail(i)) return; const last = runs[runs.length - 1]; if (last && last[1] === i - 1) last[1] = i; else runs.push([i, i]); });
+  TL.forEach((t, i) => { if (!pickable(i)) return; const last = runs[runs.length - 1]; if (last && last[1] === i - 1) last[1] = i; else runs.push([i, i]); });
   const onFileTxt = runs.map(([a, b]) => (a === b ? ml(a) : TL[a].y === TL[b].y ? TL[a].s + "–" + ml(b) : ml(a) + " – " + ml(b))).join(" · ");
   const pk = {
-    label, sub, open: s.pop === "month", toggle: () => set((x) => ({ pop: x.pop === "month" ? null : "month", pfy: null })), count: R.length + " selected",
-    prev: () => shiftOk(-1) && set({ months: R.map((i) => i - 1), cfy: null }), next: () => shiftOk(1) && set({ months: R.map((i) => i + 1), cfy: null }),
+    label, sub, open: s.pop === "month", toggle: () => set((x) => ({ pop: x.pop === "month" ? null : "month", pfy: null, anchor: null })), count: R.length + " selected",
+    prev: () => shiftOk(-1) && set({ months: R.map((i) => i - 1), anchor: null, cfy: null }), next: () => shiftOk(1) && set({ months: R.map((i) => i + 1), anchor: null, cfy: null }),
     prevOp: shiftOk(-1) ? 1 : 0.35, nextOp: shiftOk(1) ? 1 : 0.35,
-    presets: [["Latest month", [LATEST]], ["Last 3 months", lastN(3)], ["Last 6 months", lastN(6)], ["FY to date", fyMs(TL[LATEST].fy)], ["Last FY", fyMs(TL[LATEST].fy - 1)]]
-      .filter((p) => p[1].length).map(([l, m]) => ({ label: l, onClick: () => set({ months: m, cfy: null }) })),
-    modes: [["month", "Month"], ["quarter", "Quarter"], ["fy", "Financial year"]].map(([id, l]) => ({ id, label: l, bg: id === pm ? "#fff" : "transparent", fg: id === pm ? "#101828" : "#475467", sh: id === pm ? "0 1px 2px rgba(16,24,40,.12)" : "none", onClick: () => set({ pmode: id }) })),
+    presets: [],
+    modes: [["month", "Month"], ["quarter", "Quarter"], ["fy", "Financial year"]].map(([id, l]) => ({ id, label: l, bg: id === pm ? "#fff" : "transparent", fg: id === pm ? "#101828" : "#475467", sh: id === pm ? "0 1px 2px rgba(16,24,40,.12)" : "none", onClick: () => set({ pmode: id, anchor: null }) })),
     showFy: pm !== "fy", cols: pm === "month" ? 4 : pm === "quarter" ? 2 : 1, cellH: pm === "month" ? 54 : 60,
-    hint: pm === "month" ? "Tap months to add or remove" : pm === "quarter" ? "Tap quarters to add or remove" : "Tap a year to add or remove",
-    fyLabel: fyL(pfy), fyPrev: () => pfy > fyMin && set({ pfy: pfy - 1 }), fyNext: () => pfy < fyMax && set({ pfy: pfy + 1 }),
-    fyPrevOp: pfy > fyMin ? 1 : 0.35, fyNextOp: pfy < fyMax ? 1 : 0.35, cells,
-    onFile: onFileTxt, clear: () => set({ months: [LATEST], cfy: null }),
+    hint: pm === "month" || !pm ? (s.anchor != null ? "Now tap the end month" : "Tap the start month, then the end month") : pm === "quarter" ? "Tap quarters to add or remove" : "Tap a year to add or remove",
+    fyLabel: fyL(pfy), fyLocked: true, fyPrev: () => {}, fyNext: () => {}, fyPrevOp: 0, fyNextOp: 0, cells,
+    onFile: onFileTxt, clear: () => set({ months: [LATEST], anchor: null, cfy: null }),
   };
 
   /* ── Scope picker ── */
