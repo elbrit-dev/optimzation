@@ -2,7 +2,6 @@ import { endOfDay, format, startOfDay } from "date-fns";
 import { DEFAULT_COLORS, TAG_IDS } from "@calendar/components/calendar/constants";
 import {
   TRAVEL_MODES,
-  TRAVEL_REQUEST_PROJECT,
   TRAVEL_REQUEST_PURPOSE,
   normalizeTravelMode,
 } from "@calendar/components/calendar/module/travel-request/helpers/travel-request.helper";
@@ -52,13 +51,16 @@ export function mapFormToErpTravelRequest(values, { employee, proofUrl, existing
   };
 }
 
-export function mapTravelRequestToTask(values, { travelRequestName, employee, existingName } = {}) {
+export function mapTravelRequestToTask(
+  values,
+  { travelRequestName, employee, project, existingName } = {}
+) {
   const day = format(new Date(values.startDate), "yyyy-MM-dd");
 
   return {
     ...(existingName && { name: existingName }),
     subject: `${buildTravelRequestTitle(values)} (${employee.name})`,
-    project: TRAVEL_REQUEST_PROJECT,
+    project,
     status: "Open",
     priority: "Medium",
     exp_start_date: day,
@@ -77,11 +79,13 @@ export function mapTravelRequestToTask(values, { travelRequestName, employee, ex
   };
 }
 
-// The GM's approval ToDo, linked to its request through reference_type/name.
+// Assigns the Procurement Task to a GM — ERP's own assignment is a ToDo that
+// references the Task. The request ID stays in the description, which is how
+// the calendar tells an approval apart from any other Task assignment.
 // Marking it Closed approves (submits) the request.
-export function mapTravelRequestToApprovalTodo(
+export function mapTaskAssignmentToApprover(
   values,
-  { travelRequestName, employee, approver, existingName } = {}
+  { taskName, travelRequestName, employee, approver, existingName } = {}
 ) {
   return {
     ...(existingName && { name: existingName }),
@@ -89,13 +93,14 @@ export function mapTravelRequestToApprovalTodo(
     custom_subject: `Approve travel request: ${buildTravelRequestTitle(values)} (${employee.name})`,
     description: [
       `Travel Request: ${travelRequestName}`,
+      `Task: ${taskName}`,
       `Requested by: ${employee.name} (${employee.id})`,
       `Type: ${normalizeTravelMode(values.travelMode)}`,
       `From: ${values.travelFrom}`,
       `To: ${values.travelTo}`,
       `Departure: ${format(new Date(values.startDate), "dd MMM yyyy")}`,
       values.description,
-      "Mark this ToDo as Closed to approve the request.",
+      "Mark this as Closed to approve the request.",
     ]
       .filter(Boolean)
       .join("<br>"),
@@ -105,8 +110,8 @@ export function mapTravelRequestToApprovalTodo(
     allocated_to: approver.email,
     assigned_by: employee.id,
     custom_assigned_to: [{ employee: approver.value }],
-    reference_type: "Travel Request",
-    reference_name: travelRequestName,
+    reference_type: "Task",
+    reference_name: taskName,
     docstatus: 0,
   };
 }

@@ -63,23 +63,25 @@ import { uploadFileToDoc, uploadLeaveMedicalCertificate } from "@calendar/lib/fi
 import {
 	TRAVEL_MODE_OPTIONS,
 	TRAVEL_MODES,
-	TRAVEL_REQUEST_PROJECT,
 	canUseTravelRequest,
+	isTravelApprovalTodo,
 	isTravelAttachmentRequired,
 	resolveTravelRequester,
+	travelRequestNameFromTodo,
 } from "@calendar/components/calendar/module/travel-request/helpers/travel-request.helper";
 import {
 	buildItineraryRow,
 	mapErpTravelRequestToCalendar,
 	mapFormToErpTravelRequest,
-	mapTravelRequestToApprovalTodo,
+	mapTaskAssignmentToApprover,
 	mapTravelRequestToTask,
 } from "@calendar/components/calendar/module/travel-request/mappers/travel-request.mapper";
 import {
 	approveTravelRequest,
 	fetchTravelApprovers,
-	findApprovalTodos,
 	findProcurementTaskName,
+	findTodosFor,
+	resolveProcurementProject,
 	saveApprovalTodo,
 	saveProcurementTask,
 	saveTravelRequest,
@@ -125,9 +127,12 @@ export function AddEditEventDialog({
 			getAvailableTags(enabledTagIds).filter(
 				(tag) =>
 					tag.id !== TAG_IDS.TRAVEL_REQUEST ||
-					canUseTravelRequest(resolveTravelRequester(users, LOGGED_IN_USER))
+					canUseTravelRequest(
+						resolveTravelRequester(users, LOGGED_IN_USER),
+						elbritRoleEdges
+					)
 			),
-		[enabledTagIds, users]
+		[enabledTagIds, users, elbritRoleEdges]
 	);
 	const isEditing = !!event;
 	const [leaveBalance, setLeaveBalance] = useState(null);
@@ -2054,7 +2059,7 @@ export function AddEditEventDialog({
 		}
 	};
 	// Travel requests are not calendar Events: they live only in ERP as a
-	// Travel Request plus a Procurement Task and a ToDo for each GM to approve.
+	// Travel Request plus a Procurement Task assigned to each GM to approve.
 	const handleTravelRequest = async (values) => {
 		const employee = {
 			id: LOGGED_IN_USER.id,
@@ -2093,29 +2098,29 @@ export function AddEditEventDialog({
 			draft.travelRequestSaved = true;
 		}
 
+		// The Procurement Task. Editing a draft updates the Task already filed
+		// for it (or files it, if an earlier attempt never got that far).
 		if (isEditing && draft.taskName === undefined) {
-			draft.taskName = await findProcurementTaskName(
-				TRAVEL_REQUEST_PROJECT,
-				draft.travelRequestName
-			);
+			draft.taskName = await findProcurementTaskName(draft.travelRequestName);
 		}
 		if (isEditing || !draft.taskName) {
 			const savedTask = await saveProcurementTask(
 				mapTravelRequestToTask(values, {
 					travelRequestName: draft.travelRequestName,
 					employee,
+					project: await resolveProcurementProject(),
 					existingName: draft.taskName,
 				})
 			);
 			draft.taskName = savedTask.name;
 		}
 
-		// One approval ToDo per GM, so the request shows on each GM's calendar.
-		// Editing a draft updates the ToDos already filed for it.
+		// The Task is assigned to every GM (ERP's own assignment: a ToDo per GM),
+		// which is how it reaches — only — the GMs' calendars.
 		if (!draft.approvalTodosSaved) {
 			const [approvers, existingTodos] = await Promise.all([
 				fetchTravelApprovers(),
-				isEditing ? findApprovalTodos(draft.travelRequestName) : [],
+				isEditing ? findTodosFor("Task", draft.taskName) : [],
 			]);
 			if (!approvers.length) {
 				toast.warning("No GM found to approve this travel request.");
@@ -2126,7 +2131,8 @@ export function AddEditEventDialog({
 					draft.approvalTodos[approver.email] ??
 					existingTodos.find((todo) => todo.allocatedTo === approver.email)?.name;
 				const savedTodo = await saveApprovalTodo(
-					mapTravelRequestToApprovalTodo(values, {
+					mapTaskAssignmentToApprover(values, {
+						taskName: draft.taskName,
 						travelRequestName: draft.travelRequestName,
 						employee,
 						approver,
@@ -2184,18 +2190,21 @@ export function AddEditEventDialog({
 			referenceName: event?.referenceName,
 		};
 
-		// A GM closing their approval ToDo approves the travel request.
+		// A GM closing their assignment of a travel request's Procurement Task
+		// completes the Task and approves the request.
+		const approvedTravelRequest = travelRequestNameFromTodo(event);
 		if (
-			event?.referenceType === "Travel Request" &&
-			event?.referenceName &&
+			isTravelApprovalTodo(event) &&
+			approvedTravelRequest &&
 			event.status !== "Closed" &&
 			values.status === "Closed"
 		) {
 			try {
-				await approveTravelRequest(event.referenceName, {
+				await approveTravelRequest(approvedTravelRequest, {
+					taskName: event.referenceType === "Task" ? event.referenceName : undefined,
 					closedTodoName: savedTodo.name,
 				});
-				toast.success(`Travel request ${event.referenceName} approved`);
+				toast.success(`Travel request ${approvedTravelRequest} approved`);
 			} catch (error) {
 				toast.error(
 					error?.response?.errors?.[0]?.message ||

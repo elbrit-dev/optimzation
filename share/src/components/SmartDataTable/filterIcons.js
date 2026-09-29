@@ -38,12 +38,50 @@ export function filterIcon(def) {
   return 'pi pi-filter';
 }
 
-/* The value as a chip shows it: ERP names carry a trailing company
- * abbreviation ("Aura & Proxima Karnataka - ELPL"), which says nothing inside
- * one company's report, so it goes. Anything still long is cut by the chip's
- * CSS width with the full value in its tooltip. */
+/* Places people already know by a short code: cities by the code in everyday
+ * use (CBE, BLR, HYD). Never a code taken from a city's OLD name (MAA=Madras,
+ * BOM=Bombay): those use today's name (CHE, MUM). States by their vehicle registration
+ * code (TN, KA). Longest names first so "Tamil Nadu" wins over
+ * any single word inside it. */
+const PLACE_CODES = [
+  // states / UTs
+  ['andhra pradesh', 'AP'], ['arunachal pradesh', 'AR'], ['himachal pradesh', 'HP'], ['madhya pradesh', 'MP'],
+  ['uttar pradesh', 'UP'], ['west bengal', 'WB'], ['tamil nadu', 'TN'], ['tamilnadu', 'TN'], ['jammu and kashmir', 'JK'],
+  ['karnataka', 'KA'], ['kerala', 'KL'], ['telangana', 'TG'], ['maharashtra', 'MH'], ['gujarat', 'GJ'],
+  ['rajasthan', 'RJ'], ['odisha', 'OD'], ['orissa', 'OD'], ['bihar', 'BR'], ['jharkhand', 'JH'], ['punjab', 'PB'],
+  ['haryana', 'HR'], ['uttarakhand', 'UK'], ['chhattisgarh', 'CG'], ['assam', 'AS'], ['puducherry', 'PY'], ['pondicherry', 'PY'],
+  // cities
+  ['thiruvananthapuram', 'TRV'], ['trivandrum', 'TRV'], ['visakhapatnam', 'VTZ'], ['vizag', 'VTZ'],
+  ['tiruchirappalli', 'TRY'], ['tiruchirapalli', 'TRY'], ['trichy', 'TRY'], ['coimbatore', 'CBE'], ['chennai', 'CHE'], ['madras', 'CHE'],
+  ['madurai', 'MDU'], ['tirunelveli', 'TEN'], ['tuticorin', 'TCR'], ['thoothukudi', 'TCR'], ['salem', 'SLM'],
+  ['bengaluru', 'BLR'], ['bangalore', 'BLR'], ['mysuru', 'MYS'], ['mysore', 'MYS'], ['mangaluru', 'MLR'], ['mangalore', 'MLR'],
+  ['hubballi', 'HBX'], ['hubli', 'HBX'], ['belagavi', 'BGM'], ['belgaum', 'BGM'], ['hyderabad', 'HYD'], ['vijayawada', 'VGA'],
+  ['tirupati', 'TIR'], ['kochi', 'KOC'], ['cochin', 'KOC'], ['ernakulam', 'KOC'], ['kozhikode', 'KOZ'], ['calicut', 'KOZ'],
+  ['kannur', 'CNN'], ['mumbai', 'MUM'], ['bombay', 'MUM'], ['pune', 'PUN'], ['nagpur', 'NAG'], ['new delhi', 'DEL'], ['delhi', 'DEL'],
+  ['kolkata', 'KOL'], ['calcutta', 'KOL'], ['ahmedabad', 'AMD'], ['surat', 'STV'], ['vadodara', 'VAD'], ['baroda', 'VAD'], ['jaipur', 'JAI'],
+  ['lucknow', 'LKO'], ['patna', 'PAT'], ['bhubaneswar', 'BBI'], ['guwahati', 'GAU'], ['indore', 'IDR'], ['bhopal', 'BHO'],
+  ['chandigarh', 'CHD'], ['goa', 'GOI'], ['ranchi', 'RNC'], ['raipur', 'RPR'],
+].sort((x, y) => y[0].length - x[0].length);
+const PLACE_RE = PLACE_CODES.map(([name, code]) => [new RegExp(`\\b${name.replace(/ /g, '\\s+')}\\b`, 'gi'), code]);
+
+/* The value as a chip shows it, full value in the chip's tooltip:
+ *   1. ERP names carry a trailing company abbreviation ("… - ELPL"), which
+ *      says nothing inside one company's report, so it goes.
+ *   2. Known places become their common code (Coimbatore → CBE).
+ *   3. Codes stay whole: all-caps words (CND, HQ), anything starting with a
+ *      digit (650, 10ml) and symbols (&).
+ *   4. Every other word becomes its first 3 letters in caps.
+ *   CND Coimbatore → CND CBE · Aura & Proxima Karnataka - ELPL → AUR & PRO KA */
 export function shortFilterValue(value) {
   const s = String(value ?? '').trim();
-  const cut = s.replace(/\s+-\s+[A-Z0-9]{2,6}$/, '');
-  return cut || s;
+  let base = s.replace(/\s+-\s+[A-Z0-9]{2,6}$/, '') || s;
+  for (const [re, code] of PLACE_RE) base = base.replace(re, code);
+  return base
+    .split(/\s+/)
+    .map((w) => {
+      if (/^\d/.test(w) || /^[^A-Za-z0-9]+$/.test(w) || /^[A-Z0-9&.\-/]+$/.test(w)) return w;
+      const letters = w.replace(/[^A-Za-z0-9]/g, '');
+      return (letters || w).slice(0, 3).toUpperCase();
+    })
+    .join(' ');
 }

@@ -199,6 +199,11 @@ const CSS = `
 .esc-kpi__dot[data-kind="value"] { background: #16a34a; }
 .esc-kpi__dot[data-kind="target"] { background: #d1d5db; }
 .esc-kpi__label { color: #374151; }
+/* Sticky headline row: pins under --esc-sticky-top while the opened card scrolls
+   past. It bleeds over the card's side padding so the Model boxes scrolling
+   underneath never show at its edges. */
+.esc-kpis[data-sticky="true"] { position: sticky; top: var(--esc-sticky-top, 0px); z-index: 2;
+  background: #fff; margin-left: -20px; margin-right: -20px; padding: 8px 20px; }
 .esc-kpi__num { font-weight: 600; font-variant-numeric: tabular-nums; }
 
 /* ---- opening ----
@@ -315,6 +320,7 @@ const CSS = `
   .esc-card { padding: 14px 12px 12px; border-radius: 10px; }
   .esc-sections { gap: 14px 10px; }
   .esc-progress__pct { font-size: 11.5px; }
+  .esc-kpis[data-sticky="true"] { margin-left: -12px; margin-right: -12px; padding: 6px 12px; }
 }
 
 /* Fallback for engines without container queries: fall back to the viewport. */
@@ -427,7 +433,7 @@ function Section({ section, index, target, currency, tone, onSectionClick }) {
 /* one card — recursive, so a department renders its HQ cards with itself      */
 /* -------------------------------------------------------------------------- */
 
-function Card({ node, kids, currency, depth, parentLabel, startOpen, isTotal, onToggle, sectionHandlers, autoColor, parentAccent, trend, trendType }) {
+function Card({ node, kids, currency, depth, parentLabel, startOpen, isTotal, onToggle, sectionHandlers, autoColor, parentAccent, trend, trendType, sticky, stickyTop }) {
   const title = node?.[K.title] ?? node?.[K.altTitle] ?? "";
   const target = readTarget(node?.[K.target]);
   const value = toNum(node?.[K.value]);
@@ -517,7 +523,17 @@ function Card({ node, kids, currency, depth, parentLabel, startOpen, isTotal, on
         <Trophy className="esc-progress__trophy" size={16} />
       </div>
 
-      <div className="esc-kpis">
+      <div
+        className="esc-kpis"
+        data-sticky={sticky ? "true" : "false"}
+        // No offset given: pin just under the Section Page header when the card
+        // sits in one (it publishes its height), otherwise at the very top.
+        style={
+          sticky
+            ? { "--esc-sticky-top": stickyTop == null || stickyTop === "" ? "var(--sp-header-h, 0px)" : `${toNum(stickyTop)}px` }
+            : undefined
+        }
+      >
         <span className="esc-kpi">
           <i className="esc-kpi__dot" data-kind="value" />
           <span className="esc-kpi__label">Inc.Primary:</span>
@@ -614,6 +630,8 @@ export default function SummaryCard({
   gap = 10,
   trend,
   trendType = "wave",
+  stickyKpis = false,
+  stickyTop,
   autoColor = true,
   accentColor = "#3b82f6",
   onToggle,
@@ -688,6 +706,9 @@ export default function SummaryCard({
         autoColor={autoColor}
         trend={trendPoints}
         trendType={trendType}
+        // Sticky belongs to the total card only, same rule as the trend strip.
+        sticky={total && stickyKpis}
+        stickyTop={stickyTop}
         onToggle={onToggle}
         sectionHandlers={sectionHandlers}
       />

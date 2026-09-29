@@ -12,7 +12,7 @@ import {
 } from '@/components/SmartDataTable/SmartDataContext';
 import { Switch } from 'antd';
 import dayjs from 'dayjs';
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 /**
  * Emit a control's output into viewParams._controls[key] for every view.
@@ -82,8 +82,8 @@ function ToggleControl({ def, viewIds }) {
   }
 
   return (
-    <label className={`rc-ctl rc-hb flex items-center gap-2 px-3 h-9 sm:h-8 cursor-pointer select-none${value ? ' rc-on' : ''}`}>
-      <span className="text-[13px] font-semibold whitespace-nowrap">{def.label ?? def.key}</span>
+    <label className={`rc-ctl rc-hb flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 h-9 sm:h-8 cursor-pointer select-none${value ? ' rc-on' : ''}`}>
+      <span className="text-xs sm:text-[13px] font-semibold whitespace-nowrap">{def.label ?? def.key}</span>
       <Switch className="rc-sw" checked={value} onChange={handleChange} size="small" />
     </label>
   );
@@ -125,10 +125,14 @@ function FilterSortControl({ def, viewIds }) {
       <button
         type="button"
         onClick={() => setVisible(true)}
-        className={`rc-ctl rc-hb flex items-center gap-2 px-3 h-9 sm:h-8${isActive ? ' rc-on' : ''}`}
+        className={`rc-ctl rc-hb flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 h-9 sm:h-8${isActive ? ' rc-on' : ''}`}
       >
         <i className="pi pi-filter" style={{ fontSize: '0.75rem', color: isActive ? '#101828' : '#667085' }} />
-        <span className="text-[13px] font-semibold whitespace-nowrap">{def.label ?? 'Filter & Sort'}</span>
+        {/* "Filter" on a phone so the row fits; the full label from sm up. */}
+        <span className="text-xs sm:text-[13px] font-semibold whitespace-nowrap">
+          <span className="sm:hidden">{def.shortLabel ?? 'Filter'}</span>
+          <span className="hidden sm:inline">{def.label ?? 'Filter & Sort'}</span>
+        </span>
         {isActive && (
           <span className="flex items-center justify-center h-4 px-1 rounded-full font-bold"
             style={{ minWidth: 16, backgroundColor: '#101828', color: '#fff', fontSize: '0.6rem' }}>
@@ -388,19 +392,24 @@ export function ReportControls({ controls, viewIds, apiFilters, extra }) {
     // children, which shrank this block to its content and floated it mid-page.
     <div className="rc-root flex flex-col gap-2 w-full self-stretch min-w-0">
       <style>{CONTROLS_CSS}</style>
-      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-        {mainControls.map((def, i) => {
-          if (def.type === 'toggle')     return <ToggleControl key={i} def={def} viewIds={viewIds} />;
-          if (def.type === 'dateRange')  return <DateRangeControl key={i} def={def} viewIds={viewIds} apiFilters={apiFilters} />;
-          if (def.type === 'filterSort') return (
-            <Fragment key={i}>
-              <FilterSortControl def={def} viewIds={viewIds} />
-              <FilterChips viewIds={viewIds} />
-            </Fragment>
-          );
-          if (def.type === 'refresh')    return <RefreshControl key={i} def={def} />;
-          return null;
-        })}
+      {/* The date picker takes its own full-width line on a phone; the buttons
+          (toggles, Filter & Sort, sync) sit together in one group that never
+          wraps -- on a narrow phone it scrolls sideways rather than dropping
+          Filter & Sort onto a line of its own. The chips come after the group
+          so THEY can still wrap. */}
+      <div className="flex flex-wrap items-center gap-1.5 sm:gap-3">
+        {mainControls.filter((def) => def.type === 'dateRange').map((def, i) => (
+          <DateRangeControl key={`d${i}`} def={def} viewIds={viewIds} apiFilters={apiFilters} />
+        ))}
+        <div className="flex flex-nowrap items-center gap-1.5 sm:gap-3 min-w-0 max-w-full overflow-x-auto [&>*]:shrink-0" data-rc-scroll="1">
+          {mainControls.map((def, i) => {
+            if (def.type === 'toggle')     return <ToggleControl key={i} def={def} viewIds={viewIds} />;
+            if (def.type === 'filterSort') return <FilterSortControl key={i} def={def} viewIds={viewIds} />;
+            if (def.type === 'refresh')    return <RefreshControl key={i} def={def} />;
+            return null;
+          })}
+        </div>
+        {mainControls.some((def) => def.type === 'filterSort') && <FilterChips viewIds={viewIds} />}
       </div>
       {extra && (
         <div className="flex flex-wrap items-center justify-between gap-2">

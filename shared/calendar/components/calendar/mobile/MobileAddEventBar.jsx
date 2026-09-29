@@ -138,13 +138,17 @@ export default function MobileAddEventBar({ date: propDate }) {
         return hasValidHqTourPlan || canCreateDoctorVisitDirectly;
       }
       if (tag.id === TAG_IDS.TRAVEL_REQUEST) {
-        return canUseTravelRequest(resolveTravelRequester(users, LOGGED_IN_USER));
+        return canUseTravelRequest(
+          resolveTravelRequester(users, LOGGED_IN_USER),
+          elbritRoleEdges
+        );
       }
       return true;
     });
   }, [
     enabledTagIds,
     users,
+    elbritRoleEdges,
     shouldHideHqTourPlanTag,
     hasValidHqTourPlan,
     canCreateDoctorVisitDirectly,

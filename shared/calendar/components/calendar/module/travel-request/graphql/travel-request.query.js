@@ -71,7 +71,19 @@ mutation DeleteDoc($doctype: String!, $name: String!) {
 }
 `;
 
-// The GM approval ToDos filed for one request (one per GM).
+export const PROJECT_BY_NAME_QUERY = `
+query ProjectByName($filter: [DBFilterInput!]) {
+  Projects(first: 1, filter: $filter) {
+    edges {
+      node {
+        name
+      }
+    }
+  }
+}
+`;
+
+// The ToDos pointing at one document (a Task's assignments: one per GM).
 export const TRAVEL_APPROVAL_TODOS_QUERY = `
 query TravelApprovalTodos($filter: [DBFilterInput!]) {
   ToDoes(first: 20, filter: $filter) {

@@ -1,5 +1,9 @@
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 import { isTagEnabled, STATUS, TAG_IDS } from "@calendar/components/calendar/constants";
+import {
+  isTravelApprovalTodo,
+  isTravelApprover,
+} from "@calendar/components/calendar/module/travel-request/helpers/travel-request.helper";
 
 export function buildEmployeeEmailToId(users = []) {
   const map = new Map();
@@ -143,7 +147,12 @@ export function filterCalendarEvents({
   // Switched-off event types (see DISABLED_TAG_IDS) never reach a view. Meetings
   // ride along in the same query as other events, so filtering is the only way
   // to hide them.
-  const matchesEnabledTag = (event) => isTagEnabled(event.tags, enabledTagIds);
+  // A GM's travel-approval ToDo belongs to Travel Request, so it shows while
+  // Travel Request is on even when Todo List is off.
+  const matchesEnabledTag = (event) =>
+    isTagEnabled(event.tags, enabledTagIds) ||
+    (isTravelApprovalTodo(event) &&
+      isTagEnabled(TAG_IDS.TRAVEL_REQUEST, enabledTagIds));
 
   const matchesSelectedColors = (event) =>
     !selectedColors.length ||
@@ -155,7 +164,17 @@ export function filterCalendarEvents({
       event.status?.trim()?.toLowerCase()
     );
 
-  let result = allEvents;
+  // A travel request's Procurement Task (its GM assignment) is for the GM
+  // alone: the Sales Manager / ZSM who raised the request — its creator — and
+  // everyone else never see it, whatever the hierarchy rules below allow.
+  const isOwnTravelApproval = (event) =>
+    String(event.allocated_to ?? "").toLowerCase() ===
+      String(LOGGED_IN_USER?.email ?? "").toLowerCase() ||
+    isTravelApprover(LOGGED_IN_USER);
+
+  let result = allEvents.filter(
+    (event) => !isTravelApprovalTodo(event) || isOwnTravelApproval(event)
+  );
 
   if (LOGGED_IN_USER?.roleId !== "Admin") {
     result = result.filter((event) => {
@@ -178,6 +197,16 @@ export function filterCalendarEvents({
       );
 
       if (roleMatch || employeeMatch) {
+        return true;
+      }
+
+      // A GM approves every travel request, whoever's team raised it, so the
+      // role hierarchy (a GM may have no role profile) must not hide those
+      // requests or the GM's approval Tasks (already limited to the GM above).
+      if (isTravelApprovalTodo(event)) {
+        return true;
+      }
+      if (event.tags === TAG_IDS.TRAVEL_REQUEST && isTravelApprover(LOGGED_IN_USER)) {
         return true;
       }
 

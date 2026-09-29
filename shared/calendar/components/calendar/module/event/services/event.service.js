@@ -25,6 +25,7 @@ import { GOOGLE_CALENDAR_BY_USER } from "@calendar/components/calendar/google-au
 import { fetchAllTodoList } from "@calendar/components/calendar/module/todo/services/todo.service";
 import { fetchAllLeaveApplications } from "@calendar/components/calendar/module/leave/services/leave.service";
 import { fetchAllTravelRequests } from "@calendar/components/calendar/module/travel-request/services/travel-request.service";
+import { isTravelApprovalTodo } from "@calendar/components/calendar/module/travel-request/helpers/travel-request.helper";
 import {
   enqueueDocShareSync,
   fetchDocShareNamesForUser,
@@ -1021,7 +1022,8 @@ async function fetchEventsByRangeUncached(
     // Two queries per calendar load that are pure waste while these types are
     // switched off (see DISABLED_TAG_IDS) — they'd be filtered out on arrival.
     includeLeaves ? fetchAllLeaveApplications() : [],
-    includeTodos ? fetchAllTodoList() : [],
+    // Travel Request also needs the GM's approval ToDos, even with Todo off.
+    includeTodos || includeTravelRequests ? fetchAllTodoList() : [],
     fetchDocShareNamesForUser(LOGGED_IN_USER.email),
     includeTravelRequests ? fetchAllTravelRequests() : [],
   ]);
@@ -1035,7 +1037,9 @@ async function fetchEventsByRangeUncached(
       : [];
   const todolist =
     todoResult.status === "fulfilled"
-      ? todoResult.value
+      ? todoResult.value.filter(
+          (todo) => includeTodos || isTravelApprovalTodo(todo)
+        )
       : [];
   const sharedEventNames =
     sharedEventNamesResult.status === "fulfilled"

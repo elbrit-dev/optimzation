@@ -45,6 +45,23 @@ function Stat({ value, label, tone }) {
   );
 }
 
+/* The header's own rendered height. It changes with width (the chips wrap to a
+   second row on a phone), so it is measured rather than assumed. */
+function useHeaderHeight(ref) {
+  const [h, setH] = useState(0);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const read = () => setH(el.getBoundingClientRect().height);
+    read();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(read);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref]);
+  return h;
+}
+
 export default function SectionPage({
   title = "Primary", period = "",
   stat1Value, stat1Label, stat1Tone = "default",
@@ -53,16 +70,21 @@ export default function SectionPage({
   onBack, children, className,
 }) {
   const rootRef = useRef(null);
+  const headRef = useRef(null);
   const cw = useContainerWidth(rootRef);
   const desk = cw >= 768;
+  const headH = useHeaderHeight(headRef);
   const pad = desk ? "24px" : "12px";
 
   return (
-    <div ref={rootRef} className={"sp-root" + (className ? " " + className : "")} style={{ width: "100%" }}>
+    <div ref={rootRef} className={"sp-root" + (className ? " " + className : "")} 
+      // Where the pinned header ends, for anything in the slot that pins itself
+      // under it (the Summary Card's sticky figures read this by default).
+      style={{ width: "100%", "--sp-header-h": sticky ? `${(Number(stickyTop) || 0) + headH}px` : "0px" }}>
       <link rel="stylesheet" href={FONT_HREF} />
       <style>{CSS}</style>
 
-      <section style={{
+      <section ref={headRef} style={{
         position: sticky ? "sticky" : "relative", top: sticky ? stickyTop : undefined, zIndex: 20,
         background: "rgba(255,255,255,.96)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
         boxShadow: "0 1px 0 #e4e7ec", padding: `${desk ? 12 : 10}px ${pad}`,

@@ -2833,11 +2833,26 @@ PLASMIC.registerComponent(SummaryCard, {
       description:
         "Total card only, alongside Trend. wave - smooth filled area, the shape of the month at a glance. line - the same curve without the fill, better for comparing small day-to-day differences. bars - one bar per day on a zero baseline. lollipop - stem and dot, the lightest of the discrete forms. stacked - each day split by department, with a legend; the only shape that puts the breakdown in the plot rather than only in the tooltip. multiples - only for days that carry Sales / Returns / Offers: one small chart per measure, each on its own scale, which is the readable way to show figures an order of magnitude apart. All of them carry the same per-day tooltip and all of them disappear when there is no data.",
     },
+    stickyKpis: {
+      type: "boolean",
+      displayName: "Sticky Inc.Primary / Target",
+      defaultValue: false,
+      hidden: (props) => props.variant === "secondary" || !props.total,
+      description:
+        "Primary total card only. On, the Inc.Primary / Target row pins to the top while the page scrolls through the opened card, so the headline figures stay in view. Off (the default), it scrolls with the card as normal.",
+    },
+    stickyTop: {
+      type: "number",
+      displayName: "Sticky offset (px)",
+      hidden: (props) => props.variant === "secondary" || !props.total || !props.stickyKpis,
+      description:
+        "Leave empty (the default) and the row pins just under the Section Page header when the card sits in one - it follows that header's real height (about 66px on desktop, about 100px on a phone where the chips wrap), plus the header's own sticky offset. Outside a Section Page, empty means the very top. Type a number to override it in px.",
+    },
     defaultExpanded: {
       type: "boolean",
       displayName: "Open by default",
       description:
-        "Unset, a primary card starts closed and a secondary card starts with its HQ shelf open - each variant's natural state. Set it to override that.",
+        "Off (the default) both variants start closed: a primary card shows only its headline, and a secondary card keeps its HQ tiles behind the Show HQ button. On, they start open.",
     },
     currency: {
       type: "string",
