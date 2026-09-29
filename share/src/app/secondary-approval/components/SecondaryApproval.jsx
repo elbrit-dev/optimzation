@@ -1,17 +1,20 @@
 'use client';
 
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Card, Icon, Sheet, StatusPill, cx } from '@/design-system';
+import { Button, Card, Icon, SegmentedControl, Sheet, StatusPill, cx } from '@/design-system';
 import { TableOperationsContext } from '@/app/datatable/contexts/TableOperationsContext';
 import { SECONDARY, TaskProvider } from '@/app/secondary-entry/data/task';
 import { getEndpointConfigFromUrlKeyAsync } from '@/app/graphql-playground/constants';
 import { useUnsavedGuard } from '@/app/secondary-entry/components/useUnsavedGuard';
 import { PinnedBarSpacer } from '@/app/secondary-entry/components/PinnedBar';
 import { bucketOfState, normalizeSlices } from '../data/shape';
-import { doneCount, scopeSubmissions } from '../data/selectors';
+import { doneCount, scopeSubmissions, teamApprovalCounts } from '../data/selectors';
+import { useServerTeam } from '@/app/secondary-entry/data/useServerTeam';
+import { hasTeam } from '@/app/secondary-entry/data/team';
+import { TeamProgress } from '@/app/secondary-entry/components/TeamProgress';
 import { createDecisionWriter } from '../data/writes';
 import { useServerApprovals } from '../data/useServerApprovals';
-import { SubmissionCard, SubmissionStrip } from './SubmissionCard';
+import { SubmissionBar, SubmissionCard, SubmissionStrip } from './SubmissionCard';
 import { RevisitSheet } from './RevisitSheet';
 import { DecisionBar } from './DecisionBar';
 
@@ -163,6 +166,26 @@ export function SecondaryApproval({
 
   const [selectedKey, setSelectedKey] = useState(null);
   const current = submissions.find((g) => g.key === selectedKey) ?? submissions[0] ?? null;
+
+  /* THE TEAM TREE: a manager (and IT) also sees their team as a tree —
+     SM → RBM → ABM → BE — each row their branch's month of approvals, and
+     "View" opens that person's submission in the People view. The people
+     come from the team script (the Entry screen's); the counts from the
+     trackers in hand. */
+  /* Once the approvals have answered, so the month is theirs (one call). */
+  const team = useServerTeam({ enabled: serverMode && Boolean(server.data), gqlEnvironment, gqlToken, month: period, task: task.id });
+  const withTeam = hasTeam(team.data);
+  const [pane, setPane] = useState('people');
+  const teamWithCounts = useMemo(
+    () => (Array.isArray(team.data?.members) ? { ...team.data, members: team.data.members.map((m) => ({ ...m, ...teamApprovalCounts(slices, m) })) } : null),
+    [team.data, slices],
+  );
+  const openPerson = (m) => {
+    const user = String(m.user ?? '').toLowerCase();
+    const g = submissions.find((x) => (user && x.raiser === user) || x.slices.some((s) => s.roleProfile === m.seat));
+    if (g) setSelectedKey(g.key);
+    setPane('people');
+  };
   /* Pin what is on screen, so a decision that changes the order (or a
      refetch) does not swap the card out from under the reader. */
   useEffect(() => {
@@ -377,8 +400,25 @@ export function SecondaryApproval({
         ) : null}
       </header>
 
+      {submissions.length && !loading && !loadError ? <SubmissionBar submissions={submissions} /> : null}
+
+      {withTeam && !loading && !loadError ? (
+        <SegmentedControl
+          block
+          ariaLabel="View"
+          value={pane}
+          onChange={setPane}
+          items={[
+            { id: 'people', label: 'People' },
+            { id: 'team', label: 'Team' },
+          ]}
+        />
+      ) : null}
+
       {loading ? (
         <Skeleton />
+      ) : pane === 'team' && withTeam ? (
+        <TeamProgress team={teamWithCounts} labels={{ todo: 'Rework' }} onView={openPerson} />
       ) : loadError ? (
         <div role="alert" className="flex flex-col items-start gap-2 rounded-xl bg-danger-wash px-4 py-4">
           <span className="flex items-center gap-2 text-13 font-semibold text-danger-text">
@@ -394,7 +434,7 @@ export function SecondaryApproval({
         <p className="py-10 text-center text-12 text-ds-muted">Nothing to approve.</p>
       ) : (
         <>
-          <SubmissionStrip submissions={submissions} value={current.key} onChange={setSelectedKey} />
+          <SubmissionStrip bar={false} submissions={submissions} value={current.key} onChange={setSelectedKey} />
           {notice ? (
             <div role="status" className="flex items-center gap-2 rounded-lg bg-success-wash px-3 py-2 text-12 font-medium text-success">
               <Icon name="check-circle" size="sm" />

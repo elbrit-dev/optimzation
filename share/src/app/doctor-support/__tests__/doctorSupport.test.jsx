@@ -85,7 +85,7 @@ describe('DoctorSupportEntry', () => {
     }));
     render(<DoctorSupportEntry gqlToken="k:s" />);
     expect(await screen.findByText('Dr Prathap')).toBeInTheDocument();
-    expect(calls[0]).toContain('/api/method/elbrit_doctor_support_entry');
+    expect(calls.find((c) => !c.includes('elbrit_entry_team'))).toContain('/api/method/elbrit_doctor_support_entry');
     expect(screen.getByText('Doctor support')).toBeInTheDocument();
     expect(screen.getByText('Doctors entered')).toBeInTheDocument();
     expect(screen.getByText('Diabeto · Maduranthagam')).toBeInTheDocument();

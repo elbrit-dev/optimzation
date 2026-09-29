@@ -90,11 +90,13 @@ last = str(frappe.utils.get_last_day(first))
 in_month = ["date", "between", [first, last]]
 
 own_seat = ""
+own_employee = ""
 emp = frappe.get_list("Employee",
                       filters={"user_id": me, "status": "Active"},
-                      fields=["role_id", "custom_role_profile"],
+                      fields=["name", "role_id", "custom_role_profile"],
                       limit_page_length=1)
 if emp:
+    own_employee = emp[0].get("name") or ""
     # custom_role_profile, as the ERP's tracker scripts route on it: role_id
     # is stale for some people (an old seat, e.g. from before a promotion).
     own_seat = emp[0].get("custom_role_profile") or emp[0].get("role_id") or ""
@@ -103,12 +105,36 @@ if emp:
 # read below, which is the caller's OWN seat only.
 seat = frappe.form_dict.get("seat") or own_seat
 
+# ---- A TEAM SEAT: `seat` held by someone UNDER the caller in the reporting
+# chain (any depth), or any seat for the IT role profile. A manager may view
+# their people's entries whole — the Entry screen's team tree opens them,
+# read-only — though their own Department permission may not reach every
+# one, so those reads go past permissions (frappe.get_all). Any other
+# `seat` stays within what the caller may read (frappe.get_list).
+in_team = False
+if seat and seat != own_seat:
+    if frappe.db.get_value("User", me, "role_profile_name") == "IT":
+        in_team = True
+    elif own_employee:
+        for h in frappe.get_all("Employee", filters={"custom_role_profile": seat, "status": "Active"},
+                                fields=["reports_to"], limit_page_length=5):
+            cur = h.get("reports_to")
+            hops = 0
+            while cur and hops < 10 and not in_team:
+                if cur == own_employee:
+                    in_team = True
+                cur = frappe.db.get_value("Employee", cur, "reports_to")
+                hops = hops + 1
+            if in_team:
+                break
+lister = frappe.get_all if in_team else frappe.get_list
+
 entries = []
 products = []
 
 if seat:
     # ---- every entry the caller may see this month
-    docs = frappe.get_list(DOCTYPE, filters=[in_month],
+    docs = lister(DOCTYPE, filters=[in_month],
                            fields=["name", "date", "doctor"],
                            order_by="name asc", limit_page_length=0)
     names = []
@@ -139,7 +165,7 @@ if seat:
     # ---- the seat's own lines
     item_codes = []
     seen_items = {}
-    for r in frappe.get_list(
+    for r in lister(
             DOCTYPE,
             filters=[["Support Items", "role_profile", "=", seat], in_month],
             fields=["name",
@@ -180,7 +206,7 @@ if seat:
     names = mine
 
     # ---- other seats' products, as names only
-    for r in frappe.get_list(
+    for r in lister(
             DOCTYPE,
             filters=[["Support Items", "role_profile", "!=", seat], in_month],
             fields=["name", LINE + ".item as item"],
@@ -192,7 +218,7 @@ if seat:
 
     # ---- the seat's approval row, and its tracker's state and note
     tracker_rows = []
-    for r in frappe.get_list(
+    for r in lister(
             DOCTYPE,
             filters=[["secondary tracker", "role_profile", "=", seat], in_month],
             fields=["name", MIRROR + ".role_profile as rp", MIRROR + ".status as st",
@@ -204,12 +230,12 @@ if seat:
                  "tracker__name": r.get("tracker"), "tracker": None}
             row["custom_status_tracker"].append(t)
             tracker_rows.append(t)
-    # The ONE read past permissions: the state and note of the caller's own
-    # seat's trackers — a BE cannot read Operational Tracker, and without
-    # the note a revisit never shows. Only when `seat` IS the caller's own.
+    # A read past permissions: the state and note of the caller's own (or a
+    # team seat's) trackers — a BE cannot read Operational Tracker, and without
+    # the note a revisit never shows. Never for any other `seat`.
     for t in tracker_rows:
         tn = t.get("tracker__name")
-        if tn and seat == own_seat and tn.endswith("-" + own_seat):
+        if tn and (seat == own_seat or in_team) and tn.endswith("-" + seat):
             v = frappe.db.get_value("Operational Tracker", tn,
                                     ["workflow_state", "reason_for_rejection"], as_dict=True)
             if v:
@@ -247,7 +273,7 @@ if seat:
             dist_codes.append(c)
     dist = {}
     for part in chunks(dist_codes):
-        for c in frappe.get_list("Lead", filters=[["name", "in", part]],
+        for c in lister("Lead", filters=[["name", "in", part]],
                                  fields=["name", "lead_name", "custom_specialty",
                                          "city", "territory"],
                                  limit_page_length=0):
@@ -323,7 +349,9 @@ if seat:
         if not price.get(code):
             missing.append(code)
     for part in chunks(missing):
-        for it in frappe.get_list("Item", filters=[["name", "in", part]],
+        # Past permissions: only the price, for a line's product the caller
+        # may not read (it is on their line all the same).
+        for it in frappe.get_all("Item", filters=[["name", "in", part]],
                                   fields=["name", "item_name", "custom_last_mrp",
                                           "custom_last_ptr", "custom_last_pts"],
                                   limit_page_length=0):

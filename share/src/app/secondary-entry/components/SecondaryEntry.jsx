@@ -1,12 +1,14 @@
 'use client';
 
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Icon, Sheet, StatusPill, cx } from '@/design-system';
+import { Button, Icon, SegmentedControl, Sheet, StatusPill, cx } from '@/design-system';
 import { TableOperationsContext } from '@/app/datatable/contexts/TableOperationsContext';
 import { useDataViews } from '@/app/datatable/contexts/ViewContext';
 import { getEndpointConfigFromUrlKeyAsync } from '@/app/graphql-playground/constants';
 import { normalizeEntries, normalizeProducts, toRowArray } from '../data/shape';
 import { useServerEntries } from '../data/useServerEntries';
+import { useServerTeam } from '../data/useServerTeam';
+import { hasTeam } from '../data/team';
 import {
   canSubmit,
   countByStatus,
@@ -24,6 +26,7 @@ import { createErpWriter } from '../data/writes';
 import { SECONDARY, TaskProvider, partyCount } from '../data/task';
 import { EntryOverview, EntryOverviewSkeleton } from './EntryOverview';
 import { EntryForm } from './EntryForm';
+import { TeamProgress } from './TeamProgress';
 import { useUnsavedGuard } from './useUnsavedGuard';
 
 /* Secondary entry — a seat's month of stockist figures, and the form to key
@@ -91,7 +94,14 @@ export function SecondaryEntry({
      as the signed-in user (data/useServerEntries.js): every entry they may
      see, no cap, only their seat's lines. */
   const serverMode = rowsProp == null && !slot && Boolean(gqlToken?.trim());
-  const server = useServerEntries({ enabled: serverMode, gqlEnvironment, gqlToken, month: monthProp, seat: roleProfileProp, method: task.entryMethod });
+  /* THE TEAM: a manager (anyone with people under them, and IT) also sees
+     their team's month as a tree (TeamProgress), and can open any member's
+     entries — read-only (`viewing`), their own seat staying editable. */
+  const team = useServerTeam({ enabled: serverMode && !roleProfileProp, gqlEnvironment, gqlToken, month: monthProp, task: task.id });
+  const withTeam = hasTeam(team.data);
+  const [viewing, setViewing] = useState(null);
+  const [pane, setPane] = useState(null);
+  const server = useServerEntries({ enabled: serverMode, gqlEnvironment, gqlToken, month: monthProp, seat: roleProfileProp || viewing?.seat, method: task.entryMethod });
   const sourceRows = useMemo(
     () => toRowArray(rowsProp ?? slot?.rawData ?? server.data?.entries),
     [rowsProp, slot?.rawData, server.data],
@@ -214,8 +224,10 @@ export function SecondaryEntry({
           ? { title: 'Something went wrong', text: `Could not load your ${task.parties} from ERP: ${askError}`, retry: true }
           : { title: 'No seat for this user', text: 'ERP has no active Employee with a role profile for this user, so there are no lines to enter. Ask for your Employee record to be set up.', retry: true };
 
-  const canEdit = Boolean(roleProfile) && signedIn;
-  const readOnlyReason = !roleProfile
+  const canEdit = Boolean(roleProfile) && signedIn && !viewing;
+  const readOnlyReason = viewing
+    ? `Viewing ${viewing.name}'s ${task.parties} — read only.`
+    : !roleProfile
     ? signedIn && !asked
       ? 'Finding your seat in ERP…'
       : 'No active Employee seat for this user in ERP — nothing can be entered.'
@@ -423,6 +435,10 @@ export function SecondaryEntry({
   };
 
   const openEntry = openName ? entries.find((e) => e.name === openName) : null;
+  /* A manager with nothing of their own to enter lands on the team. */
+  const shownPane = pane ?? (withTeam && !entries.length ? 'team' : 'mine');
+  /* Whose entries changed: nothing of the last person's stays open. */
+  useEffect(() => setOpenName(null), [viewing]);
   const loading = slot?.isLoading && !rows.length;
 
   /* Page-state navigation keeps the reader's place both ways: opening starts
@@ -487,7 +503,38 @@ export function SecondaryEntry({
         ) : null}
       </header>
 
-      {loading || seatProblem === 'finding' ? (
+      {withTeam && !viewing && !openEntry ? (
+        <SegmentedControl
+          block
+          ariaLabel="Whose entries"
+          value={shownPane}
+          onChange={setPane}
+          items={[
+            { id: 'mine', label: 'My entries' },
+            { id: 'team', label: 'Team' },
+          ]}
+        />
+      ) : null}
+
+      {viewing && !openEntry ? (
+        <div className="flex items-center gap-2 rounded-lg bg-brand-tint-weak px-3 py-2">
+          <button
+            type="button"
+            onClick={() => setViewing(null)}
+            aria-label="Back to the team"
+            className="flex shrink-0 items-center text-brand-text transition-colors hover:text-brand-hover"
+          >
+            <Icon name="chevron-left" size="sm" />
+          </button>
+          <span className="min-w-0 flex-1 truncate text-12 text-brand-text">
+            <span className="font-semibold">{viewing.name}</span> · {viewing.seat} · read only
+          </span>
+        </div>
+      ) : null}
+
+      {shownPane === 'team' && !viewing && !openEntry ? (
+        <TeamProgress team={team.data} onView={(m) => setViewing({ seat: m.seat, name: m.name })} />
+      ) : loading || seatProblem === 'finding' ? (
         <EntryOverviewSkeleton />
       ) : seatProblem ? (
         <div role="alert" className="flex flex-col items-start gap-2 rounded-xl bg-danger-wash px-4 py-4">
@@ -542,6 +589,7 @@ export function SecondaryEntry({
               : null
           }
           bulk={
+            viewing ? null : (
             <EntryOverview.BulkEntryCard
               pendingCount={pending.length}
               sheetRows={sheetRows}
@@ -553,6 +601,7 @@ export function SecondaryEntry({
               busy={bulkBusy}
               message={bulkMessage}
             />
+            )
           }
         />
       )}

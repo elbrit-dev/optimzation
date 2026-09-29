@@ -4,8 +4,9 @@
  *
  *   acting as   'registry'  the environment row's own token (a harness
  *                           convenience, as the old /visit page had)
- *               'user'      any ERP user — their token remembered here, or
- *                           minted with the admin token (not on production)
+ *               'user'      any ERP user — their token remembered here, their
+ *                           current one read with the admin token, or a new
+ *                           one minted (production asks first)
  *
  * THE ADMIN TOKEN is the one typed here, else the environment row's own
  * token from /tokens — so picking an environment is enough to list people
@@ -19,7 +20,7 @@
  * the answer is what the harness shows. */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { listPeople, mintToken, resolveEnvironment, whoIs } from './erp';
+import { existingToken, listPeople, mintToken, resolveEnvironment, whoIs } from './erp';
 import { useStoredState } from './storage';
 
 export function useIdentity(envName) {
@@ -103,7 +104,22 @@ export function useIdentity(envName) {
     [setTokens],
   );
 
-  /* Mint (non-production) and act as `email`. */
+  /* Act as `email` with the token they already have — nothing changes for
+     them. False when they have none (mint one then). */
+  const adoptCurrentFor = useCallback(
+    async (email) => {
+      if (!resolved) throw new Error('Environment not resolved yet.');
+      if (!admin) throw new Error('No admin token: type one, or give this environment a token in /tokens.');
+      const t = await existingToken(resolved, admin, email);
+      if (!t) return false;
+      rememberToken(email, t);
+      setActing({ kind: 'user', email });
+      return true;
+    },
+    [resolved, admin, rememberToken, setActing],
+  );
+
+  /* Mint a new token and act as `email` (replaces their secret). */
   const mintFor = useCallback(
     async (email) => {
       if (!resolved) throw new Error('Environment not resolved yet.');
@@ -133,6 +149,7 @@ export function useIdentity(envName) {
     rememberToken,
     forgetToken,
     mintFor,
+    adoptCurrentFor,
     people,
     loadPeople,
   };

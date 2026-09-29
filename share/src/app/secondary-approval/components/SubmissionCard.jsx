@@ -49,14 +49,22 @@ const SEGMENT_CLASS = {
   pending: 'bg-danger-wash',
 };
 
-export function SubmissionStrip({ submissions, value, onChange }) {
+/* The month at a glance: a segment per person, in their status's colour. On
+   its own, so the page can set the People / Team switch under it. */
+export function SubmissionBar({ submissions }) {
+  return (
+    <div className="flex gap-1" aria-hidden="true">
+      {submissions.map((g) => (
+        <span key={g.key} className={cx('h-1.5 flex-1 rounded-full', SEGMENT_CLASS[g.status])} />
+      ))}
+    </div>
+  );
+}
+
+export function SubmissionStrip({ submissions, value, onChange, bar = true }) {
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex gap-1" aria-hidden="true">
-        {submissions.map((g) => (
-          <span key={g.key} className={cx('h-1.5 flex-1 rounded-full', SEGMENT_CLASS[g.status])} />
-        ))}
-      </div>
+      {bar ? <SubmissionBar submissions={submissions} /> : null}
       {/* One chip per person, the chosen one in the heading navy. The number
           is the chip's place in the queue; the dot is its status. */}
       <div role="tablist" aria-label="Submissions" className="ds-scroll-x -mx-1 flex gap-1.5 px-1 py-0.5">

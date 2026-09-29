@@ -12,8 +12,8 @@ const KINDS = [
 ];
 
 /* WHO THE SCREEN RUNS AS. Pick anyone from the ERP; the harness uses their
-   remembered token, mints one with the admin token (test ERPs only), or
-   takes one you paste. The ERP's own answer — who the token really is —
+   remembered token, their current one (read with the admin token), a new
+   one it mints (production asks first), or one you paste. The ERP's own answer — who the token really is —
    is shown underneath, so a wrong token is obvious. */
 export function IdentityPanel({ identity }) {
   const { env, acting, actAs, people, loadPeople, tokens, who } = identity;
@@ -40,16 +40,31 @@ export function IdentityPanel({ identity }) {
   const selected = kind === 'user' ? acting.email : null;
   const hasToken = selected ? Boolean(tokens[selected]) : false;
 
-  const mint = async () => {
+  const run = async (fn) => {
     setBusy(true);
     setError(null);
     try {
-      await identity.mintFor(selected);
+      await fn();
     } catch (e) {
       setError(e.message);
     } finally {
       setBusy(false);
     }
+  };
+  const useCurrent = () =>
+    run(async () => {
+      if (!(await identity.adoptCurrentFor(selected))) setError(`${selected} has no API key yet — mint one below.`);
+    });
+  /* Minting replaces their secret: on production, only once confirmed. */
+  const [confirmMint, setConfirmMint] = useState(false);
+  useEffect(() => setConfirmMint(false), [selected, env?.name]);
+  const mint = () => {
+    if (env?.production && !confirmMint) {
+      setConfirmMint(true);
+      return;
+    }
+    setConfirmMint(false);
+    run(() => identity.mintFor(selected));
   };
 
   const whoLine = who.checking
@@ -103,16 +118,24 @@ export function IdentityPanel({ identity }) {
                   onChange={setPaste}
                   onBlur={() => paste.trim() && identity.rememberToken(selected, paste.trim())}
                   onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
-                  hint={env?.production ? "Production: the harness never changes anyone's keys — paste a token this user already has." : 'Paste one they already have, or mint one below.'}
+                  hint="Paste one, use their current token, or mint a new one."
                 />
-                {env?.production ? null : (
-                  <div className="flex flex-col gap-1">
-                    <Button type="default" size="sm" loading={busy} onClick={mint}>
-                      Mint a token for them
-                    </Button>
-                    <p className="text-10 text-ds-muted">Replaces their API secret on {env?.name ?? 'this ERP'} (test ERPs only). Remembered here.</p>
-                  </div>
-                )}
+                <div className="flex flex-col gap-1">
+                  <Button type="primary" size="sm" loading={busy} onClick={useCurrent}>
+                    Use their current token
+                  </Button>
+                  <p className="text-10 text-ds-muted">Reads the key they already have — nothing changes for them. Remembered here.</p>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <Button type="default" size="sm" danger={confirmMint} loading={busy} onClick={mint}>
+                    {confirmMint ? `Yes, replace their key on ${env?.name}` : 'Mint a new token'}
+                  </Button>
+                  <p className={`text-10 ${confirmMint ? 'text-danger-text' : 'text-ds-muted'}`}>
+                    {confirmMint
+                      ? `Production: their current key stops working — anything signed in with it (the app too) must sign in again.`
+                      : `Replaces their API secret on ${env?.name ?? 'this ERP'}${env?.production ? ' — asks first' : ''}.`}
+                  </p>
+                </div>
               </div>
             )
           ) : null}

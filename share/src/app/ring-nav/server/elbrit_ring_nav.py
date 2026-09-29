@@ -62,11 +62,13 @@
 # an entry are one unit, as one approval; an entry with no lines at all is
 # one draft unit). Anyone else without a seat gets no entry tile.
 #
-# SECONDARY APPROVAL — ONLY for someone with work waiting on them, in the
-# entry window: a Secondary tracker in "... Approval Waiting" whose
-# next_approver is the caller, of the entry month (last month — as the
-# Approval screen shows). No
-# queue, no tile: a BE, or an approver who is clear, gets none.
+# SECONDARY APPROVAL — for someone with work waiting on them, and for every
+# MANAGER (anyone with people under them in the reporting chain), in the
+# entry window, for the entry month (last month — as the Approval screen
+# shows). Waiting on them: a Secondary tracker in "... Approval Waiting"
+# whose next_approver is the caller — or, for a manager, any of their
+# team's trackers waiting on anyone (read past permissions, their subtree
+# only). A BE, with no team and nothing waiting, gets none.
 #   waiting   the PEOPLE (sales persons who raised figures) with at least
 #             one of those trackers — not stockists: one person raises many
 #   approved  the PEOPLE whose every tracker of the month the caller can see
@@ -162,13 +164,41 @@ in_month = ["date", "between", [first, last]]
 
 emp = frappe.get_list("Employee",
                       filters={"user_id": me, "status": "Active"},
-                      fields=["role_id", "custom_role_profile"],
+                      fields=["name", "role_id", "custom_role_profile"],
                       limit_page_length=1)
 seat = ""
 if emp:
     # custom_role_profile, as the ERP's tracker scripts route on it: role_id
     # is stale for some people (an old seat, e.g. from before a promotion).
     seat = emp[0].get("custom_role_profile") or emp[0].get("role_id") or ""
+
+# ---- THE CALLER'S TEAM: the seats of everyone under them in the reporting
+# chain (Employee reports_to, any depth). A manager's approval tile counts
+# their whole team, as their Approval screen lists it — read past
+# permissions (frappe.get_all), for that subtree only.
+team_seats = {}
+if emp and emp[0].get("name"):
+    frontier = [emp[0].get("name")]
+    reached = {frontier[0]: 1}
+    hops = 0
+    while frontier and hops < 8:
+        hops = hops + 1
+        below = []
+        i = 0
+        while i < len(frontier):
+            part = frontier[i:i + 500]
+            i = i + 500
+            for e in frappe.get_all("Employee",
+                                    filters=[["reports_to", "in", part], ["status", "=", "Active"]],
+                                    fields=["name", "custom_role_profile"], limit_page_length=0):
+                if reached.get(e.get("name")):
+                    continue
+                reached[e.get("name")] = 1
+                below.append(e.get("name"))
+                if e.get("custom_role_profile"):
+                    team_seats[e.get("custom_role_profile")] = 1
+        frontier = below
+has_team = len(team_seats) > 0
 
 items = []
 # The tasks on the strip, each with an entry tile and an approval tile. The
@@ -310,7 +340,11 @@ def entry_tile(task):
             b = bucket_of(st)
         e[b] = e[b] + 1
     total = len(has_draft)
-    if not total and task["hide_empty"]:
+    # A MANAGER (anyone with people under them) has no entry tile unless their
+    # own seat has records this month (covering a vacant BE's stockists, say):
+    # their tile is the team's approval one. Doctor Support hides an empty
+    # tile for everyone.
+    if not total and (task["hide_empty"] or (has_team and not always)):
         return
     todo = e["draft"] + e["rejected"]
 
@@ -349,25 +383,42 @@ def month_people(task):
     # entry month's trackers, by the record's own `date` field (not the date
     # in the names): we operate on last month alone, as the Approval screen
     # does. A record the caller cannot read is not counted.
-    #   waiting   people with at least one tracker waiting on the caller (IT:
-    #             waiting on anyone)
+    #   waiting   people with at least one tracker waiting on the caller —
+    #             a MANAGER: waiting on anyone, among their team (everyone
+    #             under them); IT: waiting on anyone at all
     #   approved  people whose every tracker of the month is approved
+    # A manager's count takes in their team's trackers too, read past
+    # permissions — the ERP only lets them read what is routed to them.
+    lister = frappe.get_all if has_team else frappe.get_list
     of_month = {}
-    for r in frappe.get_list(task["doctype"], filters=[in_month],
-                             fields=["name"], limit_page_length=0):
+    for r in lister(task["doctype"], filters=[in_month], fields=["name"], limit_page_length=0):
         of_month[r.get("name")] = 1
+    fields = ["name", "role_profile", "user", "workflow_state", "next_approver", task["link"]]
+    base = [["reference_doctype", "=", task["doctype"]]]
+    trackers = frappe.get_list("Operational Tracker", filters=base, fields=fields, limit_page_length=0)
+    if has_team:
+        seen = {}
+        for t in trackers:
+            seen[t.get("name")] = 1
+        names = list(team_seats.keys())
+        i = 0
+        while i < len(names):
+            part = names[i:i + 500]
+            i = i + 500
+            for t in frappe.get_all("Operational Tracker", filters=base + [["role_profile", "in", part]],
+                                    fields=fields, limit_page_length=0):
+                if not seen.get(t.get("name")):
+                    seen[t.get("name")] = 1
+                    trackers.append(t)
     waiting = {}
     settled = {}     # person -> 1 while every tracker is approved, 0 otherwise
-    for t in frappe.get_list("Operational Tracker",
-                             filters=[["reference_doctype", "=", task["doctype"]]],
-                             fields=["name", "role_profile", "user", "workflow_state",
-                                     "next_approver", task["link"]],
-                             limit_page_length=0):
+    for t in trackers:
         if not of_month.get(record_of(t, task)):
             continue
         who = t.get("user") or t.get("role_profile") or t.get("name")
         ws = t.get("workflow_state") or ""
-        if ws.endswith(" Approval Waiting") and (always or t.get("next_approver") == me):
+        mine = always or t.get("next_approver") == me or team_seats.get(t.get("role_profile"))
+        if ws.endswith(" Approval Waiting") and mine:
             waiting[who] = 1
         ok = 1 if ("Approved" in ws and "Rejected" not in ws) or ws == "Approved and Verified" else 0
         settled[who] = min(settled.get(who, 1), ok)
@@ -380,15 +431,16 @@ def month_people(task):
 
 def approval_tile(task):
     # --------------------------------------------- <task>: approval
-    # Only for someone with work WAITING ON THEM: no queue, no tile — a BE,
-    # or an approver who is clear, gets none. The IT role profile always gets
-    # it, as the overview of every tracker of the task they can see.
+    # For someone with work WAITING ON THEM, and for every MANAGER (anyone
+    # with people under them): their team's month, whether or not anything
+    # waits on them — a BE, with no team and nothing waiting, gets none. The
+    # IT role profile always gets it, as the overview of every tracker.
     if not (always or entry_window):
         return
     counted = month_people(task)
     waiting = counted[0]
     approved = counted[1]
-    if not (always or waiting > 0):
+    if not (always or has_team or waiting > 0):
         return
     items.append({
         "id": task["id"] + "-approval",
