@@ -51,8 +51,6 @@ const CSS = `
 .ho-root .ho-cta:active{transform:scale(.98)}
 @media (prefers-reduced-motion:reduce){.ho-root *{transition:none!important}}`;
 
-const SLIDE_MS = 8000;
-
 function useContainerWidth(ref) {
   const [w, setW] = useState(1024);
   useLayoutEffect(() => {
@@ -256,9 +254,9 @@ function CommandBoard({ L, view, open, pop }) {
 
 /* ---------------- Phone swipe deck ---------------- */
 
-function MobileCard({ s, pace, open, clone }) {
+function MobileCard({ s, pace, open }) {
   return (
-    <div aria-hidden={clone || undefined} style={{ flex: "none", width: "88%", scrollSnapAlign: "start", borderRadius: 18, background: "#fff", boxShadow: "0 0 0 1px #e4e7ec,0 8px 20px -14px rgba(16,24,40,.3)", display: "flex", flexDirection: "column", gap: 12, padding: 16 }}>
+    <div style={{ flex: "none", width: "88%", scrollSnapAlign: "start", borderRadius: 18, background: "#fff", boxShadow: "0 0 0 1px #e4e7ec,0 8px 20px -14px rgba(16,24,40,.3)", display: "flex", flexDirection: "column", gap: 12, padding: 16 }}>
       <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, fontWeight: 600, letterSpacing: ".1em", textTransform: "uppercase", color: "#5b6576" }}>
         <span style={{ width: 6, height: 6, borderRadius: "50%", background: s.dot }} />{s.kicker}
       </span>
@@ -294,77 +292,42 @@ function MobileCard({ s, pace, open, clone }) {
           </div>
         ))}
       </div>
-      <button type="button" className="ho-cta" tabIndex={clone ? -1 : undefined} onClick={() => open(s.key)} style={{ marginTop: "auto", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, height: 46, borderRadius: 12, border: 0, background: "#2563eb", color: "#fff", fontSize: 15, fontWeight: 600, cursor: "pointer" }}>
+      <button type="button" className="ho-cta" onClick={() => open(s.key)} style={{ marginTop: "auto", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, height: 46, borderRadius: 12, border: 0, background: "#2563eb", color: "#fff", fontSize: 15, fontWeight: 600, cursor: "pointer" }}>
         Open {s.name}<Arrow />
       </button>
     </div>
   );
 }
 
-/* The swipe deck. It turns on its own every SLIDE_MS and loops without end:
-   a copy of the first card sits after the last, the deck scrolls forward onto
-   it, and the moment it lands there the scroll is put back on the real first
-   card with no animation -- the two are identical, so the reader sees an
-   endless strip rather than a rewind across every card. A touch holds it; a
-   swipe or a dot restarts the count from the card it lands on. Reduced
-   motion switches the timer off; the dots and swiping still work. */
+/* The swipe deck: Visit first, Support last. It moves only when swiped or
+   when a dot is tapped -- no timer, no wrap back to the start. */
 function MobileHero({ slides, pace, open }) {
   const railRef = useRef(null);
   const [cur, setCur] = useState(0);
-  const [held, setHeld] = useState(false);
   const n = slides.length;
-  const loop = n > 1;
 
   const step = () => {
     const el = railRef.current, c = el?.firstElementChild;
     return c ? c.offsetWidth + 12 : el?.clientWidth || 1;
   };
-  /* The dot follows the tap or the timer at once, not the scroll event: a
-     swipe still updates it through onScroll, but a jump the deck made
-     itself should not depend on the browser getting round to telling us. */
-  const wrapRef = useRef(null);
   const goTo = (i) => {
     const el = railRef.current;
     if (!el) return;
-    clearTimeout(wrapRef.current);
     el.scrollTo({ left: i * step(), behavior: "smooth" });
-    setCur(i >= n ? 0 : i);
-    // Onto the copy of the first card: back onto the real one once it lands.
-    if (i >= n) wrapRef.current = setTimeout(() => el.scrollTo({ left: 0, behavior: "auto" }), 700);
+    setCur(i);
   };
-  useEffect(() => () => clearTimeout(wrapRef.current), []);
-
   const onScroll = (e) => {
-    const el = e.currentTarget, s = step();
-    const at = el.scrollLeft / s;
-    // Landed on the copy of the first card: swap to the real one, unseen.
-    if (loop && at >= n - 0.02) {
-      clearTimeout(wrapRef.current);
-      el.scrollTo({ left: (at - n) * s, behavior: "auto" });
-      if (cur !== 0) setCur(0);
-      return;
-    }
-    const i = Math.max(0, Math.min(n - 1, Math.round(at)));
+    const i = Math.max(0, Math.min(n - 1, Math.round(e.currentTarget.scrollLeft / step())));
     if (i !== cur) setCur(i);
   };
-
-  useEffect(() => {
-    if (!loop || held) return undefined;
-    if (typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return undefined;
-    const t = setTimeout(() => goTo(cur + 1), SLIDE_MS);
-    return () => clearTimeout(t);
-  }, [cur, held, loop]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <section aria-label="Highlights" aria-roledescription="carousel" style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 14 }}>
       <div ref={railRef} className="ho-rail" onScroll={onScroll}
-        onTouchStart={() => setHeld(true)} onTouchEnd={() => setHeld(false)} onTouchCancel={() => setHeld(false)}
-        onMouseEnter={() => setHeld(true)} onMouseLeave={() => setHeld(false)}
         style={{ display: "flex", alignItems: "stretch", gap: 12, overflowX: "auto", scrollSnapType: "x mandatory", padding: "0 16px 4px", scrollPadding: "0 16px" }}>
         {slides.map((s) => <MobileCard key={s.key} s={s} pace={pace} open={open} />)}
-        {loop && <MobileCard key="loop-copy" s={slides[0]} pace={pace} open={open} clone />}
       </div>
-      {loop && (
+      {n > 1 && (
         <div style={{ display: "flex", justifyContent: "center" }}>
           {slides.map((s, i) => (
             <button key={s.key} type="button" aria-label={"Show " + s.name} aria-current={i === cur} onClick={() => goTo(i)}

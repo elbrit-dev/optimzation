@@ -26,9 +26,12 @@ const crShort = (n) => {
    fit a bar. */
 export const cr = (n) => (n < 0 ? "−" : "") + "₹" + Math.round(Math.abs(n)).toLocaleString("en-IN");
 const nos = (n) => Math.round(n).toLocaleString("en-IN");
-const pc = (x) => (x * 100).toFixed(1) + "%";
+/* Percentages are cut, never rounded up: 99.99% reads 99.9%, and only a
+   real 100% shows 100. The nudge absorbs float noise (0.29 * 100 = 28.999…). */
+const cutPct = (p, dp = 1) => { const f = 10 ** dp; const v = Math.trunc(p * f + (p < 0 ? -1e-6 : 1e-6)) / f; return (Object.is(v, -0) ? 0 : v).toFixed(dp); };
+const pc = (x) => cutPct(x * 100) + "%";
 const pct = (x) => Math.min(Math.max(x, 0), 1) * 100 + "%";
-const signed = (d) => (d >= 0 ? "+" : "") + (d * 100).toFixed(1) + "%";
+const signed = (d) => (d >= 0 ? "+" : "") + cutPct(d * 100) + "%";
 const plural = (n, one, many = one + "s") => nos(n) + " " + (n === 1 ? one : many);
 export const initials = (n) => String(n || "").replace(/^Dr\.?\s*/i, "").split(/\s+/).filter(Boolean).map((x) => x[0]).slice(0, 2).join("").toUpperCase();
 /* "Vasco Coimbatore - ELPL" -> "Vasco Coimbatore": the company suffix repeats on every team. */
@@ -110,7 +113,7 @@ function buildPrimary(p, inv, level) {
   const rT = ratio(achT, tgtT), st = band(rT);
   const gap = Math.max(tgtT - achT, 0), perDay = gap / Math.max(left, 1);
   const riskN = units.filter((u) => u.r < 0.5).length;
-  const ofT = (v) => "(" + (v < 0 ? "−" : "") + (Math.abs(ratio(v, tgtT)) * 100).toFixed(2) + "%)";
+  const ofT = (v) => "(" + (v < 0 ? "−" : "") + cutPct(Math.abs(ratio(v, tgtT)) * 100, 2) + "%)";
   const offer = offerOf(T);
   const kindL = level === "dept" ? "Teams" : "HQs";
   const allTile = { key: "__all__", all: true, name: level === "dept" ? "All teams" : "All HQs", t: tgtT, tgtC: cr(tgtT), r: rT, pctTxt: pc(rT), w: pct(rT), dot: st[3], cells: cellsOf({ ...T, inc: achT }), toGo: tgtT > achT ? cr(tgtT - achT) + " to target" : "Target met",
@@ -242,7 +245,7 @@ function buildSupport(s) {
     kicker: "Doctor support · " + sel.label,
     latest: cr(num(sel.value)), latestSub: nos(num(sel.doctors)) + " doctors · " + nos(num(sel.qty)) + " units",
     mini: months.slice(-6).map((m) => { const on = m.label === onL; return { l: m.label, h: (num(m.value) / (max * 1.032)) * 100 + "%", c: on ? "#2563eb" : "#d6e2fb", lc: on ? "#0b1220" : "#8a93a3", lw: on ? 600 : 400 }; }),
-    cast: mgrs.slice(0, 5).map((m, i) => ({ key: i, name: m.name, role: m.role, rank: i + 1, ini: initials(m.name), vS: cr(m.v), w: pct(m.v / mMax), share: Math.round(ratio(m.v, sel.value) * 100) + "%" })),
+    cast: mgrs.slice(0, 5).map((m, i) => ({ key: i, name: m.name, role: m.role, rank: i + 1, ini: initials(m.name), vS: cr(m.v), w: pct(m.v / mMax), share: pc(ratio(m.v, sel.value)) + "" })),
     health: h && { issues: num(h.issues), zero: nos(num(h.zeroRateLines)), vacant: cr(num(h.vacantValue)), lastImport: h.lastImport },
     card: {
       kicker: "Doctor support · " + sel.label,
@@ -289,7 +292,7 @@ export function buildView({ primary, invoiced, secondary, visit, support, asOf }
      where the force visits are, and the stock that is not moving. */
   const HA = [
     P?.worst && { c: P.worst.dot, t: P.worst.short + " at " + P.worst.pctTxt, s: "of target · " + cr(Math.max(0, P.worst.t - P.worst.a)) + " to go", act: { mode: "pri", k: P.worst.key } },
-    V?.reps && V.reps.total - V.reps.reported > 0 && { c: A, t: nos(V.reps.total - V.reps.reported) + " reps not reported", s: "Only " + Math.round(ratio(V.reps.reported, V.reps.total) * 100) + "% reported " + (V.live ? "so far today" : V.period), act: { mode: "reps", f: "not" } },
+    V?.reps && V.reps.total - V.reps.reported > 0 && { c: A, t: nos(V.reps.total - V.reps.reported) + " reps not reported", s: "Only " + pc(ratio(V.reps.reported, V.reps.total)) + " reported " + (V.live ? "so far today" : V.period), act: { mode: "reps", f: "not" } },
     V?.fU && { c: R, t: V.forceT + " force visits " + (V.live ? "today" : V.period), s: "Most in " + V.fU.short, act: { mode: "visit", u: V.fU.key, f: "force" } },
     S?.stock && { c: "#2563eb", t: S.stock.short + " stock unsold", s: pc(ratio(S.stock.c, S.stock.o)) + " of opening still with distributors", act: { mode: "sec", k: S.stock.key } },
   ].filter(Boolean);
@@ -321,7 +324,7 @@ export function primaryPanel(view, key, extra) {
         { l: "Top " + kl, v: topR ? cr(topR.val) : "—", s: topR ? topR.name : "" }, { l: "Month so far", v: cr(P.achT), s: pc(P.rT) + " of target" },
       ],
       tables: [{ t: kind + "-wise", s: "value", gtc: gtc(3), head: [H(kind, "left"), H("Invoices"), H("Share"), H("Value")],
-        rows: TD.rows.map((r) => { const u = P.units.find((x) => x.key === r.key); return { name: r.name, sub: u ? "Month " + u.pctTxt + " of target" : "", cells: [cell(r.n), cell(Math.round(ratio(r.val, tot) * 100) + "%"), cell(cr(r.val), null, 600)], w: pct(ratio(r.val, TD.rows[0].val)), wc: "#93b4f5" }; }) }],
+        rows: TD.rows.map((r) => { const u = P.units.find((x) => x.key === r.key); return { name: r.name, sub: u ? "Month " + u.pctTxt + " of target" : "", cells: [cell(r.n), cell(pc(ratio(r.val, tot)) + ""), cell(cr(r.val), null, 600)], w: pct(ratio(r.val, TD.rows[0].val)), wc: "#93b4f5" }; }) }],
     };
   }
   /* "__all__" is the All teams card: the totals, with a by-unit table in
@@ -331,7 +334,7 @@ export function primaryPanel(view, key, extra) {
     ? (() => { const b = band(P.rT); return { ...P.totals, key, short: P.allName, a: P.achT, t: P.tgtT, r: P.rT, pctTxt: pc(P.rT), sLabel: b[0], sColor: b[1], dot: b[3], achC: cr(P.achT), tgtC: cr(P.tgtT), todayC: TD ? TD.total : cr(0), todayN: TD ? TD.countN : 0, hqs: [] }; })()
     : P.units.find((x) => x.key === key);
   if (!u) return null;
-  const f = (v, neg) => ({ v: cr(neg ? -Math.abs(v) : v), p: "(" + (neg && v ? "−" : "") + (Math.abs(ratio(v, u.t)) * 100).toFixed(2) + "%)" });
+  const f = (v, neg) => ({ v: cr(neg ? -Math.abs(v) : v), p: "(" + (neg && v ? "−" : "") + cutPct(Math.abs(ratio(v, u.t)) * 100, 2) + "%)" });
   const group = (t, bg, bd, hc, vc, rows, totL, tot) => ({ t, bg, bd, hc, vc, rows, totL, totV: tot.v, totP: tot.p });
   const offer = num(u.claim) + num(u.prod) + num(u.inv);
   const hqs = (u.hqs || []).filter((h) => num(h.target) || num(h.inc));
@@ -402,13 +405,13 @@ export function supportPanel(view, key) {
   const sMax = Math.max(1, ...series.map((x) => x.value));
   const doctors = all ? num(U.sel.doctors) : num(m.doctors), units = all ? num(U.sel.qty) : num(m.qty);
   const tables = [];
-  if (all && U.mgrs.length) tables.push({ t: "By manager", s: U.sel.label, gtc: gtc(2), head: [H("Name", "left"), H("Share"), H("Value")], rows: U.mgrs.map((x) => ({ name: x.name, sub: x.role, cells: [cell(Math.round(ratio(x.v, tv) * 100) + "%"), cell(cr(x.v), null, 600)], w: pct(ratio(x.v, U.mgrs[0].v)), wc: "#2563eb" })) });
+  if (all && U.mgrs.length) tables.push({ t: "By manager", s: U.sel.label, gtc: gtc(2), head: [H("Name", "left"), H("Share"), H("Value")], rows: U.mgrs.map((x) => ({ name: x.name, sub: x.role, cells: [cell(pc(ratio(x.v, tv)) + ""), cell(cr(x.v), null, 600)], w: pct(ratio(x.v, U.mgrs[0].v)), wc: "#2563eb" })) });
   tables.push({ t: "Doctor-wise", s: "top doctors by value", gtc: gtc(2), head: [H("Doctor", "left"), H("Units"), H("Value")], rows: docs.map((d) => ({ name: d.name, sub: [d.spec, d.hq].filter(Boolean).join(" · "), cells: [cell(nos(d.qty)), cell(cr(d.value), null, 600)], w: pct(d.value / dMax), wc: "#93b4f5" })) });
-  tables.push({ t: "By brand", s: "share of value", gtc: gtc(2), head: [H("Brand", "left"), H("Share"), H("Value")], rows: brands.map((b) => ({ name: b.name, sub: "", cells: [cell(Math.round(ratio(b.value, tv) * 100) + "%"), cell(cr(b.value), null, 600)], w: pct(b.value / bMax), wc: "#2563eb" })) });
+  tables.push({ t: "By brand", s: "share of value", gtc: gtc(2), head: [H("Brand", "left"), H("Share"), H("Value")], rows: brands.map((b) => ({ name: b.name, sub: "", cells: [cell(pc(ratio(b.value, tv)) + ""), cell(cr(b.value), null, 600)], w: pct(b.value / bMax), wc: "#2563eb" })) });
   return {
     kicker: U.kicker, dot: "#2563eb", title: all ? "Support value" : m.name, sub: all ? U.scope : m.role + " · #" + (key + 1),
     kpis: [
-      { l: "Support value", v: cr(tv), s: all ? (U.dd ? U.dd.t + " vs " + U.prevName : U.sel.label) : Math.round(ratio(tv, U.sel.value) * 100) + "% of total" },
+      { l: "Support value", v: cr(tv), s: all ? (U.dd ? U.dd.t + " vs " + U.prevName : U.sel.label) : pc(ratio(tv, U.sel.value)) + " of total" },
       { l: "Doctors", v: nos(doctors), s: "supported" }, { l: "Units", v: nos(units), s: "supplied" }, { l: "Per doctor", v: cr(ratio(tv, Math.max(1, doctors))), s: "average" },
     ],
     chart: { t: "Value by month", bars: series.map((x) => ({ l: x.l, v: crShort(x.value).replace("₹", ""), h: (x.value / sMax) * 85 + "%", c: x.on ? "#2563eb" : "#c7d7fa" })) },
@@ -481,7 +484,7 @@ export function repsPanel(view, filter = "not", openUnit) {
     kicker: V.kicker, dot: G, title: "Reps reporting · " + (V.live ? "today" : V.period), sub: V.units.length + " " + kinds,
     kpis: [{ l: "Reported", v: reported, dot: G }, { l: "Not reported", v: not, dot: R }, { l: "Vacant", v: vacant, dot: "#98a2b3" }, { l: "Filled seats", v: total, dot: "#d0d5dd" }],
     repW: pct(reported / seats), notW: pct(not / seats), vacW: pct(vacant / seats),
-    note: Math.round(ratio(reported, total) * 100) + "% of filled seats have reported." + (groups[0] && filter === "not" && groups[0].n ? " " + groups[0].name + " has the most pending." : ""),
+    note: pc(ratio(reported, total)) + " of filled seats have reported." + (groups[0] && filter === "not" && groups[0].n ? " " + groups[0].name + " has the most pending." : ""),
     filters: [["not", "Not reported", not], ["rep", "Reported", reported], ["vac", "Vacant", vacant]].map(([k, label, n]) => ({ k, label, n, on: filter === k })),
     groups: groups.map((g) => ({ ...g, open: g.key === openKey })),
   };

@@ -99,7 +99,10 @@ const pctOf = (value, target) => (target ? (toNum(value) / target) * 100 : 0);
 const fmtNumber = (v, decimals) =>
   toNum(v).toLocaleString(LOCALE, { minimumFractionDigits: 0, maximumFractionDigits: decimals });
 
-const fmtPct = (p, decimals) => `${p.toFixed(decimals)}%`;
+/* Percentages are cut, never rounded up: 99.99% reads 99.9%, and only a
+   real 100% shows 100. The nudge absorbs float noise (0.29 * 100 = 28.999…). */
+const cutPct = (p, dp = 1) => { const f = 10 ** dp; const v = Math.trunc(p * f + (p < 0 ? -1e-6 : 1e-6)) / f; return (Object.is(v, -0) ? 0 : v).toFixed(dp); };
+const fmtPct = (p, decimals) => `${cutPct(p, decimals)}%`;
 
 /**
  * Tone of a Model section: Sales reads green, Returns red, Offers neutral.
@@ -474,7 +477,12 @@ function usePin(ref, enabled) {
       const row = ref.current;
       const card = row?.closest(".esc-card");
       if (!row || !card) return;
-      const top = parseFloat(getComputedStyle(row).getPropertyValue("--esc-sticky-top")) || 0;
+      let top = parseFloat(getComputedStyle(row).getPropertyValue("--esc-sticky-top")) || 0;
+      // An offset past the screen would park the pin out of sight (a stray
+      // 931326 did exactly that): fall back to the Section Page header line.
+      if (top < 0 || top > window.innerHeight * 0.8) {
+        top = parseFloat(getComputedStyle(row).getPropertyValue("--sp-header-h")) || 0;
+      }
       if (row.getBoundingClientRect().top >= top) {
         setPin((p) => (p ? null : p));
         return;

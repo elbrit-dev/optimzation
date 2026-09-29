@@ -24,6 +24,10 @@ import TrendChart from "./TrendChart";
  * that sold nothing.
  */
 
+/* Percentages are cut, never rounded up: 99.99% reads 99.9%, and only a
+   real 100% shows 100. The nudge absorbs float noise (0.29 * 100 = 28.999…). */
+const cutPct = (p, dp = 1) => { const f = 10 ** dp; const v = Math.trunc(p * f + (p < 0 ? -1e-6 : 1e-6)) / f; return (Object.is(v, -0) ? 0 : v).toFixed(dp); };
+
 const STYLE_ID = "esw-team-card-styles";
 
 /* Field names as the API sends them. */
@@ -469,7 +473,7 @@ export default function TeamCard({
                 style={{ width: `${Math.max(0, Math.min(100, pct))}%` }}
               />
             </div>
-            <span className="tc-progress__pct">{pct.toFixed(1)}% sold</span>
+            <span className="tc-progress__pct">{cutPct(pct)}% sold</span>
           </div>
         ) : null}
 
