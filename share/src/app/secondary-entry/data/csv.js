@@ -65,8 +65,10 @@ export function buildSheetRows(entries, products = [], task = SECONDARY) {
 /* Products down, stockists across: "Product" over the product column, a
    column per stockist headed by its entry — for Secondary two, the entry
    over both (merged: see gridMerges) with Sales and Closing under.
-   Products in the order of the product list, then any a stockist carries
-   that the list does not. */
+   EVERY product of the list (the seat's department's, from the server) is
+   a row for every stockist — its figures where it has them, "-" where
+   another seat carries that product there, else blank to fill — and then
+   any a stockist carries that the list does not. */
 export const GRID_PRODUCT = 'Product';
 const NOT_TAKEN = '-';
 
@@ -79,13 +81,8 @@ export function buildGridRows(entries, products = [], task = SECONDARY) {
       order.push(item);
     }
   };
-  const itemsOf = entries.map((e) => {
-    const taken = new Set(e.otherItems ?? []);
-    const own = e.lines.length ? e.lines : products.filter((p) => !taken.has(p.item)).map((p) => ({ item: p.item, salesQty: '', closingQty: '' }));
-    return { entry: e, taken, byItem: new Map(own.map((l) => [l.item, l])) };
-  });
-  const listed = new Set(itemsOf.flatMap((x) => [...x.byItem.keys()]));
-  products.forEach((p) => listed.has(p.item) && add(p.item));
+  const itemsOf = entries.map((e) => ({ entry: e, taken: new Set(e.otherItems ?? []), byItem: new Map(e.lines.map((l) => [l.item, l])) }));
+  products.forEach((p) => add(p.item));
   itemsOf.forEach((x) => [...x.byItem.keys()].forEach(add));
 
   const header = [GRID_PRODUCT];

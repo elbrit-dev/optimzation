@@ -265,14 +265,50 @@ if seat:
                 "note": " · ".join(bits) or None,
             }
 
-    # ---- the products: the picker's list, and the prices lines are valued at
+    # ---- WHICH PRODUCTS: the seat's department's, as getUniqueItemsByDep
+    # decides them — Items in the Products group (descendants inclusive)
+    # whose Department Details table lists the department, on a row valid
+    # today (valid_from <= today <= valid_to, either end open). The
+    # department is the seat's Employee's (read past permissions: that one
+    # field). IT (see_all) and a seat with no department are offered every
+    # product of the group.
+    dept = None
+    if not see_all:
+        for h in frappe.get_all("Employee",
+                                filters={"custom_role_profile": seat, "status": "Active"},
+                                fields=["department"], limit_page_length=5):
+            if h.get("department"):
+                dept = h.get("department")
+                break
+    sold = None
+    if dept:
+        sold = {}
+        today = frappe.utils.nowdate()
+        for r in frappe.get_all(
+                "Item",
+                filters=[["Elbrit Department Table", "elbrit_department", "in", [dept]],
+                         ["Item", "item_group", "descendants of (inclusive)", "Products"]],
+                fields=["name",
+                        "`tabElbrit Department Table`.`valid_from` as valid_from",
+                        "`tabElbrit Department Table`.`valid_to` as valid_to"],
+                group_by="`tabElbrit Department Table`.name",
+                limit_page_length=0):
+            vf = str(r.get("valid_from") or "")
+            vt = str(r.get("valid_to") or "")
+            if (not vf or vf <= today) and (not vt or vt >= today):
+                sold[r.get("name")] = 1
+
+    # ---- the products: the picker's list, and the prices lines are valued
+    # at (a line's product outside the list is still priced, below)
     price = {}
     for it in frappe.get_list(
             "Item",
-            filters=[["item_group", "=", "Products"], ["disabled", "=", 0]],
+            filters=[["item_group", "descendants of (inclusive)", "Products"]],
             fields=["name", "item_name", "brand", "custom_last_mrp",
                     "custom_last_ptr", "custom_last_pts"],
             order_by="item_name asc", limit_page_length=0):
+        if sold is not None and not sold.get(it.get("name")):
+            continue
         products.append({
             "name": it.get("name"),
             "item_name": it.get("item_name"),
