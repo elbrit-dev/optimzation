@@ -1,10 +1,12 @@
 /* The harness's own ERP plumbing: which host an environment is, who a token
- * belongs to, the people you can act as, and — on non-production ERPs only —
- * minting a token for one of them with an admin token.
+ * belongs to, the people you can act as, and — with an admin token — the
+ * token a user already has, or a new one minted for them.
  *
- * MINTING REPLACES THAT USER'S API SECRET (Frappe's generate_keys issues a
- * new one; the old stops working). That is fine on UAT and is why it is
- * refused on production: there you paste a token the user already has. */
+ * READING THEIR CURRENT TOKEN changes nothing for them, so it comes first,
+ * on every ERP. MINTING REPLACES THEIR API SECRET (Frappe's generate_keys
+ * issues a new one; the old stops working, and so does anything signed in
+ * with it — the app included). Allowed everywhere; the screen asks first on
+ * production. */
 
 import { getEndpointConfigFromUrlKeyAsync, getEndpointOptionsAsync } from '@/app/graphql-playground/constants';
 
@@ -92,9 +94,26 @@ export async function listPeople(origin, adminToken, opts) {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/* A token for `email`, made with the admin token. NOT on production. */
+/* The token `email` ALREADY has — their api_key and decrypted api_secret,
+   read with the admin token. Nothing about them changes. → "key:secret",
+   or null when they have none yet. */
+export async function existingToken(env, adminToken, email, opts) {
+  const key = await erpCall(env.origin, adminToken, 'frappe.client.get_value', {
+    doctype: 'User', filters: email, fieldname: 'api_key',
+  }, opts);
+  if (!key?.api_key) return null;
+  let secret = null;
+  try {
+    secret = await erpCall(env.origin, adminToken, 'frappe.client.get_password', { doctype: 'User', name: email, fieldname: 'api_secret' }, opts);
+  } catch {
+    return null;
+  }
+  return secret ? `${key.api_key}:${secret}` : null;
+}
+
+/* A NEW token for `email`, made with the admin token. Replaces their API
+   secret — the caller confirms that on production. */
 export async function mintToken(env, adminToken, email, opts) {
-  if (env.production) throw new Error('Minting is off on production — paste a token this user already has.');
   const secret = await erpCall(env.origin, adminToken, 'frappe.core.doctype.user.user.generate_keys', { user: email }, opts);
   const key = await erpCall(env.origin, adminToken, 'frappe.client.get_value', {
     doctype: 'User', filters: email, fieldname: 'api_key',

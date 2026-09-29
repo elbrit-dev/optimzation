@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { controlsFor, parseObject, resolveProps, toSource } from '../lib/props';
-import { authHeader, listPeople, mintToken, whoIs } from '../lib/erp';
+import { authHeader, existingToken, listPeople, mintToken, whoIs } from '../lib/erp';
 import { secondaryEntryMeta } from '@/app/secondary-entry/plasmic.meta';
 import { secondaryApprovalMeta } from '@/app/secondary-approval/plasmic.meta';
 import { visitReportMeta } from '@/app/visit/plasmic.meta';
@@ -94,10 +94,24 @@ describe('ERP identity', () => {
     ]);
   });
 
-  it('mints on a test ERP, and refuses on production', async () => {
+  it('reads the token a user already has, changing nothing, and says when they have none', async () => {
+    const calls = [];
+    const fetchImpl = fake((m, body) => {
+      calls.push(m);
+      if (m === 'frappe.client.get_value') return body?.filters === 'none@x.org' ? {} : { api_key: 'key' };
+      if (m === 'frappe.client.get_password') return 'current';
+      return null;
+    });
+    const env = { origin: 'https://erp.elbrit.org', production: true };
+    expect(await existingToken(env, 'admin', 'b@x.org', { fetchImpl })).toBe('key:current');
+    expect(await existingToken(env, 'admin', 'none@x.org', { fetchImpl })).toBeNull();
+    expect(calls).not.toContain('frappe.core.doctype.user.user.generate_keys');
+  });
+
+  it('mints on any ERP (the screen confirms on production)', async () => {
     const fetchImpl = fake((m) =>
       m.endsWith('generate_keys') ? { api_secret: 'sec' } : m === 'frappe.client.get_value' ? { api_key: 'key' } : null);
     expect(await mintToken({ origin: 'https://uat.test', production: false }, 'admin', 'b@x.org', { fetchImpl })).toBe('key:sec');
-    await expect(mintToken({ origin: 'https://erp.elbrit.org', production: true }, 'admin', 'b@x.org', { fetchImpl })).rejects.toThrow(/production/);
+    expect(await mintToken({ origin: 'https://erp.elbrit.org', production: true }, 'admin', 'b@x.org', { fetchImpl })).toBe('key:sec');
   });
 });

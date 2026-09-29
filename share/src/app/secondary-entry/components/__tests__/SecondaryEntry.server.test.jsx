@@ -43,7 +43,9 @@ describe('SecondaryEntry from the server script', () => {
     );
     render(<SecondaryEntry gqlToken="k:s" month="2026-09" />);
     expect(await screen.findByText('Emc Pharmacy')).toBeInTheDocument();
-    expect(calls).toEqual([{ url: 'https://erp.test/api/method/elbrit_secondary_entry?month=2026-09', auth: 'token k:s' }]);
+    /* The entries once; beside them, the caller's team (for a manager's tree). */
+    expect(calls.filter((c) => !c.url.includes('elbrit_entry_team'))).toEqual([{ url: 'https://erp.test/api/method/elbrit_secondary_entry?month=2026-09', auth: 'token k:s' }]);
+    expect(calls.find((c) => c.url.includes('elbrit_entry_team'))).toEqual({ url: 'https://erp.test/api/method/elbrit_entry_team?task=secondary&month=2026-09', auth: 'token k:s' });
   });
 
   it('says what went wrong when the script fails', async () => {

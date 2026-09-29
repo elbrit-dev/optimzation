@@ -50,3 +50,22 @@ export function doneCount(submissions) {
   return { done, total, percent: total ? Math.round((done / total) * 100) : 0 };
 }
 
+
+/* A team member's month on the Approval screen, from the trackers in hand:
+   theirs by seat (or, a seat's holder changing, by who raised them) —
+   approved (approved or waiting for verification), rework (sent back or
+   rejected: with the BE again) and waiting (with an approver). The shape
+   TeamProgress reads: { approved, waiting, todo, total }. */
+export function teamApprovalCounts(slices, member) {
+  const out = { approved: 0, waiting: 0, todo: 0, total: 0 };
+  const user = String(member?.user ?? '').toLowerCase();
+  for (const s of slices ?? []) {
+    const mine = (member?.seat && s.roleProfile === member.seat) || (user && s.raiser === user);
+    if (!mine) continue;
+    out.total += 1;
+    if (s.status === 'approved') out.approved += 1;
+    else if (s.status === 'rejected' || /^rework$/i.test(String(s.state ?? ''))) out.todo += 1;
+    else out.waiting += 1;
+  }
+  return out;
+}

@@ -7,7 +7,7 @@ import { listEnvironments } from '../lib/erp';
 import { DROPDOWN_STYLE, FieldLabel, RailSection } from './RailSection';
 
 /* Which ERP, and the admin token the harness uses there to list people and
-   (not on production) mint their tokens — the one typed here, else the
+   mint their tokens — the one typed here, else the
    environment's own token from /tokens. */
 export function EnvironmentPanel({ envName, setEnvName, identity }) {
   const [options, setOptions] = useState([envName]);
@@ -47,7 +47,7 @@ export function EnvironmentPanel({ envName, setEnvName, identity }) {
         onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
         hint={
           (env?.production
-            ? 'Lists people here. Production never mints tokens — paste a user’s own.'
+            ? 'Lists people and reads their tokens here; minting asks first on production.'
             : 'Lists people and mints their tokens here. Kept in this browser only.') +
           (identity.adminSource === 'tokens' ? ` Empty: using the ${envName} token from /tokens.` : '')
         }

@@ -11,9 +11,10 @@
 #
 # The Secondary Approval screen's data for the CALLER, in one call, NO CAP,
 # only what is shown. READ-ONLY (decisions stay the app's workflow calls).
-# AS THE TOKEN'S USER: every list is frappe.get_list, so the ERP's own
-# permissions decide — the "Operational Tracker Restriction" which
-# trackers, the entry permission which lines can be read.
+# AS THE TOKEN'S USER, then THE TEAM: the trackers the ERP lets the caller
+# read (frappe.get_list — the "Operational Tracker Restriction"), and those
+# of everyone under them in the reporting chain (read past permissions, that
+# subtree only). Everything read after is by those trackers' names.
 #
 #   months    every month the caller has a Secondary tracker in, with how
 #             many wait — light (names and states only), for the switcher.
@@ -87,10 +88,46 @@ today_month = frappe.utils.nowdate()[:7]
 base = [["reference_doctype", "=", "Secondary Data Entry"]]
 
 # ---- light: every visible tracker, for the months and their counts
-light = frappe.get_list("Operational Tracker", filters=base,
-                        fields=["name", "role_profile", "workflow_state",
-                                "custom_ref_secondary_data_entry"],
+LIGHT_FIELDS = ["name", "role_profile", "workflow_state", "custom_ref_secondary_data_entry"]
+light = frappe.get_list("Operational Tracker", filters=base, fields=LIGHT_FIELDS,
                         limit_page_length=0)
+
+# ---- THE CALLER'S TEAM: the trackers of everyone under them in the
+# reporting chain (Employee reports_to, any depth), in EVERY state — a
+# manager views their team's approvals whole, not only what waits on them.
+# Read past permissions (frappe.get_all), for that subtree only. What they
+# may DO on each stays the workflow's: the screen asks it per tracker, so a
+# tracker they cannot act on shows read-only.
+team_seats = []
+own = frappe.get_all("Employee", filters={"user_id": me, "status": "Active"}, fields=["name"], limit_page_length=1)
+if own:
+    frontier = [own[0].get("name")]
+    reached = {frontier[0]: 1}
+    hops = 0
+    while frontier and hops < 8:
+        hops = hops + 1
+        below = []
+        for part in chunks(frontier):
+            for e in frappe.get_all("Employee",
+                                    filters=[["reports_to", "in", part], ["status", "=", "Active"]],
+                                    fields=["name", "custom_role_profile"], limit_page_length=0):
+                if reached.get(e.get("name")):
+                    continue
+                reached[e.get("name")] = 1
+                below.append(e.get("name"))
+                s = e.get("custom_role_profile")
+                if s and s not in team_seats:
+                    team_seats.append(s)
+        frontier = below
+listed = {}
+for t in light:
+    listed[t.get("name")] = 1
+for part in chunks(team_seats):
+    for t in frappe.get_all("Operational Tracker", filters=base + [["role_profile", "in", part]],
+                            fields=LIGHT_FIELDS, limit_page_length=0):
+        if not listed.get(t.get("name")):
+            listed[t.get("name")] = 1
+            light.append(t)
 # Each tracker's entry, and that entry's own `date` — the month it is for.
 light_entries = []
 for t in light:
@@ -100,7 +137,7 @@ for t in light:
         light_entries.append(e)
 entry_date = {}
 for part in chunks(light_entries):
-    for d in frappe.get_list("Secondary Data Entry", filters=[["name", "in", part]],
+    for d in frappe.get_all("Secondary Data Entry", filters=[["name", "in", part]],
                              fields=["name", "date"], limit_page_length=0):
         entry_date[d.get("name")] = str(d.get("date") or "")
 
@@ -140,7 +177,7 @@ if month:
     # entry's date — fetched by name.
     rows = []
     for part in chunks(names_in.get(month, [])):
-        rows = rows + frappe.get_list(
+        rows = rows + frappe.get_all(
             "Operational Tracker",
             filters=base + [["name", "in", part]],
             fields=["name", "role_profile", "workflow_state", "next_role", "next_approver",
@@ -161,10 +198,10 @@ if month:
     lines = {}
     item_codes = []
     for part in chunks(entry_names):
-        for d in frappe.get_list("Secondary Data Entry", filters=[["name", "in", part]],
+        for d in frappe.get_all("Secondary Data Entry", filters=[["name", "in", part]],
                                  fields=["name", "date", "distributor"], limit_page_length=0):
             head[d.get("name")] = d
-        for r in frappe.get_list(
+        for r in frappe.get_all(
                 "Secondary Data Entry", filters=[["name", "in", part]],
                 fields=["name", LINE + ".idx as idx", LINE + ".item as item",
                         LINE + ".sales_qty as sales_qty", LINE + ".sales_value as sales_value",
@@ -183,7 +220,7 @@ if month:
 
     brand = {}
     for part in chunks(item_codes):
-        for it in frappe.get_list("Item", filters=[["name", "in", part]],
+        for it in frappe.get_all("Item", filters=[["name", "in", part]],
                                   fields=["name", "brand"], limit_page_length=0):
             brand[it.get("name")] = it.get("brand")
 
@@ -194,7 +231,7 @@ if month:
             dist_codes.append(c)
     dist = {}
     for part in chunks(dist_codes):
-        for c in frappe.get_list("Customer", filters=[["name", "in", part]],
+        for c in frappe.get_all("Customer", filters=[["name", "in", part]],
                                  fields=["name", "whg_ebs_code", "territory"], limit_page_length=0):
             dist[c.get("name")] = {"whg_ebs_code": c.get("whg_ebs_code"),
                                    "territory__name": c.get("territory")}
