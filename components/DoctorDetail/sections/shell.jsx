@@ -12,8 +12,8 @@
 
 import React from "react";
 
-import useContainerMode from "../DoctorDetail/lib/useContainerMode";
-import styles from "../DoctorDetail/styles";
+import useContainerMode from "../lib/useContainerMode";
+import styles from "../styles";
 
 export { useContainerMode };
 

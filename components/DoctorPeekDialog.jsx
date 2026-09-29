@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useId, useRef, useState } from "react";
 import { ArrowUpRight, Check, ChevronDown, Copy, Loader2, MapPin, Plus, X } from "lucide-react";
 
-import useDoctorConsole from "./DoctorConsole/useDoctorConsole";
+import useDoctorDetail from "./DoctorDetail/lib/useDoctorDetail";
+import { parseDepartment, shortDivision } from "./DoctorDetail/lib/erp";
 
 /**
  * DoctorPeekDialog — the doctor card's preview popup.
@@ -25,7 +26,7 @@ import useDoctorConsole from "./DoctorConsole/useDoctorConsole";
 /**
  * The history the legacy "Dr. Information" screen showed, inside this popup.
  *
- * It reads through useDoctorConsole -- the SAME session, reads and derivations
+ * It reads through useDoctorDetail -- the SAME reads and derivations
  * the doctor detail page uses -- so a figure here can never disagree with the
  * figure on that page, and a reader who opens the popup and then the page sees
  * one story. The read only happens once a card is actually opened: this file is
@@ -83,8 +84,8 @@ function fday(value) {
   return String(t.getDate()).padStart(2, "0") + "-" + MON[t.getMonth()] + "-" + t.getFullYear();
 }
 
-export function PeekHistory({ doctor, erpUrl, authToken, employee }) {
-  const c = useDoctorConsole({ doctor, erpUrl, authToken, employee, period: "all" });
+export function PeekHistory({ doctor, erpUrl, authToken, employee, visibleDepartments = null }) {
+  const c = useDoctorDetail({ doctor, erpUrl, authToken, employee, period: "all" });
   /*
    * Both pieces of state are declared BEFORE the early returns below. React
    * counts hooks by call order, so a useState sitting after `if (!c) return`
@@ -111,7 +112,13 @@ export function PeekHistory({ doctor, erpUrl, authToken, employee }) {
    * Every section below answers to this, which is why the filter is applied
    * once here rather than per section.
    */
-  const divisions = c.doctor?.divisions ?? [];
+  /* Only the reader's OWN divisions (`visibleDepartments`, from the card's
+     scoped Coverage). The rows are already narrowed to them, so a tab for a
+     division outside the team would only ever open onto nothing. */
+  const ownDivs = visibleDepartments
+    ? new Set(visibleDepartments.map((d) => shortDivision(parseDepartment(d).division)))
+    : null;
+  const divisions = (c.doctor?.divisions ?? []).filter((d) => !ownDivs || ownDivs.has(d.key));
   const tabs = divisions.length > 1
     ? [{ key: "all", label: "All" }, ...divisions.map((d) => ({ key: d.key, label: d.label ?? d.key }))]
     : [];
@@ -322,6 +329,7 @@ export default function DoctorPeekDialog({
   erpUrl,
   authToken,
   employee,
+  visibleDepartments = null,
   detailLabel = "Doctor detail",
   onAddPob,
   onOpenDetail,
@@ -530,7 +538,7 @@ export default function DoctorPeekDialog({
               mounted when the popup is open, and only when the card was given
               an ERP credential to read with. */}
           {doctorRow && erpUrl && authToken ? (
-            <PeekHistory doctor={doctorRow} erpUrl={erpUrl} authToken={authToken} employee={employee} />
+            <PeekHistory doctor={doctorRow} erpUrl={erpUrl} authToken={authToken} employee={employee} visibleDepartments={visibleDepartments} />
           ) : null}
         </div>
 

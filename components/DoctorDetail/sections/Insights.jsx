@@ -18,15 +18,14 @@
 
 import React, { useCallback } from "react";
 
-import Trend from "../DoctorDetail/ui/Trend";
-import DataTable from "../DoctorDetail/ui/DataTable";
-import Activity from "../DoctorDetail/ui/Activity";
-import { SupportItemsModal } from "../DoctorDetail/ui/Modals";
-import { Icon } from "../DoctorDetail/ui/parts";
-import { UNATTRIBUTED_NOTE } from "../DoctorDetail/lib/console";
-import { fdate, plural } from "../DoctorDetail/lib/format";
+import Trend from "../ui/Trend";
+import DataTable from "../ui/DataTable";
+import Activity from "../ui/Activity";
+import { SupportItemsModal } from "../ui/Modals";
+import { Icon } from "../ui/parts";
+import { UNATTRIBUTED_NOTE } from "../lib/console";
+import { fdate, plural } from "../lib/format";
 import { CardShell, Unbound, useContainerMode } from "./shell";
-import useDoctorConsole from "./useDoctorConsole";
 
 const FOOTNOTE = "Expanding a department shows its product lines — support items from Ecubix and "
   + "POB lines from the quotation ledger. Service is a payment, so it has no products. "
@@ -35,7 +34,8 @@ const FOOTNOTE = "Expanding a department shows its product lines — support ite
 export default function DoctorInsightsCard(props) {
   const { startOn = "table", showSwitch = true, showTrend = true, className, style } = props;
 
-  const c = useDoctorConsole(props);
+  // The page reads once and hands every section the same console object.
+  const { c } = props;
   const [ref, compact] = useContainerMode(720);
 
   // The totals strip scrolls to this panel when one of its cards is opened, and

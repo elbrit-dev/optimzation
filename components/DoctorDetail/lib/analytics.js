@@ -20,6 +20,14 @@ export function financialYearStart(at = now()) {
   return at.getMonth() >= 3 ? new Date(y, 3, 1) : new Date(y - 1, 3, 1);
 }
 
+/**
+ * The page's floor: nothing before 1 April of the current Indian financial
+ * year is read or shown (the reads are cut there too — see loadDoctor.js).
+ */
+export function dataFloor(at = now()) {
+  return financialYearStart(at).getTime();
+}
+
 const mStart = (y, m) => new Date(y, m, 1).getTime();
 const mEnd = (y, m) => new Date(y, m + 1, 0, 23, 59, 59).getTime();
 
@@ -72,6 +80,19 @@ export function resolveRange(range, at = now()) {
     from = mStart(a[0], a[1] - 1);
     to = mEnd(b[0], b[1] - 1);
     label = monthLabel(a[0], a[1] - 1) + " – " + monthLabel(b[0], b[1] - 1);
+  }
+
+  /*
+   * Every period stops at the start of the financial year. "All time" becomes
+   * the FY to date, and a 3- or 6-month window that would reach back past
+   * April starts at April instead — its label says so.
+   */
+  const floor = fy.getTime();
+  if (from < floor) {
+    from = floor;
+    label = mode === "all" || to === Infinity
+      ? fyLabel
+      : monthLabel(fy.getFullYear(), 3) + " – " + monthLabel(new Date(to).getFullYear(), new Date(to).getMonth());
   }
 
   return { mode, from, to, label, fyLabel, bounded: from > -Infinity };

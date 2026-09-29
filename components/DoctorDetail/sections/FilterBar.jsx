@@ -15,15 +15,15 @@
 
 import React from "react";
 
-import { FilterModal } from "../DoctorDetail/ui/Modals";
-import { Icon } from "../DoctorDetail/ui/parts";
+import { FilterModal } from "../ui/Modals";
+import { Icon } from "../ui/parts";
 import { CardShell, Unbound, useContainerMode } from "./shell";
-import useDoctorConsole from "./useDoctorConsole";
 
 export default function DoctorFilterBar(props) {
   const { showViewer = true, showWarnings = true, className, style } = props;
 
-  const c = useDoctorConsole(props);
+  // The page reads once and hands every section the same console object.
+  const { c } = props;
   const [ref, compact] = useContainerMode(720);
 
   if (!c) return <Unbound what="The doctor filter bar" innerRef={ref} className={className} style={style} />;

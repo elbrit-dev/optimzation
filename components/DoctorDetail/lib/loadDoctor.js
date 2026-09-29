@@ -1,35 +1,36 @@
 "use client";
 
 /**
- * Every ERP read the doctor console makes, as ONE plain async function.
+ * Every ERP read the doctor detail makes, as ONE plain async function over a
+ * GraphQL connection (see source.js).
  *
- * Deliberately not a hook. Five separately-placed cards must not fire five sets
- * of reads, so the reading lives in a module-level session
- * (`DoctorConsole/session.js`) that any number of cards subscribe to. A hook
- * could not be shared that way.
+ * Two waves, as before. Wave one is the org (who is reading, and everyone under
+ * them) alongside the six doctor reads, all fired together. Wave two is purely
+ * local now: the rows are narrowed to the reader's span and the visit rows'
+ * employee ids are turned into roles and departments from the org already in
+ * hand — no second trip to ERP.
  *
- * Two waves. Wave one is the six independent reads, fired together. Wave two is
- * the employee lookup, which cannot start until wave one has told us WHICH
- * people to look up — POBs name a login and visits name an employee id, and
- * both have to become a role and a department before the table or the coverage
- * ring mean anything.
+ * Every read fails ON ITS OWN. A refused or broken read empties its own panel
+ * and names itself in `errors` / `denied`; it never takes the rest of the page
+ * with it. Only a missing connection is fatal.
  *
- * Nothing is bounded by the selected period. The chart's window is the last
- * twelve months of anything on record, so clipping the fetch to the period
- * would empty the chart the moment someone picked "This month". A doctor's
- * whole history is a few hundred rows at the outside, so it is read whole and
- * filtered in the browser.
+ * Nothing is bounded by the selected period: the chart's window is the last
+ * twelve months of anything on record, and a doctor's whole history is a few
+ * hundred rows at the outside, so it is read whole and filtered in the browser.
  */
 
-import { ensureErpAuth, fetchEmployeeIndex, resolveViewer } from "./erp";
+import { ladderRole, parseDepartment, rolePrefix } from "./erp";
+import { SERVICE_MIN_RANK, gradeRank } from "./grade";
+import { dataFloor } from "./analytics";
 import {
-  fetchAddresses, fetchLead, fetchPobs, fetchServices, fetchSupport, fetchVisits,
-} from "./queries";
+  fetchAddresses, fetchLead, fetchOrg, fetchPobs, fetchServices, fetchSupport, fetchVisits,
+} from "./source";
 import {
   deriveClinics, deriveDoctor, deriveNotes, derivePharmacies, derivePobs,
   deriveServices, deriveSupport, deriveVisits, eventOwnerIndex, normalizeRow,
 } from "./derive";
-import { resolveScope, scopeRawRows } from "./scope";
+import { FEATURES } from "./features";
+import { resolveScopeFromOrg, scopeLeadCoverage, scopeRawRows } from "./scope";
 
 const EMPTY = Object.freeze([]);
 
@@ -42,7 +43,7 @@ export function readDoctorInput(doctorInput) {
   return { bound, doctorId };
 }
 
-/** What a session shows before anything has landed. */
+/** What the page shows before anything has landed. */
 export function emptyData(doctorId, bound) {
   return {
     doctorId,
@@ -64,59 +65,104 @@ export function emptyData(doctorId, bound) {
 }
 
 /**
+ * WHO is reading, from the org. The token names a User; the Employee keyed to
+ * that User names the seat. `user_id`, never `company_email` — field staff
+ * routinely have that empty. ERP hands a login on to replacements, so where
+ * several rows share it the Active one wins.
+ *
+ * Unresolved is the LEAST privileged reader: no row, no service figures.
+ */
+export function viewerFromOrg(org) {
+  const email = String(org?.email ?? "").trim() || null;
+  const mine = email ? (org?.rows ?? []).filter((r) => String(r.user_id ?? "").toLowerCase() === email.toLowerCase()) : [];
+  const row = mine.find((r) => r.status === "Active") ?? mine[0] ?? null;
+  const roleId = row?.custom_role_profile ?? row?.role_id ?? null;
+  const rank = gradeRank({ roleId, designation: row?.designation });
+  return {
+    email,
+    employee: row?.name ?? null,
+    employeeName: row?.employee_name ?? null,
+    designation: row?.designation ?? null,
+    roleId,
+    role: rolePrefix(roleId) ?? null,
+    rank,
+    division: parseDepartment(row?.department).division,
+    hq: row?.fsl_hq ?? row?.custom_territory ?? null,
+    canSeeService: rank >= SERVICE_MIN_RANK,
+    row,
+    resolved: !!row,
+  };
+}
+
+/** Employee id -> { role, department, … } for the visit rows, from the org. */
+function employeeIndex(org) {
+  const byId = new Map();
+  for (const row of org?.rows ?? []) {
+    const roleId = row.custom_role_profile ?? row.role_id ?? null;
+    const department = parseDepartment(row.department);
+    byId.set(row.name, {
+      employee: row.name,
+      name: row.employee_name,
+      role: ladderRole(roleId),
+      roleId,
+      division: department.division,
+      department: department.label,
+      hq: row.fsl_hq ?? row.custom_territory ?? null,
+    });
+  }
+  return { byId };
+}
+
+/**
  * Read everything for one doctor.
  *
- * `isStale()` is checked at every await boundary so a session that has been
- * pointed at another doctor — or torn down — never paints the old one's rows.
+ * `isStale()` is checked at every await boundary so a page that has been
+ * pointed at another doctor — or unmounted — never paints the old one's rows.
  */
 export async function loadDoctorData(
-  { doctorId, bound, erpUrl, authToken, employee, roleProfile, pobLimit = 500 },
+  { conn, doctorId, bound, employee, roleProfile, pobLimit = 500 },
   isStale = () => false
 ) {
-  let scope = "user";
-  let endpoint = null;
-  try {
-    ({ scope, endpoint } = await ensureErpAuth({ erpUrl, authToken }));
-  } catch (error) {
-    return { ...emptyData(doctorId, bound), loading: false, fatal: error?.message ?? "No ERP endpoint is configured." };
-  }
-  if (isStale()) return null;
-
-  // Who is reading. Resolved before anything else so a failure here cannot be
-  // mistaken for a data failure, and so the service reads below are never even
-  // issued for a viewer who may not see them.
-  const viewer = await resolveViewer().catch(() => null);
-  if (isStale()) return null;
-  const canSeeService = !!viewer?.canSeeService;
-
-  // WHAT they may count, not just who they are. The span walk is a handful of
-  // Employee reads and is issued alongside the doctor reads below rather than
-  // before them, because nothing can be filtered until both have landed anyway.
-  const scopePromise = resolveScope(viewer?.row ?? null, { employee, roleProfile }).catch(() => null);
-
-  // A read can fail two ways and they must not be reported the same. 403 means
-  // this user's ERP role cannot see that doctype — not a bug, and not something
-  // a Retry button will ever fix.
   const errors = {};
   const denied = {};
-  const run = async (name, fn, fallback) => {
+  // 403-shaped answers are a permission, not a bug: a Retry will never fix them.
+  const run = async (name, promise, fallback) => {
     try {
-      return await fn();
+      return await promise;
     } catch (error) {
-      if (error?.denied) denied[name] = true; else errors[name] = true;
+      if (/permission|not permitted|403|forbidden/i.test(String(error?.message ?? ""))) denied[name] = true;
+      else errors[name] = true;
+      console.warn(`[doctor-detail] ${name} failed:`, error);
       return fallback;
     }
   };
 
-  const vars = { name: doctorId, first: Math.max(1, Math.min(1000, Number(pobLimit) || 500)) };
-  const [lead, supportAll, serviceAll, addressRaw, pobAll, visitAll, span] = await Promise.all([
-    run("lead", () => fetchLead(vars), null),
-    run("support", () => fetchSupport(doctorId), EMPTY),
-    canSeeService ? run("service", () => fetchServices(doctorId), EMPTY) : Promise.resolve(EMPTY),
-    run("addresses", () => fetchAddresses(doctorId), EMPTY),
-    run("pobs", () => fetchPobs(vars), EMPTY),
-    run("visits", () => fetchVisits(vars), EMPTY),
-    scopePromise,
+  const org = await run("org", fetchOrg(conn), null);
+  if (isStale()) return null;
+  const viewer = viewerFromOrg(org);
+  const canSeeService = viewer.canSeeService;
+
+  const first = Math.max(1, Math.min(1000, Number(pobLimit) || 500));
+  /*
+   * ONLY THE CURRENT FINANCIAL YEAR — from 1 April — is read. The dated reads
+   * ask ERP for that window; everything is cut again below after deriving,
+   * which also covers Doctor Service (its service_date can be null, so it is
+   * read whole and cut here) and the notes, which arrive on the Lead.
+   */
+  const floor = dataFloor();
+  const f = new Date(floor);
+  const since = f.getFullYear() + "-" + String(f.getMonth() + 1).padStart(2, "0") + "-01";
+  const inFy = (rows) => (rows ?? []).filter((r) => r?.t != null && r.t >= floor);
+  const [span, lead, supportAll, serviceAll, addressRaw, pobAll, visitAll] = await Promise.all([
+    run("scope", resolveScopeFromOrg(viewer.row, org ?? {}, { employee, roleProfile }), null),
+    run("lead", fetchLead(conn, doctorId), null),
+    run("support", fetchSupport(conn, doctorId, since), { totals: [], items: [] }),
+    // Never even asked for a reader who may not see it.
+    canSeeService ? run("service", fetchServices(conn, doctorId), EMPTY) : Promise.resolve(EMPTY),
+    // Switched off for now (lib/features.js) — not even asked for.
+    FEATURES.clinics ? run("addresses", fetchAddresses(conn, doctorId), EMPTY) : Promise.resolve(EMPTY),
+    run("pobs", fetchPobs(conn, doctorId, first, since), EMPTY),
+    run("visits", fetchVisits(conn, doctorId, since), EMPTY),
   ]);
   if (isStale()) return null;
 
@@ -125,47 +171,48 @@ export async function loadDoctorData(
   const { support: supportRaw, service: serviceRaw, pobs: pobRaw, visits: visitRaw } =
     scopeRawRows(span, { support: supportAll, service: serviceAll, pobs: pobAll, visits: visitAll });
 
-  // Wave two: turn employee ids into roles and departments. Only the VISIT rows
-  // name an employee — a Quotation names none, which is why POBs are attributed
-  // through the visit they were raised on rather than through whoever saved them.
-  const index = await fetchEmployeeIndex({
-    employeeIds: (visitRaw ?? []).map((v) => (
-      typeof v?.custom_employee_id === "string"
-        ? v.custom_employee_id
-        : v?.custom_employee_id?.employee ?? v?.custom_employee_id__name
-    )),
-  }).catch(() => ({ byId: new Map() }));
-  if (isStale()) return null;
+  const visits = inFy(deriveVisits(visitRaw, employeeIndex(org)));
+  const pobs = inFy(derivePobs(pobRaw, eventOwnerIndex(visits)));
+  const support = inFy(deriveSupport(supportRaw));
+  const service = inFy(deriveServices(serviceRaw));
 
-  const doctor = deriveDoctor(lead, bound, doctorId);
-  const visits = deriveVisits(visitRaw, index);
-  const pobs = derivePobs(pobRaw, eventOwnerIndex(visits));
+  // The doctor's departments, HQs and covering reps, cut to the reader's team
+  // the same way the rows were — see scopeLeadCoverage. A division the doctor
+  // has and the reader's OWN (already scoped) rows fall under stays too, so a
+  // teammate's real visit is never dropped just because the Lead's coverage
+  // table does not list that pairing.
+  const full = deriveDoctor(lead, bound, doctorId);
+  const doctor = deriveDoctor(scopeLeadCoverage(lead, span), bound, doctorId);
+  const ownDivs = new Set([...visits, ...pobs, ...service, ...support].map((r) => r?.div).filter(Boolean));
+  const extra = (full.divisions ?? []).filter((d) => ownDivs.has(d.key) && !doctor.divisions.some((x) => x.key === d.key));
+  if (extra.length) {
+    doctor.divisions = [...doctor.divisions, ...extra];
+    doctor.divs = doctor.divisions.map((d) => d.key);
+  }
 
   return {
     doctorId,
     loading: false,
     ready: true,
     fatal: null,
-    scope,
-    // WHICH ERP answered. Kept so the page can name it: a UAT front end reading
-    // production is invisible otherwise, and that is exactly how permission
-    // fixes get applied to the wrong instance.
-    endpoint,
+    scope: "user",
+    // WHICH ERP answered. A UAT front end reading production is invisible
+    // otherwise, and that is how permission fixes land on the wrong instance.
+    endpoint: conn.endpointUrl,
     viewer,
     span,
     // False means we could not establish WHAT this reader covers, so every
-    // scoped panel is empty on purpose. The page must say so — otherwise it
-    // reads as a doctor with no history.
+    // scoped panel is empty on purpose — and the page says so.
     scoped: !!span?.resolved,
     canSeeService,
     doctor,
-    support: deriveSupport(supportRaw),
-    service: deriveServices(serviceRaw),
+    support,
+    service,
     pobs,
     visits,
-    notes: deriveNotes(lead),
-    clinics: deriveClinics(addressRaw, doctor),
-    pharmacies: derivePharmacies(pobs),
+    notes: inFy(deriveNotes(lead)),
+    clinics: FEATURES.clinics ? deriveClinics(addressRaw, doctor) : EMPTY,
+    pharmacies: FEATURES.pharmacies ? derivePharmacies(pobs) : EMPTY,
     errors,
     denied,
   };

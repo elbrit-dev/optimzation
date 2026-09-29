@@ -19,30 +19,34 @@
 import React from "react";
 import dynamic from "next/dynamic";
 
-import Hero from "../DoctorDetail/ui/Hero";
-import { MapModal, NoteModal, PharmacyModal } from "../DoctorDetail/ui/Modals";
+import Hero from "../ui/Hero";
+import { MapModal, NoteModal, PharmacyModal } from "../ui/Modals";
+import { FEATURES } from "../lib/features";
 import { CardShell, Unbound, useContainerMode } from "./shell";
-import useDoctorConsole from "./useDoctorConsole";
 
 // The POB capture drags in the calendar's form kit, its ERP services and the
 // item master. The card renders fine without any of it, so it arrives the first
 // time somebody presses Add POB.
-const DoctorPobDialog = dynamic(() => import("../DoctorPobDialog"), { ssr: false });
+const DoctorPobDialog = dynamic(() => import("../../DoctorPobDialog"), { ssr: false });
 
 export default function DoctorHeroCard(props) {
   const {
-    showRoi = true, showClinics = true, showActions = true, layout = "auto",
+    showRoi = true, showActions = true, layout = "auto",
     onAddClinic, onAddPharmacy, onRequestService, onPobSaved,
     className, style,
   } = props;
 
-  const c = useDoctorConsole(props);
+  // The page reads once and hands every section the same console object.
+  const { c } = props;
   const [ref, measured] = useContainerMode(720);
 
   if (!c) return <Unbound what="The doctor hero card" innerRef={ref} className={className} style={style} />;
 
   const compact = layout === "auto" ? measured : layout === "compact";
   const { on, ui } = c;
+  // Both switched off for now — see lib/features.js.
+  const showClinics = FEATURES.clinics;
+  const showPharmacies = FEATURES.pharmacies;
   const clinicIndex = Math.min(ui.clinicIdx, Math.max(0, c.clinics.length - 1));
   const ident = { doctor: c.doctor, code: c.doctorId };
 
@@ -54,8 +58,6 @@ export default function DoctorHeroCard(props) {
         doctor={c.doctor}
         compact={compact}
         loading={c.loading}
-        since={c.heroSince}
-        age={c.heroAge}
         roiTill={c.heroRoiTill}
         // `showRoi` can only HIDE it. Whether the reader may see service figures
         // at all is decided by their ERP token, never by a prop — otherwise
@@ -71,6 +73,8 @@ export default function DoctorHeroCard(props) {
         // otherwise.
         onAddClinic={showClinics ? () => onAddClinic?.(ident) : undefined}
         onOpenMap={() => on.openModal("map")}
+        showClinics={showClinics}
+        showPharmacies={showPharmacies}
         pharmacyCount={c.pharmacies.length}
         onOpenRx={() => on.openModal("rx")}
         onAddPob={showActions ? on.openPob : undefined}
@@ -78,7 +82,7 @@ export default function DoctorHeroCard(props) {
         onRequestService={showActions && onRequestService ? () => onRequestService(ident) : undefined}
       />
 
-      {ui.modal === "map" ? (
+      {showClinics && ui.modal === "map" ? (
         <MapModal
           clinics={c.clinics}
           index={clinicIndex}
@@ -91,7 +95,7 @@ export default function DoctorHeroCard(props) {
         />
       ) : null}
 
-      {ui.modal === "rx" ? (
+      {showPharmacies && ui.modal === "rx" ? (
         <PharmacyModal
           rows={c.pharmacies}
           money={c.money}
@@ -124,8 +128,8 @@ export default function DoctorHeroCard(props) {
           // Add POB defaults to them and narrows the dropdown to them plus
           // everyone under them.
           employee={c.viewer?.employee ?? null}
-          erpUrl={props.erpUrl}
-          authToken={props.authToken}
+          erpUrl={props.url || props.erpUrl}
+          authToken={props.token || props.authToken}
           onSaved={(payload) => { on.setPobOpen(false); on.refresh(); onPobSaved?.(payload); }}
         />
       ) : null}

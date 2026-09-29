@@ -13,10 +13,10 @@ import React from "react";
 import { Skeleton } from "./parts";
 
 export default function Hero({
-  doctor, compact, loading, since, age,
+  doctor, compact, loading,
   roiTill, canSeeService, stats,
   clinics, clinicIndex, onPickClinic, onAddClinic, onOpenMap,
-  pharmacyCount, onOpenRx,
+  pharmacyCount, onOpenRx, showClinics = true, showPharmacies = true,
   onAddPob, onAddNote, onRequestService,
 }) {
   const clinic = clinics[clinicIndex] ?? null;
@@ -39,18 +39,19 @@ export default function Hero({
               {[doctor.spec, doctor.id, doctor.city].filter(Boolean).join(" · ")}
             </div>
             <div className="dx-sub2 dx-break">
-              {[doctor.catLine || "No category on file", age ? "on file " + age : null]
-                .filter(Boolean).join(" · ")}
+              {doctor.catLine || "No category on file"}
             </div>
           </div>
           <div style={{ flex: "none", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5 }}>
             {canSeeService ? (
               <div className="dx-roi--c"><span>ROI</span><b className="dx-num">{roiTill}</b></div>
             ) : null}
-            <button type="button" className="dx-rx--c" onClick={onOpenRx}
-              aria-label={"Show " + pharmacyCount + " linked pharmacies"}>
-              Rx · {pharmacyCount}
-            </button>
+            {showPharmacies ? (
+              <button type="button" className="dx-rx--c" onClick={onOpenRx}
+                aria-label={"Show " + pharmacyCount + " linked pharmacies"}>
+                Rx · {pharmacyCount}
+              </button>
+            ) : null}
           </div>
         </div>
       ) : (
@@ -71,7 +72,6 @@ export default function Hero({
               <span className="dx-code">{doctor.id}</span>
               {doctor.cats.map((c) => <span className="dx-tag" key={c}>{c}</span>)}
               {doctor.divisions.map((d) => <span className="dx-tag" key={d.key}>{d.key}</span>)}
-              {since ? <span className="dx-hero-since">On file {since} · {age}</span> : null}
             </div>
           </div>
           <div className="dx-hero-side">
@@ -81,11 +81,13 @@ export default function Hero({
                 <b className="dx-num">{roiTill}</b>
               </div>
             ) : null}
-            <button type="button" className="dx-rx" onClick={onOpenRx}
-              aria-label={"Show " + pharmacyCount + " linked pharmacies"}>
-              <i>Rx</i>
-              {pharmacyCount} {pharmacyCount === 1 ? "pharmacy" : "pharmacies"}
-            </button>
+            {showPharmacies ? (
+              <button type="button" className="dx-rx" onClick={onOpenRx}
+                aria-label={"Show " + pharmacyCount + " linked pharmacies"}>
+                <i>Rx</i>
+                {pharmacyCount} {pharmacyCount === 1 ? "pharmacy" : "pharmacies"}
+              </button>
+            ) : null}
           </div>
         </div>
       )}
@@ -102,6 +104,7 @@ export default function Hero({
         </div>
       ) : null}
 
+      {showClinics ? (
       <div className="dx-clinics">
         <div className="dx-clinic-row">
           <span className="dx-eyebrow">Clinic</span>
@@ -176,6 +179,7 @@ export default function Hero({
           </div>
         ) : null}
       </div>
+      ) : null}
 
       <div className="dx-acts">
         <button type="button" className="dx-btn dx-btn--primary" onClick={onAddPob}>Add POB</button>

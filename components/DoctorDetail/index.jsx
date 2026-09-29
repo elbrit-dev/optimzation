@@ -1,48 +1,77 @@
 "use client";
 
 /**
- * The doctor page, as approved by management in September 2026 — now just the
- * five cards in their approved order.
+ * The doctor page, as approved by management in September 2026 — ONE
+ * component, the way the Support Report and Home Overview are one component.
  *
- * Every card is a component in its own right (`components/DoctorConsole`), and
- * a Studio page is expected to place them itself. This exists only as the
- * one-drop version: the same five, in the order the design put them, with the
- * breadcrumb and the footnote around them. It is NOT a container and takes no
- * children — the cards were never really inside it, they only shared a reading
- * with it, and they still do.
+ * It owns its data: `useDoctorDetail` reads ERP once, over GraphQL, with the
+ * signed-in user's own `url` + `token`, and every section below renders from
+ * that one reading. The sections (hero, totals, filter bar, coverage, trend)
+ * are parts of this page, not separately placed Studio components.
  *
- * WHAT IS BOUND: the doctor, and the signed-in user's ERP credential. Nothing
- * else. Who is reading, what they may see, which departments exist, who covers
- * them — all of that is read from ERP with that credential, which is the point:
- * several reps share a doctor, and ERP's own permissions are what keep one of
- * them out of another's rows.
+ * WHAT IS BOUND: the doctor, and the signed-in user's ERP credential. Who is
+ * reading, what they may see, which departments exist, who covers them — all
+ * of that is read from ERP with that credential. Several reps share a doctor,
+ * and the reader's span in the reporting tree keeps each to their own rows.
+ *
+ * FAILURE STAYS SMALL. A read ERP refuses empties its own panel and says so;
+ * a section that throws while rendering is replaced by a one-line notice with
+ * a Retry, and the rest of the page stays up. Nothing here can blank the whole
+ * page — which is what "This page could not be displayed" was.
  *
  * EVERY FIGURE IS ATTRIBUTED. Support's department, role profile and product
- * breakdown live on `Doctor Support`'s item child table (not on the parent row,
- * which is what makes a list read look bare); service carries its own
- * department and role; POBs and visits get theirs from the employee who raised
- * them. So the department filter, the chart's pager and the table's rows all
- * count the same way. The only thing that ever lands in Unassigned is a month
- * Ecubix sent as a total with no products behind it.
+ * breakdown live on `Doctor Support`'s item child table; service carries its
+ * own department and role; POBs and visits get theirs from the employee who
+ * raised them. The only thing that ever lands in Unassigned is a month Ecubix
+ * sent as a total with no products behind it.
  */
 
 import React from "react";
 
-import DoctorHeroCard from "../DoctorConsole/DoctorHeroCard";
-import DoctorTotalsCard from "../DoctorConsole/DoctorTotalsCard";
-import DoctorFilterBar from "../DoctorConsole/DoctorFilterBar";
-import DoctorCoverageCard from "../DoctorConsole/DoctorCoverageCard";
-import DoctorInsightsCard from "../DoctorConsole/DoctorInsightsCard";
-import useDoctorConsole from "../DoctorConsole/useDoctorConsole";
-import { ConsoleStyles } from "../DoctorConsole/shell";
+import DoctorHeroCard from "./sections/Hero";
+import DoctorTotalsCard from "./sections/Totals";
+import DoctorFilterBar from "./sections/FilterBar";
+import DoctorCoverageCard from "./sections/Coverage";
+import DoctorInsightsCard from "./sections/Insights";
+import useDoctorDetail from "./lib/useDoctorDetail";
+import { ConsoleStyles } from "./sections/shell";
 import useContainerMode from "./lib/useContainerMode";
 
-export default function DoctorDetail(props) {
+/**
+ * One section's crash stays in that section. Keyed by the reading, so a fresh
+ * answer from ERP (or Retry) gives the section another go.
+ */
+class Section extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) {
+    console.error(`[doctor-detail] ${this.props.name} section crashed:`, error, info?.componentStack);
+  }
+  componentDidUpdate(prev) {
+    if (prev.resetKey !== this.props.resetKey && this.state.error) this.setState({ error: null });
+  }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="dx-card dx-empty" role="alert">
+        The {this.props.name} could not be shown for this doctor.{" "}
+        <button
+          type="button"
+          className="dx-crumb-btn"
+          onClick={() => { this.setState({ error: null }); this.props.onRetry?.(); }}
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+}
+
+function DoctorDetailPage(props) {
   const { onBack, className = "", style } = props;
 
-  // The page and all five cards resolve the SAME session — same doctor, same
-  // credential, same key — so this hook costs one subscription, not one read.
-  const c = useDoctorConsole(props);
+  // The ONE reading of this doctor. Every section renders from it.
+  const c = useDoctorDetail(props);
   const [wrapRef, compact] = useContainerMode(720);
 
   if (!c) {
@@ -53,6 +82,10 @@ export default function DoctorDetail(props) {
       </div>
     );
   }
+
+  // A new answer from ERP clears any section that crashed on the last one.
+  const resetKey = [c.doctorId, c.loading, c.ready, c.fatal].join("|");
+  const retry = c.on?.refresh;
 
   return (
     <div
@@ -85,14 +118,64 @@ export default function DoctorDetail(props) {
         <span className="dx-here">{c.doctor?.name ?? c.doctorId}</span>
       </div>
 
-      <DoctorHeroCard {...props} className="" />
-      <DoctorTotalsCard {...props} className="" />
-      <DoctorFilterBar {...props} className="" />
+      <Section name="doctor summary" resetKey={resetKey} onRetry={retry}>
+        <DoctorHeroCard {...props} c={c} className="" />
+      </Section>
+      <Section name="totals" resetKey={resetKey} onRetry={retry}>
+        <DoctorTotalsCard {...props} c={c} className="" />
+      </Section>
+      <Section name="filter bar" resetKey={resetKey} onRetry={retry}>
+        <DoctorFilterBar {...props} c={c} className="" />
+      </Section>
 
       <div className="dx-stack">
-        <DoctorCoverageCard {...props} className="" />
-        <DoctorInsightsCard {...props} className="" />
+        <Section name="coverage" resetKey={resetKey} onRetry={retry}>
+          <DoctorCoverageCard {...props} c={c} className="" />
+        </Section>
+        <Section name="trend and activity" resetKey={resetKey} onRetry={retry}>
+          <DoctorInsightsCard {...props} c={c} className="" />
+        </Section>
       </div>
     </div>
+  );
+}
+
+/**
+ * The outermost guard. The sections guard themselves, but the reading (the
+ * hook) runs up here, outside them — so anything that throws at this level is
+ * caught too, and the page around this component (the rest of the Plasmic
+ * page, the app shell) never falls through to "This page could not be
+ * displayed" because of the doctor detail.
+ */
+class Guard extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) {
+    console.error("[doctor-detail] crashed:", error, info?.componentStack);
+  }
+  componentDidUpdate(prev) {
+    if (prev.doctorKey !== this.props.doctorKey && this.state.error) this.setState({ error: null });
+  }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className={"dx-root " + (this.props.className ?? "")} style={this.props.style} role="alert">
+        <ConsoleStyles />
+        <div className="dx-empty">
+          This doctor could not be shown.{" "}
+          <button type="button" className="dx-crumb-btn" onClick={() => this.setState({ error: null })}>Try again</button>
+        </div>
+      </div>
+    );
+  }
+}
+
+export default function DoctorDetail(props) {
+  const d = props.doctor;
+  const doctorKey = typeof d === "string" ? d : d?.name ?? d?.id ?? d?.node?.name ?? "";
+  return (
+    <Guard doctorKey={doctorKey} className={props.className} style={props.style}>
+      <DoctorDetailPage {...props} />
+    </Guard>
   );
 }

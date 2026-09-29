@@ -25,7 +25,7 @@ import {
   MONTHS, fdate, inrShort, makeMoney, monthLabel, monthsSince, now, plural, roiText, sdate, span,
 } from "./format";
 import {
-  UNATTRIBUTED_NOTE, buildTable, computeRoi, coverageByRole, flow, mEnd, mStart,
+  UNATTRIBUTED_NOTE, buildTable, computeRoi, coverageByRole, financialYearStart, flow, mEnd, mStart,
   monthSeries, monthWindow, resolveRange, sum,
 } from "./analytics";
 import { TONE } from "../ui/parts";
@@ -72,6 +72,7 @@ export const PERIODS = new Set(["fy", "cur", "last", "m3", "m6", "all"]);
 export const READ_NAMES = {
   lead: "the doctor's profile", support: "support", service: "service",
   pobs: "POBs", visits: "visits", addresses: "addresses",
+  org: "the team list", scope: "your team",
 };
 
 export const ALL_CARDS = ["visit", "pob", "support", "note", "service"];
@@ -107,7 +108,8 @@ export function parseDepartments(value) {
 export function initialUi({ department, period, valueFormat } = {}) {
   return {
     divs: parseDepartments(department),
-    rangeMode: { mode: PERIODS.has(period) ? period : "fy", from: null, to: null },
+    // Opens on THIS month; the financial year is one tap away in Filter.
+    rangeMode: { mode: PERIODS.has(period) ? period : "cur", from: null, to: null },
     numShort: valueFormat === "short",
     pivotOn: false,
     openRow: null,
@@ -543,21 +545,26 @@ export function buildConsole(data, ui, on) {
 
   /* -------------------------------------------------------------- period */
 
-  const rangeOpts = [
-    { k: "fy", label: range.fyLabel },
-    { k: "cur", label: "This month" },
-    { k: "last", label: "Last month" },
-    { k: "m3", label: "3 months" },
-    { k: "m6", label: "Last 6 months" },
-  ].map((o) => ({ ...o, on: rangeMode.mode === o.k }));
-
   const ny = now().getFullYear();
   const nm = now().getMonth();
+  // Nothing before the financial year: in April there is no "last month" to
+  // offer, and 3 / 6 months only go back as far as April.
+  const fyStart = financialYearStart(now());
+  const fyY = fyStart.getFullYear();
+  const monthsIn = (ny - fyY) * 12 + (nm - 3) + 1;
+  const rangeOpts = [
+    { k: "cur", label: "This month" },
+    monthsIn >= 2 ? { k: "last", label: "Last month" } : null,
+    monthsIn >= 3 ? { k: "m3", label: "3 months" } : null,
+    monthsIn >= 6 ? { k: "m6", label: "Last 6 months" } : null,
+    { k: "fy", label: range.fyLabel },
+  ].filter(Boolean).map((o) => ({ ...o, on: rangeMode.mode === o.k }));
+  const floorKey = fyY + "-04";
   const picker = {
     open: ui.pickOpen,
     toggle: on.togglePicker,
     year: String(ui.pickYear),
-    prevYear: () => on.setPickYear(Math.max(ui.pickYear - 1, ny - 5)),
+    prevYear: () => on.setPickYear(Math.max(ui.pickYear - 1, fyY)),
     nextYear: () => on.setPickYear(Math.min(ui.pickYear + 1, ny)),
     label: rangeMode.from && rangeMode.to
       ? (() => {
@@ -578,7 +585,8 @@ export function buildConsole(data, ui, on) {
     pick: on.pickMonth,
     cells: MONTHS.map((mn, i) => {
       const k = ui.pickYear + "-" + String(i + 1).padStart(2, "0");
-      const future = ui.pickYear > ny || (ui.pickYear === ny && i > nm);
+      // Future months, and months before the financial year, cannot be picked.
+      const future = ui.pickYear > ny || (ui.pickYear === ny && i > nm) || k < floorKey;
       const edge = k === rangeMode.from || k === rangeMode.to;
       const band = !!rangeMode.from && !!rangeMode.to && k > rangeMode.from && k < rangeMode.to;
       return { label: mn, k, edge: edge && !future, band: band && !edge && !future, off: future };
@@ -594,7 +602,7 @@ export function buildConsole(data, ui, on) {
   // division names do not fit on the filter button at phone width.
   const deptLabel = allDivs ? "All depts" : divs.length === 1 ? divName(divs[0]) : divs.length + " depts";
   const filterLabel = deptLabel + " · " + range.label;
-  const filterOn = !allDivs || rangeMode.mode !== "fy";
+  const filterOn = !allDivs || rangeMode.mode !== "cur";
 
   const heroSince = firstT ? monthLabel(new Date(firstT).getFullYear(), new Date(firstT).getMonth()) : null;
   const heroAge = firstT ? span(monthsSince(firstT)) : null;

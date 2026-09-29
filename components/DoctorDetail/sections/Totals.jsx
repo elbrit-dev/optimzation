@@ -12,15 +12,15 @@
 
 import React from "react";
 
-import Banner from "../DoctorDetail/ui/Banner";
-import { ALL_CARDS } from "../DoctorDetail/lib/console";
+import Banner from "../ui/Banner";
+import { ALL_CARDS } from "../lib/console";
 import { CardShell, Unbound, useContainerMode } from "./shell";
-import useDoctorConsole from "./useDoctorConsole";
 
 export default function DoctorTotalsCard(props) {
   const { cards, layout = "auto", className, style } = props;
 
-  const c = useDoctorConsole(props);
+  // The page reads once and hands every section the same console object.
+  const { c } = props;
   const [ref, measured] = useContainerMode(720);
 
   if (!c) return <Unbound what="The doctor totals strip" innerRef={ref} className={className} style={style} />;

@@ -8,7 +8,6 @@ import dynamic from "next/dynamic";
 // import DataTableNew from "./share/src/app/datatable/components/DataTableNew";
 // import Navigation from "./share/src/app/navigation/components/Navigation";
 import { registerElbritCoreComponents } from './share/src/plasmic-init';
-import { registerDoctorConsoleComponents } from './components/DoctorConsole/plasmic';
 import MyProfile from "./components/features/my-profile";
 import ProfileHeader from "./components/features/profile-header";
 import SummaryCard from "./components/features/summary-card";
@@ -593,6 +592,12 @@ PLASMIC.registerComponent(CalendarPage, {
     googleRedirectUri:{
       type: "string",
       helpText: "Google Redirect URI",
+    },
+    enableGoogleCalendarSync: {
+      type: "boolean",
+      defaultValue: false,
+      helpText:
+        "Off by default. When off, no Google Calendar work happens at all: events are not flagged for Google sync, the Google status is never queried, the Connect Google Calendar button is hidden, and Meet links are not requested. Turn it on only when Google sync is actually wanted.",
     },
     eventTypes: {
       type: "choice",
@@ -1655,14 +1660,12 @@ PLASMIC.registerComponent(CatalogLetterGroup, {
 
 PLASMIC.registerComponent(DoctorDetail, {
   name: "DoctorDetail",
-  displayName: "Doctor Detail Page (all five)",
+  displayName: "Doctor Detail",
   // Full width, height from content -- it is a whole page, never a hand-sized box.
   defaultStyles: { width: "stretch" },
-  // A convenience only — the five "Doctor · …" cards are ordinary top-level
-  // components and are the normal way to build this page. This drops all five
-  // at once, in the approved order. It is NOT a container and takes no slot:
-  // the cards never needed a parent, only a shared reading, which they get from
-  // the session store whether they are inside this or not.
+  // ONE component, like Support Report and Home Overview: it reads ERP itself
+  // over GraphQL with the bound user token and renders every section from that
+  // one reading. The five sections are no longer separate Studio components.
   description:
     "The whole doctor page as ONE component, built to the design management approved in September 2026: a hero card (identity, ROI, the stat strip, clinic chips and the actions), a swipeable strip of TOTALS — visits, POB, support, notes and service — each showing its last three entries and a way into the timeline, COVERAGE BY ROLE as BE/ABM/RBM/ZSM rings you can open for the per-department split, a MONTHLY TREND of smoothed lines over one rupee axis with visits on their own rail below and a pager through the doctor’s departments, and one panel that switches between a DEPARTMENT TABLE (optionally pivoted by month, expandable to real POB product lines) and an ACTIVITY TIMELINE. One filter above them all — department, value format and period, defaulting to the current Indian financial year — so no two numbers on the page are ever measured over different windows. BIND THE DOCTOR AND THE SIGNED-IN USER’S ERP CREDENTIAL AND YOU ARE DONE: the component runs its own reads and works out who is looking, what they may see, which departments the doctor has and who covers them. Reading with the user’s own token is the point — several reps share a doctor, and ERP’s permissions are what keep one of them out of another’s rows. Service figures (and ROI) are shown only to SM, ZSM and Admin; everyone else sees the page without them, and it says so rather than leaving a blank. EVERY figure is attributed, support included: its department, role profile and product breakdown come off Doctor Support’s item child table (the parent row carries only the month totals, which is why a list read makes it look bare). So the department filter, the chart pager and the table rows all count the same way, and a support month can be opened to its Ecubix product lines. The only thing that ever lands in Unassigned is a month Ecubix sent as a total with no products behind it — shown rather than dropped, so the headline total always ties out.",
   props: {
@@ -1671,37 +1674,17 @@ PLASMIC.registerComponent(DoctorDetail, {
       description:
         "WHO to show — THE ONLY DATA BINDING REQUIRED. Either the Lead id as a string (the page's own route param, e.g. $ctx.params.id) or the doctor row you already have: bind currentItem straight from a list and it is unwrapped for you, including a GraphQL edge ({ node }). The row paints the hero instantly while everything else is fetched. Field names are the component’s own business — there is nothing to map. DELIBERATELY HAS NO DEFAULT: a default here becomes the value the page falls back to when the binding fails, so an unbound page would silently show one real doctor's figures — and their support, POB and service — under someone else's name. Empty shows an honest empty state instead.",
     },
-    erpUrl: {
+    url: {
       type: "string",
       defaultValue: "",
       description:
-        "The ERP GraphQL endpoint, bound TOGETHER with Auth Token to the SIGNED-IN USER’S credential — the same pair the calendar page binds on CalendarPage. REQUIRED, and it is what scopes the page: every read is made as that user, so ERP’s own permissions decide which of a shared doctor’s rows they see. There is NO default and no environment name to fall back on — the only other source is the pair AuthProvider already published for the signed-in user on a page that also mounts the calendar. Bind the endpoint the page actually means: a UAT page pointed at erp.elbrit.org reads production, and nothing on screen would say so.",
+        "The ERP GraphQL endpoint (e.g. https://erp.elbrit.org/api/method/graphql), bound together with Token — the same pair the Support Report and Home Overview take. REQUIRED: every read is made as the signed-in user, over this endpoint. There is no default and no fallback; without both, the page says so instead of reading anything. A UAT page pointed at erp.elbrit.org reads production, and nothing on screen would say so — bind the endpoint the page actually means.",
     },
-    authToken: {
+    token: {
       type: "string",
       defaultValue: "",
       description:
-        "The signed-in user’s ERP token, bound together with ERP URL. There is deliberately NO prop for the viewer’s role: the token identifies them and the component asks ERP (logged user → Employee → role profile). A role prop would let anyone with Studio access hand themselves sight of the service figures.",
-    },
-    employee: {
-      type: "string",
-      defaultValue: "",
-      description:
-        "NARROW the page to one Employee's span instead of the reader's own — e.g. an ABM looking at just one of their BEs. Takes an Employee id (E01255). It can only ever take AWAY: it is intersected with what the reader's own token earned, so naming somebody outside their span shows NOTHING rather than more. Leave empty for the reader's full span.",
-    },
-    period: {
-      type: "choice",
-      options: ["fy", "cur", "last", "m3", "m6"],
-      defaultValue: "fy",
-      description:
-        "Which period the page OPENS on — fy (the Indian financial year, the default), cur (this month), last (last month), m3 (three months) or m6 (the last six months). A DEFAULT, not a lock. Every figure on the page answers to this one window, which is why there is a single period rather than one per card. `all` is gone on purpose: it read every row a doctor had ever had, back to 2023, to answer a question nobody asked.",
-    },
-    valueFormat: {
-      type: "choice",
-      options: ["full", "short"],
-      defaultValue: "full",
-      description:
-        "How money reads: full (₹1,24,300) or short (₹1.24L). A DEFAULT — the reader can switch it in Filter. The chart's own axis is always short, because the axis column is 44px and a full figure does not fit.",
+        "The signed-in user's ERP token (\"key:secret\", with or without the \"token \" prefix), bound together with URL. It is also WHO is reading: the component asks ERP whose token this is and shows only that employee's team — a BE their department at their HQ, an ABM their HQs and their BEs, and so on up. There is deliberately no prop for the viewer's role or employee, so nobody can widen their own view from Studio.",
     },
     sampleData: {
       type: "boolean",
@@ -2731,7 +2714,7 @@ PLASMIC.registerComponent(MyProfile, {
       type: "object",
       displayName: "Profile",
       description:
-        "Company, employee identity and the read-only field sections. Shape: { company, employee, syncText, readonlyNote, personalInfo: { overviewNote, overview[], contactNote, contact[] }, roleDetails: { reportingNote, reporting[] }, accountDetails: { salaryNote, salary[], statutoryNote, statutory[], insuranceNote, insuranceCoverage, insurance[] } }. Every field list is an array of { label, value, copy?, reveal?, maskedValue? }. `employee` also drives the avatar: { imageUrl, userId, id } - `imageUrl` is the current picture (User.user_image, absolute or /files/…), `userId` is the ERP User id that a new picture is saved onto (Employee.user_id; falls back to the Company email row, then the button disables), and `id` is the Employee docname the picture is mirrored to (falls back to employeeCode).",
+        "Company, employee identity and the read-only field sections. Shape: { company, employee, syncText, personalInfo: { overviewNote, overview[], contactNote, contact[] }, roleDetails: { reportingNote, reporting[] }, accountDetails: { salaryNote, salary[], statutoryNote, statutory[], insuranceNote, insuranceCoverage, insurance[] } }. Every field list is an array of { label, value, copy?, reveal?, maskedValue? }. `employee` also drives the avatar: { imageUrl, userId, id } - `imageUrl` is the current picture (User.user_image, absolute or /files/…), `userId` is the ERP User id that a new picture is saved onto (Employee.user_id; falls back to the Company email row, then the button disables), and `id` is the Employee docname the picture is mirrored to (falls back to employeeCode).",
     },
     leaveBalance: {
       type: "object",
@@ -2839,7 +2822,7 @@ PLASMIC.registerComponent(SummaryCard, {
       defaultValue: false,
       hidden: (props) => props.variant === "secondary" || !props.total,
       description:
-        "Primary total card only. On, the Inc.Primary / Target row pins to the top while the page scrolls through the opened card, so the headline figures stay in view. Off (the default), it scrolls with the card as normal.",
+        "Primary total card only. On, once the Inc.Primary / Target row scrolls up to the pin line it stays pinned there for the rest of the page - card open or closed - so the headline figures stay in view while the sections below scroll. Scroll back up and it drops back into the card. Off (the default), it scrolls with the card as normal.",
     },
     stickyTop: {
       type: "number",
@@ -3190,7 +3173,6 @@ PLASMIC.registerComponent(SectionPage, {
    copied to share/src/plasmic-init.js. Do not call registerDesignSystem here
    as well -- every primitive would register twice. */
 registerElbritCoreComponents(PLASMIC)
-registerDoctorConsoleComponents(PLASMIC)
 
 // PLASMIC.registerComponent(DataProvider, {
 //   name: "DataProvider",

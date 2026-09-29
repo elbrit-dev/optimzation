@@ -116,6 +116,15 @@ const clean = (value) => {
   return text ? text : null;
 };
 
+/**
+ * One (department, HQ) pairing as a key. PAIRS, never a department list crossed
+ * with an HQ list: an SM over CND Chennai and Elbrit Kerala works HQ-Chennai
+ * and HQ-Kochi, and crossing the two would hand him "Elbrit Kerala at
+ * HQ-Chennai" — a combination nobody on his team works.
+ */
+export const pairKey = (department, hq) =>
+  String(department ?? "").replace(/\s*-\s*[A-Z]{2,6}\s*$/, "").trim().toLowerCase() + "|" + String(hq ?? "").trim();
+
 function chunk(list, size) {
   const out = [];
   for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
@@ -353,6 +362,7 @@ function collect(rows) {
   const departments = new Set();
   const hqs = new Set();
   const employees = new Set();
+  const pairs = new Set();
 
   for (const row of rows) {
     const seat = clean(row?.custom_role_profile) ?? clean(row?.role_id);
@@ -365,10 +375,11 @@ function collect(rows) {
     if (seat) roleProfiles.add(seat);
     if (department && !/^sales\s*-/i.test(department)) departments.add(department);
     if (hq) hqs.add(hq);
+    if (department && hq && !/^sales\s*-/i.test(department)) pairs.add(pairKey(department, hq));
     if (clean(row?.name)) employees.add(row.name);
   }
 
-  return { roleProfiles, departments, hqs, employees };
+  return { roleProfiles, departments, hqs, employees, pairs };
 }
 
 /**
@@ -398,6 +409,7 @@ async function backfillFromSeats(span) {
     const hq = clean(row?.custom_territory);
     if (department && !/^sales\s*-/i.test(department)) span.departments.add(department);
     if (hq) span.hqs.add(hq);
+    if (department && hq && !/^sales\s*-/i.test(department)) span.pairs?.add(pairKey(department, hq));
   }
 }
 
@@ -410,7 +422,8 @@ async function backfillFromSeats(span) {
  * whole cross-division history, and what the company spends on them, to anyone
  * whose Employee record happens to be missing.
  */
-export async function resolveScope(viewerRow, { employee, roleProfile } = {}) {
+export async function resolveScope(viewerRow, { employee, roleProfile } = {}, deps = REST_DEPS) {
+  const { walk, findEmployee, backfill } = deps;
   const self = viewerRow ?? null;
   const rank = gradeRank({
     roleId: self?.custom_role_profile ?? self?.role_id,
@@ -425,6 +438,7 @@ export async function resolveScope(viewerRow, { employee, roleProfile } = {}) {
     departments: new Set(),
     hqs: new Set(),
     employees: new Set(),
+    pairs: new Set(),
     people: [],
   };
 
@@ -452,7 +466,7 @@ export async function resolveScope(viewerRow, { employee, roleProfile } = {}) {
       unlimited: true,
       rank,
       canSeeService: rank >= SERVICE_MIN_RANK,
-      full: { roleProfiles: new Set(), departments: new Set(), hqs: new Set(), employees: new Set() },
+      full: { roleProfiles: new Set(), departments: new Set(), hqs: new Set(), employees: new Set(), pairs: new Set() },
       focus: null,
       people: self ? [self] : [],
     };
@@ -462,7 +476,7 @@ export async function resolveScope(viewerRow, { employee, roleProfile } = {}) {
 
   let subtree = [];
   try {
-    subtree = await walkSubtree(self.name);
+    subtree = await walk(self.name);
   } catch {
     // A failed walk must not silently collapse to "just me", which would look
     // like a working page showing a manager a BE's slice of the doctor.
@@ -473,7 +487,7 @@ export async function resolveScope(viewerRow, { employee, roleProfile } = {}) {
   const span = collect(people);
 
   if (!span.departments.size || !span.hqs.size) {
-    await backfillFromSeats(span).catch(() => {});
+    await backfill(span).catch(() => {});
   }
 
   /*
@@ -490,12 +504,9 @@ export async function resolveScope(viewerRow, { employee, roleProfile } = {}) {
 
   const wantEmployee = clean(employee);
   if (wantEmployee) {
-    const rows = await erpList("Employee", {
-      fields: SPAN_FIELDS,
-      filters: [["name", "=", wantEmployee]],
-      limit: 1,
-    }).catch(() => []);
-    const under = rows.length ? await walkSubtree(wantEmployee).catch(() => []) : [];
+    const found = await findEmployee(wantEmployee).catch(() => null);
+    const rows = found ? [found] : [];
+    const under = rows.length ? await walk(wantEmployee).catch(() => []) : [];
     narrowed = intersect(narrowed, collect([...rows, ...under]));
     focus = { employee: wantEmployee };
   }
@@ -523,6 +534,37 @@ export async function resolveScope(viewerRow, { employee, roleProfile } = {}) {
   };
 }
 
+/** The original REST route: one Employee read per level of the tree. */
+const REST_DEPS = {
+  walk: walkSubtree,
+  findEmployee: fetchEmployeeRow,
+  backfill: backfillFromSeats,
+};
+
+/**
+ * The same rules, over an org already in hand — every Employee row (as
+ * SPAN_FIELDS) and the seats' own department/HQ — which is how the doctor
+ * detail reads now: one GraphQL read of the org per credential, cached, the
+ * same one the Support Report makes. Nothing about WHO counts changes; only
+ * where the rows come from.
+ */
+export function resolveScopeFromOrg(viewerRow, { rows = [], seats = new Map() } = {}, opts = {}) {
+  const byId = new Map(rows.map((r) => [clean(r?.name), r]));
+  return resolveScope(viewerRow, opts, {
+    // descendantsOf includes the root; walkSubtree does not.
+    walk: async (id) => descendantsOf(rows, id).slice(1),
+    findEmployee: async (id) => byId.get(clean(id)) ?? null,
+    backfill: async (span) => {
+      for (const seat of span.roleProfiles) {
+        const s = seats.get(seat);
+        if (s?.department && !/^sales\s*-/i.test(s.department)) span.departments.add(s.department);
+        if (s?.hq) span.hqs.add(s.hq);
+        if (s?.department && s?.hq && !/^sales\s*-/i.test(s.department)) span.pairs?.add(pairKey(s.department, s.hq));
+      }
+    },
+  });
+}
+
 /** Set intersection on every axis at once. */
 function intersect(a, b) {
   const both = (x, y) => new Set([...x].filter((v) => y.has(v)));
@@ -531,6 +573,7 @@ function intersect(a, b) {
     departments: both(a.departments, b.departments),
     hqs: both(a.hqs, b.hqs),
     employees: both(a.employees, b.employees),
+    pairs: both(a.pairs ?? new Set(), b.pairs ?? new Set()),
   };
 }
 
@@ -552,12 +595,26 @@ export function rowInScope(scope, { roleProfile, department, hq, employee } = {}
   // ones meant to see.
   if (scope.unlimited) return true;
 
+  /*
+   * A row counts when EITHER its seat is on the reader's team OR its
+   * (department, HQ) is a pairing the team works. The second half is what a BE
+   * needs: a doctor's lines are often stamped to another seat in the same
+   * department and HQ — a predecessor, a vacant chair — and a BE sees their
+   * department at their HQ, not only the rows booked to their own seat. An ABM
+   * gets their HQs and their BEs' by the same test; nobody gets another HQ.
+   */
   const seat = clean(roleProfile);
-  if (seat) return scope.roleProfiles.has(seat);
+  if (seat && scope.roleProfiles.has(seat)) return true;
 
   const dept = clean(department);
   const territory = clean(hq);
-  if (dept && territory) return scope.departments.has(dept) && scope.hqs.has(territory);
+  if (dept && territory) {
+    return scope.pairs
+      ? scope.pairs.has(pairKey(dept, territory))
+      : scope.departments.has(dept) && scope.hqs.has(territory);
+  }
+  // A seat that is not ours, with no pairing to fall back on, is not ours.
+  if (seat) return false;
   if (dept) return scope.departments.has(dept);
   if (territory) return scope.hqs.has(territory);
 
@@ -577,8 +634,9 @@ export function filterInScope(scope, rows, read) {
 }
 
 /** A Link reads as a scalar over REST and as `field__name` over GraphQL. */
+const scalar = (v) => (v != null && typeof v === "object" ? null : clean(v));
 const link = (row, field) =>
-  clean(row?.[field]) ?? clean(row?.[field + "__name"]) ?? clean(row?.[field]?.name);
+  scalar(row?.[field]) ?? clean(row?.[field + "__name"]) ?? clean(row?.[field]?.name) ?? clean(row?.[field]?.employee);
 
 /**
  * Narrow every raw payload to the reader, in one place.
@@ -697,4 +755,49 @@ export function scopeRawRows(scope, { support, service, visits, pobs } = {}) {
     visits: scopedVisits,
     pobs: scopedPobs,
   };
+}
+
+/* ------------------------------------------------------ doctor coverage */
+
+// "CND Coimbatore - ELPL" and "CND Coimbatore" are the same department.
+const normDept = (value) => String(value ?? "").replace(/\s*-\s*[A-Z]{2,6}\s*$/, "").trim().toLowerCase();
+
+/**
+ * May this reader see a (department, HQ) pairing?
+ *
+ * Department AND HQ when both are known, the same rule `rowInScope` applies to
+ * an unseated row: "CND Coimbatore" alone is too loose when the reader's team
+ * holds only some of its HQs.
+ */
+export function canSeeCoverage(scope, { department, hq } = {}) {
+  if (!scope) return false;
+  if (scope.unlimited) return true;
+  if (!scope.resolved) return false;
+  const dept = normDept(department);
+  if (!dept) return false;
+  if (hq && scope.pairs?.size) return scope.pairs.has(pairKey(department, hq));
+  const depts = new Set([...scope.departments].map(normDept));
+  if (!depts.has(dept)) return false;
+  return !hq || !scope.hqs.size || scope.hqs.has(String(hq).trim());
+}
+
+/**
+ * The doctor's own coverage rows (`Lead.custom_role_profile`), cut to the
+ * reader's span — BEFORE the doctor is derived, so its department list, HQs
+ * and "who covers" only ever name what this reader's team works.
+ *
+ * Those departments are the axis the page is organised by: the hero chips, the
+ * filter, the table's rows, the chart's pager and the popup tabs. Left whole, a
+ * CND ZSM opening a Coimbatore doctor got Vasco and Elbrit rows full of dashes —
+ * no figures leaked, but the page still described teams that are not his.
+ * Head office keeps every row; an unresolved reader keeps none.
+ */
+export function scopeLeadCoverage(lead, scope) {
+  if (!lead || scope?.unlimited) return lead;
+  const rows = Array.isArray(lead.custom_role_profile) ? lead.custom_role_profile : [];
+  const kept = rows.filter((r) => canSeeCoverage(scope, {
+    department: r?.department__name ?? r?.department,
+    hq: r?.hq__name ?? r?.hq,
+  }));
+  return { ...lead, custom_role_profile: kept };
 }

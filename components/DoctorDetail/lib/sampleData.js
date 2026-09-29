@@ -38,18 +38,18 @@
  * them is a design review of the happy path only.
  */
 
-import { parseDepartment, ladderRole } from "../DoctorDetail/lib/erp";
+import { parseDepartment, ladderRole } from "./erp";
 import {
   deriveClinics, deriveDoctor, deriveNotes, derivePharmacies, derivePobs,
   deriveServices, deriveSupport, deriveVisits, eventOwnerIndex,
-} from "../DoctorDetail/lib/derive";
-import { MONTHS, now } from "../DoctorDetail/lib/format";
-import { SERVICE_MIN_RANK } from "../DoctorDetail/lib/grade";
+} from "./derive";
+import { MONTHS, now } from "./format";
+import { SERVICE_MIN_RANK } from "./grade";
 
 /**
  * The sample doctor's Lead id.
  *
- * It doubles as the SESSION KEY for sample mode (see `useDoctorConsole`), which
+ * It is the doctor id sample mode uses (see `useDoctorDetail`), which
  * is what lets five cards with `sampleData` on and nothing else bound share one
  * set of rows the same way five live cards share one read. DR-51204 is not a
  * real Lead — a real id here would invite someone to compare the placeholder

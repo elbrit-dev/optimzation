@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
+import { canSeeCoverage, useViewerScope } from "./DoctorDetail/lib/viewerScope";
 
 // The POB popup drags in the calendar's form kit, its ERP services and the item
 // master — none of which a doctor LIST needs. Load it the first time somebody
@@ -295,6 +296,30 @@ export default function DoctorCard({
   // than going blank on data ERP already has.
   const hq = hqDirect || (roleRows.find((r) => r.hq)?.hq ?? "");
 
+  /*
+   * ONLY THE READER'S OWN DEPARTMENTS. A doctor worked by Vasco, Elbrit and CND
+   * Coimbatore shows a CND ZSM just "CND Coimbatore" -- on the chips and in the
+   * popup's Coverage -- because the other two are nobody on his team. Head
+   * office sees every one. Nothing foreign shows while the reader's span is
+   * still loading; with no credential bound (Studio) the doctor shows as-is.
+   */
+  const viewer = useViewerScope(erpUrl, authToken);
+  const shownRoleRows = useMemo(() => {
+    if (viewer.status === "none") return roleRows;
+    if (viewer.status === "loading") return [];
+    return roleRows.filter((r) => canSeeCoverage(viewer.scope, r));
+  }, [roleRows, viewer]);
+  const shownTags = useMemo(() => {
+    if (viewer.status === "none") return tags;
+    if (viewer.status === "loading") return [];
+    return tags.filter((tag) => {
+      const rows = roleRows.filter((r) => r.department === tag);
+      return rows.length
+        ? rows.some((r) => shownRoleRows.includes(r))
+        : canSeeCoverage(viewer.scope, { department: tag });
+    });
+  }, [tags, roleRows, shownRoleRows, viewer]);
+
   // C1 / C2 / C3 grading. Always derived, because the PREVIEW shows it either
   // way — the popup is the roomy view, and hiding a grade there would be
   // withholding it rather than saving space. Show Categories governs only
@@ -479,9 +504,9 @@ export default function DoctorCard({
               code/HQ column), laid out in one horizontal row that fits as many
               chips as the width allows and wraps the rest onto the next line.
               Nothing is truncated or collapsed into a "+N". */}
-          {tags.length > 0 ? (
+          {shownTags.length > 0 ? (
             <div className="mt-2 flex w-full flex-row flex-wrap items-center gap-1.5">
-              {tags.map((tag) => (
+              {shownTags.map((tag) => (
                 <span
                   key={tag}
                   className="whitespace-nowrap rounded-md bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700"
@@ -532,9 +557,12 @@ export default function DoctorCard({
         speciality={speciality}
         hq={hq}
         city={city}
-        tags={tags}
+        tags={shownTags}
         categories={allCategories}
-        roleRows={roleRows}
+        roleRows={shownRoleRows}
+        // Which departments the tabs may offer -- the same rows Coverage shows.
+        // null = unscoped (no credential), so the tabs keep every division.
+        visibleDepartments={viewer.status === "none" ? null : shownRoleRows.map((r) => r.department)}
         initials={initialsOf(name)}
         tone={tone}
         // The popup reads the doctor's history through the same session the

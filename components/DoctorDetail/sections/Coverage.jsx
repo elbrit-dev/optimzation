@@ -11,15 +11,15 @@
 
 import React from "react";
 
-import Coverage from "../DoctorDetail/ui/Coverage";
-import { RoleDetailModal } from "../DoctorDetail/ui/Modals";
+import Coverage from "../ui/Coverage";
+import { RoleDetailModal } from "../ui/Modals";
 import { CardShell, Unbound, useContainerMode } from "./shell";
-import useDoctorConsole from "./useDoctorConsole";
 
 export default function DoctorCoverageCard(props) {
   const { openable = true, className, style } = props;
 
-  const c = useDoctorConsole(props);
+  // The page reads once and hands every section the same console object.
+  const { c } = props;
   const [ref, compact] = useContainerMode(720);
 
   if (!c) return <Unbound what="The doctor coverage card" innerRef={ref} className={className} style={style} />;
