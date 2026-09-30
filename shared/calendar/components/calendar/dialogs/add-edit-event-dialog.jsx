@@ -703,15 +703,34 @@ export function AddEditEventDialog({
 		if (me && ownerEmail) return ownerEmail === me;
 		return !!LOGGED_IN_USER.id && event?.ownerEmployeeId === LOGGED_IN_USER.id;
 	}, [isEditing, event?.ownerEmail, event?.owner?.email, event?.ownerEmployeeId]);
+	// THE LEAVE APPROVER IS THE MANAGER OF LAST RESORT. ERP scopes the Employee
+	// and Role Profile lists by the viewer's User Permissions; an RBM limited to
+	// their own Role Profile and Department (Anuj Sharma, E00629) gets back
+	// themselves and their own role, so the walk above finds no manager at all.
+	// Their own employee record still names their leave approver (on `me`), and
+	// when the loaded team cannot even see that person, the team is incomplete,
+	// not manager-less, so the event goes to the leave approver rather than to
+	// nobody. A team that does include the approver is complete, and a walk that
+	// finds nobody there really has nobody above it.
+	const leaveApproverEmail = String(LOGGED_IN_USER.leave_approver || "").trim();
 	const superiorUserIds = useMemo(() => {
 		if (!isOwnEvent) return [];
-		if (!resolvedLoggedInRoleId) return [];
-		return resolveSuperiorShareUserIds(
-			elbritRoleEdges,
-			shareUsers,
-			resolvedLoggedInRoleId
-		).filter((userId) => userId !== LOGGED_IN_USER.email);
-	}, [resolvedLoggedInRoleId, elbritRoleEdges, isOwnEvent, shareUsers]);
+		const superiors = resolvedLoggedInRoleId
+			? resolveSuperiorShareUserIds(
+				elbritRoleEdges,
+				shareUsers,
+				resolvedLoggedInRoleId
+			).filter((userId) => userId !== LOGGED_IN_USER.email)
+			: [];
+		if (superiors.length || !leaveApproverEmail) return superiors;
+		if (leaveApproverEmail.toLowerCase() === String(LOGGED_IN_USER.email || "").toLowerCase()) {
+			return superiors;
+		}
+		const approverIsInTeam = shareUsers.some(
+			(user) => String(user.email || "").toLowerCase() === leaveApproverEmail.toLowerCase()
+		);
+		return approverIsInTeam ? superiors : [leaveApproverEmail];
+	}, [resolvedLoggedInRoleId, elbritRoleEdges, isOwnEvent, shareUsers, leaveApproverEmail]);
 	// Shared with the inline POB editor in the visit details dialog, so both
 	// offer the same item list.
 	const currentUserDepartments = useMemo(
@@ -1173,8 +1192,14 @@ export function AddEditEventDialog({
 		() => createTeamNameResolver(users, elbritRoleEdges),
 		[users, elbritRoleEdges]
 	);
+	// The DR Tour Plan card selector lists `territoryDoctors` (fetched per HQ),
+	// while `doctorOptions` is a capped global list that can miss that HQ's
+	// doctors — so a picked ID has to be looked up in both.
+	const findDoctorOption = (doctorId) =>
+		doctorOptions.find((d) => d.value === doctorId) ??
+		territoryDoctors.find((d) => d.value === doctorId);
 	const buildDoctorVisitTitle = (doctorId, values) => {
-		const doc = doctorOptions.find(d => d.value === doctorId);
+		const doc = findDoctorOption(doctorId);
 		if (!doc) return values.title || "DV";
 
 		return composeDoctorVisitTitle(
@@ -1826,7 +1851,7 @@ export function AddEditEventDialog({
 		).map((d) =>
 			typeof d === "object"
 				? d
-				: doctorOptions.find((o) => o.value === d) ?? d
+				: findDoctorOption(d) ?? d
 		);
 
 		const totalDoctors = normalizedDoctors.length;
@@ -2248,6 +2273,9 @@ export function AddEditEventDialog({
 		// 26 Sep 2026) and the visit title would lose its team name too. So load
 		// them once more and ask for Save again. Leave (never shared) and Travel
 		// Requests (not an Event) do not depend on it.
+		// A team list that stays incomplete does not block a save that still
+		// reaches a manager: `superiorUserIds` then holds the owner's leave
+		// approver (see above). Only a save that would reach nobody is stopped.
 		if (
 			values.tags !== TAG_IDS.LEAVE &&
 			values.tags !== TAG_IDS.TRAVEL_REQUEST &&
@@ -2256,12 +2284,14 @@ export function AddEditEventDialog({
 			const loaded = await ensureTeamData();
 			if (loaded) {
 				toast.info("Your team list has just loaded. Please press Save again.");
-			} else {
+				return;
+			}
+			if (!superiorUserIds.length) {
 				toast.error(
 					"Couldn't load your team list, so this can't reach your managers yet. Check your connection and press Save again."
 				);
+				return;
 			}
-			return;
 		}
 		try {
 			const handler =
