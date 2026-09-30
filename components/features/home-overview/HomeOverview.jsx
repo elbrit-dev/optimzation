@@ -549,7 +549,7 @@ function SupportRow({ L, view, open, pop }) {
         </Tile>
       ))}
       {U.docCast.map((d) => (
-        <Tile key={"doc" + d.key} width={L.posterW} onClick={() => pop({ mode: "sup", k: -1 })}>
+        <Tile key={"doc" + d.key} width={L.posterW} onClick={() => pop({ mode: "sup", k: "d" + d.key })}>
           <span style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span style={{ width: 40, height: 40, borderRadius: "50%", background: "#eef3fe", color: "#1d4ed8", display: "grid", placeItems: "center", fontSize: 13, fontWeight: 700 }}>{d.ini}</span>
             <span style={{ fontSize: 11, fontWeight: 600, color: "#5b6576", background: "#f2f4f7", padding: "2px 8px", borderRadius: 99 }}>Doctor · #{d.rank}</span>

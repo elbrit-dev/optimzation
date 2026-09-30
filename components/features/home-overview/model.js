@@ -403,9 +403,33 @@ export function secondaryPanel(view, key) {
   };
 }
 
+/* One doctor, from a BE's top-doctor card: what they were given this month,
+   product by product, and their value across the year. */
+function doctorPanel(U, i) {
+  const d = (U.topDoctors || [])[i];
+  if (!d) return null;
+  const tv = num(U.sel.value), v = num(d.value), items = d.items || [];
+  const iMax = items[0]?.value || 1;
+  const series = (d.months || []).map((x) => ({ l: x.l || x.label, value: num(x.value), on: x.on }));
+  const sMax = Math.max(1, ...series.map((x) => x.value));
+  return {
+    kicker: U.kicker, dot: "#2563eb", title: d.name, sub: ["Doctor #" + (i + 1), d.spec, d.hq].filter(Boolean).join(" · "),
+    kpis: [
+      { l: "Support value", v: cr(v), s: pc(ratio(v, tv)) + " of your total" },
+      { l: "Units", v: nos(num(d.qty)), s: "supplied" },
+      { l: "Products", v: nos(items.length), s: "given" },
+      { l: "Per unit", v: cr(ratio(v, Math.max(1, num(d.qty)))), s: "average" },
+    ],
+    chart: series.length ? { t: "Value by month", bars: series.map((x) => ({ l: x.l, v: x.value ? crShort(x.value).replace("₹", "") : "", h: (x.value / sMax) * 85 + "%", c: x.on ? "#2563eb" : "#c7d7fa" })) } : null,
+    tables: [{ t: "Products given", s: U.sel.label, gtc: gtc(2), head: [H("Product", "left"), H("Units"), H("Value")],
+      rows: items.map((x) => ({ name: x.name, sub: x.brand && x.brand !== x.name ? x.brand : "", cells: [cell(nos(x.qty)), cell(cr(x.value), null, 600)], w: pct(x.value / iMax), wc: "#93b4f5" })) }],
+  };
+}
+
 export function supportPanel(view, key) {
   const { U } = view;
   if (!U) return null;
+  if (typeof key === "string" && key.startsWith("d")) return doctorPanel(U, Number(key.slice(1)));
   const all = key == null || key < 0, m = all ? null : U.mgrs[key];
   if (!all && !m) return null;
   const tv = all ? num(U.sel.value) : m.v;

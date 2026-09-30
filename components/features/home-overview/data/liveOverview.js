@@ -217,7 +217,7 @@ function topDoctors(lines, doctors, n = 7) {
   for (const l of lines) { const x = by.get(l.d) || { v: 0, q: 0 }; x.v += l.a; x.q += l.q; by.set(l.d, x); }
   return [...by].sort((a, b) => b[1].v - a[1].v).slice(0, n).map(([id, x]) => {
     const d = doctors[id] || {};
-    return { name: d.name || id, spec: d.spec && d.spec !== "—" ? d.spec : "", hq: d.hq || "", qty: x.q, value: x.v };
+    return { id, name: d.name || id, spec: d.spec && d.spec !== "—" ? d.spec : "", hq: d.hq || "", qty: x.q, value: x.v };
   });
 }
 function brandSplit(lines, n = 6) {
@@ -292,7 +292,19 @@ export async function fetchSupport(conn, today) {
     },
     scope: tree.viewer === tree.root ? "All India" : tree.viewer.name,
     managers, health,
-    topDoctors: topDoctors(cur, doctors), brands: brandSplit(cur),
+    /* Each top doctor carries their own detail for the doctor popup: the
+       products given this month and their value across the FY's months. */
+    topDoctors: topDoctors(cur, doctors).map((d) => {
+      const own = cur.filter((l) => l.d === d.id);
+      const items = new Map();
+      for (const l of own) { const x = items.get(l.item) || { name: l.item, brand: l.brand, qty: 0, value: 0 }; x.qty += l.q; x.value += l.a; items.set(l.item, x); }
+      return {
+        ...d, lines: own.length,
+        items: [...items.values()].sort((a, b) => b.value - a.value),
+        months: monthIdxs.map((i) => ({ label: FY_MON[(monOf(i) + 9) % 12], value: byIdx.get(i).lines.filter((l) => l.d === d.id).reduce((s, l) => s + l.a, 0), on: i === latest })),
+      };
+    }),
+    brands: brandSplit(cur),
   };
 }
 
