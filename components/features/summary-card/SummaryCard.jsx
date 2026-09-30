@@ -483,7 +483,12 @@ function usePin(ref, enabled) {
       if (top < 0 || top > window.innerHeight * 0.8) {
         top = parseFloat(getComputedStyle(row).getPropertyValue("--sp-header-h")) || 0;
       }
-      if (row.getBoundingClientRect().top >= top) {
+      // A hidden card measures 0x0 at the top of the screen, which reads as
+      // "scrolled past". The toolbox's Cards/Table switch hides the inactive
+      // view with display:none rather than unmounting it, so this is the normal
+      // case whenever Table is showing: no box, no pin.
+      const hidden = card.getClientRects().length === 0 || card.getBoundingClientRect().width === 0;
+      if (hidden || row.getBoundingClientRect().top >= top) {
         setPin((p) => (p ? null : p));
         return;
       }
@@ -497,7 +502,13 @@ function usePin(ref, enabled) {
     measure();
     window.addEventListener("scroll", schedule, { capture: true, passive: true });
     window.addEventListener("resize", schedule);
+    // Switching Cards/Table scrolls nothing, but it does take the card's box
+    // to 0x0 and back, which a ResizeObserver reports.
+    const card = ref.current?.closest(".esc-card");
+    const ro = card && typeof ResizeObserver !== "undefined" ? new ResizeObserver(schedule) : null;
+    ro?.observe(card);
     return () => {
+      ro?.disconnect();
       if (frame) cancelAnimationFrame(frame);
       window.removeEventListener("scroll", schedule, { capture: true });
       window.removeEventListener("resize", schedule);
