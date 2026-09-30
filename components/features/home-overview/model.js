@@ -190,21 +190,26 @@ function buildVisit(v, level) {
   if (!src.length) return null;
   const hours = v.hours?.length ? v.hours : ["10AM", "11AM", "12PM", "1PM", "2PM", "3PM", "4PM"];
   const live = v.live !== false;
-  const units = src.map((u) => {
+  const allUnits = src.map((u) => {
     const geo = sum(u.geo || []), force = sum(u.force || []), done = geo + force;
     return { ...u, key: u.name, short: level === "dept" ? shortName(u.name) : hqName(u.name), done, geoN: geo, forceN: force, pending: Math.max(num(u.plan) - done, 0), w: pct(ratio(done, u.plan)) };
   });
+  /* Tiles and the visit popup show units with a plan; every unit (members
+     with none) stays for the reps groups. A viewer with no plan at all keeps
+     their own units, at zero. */
+  const planned = allUnits.filter((u) => num(u.plan) > 0);
+  const units = planned.length ? planned : allUnits;
   const geo = hours.map((_, i) => sum(units.map((u) => num(u.geo?.[i])))), force = hours.map((_, i) => sum(units.map((u) => num(u.force?.[i]))));
   const tots = hours.map((_, i) => geo[i] + force[i]), max = Math.max(1, ...tots);
   const plan = sum(units.map((u) => num(u.plan))), done = sum(tots), forceT = sum(force);
   const reps = v.reps && num(v.reps.total) ? { reported: num(v.reps.reported), total: num(v.reps.total), vacant: num(v.reps.vacant) } : null;
   const vR = ratio(done, plan);
-  const vd = vR >= 0.7 ? ["On track", ...OK] : vR >= 0.4 ? ["Behind", ...WN] : ["At risk", ...BD];
+  const vd = !plan ? ["No plan", ...WN] : vR >= 0.7 ? ["On track", ...OK] : vR >= 0.4 ? ["Behind", ...WN] : ["At risk", ...BD];
   const period = live ? "live today" : v.period || "";
   const grad = (i) => (force[i] ? `linear-gradient(180deg,${R} 0%,${R} ${ratio(force[i], tots[i]) * 100}%,${G} ${ratio(force[i], tots[i]) * 100}%)` : G);
   const fU = [...units].sort((a, b) => b.forceN - a.forceN)[0];
   return {
-    live, period, units, hours, geo, force, plan, done, forceT, geoT: sum(geo), reps,
+    live, period, units, allUnits, hours, geo, force, plan, done, forceT, geoT: sum(geo), reps,
     range: hourLabel(hours[0]) + " – " + hourLabel(hours[hours.length - 1]),
     allHours: hours.map((l, i) => ({ label: l, gH: (geo[i] / max) * 100 + "%", fH: (force[i] / max) * 100 + "%", gR: force[i] ? "0" : "4px 4px 0 0" })),
     repsW: reps && { rep: pct(ratio(reps.reported, reps.total)), not: pct(ratio(reps.total - reps.reported, reps.total)), notN: reps.total - reps.reported },
@@ -245,7 +250,14 @@ function buildSupport(s) {
     kicker: "Doctor support · " + sel.label,
     latest: cr(num(sel.value)), latestSub: nos(num(sel.doctors)) + " doctors · " + nos(num(sel.qty)) + " units",
     mini: months.slice(-6).map((m) => { const on = m.label === onL; return { l: m.label, h: (num(m.value) / (max * 1.032)) * 100 + "%", c: on ? "#2563eb" : "#d6e2fb", lc: on ? "#0b1220" : "#8a93a3", lw: on ? 600 : 400 }; }),
-    cast: mgrs.slice(0, 5).map((m, i) => ({ key: i, name: m.name, role: m.role, rank: i + 1, ini: initials(m.name), vS: cr(m.v), w: pct(m.v / mMax), share: pc(ratio(m.v, sel.value)) + "" })),
+    cast: mgrs.slice(0, 5).map((m, i) => ({ key: i, name: m.name, role: m.role, rank: i + 1, ini: /^\s*vacant/i.test(m.name) ? "—" : initials(m.name), vS: cr(m.v), w: pct(m.v / mMax), share: pc(ratio(m.v, sel.value)) + "" })),
+    /* A BE has no team to rank, so their row would be the total card alone:
+       their top supported doctors stand in for the manager cards. */
+    docCast: mgrs.length ? [] : (s.topDoctors || []).slice(0, 4).map((d, i, a) => ({
+      key: i, name: d.name, sub: [d.spec, d.hq ? String(d.hq).replace(/^HQ-\s*/i, "HQ-") : ""].filter(Boolean).join(" · "), rank: i + 1,
+      ini: initials(String(d.name).replace(/^dr\.?\s+/i, "")), vS: cr(num(d.value)), w: pct(num(d.value) / (num(a[0].value) || 1)),
+      share: pc(ratio(num(d.value), sel.value)), units: nos(num(d.qty)),
+    })),
     health: h && { issues: num(h.issues), zero: nos(num(h.zeroRateLines)), vacant: cr(num(h.vacantValue)), lastImport: h.lastImport },
     card: {
       kicker: "Doctor support · " + sel.label,
@@ -433,7 +445,7 @@ export function visitPanel(view, unitKey, filter = "all", open = {}) {
     const d = num(p.geo) + num(p.force), has = num(p.plan) > 0, isUnit = !!p.unit;
     return {
       i, id: p.id, unit: p.unit, lvl: p.lvl, name: p.vac ? String(p.name).replace(/^\s*Vacant\s*_?\s*/i, "Vacant · ") : p.name, role: p.role,
-      rep: p.vac ? "Vacant territory" : p.leaf && !isUnit ? (d ? "Reported" : "Not reported") + (p.hq ? " · HQ-" + p.hq : "") : num(p.rep) + "/" + num(p.seats) + " reported" + (p.hq && p.lvl > 0 ? " · HQ-" + p.hq : ""),
+      rep: p.vac && (p.leaf || isUnit) ? "Vacant territory" : p.leaf && !isUnit ? (num(p.rep) ? "Reported" : "Not reported") + (p.hq ? " · HQ-" + p.hq : "") : (p.vac ? "Vacant seat · " : "") + num(p.rep) + "/" + num(p.seats) + " reported" + (p.hq && p.lvl > 0 ? " · HQ-" + p.hq : ""),
       ini: p.vac ? "—" : initials(p.name), av: p.vac ? "#98a2b3" : avatar(p.name), has, noPlan: !has && !p.vac,
       geo: num(p.geo), joint: num(p.joint), force: num(p.force), pending: Math.max(0, num(p.plan) - d), w: has ? pct(ratio(d, p.plan)) : "0%", barC: d ? G : "#98a2b3",
       isUnit, m: { all: true, active: d > 0, pending: has && num(p.plan) - d > 0, force: num(p.force) > 0, noplan: !has && !p.vac },
@@ -448,7 +460,7 @@ export function visitPanel(view, unitKey, filter = "all", open = {}) {
     r.isOpen = open[r.id] ?? i === 0;
     stack.push(i);
   });
-  const rows = U && filter === "all" ? rows0.filter((r) => r.vis) : rows0.filter((r) => r.m[filter]).map((r) => ({ ...r, kids: false }));
+  const rows = U && filter === "all" ? rows0.filter((r) => r.vis) : rows0.filter((r) => r.m[filter]).map((r) => ({ ...r, kids: false, lvl: 0 }));
   const g = U ? U.geo || [] : V.geo, fo = U ? U.force || [] : V.force;
   const pl = U ? num(U.plan) : V.plan, dn = sum(g.map(num)) + sum(fo.map(num)), mx = Math.max(1, ...V.hours.map((_, i) => num(g[i]) + num(fo[i])));
   const FL = [["all", "All"], ["active", "Visiting"], ["pending", "Pending"], ["force", "Force"], ["noplan", "No plan"]];
@@ -466,7 +478,7 @@ export function repsPanel(view, filter = "not", openUnit) {
   const { V, kinds } = view;
   if (!V?.reps) return null;
   const { reported, total, vacant } = V.reps;
-  const groups = V.units.map((u) => {
+  const groups = (V.allUnits || V.units).map((u) => {
     const r = u.reps || { reported: [], notYet: [], vacant: [] };
     const list = filter === "rep" ? r.reported : filter === "vac" ? r.vacant : r.notYet;
     const all = r.reported.length + r.notYet.length + r.vacant.length || 1;

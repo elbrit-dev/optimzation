@@ -24,7 +24,7 @@ import { gql, makeConn } from "../../support-report/data/erpClient";
 import { isHqTerritory, shortDesignation } from "@/app/visit/data/shape";
 import { attendance, visitsByHour } from "@/app/visit/data/selectors";
 import { fetchMonth, fetchMonthCount, fetchOrg } from "../../support-report/data/supportSource";
-import { NO_RP, buildTree, divOf, stripCo, subtreeIds } from "../../support-report/data/model";
+import { NO_RP, buildTree, divOf, subtreeIds } from "../../support-report/data/model";
 import { FY_MON, MON, describePeriod, fyOfIdx, fyStart, idxOf, monOf, ymOfIdx } from "../period";
 
 export { makeConn };
@@ -72,9 +72,9 @@ const known = (label) => label && label !== "Unknown";
    has nothing yet (the 1st, or entries not filed), last month in full. Each
    section decides for itself, so a filed Primary and an unfiled Secondary do
    not drag each other back. */
-function monthsToTry(today) {
+function monthsToTry(today, n = 2) {
   const now = idxOf(today);
-  return [describePeriod({ from: now, to: now }, today), describePeriod({ from: now - 1, to: now - 1 }, today)];
+  return Array.from({ length: n }, (_, k) => describePeriod({ from: now - k, to: now - k }, today));
 }
 
 /* All the Sales Summary metrics the overview shows, straight from the engine:
@@ -101,6 +101,8 @@ export async function fetchPrimary(conn, today) {
     if (!depts.some((d) => d.inc || d.target)) continue;
     const level = depts.filter((d) => d.target > 0).length > 1 ? "dept" : "hq";
     const units = (level === "dept" ? depts : depts.flatMap((d) => d.hqs.map((h) => ({ ...h, dept: d.name, hqs: [] })))).filter((u) => u.target > 0);
+    // Sales but no targets yet is nothing to rank: try the month before.
+    if (!units.length) continue;
     return { period: P, level, units, depts, totals: salesFigures(totals) };
   }
   return null;
@@ -180,10 +182,12 @@ async function secondaryFor(conn, P) {
   }));
 }
 
-/* Secondary entries for a month are filed after it ends, so early in a month
-   the current one is still empty and last month stands in. */
+/* Secondary entries for a month are filed after it ends, and often late, so
+   this month, last month and the one before are tried in turn -- the most
+   recent with entries wins. */
+export const SECONDARY_MONTHS = 3;
 export async function fetchSecondary(conn, today) {
-  for (const P of monthsToTry(today)) {
+  for (const P of monthsToTry(today, SECONDARY_MONTHS)) {
     const depts = await secondaryFor(conn, P);
     if (!depts.length) continue;
     const hqs = depts.flatMap((x) => x.hqs.map((y) => ({ ...y, dept: x.name, hqs: [] })));
@@ -265,7 +269,9 @@ export async function fetchSupport(conn, today) {
   /* Data health is an admin's view of the whole import, so only the widest
      scope gets it. */
   let health;
-  if (tree.viewer === tree.root) {
+  const me = meOf(org);
+  const salesLogin = me && (tree.N.has(me.id) || /general manager/i.test(me.designation || ""));
+  if (tree.viewer === tree.root && !salesLogin) {
     const zero = cur.filter((l) => l.a > 0 && !l.rate).length;
     const vacant = cur.filter((l) => { const n = nodeOf(l); return n.vac || n.pseudo; }).reduce((s, l) => s + l.a, 0);
     const lm = [...byIdx.values()].reduce((m, x) => (x.lastModified > m ? x.lastModified : m), "");
@@ -440,7 +446,15 @@ async function visitsIn(conn, from, to, attempt = 1) {
     for (let d = from; d <= to; d = addDays(d, 1)) days.push(d);
     return (await inPool(days, VISIT_CONCURRENCY, (d) => visitsIn(conn, d, d))).flat();
   }
-  if (totalCount > edges.length) console.warn(`[home-overview] ${from}: ${totalCount} visits, ${edges.length} read -- over the page size`);
+  /* A single day that comes back short is the same fault as a foreign one
+     (seen: 0 of 1,936 events for 3 Aug), not a page-size limit -- a day is
+     ~2,000 events against a 20,000 page. Asked again, never kept short. */
+  if (totalCount > edges.length) {
+    if (totalCount > VISIT_PAGE) { console.warn(`[home-overview] ${from}: ${totalCount} visits, over the page size`); return edges.map((e) => e.node); }
+    if (attempt >= 4) throw new Error(`The ERP returned ${edges.length} of ${totalCount} visits for ${from}. Try again in a moment.`);
+    await new Promise((res) => setTimeout(res, 400 * attempt));
+    return visitsIn(conn, from, to, attempt + 1);
+  }
   return edges.map((e) => e.node);
 }
 
@@ -477,29 +491,66 @@ function visitRows(events, team) {
   return rows;
 }
 
+/* THE VIEWER'S OWN TEAM. The token decides what the ERP hands over -- for
+   a BE or an ABM that is the whole HQ, their GM's calls included -- so the
+   overview narrows it to the person signed in and everyone under them: a BE
+   sees their own calls, an ABM their BEs', and the tree starts at them.
+
+   The team is the SUPPORT REPORT'S TREE (buildTree), so both sections always
+   cover the same people. It climbs reports_to through every record -- an
+   inactive vacant seat no longer cuts a branch off (Hashim M H's 16 people
+   under V01863 went missing for Janardhanan A and the GM) -- and re-parents
+   anyone reporting to a stale "Vacant_" placeholder onto the seat's real
+   holder. Each member's reportsTo is re-pointed at their tree parent.
+
+   A login that matches no Sales employee (an admin, IT) keeps the token's
+   full scope, as does the single GM, whom the tree folds into its root. */
+function ownTeam(roster, org) {
+  // No roster read means no way to tell who is looking -- never widen to the token's scope for it.
+  if (!org?.employees?.length) throw new Error("Could not read the team from the ERP. Try again in a moment.");
+  const { N, root, viewer } = buildTree(org, new Set());
+  const gm = roster.find((m) => m.short === "GM" && !N.has(m.id));
+  const team = roster.filter((m) => N.has(m.id) || m === gm).map((m) => {
+    const n = N.get(m.id);
+    if (!n) return { ...m, reportsTo: null };
+    return { ...m, reportsTo: n.parent && n.parent !== root ? n.parent.id : gm ? gm.id : null };
+  });
+  if (viewer === root) return { team, ids: null };
+  const ids = subtreeIds(viewer);
+  return { team: team.filter((m) => ids.has(m.id)), ids };
+}
+
 /* Today, live -- unless nothing is planned today (just after midnight, a
    Sunday), in which case this month so far, and last month when this one has
    nothing yet. */
 export async function fetchVisit(conn, today) {
   const t = isoDay(today);
-  const [{ team }, todays] = await Promise.all([visitTeam(conn), visitsIn(conn, t, t)]);
-  /* SCOPE IS THE TOKEN. Every visit the ERP returns for this token is in:
-     its permissions (User Permissions on Department, Event access) have
-     already decided what it may see, so nothing narrows it further here.
-     The reps denominator is likewise every Sales employee this token reads. */
-  let rows = visitRows(todays, team), mode = "today", P = monthsToTry(today)[0], read = todays.length;
-  if (!rows.length) {
+  const [{ team: roster }, todays, org] = await Promise.all([visitTeam(conn), visitsIn(conn, t, t), fetchOrg(conn)]);
+  const { team, ids } = ownTeam(roster, org);
+  const mine = (rs) => (ids ? rs.filter((r) => ids.has(r.employeeId)) : rs);
+  /* Attribution runs over the whole roster (a call owned by someone outside
+     the team still resolves to the right participant), then keeps the
+     viewer's team only. The reps denominator is that team's filled seats.
+
+     THE WINDOW IS THE FIELD'S, NOT THE VIEWER'S. It is chosen by whether
+     anyone has calls in it, and only then narrowed: a BE who filed nothing
+     this month sees this month at 0 of 1, not last month's closed "On
+     track" standing in for a month of silence. */
+  let all = visitRows(todays, roster), mode = "today", P = monthsToTry(today)[0], read = todays.length;
+  if (!all.length) {
     mode = "window";
     for (const Q of monthsToTry(today)) {
       const parts = await inPool(weeks(Q.fromDate, Q.toDate), VISIT_CONCURRENCY, ([a, b]) => visitsIn(conn, a, b));
       read = parts.reduce((n, x) => n + x.length, 0);
-      rows = visitRows(parts.flat(), team);
+      all = visitRows(parts.flat(), roster);
       P = Q;
-      if (rows.length) break;
+      if (all.length) break;
     }
   }
-  console.info(`[home-overview] visit: ${read} Doctor Visit plan events read for ${mode === "today" ? t : P.fromDate + ".." + P.toDate}, ${rows.length} participant rows, roster ${team.length}`);
-  return shapeVisit(rows, team, P, mode);
+  if (!all.length) return null;
+  const rows = mine(all);
+  console.info(`[home-overview] visit: ${read} Doctor Visit plan events read for ${mode === "today" ? t : P.fromDate + ".." + P.toDate}, ${rows.length} participant rows, team ${team.length} of ${roster.length}`);
+  return shapeVisit(rows, team, P, mode, Boolean(ids));
 }
 
 const hhmm = (ts) => { const h = Number(String(ts).slice(11, 13)), m = String(ts).slice(14, 16); return Number.isFinite(h) ? `${h % 12 || 12}:${m} ${h < 12 ? "AM" : "PM"}` : ""; };
@@ -511,8 +562,9 @@ const hhmm = (ts) => { const h = Number(String(ts).slice(11, 13)), m = String(ts
    drop. The group also puts the missing field in front of whoever can fix it. */
 export const NO_DEPT = "No department", NO_HQ = "No HQ";
 
-function shapeVisit(rows, team, P, mode) {
-  if (!rows.length) return null;
+function shapeVisit(rows, team, P, mode, scoped) {
+  // A narrowed viewer with nothing in the window still gets their section, at zero.
+  if (!rows.length && !(scoped && team.length)) return null;
 
   /* The design's 10 AM - 4 PM, widened to take in any earlier or later call. */
   const seen = visitsByHour(rows).filter((b) => b.verified + b.force > 0).map((b) => b.hour);
@@ -541,6 +593,13 @@ function shapeVisit(rows, team, P, mode) {
     return stat;
   };
 
+  /* Whether someone reported is one fact about the person, across every unit:
+     Pawan Maurya's 135 calls in Elbrit Uttar Pradesh made him "Not reported"
+     under Bangalore when it was decided from one unit's rows. */
+  const firstOf = new Map();
+  for (const r of rows) if (r.visitTime && (!firstOf.has(r.employeeId) || r.visitTime < firstOf.get(r.employeeId))) firstOf.set(r.employeeId, r.visitTime);
+  const didReport = (id) => firstOf.has(id);
+
   /* A unit's people: its own members and everyone who logged a call in it,
      with the managers above them up to the top of the ladder so the tree
      reads SM > RBM > ABM > BE. A manager's figures are their branch within
@@ -561,9 +620,9 @@ function shapeVisit(rows, team, P, mode) {
         agg = { plan: agg.plan + r.agg.plan, geo: agg.geo + r.agg.geo, force: agg.force + r.agg.force, joint: agg.joint + r.agg.joint };
         seats += r.seats; rep += r.rep;
       }
-      const own = stat.get(m.id);
       const leaf = !kids.length;
-      if (leaf && !m.vacant) { seats += 1; if (own && own.geo + own.force > 0) rep += 1; }
+      // Every filled seat counts, managers too -- the same rule as the headline's attendance.
+      if (!m.vacant) { seats += 1; if (didReport(m.id)) rep += 1; }
       out[idx] = { id: m.id, name: m.name, role: m.short || "—", hq: String(m.hq || "").replace(/^HQ-\s*/, ""), lvl, vac: m.vacant, leaf, ...agg, seats, rep };
       return { agg, seats, rep };
     };
@@ -572,39 +631,53 @@ function shapeVisit(rows, team, P, mode) {
   }
 
   /* Reporting per unit: filled seats that logged a call (with their first
-     call time), those that have not, and the vacant seats. */
-  function repsOf(members, stat) {
+     call time), those that have not, and the vacant seats. Each person is
+     listed ONCE across all units -- in their own unit, or, with no unit of
+     their own, the first one they logged calls in -- so the groups add up to
+     the headline. */
+  const listed = new Set();
+  function repsOf(people) {
     const reported = [], notYet = [], vacant = [];
-    const seen = new Set();
-    const add = (m) => {
-      if (!m || seen.has(m.id)) return;
-      seen.add(m.id);
-      const s = stat.get(m.id), who = { name: m.name, role: m.short || "—", hq: String(m.hq || "").replace(/^HQ-\s*/, "") };
+    for (const m of people) {
+      if (!m || listed.has(m.id)) continue;
+      listed.add(m.id);
+      const who = { name: m.name, role: m.short || "—", hq: String(m.hq || "").replace(/^HQ-\s*/, "") };
       if (m.vacant) vacant.push(who);
-      else if (s && s.geo + s.force > 0) reported.push({ ...who, time: hhmm(s.first) });
+      else if (didReport(m.id)) reported.push({ ...who, time: hhmm(firstOf.get(m.id)) });
       else notYet.push(who);
-    };
-    members.forEach(add);
-    for (const id of stat.keys()) add(byId.get(id));
+    }
     reported.sort((a, b) => a.time.localeCompare(b.time));
     return { reported, notYet, vacant };
   }
 
   /* Both groupings -- departments and HQs -- are built; the view picks one
-     for every section at once, from the viewer's scope (see the model). */
+     for every section at once, from the viewer's scope (see the model).
+     A unit is any department / HQ with calls in it OR a member in it, so a
+     team with no plan today still shows its people as not reported (the
+     reps popup used to list 27 of 324). Units with no plan stay off the
+     tiles (see the model); they are there for the reps groups. */
   const unitsBy = (lvl) => {
+    listed.clear();
     const unitOfRow = (r) => (lvl === "dept" ? r.dept || NO_DEPT : isHqTerritory(r.hq) ? r.hq : NO_HQ);
-    const unitOfMember = (m) => (lvl === "dept" ? m.dept : m.hq);
-    const names = [...new Set(rows.map(unitOfRow))];
-    return names.map((name) => {
+    const unitOfMember = (m) => (lvl === "dept" ? m.dept || NO_DEPT : isHqTerritory(m.hq) ? m.hq : NO_HQ);
+    const names = [...new Set([...rows.map(unitOfRow), ...team.map(unitOfMember).filter(Boolean)])];
+    const units = names.map((name) => {
       const rs = rows.filter((r) => unitOfRow(r) === name);
       const stat = statsOf(rs);
-      const members = name === NO_DEPT || name === NO_HQ ? [] : team.filter((m) => unitOfMember(m) === name);
-      return { name, plan: rs.length, ...hourly(rs), people: peopleOf(members, stat), reps: repsOf(members, stat) };
+      const members = team.filter((m) => unitOfMember(m) === name);
+      return { name, plan: rs.length, ...hourly(rs), people: peopleOf(members, stat), members, extra: [...stat.keys()].map((id) => byId.get(id)).filter(Boolean) };
     }).sort((a, b) => (a.name === NO_DEPT || a.name === NO_HQ) - (b.name === NO_DEPT || b.name === NO_HQ) || b.plan - a.plan);
+    // Members first, everywhere; then the people seen only through their calls.
+    const own = units.map((u) => repsOf(u.members));
+    units.forEach((u, i) => {
+      const x = repsOf(u.extra);
+      u.reps = { reported: own[i].reported.concat(x.reported), notYet: own[i].notYet.concat(x.notYet), vacant: own[i].vacant.concat(x.vacant) };
+      delete u.members; delete u.extra;
+    });
+    return units;
   };
   const byDept = unitsBy("dept"), byHq = unitsBy("hq");
-  const depts = new Set(rows.map((r) => r.dept).filter(Boolean));
+  const depts = new Set((rows.length ? rows : team).map((r) => r.dept).filter(Boolean));
 
   const isToday = mode === "today";
   const att = attendance(rows, team, !isToday);
@@ -623,15 +696,29 @@ function shapeVisit(rows, team, P, mode) {
 
 const DIV_SHORT = { ELBR: "Elbrit", VASC: "Vasco", AURA: "Aura & Proxima", CND: "CND", ITF: "ITF" };
 
-/* Who is looking, for the greeting. */
+/* The signed-in person's Employee record: an Active one first, so an old
+   "Left" record on the same login can never answer for them. */
+export function meOf(org) {
+  const email = String(org?.email || "").toLowerCase();
+  if (!email) return null;
+  return (org.employees || []).filter((e) => (e.userId || "").toLowerCase() === email).sort((a, b) => (b.active !== false) - (a.active !== false))[0] || null;
+}
+
+/* Who is looking, for the greeting: "Zonal Sales Manager - CND". The
+   division is the Employee's department's; a department that is not a
+   division ("Sales - ELPL", a ZSM's or the GM's) takes the divisions of the
+   team under them instead -- one or two named, more than that left off. */
 export async function fetchViewer(conn) {
   const org = await fetchOrg(conn);
   const email = String(org.email || "").toLowerCase();
-  const me = org.employees.find((e) => (e.userId || "").toLowerCase() === email);
+  const me = meOf(org);
   if (!me) return { name: email === "administrator" ? "Administrator" : "", scope: "All India" };
-  return {
-    name: String(me.name).split(/\s+/)[0],
-    // "Zonal Sales Manager - CND": the Employee's designation and division.
-    scope: [me.designation, me.dept && (DIV_SHORT[divOf(me.dept)] || stripCo(me.dept))].filter(Boolean).join(" - "),
-  };
+  let div = DIV_SHORT[divOf(me.dept)] || "";
+  if (!div) {
+    const { N } = buildTree(org, new Set());
+    const node = N.get(me.id);
+    const divs = node ? [...new Set([...subtreeIds(node)].map((id) => N.get(id)?.div).filter(Boolean))].map((d) => DIV_SHORT[d]) : [];
+    div = divs.length && divs.length <= 2 ? divs.join(" · ") : "";
+  }
+  return { name: String(me.name).split(/\s+/)[0], scope: [me.designation, div].filter(Boolean).join(" - ") };
 }

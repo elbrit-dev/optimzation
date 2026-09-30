@@ -47,7 +47,7 @@ export function describePeriod({ from, to }, today) {
   const totalDays = Math.round((endOfTo - start) / dayMs) + 1;
   const elapsed = Math.min(totalDays, Math.round((new Date(clampTo.getFullYear(), clampTo.getMonth(), clampTo.getDate()) - start) / dayMs) + 1);
   return {
-    from, to, live, closed: !includesNow, n, totalDays, elapsed, pace: elapsed / totalDays, left: totalDays - elapsed,
+    from, to, live, closed: !includesNow, n, totalDays, elapsed, pace: elapsed / totalDays, left: includesNow ? totalDays - elapsed + 1 : 0,
     label: rangeLabel(from, to),
     sub: live ? `Month to date · day ${day} of ${days}` : includesNow ? `${n} months · to date` : n === 1 ? "Closed" : `${n} months · closed`,
     fromDate: `${ymOfIdx(from)}-01`,

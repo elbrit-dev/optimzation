@@ -198,12 +198,31 @@ const ROLE_PROFILES_QUERY = `
    others are links in the reporting chain: Hashim M H (RBM) reports to
    V01863, an INACTIVE vacant RBM seat, which reports to Janardhanan A. With
    Active only, the chain broke at the vacancy and he surfaced at the top. */
+/* The roster decides WHO the viewer is, so a failed read must not pass as
+   "nobody": an empty roster matches no login and widens a BE to the whole
+   token's scope. This ERP sometimes hands a request another request's
+   answer (no Employees in it at all) -- asked again up to three times, and
+   a result that is still empty, or a login that did not resolve, is not
+   kept in the cache. */
+async function readEmployees(conn, attempt = 1) {
+  try {
+    const d = await gql(conn, EMPLOYEES_QUERY, { first: MAX_DOCS, f: [] });
+    const edges = d?.Employees?.edges;
+    if (Array.isArray(edges) && edges.length) return edges;
+  } catch {
+    /* asked again below */
+  }
+  if (attempt >= 3) return [];
+  await new Promise((r) => setTimeout(r, 400 * attempt));
+  return readEmployees(conn, attempt + 1);
+}
+
 export function fetchOrg(conn) {
   return cached(conn, "org", async () => {
     const [employees, roleParents, email] = await Promise.all([
-      gql(conn, EMPLOYEES_QUERY, { first: MAX_DOCS, f: [] })
-        .then((d) =>
-          d.Employees.edges.map(({ node }) => ({
+      readEmployees(conn)
+        .then((edges) =>
+          edges.map(({ node }) => ({
             id: node.name,
             name: clean(node.employee_name) || node.name,
             designation: node.designation?.name ?? "",
@@ -222,6 +241,7 @@ export function fetchOrg(conn) {
         .catch(() => ({})),
       loggedUser(conn),
     ]);
+    if (!employees.length || !email) queueMicrotask(() => evictCached(conn, "org"));
     return { employees, roleParents, email };
   });
 }

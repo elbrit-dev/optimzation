@@ -49,6 +49,15 @@ const CSS = `
 .ho-root .ho-x:hover{background:#e4e7ec!important}
 }
 .ho-root .ho-cta:active{transform:scale(.98)}
+.ho-root .ho-tn{position:relative;min-width:0}
+.ho-root .ho-tn__head{position:relative;display:flex;align-items:flex-start;gap:8px;width:100%;padding:10px 0;border:0;background:none;text-align:left;border-radius:8px}
+.ho-root button.ho-tn__head{cursor:pointer}
+.ho-root .ho-tn__mk{flex:none;width:16px;color:#0958d9;font-size:12px;line-height:20px;text-align:center}
+.ho-root .ho-tn__kids{margin-left:8px;padding-left:6px;border-left:1px solid #e4e7ec}
+.ho-root .ho-tn__head[aria-expanded=true]::after{content:"";position:absolute;top:20px;bottom:0;left:8px;border-left:1px solid #e4e7ec}
+.ho-root .ho-tn__kids>.ho-tn::before{content:"";position:absolute;top:20px;left:-6px;width:14px;border-top:1px solid #e4e7ec}
+.ho-root .ho-tn__kids>.ho-tn:last-child::after{content:"";position:absolute;top:21px;bottom:0;left:-7px;width:1px;background:#fff}
+@media (hover:hover) and (pointer:fine){.ho-root button.ho-tn__head:hover{background:rgba(15,135,249,.05)}}
 @media (prefers-reduced-motion:reduce){.ho-root *{transition:none!important}}`;
 
 function useContainerWidth(ref) {
@@ -305,6 +314,7 @@ function MobileHero({ slides, pace, open }) {
   const railRef = useRef(null);
   const [cur, setCur] = useState(0);
   const n = slides.length;
+  const at = Math.min(cur, Math.max(0, n - 1)); // slides can arrive after a dot was picked
 
   const step = () => {
     const el = railRef.current, c = el?.firstElementChild;
@@ -330,9 +340,9 @@ function MobileHero({ slides, pace, open }) {
       {n > 1 && (
         <div style={{ display: "flex", justifyContent: "center" }}>
           {slides.map((s, i) => (
-            <button key={s.key} type="button" aria-label={"Show " + s.name} aria-current={i === cur} onClick={() => goTo(i)}
+            <button key={s.key} type="button" aria-label={"Show " + s.name} aria-current={i === at} onClick={() => goTo(i)}
               style={{ border: 0, background: "none", padding: "8px 3px", cursor: "pointer", display: "grid", placeItems: "center" }}>
-              <span style={{ display: "block", width: i === cur ? 20 : 6, height: 6, borderRadius: 3, background: i === cur ? "#2563eb" : "#d0d5dd", transition: "width .3s,background .3s" }} />
+              <span style={{ display: "block", width: i === at ? 20 : 6, height: 6, borderRadius: 3, background: i === at ? "#2563eb" : "#d0d5dd", transition: "width .3s,background .3s" }} />
             </button>
           ))}
         </div>
@@ -538,6 +548,23 @@ function SupportRow({ L, view, open, pop }) {
           </span>
         </Tile>
       ))}
+      {U.docCast.map((d) => (
+        <Tile key={"doc" + d.key} width={L.posterW} onClick={() => pop({ mode: "sup", k: -1 })}>
+          <span style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ width: 40, height: 40, borderRadius: "50%", background: "#eef3fe", color: "#1d4ed8", display: "grid", placeItems: "center", fontSize: 13, fontWeight: 700 }}>{d.ini}</span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: "#5b6576", background: "#f2f4f7", padding: "2px 8px", borderRadius: 99 }}>Doctor · #{d.rank}</span>
+          </span>
+          <span style={{ display: "flex", flexDirection: "column", gap: 2, minHeight: 36 }}>
+            <span style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3, ...ell }}>{d.name}</span>
+            {d.sub && <span style={{ fontSize: 12, color: "#8a93a3", ...ell }}>{d.sub}</span>}
+          </span>
+          <span style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <span style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em" }}>{d.vS}</span>
+            <span style={track(5)}><span style={fill(d.w)} /></span>
+            <span style={{ fontSize: 12, color: "#5b6576" }}>{d.share} of total · {d.units} units</span>
+          </span>
+        </Tile>
+      ))}
       {U.health && (
         <Tile width={L.landW} onClick={() => open("support")}>
           <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 600 }}>
@@ -645,6 +672,78 @@ function DetailBody({ spec }) {
   );
 }
 
+/* The Visit Report's team tree (share/src/app/visit/components/TeamTree),
+   drawn in this component's own styles: a caret in the margin, the rail
+   that drops out of an open row with an elbow into each child, and a row of
+   three lines -- who (avatar, name, role chip, headcount), then the plan
+   taken apart in one stacked bar, then its legend. */
+function nestRows(rows) {
+  const out = [], stack = [];
+  for (const r of rows) {
+    const n = { r, kids: [] };
+    while (stack.length && stack[stack.length - 1].r.lvl >= r.lvl) stack.pop();
+    (stack.length ? stack[stack.length - 1].kids : out).push(n);
+    stack.push(n);
+  }
+  return out;
+}
+
+const LEG = [["geo", "Geo verified", "#16a34a"], ["force", "Force visit", "#dc2626"], ["pending", "Pending", "#d0d5dd"]];
+
+function TreeRow({ n, pan, setPan }) {
+  const m = n.r;
+  const Head = m.kids ? "button" : "div";
+  const plan = m.geo + m.force + m.pending;
+  const body = (
+    <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+      <span style={{ display: "flex", alignItems: "flex-start", gap: 10, minWidth: 0 }}>
+        <span aria-hidden="true" style={{ flex: "none", width: 28, height: 28, borderRadius: "50%", background: m.av, color: "#fff", display: "grid", placeItems: "center", fontSize: 11, fontWeight: 600 }}>{m.ini}</span>
+        <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, lineHeight: "20px", ...ell }}>{m.name}</span>
+          <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+            <span style={{ flex: "none", padding: "2px 8px", borderRadius: 6, background: "rgba(15,135,249,.08)", color: "#0958d9", fontSize: 10, fontWeight: 600, letterSpacing: ".04em", textTransform: "uppercase" }}>{m.role}</span>
+            <span style={{ fontSize: 11, color: "#5b6576", ...ell }}>{m.rep}</span>
+          </span>
+        </span>
+        {m.noPlan && <span style={{ flex: "none", fontSize: 11, color: "#8a93a3", lineHeight: "20px" }}>No plan</span>}
+      </span>
+      {m.has && (
+        <>
+          <span role="img" aria-label={`${m.geo} geo verified, ${m.force} force visit, ${m.pending} pending`} style={{ display: "flex", height: 6, borderRadius: 99, overflow: "hidden", background: "#eef1f5" }}>
+            {LEG.map(([k, , c]) => (m[k] ? <span key={k} style={{ width: (m[k] / plan) * 100 + "%", background: c }} /> : null))}
+          </span>
+          <span className="ho-rail" aria-hidden="true" style={{ display: "flex", alignItems: "center", gap: 14, overflowX: "auto", fontSize: 12, color: "#5b6576", whiteSpace: "nowrap" }}>
+            {LEG.map(([k, l, c]) => (
+              <span key={k} style={{ flex: "none", display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: c === "#d0d5dd" ? "#98a2b3" : c }} />{l} <b style={{ color: "#0b1220", ...tabNum }}>{m[k]}</b>
+              </span>
+            ))}
+            {m.joint > 0 && <span style={{ flex: "none" }}>· Joint <b style={{ color: "#0b1220", ...tabNum }}>{m.joint}</b></span>}
+          </span>
+        </>
+      )}
+    </span>
+  );
+  return (
+    <div className="ho-tn">
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+        <Head className="ho-tn__head" {...(m.kids ? { type: "button", "aria-expanded": m.isOpen, onClick: () => setPan({ ...pan, exp: { ...(pan.exp || {}), [m.id]: !m.isOpen } }) } : {})}>
+          <span className="ho-tn__mk" aria-hidden="true">{m.kids ? (m.isOpen ? "▾" : "▸") : "·"}</span>
+          {body}
+        </Head>
+        {m.isUnit && (
+          <button type="button" onClick={() => setPan({ mode: "visit", u: m.unit, f: "all" })} style={{ flex: "none", marginTop: 10, height: 26, padding: "0 10px", borderRadius: 6, border: "1px solid #0f87f9", background: "#fff", color: "#0958d9", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+            Open <span aria-hidden="true">›</span>
+          </button>
+        )}
+      </div>
+      {m.kids && m.isOpen && n.kids.length > 0 && (
+        <div className="ho-tn__kids">{n.kids.map((k) => <TreeRow key={k.r.id} n={k} pan={pan} setPan={setPan} />)}</div>
+      )}
+    </div>
+  );
+}
+
 function VisitBody({ spec, setPan, pan }) {
   return (
     <>
@@ -666,36 +765,14 @@ function VisitBody({ spec, setPan, pan }) {
         <div className="ho-rail" style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 10 }}>
           {spec.filters.map((f) => <button key={f.k} type="button" onClick={() => setPan({ ...pan, f: f.k })} style={filterBtn(f.on)}>{f.label} · {f.n}</button>)}
         </div>
-        {spec.rows.map((m) => (
-          <div key={m.id} style={{ position: "relative", display: "flex", flexDirection: "column", gap: 8, padding: `12px 0 12px ${m.lvl * 18}px`, borderTop: "1px solid #f2f4f7" }}>
-            {m.lvl > 0 && <span style={{ position: "absolute", left: m.lvl * 18 - 10, top: 0, bottom: 0, width: 1, background: "#d0d5dd" }} />}
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              {m.kids ? (
-                <button type="button" aria-expanded={m.isOpen} aria-label={"Show team of " + m.name} onClick={() => setPan({ ...pan, exp: { ...(pan.exp || {}), [m.id]: !m.isOpen } })}
-                  style={{ flex: "none", width: 24, height: 24, marginLeft: -4, borderRadius: 6, border: 0, background: "#f2f4f7", color: "#344054", display: "grid", placeItems: "center", cursor: "pointer" }}>
-                  <span style={{ display: "grid", transform: `rotate(${m.isOpen ? 90 : 0}deg)`, transition: "transform .2s" }}><Chevron size={12} /></span>
-                </button>
-              ) : <span style={{ flex: "none", width: 20 }} />}
-              <span style={{ flex: "none", width: 34, height: 34, borderRadius: "50%", background: m.av, color: "#fff", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700 }}>{m.ini}</span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 600, ...ell }}>{m.name}</div>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3, minWidth: 0 }}><span style={{ flex: "none", fontSize: 11, fontWeight: 600, padding: "2px 7px", borderRadius: 6, background: "#eef3fe", color: "#1d4ed8" }}>{m.role}</span><span style={{ fontSize: 12, color: "#5b6576", ...ell }}>{m.rep}</span></div>
-              </div>
-              {m.isUnit && <button type="button" onClick={() => setPan({ mode: "visit", u: m.unit, f: "all" })} style={{ flex: "none", height: 32, padding: "0 10px", borderRadius: 8, border: "1px solid #2563eb", background: "#fff", color: "#1d4ed8", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Open ›</button>}
+        {!spec.empty && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: ".06em", textTransform: "uppercase", color: "#8a93a3" }}>Team tree · tap to expand</span>
+            <div style={{ borderRadius: 12, boxShadow: "0 0 0 1px #e4e7ec", padding: "2px 14px", background: "#fff" }}>
+              {nestRows(spec.rows).map((n) => <TreeRow key={n.r.id} n={n} pan={pan} setPan={setPan} />)}
             </div>
-            {m.has && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingLeft: 62 }}>
-                <span style={track(4)}><span style={{ ...fill(m.w, m.barC), borderRadius: 0 }} /></span>
-                <span style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12, color: "#5b6576" }}>
-                  <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: "#16a34a" }} />Geo <b style={{ color: "#0b1220" }}>{m.geo}</b> · Joint <b style={{ color: "#0b1220" }}>{m.joint}</b></span>
-                  <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: "#dc2626" }} />Force <b style={{ color: "#0b1220" }}>{m.force}</b></span>
-                  <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: "#98a2b3" }} />Pending <b style={{ color: "#0b1220" }}>{m.pending}</b></span>
-                </span>
-              </div>
-            )}
-            {m.noPlan && <span style={{ paddingLeft: 62, fontSize: 12, color: "#b54708" }}>No doctor plan filed</span>}
           </div>
-        ))}
+        )}
         {spec.empty && <div style={{ padding: "32px 0", textAlign: "center", fontSize: 13, color: "#8a93a3" }}>No one matches this filter.</div>}
       </div>
     </>
@@ -745,6 +822,37 @@ function RepsBody({ spec, setPan, pan }) {
         ))}
       </div>
     </>
+  );
+}
+
+const EMPTY_TITLE = { primary: "Team ranking", secondary: "Sell-through by team", visit: "Field activity", support: "Support value" };
+const MON3 = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/* The months each section actually looks through before it gives up:
+   Secondary three, Primary and Visit two, Support the whole financial year. */
+function triedSpan(k, d) {
+  const lbl = (x) => MON3[x.getMonth()] + " " + x.getFullYear();
+  if (k === "support") { const fy = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1; return "FY " + fy + "-" + String((fy + 1) % 100).padStart(2, "0"); }
+  const n = k === "secondary" ? 3 : 2;
+  const a = new Date(d.getFullYear(), d.getMonth() - (n - 1), 1), b = new Date(d.getFullYear(), d.getMonth(), 1);
+  const from = a.getFullYear() === b.getFullYear() ? MON3[a.getMonth()] : lbl(a);
+  return from + (n > 2 ? "–" : " or ") + lbl(b);
+}
+
+function EmptyRow({ L, k, today, open, error }) {
+  const d = today instanceof Date && !isNaN(today) ? today : new Date();
+  const span = triedSpan(k, d);
+  return (
+    <Row L={L} kicker={LABEL[k]} title={EMPTY_TITLE[k]} onSeeAll={() => open(k)}>
+      <div style={{ flex: "1 1 auto", minWidth: 0, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", padding: "18px 20px", borderRadius: 16, background: "#fff", boxShadow: "0 0 0 1px #e4e7ec" }}>
+        <div style={{ flex: "1 1 220px", minWidth: 0 }}>
+          <div style={{ fontSize: 15, fontWeight: 600 }}>{error ? "Could not load" : "No data available"}</div>
+          <div style={{ marginTop: 3, fontSize: 13, color: "#5b6576" }}>{(error ? error.replace(/\.?$/, ".") : "Nothing on file for " + span + ".") + " The " + LABEL[k] + " page has the full report."}</div>
+        </div>
+        <button type="button" className="ho-cta" onClick={() => open(k)} style={{ flex: "none", display: "flex", alignItems: "center", gap: 6, height: 40, padding: "0 16px", borderRadius: 10, border: 0, background: "#2563eb", color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
+          {"Open " + LABEL[k]}<Chevron />
+        </button>
+      </div>
+    </Row>
   );
 }
 
@@ -879,7 +987,13 @@ export default function HomeOverview({
   const updated = anyLoading ? "Loading…" : updatedLabel(updatedAt || landedAt);
   const greeting = T.greet + (name ? ", " + name : "");
   const failed = live ? Object.keys(LABEL).filter((k) => liveState[k]?.status === "error") : [];
-  const empty = live ? ["primary", "secondary", "visit", "support"].filter((k) => bound[k] == null && liveState[k]?.status === "ready" && !liveState[k].data) : [];
+  /* Empty is judged on what would be DRAWN, not on the raw read: a month
+     with sales but no targets builds no Primary, and a failed read builds
+     nothing either -- each still gets its row and its way to the page. */
+  const built = { primary: P, secondary: S, visit: V, support: U };
+  const SECTIONS = ["primary", "secondary", "visit", "support"];
+  const failedOther = failed.filter((k) => !SECTIONS.includes(k));
+  const empty = live ? SECTIONS.filter((k) => bound[k] == null && ["ready", "error"].includes(liveState[k]?.status) && !built[k]) : [];
   const any = P || S || V || U;
 
   return (
@@ -913,13 +1027,15 @@ export default function HomeOverview({
         {P ? <PrimaryRow L={L} view={view} open={open} pop={setPan} railRef={topRef} /> : loading("primary") && <SkeletonRow L={L} />}
         {S ? <SecondaryRow L={L} view={view} open={open} pop={setPan} /> : loading("secondary") && <SkeletonRow L={L} />}
         {U ? <SupportRow L={L} view={view} open={open} pop={setPan} /> : loading("support") && <SkeletonRow L={L} />}
-        {!any && !anyLoading && !liveState.error && (
+        {!any && !anyLoading && !liveState.error && !empty.length && !failed.length && (
           <div style={{ margin: `0 ${L.pad}`, padding: "22px 20px", borderRadius: 14, background: "#fff", boxShadow: "0 0 0 1px #e4e7ec", fontSize: 14, color: "#5b6576" }}>
             {live ? "Nothing on file for you this month or last." : "Nothing to show yet. Pass the ERP URL and token, bind the section data, or switch on Sample data to preview."}
           </div>
         )}
-        {empty.length > 0 && any && <div style={{ margin: `0 ${L.pad}`, fontSize: 12, color: "#8a93a3" }}>{"Nothing on file this month or last: " + empty.map((k) => LABEL[k]).join(", ") + "."}</div>}
-        {failed.length > 0 && <div style={{ margin: `0 ${L.pad}`, fontSize: 12, color: "#8a93a3" }}>{"Could not load " + failed.map((k) => LABEL[k]).join(", ") + " — " + liveState[failed[0]].error}</div>}
+        {/* A section with nothing on file still gets its row -- last, with the
+            way into its own page -- so the reader is never left without a route. */}
+        {empty.map((k) => <EmptyRow key={k} L={L} k={k} today={today} open={open} error={liveState[k]?.status === "error" ? liveState[k].error || "The ERP did not answer" : null} />)}
+        {failedOther.length > 0 && <div style={{ margin: `0 ${L.pad}`, fontSize: 12, color: "#8a93a3" }}>{"Could not load " + failedOther.map((k) => LABEL[k]).join(", ") + " — " + liveState[failedOther[0]].error}</div>}
       </div>
 
       {spec && (
