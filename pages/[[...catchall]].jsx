@@ -7,27 +7,25 @@ import {
 } from "@plasmicapp/loader-nextjs";
 
 import Error from "next/error";
-import { useRouter } from "next/router";
+import Router, { useRouter } from "next/router";
 import { PLASMIC } from "@/plasmic-init";
 
 /**
- * Stops one bad expression from taking the whole app down.
+ * Stops one bad expression from taking the whole app down — WITHOUT an error
+ * page.
  *
- * Every Plasmic page in this project renders through this file, and Studio
- * expressions are evaluated with `eval` inside the page bundle. A single
- * unguarded property read — `Lead.territory.territory_name` against a doctor
- * with no territory link — throws during render, React unmounts the entire
- * tree, and the user gets a black screen reading "Application error: a
- * client-side exception has occurred". No menu, no back, nothing to do but
- * retype the URL. That is a catastrophic failure for a one-character omission
- * (`?.`) in one binding on one page.
+ * Every Plasmic page renders through this file, and a single unguarded Studio
+ * binding (`query.data.response.data.Lead.lead_name` when that query failed)
+ * throws during render and unmounts the whole tree. There is nothing on that
+ * page left to show, so instead of a dead-end "could not be displayed" screen
+ * the reader is taken back to the app's main page, where they can carry on.
+ * The error and the component stack still go to the console, which is where
+ * the broken binding gets found.
  *
- * A boundary cannot make the broken binding render — only Studio can fix the
- * expression — but it contains the blast radius to the page that failed and
- * says what happened, instead of destroying the session.
+ * The main page itself cannot be redirected to itself, so a crash THERE shows
+ * a single line with a reload — the only case left with nowhere else to go.
  *
- * NOT a class field / hooks component on purpose: `componentDidCatch` has no
- * hook equivalent, so a class is the only way to do this in React.
+ * A class on purpose: `componentDidCatch` has no hook equivalent.
  */
 class PageErrorBoundary extends React.Component {
   constructor(props) {
@@ -40,63 +38,38 @@ class PageErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, info) {
-    // Keep the original stack reachable. The message alone ("Cannot read
-    // properties of null") never names the page, and the component stack is
-    // what points at which binding threw.
     if (typeof console !== "undefined" && console.error) {
       console.error("Plasmic page crashed:", error, info?.componentStack);
     }
+    if (!this.isHome()) Router.replace(HOME);
   }
 
   componentDidUpdate(prev) {
-    // Clear on navigation, otherwise one broken doctor pins the fallback over
-    // every page the user visits afterwards.
+    // Clear on navigation — including the redirect home — so the next page renders.
     if (prev.resetKey !== this.props.resetKey && this.state.error) {
       this.setState({ error: null });
     }
   }
 
+  isHome() {
+    return (this.props.resetKey ?? "").split(/[?#]/)[0] === HOME;
+  }
+
   render() {
     const { error } = this.state;
     if (!error) return this.props.children;
-
+    if (!this.isHome()) return null; // on its way to the main page
     return (
-      <div
-        role="alert"
-        style={{
-          minHeight: "60vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: "24px",
-        }}
-      >
-        <div style={{ maxWidth: "34rem", textAlign: "center", lineHeight: 1.5 }}>
-          <h1 style={{ fontSize: "1.25rem", margin: "0 0 .5rem" }}>
-            This page could not be displayed
-          </h1>
-          <p style={{ margin: "0 0 1rem", opacity: 0.8 }}>
-            Something on this page expected data that this record does not have.
-            The rest of the app is unaffected — go back, or try again.
-          </p>
-          <button
-            type="button"
-            onClick={() => this.setState({ error: null })}
-            style={{ padding: ".5rem 1rem", cursor: "pointer" }}
-          >
-            Try again
-          </button>
-          <details style={{ marginTop: "1rem", textAlign: "left", opacity: 0.7 }}>
-            <summary style={{ cursor: "pointer" }}>Technical detail</summary>
-            <pre style={{ whiteSpace: "pre-wrap", fontSize: ".75rem", margin: ".5rem 0 0" }}>
-              {String(error?.message ?? error)}
-            </pre>
-          </details>
-        </div>
+      <div role="alert" style={{ padding: "24px", textAlign: "center" }}>
+        <button type="button" onClick={() => window.location.reload()} style={{ padding: ".5rem 1rem", cursor: "pointer" }}>
+          Reload
+        </button>
       </div>
     );
   }
 }
+
+const HOME = "/";
 
 export default function PlasmicLoaderPage(props) {
   const { plasmicData, queryCache } = props;
