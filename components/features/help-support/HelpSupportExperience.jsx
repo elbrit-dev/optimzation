@@ -26,6 +26,13 @@ import {
   toggleHDArticleLike,
   updateHDTicket,
 } from "./graphql";
+import { uploadHDTicketAttachment } from "./graphql/hdAttachmentClient";
+import {
+  buildConsoleLogFile,
+  clearCapturedConsoleEntries,
+  getCapturedConsoleEntries,
+  installConsoleCapture,
+} from "./consoleCapture";
 
 const HELP_SUPPORT_UI_CONTENT = {
   user: {},
@@ -904,6 +911,10 @@ function CreateTicketForm({ content, onSubmit, onCancel, ticketTypes = [], user 
   };
 
   useEffect(() => {
+    installConsoleCapture();
+  }, []);
+
+  useEffect(() => {
     if (sessionEmail) {
       setRaisedBy(sessionEmail);
       return;
@@ -934,6 +945,8 @@ function CreateTicketForm({ content, onSubmit, onCancel, ticketTypes = [], user 
         raisedBy: raisedBy.trim(),
         description: description.trim(),
         attachments,
+        // Always sent, never shown - requesters are non-technical, agents read it in the ERP.
+        consoleLogs: getCapturedConsoleEntries(),
       });
       if (result === false) return;
       setAttachments([]);
@@ -2046,7 +2059,7 @@ export default function HelpSupportExperience({
   ];
 
   const createTicket = async (ticket) => {
-    const { attachments = [], ...ticketFields } = ticket || {};
+    const { attachments = [], consoleLogs = [], ...ticketFields } = ticket || {};
 
     try {
       const createPromise = createHDTicket(ticketFields, {
@@ -2080,6 +2093,15 @@ export default function HelpSupportExperience({
           toast.error(`Could not attach ${failure.fileName}`, { description: failure.message });
         });
       }
+
+      // Console log is a .txt, which the user-facing validator rejects, so it
+      // bypasses validateAttachment. It is silent: a failed upload is not the
+      // requester's concern and the ticket already exists. The buffer resets
+      // either way so the next ticket only carries errors raised after this one.
+      if (consoleLogs.length) {
+        await uploadHDTicketAttachment(buildConsoleLogFile(consoleLogs), created.id, graphqlConfig).catch(() => null);
+      }
+      clearCapturedConsoleEntries();
 
       setTickets((current) => [created, ...current]);
       setTicketFilter((current) => current || effectiveTicketViews.find((viewItem) => viewItem.isDefault)?.id || effectiveTicketViews[0]?.id || "");
