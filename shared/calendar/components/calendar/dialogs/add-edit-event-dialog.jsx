@@ -2393,7 +2393,17 @@ export function AddEditEventDialog({
 		isEditing &&
 		selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN &&
 		!hasValidLocation;
-	const isSubmitDisabled = isMutationPending;
+	// A new plan is only worth sending once its one essential pick is made: a DR
+	// Tour Plan with no doctor ran the per-doctor save loop over `[undefined]`
+	// and hung the app, and an HQ Tour Plan with no HQ is not a plan. Editing is
+	// left alone - the saved event already has them.
+	const hasPick = (value) =>
+		Array.isArray(value) ? value.some(Boolean) : Boolean(value);
+	const isMissingRequiredPick =
+		!isEditing &&
+		((selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN && !hasPick(doctor)) ||
+			(selectedTag === TAG_IDS.HQ_TOUR_PLAN && !hasPick(hqTerritory)));
+	const isSubmitDisabled = isMutationPending || isMissingRequiredPick;
 	return (
 		<Modal open={isOpen} onOpenChange={handleDialogOpenChange}>
 			<ModalTrigger asChild>{children}</ModalTrigger>
