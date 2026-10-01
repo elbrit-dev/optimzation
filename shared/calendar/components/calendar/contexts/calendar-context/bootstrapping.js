@@ -13,9 +13,11 @@ function mapEmployeesToOptions(employees = []) {
     doctype: "Employee",
     value: employee.name,
     label: employee.employee_name,
-    // Fall back to user_id (the ERP User) when company_email is empty — many
-    // field employees (BEs) have no company_email, and DocShare targets a User.
-    email: employee.company_email || employee.user_id,
+    // The ERP User (user_id) first: DocShare targets a User, and company_email
+    // is not always one - ABM Rajanna D S has company_email ds.rajanna@ but logs
+    // in as rajanna.abm@, so shares to him failed. company_email is only the
+    // fallback for an employee with no User linked.
+    email: employee.user_id || employee.company_email,
     role: employee.designation?.name ?? null,
     roleId: employee.role_id,
     hqTerritory: employee.custom_hq__name ?? null,

@@ -1,4 +1,4 @@
-// Employee lookup that backs the department-restricted knowledge base collections.
+// Employee lookup that backs the department- and designation-restricted knowledge base collections.
 // Link fields are read through their "__name" scalars only — see the note in
 // hdTicket.graphql.js. `user_id` is a Link to User, so selecting it unqualified would
 // defer-resolve a User doc and fail the whole query for non-admin tokens.
@@ -16,6 +16,7 @@ query EmployeeByUser($user: String!) {
         employee_name
         status
         department__name
+        designation__name
       }
     }
   }

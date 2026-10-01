@@ -55,6 +55,20 @@ const HELP_SUPPORT_UI_CONTENT = {
 // through the "IT" rule.
 const DEPARTMENT_RESTRICTED_COLLECTIONS = new Map([["it", "it"]]);
 
+// Field sales staff (ZSM, SM, RBM, ABM, BE) browse the General collection only. Keyed by
+// the ERP Designation docname, lowercased; the RBM grade variants count as RBM.
+const GENERAL_ONLY_DESIGNATIONS = new Set([
+  "zonal sales manager",
+  "sales manager",
+  "regional business manager",
+  "deputy regional business manager",
+  "sr. regional business manager",
+  "area business manager",
+  "business executive",
+  "trainee business executive",
+]);
+const GENERAL_COLLECTION = "general";
+
 function cx(...classes) {
   return classes.filter(Boolean).join(" ");
 }
@@ -70,8 +84,16 @@ function normalizeDepartment(value) {
   return departmentLabel(value).toLowerCase();
 }
 
-function canViewCollection(categoryName, department) {
-  const requiredDepartment = DEPARTMENT_RESTRICTED_COLLECTIONS.get(String(categoryName || "").trim().toLowerCase());
+function canViewCollection(categoryName, employee) {
+  const collection = String(categoryName || "").trim().toLowerCase();
+  // No confirmed Active employee means we cannot tell who this is, so they get the
+  // narrowest view rather than the widest.
+  if (!employee) return collection === GENERAL_COLLECTION;
+  if (GENERAL_ONLY_DESIGNATIONS.has(String(employee.designation || "").trim().toLowerCase())) {
+    return collection === GENERAL_COLLECTION;
+  }
+  const department = employee.department;
+  const requiredDepartment = DEPARTMENT_RESTRICTED_COLLECTIONS.get(collection);
   if (!requiredDepartment) return true;
   return normalizeDepartment(department) === requiredDepartment;
 }
@@ -1760,7 +1782,9 @@ export default function HelpSupportExperience({
   const [ticketStatuses, setTicketStatuses] = useState([]);
   const [ticketViews, setTicketViews] = useState([]);
   const [erpUser, setErpUser] = useState("");
-  const [erpDepartment, setErpDepartment] = useState("");
+  // Confirmed Active employee ({ department, designation }) or null. Drives which
+  // knowledge base collections are visible.
+  const [erpEmployee, setErpEmployee] = useState(null);
   // Tickets allocated to the signed-in user. Membership here is what switches a ticket
   // from the requester view to the agent view.
   const [assignedTicketIds, setAssignedTicketIds] = useState(() => new Set());
@@ -1787,7 +1811,7 @@ export default function HelpSupportExperience({
       setTicketStatuses([]);
       setTicketViews([]);
       setErpUser("");
-      setErpDepartment("");
+      setErpEmployee(null);
       setAssignedTicketIds(new Set());
       setTicketFilter("");
       setIsLoadingContent(false);
@@ -1826,11 +1850,11 @@ export default function HelpSupportExperience({
         if (!active || !results) return;
         const [contentResult, optionsResult, viewsResult, employeeResult, assignedResult] = results;
 
-        // Only a confirmed Active employee record unlocks a restricted collection.
+        // Only a confirmed Active employee record unlocks anything beyond General.
         // Anything else — lookup failed, no employee record, or they have left — leaves
-        // the department empty, which hides those collections.
+        // the employee null, which limits the knowledge base to the General collection.
         const employee = employeeResult.status === "fulfilled" ? employeeResult.value : null;
-        setErpDepartment(employee?.status === "Active" ? employee.department || "" : "");
+        setErpEmployee(employee?.status === "Active" ? employee : null);
 
         const assignedTickets = assignedResult.status === "fulfilled" ? assignedResult.value : [];
         setAssignedTicketIds(new Set(assignedTickets.map((ticket) => ticket.id)));
@@ -1904,23 +1928,32 @@ export default function HelpSupportExperience({
   const normalizedQuery = query.trim().toLowerCase();
   const matches = (text) => !normalizedQuery || String(text).toLowerCase().includes(normalizedQuery);
 
-  // Department gate. Everything downstream — counts, search, collection view, the
+  // Department / designation gate. Everything downstream — counts, search, collection view, the
   // article lookup behind the article route — derives from these, so a restricted
   // collection cannot be reached by any path once it is filtered out here.
   const restrictedCategoryIds = useMemo(
     () =>
       new Set(
-        categories.filter((category) => !canViewCollection(category.name, erpDepartment)).map((category) => category.id)
+        categories.filter((category) => !canViewCollection(category.name, erpEmployee)).map((category) => category.id)
       ),
-    [categories, erpDepartment]
+    [categories, erpEmployee]
   );
   const visibleCategories = useMemo(
     () => categories.filter((category) => !restrictedCategoryIds.has(category.id)),
     [categories, restrictedCategoryIds]
   );
   const visibleArticles = useMemo(
-    () => articles.filter((article) => !restrictedCategoryIds.has(article.categoryId)),
-    [articles, restrictedCategoryIds]
+    () => {
+      // Checked by collection name, not just the restricted ids, so an article with no
+      // or an unknown category is not a way around a General-only view.
+      const categoryNames = new Map(categories.map((category) => [category.id, category.name]));
+      return articles.filter(
+        (article) =>
+          !restrictedCategoryIds.has(article.categoryId) &&
+          canViewCollection(categoryNames.get(article.categoryId) || article.categoryId, erpEmployee)
+      );
+    },
+    [articles, categories, restrictedCategoryIds, erpEmployee]
   );
 
   const categoriesById = useMemo(

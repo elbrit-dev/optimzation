@@ -13,5 +13,6 @@ export async function fetchEmployeeByUser(user, graphqlConfig) {
     status: node.status || "",
     // ERP stores the Department docname, which carries a company suffix ("IT - ELPL").
     department: node.department__name || "",
+    designation: node.designation__name || "",
   };
 }

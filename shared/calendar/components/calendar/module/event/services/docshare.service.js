@@ -102,18 +102,38 @@ export async function syncDocShares(
   // them concurrently makes Frappe transactions contend with one another and
   // can produce MySQL 1205 lock timeouts. A document normally has only a few
   // recipients, so serial writes are both cheap and substantially safer.
+  //
+  // One recipient ERP rejects (e.g. an address that is not a User) must not
+  // cost the others their share: it used to throw out of this loop, so a BE's
+  // event reached the SM ahead of a bad ABM address and never the RBM after it.
+  // Every recipient is tried; failures are reported together afterwards.
+  const failures = [];
   for (const userId of missingUserIds) {
-    await graphqlRequest(SAVE_DOC_SHARE_MUTATION, {
-      doc: JSON.stringify({
-        [ERP_DOC_SHARE_FIELDS.user]: userId,
-        [ERP_DOC_SHARE_FIELDS.shareDoctype]: doctype,
-        [ERP_DOC_SHARE_FIELDS.shareName]: documentName,
-        read: 1,
-        write: 1,
-        share: 0,
-        notify_by_email: 0,
-      }),
-    });
+    try {
+      await graphqlRequest(SAVE_DOC_SHARE_MUTATION, {
+        doc: JSON.stringify({
+          [ERP_DOC_SHARE_FIELDS.user]: userId,
+          [ERP_DOC_SHARE_FIELDS.shareDoctype]: doctype,
+          [ERP_DOC_SHARE_FIELDS.shareName]: documentName,
+          read: 1,
+          write: 1,
+          share: 0,
+          notify_by_email: 0,
+        }),
+      });
+    } catch (error) {
+      failures.push({ userId, error });
+    }
+  }
+
+  if (failures.length) {
+    const error = new Error(
+      `DocShare failed for ${failures.map((f) => f.userId).join(", ")} on ${doctype}:${documentName}: ${
+        failures[0].error?.message ?? ""
+      }`.trim()
+    );
+    error.failures = failures;
+    throw error;
   }
 
   return fetchDocSharesByDocument(doctype, documentName);

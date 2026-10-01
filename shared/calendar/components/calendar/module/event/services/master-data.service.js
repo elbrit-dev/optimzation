@@ -44,7 +44,7 @@ export async function fetchEmployees() {
       doctype: "Employee",
       value: node.name,
       label: node.employee_name,
-      email: node.company_email || node.user_id,
+      email: node.user_id || node.company_email, // the ERP User first: DocShare targets a User
       role: node.designation?.name ?? null,
       roleId: node.role_id,
       hqTerritory: node.custom_hq__name ?? null,
@@ -79,7 +79,7 @@ export async function searchEmployees(search) {
       doctype: "Employee",
       value: node.name,
       label: node.employee_name,
-      email: node.company_email || node.user_id,
+      email: node.user_id || node.company_email, // the ERP User first: DocShare targets a User
       role: node.designation?.name ?? null,
       roleId: node.role_id,
       hqTerritory: node.custom_hq__name ?? null,
