@@ -87,6 +87,14 @@ export const DOCTOR_SUPPORT = {
     hq: 'hq',
     department: 'department',
   },
+  /* Production names the same line fields custom_*: the writer takes
+     whichever the record's own lines carry (writes.js lineFields). */
+  fieldsAlt: {
+    roleProfile: 'custom_role_profile',
+    status: 'custom_status',
+    hq: 'custom_hq',
+    department: 'custom_department',
+  },
   trackerTable: 'custom_approver_table',
   trackerPrefix: 'Doctor Support',
 };

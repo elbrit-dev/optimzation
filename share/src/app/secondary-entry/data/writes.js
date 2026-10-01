@@ -64,13 +64,26 @@ function lineFigures(form, f) {
   return out;
 }
 
+/* The task's line field names, as THIS record has them. A task can name
+   another set (`fieldsAlt`: Doctor Support's custom_role_profile etc. on
+   production, role_profile etc. on UAT); the set the record's lines carry
+   wins. frappe.client.get returns every field of a line, empty ones too, so
+   any line says which names this ERP uses. */
+export function lineFields(children, task = SECONDARY) {
+  const f = task.fields;
+  const alt = task.fieldsAlt;
+  if (!alt || !children.length) return f;
+  const has = (key) => children.some((c) => Object.prototype.hasOwnProperty.call(c, key));
+  return !has(f.roleProfile) && has(alt.roleProfile) ? { ...f, ...alt } : f;
+}
+
 /* Pure: the document with `roleProfile`'s lines set from `lines`. Other
    seats' children are returned as the same objects, untouched. `task` says
    which child table and fields (Secondary by default). */
 export function applySeatLines(doc, { roleProfile, lines, submit }, task = SECONDARY) {
   if (!roleProfile) throw new Error('No seat (roleProfile) to write lines for.');
   const children = Array.isArray(doc[task.childTable]) ? doc[task.childTable] : [];
-  const f = task.fields;
+  const f = lineFields(children, task);
   const status = submit ? LINE_SUBMITTED : LINE_DRAFT;
   const byItem = new Map(lines.filter((l) => l.item).map((l) => [l.item, l]));
   const template = children.find((c) => childRoleProfile(c, f) === roleProfile) ?? {};

@@ -47,6 +47,23 @@
 
 DOCTYPE = "Doctor Support"
 LINE = "`tabSupport Items`"
+
+# THE LINE FIELDS' NAMES differ between ERPs: UAT's Support Items has
+# role_profile / status / hq / department, production's custom_role_profile /
+# custom_status / custom_hq / custom_department. Whichever this ERP has is
+# used — the plain name unless only the custom_ one exists.
+SUPPORT_META = frappe.get_meta("Support Items")
+
+
+def line_field(plain):
+    if not SUPPORT_META.has_field(plain) and SUPPORT_META.has_field("custom_" + plain):
+        return "custom_" + plain
+    return plain
+
+
+F_SEAT = line_field("role_profile")
+F_STATUS = line_field("status")
+F_HQ = line_field("hq")
 MIRROR = "`tabsecondary tracker`"
 CHUNK = 500
 
@@ -167,11 +184,11 @@ if seat:
     seen_items = {}
     for r in lister(
             DOCTYPE,
-            filters=[["Support Items", "role_profile", "=", seat], in_month],
+            filters=[["Support Items", F_SEAT, "=", seat], in_month],
             fields=["name",
                     LINE + ".name as line", LINE + ".idx as idx", LINE + ".item as item",
                     LINE + ".qty as sales_qty",
-                    LINE + ".status as custom_status", LINE + ".hq as custom_hq"],
+                    LINE + "." + F_STATUS + " as custom_status", LINE + "." + F_HQ + " as custom_hq"],
             order_by=LINE + ".idx asc", limit_page_length=0):
         row = by_name.get(r.get("name"))
         if not row:
@@ -208,7 +225,7 @@ if seat:
     # ---- other seats' products, as names only
     for r in lister(
             DOCTYPE,
-            filters=[["Support Items", "role_profile", "!=", seat], in_month],
+            filters=[["Support Items", F_SEAT, "!=", seat], in_month],
             fields=["name", LINE + ".item as item"],
             limit_page_length=0):
         row = by_name.get(r.get("name"))

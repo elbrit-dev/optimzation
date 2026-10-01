@@ -39,6 +39,21 @@
 DOCTYPE = "Doctor Support"
 PREFIX = "Doctor Support-"
 LINE = "`tabSupport Items`"
+
+# THE LINE FIELDS' NAMES differ between ERPs: UAT's Support Items has
+# role_profile / status / hq / department, production's custom_role_profile /
+# custom_status / custom_hq / custom_department. Whichever this ERP has is
+# used — the plain name unless only the custom_ one exists.
+SUPPORT_META = frappe.get_meta("Support Items")
+
+
+def line_field(plain):
+    if not SUPPORT_META.has_field(plain) and SUPPORT_META.has_field("custom_" + plain):
+        return "custom_" + plain
+    return plain
+
+
+F_SEAT = line_field("role_profile")
 CHUNK = 500
 
 
@@ -209,7 +224,7 @@ if month:
                 DOCTYPE, filters=[["name", "in", part]],
                 fields=["name", LINE + ".idx as idx", LINE + ".item as item",
                         LINE + ".qty as sales_qty", LINE + ".amount as sales_value",
-                        LINE + ".role_profile as rp"],
+                        LINE + "." + F_SEAT + " as rp"],
                 order_by=LINE + ".idx asc", limit_page_length=0):
             if not r.get("item"):
                 continue
