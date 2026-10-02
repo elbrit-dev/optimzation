@@ -51,7 +51,11 @@ export async function erpCall(origin, token, method, body, { fetchImpl = fetch }
     body: body ? JSON.stringify(body) : undefined,
   });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok || json.exc_type) throw new Error(json.exc_type || `ERP request failed (${res.status})`);
+  if (!res.ok || json.exc_type) {
+    /* The ERP's whole answer rides along (err.body): a refusal such as
+       LinkExistsError names in `exception` the document that blocks it. */
+    throw Object.assign(new Error(json.exc_type || `ERP request failed (${res.status})`), { status: res.status, body: json });
+  }
   return json.message;
 }
 

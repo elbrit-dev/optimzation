@@ -41,6 +41,21 @@ TASKS = {
                        "rp": "role_profile", "status": "status",
                        "party": "doctor", "party_doctype": "Lead"},
 }
+
+
+# A line field's name as THIS ERP has it: Doctor Support's Support Items has
+# role_profile / status on UAT and custom_role_profile / custom_status on
+# production — the plain name unless only the custom_ one exists.
+def line_field(child, plain):
+    meta = frappe.get_meta(child)
+    if not meta.has_field(plain) and meta.has_field("custom_" + plain):
+        return "custom_" + plain
+    return plain
+
+
+for t in TASKS.values():
+    t["rp"] = line_field(t["child"], t["rp"])
+    t["status"] = line_field(t["child"], t["status"])
 FIELD_TIERS = ["BE", "ABM", "RBM", "SRBM", "SM", "ZSM", "GM"]
 CHUNK = 500
 
@@ -86,6 +101,49 @@ def bucket_of(ws):
     if "approved" in s or "verified" in s:
         return "approved"
     return "waiting"
+
+
+def is_vacant_name(n):
+    return (n or "")[:6].lower() == "vacant"
+
+
+def owner_seat(s):
+    # The seat whose approval carries `s`'s lines — as the ERP's tracker
+    # scripts (src/app/tracker/server) raise it: `s` itself when someone real
+    # holds it; else the nearest seat above with a live holder, up reports_to
+    # from its placeholder holder, or up the Role Profile tree when no one
+    # holds it.
+    holders = frappe.get_all("Employee", filters={"custom_role_profile": s, "status": "Active"},
+                             fields=["employee_name", "reports_to"], limit=20)
+    climb = None
+    for h in holders:
+        if not is_vacant_name(h.get("employee_name")):
+            return s
+        if climb is None:
+            climb = h.get("reports_to")
+    if holders:
+        cur = climb
+        hops = 0
+        while cur and hops < 15:
+            hops = hops + 1
+            m = frappe.db.get_value("Employee", cur,
+                                    ["employee_name", "status", "reports_to", "custom_role_profile"], as_dict=True)
+            if not m:
+                break
+            if m.get("status") == "Active" and not is_vacant_name(m.get("employee_name")) and m.get("custom_role_profile"):
+                return m.get("custom_role_profile")
+            cur = m.get("reports_to")
+        return s
+    cur = frappe.db.get_value("Role Profile", s, "parent_role_profile")
+    hops = 0
+    while cur and hops < 15:
+        hops = hops + 1
+        for h in frappe.get_all("Employee", filters={"custom_role_profile": cur, "status": "Active"},
+                                fields=["employee_name"], limit=20):
+            if not is_vacant_name(h.get("employee_name")):
+                return cur
+        cur = frappe.db.get_value("Role Profile", cur, "parent_role_profile")
+    return s
 
 
 me = frappe.session.user
@@ -173,8 +231,24 @@ if seats:
             if s not in units:
                 units[s] = {}
             units[s][n] = seen_line[k]
+    # A vacant seat's approval is its OWNER's (its lines roll up onto the
+    # covering manager's tracker — see owner_seat): looked up only for seats
+    # no one real holds among the people above.
+    live = {}
+    for e in people:
+        if e.get("custom_role_profile") and not is_vacant_name(e.get("employee_name")):
+            live[e.get("custom_role_profile")] = 1
+    owner = {}
+    tracked = list(seats)
+    for s in seats:
+        if not live.get(s):
+            o = owner_seat(s)
+            if o != s:
+                owner[s] = o
+                if o not in tracked:
+                    tracked.append(o)
     tracker_of = {}
-    for part in chunks(seats):
+    for part in chunks(tracked):
         for r in frappe.get_all(task["doctype"],
                                 filters=[["secondary tracker", "role_profile", "in", part], in_month],
                                 fields=["name", "`tabsecondary tracker`.role_profile as rp",
@@ -196,6 +270,8 @@ for e in people:
     c = {"approved": 0, "waiting": 0, "draft": 0, "rejected": 0}
     for n in units.get(s, {}):
         st = state_of.get(s + "|" + n)
+        if not st and owner.get(s):
+            st = state_of.get(owner[s] + "|" + n)
         decided = bucket_of(st) if st else ""
         if decided == "approved" or decided == "rejected":
             b = decided
@@ -210,7 +286,7 @@ for e in people:
         "seat": s or None,
         "tier": tier_of(s) or None,
         "reportsTo": e.get("reports_to"),
-        "vacant": 1 if (e.get("employee_name") or "")[:6].lower() == "vacant" else 0,
+        "vacant": 1 if is_vacant_name(e.get("employee_name")) else 0,
         "user": e.get("user_id"),
         "approved": c["approved"],
         "waiting": c["waiting"],

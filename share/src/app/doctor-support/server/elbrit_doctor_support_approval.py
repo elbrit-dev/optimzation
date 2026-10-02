@@ -28,9 +28,13 @@
 #             custom_ref_secondary_data_entry, Secondary's name for it, with
 #             the doctor as `distributor` (distributor__name = the doctor's
 #             name, whg_ebs_code = their id, note = specialty and city) and a
-#             line's qty / amount as sales_qty / sales_value.
+#             line's qty / amount as sales_qty / sales_value. A vacant seat's
+#             lines roll up onto its covering manager's approval, so they come
+#             under that tracker too, each marked `covering: { seat, holder }`.
 #
-# A tracker names its Doctor Support in `reference` ("DR-4725-2026-11-28").
+# A tracker names its Doctor Support in `reference` ("DR-4725-2026-11-28") —
+# on production, where records are "<doctor>-<custom_period>", the record is
+# found through its approval rows instead (link_entries).
 #
 # safe_exec: no import, no .format(), no set literals, no tuple
 # unpacking, no underscore-prefixed names.
@@ -72,6 +76,49 @@ def chunks(values):
     return out
 
 
+def is_vacant_name(n):
+    return (n or "")[:6].lower() == "vacant"
+
+
+def owner_seat(s):
+    # The seat whose approval carries `s`'s lines — as the ERP's tracker
+    # script (src/app/tracker/server/support_tracker_on_save.py) raises it:
+    # `s` itself when someone real holds it; else the nearest seat above with
+    # a live holder, up reports_to from its placeholder holder, or up the
+    # Role Profile tree when no one holds it.
+    holders = frappe.get_all("Employee", filters={"custom_role_profile": s, "status": "Active"},
+                             fields=["employee_name", "reports_to"], limit=20)
+    climb = None
+    for h in holders:
+        if not is_vacant_name(h.get("employee_name")):
+            return s
+        if climb is None:
+            climb = h.get("reports_to")
+    if holders:
+        cur = climb
+        hops = 0
+        while cur and hops < 15:
+            hops = hops + 1
+            m = frappe.db.get_value("Employee", cur,
+                                    ["employee_name", "status", "reports_to", "custom_role_profile"], as_dict=True)
+            if not m:
+                break
+            if m.get("status") == "Active" and not is_vacant_name(m.get("employee_name")) and m.get("custom_role_profile"):
+                return m.get("custom_role_profile")
+            cur = m.get("reports_to")
+        return s
+    cur = frappe.db.get_value("Role Profile", s, "parent_role_profile")
+    hops = 0
+    while cur and hops < 15:
+        hops = hops + 1
+        for h in frappe.get_all("Employee", filters={"custom_role_profile": cur, "status": "Active"},
+                                fields=["employee_name"], limit=20):
+            if not is_vacant_name(h.get("employee_name")):
+                return cur
+        cur = frappe.db.get_value("Role Profile", cur, "parent_role_profile")
+    return s
+
+
 def entry_of(tracker_name, seat):
     # "Doctor Support-<doctor>-<YYYY-MM-DD>-<seat>" -> "<doctor>-<YYYY-MM-DD>"
     n = tracker_name or ""
@@ -80,6 +127,39 @@ def entry_of(tracker_name, seat):
     if seat and n.endswith("-" + seat):
         n = n[:-(len(seat) + 1)]
     return n
+
+
+def link_entries(trackers):
+    # Each tracker's Doctor Support, as t["entry"]. A tracker names it in
+    # `reference` (else its own name says it, entry_of) — but that is
+    # "<doctor>-<YYYY-MM-DD>", while production names its records
+    # "<doctor>-<custom_period>" ("DR-10540-2027-January"), so on production
+    # the reference names no record. Then the record is the one whose
+    # approval rows (custom_approver_table, child "secondary tracker") hold
+    # the tracker — true on both ERPs.
+    guess = {}
+    for t in trackers:
+        guess[t.get("name")] = t.get("reference") or entry_of(t.get("name"), t.get("role_profile"))
+    names = []
+    for g in guess.values():
+        if g and g not in names:
+            names.append(g)
+    real = {}
+    for part in chunks(names):
+        for d in frappe.get_all(DOCTYPE, filters=[["name", "in", part]], fields=["name"], limit_page_length=0):
+            real[d.get("name")] = 1
+    lost = []
+    for t in trackers:
+        if not real.get(guess[t.get("name")]):
+            lost.append(t.get("name"))
+    owner = {}
+    for part in chunks(lost):
+        for r in frappe.get_all(DOCTYPE, filters=[["secondary tracker", "tracker", "in", part]],
+                                fields=["name", "`tabsecondary tracker`.tracker as tracker"],
+                                limit_page_length=0):
+            owner[r.get("tracker")] = r.get("name")
+    for t in trackers:
+        t["entry"] = owner.get(t.get("name")) or guess[t.get("name")]
 
 
 def month_of(entry_name):
@@ -149,9 +229,9 @@ for part in chunks(team_seats):
             light.append(t)
 # Each tracker's entry, and that entry's own `date` — the month it is for.
 light_entries = []
+link_entries(light)
 for t in light:
-    e = t.get("reference") or entry_of(t.get("name"), t.get("role_profile"))
-    t["entry"] = e
+    e = t.get("entry")
     if e and e not in light_entries:
         light_entries.append(e)
 entry_date = {}
@@ -206,9 +286,9 @@ if month:
     rows = sorted(rows, key=lambda t: str(t.get("modified") or ""), reverse=True)
 
     entry_names = []
+    link_entries(rows)
     for t in rows:
-        e = t.get("reference") or entry_of(t.get("name"), t.get("role_profile"))
-        t["entry"] = e
+        e = t.get("entry")
         if e and e not in entry_names:
             entry_names.append(e)
 
@@ -234,6 +314,29 @@ if month:
             lines[k].append(r)
             if r.get("item") not in item_codes:
                 item_codes.append(r.get("item"))
+
+    # A vacant seat's lines ride on its OWNER's approval (the covering
+    # manager's seat — see owner_seat): filed under the owner too, after its
+    # own, each marked with the seat it covers and that seat's placeholder.
+    owner_of = {}
+    holder_of = {}
+    for k in list(lines.keys()):
+        cut = k.rfind("|")
+        e = k[:cut]
+        rp = k[cut + 1:]
+        if not rp:
+            continue
+        if rp not in owner_of:
+            owner_of[rp] = owner_seat(rp)
+            holder_of[rp] = frappe.db.get_value("Employee", {"custom_role_profile": rp, "status": "Active"},
+                                                "employee_name")
+        o = owner_of[rp]
+        if o != rp:
+            for r in lines[k]:
+                r["covering"] = {"seat": rp, "holder": holder_of[rp]}
+            if (e + "|" + o) not in lines:
+                lines[e + "|" + o] = []
+            lines[e + "|" + o] = lines[e + "|" + o] + lines[k]
 
     brand = {}
     for part in chunks(item_codes):
@@ -284,6 +387,7 @@ if month:
                     "closing_qty": 0,
                     "closing_balance": 0,
                     "custom_role_profile__name": r.get("rp"),
+                    "covering": r.get("covering"),
                 })
             entry = {
                 "name": h.get("name"),

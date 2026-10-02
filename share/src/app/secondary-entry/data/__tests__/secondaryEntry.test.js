@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { bucketFromText, missingFields, normalizeEntries, normalizeEntry, normalizeProducts, parseEbsCodes, revisitReason } from '../shape';
+import { bucketFromText, missingFields, normalizeEntries, normalizeEntry, normalizeProducts, ownLines, parseEbsCodes, revisitReason } from '../shape';
 import { canSubmit, countByStatus, productGroups, progress, statusMatrix, submitBlocker } from '../selectors';
 import { applySeatLines, createErpWriter, erpErrorMessage } from '../writes';
 import { buildSheet, buildSheetRows, parseSheet } from '../csv';
@@ -7,6 +7,8 @@ import { MOCK_PRODUCTS, MOCK_ROLE_PROFILE, buildMockRows } from '../mockData';
 
 const ME = 'BE7-VASC-CO-NAG';
 const OTHER = 'BE8-ELBR-RA-JOD';
+/* A whole record (saved query, mock, a save's reply) as the screen shows it: the seat's lines only. */
+const seatRow = (row, seat) => ownLines([row], seat)[0];
 
 /* The live REST shape (frappe.client.get): links as bare names. */
 function restDoc() {
@@ -31,13 +33,13 @@ describe('status is per seat, never the document workflow_state', () => {
   });
 
   it("another seat's tracker row gives that seat its own status", () => {
-    const e = normalizeEntry(restDoc(), OTHER);
+    const e = normalizeEntry(seatRow(restDoc(), OTHER), OTHER);
     expect(e.status).toBe('pending');
     expect(e.salesQty).toBe(10);
   });
 
   it('only counts the seat’s own lines', () => {
-    const e = normalizeEntry(restDoc(), ME);
+    const e = normalizeEntry(seatRow(restDoc(), ME), ME);
     expect(e.lines).toHaveLength(1);
     expect(e.closingValue).toBe(1940);
     /* rate 0 on the line, so price comes from value ÷ qty */
@@ -87,7 +89,7 @@ describe('stockist identity', () => {
 });
 
 describe('the mock fixture', () => {
-  const entries = normalizeEntries(buildMockRows(), MOCK_ROLE_PROFILE);
+  const entries = normalizeEntries(ownLines(buildMockRows(), MOCK_ROLE_PROFILE), MOCK_ROLE_PROFILE);
 
   it('matches the design: 20 stockists, 6 approved, 14 draft', () => {
     expect(countByStatus(entries)).toMatchObject({ all: 20, approved: 6, draft: 14, pending: 0 });
@@ -187,7 +189,7 @@ describe('bulk send eligibility', () => {
   });
 
   it('the mock month has 14 sendable drafts', () => {
-    expect(normalizeEntries(buildMockRows(), MOCK_ROLE_PROFILE).filter(canSubmit)).toHaveLength(14);
+    expect(normalizeEntries(ownLines(buildMockRows(), MOCK_ROLE_PROFILE), MOCK_ROLE_PROFILE).filter(canSubmit)).toHaveLength(14);
   });
 });
 
@@ -231,7 +233,7 @@ describe('entries are the ERP\'s; totals are the seat\'s', () => {
   const rows = [row('Mine', ['BE7-A']), row('Shared', ['BE4-B', 'BE7-A']), row('Someone else', ['BE4-B']), row('Empty', [])];
 
   it('keeps every entry the ERP sent, with only the seat\'s lines in each', () => {
-    const entries = normalizeEntries(rows, 'BE7-A');
+    const entries = normalizeEntries(ownLines(rows, 'BE7-A'), 'BE7-A');
     expect(entries.map((e) => e.stockist)).toEqual(['Empty', 'Mine', 'Shared', 'Someone else']);
     expect(entries.map((e) => e.lines.length)).toEqual([0, 1, 1, 0]);
   });
@@ -328,7 +330,7 @@ describe('two BEs on one stockist carry different products', () => {
   };
 
   it('knows which products the other seats carry', () => {
-    const e = normalizeEntry(row, 'BE4');
+    const e = normalizeEntry(seatRow(row, 'BE4'), 'BE4');
     expect(e.lines.map((l) => l.item)).toEqual(['BRITORVA 10']);
     expect(e.otherItems).toEqual(['GLIMIBRIT M1', 'GLIMIBRIT M2']);
   });
@@ -345,7 +347,7 @@ describe('documents are the ERP\'s, lines are ours', () => {
   const others = { name: 'E2', date: '2026-09-01', distributor__name: 'B', items: [{ item__name: 'Y', custom_role_profile__name: 'BE9', custom_status: 'Draft' }] };
 
   it('lists every entry the ERP sent — a permitted stockist with none of my lines yet too', () => {
-    const entries = normalizeEntries([mine, others], 'BE4');
+    const entries = normalizeEntries(ownLines([mine, others], 'BE4'), 'BE4');
     expect(entries.map((e) => e.name)).toEqual(['E1', 'E2']);
     expect(entries[1].lines).toEqual([]);
     expect(entries[1].otherItems).toEqual(['Y']);

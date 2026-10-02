@@ -33,8 +33,36 @@ export async function fetchServerEntries({ endpointUrl, token, month, seat, meth
   return json.message;
 }
 
-/* → { data: { seat, month, entries, products } | null, error, reload } */
-export function useServerEntries({ enabled, gqlEnvironment = 'ERP', gqlToken, month, seat, method }) {
+/* COVERED SEATS IN "MY ENTRIES". The server says which vacant seats the
+   caller covers (`covers`: their nearest live manager is the caller). Their
+   rows are fetched too (the server returns a covered seat's rows when asked
+   with `seat`) and added to the caller's own, each marked:
+     name      "<record>::<seat>" — unique, as two covered seats can share a stockist
+     docName   the record's real name, for saving
+     covering  { seat, holder } — whose lines these are
+   Products are the union of every seat's. Pure, for the test. */
+export function mergeCovered(own, covered) {
+  if (!covered.length) return own;
+  const products = [...(own.products ?? [])];
+  const seen = new Set(products.map((p) => p.name));
+  const entries = [...(own.entries ?? [])];
+  for (const { cover, data } of covered) {
+    for (const p of data?.products ?? []) {
+      if (!seen.has(p.name)) {
+        seen.add(p.name);
+        products.push(p);
+      }
+    }
+    for (const row of data?.entries ?? []) {
+      entries.push({ ...row, name: `${row.name}::${cover.seat}`, docName: row.name, covering: { seat: cover.seat, holder: cover.holder } });
+    }
+  }
+  return { ...own, entries, products };
+}
+
+/* → { data: { seat, month, entries, products, covers } | null, error, reload }
+   `withCovers`: add the covered seats' rows (the caller's own view). */
+export function useServerEntries({ enabled, gqlEnvironment = 'ERP', gqlToken, month, seat, method, withCovers = false }) {
   const [state, setState] = useState({ data: null, error: null });
   const [attempt, setAttempt] = useState(0);
   const run = useRef(0);
@@ -47,7 +75,12 @@ export function useServerEntries({ enabled, gqlEnvironment = 'ERP', gqlToken, mo
       try {
         const { endpointUrl } = await getEndpointConfigFromUrlKeyAsync(gqlEnvironment);
         if (!endpointUrl) throw new Error(`No endpoint registered for "${gqlEnvironment}".`);
-        const data = await fetchServerEntries({ endpointUrl, token: gqlToken, month, seat, method });
+        const own = await fetchServerEntries({ endpointUrl, token: gqlToken, month, seat, method });
+        const covers = withCovers ? own.covers ?? [] : [];
+        const covered = await Promise.all(
+          covers.map(async (cover) => ({ cover, data: await fetchServerEntries({ endpointUrl, token: gqlToken, month, seat: cover.seat, method }) })),
+        );
+        const data = mergeCovered(own, covered);
         if (run.current === id) setState({ data, error: null });
       } catch (error) {
         console.error('[secondary-entry] could not load from ERP.', error);
@@ -55,7 +88,7 @@ export function useServerEntries({ enabled, gqlEnvironment = 'ERP', gqlToken, mo
       }
     })();
     return undefined;
-  }, [enabled, gqlEnvironment, gqlToken, month, seat, method, attempt]);
+  }, [enabled, gqlEnvironment, gqlToken, month, seat, method, attempt, withCovers]);
 
   const reload = useCallback(() => setAttempt((n) => n + 1), []);
   return { ...state, reload };

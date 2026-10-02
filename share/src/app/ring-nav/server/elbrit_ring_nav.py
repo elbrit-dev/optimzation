@@ -12,14 +12,15 @@
 #
 # THE CALENDAR. A month's secondary is keyed in during the next month
 # (July's trackers were all raised in August on production), due by
-# ENTRY_DUE_DAY — for now the END OF THE MONTH: a due day past the month's
-# last day is that last day (31 -> 28 Feb, 30 Sep, 31 Oct):
+# ENTRY_DUE_DAY — THE 5TH (a due day past a month's last day would be that
+# last day, so 31 means "month end"):
 #   - the entry month is LAST month (`month` overrides it);
 #   - the Secondary entry tile is on the strip from ENTRY_FROM_DAY to the
-#     due day, its caption the due date, "30 Sep", while anything is left —
+#     due day, its caption the due date, "5 Oct", while anything is left —
 #     except for users whose Role Profile is "IT", who see it every day;
-#   - the approval tile keeps the same window (IT always) and the same due
-#     date as its caption while anything waits;
+#   - the approval tile keeps the same window — for IT too: past the due
+#     day nobody gets it — and the same due date as its caption while
+#     anything waits;
 #     its "approved" counts that same month.
 # `today` stands in for the server's date — to preview the strip on the 3rd.
 #
@@ -39,6 +40,8 @@
 # TWO TASKS, the same rules (TASKS below): SECONDARY (Secondary Data Entry,
 # per stockist) and DOCTOR SUPPORT (Doctor Support, per doctor). Each gets an
 # entry tile and an approval tile as described here for Secondary.
+# DOCTOR SUPPORT IS FOR IT ONLY for now ("it_only" in TASKS): users with the
+# IT role profile get its tiles; nobody else does yet.
 #
 # SECONDARY ENTRY — every entry the caller may see for the entry month (the
 # "Secondary Data Entry Permission Query" decides), each in ONE bucket for
@@ -87,7 +90,7 @@ HREFS = {"secondary-entry": "/secondary/entry",
          "doctor-support-entry": "/doctor-support/entry",
          "doctor-support-approval": "/doctor-support/approval"}
 ENTRY_FROM_DAY = 1
-ENTRY_DUE_DAY = 31     # past the month's end = its last day: due at month end
+ENTRY_DUE_DAY = 5      # due on the 5th (past the month's end would mean its last day)
 ALWAYS_ROLE_PROFILE = "IT"   # users with this Role Profile see the tiles every day
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -155,8 +158,11 @@ if not always:
 # month" every month, February included.
 last_day = int(str(frappe.utils.get_last_day(today))[8:10])
 due_day = ENTRY_DUE_DAY if ENTRY_DUE_DAY < last_day else last_day
-# The window both Secondary tiles keep; the IT role profile sees them always.
-entry_window = always or (ENTRY_FROM_DAY <= day <= due_day)
+# The window both Secondary tiles keep: ENTRY_FROM_DAY to the due day, the
+# due day's end included. The entry tile shows for the IT role profile on
+# any day; the approval tile never past the due day, IT included.
+in_window = ENTRY_FROM_DAY <= day <= due_day
+entry_window = always or in_window
 due_label = str(due_day) + " " + MONTHS[int(today[5:7]) - 1]
 first = month + "-01"
 last = str(frappe.utils.get_last_day(first))
@@ -200,6 +206,86 @@ if emp and emp[0].get("name"):
         frontier = below
 has_team = len(team_seats) > 0
 
+
+def is_vacant_name(n):
+    return (n or "")[:6].lower() == "vacant"
+
+
+def owner_seat(s):
+    # The seat whose approval carries `s`'s lines — as the ERP's tracker
+    # scripts (src/app/tracker/server) raise it: `s` itself when someone real
+    # holds it; else the nearest seat above with a live holder, up reports_to
+    # from its placeholder holder, or up the Role Profile tree when no one
+    # holds it.
+    holders = frappe.get_all("Employee", filters={"custom_role_profile": s, "status": "Active"},
+                             fields=["employee_name", "reports_to"], limit=20)
+    climb = None
+    for h in holders:
+        if not is_vacant_name(h.get("employee_name")):
+            return s
+        if climb is None:
+            climb = h.get("reports_to")
+    if holders:
+        cur = climb
+        hops = 0
+        while cur and hops < 15:
+            hops = hops + 1
+            m = frappe.db.get_value("Employee", cur,
+                                    ["employee_name", "status", "reports_to", "custom_role_profile"], as_dict=True)
+            if not m:
+                break
+            if m.get("status") == "Active" and not is_vacant_name(m.get("employee_name")) and m.get("custom_role_profile"):
+                return m.get("custom_role_profile")
+            cur = m.get("reports_to")
+        return s
+    cur = frappe.db.get_value("Role Profile", s, "parent_role_profile")
+    hops = 0
+    while cur and hops < 15:
+        hops = hops + 1
+        for h in frappe.get_all("Employee", filters={"custom_role_profile": cur, "status": "Active"},
+                                fields=["employee_name"], limit=20):
+            if not is_vacant_name(h.get("employee_name")):
+                return cur
+        cur = frappe.db.get_value("Role Profile", cur, "parent_role_profile")
+    return s
+
+
+# ---- THE VACANT SEATS THE CALLER COVERS, as Elbrit Secondary Entry finds
+# them: the BE seats right under their seat that no Active Employee holds,
+# and the seats held only by "Vacant_" placeholders below them in the
+# reporting chain (walked through placeholders only). Their records count in
+# the caller's own entry tile — the caller enters them.
+covered = []
+if seat:
+    for r in frappe.get_all("Role Profile", filters={"parent_role_profile": seat}, pluck="name"):
+        if (r or "").startswith("BE") and not frappe.get_all(
+                "Employee", filters={"custom_role_profile": r, "status": "Active"}, limit=1):
+            covered.append(r)
+if emp and emp[0].get("name"):
+    frontier = [emp[0].get("name")]
+    reached = {frontier[0]: 1}
+    hops = 0
+    while frontier and hops < 8:
+        hops = hops + 1
+        below = []
+        for e in frappe.get_all("Employee", filters=[["reports_to", "in", frontier], ["status", "=", "Active"]],
+                                fields=["name", "employee_name", "custom_role_profile"], limit_page_length=0):
+            if reached.get(e.get("name")) or not is_vacant_name(e.get("employee_name")):
+                continue
+            reached[e.get("name")] = 1
+            below.append(e.get("name"))
+            s = e.get("custom_role_profile")
+            if not s or s in covered:
+                continue
+            live = 0
+            for h in frappe.get_all("Employee", filters={"custom_role_profile": s, "status": "Active"},
+                                    fields=["employee_name"], limit_page_length=20):
+                if not is_vacant_name(h.get("employee_name")):
+                    live = 1
+            if not live:
+                covered.append(s)
+        frontier = below
+
 items = []
 # The tasks on the strip, each with an entry tile and an approval tile. The
 # same rules for both; only where the records live differs:
@@ -209,21 +295,78 @@ items = []
 #   child        its lines' child doctype; rp / status their seat and status
 #   link         the Operational Tracker field naming the record
 #   prefix       tracker names: "<prefix><record>-<seat>"
+#   enabled      False: the task gets no tiles at all (entry or approval)
+#   it_only      True: only users with the IT role profile get its tiles
+#   rp / status  the plain names; a child that has only custom_<name> (Doctor
+#                Support's Support Items on production) uses that instead
 TASKS = [
     {"id": "secondary", "label": "Secondary", "icon": "calendar-clock",
      "doctype": "Secondary Data Entry", "child": "Secondary Data Table",
      "party": "distributor", "party_doctype": "Customer",
      "rp": "custom_role_profile", "status": "custom_status",
      "link": "custom_ref_secondary_data_entry", "prefix": "Secondary Data Entry-",
-     "hide_empty": False},
+     "hide_empty": False, "enabled": True},
     # A seat with no Doctor Support in the month gets no entry tile.
+    # IT ONLY for now — drop "it_only" to give everyone its tiles.
     {"id": "doctor-support", "label": "Support", "icon": "file-check",
      "doctype": "Doctor Support", "child": "Support Items",
      "party": "doctor", "party_doctype": "Lead",
      "rp": "role_profile", "status": "status",
      "link": "reference", "prefix": "Doctor Support-",
-     "hide_empty": True},
+     "hide_empty": True, "enabled": True, "it_only": True},
 ]
+
+
+def line_field(child, plain):
+    # A child's field as THIS ERP names it: the plain name unless only
+    # custom_<name> exists (Support Items: role_profile on UAT,
+    # custom_role_profile on production).
+    meta = frappe.get_meta(child)
+    if not meta.has_field(plain) and meta.has_field("custom_" + plain):
+        return "custom_" + plain
+    return plain
+
+
+for t in TASKS:
+    t["rp"] = line_field(t["child"], t["rp"])
+    t["status"] = line_field(t["child"], t["status"])
+
+
+READABLE = {}
+
+
+def can_read(doctype):
+    # Someone the ERP does not let read a doctype at all (a BE, MIS or SCM
+    # user and Operational Tracker, say) gets an empty list, not an error:
+    # frappe.get_list raises for them, and every such call used to land in
+    # the Error Log. frappe.has_permission and frappe.get_roles are not
+    # available to server scripts, so both are read from the tables: the
+    # user's roles (Has Role, plus the All and Guest every user has), and the
+    # doctype's role permissions — its Custom DocPerm rows when it has any
+    # (they replace the standard ones), else its DocPerm rows. Readable when
+    # any of the user's roles may read it.
+    if doctype in READABLE:
+        return READABLE[doctype]
+    if "roles" not in READABLE:
+        mine = ["All", "Guest"]
+        for r in frappe.get_all("Has Role", filters={"parenttype": "User", "parent": me},
+                                fields=["role"], limit_page_length=0):
+            mine.append(r.get("role"))
+        READABLE["roles"] = mine
+    roles = READABLE["roles"]
+    ok = me == "Administrator" or "System Manager" in roles
+    if not ok:
+        rows = frappe.get_all("Custom DocPerm", filters={"parent": doctype, "permlevel": 0},
+                              fields=["role", "read"], limit_page_length=0)
+        if not rows:
+            rows = frappe.get_all("DocPerm", filters={"parent": doctype, "parenttype": "DocType", "permlevel": 0},
+                                  fields=["role", "read"], limit_page_length=0)
+        for r in rows:
+            if r.get("read") and r.get("role") in roles:
+                ok = True
+                break
+    READABLE[doctype] = ok
+    return ok
 
 
 def record_of(t, task):
@@ -252,59 +395,77 @@ def entry_tile(task):
     # unit -> the approval's state
     state_of = {}
     if seat:
-        # ONE seat: a unit is a record OF THE SEAT'S — its stockist / doctor
-        # lists the seat (Role Profile table; read past permissions, names
-        # only), or the seat has lines on it (below) — and only the seat's
-        # lines count. The ERP lets a BE read far more records than theirs.
-        assigned = {}
-        for r in frappe.get_all("Role Profile Multiselect",
-                                filters={"parenttype": task["party_doctype"], "role_profile_list": seat},
-                                fields=["parent"], limit_page_length=0):
-            assigned[r.get("parent")] = 1
-        # The IT role profile (`always`: the USER's role profile) is the one
-        # exception: every record of the month; everyone else only what is
-        # assigned to their seat.
-        see_all = always
-        for r in frappe.get_list(task["doctype"], filters=[in_month],
-                                 fields=["name", task["party"]], limit_page_length=0):
-            if see_all or assigned.get(r.get(task["party"])):
-                has_draft[r.get("name")] = 1      # no line of the seat's yet
-        seen = {}
-        for r in frappe.get_list(
-                task["doctype"],
-                filters=[[task["child"], task["rp"], "=", seat], in_month],
-                fields=["name", line + "." + task["status"] + " as st"],
-                limit_page_length=0):
-            n = r.get("name")
-            st = r.get("st") or ""
-            draft = 1 if (st == "" or st == "Draft") else 0
-            seen[n] = max(seen.get(n, 0), draft)
-        for n in seen:
-            has_draft[n] = seen[n]
-        # The approval's state: the record's own copy of it, then — for the
-        # caller's OWN seat — the tracker's, which is what counts (the copy
-        # is not always kept up to date). A BE cannot read Operational
-        # Tracker, so these are read directly — only their own seat's.
-        tracker_of = {}
-        for r in frappe.get_list(
-                task["doctype"],
-                filters=[["secondary tracker", "role_profile", "=", seat], in_month],
-                fields=["name", "`tabsecondary tracker`.status as st",
-                        "`tabsecondary tracker`.tracker as tr"],
-                limit_page_length=0):
-            state_of[r.get("name")] = r.get("st") or ""
-            if r.get("tr"):
-                tracker_of[r.get("tr")] = r.get("name")
-        names = list(tracker_of.keys())
-        i = 0
-        while i < len(names):
-            part = names[i:i + 500]
-            i = i + 500
-            for t in frappe.get_all("Operational Tracker",
-                                    filters=[["name", "in", part], ["role_profile", "=", seat]],
-                                    fields=["name", "workflow_state"]):
-                if t.get("workflow_state"):
-                    state_of[tracker_of[t.get("name")]] = t.get("workflow_state")
+        # The caller's seat, and the vacant seats they cover (their records
+        # are the caller's to enter): a unit is a record OF THE SEAT'S — its
+        # stockist / doctor lists the seat (Role Profile table; read past
+        # permissions, names only), or the seat has lines on it (below) — and
+        # only the seat's lines count. The ERP lets a BE read far more records
+        # than theirs. A covered seat's unit is "<record>|<seat>".
+        if not can_read(task["doctype"]):
+            return
+        for s in [seat] + covered:
+            own = s == seat
+            # Covered seats are read past permissions, as the Entry screen
+            # reads them (the caller covers them).
+            lister = frappe.get_list if own else frappe.get_all
+            key = "" if own else "|" + s
+            assigned = {}
+            for r in frappe.get_all("Role Profile Multiselect",
+                                    filters={"parenttype": task["party_doctype"], "role_profile_list": s},
+                                    fields=["parent"], limit_page_length=0):
+                assigned[r.get("parent")] = 1
+            # The IT role profile (`always`: the USER's role profile) is the
+            # one exception: every record of the month; everyone else only
+            # what is assigned to their seat.
+            see_all = always and own
+            for r in lister(task["doctype"], filters=[in_month],
+                            fields=["name", task["party"]], limit_page_length=0):
+                if see_all or assigned.get(r.get(task["party"])):
+                    has_draft[r.get("name") + key] = 1      # no line of the seat's yet
+            seen = {}
+            for r in lister(
+                    task["doctype"],
+                    filters=[[task["child"], task["rp"], "=", s], in_month],
+                    fields=["name", line + "." + task["status"] + " as st"],
+                    limit_page_length=0):
+                n = r.get("name") + key
+                st = r.get("st") or ""
+                draft = 1 if (st == "" or st == "Draft") else 0
+                seen[n] = max(seen.get(n, 0), draft)
+            for n in seen:
+                has_draft[n] = seen[n]
+            # The approval's state: the record's own copy of it, then the
+            # tracker's, which is what counts (the copy is not always kept up
+            # to date). A BE cannot read Operational Tracker, so these are
+            # read directly — only the seat's own. A vacant seat's lines roll
+            # up onto its OWNER's approval (the covering manager's): that one.
+            o = owner_seat(s)
+            approval_of = {}
+            for r in lister(
+                    task["doctype"],
+                    filters=[["secondary tracker", "role_profile", "in", [s, o]], in_month],
+                    fields=["name", "`tabsecondary tracker`.role_profile as rp",
+                            "`tabsecondary tracker`.status as st",
+                            "`tabsecondary tracker`.tracker as tr"],
+                    limit_page_length=0):
+                n = r.get("name") + key
+                if r.get("rp") == s or not approval_of.get(n):
+                    approval_of[n] = r
+            tracker_of = {}
+            for n in approval_of:
+                state_of[n] = approval_of[n].get("st") or ""
+                if approval_of[n].get("tr"):
+                    tracker_of[approval_of[n].get("tr")] = n
+            names = list(tracker_of.keys())
+            i = 0
+            while i < len(names):
+                part = names[i:i + 500]
+                i = i + 500
+                for t in frappe.get_all("Operational Tracker",
+                                        filters=[["name", "in", part], ["role_profile", "in", [s, o]]],
+                                        fields=["name", "workflow_state"]):
+                    if t.get("workflow_state"):
+                        state_of[tracker_of[t.get("name")]] = t.get("workflow_state")
     else:
         # OVERVIEW: a unit is a record x seat, every seat.
         for r in frappe.get_list(
@@ -391,11 +552,14 @@ def month_people(task):
     # permissions — the ERP only lets them read what is routed to them.
     lister = frappe.get_all if has_team else frappe.get_list
     of_month = {}
-    for r in lister(task["doctype"], filters=[in_month], fields=["name"], limit_page_length=0):
-        of_month[r.get("name")] = 1
+    if has_team or can_read(task["doctype"]):
+        for r in lister(task["doctype"], filters=[in_month], fields=["name"], limit_page_length=0):
+            of_month[r.get("name")] = 1
     fields = ["name", "role_profile", "user", "workflow_state", "next_approver", task["link"]]
     base = [["reference_doctype", "=", task["doctype"]]]
-    trackers = frappe.get_list("Operational Tracker", filters=base, fields=fields, limit_page_length=0)
+    trackers = []
+    if can_read("Operational Tracker"):
+        trackers = frappe.get_list("Operational Tracker", filters=base, fields=fields, limit_page_length=0)
     if has_team:
         seen = {}
         for t in trackers:
@@ -434,8 +598,9 @@ def approval_tile(task):
     # For someone with work WAITING ON THEM, and for every MANAGER (anyone
     # with people under them): their team's month, whether or not anything
     # waits on them — a BE, with no team and nothing waiting, gets none. The
-    # IT role profile always gets it, as the overview of every tracker.
-    if not (always or entry_window):
+    # IT role profile gets it, as the overview of every tracker. Only in the
+    # window: past the due day nobody does, IT included.
+    if not in_window:
         return
     counted = month_people(task)
     waiting = counted[0]
@@ -462,6 +627,7 @@ def approval_tile(task):
 # Entry tiles first, then approval tiles. A task that cannot be counted
 # (its doctype not set up on this ERP yet, say) is left off and logged —
 # it never takes the other tasks' tiles down with it.
+TASKS = [t for t in TASKS if t.get("enabled") and (always or not t.get("it_only"))]
 for task in TASKS:
     try:
         entry_tile(task)

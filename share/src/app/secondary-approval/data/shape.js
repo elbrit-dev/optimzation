@@ -122,15 +122,19 @@ export function normalizeSlice(row) {
   const state = pick(row, ['workflow_state__name', 'workflow_state.name', 'workflow_state', 'status__name', 'status']) ?? '';
   const bucket = bucketOfState(state);
 
-  /* WHICH TRACKERS is the ERP's permission query. WHICH LINES is ours: the
-     entry holds every seat's lines, and a tracker is ONE seat's — so only
-     the lines with the tracker's own role profile. */
+  /* WHICH TRACKERS is the ERP's permission query. WHICH LINES: the entry
+     holds every seat's lines, and a tracker is ONE seat's — its own role
+     profile's lines, and those of the vacant seats rolled up onto it, which
+     the server sends marked `covering` (a covering manager's approval). */
   const lines = (Array.isArray(sde.items) ? sde.items : [])
     .filter((l) => {
+      if (l?.covering?.seat) return true;
       const rp = lineRoleProfile(l);
       return Boolean(roleProfile) && (typeof rp === 'string' ? rp : rp?.role_profile) === roleProfile;
     })
     .map((l) => ({
+      /* The vacant seat this line is entered for, when it is one: { seat, holder }. */
+      covering: l?.covering?.seat ? { seat: l.covering.seat, holder: l.covering.holder ?? null } : null,
       item: pick(l, ['item__name', 'item.item_name', 'item.name', 'item']) ?? '',
       /* The product's brand, for ProductCard's name-plus-variant layout
          ("CALBRIT" + "60K"). Needs items { item { brand__name } } in the

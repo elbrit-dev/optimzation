@@ -22,9 +22,12 @@ import { useTask } from '../data/task';
  * Editable while the seat's entry is Draft or Rejected. Once submitted it is
  * the approvers' — shown read-only with its tracker status. */
 
-function toFormLines(entry, products) {
+/* A form that saves holds only the seat's own lines — every line it holds is
+   written as the seat's. A read-only one shows every line sent. */
+function toFormLines(entry, products, canEdit) {
   const byItem = new Map(products.map((p) => [p.item, p]));
-  return entry.lines.map((l) => ({
+  const own = canEdit ? entry.lines.filter((l) => !l.roleProfile || !entry.seat || l.roleProfile === entry.seat) : entry.lines;
+  return own.map((l) => ({
     item: l.item,
     pack: l.pack || byItem.get(l.item)?.pack || '',
     price: l.price || byItem.get(l.item)?.price || 0,
@@ -85,9 +88,9 @@ export function EntryForm({ entry, products, canEdit, readOnlyReason, onBack, on
   const task = useTask();
   const rootRef = useRef(null);
   const [barHeight, setBarHeight] = useState(0);
-  const [lines, setLines] = useState(() => toFormLines(entry, products));
+  const [lines, setLines] = useState(() => toFormLines(entry, products, canEdit));
   /* Fixed for the page's life: a successful save closes it. */
-  const [baseline] = useState(() => formSignature(toFormLines(entry, products)));
+  const [baseline] = useState(() => formSignature(toFormLines(entry, products, canEdit)));
   const dirty = formSignature(lines) !== baseline;
 
   /* Tell the screen, so every way out can ask first (useUnsavedGuard). */

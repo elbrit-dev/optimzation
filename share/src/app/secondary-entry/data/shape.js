@@ -62,6 +62,14 @@ export function revisitReason(note, trackerState) {
   return (m ? m[1] : text).trim() || 'No reason given.';
 }
 
+/* "Covering Vacant - Cheyesu (E01179)": a vacant seat someone covers, named
+   by its placeholder holder without the "Vacant_" prefix — the seat itself
+   when no one holds it. */
+export function coveringLabel(covering) {
+  const holder = String(covering?.holder ?? '').replace(/^vacant[_\s-]*/i, '');
+  return `Covering Vacant - ${holder || covering?.seat || ''}`;
+}
+
 function pick(obj, keys) {
   if (!obj || typeof obj !== 'object') return undefined;
   for (const key of keys) {
@@ -184,9 +192,13 @@ export function bucketFromText(text) {
 
 /* One stockist as this screen sees it, FOR `roleProfile`. With no seat known
    the whole entry is summed and its document-level workflow_state is used. */
-export function normalizeEntry(row, roleProfile) {
-  const allLines = (row?.items ?? []).map(normalizeLine);
-  const lines = roleProfile ? allLines.filter((l) => l.roleProfile === roleProfile) : allLines;
+export function normalizeEntry(row, rowSeat) {
+  /* A covered vacant seat's row (useServerEntries mergeCovered) is that
+     seat's, not the screen's. */
+  const roleProfile = row?.covering?.seat ?? rowSeat;
+  /* Every line sent is shown: which lines a seat gets is the server
+     script's to decide (its own seat's; IT's view, every seat's). */
+  const lines = (row?.items ?? []).map(normalizeLine);
 
   const trackers = row?.custom_status_tracker ?? [];
   const tracker = roleProfile
@@ -238,7 +250,7 @@ export function normalizeEntry(row, roleProfile) {
     pick(row, ['distributor.whg_ebs_code', 'distributor__whg_ebs_code', 'whg_ebs_code', 'ebs_code']),
     pick(row, ['distributor.whg_other_ebs_codes', 'distributor__whg_other_ebs_codes', 'whg_other_ebs_codes']),
   );
-  const seatHq = (row?.items ?? []).find((l) => !roleProfile || lineRoleProfile(l) === roleProfile);
+  const seatHq = (row?.items ?? []).find((l) => !roleProfile || lineRoleProfile(l) === roleProfile) ?? row?.items?.[0];
   const hq =
     pick(row, ['distributor.territory__name', 'distributor.territory.name', 'distributor.territory', 'distributor__territory'])
     ?? pick(seatHq, ['custom_hq__name', 'custom_hq'])
@@ -246,6 +258,10 @@ export function normalizeEntry(row, roleProfile) {
 
   return {
     name: pick(row, ['name']) ?? `${stockistName}-${date}`,
+    /* The record to save, and as which seat: a covered row's own (see above). */
+    docName: row?.docName ?? pick(row, ['name']) ?? null,
+    seat: roleProfile ?? null,
+    covering: row?.covering ?? null,
     stockist: stockistName,
     ebsCode,
     otherEbsCodes,
@@ -258,9 +274,9 @@ export function normalizeEntry(row, roleProfile) {
     status,
     statusText,
     lines,
-    /* Products OTHER seats carry on this entry. BEs sharing a stockist each
-       carry their own products there, never the same one — so these are
-       not offered to this seat (the picker, the bulk sheet). */
+    /* Products OTHER seats carry on this entry, for writes: BEs sharing a
+       stockist each carry their own products there, never the same one — so
+       these are not offered to this seat (the picker, the bulk sheet). */
     /* The elbrit_secondary_entry server script sends only this seat's lines
        and the others' products as names (`other_items`); a saved query or a
        save's reply carries the whole entry — both are read. */
@@ -268,7 +284,7 @@ export function normalizeEntry(row, roleProfile) {
       ? [
           ...new Set([
             ...(Array.isArray(row?.other_items) ? row.other_items : []),
-            ...allLines.filter((l) => l.roleProfile !== roleProfile).map((l) => l.item),
+            ...lines.filter((l) => l.roleProfile !== roleProfile).map((l) => l.item),
           ]),
         ]
       : [],
@@ -289,6 +305,27 @@ export function normalizeEntry(row, roleProfile) {
  * WITHIN an entry: one entry carries several seats' lines, and only
  * `roleProfile`'s are shown, totalled and written (see normalizeEntry and
  * writes.applySeatLines). */
+/* Whole records (a saved query, the mock, a save's reply) as the server
+   script sends them: each with only `seat`'s lines — a covered row's own
+   seat's — and the other seats' products as names (`other_items`). */
+export function ownLines(data, seat) {
+  return toRowArray(data).map((row) => {
+    const rowSeat = row?.covering?.seat ?? seat;
+    if (!rowSeat || !Array.isArray(row?.items)) return row;
+    const mine = [];
+    const others = Array.isArray(row.other_items) ? [...row.other_items] : [];
+    for (const line of row.items) {
+      const rp = lineRoleProfile(line);
+      if (rp == null || rp === rowSeat) mine.push(line);
+      else {
+        const item = lineItemName(line);
+        if (item && !others.includes(item)) others.push(item);
+      }
+    }
+    return { ...row, items: mine, other_items: others };
+  });
+}
+
 export function normalizeEntries(data, roleProfile, { sort = true } = {}) {
   const entries = toRowArray(data).map((row) => normalizeEntry(row, roleProfile));
   return sort ? entries.sort((a, b) => a.stockist.localeCompare(b.stockist)) : entries;
