@@ -23,7 +23,8 @@
 #
 # WHICH LINES: a Doctor Support carries several seats' Support Items; only
 # the caller's seat's are sent (their active Employee's custom_role_profile, or `seat`).
-# Other seats' products go as names only (`other_items`).
+# Other seats' products go as names only (`other_items`). IT with no `seat`
+# (`read_only`) gets every line, each with its own seat, to view read-only.
 #
 # SHAPE, mapped to Secondary's names: a Support Item's qty is sent as
 # sales_qty (valued at the item's custom_last_pts into sales_value — the
@@ -39,7 +40,14 @@
 # (custom_approver_table.status) is not kept up to date, so the tracker's is
 # what counts.
 #
-# Answer: { user, seat, month, entries: [<row>], products: [<item>] }
+# VACANT SEATS, as Elbrit Secondary Entry: a BE seat no Active Employee
+# holds is covered by the seat directly above it in the Role Profile tree
+# (`vacant_seats`); a seat held only by "Vacant_" placeholder Employees by the
+# nearest live manager up the reporting chain. `covers` lists both,
+# [{ seat, holder }]; `covering` is true when `seat` is one — that seat's
+# doctors, read past permissions, to fill in as its BE would.
+#
+# Answer: { user, seat, covering, covers, vacant_seats, read_only, month, entries: [<row>], products: [<item>] }
 #
 # safe_exec: no import, no .format(), no set literals, no tuple
 # unpacking, no underscore-prefixed names.
@@ -66,6 +74,7 @@ F_STATUS = line_field("status")
 F_HQ = line_field("hq")
 MIRROR = "`tabsecondary tracker`"
 CHUNK = 500
+VACANT_PREFIX = "BE"
 
 
 def valid_month(m):
@@ -98,6 +107,65 @@ def num(v):
         return 0.0
 
 
+def vacant_under(parent):
+    # BE Role Profiles directly under `parent` that no Active Employee holds
+    names = []
+    for r in frappe.get_all("Role Profile", filters={"parent_role_profile": parent},
+                            fields=["name"], limit_page_length=0):
+        if (r.get("name") or "").startswith(VACANT_PREFIX):
+            names.append(r.get("name"))
+    held = {}
+    for part in chunks(names):
+        for e in frappe.get_all("Employee",
+                                filters=[["custom_role_profile", "in", part], ["status", "=", "Active"]],
+                                fields=["custom_role_profile"], limit_page_length=0):
+            held[e.get("custom_role_profile")] = 1
+    return [n for n in names if not held.get(n)]
+
+
+def is_vacant_name(n):
+    return (n or "")[:6].lower() == "vacant"
+
+
+def owner_seat(s):
+    # The seat whose approval carries `s`'s lines — as the ERP's tracker
+    # script (src/app/tracker/server/support_tracker_on_save.py) raises it:
+    # `s` itself when someone real holds it; else the nearest seat above with
+    # a live holder, up reports_to from its placeholder holder, or up the
+    # Role Profile tree when no one holds it.
+    holders = frappe.get_all("Employee", filters={"custom_role_profile": s, "status": "Active"},
+                             fields=["employee_name", "reports_to"], limit=20)
+    climb = None
+    for h in holders:
+        if not is_vacant_name(h.get("employee_name")):
+            return s
+        if climb is None:
+            climb = h.get("reports_to")
+    if holders:
+        cur = climb
+        hops = 0
+        while cur and hops < 15:
+            hops = hops + 1
+            m = frappe.db.get_value("Employee", cur,
+                                    ["employee_name", "status", "reports_to", "custom_role_profile"], as_dict=True)
+            if not m:
+                break
+            if m.get("status") == "Active" and not is_vacant_name(m.get("employee_name")) and m.get("custom_role_profile"):
+                return m.get("custom_role_profile")
+            cur = m.get("reports_to")
+        return s
+    cur = frappe.db.get_value("Role Profile", s, "parent_role_profile")
+    hops = 0
+    while cur and hops < 15:
+        hops = hops + 1
+        for h in frappe.get_all("Employee", filters={"custom_role_profile": cur, "status": "Active"},
+                                fields=["employee_name"], limit=20):
+            if not is_vacant_name(h.get("employee_name")):
+                return cur
+        cur = frappe.db.get_value("Role Profile", cur, "parent_role_profile")
+    return s
+
+
 me = frappe.session.user
 month = frappe.form_dict.get("month") or ""
 if not valid_month(month):
@@ -121,6 +189,45 @@ if emp:
 # see (the whole entry was theirs to read). It never widens the tracker
 # read below, which is the caller's OWN seat only.
 seat = frappe.form_dict.get("seat") or own_seat
+vacant_seats = vacant_under(own_seat) if own_seat else []
+
+# ---- every vacant seat the caller covers: the unheld BE seats right under
+# their seat (vacant_seats), and the seats held only by "Vacant_"
+# placeholders below them in the reporting chain.
+covers = []
+covered = {}
+for s in vacant_seats:
+    covered[s] = 1
+    covers.append({"seat": s, "holder": None})
+if own_employee:
+    frontier = [own_employee]
+    reached = {own_employee: 1}
+    hops = 0
+    while frontier and hops < 8:
+        hops = hops + 1
+        below = []
+        for part in chunks(frontier):
+            for e in frappe.get_all("Employee",
+                                    filters=[["reports_to", "in", part], ["status", "=", "Active"]],
+                                    fields=["name", "employee_name", "custom_role_profile"],
+                                    limit_page_length=0):
+                if reached.get(e.get("name")) or not is_vacant_name(e.get("employee_name")):
+                    continue
+                reached[e.get("name")] = 1
+                below.append(e.get("name"))
+                s = e.get("custom_role_profile")
+                if not s or covered.get(s):
+                    continue
+                live = 0
+                for h in frappe.get_all("Employee", filters={"custom_role_profile": s, "status": "Active"},
+                                        fields=["employee_name"], limit_page_length=20):
+                    if not is_vacant_name(h.get("employee_name")):
+                        live = 1
+                if not live:
+                    covered[s] = 1
+                    covers.append({"seat": s, "holder": e.get("employee_name")})
+        frontier = below
+covering = bool(covered.get(seat))
 
 # ---- A TEAM SEAT: `seat` held by someone UNDER the caller in the reporting
 # chain (any depth), or any seat for the IT role profile. A manager may view
@@ -128,13 +235,14 @@ seat = frappe.form_dict.get("seat") or own_seat
 # read-only — though their own Department permission may not reach every
 # one, so those reads go past permissions (frappe.get_all). Any other
 # `seat` stays within what the caller may read (frappe.get_list).
-in_team = False
-if seat and seat != own_seat:
+in_team = covering
+if seat and seat != own_seat and not in_team:
     if frappe.db.get_value("User", me, "role_profile_name") == "IT":
         in_team = True
     elif own_employee:
-        for h in frappe.get_all("Employee", filters={"custom_role_profile": seat, "status": "Active"},
-                                fields=["reports_to"], limit_page_length=5):
+        holders = frappe.get_all("Employee", filters={"custom_role_profile": seat, "status": "Active"},
+                                 fields=["reports_to"], limit_page_length=5)
+        for h in holders:
             cur = h.get("reports_to")
             hops = 0
             while cur and hops < 10 and not in_team:
@@ -144,10 +252,19 @@ if seat and seat != own_seat:
                 hops = hops + 1
             if in_team:
                 break
+        if not holders and own_seat:
+            cur = frappe.db.get_value("Role Profile", seat, "parent_role_profile")
+            hops = 0
+            while cur and hops < 10 and not in_team:
+                if cur == own_seat:
+                    in_team = True
+                cur = frappe.db.get_value("Role Profile", cur, "parent_role_profile")
+                hops = hops + 1
 lister = frappe.get_all if in_team else frappe.get_list
 
 entries = []
 products = []
+see_all = False
 
 if seat:
     # ---- every entry the caller may see this month
@@ -179,21 +296,30 @@ if seat:
                             fields=["parent"], limit_page_length=0):
         assigned[r.get("parent")] = 1
 
-    # ---- the seat's own lines
+    # The IT role profile is the one exception — the USER's role profile, as
+    # Ring Nav's overview decides it (an IT person's Employee seat may be
+    # empty or "Admin"): it sees every record of the month, with EVERY seat's
+    # lines (each tagged with its own seat; the screen shows them read-only),
+    # where everyone else gets only what is assigned to their seat, and only
+    # that seat's lines. Not with a `seat` override: that is IT looking at a
+    # seat, which then sees what that seat sees.
+    see_all = (not frappe.form_dict.get("seat")) and frappe.db.get_value("User", me, "role_profile_name") == "IT"
+
+    # ---- the seat's own lines (IT: every line)
     item_codes = []
     seen_items = {}
     for r in lister(
             DOCTYPE,
-            filters=[["Support Items", F_SEAT, "=", seat], in_month],
+            filters=[in_month] if see_all else [["Support Items", F_SEAT, "=", seat], in_month],
             fields=["name",
                     LINE + ".name as line", LINE + ".idx as idx", LINE + ".item as item",
-                    LINE + ".qty as sales_qty",
+                    LINE + ".qty as sales_qty", LINE + "." + F_SEAT + " as line_seat",
                     LINE + "." + F_STATUS + " as custom_status", LINE + "." + F_HQ + " as custom_hq"],
             order_by=LINE + ".idx asc", limit_page_length=0):
         row = by_name.get(r.get("name"))
-        if not row:
-            continue
         code = r.get("item")
+        if not row or not code:
+            continue
         row["items"].append({
             "name": r.get("line"),
             "item__name": code,
@@ -201,7 +327,7 @@ if seat:
             "sales_qty": num(r.get("sales_qty")),
             "closing_qty": 0,
             "custom_hq__name": r.get("custom_hq"),
-            "custom_role_profile__name": seat,
+            "custom_role_profile__name": r.get("line_seat") if see_all else seat,
         })
         if code and not seen_items.get(code):
             seen_items[code] = 1
@@ -209,12 +335,7 @@ if seat:
 
     # An entry is the seat's when its doctor is assigned to the seat, or
     # the seat already has lines on it (never hide work already entered).
-    # The IT role profile is the one exception — the USER's role profile, as
-    # Ring Nav's overview decides it (an IT person's Employee seat may be
-    # empty or "Admin"): it sees every record of the month; everyone else
-    # only what is assigned to their seat. Not with a `seat` override: that
-    # is IT looking at a seat, which then sees what that seat sees.
-    see_all = (not frappe.form_dict.get("seat")) and frappe.db.get_value("User", me, "role_profile_name") == "IT"
+    # IT (see_all, above) sees every record of the month.
     mine = []
     for n in names:
         row = by_name[n]
@@ -222,37 +343,45 @@ if seat:
             mine.append(n)
     names = mine
 
-    # ---- other seats' products, as names only
-    for r in lister(
+    # ---- other seats' products, as names only (IT has every line already)
+    for r in ([] if see_all else lister(
             DOCTYPE,
             filters=[["Support Items", F_SEAT, "!=", seat], in_month],
             fields=["name", LINE + ".item as item"],
-            limit_page_length=0):
+            limit_page_length=0)):
         row = by_name.get(r.get("name"))
         code = r.get("item")
         if row and code and code not in row["other_items"]:
             row["other_items"].append(code)
 
-    # ---- the seat's approval row, and its tracker's state and note
-    tracker_rows = []
+    # ---- the seat's approval row, and its tracker's state and note: its own,
+    # or — a vacant seat's lines roll up onto its covering manager's approval
+    # — its OWNER's, sent as this seat's (the screen reads one per seat).
+    tracker_seat = seat if see_all else owner_seat(seat)
+    approval_of = {}
     for r in lister(
             DOCTYPE,
-            filters=[["secondary tracker", "role_profile", "=", seat], in_month],
+            filters=[["secondary tracker", "role_profile", "in", [seat, tracker_seat]], in_month],
             fields=["name", MIRROR + ".role_profile as rp", MIRROR + ".status as st",
                     MIRROR + ".tracker as tracker"],
             limit_page_length=0):
-        row = by_name.get(r.get("name"))
-        if row:
-            t = {"role_profile__name": r.get("rp"), "status__name": r.get("st"),
-                 "tracker__name": r.get("tracker"), "tracker": None}
-            row["custom_status_tracker"].append(t)
-            tracker_rows.append(t)
+        n = r.get("name")
+        if by_name.get(n) and (r.get("rp") == seat or not approval_of.get(n)):
+            approval_of[n] = r
+    tracker_rows = []
+    for n in approval_of:
+        r = approval_of[n]
+        t = {"role_profile__name": seat, "status__name": r.get("st"),
+             "tracker__name": r.get("tracker"), "tracker": None, "rp": r.get("rp")}
+        by_name[n]["custom_status_tracker"].append(t)
+        tracker_rows.append(t)
     # A read past permissions: the state and note of the caller's own (or a
     # team seat's) trackers — a BE cannot read Operational Tracker, and without
     # the note a revisit never shows. Never for any other `seat`.
     for t in tracker_rows:
         tn = t.get("tracker__name")
-        if tn and (seat == own_seat or in_team) and tn.endswith("-" + seat):
+        rp = t.pop("rp")
+        if tn and (seat == own_seat or in_team) and tn.endswith("-" + rp):
             v = frappe.db.get_value("Operational Tracker", tn,
                                     ["workflow_state", "reason_for_rejection"], as_dict=True)
             if v:
@@ -317,12 +446,16 @@ if seat:
     # product of the group.
     dept = None
     if not see_all:
-        for h in frappe.get_all("Employee",
-                                filters={"custom_role_profile": seat, "status": "Active"},
-                                fields=["department"], limit_page_length=5):
+        seat_holders = frappe.get_all("Employee",
+                                      filters={"custom_role_profile": seat, "status": "Active"},
+                                      fields=["department"], limit_page_length=5)
+        for h in seat_holders:
             if h.get("department"):
                 dept = h.get("department")
                 break
+        # a seat no one holds: its Role Profile's own department
+        if not seat_holders:
+            dept = frappe.db.get_value("Role Profile", seat, "custom_department")
     sold = None
     if dept:
         sold = {}
@@ -394,9 +527,14 @@ if seat:
             line["closing_balance"] = 0
         entries.append(row)
 
+
 frappe.response["message"] = {
     "user": me,
     "seat": seat or None,
+    "covering": covering,
+    "covers": covers,
+    "vacant_seats": vacant_seats,
+    "read_only": see_all,
     "month": month,
     "entries": entries,
     "products": products,

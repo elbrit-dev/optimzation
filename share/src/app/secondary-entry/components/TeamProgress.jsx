@@ -28,12 +28,16 @@ function Dot({ tone }) {
   return <span aria-hidden="true" className="inline-block size-2 shrink-0 rounded-full" style={{ backgroundColor: toneFill(tone) }} />;
 }
 
-function TeamNode({ member, index, depth, open, toggle, onView, segments }) {
+function TeamNode({ member, index, depth, open, toggle, onView, segments, covered }) {
   const task = useTask();
   const roll = index.rollup(member);
   const kids = index.children(member.id);
   const isLeaf = kids.length === 0;
-  const canView = Boolean(member.seat) && member.total > 0 && !member.vacant;
+  /* A vacant seat the viewer covers is theirs to ENTER; anyone else's seat
+     with records is theirs to view. */
+  const enter = Boolean(member.seat && covered?.has(member.seat));
+  const canView = enter || (Boolean(member.seat) && member.total > 0 && !member.vacant);
+  const actionLabel = enter ? 'Enter' : 'View';
 
   const header = (
     <div className="flex w-full flex-col gap-2">
@@ -58,7 +62,7 @@ function TeamNode({ member, index, depth, open, toggle, onView, segments }) {
             a hidden twin, since a button cannot nest in the header's button. */}
         {canView ? (
           <span className="ds-disclosure__action-lane ds-btn ds-btn--primary ds-btn--sm ds-btn--ghost" style={{ visibility: 'hidden' }} aria-hidden="true">
-            View ›
+            {actionLabel} ›
           </span>
         ) : null}
       </div>
@@ -85,8 +89,8 @@ function TeamNode({ member, index, depth, open, toggle, onView, segments }) {
       header={header}
       action={
         canView ? (
-          <Button type="primary" ghost size="sm" onClick={() => onView(member)} aria-label={`View ${member.name}'s entries`}>
-            View
+          <Button type="primary" ghost size="sm" onClick={() => onView(member)} aria-label={enter ? `Enter for the vacant seat ${member.seat}` : `View ${member.name}'s entries`}>
+            {actionLabel}
             <span aria-hidden="true">›</span>
           </Button>
         ) : null
@@ -98,7 +102,7 @@ function TeamNode({ member, index, depth, open, toggle, onView, segments }) {
       expandable={!isLeaf}
     >
       {kids.map((k) => (
-        <TeamNode key={k.id} member={k} index={index} depth={depth + 1} open={open} toggle={toggle} onView={onView} segments={segments} />
+        <TeamNode key={k.id} member={k} index={index} depth={depth + 1} open={open} toggle={toggle} onView={onView} segments={segments} covered={covered} />
       ))}
     </DisclosureRow>
   );
@@ -106,7 +110,10 @@ function TeamNode({ member, index, depth, open, toggle, onView, segments }) {
 
 /* `labels`: the page's words for the three counts, e.g. { todo: 'Rework' }
    on the Approval screen, where "to do" is what went back to the BE. */
-export function TeamProgress({ team, onView, labels }) {
+/* `covers`: the vacant seats the viewer covers ([{ seat }]) — those rows
+   offer Enter instead of View. */
+export function TeamProgress({ team, onView, labels, covers }) {
+  const covered = useMemo(() => new Set((covers ?? []).map((c) => c.seat)), [covers]);
   const segments = SEGMENTS.map((s) => ({ ...s, label: labels?.[s.key] ?? s.label }));
   const index = useMemo(() => teamIndex(team?.members ?? []), [team]);
   const tops = useMemo(() => teamTops(team?.members ?? [], team?.root, index), [team, index]);
@@ -127,7 +134,7 @@ export function TeamProgress({ team, onView, labels }) {
         {tops.length === 0 ? (
           <p className="text-10 text-ds-muted">Nobody reports to you.</p>
         ) : (
-          tops.map((m) => <TeamNode key={m.id} member={m} index={index} depth={0} open={open} toggle={toggle} onView={onView} segments={segments} />)
+          tops.map((m) => <TeamNode key={m.id} member={m} index={index} depth={0} open={open} toggle={toggle} onView={onView} segments={segments} covered={covered} />)
         )}
       </Card>
     </section>

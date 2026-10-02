@@ -1,7 +1,7 @@
 'use client';
 
 import { Avatar, Card, Icon, StatusPill, cx } from '@/design-system';
-import { STATUS_LABEL, STATUS_TONE } from '../data/shape';
+import { STATUS_LABEL, STATUS_TONE, coveringLabel } from '../data/shape';
 import { formatMoney, formatQty, hqLabel } from '../data/format';
 import { useTask } from '../data/task';
 
@@ -92,6 +92,7 @@ export function StockistCard({
 
   const label = [
     entry.stockist,
+    entry.covering ? `covering ${entry.covering.seat}` : null,
     entry.ebsCode,
     entry.otherEbsCodes?.length ? `also ${entry.otherEbsCodes.join(', ')}` : null,
     entry.note,
@@ -166,6 +167,13 @@ export function StockistCard({
               ) : null}
             </StatusPill>
           </span>
+          {/* A covered vacant seat's stockist, in the manager's own list: whose
+              lines these are (useServerEntries mergeCovered). */}
+          {entry.covering ? (
+            <span className="truncate text-10 font-semibold text-warning-text">
+              {coveringLabel(entry.covering)}
+            </span>
+          ) : null}
           {/* WHO IN ERP. Every EBS code as its own chip — a stockist billed
               under three codes is three codes, not one with a footnote — and
               the HQ pinned to the far right. The chips clip rather than wrap

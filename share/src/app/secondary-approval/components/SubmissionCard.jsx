@@ -5,6 +5,7 @@ import { Avatar, Button, Card, Field, Icon, Sheet, StatusPill, cx, toneFill } fr
 import { StockistCard } from '@/app/secondary-entry/components/StockistCard';
 import { ProductCard } from '@/app/secondary-entry/components/ProductCard';
 import { formatMoney, formatQty } from '@/app/secondary-entry/data/format';
+import { coveringLabel } from '@/app/secondary-entry/data/shape';
 import { STATUS_TONE, monthLabel } from '../data/shape';
 import { partyCount, useTask } from '@/app/secondary-entry/data/task';
 
@@ -201,8 +202,13 @@ export function StockistLine({ slice, mine = false, revisitable = false, choice,
         <div className="flex flex-col gap-3">
           {slice.lines.length ? (
             <ul className="flex flex-col gap-1.5">
-              {slice.lines.map((l) => (
-                <li key={l.item}>
+              {slice.lines.map((l, i) => (
+                <li key={`${l.covering?.seat ?? ''}|${l.item}`} className="flex flex-col gap-1.5">
+                  {/* Lines entered for a vacant seat the raiser covers, under
+                      the seat they are for. */}
+                  {l.covering && l.covering.seat !== slice.lines[i - 1]?.covering?.seat ? (
+                    <p className="px-1 pt-1 text-10 font-semibold text-warning-text">{coveringLabel(l.covering)}</p>
+                  ) : null}
                   <ProductCard
                     data={{ item_name: l.item }}
                     brand={l.brand || undefined}

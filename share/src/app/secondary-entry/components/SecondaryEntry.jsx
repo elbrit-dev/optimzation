@@ -5,7 +5,7 @@ import { Button, Icon, SegmentedControl, Sheet, StatusPill, cx } from '@/design-
 import { TableOperationsContext } from '@/app/datatable/contexts/TableOperationsContext';
 import { useDataViews } from '@/app/datatable/contexts/ViewContext';
 import { getEndpointConfigFromUrlKeyAsync } from '@/app/graphql-playground/constants';
-import { normalizeEntries, normalizeProducts, toRowArray } from '../data/shape';
+import { coveringLabel, normalizeEntries, normalizeProducts, ownLines, toRowArray } from '../data/shape';
 import { useServerEntries } from '../data/useServerEntries';
 import { useServerTeam } from '../data/useServerTeam';
 import { hasTeam } from '../data/team';
@@ -101,7 +101,16 @@ export function SecondaryEntry({
   const withTeam = hasTeam(team.data);
   const [viewing, setViewing] = useState(null);
   const [pane, setPane] = useState(null);
-  const server = useServerEntries({ enabled: serverMode, gqlEnvironment, gqlToken, month: monthProp, seat: roleProfileProp || viewing?.seat, method: task.entryMethod });
+  const server = useServerEntries({
+    enabled: serverMode,
+    gqlEnvironment,
+    gqlToken,
+    month: monthProp,
+    seat: roleProfileProp || viewing?.seat,
+    method: task.entryMethod,
+    /* The caller's own view also lists the vacant seats they cover. */
+    withCovers: !roleProfileProp && !viewing,
+  });
   const sourceRows = useMemo(
     () => toRowArray(rowsProp ?? slot?.rawData ?? server.data?.entries),
     [rowsProp, slot?.rawData, server.data],
@@ -121,6 +130,15 @@ export function SecondaryEntry({
   const [erpSeat, setErpSeat] = useState({ seat: null, asked: false, error: null });
   const [seatAttempt, setSeatAttempt] = useState(0);
   const roleProfile = roleProfileProp || (serverMode ? server.data?.seat : erpSeat.seat) || null;
+  /* COVERING A VACANT SEAT. A seat whose every holder is a "Vacant_"
+     placeholder is entered by the nearest live manager above it (the ERP
+     routes its lines on from there, and lets a manager enter them). The
+     server script says which vacant seats the caller covers (`covers`), and
+     whether the seat open now is one (`covering`) — that one opens
+     editable, saving as the vacant seat, where any other team seat is
+     read-only. */
+  const covers = server.data?.covers ?? [];
+  const coveringNow = Boolean(viewing && server.data?.covering && server.data?.seat === viewing.seat);
   /* SERVER PAGING, when the parent Elbrit DataProvider (Views) has
      enableServerPaging on. Paging there grows the query's `first` limit and
      re-queries — not a cursor: `after` + a `filter` throws on our ERP (see
@@ -131,11 +149,16 @@ export function SecondaryEntry({
   const serverPaged = Boolean(paging?.enabled && typeof paging.loadMore === 'function');
   const hasMore = serverPaged && sourceRows.length >= paging.fetchSize;
   const entries = useMemo(
-    /* No seat, no lines: every figure here is a seat's, and showing the
-       whole entry instead would put other BEs' lines in front of this one. */
-    () => (roleProfile ? normalizeEntries(rows, roleProfile, { sort: !serverPaged }) : []),
-    [rows, roleProfile, serverPaged],
+    /* No seat, nothing to show: the server's answer always comes with one.
+       What the server script sends is shown as it is; a saved query or the
+       mock hands over whole records, trimmed here to the seat's lines. */
+    () => (roleProfile ? normalizeEntries(serverMode ? rows : ownLines(rows, roleProfile), roleProfile, { sort: !serverPaged }) : []),
+    [rows, roleProfile, serverMode, serverPaged],
   );
+  /* For saveEntry: which record and seat a row saves to, without rebuilding
+     the callback on every change. */
+  const entriesRef = useRef(entries);
+  entriesRef.current = entries;
 
   const [queriedProducts, setQueriedProducts] = useState([]);
   const queryFunction = slot?.queryFunction;
@@ -224,9 +247,14 @@ export function SecondaryEntry({
           ? { title: 'Something went wrong', text: `Could not load your ${task.parties} from ERP: ${askError}`, retry: true }
           : { title: 'No seat for this user', text: 'ERP has no active Employee with a role profile for this user, so there are no lines to enter. Ask for your Employee record to be set up.', retry: true };
 
-  const canEdit = Boolean(roleProfile) && signedIn && !viewing;
-  const readOnlyReason = viewing
+  /* The server says when what it sent is not this user's to save (IT's view
+     of every seat). */
+  const serverReadOnly = serverMode && Boolean(server.data?.read_only);
+  const canEdit = Boolean(roleProfile) && signedIn && !serverReadOnly && (!viewing || coveringNow);
+  const readOnlyReason = viewing && !coveringNow
     ? `Viewing ${viewing.name}'s ${task.parties} — read only.`
+    : serverReadOnly
+    ? 'Read only.'
     : !roleProfile
     ? signedIn && !asked
       ? 'Finding your seat in ERP…'
@@ -250,9 +278,15 @@ export function SecondaryEntry({
   const saveEntry = useCallback(
     async (name, { lines, submit }, { sync = true } = {}) => {
       const writer = await getWriter();
-      const saved = await writer.saveSeat(name, { roleProfile, lines, submit });
+      /* A covered vacant seat's row saves to its real record, as that seat. */
+      const entry = entriesRef.current.find((e) => e.name === name);
+      const saved = await writer.saveSeat(entry?.docName ?? name, { roleProfile: entry?.seat ?? roleProfile, lines, submit });
       if (saved && typeof saved === 'object') {
-        setPatches((prev) => new Map(prev).set(name, saved));
+        /* A save's reply is the whole record — every seat's lines; laid
+           over the list as the seat's own, as the server script sends it. */
+        const own = ownLines([saved], entry?.seat ?? roleProfile)[0];
+        const patch = entry?.covering ? { ...own, name, docName: entry.docName, covering: entry.covering } : own;
+        setPatches((prev) => new Map(prev).set(name, patch));
       }
       onSaved?.({ name, submit, live: writer.live !== false });
       if (sync && writer.live !== false) {
@@ -503,6 +537,16 @@ export function SecondaryEntry({
         ) : null}
       </header>
 
+      {covers.length && !viewing && !openEntry ? (
+        <p className="rounded-lg bg-warning-wash px-3 py-2 text-12 text-warning-text">
+          <span className="font-semibold">
+            You also cover {covers.length} vacant {covers.length === 1 ? 'seat' : 'seats'}:
+          </span>{' '}
+          {covers.map((c) => coveringLabel(c).replace(/^Covering Vacant - /, '')).join(', ')}. Their {task.parties} are below, marked
+          &ldquo;Covering Vacant&rdquo;; what you submit for them goes to your manager to approve.
+        </p>
+      ) : null}
+
       {withTeam && !viewing && !openEntry ? (
         <SegmentedControl
           block
@@ -517,23 +561,29 @@ export function SecondaryEntry({
       ) : null}
 
       {viewing && !openEntry ? (
-        <div className="flex items-center gap-2 rounded-lg bg-brand-tint-weak px-3 py-2">
+        <div className={cx('flex items-center gap-2 rounded-lg px-3 py-2', coveringNow ? 'bg-warning-wash' : 'bg-brand-tint-weak')}>
           <button
             type="button"
             onClick={() => setViewing(null)}
             aria-label="Back to the team"
-            className="flex shrink-0 items-center text-brand-text transition-colors hover:text-brand-hover"
+            className={cx('flex shrink-0 items-center transition-colors', coveringNow ? 'text-warning-text' : 'text-brand-text hover:text-brand-hover')}
           >
             <Icon name="chevron-left" size="sm" />
           </button>
-          <span className="min-w-0 flex-1 truncate text-12 text-brand-text">
-            <span className="font-semibold">{viewing.name}</span> · {viewing.seat} · read only
-          </span>
+          {coveringNow ? (
+            <span className="min-w-0 flex-1 truncate text-12 text-warning-text">
+              <span className="font-semibold">{coveringLabel(covers.find((c) => c.seat === viewing.seat) ?? { seat: viewing.seat })}</span> · you are entering for it
+            </span>
+          ) : (
+            <span className="min-w-0 flex-1 truncate text-12 text-brand-text">
+              <span className="font-semibold">{viewing.name}</span> · {viewing.seat} · read only
+            </span>
+          )}
         </div>
       ) : null}
 
       {shownPane === 'team' && !viewing && !openEntry ? (
-        <TeamProgress team={team.data} onView={(m) => setViewing({ seat: m.seat, name: m.name })} />
+        <TeamProgress team={team.data} covers={covers} onView={(m) => setViewing({ seat: m.seat, name: m.name })} />
       ) : loading || seatProblem === 'finding' ? (
         <EntryOverviewSkeleton />
       ) : seatProblem ? (
@@ -589,7 +639,7 @@ export function SecondaryEntry({
               : null
           }
           bulk={
-            viewing ? null : (
+            viewing && !coveringNow ? null : (
             <EntryOverview.BulkEntryCard
               pendingCount={pending.length}
               sheetRows={sheetRows}
