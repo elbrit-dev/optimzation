@@ -216,7 +216,92 @@ export function createErpWriter({ endpointUrl, gqlToken, task = SECONDARY }) {
         }
       }
     },
+    attachSheet(file, names) {
+      return sendSheet({ origin, token, task, file, names });
+    },
   };
+}
+
+/* THE UPLOADED SHEET, kept on every entry it fills: the "Upload File" API
+ * script (upload_to_field, source in server/) adds it as a File on each of
+ * `docnames` — earlier uploads, other teams' included, stay — and points the
+ * task's sheetField (Transformed Data) at it. The screen sends it BEFORE the
+ * figures and fills nothing when this throws, so it must either keep the
+ * file on every record or say it did not:
+ *   - a dropped connection, a timeout or a 5xx is retried (ATTEMPTS in all);
+ *     a refusal (403, a frappe.throw's 417 …) is final and is not
+ *   - the answer must name every record sent: a script that does not take
+ *     `docnames` (an older copy keeps the first record only) is an error,
+ *     not a quiet partial save
+ * `docname` (the first) rides along for that older script's sake. */
+const ATTEMPTS = 3;
+const RETRY_STATUS = [408, 425, 429, 500, 502, 503, 504];
+
+/* What the kept file is called on a record: "<seat>-<party>-<month>" — who
+   uploaded it, for which stockist / doctor, for which month. The script adds
+   the extension, and numbers a repeat by the same seat on the same record:
+   "… (1)", "… (2)". Characters a file name or URL cannot carry are dropped. */
+export function sheetBaseName({ seat, party, month }) {
+  return [seat, party, month]
+    .map((s) => String(s ?? '').replace(/[\\/:*?"<>|#%\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .join('-')
+    .slice(0, 120);
+}
+
+/* `targets`: the records, each a name or { name, base } (base: sheetBaseName). */
+export async function sendSheet({ origin, token, task, file, names: targets, fetchImpl = fetch, wait = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+  const bases = {};
+  for (const t of targets ?? []) {
+    const n = typeof t === 'string' ? t : t?.name;
+    if (n && !(n in bases)) bases[n] = (typeof t === 'object' && t?.base) || '';
+  }
+  const docnames = Object.keys(bases);
+  if (!task?.sheetField || !docnames.length) return null;
+  if (!file) throw new Error('No file to keep.');
+  /* A File from the picker; anything else read into one. */
+  const blob = typeof Blob !== 'undefined' && file instanceof Blob ? file : new Blob([await file.arrayBuffer()]);
+  if (!blob.size) throw new Error('The file is empty.');
+  const filename = String(file.name ?? '').trim() || `${task.fileStem ?? 'sheet'}.xlsx`;
+
+  for (let attempt = 1; ; attempt += 1) {
+    const form = new FormData();
+    form.append('doctype', task.doctype);
+    form.append('docname', docnames[0]);
+    form.append('docnames', JSON.stringify(docnames));
+    form.append('filenames', JSON.stringify(bases));
+    form.append('fieldname', task.sheetField);
+    form.append('file', blob, filename);
+    let res;
+    try {
+      res = await fetchImpl(`${origin}/api/method/upload_to_field`, { method: 'POST', headers: { Authorization: token }, body: form });
+    } catch (e) {
+      if (attempt < ATTEMPTS) {
+        await wait(attempt * 1000);
+        continue;
+      }
+      throw new Error(`Could not reach ERP to keep the file (${e?.message ?? e}).`);
+    }
+    let json = null;
+    try {
+      json = await res.json();
+    } catch {
+      /* as in call() */
+    }
+    if (!res.ok || json?.exc_type || json?.exception) {
+      if (RETRY_STATUS.includes(res.status) && attempt < ATTEMPTS) {
+        await wait(attempt * 1000);
+        continue;
+      }
+      throw new Error(erpErrorMessage(json, res.status));
+    }
+    const kept = new Set(Array.isArray(json?.message?.docnames) ? json.message.docnames : []);
+    const missed = docnames.filter((n) => !kept.has(n));
+    if (missed.length) {
+      throw new Error(`ERP kept the file on ${docnames.length - missed.length} of ${docnames.length} records — its "Upload File" script is out of date.`);
+    }
+    return json.message;
+  }
 }
 
 /* The harness's stand-in. It also plays the part of the server script —
@@ -249,6 +334,9 @@ export function createMockWriter({ getRows, setRows, delayMs = 350, seat = null,
       copy[index] = next;
       setRows(copy);
       return next;
+    },
+    async attachSheet() {
+      return null;
     },
   };
 }

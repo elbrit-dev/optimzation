@@ -44,12 +44,12 @@ describe('Doctor Support writes', () => {
 });
 
 describe('Doctor Support sheet', () => {
-  const entry = normalizeEntry({ name: 'DR-1-2026-08-01', date: '2026-08-01', distributor: { customer_name: 'Dr A' }, items: [] }, 'BE3-X');
+  const entry = normalizeEntry({ name: 'DR-1-2026-08-01', date: '2026-08-01', distributor: { customer_name: 'Dr A', whg_ebs_code: 'CRM-LEAD-1' }, items: [] }, 'BE3-X');
 
-  it('has one Qty column and the Doctor as the party', () => {
+  it('has one Qty column and names the doctor by code and name', () => {
     const rows = buildSheetRows([entry], [{ item: 'CILNITAB 10' }], DOCTOR_SUPPORT);
-    expect(rows[0]).toEqual(['Entry', 'Doctor', 'Product', 'Qty']);
-    expect(rows[1]).toEqual(['DR-1-2026-08-01', 'Dr A', 'CILNITAB 10', '']);
+    expect(rows[0]).toEqual(['Entry', 'Doctor code', 'Doctor name', 'Product', 'Qty']);
+    expect(rows[1]).toEqual(['DR-1-2026-08-01', 'CRM-LEAD-1', 'Dr A', 'CILNITAB 10', '']);
   });
 
   it('reads a Qty sheet back, and a Secondary sheet still needs both columns', () => {

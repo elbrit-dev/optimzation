@@ -22,7 +22,7 @@ import {
 } from '../data/selectors';
 import { buildSheet } from '../data/csv';
 import { XLSX_MIME, buildGridWorkbook, readSheetFile } from '../data/sheetFile';
-import { createErpWriter } from '../data/writes';
+import { createErpWriter, sheetBaseName } from '../data/writes';
 import { SECONDARY, TaskProvider, partyCount } from '../data/task';
 import { EntryOverview, EntryOverviewSkeleton } from './EntryOverview';
 import { EntryForm } from './EntryForm';
@@ -429,6 +429,8 @@ export function SecondaryEntry({
       let filled = 0;
       let resubmitted = 0;
       const failed = [...errors];
+      /* What the sheet fills, before anything is written. */
+      const plan = [];
       for (const [name, sheetLines] of byEntry) {
         const entry = pendingByName.get(name);
         if (!entry) {
@@ -437,6 +439,31 @@ export function SecondaryEntry({
         }
         const own = new Map(entry.lines.map((l) => [l.item, l.price]));
         const lines = sheetLines.map((l) => ({ ...l, price: own.get(l.item) || priceOf.get(l.item) || 0 }));
+        plan.push({ name, entry, lines });
+      }
+      /* THE SHEET FIRST: kept in Transformed Data on every record it fills,
+         and only then the figures — so figures from a sheet never stand in
+         ERP without the sheet. If ERP will not take the file (after
+         attachSheet's own retries), nothing is filled. */
+      if (plan.length) {
+        try {
+          await (await getWriter()).attachSheet?.(
+            file,
+            plan.map((p) => ({
+              name: p.entry.docName ?? p.name,
+              /* "<seat>-<stockist / doctor>-<month>", numbered by ERP on a repeat */
+              base: sheetBaseName({ seat: p.entry.seat ?? roleProfile, party: p.entry.stockist || p.entry.ebsCode, month: p.entry.month }),
+            })),
+          );
+        } catch (e) {
+          setBulkMessage({
+            tone: 'danger',
+            text: `Nothing was saved — ERP did not keep the uploaded file: ${e?.message ?? e} Upload the sheet again.`,
+          });
+          return;
+        }
+      }
+      for (const { name, entry, lines } of plan) {
         /* A stockist sent back for revisit still has its approval open and
            waiting; saving it as a draft would put Draft lines behind that
            approval (found on UAT). So a revisit is resubmitted, as its own

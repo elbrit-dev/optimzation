@@ -53,7 +53,7 @@ export async function buildGridWorkbook(entries, products = [], task = SECONDARY
   const width = (cells) => Math.min(40, Math.max(10, ...cells.map((c) => String(c ?? '').length + 2)));
   ws['!cols'] = [
     { wch: width(rows.map((r) => r[0])) },
-    ...rows[0].slice(1).map((_, j) => ({ wch: task.closing ? 12 : width([rows[0][j + 1]]) })),
+    ...rows[0].slice(1).map((_, j) => ({ wch: task.closing ? 12 : width(rows.slice(0, 3).map((r) => r[j + 1])) })),
   ];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, task.closing ? 'Secondary' : 'Doctor Support');

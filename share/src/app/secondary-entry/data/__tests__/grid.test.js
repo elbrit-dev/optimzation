@@ -29,10 +29,11 @@ describe('the grid layout: products down, stockists across', () => {
     ]);
   });
 
-  it('has one column per doctor for Doctor Support, and nothing merged', () => {
-    const rows = buildGridRows([{ ...A, otherItems: [] }], PRODUCTS, DOCTOR_SUPPORT);
+  it('has one column per doctor for Doctor Support, its code and name under the entry, and nothing merged', () => {
+    const rows = buildGridRows([{ ...A, ebsCode: 'CRM-LEAD-1', otherItems: [] }], PRODUCTS, DOCTOR_SUPPORT);
     expect(rows[0]).toEqual(['Product', A.name]);
-    expect(rows.slice(1)).toEqual([['TELBRIT 40', ''], ['ELBRIT CV', 4], ['RABELBRIT', '']]);
+    expect(rows.slice(1, 3)).toEqual([['Doctor code', 'CRM-LEAD-1'], ['Doctor name', A.stockist]]);
+    expect(rows.slice(3)).toEqual([['TELBRIT 40', ''], ['ELBRIT CV', 4], ['RABELBRIT', '']]);
     expect(gridMerges(1, DOCTOR_SUPPORT)).toEqual([]);
     expect(parseSheetRows(rows, DOCTOR_SUPPORT).byEntry.get(A.name)).toEqual([{ item: 'ELBRIT CV', salesQty: 4, closingQty: 0 }]);
   });

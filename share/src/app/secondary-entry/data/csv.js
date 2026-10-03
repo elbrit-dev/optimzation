@@ -24,7 +24,14 @@ import { SECONDARY } from './task';
 /* The columns, per task: Secondary keys sales and closing, Doctor Support
    one qty. The party column is named for the task (Stockist / Doctor). */
 export function sheetColumns(task = SECONDARY) {
-  return task.closing ? ['Entry', task.Party, 'Product', 'Sales Qty', 'Closing Qty'] : ['Entry', task.Party, 'Product', 'Qty'];
+  const party = task.sheetIdentity ? [task.codeLabel, `${task.Party} name`] : [task.Party];
+  return task.closing ? ['Entry', ...party, 'Product', 'Sales Qty', 'Closing Qty'] : ['Entry', ...party, 'Product', 'Qty'];
+}
+
+/* Doctor Support's grid names each doctor under its entry: a code row and a
+   name row, for the reader only — the upload skips them by their label. */
+function identityLabels(task) {
+  return task.sheetIdentity ? [task.codeLabel, `${task.Party} name`] : [];
 }
 export const SHEET_COLUMNS = sheetColumns(SECONDARY);
 
@@ -51,11 +58,12 @@ export function buildSheetRows(entries, products = [], task = SECONDARY) {
     const items = e.lines.length
       ? e.lines
       : products.filter((p) => !taken.has(p.item)).map((p) => ({ item: p.item, salesQty: '', closingQty: '' }));
+    const party = task.sheetIdentity ? [e.ebsCode ?? '', e.stockist] : [e.stockist];
     for (const l of items) {
       rows.push(
         task.closing
-          ? [e.name, e.stockist, l.item, l.salesQty || '', l.closingQty || '']
-          : [e.name, e.stockist, l.item, l.salesQty || ''],
+          ? [e.name, ...party, l.item, l.salesQty || '', l.closingQty || '']
+          : [e.name, ...party, l.item, l.salesQty || ''],
       );
     }
   }
@@ -96,6 +104,10 @@ export function buildGridRows(entries, products = [], task = SECONDARY) {
     }
   }
   const rows = task.closing ? [header, kinds] : [header];
+  if (task.sheetIdentity) {
+    rows.push([identityLabels(task)[0], ...itemsOf.map(({ entry }) => entry.ebsCode ?? '')]);
+    rows.push([identityLabels(task)[1], ...itemsOf.map(({ entry }) => entry.stockist ?? '')]);
+  }
   for (const item of order) {
     const row = [item];
     for (const { taken, byItem } of itemsOf) {
@@ -273,9 +285,10 @@ function parseGrid(rows, { at, kinds: kindsAt, dataAt }, task) {
   const toQty = (raw) => (raw === '' ? 0 : Number(raw.replace(/[,\s]/g, '')));
   const byEntry = new Map();
   const errors = [];
+  const identity = new Set(identityLabels(task).map((l) => l.toLowerCase()));
   rows.slice(dataAt).forEach((r, idx) => {
     const item = String(r[0] ?? '').trim();
-    if (!item) return;
+    if (!item || identity.has(item.toLowerCase())) return;
     for (const c of columns.values()) {
       const cell = (j) => (j >= 0 ? String(r[j] ?? '').trim() : '');
       let salesRaw = cell(c.sales);

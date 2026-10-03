@@ -54,6 +54,9 @@ export const SECONDARY = {
   },
   trackerTable: 'custom_status_tracker',
   trackerPrefix: 'Secondary Data Entry',
+  /* The Attach field an uploaded sheet is kept in, on every entry it filled
+     (writes.js attachSheet). */
+  sheetField: 'custom_transformed_data',
 };
 
 export const DOCTOR_SUPPORT = {
@@ -64,6 +67,9 @@ export const DOCTOR_SUPPORT = {
   Parties: 'Doctors',
   qtyLabel: 'Qty',
   codeLabel: 'Doctor code',
+  /* The downloaded sheet names each doctor by code and name, not only by
+     the entry (csv.js). */
+  sheetIdentity: true,
   valueNoun: 'support',
   cardTitle: 'Doctor support',
   qtyCaption: 'units',
@@ -97,6 +103,7 @@ export const DOCTOR_SUPPORT = {
   },
   trackerTable: 'custom_approver_table',
   trackerPrefix: 'Doctor Support',
+  sheetField: 'custom_transformed_data',
 };
 
 /* "3 doctors", "1 stockist". */
