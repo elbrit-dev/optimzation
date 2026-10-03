@@ -34,9 +34,10 @@
 # Answer: { name, file_url, file_name, field_set, docnames: [every record kept on] }
 #
 # safe_exec: no import, no .format(), no set literals, no tuple
-# unpacking, no underscore-prefixed names. frappe.has_permission is not
-# available to server scripts (see elbrit_ring_nav) — the record's own
-# has_permission is used.
+# unpacking, no underscore-prefixed names. frappe.has_permission and
+# frappe.parse_json are NOT available to server scripts here (the first per
+# elbrit_ring_nav, the second per production's Error Log) — the record's
+# own has_permission and the sandbox's json.loads are used instead.
 # =====================================================================
 
 doctype = frappe.form_dict.get("doctype")
@@ -48,7 +49,7 @@ is_private = 0 if str(frappe.form_dict.get("is_private") or "1") == "0" else 1
 docnames = []
 raw = frappe.form_dict.get("docnames")
 if raw:
-    parsed = frappe.parse_json(raw) if isinstance(raw, str) else raw
+    parsed = json.loads(raw) if isinstance(raw, str) else raw
     if not isinstance(parsed, list):
         frappe.throw("docnames must be a JSON list of record names")
     for n in parsed:
@@ -92,7 +93,7 @@ ext = filename[dot:] if dot > 0 else ""
 bases = {}
 raw_bases = frappe.form_dict.get("filenames")
 if raw_bases:
-    parsed_bases = frappe.parse_json(raw_bases) if isinstance(raw_bases, str) else raw_bases
+    parsed_bases = json.loads(raw_bases) if isinstance(raw_bases, str) else raw_bases
     if isinstance(parsed_bases, dict):
         bases = parsed_bases
 
