@@ -428,13 +428,17 @@ export function SecondaryEntry({
       const priceOf = new Map(products.map((p) => [p.item, p.price]));
       let filled = 0;
       let resubmitted = 0;
-      const failed = [...errors];
+      /* Kept apart, each said in one plain line below: already sent for
+         approval (not changed), and could not be saved. */
+      const skipped = [];
+      const notSaved = [];
+      const partyName = (name) => entries.find((e) => e.name === name)?.stockist || String(name).replace(/-\d{4}-\d{2}-\d{2}$/, '');
       /* What the sheet fills, before anything is written. */
       const plan = [];
       for (const [name, sheetLines] of byEntry) {
         const entry = pendingByName.get(name);
         if (!entry) {
-          failed.push(`${name}: not a pending ${task.party} — skipped.`);
+          skipped.push(partyName(name));
           continue;
         }
         const own = new Map(entry.lines.map((l) => [l.item, l.price]));
@@ -456,10 +460,8 @@ export function SecondaryEntry({
             })),
           );
         } catch (e) {
-          setBulkMessage({
-            tone: 'danger',
-            text: `Nothing was saved — ERP did not keep the uploaded file: ${e?.message ?? e} Upload the sheet again.`,
-          });
+          console.warn('[secondary-entry] the uploaded file was not kept:', e?.message ?? e);
+          setBulkMessage({ tone: 'danger', text: 'Upload failed — nothing was saved. Please try again.' });
           return;
         }
       }
@@ -474,16 +476,22 @@ export function SecondaryEntry({
           if (revisit) resubmitted += 1;
           else filled += 1;
         } catch (e) {
-          failed.push(`${entry.stockist}: ${e?.message ?? e}`);
+          console.warn(`[secondary-entry] ${entry.stockist} not saved:`, e?.message ?? e);
+          notSaved.push(entry.stockist);
         }
       }
+      /* Short and plain, for the person in the field: what was saved, what
+         was not and why, what to do next — no workflow words. */
+      const few = (names) => (names.length > 2 ? `${names.slice(0, 2).join(', ')} and ${names.length - 2} more` : names.join(', '));
       setBulkMessage({
-        tone: failed.length ? 'danger' : 'neutral',
+        tone: notSaved.length || errors.length || (!filled && !resubmitted && !skipped.length) ? 'danger' : 'neutral',
         text: [
-          filled ? `Filled ${partyCount(task, filled)} as drafts — review and submit each.` : null,
-          resubmitted ? `Resubmitted ${resubmitted} sent back for rework — back with the approver.` : null,
-          !filled && !resubmitted ? 'Nothing was saved.' : null,
-          ...failed.slice(0, 4),
+          filled ? `${partyCount(task, filled)} saved — open and tap Submit.` : null,
+          resubmitted ? `${partyCount(task, resubmitted)} corrected and sent for approval.` : null,
+          skipped.length ? `Not changed, already sent for approval: ${few(skipped)}.` : null,
+          notSaved.length ? `Could not save ${few(notSaved)} — please try again.` : null,
+          errors.length ? `${errors[0]}${errors.length > 1 ? ` (+${errors.length - 1} more)` : ''}` : null,
+          !filled && !resubmitted && !skipped.length && !notSaved.length && !errors.length ? 'Nothing to save in this file.' : null,
         ].filter(Boolean).join(' '),
       });
       if (filled || resubmitted) {
