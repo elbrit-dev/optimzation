@@ -2274,17 +2274,14 @@ PLASMIC.registerComponent(EmployeeProfileCard, {
   props: {
     name: {
       type: "string",
-      defaultValue: "Janardhanan A",
       description: "Employee name — the card heading. Bind to employee_name.",
     },
     designation: {
       type: "string",
-      defaultValue: "Zonal Sales Manager",
       description: "Job title shown under the name. Bind to designation__name. Leave empty to hide.",
     },
     status: {
       type: "string",
-      defaultValue: "ACTIVE",
       description: "Employment status. Bind to `status` — ERP stores it upper-cased ('ACTIVE') and the card displays it title-cased ('Active'). Leave empty to hide the status line.",
     },
     statusTone: {
@@ -2300,7 +2297,6 @@ PLASMIC.registerComponent(EmployeeProfileCard, {
     },
     hq: {
       type: "string",
-      defaultValue: "HQ-Chennai",
       description: "Headquarters shown after the status, separated by '·'. Bind to fsl_hq__name. Leave empty to show the status alone.",
     },
     avatarUrl: {
@@ -2323,13 +2319,11 @@ PLASMIC.registerComponent(EmployeeProfileCard, {
     },
     email: {
       type: "string",
-      defaultValue: "janardhanan@elbrit.org",
       description: "Bind to company_email. Row hides itself when empty. NOTE: many BE employees have an EMPTY company_email — fall back to the User login (user_id) if you need one that's always filled.",
     },
     emailLabel: { type: "string", defaultValue: "Company email", description: "Label of the email row." },
     employeeCode: {
       type: "string",
-      defaultValue: "E00004",
       description: "Bind to `employee` (same as the record's `name`, e.g. 'E00004'). Shown in a monospace font. Row hides itself when empty.",
     },
     employeeCodeLabel: { type: "string", defaultValue: "Employee code", description: "Label of the employee-code row." },
@@ -2340,10 +2334,13 @@ PLASMIC.registerComponent(EmployeeProfileCard, {
     territoryLabel: { type: "string", defaultValue: "Territory", description: "Label of the territory row (change to 'Role profile' if that reads better)." },
     reportsTo: {
       type: "string",
-      defaultValue: "Vice President – Sales",
       description: "Who this employee reports to — bind to reports_to.employee_name (or the manager's designation). Row hides itself when empty.",
     },
     reportsToLabel: { type: "string", defaultValue: "Reports to", description: "Label of the reports-to row." },
+    loading: {
+      type: "boolean",
+      description: "Skeleton control. Leave UNSET and the card shows a skeleton until name / employeeCode / email arrive (there is NO demo fallback data). Bind to your query's loading state to force it; set false to never show the skeleton.",
+    },
     showCopy: {
       type: "boolean",
       defaultValue: true,

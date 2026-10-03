@@ -31,6 +31,10 @@ import { Mail, IdCard, MapPin, Network, Copy, Check } from "lucide-react";
  * "SM-Aura_CHN_CBE_MDU_KER". Bind `territory` only if you want the raw code instead
  * (then clear `hq` so the two don't repeat each other).
  *
+ * There is NO demo/fallback data. Until name, employeeCode or email has a value the
+ * card renders a shimmer skeleton (or force it with `loading`; `loading={false}`
+ * turns the automatic skeleton off).
+ *
  * Rows with an empty value hide themselves, so the card never shows a blank field —
  * that's also how you drop a row you don't want (leave its prop empty).
  *
@@ -155,8 +159,22 @@ function ensureStyles() {
     .eep-btn:focus-visible { outline: 2px solid #fff; outline-offset: -3px; }
     .eep-btn:disabled { opacity: 0.5; cursor: not-allowed; filter: none; }
 
+    /* ---- skeleton (data not loaded yet) ---- */
+    .eep-sk {
+      display: block; border-radius: 6px;
+      background: linear-gradient(90deg, #eef0f3 25%, #f6f7f9 50%, #eef0f3 75%);
+      background-size: 200% 100%;
+      animation: eep-shimmer 1.3s ease-in-out infinite;
+    }
+    .eep-sk-avatar { width: 56px; height: 56px; border-radius: 50%; flex: 0 0 auto; }
+    .eep-sk-icon { width: 17px; height: 17px; border-radius: 4px; flex: 0 0 auto; }
+    .eep-sk-btn { width: 128px; height: 36px; border-radius: 9px; }
+    .eep-sk-btn.eep-btn-full { width: 100%; }
+    @keyframes eep-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
     @media (prefers-reduced-motion: reduce) {
       .eep-card, .eep-copy, .eep-btn { transition: none; }
+      .eep-sk { animation: none; }
     }
   `;
   document.head.appendChild(el);
@@ -222,28 +240,31 @@ function legacyCopy(text) {
 
 export default function EmployeeProfileCard({
   // ---- identity (header) ----
-  name = "Janardhanan A",              // employee_name
-  designation = "Zonal Sales Manager", // designation__name
-  status = "ACTIVE",                   // status — displayed title-cased
+  name,                               // employee_name
+  designation,                        // designation__name
+  status,                             // status — displayed title-cased
   statusTone = "auto",                 // "auto" | "active" | "inactive" | "left"
-  hq = "HQ-Chennai",                   // fsl_hq__name
+  hq,                                 // fsl_hq__name
   avatarUrl,                           // userAvatar (data URI or any image URL)
   initial,                             // Initial — falls back to the first letter of `name`
   avatarBg = "#dbeafe",
   avatarColor = "#2563eb",
 
   // ---- detail rows (each hides itself when its value is empty) ----
-  email = "janardhanan@elbrit.org",    // company_email
+  email,                              // company_email
   emailLabel = "Company email",
-  employeeCode = "E00004",             // employee / name
+  employeeCode,                       // employee / name
   employeeCodeLabel = "Employee code",
-  territory = "",                      // role_id / custom_role_profile__name — OPT-IN: same data as `hq`
+  territory,                          // role_id / custom_role_profile__name — OPT-IN: same data as `hq`
   territoryLabel = "Territory",
-  reportsTo = "Vice President – Sales", // reports_to.employee_name (or its designation)
+  reportsTo,                          // reports_to.employee_name (or its designation)
   reportsToLabel = "Reports to",
 
+  // ---- loading ----
+  loading,                             // true = skeleton, false = never skeleton; unset = skeleton until name/code/email arrive
+
   // ---- behaviour ----
-  showCopy = true,                     // copy button on every row
+  showCopy = true,                    // copy button on every row
   onCopy,                              // (field, value) => void
   linkEmail = true,                    // render the email as a mailto: link
   onCardClick,                         // (value) => void — click the card body
@@ -303,6 +324,48 @@ export default function EmployeeProfileCard({
   };
 
   const avatarInitial = clean(initial) || initialOf(name);
+
+  // No demo fallback data: until the record arrives, show a skeleton instead of a
+  // half-empty (or someone else's) card.
+  const hasData = !!(clean(name) || clean(employeeCode) || clean(email));
+  const showSkeleton = loading === true || (loading !== false && !hasData);
+
+  if (showSkeleton) {
+    const bar = (w, h) => <span className="eep-sk" style={{ width: w, height: h }} />;
+    return (
+      <div
+        className={["eep-card", className || ""].filter(Boolean).join(" ")}
+        style={cssVars}
+        aria-busy="true"
+        aria-label="Loading employee profile"
+      >
+        <div className="eep-head">
+          <span className="eep-sk eep-sk-avatar" />
+          <div className="eep-ident" style={{ flex: 1, gap: 7 }}>
+            {bar("60%", 17)}
+            {bar("45%", 12)}
+            {bar("38%", 11)}
+          </div>
+        </div>
+        <div className="eep-rows">
+          {[70, 40, 55].map((w, i) => (
+            <div className="eep-row" key={i}>
+              <span className="eep-sk eep-sk-icon" />
+              <div className="eep-row-body" style={{ gap: 6 }}>
+                {bar("28%", 9)}
+                {bar(`${w}%`, 13)}
+              </div>
+            </div>
+          ))}
+        </div>
+        {showButton ? (
+          <div className="eep-foot">
+            <span className={`eep-sk eep-sk-btn ${fullWidthButton ? "eep-btn-full" : ""}`} />
+          </div>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div
