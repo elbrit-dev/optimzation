@@ -385,18 +385,28 @@ export const TAG_FORM_CONFIG = {
     },
   },
 
-  Other: {
-    hide: ["color", "allocated_to", "doctor"],
-    show: ["title", "startDate", "endDate", "employees"],
-    required: ["title", "startDate"],
+  // Other Work: Admin Day / Chemist Day / Conference / Meeting. The title and
+  // description only show for Conference/Meeting (see the dialog); like a DR
+  // Tour Plan it is for the logged-in user on one day.
+  [TAG_IDS.OTHER]: {
+    hide: ["color", "allocated_to", "doctor", "endDate"],
+    show: ["startDate", "description"],
+    required: ["otherType", "startDate"],
+    requiredMessages: {
+      otherType: "Choose a type",
+      startDate: "Date is required",
+    },
     dateOnly: true,
+    forceAllDay: true,
+    labels: {
+      startDate: "Date",
+    },
     fixedColor: DEFAULT_COLORS.EVENT,
     details: {
       fields: [
-        { key: "startDate", label: "Start Date", type: "date" },
-        { key: "endDate", label: "End Date", type: "date" },
+        { key: "otherType", label: "Type", type: "text" },
+        { key: "startDate", label: "Date", type: "date" },
         { key: "owner", label: "Created by", type: "owner" },
-        { key: "employee", label: "Participants", type: "employee" },
         { key: "description", label: "Description", type: "text" },
       ],
     },
@@ -407,7 +417,7 @@ export const TAG_FORM_CONFIG = {
       allowEdit: () => true,
     },
     employee: {
-      multiselect: true,
+      multiselect: false,
       autoSelectLoggedIn: true,
     },
   },

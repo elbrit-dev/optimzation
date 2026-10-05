@@ -13,6 +13,8 @@ export const ERP_EVENT_FIELDS = {
   hqWrite: "custom_hq",
   meetingLocationRead: "custom_meeting_location",
   meetingLocationWrite: "custom_meeting_location",
+  otherTypeRead: "custom_other_type",
+  otherTypeWrite: "custom_other_type",
   pobGivenRead: "custom_pob_given",
   pobGivenWrite: "custom_pob_given",
   participantRoleProfileRead: "custom_role_profile",

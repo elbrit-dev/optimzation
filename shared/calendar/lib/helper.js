@@ -149,7 +149,88 @@ export function syncPobItemRates(form, pobItems, itemOptions) {
 /* ---------------------------------------------
    GEO LOCATION HANDLER
 --------------------------------------------- */
-export function resolveLatLong(form, isEditing, toast) {
+// Browsers never re-show the location prompt once the user has blocked it —
+// getCurrentPosition then fails instantly with PERMISSION_DENIED. All we can
+// do is say exactly why and how to re-allow it. A dismissed (not blocked)
+// prompt does re-appear on the next request, so the button keeps asking.
+function getPlatform() {
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+  if (/iPhone|iPad|iPod/i.test(ua)) return "ios";
+  if (/Android/i.test(ua)) return "android";
+  return "desktop";
+}
+
+async function getLocationPermissionState() {
+  try {
+    const status = await navigator.permissions?.query({ name: "geolocation" });
+    return status?.state ?? "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+const SITE_PERMISSION_STEPS = {
+  android:
+    "Tap the lock icon next to the address bar → Permissions → Location → Allow. (Installed app: Chrome ⋮ → Settings → Site settings → Location → this site → Allow.) Then tap Request Location again.",
+  ios: "Open iPhone Settings → Safari → Location → Allow (or tap “aA” in the address bar → Website Settings → Location → Allow). Then tap Request Location again.",
+  desktop:
+    "Click the lock icon next to the address bar → Location → Allow, then reload and tap Request Location again.",
+};
+
+const DEVICE_PERMISSION_STEPS = {
+  android:
+    "Open phone Settings → Apps → Chrome → Permissions → Location → Allow, then tap Request Location again.",
+  ios: "Open iPhone Settings → Privacy & Security → Location Services → Safari Websites → While Using the App, then tap Request Location again.",
+  desktop:
+    "Allow your browser to use location in your computer's privacy settings, then tap Request Location again.",
+};
+
+function describeLocationError(err, stateBefore) {
+  const platform = getPlatform();
+
+  if (err?.code === 1) {
+    if (stateBefore === "denied") {
+      return {
+        title: "Location is blocked for this site",
+        description: SITE_PERMISSION_STEPS[platform],
+      };
+    }
+    if (stateBefore === "granted") {
+      // Site is allowed, so it's the OS refusing the browser itself.
+      return {
+        title: "Your phone isn't letting the browser use location",
+        description: DEVICE_PERMISSION_STEPS[platform],
+      };
+    }
+    return {
+      title: "Location permission was denied",
+      description: `Tap Request Location and choose Allow. If no popup appears: ${SITE_PERMISSION_STEPS[platform]}`,
+    };
+  }
+
+  if (err?.code === 2) {
+    return {
+      title: "Your device location is turned off",
+      description:
+        "Turn on Location (GPS) from the quick settings panel, then tap Request Location again.",
+    };
+  }
+
+  if (err?.code === 3) {
+    return {
+      title: "Couldn't get your location in time",
+      description:
+        "GPS signal is weak. Move near a window or outdoors, then tap Request Location again.",
+    };
+  }
+
+  return {
+    title: "Unable to fetch location",
+    description: "Please tap Request Location to try again.",
+  };
+}
+
+export async function resolveLatLong(form, isEditing, toast) {
   if (!isEditing) return;
 
   const currentLatitude = form.getValues("custom_latitude");
@@ -169,13 +250,27 @@ export function resolveLatLong(form, isEditing, toast) {
     });
   };
 
-  if (!navigator.geolocation) {
-    toast.warning("Location not supported. Using fallback.");
+  if (typeof window !== "undefined" && window.isSecureContext === false) {
+    toast.error("Location needs a secure (https) page", {
+      description: "Open the calendar from its https:// link and try again.",
+      duration: 10000,
+    });
     setFallback();
     return;
   }
 
-  navigator.geolocation.getCurrentPosition(
+  if (!navigator.geolocation) {
+    toast.warning("This browser can't share your location", {
+      description: "Open the calendar in Chrome or Safari and try again.",
+      duration: 10000,
+    });
+    setFallback();
+    return;
+  }
+
+  const stateBefore = await getLocationPermissionState();
+
+  await new Promise((resolve) => navigator.geolocation.getCurrentPosition(
     (pos) => {
       const latitude = parseFloat(pos.coords.latitude);
       const longitude = parseFloat(pos.coords.longitude);
@@ -199,13 +294,18 @@ export function resolveLatLong(form, isEditing, toast) {
         shouldDirty: true,
         shouldValidate: true,
       });
+      resolve();
     },
-    () => {
-      toast.error("Unable to fetch location. Using fallback.");
+    (err) => {
+      const { title, description } = describeLocationError(err, stateBefore);
+      toast.error(title, { description, duration: 15000 });
       setFallback();
+      resolve();
     },
-    { timeout: 20000 }
-  );
+    // A fix from the last minute is fine for a visit; reusing it avoids a
+    // cold-GPS timeout on every open.
+    { timeout: 30000, maximumAge: 60000 }
+  ));
 }
 export function mapDoctors(data) {
   return (
