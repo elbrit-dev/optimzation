@@ -24,8 +24,19 @@ describe('writer.addParties ("Add doctor")', () => {
     await expect(writer.addParties({ parties: ['DR-1'] })).rejects.toThrow('Add at most 20 doctors at a time.');
   });
 
-  it('is refused for a task with no add (Secondary)', () => {
+  it("posts Secondary's stockists to its own add script", async () => {
+    const fetchImpl = vi.fn(async () => ({ ok: true, json: async () => ({ message: { created: [], added: ['Medisure-2026-09-01'], skipped: [] } }) }));
+    vi.stubGlobal('fetch', fetchImpl);
     const writer = createErpWriter({ endpointUrl: 'https://erp.test/api/method/graphql', gqlToken: 'k:s', task: SECONDARY });
+
+    await writer.addParties({ parties: ['Medisure'] });
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(url).toBe('https://erp.test/api/method/elbrit_secondary_add');
+    expect(JSON.parse(init.body)).toEqual({ stockists: ['Medisure'] });
+  });
+
+  it('is refused for a task with no add', () => {
+    const writer = createErpWriter({ endpointUrl: 'https://erp.test/api/method/graphql', gqlToken: 'k:s', task: { ...SECONDARY, addMethod: undefined } });
     expect(() => writer.addParties({ parties: ['X'] })).toThrow('Stockists cannot be added here.');
   });
 });

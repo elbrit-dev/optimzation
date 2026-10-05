@@ -384,7 +384,7 @@ export function SecondaryEntry({
       }
     : null;
 
-  /* ---- "Add doctor" (task.addMethod) ----------------------------------
+  /* ---- "Add doctor" / "Add stockist" (task.addMethod) ---------------------
      The seat's own parties not on its list (the server's `addable`, own
      view only, and only for the PREVIOUS month — the one the add script
      creates for; any other month sends null, so no button). Create puts the seat's lines — every product

@@ -38,7 +38,7 @@ function stubErp(addAnswer) {
   return calls;
 }
 
-describe('Doctor Support: Add doctor', () => {
+describe('Add doctor / Add stockist', () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it("lists the BE's doctors to add, creates the chosen ones and re-reads the month", async () => {
@@ -87,10 +87,24 @@ describe('Doctor Support: Add doctor', () => {
     expect(screen.queryByRole('button', { name: /Add doctor/ })).not.toBeInTheDocument();
   });
 
-  it('is not offered for Secondary, which has no add', async () => {
-    stubErp({});
+  it('works the same for Secondary: "Add stockist", posted to its own script', async () => {
+    const calls = stubErp({ created: [], added: ['Medisure-2026-09-01'], skipped: [] });
+    const stockists = { ...ANSWER, addable: [{ name: 'Medisure', customer_name: 'Medisure', note: 'EBS220 · HQ-Jaipur' }] };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url, init) => {
+        const u = String(url);
+        calls.push({ url: u, method: init?.method ?? 'GET', body: init?.body ? JSON.parse(init.body) : null });
+        if (u.includes('elbrit_secondary_add')) return { ok: true, json: async () => ({ message: { created: [], added: ['Medisure-2026-09-01'], skipped: [] } }) };
+        if (u.includes('elbrit_entry_team')) return { ok: true, json: async () => ({ message: { members: [] } }) };
+        return { ok: true, json: async () => ({ message: stockists }) };
+      }),
+    );
     render(<SecondaryEntry gqlToken="k:s" month="2026-09" />);
-    expect(await screen.findByText(/No stockist entries/)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Add / })).not.toBeInTheDocument();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Add stockist \(1 not on your list\)/ }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /Medisure/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create 1' }));
+    await waitFor(() => expect(calls.find((c) => c.url.includes('elbrit_secondary_add'))?.body).toEqual({ stockists: ['Medisure'] }));
   });
 });

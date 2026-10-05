@@ -36,6 +36,14 @@ export const SECONDARY = {
   approvalTitle: 'Secondary approvals',
   entryMethod: 'elbrit_secondary_entry',
   approvalMethod: 'elbrit_secondary_approval',
+  /* "Add stockist": puts the seat's lines (every product at 0) on a
+     stockist of theirs not on their list — creating the month's entry when
+     there is none — always for the PREVIOUS month, by today's date
+     (server/elbrit_secondary_add.py). `addParam` names the stockists in the
+     request. At most `addLimit` per go, as the script allows. */
+  addMethod: 'elbrit_secondary_add',
+  addParam: 'stockists',
+  addLimit: 20,
   fileStem: 'secondary-entry',
   /* How a seat's lines are written back (REST get → save, see writes.js). */
   doctype: 'Secondary Data Entry',
@@ -84,6 +92,7 @@ export const DOCTOR_SUPPORT = {
      (doctor-support/server/elbrit_doctor_support_add.py). At most
      `addLimit` doctors per go, as the script allows. */
   addMethod: 'elbrit_doctor_support_add',
+  addParam: 'doctors',
   addLimit: 20,
   fileStem: 'doctor-support',
   doctype: 'Doctor Support',

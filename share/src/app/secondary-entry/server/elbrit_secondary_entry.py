@@ -13,9 +13,14 @@
 # The Secondary Entry screen's data for the CALLER. READ-ONLY (saving stays
 # the app's REST get -> save of the whole document).
 #
-# WHICH ENTRIES: the month's Secondary Data Entries that are the SEAT'S —
-# their stockist's Customer lists the seat, or the seat has lines on them.
+# WHICH ENTRIES: the month's Secondary Data Entries the SEAT has lines on
+# (the bulk load's, or its own "Add stockist" — elbrit_secondary_add).
 # WHICH LINES: only the seat's; other seats' products as names only.
+#
+# ADDABLE: the seat's other stockists — enabled Customers whose Role Profile
+# table lists the seat, with no lines of the seat this month — for "Add
+# stockist". The caller's own seat only, and only when `month` is the
+# previous month (the only one "Add stockist" creates for); otherwise null.
 #
 # VACANT BE SEATS: a BE Role Profile no Active Employee holds is covered by
 # the seat directly above it (the ABM). The answer lists them in
@@ -41,7 +46,8 @@
 # IT with no `seat` (`read_only`) gets every entry of the month with every
 # seat's lines, each tagged with its own seat, to view read-only.
 #
-# Answer: { user, seat, covering, covers, vacant_seats, read_only, month, entries, products }
+# Answer: { user, seat, covering, covers, vacant_seats, read_only, month, entries, products,
+#           addable: [{ name, customer_name, note }] | null }
 #
 # safe_exec: no import, no .format(), no set literals, no tuple
 # unpacking, no underscore-prefixed names.
@@ -276,6 +282,7 @@ lister = frappe.get_all if in_team else frappe.get_list
 
 entries = []
 products = []
+addable = []
 see_all = False
 
 if seat:
@@ -335,10 +342,17 @@ if seat:
             seen_items[code] = 1
             item_codes.append(code)
 
+    # An entry is the seat's when the seat has lines on it — the bulk load's,
+    # or its own "Add stockist" (elbrit_secondary_add). A stockist assigned to
+    # the seat with none of its lines is NOT shown: it lists in `addable`
+    # instead. IT (see_all) sees every entry of the month.
     mine = []
+    has_lines = {}
     for n in names:
         row = by_name[n]
-        if see_all or assigned.get(row["distributor__name"]) or row["items"]:
+        if row["items"]:
+            has_lines[row["distributor__name"]] = 1
+        if see_all or row["items"]:
             mine.append(n)
     names = mine
 
@@ -481,6 +495,29 @@ if seat:
                 "custom_last_pts": num(it.get("custom_last_pts")),
             }
 
+    # ---- ADDABLE: the seat's own enabled stockists not on its list this
+    # month, for "Add stockist" — the caller's own seat only (not a team seat,
+    # a covered vacant seat or IT's view), and only for THE PREVIOUS MONTH,
+    # the one elbrit_secondary_add creates for — any other month sends
+    # `addable: null`, and the screen offers no "Add stockist". Read past
+    # permissions: only the names of the stockists assigned to the seat.
+    if month != month_before(frappe.utils.nowdate()[:7]):
+        addable = None
+    elif seat == own_seat and not see_all and not covering:
+        codes = [c for c in assigned if not has_lines.get(c)]
+        for part in chunks(codes):
+            for c in frappe.get_all("Customer", filters=[["name", "in", part], ["disabled", "=", 0]],
+                                    fields=["name", "customer_name", "whg_ebs_code", "territory"],
+                                    limit_page_length=0):
+                bits = []
+                if c.get("whg_ebs_code"):
+                    bits.append(c.get("whg_ebs_code"))
+                if c.get("territory"):
+                    bits.append(c.get("territory"))
+                addable.append({"name": c.get("name"), "customer_name": c.get("customer_name") or c.get("name"),
+                                "note": " · ".join(bits) or None})
+        addable.sort(key=lambda a: (a.get("customer_name") or "").lower())
+
     for n in names:
         row = by_name[n]
         row["distributor"] = dist.get(row["distributor__name"])
@@ -504,4 +541,5 @@ frappe.response["message"] = {
     "month": month,
     "entries": entries,
     "products": products,
+    "addable": addable,
 }

@@ -219,13 +219,14 @@ export function createErpWriter({ endpointUrl, gqlToken, task = SECONDARY }) {
     attachSheet(file, names) {
       return sendSheet({ origin, token, task, file, names });
     },
-    /* "Add doctor" (task.addMethod): the seat's lines onto each party's
-       record for the PREVIOUS month — the script decides the month from
-       today's date, so none is sent — created when there is none.
+    /* "Add doctor" / "Add stockist" (task.addMethod): the seat's lines onto
+       each party's record for the PREVIOUS month — the script decides the
+       month from today's date, so none is sent — created when there is none.
+       The parties go under task.addParam ("doctors" / "stockists").
        → { month, created: [name], added: [name], skipped: [{ doctor, reason }] } */
     addParties({ parties }) {
       if (!task.addMethod) throw new Error(`${task.Parties} cannot be added here.`);
-      return call(`/api/method/${task.addMethod}`, { method: 'POST', body: { doctors: parties } });
+      return call(`/api/method/${task.addMethod}`, { method: 'POST', body: { [task.addParam]: parties } });
     },
   };
 }
