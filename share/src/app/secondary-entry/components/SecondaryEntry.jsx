@@ -26,6 +26,7 @@ import { createErpWriter, sheetBaseName } from '../data/writes';
 import { SECONDARY, TaskProvider, partyCount } from '../data/task';
 import { EntryOverview, EntryOverviewSkeleton } from './EntryOverview';
 import { EntryForm } from './EntryForm';
+import { AddPartySheet } from './AddPartySheet';
 import { TeamProgress } from './TeamProgress';
 import { useUnsavedGuard } from './useUnsavedGuard';
 
@@ -383,6 +384,46 @@ export function SecondaryEntry({
       }
     : null;
 
+  /* ---- "Add doctor" (task.addMethod) ----------------------------------
+     The seat's own parties not on its list (the server's `addable`, own
+     view only, and only for the PREVIOUS month — the one the add script
+     creates for; any other month sends null, so no button). Create puts the seat's lines — every product
+     at 0 — on each, then the month is re-read so they show, and go into the
+     downloaded sheet, like any other. */
+  const addable = server.data?.addable;
+  const canAdd = Boolean(task.addMethod) && serverMode && canEdit && !viewing && Array.isArray(addable);
+  const [addOpen, setAddOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState(null);
+  const createParties = useCallback(
+    async (names) => {
+      setAdding(true);
+      setAddError(null);
+      try {
+        const writer = await getWriter();
+        const res = (await writer.addParties({ parties: names })) ?? {};
+        const done = (res.created?.length ?? 0) + (res.added?.length ?? 0);
+        const skipped = res.skipped ?? [];
+        if (!done) {
+          setAddError(skipped.length ? `Nothing added: ${skipped.map((s) => `${s.doctor} (${s.reason})`).slice(0, 3).join(', ')}.` : 'Nothing added.');
+          return;
+        }
+        setAddOpen(false);
+        flash(
+          [`${partyCount(task, done)} added to your list.`, skipped.length ? `${skipped.length} not added: ${skipped.map((s) => s.doctor).slice(0, 3).join(', ')}.` : null]
+            .filter(Boolean)
+            .join(' '),
+        );
+        server.reload();
+      } catch (e) {
+        setAddError(e?.message || 'ERP did not answer. Please try again.');
+      } finally {
+        setAdding(false);
+      }
+    },
+    [getWriter, server, flash, task],
+  );
+
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkMessage, setBulkMessage] = useState(null);
   const sheetRows = useMemo(
@@ -617,6 +658,24 @@ export function SecondaryEntry({
         </div>
       ) : null}
 
+      {canAdd && shownPane === 'mine' && !openEntry ? (
+        <Button
+          type="dashed"
+          size="lg"
+          block
+          icon={<Icon name="plus" size="sm" />}
+          disabled={!addable.length}
+          title={addable.length ? undefined : `Every one of your ${task.parties} is already on your list.`}
+          onClick={() => {
+            setAddError(null);
+            setAddOpen(true);
+          }}
+        >
+          Add {task.party}
+          {addable.length ? ` (${addable.length} not on your list)` : ''}
+        </Button>
+      ) : null}
+
       {shownPane === 'team' && !viewing && !openEntry ? (
         <TeamProgress team={team.data} covers={covers} onView={(m) => setViewing({ seat: m.seat, name: m.name })} />
       ) : loading || seatProblem === 'finding' ? (
@@ -690,6 +749,18 @@ export function SecondaryEntry({
           }
         />
       )}
+
+      {canAdd ? (
+        <AddPartySheet
+          open={addOpen}
+          onClose={() => setAddOpen(false)}
+          parties={addable}
+          limit={task.addLimit}
+          busy={adding}
+          error={addError}
+          onCreate={createParties}
+        />
+      ) : null}
 
       {/* Unsaved-changes confirmation — the same Sheet Navigation's exit
           confirmation uses, laid out the same way. */}

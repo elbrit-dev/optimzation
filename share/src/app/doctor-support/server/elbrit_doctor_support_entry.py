@@ -15,11 +15,15 @@
 # SAME shape so the one screen reads both (see secondary-entry/data/task.js).
 # READ-ONLY (saving stays the app's REST get -> save of the whole document).
 #
-# WHICH RECORDS: the Doctor Supports of the month that are the SEAT'S —
-# their doctor's Lead lists the seat (its Role Profile table), or the seat
-# already has lines on them — among those the caller may see
-# (frappe.get_list: the ERP's permission rules). One Doctor Support is one
-# DOCTOR (a Lead) for one date.
+# WHICH RECORDS: the Doctor Supports of the month the SEAT has lines on (the
+# bulk load's, or its own "Add doctor" — elbrit_doctor_support_add), among
+# those the caller may see (frappe.get_list: the ERP's permission rules).
+# One Doctor Support is one DOCTOR (a Lead) for one date.
+#
+# ADDABLE: the seat's other doctors — Active Leads whose Role Profile table
+# lists the seat, with no lines of the seat this month — for "Add doctor".
+# The caller's own seat only, and only when `month` is the previous month
+# (the only one "Add doctor" creates for); otherwise null.
 #
 # WHICH LINES: a Doctor Support carries several seats' Support Items; only
 # the caller's seat's are sent (their active Employee's custom_role_profile, or `seat`).
@@ -49,7 +53,8 @@
 # [{ seat, holder }]; `covering` is true when `seat` is one — that seat's
 # doctors, read past permissions, to fill in as its BE would.
 #
-# Answer: { user, seat, covering, covers, vacant_seats, read_only, month, entries: [<row>], products: [<item>] }
+# Answer: { user, seat, covering, covers, vacant_seats, read_only, month, entries: [<row>], products: [<item>],
+#           addable: [{ name, customer_name, note }] | null }
 #
 # safe_exec: no import, no .format(), no set literals, no tuple
 # unpacking, no underscore-prefixed names.
@@ -308,6 +313,7 @@ lister = frappe.get_all if in_team else frappe.get_list
 
 entries = []
 products = []
+addable = []
 see_all = False
 
 if seat:
@@ -330,10 +336,9 @@ if seat:
             "custom_status_tracker": [],
         }
 
-    # ---- WHICH ARE THE SEAT'S: the doctors whose Lead lists the seat
-    # (its Role Profile table) — the ERP lets a BE read far more entries
-    # than are theirs. Read past permissions (frappe.get_all): only the
-    # names of the doctors assigned to the seat.
+    # ---- THE SEAT'S DOCTORS: those whose Lead lists the seat (its Role
+    # Profile table), for ADDABLE below. Read past permissions
+    # (frappe.get_all): only the names of the doctors assigned to the seat.
     assigned = {}
     for r in frappe.get_all("Role Profile Multiselect",
                             filters={"parenttype": "Lead", "role_profile_list": seat},
@@ -377,13 +382,18 @@ if seat:
             seen_items[code] = 1
             item_codes.append(code)
 
-    # An entry is the seat's when its doctor is assigned to the seat, or
-    # the seat already has lines on it (never hide work already entered).
-    # IT (see_all, above) sees every record of the month.
+    # An entry is the seat's when the seat has lines on it — the bulk load's,
+    # or its own "Add doctor" (elbrit_doctor_support_add). A record another
+    # seat created for a doctor this seat also has is NOT shown until this
+    # seat adds the doctor: it lists in `addable` instead. IT (see_all,
+    # above) sees every record of the month.
     mine = []
+    has_lines = {}
     for n in names:
         row = by_name[n]
-        if see_all or assigned.get(row["distributor__name"]) or row["items"]:
+        if row["items"]:
+            has_lines[row["distributor__name"]] = 1
+        if see_all or row["items"]:
             mine.append(n)
     names = mine
 
@@ -555,6 +565,29 @@ if seat:
                 "custom_last_pts": num(it.get("custom_last_pts")),
             }
 
+    # ---- ADDABLE: the seat's own Active doctors not on its list this month,
+    # for "Add doctor" — the caller's own seat only (not a team seat, a
+    # covered vacant seat or IT's view), and only for THE PREVIOUS MONTH, the
+    # one elbrit_doctor_support_add creates for — any other month sends
+    # `addable: null`, and the screen offers no "Add doctor". Read past
+    # permissions: only the names of the doctors assigned to the seat.
+    if month != month_before(frappe.utils.nowdate()[:7]):
+        addable = None
+    elif seat == own_seat and not see_all and not covering:
+        codes = [c for c in assigned if not has_lines.get(c)]
+        for part in chunks(codes):
+            for c in frappe.get_all("Lead", filters=[["name", "in", part], ["status", "=", "Active"]],
+                                    fields=["name", "lead_name", "custom_specialty", "city"],
+                                    limit_page_length=0):
+                bits = []
+                if c.get("custom_specialty"):
+                    bits.append(c.get("custom_specialty"))
+                if c.get("city"):
+                    bits.append(c.get("city"))
+                addable.append({"name": c.get("name"), "customer_name": c.get("lead_name") or c.get("name"),
+                                "note": " · ".join(bits) or None})
+        addable.sort(key=lambda a: (a.get("customer_name") or "").lower())
+
     for n in names:
         row = by_name[n]
         row["distributor"] = dist.get(row["distributor__name"]) or {
@@ -582,4 +615,5 @@ frappe.response["message"] = {
     "month": month,
     "entries": entries,
     "products": products,
+    "addable": addable,
 }

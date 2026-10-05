@@ -78,6 +78,13 @@ export const DOCTOR_SUPPORT = {
   approvalTitle: 'Doctor support approvals',
   entryMethod: 'elbrit_doctor_support_entry',
   approvalMethod: 'elbrit_doctor_support_approval',
+  /* "Add doctor": puts the seat's lines (every product at 0) on a doctor
+     the bulk load did not bring — creating the month's record when there is
+     none — always for the PREVIOUS month, by today's date
+     (doctor-support/server/elbrit_doctor_support_add.py). At most
+     `addLimit` doctors per go, as the script allows. */
+  addMethod: 'elbrit_doctor_support_add',
+  addLimit: 20,
   fileStem: 'doctor-support',
   doctype: 'Doctor Support',
   childTable: 'item_table',
