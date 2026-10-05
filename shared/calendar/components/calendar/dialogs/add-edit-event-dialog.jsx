@@ -178,12 +178,12 @@ export function AddEditEventDialog({
 	const medicalAttachment = useWatch({ control: form.control, name: "medicalAttachment" });
 	const otherType = useWatch({ control: form.control, name: "otherType" });
 	const title = useWatch({ control: form.control, name: "title" });
+	const { doctor, employees, hqTerritory, tags: selectedTag, attending, enableGoogleMeet, forceVisit: isForceVisitSelected } = useWatch({ control: form.control });
 	// Conference/Meeting under Other Work take a title + description; Admin Day
 	// and Chemist Day are just the type on a date.
 	const otherWorkNeedsDetails =
 		selectedTag === TAG_IDS.OTHER &&
 		OTHER_WORK_TYPES_WITH_DETAILS.includes(otherType);
-	const { doctor, employees, hqTerritory, tags: selectedTag, attending, enableGoogleMeet, forceVisit: isForceVisitSelected } = useWatch({ control: form.control });
 	const pobGiven = useWatch({ control: form.control, name: "pob_given", });
 	const travelMode = useWatch({ control: form.control, name: "travelMode" });
 	const customer = useWatch({ control: form.control, name: "customer", });
