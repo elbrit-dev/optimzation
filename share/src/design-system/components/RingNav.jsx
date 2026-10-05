@@ -35,7 +35,7 @@ import { ProgressRing } from './ProgressRing';
    `target`, `className`, `aria-label`, `onClick` and children, which is
    exactly next/link's surface.
 
-   The status dot in the lower corner is an INDICATOR, not a button. A second
+   The status glyph before the label is an INDICATOR, not a button. A second
    press target inside a link would nest interactive content, and a 16px
    target fails --tap-target-min by nearly two thirds. It is decorative to
    assistive tech; a tile whose status must be spoken sets `ariaLabel`.
@@ -83,6 +83,9 @@ function TileBody({ item }) {
           </span>
         </ProgressRing>
         <CountBadge value={item.count} tone={item.countTone} className="ds-ringnav__badge" aria-hidden="true" />
+      </span>
+      {/* The status glyph (edit, approve) leads the label, in its tone. */}
+      <span className="ds-ringnav__label">
         {item.statusIcon ? (
           <span
             className="ds-ringnav__status"
@@ -92,8 +95,8 @@ function TileBody({ item }) {
             <Icon name={item.statusIcon} size="var(--ds-ringnav-status-glyph)" />
           </span>
         ) : null}
+        {item.label}
       </span>
-      <span className="ds-ringnav__label">{item.label}</span>
     </>
   );
 }

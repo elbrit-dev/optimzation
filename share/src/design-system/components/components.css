@@ -1990,7 +1990,9 @@
      mock's own ratios. */
   --ds-ringnav-glyph: calc(var(--ds-ringnav-size) * 0.26);
   --ds-ringnav-glyph-alone: calc(var(--ds-ringnav-size) * 0.38);
-  --ds-ringnav-status-glyph: calc(var(--ds-ringnav-adornment) * 0.6);
+  /* The status glyph before the label: the label's own size, so it sits
+     in the line rather than widening the tile. */
+  --ds-ringnav-status-glyph: 1em;
   display: flex;
   /* 11px, the mock's gap, and a real step. Not 12. */
   gap: var(--space-11);
@@ -2007,9 +2009,10 @@
   flex-direction: column;
   align-items: center;
   gap: var(--space-4);
-  /* The ring plus room for its badge to overhang without touching the next
-     tile. */
-  width: calc(var(--ds-ringnav-size) + var(--space-4));
+  /* At least the ring plus room for its badge to overhang without touching
+     the next tile; wider when the label (status glyph and words) needs it,
+     so the label is never cut. */
+  min-width: calc(var(--ds-ringnav-size) + var(--space-4));
   padding: var(--space-0);
   color: var(--ds-text-heading);
   font: inherit;
@@ -2069,25 +2072,15 @@
   height: var(--ds-ringnav-adornment);
 }
 .ds-ringnav__status {
-  position: absolute;
-  right: var(--space-0);
-  bottom: var(--space-0);
+  display: flex;
+  flex: 0 0 auto;
+}
+.ds-ringnav__label {
   display: flex;
   align-items: center;
   justify-content: center;
-  box-sizing: border-box;
-  width: var(--ds-ringnav-adornment);
-  height: var(--ds-ringnav-adornment);
-  border: var(--border-w) solid var(--border-default);
-  border-radius: var(--ds-radius-circle);
-  background-color: var(--surface-card);
-  box-shadow: var(--ds-shadow-card);
-}
-.ds-ringnav__label {
-  max-width: 100%;
-  overflow: hidden;
+  gap: var(--space-2);
   font: var(--fw-semibold) var(--fs-11) / var(--lh-12) var(--ds-font-ui);
-  text-overflow: ellipsis;
   white-space: nowrap;
   transition: color var(--dur-fast) var(--ds-ease-standard);
 }
