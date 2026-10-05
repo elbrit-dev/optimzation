@@ -12,11 +12,12 @@
 #
 # THE CALENDAR. A month's secondary is keyed in during the next month
 # (July's trackers were all raised in August on production), due by
-# ENTRY_DUE_DAY — THE 5TH (a due day past a month's last day would be that
-# last day, so 31 means "month end"):
+# its task's due day — SECONDARY THE 7TH, DOCTOR SUPPORT THE 8TH (TASKS
+# "due_day"; ENTRY_DUE_DAY otherwise. A due day past a month's last day
+# would be that last day, so 31 means "month end"):
 #   - the entry month is LAST month (`month` overrides it);
 #   - the Secondary entry tile is on the strip from ENTRY_FROM_DAY to the
-#     due day, its caption the due date, "5 Oct", while anything is left —
+#     due day, its caption the due date, "7 Oct", while anything is left —
 #     except for users whose Role Profile is "IT", who see it every day;
 #   - the approval tile keeps the same window — for IT too: past the due
 #     day nobody gets it — and the same due date as its caption while
@@ -90,7 +91,7 @@ HREFS = {"secondary-entry": "/secondary/entry",
          "doctor-support-entry": "/doctor-support/entry",
          "doctor-support-approval": "/doctor-support/approval"}
 ENTRY_FROM_DAY = 1
-ENTRY_DUE_DAY = 5      # due on the 5th (past the month's end would mean its last day)
+ENTRY_DUE_DAY = 7      # default due day; a task's "due_day" overrides it (past the month's end would mean its last day)
 ALWAYS_ROLE_PROFILE = "IT"   # users with this Role Profile see the tiles every day
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -158,12 +159,19 @@ if not always:
 # month" every month, February included.
 last_day = int(str(frappe.utils.get_last_day(today))[8:10])
 due_day = ENTRY_DUE_DAY if ENTRY_DUE_DAY < last_day else last_day
-# The window both Secondary tiles keep: ENTRY_FROM_DAY to the due day, the
-# due day's end included. The entry tile shows for the IT role profile on
-# any day; the approval tile never past the due day, IT included.
-in_window = ENTRY_FROM_DAY <= day <= due_day
-entry_window = always or in_window
-due_label = str(due_day) + " " + MONTHS[int(today[5:7]) - 1]
+
+
+def window_of(task):
+    # A task's own due day (TASKS "due_day", else ENTRY_DUE_DAY), capped at
+    # this month's last day. The window both its tiles keep: ENTRY_FROM_DAY
+    # to the due day, the due day's end included. The entry tile shows for
+    # the IT role profile on any day; the approval tile never past the due
+    # day, IT included.
+    d = task.get("due_day") or ENTRY_DUE_DAY
+    d = d if d < last_day else last_day
+    open_now = ENTRY_FROM_DAY <= day <= d
+    return {"open": open_now, "entry": always or open_now,
+            "label": str(d) + " " + MONTHS[int(today[5:7]) - 1]}
 first = month + "-01"
 last = str(frappe.utils.get_last_day(first))
 in_month = ["date", "between", [first, last]]
@@ -326,6 +334,8 @@ items = []
 #   prefix       tracker names: "<prefix><record>-<seat>"
 #   enabled      False: the task gets no tiles at all (entry or approval)
 #   it_only      True: only users with the IT role profile get its tiles
+#   due_day      the day of the month its entry is due (else ENTRY_DUE_DAY):
+#                its tiles' window and caption
 #   rp / status  the plain names; a child that has only custom_<name> (Doctor
 #                Support's Support Items on production) uses that instead
 TASKS = [
@@ -334,14 +344,14 @@ TASKS = [
      "party": "distributor", "party_doctype": "Customer",
      "rp": "custom_role_profile", "status": "custom_status",
      "link": "custom_ref_secondary_data_entry", "prefix": "Secondary Data Entry-",
-     "hide_empty": False, "enabled": True},
+     "due_day": 7, "hide_empty": False, "enabled": True},
     # A seat with no Doctor Support in the month gets no entry tile.
     {"id": "doctor-support", "label": "Support", "icon": "file-check",
      "doctype": "Doctor Support", "child": "Support Items",
      "party": "doctor", "party_doctype": "Lead",
      "rp": "role_profile", "status": "status",
      "link": "reference", "prefix": "Doctor Support-",
-     "hide_empty": True, "enabled": True},
+     "due_day": 8, "hide_empty": True, "enabled": True},
 ]
 
 
@@ -415,7 +425,8 @@ def entry_tile(task):
     # ------------------------------------------------ <task>: entry
     # Only while entry is open: ENTRY_FROM_DAY to the due day (IT: always).
     overview = (not seat) and always
-    if not ((seat or overview) and entry_window):
+    win = window_of(task)
+    if not ((seat or overview) and win["entry"]):
         return
     line = "`tab" + task["child"] + "`"
     # unit -> 1 while any of its lines is Draft (or it has none yet)
@@ -543,7 +554,7 @@ def entry_tile(task):
         caption = "None"
         tone = "neutral"
     elif todo:
-        caption = due_label             # the due date, while any is left
+        caption = win["label"]          # the due date, while any is left
         tone = "danger"
     elif e["waiting"]:
         caption = str(e["waiting"]) + " waiting"
@@ -628,7 +639,8 @@ def approval_tile(task):
     # waits on them — a BE, with no team and nothing waiting, gets none. The
     # IT role profile gets it, as the overview of every tracker. Only in the
     # window: past the due day nobody does, IT included.
-    if not in_window:
+    win = window_of(task)
+    if not win["open"]:
         return
     counted = month_people(task)
     waiting = counted[0]
@@ -643,7 +655,7 @@ def approval_tile(task):
         "statusIcon": "check-square",
         "statusTone": "neutral",
         "count": waiting,
-        "caption": due_label if waiting else "Clear",   # the due date, while any waits
+        "caption": win["label"] if waiting else "Clear",   # the due date, while any waits
         "captionTone": "danger" if waiting else "success",
         "segments": [
             {"key": "approved", "value": approved, "tone": "success", "label": "People approved"},
