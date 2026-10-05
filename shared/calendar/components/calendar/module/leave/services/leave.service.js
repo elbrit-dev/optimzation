@@ -397,26 +397,6 @@ const LEAVE_WITHOUT_PAY_NAMES = new Set([
   "LWP",
 ]);
 
-// Holidays on the employee's ERP Holiday List, as a Set of "yyyy-MM-dd".
-// hrms.api.get_holidays_for_employee resolves the list from the Employee record
-// and needs no Holiday List read permission, so any logged-in user can call it
-// for themselves. It leaves out weekly offs — Sundays are skipped separately.
-export async function fetchEmployeeHolidays(employeeId) {
-  if (!employeeId) return new Set();
-
-  return getCached(`EMPLOYEE_HOLIDAYS_${employeeId}`, async () => {
-    const json = await erpJsonRequest(
-      `/api/method/hrms.api.get_holidays_for_employee?employee=${encodeURIComponent(employeeId)}`
-    );
-
-    return new Set(
-      (Array.isArray(json?.message) ? json.message : [])
-        .map((holiday) => holiday?.holiday_date)
-        .filter(Boolean)
-    );
-  });
-}
-
 export async function fetchLeaveTypes() {
   return getCached("LEAVE_TYPES", async () => {
     const data = await graphqlRequest(LEAVE_TYPES_QUERY, {

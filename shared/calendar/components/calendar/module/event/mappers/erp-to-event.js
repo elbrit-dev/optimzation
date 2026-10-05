@@ -1,20 +1,8 @@
 import { eventSchema } from "@calendar/components/calendar/schemas";
 import { COLOR_HEX_MAP, DEFAULT_COLORS } from "@calendar/components/calendar/constants";
 import { TAG_FORM_CONFIG } from "@calendar/lib/calendar/form-config";
-import { OTHER_WORK_TYPES, TAG_IDS } from "@calendar/components/calendar/constants";
+import { TAG_IDS } from "@calendar/components/calendar/constants";
 import { normalizeStatus } from "@calendar/components/calendar/helpers";
-
-// GraphQL returns a Select as its enum name ("ADMIN_DAY"); map it back to the
-// option label ("Admin Day") the form and ERP writes use.
-function normalizeOtherType(value) {
-  if (!value) return "";
-  const key = String(value).trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_");
-  return (
-    OTHER_WORK_TYPES.find(
-      (type) => type.toUpperCase().replace(/[^A-Z0-9]+/g, "_") === key
-    ) ?? ""
-  );
-}
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 import { composeDoctorVisitTitle } from "@calendar/lib/calendar/doctor-visit-title";
 /**
@@ -250,7 +238,6 @@ export function mapErpGraphqlEventToCalendar(node) {
     color,
     hqTerritory: node.custom_hq__name ?? "",
     meetingLocation: node.custom_meeting_location ?? "",
-    otherType: normalizeOtherType(node.custom_other_type),
     googleMeetLink: node.google_meet_link ?? null,
     enableGoogleMeet: Boolean(node.google_meet_link),
 

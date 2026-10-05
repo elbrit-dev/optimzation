@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { differenceInCalendarDays } from "date-fns";
 import { TAG_FORM_CONFIG } from "@calendar/lib/calendar/form-config";
-import { OTHER_WORK_TYPES_WITH_DETAILS, TAG_IDS } from "@calendar/components/calendar/constants";
+import { TAG_IDS } from "@calendar/components/calendar/constants";
 import { TRAVEL_MODE_OPTIONS, isTravelAttachmentRequired } from "@calendar/components/calendar/module/travel-request/helpers/travel-request.helper";
 
 /* =====================================================
@@ -56,7 +56,6 @@ export const eventSchema = z
     shareEmployees: z.any().optional(),
     hqTerritory: z.string().optional(),
     meetingLocation: z.string().optional(),
-    otherType: z.string().optional(),
     customer: z.string().optional(),
     allDay: z.boolean().optional(),
     enableGoogleMeet: z.boolean().optional(),
@@ -134,22 +133,28 @@ export const eventSchema = z
     }
 
     /* ---------------------------------------------
-       OTHER WORK: Conference / Meeting need a title
+       LEAVE: MEDICAL CERTIFICATE RULE
     --------------------------------------------- */
     if (
-      data.tags === TAG_IDS.OTHER &&
-      OTHER_WORK_TYPES_WITH_DETAILS.includes(data.otherType) &&
-      !data.title?.trim()
+      data.tags === TAG_IDS.LEAVE &&
+      data.leaveType === "Sick Leave" &&
+      data.startDate &&
+      data.endDate
     ) {
-      ctx.addIssue({
-        path: ["title"],
-        message: `${data.otherType} title is required`,
-        code: z.ZodIssueCode.custom,
-      });
-    }
+      const threshold =
+        TAG_FORM_CONFIG.Leave?.leave?.medicalCertificateAfterDays ?? 2;
 
-    // LEAVE: the medical certificate rule lives in the dialog (requiresMedical)
-    // — it skips the employee's ERP holidays, which this schema can't see.
+      const days =
+        differenceInCalendarDays(data.endDate, data.startDate) + 1;
+
+      if (days > threshold && !data.medicalAttachment) {
+        ctx.addIssue({
+          path: ["medicalAttachment"],
+          message: "Medical certificate is required",
+          code: z.ZodIssueCode.custom,
+        });
+      }
+    }
 
     /* ---------------------------------------------
        LEAVE: HALF DAY DATE REQUIRED

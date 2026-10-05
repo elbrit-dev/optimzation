@@ -6,8 +6,7 @@ function toERPDate(date = new Date()) {
   return format(startOfDay(date), "yyyy-MM-dd");
 }
 
-// `holidayDates` (a Set of "yyyy-MM-dd") additionally skips ERP holidays.
-export function calculateTotalLeaveDays(startDate, endDate, isHalfDay, holidayDates) {
+export function calculateTotalLeaveDays(startDate, endDate, isHalfDay) {
   if (!startDate || !endDate) return 0;
 
   const days = eachDayOfInterval({
@@ -15,9 +14,7 @@ export function calculateTotalLeaveDays(startDate, endDate, isHalfDay, holidayDa
     end: startOfDay(endDate),
   });
 
-  const workingDays = days.filter(
-    (day) => !isSunday(day) && !holidayDates?.has(toERPDate(day))
-  ).length;
+  const workingDays = days.filter((day) => !isSunday(day)).length;
 
   if (workingDays === 0) return 0;
 

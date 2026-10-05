@@ -41,7 +41,6 @@ query EventsByRange(
         reference_docname__name
         google_meet_link
         custom_meeting_location:${ERP_EVENT_FIELDS.meetingLocationRead}
-        custom_other_type:${ERP_EVENT_FIELDS.otherTypeRead}
         custom_hq__name:${ERP_EVENT_FIELDS.hqRead}
         event_participants {
           name

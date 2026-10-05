@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { AUTH_CONFIG, LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 import { isEmployeeOnApprovedLeave } from "@calendar/lib/calendar/leaveDay";
-import { buildEventDefaultValues, getAvailableTags, OTHER_WORK_TYPES, OTHER_WORK_TYPES_WITH_DETAILS, TAG_IDS } from "@calendar/components/calendar/constants";
+import { buildEventDefaultValues, getAvailableTags, TAG_IDS } from "@calendar/components/calendar/constants";
 import { mapFormToErpEvent } from "@calendar/components/calendar/module/event/mappers/event-to-erp";
 import {
 	fetchAllCustomers,
@@ -40,14 +40,7 @@ import {
 } from "@calendar/components/calendar/module/event/services/master-data.service";
 import { buildParticipantsWithDetails, getAvailableItems, normalizeMeetingTimes, normalizeNonMeetingDates, resolveLatLong, showFirstFormErrorAsToast, syncPobItemRates, updatePobRow } from "@calendar/lib/helper";
 import { Button } from "@calendar/components/ui/button";
-import { ClipboardList, MapPin, Mic, Pill, Users, Video } from "lucide-react";
-
-const OTHER_WORK_TYPE_ICONS = {
-	"Admin Day": ClipboardList,
-	"Chemist Day": Pill,
-	Conference: Mic,
-	Meeting: Users,
-};
+import { MapPin, Video } from "lucide-react";
 import { resolveDisplayValueFromEvent } from "@calendar/lib/calendar/resolveDisplay";
 import { composeDoctorVisitTitle, createTeamNameResolver } from "@calendar/lib/calendar/doctor-visit-title";
 import Tiptap from "@calendar/components/calendar/module/todo/components/TodoWysiwyg";
@@ -59,7 +52,6 @@ import TodoComments from "@calendar/components/calendar/module/todo/components/T
 import { ErrorBoundary } from "@calendar/components/ui/error-boundary";
 import { Textarea } from "@calendar/components/ui/textarea";
 import {
-	fetchEmployeeHolidays,
 	fetchEmployeeLeaveBalance,
 	saveLeaveApplication,
 	updateLeaveAttachment,
@@ -145,7 +137,6 @@ export function AddEditEventDialog({
 	const isEditing = !!event;
 	const [leaveBalance, setLeaveBalance] = useState(null);
 	const [leaveLoading, setLeaveLoading] = useState(false);
-	const [holidayDates, setHolidayDates] = useState(null);
 	const employeeResolvers = useEmployeeResolvers(allEmployeeOptions);
 	const { getEmployeeIdByEmail } = useEmployeeResolvers(allEmployeeOptions);
 	const doctorResolvers = useDoctorResolvers(doctorOptions);
@@ -175,14 +166,6 @@ export function AddEditEventDialog({
 	const allDay = useWatch({ control: form.control, name: "allDay" });
 	const leaveType = useWatch({ control: form.control, name: "leaveType", });
 	const leavePeriod = useWatch({ control: form.control, name: "leavePeriod", });
-	const medicalAttachment = useWatch({ control: form.control, name: "medicalAttachment" });
-	const otherType = useWatch({ control: form.control, name: "otherType" });
-	const title = useWatch({ control: form.control, name: "title" });
-	// Conference/Meeting under Other Work take a title + description; Admin Day
-	// and Chemist Day are just the type on a date.
-	const otherWorkNeedsDetails =
-		selectedTag === TAG_IDS.OTHER &&
-		OTHER_WORK_TYPES_WITH_DETAILS.includes(otherType);
 	const { doctor, employees, hqTerritory, tags: selectedTag, attending, enableGoogleMeet, forceVisit: isForceVisitSelected } = useWatch({ control: form.control });
 	const pobGiven = useWatch({ control: form.control, name: "pob_given", });
 	const travelMode = useWatch({ control: form.control, name: "travelMode" });
@@ -821,25 +804,15 @@ export function AddEditEventDialog({
 			});
 		}
 	}, [startDate, endDate]);
-	// Sick leave needs a certificate from 3 working days: Sundays and the
-	// employee's ERP holidays don't count towards it.
 	const requiresMedical = useMemo(() => {
 		if (selectedTag !== TAG_IDS.LEAVE) return false;
 		if (leaveType !== "Sick Leave") return false;
-		if (!startDate || !endDate) return false;
 
 		const threshold =
 			tagConfig.leave?.medicalCertificateAfterDays ?? 2;
 
-		const workingDays = calculateTotalLeaveDays(
-			startDate,
-			endDate,
-			leavePeriod === "Half",
-			holidayDates
-		);
-
-		return workingDays > threshold;
-	}, [selectedTag, leaveType, startDate, endDate, leavePeriod, holidayDates, tagConfig]);
+		return leaveDays > threshold;
+	}, [selectedTag, leaveType, leaveDays, tagConfig]);
 	useEffect(() => {
 		if (!requiresMedical && !isEditing) {
 			form.setValue("medicalAttachment", undefined, {
@@ -952,7 +925,7 @@ export function AddEditEventDialog({
 		try {
 			setIsResolvingLocation(true);
 
-			await resolveLatLong(form, isEditing, toast);
+			resolveLatLong(form, isEditing, toast);
 
 		} finally {
 			setIsResolvingLocation(false);
@@ -979,24 +952,6 @@ export function AddEditEventDialog({
 			})
 			.finally(() => {
 				if (alive) setLeaveLoading(false);
-			});
-
-		return () => {
-			alive = false;
-		};
-	}, [isOpen, selectedTag]);
-	useEffect(() => {
-		if (!isOpen || selectedTag !== TAG_IDS.LEAVE) return;
-		let alive = true;
-
-		fetchEmployeeHolidays(LOGGED_IN_USER.id)
-			.then((dates) => {
-				if (alive) setHolidayDates(dates);
-			})
-			.catch((err) => {
-				// Without the list only Sundays are skipped, which can only ask
-				// for a certificate more often, never less.
-				console.error("Holiday list error", err);
 			});
 
 		return () => {
@@ -1442,7 +1397,6 @@ export function AddEditEventDialog({
 				}
 				: undefined,
 			hqTerritory: values.hqTerritory || "",
-			otherType: values.otherType || "",
 			doctor: normalizeDoctorValueForEvent(values.doctor, tagConfig),
 			doctorLatitude:
 				resolveDoctorCoordinateValue(values.doctor, "custom_latitude") ??
@@ -1593,11 +1547,7 @@ export function AddEditEventDialog({
 			return;
 		}
 
-		if (
-			(selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN ||
-				selectedTag === TAG_IDS.OTHER) &&
-			!canUseDoctorVisitTag
-		) {
+		if (selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN && !canUseDoctorVisitTag) {
 			form.setValue("tags", TAG_IDS.LEAVE, {
 				shouldDirty: false,
 				shouldValidate: true,
@@ -1774,15 +1724,6 @@ export function AddEditEventDialog({
 			...values,
 			doctor: normalizedDoctorValue,
 		};
-		// Admin Day / Chemist Day carry no title or description of their own:
-		// the type is the title, and anything typed under another type is dropped.
-		if (
-			values.tags === TAG_IDS.OTHER &&
-			!OTHER_WORK_TYPES_WITH_DETAILS.includes(values.otherType)
-		) {
-			normalizedValues.title = values.otherType;
-			normalizedValues.description = "";
-		}
 		let quotationName =
 			event?.reference_docname || null;
 		let quotationDoc = null;
@@ -2461,12 +2402,8 @@ export function AddEditEventDialog({
 	const isMissingRequiredPick =
 		!isEditing &&
 		((selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN && !hasPick(doctor)) ||
-			(selectedTag === TAG_IDS.HQ_TOUR_PLAN && !hasPick(hqTerritory)) ||
-			(selectedTag === TAG_IDS.OTHER &&
-				(!otherType || (otherWorkNeedsDetails && !title?.trim()))));
-	const isMissingMedicalCertificate = requiresMedical && !medicalAttachment;
-	const isSubmitDisabled =
-		isMutationPending || isMissingRequiredPick || isMissingMedicalCertificate;
+			(selectedTag === TAG_IDS.HQ_TOUR_PLAN && !hasPick(hqTerritory)));
+	const isSubmitDisabled = isMutationPending || isMissingRequiredPick;
 	return (
 		<Modal open={isOpen} onOpenChange={handleDialogOpenChange}>
 			<ModalTrigger asChild>{children}</ModalTrigger>
@@ -2494,12 +2431,7 @@ export function AddEditEventDialog({
 											if (tag.id === TAG_IDS.HQ_TOUR_PLAN) {
 												return !shouldHideHqTourPlanTag;
 											}
-											// Other Work follows the DR Tour Plan rule: BE any day,
-											// everyone else only on a day their HQ Tour Plan covers.
-											if (
-												tag.id === TAG_IDS.DOCTOR_VISIT_PLAN ||
-												tag.id === TAG_IDS.OTHER
-											) {
+											if (tag.id === TAG_IDS.DOCTOR_VISIT_PLAN) {
 												return canUseDoctorVisitTag;
 											}
 											return true;
@@ -2636,58 +2568,18 @@ export function AddEditEventDialog({
 							/>
 						)}
 
-						{/* ================= OTHER WORK TYPE ================= */}
-						{selectedTag === TAG_IDS.OTHER && (
-							<FormField
-								control={form.control}
-								name="otherType"
-								render={({ field, fieldState }) => (
-									<RHFFieldWrapper
-										label="Type"
-										error={fieldState.error?.message}
-									>
-										<div className="grid grid-cols-2 gap-3">
-											{OTHER_WORK_TYPES.map((type) => {
-												const Icon = OTHER_WORK_TYPE_ICONS[type];
-												return (
-													<Button
-														key={type}
-														type="button"
-														variant={field.value === type ? "default" : "outline"}
-														onClick={() => field.onChange(type)}
-														className="h-auto flex items-center justify-center gap-2 rounded-xl py-4"
-													>
-														<Icon className="size-4" />
-														{type}
-													</Button>
-												);
-											})}
-										</div>
-									</RHFFieldWrapper>
-								)}
-							/>
-						)}
-
 						{/* ================= TITLE ================= */}
-						{!tagConfig.hide?.includes("title") &&
-							(selectedTag !== TAG_IDS.OTHER || otherWorkNeedsDetails) && (
+						{!tagConfig.hide?.includes("title") && (
 							<FormField
 								control={form.control}
 								name="title"
 								render={({ field, fieldState }) => (
 									<RHFFieldWrapper
-										label={otherWorkNeedsDetails ? `${otherType} title` : "Title"}
+										label="Title"
 										error={fieldState.error?.message}
 									>
 										<FormControl>
-											<Input
-												placeholder={
-													otherWorkNeedsDetails
-														? `Enter ${otherType.toLowerCase()} title`
-														: "Enter title"
-												}
-												{...field}
-											/>
+											<Input placeholder="Enter title" {...field} />
 										</FormControl>
 									</RHFFieldWrapper>
 								)}
@@ -2870,8 +2762,7 @@ export function AddEditEventDialog({
 											hideTime
 											/* Doctor Tour Plan restriction */
 											minDate={
-												(selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN ||
-													selectedTag === TAG_IDS.OTHER) &&
+												selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN &&
 												matchedHqEvent &&
 												!canCreateDoctorVisitDirectly
 													? startOfDay(new Date(matchedHqEvent.startDate))
@@ -2879,8 +2770,7 @@ export function AddEditEventDialog({
 											}
 
 											maxDate={
-												(selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN ||
-													selectedTag === TAG_IDS.OTHER) &&
+												selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN &&
 												matchedHqEvent &&
 												!canCreateDoctorVisitDirectly
 													? endOfDay(new Date(matchedHqEvent.endDate))
@@ -3541,8 +3431,7 @@ export function AddEditEventDialog({
 								/>
 							)}
 						{/* ================= DESCRIPTION ================= */}
-						{!tagConfig.hide?.includes("description") &&
-							(selectedTag !== TAG_IDS.OTHER || otherWorkNeedsDetails) && (
+						{!tagConfig.hide?.includes("description") && (
 							<FormField
 								control={form.control}
 								name="description"

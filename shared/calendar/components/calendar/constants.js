@@ -104,13 +104,8 @@ export const TAGS = [
   { id: TAG_IDS.TODO_LIST, label: "Todo List" },
   { id: TAG_IDS.MEETING, label: "Meeting" },
   { id: TAG_IDS.TRAVEL_REQUEST, label: "Travel Request" },
-  { id: TAG_IDS.OTHER, label: "Other Work" },
+  // { id: TAG_IDS.OTHER, label: "Other" },
 ];
-
-// Saved to the Event's custom_other_type. Admin/Chemist Day are just the type on
-// a date; Conference/Meeting also take a title and description.
-export const OTHER_WORK_TYPES = ["Admin Day", "Chemist Day", "Conference", "Meeting"];
-export const OTHER_WORK_TYPES_WITH_DETAILS = ["Conference", "Meeting"];
 /**
  * Which event types the calendar offers.
  *
@@ -173,7 +168,7 @@ export const PARTICIPANT_SOURCE_BY_TAG = {
   [TAG_IDS.MEETING]: ["EMPLOYEE"],
   [TAG_IDS.DOCTOR_VISIT_PLAN]: ["EMPLOYEE", "DOCTOR"],
   [TAG_IDS.TODO_LIST]: ["EMPLOYEE"],
-  [TAG_IDS.OTHER]: ["EMPLOYEE"],
+  // [TAG_IDS.OTHER]: ["EMPLOYEE", "DOCTOR"],
 };
 
 function normalizeAttendingChoice(value) {
@@ -215,7 +210,6 @@ export function buildEventDefaultValues({ event, defaultTag }) {
     tags: event?.tags ?? defaultTag ?? TAG_IDS.HQ_TOUR_PLAN,
     hqTerritory: event?.hqTerritory ?? "",
     meetingLocation: event?.meetingLocation ?? "",
-    otherType: event?.otherType ?? "",
     employees: event?.employees,
     doctor: event?.doctor,
     assignedTo: event?.assignedTo,
