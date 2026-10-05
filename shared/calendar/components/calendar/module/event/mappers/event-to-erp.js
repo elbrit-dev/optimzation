@@ -371,6 +371,9 @@ export function mapFormToErpEvent(values, options = {}) {
       values.tags === TAG_IDS.MEETING
         ? values.meetingLocation || ""
         : "",
+    // Left out (undefined) for other event types so their saves don't touch it.
+    [ERP_EVENT_FIELDS.otherTypeWrite]:
+      values.tags === TAG_IDS.OTHER ? values.otherType || "" : undefined,
     [ERP_EVENT_FIELDS.doctorWrite]: doctorId,
     [ERP_EVENT_FIELDS.doctorLatitudeWrite]: doctorLatitude,
     [ERP_EVENT_FIELDS.doctorLongitudeWrite]: doctorLongitude,
