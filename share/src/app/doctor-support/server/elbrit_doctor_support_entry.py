@@ -42,8 +42,10 @@
 #
 # VACANT SEATS, as Elbrit Secondary Entry: a BE seat no Active Employee
 # holds is covered by the seat directly above it in the Role Profile tree
-# (`vacant_seats`); a seat held only by "Vacant_" placeholder Employees by the
-# nearest live manager up the reporting chain. `covers` lists both,
+# (`vacant_seats`); any other seat no one holds, at any level, by the nearest
+# live seat up the Role Profile tree; a seat held only by "Vacant_"
+# placeholder Employees by the nearest live manager up the reporting chain.
+# `covers` lists them all,
 # [{ seat, holder }]; `covering` is true when `seat` is one — that seat's
 # doctors, read past permissions, to fill in as its BE would.
 #
@@ -125,6 +127,47 @@ def vacant_under(parent):
 
 def is_vacant_name(n):
     return (n or "")[:6].lower() == "vacant"
+
+
+def covers_unheld(top, covered, covers):
+    # Role Profiles below `top`, at any level, that no Active Employee holds —
+    # walked down the Role Profile tree through seats with no live holder
+    # (unheld, or "Vacant_" placeholders only), as owner_seat climbs it from
+    # an unheld seat to the first live one. So an unheld BE under an unheld
+    # ABM is the RBM's. Placeholder seats are not added here: the
+    # reporting-chain walk finds them.
+    if not top:
+        return
+    frontier = [top]
+    reached = {top: 1}
+    hops = 0
+    while frontier and hops < 8:
+        hops = hops + 1
+        kids = []
+        for part in chunks(frontier):
+            for r in frappe.get_all("Role Profile", filters=[["parent_role_profile", "in", part]],
+                                    fields=["name"], limit_page_length=0):
+                if not reached.get(r.get("name")):
+                    reached[r.get("name")] = 1
+                    kids.append(r.get("name"))
+        held = {}
+        live = {}
+        for part in chunks(kids):
+            for e in frappe.get_all("Employee",
+                                    filters=[["custom_role_profile", "in", part], ["status", "=", "Active"]],
+                                    fields=["custom_role_profile", "employee_name"], limit_page_length=0):
+                held[e.get("custom_role_profile")] = 1
+                if not is_vacant_name(e.get("employee_name")):
+                    live[e.get("custom_role_profile")] = 1
+        below = []
+        for k in kids:
+            if live.get(k):
+                continue
+            below.append(k)
+            if not held.get(k) and not covered.get(k):
+                covered[k] = 1
+                covers.append({"seat": k, "holder": None})
+        frontier = below
 
 
 def owner_seat(s):
@@ -227,6 +270,7 @@ if own_employee:
                     covered[s] = 1
                     covers.append({"seat": s, "holder": e.get("employee_name")})
         frontier = below
+covers_unheld(own_seat, covered, covers)
 covering = bool(covered.get(seat))
 
 # ---- A TEAM SEAT: `seat` held by someone UNDER the caller in the reporting

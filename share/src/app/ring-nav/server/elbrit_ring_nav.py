@@ -39,9 +39,9 @@
 #
 # TWO TASKS, the same rules (TASKS below): SECONDARY (Secondary Data Entry,
 # per stockist) and DOCTOR SUPPORT (Doctor Support, per doctor). Each gets an
-# entry tile and an approval tile as described here for Secondary.
-# DOCTOR SUPPORT IS FOR IT ONLY for now ("it_only" in TASKS): users with the
-# IT role profile get its tiles; nobody else does yet.
+# entry tile and an approval tile as described here for Secondary. A task
+# marked "it_only" in TASKS gives its tiles to the IT role profile alone
+# (none is, now: Doctor Support is open to everyone).
 #
 # SECONDARY ENTRY — every entry the caller may see for the entry month (the
 # "Secondary Data Entry Permission Query" decides), each in ONE bucket for
@@ -251,7 +251,7 @@ def owner_seat(s):
 
 
 # ---- THE VACANT SEATS THE CALLER COVERS, as Elbrit Secondary Entry finds
-# them: the BE seats right under their seat that no Active Employee holds,
+# them: the seats below theirs, at any level, that no Active Employee holds,
 # and the seats held only by "Vacant_" placeholders below them in the
 # reporting chain (walked through placeholders only). Their records count in
 # the caller's own entry tile — the caller enters them.
@@ -285,6 +285,35 @@ if emp and emp[0].get("name"):
             if not live:
                 covered.append(s)
         frontier = below
+# ... and the seats below theirs, at any level, that no Active Employee holds,
+# down the Role Profile tree through seats with no live holder.
+if seat:
+    frontier = [seat]
+    reached = {seat: 1}
+    hops = 0
+    while frontier and hops < 8:
+        hops = hops + 1
+        kids = []
+        for r in frappe.get_all("Role Profile", filters=[["parent_role_profile", "in", frontier]], pluck="name"):
+            if not reached.get(r):
+                reached[r] = 1
+                kids.append(r)
+        held = {}
+        live = {}
+        if kids:
+            for e in frappe.get_all("Employee", filters=[["custom_role_profile", "in", kids], ["status", "=", "Active"]],
+                                    fields=["custom_role_profile", "employee_name"], limit_page_length=0):
+                held[e.get("custom_role_profile")] = 1
+                if not is_vacant_name(e.get("employee_name")):
+                    live[e.get("custom_role_profile")] = 1
+        below = []
+        for k in kids:
+            if live.get(k):
+                continue
+            below.append(k)
+            if not held.get(k) and k not in covered:
+                covered.append(k)
+        frontier = below
 
 items = []
 # The tasks on the strip, each with an entry tile and an approval tile. The
@@ -307,13 +336,12 @@ TASKS = [
      "link": "custom_ref_secondary_data_entry", "prefix": "Secondary Data Entry-",
      "hide_empty": False, "enabled": True},
     # A seat with no Doctor Support in the month gets no entry tile.
-    # IT ONLY for now — drop "it_only" to give everyone its tiles.
     {"id": "doctor-support", "label": "Support", "icon": "file-check",
      "doctype": "Doctor Support", "child": "Support Items",
      "party": "doctor", "party_doctype": "Lead",
      "rp": "role_profile", "status": "status",
      "link": "reference", "prefix": "Doctor Support-",
-     "hide_empty": True, "enabled": True, "it_only": True},
+     "hide_empty": True, "enabled": True},
 ]
 
 

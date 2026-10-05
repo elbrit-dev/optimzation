@@ -29,7 +29,13 @@
 # manager up the reporting chain (reports_to) — as the ERP's tracker scripts
 # route a vacant seat's lines — walked down from the caller through vacant
 # placeholders only, so a vacant BE under a vacant ABM is the RBM's.
-# `covers` lists both kinds, [{ seat, holder }] (holder None for a seat no
+#
+# UNHELD SEATS AT ANY LEVEL: a Role Profile no Active Employee holds — an
+# ABM or RBM seat as well as a BE — is covered by the nearest live seat up
+# the Role Profile tree, walked down from the caller's seat through seats
+# with no live holder (covers_unheld). An unheld BE under an unheld ABM is
+# the RBM's.
+# `covers` lists every kind, [{ seat, holder }] (holder None for a seat no
 # one holds); `covering` is true for either.
 #
 # IT with no `seat` (`read_only`) gets every entry of the month with every
@@ -119,6 +125,47 @@ def is_vacant_name(n):
     return (n or "")[:6].lower() == "vacant"
 
 
+def covers_unheld(top, covered, covers):
+    # Role Profiles below `top`, at any level, that no Active Employee holds —
+    # walked down the Role Profile tree through seats with no live holder
+    # (unheld, or "Vacant_" placeholders only), as owner_seat climbs it from
+    # an unheld seat to the first live one. So an unheld BE under an unheld
+    # ABM is the RBM's. Placeholder seats are not added here: the
+    # reporting-chain walk finds them.
+    if not top:
+        return
+    frontier = [top]
+    reached = {top: 1}
+    hops = 0
+    while frontier and hops < 8:
+        hops = hops + 1
+        kids = []
+        for part in chunks(frontier):
+            for r in frappe.get_all("Role Profile", filters=[["parent_role_profile", "in", part]],
+                                    fields=["name"], limit_page_length=0):
+                if not reached.get(r.get("name")):
+                    reached[r.get("name")] = 1
+                    kids.append(r.get("name"))
+        held = {}
+        live = {}
+        for part in chunks(kids):
+            for e in frappe.get_all("Employee",
+                                    filters=[["custom_role_profile", "in", part], ["status", "=", "Active"]],
+                                    fields=["custom_role_profile", "employee_name"], limit_page_length=0):
+                held[e.get("custom_role_profile")] = 1
+                if not is_vacant_name(e.get("employee_name")):
+                    live[e.get("custom_role_profile")] = 1
+        below = []
+        for k in kids:
+            if live.get(k):
+                continue
+            below.append(k)
+            if not held.get(k) and not covered.get(k):
+                covered[k] = 1
+                covers.append({"seat": k, "holder": None})
+        frontier = below
+
+
 def owner_seat(s):
     # The seat whose approval carries `s`'s lines — as the ERP's tracker
     # script (src/app/tracker/server/secondary_tracker_on_save.py) raises it:
@@ -194,6 +241,7 @@ if own_employee:
                     covered[s] = 1
                     covers.append({"seat": s, "holder": e.get("employee_name")})
         frontier = below
+covers_unheld(own_seat, covered, covers)
 covering = covering or bool(covered.get(seat))
 
 # ---- A TEAM SEAT: `seat` held by someone under the caller (any depth), a
