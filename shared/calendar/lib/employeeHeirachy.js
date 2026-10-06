@@ -65,6 +65,35 @@ export function resolveVisibleRoleIds(
   return [...visible];
 }
 
+// Roles under `roleId` whose doctors fall to this user because nobody sits in
+// between: walk down through VACANT roles only (no active employee holds them)
+// and stop at the first filled one, which looks after its own doctors. A vacant
+// BE under a filled ABM rolls up to that ABM; a vacant BE under a vacant ABM
+// rolls up to the RBM (BE3-AURA-RA-JAI -> ABM1-AURA-RA-JAI -> RBM-AURA-RA-JAI).
+export function resolveVacantSubordinateRoleIds(
+  elbritEdges = [],
+  filledRoleIds = new Set(),
+  roleId
+) {
+  if (!roleId) return [];
+
+  const { childrenMap } = buildRoleIndex(elbritEdges);
+  const vacant = [];
+  const seen = new Set([roleId]);
+  const queue = [roleId];
+
+  while (queue.length) {
+    const current = queue.shift();
+    (childrenMap.get(current) || []).forEach((childId) => {
+      if (seen.has(childId) || filledRoleIds.has(childId)) return;
+      seen.add(childId);
+      vacant.push(childId);
+      queue.push(childId);
+    });
+  }
+  return vacant;
+}
+
 // A "leaf" role (is_group = false, e.g. a BE) has no subordinates. ERP already
 // permission-scopes the events it returns to such a user (their own + anything
 // shared with them via DocShare), so the client-side hierarchy filter must not

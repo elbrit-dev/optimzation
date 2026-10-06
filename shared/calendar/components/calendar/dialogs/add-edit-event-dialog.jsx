@@ -34,6 +34,7 @@ import { calculateTotalLeaveDays, mapErpLeaveToCalendar, mapFormToErpLeave } fro
 import { useEmployeeResolvers } from "@calendar/lib/employeeResolver";
 import {
 	fetchDoctorsByTerritory,
+	fetchDoctorsByRoles,
 	fetchItemsByDepartment,
 	searchDoctors,
 	searchEmployees,
@@ -64,7 +65,7 @@ import {
 	saveLeaveApplication,
 	updateLeaveAttachment,
 } from "@calendar/components/calendar/module/leave/services/leave.service";
-import { isLeafRole, resolveLoggedInRoleId, resolveSuperiorShareUserIds } from "@calendar/lib/employeeHeirachy";
+import { isLeafRole, resolveLoggedInRoleId, resolveSuperiorShareUserIds, resolveVacantSubordinateRoleIds } from "@calendar/lib/employeeHeirachy";
 import { resolvePobDepartments } from "@calendar/lib/calendar/pobDepartments";
 import { saveDocToErp } from "@calendar/components/calendar/module/todo/services/todo.service";
 import { uploadFileToDoc, uploadLeaveMedicalCertificate } from "@calendar/lib/file.service";
@@ -1623,8 +1624,23 @@ export function AddEditEventDialog({
 			shouldValidate: true,
 		});
 	}, [doctorVisitHqTerritory, form, selectedTag]);
+	// Roles below the user left vacant all the way up to them: their doctors are
+	// the user's to plan. A role counts as filled only when an Active employee
+	// holds it, so with no employees loaded yet nothing is treated as vacant.
+	const vacantSubordinateRoleKey = useMemo(() => {
+		if (!allEmployeeOptions.length) return "";
+		const filledRoleIds = new Set(
+			allEmployeeOptions.map((employee) => employee.roleId).filter(Boolean)
+		);
+		return resolveVacantSubordinateRoleIds(
+			elbritRoleEdges,
+			filledRoleIds,
+			resolvedLoggedInRoleId
+		).sort().join("|");
+	}, [allEmployeeOptions, elbritRoleEdges, resolvedLoggedInRoleId]);
 	// ----------------------------------------------------
-	// Show only those doctor whose territory matches with the hq 
+	// Show only those doctor whose territory matches with the hq,
+	// plus the doctors of vacant roles under the user mapped at that hq
 	// ----------------------------------------------------
 	useEffect(() => {
 		if (
@@ -1634,9 +1650,16 @@ export function AddEditEventDialog({
 			setTerritoryDoctors([]);
 			return;
 		}
-		fetchDoctorsByTerritory(hqTerritory)
-			.then(setTerritoryDoctors);
-	}, [hqTerritory, selectedTag]);
+		const vacantRoleIds = vacantSubordinateRoleKey
+			? vacantSubordinateRoleKey.split("|")
+			: [];
+		Promise.all([
+			fetchDoctorsByTerritory(hqTerritory),
+			fetchDoctorsByRoles(vacantRoleIds, hqTerritory).catch(() => []),
+		]).then(([territoryList, vacantRoleList]) =>
+			setTerritoryDoctors(mergeOptionsByValue(territoryList, vacantRoleList))
+		);
+	}, [hqTerritory, selectedTag, vacantSubordinateRoleKey]);
 	// ----------------------------------------------------
 	// Disabled dates for HQ Tour Plan (logged-in user only)
 	// Prevent selecting dates where HQ already exists
