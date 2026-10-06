@@ -106,10 +106,12 @@ env:
   - variable: NEXT_PUBLIC_GRAPHQL_AUTH_TOKEN_UAT
     secret: GRAPHQL_AUTH_TOKEN_UAT
     availability: [RUNTIME]
-  # Not on Netlify (which defaults to live ERP). Test sends login-help tickets
-  # to UAT so they never land in live ERP; apphosting.prod.yaml sets ERP.
+  # The test site ("app-uat") is the dev environment of the LIVE app and works
+  # against live ERP, same as production — "UAT" is only the site's name.
+  # Explicit here so server-side writes (login-help, profile picture) never
+  # depend on which endpoint pairs happen to be configured.
   - variable: ERP_TARGET
-    value: UAT
+    value: ERP
     availability: [RUNTIME]
 
   # ── Misc client config ────────────────────────────────────────────────────

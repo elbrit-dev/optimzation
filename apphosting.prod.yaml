@@ -12,10 +12,6 @@ env:
     value: prod
     availability: [BUILD]
 
-  - variable: ERP_TARGET
-    value: ERP
-    availability: [RUNTIME]
-
   - variable: APP_URL
     value: https://app.elbrit.org
     availability: [RUNTIME]
