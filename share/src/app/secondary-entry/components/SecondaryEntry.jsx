@@ -548,8 +548,11 @@ export function SecondaryEntry({
   };
 
   const openEntry = openName ? entries.find((e) => e.name === openName) : null;
-  /* A manager with nothing of their own to enter lands on the team. */
-  const shownPane = pane ?? (withTeam && !entries.length ? 'team' : 'mine');
+  /* A manager with nothing of their own to enter lands on the team. A seat
+     opened from the team (`viewing`) is always shown as its own list: it is
+     reached from the Team pane, and the Team pane would hide its "Add
+     doctor" on a covered vacant seat. */
+  const shownPane = viewing ? 'mine' : pane ?? (withTeam && !entries.length ? 'team' : 'mine');
   /* Whose entries changed: nothing of the last person's stays open. */
   useEffect(() => setOpenName(null), [viewing]);
   const loading = slot?.isLoading && !rows.length;

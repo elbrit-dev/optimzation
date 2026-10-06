@@ -271,7 +271,20 @@ export function RHFDoctorCardSelector({
                     territory: hqTerritory,
                 });
 
-                setSearchResults(doctors);
+                // The server search only finds doctors whose own territory is
+                // the HQ; `options` also holds doctors mapped to the HQ through
+                // a vacant role under the user (another territory), so the
+                // loaded ones that match are kept too.
+                const needle = term.toLowerCase();
+                const found = new Set(doctors.map((d) => d.value));
+                const loaded = options.filter(
+                    (d) =>
+                        !found.has(d.value) &&
+                        [d.label, d.value, d.doctorCode, d.city].some((v) =>
+                            String(v ?? "").toLowerCase().includes(needle)
+                        )
+                );
+                setSearchResults([...loaded, ...doctors]);
             } finally {
                 setLoading(false);
             }
