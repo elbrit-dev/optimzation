@@ -81,14 +81,10 @@ export function EventLeaveDialog({
 	// ERP's total_leave_days already leaves out Sundays and holidays (no leave
 	// type includes them), so it is the count to show, not the date span.
 	const leaveDays = Number(event.total_leave_days ?? calendarDays);
-	const excludedDays = Math.floor(calendarDays - leaveDays);
 
 	const formattedRange =
 		start && end
-			? `${format(start, "d MMM yyyy")} - ${format(end, "d MMM yyyy")}${excludedDays > 0
-				? ` · ${calendarDays} calendar days, ${excludedDays} ${excludedDays === 1 ? "holiday/Sunday" : "holidays/Sundays"} excluded`
-				: ""
-			}`
+			? `${format(start, "d MMM yyyy")} - ${format(end, "d MMM yyyy")}`
 			: null;
 
 	const status = event.status;
