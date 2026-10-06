@@ -1,0 +1,21 @@
+# PRODUCTION overrides (app.elbrit.org). Applied on top of apphosting.yaml only
+# when the backend's environment name is "prod". Only what differs is here.
+# Before the first prod rollout, diff this against the Netlify test-optimize
+# site's variables — the base file mirrors the UAT site, not live.
+
+env:
+  # "prod" loads ONLY versions published with the prod tag in Plasmic Studio.
+  - variable: NEXT_PUBLIC_PLASMIC_TAG
+    value: prod
+  # Arms scripts/release-guard.js — without it a prod-tag build is blocked.
+  - variable: RELEASE_CHANNEL
+    value: prod
+    availability: [BUILD]
+
+  - variable: ERP_TARGET
+    value: ERP
+    availability: [RUNTIME]
+
+  - variable: APP_URL
+    value: https://app.elbrit.org
+    availability: [RUNTIME]

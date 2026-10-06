@@ -1,11 +1,16 @@
-# Firebase App Hosting config — production (app.elbrit.org).
-# UAT overrides live in apphosting.uat.yaml; give the UAT backend the
-# environment name "uat" in the Firebase console so that file is applied.
+# Firebase App Hosting config — DEFAULT = test/UAT (Plasmic "dev" tag).
+# Mirrors EVERY variable on the Netlify UAT site (elbrit-test), used or not.
+# Production overrides live in apphosting.prod.yaml and are applied ONLY to a
+# backend whose environment name is "prod" (Firebase console → backend →
+# Settings → Environment). Anything else — including a backend with no
+# environment name — gets this file as-is, so a misconfigured backend can never
+# accidentally serve prod Plasmic.
 #
 # NEXT_PUBLIC_* are inlined into the client bundle at build time, so they need
 # BUILD availability (and a rebuild to change). Secrets are created once with
 #   firebase apphosting:secrets:set <NAME>
-# and are only ever exposed at RUNTIME, never baked into the bundle.
+# (which also grants this backend access) and only ever exposed at RUNTIME.
+# Every secret listed here MUST exist or the rollout fails before building.
 # See .env.example for what each variable does.
 
 runConfig:
@@ -16,58 +21,18 @@ runConfig:
   memoryMiB: 1024
 
 env:
-  # ── Firebase web config (public) ──────────────────────────────────────────
-  - variable: NEXT_PUBLIC_FIREBASE_API_KEY
-    value: AIzaSyAU7NbYC2FizLMT0HWJLWPTR0XkEn-xBXA
-  - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
-    value: elbrit-sso-d01d9.firebaseapp.com
-  - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
+  - variable: APP_URL
+    value: https://app-uat.elbrit.org
+    availability: [RUNTIME]
+
+  # ── Firebase Admin service account (server-only) ──────────────────────────
+  - variable: FIREBASE_CLIENT_EMAIL
+    value: firebase-adminsdk-fbsvc@elbrit-sso-d01d9.iam.gserviceaccount.com
+    availability: [RUNTIME]
+  - variable: FIREBASE_PRIVATE_KEY
+    secret: FIREBASE_PRIVATE_KEY
+  - variable: FIREBASE_PROJECT_ID
     value: elbrit-sso-d01d9
-  - variable: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
-    value: elbrit-sso-d01d9.firebasestorage.app
-  - variable: NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
-    value: "878677132537"
-  - variable: NEXT_PUBLIC_FIREBASE_APP_ID
-    value: 1:878677132537:web:c85dd96936d5ed1ecd4e28
-  - variable: NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID
-    value: G-2REFK80W2D
-  - variable: NEXT_PUBLIC_FIRESTORE_DATABASE_ID
-    value: elbrit
-
-  # ── Plasmic + release guard (scripts/release-guard.js runs in the build) ──
-  # Confirm against the Netlify test-optimize site before the first deploy.
-  - variable: NEXT_PUBLIC_PLASMIC_TAG
-    value: prod
-  - variable: RELEASE_CHANNEL
-    value: prod
-    availability: [BUILD]
-
-  # ── Novu ──────────────────────────────────────────────────────────────────
-  - variable: NOVU_BACKEND_URL
-    value: https://api.notify.elbrit.org
-    availability: [RUNTIME]
-  - variable: NEXT_PUBLIC_NOVU_APPLICATION_IDENTIFIER
-    value: K3rsfIP_eYvg
-  - variable: NEXT_PUBLIC_NOVU_BACKEND_URL
-    value: https://api.notify.elbrit.org
-  - variable: NEXT_PUBLIC_NOVU_SOCKET_URL
-    value: https://ws.notify.elbrit.org
-  - variable: NOVU_API_KEY
-    secret: NOVU_API_KEY
-  - variable: NOVU_TRIGGER_SECRET
-    secret: NOVU_TRIGGER_SECRET
-
-  # ── ERP (server-side only: login-help, profile picture, print) ────────────
-  # NEXT_PUBLIC_ by name only — no client code names them literally, so they
-  # are not inlined. Kept RUNTIME-only so a build can never bake them in.
-  - variable: ERP_TARGET
-    value: ERP
-    availability: [RUNTIME]
-  - variable: NEXT_PUBLIC_GRAPHQL_ENDPOINT_ERP
-    secret: GRAPHQL_ENDPOINT_ERP
-    availability: [RUNTIME]
-  - variable: NEXT_PUBLIC_GRAPHQL_AUTH_TOKEN_ERP
-    secret: GRAPHQL_AUTH_TOKEN_ERP
     availability: [RUNTIME]
 
   # ── Google Calendar OAuth ─────────────────────────────────────────────────
@@ -76,6 +41,109 @@ env:
     availability: [RUNTIME]
   - variable: GOOGLE_CLIENT_SECRET
     secret: GOOGLE_CLIENT_SECRET
-  - variable: APP_URL
-    value: https://app.elbrit.org
+
+  # ── Firebase web config (public) ──────────────────────────────────────────
+  - variable: NEXT_PUBLIC_FIREBASE_API_KEY
+    value: AIzaSyAU7NbYC2FizLMT0HWJLWPTR0XkEn-xBXA
+  - variable: NEXT_PUBLIC_FIREBASE_APP_ID
+    value: 1:878677132537:web:c85dd96936d5ed1ecd4e28
+  - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+    value: elbrit-sso-d01d9.firebaseapp.com
+  # Netlify has G-2REFK80W2D here (the analytics ID, a copy-paste slip);
+  # this is the real sender ID, which is also the code's own fallback.
+  - variable: NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+    value: "878677132537"
+  - variable: NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID
+    value: G-2REFK80W2D
+  - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
+    value: elbrit-sso-d01d9
+  - variable: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+    value: elbrit-sso-d01d9.firebasestorage.app
+  - variable: NEXT_PUBLIC_FIREBASE_AUTH_API_KEY
+    value: AIzaSyAU7NbYC2FizLMT0HWJLWPTR0XkEn-xBXA
+  - variable: NEXT_PUBLIC_FIREBASE_AUTH_APP_ID
+    value: 1:878677132537:web:c85dd96936d5ed1ecd4e28
+  - variable: NEXT_PUBLIC_FIREBASE_AUTH_AUTH_DOMAIN
+    value: elbrit-sso-d01d9.firebaseapp.com
+  - variable: NEXT_PUBLIC_FIREBASE_AUTH_MESSAGING_SENDER_ID
+    value: "878677132537"
+  - variable: NEXT_PUBLIC_FIREBASE_AUTH_PROJECT_ID
+    value: elbrit-sso-d01d9
+  - variable: NEXT_PUBLIC_FIREBASE_AUTH_STORAGE_BUCKET
+    value: elbrit-sso-d01d9.firebasestorage.app
+  # Not on Netlify; share/src/lib/firebase.js falls back to the empty
+  # (default) database without it.
+  - variable: NEXT_PUBLIC_FIRESTORE_DATABASE_ID
+    value: elbrit
+  - variable: NEXT_PUBLIC_GQL_COLLECTION
+    value: gql
+
+  # ── ERP GraphQL endpoints + tokens ────────────────────────────────────────
+  # NEXT_PUBLIC_ by name only — no client code names them literally (they are
+  # discovered by iterating process.env server-side), so they are not inlined.
+  # Kept RUNTIME-only so a build can never bake a token into the bundle.
+  - variable: NEXT_PUBLIC_GRAPHQL_ENDPOINT
+    value: https://erp.elbrit.org/api/method/graphql
     availability: [RUNTIME]
+  - variable: NEXT_PUBLIC_GRAPHQL_AUTH_TOKEN
+    secret: GRAPHQL_AUTH_TOKEN
+    availability: [RUNTIME]
+  - variable: NEXT_PUBLIC_GRAPHQL_ENDPOINT_ERP
+    value: https://erp.elbrit.org/api/method/graphql
+    availability: [RUNTIME]
+  - variable: NEXT_PUBLIC_GRAPHQL_AUTH_TOKEN_ERP
+    secret: GRAPHQL_AUTH_TOKEN_ERP
+    availability: [RUNTIME]
+  - variable: NEXT_PUBLIC_GRAPHQL_ENDPOINT_NEW
+    value: https://elbrit.work.gd/graphql
+    availability: [RUNTIME]
+  - variable: NEXT_PUBLIC_GRAPHQL_AUTH_TOKEN_NEW
+    secret: GRAPHQL_AUTH_TOKEN_NEW
+    availability: [RUNTIME]
+  - variable: NEXT_PUBLIC_GRAPHQL_ENDPOINT_UAT
+    value: https://uat.elbrit.org/api/method/graphql
+    availability: [RUNTIME]
+  - variable: NEXT_PUBLIC_GRAPHQL_AUTH_TOKEN_UAT
+    secret: GRAPHQL_AUTH_TOKEN_UAT
+    availability: [RUNTIME]
+  # Not on Netlify (which defaults to live ERP). Test sends login-help tickets
+  # to UAT so they never land in live ERP; apphosting.prod.yaml sets ERP.
+  - variable: ERP_TARGET
+    value: UAT
+    availability: [RUNTIME]
+
+  # ── Misc client config ────────────────────────────────────────────────────
+  - variable: NEXT_PUBLIC_MONACO_EDITOR_CDN_URL
+    value: https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min
+  - variable: NEXT_PUBLIC_ONESIGNAL_APP_ID
+    value: 9cc963c3-d3c9-4230-b817-6860109d8f3f
+  - variable: NEXT_PUBLIC_RECAPTCHA_SITE_KEY
+    value: 6LcmaJwrAAAAAEGFqE-gNB5KucWfnQejPc_UnLBT
+
+  # ── Novu ──────────────────────────────────────────────────────────────────
+  - variable: NEXT_PUBLIC_NOVU_APPLICATION_IDENTIFIER
+    value: K3rsfIP_eYvg
+  - variable: NEXT_PUBLIC_NOVU_BACKEND_URL
+    value: https://api.notify.elbrit.org
+  - variable: NEXT_PUBLIC_NOVU_SOCKET_URL
+    value: https://ws.notify.elbrit.org
+  - variable: NOVU_API_KEY
+    secret: NOVU_API_KEY
+  - variable: NOVU_BACKEND_URL
+    value: https://api.notify.elbrit.org
+    availability: [RUNTIME]
+  # NOVU_TRIGGER_SECRET (ERP → /api/novu/trigger webhook auth) is not on
+  # Netlify either, so it is left out; that route answers 401 without it.
+
+  # ── Plasmic + release guard (see plasmic-init.js, scripts/release-guard.js)
+  # "dev" loads the LATEST publish of any tag, so a dev publish in Studio shows
+  # here (after the page's 10-min ISR window) while live stays on "prod".
+  - variable: NEXT_PUBLIC_PLASMIC_TAG
+    value: dev
+  - variable: RELEASE_CHANNEL
+    value: dev
+    availability: [BUILD]
+
+  # Netlify-only switch; meaningless here but mirrored for parity.
+  - variable: SECRETS_SCAN_ENABLED
+    value: "false"
