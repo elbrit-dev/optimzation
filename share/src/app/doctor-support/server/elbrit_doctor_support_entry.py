@@ -50,7 +50,7 @@
 # live seat up the Role Profile tree; a seat held only by "Vacant_"
 # placeholder Employees by the nearest live manager up the reporting chain.
 # `covers` lists them all,
-# [{ seat, holder }]; `covering` is true when `seat` is one — that seat's
+# [{ seat, holder, hq }] (hq: the seat's Role Profile territory); `covering` is true when `seat` is one — that seat's
 # doctors, read past permissions, to fill in as its BE would.
 #
 # Answer: { user, seat, covering, covers, vacant_seats, read_only, month, entries: [<row>], products: [<item>],
@@ -276,6 +276,9 @@ if own_employee:
                     covers.append({"seat": s, "holder": e.get("employee_name")})
         frontier = below
 covers_unheld(own_seat, covered, covers)
+# Each covered seat's HQ (its Role Profile's territory), shown beside it.
+for c in covers:
+    c["hq"] = frappe.db.get_value("Role Profile", c.get("seat"), "custom_territory")
 covering = bool(covered.get(seat))
 
 # ---- A TEAM SEAT: `seat` held by someone UNDER the caller in the reporting

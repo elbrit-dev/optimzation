@@ -67,7 +67,8 @@ export function revisitReason(note, trackerState) {
    when no one holds it. */
 export function coveringLabel(covering) {
   const holder = String(covering?.holder ?? '').replace(/^vacant[_\s-]*/i, '');
-  return `Covering Vacant - ${holder || covering?.seat || ''}`;
+  const hq = covering?.hq ? ` · ${covering.hq}` : '';
+  return `Covering Vacant - ${holder || covering?.seat || ''}${hq}`;
 }
 
 function pick(obj, keys) {

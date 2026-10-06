@@ -40,7 +40,7 @@ export async function fetchServerEntries({ endpointUrl, token, month, seat, meth
    with `seat`) and added to the caller's own, each marked:
      name      "<record>::<seat>" — unique, as two covered seats can share a stockist
      docName   the record's real name, for saving
-     covering  { seat, holder } — whose lines these are
+     covering  { seat, holder, hq } — whose lines these are
    Products are the union of every seat's. The covered seats' `addable`
    joins the caller's too, so "Add doctor" in My entries offers their
    parties, each named "<party>::<seat>" (`code` the party, `seat` whose
@@ -71,7 +71,7 @@ export function mergeCovered(own, covered) {
       }
     }
     for (const row of data?.entries ?? []) {
-      entries.push({ ...row, name: `${row.name}::${cover.seat}`, docName: row.name, covering: { seat: cover.seat, holder: cover.holder } });
+      entries.push({ ...row, name: `${row.name}::${cover.seat}`, docName: row.name, covering: { seat: cover.seat, holder: cover.holder, hq: cover.hq } });
     }
   }
   if (Array.isArray(addable)) {

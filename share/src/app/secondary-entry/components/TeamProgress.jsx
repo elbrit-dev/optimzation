@@ -53,6 +53,7 @@ function TeamNode({ member, index, depth, open, toggle, onView, segments, covere
               {member.tier ?? '—'}
             </span>
             {member.vacant ? <StatusPill status="neutral">Vacant</StatusPill> : null}
+            {member.hq ? <span className="shrink-0 whitespace-nowrap text-10 text-ds-secondary">{member.hq}</span> : null}
             {/* Approved of all the branch's stockists (a BE: their own). */}
             {roll.total ? (
               <span className="min-w-0 truncate text-10 text-ds-secondary">

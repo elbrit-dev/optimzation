@@ -44,6 +44,9 @@ export const SECONDARY = {
   addMethod: 'elbrit_secondary_add',
   addParam: 'stockists',
   addLimit: 20,
+  /* A manager covering a vacant seat adds that seat's stockists too: the
+     script takes the covered `seat` and checks the caller covers it. */
+  addCovers: true,
   fileStem: 'secondary-entry',
   /* How a seat's lines are written back (REST get → save, see writes.js). */
   doctype: 'Secondary Data Entry',

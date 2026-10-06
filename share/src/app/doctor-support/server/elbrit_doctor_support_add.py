@@ -40,7 +40,7 @@
 # seat (its approval still lands on the caller, via the tracker), with the
 # seat's own department and HQ: its holder's (a "Vacant_" placeholder's,
 # when it has one), else the Role Profile's department and the doctor's HQ
-# for that seat (its Role Profile row). approved_by is that holder, or empty,
+# for that seat (its Role Profile row), else the Role Profile's territory. approved_by is that holder, or empty,
 # as the bulk load writes a vacant seat.
 #
 # WHICH PRODUCTS: as elbrit_doctor_support_entry sends them to the picker —
@@ -176,6 +176,7 @@ if not own_seat:
 if (emp.get("employee_name") or "").strip()[:6].lower() == "vacant":
     frappe.throw("A vacant placeholder cannot add doctors.")
 seat = str(frappe.form_dict.get("seat") or "").strip() or own_seat
+seat_hq = frappe.db.get_value("Role Profile", seat, "custom_territory")
 if seat != own_seat:
     # ---- a vacant seat: only one that rolls up to the caller's
     if not frappe.db.exists("Role Profile", seat):
@@ -286,7 +287,7 @@ for d in doctors:
     if not active.get(d):
         skipped.append({"doctor": d, "reason": "inactive"})
         continue
-    line_hq = hq or assigned.get(d) or None
+    line_hq = hq or assigned.get(d) or seat_hq
     name = existing_for(d)
     try:
         if name:

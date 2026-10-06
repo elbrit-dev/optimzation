@@ -173,7 +173,9 @@ SALES_ROOT = "Sales"
 # holds is a member too (vacant, named by its seat): its records are someone's
 # to cover. IT: the whole Sales tree.
 kids = {}
-for r in frappe.get_all("Role Profile", fields=["name", "parent_role_profile"], limit_page_length=0):
+seat_hq = {}    # seat -> its Role Profile's territory (HQ)
+for r in frappe.get_all("Role Profile", fields=["name", "parent_role_profile", "custom_territory"], limit_page_length=0):
+    seat_hq[r.get("name")] = r.get("custom_territory")
     p = r.get("parent_role_profile")
     if p:
         if p not in kids:
@@ -317,6 +319,7 @@ for t in tree:
         "employee": h.get("name"),
         "name": " / ".join([x.get("employee_name") for x in real]) if real else (h.get("employee_name") or s),
         "seat": s,
+        "hq": seat_hq.get(s),
         "tier": tier_of(s) or None,
         "reportsTo": t[1],
         "vacant": 0 if real else 1,

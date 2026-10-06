@@ -248,6 +248,9 @@ if own_employee:
                     covers.append({"seat": s, "holder": e.get("employee_name")})
         frontier = below
 covers_unheld(own_seat, covered, covers)
+# Each covered seat's HQ (its Role Profile's territory), shown beside it.
+for c in covers:
+    c["hq"] = frappe.db.get_value("Role Profile", c.get("seat"), "custom_territory")
 covering = covering or bool(covered.get(seat))
 
 # ---- A TEAM SEAT: `seat` held by someone under the caller (any depth), a
@@ -496,14 +499,15 @@ if seat:
             }
 
     # ---- ADDABLE: the seat's own enabled stockists not on its list this
-    # month, for "Add stockist" — the caller's own seat only (not a team seat,
-    # a covered vacant seat or IT's view), and only for THE PREVIOUS MONTH,
-    # the one elbrit_secondary_add creates for — any other month sends
+    # month, for "Add stockist" — the caller's own seat, or a vacant seat
+    # they cover (its stockists are theirs to add: elbrit_secondary_add takes
+    # the `seat`), never a team seat or IT's view; and only for THE PREVIOUS
+    # MONTH, the one elbrit_secondary_add creates for — any other month sends
     # `addable: null`, and the screen offers no "Add stockist". Read past
     # permissions: only the names of the stockists assigned to the seat.
     if month != month_before(frappe.utils.nowdate()[:7]):
         addable = None
-    elif seat == own_seat and not see_all and not covering:
+    elif not see_all and (seat == own_seat or covering):
         codes = [c for c in assigned if not has_lines.get(c)]
         for part in chunks(codes):
             for c in frappe.get_all("Customer", filters=[["name", "in", part], ["disabled", "=", 0]],
