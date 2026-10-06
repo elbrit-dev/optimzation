@@ -13,9 +13,11 @@
 #
 # The visits behind ONE list the Visit report opens — fetched only when it
 # is opened, so the screen never downloads the month's raw rows to count
-# them (elbrit_visit_summary counts). READ-ONLY, AS THE TOKEN'S USER: the
-# Events and doctors come from frappe.get_list, so the ERP's permissions
-# decide.
+# them (elbrit_visit_summary counts). READ-ONLY. The Events are the ones
+# elbrit_visit_summary counts — the token user's downline whatever the ERP's
+# permissions say, plus whatever else frappe.get_list lets them see (see its
+# header for why); the doctors are looked up for those Events only, without
+# the Lead permission query, so a downline rep's doctor is named too.
 #
 #   plan    one person's Dr plan: every Event in the window where one of the
 #           participant rows is theirs, with ALL of that Event's participant
@@ -70,6 +72,47 @@ def chunks(values):
     return out
 
 
+def downline_of(user):
+    # As in elbrit_visit_summary — keep the two in step.
+    roots = frappe.get_all("Employee", filters={"user_id": user}, pluck="name")
+    if not roots:
+        return []
+    children_of = {}
+    for e in frappe.get_all("Employee", fields=["name", "reports_to"]):
+        mgr = e.get("reports_to")
+        if mgr:
+            if mgr not in children_of:
+                children_of[mgr] = []
+            children_of[mgr].append(e.get("name"))
+    seen = {}
+    for r in roots:
+        seen[r] = 1
+    frontier = roots
+    while frontier:
+        nxt = []
+        for node in frontier:
+            for kid in children_of.get(node) or []:
+                if kid not in seen:
+                    seen[kid] = 1
+                    nxt.append(kid)
+        frontier = nxt
+    return list(seen.keys())
+
+
+def visit_events(filters, fields):
+    # As in elbrit_visit_summary — keep the two in step.
+    team = downline_of(frappe.session.user)
+    out = []
+    for part in chunks(team):
+        out.extend(frappe.get_all("Event", filters=filters + [["custom_employee_id", "in", part]],
+                                  fields=fields, limit_page_length=0))
+    others = list(filters)
+    if team:
+        others.append(["custom_employee_id", "not in", team])
+    out.extend(frappe.get_list("Event", filters=others, fields=fields, limit_page_length=0))
+    return out
+
+
 body = frappe.form_dict
 date_from = body.get("from") or ""
 date_to = body.get("to") or ""
@@ -87,16 +130,14 @@ for pair in as_list(body.get("sales")):
         if len(pair) > 1 and pair[1]:
             by_email[str(pair[1]).lower()] = pair[0]
 
-rows = frappe.get_list(
-    "Event",
-    filters=[["event_category", "=", "Doctor Visit plan"],
-             ["starts_on", "between", [date_from + " 00:00:00", date_to + " 23:59:59"]]],
-    fields=["name", "subject", "starts_on", "custom_employee_id", "custom_doctor", "custom_hq",
-            "custom_department", "custom_pob_given",
-            PARTS + ".reference_doctype as rt", PARTS + ".reference_docname as rd",
-            PARTS + ".custom_visit_time as vt", PARTS + ".custom_distance as dist",
-            PARTS + ".custom_is_force_visit as fv", PARTS + ".custom_force_visit_reason as why"],
-    limit_page_length=0)
+rows = visit_events(
+    [["event_category", "=", "Doctor Visit plan"],
+     ["starts_on", "between", [date_from + " 00:00:00", date_to + " 23:59:59"]]],
+    ["name", "subject", "starts_on", "custom_employee_id", "custom_doctor", "custom_hq",
+     "custom_department", "custom_pob_given",
+     PARTS + ".reference_doctype as rt", PARTS + ".reference_docname as rd",
+     PARTS + ".custom_visit_time as vt", PARTS + ".custom_distance as dist",
+     PARTS + ".custom_is_force_visit as fv", PARTS + ".custom_force_visit_reason as why"])
 
 refs = {}
 blanks = {}
@@ -167,11 +208,11 @@ for r in picked:
         doctor_ids.append(d)
 doctor = {}
 for part in chunks(doctor_ids):
-    for d in frappe.get_list("Lead", filters=[["name", "in", part]],
-                             fields=["name", "lead_name", "city", "custom_specialty",
-                                     "custom_category", "custom_category1",
-                                     "custom_category2", "custom_category3"],
-                             limit_page_length=0):
+    for d in frappe.get_all("Lead", filters=[["name", "in", part]],
+                            fields=["name", "lead_name", "city", "custom_specialty",
+                                    "custom_category", "custom_category1",
+                                    "custom_category2", "custom_category3"],
+                            limit_page_length=0):
         doctor[d.get("name")] = d
 
 out = []

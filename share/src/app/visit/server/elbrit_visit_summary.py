@@ -12,11 +12,22 @@
 #
 # The Visit report's visits for a window, COUNTED HERE instead of sent as
 # rows: a month is ~55,000 visits on production (~38 MB as rows); as counts
-# it is a few thousand lines. READ-ONLY, AS THE TOKEN'S USER — the Events
-# come from frappe.get_list, so the ERP's own permissions decide which.
+# it is a few thousand lines. READ-ONLY.
 #
-# ONE COUNT per (person, planned day, event HQ, status, joint, hour):
-#   rows: [[e, d, h, s, j, hr, n], ...] indexing employees / days / hqs
+# WHOSE VISITS: the token user's DOWNLINE (everyone under them by
+# reports_to, any status, themselves included) whatever the ERP's
+# permissions say, plus whatever else frappe.get_list lets them see. A visit
+# Event is private; a manager sees one only once it is SHARED with them, and
+# the share is made in the rep's own session, which a rep whose User
+# Permission pins Employee to themselves for every doctype cannot make past
+# their direct manager — so the RBM above went without that rep's visits
+# (E01289 and E01040, 2026-10). The downline is worked out HERE from the
+# session user, never taken from the request. The two halves split on the
+# plan owner (custom_employee_id in / not in the downline), so no Event
+# comes twice and the database reads no more rows than before.
+#
+# ONE COUNT per (person, planned day, event HQ, status, joint, hour, department):
+#   rows: [[e, d, h, s, j, hr, n, dp, ft], ...] indexing employees / days / hqs / depts
 #     s   0 pending (no visit time), 1 verified (done, not forced),
 #         2 forced (done and forced) — a force flag on a pending visit is
 #         ignored, as the app ignores it
@@ -25,6 +36,10 @@
 #         time has no readable hour (it still counts as done, but sits in
 #         no bar of the hourly chart — as the app's chartHourOf does)
 #     n   how many visits the line stands for
+#     dp  (8th) the Event's department, indexing `depts` — the home
+#         overview groups by it; the Visit report reads only the first seven
+#     ft  (9th) the earliest visit time of the line ("" when pending), for
+#         the first-call time the home overview shows
 #
 # THE SAME RULES AS THE APP (src/app/visit/data/liveSource.js), so the
 # counts equal what it computed from the rows:
@@ -44,6 +59,7 @@
 # =====================================================================
 
 PARTS = "`tabEvent Participants`"
+CHUNK = 500
 
 
 def valid_date(d):
@@ -66,6 +82,58 @@ def hour_of(visit_time):
     return v
 
 
+def chunks(values):
+    out = []
+    i = 0
+    while i < len(values):
+        out.append(values[i:i + CHUNK])
+        i = i + CHUNK
+    return out
+
+
+def downline_of(user):
+    # Every Employee under the user's own record(s) by reports_to, those
+    # included. All statuses: a rep who has since left still worked the
+    # month being looked at.
+    roots = frappe.get_all("Employee", filters={"user_id": user}, pluck="name")
+    if not roots:
+        return []
+    children_of = {}
+    for e in frappe.get_all("Employee", fields=["name", "reports_to"]):
+        mgr = e.get("reports_to")
+        if mgr:
+            if mgr not in children_of:
+                children_of[mgr] = []
+            children_of[mgr].append(e.get("name"))
+    seen = {}
+    for r in roots:
+        seen[r] = 1
+    frontier = roots
+    while frontier:
+        nxt = []
+        for node in frontier:
+            for kid in children_of.get(node) or []:
+                if kid not in seen:
+                    seen[kid] = 1
+                    nxt.append(kid)
+        frontier = nxt
+    return list(seen.keys())
+
+
+def visit_events(filters, fields):
+    # The downline's Events unrestricted, the rest as the ERP permits.
+    team = downline_of(frappe.session.user)
+    out = []
+    for part in chunks(team):
+        out.extend(frappe.get_all("Event", filters=filters + [["custom_employee_id", "in", part]],
+                                  fields=fields, limit_page_length=0))
+    others = list(filters)
+    if team:
+        others.append(["custom_employee_id", "not in", team])
+    out.extend(frappe.get_list("Event", filters=others, fields=fields, limit_page_length=0))
+    return out
+
+
 body = frappe.form_dict
 date_from = body.get("from") or ""
 date_to = body.get("to") or ""
@@ -83,14 +151,12 @@ for pair in sales:
         if len(pair) > 1 and pair[1]:
             by_email[str(pair[1]).lower()] = pair[0]
 
-rows = frappe.get_list(
-    "Event",
-    filters=[["event_category", "=", "Doctor Visit plan"],
-             ["starts_on", "between", [date_from + " 00:00:00", date_to + " 23:59:59"]]],
-    fields=["name", "starts_on", "custom_employee_id", "custom_hq",
-            PARTS + ".reference_doctype as rt", PARTS + ".reference_docname as rd",
-            PARTS + ".custom_visit_time as vt", PARTS + ".custom_is_force_visit as fv"],
-    limit_page_length=0)
+rows = visit_events(
+    [["event_category", "=", "Doctor Visit plan"],
+     ["starts_on", "between", [date_from + " 00:00:00", date_to + " 23:59:59"]]],
+    ["name", "starts_on", "custom_employee_id", "custom_hq", "custom_department",
+     PARTS + ".reference_doctype as rt", PARTS + ".reference_docname as rd",
+     PARTS + ".custom_visit_time as vt", PARTS + ".custom_is_force_visit as fv"])
 
 # participantCount per Event: distinct non-blank references + blanks, min 1
 refs = {}
@@ -118,7 +184,10 @@ day_index = {}
 days = []
 hq_index = {}
 hqs = []
+dept_index = {}
+depts = []
 counts = {}
+firsts = {}
 
 
 def index_of(value, table, values):
@@ -151,12 +220,15 @@ for r in rows:
     joint = 1 if participant_count(ev) > 1 else 0
 
     k = (index_of(employee, emp_index, employees), index_of(day, day_index, days),
-         index_of(r.get("custom_hq") or "", hq_index, hqs), status, joint, hour)
+         index_of(r.get("custom_hq") or "", hq_index, hqs), status, joint, hour,
+         index_of(r.get("custom_department") or "", dept_index, depts))
     counts[k] = counts.get(k, 0) + 1
+    if vt and (not firsts.get(k) or str(vt) < firsts[k]):
+        firsts[k] = str(vt)
 
 out = []
 for k in counts:
-    out.append([k[0], k[1], k[2], k[3], k[4], k[5], counts[k]])
+    out.append([k[0], k[1], k[2], k[3], k[4], k[5], counts[k], k[6], firsts.get(k) or ""])
 
 frappe.response["message"] = {
     "from": date_from,
@@ -164,6 +236,7 @@ frappe.response["message"] = {
     "employees": employees,
     "days": days,
     "hqs": hqs,
+    "depts": depts,
     "rows": out,
     "visits": len(rows),
 }
