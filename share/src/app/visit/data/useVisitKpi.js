@@ -57,6 +57,9 @@ export function useVisitKpi({
      is a parameter of the hook and not of periodWindow alone. */
   month,
   monthTo,
+  /* 'YYYY-MM-DD': the DAY view's day, or undefined for the dataset's
+     today. Its month is what the caller asks for as `month`. */
+  day,
   anchorDate,
   cutoffHour,
   gqlEnvironment = DEFAULT_GQL_ENVIRONMENT,
@@ -106,7 +109,9 @@ export function useVisitKpi({
        can answer the question the reader is actually asking has landed.
 
        Today's view never waits for the month, which is the entire point. */
-    const waitingOnPeriod = period === 'month' ? !ready.window : !ready.today;
+    /* A picked day other than today is in the window's wave, not today's. */
+    const pickedDay = period !== 'month' && day && day !== today;
+    const waitingOnPeriod = period === 'month' || pickedDay ? !ready.window : !ready.today;
 
     /* Priority: an explicit picker choice, then whoever is actually signed in
        (resolved from the SAME token that fetched this dataset -- see
@@ -121,7 +126,8 @@ export function useVisitKpi({
        only if the roster has no recognised manager whatsoever. */
     const rootId = scopeId ?? viewerId ?? largestManagerRoot(team)?.id ?? team.find((m) => m.reportsTo == null)?.id;
     const scopeTeam = subtreeOf(team, rootId);
-    const window = periodWindow(period, today, month, monthTo);
+    const window = periodWindow(period, today, month, monthTo, day);
+    const theDay = { from: day ?? today, to: day ?? today };
     const ids = new Set(scopeTeam.map((m) => m.id));
     const inScope = forEmployees(rows, ids);
     const scoped = inPeriod(inScope, window);
@@ -141,7 +147,7 @@ export function useVisitKpi({
          filter either way; the wider pool is the one that can answer every
          question the picker can ask. */
       allRows: inPeriod(rows, window),
-      allTodayRows: inPeriod(rows, { from: today, to: today }),
+      allTodayRows: inPeriod(rows, theDay),
       allPob: inPeriod(pob ?? [], window),
       team: scopeTeam,
       rows: scoped,
@@ -160,7 +166,7 @@ export function useVisitKpi({
          question genuinely differs — "who is out right now" is not "who
          reported at some point in August" — and neither can be derived
          from the other. */
-      todayRows: inPeriod(inScope, { from: today, to: today }),
+      todayRows: inPeriod(inScope, theDay),
       root: scopeTeam.find((m) => m.id === rootId) ?? null,
       /* The signed-in viewer's OWN id, separate from `root` (the currently
          SELECTED scope, which changes as they drill down). ScopeSelect uses

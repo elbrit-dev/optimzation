@@ -130,8 +130,9 @@ export function monthEnd(month) {
  *
  * Both default to the month `today` falls in, so a caller that has picked
  * nothing gets exactly the old month-till-date behaviour. */
-export function periodWindow(period, today, month, monthTo) {
-  if (period !== 'month') return { from: today, to: today };
+export function periodWindow(period, today, month, monthTo, day) {
+  /* The DAY view: the picked day, or the dataset's today. */
+  if (period !== 'month') return { from: day ?? today, to: day ?? today };
   const first = month ?? today.slice(0, 7);
   const last = monthTo ?? first;
   const end = monthEnd(last);

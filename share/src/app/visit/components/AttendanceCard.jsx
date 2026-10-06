@@ -18,14 +18,14 @@ import { ATTENDANCE, ATTENDANCE_LABEL, ATTENDANCE_TONE } from '../data/shape';
  * empty makes "Not reporting" look like a state that only exists on bad days,
  * and moves the other three chips under the reader's thumb. */
 
-export function AttendanceCard({ counts, working, inScope, overlapping = false, period, onDrill }) {
+export function AttendanceCard({ counts, working, inScope, overlapping = false, period, dayWord = 'today', onDrill }) {
   /* ATTENDANCE FOLLOWS THE PERIOD now, so the heading no longer has to
      disown the figures beside it. It used to read "Who is working today"
      over a month's KPIs, because the counts underneath were today's — two
      true numbers that read as a contradiction. Over a range these are the
      people who reported at some point in it, and the header above the card
      already names which range. */
-  const heading = period === 'month' ? 'Who has reported' : 'Who has reported today';
+  const heading = period === 'month' ? 'Who has reported' : `Who has reported ${dayWord}`;
 
   return (
     /* `h-full` so this card FILLS the summary band rather than setting its

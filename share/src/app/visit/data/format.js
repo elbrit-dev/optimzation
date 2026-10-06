@@ -66,8 +66,20 @@ function shortMonth(month, today) {
  * eleven days, not a month — and "Visit plans Sep" over eleven days of data
  * would read as a full month that went badly. A range that ENDS in the
  * current month is the same story, so it keeps the marker too. */
-export function periodSuffix(period, month, today, monthTo) {
-  if (period !== 'month') return 'today';
+/* "5 Oct" — "5 Oct 2025" outside today's year. */
+export function formatShortDay(iso, today = '') {
+  const d = parseISODate(iso);
+  const sameYear = !today || d.getFullYear() === Number(today.slice(0, 4));
+  return `${d.getDate()} ${MONTHS[d.getMonth()]}${sameYear ? '' : ` ${d.getFullYear()}`}`;
+}
+
+/* The DAY view's word: 'today' for the dataset's today, else 'on 5 Oct'. */
+export function daySuffix(day, today) {
+  return !day || day === today ? 'today' : `on ${formatShortDay(day, today)}`;
+}
+
+export function periodSuffix(period, month, today, monthTo, day) {
+  if (period !== 'month') return daySuffix(day, today);
   const current = today.slice(0, 7);
   const first = month ?? current;
   const last = monthTo ?? first;

@@ -18,7 +18,9 @@ import {
 } from '../data/selectors';
 import {
   countWorkingDays,
+  daySuffix,
   formatMonthName,
+  formatShortDay,
   hqLabel,
   periodSuffix,
   toMonthKey,
@@ -123,6 +125,9 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
      and the data source's can differ, and pinning one here would make the
      default month a client-clock fact rather than a dataset fact. */
   const [monthRange, setMonthRange] = useState(null);
+  /* The Date tab's day, 'YYYY-MM-DD'; null is the dataset's today, for
+     the same reason monthRange starts null. */
+  const [day, setDay] = useState(null);
   /* ALL_HQS, not the first HQ: the section opens on the totals, and the way
      back to them is the same card as the way in. */
   const [hq, setHq] = useState(ALL_HQS);
@@ -161,8 +166,10 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
        roster, so what the picker may offer is ScopeSelect's decision
        alone rather than a second boundary that has to agree with it. */
     period,
-    month: monthFrom,
-    monthTo,
+    /* The DAY view loads the month its day falls in. */
+    month: period === 'month' ? monthFrom : day ? day.slice(0, 7) : undefined,
+    monthTo: period === 'month' ? monthTo : day ? day.slice(0, 7) : undefined,
+    day: period === 'month' ? undefined : day ?? undefined,
     gqlEnvironment,
     gqlToken,
   });
@@ -201,18 +208,26 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
   /* The one narrowing, and the only place ids from several branches meet.
      A Set, so a branch and a member of it overlap into one count rather
      than two. */
+  /* The day the DAY view shows. */
+  const dayKey = day ?? today;
   const scoped = useMemo(() => {
     const ids = new Set();
     for (const pick of selection) {
       if (pick.includeSubtree) for (const m of subtreeOf(team, pick.id)) ids.add(m.id);
       else ids.add(pick.id);
     }
+    /* `onLeave` is TODAY's; on another day it is whether a leave spell
+       covers that day (the spells are the loaded month's). */
+    const onDay = (m) =>
+      period !== 'month' && dayKey && dayKey !== today
+        ? { ...m, onLeave: (m.leave ?? []).some((l) => l.from <= dayKey && dayKey <= l.to) }
+        : m;
     return {
-      team: team.filter((m) => ids.has(m.id)),
+      team: team.filter((m) => ids.has(m.id)).map(onDay),
       rows: rows.filter((r) => ids.has(r.employeeId)),
       todayRows: todayRows.filter((r) => ids.has(r.employeeId)),
     };
-  }, [selection, team, rows, todayRows]);
+  }, [selection, team, rows, todayRows, period, dayKey, today]);
 
   /* One person, one report about a person. Two or more and the cards are
      about a group again, whatever shape the picks were. */
@@ -237,8 +252,8 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
      daysOf. Memoised on the window's ends, since it is rebuilt into a day
      record for every person in scope. */
   const calendar = useMemo(
-    () => (overRange ? workingDaysBetween(win.from, win.to) : [today]),
-    [overRange, win.from, win.to, today],
+    () => (overRange ? workingDaysBetween(win.from, win.to) : [dayKey]),
+    [overRange, win.from, win.to, dayKey],
   );
 
   const view = useMemo(() => {
@@ -349,14 +364,16 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
      in the components that print them: telling "MTD" from "Aug" needs both
      the picked month and the DATASET's today, and neither a metric card nor
      a sheet has any business knowing the second. */
-  const suffix = periodSuffix(period, monthFrom, today ?? '', monthTo);
+  const suffix = periodSuffix(period, monthFrom, today ?? '', monthTo, dayKey);
   /* A phrase rather than the suffix: the sheet's subtitle starts with it, and
      "today · 199 visits planned" does not read as a sentence the way "Today ·
      199 visits planned" does. A past month gets its name in full — "Aug" is
      fine tacked onto a label, thin as the opening word of a subtitle. */
   const planLabel =
     period !== 'month'
-      ? 'Today'
+      ? !dayKey || dayKey === today
+        ? 'Today'
+        : formatShortDay(dayKey, today)
       : monthFrom && monthFrom !== monthTo
         ? `${formatMonthName(monthFrom)} – ${formatMonthName(monthTo)}`
         : !monthFrom || monthFrom === today?.slice(0, 7)
@@ -378,6 +395,14 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
      it yet cannot be chosen. Not `new Date()` -- the browser's clock and
      the source's can disagree, and the one that decides what is 'future'
      here has to be the one the data came from. */
+  /* The Date picker's value: the day shown, as a one-day range. */
+  const dayRange = useMemo(() => {
+    if (!dayKey) return null;
+    const [y, m, d] = dayKey.split('-').map(Number);
+    const at = new Date(y, m - 1, d);
+    return [at, at];
+  }, [dayKey]);
+
   const maxMonth = useMemo(() => {
     if (!today) return null;
     const [y, m, d] = today.split('-').map(Number);
@@ -459,6 +484,15 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
               maxDate={maxMonth}
               onChange={setPeriod}
               onRangeChange={setMonthRange}
+              dayRange={dayRange}
+              onDayChange={(r) => {
+                const d = r?.[0];
+                const key = d ? `${toMonthKey(d)}-${String(d.getDate()).padStart(2, '0')}` : null;
+                setDay(key && key !== today ? key : null);
+                /* The open sheet and selected HQ belong to the old day. */
+                setSheet(null);
+                setHq(ALL_HQS);
+              }}
             />
           </div>
         </div>
@@ -516,6 +550,7 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
                 <div className="@5xl/report:col-span-1">
                   <AttendanceCard
                     period={period}
+                    dayWord={daySuffix(dayKey, today)}
                     counts={view.att.counts}
                     working={view.att.working}
                     inScope={view.att.inScope}

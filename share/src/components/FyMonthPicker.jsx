@@ -16,7 +16,11 @@ import { createPortal } from 'react-dom';
  * the selection is always ONE contiguous run — the output is a [start, end]
  * date pair, so a gap could not be expressed anyway.
  *
- * Months are absolute indices: year * 12 + monthIndex (0 = Jan). */
+ * Months are absolute indices: year * 12 + monthIndex (0 = Jan).
+ *
+ * `mode="date"` is ONE DAY instead (DayPicker below): the same trigger and
+ * ‹ › steps, a day at a time, and a month calendar in the same popover. It
+ * emits the day as a [day, day] pair, as the month mode emits a run. */
 
 const MN = ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar'];
 const CAL = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -79,7 +83,7 @@ function placeBelowOrAbove(anchor) {
    inside them got cut off at the container's bottom edge (29 Sep 2026). On
    <body> nothing clips it, and position:fixed can't be demoted by a
    transformed ancestor either. Desktop follows the trigger on scroll/resize. */
-function Popover({ mob, anchorRef, onClose, children }) {
+function Popover({ mob, anchorRef, onClose, title = 'Select months', children }) {
   const [pos, setPos] = useState(null);
 
   useLayoutEffect(() => {
@@ -103,7 +107,7 @@ function Popover({ mob, anchorRef, onClose, children }) {
   return createPortal(
     <div className="fymp">
       <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: P.sBg, zIndex: 1000 }} />
-      <div role="dialog" aria-label="Select months" style={{ position: 'fixed', top: P.top, right: P.right, left: P.left, bottom: P.bottom, width: P.w, maxHeight: P.maxH, borderRadius: P.rad, background: '#fff', border: '1px solid #EAECF0', boxShadow: '0 16px 40px rgba(16,24,40,.18)', zIndex: 1001, display: 'flex', flexDirection: 'column', padding: '14px 16px 16px', gap: 12, overflow: 'auto', color: '#101828' }}>
+      <div role="dialog" aria-label={title} style={{ position: 'fixed', top: P.top, right: P.right, left: P.left, bottom: P.bottom, width: P.w, maxHeight: P.maxH, borderRadius: P.rad, background: '#fff', border: '1px solid #EAECF0', boxShadow: '0 16px 40px rgba(16,24,40,.18)', zIndex: 1001, display: 'flex', flexDirection: 'column', padding: '14px 16px 16px', gap: 12, overflow: 'auto', color: '#101828' }}>
         {children}
       </div>
     </div>,
@@ -115,7 +119,11 @@ function Popover({ mob, anchorRef, onClose, children }) {
 // min / max (Date or 'YYYY-MM-DD') lock the picker to a range, e.g. the current
 // FY: months, quarters, years and the ‹ › steps all stay inside it.
 // CUR is the latest selectable month — today, or max when that is earlier.
-export default function FyMonthPicker({ value, onChange, minFy = 2024, min, max, className }) {
+export default function FyMonthPicker({ mode = 'month', ...props }) {
+  return mode === 'date' ? <DayPicker {...props} /> : <MonthPicker {...props} />;
+}
+
+function MonthPicker({ value, onChange, minFy = 2024, min, max, className }) {
   const mob = useIsMobile();
   const TODAY = useMemo(() => toIdx(new Date()), []);
   const CUR = max ? Math.min(TODAY, toIdx(max)) : TODAY;
@@ -265,6 +273,127 @@ export default function FyMonthPicker({ value, onChange, minFy = 2024, min, max,
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, paddingTop: 10, borderTop: '1px solid #F2F4F7' }}>
             <button type="button" onClick={() => { setFrom(null); emit(CUR, CUR); }} style={{ height: 28, padding: '0 10px', border: 0, background: 'transparent', color: '#C4262B', fontSize: 12, fontWeight: 600, cursor: 'pointer', flex: 'none' }}>Reset to latest</button>
+          </div>
+        </Popover>
+      ) : null}
+    </div>
+  );
+}
+
+/* ── Date mode ─────────────────────────────────────────────────────────────
+   ONE day. ‹ › step a day; the popover is a month at a time (‹ › between
+   months, Monday first) and a tap on a day applies it and closes. min / max
+   (Date or 'YYYY-MM-DD') bound it as they bound the months; the latest day is
+   today, or max when that is earlier. Days are compared as 'YYYY-MM-DD' keys,
+   built from LOCAL date parts so no day slips across midnight UTC. */
+const WD = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const pad2 = (n) => String(n).padStart(2, '0');
+const keyOf = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const dateOf = (v) => {
+  if (!v) return null;
+  if (v instanceof Date) return new Date(v.getFullYear(), v.getMonth(), v.getDate());
+  const [y, m, d] = String(v).slice(0, 10).split('-').map(Number);
+  return y && m && d ? new Date(y, m - 1, d) : null;
+};
+const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+
+function DayPicker({ value, onChange, minFy = 2024, min, max, className }) {
+  const mob = useIsMobile();
+  const today = useMemo(() => dateOf(new Date()), []);
+  const maxD = max && dateOf(max) < today ? dateOf(max) : today;
+  const floor = new Date(Number(minFy) || 2024, 3, 1);
+  const minD = min && dateOf(min) > floor ? dateOf(min) : floor;
+  const clampD = (d) => (d < minD ? minD : d > maxD ? maxD : d);
+  const picked = clampD(dateOf(Array.isArray(value) ? value[0] : value) ?? maxD);
+  const pk = keyOf(picked);
+
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef(null);
+  const [view, setView] = useState(null); // the month shown, as a month index
+  const shown = view ?? toIdx(picked);
+  const close = () => setOpen(false);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const k = (e) => { if (e.key === 'Escape') setOpen(false); };
+    window.addEventListener('keydown', k);
+    return () => window.removeEventListener('keydown', k);
+  }, [open]);
+
+  const emit = (d) => onChange?.([d, d]);
+  const prevOk = picked > minD;
+  const nextOk = picked < maxD;
+  const tk = keyOf(today);
+  const label = `${DAYS[picked.getDay()]}, ${picked.getDate()} ${CAL[picked.getMonth()]} ${picked.getFullYear()}`;
+  const sub = pk === tk ? 'Today' : `Day · ${fyS(fyOf(toIdx(picked)))}`;
+
+  // The shown month: blanks up to its first day's column (Monday first), then its days.
+  const y = Math.floor(shown / 12), m = shown % 12;
+  const lead = (new Date(y, m, 1).getDay() + 6) % 7;
+  const last = new Date(y, m + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < lead; i++) cells.push(null);
+  for (let d = 1; d <= last; d++) cells.push(new Date(y, m, d));
+  const monthPrevOk = shown - 1 >= toIdx(minD);
+  const monthNextOk = shown + 1 <= toIdx(maxD);
+
+  return (
+    <div ref={rootRef} className={`fymp ${className ?? ''}`} style={{ position: 'relative', display: 'flex', gap: 6, alignItems: 'stretch', minWidth: 0, color: '#101828' }}>
+      <style>{CSS}</style>
+      <button type="button" onClick={() => prevOk && emit(addDays(picked, -1))} aria-label="Previous day" style={navBtn(prevOk ? 1 : 0.35)}>‹</button>
+      <button
+        type="button"
+        className="fymp-hb"
+        onClick={() => { setOpen((o) => !o); setView(null); }}
+        style={{ flex: 1, minWidth: mob ? 0 : 180, padding: '0 12px', border: '1px solid #D0D5DD', background: '#fff', borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, textAlign: 'left' }}
+      >
+        <span style={{ display: 'flex', flexDirection: 'column', gap: 0, minWidth: 0, lineHeight: 1.15 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#101828', ...ell }}>{label}</span>
+          <span style={{ fontSize: 10.5, color: '#667085', ...ell }}>{sub}</span>
+        </span>
+        <span style={{ color: '#667085', fontSize: 10, flex: 'none' }}>▼</span>
+      </button>
+      <button type="button" onClick={() => nextOk && emit(addDays(picked, 1))} aria-label="Next day" style={navBtn(nextOk ? 1 : 0.35)}>›</button>
+
+      {open ? (
+        <Popover mob={mob} anchorRef={rootRef} onClose={close} title="Select date">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <span style={{ fontSize: 15, fontWeight: 650 }}>Select date</span>
+            <span style={{ fontSize: 12, color: '#667085' }}>Tap a day</span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <button type="button" onClick={() => monthPrevOk && setView(shown - 1)} aria-label="Previous month" style={yrBtn(monthPrevOk ? 1 : 0.35)}>‹</button>
+            <span style={{ fontSize: 14, fontWeight: 600 }}>{ml(shown)}</span>
+            <button type="button" onClick={() => monthNextOk && setView(shown + 1)} aria-label="Next month" style={yrBtn(monthNextOk ? 1 : 0.35)}>›</button>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,minmax(0,1fr))', gap: 4 }}>
+            {WD.map((w) => (
+              <span key={w} style={{ textAlign: 'center', fontSize: 11, fontWeight: 600, color: '#667085', padding: '2px 0' }}>{w}</span>
+            ))}
+            {cells.map((d, i) => {
+              if (!d) return <span key={`b${i}`} />;
+              const k = keyOf(d), ok = d >= minD && d <= maxD, on = k === pk;
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  disabled={!ok}
+                  onClick={() => { emit(d); close(); }}
+                  aria-label={`${d.getDate()} ${CAL[d.getMonth()]} ${d.getFullYear()}`}
+                  aria-pressed={on}
+                  style={{ height: 38, borderRadius: 9, border: `1px solid ${on ? '#101828' : k === tk ? '#1F4FD8' : ok ? '#EAECF0' : '#F2F4F7'}`, background: on ? '#101828' : ok ? '#fff' : '#F9FAFB', color: on ? '#fff' : ok ? '#101828' : '#98A2B3', cursor: ok ? 'pointer' : 'default', fontSize: 13, fontWeight: 600 }}
+                >
+                  {d.getDate()}
+                </button>
+              );
+            })}
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, paddingTop: 10, borderTop: '1px solid #F2F4F7' }}>
+            <button type="button" onClick={() => { emit(maxD); close(); }} style={{ height: 28, padding: '0 10px', border: 0, background: 'transparent', color: '#C4262B', fontSize: 12, fontWeight: 600, cursor: 'pointer', flex: 'none' }}>{keyOf(maxD) === tk ? 'Today' : 'Latest day'}</button>
           </div>
         </Popover>
       ) : null}
