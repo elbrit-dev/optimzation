@@ -1,7 +1,7 @@
 'use client';
 
 import { TreeSelect } from '@/design-system';
-import { managerRoots } from '../data/selectors';
+import { kidsOf, managerRoots } from '../data/selectors';
 import { MANAGER_LEVELS, shortDesignation } from '../data/shape';
 
 /* Whose team you are looking at.
@@ -74,12 +74,7 @@ function buildManagerTree(team, rootId, viewerId) {
   const people = team.filter(
     (m) => MANAGER_LEVELS.has(shortDesignation(m.designation)) || !m.vacant,
   );
-  const byParent = new Map();
-  for (const m of people) {
-    const key = m.reportsTo ?? '__root__';
-    if (!byParent.has(key)) byParent.set(key, []);
-    byParent.get(key).push(m);
-  }
+  const byParent = kidsOf(people);
   for (const kids of byParent.values()) kids.sort((a, b) => a.name.localeCompare(b.name));
 
   /* A vacant seat with nobody under it is a dead end — there is no one to

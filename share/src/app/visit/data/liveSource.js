@@ -33,6 +33,7 @@
 import { getEndpointConfigFromUrlKeyAsync } from '@/app/graphql-playground/constants';
 import { shortDesignation } from './shape';
 import { monthEnd } from './selectors';
+import { SALES_ROLE_ROOT, treeBySeat } from './seatTree';
 
 /* LOCAL date, not `new Date().toISOString().slice(0, 10)`. `toISOString`
    reads the UTC date, and east of Greenwich that is still YESTERDAY for the
@@ -311,8 +312,8 @@ const ROLE_PROFILES_QUERY = `
   }
 `;
 
-const SALES_ROLE_ROOT = 'Sales';
-
+/* The Sales tree itself: every seat under the root (who is in Sales) and
+   each seat's parent (who sits under whom — see seatTree.js). */
 async function fetchSalesRoleProfiles(conn) {
   const data = await graphqlRequest(ROLE_PROFILES_QUERY, { first: MAX_ROWS }, conn);
   const { totalCount, edges } = data.RoleProfiles;
@@ -321,9 +322,11 @@ async function fetchSalesRoleProfiles(conn) {
   }
 
   const childrenOf = new Map();
+  const parentOf = new Map();
   for (const { node } of edges) {
     const parent = node.parent_role_profile?.name;
     if (!parent) continue;
+    parentOf.set(node.name, parent);
     if (!childrenOf.has(parent)) childrenOf.set(parent, []);
     childrenOf.get(parent).push(node.name);
   }
@@ -339,7 +342,7 @@ async function fetchSalesRoleProfiles(conn) {
     under.add(current);
     for (const child of childrenOf.get(current) ?? []) stack.push(child);
   }
-  return under;
+  return { under, parentOf };
 }
 
 /* Who belongs on a SALES team report.
@@ -723,7 +726,8 @@ export async function fetchVisitDataset({
     fetchLeave({ from: windowFrom, to: windowTo }, conn)));
   const pobPromise = parked(fetchPobQuotations({ from: windowFrom, to: windowTo }, conn));
 
-  const [allTeam, salesProfiles, leaveToday, viewerEmail] = await rosterPromise;
+  const [allTeam, roles, leaveToday, viewerEmail] = await rosterPromise;
+  const salesProfiles = roles.under;
 
   /* SALES ONLY. The roster query asks for every active employee because the
      role profile tree is the thing that decides who is in Sales, and that is
@@ -779,7 +783,7 @@ export async function fetchVisitDataset({
     /* BOTH leave flags, because the two periods ask different questions of
        the same roster: `onLeave` is "out today", `onLeaveInWindow` is "took
        leave at some point in the selected range". attendanceOf picks. */
-    team: team.map((m) => ({
+    team: treeBySeat(team, roles).map((m) => ({
       ...m,
       onLeave: leaveToday.has(m.id),
       onLeaveInWindow: leaveInWindow.has(m.id),

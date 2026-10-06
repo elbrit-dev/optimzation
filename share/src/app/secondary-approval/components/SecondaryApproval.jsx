@@ -177,7 +177,19 @@ export function SecondaryApproval({
   const withTeam = hasTeam(team.data);
   const [pane, setPane] = useState('people');
   const teamWithCounts = useMemo(
-    () => (Array.isArray(team.data?.members) ? { ...team.data, members: team.data.members.map((m) => ({ ...m, ...teamApprovalCounts(slices, m) })) } : null),
+    () =>
+      Array.isArray(team.data?.members)
+        ? {
+            ...team.data,
+            /* Tracker counts for what was submitted, and the team script's
+               Draft count for what was not (no tracker yet). */
+            members: team.data.members.map((m) => {
+              const counts = teamApprovalCounts(slices, m);
+              const draft = Number(m.draft) || 0;
+              return { ...m, ...counts, draft, total: counts.total + draft };
+            }),
+          }
+        : null,
     [team.data, slices],
   );
   const openPerson = (m) => {
@@ -418,7 +430,7 @@ export function SecondaryApproval({
       {loading ? (
         <Skeleton />
       ) : pane === 'team' && withTeam ? (
-        <TeamProgress team={teamWithCounts} labels={{ todo: 'Rework' }} onView={openPerson} />
+        <TeamProgress team={teamWithCounts} labels={{ todo: 'Rework' }} withDraft onView={openPerson} />
       ) : loadError ? (
         <div role="alert" className="flex flex-col items-start gap-2 rounded-xl bg-danger-wash px-4 py-4">
           <span className="flex items-center gap-2 text-13 font-semibold text-danger-text">

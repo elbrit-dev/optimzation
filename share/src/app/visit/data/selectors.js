@@ -17,12 +17,7 @@ import { ATTENDANCE, isHqTerritory, MANAGER_LEVELS, shortDesignation } from './s
    not prevent) would blow the stack. The `seen` set makes a cycle terminate
    instead. */
 export function subtreeOf(team, rootId) {
-  const byParent = new Map();
-  for (const m of team) {
-    const key = m.reportsTo ?? '__root__';
-    if (!byParent.has(key)) byParent.set(key, []);
-    byParent.get(key).push(m);
-  }
+  const byParent = kidsOf(team);
 
   const root = team.find((m) => m.id === rootId);
   if (!root) return [];
@@ -40,8 +35,26 @@ export function subtreeOf(team, rootId) {
   return out;
 }
 
+/* parent id → the members under them. A holder who SHARES a seat with
+   another (seatTree.js `sharesSeatWith`) has that holder's members under
+   them as well: both see the whole team below the seat. */
+export function kidsOf(team) {
+  const byParent = new Map();
+  for (const m of team) {
+    const key = m.reportsTo ?? '__root__';
+    if (!byParent.has(key)) byParent.set(key, []);
+    byParent.get(key).push(m);
+  }
+  for (const m of team) {
+    if (!m.sharesSeatWith) continue;
+    const shared = (byParent.get(m.sharesSeatWith) ?? []).filter((k) => k.id !== m.id);
+    if (shared.length) byParent.set(m.id, [...(byParent.get(m.id) ?? []), ...shared]);
+  }
+  return byParent;
+}
+
 export function childrenOf(team, parentId) {
-  return team.filter((m) => m.reportsTo === parentId);
+  return kidsOf(team).get(parentId) ?? [];
 }
 
 /* Sales managers with no SALES manager above them -- the top of one or more

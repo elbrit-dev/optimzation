@@ -9,7 +9,7 @@ import {
   SectionLabel,
   StatusPill,
 } from '@/design-system';
-import { childrenOf, rollupFor } from '../data/selectors';
+import { childrenOf, kidsOf, rollupFor } from '../data/selectors';
 import { GeoBar } from './GeoBar';
 import { ATTENDANCE_LABEL, ATTENDANCE_TONE } from '../data/shape';
 import { formatCurrency } from '../data/format';
@@ -302,7 +302,7 @@ export function TeamTree({ team, rows, pob, rootIds = [], onDoctorPlan, overRang
    * a seat with no rows contributes nothing to planned, happened or POB. */
   const visibleTeam = useMemo(() => {
     const childCount = new Map();
-    for (const m of team) childCount.set(m.reportsTo, (childCount.get(m.reportsTo) ?? 0) + 1);
+    for (const [id, kids] of kidsOf(team)) childCount.set(id, kids.length);
     const withRows = new Set(rows.map((r) => r.employeeId));
 
     return team.filter(

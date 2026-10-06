@@ -23,6 +23,9 @@ const SEGMENTS = [
   { key: 'waiting', tone: 'warning', label: 'Waiting' },
   { key: 'todo', tone: 'danger', label: 'To do' },
 ];
+/* Not yet submitted: the Approval screen's fourth count (`withDraft`), where
+   "to do" is only what went back to the BE. */
+const DRAFT = { key: 'draft', tone: 'neutral', label: 'Draft' };
 
 function Dot({ tone }) {
   return <span aria-hidden="true" className="inline-block size-2 shrink-0 rounded-full" style={{ backgroundColor: toneFill(tone) }} />;
@@ -111,10 +114,11 @@ function TeamNode({ member, index, depth, open, toggle, onView, segments, covere
 /* `labels`: the page's words for the three counts, e.g. { todo: 'Rework' }
    on the Approval screen, where "to do" is what went back to the BE. */
 /* `covers`: the vacant seats the viewer covers ([{ seat }]) — those rows
-   offer Enter instead of View. */
-export function TeamProgress({ team, onView, labels, covers }) {
+   offer Enter instead of View. `withDraft`: a Draft count after the three
+   (members carry `draft`). */
+export function TeamProgress({ team, onView, labels, covers, withDraft = false }) {
   const covered = useMemo(() => new Set((covers ?? []).map((c) => c.seat)), [covers]);
-  const segments = SEGMENTS.map((s) => ({ ...s, label: labels?.[s.key] ?? s.label }));
+  const segments = (withDraft ? [...SEGMENTS, DRAFT] : SEGMENTS).map((s) => ({ ...s, label: labels?.[s.key] ?? s.label }));
   const index = useMemo(() => teamIndex(team?.members ?? []), [team]);
   const tops = useMemo(() => teamTops(team?.members ?? [], team?.root, index), [team, index]);
   /* A lone manager row opens by itself, so an RBM lands on their ABMs. */

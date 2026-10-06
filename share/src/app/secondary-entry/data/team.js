@@ -1,8 +1,9 @@
 /* The team tree — the members elbrit_entry_team sends, as a tree. Pure.
  *
- * A member is one Employee: { id, name, seat, tier, reportsTo, vacant, user,
- * approved, waiting, todo, total } — their seat's month, counted as Ring Nav
- * counts an entry tile. A manager's own seat rarely has records of its own,
+ * A member is one SEAT of the Role Profile tree: { id (the seat), employee,
+ * name, seat, tier, reportsTo (the seat above), vacant, user, approved,
+ * waiting, todo, draft, total } — the seat's month, counted as Ring Nav
+ * counts an entry tile; a seat no one holds is a vacant member. A manager's own seat rarely has records of its own,
  * so a row shows its WHOLE BRANCH (rollup): an RBM's bar is every ABM's and
  * BE's under them, which is what "how is my team doing" asks.
  *
@@ -39,14 +40,15 @@ export function teamIndex(members = []) {
   const rolled = new Map();
   const rollup = (m) => {
     if (rolled.has(m.id)) return rolled.get(m.id);
-    const r = { approved: m.approved || 0, waiting: m.waiting || 0, todo: m.todo || 0, total: m.total || 0, people: m.seat && !m.vacant && m.total > 0 ? 1 : 0, done: 0 };
-    if (r.people && m.todo === 0 && m.waiting === 0) r.done = 1;
+    const r = { approved: m.approved || 0, waiting: m.waiting || 0, todo: m.todo || 0, draft: m.draft || 0, total: m.total || 0, people: m.seat && !m.vacant && m.total > 0 ? 1 : 0, done: 0 };
+    if (r.people && m.todo === 0 && m.waiting === 0 && !m.draft) r.done = 1;
     rolled.set(m.id, r);
     for (const k of children(m.id)) {
       const c = rollup(k);
       r.approved += c.approved;
       r.waiting += c.waiting;
       r.todo += c.todo;
+      r.draft += c.draft;
       r.total += c.total;
       r.people += c.people;
       r.done += c.done;

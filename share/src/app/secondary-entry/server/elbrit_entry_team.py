@@ -9,13 +9,17 @@
 #   GET /api/method/elbrit_entry_team                          Secondary, last month
 #   GET /api/method/elbrit_entry_team?task=doctor-support&month=2026-08
 #
-# THE CALLER'S TEAM AND ITS MONTH, for the Entry screen's team tree: every
-# Employee under the caller in the reporting chain (`reports_to`, any depth,
-# vacant seats included), and for each person their seat's month counted as
-# Ring Nav counts a seat's entry tile —
+# THE CALLER'S TEAM AND ITS MONTH, for the Entry and Approval screens' team
+# tree: the caller's SEAT and every seat under it in the Role Profile tree
+# (parent_role_profile, any depth) — one member per seat, named by whoever
+# holds it (real people first, else its "Vacant_" placeholder, else the seat
+# itself, vacant) — and for each seat its month counted as Ring Nav counts a
+# seat's entry tile —
 #   approved  its approval row is approved / waiting for verification
 #   todo      Draft (no line yet, or any line still Draft), Rejected, Rework
 #   waiting   everything submitted, the approval waiting on an approver
+#   draft     the Draft part of todo on its own (the Approval screen's team
+#             tab shows it beside its tracker counts)
 # over the records assigned to the seat (the stockist's Customer / the
 # doctor's Lead lists the seat) or where it has lines.
 #
@@ -23,11 +27,14 @@
 # subtree: a manager may not be able to read every record their people work
 # on (the Department permission), yet the team's progress is theirs to see.
 # Counts and names only — no figures. The IT role profile (the USER's, as
-# Ring Nav decides it) gets the whole field force.
+# Ring Nav decides it) gets the whole Sales tree.
 #
-# Answer: { month, task, root: <employee id> | null,
-#           members: [{ id, name, seat, tier, reportsTo, vacant, user,
-#                       approved, waiting, todo, total }] }
+# A member's `id` is its seat and `reportsTo` the seat above it; `employee`
+# is the holder's Employee id (None for a seat no one holds).
+#
+# Answer: { month, task, root: <the caller's seat> | null,
+#           members: [{ id, employee, name, seat, tier, reportsTo, vacant,
+#                       user, approved, waiting, todo, draft, total }] }
 #
 # safe_exec: no import, no .format(), no set literals, no tuple
 # unpacking, no underscore-prefixed names.
@@ -157,42 +164,63 @@ last = str(frappe.utils.get_last_day(first))
 in_month = ["date", "between", [first, last]]
 is_it = frappe.db.get_value("User", me, "role_profile_name") == "IT"
 
-FIELDS = ["name", "employee_name", "custom_role_profile", "reports_to", "user_id"]
+FIELDS = ["name", "employee_name", "custom_role_profile", "role_id", "reports_to", "user_id"]
+SALES_ROOT = "Sales"
 
-# ---- the team: the caller and everyone under them (IT: the field force)
-people = []
+# ---- the team: the caller's SEAT and every seat under it in the Role
+# Profile tree (parent_role_profile, any depth), each with whoever holds it
+# — real people before "Vacant_" placeholders. A seat no Active Employee
+# holds is a member too (vacant, named by its seat): its records are someone's
+# to cover. IT: the whole Sales tree.
+kids = {}
+for r in frappe.get_all("Role Profile", fields=["name", "parent_role_profile"], limit_page_length=0):
+    p = r.get("parent_role_profile")
+    if p:
+        if p not in kids:
+            kids[p] = []
+        kids[p].append(r.get("name"))
+
+holders = {}    # seat -> its Active Employees, real people first
+for e in frappe.get_all("Employee", filters={"status": "Active"}, fields=FIELDS, limit_page_length=0):
+    s = e.get("custom_role_profile")
+    if not s:
+        continue
+    if s not in holders:
+        holders[s] = []
+    if is_vacant_name(e.get("employee_name")):
+        holders[s].append(e)
+    else:
+        holders[s].insert(0, e)
+
 root = None
+top = None
+tree = []       # [seat, parent seat]
 if is_it:
-    for e in frappe.get_all("Employee", filters={"status": "Active"}, fields=FIELDS, limit_page_length=0):
-        if tier_of(e.get("custom_role_profile")) in FIELD_TIERS:
-            people.append(e)
+    top = SALES_ROOT
 else:
     mine = frappe.get_all("Employee", filters={"user_id": me, "status": "Active"}, fields=FIELDS, limit_page_length=1)
     if mine:
-        root = mine[0].get("name")
-        people.append(mine[0])
-        frontier = [root]
-        seen = {root: 1}
-        hops = 0
-        while frontier and hops < 8:
-            hops = hops + 1
-            below = []
-            for part in chunks(frontier):
-                for e in frappe.get_all("Employee",
-                                        filters=[["reports_to", "in", part], ["status", "=", "Active"]],
-                                        fields=FIELDS, limit_page_length=0):
-                    if seen.get(e.get("name")):
-                        continue
-                    seen[e.get("name")] = 1
-                    people.append(e)
-                    below.append(e.get("name"))
-            frontier = below
+        top = mine[0].get("custom_role_profile") or mine[0].get("role_id") or None
+        root = top
+        if top:
+            tree.append([top, None])
+if top:
+    frontier = [top]
+    seen = {top: 1}
+    hops = 0
+    while frontier and hops < 12:
+        hops = hops + 1
+        below = []
+        for p in frontier:
+            for k in kids.get(p) or []:
+                if seen.get(k):
+                    continue
+                seen[k] = 1
+                tree.append([k, None if p == SALES_ROOT and is_it else p])
+                below.append(k)
+        frontier = below
 
-seats = []
-for e in people:
-    s = e.get("custom_role_profile")
-    if s and s not in seats:
-        seats.append(s)
+seats = [t[0] for t in tree]
 
 # ---- each seat's month, counted as Ring Nav counts an entry tile
 units = {}      # seat -> { record: 1 while any of its lines is Draft (or none yet) }
@@ -235,9 +263,10 @@ if seats:
     # covering manager's tracker — see owner_seat): looked up only for seats
     # no one real holds among the people above.
     live = {}
-    for e in people:
-        if e.get("custom_role_profile") and not is_vacant_name(e.get("employee_name")):
-            live[e.get("custom_role_profile")] = 1
+    for s in seats:
+        for e in holders.get(s) or []:
+            if not is_vacant_name(e.get("employee_name")):
+                live[s] = 1
     owner = {}
     tracked = list(seats)
     for s in seats:
@@ -265,8 +294,11 @@ if seats:
                 state_of[tracker_of[t.get("name")]] = t.get("workflow_state")
 
 members = []
-for e in people:
-    s = e.get("custom_role_profile") or ""
+for t in tree:
+    s = t[0]
+    hs = holders.get(s) or []
+    real = [h for h in hs if not is_vacant_name(h.get("employee_name"))]
+    h = hs[0] if hs else {}
     c = {"approved": 0, "waiting": 0, "draft": 0, "rejected": 0}
     for n in units.get(s, {}):
         st = state_of.get(s + "|" + n)
@@ -281,16 +313,18 @@ for e in people:
             b = bucket_of(st)
         c[b] = c[b] + 1
     members.append({
-        "id": e.get("name"),
-        "name": e.get("employee_name"),
-        "seat": s or None,
+        "id": s,
+        "employee": h.get("name"),
+        "name": " / ".join([x.get("employee_name") for x in real]) if real else (h.get("employee_name") or s),
+        "seat": s,
         "tier": tier_of(s) or None,
-        "reportsTo": e.get("reports_to"),
-        "vacant": 1 if is_vacant_name(e.get("employee_name")) else 0,
-        "user": e.get("user_id"),
+        "reportsTo": t[1],
+        "vacant": 0 if real else 1,
+        "user": h.get("user_id"),
         "approved": c["approved"],
         "waiting": c["waiting"],
         "todo": c["draft"] + c["rejected"],
+        "draft": c["draft"],
         "total": c["approved"] + c["waiting"] + c["draft"] + c["rejected"],
     })
 
