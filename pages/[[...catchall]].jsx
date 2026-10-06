@@ -114,8 +114,10 @@ export const getStaticProps = async (context) => {
       <PlasmicComponent component={pageMeta.displayName} />
     </PlasmicRootProvider>
   );
-  // Use revalidate if you want incremental static regeneration
-  return { props: { plasmicData, queryCache }, revalidate: 60 };
+  // Rebuild at most every 10 minutes: each rebuild runs as a Netlify function,
+  // and at 60s every page regenerated almost every minute of the working day.
+  // User data is fetched client-side, so this only delays Plasmic publishes.
+  return { props: { plasmicData, queryCache }, revalidate: 600 };
 }
 
 export const getStaticPaths = async () => {
