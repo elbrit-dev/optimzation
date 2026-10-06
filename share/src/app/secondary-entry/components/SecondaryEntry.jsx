@@ -387,11 +387,14 @@ export function SecondaryEntry({
   /* ---- "Add doctor" / "Add stockist" (task.addMethod) ---------------------
      The seat's own parties not on its list (the server's `addable`, own
      view only, and only for the PREVIOUS month — the one the add script
-     creates for; any other month sends null, so no button). Create puts the seat's lines — every product
+     creates for; any other month sends null, so no button). Doctor Support
+     (task.addCovers) also offers it on a vacant seat being covered, adding
+     for that seat. Create puts the seat's lines — every product
      at 0 — on each, then the month is re-read so they show, and go into the
      downloaded sheet, like any other. */
   const addable = server.data?.addable;
-  const canAdd = Boolean(task.addMethod) && serverMode && canEdit && !viewing && Array.isArray(addable);
+  const addingFor = coveringNow && task.addCovers ? viewing.seat : null;
+  const canAdd = Boolean(task.addMethod) && serverMode && canEdit && (!viewing || Boolean(addingFor)) && Array.isArray(addable);
   const [addOpen, setAddOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState(null);
@@ -401,7 +404,7 @@ export function SecondaryEntry({
       setAddError(null);
       try {
         const writer = await getWriter();
-        const res = (await writer.addParties({ parties: names })) ?? {};
+        const res = (await writer.addParties({ parties: names, seat: addingFor })) ?? {};
         const done = (res.created?.length ?? 0) + (res.added?.length ?? 0);
         const skipped = res.skipped ?? [];
         if (!done) {
@@ -421,7 +424,7 @@ export function SecondaryEntry({
         setAdding(false);
       }
     },
-    [getWriter, server, flash, task],
+    [getWriter, server, flash, task, addingFor],
   );
 
   const [bulkBusy, setBulkBusy] = useState(false);

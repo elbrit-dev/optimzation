@@ -94,6 +94,9 @@ export const DOCTOR_SUPPORT = {
   addMethod: 'elbrit_doctor_support_add',
   addParam: 'doctors',
   addLimit: 20,
+  /* A manager covering a vacant seat adds that seat's doctors too: the
+     script takes the covered `seat` and checks the caller covers it. */
+  addCovers: true,
   fileStem: 'doctor-support',
   doctype: 'Doctor Support',
   childTable: 'item_table',

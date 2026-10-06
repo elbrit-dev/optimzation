@@ -8,6 +8,7 @@
 #
 #   POST /api/method/elbrit_doctor_support_add
 #        { "doctors": ["DR-1", "DR-2"] }
+#        { "doctors": [...], "seat": "BE3-..." }   a vacant seat the caller covers
 #
 # The Doctor Support screen's "Add doctor": puts the CALLER's seat on a
 # doctor's Doctor Support for the month, so the doctor shows on their screen
@@ -31,6 +32,16 @@
 # table lists their seat. Anything else in `doctors` is skipped, not added.
 # Only a real holder's seat (an Active Employee for the user, not a "Vacant_"
 # placeholder).
+#
+# A COVERED VACANT SEAT (`seat`): a manager adds a vacant seat's doctors for
+# it, as elbrit_doctor_support_entry lets them enter for it (`covering`). The
+# seat must roll up to the caller's — owner_seat, the tracker's own routing:
+# the nearest live seat above it is the caller's. The lines carry the vacant
+# seat (its approval still lands on the caller, via the tracker), with the
+# seat's own department and HQ: its holder's (a "Vacant_" placeholder's,
+# when it has one), else the Role Profile's department and the doctor's HQ
+# for that seat (its Role Profile row). approved_by is that holder, or empty,
+# as the bulk load writes a vacant seat.
 #
 # WHICH PRODUCTS: as elbrit_doctor_support_entry sends them to the picker —
 # Items in the Products group the caller may read (frappe.get_list: the ERP's
@@ -86,6 +97,49 @@ def num(v):
         return 0.0
 
 
+def is_vacant_name(n):
+    return (n or "")[:6].lower() == "vacant"
+
+
+def owner_seat(s):
+    # The seat whose approval carries `s`'s lines — as in
+    # elbrit_doctor_support_entry and the tracker script: `s` itself when
+    # someone real holds it; else the nearest seat above with a live holder,
+    # up reports_to from its placeholder holder, or up the Role Profile tree
+    # when no one holds it.
+    holders = frappe.get_all("Employee", filters={"custom_role_profile": s, "status": "Active"},
+                             fields=["employee_name", "reports_to"], limit=20)
+    climb = None
+    for h in holders:
+        if not is_vacant_name(h.get("employee_name")):
+            return s
+        if climb is None:
+            climb = h.get("reports_to")
+    if holders:
+        cur = climb
+        hops = 0
+        while cur and hops < 15:
+            hops = hops + 1
+            m = frappe.db.get_value("Employee", cur,
+                                    ["employee_name", "status", "reports_to", "custom_role_profile"], as_dict=True)
+            if not m:
+                break
+            if m.get("status") == "Active" and not is_vacant_name(m.get("employee_name")) and m.get("custom_role_profile"):
+                return m.get("custom_role_profile")
+            cur = m.get("reports_to")
+        return s
+    cur = frappe.db.get_value("Role Profile", s, "parent_role_profile")
+    hops = 0
+    while cur and hops < 15:
+        hops = hops + 1
+        for h in frappe.get_all("Employee", filters={"custom_role_profile": cur, "status": "Active"},
+                                fields=["employee_name"], limit=20):
+            if not is_vacant_name(h.get("employee_name")):
+                return cur
+        cur = frappe.db.get_value("Role Profile", cur, "parent_role_profile")
+    return s
+
+
 me = frappe.session.user
 # ALWAYS THE PREVIOUS MONTH: support is entered for the month just gone, so
 # a record is only ever created (or joined) for it — today's date decides,
@@ -116,21 +170,40 @@ emp = frappe.get_all("Employee", filters={"user_id": me, "status": "Active"},
 if not emp:
     frappe.throw("No active Employee for this user, so there is no seat to add doctors to.")
 emp = emp[0]
-seat = emp.get("custom_role_profile") or emp.get("role_id") or ""
-if not seat:
+own_seat = emp.get("custom_role_profile") or emp.get("role_id") or ""
+if not own_seat:
     frappe.throw("This user's Employee has no seat (role profile).")
 if (emp.get("employee_name") or "").strip()[:6].lower() == "vacant":
     frappe.throw("A vacant placeholder cannot add doctors.")
-dept = emp.get("department") or frappe.db.get_value("Role Profile", seat, "custom_department")
-hq = emp.get("custom_territory")
+seat = str(frappe.form_dict.get("seat") or "").strip() or own_seat
+if seat != own_seat:
+    # ---- a vacant seat: only one that rolls up to the caller's
+    if not frappe.db.exists("Role Profile", seat):
+        frappe.throw("No such seat: " + seat)
+    if owner_seat(seat) != own_seat:
+        frappe.throw("You do not cover " + seat + ", so you cannot add its doctors.")
+    # Its holder: an Active one first (a "Vacant_" placeholder — a live one
+    # would have failed the check above), else whoever held it last.
+    holder = frappe.get_all("Employee", filters={"custom_role_profile": seat},
+                            fields=["name", "department", "custom_territory"],
+                            order_by="status asc, modified desc", limit_page_length=1)
+    holder = holder[0] if holder else {}
+    approver = holder.get("name")
+    dept = holder.get("department") or frappe.db.get_value("Role Profile", seat, "custom_department")
+    hq = holder.get("custom_territory")
+else:
+    approver = emp.get("name")
+    dept = emp.get("department") or frappe.db.get_value("Role Profile", seat, "custom_department")
+    hq = emp.get("custom_territory")
 
 # ---- WHOSE DOCTORS: the seat's (Lead's Role Profile table), and Active
+# assigned[doctor] = the HQ on the doctor's row for the seat (or "")
 assigned = {}
 for r in frappe.get_all("Role Profile Multiselect",
                         filters=[["parenttype", "=", "Lead"], ["role_profile_list", "=", seat],
                                  ["parent", "in", doctors]],
-                        fields=["parent"], limit_page_length=0):
-    assigned[r.get("parent")] = 1
+                        fields=["parent", "hq"], limit_page_length=0):
+    assigned[r.get("parent")] = r.get("hq") or assigned.get(r.get("parent")) or ""
 active = {}
 for r in frappe.get_all("Lead", filters=[["name", "in", doctors], ["status", "=", "Active"]],
                         fields=["name"], limit_page_length=0):
@@ -167,12 +240,12 @@ if not products:
     frappe.throw("No products for your department, so there is nothing to add.")
 
 
-def seat_lines(target):
+def seat_lines(target, line_hq):
     # One Draft line per product, for this seat, on `target`.
     for p in products:
         pts = num(p.get("custom_last_pts"))
         row = {"item": p.get("name"), "brand": p.get("brand"), "qty": 0, "amount": 0,
-               F_SEAT: seat, F_STATUS: "Draft", F_HQ: hq, F_DEPT: dept}
+               F_SEAT: seat, F_STATUS: "Draft", F_HQ: line_hq, F_DEPT: dept}
         if pts > 0:
             row["rate"] = pts
         target.append("item_table", row)
@@ -181,8 +254,8 @@ def seat_lines(target):
         for r in (target.get("table_rdru") or []):
             if r.get("role_profile") == seat:
                 return
-        target.append("table_rdru", {"approved_by": emp.get("name"), "role_profile": seat,
-                                     "department": dept, "hq": hq, "approval_status": "Draft"})
+        target.append("table_rdru", {"approved_by": approver, "role_profile": seat,
+                                     "department": dept, "hq": line_hq, "approval_status": "Draft"})
 
 
 def existing_for(d):
@@ -191,14 +264,14 @@ def existing_for(d):
     return found[0].get("name") if found else None
 
 
-def add_to(name):
+def add_to(name, line_hq):
     # The seat's lines onto an existing record: True when added, False when
     # the seat already has lines there.
     doc = frappe.get_doc(DOCTYPE, name)
     for line in (doc.get("item_table") or []):
         if line.get(F_SEAT) == seat:
             return False
-    seat_lines(doc)
+    seat_lines(doc, line_hq)
     doc.save()
     return True
 
@@ -213,10 +286,11 @@ for d in doctors:
     if not active.get(d):
         skipped.append({"doctor": d, "reason": "inactive"})
         continue
+    line_hq = hq or assigned.get(d) or None
     name = existing_for(d)
     try:
         if name:
-            if add_to(name):
+            if add_to(name, line_hq):
                 added.append(name)
             else:
                 skipped.append({"doctor": d, "reason": "already on your list"})
@@ -224,7 +298,7 @@ for d in doctors:
         doc = frappe.get_doc({"doctype": DOCTYPE, "doctor": d, "date": last, "custom_period": period})
         doc.name = d + "-" + period
         doc.flags.update({"name_set": True})
-        seat_lines(doc)
+        seat_lines(doc, line_hq)
         doc.insert()
         created.append(doc.name)
     except Exception as e:
@@ -234,7 +308,7 @@ for d in doctors:
             skipped.append({"doctor": d, "reason": str(e)[:200]})
             continue
         try:
-            if add_to(name):
+            if add_to(name, line_hq):
                 added.append(name)
             else:
                 skipped.append({"doctor": d, "reason": "already on your list"})

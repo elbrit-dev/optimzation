@@ -22,8 +22,8 @@
 #
 # ADDABLE: the seat's other doctors — Active Leads whose Role Profile table
 # lists the seat, with no lines of the seat this month — for "Add doctor".
-# The caller's own seat only, and only when `month` is the previous month
-# (the only one "Add doctor" creates for); otherwise null.
+# The caller's own seat or a vacant seat they cover, and only when `month`
+# is the previous month (the only one "Add doctor" creates for); otherwise null.
 #
 # WHICH LINES: a Doctor Support carries several seats' Support Items; only
 # the caller's seat's are sent (their active Employee's custom_role_profile, or `seat`).
@@ -566,14 +566,15 @@ if seat:
             }
 
     # ---- ADDABLE: the seat's own Active doctors not on its list this month,
-    # for "Add doctor" — the caller's own seat only (not a team seat, a
-    # covered vacant seat or IT's view), and only for THE PREVIOUS MONTH, the
-    # one elbrit_doctor_support_add creates for — any other month sends
-    # `addable: null`, and the screen offers no "Add doctor". Read past
+    # for "Add doctor" — the caller's own seat, or a vacant seat they cover
+    # (its doctors are theirs to add: elbrit_doctor_support_add takes the
+    # `seat`), never a team seat or IT's view; and only for THE PREVIOUS
+    # MONTH, the one elbrit_doctor_support_add creates for — any other month
+    # sends `addable: null`, and the screen offers no "Add doctor". Read past
     # permissions: only the names of the doctors assigned to the seat.
     if month != month_before(frappe.utils.nowdate()[:7]):
         addable = None
-    elif seat == own_seat and not see_all and not covering:
+    elif not see_all and (seat == own_seat or covering):
         codes = [c for c in assigned if not has_lines.get(c)]
         for part in chunks(codes):
             for c in frappe.get_all("Lead", filters=[["name", "in", part], ["status", "=", "Active"]],
