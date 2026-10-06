@@ -23,6 +23,21 @@ export function calculateTotalLeaveDays(startDate, endDate, isHalfDay, holidayDa
 
   return isHalfDay ? workingDays - 0.5 : workingDays;
 }
+// Calendar titles use the short code so the owner's name fits in a cell
+// ("SL - Vignesh Somasundaram"); the details dialog keeps the full name.
+const LEAVE_TYPE_SHORT_CODES = {
+  "Sick Leave": "SL",
+  "Casual Leave": "CL",
+  "Privilege Leave": "PL",
+  "Leave Without Pay": "LWP",
+  "Compensatory Off": "CO",
+  "Probationary Leave Policy": "PRL",
+};
+
+export function shortLeaveType(leaveTypeName) {
+  return LEAVE_TYPE_SHORT_CODES[leaveTypeName] ?? leaveTypeName;
+}
+
 function buildEmployeeFullName(employee) {
   if (!employee || typeof employee !== "object") return null;
 
@@ -36,7 +51,7 @@ function buildEmployeeFullName(employee) {
 }
 
 export function mapFormToErpLeave(values,options = {}) {
-  const { erpName } = options;
+  const { erpName, holidayDates } = options;
   const isHalf = values.leavePeriod === "Half";
   const fromDate = toERPDate(values.startDate);
   const toDate = toERPDate(values.endDate);
@@ -52,7 +67,8 @@ export function mapFormToErpLeave(values,options = {}) {
   const totalDays = calculateTotalLeaveDays(
     values.startDate,
     values.endDate,
-    isHalf
+    isHalf,
+    holidayDates
   );
 
   const doc = {
@@ -129,7 +145,7 @@ export function mapErpLeaveToCalendar(leave) {
     erpName: `${leave.name}`,
     id: `${leave.name}`,
     title: ownerFullName
-      ? `${leaveTypeName} - ${ownerFullName}`
+      ? `${shortLeaveType(leaveTypeName)} - ${ownerFullName}`
       : leaveTypeName,
     tags: TAG_IDS.LEAVE,
     leaveType: leaveTypeName,

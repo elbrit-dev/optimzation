@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { AUTH_CONFIG, LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
-import { isEmployeeOnApprovedLeave } from "@calendar/lib/calendar/leaveDay";
+import { doctorVisitBlockReason, isEmployeeOnApprovedLeave } from "@calendar/lib/calendar/leaveDay";
 import { buildEventDefaultValues, getAvailableTags, OTHER_WORK_TYPES, OTHER_WORK_TYPES_WITH_DETAILS, TAG_IDS } from "@calendar/components/calendar/constants";
 import { mapFormToErpEvent } from "@calendar/components/calendar/module/event/mappers/event-to-erp";
 import {
@@ -65,7 +65,7 @@ import {
 	saveLeaveApplication,
 	updateLeaveAttachment,
 } from "@calendar/components/calendar/module/leave/services/leave.service";
-import { isLeafRole, resolveLoggedInRoleId, resolveSuperiorShareUserIds, resolveVacantSubordinateRoleIds } from "@calendar/lib/employeeHeirachy";
+import { isLeafRole, resolveLoggedInRoleId, resolveSuperiorShareUserIds, resolveSuperiorShareUserIdsUpTo, resolveVacantSubordinateRoleIds } from "@calendar/lib/employeeHeirachy";
 import { resolvePobDepartments } from "@calendar/lib/calendar/pobDepartments";
 import { saveDocToErp } from "@calendar/components/calendar/module/todo/services/todo.service";
 import { uploadFileToDoc, uploadLeaveMedicalCertificate } from "@calendar/lib/file.service";
@@ -128,7 +128,7 @@ export function AddEditEventDialog({
 		setEmployeeOptions, territoryDoctors, setTerritoryDoctors,
 		setDoctorOptions, customerOptions, setCustomerOptions, selectedDate, allowedEmployeeIds,
 		setHqTerritoryOptions, users, elbritRoleEdges, enabledTagIds, enableGoogleCalendarSync: calendarSyncEnabled,
-		addEvent, updateEvent, teamDataReady, ensureTeamData } = useCalendar();
+		addEvent, updateEvent, teamDataReady, ensureTeamData, tagRoleLoading } = useCalendar();
 	// Only the event types this deployment enables can be created here, and a new
 	// event must start on one of them.
 	const availableTags = useMemo(
@@ -749,6 +749,21 @@ export function AddEditEventDialog({
 		);
 		return approverIsInTeam ? superiors : [leaveApproverEmail];
 	}, [resolvedLoggedInRoleId, elbritRoleEdges, isOwnEvent, shareUsers, leaveApproverEmail]);
+	// A leave is shared up the owner's chain like any event, but only as far as
+	// the SM. With the team list incomplete it falls back, as above, to the leave
+	// approver alone.
+	const leaveShareUserIds = useMemo(() => {
+		if (!isOwnEvent) return [];
+		const upToSm = resolvedLoggedInRoleId
+			? resolveSuperiorShareUserIdsUpTo(
+				elbritRoleEdges,
+				shareUsers,
+				resolvedLoggedInRoleId
+			).filter((userId) => userId !== LOGGED_IN_USER.email)
+			: [];
+		if (upToSm.length) return upToSm;
+		return superiorUserIds.filter((userId) => userId === leaveApproverEmail);
+	}, [resolvedLoggedInRoleId, elbritRoleEdges, isOwnEvent, shareUsers, superiorUserIds, leaveApproverEmail]);
 	// Shared with the inline POB editor in the visit details dialog, so both
 	// offer the same item list.
 	const currentUserDepartments = useMemo(
@@ -1558,6 +1573,17 @@ export function AddEditEventDialog({
 	// employee record has no HQ to book against, so they fall through to the
 	// normal path and plan HQ first like everyone else.
 	const hasValidHqTourPlan = !!matchedHqEvent;
+	// No DR Tour Plan on a day with the user's own leave or Other Work (see
+	// lib/calendar/leaveDay). The chip is greyed and says why when pressed, and
+	// the save is refused too, since the DR form's own date can be moved onto
+	// such a day. An existing visit can still be edited.
+	const doctorVisitBlockReasonText = useMemo(
+		() =>
+			isEditing
+				? null
+				: doctorVisitBlockReason(allEvents, LOGGED_IN_USER.id, startDate),
+		[allEvents, isEditing, startDate]
+	);
 	const canCreateDoctorVisitDirectly =
 		isLeafHierarchyUser && Boolean(loggedInEmployeeHqTerritory);
 	const canUseDoctorVisitTag =
@@ -1585,6 +1611,9 @@ export function AddEditEventDialog({
 
 	useEffect(() => {
 		if (!isOpen || isEditing) return;
+		// Until the role and HQ are known every user looks like a manager with no
+		// HQ plan; switching now would push a BE's DR Tour Plan onto Leave.
+		if (tagRoleLoading) return;
 
 		if (selectedTag === TAG_IDS.HQ_TOUR_PLAN && shouldHideHqTourPlanTag) {
 			form.setValue("tags", TAG_IDS.DOCTOR_VISIT_PLAN, {
@@ -1611,6 +1640,7 @@ export function AddEditEventDialog({
 		isOpen,
 		selectedTag,
 		shouldHideHqTourPlanTag,
+		tagRoleLoading,
 	]);
 	useEffect(() => {
 		if (selectedTag !== TAG_IDS.DOCTOR_VISIT_PLAN) return;
@@ -2085,12 +2115,10 @@ export function AddEditEventDialog({
 
 			const leaveDoc = mapFormToErpLeave(values, {
 				erpName: event?.erpName,
+				holidayDates,
 			});
 			delete leaveDoc.custom_attachement;
 
-			// No DocShare for leave — the approval workflow already routes the
-			// application to the leave approver, so sharing is redundant (and the
-			// approver may lack "Share" permission, which would fail the save).
 			const calendarLeave = mapErpLeaveToCalendar({
 				...leaveDoc,
 				name: event?.erpName ?? createLocalEventId("local-leave"),
@@ -2098,8 +2126,14 @@ export function AddEditEventDialog({
 				color: "#DC2626",
 			});
 
+			// Shared up to the SM after the save, in the background: a DocShare
+			// the applicant isn't permitted to create must not fail the leave.
+			// An edit re-checks existing shares and adds only the missing ones.
 			const savedLeave = await saveLeaveApplication(leaveDoc, {
 				erpName: event?.erpName,
+				shareWithUserIds: leaveShareUserIds,
+				deferShareSync: true,
+				skipExistingShareCheck: !isEditing,
 			});
 
 			// The application exists in ERP from here on. A certificate that fails
@@ -2349,12 +2383,16 @@ export function AddEditEventDialog({
 	// ----------------------------------------------------
 
 	const onSubmit = async (values) => {
+		if (values.tags === TAG_IDS.DOCTOR_VISIT_PLAN && doctorVisitBlockReasonText) {
+			toast.error(doctorVisitBlockReasonText);
+			return;
+		}
 		// NO SAVE WITH INCOMPLETE TEAM DATA. An event is shared with the owner's
 		// managers from the employee list and role hierarchy; if either failed to
 		// load, saving now would reach no manager and say nothing (Dharun Raj R,
 		// 26 Sep 2026) and the visit title would lose its team name too. So load
-		// them once more and ask for Save again. Leave (never shared) and Travel
-		// Requests (not an Event) do not depend on it.
+		// them once more and ask for Save again. Leave (its share falls back to the
+		// leave approver) and Travel Requests (not an Event) do not depend on it.
 		// A team list that stays incomplete does not block a save that still
 		// reaches a manager: `superiorUserIds` then holds the owner's leave
 		// approver (see above). Only a save that would reach nobody is stopped.
@@ -2514,6 +2552,17 @@ export function AddEditEventDialog({
 								render={({ field }) => (
 									<div className="flex flex-wrap gap-2">
 										{availableTags.filter((tag) => {
+											// HQ / DR Tour Plan / Other Work depend on whether the
+											// user is a BE; offer none of them until that is known,
+											// rather than showing a BE the HQ tag for a moment.
+											if (
+												tagRoleLoading &&
+												(tag.id === TAG_IDS.HQ_TOUR_PLAN ||
+													tag.id === TAG_IDS.DOCTOR_VISIT_PLAN ||
+													tag.id === TAG_IDS.OTHER)
+											) {
+												return isEditing && tag.id === selectedTag;
+											}
 											if (tag.id === TAG_IDS.HQ_TOUR_PLAN) {
 												return !shouldHideHqTourPlanTag;
 											}
@@ -2526,23 +2575,39 @@ export function AddEditEventDialog({
 												return canUseDoctorVisitTag;
 											}
 											return true;
-										}).map((tag) => (
+										}).map((tag) => {
+											const blockedReason =
+												tag.id === TAG_IDS.DOCTOR_VISIT_PLAN
+													? doctorVisitBlockReasonText
+													: null;
+											return (
 											<button
 												key={tag.id}
 												type="button"
 												disabled={isEditing && tagConfig.ui?.lockTagOnEdit}
+												aria-disabled={blockedReason ? true : undefined}
+												title={blockedReason ?? undefined}
 												onClick={() => {
+													// Greyed, not disabled: a disabled button can't tell
+													// the user why it won't open.
+													if (blockedReason) {
+														toast.info(blockedReason);
+														return;
+													}
 													form.setValue("description", "");
 													field.onChange(tag.id);
 												}}
-												className={`px-4 py-1 rounded-full ${field.value === tag.id
+												className={`px-4 py-1 rounded-full ${blockedReason
+													? "border border-dashed border-slate-300 bg-slate-50 text-slate-400"
+													: field.value === tag.id
 													? "bg-primary text-white"
 													: "bg-muted"
 													} ${isEditing ? "cursor-default" : ""}`}
 											>
 												{tag.label}
 											</button>
-										))}
+											);
+										})}
 									</div>
 								)}
 							/>

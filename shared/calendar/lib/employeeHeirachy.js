@@ -232,6 +232,28 @@ export function resolveSuperiorShareUserIds(
     .filter(Boolean);
 }
 
+// Like resolveSuperiorShareUserIds, but the walk up stops at the first role of
+// `stopCode` (role profile prefix, "SM2-ELBR-…" -> "SM"), inclusive: a leave
+// goes to the ABM, RBM and SM, never above. With no such role in the chain the
+// whole chain is used.
+export function resolveSuperiorShareUserIdsUpTo(
+  elbritEdges = [],
+  users = [],
+  roleId,
+  stopCode = "SM"
+) {
+  const chain = resolveSuperiorRoleIds(elbritEdges, roleId);
+  const stopAt = chain.findIndex(
+    (id) => String(id).split("-")[0].replace(/[0-9]/g, "").toUpperCase() === stopCode
+  );
+  const superiorRoleIds = new Set(stopAt === -1 ? chain : chain.slice(0, stopAt + 1));
+  if (!superiorRoleIds.size) return [];
+
+  return users
+    .filter((user) => user.email && user.roleId && superiorRoleIds.has(user.roleId))
+    .map((user) => user.email);
+}
+
 export function resolveVisibleEmployeeIds(elbritEdges, users) {
   // ✅ ADMIN (roleId === "Admin") → see ALL users
   if (LOGGED_IN_USER?.roleId === "Admin") {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import {
     ArrowUpDown,
     Check,
@@ -27,6 +27,22 @@ import { cn } from "@calendar/lib/utils";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 import { buildLastVisitByDoctor } from "@calendar/lib/calendar/doctorVisitHistory";
 import { searchDoctors } from "@calendar/components/calendar/module/event/services/master-data.service";
+import { AUTH_CONFIG } from "@calendar/components/auth/calendar-users";
+
+// The doctor popup (visits + support, read from ERP and cut to the reader's
+// team) is its own chunk, kept out of the form's first load.
+const loadDoctorPeek = () =>
+    import("@calendar/components/doctor-peek/DoctorPeekDialog");
+const DoctorPeekDialog = lazy(loadDoctorPeek);
+
+function doctorInitials(label) {
+    const words = String(label ?? "")
+        .replace(/^\s*dr\.?\s+/i, "")
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
+    return ((words[0]?.[0] ?? "") + (words[1]?.[0] ?? "")).toUpperCase() || "DR";
+}
 
 /* =====================================================
    FACETS
@@ -240,6 +256,25 @@ export function RHFDoctorCardSelector({
     const [optionSearch, setOptionSearch] = useState("");
     const [searchResults, setSearchResults] = useState([]);
     const [loading, setLoading] = useState(false);
+    // The doctor whose popup is open. Selecting is the checkbox's job; the rest
+    // of the card opens this.
+    const [peekDoctor, setPeekDoctor] = useState(null);
+    const [codeCopied, setCodeCopied] = useState(false);
+
+    // Warm the popup while the list is on screen: its code, and the company
+    // employee read it scopes by (the slow, doctor-independent part). By the
+    // time a card is tapped only that doctor's own rows are left to fetch.
+    useEffect(() => {
+        loadDoctorPeek().catch(() => {});
+        import("@calendar/components/doctor-peek/lib/source")
+            .then(({ prefetchDoctorPeek }) =>
+                prefetchDoctorPeek({
+                    erpUrl: AUTH_CONFIG.erpUrl,
+                    authToken: AUTH_CONFIG.authToken,
+                })
+            )
+            .catch(() => {});
+    }, []);
 
     // The dialog lives inside the calendar, so the events it already holds are
     // the visit history — no extra ERP round trip to show a last-visit date.
@@ -885,16 +920,40 @@ export function RHFDoctorCardSelector({
                     return (
                         <div
                             key={doc.value}
-                            role="checkbox"
-                            aria-checked={isSelected}
-                            onClick={() => toggleSelect(doc)}
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`${doc.label} — open details`}
+                            onClick={() => setPeekDoctor(doc)}
+                            onKeyDown={(event) => {
+                                if (event.target !== event.currentTarget) return;
+                                if (event.key === "Enter" || event.key === " ") {
+                                    event.preventDefault();
+                                    setPeekDoctor(doc);
+                                }
+                            }}
                             className={cn(
-                                "cursor-pointer rounded-xl border p-3 transition-all sm:p-4",
+                                "flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-all sm:p-4",
                                 isSelected
                                     ? "border-primary bg-primary/5"
                                     : "hover:border-primary/40"
                             )}
                         >
+                            {/* ---------- SELECT ---------- */}
+                            {/* Its own tap target: a press here selects and never
+                                reaches the card, which opens the popup. */}
+                            <span
+                                className="-m-2 shrink-0 p-2"
+                                onClick={(event) => event.stopPropagation()}
+                            >
+                                <Checkbox
+                                    checked={isSelected}
+                                    onCheckedChange={() => toggleSelect(doc)}
+                                    aria-label={`Select ${doc.label}`}
+                                    className="size-5"
+                                />
+                            </span>
+
+                            <div className="min-w-0 flex-1">
                             {/* ---------- NAME + LAST VISIT ---------- */}
                             <div className="flex items-start gap-2">
                                 <p className="min-w-0 flex-1 font-medium leading-tight">
@@ -914,9 +973,6 @@ export function RHFDoctorCardSelector({
                                         <Clock3 className="size-3 shrink-0" />
                                         {lastVisit.short}
                                     </span>
-                                    {isSelected && (
-                                        <Check className="size-4 text-green-600" />
-                                    )}
                                 </div>
                             </div>
 
@@ -944,10 +1000,47 @@ export function RHFDoctorCardSelector({
                                     ))}
                                 </div>
                             ) : null}
+                            </div>
                         </div>
                     );
                 })}
             </div>
+
+            {peekDoctor ? (
+                <Suspense fallback={null}>
+                    <DoctorPeekDialog
+                        open
+                        onOpenChange={(open) => {
+                            if (!open) {
+                                setPeekDoctor(null);
+                                setCodeCopied(false);
+                            }
+                        }}
+                        name={peekDoctor.label}
+                        code={peekDoctor.code}
+                        speciality={peekDoctor.fsl_speciality__name}
+                        hq={peekDoctor.territory__name}
+                        city={peekDoctor.city}
+                        initials={doctorInitials(peekDoctor.label)}
+                        categories={[
+                            peekDoctor.fsl_category__name,
+                            peekDoctor.fsl_category1__name,
+                            peekDoctor.fsl_category2__name,
+                            peekDoctor.fsl_category3__name,
+                        ].filter(Boolean)}
+                        copied={codeCopied}
+                        onCopyCode={() => {
+                            navigator.clipboard
+                                ?.writeText(String(peekDoctor.code ?? ""))
+                                .then(() => setCodeCopied(true))
+                                .catch(() => {});
+                        }}
+                        doctorRow={{ name: peekDoctor.value }}
+                        erpUrl={AUTH_CONFIG.erpUrl}
+                        authToken={AUTH_CONFIG.authToken}
+                    />
+                </Suspense>
+            ) : null}
         </div>
     );
 }

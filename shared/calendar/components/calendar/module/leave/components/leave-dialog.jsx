@@ -35,10 +35,14 @@ export function EventLeaveDialog({
 		onClose: () => setOpen(false),
 	});
 	const [leaveBalance, setLeaveBalance] = useState(null);
+	// The balance shown is the APPLICANT'S: a manager opening a BE's leave must
+	// see the BE's days left, not their own.
+	const leaveOwnerId = event.employee ?? event.ownerEmployeeId ?? LOGGED_IN_USER.id;
 	useEffect(() => {
 		let alive = true;
+		setLeaveBalance(null);
 
-		fetchEmployeeLeaveBalance(LOGGED_IN_USER.id)
+		fetchEmployeeLeaveBalance(leaveOwnerId)
 			.then((data) => {
 				if (!alive) return;
 				setLeaveBalance(data);
@@ -48,7 +52,7 @@ export function EventLeaveDialog({
 		return () => {
 			alive = false;
 		};
-	}, []);
+	}, [leaveOwnerId]);
 
 	const tagConfig =
 		TAG_FORM_CONFIG[event.tags] ?? TAG_FORM_CONFIG.DEFAULT;
@@ -70,15 +74,21 @@ export function EventLeaveDialog({
 	const start = event.startDate ? parseISO(event.startDate) : null;
 	const end = event.endDate ? parseISO(event.endDate) : null;
 
-	const totalDays =
+	const calendarDays =
 		start && end
 			? differenceInCalendarDays(end, start) + 1
 			: 0;
+	// ERP's total_leave_days already leaves out Sundays and holidays (no leave
+	// type includes them), so it is the count to show, not the date span.
+	const leaveDays = Number(event.total_leave_days ?? calendarDays);
+	const excludedDays = Math.floor(calendarDays - leaveDays);
 
 	const formattedRange =
 		start && end
-			? `${format(start, "d MMM yyyy")} - ${format(end, "d MMM yyyy")} (${totalDays} ${totalDays === 1 ? "day" : "days"
-			})`
+			? `${format(start, "d MMM yyyy")} - ${format(end, "d MMM yyyy")}${excludedDays > 0
+				? ` · ${calendarDays} calendar days, ${excludedDays} ${excludedDays === 1 ? "holiday/Sunday" : "holidays/Sundays"} excluded`
+				: ""
+			}`
 			: null;
 
 	const status = event.status;
@@ -127,13 +137,30 @@ export function EventLeaveDialog({
 			<ScrollArea className="max-h-[68vh]">
 				<div className="space-y-5 p-1">
 					<DetailSummary
-						title={leaveType ? `${leaveType}` : "Leave"}
+						title={
+							<>
+								{leaveType || "Leave"}
+								{leaveDays > 0 ? (
+									<>
+										{" · "}
+										<span className="text-rose-600">
+											{leaveDays} {leaveDays <= 1 ? "Day" : "Days"}
+										</span>
+									</>
+								) : null}
+							</>
+						}
 						subtitle={
-							formattedRange
-								? available !== null
-									? `${formattedRange} · ${String(available).padStart(2, "0")} days available`
-									: formattedRange
-								: null
+							formattedRange ? (
+								<>
+									{formattedRange}
+									{available !== null ? (
+										<span className="block">
+											{String(available).padStart(2, "0")} days available
+										</span>
+									) : null}
+								</>
+							) : null
 						}
 						status={status}
 						accentClassName="bg-rose-500"

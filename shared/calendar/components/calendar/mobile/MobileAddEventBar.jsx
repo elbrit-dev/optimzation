@@ -9,7 +9,7 @@ import { TAG_IDS, getAvailableTags } from "@calendar/components/calendar/constan
 import { motion, AnimatePresence } from "framer-motion";
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 import { isLeafRole, resolveLoggedInRoleId } from "@calendar/lib/employeeHeirachy";
-import { isEmployeeOnApprovedLeave } from "@calendar/lib/calendar/leaveDay";
+import { doctorVisitBlockReason, isEmployeeOnApprovedLeave } from "@calendar/lib/calendar/leaveDay";
 import { TRAVEL_MODES, canUseTravelRequest, normalizeTravelMode, resolveTravelRequester } from "@calendar/components/calendar/module/travel-request/helpers/travel-request.helper";
 import {
   Plus,
@@ -51,6 +51,7 @@ export default function MobileAddEventBar({ date: propDate }) {
     elbritRoleEdges,
     hqTerritoryOptions,
     enabledTagIds,
+    tagRoleLoading,
   } = useCalendar();
   const [showTags, setShowTags] = useState(false);
 
@@ -133,8 +134,18 @@ export default function MobileAddEventBar({ date: propDate }) {
   // here was leaking disabled types onto the mobile bar.
   const availableTags = useMemo(() => {
     return getAvailableTags(enabledTagIds).filter((tag) => {
+      // Whether the user is a BE isn't known until the role and HQ load; until
+      // then offer neither HQ nor DR Tour Plan instead of the wrong one.
+      if (
+        tagRoleLoading &&
+        (tag.id === TAG_IDS.HQ_TOUR_PLAN || tag.id === TAG_IDS.DOCTOR_VISIT_PLAN)
+      ) {
+        return false;
+      }
       if (tag.id === TAG_IDS.HQ_TOUR_PLAN) return !shouldHideHqTourPlanTag;
       if (tag.id === TAG_IDS.DOCTOR_VISIT_PLAN) {
+        // Not offered on a day with the user's own leave or Other Work.
+        if (doctorVisitBlockReason(allEvents, LOGGED_IN_USER.id, date)) return false;
         return hasValidHqTourPlan || canCreateDoctorVisitDirectly;
       }
       if (tag.id === TAG_IDS.TRAVEL_REQUEST) {
@@ -152,6 +163,9 @@ export default function MobileAddEventBar({ date: propDate }) {
     shouldHideHqTourPlanTag,
     hasValidHqTourPlan,
     canCreateDoctorVisitDirectly,
+    tagRoleLoading,
+    allEvents,
+    date,
   ]);
 
   const isPastDate = isBefore(

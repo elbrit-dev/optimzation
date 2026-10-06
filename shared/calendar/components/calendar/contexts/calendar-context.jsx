@@ -9,6 +9,9 @@ import { resolveCalendarRange } from "@calendar/lib/calendar/range";
 import { isLeafRole, resolveLoggedInRoleId, resolveVisibleEmployeeIds, resolveVisibleRoleIds } from "@calendar/lib/employeeHeirachy";
 import { useEmployeeResolvers } from "@calendar/lib/employeeResolver";
 import { fetchCalendarBootstrapData } from "@calendar/components/calendar/contexts/calendar-context/bootstrapping";
+import { fetchHQTerritories } from "@calendar/components/calendar/module/event/services/master-data.service";
+import { getCached } from "@calendar/lib/data-cache";
+import { AUTH_CONFIG } from "@calendar/components/auth/calendar-users";
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 import {
 	buildEmployeeEmailToId,
@@ -160,6 +163,7 @@ export function CalendarProvider({
 	const [employeeOptions, setEmployeeOptions] = useState([]);
 	const [doctorOptions, setDoctorOptions] = useState([]);
 	const [hqTerritoryOptions, setHqTerritoryOptions] = useState([]);
+	const [hqTerritoriesLoading, setHqTerritoriesLoading] = useState(true);
 	const [elbritRoleEdges, setElbritRoleEdges] = useState([]);
 	const [elbritRoleLoading, setElbritRoleLoading] = useState(true);
 	const [customerOptions, setCustomerOptions] = useState([]);
@@ -475,6 +479,45 @@ export function CalendarProvider({
 
 	const teamDataReady = !usersLoading && !elbritRoleLoading && !teamDataError;
 
+	// The BE check (leaf role + one HQ) reads the HQ list, which used to load only
+	// once the HQ Tour Plan tag was picked — so a BE opened Add Event on HQ Tour
+	// Plan and only then got switched to DR Tour Plan / Other Work. Load it with
+	// the team data instead, and let the tag pickers wait for all three.
+	useEffect(() => {
+		let alive = true;
+		getCached("HQ_TERRITORY", fetchHQTerritories)
+			.then((hqs) => {
+				if (alive && hqs?.length) {
+					setHqTerritoryOptions((current) => (current.length ? current : hqs));
+				}
+			})
+			.catch((error) => console.error("Failed to fetch HQ territories", error))
+			.finally(() => {
+				if (alive) setHqTerritoriesLoading(false);
+			});
+		return () => {
+			alive = false;
+		};
+	}, []);
+	// The doctor popup (DR Tour Plan cards) scopes its rows by the company org
+	// chart -- one large, doctor-independent read. The token is already here when
+	// the calendar opens, so start it now, in the background, with the popup's
+	// own code; by the time anyone taps a doctor only that doctor's rows are left.
+	// The DR list asks again when it opens, which reuses this unless it has
+	// gone stale (5 minutes).
+	useEffect(() => {
+		import("@calendar/components/doctor-peek/DoctorPeekDialog").catch(() => {});
+		import("@calendar/components/doctor-peek/lib/source")
+			.then(({ prefetchDoctorPeek }) =>
+				prefetchDoctorPeek({
+					erpUrl: AUTH_CONFIG.erpUrl,
+					authToken: AUTH_CONFIG.authToken,
+				})
+			)
+			.catch(() => {});
+	}, []);
+	const tagRoleLoading = usersLoading || elbritRoleLoading || hqTerritoriesLoading;
+
 	/* Loads the team data again if it is missing. Resolves true when it is now
 	   complete. Failed loads are not cached (data-cache drops rejections), so
 	   this really asks ERP again. */
@@ -630,7 +673,7 @@ export function CalendarProvider({
 		setHqTerritoryOptions,
 		elbritRoleEdges, allowedEmployeeIds,
 		elbritRoleLoading, customerOptions, setCustomerOptions,
-		teamDataReady, ensureTeamData,
+		teamDataReady, ensureTeamData, tagRoleLoading,
 		showOnlyApprovedLeaves,
 		setShowOnlyApprovedLeaves, showOnlyTodoList, setShowOnlyTodoList,
 		agendaVisitFilter, setAgendaVisitFilter,
