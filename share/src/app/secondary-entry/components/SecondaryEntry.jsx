@@ -404,9 +404,24 @@ export function SecondaryEntry({
       setAddError(null);
       try {
         const writer = await getWriter();
-        const res = (await writer.addParties({ parties: names, seat: addingFor })) ?? {};
-        const done = (res.created?.length ?? 0) + (res.added?.length ?? 0);
-        const skipped = res.skipped ?? [];
+        /* A covered seat's party comes as "<party>::<seat>" (My entries
+           offers them beside the caller's own): one call per seat. */
+        const bySeat = new Map();
+        for (const n of names) {
+          const at = n.indexOf('::');
+          const seat = at < 0 ? addingFor : n.slice(at + 2);
+          if (!bySeat.has(seat)) bySeat.set(seat, []);
+          bySeat.get(seat).push(at < 0 ? n : n.slice(0, at));
+        }
+        const res = { created: [], added: [], skipped: [] };
+        for (const [seat, parties] of bySeat) {
+          const one = (await writer.addParties({ parties, seat })) ?? {};
+          res.created.push(...(one.created ?? []));
+          res.added.push(...(one.added ?? []));
+          res.skipped.push(...(one.skipped ?? []));
+        }
+        const done = res.created.length + res.added.length;
+        const skipped = res.skipped;
         if (!done) {
           setAddError(skipped.length ? `Nothing added: ${skipped.map((s) => `${s.doctor} (${s.reason})`).slice(0, 3).join(', ')}.` : 'Nothing added.');
           return;

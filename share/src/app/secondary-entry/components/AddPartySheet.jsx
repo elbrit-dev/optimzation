@@ -97,7 +97,7 @@ export function AddPartySheet({ open, onClose, parties, limit, busy = false, err
                   </span>
                   <span className="flex min-w-0 flex-1 flex-col">
                     <span className="truncate text-13 font-semibold text-heading">{p.customer_name || p.name}</span>
-                    <span className="truncate text-11 text-ds-muted">{[p.name, p.note].filter(Boolean).join(' · ')}</span>
+                    <span className="truncate text-11 text-ds-muted">{[p.code ?? p.name, p.note].filter(Boolean).join(' · ')}</span>
                   </span>
                 </button>
               </li>

@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getEndpointConfigFromUrlKeyAsync } from '@/app/graphql-playground/constants';
+import { coveringLabel } from './shape';
 
 function authHeader(token) {
   const t = String(token ?? '').trim();
@@ -40,13 +41,29 @@ export async function fetchServerEntries({ endpointUrl, token, month, seat, meth
      name      "<record>::<seat>" — unique, as two covered seats can share a stockist
      docName   the record's real name, for saving
      covering  { seat, holder } — whose lines these are
-   Products are the union of every seat's. Pure, for the test. */
+   Products are the union of every seat's. The covered seats' `addable`
+   joins the caller's too, so "Add doctor" in My entries offers their
+   parties, each named "<party>::<seat>" (`code` the party, `seat` whose
+   lines it gets; the screen sends each seat's to the add script under it).
+   Pure, for the test. */
 export function mergeCovered(own, covered) {
   if (!covered.length) return own;
   const products = [...(own.products ?? [])];
   const seen = new Set(products.map((p) => p.name));
   const entries = [...(own.entries ?? [])];
+  let addable = Array.isArray(own.addable) ? [...own.addable] : own.addable;
   for (const { cover, data } of covered) {
+    if (Array.isArray(addable) && Array.isArray(data?.addable)) {
+      for (const a of data.addable) {
+        addable.push({
+          ...a,
+          name: `${a.name}::${cover.seat}`,
+          code: a.name,
+          seat: cover.seat,
+          note: [coveringLabel(cover), a.note].filter(Boolean).join(' · '),
+        });
+      }
+    }
     for (const p of data?.products ?? []) {
       if (!seen.has(p.name)) {
         seen.add(p.name);
@@ -57,7 +74,10 @@ export function mergeCovered(own, covered) {
       entries.push({ ...row, name: `${row.name}::${cover.seat}`, docName: row.name, covering: { seat: cover.seat, holder: cover.holder } });
     }
   }
-  return { ...own, entries, products };
+  if (Array.isArray(addable)) {
+    addable.sort((a, b) => String(a.customer_name ?? '').localeCompare(String(b.customer_name ?? '')));
+  }
+  return { ...own, entries, products, addable };
 }
 
 /* → { data: { seat, month, entries, products, covers } | null, error, reload }
