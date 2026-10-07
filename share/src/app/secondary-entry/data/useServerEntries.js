@@ -48,8 +48,9 @@ export async function fetchServerEntries({ endpointUrl, token, month, seat, meth
    AN EXTRA USER'S TEAM comes in the same way: the server's `enters` (every
    live seat under theirs) join `covers` marked `team`, so My entries holds
    the whole team's stockists / doctors as the nav tile counts them — each marked "For
-   <holder>" instead of covering. A team seat adds nothing to "Add": the add
-   scripts take a covered vacant seat's parties only.
+   <holder>" instead of covering. Its parties join "Add" too, marked
+   "For <holder>": the add scripts take an extra user's team seat as they
+   take a covered vacant one.
    Pure, for the test. */
 export function mergeCovered(own, covered) {
   if (!covered.length) return own;
@@ -58,7 +59,7 @@ export function mergeCovered(own, covered) {
   const entries = [...(own.entries ?? [])];
   let addable = Array.isArray(own.addable) ? [...own.addable] : own.addable;
   for (const { cover, data } of covered) {
-    if (!cover.team && Array.isArray(addable) && Array.isArray(data?.addable)) {
+    if (Array.isArray(addable) && Array.isArray(data?.addable)) {
       for (const a of data.addable) {
         addable.push({
           ...a,

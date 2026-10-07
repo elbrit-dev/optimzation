@@ -9,6 +9,7 @@
 #   POST /api/method/elbrit_secondary_add
 #        { "stockists": ["Medisure", "Lal Sons"] }
 #        { "stockists": [...], "seat": "BE3-..." }   a vacant seat the caller covers
+#        (or, for an EXTRA USER, any seat under theirs — see EXTRA_USERS)
 #
 # The Secondary Entry screen's "Add stockist" — Doctor Support's "Add
 # doctor" (doctor-support/server/elbrit_doctor_support_add.py) for
@@ -126,6 +127,24 @@ def owner_seat(s):
     return s
 
 
+# EXTRA USERS: may add for any seat under their own (the Role Profile tree,
+# any depth), as they enter and approve for it — the list in Elbrit
+# Secondary Entry / Elbrit Doctor Support Entry; change them all together.
+EXTRA_USERS = ["kamesh@elbrit.org", "ramu@elbrit.org"]
+
+
+def seat_under(s, top):
+    # True when `top` is above `s` in the Role Profile tree.
+    cur = frappe.db.get_value("Role Profile", s, "parent_role_profile")
+    hops = 0
+    while cur and hops < 15:
+        if cur == top:
+            return True
+        hops = hops + 1
+        cur = frappe.db.get_value("Role Profile", cur, "parent_role_profile")
+    return False
+
+
 me = frappe.session.user
 # ALWAYS THE PREVIOUS MONTH: secondary is entered for the month just gone,
 # so a record is only ever created (or joined) for it — today's date
@@ -163,13 +182,14 @@ if (emp.get("employee_name") or "").strip()[:6].lower() == "vacant":
 seat = str(frappe.form_dict.get("seat") or "").strip() or own_seat
 seat_hq = frappe.db.get_value("Role Profile", seat, "custom_territory")
 if seat != own_seat:
-    # ---- a vacant seat: only one that rolls up to the caller's
+    # ---- a vacant seat that rolls up to the caller's, or — for an EXTRA
+    # USER — any seat under theirs, held or not
     if not frappe.db.exists("Role Profile", seat):
         frappe.throw("No such seat: " + seat)
-    if owner_seat(seat) != own_seat:
+    if owner_seat(seat) != own_seat and not (me in EXTRA_USERS and seat_under(seat, own_seat)):
         frappe.throw("You do not cover " + seat + ", so you cannot add its stockists.")
-    # Its holder: an Active one first (a "Vacant_" placeholder — a live one
-    # would have failed the check above), else whoever held it last.
+    # Its holder: an Active one first (its live BE for an extra user's team
+    # seat, else a "Vacant_" placeholder), else whoever held it last.
     holder = frappe.get_all("Employee", filters={"custom_role_profile": seat},
                             fields=["name", "department", "custom_territory"],
                             order_by="status asc, modified desc", limit_page_length=1)

@@ -19,12 +19,12 @@ describe('mergeCovered', () => {
   it('leaves the data alone when nothing is covered', () => {
     expect(mergeCovered(own, [])).toBe(own);
   });
-  it("adds an extra user's team member's rows as theirs, labelled For, and none of their parties to Add", () => {
+  it("adds an extra user's team member's rows as theirs, labelled For, and their parties to Add", () => {
     const team = [{ cover: { seat: 'BE9-X', holder: 'Saravanan M', hq: 'HQ-Chennai', team: true }, data: { seat: 'BE9-X', entries: [{ name: 'Zed-2026-09-01', distributor__name: 'Zed', date: '2026-09-01', items: [line('BE9-X', 'A', 1)], custom_status_tracker: [] }], products: [{ name: 'A' }], addable: [{ name: 'New Co', customer_name: 'New Co' }] } }];
     const m = mergeCovered({ ...own, addable: [] }, team);
     expect(m.entries[0]).toMatchObject({ name: 'Zed-2026-09-01::BE9-X', covering: { seat: 'BE9-X', team: true } });
     expect(coveringLabel(m.entries[0].covering)).toBe('For Saravanan M · HQ-Chennai');
-    expect(m.addable).toEqual([]);
+    expect(m.addable).toEqual([{ name: 'New Co::BE9-X', customer_name: 'New Co', code: 'New Co', seat: 'BE9-X', note: 'For Saravanan M · HQ-Chennai' }]);
     expect(normalizeEntry(m.entries[0], 'RBM-X').seat).toBe('BE9-X');
   });
 });

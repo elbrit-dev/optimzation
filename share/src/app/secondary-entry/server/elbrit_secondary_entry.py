@@ -255,7 +255,8 @@ covering = covering or bool(covered.get(seat))
 
 # ---- EXTRA USERS: may see, ENTER and approve for every seat under their
 # own (the Role Profile tree, any depth), as the seat's holder would. The
-# list is copied by hand into Elbrit Doctor Support Entry, Elbrit Ring Nav, Operational Tracker Restriction and the
+# list is copied by hand into Elbrit Doctor Support Entry, Elbrit Ring Nav, the two Add scripts (Elbrit Secondary Add, Elbrit Doctor
+# Support Add), Operational Tracker Restriction and the
 # "Approval flow" steps (scripts/erp/approval-flow-extra.mjs): change them all together.
 # `enters` lists those seats' live holders (the team tree offers "Enter" on
 # them); `entering` is true when `seat` is one, which opens it editable and
@@ -538,14 +539,15 @@ if seat:
 
     # ---- ADDABLE: the seat's own enabled stockists not on its list this
     # month, for "Add stockist" — the caller's own seat, or a vacant seat
-    # they cover (its stockists are theirs to add: elbrit_secondary_add takes
-    # the `seat`), never a team seat or IT's view; and only for THE PREVIOUS
+    # they cover, or — for an EXTRA USER — a team seat they are entering for
+    # (its stockists are theirs to add: elbrit_secondary_add takes the `seat`),
+    # never anyone else's team seat or IT's view; and only for THE PREVIOUS
     # MONTH, the one elbrit_secondary_add creates for — any other month sends
     # `addable: null`, and the screen offers no "Add stockist". Read past
     # permissions: only the names of the stockists assigned to the seat.
     if month != month_before(frappe.utils.nowdate()[:7]):
         addable = None
-    elif not see_all and (seat == own_seat or covering):
+    elif not see_all and (seat == own_seat or covering or entering):
         codes = [c for c in assigned if not has_lines.get(c)]
         for part in chunks(codes):
             for c in frappe.get_all("Customer", filters=[["name", "in", part], ["disabled", "=", 0]],

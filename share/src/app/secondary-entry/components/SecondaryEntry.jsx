@@ -394,12 +394,12 @@ export function SecondaryEntry({
      The seat's own parties not on its list (the server's `addable`, own
      view only, and only for the PREVIOUS month — the one the add script
      creates for; any other month sends null, so no button). Doctor Support
-     (task.addCovers) also offers it on a vacant seat being covered, adding
-     for that seat. Create puts the seat's lines — every product
+     (task.addCovers) also offers it on a vacant seat being covered, or an
+     extra user's team seat being entered for, adding for that seat. Create puts the seat's lines — every product
      at 0 — on each, then the month is re-read so they show, and go into the
      downloaded sheet, like any other. */
   const addable = server.data?.addable;
-  const addingFor = coveringNow && task.addCovers ? viewing.seat : null;
+  const addingFor = (coveringNow || enteringNow) && task.addCovers ? viewing.seat : null;
   const canAdd = Boolean(task.addMethod) && serverMode && canEdit && (!viewing || Boolean(addingFor)) && Array.isArray(addable);
   const [addOpen, setAddOpen] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -695,8 +695,8 @@ export function SecondaryEntry({
           size="lg"
           block
           icon={<Icon name="plus" size="sm" />}
-          disabled={!addable.length}
-          title={addable.length ? undefined : `Every one of your ${task.parties} is already on your list.`}
+          /* Never disabled (a disabled button greys out and reads as broken):
+             with nothing to add, the sheet itself says every one is listed. */
           onClick={() => {
             setAddError(null);
             setAddOpen(true);
