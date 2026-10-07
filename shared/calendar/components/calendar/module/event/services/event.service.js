@@ -833,7 +833,70 @@ const SLICE_CONCURRENCY = 3;
 const CARRY_IN_DAYS = 45;
 const DAY_MS = 86400000;
 
+// THE CALENDAR READS ITS EVENTS FROM THE `calendar_events` SERVER SCRIPT
+// (erp/server-scripts/calendar_events.py). The GraphQL Events list reads every
+// event in the range and runs Event's permission check on each one, plus a
+// COUNT(*) over the same rows — at ~50k events a month that is ~12k rows per
+// request for every user, and it is what saturated the database under load. The
+// script finds the user's own / participant / public / shared events from
+// indexes and lets Frappe check permissions on just those, and answers with the
+// same node shape as EVENTS_BY_RANGE_QUERY, so nothing downstream changes.
+// A site without the script (it answers 417 "Failed to get method") keeps the
+// GraphQL path for the rest of the session; any other failure falls back once.
+let calendarEventsScriptMissing = false;
+
+async function fetchEventWindowFromScript(filter) {
+  const { authToken } = AUTH_CONFIG;
+  if (!authToken) throw new Error("Missing ERP auth configuration");
+
+  let windowSize = INITIAL_EVENT_WINDOW;
+
+  while (true) {
+    const response = await fetch(`${getErpBaseUrl()}/api/method/calendar_events`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `token ${authToken}`,
+      },
+      body: JSON.stringify({ filters: filter, first: windowSize }),
+    });
+    const json = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      const error = new Error(json?.exception || `HTTP ${response.status}`);
+      error.scriptMissing = /Failed to get method/i.test(String(json?.exception ?? ""));
+      throw error;
+    }
+
+    const answer = json?.message;
+    if (!Array.isArray(answer?.events)) throw new Error("calendar_events reply carried no events");
+    if (!answer.has_more) return answer.events;
+
+    if (windowSize >= MAX_EVENT_WINDOW) {
+      console.warn(
+        `Event fetch truncated at ${MAX_EVENT_WINDOW} rows in one week — some events are not being shown.`
+      );
+      return answer.events;
+    }
+
+    windowSize = Math.min(windowSize * 2, MAX_EVENT_WINDOW);
+  }
+}
+
 async function fetchEventWindow(filter) {
+  if (!calendarEventsScriptMissing) {
+    try {
+      return await fetchEventWindowFromScript(filter);
+    } catch (error) {
+      if (error.scriptMissing) calendarEventsScriptMissing = true;
+      console.warn("calendar_events Server Script unavailable — reading events through GraphQL.", error);
+    }
+  }
+
+  return fetchEventWindowFromGraphql(filter);
+}
+
+async function fetchEventWindowFromGraphql(filter) {
   let windowSize = INITIAL_EVENT_WINDOW;
   let nodes = null;
 
