@@ -26,7 +26,6 @@ import {
 import { cn } from "@calendar/lib/utils";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 import { buildLastVisitByDoctor } from "@calendar/lib/calendar/doctorVisitHistory";
-import { searchDoctors } from "@calendar/components/calendar/module/event/services/master-data.service";
 import { AUTH_CONFIG } from "@calendar/components/auth/calendar-users";
 
 // The doctor popup (visits + support, read from ERP and cut to the reader's
@@ -243,6 +242,8 @@ export function RHFDoctorCardSelector({
     options = [],
     multiple = false,
     tagsDisplay = true,
+    // The form is still reading the mapped doctors for this HQ.
+    loading = false,
 }) {
     const [search, setSearch] = useState("");
     // Empty = no filter on that facet, so filters start out of the way.
@@ -255,7 +256,6 @@ export function RHFDoctorCardSelector({
     // a few hundred cities, which is far too many to scroll through.
     const [optionSearch, setOptionSearch] = useState("");
     const [searchResults, setSearchResults] = useState([]);
-    const [loading, setLoading] = useState(false);
     // The doctor whose popup is open. Selecting is the checkbox's job; the rest
     // of the card opens this.
     const [peekDoctor, setPeekDoctor] = useState(null);
@@ -288,45 +288,23 @@ export function RHFDoctorCardSelector({
         setSearchResults(options);
     }, [options]);
 
+    // Search only within `options`: they are every doctor mapped to the planned
+    // HQ for this user and their team. A server search would match on the
+    // doctor's territory field and bring back doctors nobody here is mapped to.
     useEffect(() => {
-        const timeout = setTimeout(async () => {
-            const term = search.trim();
-
-            // Show territory doctors initially
-            if (!term) {
-                setSearchResults(options);
-                return;
-            }
-
-            setLoading(true);
-
-            try {
-                const doctors = await searchDoctors({
-                    search: term,
-                    territory: hqTerritory,
-                });
-
-                // The server search only finds doctors whose own territory is
-                // the HQ; `options` also holds doctors mapped to the HQ through
-                // a vacant role under the user (another territory), so the
-                // loaded ones that match are kept too.
-                const needle = term.toLowerCase();
-                const found = new Set(doctors.map((d) => d.value));
-                const loaded = options.filter(
-                    (d) =>
-                        !found.has(d.value) &&
-                        [d.label, d.value, d.doctorCode, d.city].some((v) =>
-                            String(v ?? "").toLowerCase().includes(needle)
-                        )
-                );
-                setSearchResults([...loaded, ...doctors]);
-            } finally {
-                setLoading(false);
-            }
-        }, 400);
-
-        return () => clearTimeout(timeout);
-    }, [search, hqTerritory, options]);
+        const term = search.trim().toLowerCase();
+        if (!term) {
+            setSearchResults(options);
+            return;
+        }
+        setSearchResults(
+            options.filter((d) =>
+                [d.label, d.value, d.doctorCode, d.city].some((v) =>
+                    String(v ?? "").toLowerCase().includes(term)
+                )
+            )
+        );
+    }, [search, options]);
 
     /* =====================================================
        Normalize value → selected ID array (unchanged logic)
@@ -888,7 +866,7 @@ export function RHFDoctorCardSelector({
                 {!filteredDoctors.length ? (
                     <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
                         {loading
-                            ? "Searching doctors…"
+                            ? "Loading doctors…"
                             : searchResults.length
                             ? "No doctor matches these filters."
                             : "No doctors found for this HQ."}

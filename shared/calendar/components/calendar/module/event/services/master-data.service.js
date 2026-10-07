@@ -261,20 +261,6 @@ export async function fetchDoctors() {
   
   return mapDoctors(data);
 }
-export async function fetchDoctorsByTerritory(territory) {
-  const data = await graphqlRequest(DOCTOR_QUERY, {
-    first: MAX_ROWS,
-    filter: [
-      {
-        fieldname: "territory",
-        operator: "EQ",
-        value: territory,
-      },
-    ],
-  });
-
-  return mapDoctors(data);
-}
 function getErpBaseUrl() {
   const { erpUrl } = AUTH_CONFIG;
 
@@ -296,26 +282,26 @@ const ROLE_DOCTOR_FIELDS = JSON.stringify([
 
 // Doctors mapped (Lead.custom_role_profile) to one of `roleIds` AT `territory`:
 // the mapping row itself must carry that HQ, since one doctor is often mapped to
-// several roles in different HQs (DR-13189: Dausa for Elbrit, Jaipur for Aura).
+// several roles in different HQs (DR-4672: Chennai for Vasco, Kanchipuram for
+// CND and Elbrit). The doctor's own `territory` field plays no part — the
+// mapping says who works a doctor and where. `allRoles` (admins) drops the role
+// condition and keeps only the HQ.
 //
 // REST, not GraphQL: GraphQL silently ignores a `role_profile_list` filter (it
 // is a child-table field) and returns unrelated Leads, and it can't list Leads
 // by name either. REST joins the Role Profile Multiselect child table once, so
 // the role and HQ conditions both apply to the same mapping row. Notes are not
 // read here — the visit dialog loads them per doctor via fetchDoctorById.
-export async function fetchDoctorsByRoles(roleIds, territory) {
-  if (!roleIds?.length || !territory) return [];
+const ROLE_CHUNK = 80; // an SM's team runs to hundreds of roles; keeps each URL short
+
+async function fetchMappedLeads(filters) {
   const { authToken } = AUTH_CONFIG;
   if (!authToken) {
     throw new Error("Missing ERP auth configuration");
   }
-
   const params = new URLSearchParams({
     fields: ROLE_DOCTOR_FIELDS,
-    filters: JSON.stringify([
-      ["Role Profile Multiselect", "role_profile_list", "in", roleIds],
-      ["Role Profile Multiselect", "hq", "=", territory],
-    ]),
+    filters: JSON.stringify(filters),
     limit_page_length: String(MAX_ROWS),
   });
   const response = await fetch(`${getErpBaseUrl()}/api/resource/Lead?${params}`, {
@@ -327,10 +313,31 @@ export async function fetchDoctorsByRoles(roleIds, territory) {
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}`);
   }
-  const json = await response.json();
+  return (await response.json())?.data ?? [];
+}
 
-  // Reshape REST rows into the GraphQL node shape mapDoctors reads.
-  const edges = (json?.data ?? []).map((row) => ({
+export async function fetchDoctorsByRoles(roleIds, territory, { allRoles = false } = {}) {
+  if (!territory || (!allRoles && !roleIds?.length)) return [];
+  const hqFilter = ["Role Profile Multiselect", "hq", "=", territory];
+
+  const batches = allRoles
+    ? [[hqFilter]]
+    : Array.from({ length: Math.ceil(roleIds.length / ROLE_CHUNK) }, (_, i) => [
+        ["Role Profile Multiselect", "role_profile_list", "in", roleIds.slice(i * ROLE_CHUNK, (i + 1) * ROLE_CHUNK)],
+        hqFilter,
+      ]);
+  const results = await Promise.all(batches.map(fetchMappedLeads));
+
+  // The child-table join returns a doctor once per matching mapping row, and
+  // the batches can overlap, so keep one row per doctor.
+  const byName = new Map();
+  results.flat().forEach((row) => {
+    if (row?.name && !byName.has(row.name)) byName.set(row.name, row);
+  });
+
+  // Reshape REST rows into the GraphQL node shape mapDoctors reads. The HQ shown
+  // is the mapping's — the one being planned — not the doctor's territory field.
+  const edges = [...byName.values()].map((row) => ({
     node: {
       ...row,
       custom_specialty__name: row.custom_specialty,
@@ -338,7 +345,7 @@ export async function fetchDoctorsByRoles(roleIds, territory) {
       custom_category1__name: row.custom_category1,
       custom_category2__name: row.custom_category2,
       custom_category3__name: row.custom_category3,
-      territory__name: row.territory,
+      territory__name: territory,
     },
   }));
   return mapDoctors({ Leads: { edges } });

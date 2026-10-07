@@ -33,7 +33,6 @@ import { enrichTodoOwner, mapErpTodoToCalendar, mapFormToErpTodo } from "@calend
 import { calculateTotalLeaveDays, mapErpLeaveToCalendar, mapFormToErpLeave } from "@calendar/components/calendar/module/leave/mappers/leave.mapper";
 import { useEmployeeResolvers } from "@calendar/lib/employeeResolver";
 import {
-	fetchDoctorsByTerritory,
 	fetchDoctorsByRoles,
 	fetchItemsByDepartment,
 	searchDoctors,
@@ -65,7 +64,7 @@ import {
 	saveLeaveApplication,
 	updateLeaveAttachment,
 } from "@calendar/components/calendar/module/leave/services/leave.service";
-import { isLeafRole, resolveLoggedInRoleId, resolveSuperiorShareUserIds, resolveSuperiorShareUserIdsUpTo, resolveVacantSubordinateRoleIds } from "@calendar/lib/employeeHeirachy";
+import { isLeafRole, resolveLoggedInRoleId, resolveSuperiorShareUserIds, resolveSuperiorShareUserIdsUpTo, resolveVisibleRoleIds } from "@calendar/lib/employeeHeirachy";
 import { resolvePobDepartments } from "@calendar/lib/calendar/pobDepartments";
 import { saveDocToErp } from "@calendar/components/calendar/module/todo/services/todo.service";
 import { uploadFileToDoc, uploadLeaveMedicalCertificate } from "@calendar/lib/file.service";
@@ -1654,42 +1653,50 @@ export function AddEditEventDialog({
 			shouldValidate: true,
 		});
 	}, [doctorVisitHqTerritory, form, selectedTag]);
-	// Roles below the user left vacant all the way up to them: their doctors are
-	// the user's to plan. A role counts as filled only when an Active employee
-	// holds it, so with no employees loaded yet nothing is treated as vacant.
-	const vacantSubordinateRoleKey = useMemo(() => {
-		if (!allEmployeeOptions.length) return "";
-		const filledRoleIds = new Set(
-			allEmployeeOptions.map((employee) => employee.roleId).filter(Boolean)
-		);
-		return resolveVacantSubordinateRoleIds(
-			elbritRoleEdges,
-			filledRoleIds,
-			resolvedLoggedInRoleId
-		).sort().join("|");
-	}, [allEmployeeOptions, elbritRoleEdges, resolvedLoggedInRoleId]);
 	// ----------------------------------------------------
-	// Show only those doctor whose territory matches with the hq,
-	// plus the doctors of vacant roles under the user mapped at that hq
+	// DR Tour Plan doctors come from the EMPLOYEE MAPPING only (the doctor's
+	// custom_role_profile rows), never from the doctor's own territory field:
+	// a doctor shows when one of its mapping rows is at the planned HQ and names
+	// the user's own role or one under them. So a BE gets the doctors mapped to
+	// their seat, an ABM theirs and their BEs', an RBM down through ABM and BE,
+	// an SM their whole team -- vacant seats included, as they sit in that tree.
+	// DR-4672 is mapped to Kanchipuram for CND and Elbrit but its territory says
+	// Chennai, so the territory rule hid it from the Kanchipuram BEs it belongs to.
 	// ----------------------------------------------------
+	const mappedRoleKey = useMemo(() => {
+		if (LOGGED_IN_USER.role === "Admin" || LOGGED_IN_USER.roleId === "Admin") return "*";
+		return resolveVisibleRoleIds(elbritRoleEdges, resolvedLoggedInRoleId)
+			.sort()
+			.join("|");
+	}, [elbritRoleEdges, resolvedLoggedInRoleId]);
+	const [mappedDoctorsLoading, setMappedDoctorsLoading] = useState(false);
 	useEffect(() => {
 		if (
 			selectedTag !== TAG_IDS.DOCTOR_VISIT_PLAN ||
-			!hqTerritory
+			!hqTerritory ||
+			!mappedRoleKey
 		) {
 			setTerritoryDoctors([]);
+			setMappedDoctorsLoading(false);
 			return;
 		}
-		const vacantRoleIds = vacantSubordinateRoleKey
-			? vacantSubordinateRoleKey.split("|")
-			: [];
-		Promise.all([
-			fetchDoctorsByTerritory(hqTerritory),
-			fetchDoctorsByRoles(vacantRoleIds, hqTerritory).catch(() => []),
-		]).then(([territoryList, vacantRoleList]) =>
-			setTerritoryDoctors(mergeOptionsByValue(territoryList, vacantRoleList))
-		);
-	}, [hqTerritory, selectedTag, vacantSubordinateRoleKey]);
+		let alive = true;
+		setMappedDoctorsLoading(true);
+		const allRoles = mappedRoleKey === "*";
+		fetchDoctorsByRoles(allRoles ? [] : mappedRoleKey.split("|"), hqTerritory, { allRoles })
+			.catch((error) => {
+				console.error("Failed to load mapped doctors", error);
+				return [];
+			})
+			.then((doctors) => {
+				if (!alive) return;
+				setTerritoryDoctors(doctors);
+				setMappedDoctorsLoading(false);
+			});
+		return () => {
+			alive = false;
+		};
+	}, [hqTerritory, selectedTag, mappedRoleKey]);
 	// ----------------------------------------------------
 	// Disabled dates for HQ Tour Plan (logged-in user only)
 	// Prevent selecting dates where HQ already exists
@@ -3130,6 +3137,7 @@ export function AddEditEventDialog({
 												value={field.value}
 												onChange={field.onChange}
 												options={territoryDoctors}
+												loading={mappedDoctorsLoading}
 												hqTerritory={hqTerritory}
 												multiple={isDoctorMulti}
 											/> :
