@@ -41,7 +41,7 @@ import {
 } from "@calendar/components/calendar/module/event/services/master-data.service";
 import { buildParticipantsWithDetails, getAvailableItems, normalizeMeetingTimes, normalizeNonMeetingDates, resolveLatLong, showFirstFormErrorAsToast, syncPobItemRates, updatePobRow } from "@calendar/lib/helper";
 import { Button } from "@calendar/components/ui/button";
-import { ClipboardList, MapPin, Mic, Pill, Users, Video } from "lucide-react";
+import { CircleAlert, ClipboardList, MapPin, Mic, Pill, Users, Video } from "lucide-react";
 
 const OTHER_WORK_TYPE_ICONS = {
 	"Admin Day": ClipboardList,
@@ -2526,14 +2526,33 @@ export function AddEditEventDialog({
 			(selectedTag === TAG_IDS.OTHER &&
 				(!otherType || (otherWorkNeedsDetails && !title?.trim()))));
 	const isMissingMedicalCertificate = requiresMedical && !medicalAttachment;
+	// Why Submit is off, said in words: a greyed button on its own leaves the
+	// rep guessing which field is missing.
+	const submitBlockedHint = isMutationPending
+		? null
+		: !isEditing && selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN && !hasPick(doctor)
+		? "Select at least one doctor to submit."
+		: !isEditing && selectedTag === TAG_IDS.HQ_TOUR_PLAN && !hasPick(hqTerritory)
+		? "Pick an HQ territory to submit."
+		: !isEditing && selectedTag === TAG_IDS.OTHER && !otherType
+		? "Choose the Other Work type to submit."
+		: !isEditing && otherWorkNeedsDetails && !title?.trim()
+		? `Add the ${otherType} title to submit.`
+		: isMissingMedicalCertificate
+		? "Attach the medical certificate to submit."
+		: null;
 	const isSubmitDisabled =
 		isMutationPending || isMissingRequiredPick || isMissingMedicalCertificate;
 	return (
 		<Modal open={isOpen} onOpenChange={handleDialogOpenChange}>
 			<ModalTrigger asChild>{children}</ModalTrigger>
 
-			<ModalContent className=" max-h-[90vh] min-h-[70vh] flex flex-col overflow-scroll">
-				<ModalHeader>
+			{/* Header and the Cancel/Submit row stay put; only what sits between
+			    them scrolls. The sheet itself must not scroll, or the buttons
+			    ride up with a long doctor list and leave a gap under them. dvh,
+			    not vh: on a phone vh counts the space behind the browser bar. */}
+			<ModalContent className="flex max-h-[90dvh] min-h-[70dvh] flex-col overflow-hidden">
+				<ModalHeader className="shrink-0">
 					<ModalTitle>{isEditing ? "Edit Event" : "Add Event"}</ModalTitle>
 					{/* <ModalDescription /> */}
 				</ModalHeader>
@@ -2542,7 +2561,7 @@ export function AddEditEventDialog({
 					<form
 						id="event-form"
 						onSubmit={form.handleSubmit(onSubmit, onInvalid)}
-						className="grid gap-4"
+						className="-mx-1 grid min-h-0 flex-1 content-start gap-4 overflow-y-auto overscroll-contain px-1 pb-1"
 					>
 						{/* ================= TAGS ================= */}
 						{shouldShowTags && (
@@ -2597,7 +2616,7 @@ export function AddEditEventDialog({
 													form.setValue("description", "");
 													field.onChange(tag.id);
 												}}
-												className={`px-4 py-1 rounded-full ${blockedReason
+												className={`inline-flex min-h-11 items-center rounded-full px-4 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${blockedReason
 													? "border border-dashed border-slate-300 bg-slate-50 text-slate-400"
 													: field.value === tag.id
 													? "bg-primary text-white"
@@ -3653,7 +3672,17 @@ export function AddEditEventDialog({
 					</form>
 				</Form>
 
-				<div className="pt-4 flex mt-auto justify-end">
+				<div className="shrink-0 border-t pt-3 pb-[env(safe-area-inset-bottom)]">
+					{submitBlockedHint ? (
+						<p
+							role="status"
+							className="mb-2 flex items-center gap-1.5 text-xs text-amber-700"
+						>
+							<CircleAlert className="size-4 shrink-0 text-amber-500" aria-hidden="true" />
+							{submitBlockedHint}
+						</p>
+					) : null}
+					<div className="flex justify-end">
 					<FormFooter
 						isEditing={isEditing}
 						disabled={isSubmitDisabled}
@@ -3663,6 +3692,7 @@ export function AddEditEventDialog({
 						isResolvingLocation={isResolvingLocation}
 						onSubmit={form.handleSubmit(onSubmit, onInvalid)}
 					/>
+					</div>
 				</div>
 			</ModalContent>
 		</Modal>

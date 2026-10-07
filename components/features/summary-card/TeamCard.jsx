@@ -490,6 +490,9 @@ export default function TeamCard({
               type={trendType}
               accent={accentColor}
               tipAbove
+              // No "Daily trend" heading on this variant; the empty title still
+              // holds its slot, so the date range stays on the right.
+              title=""
               formatValue={(v) => fmtQty(v) || String(v)}
             />
           </div>

@@ -412,17 +412,24 @@ export default function DoctorPeekDialog({
    * centring transform and drawn inside its box; portalled by hand, a press on
    * it counted as "outside" the modal and closed the form. As a nested Radix
    * layer it portals to the body and stacks above the form, which stays open.
+   *
+   * The Overlay is not decoration: Radix keeps the page's scroll lock on the
+   * OVERLAY. Without one this dialog had no lock of its own, so the form's lock
+   * stayed in charge, counted the popup as "outside" and cancelled every wheel
+   * and swipe on it -- the popup could not be scrolled. With it, this layer's
+   * lock is the active one and lets its own content scroll.
    */
   return (
     <DialogPrimitive.Root open onOpenChange={(next) => { if (!next) close(); }}>
     <DialogPrimitive.Portal>
+    <DialogPrimitive.Overlay className="fixed inset-0 z-[1000] bg-slate-900/50" />
     <DialogPrimitive.Content
       asChild
       aria-describedby={undefined}
       onOpenAutoFocus={(event) => { event.preventDefault(); panelRef.current?.focus(); }}
     >
     <div
-      className="fixed inset-0 z-[1000] flex items-end justify-center bg-slate-900/50 p-0 outline-none sm:items-center sm:p-4"
+      className="fixed inset-0 z-[1000] flex items-end justify-center p-0 outline-none sm:items-center sm:p-4"
       // The backdrop dismisses, but only when the backdrop itself is pressed —
       // a drag that starts inside the panel and releases outside must not close it.
       onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}
@@ -477,7 +484,7 @@ export default function DoctorPeekDialog({
             type="button"
             onClick={close}
             aria-label="Close"
-            className="-m-1 shrink-0 rounded-lg p-1 text-gray-400 transition-colors hover:bg-gray-50 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+            className="-m-2.5 flex size-11 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-50 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
           >
             <X size={18} />
           </button>

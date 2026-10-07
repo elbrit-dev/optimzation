@@ -12,7 +12,7 @@ export function StatusPill({ status, className = "" }) {
   if (!status) return null;
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white ${getStatusBadgeClass(
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-white ${getStatusBadgeClass(
         status
       )} ${className}`}
     >
@@ -34,7 +34,7 @@ export function DetailSummary({ title, subtitle, status, accentClassName = "bg-p
           {status ? <StatusPill status={status} className="mt-0.5 shrink-0" /> : null}
         </div>
         {subtitle ? (
-          <p className="mt-0.5 text-[11.5px] leading-snug text-muted-foreground break-words">
+          <p className="mt-0.5 text-xs leading-snug text-muted-foreground break-words">
             {subtitle}
           </p>
         ) : null}
@@ -54,7 +54,7 @@ export function DetailItem({ icon: Icon, label, children, className = "" }) {
         </span>
       ) : null}
       <div className="min-w-0 flex-1">
-        <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground/80">
+        <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground/80">
           {label}
         </p>
         <div className="mt-0.5 break-words text-[13px] leading-snug text-foreground">
@@ -88,7 +88,7 @@ export function PersonChips({ people = [] }) {
         return (
           <span
             key={person?.id ?? index}
-            className="inline-flex items-center gap-1.5 rounded-full bg-muted py-0.5 pl-0.5 pr-2 text-[11.5px] font-medium text-foreground"
+            className="inline-flex items-center gap-1.5 rounded-full bg-muted py-0.5 pl-0.5 pr-2 text-xs font-medium text-foreground"
           >
             <span className="flex size-4 items-center justify-center rounded-full bg-primary/10 text-[9px] font-bold text-primary">
               {String(name).trim().charAt(0).toUpperCase() || "?"}

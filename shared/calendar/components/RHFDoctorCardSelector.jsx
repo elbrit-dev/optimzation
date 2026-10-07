@@ -554,7 +554,7 @@ export function RHFDoctorCardSelector({
                         placeholder="Search doctor or code"
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
-                        className="pl-9 pr-9"
+                        className="h-11 pl-9 pr-11"
                     />
                     {loading ? (
                         <Loader2 className="absolute right-3 top-1/2 size-4 -translate-y-1/2 animate-spin text-muted-foreground" />
@@ -563,9 +563,9 @@ export function RHFDoctorCardSelector({
                             type="button"
                             onClick={() => setSearch("")}
                             aria-label="Clear search"
-                            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                            className="absolute right-0.5 top-1/2 flex size-10 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
                         >
-                            <X className="size-3.5" />
+                            <X className="size-4" />
                         </button>
                     ) : null}
                 </div>
@@ -584,7 +584,7 @@ export function RHFDoctorCardSelector({
                             title="Filters"
                             disabled={!availableFacets.length}
                             className={cn(
-                                "relative size-9 shrink-0",
+                                "relative size-11 shrink-0",
                                 activeFilters.length &&
                                     "border-primary text-primary"
                             )}
@@ -778,7 +778,7 @@ export function RHFDoctorCardSelector({
                             aria-label={`Sort: ${activeSort.label}`}
                             title={`Sort: ${activeSort.label}`}
                             className={cn(
-                                "size-9 shrink-0",
+                                "size-11 shrink-0",
                                 activeSort.compare && "border-primary text-primary"
                             )}
                         >
@@ -882,7 +882,9 @@ export function RHFDoctorCardSelector({
             {/* ============================================
          DOCTOR CARDS
       ============================================ */}
-            <div className="max-h-[340px] space-y-3 overflow-y-auto overscroll-contain">
+            {/* No scroll box of its own: the form body is the one scroll, so a
+                thumb never scrolls the wrong list. */}
+            <div className="space-y-3">
                 {!filteredDoctors.length ? (
                     <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
                         {loading
@@ -942,7 +944,7 @@ export function RHFDoctorCardSelector({
                             {/* Its own tap target: a press here selects and never
                                 reaches the card, which opens the popup. */}
                             <span
-                                className="-m-2 shrink-0 p-2"
+                                className="-m-3 shrink-0 p-3"
                                 onClick={(event) => event.stopPropagation()}
                             >
                                 <Checkbox
@@ -964,7 +966,7 @@ export function RHFDoctorCardSelector({
                                     <span
                                         title={lastVisit.full}
                                         className={cn(
-                                            "flex items-center gap-1 whitespace-nowrap text-[11px]",
+                                            "flex items-center gap-1 whitespace-nowrap text-xs",
                                             lastVisit.isRecent
                                                 ? "font-medium text-emerald-600"
                                                 : "text-muted-foreground"
@@ -993,7 +995,7 @@ export function RHFDoctorCardSelector({
                                     {categories.map((category) => (
                                         <span
                                             key={category}
-                                            className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground"
+                                            className="rounded-md bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground"
                                         >
                                             {category}
                                         </span>

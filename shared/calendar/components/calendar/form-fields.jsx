@@ -248,7 +248,7 @@ export function FormFooter({
   return (
     <ModalFooter className="gap-2 flex flex-row">
       <ModalClose asChild>
-        <Button variant="outline">
+        <Button variant="outline" className="h-11 px-5">
           Cancel
         </Button>
       </ModalClose>
@@ -259,6 +259,7 @@ export function FormFooter({
           variant="default"
           onClick={onCaptureLocation}
           disabled={isResolvingLocation}
+          className="h-11 px-5"
         >
           {isResolvingLocation ? "Capturing..." : "Request Location"}
         </Button>
@@ -275,6 +276,7 @@ export function FormFooter({
           form={onSubmit ? undefined : "event-form"}
           onClick={onSubmit}
           disabled={disabled || isResolvingLocation}
+          className="h-11 px-5"
         >
           {isEditing ? "Update" : "Submit"}
         </Button>
