@@ -45,6 +45,11 @@ export async function fetchServerEntries({ endpointUrl, token, month, seat, meth
    joins the caller's too, so "Add doctor" in My entries offers their
    parties, each named "<party>::<seat>" (`code` the party, `seat` whose
    lines it gets; the screen sends each seat's to the add script under it).
+   AN EXTRA USER'S TEAM comes in the same way: the server's `enters` (every
+   live seat under theirs) join `covers` marked `team`, so My entries holds
+   the whole team's stockists / doctors as the nav tile counts them — each marked "For
+   <holder>" instead of covering. A team seat adds nothing to "Add": the add
+   scripts take a covered vacant seat's parties only.
    Pure, for the test. */
 export function mergeCovered(own, covered) {
   if (!covered.length) return own;
@@ -53,7 +58,7 @@ export function mergeCovered(own, covered) {
   const entries = [...(own.entries ?? [])];
   let addable = Array.isArray(own.addable) ? [...own.addable] : own.addable;
   for (const { cover, data } of covered) {
-    if (Array.isArray(addable) && Array.isArray(data?.addable)) {
+    if (!cover.team && Array.isArray(addable) && Array.isArray(data?.addable)) {
       for (const a of data.addable) {
         addable.push({
           ...a,
@@ -71,7 +76,7 @@ export function mergeCovered(own, covered) {
       }
     }
     for (const row of data?.entries ?? []) {
-      entries.push({ ...row, name: `${row.name}::${cover.seat}`, docName: row.name, covering: { seat: cover.seat, holder: cover.holder, hq: cover.hq } });
+      entries.push({ ...row, name: `${row.name}::${cover.seat}`, docName: row.name, covering: { seat: cover.seat, holder: cover.holder, hq: cover.hq, ...(cover.team ? { team: true } : {}) } });
     }
   }
   if (Array.isArray(addable)) {
@@ -96,7 +101,7 @@ export function useServerEntries({ enabled, gqlEnvironment = 'ERP', gqlToken, mo
         const { endpointUrl } = await getEndpointConfigFromUrlKeyAsync(gqlEnvironment);
         if (!endpointUrl) throw new Error(`No endpoint registered for "${gqlEnvironment}".`);
         const own = await fetchServerEntries({ endpointUrl, token: gqlToken, month, seat, method });
-        const covers = withCovers ? own.covers ?? [] : [];
+        const covers = withCovers ? [...(own.covers ?? []), ...(own.enters ?? []).map((e) => ({ ...e, team: true }))] : [];
         const covered = await Promise.all(
           covers.map(async (cover) => ({ cover, data: await fetchServerEntries({ endpointUrl, token: gqlToken, month, seat: cover.seat, method }) })),
         );

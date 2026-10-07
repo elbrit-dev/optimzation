@@ -92,7 +92,7 @@ export function StockistCard({
 
   const label = [
     entry.stockist,
-    entry.covering ? `covering ${entry.covering.seat}` : null,
+    entry.covering ? `${entry.covering.team ? 'for' : 'covering'} ${entry.covering.seat}` : null,
     entry.ebsCode,
     entry.otherEbsCodes?.length ? `also ${entry.otherEbsCodes.join(', ')}` : null,
     entry.note,

@@ -315,7 +315,8 @@ if me in EXTRA_USERS and own_seat:
                 live_holder[e.get("custom_role_profile")] = e.get("employee_name")
     for s in below_seats:
         if live_holder.get(s) and not covered.get(s):
-            enters.append({"seat": s, "holder": live_holder[s]})
+            enters.append({"seat": s, "holder": live_holder[s],
+                           "hq": frappe.db.get_value("Role Profile", s, "custom_territory")})
     entering = bool(seat) and seat != own_seat and bool(below.get(seat))
 
 # ---- A TEAM SEAT: `seat` held by someone UNDER the caller in the reporting

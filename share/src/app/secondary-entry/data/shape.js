@@ -64,10 +64,11 @@ export function revisitReason(note, trackerState) {
 
 /* "Covering Vacant - Cheyesu (E01179)": a vacant seat someone covers, named
    by its placeholder holder without the "Vacant_" prefix — the seat itself
-   when no one holds it. */
+   when no one holds it. An extra user's team member (`team`) is "For <name>". */
 export function coveringLabel(covering) {
   const holder = String(covering?.holder ?? '').replace(/^vacant[_\s-]*/i, '');
   const hq = covering?.hq ? ` · ${covering.hq}` : '';
+  if (covering?.team) return `For ${holder || covering?.seat || ''}${hq}`;
   return `Covering Vacant - ${holder || covering?.seat || ''}${hq}`;
 }
 

@@ -67,6 +67,10 @@ describe('SecondaryEntry from the server script', () => {
       }),
     );
     render(<SecondaryEntry gqlToken="k:s" month="2026-09" />);
+    /* My entries holds the team member's stockists, marked as theirs. */
+    expect(await screen.findByText(/For Asha/)).toBeInTheDocument();
+    /* And the team tree opens their seat to enter. */
+    await userEvent.click(screen.getByRole('tab', { name: 'Team' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Enter for Asha' }));
     expect(await screen.findByText(/you are entering for them/)).toBeInTheDocument();
     expect(screen.queryByText(/read only/)).toBeNull();
