@@ -314,18 +314,64 @@ const hourLabel = (h) => (h % 12 || 12) + (h < 12 ? "AM" : "PM");
  *
  * Same roster (active employees, Sales only by inSales), same vacancy rule,
  * same attribution (a visit belongs to the participant who went, the plan
- * owner only when that cannot be resolved), and the report's own selectors --
- * byHq, visitsByHour, attendance -- imported, not rewritten.
+ * owner only when that cannot be resolved), and the report's own selectors -- byHq, visitsByHour, attendance --
+ * imported, not rewritten. The one thing done differently is WHERE it reads
+ * from: the report's loader takes its ERP host from the /tokens registry by
+ * row name, and that pointed at a different ERP from this component's URL.
+ * So the same queries are sent here, through this component's own URL and
+ * token.
  *
- * THE VISITS ARE COUNTED ON THE SERVER, by the report's own "Elbrit Visit
- * Summary" script, through this component's URL and token. Reading the
- * Events here instead (as this did) went through the ERP's permissions, and a
- * visit Event is private: a manager sees only the ones shared with them --
- * the GM saw 75 of 1,955 on 6 Oct 2026. The script counts the caller's whole
- * downline past them, as the Visit report does. Each line it sends stands for
- * `n` visits (selectors.weightOf); it also carries the Event's department
- * and the line's first visit time, which this section groups and shows by. */
+ * VOLUME: a day is ~2,000 events (1.2 s), a week ~11,000 (2.1 s, 3 MB), July
+ * 56,237 (measured 26 Sep 2026). A period is read a week per request, a few
+ * at a time, each answer checked against its own dates. */
+/* Copied verbatim from share/src/app/visit/data/liveSource.js (VISITS_QUERY),
+   so this reads exactly what the Visit Report reads. */
+const VISITS_QUERY = `
+  query VisitsInWindow($f: [DBFilterInput], $first: Int) {
+    Events(filter: $f, first: $first) {
+      totalCount
+      edges { node {
+        name
+        subject
+        starts_on
+        custom_employee_id { name }
+        # A doctor is a CRM Lead. city is a plain scalar; the category is a
+        # link to Category List, so it takes the __name shadow like every
+        # other link here. NO BACKTICKS IN THIS DOCUMENT -- it is a JS
+        # template literal, and a backtick ends it mid-query.
+        custom_doctor {
+          name
+          lead_name
+          city
+          custom_specialty__name
+          # FOUR separate category links, not a child table. A doctor carries a
+          # commercial grade (C / SC / E), a value-vs-reach band (LILR / HIHR),
+          # a focus bucket (EC10 / C20) and sometimes a campaign (A&P FOCUS 20).
+          # Any of them can be empty; the card joins whatever is set.
+          custom_category__name
+          custom_category1__name
+          custom_category2__name
+          custom_category3__name
+        }
+        custom_hq { name }
+        custom_department { name }
+        custom_pob_given
+        event_participants {
+          # Scalars. The object forms of these two cannot be resolved -- see above.
+          reference_doctype__name
+          reference_docname__name
+          custom_visit_time
+          custom_distance
+          custom_is_force_visit
+          custom_force_visit_reason
+        }
+      } }
+    }
+  }
+`;
 const VISIT_PAGE = 20000;
+const VISIT_CATEGORY = "Doctor Visit plan"; // the calendar's DOCTOR_VISIT_PLAN
+const VISIT_CONCURRENCY = 3;
 
 /* The Visit Report's roster and role-profile queries, verbatim in shape. */
 const EMPLOYEES_QUERY = `
@@ -385,33 +431,76 @@ async function visitTeam(conn) {
   return { team };
 }
 
-/* The window's visits, counted by the server: one row per line, `n` the
-   visits it stands for. `roster` is the Sales roster -- the server
-   attributes a visit to its participant when they are in it. */
-async function visitCounts(conn, from, to, roster) {
-  const res = await fetch(`${conn.origin}/api/method/elbrit_visit_summary`, {
-    method: "POST",
-    headers: { Authorization: conn.authToken, "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ from, to, sales: roster.map((m) => [m.id, m.userId || ""]) }),
+const addDays = (iso, n) => { const [y, m, d] = iso.split("-").map(Number); return isoDay(new Date(y, m - 1, d + n)); };
+
+/* One window, checked the way the Support Report checks a month: this ERP
+   can hand one request another request's answer when several are in flight,
+   so every event must fall inside the window it was asked for. A week still
+   over the page size is split into days. */
+async function visitsIn(conn, from, to, attempt = 1) {
+  const data = await gql(conn, VISITS_QUERY, {
+    first: VISIT_PAGE,
+    f: [
+      { fieldname: "event_category", operator: "EQ", value: VISIT_CATEGORY },
+      { fieldname: "starts_on", operator: "GTE", value: `${from} 00:00:00` },
+      { fieldname: "starts_on", operator: "LTE", value: `${to} 23:59:59` },
+    ],
   });
-  let json = null;
-  try { json = await res.json(); } catch { /* reported below */ }
-  if (!res.ok || !json?.message || json.exc_type) throw new Error(`Could not count the visits (${json?.exc_type || "HTTP " + res.status}). Try again in a moment.`);
-  const m = json.message;
-  const depts = m.depts || [];
-  return m.rows.map(([e, d, h, st, j, hr, n, dp, ft]) => {
-    const day = m.days[d];
-    return {
-      plannedDate: day,
-      hq: m.hqs[h] || "",
-      dept: (dp != null && depts[dp]) || "",
-      visitTime: st === 0 ? null : ft || (hr >= 0 ? `${day} ${String(hr).padStart(2, "0")}:00:00` : `${day} NA:00:00`),
-      forceVisit: st === 2,
-      employeeId: m.employees[e] || "",
-      participantCount: j ? 2 : 1,
-      n,
-    };
-  });
+  const { totalCount, edges } = data.Events;
+  const foreign = edges.some(({ node }) => { const d = String(node.starts_on || "").slice(0, 10); return d && (d < from || d > to); });
+  if (foreign) {
+    if (attempt >= 4) throw new Error(`The ERP kept returning visits from outside ${from} – ${to}. Try again in a moment.`);
+    await new Promise((r) => setTimeout(r, 400 * attempt));
+    return visitsIn(conn, from, to, attempt + 1);
+  }
+  if (totalCount > edges.length && from < to) {
+    const days = [];
+    for (let d = from; d <= to; d = addDays(d, 1)) days.push(d);
+    return (await inPool(days, VISIT_CONCURRENCY, (d) => visitsIn(conn, d, d))).flat();
+  }
+  /* A single day that comes back short is the same fault as a foreign one
+     (seen: 0 of 1,936 events for 3 Aug), not a page-size limit -- a day is
+     ~2,000 events against a 20,000 page. Asked again, never kept short. */
+  if (totalCount > edges.length) {
+    if (totalCount > VISIT_PAGE) { console.warn(`[home-overview] ${from}: ${totalCount} visits, over the page size`); return edges.map((e) => e.node); }
+    if (attempt >= 4) throw new Error(`The ERP returned ${edges.length} of ${totalCount} visits for ${from}. Try again in a moment.`);
+    await new Promise((res) => setTimeout(res, 400 * attempt));
+    return visitsIn(conn, from, to, attempt + 1);
+  }
+  return edges.map((e) => e.node);
+}
+
+function weeks(from, to) {
+  const out = [];
+  for (let a = from; a <= to; a = addDays(a, 7)) { const b = addDays(a, 6); out.push([a, b < to ? b : to]); }
+  return out;
+}
+
+/* One row per participant, attributed as the Visit Report's attributeRows
+   does: an Employee reference checked against the roster, a User login
+   through the email index, and the plan owner when neither resolves. */
+function visitRows(events, team) {
+  const known = new Set(team.map((m) => m.id));
+  const byEmail = new Map(team.filter((m) => m.userId).map((m) => [m.userId.toLowerCase(), m.id]));
+  const rows = [];
+  for (const ev of events) {
+    const ps = ev.event_participants?.length ? ev.event_participants : [null];
+    const count = Math.max(new Set(ps.filter(Boolean).map((p) => `${p.reference_doctype__name}:${p.reference_docname__name}`)).size, 1);
+    for (const p of ps) {
+      const ref = (p?.reference_docname__name ?? "").trim(), type = p?.reference_doctype__name ?? "";
+      const participantId = type === "Employee" ? (known.has(ref) ? ref : null) : type === "User" ? byEmail.get(ref.toLowerCase()) ?? null : null;
+      rows.push({
+        plannedDate: String(ev.starts_on || "").slice(0, 10),
+        hq: ev.custom_hq?.name || "",
+        dept: ev.custom_department?.name || "",
+        visitTime: p?.custom_visit_time ?? null,
+        forceVisit: Boolean(p?.custom_is_force_visit),
+        employeeId: participantId ?? ev.custom_employee_id?.name ?? "",
+        participantCount: count,
+      });
+    }
+  }
+  return rows;
 }
 
 /* THE VIEWER'S OWN TEAM. The token decides what the ERP hands over -- for
@@ -448,7 +537,7 @@ function ownTeam(roster, org) {
    nothing yet. */
 export async function fetchVisit(conn, today) {
   const t = isoDay(today);
-  const [{ team: roster }, org] = await Promise.all([visitTeam(conn), fetchOrg(conn)]);
+  const [{ team: roster }, todays, org] = await Promise.all([visitTeam(conn), visitsIn(conn, t, t), fetchOrg(conn)]);
   const { team, ids } = ownTeam(roster, org);
   const mine = (rs) => (ids ? rs.filter((r) => ids.has(r.employeeId)) : rs);
   /* Attribution runs over the whole roster (a call owned by someone outside
@@ -459,19 +548,20 @@ export async function fetchVisit(conn, today) {
      anyone has calls in it, and only then narrowed: a BE who filed nothing
      this month sees this month at 0 of 1, not last month's closed "On
      track" standing in for a month of silence. */
-  let all = await visitCounts(conn, t, t, roster), mode = "today", P = monthsToTry(today)[0];
+  let all = visitRows(todays, roster), mode = "today", P = monthsToTry(today)[0], read = todays.length;
   if (!all.length) {
     mode = "window";
     for (const Q of monthsToTry(today)) {
-      all = await visitCounts(conn, Q.fromDate, Q.toDate, roster);
+      const parts = await inPool(weeks(Q.fromDate, Q.toDate), VISIT_CONCURRENCY, ([a, b]) => visitsIn(conn, a, b));
+      read = parts.reduce((n, x) => n + x.length, 0);
+      all = visitRows(parts.flat(), roster);
       P = Q;
       if (all.length) break;
     }
   }
-  const read = all.reduce((sum, r) => sum + (r.n ?? 1), 0);
   if (!all.length) return null;
   const rows = mine(all);
-  console.info(`[home-overview] visit: ${read} Doctor Visit plan visits counted for ${mode === "today" ? t : P.fromDate + ".." + P.toDate}, ${rows.length} participant rows, team ${team.length} of ${roster.length}`);
+  console.info(`[home-overview] visit: ${read} Doctor Visit plan events read for ${mode === "today" ? t : P.fromDate + ".." + P.toDate}, ${rows.length} participant rows, team ${team.length} of ${roster.length}`);
   return shapeVisit(rows, team, P, mode, Boolean(ids));
 }
 
@@ -504,11 +594,10 @@ function shapeVisit(rows, team, P, mode, scoped) {
     const stat = new Map();
     for (const r of rs) {
       const s = stat.get(r.employeeId) || { plan: 0, geo: 0, force: 0, joint: 0, first: null };
-      const w = r.n ?? 1;
-      s.plan += w;
+      s.plan += 1;
       if (r.visitTime) {
-        if (r.forceVisit) s.force += w; else s.geo += w;
-        if ((r.participantCount ?? 1) > 1) s.joint += w;
+        if (r.forceVisit) s.force += 1; else s.geo += 1;
+        if ((r.participantCount ?? 1) > 1) s.joint += 1;
         if (!s.first || r.visitTime < s.first) s.first = r.visitTime;
       }
       stat.set(r.employeeId, s);
@@ -588,7 +677,7 @@ function shapeVisit(rows, team, P, mode, scoped) {
       const rs = rows.filter((r) => unitOfRow(r) === name);
       const stat = statsOf(rs);
       const members = team.filter((m) => unitOfMember(m) === name);
-      return { name, plan: rs.reduce((sum, r) => sum + (r.n ?? 1), 0), ...hourly(rs), people: peopleOf(members, stat), members, extra: [...stat.keys()].map((id) => byId.get(id)).filter(Boolean) };
+      return { name, plan: rs.length, ...hourly(rs), people: peopleOf(members, stat), members, extra: [...stat.keys()].map((id) => byId.get(id)).filter(Boolean) };
     }).sort((a, b) => (a.name === NO_DEPT || a.name === NO_HQ) - (b.name === NO_DEPT || b.name === NO_HQ) || b.plan - a.plan);
     // Members first, everywhere; then the people seen only through their calls.
     const own = units.map((u) => repsOf(u.members));

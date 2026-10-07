@@ -691,7 +691,7 @@ export function SecondaryEntry({
 
       {canAdd && shownPane === 'mine' && !openEntry ? (
         <Button
-          type="dashed"
+          type="primary"
           size="lg"
           block
           icon={<Icon name="plus" size="sm" />}
