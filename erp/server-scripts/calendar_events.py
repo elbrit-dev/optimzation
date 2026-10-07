@@ -50,8 +50,16 @@ for f in raw_filters:
     if fieldname == "starts_on" and op in ("<=", "<", "="):
         starts_to = min(starts_to, value)
 
+# The candidate shortcut is only valid under Frappe's standard Event rule (public /
+# owner / participant). Ask Frappe which conditions it applies for this user (run=0
+# builds the SQL without running it): users it does not restrict (e.g. System
+# Managers on some versions) or any other rule get the plain range list, exactly as
+# the GraphQL list does.
+rule_sql = frappe.get_list("Event", filters=[["name", "=", "-"]], fields=["name"], run=0)
+standard_rule = "`tabEvent Participants` ep" in rule_sql
+
 names = None
-if user != "Administrator":
+if user != "Administrator" and standard_rule:
     # Everything this user could see in the range: own, participant, public, shared
     names = [row[0] for row in frappe.db.sql(
         """
