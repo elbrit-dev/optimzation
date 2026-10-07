@@ -68,7 +68,8 @@ export function revisitReason(note, trackerState) {
 export function coveringLabel(covering) {
   const holder = String(covering?.holder ?? '').replace(/^vacant[_\s-]*/i, '');
   const hq = covering?.hq ? ` · ${covering.hq}` : '';
-  if (covering?.team) return `For ${holder || covering?.seat || ''}${hq}`;
+  /* A team seat no one holds now (its holder left) is named by the seat. */
+  if (covering?.team) return holder ? `For ${holder}${hq}` : `For ${covering?.seat ?? ''} · vacant${hq}`;
   return `Covering Vacant - ${holder || covering?.seat || ''}${hq}`;
 }
 

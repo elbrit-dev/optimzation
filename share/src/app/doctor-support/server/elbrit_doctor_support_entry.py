@@ -314,9 +314,13 @@ if me in EXTRA_USERS and own_seat:
                                 fields=["custom_role_profile", "employee_name"], limit_page_length=0):
             if not is_vacant_name(e.get("employee_name")):
                 live_holder[e.get("custom_role_profile")] = e.get("employee_name")
+    # EVERY seat under theirs, held or not: a seat whose holder left still
+    # has its records (Kamesh: a BE11 under his live ABM3, whose two Rework
+    # stockists were Ramachandiran's to cover and so in no list of his).
+    # Only seats they already cover are left to `covers`.
     for s in below_seats:
-        if live_holder.get(s) and not covered.get(s):
-            enters.append({"seat": s, "holder": live_holder[s],
+        if not covered.get(s):
+            enters.append({"seat": s, "holder": live_holder.get(s),
                            "hq": frappe.db.get_value("Role Profile", s, "custom_territory")})
     entering = bool(seat) and seat != own_seat and bool(below.get(seat))
 

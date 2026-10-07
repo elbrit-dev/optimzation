@@ -110,3 +110,9 @@ describe('fetchServerEntries checks the answer against the question', () => {
     await expect(fetchServerEntries({ endpointUrl: 'https://erp.test/api/method/graphql', token: 'k:s', month: '2026-09', seat: 'BE11-X', fetchImpl, wait: async () => {} })).rejects.toThrow(/BE9-X/);
   });
 });
+
+describe('an extra user\'s team seat whose holder left', () => {
+  it('is named by the seat, vacant', () => {
+    expect(coveringLabel({ seat: 'BE11-X', holder: null, hq: 'HQ-Chennai', team: true })).toBe('For BE11-X · vacant · HQ-Chennai');
+  });
+});
