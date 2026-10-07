@@ -42,7 +42,7 @@ for f in raw_filters:
     fieldname = f.get("fieldname")
     op = OPERATORS.get(str(f.get("operator") or "").upper())
     if fieldname not in DATE_FIELDS or not op:
-        frappe.throw("Unsupported filter: {0}".format(f))
+        frappe.throw("Unsupported filter: " + str(f))
     value = str(f.get("value") or "")[:19].replace("T", " ")
     filters.append([fieldname, op, value])
     if fieldname == "starts_on" and op in (">=", ">", "="):
