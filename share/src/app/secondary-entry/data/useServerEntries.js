@@ -21,17 +21,46 @@ function authHeader(token) {
 }
 
 /* `method` is the task's server script (task.entryMethod) — Secondary's by default. */
-export async function fetchServerEntries({ endpointUrl, token, month, seat, method = 'elbrit_secondary_entry', fetchImpl = fetch }) {
+/* AN ANSWER IS CHECKED AGAINST ITS QUESTION. With several requests in flight
+   this ERP can hand one request another's answer (seen on the Support and
+   Visit reads): a team seat's rows coming back as another seat's would show
+   its stockists under the wrong seat, missing their own approval (a Rework
+   read as submitted). So an answer must name the seat and month asked for;
+   one that does not is asked again, and after ATTEMPTS is an error rather
+   than a wrong list. */
+const ATTEMPTS = 3;
+export async function fetchServerEntries({ endpointUrl, token, month, seat, method = 'elbrit_secondary_entry', fetchImpl = fetch, wait = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
   const params = {};
   if (month) params.month = month;
   if (seat) params.seat = seat;
   const qs = Object.keys(params).length ? `?${new URLSearchParams(params)}` : '';
-  const res = await fetchImpl(`${new URL(endpointUrl).origin}/api/method/${method}${qs}`, {
-    headers: { Authorization: authHeader(token), Accept: 'application/json' },
-  });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok || json.exc_type || !json.message) throw new Error(json.exc_type || `ERP request failed (${res.status})`);
-  return json.message;
+  for (let attempt = 1; ; attempt += 1) {
+    const res = await fetchImpl(`${new URL(endpointUrl).origin}/api/method/${method}${qs}`, {
+      headers: { Authorization: authHeader(token), Accept: 'application/json' },
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || json.exc_type || !json.message) throw new Error(json.exc_type || `ERP request failed (${res.status})`);
+    const m = json.message;
+    const wrong = (seat && m.seat && m.seat !== seat) || (month && m.month && m.month !== month);
+    if (!wrong) return m;
+    if (attempt >= ATTEMPTS) throw new Error(`ERP answered for ${m.seat ?? 'another seat'} / ${m.month ?? '?'} when asked for ${seat ?? 'your seat'} / ${month ?? '?'}. Please reload.`);
+    await wait(300 * attempt);
+  }
+}
+
+/* run(item) over items, at most `limit` at a time, results in order. */
+async function inPool(items, limit, run) {
+  const out = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next;
+      next += 1;
+      out[i] = await run(items[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
 }
 
 /* COVERED SEATS IN "MY ENTRIES". The server says which vacant seats the
@@ -103,9 +132,8 @@ export function useServerEntries({ enabled, gqlEnvironment = 'ERP', gqlToken, mo
         if (!endpointUrl) throw new Error(`No endpoint registered for "${gqlEnvironment}".`);
         const own = await fetchServerEntries({ endpointUrl, token: gqlToken, month, seat, method });
         const covers = withCovers ? [...(own.covers ?? []), ...(own.enters ?? []).map((e) => ({ ...e, team: true }))] : [];
-        const covered = await Promise.all(
-          covers.map(async (cover) => ({ cover, data: await fetchServerEntries({ endpointUrl, token: gqlToken, month, seat: cover.seat, method }) })),
-        );
+        /* A few at a time: a team can be a dozen seats or more (see fetchServerEntries). */
+        const covered = await inPool(covers, 4, async (cover) => ({ cover, data: await fetchServerEntries({ endpointUrl, token: gqlToken, month, seat: cover.seat, method }) }));
         const data = mergeCovered(own, covered);
         if (run.current === id) setState({ data, error: null });
       } catch (error) {

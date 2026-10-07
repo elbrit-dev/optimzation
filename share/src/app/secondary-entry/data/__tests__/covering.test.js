@@ -94,3 +94,19 @@ describe("an approval carrying a covered seat's lines", () => {
     expect(s.salesQty).toBe(5);
   });
 });
+
+describe('fetchServerEntries checks the answer against the question', () => {
+  const answer = (seat) => ({ ok: true, json: async () => ({ message: { seat, month: '2026-09', entries: [] } }) });
+  it("asks again when the ERP hands back another seat's answer", async () => {
+    const { fetchServerEntries } = await import('../useServerEntries');
+    const replies = [answer('BE9-X'), answer('BE11-X')];
+    const fetchImpl = async () => replies.shift();
+    const m = await fetchServerEntries({ endpointUrl: 'https://erp.test/api/method/graphql', token: 'k:s', month: '2026-09', seat: 'BE11-X', fetchImpl, wait: async () => {} });
+    expect(m.seat).toBe('BE11-X');
+  });
+  it('gives up with an error, never a wrong list', async () => {
+    const { fetchServerEntries } = await import('../useServerEntries');
+    const fetchImpl = async () => answer('BE9-X');
+    await expect(fetchServerEntries({ endpointUrl: 'https://erp.test/api/method/graphql', token: 'k:s', month: '2026-09', seat: 'BE11-X', fetchImpl, wait: async () => {} })).rejects.toThrow(/BE9-X/);
+  });
+});
