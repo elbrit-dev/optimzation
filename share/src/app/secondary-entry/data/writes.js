@@ -35,6 +35,13 @@ import { SECONDARY } from './task';
 export const DOCTYPE = SECONDARY.doctype;
 
 export const LINE_DRAFT = 'Draft';
+
+/* WHERE A LINE'S FIGURES CAME FROM, kept on the line (task.fields.source,
+   custom_entry_source): typed into the form, or filled from an uploaded
+   sheet. Stamped only when a save CHANGES the line's figures (or adds it), so
+   a Submit, or a save of another line, keeps how each line was entered.
+   Blank: entered before this was kept, or edited in the ERP desk. */
+export const ENTRY_SOURCE = { manual: 'Manual', upload: 'Excel Upload' };
 export const LINE_SUBMITTED = 'Submitted';
 
 function round2(n) {
@@ -51,16 +58,19 @@ function childItem(child) {
 
 /* The figures a form line writes, in the task's field names: qty and its
    value at the line's price (PTS), and closing where the task keys it. */
-function lineFigures(form, f) {
+function lineFigures(form, f, was = null) {
   const price = Number(form.price) || 0;
   const qty = Number(form.salesQty) || 0;
   const out = { [f.qty]: qty, [f.value]: round2(qty * price) };
+  let changed = !was || (Number(was[f.qty]) || 0) !== qty;
   if (f.closingQty) {
     const closingQty = Number(form.closingQty) || 0;
     out[f.closingQty] = closingQty;
     out[f.closingValue] = round2(closingQty * price);
+    if (was && (Number(was[f.closingQty]) || 0) !== closingQty) changed = true;
   }
   if (f.rate && price > 0) out[f.rate] = price;
+  if (f.source && changed) out[f.source] = form.source || ENTRY_SOURCE.manual;
   return out;
 }
 
@@ -95,7 +105,7 @@ export function applySeatLines(doc, { roleProfile, lines, submit }, task = SECON
     const next = { ...child, [f.status]: status };
     if (form) {
       touched.add(form.item);
-      Object.assign(next, lineFigures(form, f));
+      Object.assign(next, lineFigures(form, f, child));
     }
     return next;
   });
@@ -275,6 +285,11 @@ export async function sendSheet({ origin, token, task, file, names: targets, fet
   const blob = typeof Blob !== 'undefined' && file instanceof Blob ? file : new Blob([await file.arrayBuffer()]);
   if (!blob.size) throw new Error('The file is empty.');
   const filename = String(file.name ?? '').trim() || `${task.fileStem ?? 'sheet'}.xlsx`;
+  /* Sent as a File under that name: not every FormData honours the name
+     handed beside a bare Blob (happy-dom calls it "blob"). */
+  const sent = typeof File !== 'undefined' && !(blob instanceof File && blob.name === filename)
+    ? new File([blob], filename, { type: blob.type })
+    : blob;
 
   for (let attempt = 1; ; attempt += 1) {
     const form = new FormData();
@@ -283,7 +298,7 @@ export async function sendSheet({ origin, token, task, file, names: targets, fet
     form.append('docnames', JSON.stringify(docnames));
     form.append('filenames', JSON.stringify(bases));
     form.append('fieldname', task.sheetField);
-    form.append('file', blob, filename);
+    form.append('file', sent, filename);
     let res;
     try {
       res = await fetchImpl(`${origin}/api/method/upload_to_field`, { method: 'POST', headers: { Authorization: token }, body: form });

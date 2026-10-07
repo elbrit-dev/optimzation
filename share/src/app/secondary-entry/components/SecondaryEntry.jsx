@@ -22,7 +22,7 @@ import {
 } from '../data/selectors';
 import { buildSheet } from '../data/csv';
 import { XLSX_MIME, buildGridWorkbook, readSheetFile } from '../data/sheetFile';
-import { createErpWriter, sheetBaseName } from '../data/writes';
+import { ENTRY_SOURCE, createErpWriter, sheetBaseName } from '../data/writes';
 import { SECONDARY, TaskProvider, partyCount } from '../data/task';
 import { EntryOverview, EntryOverviewSkeleton } from './EntryOverview';
 import { EntryForm } from './EntryForm';
@@ -501,7 +501,7 @@ export function SecondaryEntry({
           continue;
         }
         const own = new Map(entry.lines.map((l) => [l.item, l.price]));
-        const lines = sheetLines.map((l) => ({ ...l, price: own.get(l.item) || priceOf.get(l.item) || 0 }));
+        const lines = sheetLines.map((l) => ({ ...l, price: own.get(l.item) || priceOf.get(l.item) || 0, source: ENTRY_SOURCE.upload }));
         plan.push({ name, entry, lines });
       }
       /* THE SHEET FIRST: kept in Transformed Data on every record it fills,

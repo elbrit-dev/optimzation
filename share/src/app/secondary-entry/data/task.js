@@ -60,6 +60,8 @@ export const SECONDARY = {
     closingQty: 'closing_qty',
     closingValue: 'closing_balance',
     rate: 'rate',
+    /* Where the line's figures came from (writes.js ENTRY_SOURCE). */
+    source: 'custom_entry_source',
     hq: 'custom_hq',
     department: 'custom_department',
   },
@@ -112,6 +114,7 @@ export const DOCTOR_SUPPORT = {
     closingQty: null,
     closingValue: null,
     rate: null,
+    source: 'custom_entry_source',
     hq: 'hq',
     department: 'department',
   },
