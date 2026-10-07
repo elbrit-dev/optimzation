@@ -322,6 +322,25 @@ if seat:
             if not held.get(k) and k not in covered:
                 covered.append(k)
         frontier = below
+# ... and, for an EXTRA USER, every seat under theirs: they enter and approve
+# for their whole team (the list is copied by hand into Elbrit Secondary
+# Entry, Elbrit Doctor Support Entry, Operational Tracker Restriction and the
+# "Approval flow" steps: change them all together).
+EXTRA_USERS = ["kamesh@elbrit.org", "ramu@elbrit.org"]
+if me in EXTRA_USERS and seat:
+    frontier = [seat]
+    reached = {seat: 1}
+    hops = 0
+    while frontier and hops < 10:
+        hops = hops + 1
+        below = []
+        for r in frappe.get_all("Role Profile", filters=[["parent_role_profile", "in", frontier]], pluck="name"):
+            if not reached.get(r):
+                reached[r] = 1
+                below.append(r)
+                if r not in covered:
+                    covered.append(r)
+        frontier = below
 
 items = []
 # The tasks on the strip, each with an entry tile and an approval tile. The

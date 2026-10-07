@@ -140,6 +140,12 @@ export function SecondaryEntry({
      read-only. */
   const covers = server.data?.covers ?? [];
   const coveringNow = Boolean(viewing && server.data?.covering && server.data?.seat === viewing.seat);
+  /* AN EXTRA USER (the entry script's EXTRA_USERS) enters for every seat under
+     their own: `enters` lists those seats, and `entering` says the seat open
+     now is one — editable, saving as that seat, as a covered seat is. */
+  const enters = server.data?.enters ?? [];
+  const enteringNow = Boolean(viewing && server.data?.entering && server.data?.seat === viewing.seat);
+  const editableView = coveringNow || enteringNow;
   /* SERVER PAGING, when the parent Elbrit DataProvider (Views) has
      enableServerPaging on. Paging there grows the query's `first` limit and
      re-queries — not a cursor: `after` + a `filter` throws on our ERP (see
@@ -251,8 +257,8 @@ export function SecondaryEntry({
   /* The server says when what it sent is not this user's to save (IT's view
      of every seat). */
   const serverReadOnly = serverMode && Boolean(server.data?.read_only);
-  const canEdit = Boolean(roleProfile) && signedIn && !serverReadOnly && (!viewing || coveringNow);
-  const readOnlyReason = viewing && !coveringNow
+  const canEdit = Boolean(roleProfile) && signedIn && !serverReadOnly && (!viewing || editableView);
+  const readOnlyReason = viewing && !editableView
     ? `Viewing ${viewing.name}'s ${task.parties} — read only.`
     : serverReadOnly
     ? 'Read only.'
@@ -658,18 +664,22 @@ export function SecondaryEntry({
       ) : null}
 
       {viewing && !openEntry ? (
-        <div className={cx('flex items-center gap-2 rounded-lg px-3 py-2', coveringNow ? 'bg-warning-wash' : 'bg-brand-tint-weak')}>
+        <div className={cx('flex items-center gap-2 rounded-lg px-3 py-2', editableView ? 'bg-warning-wash' : 'bg-brand-tint-weak')}>
           <button
             type="button"
             onClick={() => setViewing(null)}
             aria-label="Back to the team"
-            className={cx('flex shrink-0 items-center transition-colors', coveringNow ? 'text-warning-text' : 'text-brand-text hover:text-brand-hover')}
+            className={cx('flex shrink-0 items-center transition-colors', editableView ? 'text-warning-text' : 'text-brand-text hover:text-brand-hover')}
           >
             <Icon name="chevron-left" size="sm" />
           </button>
           {coveringNow ? (
             <span className="min-w-0 flex-1 truncate text-12 text-warning-text">
               <span className="font-semibold">{coveringLabel(covers.find((c) => c.seat === viewing.seat) ?? { seat: viewing.seat })}</span> · you are entering for it
+            </span>
+          ) : enteringNow ? (
+            <span className="min-w-0 flex-1 truncate text-12 text-warning-text">
+              <span className="font-semibold">{viewing.name}</span> · {viewing.seat} · you are entering for them
             </span>
           ) : (
             <span className="min-w-0 flex-1 truncate text-12 text-brand-text">
@@ -698,7 +708,7 @@ export function SecondaryEntry({
       ) : null}
 
       {shownPane === 'team' && !viewing && !openEntry ? (
-        <TeamProgress team={team.data} covers={covers} onView={(m) => setViewing({ seat: m.seat, name: m.name })} />
+        <TeamProgress team={team.data} covers={[...covers, ...enters]} onView={(m) => setViewing({ seat: m.seat, name: m.name })} />
       ) : loading || seatProblem === 'finding' ? (
         <EntryOverviewSkeleton />
       ) : seatProblem ? (
@@ -754,7 +764,7 @@ export function SecondaryEntry({
               : null
           }
           bulk={
-            viewing && !coveringNow ? null : (
+            viewing && !editableView ? null : (
             <EntryOverview.BulkEntryCard
               pendingCount={pending.length}
               sheetRows={sheetRows}

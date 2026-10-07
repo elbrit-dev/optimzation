@@ -93,7 +93,7 @@ function TeamNode({ member, index, depth, open, toggle, onView, segments, covere
       header={header}
       action={
         canView ? (
-          <Button type="primary" ghost size="sm" onClick={() => onView(member)} aria-label={enter ? `Enter for the vacant seat ${member.seat}` : `View ${member.name}'s entries`}>
+          <Button type="primary" ghost size="sm" onClick={() => onView(member)} aria-label={enter ? (member.vacant ? `Enter for the vacant seat ${member.seat}` : `Enter for ${member.name}`) : `View ${member.name}'s entries`}>
             {actionLabel}
             <span aria-hidden="true">›</span>
           </Button>
@@ -114,7 +114,8 @@ function TeamNode({ member, index, depth, open, toggle, onView, segments, covere
 
 /* `labels`: the page's words for the three counts, e.g. { todo: 'Rework' }
    on the Approval screen, where "to do" is what went back to the BE. */
-/* `covers`: the vacant seats the viewer covers ([{ seat }]) — those rows
+/* `covers`: the seats the viewer enters for ([{ seat }]) — vacant seats they
+   cover, and, for an extra user, every seat under theirs — those rows
    offer Enter instead of View. `withDraft`: a Draft count after the three
    (members carry `draft`). */
 export function TeamProgress({ team, onView, labels, covers, withDraft = false }) {

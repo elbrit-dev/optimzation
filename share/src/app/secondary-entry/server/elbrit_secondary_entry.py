@@ -253,10 +253,47 @@ for c in covers:
     c["hq"] = frappe.db.get_value("Role Profile", c.get("seat"), "custom_territory")
 covering = covering or bool(covered.get(seat))
 
+# ---- EXTRA USERS: may see, ENTER and approve for every seat under their
+# own (the Role Profile tree, any depth), as the seat's holder would. The
+# list is copied by hand into Elbrit Doctor Support Entry, Elbrit Ring Nav, Operational Tracker Restriction and the
+# "Approval flow" steps (scripts/erp/approval-flow-extra.mjs): change them all together.
+# `enters` lists those seats' live holders (the team tree offers "Enter" on
+# them); `entering` is true when `seat` is one, which opens it editable and
+# reads it past permissions, as a covered seat is.
+EXTRA_USERS = ["kamesh@elbrit.org", "ramu@elbrit.org"]
+enters = []
+entering = False
+if me in EXTRA_USERS and own_seat:
+    below = {}
+    frontier = [own_seat]
+    hops = 0
+    while frontier and hops < 10:
+        hops = hops + 1
+        nxt = []
+        for part in chunks(frontier):
+            for r in frappe.get_all("Role Profile", filters=[["parent_role_profile", "in", part]],
+                                    fields=["name"], limit_page_length=0):
+                if not below.get(r.get("name")):
+                    below[r.get("name")] = 1
+                    nxt.append(r.get("name"))
+        frontier = nxt
+    below_seats = list(below.keys())
+    live_holder = {}
+    for part in chunks(below_seats):
+        for e in frappe.get_all("Employee",
+                                filters=[["custom_role_profile", "in", part], ["status", "=", "Active"]],
+                                fields=["custom_role_profile", "employee_name"], limit_page_length=0):
+            if not is_vacant_name(e.get("employee_name")):
+                live_holder[e.get("custom_role_profile")] = e.get("employee_name")
+    for s in below_seats:
+        if live_holder.get(s) and not covered.get(s):
+            enters.append({"seat": s, "holder": live_holder[s]})
+    entering = bool(seat) and seat != own_seat and bool(below.get(seat))
+
 # ---- A TEAM SEAT: `seat` held by someone under the caller (any depth), a
 # vacant seat under the caller's seat in the Role Profile tree, or any seat
 # for the IT role profile. Those reads go past permissions (frappe.get_all).
-in_team = covering
+in_team = covering or entering
 if seat and seat != own_seat and not in_team:
     if frappe.db.get_value("User", me, "role_profile_name") == "IT":
         in_team = True
@@ -540,6 +577,8 @@ frappe.response["message"] = {
     "seat": seat or None,
     "covering": covering,
     "covers": covers,
+    "enters": enters,
+    "entering": entering,
     "vacant_seats": vacant_seats,
     "read_only": see_all,
     "month": month,
