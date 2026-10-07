@@ -173,7 +173,7 @@ if names is None or names:
             "event_participants": participants.get(r.name, []),
         }
         if has_other_type:
-            node["custom_other_type"] = r.custom_other_type
+            node["custom_other_type"] = enum(r.custom_other_type)  # a Select field
         events.append(node)
 
 frappe.response["message"] = {"events": events, "has_more": has_more}
