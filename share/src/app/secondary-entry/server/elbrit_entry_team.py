@@ -20,8 +20,8 @@
 #   waiting   everything submitted, the approval waiting on an approver
 #   draft     the Draft part of todo on its own (the Approval screen's team
 #             tab shows it beside its tracker counts)
-# over the records assigned to the seat (the stockist's Customer / the
-# doctor's Lead lists the seat) or where it has lines.
+# over the records where the seat has lines — as the entry scripts list
+# them (one assigned with none of the seat's lines is offered under "Add").
 #
 # READ PAST PERMISSIONS (frappe.get_all), and only ever for the caller's own
 # subtree: a manager may not be able to read every record their people work
@@ -228,20 +228,9 @@ seats = [t[0] for t in tree]
 units = {}      # seat -> { record: 1 while any of its lines is Draft (or none yet) }
 state_of = {}   # seat|record -> the approval's state
 if seats:
-    assigned = {}   # party -> [seat]
-    for part in chunks(seats):
-        for r in frappe.get_all("Role Profile Multiselect",
-                                filters=[["parenttype", "=", task["party_doctype"]], ["role_profile_list", "in", part]],
-                                fields=["parent", "role_profile_list"], limit_page_length=0):
-            p = r.get("parent")
-            if p not in assigned:
-                assigned[p] = []
-            assigned[p].append(r.get("role_profile_list"))
-    for r in frappe.get_all(task["doctype"], filters=[in_month], fields=["name", task["party"]], limit_page_length=0):
-        for s in assigned.get(r.get(task["party"]), []):
-            if s not in units:
-                units[s] = {}
-            units[s][r.get("name")] = 1
+    # A record is the seat's once the seat has LINES on it — as the entry
+    # scripts list them (a stockist / doctor assigned with none of the
+    # seat's lines is offered under "Add", not counted).
     line = "`tab" + task["child"] + "`"
     for part in chunks(seats):
         rows = frappe.get_all(task["doctype"],

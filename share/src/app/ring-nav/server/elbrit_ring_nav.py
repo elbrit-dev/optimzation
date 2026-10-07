@@ -454,9 +454,8 @@ def entry_tile(task):
     state_of = {}
     if seat:
         # The caller's seat, and the vacant seats they cover (their records
-        # are the caller's to enter): a unit is a record OF THE SEAT'S — its
-        # stockist / doctor lists the seat (Role Profile table; read past
-        # permissions, names only), or the seat has lines on it (below) — and
+        # are the caller's to enter): a unit is a record OF THE SEAT'S — the
+        # seat has lines on it (below), as the entry scripts list them — and
         # only the seat's lines count. The ERP lets a BE read far more records
         # than theirs. A covered seat's unit is "<record>|<seat>".
         if not can_read(task["doctype"]):
@@ -467,18 +466,15 @@ def entry_tile(task):
             # reads them (the caller covers them).
             lister = frappe.get_list if own else frappe.get_all
             key = "" if own else "|" + s
-            assigned = {}
-            for r in frappe.get_all("Role Profile Multiselect",
-                                    filters={"parenttype": task["party_doctype"], "role_profile_list": s},
-                                    fields=["parent"], limit_page_length=0):
-                assigned[r.get("parent")] = 1
+            # A record is the seat's once the seat has LINES on it — as the
+            # entry scripts list them: a stockist / doctor assigned to the seat
+            # with none of its lines is offered under "Add", not counted.
             # The IT role profile (`always`: the USER's role profile) is the
-            # one exception: every record of the month; everyone else only
-            # what is assigned to their seat.
+            # one exception: every record of the month.
             see_all = always and own
-            for r in lister(task["doctype"], filters=[in_month],
-                            fields=["name", task["party"]], limit_page_length=0):
-                if see_all or assigned.get(r.get(task["party"])):
+            if see_all:
+                for r in lister(task["doctype"], filters=[in_month],
+                                fields=["name"], limit_page_length=0):
                     has_draft[r.get("name") + key] = 1      # no line of the seat's yet
             seen = {}
             for r in lister(
