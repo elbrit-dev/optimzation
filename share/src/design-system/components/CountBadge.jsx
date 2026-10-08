@@ -17,13 +17,17 @@ import { cx } from '../lib/cx';
 
      danger  things overdue or owed — the default, and the mock's red
      brand   things new but not late
+     warning things that may be done but are not owed (Ring Nav: stockists /
+             doctors there are to ADD). Amber, so its label is the dark
+             heading ink, not white: white on amber cannot pass, navy can.
 
-   No success/warning: white on the green and amber fills cannot pass at
-   any weight, and "3 approved" is not something anyone needs a badge for. */
+   No success: white on green cannot pass at any weight, and "3 approved"
+   is not something anyone needs a badge for. */
 
 const TONE_CLASS = {
   danger: 'ds-count-badge--danger',
   brand: 'ds-count-badge--brand',
+  warning: 'ds-count-badge--warning',
 };
 
 export function CountBadge({ value, max = 99, tone = 'danger', label, className, ...rest }) {

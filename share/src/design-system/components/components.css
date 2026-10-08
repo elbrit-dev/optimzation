@@ -1954,6 +1954,10 @@
 .ds-count-badge--brand {
   background-color: var(--brand-fill);
 }
+.ds-count-badge--warning {
+  background-color: var(--status-pending);
+  color: var(--ds-text-heading);
+}
 
 /* =========================================================== RingNav
 

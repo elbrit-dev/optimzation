@@ -355,6 +355,12 @@ items = []
 #   it_only      True: only users with the IT role profile get its tiles
 #   due_day      the day of the month its entry is due (else ENTRY_DUE_DAY):
 #                its tiles' window and caption
+#   show_add     True: a seat with nothing to enter yet but stockists /
+#                doctors it could ADD (elbrit_secondary_add /
+#                elbrit_doctor_support_add) gets the entry tile, how many in
+#                its badge and the due date as its caption; False: no tile
+#   add_tone     that badge's and caption's tone: "warning" (amber), "brand",
+#                "danger" (CountBadge's tones)
 #   rp / status  the plain names; a child that has only custom_<name> (Doctor
 #                Support's Support Items on production) uses that instead
 TASKS = [
@@ -363,14 +369,16 @@ TASKS = [
      "party": "distributor", "party_doctype": "Customer",
      "rp": "custom_role_profile", "status": "custom_status",
      "link": "custom_ref_secondary_data_entry", "prefix": "Secondary Data Entry-",
-     "due_day": 10, "hide_empty": False, "enabled": True},
+     "due_day": 10, "hide_empty": False, "enabled": True,
+     "show_add": True, "add_tone": "warning"},
     # A seat with no Doctor Support in the month gets no entry tile.
     {"id": "doctor-support", "label": "Support", "icon": "file-check",
      "doctype": "Doctor Support", "child": "Support Items",
      "party": "doctor", "party_doctype": "Lead",
      "rp": "role_profile", "status": "status",
      "link": "reference", "prefix": "Doctor Support-",
-     "due_day": 10, "hide_empty": True, "enabled": True},
+     "due_day": 10, "hide_empty": True, "enabled": True,
+     "show_add": True, "add_tone": "warning"},
 ]
 
 
@@ -438,6 +446,44 @@ def record_of(t, task):
     if rp and rec.endswith("-" + rp):
         rec = rec[:-(len(rp) + 1)]
     return rec
+
+
+# Who may ADD a party to the month (elbrit_secondary_add / elbrit_doctor_support_add):
+# a seat's own unadded stockists / doctors — a party whose Role Profile table
+# lists the seat (an enabled Customer, an Active Lead) and that has none of
+# the seat's lines in the month. Counted over the caller's seat and the seats
+# they enter for (covered vacant seats; an extra user's whole team), as the
+# Add scripts take them.
+PARTY_LIVE = {"Customer": [["disabled", "=", 0]], "Lead": [["status", "=", "Active"]]}
+
+
+def addable_count(task, seat_list):
+    n = 0
+    for s in seat_list:
+        mapped = []
+        for r in frappe.get_all("Role Profile Multiselect",
+                                filters={"parenttype": task["party_doctype"], "role_profile_list": s},
+                                fields=["parent"], limit_page_length=0):
+            if r.get("parent") and r.get("parent") not in mapped:
+                mapped.append(r.get("parent"))
+        if not mapped:
+            continue
+        live = {}
+        i = 0
+        while i < len(mapped):
+            for r in frappe.get_all(task["party_doctype"],
+                                    filters=[["name", "in", mapped[i:i + 500]]] + PARTY_LIVE.get(task["party_doctype"], []),
+                                    fields=["name"], limit_page_length=0):
+                live[r.get("name")] = 1
+            i = i + 500
+        have = {}
+        for r in frappe.get_all(task["doctype"], filters=[[task["child"], task["rp"], "=", s], in_month],
+                                fields=[task["party"]], limit_page_length=0):
+            have[r.get(task["party"])] = 1
+        for p in mapped:
+            if live.get(p) and not have.get(p):
+                n = n + 1
+    return n
 
 
 def entry_tile(task):
@@ -558,14 +604,25 @@ def entry_tile(task):
     # A MANAGER (anyone with people under them) has no entry tile unless their
     # own seat has records this month (covering a vacant BE's stockists, say):
     # their tile is the team's approval one. Doctor Support hides an empty
-    # tile for everyone.
-    if not total and (task["hide_empty"] or (has_team and not always)):
+    # tile for everyone. EXCEPT for whoever could ADD a stockist / doctor:
+    # with nothing to enter yet but parties to add, the tile shows, so the
+    # way to "Add" is there.
+    adds = 0
+    if not total and seat and task.get("show_add"):
+        adds = addable_count(task, [seat] + covered)
+    if not total and not adds and (task["hide_empty"] or (has_team and not always)):
         return
     todo = e["draft"] + e["rejected"]
 
     caption = "Done"
     tone = "success"
-    if not total:
+    if not total and adds:
+        # How many there are to add rides in the badge, the due date is the
+        # caption, both in the task's add_tone (amber by default) — not the
+        # red of work owed: adding is optional.
+        caption = win["label"]
+        tone = task.get("add_tone") or "warning"
+    elif not total:
         caption = "None"
         tone = "neutral"
     elif todo:
@@ -581,7 +638,8 @@ def entry_tile(task):
         "href": HREFS[task["id"] + "-entry"],
         "icon": task["icon"],
         "statusIcon": "pencil",
-        "count": todo,
+        "count": todo or adds,
+        "countTone": (task.get("add_tone") or "warning") if (adds and not todo) else "danger",
         "caption": caption,
         "captionTone": tone,
         "segments": [
