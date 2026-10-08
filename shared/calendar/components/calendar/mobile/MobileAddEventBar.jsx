@@ -138,11 +138,19 @@ export default function MobileAddEventBar({ date: propDate }) {
       // then offer neither HQ nor DR Tour Plan instead of the wrong one.
       if (
         tagRoleLoading &&
-        (tag.id === TAG_IDS.HQ_TOUR_PLAN || tag.id === TAG_IDS.DOCTOR_VISIT_PLAN)
+        (tag.id === TAG_IDS.HQ_TOUR_PLAN ||
+          tag.id === TAG_IDS.DOCTOR_VISIT_PLAN ||
+          tag.id === TAG_IDS.OTHER)
       ) {
         return false;
       }
       if (tag.id === TAG_IDS.HQ_TOUR_PLAN) return !shouldHideHqTourPlanTag;
+      // Other Work follows the DR Tour Plan rule the form already enforces: it
+      // needs the day's HQ Tour Plan first (a BE needs none). Offering it earlier
+      // only opened the form for it to fall back to Leave.
+      if (tag.id === TAG_IDS.OTHER) {
+        return hasValidHqTourPlan || canCreateDoctorVisitDirectly;
+      }
       if (tag.id === TAG_IDS.DOCTOR_VISIT_PLAN) {
         // Not offered on a day with the user's own leave or Other Work.
         if (doctorVisitBlockReason(allEvents, LOGGED_IN_USER.id, date)) return false;

@@ -161,13 +161,24 @@ export function AddEditEventDialog({
 	const [doctorSearchLoading, setDoctorSearchLoading] = useState(false);
 	const lastEmployeeSearchRef = useRef("");
 	const lastDoctorSearchRef = useRef("");
+	// A new event starts on the day it was opened for, not today. The tag guards
+	// below check that day's HQ plan on the very first render after opening; if
+	// the form still held today, a DR Tour Plan / Other Work / HQ Tour Plan picked
+	// for another day was judged against today's plan and pushed onto Leave
+	// before the date reset caught up.
+	const eventDefaults = buildEventDefaultValues({
+		event,
+		defaultTag: defaultTag ?? availableTags[0]?.id,
+	});
+	const openDate = event ? null : initialStartDate ?? (selectedDate ? new Date(selectedDate) : null);
+	if (openDate) {
+		eventDefaults.startDate = openDate;
+		eventDefaults.endDate = addMinutes(openDate, 60);
+	}
 	const form = useForm({
 		resolver: zodResolver(eventSchema),
 		mode: "onChange",
-		defaultValues: buildEventDefaultValues({
-			event,
-			defaultTag: defaultTag ?? availableTags[0]?.id,
-		}),
+		defaultValues: eventDefaults,
 	});
 
 	const startDate = useWatch({ control: form.control, name: "startDate" });
