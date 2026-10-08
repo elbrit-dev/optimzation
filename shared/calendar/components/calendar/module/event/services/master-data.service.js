@@ -293,27 +293,40 @@ const ROLE_DOCTOR_FIELDS = JSON.stringify([
 // the role and HQ conditions both apply to the same mapping row. Notes are not
 // read here — the visit dialog loads them per doctor via fetchDoctorById.
 const ROLE_CHUNK = 80; // an SM's team runs to hundreds of roles; keeps each URL short
+const MAX_LEAD_PAGES = 50; // 50k mapping rows: far past any team, stops a runaway loop
 
+// PAGED until a short page: one page of MAX_ROWS used to be the whole answer,
+// and a team's mapping at a big HQ runs past it — an RBM at HQ-Chennai has
+// 1,812 rows (1,608 doctors), so ~620 never loaded (DR-2657 among them). The
+// pages are sorted by row so none is skipped or repeated between them.
 async function fetchMappedLeads(filters) {
   const { authToken } = AUTH_CONFIG;
   if (!authToken) {
     throw new Error("Missing ERP auth configuration");
   }
-  const params = new URLSearchParams({
-    fields: ROLE_DOCTOR_FIELDS,
-    filters: JSON.stringify(filters),
-    limit_page_length: String(MAX_ROWS),
-  });
-  const response = await fetch(`${getErpBaseUrl()}/api/resource/Lead?${params}`, {
-    headers: {
-      Accept: "application/json",
-      Authorization: `token ${authToken}`,
-    },
-  });
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
+  const rows = [];
+  for (let page = 0; page < MAX_LEAD_PAGES; page += 1) {
+    const params = new URLSearchParams({
+      fields: ROLE_DOCTOR_FIELDS,
+      filters: JSON.stringify(filters),
+      order_by: "`tabLead`.`name` asc, `tabRole Profile Multiselect`.`name` asc",
+      limit_start: String(page * MAX_ROWS),
+      limit_page_length: String(MAX_ROWS),
+    });
+    const response = await fetch(`${getErpBaseUrl()}/api/resource/Lead?${params}`, {
+      headers: {
+        Accept: "application/json",
+        Authorization: `token ${authToken}`,
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const data = (await response.json())?.data ?? [];
+    rows.push(...data);
+    if (data.length < MAX_ROWS) break;
   }
-  return (await response.json())?.data ?? [];
+  return rows;
 }
 
 export async function fetchDoctorsByRoles(roleIds, territory, { allRoles = false } = {}) {
