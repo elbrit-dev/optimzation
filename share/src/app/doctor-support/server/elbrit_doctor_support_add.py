@@ -301,7 +301,7 @@ created = []
 added = []
 skipped = []
 for d in doctors:
-    if not assigned.get(d):
+    if d not in assigned:  # its HQ is often blank: "" still means assigned
         skipped.append({"doctor": d, "reason": "not your doctor"})
         continue
     if not active.get(d):

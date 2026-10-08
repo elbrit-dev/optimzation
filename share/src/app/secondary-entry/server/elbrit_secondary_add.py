@@ -279,7 +279,7 @@ created = []
 added = []
 skipped = []
 for d in parties:
-    if not assigned.get(d):
+    if d not in assigned:  # its HQ is often blank: "" still means assigned
         skipped.append({"doctor": d, "reason": "not your stockist"})
         continue
     if not enabled.get(d):

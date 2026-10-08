@@ -270,10 +270,7 @@ function useStyles() {
 /* pieces                                                                     */
 /* -------------------------------------------------------------------------- */
 
-/**
- * Quantity is the headline here — this variant is about stock moving, so the
- * Nos figure leads and the money sits under it as context.
- */
+/** The amount is the headline; the Nos figure sits under it as context. */
 function Stat({ label, value, qty, currency }) {
   const quantity = fmtQty(qty);
   const money = fmtFull(value, currency);
@@ -283,10 +280,10 @@ function Stat({ label, value, qty, currency }) {
       {/* display:contents on wide cards, so this wrapper only exists for the
           narrow layout, where the figures move opposite the label */}
       <div className="tc-stat__figs">
-        <div className="tc-stat__value" data-empty={quantity ? "false" : "true"}>
-          {quantity || "—"}
+        <div className="tc-stat__value" data-empty={money ? "false" : "true"}>
+          {money || "—"}
         </div>
-        <div className="tc-stat__money">{money || "No value"}</div>
+        <div className="tc-stat__money">{quantity || "No quantity"}</div>
       </div>
     </div>
   );
@@ -344,14 +341,14 @@ function HqTile({ node, currency, onClick }) {
           ["Closing", figures.closing],
           ["Opening", figures.opening],
         ].map(([label, f]) => {
-          const quantity = fmtQty(f.qty);
+          const money = fmtFull(f.value, currency);
           return (
             <div className="tc-hq__stat" key={label}>
               <div className="tc-hq__statLabel">{label}</div>
-              <div className="tc-hq__statValue" data-empty={quantity ? "false" : "true"}>
-                {quantity || "—"}
+              <div className="tc-hq__statValue" data-empty={money ? "false" : "true"}>
+                {money || "—"}
               </div>
-              <div className="tc-hq__statQty">{fmtFull(f.value, currency) || "No value"}</div>
+              <div className="tc-hq__statQty">{fmtQty(f.qty) || "No quantity"}</div>
             </div>
           );
         })}

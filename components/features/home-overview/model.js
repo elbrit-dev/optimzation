@@ -164,7 +164,12 @@ function buildSecondary(s, level) {
   const units = src.map((u) => ({ ...u, key: u.name, short: level === "dept" ? shortName(u.name) : u.name, r: ratio(u.s, u.o) }));
   const tot = units.reduce((x, u) => ({ s: x.s + u.s, c: x.c + u.c, o: x.o + u.o, sv: x.sv + num(u.sv), cv: x.cv + num(u.cv), dist: x.dist + num(u.dist) }), { s: 0, c: 0, o: 0, sv: 0, cv: 0, dist: 0 });
   const rT = ratio(tot.s, tot.o);
-  const cells = (t) => [{ l: "Sold", n: nos(t.s) }, { l: "Closing", n: nos(t.c) }, { l: "Opening", n: nos(t.o) }];
+  // Amount first, Nos under it - same order as the secondary summary card.
+  const cells = (t) => [
+    { l: "Sold", v: cr(num(t.sv)), n: nos(t.s) },
+    { l: "Closing", v: cr(num(t.cv)), n: nos(t.c) },
+    { l: "Opening", v: cr(num(t.sv) + num(t.cv)), n: nos(t.o) },
+  ];
   const tile = (t, name, key, all) => ({ key, name, dist: t.dist, pctTxt: pc(ratio(t.s, t.o)), w: pct(ratio(t.s, t.o)), cells: cells(t), all });
   const v = rT >= 0.5 ? ["Healthy", ...OK] : rT >= 0.3 ? ["Watch stock", ...WN] : ["Slow", ...BD];
   const stock = [...units].sort((a, b) => ratio(b.c, b.o) - ratio(a.c, a.o))[0];
@@ -421,8 +426,8 @@ function doctorPanel(U, i) {
       { l: "Per unit", v: cr(ratio(v, Math.max(1, num(d.qty)))), s: "average" },
     ],
     chart: series.length ? { t: "Value by month", bars: series.map((x) => ({ l: x.l, v: x.value ? crShort(x.value).replace("₹", "") : "", h: (x.value / sMax) * 85 + "%", c: x.on ? "#2563eb" : "#c7d7fa" })) } : null,
-    tables: [{ t: "Products given", s: U.sel.label, gtc: gtc(2), head: [H("Product", "left"), H("Units"), H("Value")],
-      rows: items.map((x) => ({ name: x.name, sub: x.brand && x.brand !== x.name ? x.brand : "", cells: [cell(nos(x.qty)), cell(cr(x.value), null, 600)], w: pct(x.value / iMax), wc: "#93b4f5" })) }],
+    tables: [{ t: "Products given", s: U.sel.label, gtc: gtc(2), head: [H("Product", "left"), H("Value"), H("Units")],
+      rows: items.map((x) => ({ name: x.name, sub: x.brand && x.brand !== x.name ? x.brand : "", cells: [cell(cr(x.value), null, 600), cell(nos(x.qty))], w: pct(x.value / iMax), wc: "#93b4f5" })) }],
   };
 }
 
@@ -442,7 +447,7 @@ export function supportPanel(view, key) {
   const doctors = all ? num(U.sel.doctors) : num(m.doctors), units = all ? num(U.sel.qty) : num(m.qty);
   const tables = [];
   if (all && U.mgrs.length) tables.push({ t: "By manager", s: U.sel.label, gtc: gtc(2), head: [H("Name", "left"), H("Share"), H("Value")], rows: U.mgrs.map((x) => ({ name: x.name, sub: x.role, cells: [cell(pc(ratio(x.v, tv)) + ""), cell(cr(x.v), null, 600)], w: pct(ratio(x.v, U.mgrs[0].v)), wc: "#2563eb" })) });
-  tables.push({ t: "Doctor-wise", s: "top doctors by value", gtc: gtc(2), head: [H("Doctor", "left"), H("Units"), H("Value")], rows: docs.map((d) => ({ name: d.name, sub: [d.spec, d.hq].filter(Boolean).join(" · "), cells: [cell(nos(d.qty)), cell(cr(d.value), null, 600)], w: pct(d.value / dMax), wc: "#93b4f5" })) });
+  tables.push({ t: "Doctor-wise", s: "top doctors by value", gtc: gtc(2), head: [H("Doctor", "left"), H("Value"), H("Units")], rows: docs.map((d) => ({ name: d.name, sub: [d.spec, d.hq].filter(Boolean).join(" · "), cells: [cell(cr(d.value), null, 600), cell(nos(d.qty))], w: pct(d.value / dMax), wc: "#93b4f5" })) });
   tables.push({ t: "By brand", s: "share of value", gtc: gtc(2), head: [H("Brand", "left"), H("Share"), H("Value")], rows: brands.map((b) => ({ name: b.name, sub: "", cells: [cell(pc(ratio(b.value, tv)) + ""), cell(cr(b.value), null, 600)], w: pct(b.value / bMax), wc: "#2563eb" })) });
   return {
     kicker: U.kicker, dot: "#2563eb", title: all ? "Support value" : m.name, sub: all ? U.scope : m.role + " · #" + (key + 1),

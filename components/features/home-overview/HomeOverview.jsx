@@ -505,7 +505,8 @@ function SecondaryRow({ L, view, open, pop }) {
             {t.cells.map((c) => (
               <span key={c.l} style={{ display: "flex", flexDirection: "column" }}>
                 <span style={{ fontSize: 11, color: "#8a93a3" }}>{c.l}</span>
-                <span style={{ fontSize: 14, fontWeight: 600 }}>{c.n}</span>
+                <span style={{ fontSize: 14, fontWeight: 600, overflowWrap: "anywhere" }}>{c.v}</span>
+                <span style={{ fontSize: 11.5, color: "#5b6576" }}>{c.n} Nos</span>
               </span>
             ))}
           </span>
