@@ -326,7 +326,7 @@ if seat:
 # for their whole team (the list is copied by hand into Elbrit Secondary
 # Entry, Elbrit Doctor Support Entry, Operational Tracker Restriction and the
 # "Approval flow" steps: change them all together).
-EXTRA_USERS = ["kamesh@elbrit.org", "ramu@elbrit.org"]
+EXTRA_USERS = ["kamesh@elbrit.org", "ramu@elbrit.org", "rahulbhargav@elbrit.org"]
 if me in EXTRA_USERS and seat:
     frontier = [seat]
     reached = {seat: 1}

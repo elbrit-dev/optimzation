@@ -144,7 +144,7 @@ def owner_seat(s):
 # EXTRA USERS: may add for any seat under their own (the Role Profile tree,
 # any depth), as they enter and approve for it — the list in Elbrit
 # Secondary Entry / Elbrit Doctor Support Entry; change them all together.
-EXTRA_USERS = ["kamesh@elbrit.org", "ramu@elbrit.org"]
+EXTRA_USERS = ["kamesh@elbrit.org", "ramu@elbrit.org", "rahulbhargav@elbrit.org"]
 
 
 def seat_under(s, top):

@@ -289,7 +289,7 @@ covering = bool(covered.get(seat))
 # `enters` lists those seats' live holders (the team tree offers "Enter" on
 # them); `entering` is true when `seat` is one, which opens it editable and
 # reads it past permissions, as a covered seat is.
-EXTRA_USERS = ["kamesh@elbrit.org", "ramu@elbrit.org"]
+EXTRA_USERS = ["kamesh@elbrit.org", "ramu@elbrit.org", "rahulbhargav@elbrit.org"]
 enters = []
 entering = False
 if me in EXTRA_USERS and own_seat:
