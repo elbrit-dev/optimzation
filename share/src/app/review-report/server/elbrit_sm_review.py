@@ -246,8 +246,17 @@ if not allowed.get(root):
     root = my_seat if (my_seat and allowed.get(my_seat)) else allowed_top
 
 seats = subtree(root) if root else []
+# The "Sales" seat is the GM's (Rajkumar N holds it on production): it heads
+# the tree, above every SM, for the GM and for IT alike. Dropped only when no
+# real person holds it, so the SMs are the tops then.
+sales_held = False
 if root == SALES_ROOT:
-    seats = [s for s in seats if s != SALES_ROOT]
+    for e in frappe.get_all("Employee", filters={"status": "Active", "custom_role_profile": SALES_ROOT},
+                            fields=["employee_name"], limit_page_length=0):
+        if not is_vacant_name(e.get("employee_name")):
+            sales_held = True
+    if not sales_held:
+        seats = [s for s in seats if s != SALES_ROOT]
 si_of = {}
 for i in range(len(seats)):
     si_of[seats[i]] = i
@@ -299,7 +308,7 @@ else:
             "name": " / ".join([x.get("employee_name") for x in real]) if real else (h.get("employee_name") or s),
             "employee": real[0].get("name") if real else h.get("name"),
             "user": real[0].get("user_id") if real else None,
-            "tier": tier_of(s) or None,
+            "tier": "GM" if s == SALES_ROOT else (tier_of(s) or None),
             "reportsTo": parent_of.get(s),
             "vacant": 0 if real else 1,
             "hq": prof.get("custom_territory"),

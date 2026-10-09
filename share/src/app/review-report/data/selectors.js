@@ -118,9 +118,9 @@ export function scopeOf(ix, sel) {
 }
 
 /* ---- picks: the Visit report's scope model -------------------------------
- * The scope is a list of picks, `{ id, includeSubtree }` — the design-system
- * TreeSelect's value. A seat with its whole branch, or the seat alone; as
- * many as you like, summed as one union.
+ * The scope is a list of picks, `{ id, includeSubtree }` (the Visit
+ * report's value): a seat with its whole branch, or the seat alone; several
+ * are summed as one union.
  *
  * DEFAULT: the caller's own seat and branch. A caller with no seat of their
  * own (IT sees the whole Sales tree) starts on EVERYONE — every top seat

@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Card, Icon, SegmentedControl, Select, Tabs, cx } from '@/design-system';
+import { Button, Card, Icon, SegmentedControl, Tabs, cx } from '@/design-system';
+import FyMonthPicker from '@/components/FyMonthPicker';
 import { useReview } from '../data/useReview';
 import {
   attention,
@@ -31,7 +32,6 @@ import { SalesSection } from './SalesSection';
 import { DoctorsSection } from './DoctorsSection';
 import { StockistsSection } from './StockistsSection';
 import { ScopeTree } from './ScopeTree';
-import { ScopeSelect } from './ScopeSelect';
 import { Notice } from './bits';
 
 /* The monthly review — the SM REVIEW FORMAT workbook as one page.
@@ -42,9 +42,10 @@ import { Notice } from './bits';
  *
  * WHOSE NUMBERS, as the Visit report: the token decides (the server answers
  * with the caller's seat and everything under it; IT gets every SM). The
- * scope is a list of picks — the "Team scope" picker, or a row of the tree
- * — and starts on the caller's own branch, or for a caller with no seat of
- * their own (IT) on every SM's: never on whichever SM comes first.
+ * scope is a list of picks and starts on the caller's own branch, or for a
+ * caller with no seat of their own (IT) on every SM's: never on whichever SM
+ * comes first. A row of the tree narrows it to that seat's branch; the
+ * breadcrumb's "All teams" goes back to every branch.
  *
  * THE PAGE OWNS FIVE THINGS: the lens (team tree or department), the picks,
  * the department, the month and the tab. Everything else is computed from
@@ -179,11 +180,21 @@ export function ReviewReport({ gqlEnvironment = 'ERP', gqlToken, root, fy, upto,
 
   const month = ix.months[mi];
   const one = selection.length === 1 ? selection[0] : null;
-  const chain = lens === 'team' && one ? chainOf(ix, one.id) : [];
-  const monthOptions = ix.months.slice(ix.fyStart).map((m, k) => ({
-    value: String(ix.fyStart + k),
-    label: `${monthShort(m)}${isOpen(ix, ix.fyStart + k) ? ' · being entered' : ''}`,
-  })).reverse();
+  /* "All teams" heads the breadcrumb when the default is every branch (IT). */
+  const everyone = ix.me == null && ix.roots.length > 1;
+  const chain = lens === 'team' && one
+    ? [...(everyone ? [{ id: null, name: 'All teams' }] : []), ...chainOf(ix, one.id)]
+    : [];
+  /* The month: the Visit report's picker (FyMonthPicker), one month at a
+     time, locked to this answer's FY up to its last month. */
+  const monthDate = (m, end) => new Date(Number(m.slice(0, 4)), Number(m.slice(5, 7)) - (end ? 0 : 1), end ? 0 : 1);
+  const lastMonth = ix.months[ix.months.length - 1];
+  const onMonthRange = (r) => {
+    const d = r?.[1];
+    if (!d) return;
+    const k = ix.months.indexOf(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+    if (k >= ix.fyStart) setMi(k);
+  };
   const node = view.scope.node;
   const subtitle = lens === 'dept'
     ? `${deptShort(dept)} · every seat and HQ of the department`
@@ -208,12 +219,13 @@ export function ReviewReport({ gqlEnvironment = 'ERP', gqlToken, root, fy, upto,
         </div>
         <div className="flex flex-col gap-2 @2xl/report:w-72 @2xl/report:shrink-0">
           <SegmentedControl items={LENSES} value={lens} onChange={setLens} block ariaLabel="Group by" />
-          <Select
-            label="Month"
-            hideLabel
-            options={monthOptions}
-            value={String(mi)}
-            onChange={(v) => setMi(Number(v))}
+          <FyMonthPicker
+            single
+            min={monthDate(ix.months[ix.fyStart])}
+            max={monthDate(lastMonth, true)}
+            value={[monthDate(month), monthDate(month, true)]}
+            onChange={onMonthRange}
+            className="h-9 w-full"
           />
         </div>
       </div>
@@ -237,11 +249,6 @@ export function ReviewReport({ gqlEnvironment = 'ERP', gqlToken, root, fy, upto,
             <div className="hidden border-b border-[var(--border-subtle)] px-4 py-2.5 text-11 font-medium uppercase tracking-wide text-ds-muted @5xl/report:block">
               {lens === 'dept' ? 'Departments' : 'Team'}
             </div>
-            {lens === 'team' ? (
-              <div className={cx('border-b border-[var(--border-subtle)] px-3 py-2.5 @5xl/report:block', treeOpen ? 'block' : 'hidden')}>
-                <ScopeSelect ix={ix} value={selection} onChange={setPicks} />
-              </div>
-            ) : null}
             <div
               className={cx(
                 'max-h-[60vh] overflow-y-auto border-t border-[var(--border-subtle)] @5xl/report:block @5xl/report:max-h-[calc(100vh-7rem)] @5xl/report:border-t-0',
@@ -266,12 +273,12 @@ export function ReviewReport({ gqlEnvironment = 'ERP', gqlToken, root, fy, upto,
           {lens === 'team' && chain.length > 1 ? (
             <nav aria-label="Where in the team" className="-mt-1 flex flex-wrap items-center gap-1 text-12">
               {chain.map((c, k) => (
-                <span key={c.id} className="inline-flex items-center gap-1">
+                <span key={c.id ?? 'all'} className="inline-flex items-center gap-1">
                   {k ? <span className="text-ds-muted">›</span> : null}
                   <button
                     type="button"
                     disabled={k === chain.length - 1}
-                    onClick={() => seatOnly(c.id)}
+                    onClick={() => (c.id == null ? setPicks(null) : seatOnly(c.id))}
                     className={cx(
                       'rounded px-1 py-0.5',
                       k === chain.length - 1 ? 'font-medium text-heading' : 'text-brand-text [@media(hover:hover)]:hover:bg-brand-tint-weak',
@@ -297,9 +304,7 @@ export function ReviewReport({ gqlEnvironment = 'ERP', gqlToken, root, fy, upto,
           {full.error ? (
             <Notice>Visits, leave and products could not be loaded: {full.error.message ?? String(full.error)}</Notice>
           ) : null}
-          {!deptLens && !selection.length ? (
-            <Notice>No team selected — tick a seat in Team scope.</Notice>
-          ) : <div>
+          <div>
             {tab === 'overview' ? (
               <OverviewSection
                 sc={view.sc}
@@ -341,7 +346,7 @@ export function ReviewReport({ gqlEnvironment = 'ERP', gqlToken, root, fy, upto,
               <ProductsSection ix={ix} scope={view.scope} mi={mi} open={ix.open} onMonth={setMi} loading={restLoading} />
             ) : null}
             {tab === 'more' && showMockSheets ? <MoreSection ix={ix} scope={view.scope} mi={mi} /> : null}
-          </div>}
+          </div>
         </div>
       </div>
 

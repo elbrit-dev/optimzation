@@ -20,7 +20,11 @@ import { createPortal } from 'react-dom';
  *
  * `mode="date"` is ONE DAY instead (DayPicker below): the same trigger and
  * ‹ › steps, a day at a time, and a month calendar in the same popover. It
- * emits the day as a [day, day] pair, as the month mode emits a run. */
+ * emits the day as a [day, day] pair, as the month mode emits a run.
+ *
+ * `single` is ONE MONTH (the Review Report: a review is of a month): no
+ * Quarter / Financial year tabs, and a tap on a month applies it and closes.
+ * It still emits a [start, end] pair, of that one month. */
 
 const MN = ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar'];
 const CAL = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -123,7 +127,7 @@ export default function FyMonthPicker({ mode = 'month', ...props }) {
   return mode === 'date' ? <DayPicker {...props} /> : <MonthPicker {...props} />;
 }
 
-function MonthPicker({ value, onChange, minFy = 2024, min, max, className }) {
+function MonthPicker({ value, onChange, minFy = 2024, min, max, className, single = false }) {
   const mob = useIsMobile();
   const TODAY = useMemo(() => toIdx(new Date()), []);
   const CUR = max ? Math.min(TODAY, toIdx(max)) : TODAY;
@@ -184,6 +188,7 @@ function MonthPicker({ value, onChange, minFy = 2024, min, max, className }) {
      way (backdrop, Escape) drops it and keeps the previous range. */
   const tap = (c0, c1) => () => {
     if (c0 > c1) return;
+    if (single) { emit(c0, c1); close(); return; }
     if (!from) { setFrom([c0, c1]); return; }
     emit(Math.min(from[0], c0), Math.max(from[1], c1));
     setFrom(null);
@@ -213,7 +218,7 @@ function MonthPicker({ value, onChange, minFy = 2024, min, max, className }) {
 
   const modes = [['month', 'Month'], ['quarter', 'Quarter'], ['fy', 'Financial year']];
   const unit = pmode === 'month' ? 'month' : pmode === 'quarter' ? 'quarter' : 'year';
-  const hint = from
+  const hint = single ? 'Tap a month' : from
     ? `From ${ml(from[0])} · now tap the end ${unit} (same one for just it)`
     : `Tap the start ${unit}, then the end ${unit}`;
   const cols = pmode === 'month' ? 4 : pmode === 'quarter' ? 2 : 1;
@@ -241,17 +246,17 @@ function MonthPicker({ value, onChange, minFy = 2024, min, max, className }) {
         <Popover mob={mob} anchorRef={rootRef} onClose={close}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              <span style={{ fontSize: 15, fontWeight: 650 }}>Select months</span>
-              <span style={{ fontSize: 12, color: '#667085' }}>{from ? hint : `${hint} · ${n} selected`}</span>
+              <span style={{ fontSize: 15, fontWeight: 650 }}>{single ? 'Select month' : 'Select months'}</span>
+              <span style={{ fontSize: 12, color: '#667085' }}>{from || single ? hint : `${hint} · ${n} selected`}</span>
             </div>
             <button type="button" onClick={done} style={{ height: 30, padding: '0 12px', border: 0, background: '#101828', color: '#fff', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Done</button>
           </div>
 
-          <div style={{ display: 'flex', background: '#F2F4F7', borderRadius: 9, padding: 3, gap: 2 }}>
+          {single ? null : <div style={{ display: 'flex', background: '#F2F4F7', borderRadius: 9, padding: 3, gap: 2 }}>
             {modes.map(([id, l]) => (
               <button key={id} type="button" onClick={() => setPmode(id)} style={{ flex: 1, height: 32, border: 0, borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: 'pointer', background: id === pmode ? '#fff' : 'transparent', color: id === pmode ? '#101828' : '#475467', boxShadow: id === pmode ? '0 1px 2px rgba(16,24,40,.12)' : 'none', whiteSpace: 'nowrap' }}>{l}</button>
             ))}
-          </div>
+          </div>}
 
           {pmode !== 'fy' ? (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
