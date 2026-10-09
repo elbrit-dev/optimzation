@@ -1429,3 +1429,9 @@ body {
 .elbrit-event-timeline.elbrit-event-timeline--single-side.p-timeline .p-timeline-event-content {
     flex: 0 1 auto;
 }
+
+/* The dev harness showing a screen alone (Hide harness / ?view=1): no app
+   top bar over it. See src/app/dev/harness/HarnessShell.jsx. */
+body[data-harness-bare] .app-header-container {
+  display: none;
+}

@@ -3099,6 +3099,19 @@ PLASMIC.registerComponent(HomeOverview, {
       description: "Fires from Support value See all and the Support card Open. Give it a Go to page action for this section's page; once wired, the built-in redirect for this section is off.",
       argTypes: [],
     },
+    showReview: {
+      type: "boolean",
+      displayName: "Report row",
+      defaultValue: true,
+      description: "Shows the Report row: one Review Report card with the person's last full month of Target, Primary and Secondary (the elbrit_sm_review server script). The card opens the Review Report page.",
+    },
+    reviewPath: { type: "string", displayName: "Review Report page", defaultValue: "/review-report", description: "Where the Review Report card goes. Empty leaves it to On open Review." },
+    onOpenReview: {
+      type: "eventHandler",
+      displayName: "On open Review",
+      description: "Fires from the Review Report card. Give it a Go to page action; once wired, the built-in redirect for this card is off.",
+      argTypes: [],
+    },
     onOpen: {
       type: "eventHandler",
       displayName: "On open",

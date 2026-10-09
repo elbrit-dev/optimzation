@@ -6,6 +6,8 @@ import Router from "next/router";
 import { buildView, primaryPanel, repsPanel, secondaryPanel, supportPanel, updatedLabel, visitPanel } from "./model";
 import { SAMPLE } from "./sampleData";
 import { useOverviewData } from "./data/useOverviewData";
+import { useReviewSection } from "./data/useReviewSection";
+import { ReviewRow } from "./ReviewRow";
 
 /* Home overview -- the "Elbrit Home" design below the entry rings.
  *
@@ -21,6 +23,10 @@ import { useOverviewData } from "./data/useOverviewData";
  * that sees several, HQs for one that sees a single department.
  *
  *   onOpen(section, hq)   section = primary | secondary | visit | support
+ *
+ * Report: one Review Report card, first row -- the person's last full month
+ * of Target, Primary and Secondary from the Review Report page (achievement,
+ * YTD, growth, primary : secondary). The card opens reviewPath (/review-report).
  *
  * Each section also has its own event -- onOpenPrimary, onOpenSecondary,
  * onOpenVisit, onOpenSupport -- for a Studio "Go to page" action. When a
@@ -79,14 +85,14 @@ const Chevron = ({ d = "M9 6l6 6-6 6", size = 16 }) => (
 const Arrow = () => <Chevron d="M5 12h14M13 6l6 6-6 6" size={17} />;
 
 const eyebrow = { fontSize: 12, fontWeight: 600, letterSpacing: ".1em", textTransform: "uppercase", color: "#8a93a3" };
-const tabNum = { fontVariantNumeric: "tabular-nums" };
-const ell = { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" };
-const track = (h) => ({ height: h, borderRadius: 99, background: "#eef1f5", overflow: "hidden" });
-const fill = (w, c = "#2563eb") => ({ display: "block", height: "100%", width: w, background: c, borderRadius: 99 });
+export const tabNum = { fontVariantNumeric: "tabular-nums" };
+export const ell = { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" };
+export const track = (h) => ({ height: h, borderRadius: 99, background: "#eef1f5", overflow: "hidden" });
+export const fill = (w, c = "#2563eb") => ({ display: "block", height: "100%", width: w, background: c, borderRadius: 99 });
 const circleBtn = { width: 34, height: 34, borderRadius: "50%", border: "1px solid #e4e7ec", background: "#fff", cursor: "pointer", display: "grid", placeItems: "center", color: "#475467" };
 const board = { background: "#fff", borderRadius: 16, boxShadow: "0 0 0 1px #e4e7ec,0 12px 28px -24px rgba(16,24,40,.35)" };
 
-function Tile({ width, onClick, style, children, label }) {
+export function Tile({ width, onClick, style, children, label }) {
   return (
     <button type="button" className="ho-tile" onClick={onClick} aria-label={label} style={{
       flex: "none", width, scrollSnapAlign: "start", display: "flex", flexDirection: "column", gap: 12, padding: 18,
@@ -98,7 +104,7 @@ function Tile({ width, onClick, style, children, label }) {
   );
 }
 
-function Row({ L, kicker, dot, title, onSeeAll, arrows, railRef, children, footer, alignStart }) {
+export function Row({ L, kicker, dot, title, onSeeAll, arrows, railRef, children, footer, alignStart }) {
   const scroll = (d) => {
     const el = railRef?.current;
     if (el) el.scrollBy({ left: d * el.clientWidth * 0.8, behavior: "smooth" });
@@ -114,9 +120,11 @@ function Row({ L, kicker, dot, title, onSeeAll, arrows, railRef, children, foote
           <h2 style={{ margin: "3px 0 0", fontSize: L.rowTitle, fontWeight: 700, letterSpacing: "-0.02em" }}>{title}</h2>
         </div>
         <div style={{ flex: 1 }} />
-        <button type="button" className="ho-link" onClick={onSeeAll} style={{ display: "flex", alignItems: "center", gap: 4, height: 34, padding: "0 6px 0 10px", borderRadius: 8, border: 0, background: "transparent", color: "#1d4ed8", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
-          See all<Chevron />
-        </button>
+        {onSeeAll && (
+          <button type="button" className="ho-link" onClick={onSeeAll} style={{ display: "flex", alignItems: "center", gap: 4, height: 34, padding: "0 6px 0 10px", borderRadius: 8, border: 0, background: "transparent", color: "#1d4ed8", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
+            See all<Chevron />
+          </button>
+        )}
         {arrows && (
           <div style={{ display: "flex", gap: 6 }}>
             <button type="button" aria-label="Scroll left" className="ho-ghost" onClick={() => scroll(-1)} style={circleBtn}><Chevron d="M15 6l-6 6 6 6" size={15} /></button>
@@ -892,7 +900,7 @@ function Panel({ spec, mobile, onClose, children }) {
 
 const skel = (w, h, r = 8) => ({ width: w, height: h, borderRadius: r, background: "#e9ecf1", animation: "ho-pulse 1.4s ease-in-out infinite" });
 
-function SkeletonRow({ L }) {
+export function SkeletonRow({ L }) {
   return (
     <section aria-busy="true" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: `0 ${L.pad}` }}><span style={skel(110, 10)} /><span style={skel(170, 18)} /></div>
@@ -911,6 +919,7 @@ export default function HomeOverview({
   sampleData = false, viewport = "auto", onOpen, className,
   primaryPath = "/home/primary", secondaryPath = "/home/secondary", visitPath = "/home/visit", supportPath = "/home/support",
   onOpenPrimary, onOpenSecondary, onOpenVisit, onOpenSupport,
+  reviewPath = "/review-report", onOpenReview, showReview = true,
 }) {
   const rootRef = useRef(null);
   const topRef = useRef(null);
@@ -923,6 +932,7 @@ export default function HomeOverview({
      only while nothing at all is bound, so real and sample never mix. */
   const live = !!(url && token);
   const liveState = useOverviewData({ url, token, today, enabled: live });
+  const review = useReviewSection({ url, token, today, enabled: live && showReview });
   const bound = { primary, secondary, visit, support };
   const useSample = sampleData && !live && Object.values(bound).every((v) => v == null);
   const got = (k) => (liveState[k]?.status === "ready" ? liveState[k].data : null);
@@ -953,8 +963,8 @@ export default function HomeOverview({
   /* "See all" / "Open": tell the page, then go to the section's own page.
      Next's router when there is one (no reload); a plain navigation where
      there is not, such as the Studio canvas. */
-  const paths = { primary: primaryPath, secondary: secondaryPath, visit: visitPath, support: supportPath };
-  const handlers = { primary: onOpenPrimary, secondary: onOpenSecondary, visit: onOpenVisit, support: onOpenSupport };
+  const paths = { primary: primaryPath, secondary: secondaryPath, visit: visitPath, support: supportPath, review: reviewPath };
+  const handlers = { primary: onOpenPrimary, secondary: onOpenSecondary, visit: onOpenVisit, support: onOpenSupport, review: onOpenReview };
   const open = (section, hq = null) => {
     onOpen?.(section, hq);
     // A wired per-section event is the navigation: the built-in redirect stands down.
@@ -1024,6 +1034,7 @@ export default function HomeOverview({
         : anyLoading && <div aria-busy="true" style={{ ...skel("auto", isDesk ? 420 : 300, 18), margin: `16px ${L.pad} 0` }} />}
 
       <div style={{ display: "flex", flexDirection: "column", gap: L.rowGap, padding: `${L.rowsTop} 0 ${L.bottomPad}` }}>
+        {showReview ? <ReviewRow L={L} state={review} open={open} /> : null}
         {V ? <VisitRow L={L} view={view} open={open} pop={setPan} /> : loading("visit") && <SkeletonRow L={L} />}
         {P ? <PrimaryRow L={L} view={view} open={open} pop={setPan} railRef={topRef} /> : loading("primary") && <SkeletonRow L={L} />}
         {S ? <SecondaryRow L={L} view={view} open={open} pop={setPan} /> : loading("secondary") && <SkeletonRow L={L} />}
