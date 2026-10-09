@@ -22,7 +22,8 @@ const n0 = (v) => (v == null ? '—' : Math.round(v).toLocaleString('en-IN'));
 const n1 = (v) => (v == null ? '—' : (Math.round(v * 10) / 10).toLocaleString('en-IN'));
 
 export function EffortSection({ ix, scope, mi, open, onMonth, loading }) {
-  const isDept = scope.sel?.kind === 'dept';
+  // A department, or several picks, has no seat of its own: only the team's effort.
+  const isDept = scope.sel?.kind !== 'seat';
   const [view, setView] = useState('own');
   const own = !isDept && view === 'own';
 

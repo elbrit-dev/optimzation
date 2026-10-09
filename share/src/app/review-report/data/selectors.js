@@ -39,9 +39,13 @@ export const THRESHOLDS = {
 
 /* ---- index -------------------------------------------------------------- */
 
+/* `roots`: the top seats of the answer — the caller's own seat, or for a
+   token that sees the whole Sales tree (IT) every SM. `me`: the caller's
+   seat when it is in the tree. */
 export function indexAnswer(a) {
   const months = a?.months ?? [];
   const tree = a?.tree ?? [];
+  const roots = tree.map((t, i) => (t.reportsTo == null ? i : -1)).filter((i) => i >= 0);
   const byId = new Map(tree.map((t, i) => [t.id, i]));
   const kids = new Map();
   tree.forEach((t, i) => {
@@ -60,6 +64,8 @@ export function indexAnswer(a) {
     fyStart,
     open: a?.meta?.open ?? null,
     tree,
+    roots,
+    me: byId.get(a?.me) ?? null,
     byId,
     kids,
     pairs,
@@ -101,12 +107,50 @@ export function scopeOf(ix, sel) {
     return { sel, seats, pairs, node: null, label: deptShort(sel.id) };
   }
   const at = ix.byId.get(sel?.id);
-  const i = at ?? 0;
-  const seats = ix.tree.length ? subtreeOf(ix, i) : new Set();
+  const i = at ?? ix.roots[0] ?? 0;
+  const alone = Boolean(sel?.alone);
+  const seats = !ix.tree.length ? new Set() : alone ? new Set([i]) : subtreeOf(ix, i);
   const pairs = [];
   ix.pairs.forEach((p, k) => { if (seats.has(p.owner)) pairs.push(k); });
   const node = ix.tree[i] ?? null;
-  return { sel: { kind: 'seat', id: node?.id }, seats, pairs, node, label: node?.name ?? '' };
+  const name = node?.vacant ? `Vacant · ${node.id}` : node?.name ?? '';
+  return { sel: { kind: 'seat', id: node?.id, alone }, seats, pairs, node, label: alone ? `${name} · own` : name };
+}
+
+/* ---- picks: the Visit report's scope model -------------------------------
+ * The scope is a list of picks, `{ id, includeSubtree }` — the design-system
+ * TreeSelect's value. A seat with its whole branch, or the seat alone; as
+ * many as you like, summed as one union.
+ *
+ * DEFAULT: the caller's own seat and branch. A caller with no seat of their
+ * own (IT sees the whole Sales tree) starts on EVERYONE — every top seat
+ * with its branch — never on whichever SM happens to come first. */
+export function defaultPicks(ix) {
+  if (ix.me != null) return [{ id: ix.tree[ix.me].id, includeSubtree: true }];
+  return [...ix.roots]
+    .sort((a, b) => String(ix.tree[a].name).localeCompare(String(ix.tree[b].name)))
+    .map((i) => ({ id: ix.tree[i].id, includeSubtree: true }));
+}
+
+/* Picks that name no seat of this answer are dropped; none left (but some
+   asked for) → the default. `[]` stays empty: nothing ticked is a choice. */
+export function resolvePicks(ix, picks) {
+  if (picks == null) return defaultPicks(ix);
+  const kept = picks.filter((p) => ix.byId.has(p.id));
+  return kept.length || !picks.length ? kept : defaultPicks(ix);
+}
+
+export function scopeOfPicks(ix, picks) {
+  if (picks.length === 1) return scopeOf(ix, { kind: 'seat', id: picks[0].id, alone: !picks[0].includeSubtree });
+  const parts = picks.map((p) => scopeOf(ix, { kind: 'seat', id: p.id, alone: !p.includeSubtree }));
+  const seats = new Set(parts.flatMap((s) => [...s.seats]));
+  const pairs = [];
+  ix.pairs.forEach((p, k) => { if (seats.has(p.owner)) pairs.push(k); });
+  const label = !parts.length ? 'No team selected'
+    : ix.roots.length > 1 && picks.length === ix.roots.length && picks.every((p) => p.includeSubtree && ix.roots.includes(ix.byId.get(p.id)))
+      ? 'All teams'
+      : `${parts[0].label} +${parts.length - 1}`;
+  return { sel: { kind: 'picks', ids: picks.map((p) => p.id) }, seats, pairs, node: null, label, parts };
 }
 
 export function deptShort(d) {
@@ -486,7 +530,8 @@ export function stockists(ix, scope, mi, T = THRESHOLDS) {
 /* ---- children: the team (or HQ) list under the scope -------------------- */
 
 export function childScopes(ix, scope) {
-  if (scope.sel?.kind === 'dept') return [];
+  if (scope.sel?.kind === 'dept' || scope.sel?.alone) return [];
+  if (scope.sel?.kind === 'picks') return scope.parts;
   const i = ix.byId.get(scope.sel?.id);
   return (ix.kids.get(i) ?? []).map((k) => scopeOf(ix, { kind: 'seat', id: ix.tree[k].id }));
 }

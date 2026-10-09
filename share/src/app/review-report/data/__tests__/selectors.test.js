@@ -4,7 +4,11 @@ import {
   baselineMonths,
   bucketOf,
   childRows,
+  childScopes,
   defaultMonth,
+  defaultPicks,
+  resolvePicks,
+  scopeOfPicks,
   doctorBuckets,
   hqRows,
   indexAnswer,
@@ -80,6 +84,31 @@ describe('scope and sales', () => {
     const abm = scopeOf(ix, { kind: 'seat', id: 'ABM1' });
     expect(abm.pairs).toEqual([0, 1]);
     expect(scorecard(ix, abm, M('2026-08'))).toMatchObject({ target: 1500, primary: 1500, ach: 1, be: 3, beFilled: 2, pcpm: 500 });
+  });
+
+  it('picks, as the Visit report: own seat by default, everyone for a seatless (IT) token', () => {
+    // a seated caller: their own branch
+    const own = indexAnswer({ ...answer, me: 'ABM1' });
+    expect(defaultPicks(own)).toEqual([{ id: 'ABM1', includeSubtree: true }]);
+    // IT: no seat of its own, every SM on top — all of them, not the first
+    const wide = indexAnswer({ ...answer, root: 'Sales', me: 'IT', tree: [...answer.tree, { id: 'SM2', name: 'Zed', tier: 'SM', reportsTo: null, vacant: 0 }] });
+    const picks = defaultPicks(wide);
+    expect(picks).toEqual([{ id: 'SM1', includeSubtree: true }, { id: 'SM2', includeSubtree: true }]);
+    const all = scopeOfPicks(wide, picks);
+    expect(all).toMatchObject({ label: 'All teams', sel: { kind: 'picks' } });
+    expect(all.seats.size).toBe(8);
+    expect(scorecard(wide, all, M('2026-08'))).toMatchObject({ target: 1900, primary: 1700 });
+    expect(childScopes(wide, all).map((c) => c.node.id)).toEqual(['SM1', 'SM2']);
+    // one seat alone (its own lines, not the branch), and a union of two
+    const abmOwn = scopeOfPicks(wide, [{ id: 'ABM1', includeSubtree: false }]);
+    expect(abmOwn).toMatchObject({ label: 'Abe · own', sel: { kind: 'seat', id: 'ABM1', alone: true } });
+    expect([...abmOwn.seats]).toEqual([1]);
+    const two = scopeOfPicks(wide, [{ id: 'BE1', includeSubtree: true }, { id: 'ABM2', includeSubtree: true }]);
+    expect(two.label).toBe('Bea +1');
+    expect([...two.seats].sort()).toEqual([2, 5, 6]);
+    // stale picks fall back to the default; an empty pick list stays empty
+    expect(resolvePicks(wide, [{ id: 'GONE', includeSubtree: true }])).toEqual(picks);
+    expect(resolvePicks(wide, [])).toEqual([]);
   });
 
   it('SM total, YTD and growth against last year', () => {

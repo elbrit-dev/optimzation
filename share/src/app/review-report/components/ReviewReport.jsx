@@ -12,8 +12,10 @@ import {
   hqRows,
   indexAnswer,
   isOpen,
+  resolvePicks,
   salesGrid,
   scopeOf,
+  scopeOfPicks,
   scorecard,
   sharedAt,
   stockists,
@@ -29,6 +31,7 @@ import { SalesSection } from './SalesSection';
 import { DoctorsSection } from './DoctorsSection';
 import { StockistsSection } from './StockistsSection';
 import { ScopeTree } from './ScopeTree';
+import { ScopeSelect } from './ScopeSelect';
 import { Notice } from './bits';
 
 /* The monthly review — the SM REVIEW FORMAT workbook as one page.
@@ -37,7 +40,13 @@ import { Notice } from './bits';
  * once (server/elbrit_sm_review.py sums it); moving to a child seat, to a
  * department or to another month only re-derives from that answer.
  *
- * THE PAGE OWNS FIVE THINGS: the lens (team tree or department), the seat,
+ * WHOSE NUMBERS, as the Visit report: the token decides (the server answers
+ * with the caller's seat and everything under it; IT gets every SM). The
+ * scope is a list of picks — the "Team scope" picker, or a row of the tree
+ * — and starts on the caller's own branch, or for a caller with no seat of
+ * their own (IT) on every SM's: never on whichever SM comes first.
+ *
+ * THE PAGE OWNS FIVE THINGS: the lens (team tree or department), the picks,
  * the department, the month and the tab. Everything else is computed from
  * them by data/selectors.js, so no two cards can disagree.
  *
@@ -90,7 +99,7 @@ export function ReviewReport({ gqlEnvironment = 'ERP', gqlToken, root, fy, upto,
   const ix = useMemo(() => (data ? indexAnswer(data) : null), [data]);
 
   const [lens, setLens] = useState('team');
-  const [seat, setSeat] = useState(null);
+  const [picks, setPicks] = useState(null); // null: the default (resolvePicks)
   const [dept, setDept] = useState(null);
   const [mi, setMi] = useState(null);
   const [tab, setTab] = useState('overview');
@@ -104,18 +113,20 @@ export function ReviewReport({ gqlEnvironment = 'ERP', gqlToken, root, fy, upto,
   const answerKey = ix ? `${ix.raw.root}|${ix.raw.fy}|${ix.raw.upto}` : null;
   useEffect(() => {
     if (!ix) return;
-    setSeat(ix.tree[0]?.id ?? null);
+    setPicks(null);
     setDept(ix.depts[0] ?? null);
     setMi(defaultMonth(ix));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [answerKey]);
 
-  const sel = lens === 'dept' && dept ? { kind: 'dept', id: dept } : { kind: 'seat', id: seat };
+  const selection = useMemo(() => (ix ? resolvePicks(ix, picks) : []), [ix, picks]);
+  const pickKey = selection.map((p) => `${p.id}${p.includeSubtree ? '' : '·'}`).join('|');
+  const deptLens = lens === 'dept' && dept;
   const ready = ix && ix.tree.length && mi != null;
 
   const view = useMemo(() => {
     if (!ready) return null;
-    const scope = scopeOf(ix, sel);
+    const scope = deptLens ? scopeOf(ix, { kind: 'dept', id: dept }) : scopeOfPicks(ix, selection);
     return {
       scope,
       sc: scorecard(ix, scope, mi),
@@ -128,11 +139,12 @@ export function ReviewReport({ gqlEnvironment = 'ERP', gqlToken, root, fy, upto,
       attention: attention(ix, scope, mi),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ix, ready, sel.kind, sel.id, mi]);
+  }, [ix, ready, deptLens, dept, pickKey, mi]);
 
+  const seatOnly = (id) => setPicks([{ id, includeSubtree: true }]);
   const pick = (s) => {
     setLens('team');
-    setSeat(s.id);
+    setPicks([{ id: s.id, includeSubtree: !s.alone }]);
   };
 
   const shell = (children) => (
@@ -166,7 +178,8 @@ export function ReviewReport({ gqlEnvironment = 'ERP', gqlToken, root, fy, upto,
   }
 
   const month = ix.months[mi];
-  const chain = lens === 'team' ? chainOf(ix, seat) : [];
+  const one = selection.length === 1 ? selection[0] : null;
+  const chain = lens === 'team' && one ? chainOf(ix, one.id) : [];
   const monthOptions = ix.months.slice(ix.fyStart).map((m, k) => ({
     value: String(ix.fyStart + k),
     label: `${monthShort(m)}${isOpen(ix, ix.fyStart + k) ? ' · being entered' : ''}`,
@@ -174,9 +187,11 @@ export function ReviewReport({ gqlEnvironment = 'ERP', gqlToken, root, fy, upto,
   const node = view.scope.node;
   const subtitle = lens === 'dept'
     ? `${deptShort(dept)} · every seat and HQ of the department`
-    : [node?.tier, node?.hq?.replace(/^HQ-/, ''), node?.vacant ? 'vacant' : null].filter(Boolean).join(' · ');
+    : node
+      ? [node.tier, node.hq?.replace(/^HQ-/, ''), node.vacant ? 'vacant' : null, view.scope.sel.alone ? 'own lines only' : null].filter(Boolean).join(' · ')
+      : `${selection.length} teams · ${view.scope.seats.size} seats`;
 
-  const picked = lens === 'dept' ? deptShort(dept) : node?.vacant ? `Vacant · ${node.id}` : node?.name;
+  const picked = lens === 'dept' ? deptShort(dept) : view.scope.label;
   const choose = (fn) => (v) => {
     fn(v);
     setTreeOpen(false);
@@ -188,7 +203,7 @@ export function ReviewReport({ gqlEnvironment = 'ERP', gqlToken, root, fy, upto,
       <div className="flex flex-col gap-3 @2xl/report:flex-row @2xl/report:items-start @2xl/report:justify-between">
         <div className="min-w-0">
           <div className="text-11 font-medium uppercase tracking-wide text-ds-muted">{title} · {monthLong(month)}</div>
-          <h1 className="truncate text-20 font-semibold text-heading">{lens === 'dept' ? deptShort(dept) : view.scope.label}</h1>
+          <h1 className="truncate text-20 font-semibold text-heading">{picked}</h1>
           <div className="text-12 text-ds-secondary">{subtitle}</div>
         </div>
         <div className="flex flex-col gap-2 @2xl/report:w-72 @2xl/report:shrink-0">
@@ -222,6 +237,11 @@ export function ReviewReport({ gqlEnvironment = 'ERP', gqlToken, root, fy, upto,
             <div className="hidden border-b border-[var(--border-subtle)] px-4 py-2.5 text-11 font-medium uppercase tracking-wide text-ds-muted @5xl/report:block">
               {lens === 'dept' ? 'Departments' : 'Team'}
             </div>
+            {lens === 'team' ? (
+              <div className={cx('border-b border-[var(--border-subtle)] px-3 py-2.5 @5xl/report:block', treeOpen ? 'block' : 'hidden')}>
+                <ScopeSelect ix={ix} value={selection} onChange={setPicks} />
+              </div>
+            ) : null}
             <div
               className={cx(
                 'max-h-[60vh] overflow-y-auto border-t border-[var(--border-subtle)] @5xl/report:block @5xl/report:max-h-[calc(100vh-7rem)] @5xl/report:border-t-0',
@@ -233,9 +253,9 @@ export function ReviewReport({ gqlEnvironment = 'ERP', gqlToken, root, fy, upto,
                 mi={mi}
                 tab={tab}
                 lens={lens}
-                seat={seat}
+                picked={selection.map((p) => p.id)}
                 dept={dept}
-                onSeat={choose(setSeat)}
+                onSeat={choose(seatOnly)}
                 onDept={choose(setDept)}
               />
             </div>
@@ -251,7 +271,7 @@ export function ReviewReport({ gqlEnvironment = 'ERP', gqlToken, root, fy, upto,
                   <button
                     type="button"
                     disabled={k === chain.length - 1}
-                    onClick={() => setSeat(c.id)}
+                    onClick={() => seatOnly(c.id)}
                     className={cx(
                       'rounded px-1 py-0.5',
                       k === chain.length - 1 ? 'font-medium text-heading' : 'text-brand-text [@media(hover:hover)]:hover:bg-brand-tint-weak',
@@ -277,7 +297,9 @@ export function ReviewReport({ gqlEnvironment = 'ERP', gqlToken, root, fy, upto,
           {full.error ? (
             <Notice>Visits, leave and products could not be loaded: {full.error.message ?? String(full.error)}</Notice>
           ) : null}
-          <div>
+          {!deptLens && !selection.length ? (
+            <Notice>No team selected — tick a seat in Team scope.</Notice>
+          ) : <div>
             {tab === 'overview' ? (
               <OverviewSection
                 sc={view.sc}
@@ -319,7 +341,7 @@ export function ReviewReport({ gqlEnvironment = 'ERP', gqlToken, root, fy, upto,
               <ProductsSection ix={ix} scope={view.scope} mi={mi} open={ix.open} onMonth={setMi} loading={restLoading} />
             ) : null}
             {tab === 'more' && showMockSheets ? <MoreSection ix={ix} scope={view.scope} mi={mi} /> : null}
-          </div>
+          </div>}
         </div>
       </div>
 

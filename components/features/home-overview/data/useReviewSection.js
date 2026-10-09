@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { defaultMonth, indexAnswer, isOpen, scopeOf, scorecard } from "@/app/review-report/data/selectors";
+import { defaultMonth, defaultPicks, indexAnswer, isOpen, scopeOfPicks, scorecard } from "@/app/review-report/data/selectors";
 
 /* The Report section's numbers: the person's last full month of Target,
  * Primary and Secondary, from the same read-only server script the Review
@@ -29,19 +29,18 @@ async function call(url, token, params) {
   return json.message;
 }
 
-/* What the card draws. A person with a seat: that seat's subtree. A token
-   that sees the whole Sales tree (IT) has no seat of its own and several top
-   branches — then it is all of them. */
+/* What the card draws: the Review Report page's default scope (as the
+   Visit report) — the person's own seat and branch, or for a token with no
+   seat of its own that sees the whole Sales tree (IT) every SM's branch. */
 export function reviewSummary(core) {
   const ix = indexAnswer(core);
   if (!ix.tree.length) return null;
   const mi = defaultMonth(ix);
-  const whole = ix.tree.filter((t) => t.reportsTo == null).length > 1;
-  const scope = whole
-    ? { sel: { kind: "seat", id: null }, seats: new Set(ix.tree.map((_, i) => i)), pairs: ix.pairs.map((_, i) => i), node: null }
-    : scopeOf(ix, { kind: "seat", id: ix.tree[0].id });
+  const picks = defaultPicks(ix);
+  const whole = picks.length > 1;
+  const scope = scopeOfPicks(ix, picks);
   return {
-    name: whole ? "All teams" : ix.tree[0].name,
+    name: whole ? "All teams" : scope.label,
     whole,
     month: ix.months[mi],
     open: isOpen(ix, mi),

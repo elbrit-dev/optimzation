@@ -11,8 +11,9 @@ import { pct, rupees } from '../data/format';
  * number on the page, which is why it sits before the page — left on a wide
  * screen, on top on a phone.
  *
- * The selected seat's chain is always open, so a drill from the attention
- * list or a breadcrumb lands somewhere visible. Headlines are worked out
+ * The top rows are the seats the token may see (its own, or for IT every
+ * SM, as the Visit report). The picked seats' chains are always open, so a
+ * drill from the attention list or a breadcrumb lands somewhere visible. Headlines are worked out
  * only for the rows on screen. In the department lens it lists departments. */
 
 const hqName = (h) => String(h ?? '').replace(/^HQ-/, '');
@@ -91,18 +92,21 @@ function Row({ depth, name, sub, h, selected, hasKids, expanded, onToggle, onPic
   );
 }
 
-export function ScopeTree({ ix, mi, tab, lens, seat, dept, onSeat, onDept }) {
+export function ScopeTree({ ix, mi, tab, lens, picked, dept, onSeat, onDept }) {
   const [expanded, setExpanded] = useState(() => new Set());
 
-  /* Keep the selected seat's chain open. */
+  /* Keep each picked seat's chain open (its ancestors; the seat itself
+     only when it is the one pick, so "everyone" starts folded). */
+  const pickKey = picked.join('|');
   useEffect(() => {
-    if (!seat) return;
+    if (!picked.length) return;
     setExpanded((prev) => {
       const next = new Set(prev);
-      for (const c of chainOf(ix, seat)) next.add(c.id);
+      for (const id of picked) for (const c of chainOf(ix, id)) if (c.id !== id || picked.length === 1) next.add(c.id);
       return next;
     });
-  }, [ix, seat]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ix, pickKey]);
 
   /* The rows on screen, depth-first, siblings worst first for this tab. */
   const visible = useMemo(() => {
@@ -138,7 +142,8 @@ export function ScopeTree({ ix, mi, tab, lens, seat, dept, onSeat, onDept }) {
         .sort((a, b) => a.rank - b.rank);
       for (const { k } of ranked) walk(k, depth + 1);
     };
-    if (ix.tree.length) walk(0, 0);
+    const tops = ix.roots.map((k) => ({ k, rank: headline(rowOf(k), tab).rank })).sort((a, b) => a.rank - b.rank);
+    for (const { k } of tops) walk(k, 0);
     return out;
   }, [ix, mi, tab, lens, expanded]);
 
@@ -161,7 +166,7 @@ export function ScopeTree({ ix, mi, tab, lens, seat, dept, onSeat, onDept }) {
           muted={v.muted}
           hasKids={v.hasKids}
           expanded={expanded.has(v.key)}
-          selected={v.kind === 'dept' ? dept === v.key : seat === v.key}
+          selected={v.kind === 'dept' ? dept === v.key : picked.includes(v.key)}
           onToggle={() => toggle(v.key)}
           onPick={() => (v.kind === 'dept' ? onDept(v.key) : onSeat(v.key))}
         />
