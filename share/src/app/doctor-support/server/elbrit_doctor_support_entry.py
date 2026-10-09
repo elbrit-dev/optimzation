@@ -130,6 +130,29 @@ def vacant_under(parent):
     return [n for n in names if not held.get(n)]
 
 
+def month_prices(codes, month):
+    # The ENTRY MONTH's price of each item, from its Price Table
+    # (Item.custom_price_table: batch, pts, ptr, mrp, month "YYYY-MM"): that
+    # month's row — the last added when several batches have one — else the
+    # latest month before it. An item with none is left out: the caller
+    # falls back to custom_last_*. Copied into each script that prices lines
+    # (entry, add, Support Entry Totals): change them together.
+    best = {}
+    i = 0
+    while i < len(codes):
+        for r in frappe.get_all("Price Table",
+                                filters=[["parenttype", "=", "Item"], ["parentfield", "=", "custom_price_table"],
+                                         ["parent", "in", codes[i:i + 500]], ["month", "<=", month]],
+                                fields=["parent", "pts", "ptr", "mrp", "month", "idx"], limit_page_length=0):
+            k = (r.get("month") or "") + "|" + str(1000000 + int(r.get("idx") or 0))
+            cur = best.get(r.get("parent"))
+            if not cur or k > cur["k"]:
+                best[r.get("parent")] = {"k": k, "pts": float(r.get("pts") or 0),
+                                         "ptr": float(r.get("ptr") or 0), "mrp": float(r.get("mrp") or 0)}
+        i = i + 500
+    return best
+
+
 def is_vacant_name(n):
     return (n or "")[:6].lower() == "vacant"
 
@@ -635,6 +658,14 @@ if seat:
                 addable.append({"name": c.get("name"), "customer_name": c.get("lead_name") or c.get("name"),
                                 "note": " · ".join(bits) or None})
         addable.sort(key=lambda a: (a.get("customer_name") or "").lower())
+
+    # The entry month's prices (month_prices) over custom_last_*: the lines'
+    # values and the picker's prices alike.
+    mp = month_prices(list(price.keys()), month)
+    for code in mp:
+        for k in ["pts", "ptr", "mrp"]:
+            if mp[code][k] > 0:
+                price[code]["custom_last_" + k] = mp[code][k]
 
     for n in names:
         row = by_name[n]

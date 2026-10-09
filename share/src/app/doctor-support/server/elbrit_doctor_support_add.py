@@ -70,6 +70,29 @@ MONTHS = ["January", "February", "March", "April", "May", "June", "July",
 SUPPORT_META = frappe.get_meta("Support Items")
 
 
+def month_prices(codes, month):
+    # The ENTRY MONTH's price of each item, from its Price Table
+    # (Item.custom_price_table: batch, pts, ptr, mrp, month "YYYY-MM"): that
+    # month's row — the last added when several batches have one — else the
+    # latest month before it. An item with none is left out: the caller
+    # falls back to custom_last_*. Copied into each script that prices lines
+    # (entry, add, Support Entry Totals): change them together.
+    best = {}
+    i = 0
+    while i < len(codes):
+        for r in frappe.get_all("Price Table",
+                                filters=[["parenttype", "=", "Item"], ["parentfield", "=", "custom_price_table"],
+                                         ["parent", "in", codes[i:i + 500]], ["month", "<=", month]],
+                                fields=["parent", "pts", "ptr", "mrp", "month", "idx"], limit_page_length=0):
+            k = (r.get("month") or "") + "|" + str(1000000 + int(r.get("idx") or 0))
+            cur = best.get(r.get("parent"))
+            if not cur or k > cur["k"]:
+                best[r.get("parent")] = {"k": k, "pts": float(r.get("pts") or 0),
+                                         "ptr": float(r.get("ptr") or 0), "mrp": float(r.get("mrp") or 0)}
+        i = i + 500
+    return best
+
+
 def line_field(plain):
     if not SUPPORT_META.has_field(plain) and SUPPORT_META.has_field("custom_" + plain):
         return "custom_" + plain
@@ -260,11 +283,19 @@ for it in frappe.get_list(
 if not products:
     frappe.throw("No products for your department, so there is nothing to add.")
 
+# Each product's PTS for the month (month_prices), else its custom_last_pts.
+MONTH_PTS = month_prices([p.get("name") for p in products], month)
+
+
+def pts_of(p):
+    m = MONTH_PTS.get(p.get("name"))
+    return m["pts"] if m and m["pts"] > 0 else num(p.get("custom_last_pts"))
+
 
 def seat_lines(target, line_hq):
     # One Draft line per product, for this seat, on `target`.
     for p in products:
-        pts = num(p.get("custom_last_pts"))
+        pts = pts_of(p)
         row = {"item": p.get("name"), "brand": p.get("brand"), "qty": 0, "amount": 0,
                F_SEAT: seat, F_STATUS: "Draft", F_HQ: line_hq, F_DEPT: dept}
         if pts > 0:
