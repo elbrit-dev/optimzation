@@ -463,6 +463,31 @@ export default function TrendChart({
   useStyles();
   const gradientId = React.useId().replace(/:/g, "");
 
+  /* THE TOOLTIP CLOSES when the reader is done with the chart. On a phone a
+     tap leaves Recharts' tooltip up — portalled to <body>, pinned where the
+     finger was — so it stayed on screen after scrolling away or tapping
+     elsewhere. A touch / pointer on the chart opens it as before (Recharts
+     drives it); a tap anywhere outside the chart, or any scroll, closes it. */
+  const rootRef = React.useRef(null);
+  const [tipOpen, setTipOpen] = React.useState(false);
+  React.useEffect(() => {
+    if (!tipOpen) return undefined;
+    const outside = (e) => {
+      if (!rootRef.current || !rootRef.current.contains(e.target)) setTipOpen(false);
+    };
+    const away = () => setTipOpen(false);
+    document.addEventListener("pointerdown", outside, true);
+    window.addEventListener("scroll", away, { capture: true, passive: true });
+    return () => {
+      document.removeEventListener("pointerdown", outside, true);
+      window.removeEventListener("scroll", away, { capture: true });
+    };
+  }, [tipOpen]);
+  const tipActive = tipOpen ? undefined : false;
+  const openTip = () => {
+    if (!tipOpen) setTipOpen(true);
+  };
+
   const rows = React.useMemo(
     () => (Array.isArray(points) ? points.map(readPoint) : []),
     [points]
@@ -558,6 +583,7 @@ export default function TrendChart({
 
   const tooltip = (
     <Tooltip
+      active={tipActive}
       cursor={{ fill: "rgba(15,23,42,.05)" }}
       wrapperStyle={{ outline: "none" }}
       content={
@@ -652,7 +678,7 @@ export default function TrendChart({
    */
   if (multi && type === "multiples") {
     return (
-      <div className={tipAbove ? "tr tr--tipAbove" : "tr"}>
+      <div ref={rootRef} onPointerDown={openTip} onPointerMove={openTip} className={tipAbove ? "tr tr--tipAbove" : "tr"}>
         <div className="tr__head">
           <span className="tr__title">{title}</span>
           <span className="tr__range">
@@ -673,6 +699,7 @@ export default function TrendChart({
                   <YAxis hide domain={["auto", "auto"]} />
                   <ReferenceLine y={0} stroke="#eef2f7" />
                   <Tooltip
+                    active={tipActive}
                     cursor={{ stroke: "rgba(15,23,42,.18)", strokeWidth: 1 }}
                     wrapperStyle={{ outline: "none" }}
                     content={
@@ -715,7 +742,7 @@ export default function TrendChart({
   }
 
   return (
-    <div className={tipAbove ? "tr tr--tipAbove" : "tr"}>
+    <div ref={rootRef} onPointerDown={openTip} onPointerMove={openTip} className={tipAbove ? "tr tr--tipAbove" : "tr"}>
       <div className="tr__head">
         <span className="tr__title">{title}</span>
         <span className="tr__range">
