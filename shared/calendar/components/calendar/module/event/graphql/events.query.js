@@ -154,11 +154,16 @@ export function normalizeRoleProfiles(data) {
 					node: {
 						lft: node?.custom_department?.lft ?? null,
 						rgt: node?.custom_department?.rgt ?? null,
-						role_id: node?.role_id ?? null,
+						// Trimmed: the role_profile FIELD is typed by hand and can carry a
+						// stray space ("ABM4-VASC-CO-SAL " on 2026-10-08) while employees
+						// and child roles link to the clean doc name. Untrimmed, that ABM
+						// matched no node, resolved no roles, and the DR Tour Plan showed
+						// no doctors.
+						role_id: node?.role_id?.trim() || null,
 						sales_team__name:
 							node?.custom_department?.department_name ?? null,
 						parent_elbrit_role_id__name:
-							node?.parent_role_id?.name ?? null,
+							node?.parent_role_id?.name?.trim() || null,
 						is_group: node?.is_group ?? false,
 					},
 				})) ?? [],
