@@ -154,9 +154,9 @@ def owner_seat(s):
 # any depth), as they enter and approve for it — the list in Elbrit
 # Secondary Entry / Elbrit Doctor Support Entry; change them all together.
 EXTRA_USERS = ["kamesh@elbrit.org", "ramu@elbrit.org", "rahulbhargav@elbrit.org"]
-# ...and EVERY RBM: anyone whose own seat is an RBM seat (RBM-, SRBM-,
-# Deputy RBM) is an extra user too, for their whole team.
-EXTRA_SEATS = ["RBM", "SRBM", "Deputy RBM"]
+# ...and EVERY RBM AND SM: anyone whose own seat is an RBM or SM seat (RBM-,
+# SRBM-, Deputy RBM, SM-) is an extra user too, for their whole team.
+EXTRA_SEATS = ["RBM", "SRBM", "Deputy RBM", "SM"]
 
 
 def seat_under(s, top):

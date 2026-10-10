@@ -313,9 +313,9 @@ covering = bool(covered.get(seat))
 # them); `entering` is true when `seat` is one, which opens it editable and
 # reads it past permissions, as a covered seat is.
 EXTRA_USERS = ["kamesh@elbrit.org", "ramu@elbrit.org", "rahulbhargav@elbrit.org"]
-# ...and EVERY RBM: anyone whose own seat is an RBM seat (RBM-, SRBM-,
-# Deputy RBM) is an extra user too, for their whole team.
-EXTRA_SEATS = ["RBM", "SRBM", "Deputy RBM"]
+# ...and EVERY RBM AND SM: anyone whose own seat is an RBM or SM seat (RBM-,
+# SRBM-, Deputy RBM, SM-) is an extra user too, for their whole team.
+EXTRA_SEATS = ["RBM", "SRBM", "Deputy RBM", "SM"]
 enters = []
 entering = False
 if (me in EXTRA_USERS or (own_seat or "").split("-")[0] in EXTRA_SEATS) and own_seat:

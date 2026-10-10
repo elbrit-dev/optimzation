@@ -14,9 +14,9 @@
 # =====================================================================
 
 EXTRA_APPROVERS = ["kamesh@elbrit.org", "ramu@elbrit.org", "rahulbhargav@elbrit.org"]
-# ...and EVERY RBM: anyone whose own seat is an RBM seat (RBM-, SRBM-,
-# Deputy RBM) is an extra user too, for their whole team.
-EXTRA_SEATS = ["RBM", "SRBM", "Deputy RBM"]
+# ...and EVERY RBM AND SM: anyone whose own seat is an RBM or SM seat (RBM-,
+# SRBM-, Deputy RBM, SM-) is an extra user too, for their whole team.
+EXTRA_SEATS = ["RBM", "SRBM", "Deputy RBM", "SM"]
 
 user = frappe.session.user
 role_profile = frappe.db.get_value("User", user, "role_profile_name") or ""

@@ -327,9 +327,9 @@ if seat:
 # Entry, Elbrit Doctor Support Entry, Operational Tracker Restriction and the
 # "Approval flow" steps: change them all together).
 EXTRA_USERS = ["kamesh@elbrit.org", "ramu@elbrit.org", "rahulbhargav@elbrit.org"]
-# ...and EVERY RBM: anyone whose own seat is an RBM seat (RBM-, SRBM-,
-# Deputy RBM) is an extra user too, for their whole team.
-EXTRA_SEATS = ["RBM", "SRBM", "Deputy RBM"]
+# ...and EVERY RBM AND SM: anyone whose own seat is an RBM or SM seat (RBM-,
+# SRBM-, Deputy RBM, SM-) is an extra user too, for their whole team.
+EXTRA_SEATS = ["RBM", "SRBM", "Deputy RBM", "SM"]
 if (me in EXTRA_USERS or (seat or "").split("-")[0] in EXTRA_SEATS) and seat:
     frontier = [seat]
     reached = {seat: 1}
