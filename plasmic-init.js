@@ -15,6 +15,7 @@ import HomeOverview from "./components/features/home-overview";
 import SectionPage from "./components/features/section-page";
 import FirebaseUIComponent from "./components/FirebaseUIComponent";
 import LoginHelpForm from "./components/LoginHelpForm";
+import { MaintenanceMode } from "./components/MaintenanceGate";
 import HelpSupport from "./components/features/help-support";
 import SupportReport from "./components/features/support-report";
 import CalendarPage from "@calendar/components/CalendarPage";
@@ -211,6 +212,63 @@ PLASMIC.registerGlobalContext(GlobalUtils, {
   props: {},
   providesData: true,
   importPath: "./plasmic-init",
+});
+
+// The app-wide maintenance switch. Prop NAMES are read back out of Studio's
+// generated code by pages/api/maintenance.js — rename one here and rename it there.
+PLASMIC.registerGlobalContext(MaintenanceMode, {
+  name: "MaintenanceMode",
+  displayName: "Maintenance Mode",
+  description:
+    "Takes the WHOLE app down behind a maintenance screen — every page, signed in or not, browser and installed PWA. Takes effect WITHOUT publishing: the app reads these settings from Studio's latest saved state, and open apps switch within about a minute (and switch back by themselves when it is turned off).",
+  props: {
+    maintenanceOn: {
+      type: "boolean",
+      displayName: "Maintenance ON",
+      description: "THE SWITCH. On = everyone sees the maintenance screen (on the environments chosen below). No publish needed.",
+      defaultValue: false,
+    },
+    maintenanceEnvironment: {
+      type: "choice",
+      displayName: "Applies to",
+      options: [
+        { value: "all", label: "Live + Test" },
+        { value: "live", label: "Live only" },
+        { value: "test", label: "Test only" },
+      ],
+      defaultValue: "all",
+      description: "Live = the prod-tagged deployment; Test = every other deployment. Use Test only to try it out first.",
+    },
+    maintenanceTitle: {
+      type: "string",
+      displayName: "Title",
+      defaultValue: "We’ll be right back",
+    },
+    maintenanceMessage: {
+      type: "string",
+      displayName: "Message",
+      defaultValue: "Elbrit One is down for scheduled maintenance. Your data is safe. Please check back shortly.",
+    },
+    maintenanceBackBy: {
+      type: "string",
+      displayName: "Back by",
+      description: "Optional, shown in red, e.g. \"Back by 6:00 PM today\".",
+    },
+    maintenanceBypassKey: {
+      type: "string",
+      displayName: "Bypass key",
+      description:
+        "Optional. Opening any page with ?maintenance=<this key> lets that one device past the screen, to test the fix before switching off. Not a secret — anyone determined can find it — just a way past for people who know it.",
+    },
+    previewInStudio: {
+      type: "boolean",
+      displayName: "Preview in Studio",
+      description: "Editor only: show the maintenance screen on the Studio canvas to check how it looks. Never affects the app. Turn it off to get back to editing.",
+      defaultValue: false,
+    },
+  },
+  importPath: "./components/MaintenanceGate",
+  importName: "MaintenanceMode",
 });
 
 PLASMIC.registerFunction(jmespath_plus.search, {

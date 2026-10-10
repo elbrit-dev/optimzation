@@ -4,6 +4,7 @@ import '../firebase'; // Initialize Firebase
 import { DataProvider } from '@plasmicapp/host';
 import { startConsoleCapture } from '../lib/consoleCapture';
 import PwaBackGuard from '../components/PwaBackGuard';
+import MaintenanceGate from '../components/MaintenanceGate';
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import Head from 'next/head';
 import { Roboto, Work_Sans } from 'next/font/google';
@@ -489,7 +490,9 @@ function MyApp({ Component, pageProps }) {
             change — the history sentinel it keeps has to outlive the page. */}
         <PwaBackGuard />
 
-        <Component {...pageProps} />
+        <MaintenanceGate>
+          <Component {...pageProps} />
+        </MaintenanceGate>
       </DataProvider>
     </DataProvider>
     </PrimeReactProvider>
