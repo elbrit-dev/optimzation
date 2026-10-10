@@ -168,6 +168,9 @@ def owner_seat(s):
 # any depth), as they enter and approve for it — the list in Elbrit
 # Secondary Entry / Elbrit Doctor Support Entry; change them all together.
 EXTRA_USERS = ["kamesh@elbrit.org", "ramu@elbrit.org", "rahulbhargav@elbrit.org"]
+# ...and EVERY RBM: anyone whose own seat is an RBM seat (RBM-, SRBM-,
+# Deputy RBM) is an extra user too, for their whole team.
+EXTRA_SEATS = ["RBM", "SRBM", "Deputy RBM"]
 
 
 def seat_under(s, top):
@@ -224,7 +227,7 @@ if seat != own_seat:
     # USER — any seat under theirs, held or not
     if not frappe.db.exists("Role Profile", seat):
         frappe.throw("No such seat: " + seat)
-    if owner_seat(seat) != own_seat and not (me in EXTRA_USERS and seat_under(seat, own_seat)):
+    if owner_seat(seat) != own_seat and not ((me in EXTRA_USERS or (own_seat or "").split("-")[0] in EXTRA_SEATS) and seat_under(seat, own_seat)):
         frappe.throw("You do not cover " + seat + ", so you cannot add its doctors.")
     # Its holder: an Active one first (its live BE for an extra user's team
     # seat, else a "Vacant_" placeholder), else whoever held it last.

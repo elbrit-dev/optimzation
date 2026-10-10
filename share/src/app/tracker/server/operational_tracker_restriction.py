@@ -14,6 +14,9 @@
 # =====================================================================
 
 EXTRA_APPROVERS = ["kamesh@elbrit.org", "ramu@elbrit.org", "rahulbhargav@elbrit.org"]
+# ...and EVERY RBM: anyone whose own seat is an RBM seat (RBM-, SRBM-,
+# Deputy RBM) is an extra user too, for their whole team.
+EXTRA_SEATS = ["RBM", "SRBM", "Deputy RBM"]
 
 user = frappe.session.user
 role_profile = frappe.db.get_value("User", user, "role_profile_name") or ""
@@ -65,7 +68,7 @@ else:
     #    waits on -- they may approve their team's entries (the steps are
     #    ours in the "Approval flow" workflow; scripts/erp/approval-flow-
     #    extra.mjs). The list is copied there by hand: change both together.
-    if user in EXTRA_APPROVERS:
+    if user in EXTRA_APPROVERS or role_profile.split("-")[0] in EXTRA_SEATS:
         clauses.append("`tabOperational Tracker`.role_profile IN (" + in_clause(subtree) + ")")
 
     conditions = "(" + " OR ".join(clauses) + ")"
