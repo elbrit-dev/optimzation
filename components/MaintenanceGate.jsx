@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
 import Router from 'next/router';
-import { usePlasmicCanvasContext } from '@plasmicapp/loader-nextjs';
 
 /**
  * Replaces the WHOLE app with the maintenance screen while the "Maintenance
@@ -79,24 +78,15 @@ export default function MaintenanceGate({ children }) {
  * The switch as it appears in Plasmic Studio: a global context, so its
  * settings live in Studio's project settings rather than on any one page.
  *
- * On a live page it renders nothing of its own — the settings it carries in
- * the page's (possibly 10-minute-old) published bundle are NOT what decides
+ * It renders nothing of its own, anywhere: the settings it carries in the
+ * page's (possibly 10-minute-old) published bundle are NOT what decides
  * maintenance; MaintenanceGate asks /api/maintenance, which reads Studio's
- * latest saved state. Its only visible job is the canvas preview.
+ * latest saved state. It must ALWAYS render its children — Studio drops a
+ * global context from Project Settings when it doesn't (a "preview" mode that
+ * swapped the canvas for the screen did exactly that), so preview the screen
+ * on the test app with "Applies to: Test only" instead.
  */
-export function MaintenanceMode({
-  children,
-  maintenanceTitle,
-  maintenanceMessage,
-  maintenanceBackBy,
-  previewInStudio,
-}) {
-  const inCanvas = usePlasmicCanvasContext();
-  if (inCanvas && previewInStudio) {
-    return (
-      <MaintenanceScreen title={maintenanceTitle} message={maintenanceMessage} backBy={maintenanceBackBy} />
-    );
-  }
+export function MaintenanceMode({ children }) {
   return children;
 }
 

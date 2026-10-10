@@ -260,12 +260,6 @@ PLASMIC.registerGlobalContext(MaintenanceMode, {
       description:
         "Optional. Opening any page with ?maintenance=<this key> lets that one device past the screen, to test the fix before switching off. Not a secret — anyone determined can find it — just a way past for people who know it.",
     },
-    previewInStudio: {
-      type: "boolean",
-      displayName: "Preview in Studio",
-      description: "Editor only: show the maintenance screen on the Studio canvas to check how it looks. Never affects the app. Turn it off to get back to editing.",
-      defaultValue: false,
-    },
   },
   importPath: "./components/MaintenanceGate",
   importName: "MaintenanceMode",
