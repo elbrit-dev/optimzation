@@ -509,7 +509,7 @@ def entry_tile(task):
         # than theirs. A covered seat's unit is "<record>|<seat>".
         if not can_read(task["doctype"]):
             return
-        for s in [seat] + covered:
+        for s in [seat]:
             own = s == seat
             # Covered seats are read past permissions, as the Entry screen
             # reads them (the caller covers them).
@@ -569,6 +569,79 @@ def entry_tile(task):
                                         fields=["name", "workflow_state"]):
                     if t.get("workflow_state"):
                         state_of[tracker_of[t.get("name")]] = t.get("workflow_state")
+        # The COVERED seats (vacant ones; an extra user's / RBM's / SM's whole
+        # team), counted exactly as the caller's own seat above but read
+        # together, past permissions — a few queries for the whole team, not
+        # four per seat: an SM's 57 seats took the nav bar 27 seconds.
+        if covered:
+            ownr = {}
+            wanted = []
+            for s in covered:
+                o = owner_seat(s)
+                ownr[s] = o
+                for w in [s, o]:
+                    if w not in wanted:
+                        wanted.append(w)
+            i = 0
+            while i < len(covered):
+                part = covered[i:i + 500]
+                i = i + 500
+                seen = {}
+                for r in frappe.get_all(
+                        task["doctype"],
+                        filters=[[task["child"], task["rp"], "in", part], in_month],
+                        fields=["name", line + "." + task["rp"] + " as seat_of",
+                                line + "." + task["status"] + " as st"],
+                        limit_page_length=0):
+                    n = (r.get("name") or "") + "|" + (r.get("seat_of") or "")
+                    st = r.get("st") or ""
+                    draft = 1 if (st == "" or st == "Draft") else 0
+                    seen[n] = max(seen.get(n, 0), draft)
+                for n in seen:
+                    has_draft[n] = seen[n]
+            # Each record's approval rows, by seat: a covered seat takes its own
+            # row, else its owner's — as approval_of above.
+            rows = {}
+            i = 0
+            while i < len(wanted):
+                part = wanted[i:i + 500]
+                i = i + 500
+                for r in frappe.get_all(
+                        task["doctype"],
+                        filters=[["secondary tracker", "role_profile", "in", part], in_month],
+                        fields=["name", "`tabsecondary tracker`.role_profile as rp",
+                                "`tabsecondary tracker`.status as st",
+                                "`tabsecondary tracker`.tracker as tr"],
+                        limit_page_length=0):
+                    k = (r.get("name") or "") + "|" + (r.get("rp") or "")
+                    if not rows.get(k):
+                        rows[k] = r
+            trackers_of = {}
+            for n in has_draft:
+                bar = n.find("|")
+                if bar < 0:
+                    continue
+                rec = n[:bar]
+                s = n[bar + 1:]
+                if s not in ownr:
+                    continue
+                r = rows.get(rec + "|" + s) or rows.get(rec + "|" + ownr[s])
+                if not r:
+                    continue
+                state_of[n] = r.get("st") or ""
+                if r.get("tr"):
+                    trackers_of.setdefault(r.get("tr"), []).append(n)
+            names = list(trackers_of.keys())
+            i = 0
+            while i < len(names):
+                part = names[i:i + 500]
+                i = i + 500
+                for t in frappe.get_all("Operational Tracker",
+                                        filters=[["name", "in", part], ["role_profile", "in", wanted]],
+                                        fields=["name", "workflow_state"], limit_page_length=0):
+                    if t.get("workflow_state"):
+                        for n in trackers_of.get(t.get("name")) or []:
+                            state_of[n] = t.get("workflow_state")
     else:
         # OVERVIEW: a unit is a record x seat, every seat.
         for r in frappe.get_list(

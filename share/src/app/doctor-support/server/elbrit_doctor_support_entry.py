@@ -389,14 +389,39 @@ addable = []
 see_all = False
 
 if seat:
-    # ---- every entry the caller may see this month
-    docs = lister(DOCTYPE, filters=[in_month],
-                           fields=["name", "date", "doctor"],
-                           order_by="name asc", limit_page_length=0)
+    # The IT role profile is the one exception — the USER's role profile, as
+    # Ring Nav's overview decides it (an IT person's Employee seat may be
+    # empty or "Admin"): it sees every record of the month, with EVERY seat's
+    # lines (each tagged with its own seat; the screen shows them read-only),
+    # where everyone else gets only what is assigned to their seat, and only
+    # that seat's lines. Not with a `seat` override: that is IT looking at a
+    # seat, which then sees what that seat sees.
+    see_all = (not frappe.form_dict.get("seat")) and frappe.db.get_value("User", me, "role_profile_name") == "IT"
+
+    # ---- the seat's own lines (IT: every line), with their records' date and
+    # doctor. ONLY THE SEAT'S RECORDS are read from here on: an entry is the
+    # seat's when it has lines on it (below), so nothing else of the month's
+    # thousands of records is needed — reading them all, and every other
+    # seat's lines, for each seat made an SM's team (one call per seat) take
+    # a minute. IT still reads the whole month.
+    seat_rows = lister(
+            DOCTYPE,
+            filters=[in_month] if see_all else [["Support Items", F_SEAT, "=", seat], in_month],
+            fields=["name", "date", "doctor",
+                    LINE + ".name as line", LINE + ".idx as idx", LINE + ".item as item",
+                    LINE + ".qty as sales_qty", LINE + "." + F_SEAT + " as line_seat",
+                    LINE + "." + F_STATUS + " as custom_status", LINE + "." + F_HQ + " as custom_hq"],
+            order_by="name asc, " + LINE + ".idx asc", limit_page_length=0)
+    docs = seat_rows
+    if see_all:
+        docs = lister(DOCTYPE, filters=[in_month], fields=["name", "date", "doctor"],
+                      order_by="name asc", limit_page_length=0)
     names = []
     by_name = {}
     for d in docs:
         n = d.get("name")
+        if by_name.get(n):
+            continue
         names.append(n)
         by_name[n] = {
             "name": n,
@@ -417,26 +442,9 @@ if seat:
                             fields=["parent"], limit_page_length=0):
         assigned[r.get("parent")] = 1
 
-    # The IT role profile is the one exception — the USER's role profile, as
-    # Ring Nav's overview decides it (an IT person's Employee seat may be
-    # empty or "Admin"): it sees every record of the month, with EVERY seat's
-    # lines (each tagged with its own seat; the screen shows them read-only),
-    # where everyone else gets only what is assigned to their seat, and only
-    # that seat's lines. Not with a `seat` override: that is IT looking at a
-    # seat, which then sees what that seat sees.
-    see_all = (not frappe.form_dict.get("seat")) and frappe.db.get_value("User", me, "role_profile_name") == "IT"
-
-    # ---- the seat's own lines (IT: every line)
     item_codes = []
     seen_items = {}
-    for r in lister(
-            DOCTYPE,
-            filters=[in_month] if see_all else [["Support Items", F_SEAT, "=", seat], in_month],
-            fields=["name",
-                    LINE + ".name as line", LINE + ".idx as idx", LINE + ".item as item",
-                    LINE + ".qty as sales_qty", LINE + "." + F_SEAT + " as line_seat",
-                    LINE + "." + F_STATUS + " as custom_status", LINE + "." + F_HQ + " as custom_hq"],
-            order_by=LINE + ".idx asc", limit_page_length=0):
+    for r in seat_rows:
         row = by_name.get(r.get("name"))
         code = r.get("item")
         if not row or not code:
@@ -469,16 +477,18 @@ if seat:
             mine.append(n)
     names = mine
 
-    # ---- other seats' products, as names only (IT has every line already)
-    for r in ([] if see_all else lister(
-            DOCTYPE,
-            filters=[["Support Items", F_SEAT, "!=", seat], in_month],
-            fields=["name", LINE + ".item as item"],
-            limit_page_length=0)):
-        row = by_name.get(r.get("name"))
-        code = r.get("item")
-        if row and code and code not in row["other_items"]:
-            row["other_items"].append(code)
+    # ---- other seats' products on the seat's own records, as names only
+    # (IT has every line already)
+    for part in ([] if see_all else chunks(names)):
+        for r in lister(
+                DOCTYPE,
+                filters=[["Support Items", F_SEAT, "!=", seat], ["name", "in", part], in_month],
+                fields=["name", LINE + ".item as item"],
+                limit_page_length=0):
+            row = by_name.get(r.get("name"))
+            code = r.get("item")
+            if row and code and code not in row["other_items"]:
+                row["other_items"].append(code)
 
     # ---- the seat's approval row, and its tracker's state and note: its own,
     # or — a vacant seat's lines roll up onto its covering manager's approval

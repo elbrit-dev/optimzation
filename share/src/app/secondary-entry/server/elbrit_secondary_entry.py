@@ -358,13 +358,36 @@ addable = []
 see_all = False
 
 if seat:
-    docs = lister("Secondary Data Entry", filters=[in_month],
-                  fields=["name", "date", "distributor"],
-                  order_by="name asc", limit_page_length=0)
+    # IT with no `seat` sees every entry of the month with EVERY seat's lines,
+    # each tagged with its own seat (the screen shows them read-only).
+    see_all = (not frappe.form_dict.get("seat")) and frappe.db.get_value("User", me, "role_profile_name") == "IT"
+
+    # ---- the seat's own lines (IT: every line), with their records' date and
+    # stockist. ONLY THE SEAT'S RECORDS are read from here on: an entry is the
+    # seat's when it has lines on it (below), so the rest of the month's
+    # records, and every other seat's lines, are not needed — reading them
+    # for each seat made an SM's team (one call per seat) slow. IT still
+    # reads the whole month.
+    seat_rows = lister(
+            "Secondary Data Entry",
+            filters=[in_month] if see_all else [["Secondary Data Table", "custom_role_profile", "=", seat], in_month],
+            fields=["name", "date", "distributor",
+                    LINE + ".name as line", LINE + ".idx as idx", LINE + ".item as item",
+                    LINE + ".sales_qty as sales_qty", LINE + ".closing_qty as closing_qty",
+                    LINE + ".custom_role_profile as line_seat",
+                    LINE + ".custom_status as custom_status", LINE + ".custom_hq as custom_hq"],
+            order_by="name asc, " + LINE + ".idx asc", limit_page_length=0)
+    docs = seat_rows
+    if see_all:
+        docs = lister("Secondary Data Entry", filters=[in_month],
+                      fields=["name", "date", "distributor"],
+                      order_by="name asc", limit_page_length=0)
     names = []
     by_name = {}
     for d in docs:
         n = d.get("name")
+        if by_name.get(n):
+            continue
         names.append(n)
         by_name[n] = {
             "name": n,
@@ -382,21 +405,9 @@ if seat:
                             fields=["parent"], limit_page_length=0):
         assigned[r.get("parent")] = 1
 
-    # IT with no `seat` sees every entry of the month with EVERY seat's lines,
-    # each tagged with its own seat (the screen shows them read-only).
-    see_all = (not frappe.form_dict.get("seat")) and frappe.db.get_value("User", me, "role_profile_name") == "IT"
-
     item_codes = []
     seen_items = {}
-    for r in lister(
-            "Secondary Data Entry",
-            filters=[in_month] if see_all else [["Secondary Data Table", "custom_role_profile", "=", seat], in_month],
-            fields=["name",
-                    LINE + ".name as line", LINE + ".idx as idx", LINE + ".item as item",
-                    LINE + ".sales_qty as sales_qty", LINE + ".closing_qty as closing_qty",
-                    LINE + ".custom_role_profile as line_seat",
-                    LINE + ".custom_status as custom_status", LINE + ".custom_hq as custom_hq"],
-            order_by=LINE + ".idx asc", limit_page_length=0):
+    for r in seat_rows:
         row = by_name.get(r.get("name"))
         code = r.get("item")
         if not row or not code:
@@ -428,15 +439,17 @@ if seat:
             mine.append(n)
     names = mine
 
-    for r in ([] if see_all else lister(
-            "Secondary Data Entry",
-            filters=[["Secondary Data Table", "custom_role_profile", "!=", seat], in_month],
-            fields=["name", LINE + ".item as item"],
-            limit_page_length=0)):
-        row = by_name.get(r.get("name"))
-        code = r.get("item")
-        if row and code and code not in row["other_items"]:
-            row["other_items"].append(code)
+    # ---- other seats' products on the seat's own records, as names only
+    for part in ([] if see_all else chunks(names)):
+        for r in lister(
+                "Secondary Data Entry",
+                filters=[["Secondary Data Table", "custom_role_profile", "!=", seat], ["name", "in", part], in_month],
+                fields=["name", LINE + ".item as item"],
+                limit_page_length=0):
+            row = by_name.get(r.get("name"))
+            code = r.get("item")
+            if row and code and code not in row["other_items"]:
+                row["other_items"].append(code)
 
     # ---- the seat's approval row: its own, or — a vacant seat's lines roll
     # up onto its covering manager's approval — its OWNER's, sent as this
