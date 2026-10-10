@@ -86,7 +86,7 @@ SALES_ROOT = "Sales"
 IT_PROFILE = "IT"
 CHUNK = 500
 BASELINE_MONTHS = 3
-ENTRY_DUE_DAY = 10      # as Ring Nav's ENTRY_DUE_DAY
+ENTRY_DUE_DAY = 13      # as Ring Nav's ENTRY_DUE_DAY
 ALL_PARTS = ["tree", "sales", "secondary", "doctors", "service", "effort", "products"]
 MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July",
                "August", "September", "October", "November", "December"]

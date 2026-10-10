@@ -91,7 +91,7 @@ HREFS = {"secondary-entry": "/secondary/entry",
          "doctor-support-entry": "/doctor-support/entry",
          "doctor-support-approval": "/doctor-support/approval"}
 ENTRY_FROM_DAY = 1
-ENTRY_DUE_DAY = 10     # default due day; a task's "due_day" overrides it (past the month's end would mean its last day)
+ENTRY_DUE_DAY = 13     # default due day; a task's "due_day" overrides it (past the month's end would mean its last day)
 ALWAYS_ROLE_PROFILE = "IT"   # users with this Role Profile see the tiles every day
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -372,7 +372,7 @@ TASKS = [
      "party": "distributor", "party_doctype": "Customer",
      "rp": "custom_role_profile", "status": "custom_status",
      "link": "custom_ref_secondary_data_entry", "prefix": "Secondary Data Entry-",
-     "due_day": 10, "hide_empty": False, "enabled": True,
+     "due_day": 13, "hide_empty": False, "enabled": True,
      "show_add": True, "add_tone": "warning"},
     # A seat with no Doctor Support in the month gets no entry tile.
     {"id": "doctor-support", "label": "Support", "icon": "file-check",
@@ -380,7 +380,7 @@ TASKS = [
      "party": "doctor", "party_doctype": "Lead",
      "rp": "role_profile", "status": "status",
      "link": "reference", "prefix": "Doctor Support-",
-     "due_day": 10, "hide_empty": True, "enabled": True,
+     "due_day": 13, "hide_empty": True, "enabled": True,
      "show_add": True, "add_tone": "warning"},
 ]
 
