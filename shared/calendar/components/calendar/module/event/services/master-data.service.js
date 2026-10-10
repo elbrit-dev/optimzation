@@ -273,11 +273,15 @@ function getErpBaseUrl() {
     .replace(/\/$/, "");
 }
 
+// `modified` must be selected. A child-table filter makes ERP query DISTINCT
+// rows while still sorting by Lead.modified, and MariaDB refuses to sort a
+// DISTINCT result by a column it does not return: without this field every
+// mapped-doctor read came back HTTP 500 and the DR list showed no doctors.
 const ROLE_DOCTOR_FIELDS = JSON.stringify([
   "name", "lead_name", "city", "custom_latitude", "custom_longitude",
   "custom_doctor_code", "custom_speciality", "custom_specialty", "email_id",
   "custom_category", "custom_category1", "custom_category2", "custom_category3",
-  "territory",
+  "territory", "modified",
 ]);
 
 // Doctors mapped (Lead.custom_role_profile) to one of `roleIds` AT `territory`:
@@ -293,24 +297,21 @@ const ROLE_DOCTOR_FIELDS = JSON.stringify([
 // the role and HQ conditions both apply to the same mapping row. Notes are not
 // read here — the visit dialog loads them per doctor via fetchDoctorById.
 const ROLE_CHUNK = 80; // an SM's team runs to hundreds of roles; keeps each URL short
-const MAX_LEAD_PAGES = 50; // 50k mapping rows: far past any team, stops a runaway loop
 
-// PAGED until a short page: one page of MAX_ROWS used to be the whole answer,
-// and a team's mapping at a big HQ runs past it — an RBM at HQ-Chennai has
-// 1,812 rows (1,608 doctors), so ~620 never loaded (DR-2657 among them). The
-// pages are sorted by row so none is skipped or repeated between them.
+// Paged: the join returns one row per mapping, so an RBM's HQ runs past a
+// single page (RBM-VASC-CH-CHE at HQ-Chennai: 1,356 rows), and a one-page read
+// silently dropped every doctor after row 1,000.
 async function fetchMappedLeads(filters) {
   const { authToken } = AUTH_CONFIG;
   if (!authToken) {
     throw new Error("Missing ERP auth configuration");
   }
   const rows = [];
-  for (let page = 0; page < MAX_LEAD_PAGES; page += 1) {
+  for (let start = 0; ; start += MAX_ROWS) {
     const params = new URLSearchParams({
       fields: ROLE_DOCTOR_FIELDS,
       filters: JSON.stringify(filters),
-      order_by: "`tabLead`.`name` asc, `tabRole Profile Multiselect`.`name` asc",
-      limit_start: String(page * MAX_ROWS),
+      limit_start: String(start),
       limit_page_length: String(MAX_ROWS),
     });
     const response = await fetch(`${getErpBaseUrl()}/api/resource/Lead?${params}`, {
@@ -322,11 +323,10 @@ async function fetchMappedLeads(filters) {
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
-    const data = (await response.json())?.data ?? [];
-    rows.push(...data);
-    if (data.length < MAX_ROWS) break;
+    const page = (await response.json())?.data ?? [];
+    rows.push(...page);
+    if (page.length < MAX_ROWS) return rows;
   }
-  return rows;
 }
 
 export async function fetchDoctorsByRoles(roleIds, territory, { allRoles = false } = {}) {

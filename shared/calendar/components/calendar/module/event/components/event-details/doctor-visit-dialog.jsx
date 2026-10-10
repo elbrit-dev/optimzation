@@ -120,7 +120,9 @@ export function EventDoctorVisitDialog({
   }, [allEmployeeOptions, employeeOptions]);
 
   function resolveEmployeeParticipants(event, employeeMap) {
-    const allowedPrefixes = ["SM", "ABM", "RBM", "BE", "Admin"];
+    // KAM (Key Account Manager) books its own DR visits like a BE; leaving it
+    // out dropped the KAM from the roster of their own visit.
+    const allowedPrefixes = ["SM", "ABM", "RBM", "BE", "KAM", "Admin"];
 
     return (
       event.participants
