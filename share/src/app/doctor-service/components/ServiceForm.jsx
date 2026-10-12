@@ -11,14 +11,14 @@
  *   service       type (Cash / EMI / Bookings / Gift), then sub-service
  *   date, amount, remarks, attachment (optional)
  *
- * Save draft writes the Doctor Service; Save & submit writes it and applies
- * the workflow's Submit (-> GM Approval). The Doctor Service Guard checks
- * every write again in ERP. A drawer on wide screens, a bottom sheet on
- * narrow ones. */
+ * SAVING SUBMITS: there is no draft. The Doctor Service Guard checks the
+ * save in ERP and puts the service into approval (its Operational Tracker,
+ * at GM); saving a sent-back one resubmits it. The attachment is uploaded
+ * right after the save (the guard allows that while it waits on GM). A
+ * drawer on wide screens, a bottom sheet on narrow ones. */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ACTIONS } from '../data/api';
-import { CATS, CAT_OF, EDITABLE, REJECTED, cmp, localToday, money, roiTxt, short } from '../data/workflow';
+import { CATS, CAT_OF, EDITABLE, REWORK, cmp, localToday, money, roiTxt, short } from '../data/workflow';
 import { bizView } from '../data/insight';
 import { Combo, DatePicker, Icon, initials } from './parts';
 import { ensureStyles } from './styles';
@@ -84,7 +84,7 @@ export function ServiceForm({ client, doctor, entry, viewer, onClose, onSaved })
   const done = [!!chosen && !!pair, !!f.service, !!f.date, amtOk].filter(Boolean).length;
   const canEnter = viewer?.can_enter ?? opts?.viewer?.can_enter;
 
-  async function save(submit) {
+  async function save() {
     const e = {};
     if (!chosen) e.by = 'Choose the RBM or SM this service is for.';
     else if (!pair) e.pair = 'Choose the department.';
@@ -95,7 +95,7 @@ export function ServiceForm({ client, doctor, entry, viewer, onClose, onSaved })
     if (!amtOk) e.amount = 'Enter an amount above ₹0.';
     setErr(e);
     if (Object.keys(e).length) return;
-    setSaving(submit ? 'submit' : 'draft');
+    setSaving('submit');
     setFailed(null);
     const fields = {
       doctor: doctor.id,
@@ -122,18 +122,8 @@ export function ServiceForm({ client, doctor, entry, viewer, onClose, onSaved })
     if (f.file) {
       try { await client.upload(name, f.file); } catch (x) { note = ` The attachment did not upload: ${x.message}`; }
     }
-    if (submit) {
-      try {
-        await client.apply(name, ACTIONS.submit);
-      } catch (x) {
-        setSaving(null);
-        setFailed(`Saved as draft, but it could not be submitted: ${x.message}`);
-        onSaved?.({ name, submitted: false, quiet: true });
-        return;
-      }
-    }
     setSaving(null);
-    onSaved?.({ name, submitted: submit, message: `${doctor.name} · ${f.service} ${submit ? 'submitted · now in GM Approval' : 'saved as draft'}.${note}` });
+    onSaved?.({ name, submitted: true, message: `${doctor.name} · ${f.service} ${editing ? 'resubmitted' : 'submitted'} · now with GM.${note}` });
   }
 
   const empItems = employees.map((e) => ({
@@ -158,8 +148,8 @@ export function ServiceForm({ client, doctor, entry, viewer, onClose, onSaved })
         <div className="dsv-db" style={{ paddingBottom: combo ? 380 : 18 }}>
           {loadErr ? <div className="dsv-err">{loadErr}</div> : null}
           {opts && !canEnter ? <div className="dsv-note">Only the MIS team (MIS, MIS Admin, Manager MIS, CRM Manager) and IT can add a doctor service.</div> : null}
-          {editing && entry.state === REJECTED && entry.reason ? (
-            <div className="dsv-banner" style={{ margin: 0 }}><b>Rejected — fix and resubmit</b><span>“{entry.reason}”</span></div>
+          {editing && entry.state === REWORK ? (
+            <div className="dsv-banner dsv-banner--back" style={{ margin: 0 }}><b>Sent back — fix and resubmit</b>{entry.reason ? <span>“{entry.reason}”</span> : null}</div>
           ) : null}
 
           <div className="dsv-field">
@@ -294,16 +284,15 @@ export function ServiceForm({ client, doctor, entry, viewer, onClose, onSaved })
             <div><span>Designation</span><b>{chosen ? (chosen.grade === 'SM' ? 'Sales Manager' : 'Regional Business Manager') : '—'}</b></div>
             <div><span>Department</span><b>{pair ? pair.department : '—'}</b></div>
             <div><span>HQ</span><b>{pair ? pair.hq : '—'}</b></div>
-            <div><span>Approval route</span><b>GM → CEO</b></div>
+            <div><span>Approval route</span><b>GM → CEO → MIS verifies</b></div>
           </div>
           {failed ? <div className="dsv-err" role="alert">{failed}</div> : null}
         </div>
 
         <div className="dsv-df">
           <span className="p">{done === 4 ? 'Ready to submit' : `${done} of 4 required`}</span>
-          <button type="button" className="dsv-btn" disabled={!!saving || !canEnter || !editable} onClick={() => save(false)}>{saving === 'draft' ? 'Saving…' : 'Save draft'}</button>
-          <button type="button" className="dsv-btn pri" disabled={!!saving || !canEnter || !editable} style={{ background: done === 4 ? undefined : '#93B4F8' }} onClick={() => save(true)}>
-            {saving === 'submit' ? 'Submitting…' : editing && entry.state === REJECTED ? 'Save & resubmit' : 'Save & submit'}
+          <button type="button" className="dsv-btn pri" disabled={!!saving || !canEnter || !editable} style={{ background: done === 4 ? undefined : '#93B4F8' }} onClick={save}>
+            {saving ? 'Submitting…' : editing ? 'Save & resubmit' : 'Submit for approval'}
           </button>
         </div>
       </div>

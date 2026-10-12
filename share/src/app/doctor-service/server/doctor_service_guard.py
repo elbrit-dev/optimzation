@@ -10,16 +10,29 @@
 # without the flag — the ~26.7k imported ones, and any future bulk load —
 # are left exactly as they are.
 #
-# ROUTE (the ERP Workflow, set up by the team — see README.md):
-#   Draft -> GM Approval -> CEO Approval -> Approved
-#   GM may "Approve as final": GM Approval -> Approved (CEO not needed)
-#   GM / CEO may Reject -> Rejected; MIS edits a Rejected one and resubmits
+# APPROVAL runs on an Operational Tracker ("Approval flow", Approval Settings
+# "Doctor Service": final approver CEO, MIS verifies), not on this doctype.
+# SAVING SUBMITS: this script makes the tracker and starts it at GM.
 #
-# WHAT THIS SCRIPT ADDS ON TOP OF THE WORKFLOW:
+#   MIS saves -> GM Approval Waiting -> (GM Approve) CEO Approval Waiting
+#             -> CEO approves -> CEO Approved and Waiting for Verification
+#             -> (MIS) Approved and Verified
+#   GM "Approve to Verification" = approve as final (CEO not needed).
+#   GM / CEO "Revisit" -> Rework: MIS edits, and that save resubmits.
+#   GM / CEO "Reject" -> <Role> Rejected: final.
+#
+# The team's "Doctor service tracker" (also Before Save) makes trackers for
+# the desk's own entries, and only for a `date` next month or later; the
+# app's rows carry today's date, so it never fires for them. From then on
+# the team's "operational tracker" script mirrors the tracker's state into
+# this record's workflow_state.
+#
+# WHAT THIS SCRIPT DOES:
 #   1. CONTENT LOCK — doctor, service, date, amount, on-behalf employee,
-#      department, HQ, remarks and attachment change only on a new row or
-#      while it is Draft / Rejected, and only by the entry roles
-#      (ENTRY_ROLES) or System Manager.
+#      department, HQ and remarks change only on a new service or while its
+#      tracker is in Rework (sent back), and only by the entry roles
+#      (ENTRY_ROLES) or System Manager. The attachment may also be added
+#      while it waits on GM (the app uploads it right after the save).
 #   2. ON BEHALF OF — `by` must be an RBM / SM linked to the doctor (the
 #      same rule as elbrit_doctor_service_options: linked_managers() is
 #      COPIED from there — change both). Department, HQ and role_profile
@@ -27,13 +40,16 @@
 #      cannot file a service under the wrong department.
 #   3. CHECKS — amount above 0 (2 places), service date not in the future,
 #      service in Doctor Service Master, doctor exists. Attachment optional.
-#   4. REJECTION REASON — moving into Rejected needs custom_rejection_reason
-#      (3+ characters). Leaving Rejected (resubmit) copies the old reason
-#      into a comment and clears the field.
-#   5. STAMPS — who and when at GM and CEO, into the optional fields
-#      custom_gm_action_by / _on, custom_ceo_action_by / _on,
-#      custom_ceo_skipped, custom_entered_by. Each is written only if the
-#      field exists, so none is required for the script to run.
+#   4. custom_entered_by — the MIS employee who raised it (if the field
+#      exists).
+#   5. INTO APPROVAL — on an entry role's save of a new service (or one
+#      without a tracker), or of one sent back (Rework): the tracker is made
+#      (or reset) at GM Approval Waiting. next_approver = the first active
+#      GM above the on-behalf employee (reports_to, by the user's GM role);
+#      custom_fallback_approver = that GM's manager (the CEO). A new
+#      tracker is inserted and then set to its step, as the team's own
+#      script does (the workflow starts every new one at ABM, and has no
+#      step out of Rework). A send-back reason is kept as a comment.
 #
 # safe_exec: no import, no .format(), no set literals, no tuple
 # unpacking, no underscore-prefixed names.
@@ -48,18 +64,23 @@ def guard(doc):
     ENTRY_ROLES = ["MIS", "User MIS", "MIS Admin", "Manager MIS", "CRM Manager", "IT"]
     ON_BEHALF_GRADES = ["RBM", "SM"]
     MAX_HOPS = 15
-    DRAFT = "Draft"
-    GM_STATE = "GM Approval"
-    CEO_STATE = "CEO Approval"
-    APPROVED = "Approved"
-    REJECTED = "Rejected"
-    EDITABLE = [DRAFT, REJECTED]
+    OT = "Operational Tracker"
+    SETTING = "Doctor Service"
+    START = "GM Approval Waiting"
+    REWORK = "Rework"
     CONTENT = ["doctor", "service_name", "service_date", "service_amount", "by",
                "department", "hq", "remarks", "service_attachement"]
+    LATE_OK = ["service_attachement"]
 
 
     def is_vacant_name(n):
         return (n or "").strip()[:6].lower() == "vacant"
+
+
+    # A ZSM holds an "SM-" seat too (designation "Zonal Sales Manager"), so the
+    # seat alone cannot tell them apart -- the designation does. ZSMs are left out.
+    def is_zonal(designation):
+        return "zonal" in (designation or "").lower()
 
 
     def grade_of(seat):
@@ -78,7 +99,7 @@ def guard(doc):
         if eid not in EMP_CACHE:
             EMP_CACHE[eid] = frappe.db.get_value("Employee", eid,
                                                  ["name", "employee_name", "status", "reports_to",
-                                                  "custom_role_profile", "role_id"], as_dict=True)
+                                                  "custom_role_profile", "role_id", "designation"], as_dict=True)
         return EMP_CACHE[eid]
 
 
@@ -117,7 +138,7 @@ def guard(doc):
                         break
                     own = e.get("custom_role_profile") or e.get("role_id") or ""
                     g = grade_of(own)
-                    if g in ON_BEHALF_GRADES and e.get("status") == "Active" and not is_vacant_name(e.get("employee_name")):
+                    if g in ON_BEHALF_GRADES and not is_zonal(e.get("designation")) and e.get("status") == "Active" and not is_vacant_name(e.get("employee_name")):
                         if eid not in found:
                             found[eid] = {"employee": eid, "employee_name": e.get("employee_name"),
                                           "seat": own, "grade": g, "pairs": []}
@@ -134,6 +155,40 @@ def guard(doc):
         for eid in order:
             out.append(found[eid])
         return out
+
+
+    def has_role(u, role):
+        return bool(frappe.db.exists("Has Role", {"parent": u, "parenttype": "User", "role": role}))
+
+
+    def live_employee(eid):
+        e = frappe.db.get_value("Employee", eid, ["name", "employee_name", "status", "user_id", "reports_to"],
+                                as_dict=True)
+        if e and e.get("status") == "Active" and e.get("user_id") and not is_vacant_name(e.get("employee_name")):
+            return e
+        return None
+
+
+    def gm_and_ceo(by):
+        # -> [gm_user, ceo_user]: the first active GM-role user above `by`,
+        # and the first active manager above that GM.
+        eid = frappe.db.get_value("Employee", by, "reports_to")
+        hops = 0
+        while eid and hops < MAX_HOPS:
+            hops = hops + 1
+            e = live_employee(eid)
+            if e and has_role(e.get("user_id"), "GM"):
+                up = e.get("reports_to")
+                h2 = 0
+                while up and h2 < MAX_HOPS:
+                    h2 = h2 + 1
+                    m = live_employee(up)
+                    if m:
+                        return [e.get("user_id"), m.get("user_id")]
+                    up = frappe.db.get_value("Employee", up, "reports_to")
+                return [e.get("user_id"), None]
+            eid = frappe.db.get_value("Employee", eid, "reports_to")
+        return [None, None]
 
 
     META = frappe.get_meta("Doctor Service")
@@ -165,8 +220,12 @@ def guard(doc):
         me = mine[0] if mine else user
 
         old = None if doc.is_new() else doc.get_doc_before_save()
-        old_state = old.get("workflow_state") if old else None
-        new_state = doc.get("workflow_state") or DRAFT
+        tracker = old.get("custom_tracker") if old else None
+        ot_state = frappe.db.get_value(OT, tracker, "workflow_state") if tracker else None
+        editable = (not tracker) or ot_state == REWORK
+        # The tracker is set here (section 5) only, never by the client.
+        if (doc.get("custom_tracker") or "") != (tracker or ""):
+            doc.custom_tracker = tracker
 
         changed = []
         if old:
@@ -175,8 +234,12 @@ def guard(doc):
                     changed.append(f)
 
         # ---- 1. content lock
-        if old and changed and old_state not in EDITABLE:
-            frappe.throw("This service is in " + str(old_state) + " and can no longer be edited.")
+        late = []
+        for f in changed:
+            if f not in LATE_OK:
+                late.append(f)
+        if old and changed and not editable and (late or ot_state != START):
+            frappe.throw("This service is in approval (" + str(ot_state) + ") and can no longer be edited.")
         if (not old or changed) and not can_enter:
             frappe.throw("Only the MIS team can add or edit a doctor service.")
 
@@ -238,33 +301,37 @@ def guard(doc):
             if not old:
                 put("custom_entered_by", me)
 
-        # ---- 4. rejection reason
-        if new_state == REJECTED and old_state != REJECTED:
-            if len(str(doc.get("custom_rejection_reason") or "").strip()) < 3:
-                frappe.throw("Add a short reason for the rejection — the MIS team sees it.")
-        if old_state == REJECTED and new_state != REJECTED:
-            reason = str(doc.get("custom_rejection_reason") or "").strip()
-            if reason:
-                doc.add_comment("Comment", "Earlier rejection: " + reason)
-            put("custom_rejection_reason", "")
-
-        # ---- 5. stamps
-        if old_state != new_state:
-            now = frappe.utils.now()
-            if old_state == GM_STATE and new_state in [CEO_STATE, APPROVED, REJECTED]:
-                put("custom_gm_action_by", me)
-                put("custom_gm_action_on", now)
-                if new_state == APPROVED:
-                    put("custom_ceo_skipped", 1)
-            if old_state == CEO_STATE and new_state in [APPROVED, REJECTED]:
-                put("custom_ceo_action_by", me)
-                put("custom_ceo_action_on", now)
-            if new_state == GM_STATE:
-                put("custom_gm_action_by", None)
-                put("custom_gm_action_on", None)
-                put("custom_ceo_action_by", None)
-                put("custom_ceo_action_on", None)
-                put("custom_ceo_skipped", 0)
+        # ---- 5. into approval
+        if can_enter and ((not tracker) or ot_state == REWORK):
+            pair_users = gm_and_ceo(doc.get("by"))
+            gm_user = pair_users[0]
+            ceo_user = pair_users[1]
+            if not gm_user:
+                frappe.throw("No GM found above " + str(doc.get("by")) + " (reports_to), so the service has no one to go to.")
+            by_user = frappe.db.get_value("Employee", doc.get("by"), "user_id")
+            vals = {"status": START, "workflow_state": START, "next_role": "GM",
+                    "next_approver": gm_user, "custom_fallback_approver": ceo_user,
+                    "data": doc.get("service_amount"), "role_profile": doc.get("role_profile"),
+                    "department": doc.get("department"), "hq": doc.get("hq"), "user": by_user}
+            if not tracker:
+                ot = frappe.get_doc({
+                    "doctype": OT, "reference_doctype": "Doctor Service", "setting": SETTING,
+                    "reference": doc.name, "role_profile": doc.get("role_profile"),
+                    "department": doc.get("department"), "hq": doc.get("hq"), "user": by_user,
+                    "next_approver": gm_user, "next_role": "GM",
+                    "data": doc.get("service_amount"), "status": START,
+                })
+                ot.flags.update({"ignore_permissions": True, "ignore_mandatory": True, "ignore_links": True})
+                ot.insert()
+                tracker = ot.name
+            else:
+                reason = str(frappe.db.get_value(OT, tracker, "reason_for_rejection") or "").strip()
+                if reason:
+                    doc.add_comment("Comment", "Earlier send-back: " + reason)
+                vals["reason_for_rejection"] = ""
+            frappe.db.set_value(OT, tracker, vals)
+            frappe.get_doc(OT, tracker).add_comment("Workflow", START)
+            doc.custom_tracker = tracker
 
 
 guard(doc)

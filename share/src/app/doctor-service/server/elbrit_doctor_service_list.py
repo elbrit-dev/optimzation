@@ -11,14 +11,16 @@
 # Everything the Services page (MIS) and the Service approval page (GM, CEO)
 # list: every Doctor Service raised from the app (custom_via_app = 1) —
 # never the ~26.7k imported rows. READ-ONLY. Decisions are the app's
-# apply_workflow calls, as the signed-in user.
+# apply_workflow calls on each service's Operational Tracker, as the
+# signed-in user; the tracker is where the state lives.
 #
 # WHO: the viewing roles only (VIEW_ROLES: IT, MIS team, GM, CEO) — they
 # see every app row, so the rows are read past permissions; anyone else is
 # refused.
 #
 # Answer:
-#   viewer   as elbrit_doctor_service_options answers it
+#   viewer   as elbrit_doctor_service_options answers it (+ verifier: the
+#            MIS role, which verifies after the final approval)
 #   setup    { missing: [field, ...] } — Doctor Service fields the app needs
 #            that this ERP does not have yet (rows is empty until
 #            custom_via_app exists)
@@ -29,9 +31,14 @@
 #              doctor_avg                 the doctor's average monthly
 #                                         support over the last 12 months
 #                                         (sizes the doctor on approval)
-#              history                    the record's Workflow and Comment
-#                                         entries, oldest first:
-#                                         { type, content, by, at }
+#              state                      the tracker's workflow_state, or
+#                                         "Not submitted" (no tracker yet)
+#              reason                     the tracker's reason_for_rejection
+#                                         (send-back / rejection note)
+#              waiting_on                 the tracker's next approver's name
+#              history                    Workflow and Comment entries of the
+#                                         tracker and the service, oldest
+#                                         first: { type, content, by, at }
 #
 # safe_exec: no import, no .format(), no set literals, no tuple
 # unpacking, no underscore-prefixed names.
@@ -42,9 +49,8 @@ MAX_ROWS = 2000
 CHUNK = 500
 ENTRY_ROLES = ["MIS", "User MIS", "MIS Admin", "Manager MIS", "CRM Manager", "IT"]
 VIEW_ROLES = ["IT", "MIS", "User MIS", "MIS Admin", "Manager MIS", "CRM Manager", "GM", "CEO"]
-WANTED = ["custom_via_app", "custom_rejection_reason", "custom_entered_by",
-          "custom_gm_action_by", "custom_gm_action_on", "custom_ceo_action_by",
-          "custom_ceo_action_on", "custom_ceo_skipped"]
+OT = "Operational Tracker"
+WANTED = ["custom_via_app", "custom_entered_by", "custom_tracker"]
 
 
 def viewer_of(user):
@@ -60,6 +66,7 @@ def viewer_of(user):
     for r in VIEW_ROLES:
         if r in roles:
             can_view = True
+    verifier = admin or "MIS" in roles
     approver = None
     if "GM" in roles:
         approver = "GM"
@@ -70,7 +77,7 @@ def viewer_of(user):
     me = me[0] if me else {}
     return {"user": user, "employee": me.get("name"),
             "employee_name": me.get("employee_name") or frappe.db.get_value("User", user, "full_name") or user,
-            "can_enter": can_enter, "can_view": can_view, "approver": approver}
+            "can_enter": can_enter, "can_view": can_view, "approver": approver, "verifier": verifier}
 
 
 def chunks(values):
@@ -117,15 +124,18 @@ if meta.has_field("custom_via_app"):
                           order_by="modified desc", limit_page_length=MAX_ROWS)
 
 names = []
+trackers = []
 doctors = []
 employees = []
 users = []
 services = []
 for r in rows:
     names.append(r.get("name"))
+    if r.get("custom_tracker"):
+        trackers.append(r.get("custom_tracker"))
     if r.get("doctor") and r.get("doctor") not in doctors:
         doctors.append(r.get("doctor"))
-    for f in ["by", "custom_entered_by", "custom_gm_action_by", "custom_ceo_action_by"]:
+    for f in ["by", "custom_entered_by"]:
         if r.get(f) and r.get(f) not in employees:
             employees.append(r.get(f))
     if r.get("owner") and r.get("owner") not in users:
@@ -133,21 +143,51 @@ for r in rows:
     if r.get("service_name") and r.get("service_name") not in services:
         services.append(r.get("service_name"))
 
-# ---- history: the workflow's own comments, and notes
+# ---- the trackers: where the state lives
+track = {}
+for part in chunks(trackers):
+    for t in frappe.get_all(OT, filters=[["name", "in", part]],
+                            fields=["name", "workflow_state", "next_approver", "custom_fallback_approver",
+                                    "reason_for_rejection", "modified"],
+                            limit_page_length=0):
+        track[t.get("name")] = t
+        if t.get("next_approver") and t.get("next_approver") not in users:
+            users.append(t.get("next_approver"))
+service_of = {}
+for r in rows:
+    if r.get("custom_tracker"):
+        service_of[r.get("custom_tracker")] = r.get("name")
+
+# ---- history: the tracker's workflow steps, and notes on either record
 history = {}
+
+
+def keep_comment(service, c):
+    if c.get("owner") and c.get("owner") not in users:
+        users.append(c.get("owner"))
+    if service not in history:
+        history[service] = []
+    history[service].append({"type": c.get("comment_type"),
+                             "content": frappe.utils.strip_html(c.get("content") or ""),
+                             "user": c.get("owner"), "at": str(c.get("creation"))})
+
+
 for part in chunks(names):
     for c in frappe.get_all("Comment",
                             filters=[["reference_doctype", "=", DOCTYPE], ["reference_name", "in", part],
+                                     ["comment_type", "=", "Comment"]],
+                            fields=["reference_name", "comment_type", "content", "owner", "creation"],
+                            order_by="creation asc", limit_page_length=0):
+        keep_comment(c.get("reference_name"), c)
+for part in chunks(trackers):
+    for c in frappe.get_all("Comment",
+                            filters=[["reference_doctype", "=", OT], ["reference_name", "in", part],
                                      ["comment_type", "in", ["Workflow", "Comment"]]],
                             fields=["reference_name", "comment_type", "content", "owner", "creation"],
                             order_by="creation asc", limit_page_length=0):
-        if c.get("owner") and c.get("owner") not in users:
-            users.append(c.get("owner"))
-        if c.get("reference_name") not in history:
-            history[c.get("reference_name")] = []
-        history[c.get("reference_name")].append({"type": c.get("comment_type"),
-                                                 "content": frappe.utils.strip_html(c.get("content") or ""),
-                                                 "user": c.get("owner"), "at": str(c.get("creation"))})
+        keep_comment(service_of.get(c.get("reference_name")), c)
+# (The workflow steps come in order from their own query; the app sorts the
+# activity list as a whole.)
 
 # ---- names: employees by id, and users -> their employee's name
 emp_name = {}
@@ -188,8 +228,12 @@ out = []
 for r in rows:
     r["by_name"] = emp_name.get(r.get("by")) or r.get("by")
     r["entered_by_name"] = emp_name.get(r.get("custom_entered_by")) or user_name.get(r.get("owner")) or r.get("owner")
-    r["gm_name"] = emp_name.get(r.get("custom_gm_action_by"))
-    r["ceo_name"] = emp_name.get(r.get("custom_ceo_action_by"))
+    t = track.get(r.get("custom_tracker")) or {}
+    r["state"] = t.get("workflow_state") or "Not submitted"
+    r["reason"] = t.get("reason_for_rejection") or ""
+    r["waiting_on"] = user_name.get(t.get("next_approver")) or t.get("next_approver") or ""
+    if t.get("modified") and str(t.get("modified")) > str(r.get("modified")):
+        r["modified"] = t.get("modified")
     r["category"] = category.get(r.get("service_name")) or ""
     r["doctor_avg"] = avg.get(r.get("doctor")) or 0
     h = history.get(r.get("name")) or []

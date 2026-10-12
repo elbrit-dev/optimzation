@@ -1,58 +1,77 @@
 # Doctor Service — ERP setup
 
 This is what the app's "Add service", "Services" and "Service approval" screens need in ERP.
-The ERP team sets up the workflow, roles and fields. The four scripts in this folder are
-pasted into **Server Script** exactly as written; each file's header gives its name, type and
-method.
+The four scripts in this folder go into **Server Script** exactly as written. Each file's
+header gives its name, type and method.
 
 ## Who does what
 
 | Who | ERP roles | Can do |
 |---|---|---|
-| MIS team (e.g. vishnu.mis) and IT | `MIS`, `User MIS`, `MIS Admin`, `Manager MIS`, `CRM Manager`, `IT` | Add and edit services (Draft / Rejected), submit them |
-| GM | `GM` | Approve (sends to CEO), Approve as final, Reject |
-| CEO | `CEO` | Approve, Reject |
+| MIS team (e.g. vishnu.mis) and IT | `MIS`, `User MIS`, `MIS Admin`, `Manager MIS`, `CRM Manager`, `IT` | Add a service (that submits it), edit and resubmit one that was sent back |
+| MIS (verifier) | `MIS` | Verify, or reject, after the final approval |
+| GM | `GM` | Send on to CEO, Approve as final, Send back, Reject |
+| CEO | `CEO` | Approve, Send back, Reject |
 | IT (view only) | an `IT…` role profile without the `IT` role | See everything, change nothing |
 
 RBM / SM do not enter services. MIS enters each one **on behalf of** an RBM or SM linked to
-the doctor; that person goes in `by`, and the department and HQ are taken from them.
-Seeing doctor services (both pages, the doctor page's Services card) is IT, MIS, GM and CEO.
+the doctor (ZSMs are not offered). That person goes in `by`, and the department and HQ are
+taken from them.
 
-## Workflow (Doctor Service)
+## Approval: the Operational Tracker, started at GM
 
-States: `Draft`, `GM Approval`, `CEO Approval`, `Approved`, `Rejected`.
+Approval runs on the service's **Operational Tracker** ("Approval flow" workflow, Approval
+Settings "Doctor Service": final approver CEO, verifier MIS), the same way it does for
+Secondary and Doctor Support. **Saving submits.** There is no draft: the guard makes the
+tracker on the first save and starts it at **GM**, whatever the on-behalf person's grade.
 
-| From | Action (exact name) | To | Allowed role |
+| Step | Tracker state | Who | App action → workflow action |
 |---|---|---|---|
-| Draft | Submit | GM Approval | MIS roles (one transition row per role) |
-| Rejected | Submit | GM Approval | MIS roles |
-| GM Approval | Approve | CEO Approval | GM |
-| GM Approval | Approve as final | Approved | GM |
-| GM Approval | Reject | Rejected | GM |
-| CEO Approval | Approve | Approved | CEO |
-| CEO Approval | Reject | Rejected | CEO |
+| MIS saves | GM Approval Waiting | MIS | (the guard sets it) |
+| GM sends on | CEO Approval Waiting | GM | Send to CEO → `Approve` |
+| GM approves as final | GM Approved and Waiting for Verification | GM | Approve as final → `Approve to Verification` |
+| CEO approves | CEO Approved and Waiting for Verification | CEO | Approve → `Approve to Verification` |
+| MIS verifies | Approved and Verified | MIS | Verify → `Approve` |
+| MIS rejects at verification | X Approved and Verification Rejected | MIS | Reject → `Reject` |
+| GM / CEO send back | Rework | GM / CEO | Send back → `Revisit` (+ reason) |
+| MIS edits and saves | GM Approval Waiting | MIS | (the guard resets it) |
+| GM / CEO reject | GM / CEO Rejected (final) | GM / CEO | Reject → `Reject` (+ reason) |
 
-- The action names must match exactly — the app calls `apply_workflow` with these names.
-- Leave transition **conditions** empty.
-- Allow edit in `Draft` and `Rejected`: the MIS roles. Every other state: GM / CEO only.
-  The guard script also blocks content edits once a service is out of Draft / Rejected.
-- **Old rows:** about 26.7k existing rows have `workflow_state = Draft`. Turning the
-  workflow on must not move them anywhere. The app only lists rows with
-  `custom_via_app = 1`, and the guard only checks those.
+- The next approver is the first active user with the `GM` role above the on-behalf
+  employee (`reports_to`). The fallback approver is that GM's manager (the CEO).
+- The reason for a rejection or send-back goes in the tracker's `reason_for_rejection`.
+- The team's "Doctor service tracker" script (desk entries, `date` next month or later) never
+  fires for app rows, because they carry today's date.
+- The team's "operational tracker" script copies each tracker step into the service's
+  `workflow_state`, as it does for every other tracker.
+
+## Still needed on UAT (ERP team)
+
+1. **The CEO can't act at "CEO Approval Waiting".** Add two transitions to "Approval flow":
+   - `CEO Approval Waiting` → **Approve to Verification** → `CEO Approved and Waiting for Verification`, role **CEO**
+   - `CEO Approval Waiting` → **Reject** → `CEO Rejected`, role **CEO**
+
+   Today the only CEO action there is Revisit. Approval Settings makes CEO the final approver
+   for every amount above 0, so every service the GM sends on gets stuck.
+2. **The Doctor Service doctype's own workflow blocks every save once a service is in
+   approval.** The "Doctor Service" workflow (Draft → ABM → RBM → SM → GM → CEO) is still
+   active. The tracker copies its states (`Rework`, `GM Approval Waiting`, `SM Approved and
+   Waiting for Verification`…) into the service. Saving then fails with
+   "**Rework** is not a valid Workflow State". Seen on UAT, 2026-10-12. This hits the
+   desk's own services as well, and it is what stops MIS resubmitting a sent-back one.
+   **Fix:** set that workflow inactive, since approval lives on the tracker, or add every
+   tracker state to it.
 
 ## Custom fields on Doctor Service
 
 | Field | Type | Needed | Purpose |
 |---|---|---|---|
 | `custom_via_app` | Check | **Yes** | Set by the app. Only these rows are guarded and listed |
-| `custom_rejection_reason` | Small Text | **Yes** | Required when rejecting, shown to MIS |
+| `custom_tracker` | Link → Operational Tracker | **Yes** (exists) | The service's tracker |
 | `custom_entered_by` | Link → Employee | Recommended | The MIS person who entered it (`by` is the RBM/SM) |
-| `custom_gm_action_by` / `custom_gm_action_on` | Link → Employee / Datetime | Recommended | GM's decision |
-| `custom_ceo_action_by` / `custom_ceo_action_on` | Link → Employee / Datetime | Recommended | CEO's decision |
-| `custom_ceo_skipped` | Check | Recommended | GM approved as final |
 
-The recommended fields are optional: the scripts write them only if they exist.
-`service_attachement` stays **optional**.
+`custom_rejection_reason` (made on 2026-10-12) is no longer used, because the reason lives on
+the tracker. It can be deleted. `service_attachement` stays **optional**.
 
 ## Custom field on Doctor Service Master
 
@@ -60,44 +79,33 @@ The recommended fields are optional: the scripts write them only if they exist.
 |---|---|---|
 | `custom_category` | Select | Cash, EMI, Bookings, Gift |
 
-The form groups sub-services by this. Until it exists, the form falls back to the app's
+The form groups sub-services by this field. Until it exists, the form uses the app's
 built-in list.
 
 ## Scripts
 
 | File | Type | What it does |
 |---|---|---|
-| `elbrit_doctor_service_options.py` | API `elbrit_doctor_service_options` | Who is asking (can add / can see / approver). With `doctor=`: the RBM / SM linked to that doctor (with department + HQ pairs) and the service list |
-| `elbrit_doctor_service_list.py` | API `elbrit_doctor_service_list` | Every app-raised service for the two pages, with names, history and each doctor's average monthly support. IT / MIS / GM / CEO only |
-| `elbrit_doctor_service_insight.py` | API `elbrit_doctor_service_insight` | One doctor: support by month (18 months), every service, last 3 visits by role — the "Is this doctor worth it?" block |
-| `doctor_service_guard.py` | DocType Event, Before Save | Checks for app rows: MIS-only edits, edit lock after submit, on-behalf employee must be linked to the doctor, sets department / HQ, amount > 0, date not in future, rejection reason, approval stamps |
+| `elbrit_doctor_service_options.py` | API `elbrit_doctor_service_options` | Who is asking (can add / can see / approver / verifier). With `doctor=`: the RBMs / SMs linked to that doctor (with department + HQ pairs) and the service list |
+| `elbrit_doctor_service_list.py` | API `elbrit_doctor_service_list` | Every app-raised service, with its tracker's state, reason, the person it waits on, the history (tracker steps and comments) and each doctor's average monthly support |
+| `elbrit_doctor_service_insight.py` | API `elbrit_doctor_service_insight` | One doctor: support by month (18 months), every service, last 3 visits by role (the "Is this doctor worth it?" block) |
+| `doctor_service_guard.py` | DocType Event, Before Save | On app rows: MIS-only edits, edit lock once in approval (Rework re-opens it), on-behalf employee must be linked to the doctor, sets department / HQ, amount > 0, date not in future. Makes or resets the tracker at GM |
 
-The app writes with plain Frappe calls as the signed-in user: `POST /api/resource/Doctor Service`
-(`custom_via_app: 1`), then `frappe.model.workflow.apply_workflow` for Submit / Approve /
-Approve as final / Reject — the same way Secondary Approval decides — and
-`/api/method/upload_file` for the optional attachment. So the workflow's roles are the
-only gate on who may do what, and the guard checks every save.
+The app writes as the signed-in user. Each step is a plain Frappe call:
+- **Save:** `POST` / `PUT /api/resource/Doctor Service`. The guard does the submit.
+- **Decide:** `frappe.model.workflow.apply_workflow` on the tracker, then
+  `frappe.client.set_value` for the reason. This is the same path Secondary Approval uses.
+- **Attach:** `/api/method/upload_file`. The guard allows the attachment to be added while the
+  service waits on GM.
 
-The three API scripts each carry a copy of `viewer_of()` (who may see / add / approve) —
-change all three together. `linked_managers()` is shared by options and the guard the same way.
+The three API scripts each carry a copy of `viewer_of()` (who may see / add / approve), so
+change all three together. `linked_managers()` is shared by options and the guard the same
+way.
 
-## Deployed on UAT (2026-10-12)
+## Gotchas
 
-All four scripts and the two required fields (`custom_via_app`, `custom_rejection_reason`)
-are live on UAT. A test create through the guard worked (department / HQ / role profile set
-from the on-behalf RBM), an ABM as "on behalf of" was refused, and the test record was deleted.
-
-**Permissions (done 2026-10-12):** `MIS`, `MIS Admin`, `Manager MIS`, `CRM Manager` and `IT`
-have Doctor Service Read / Write / Create / Report / Export / Print (Custom DocPerm). Delete
-is not granted, so "Delete draft" in the app is refused for them. The guard's `ENTRY_ROLES`
-matches this list.
-
-Still with the ERP team on UAT:
-- **Workflow**: still the old Draft → ABM → RBM → SM → GM → CEO route. Change it to the
-  table above (Submit from Draft / Rejected, GM Approve / Approve as final / Reject,
-  CEO Approve / Reject). Until then Save draft works; Save & submit does not.
-- **Operational Tracker**: the existing "Doctor service tracker" script (Before Save) makes
-  an OT only when `date` is next month or later. Test it with the workflow once that is in.
-
-Gotcha for anyone editing the guard: a DocType Event script cannot use top-level helper
-functions (they cannot see `doc` or each other), so the guard is one `guard(doc)` function.
+- A DocType Event script can't use top-level helper functions, because they can't see `doc`
+  or each other. That is why the guard is one `guard(doc)` function.
+- A new tracker is inserted and then moved to its starting step with `db.set_value`. This
+  matches what the team's own script does: the workflow starts every new tracker at ABM and
+  has no step out of Rework.

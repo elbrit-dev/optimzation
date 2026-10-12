@@ -1,23 +1,28 @@
 'use client';
 
 /* One service, in full — the prototype's detail pane: status and position,
- * doctor and amount, the MIS -> GM -> CEO stepper, the rejection banner,
+ * doctor and amount, the MIS -> GM -> CEO -> Verify stepper, the
+ * rejected / sent-back banner,
  * "Is this doctor worth it?", the record's fields, remarks, attachment and
  * activity; the footer carries what THIS viewer may do with it. */
 
-import { CEO, GM, REJECTED, activity, canDecide, canEdit, fDY, money, short, statusOf, stepper } from '../data/workflow';
+import {
+  CEO, GM, NOT_SUBMITTED, REJECTED, REWORK, activity, canDecide, canEdit, canVerify, fDY, money, short, statusOf, stepper, stoppedBy,
+} from '../data/workflow';
 import { Biz } from './Biz';
 import { Icon, extOf } from './parts';
 
 export function Detail({
   e, viewer, sheet, pos, insight, insightLoading, comment, setComment, busy, fileUrl,
-  onClose, onOpenDoctor, onEdit, onDelete, onSubmit, onApprove, onFinal, onReject,
+  onClose, onOpenDoctor, onEdit, onResubmit, onApprove, onFinal, onReject, onRevisit, onVerify, onVerifyReject,
 }) {
   const st = statusOf(e);
   const decide = canDecide(e, viewer);
   const edit = canEdit(e, viewer);
+  const verify = canVerify(e, viewer);
   const gmCanClose = decide && viewer.approver === 'GM';
-  const rejBy = e.ceo?.to === REJECTED ? { ...e.ceo, role: 'CEO' } : e.gm?.to === REJECTED ? { ...e.gm, role: 'GM' } : null;
+  const stop = e.state === REJECTED || e.state === REWORK ? stoppedBy(e) : null;
+  const stopRole = stop?.role === 'MIS' ? 'verification' : stop?.role;
   const ax = e.att ? extOf(e.att) : null;
   const steps = stepper(e);
   const trail = activity(e);
@@ -35,13 +40,10 @@ export function Detail({
   if (edit) {
     footer = (
       <>
-        {e.state !== REJECTED ? (
-          <button type="button" className="dsv-btn del" onClick={onDelete} disabled={!!busy}><Icon name="trash" size={16} color="#DC2626" />Delete</button>
-        ) : null}
         <span style={{ flex: 1 }} />
         <button type="button" className="dsv-btn" onClick={onEdit} disabled={!!busy}>Edit</button>
-        <button type="button" className="dsv-btn pri" onClick={onSubmit} disabled={!!busy} style={{ flex: sheet ? '1 1 auto' : '0 0 auto' }}>
-          {busy === 'submit' ? 'Submitting…' : e.state === REJECTED ? 'Resubmit' : 'Submit for approval'}
+        <button type="button" className="dsv-btn pri" onClick={onResubmit} disabled={!!busy} style={{ flex: sheet ? '1 1 auto' : '0 0 auto' }}>
+          {busy === 'submit' ? 'Submitting…' : e.state === NOT_SUBMITTED ? 'Submit for approval' : 'Resubmit'}
         </button>
       </>
     );
@@ -49,6 +51,7 @@ export function Detail({
     footer = (
       <>
         <button type="button" className="dsv-btn rej" onClick={onReject} disabled={!!busy}>Reject</button>
+        <button type="button" className="dsv-btn" onClick={onRevisit} disabled={!!busy} title="Send it back to the MIS team to fix">Send back</button>
         <span style={{ flex: 1 }} />
         <div className="dsv-decide">
           {gmCanClose ? (
@@ -56,12 +59,22 @@ export function Detail({
               <Icon name="check" size={15} color="#15803D" width={3} />{busy === 'final' ? 'Approving…' : 'Approve as final'}
             </button>
           ) : null}
-          <button type="button" className="dsv-btn pri" onClick={onApprove} disabled={!!busy}>
+          <button type="button" className="dsv-btn pri" onClick={viewer.approver === 'GM' ? onApprove : onFinal} disabled={!!busy}>
             <Icon name="check" size={16} color="#fff" width={3} />
-            {busy === 'approve' ? 'Working…' : viewer.approver === 'GM' ? 'Send to CEO' : 'Approve'}
+            {busy === 'approve' || (busy === 'final' && !gmCanClose) ? 'Working…' : viewer.approver === 'GM' ? 'Send to CEO' : 'Approve'}
             {!sheet ? <span className="k">A</span> : null}
           </button>
         </div>
+      </>
+    );
+  } else if (verify) {
+    footer = (
+      <>
+        <button type="button" className="dsv-btn rej" onClick={onVerifyReject} disabled={!!busy}>Reject</button>
+        <span style={{ flex: 1 }} />
+        <button type="button" className="dsv-btn pri" onClick={onVerify} disabled={!!busy}>
+          <Icon name="check" size={16} color="#fff" width={3} />{busy === 'verify' ? 'Verifying…' : 'Verify'}
+        </button>
       </>
     );
   }
@@ -115,10 +128,11 @@ export function Detail({
           </div>
         </div>
 
-        {e.state === REJECTED ? (
-          <div className="dsv-banner">
-            <b>Rejected{rejBy ? ` by ${rejBy.name} (${rejBy.role}) · ${fDY(rejBy.at)}` : ''}</b>
+        {e.state === REJECTED || e.state === REWORK ? (
+          <div className={'dsv-banner' + (e.state === REWORK ? ' dsv-banner--back' : '')}>
+            <b>{e.state === REWORK ? 'Sent back' : 'Rejected'}{stop ? ` by ${stop.name}${stopRole ? ` (${stopRole})` : ''} · ${fDY(stop.at)}` : ''}</b>
             {e.reason ? <span>“{e.reason}”</span> : null}
+            {e.state === REWORK && viewer?.can_enter ? <span>Edit it and resubmit — it goes back to GM.</span> : null}
           </div>
         ) : null}
 
@@ -162,9 +176,9 @@ export function Detail({
         {decide ? (
           <div className="dsv-comment">
             <label htmlFor={'dsv-c-' + e.id}>
-              Comment · {e.state === GM ? 'send it on to CEO, or approve as final here' : e.state === CEO ? 'your approval marks it Approved' : ''}
+              Comment · {e.state === GM ? 'send it on to CEO, or approve as final here' : e.state === CEO ? 'your approval sends it to MIS to verify' : ''}
             </label>
-            <textarea id={'dsv-c-' + e.id} className="dsv-ta" rows={2} value={comment} onChange={(ev) => setComment(ev.target.value)} placeholder="Optional for approve · required to reject" />
+            <textarea id={'dsv-c-' + e.id} className="dsv-ta" rows={2} value={comment} onChange={(ev) => setComment(ev.target.value)} placeholder="Optional for approve · required to reject or send back" />
           </div>
         ) : null}
       </div>

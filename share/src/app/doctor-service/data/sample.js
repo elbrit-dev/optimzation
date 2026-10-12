@@ -3,9 +3,11 @@
  * ERP. The figures are real (CND Coimbatore, Apr 2025 – Aug 2026, from the
  * approved prototype); the people are the ones in that line.
  *
- * `role` picks who is looking: MIS (enters), GM, CEO (approve), IT (views). */
+ * `role` picks who is looking: MIS (enters, verifies), GM, CEO (approve),
+ * IT (views). It plays the tracker's part: saving submits, decisions move
+ * the tracker as the "Approval flow" workflow does. */
 
-import { APPROVED, CEO, DRAFT, GM, REJECTED } from './workflow';
+import { ACTIONS, revisitNote } from './api';
 
 const CND = 'CND Coimbatore - ELPL';
 const DOCTORS = {
@@ -56,50 +58,56 @@ const SERVICES = ['EMI TAKEOVER', 'Cash', 'cab', 'CAR', 'RD 3', 'Travel', 'Fund 
 const DAY = 864e5;
 const at = (daysAgo) => new Date(Date.now() - daysAgo * DAY).toISOString().slice(0, 19).replace('T', ' ');
 
+/* The tracker states ("Approval flow"), as the list script returns them. */
+const S = {
+  gm: 'GM Approval Waiting', ceo: 'CEO Approval Waiting', gmFinal: 'GM Approved and Waiting for Verification',
+  ceoDone: 'CEO Approved and Waiting for Verification', verified: 'Approved and Verified',
+  gmRej: 'GM Rejected', rework: 'Rework',
+};
+
 function seed() {
   const rows = [];
   let n = 0;
-  const mk = (by, doctor, service, date, amount, remarks, state, ago, reason) => {
+  const mk = (by, doctor, service, date, amount, remarks, path, ago, reason) => {
     n += 1;
     const P = PEOPLE[by];
     const history = [];
     const wf = (content, who, d) => history.push({ type: 'Workflow', content, by: who, user: who, at: at(d) });
-    if (state !== DRAFT) {
-      wf(GM, MIS.name, ago);
-      if (state === CEO || state === APPROVED) wf(CEO, GM_P.name, ago * 0.6);
-      if (state === APPROVED) wf(APPROVED, CEO_P.name, ago * 0.3);
-      if (state === 'final') wf(APPROVED, GM_P.name, ago * 0.4);
-      if (state === REJECTED) wf(REJECTED, GM_P.name, ago * 0.3);
-    }
+    // path: the tracker states it went through after MIS saved it.
+    wf(S.gm, MIS.name, ago);
+    const who = { [S.ceo]: GM_P.name, [S.gmFinal]: GM_P.name, [S.gmRej]: GM_P.name, [S.ceoDone]: CEO_P.name, [S.verified]: MIS.name, [S.rework]: GM_P.name };
+    path.forEach((st, i) => wf(st, who[st], ago * (0.6 - i * 0.15)));
+    const state = path.length ? path[path.length - 1] : S.gm;
+    const id = 'DSV-' + String(1000 + n);
     rows.push({
-      name: `DSV-${String(1000 + n)}`, doctor, doctor_name: DOCTORS[doctor], service_name: service, service_amount: amount,
+      name: id, doctor, doctor_name: DOCTORS[doctor], service_name: service, service_amount: amount,
       service_date: date, date: date, by, by_name: P.name, department: CND, hq: HQ[doctor] || 'HQ-Coimbatore',
-      role_profile: P.seat, remarks, workflow_state: state === 'final' ? APPROVED : state, service_attachement: null,
-      owner: MIS.user, creation: at(ago + 0.5), modified: at(state === DRAFT ? ago : ago * 0.3),
-      custom_rejection_reason: reason || '', entered_by_name: MIS.name,
-      custom_ceo_skipped: state === 'final' ? 1 : 0, category: '', history,
+      role_profile: P.seat, remarks, state, custom_tracker: 'Doctor Service-' + id, service_attachement: null,
+      owner: MIS.user, creation: at(ago + 0.5), modified: at(ago * 0.3),
+      reason: reason || '', waiting_on: state === S.gm ? GM_P.name : state === S.ceo ? CEO_P.name : '', entered_by_name: MIS.name,
+      category: '', history,
     });
   };
-  mk('E01053', 'DR-4509', 'cash back activity', '2026-07-15', 51000, 'CASH BACK', DRAFT, 1);
-  mk('E01053', 'DR-52225', 'EMI TAKEOVER', '2026-07-15', 35000, '1 MONTH EMI', DRAFT, 1);
-  mk('E01053', 'DR-1992', 'Cash', '2026-06-17', 100000, 'CASH', GM, 2);
-  mk('E01053', 'DR-51', 'CAR', '2026-07-05', 35883, 'CAR EMI', GM, 1);
-  mk('E01053', 'DR-10649', 'EB Bill', '2026-06-02', 920, 'EB - 031280011630 (A. V. THIRUNAVUKKARASU AND A. V. MARUTHAGIRI)', GM, 3);
-  mk('E00006', 'DR-3757', 'Fund Transfer', '2026-02-21', 8800, 'HBA1C', GM, 2);
-  mk('E01053', 'DR-308', 'Cash', '2026-07-11', 100000, 'CASH', CEO, 3);
-  mk('E01053', 'DR-30', 'CAR', '2026-07-08', 35492, 'CAR EMI', CEO, 4);
-  mk('E01053', 'DR-1975', 'Cash', '2026-05-26', 50000, 'CASH', APPROVED, 12);
-  mk('E01053', 'DR-46036', 'EB Bill', '2026-06-20', 3394, 'EB - 030100062678 (K.RAMAKRISHNAN R.SENBAGAVALLI)', 'final', 10);
-  mk('E01053', 'DR-1', 'Cash', '2026-06-30', 2220, 'Mango Purchase (RE - IMBURSEMENT)', APPROVED, 9);
-  mk('E01053', 'DR-43', 'Cash', '2026-05-26', 10000, 'CASH - GPAY', REJECTED, 8, 'Duplicate request');
+  mk('E01053', 'DR-4509', 'cash back activity', '2026-07-15', 51000, 'CASH BACK', [S.rework], 1, 'Revisit (from GM Approval Waiting): Attach the bill / receipt');
+  mk('E01053', 'DR-1992', 'Cash', '2026-06-17', 100000, 'CASH', [], 2);
+  mk('E01053', 'DR-51', 'CAR', '2026-07-05', 35883, 'CAR EMI', [], 1);
+  mk('E01053', 'DR-10649', 'EB Bill', '2026-06-02', 920, 'EB - 031280011630 (A. V. THIRUNAVUKKARASU AND A. V. MARUTHAGIRI)', [], 3);
+  mk('E01053', 'DR-52225', 'EMI TAKEOVER', '2026-07-15', 35000, '1 MONTH EMI', [], 1);
+  mk('E01053', 'DR-308', 'Cash', '2026-07-11', 100000, 'CASH', [S.ceo], 3);
+  mk('E01053', 'DR-30', 'CAR', '2026-07-08', 35492, 'CAR EMI', [S.ceo], 4);
+  mk('E01053', 'DR-3757', 'Fund Transfer', '2026-02-21', 8800, 'HBA1C', [S.ceo, S.ceoDone], 6);
+  mk('E01053', 'DR-46036', 'EB Bill', '2026-06-20', 3394, 'EB - 030100062678 (K.RAMAKRISHNAN R.SENBAGAVALLI)', [S.gmFinal], 10);
+  mk('E01053', 'DR-1975', 'Cash', '2026-05-26', 50000, 'CASH', [S.ceo, S.ceoDone, S.verified], 12);
+  mk('E01053', 'DR-1', 'Cash', '2026-06-30', 2220, 'Mango Purchase (RE - IMBURSEMENT)', [S.ceo, S.ceoDone, S.verified], 9);
+  mk('E01053', 'DR-43', 'Cash', '2026-05-26', 10000, 'CASH - GPAY', [S.gmRej], 8, 'Duplicate request');
   return rows;
 }
 
 const VIEWERS = {
-  MIS: { user: MIS.user, employee: 'E01400', employee_name: MIS.name, can_enter: true, can_view: true, approver: null },
-  GM: { user: GM_P.user, employee: 'E00003', employee_name: GM_P.name, can_enter: false, can_view: true, approver: 'GM' },
-  CEO: { user: CEO_P.user, employee: 'E00001', employee_name: CEO_P.name, can_enter: false, can_view: true, approver: 'CEO' },
-  IT: { user: 'it@elbrit.org', employee: 'E00900', employee_name: 'IT Team', can_enter: false, can_view: true, approver: null },
+  MIS: { user: MIS.user, employee: 'E01400', employee_name: MIS.name, can_enter: true, can_view: true, approver: null, verifier: true },
+  GM: { user: GM_P.user, employee: 'E00003', employee_name: GM_P.name, can_enter: false, can_view: true, approver: 'GM', verifier: false },
+  CEO: { user: CEO_P.user, employee: 'E00015', employee_name: CEO_P.name, can_enter: false, can_view: true, approver: 'CEO', verifier: false },
+  IT: { user: 'it@elbrit.org', employee: 'E00900', employee_name: 'IT Team', can_enter: false, can_view: true, approver: null, verifier: false },
 };
 
 /* Last-3 visits by role, deterministic per doctor. */
@@ -122,10 +130,13 @@ function visitsFor(id) {
   ];
 }
 
+/* The "Approval flow" steps the app uses: state|action -> [next, who]. */
 const TRANS = {
-  [`${DRAFT}|Submit`]: [GM, 'MIS'], [`${REJECTED}|Submit`]: [GM, 'MIS'],
-  [`${GM}|Approve`]: [CEO, 'GM'], [`${GM}|Approve as final`]: [APPROVED, 'GM'], [`${GM}|Reject`]: [REJECTED, 'GM'],
-  [`${CEO}|Approve`]: [APPROVED, 'CEO'], [`${CEO}|Reject`]: [REJECTED, 'CEO'],
+  [S.gm + '|Approve']: [S.ceo, 'GM'], [S.gm + '|Approve to Verification']: [S.gmFinal, 'GM'],
+  [S.gm + '|Reject']: [S.gmRej, 'GM'], [S.gm + '|Revisit']: [S.rework, 'GM'],
+  [S.ceo + '|Approve to Verification']: [S.ceoDone, 'CEO'], [S.ceo + '|Reject']: ['CEO Rejected', 'CEO'], [S.ceo + '|Revisit']: [S.rework, 'CEO'],
+  [S.gmFinal + '|Approve']: [S.verified, 'MIS'], [S.ceoDone + '|Approve']: [S.verified, 'MIS'],
+  [S.gmFinal + '|Reject']: ['GM Approved and Verification Rejected', 'MIS'], [S.ceoDone + '|Reject']: ['CEO Approved and Verification Rejected', 'MIS'],
 };
 
 export function makeSampleClient(role = 'MIS') {
@@ -160,7 +171,7 @@ export function makeSampleClient(role = 'MIS') {
       doctor: { id: doctor, name: DOCTORS[doctor] || doctor },
       months: MK.map((month, i) => ({ month, support: (SUPPORT[doctor] || [])[i] || 0 })),
       services: [
-        ...rows.filter((r) => r.doctor === doctor && r.name !== exclude).map((r) => ({ name: r.name, date: r.service_date, service: r.service_name, amount: r.service_amount, department: r.department, by_name: r.by_name, status: r.workflow_state, via_app: true })),
+        ...rows.filter((r) => r.doctor === doctor && r.name !== exclude).map((r) => ({ name: r.name, date: r.service_date, service: r.service_name, amount: r.service_amount, department: r.department, by_name: r.by_name, status: /Verified$|Waiting for Verification$/.test(r.state) ? 'Approved' : /Rejected$/.test(r.state) ? 'Rejected' : r.state, via_app: true })),
         // The seeded app rows ARE some of these payments: drop the copy, as live ERP holds each once.
         ...(SVC_RAW[doctor] || '').split(';').filter(Boolean).map((x, i) => { const p = x.split('|'); return { name: `${doctor}-h${i}`, date: p[0], service: p[1], amount: Number(p[2]), department: CND, by_name: 'ERP record', status: 'Paid', via_app: false }; })
           .filter((h) => !rows.some((r) => r.doctor === doctor && r.service_date === h.date && Math.round(r.service_amount) === Math.round(h.amount))),
@@ -170,10 +181,13 @@ export function makeSampleClient(role = 'MIS') {
     async create(fields) {
       checkEnter();
       const P = PEOPLE[fields.by] || { name: fields.by, seat: '' };
+      const name = 'DSV-' + (1000 + rows.length + 1);
       const row = {
-        ...fields, name: `DSV-${1000 + rows.length + 1}`, doctor_name: DOCTORS[fields.doctor] || fields.doctor,
-        by_name: P.name, role_profile: P.seat, workflow_state: DRAFT, owner: viewer.user, creation: now(), modified: now(),
-        entered_by_name: viewer.employee_name, custom_rejection_reason: '', history: [], service_attachement: null,
+        ...fields, name, doctor_name: DOCTORS[fields.doctor] || fields.doctor,
+        by_name: P.name, role_profile: P.seat, state: S.gm, custom_tracker: 'Doctor Service-' + name,
+        waiting_on: GM_P.name, owner: viewer.user, creation: now(), modified: now(),
+        entered_by_name: viewer.employee_name, reason: '', service_attachement: null,
+        history: [{ type: 'Workflow', content: S.gm, by: viewer.employee_name, at: now() }],
       };
       rows = [row, ...rows];
       return delay(row);
@@ -181,25 +195,30 @@ export function makeSampleClient(role = 'MIS') {
     async update(name, fields) {
       checkEnter();
       const r = find(name);
-      if (![DRAFT, REJECTED].includes(r.workflow_state)) throw new Error(`This service is in ${r.workflow_state} and can no longer be edited.`);
+      if (r.state !== S.rework) throw new Error('This service is in approval (' + r.state + ') and can no longer be edited.');
       Object.assign(r, fields, { modified: now(), by_name: (PEOPLE[fields.by] || {}).name || r.by_name });
+      // Saving a sent-back service resubmits it, as the guard does.
+      if (r.reason) r.history.push({ type: 'Comment', content: 'Earlier send-back: ' + r.reason, by: viewer.employee_name, at: now() });
+      r.reason = '';
+      r.state = S.gm;
+      r.waiting_on = GM_P.name;
+      r.history.push({ type: 'Workflow', content: S.gm, by: viewer.employee_name, at: now() });
       return delay(r);
     },
-    async remove(name) { checkEnter(); rows = rows.filter((r) => r.name !== name); return delay(true); },
-    async apply(name, action, extra) {
-      const r = find(name);
-      const t = TRANS[`${r.workflow_state}|${action}`];
-      const may = t && ((t[1] === 'MIS' && viewer.can_enter) || t[1] === viewer.approver);
-      if (!may) throw new Error(`You cannot ${action.toLowerCase()} a service in ${r.workflow_state}.`);
-      if (t[0] === REJECTED && String(extra?.custom_rejection_reason || '').trim().length < 3) throw new Error('Add a short reason for the rejection.');
-      if (r.workflow_state === REJECTED && r.custom_rejection_reason) r.history.push({ type: 'Comment', content: 'Earlier rejection: ' + r.custom_rejection_reason, by: viewer.employee_name, at: now() });
-      r.custom_rejection_reason = t[0] === REJECTED ? extra.custom_rejection_reason : '';
+    resubmit(name) { return this.update(name, {}); },
+    async decide(tracker, kind, reason) {
+      const r = rows.find((x) => x.custom_tracker === tracker);
+      if (!r) throw new Error('Not found: ' + tracker);
+      const t = TRANS[r.state + '|' + ACTIONS[kind]];
+      const may = t && ((t[1] === 'MIS' && viewer.verifier) || t[1] === viewer.approver);
+      if (!may) throw new Error('You cannot do that on a service in ' + r.state + '.');
+      const note = String(reason || '').trim();
+      if (note) r.reason = kind === 'revisit' ? revisitNote(r.state, note) : note;
       r.history.push({ type: 'Workflow', content: t[0], by: viewer.employee_name, at: now() });
-      if (action === 'Approve as final') r.custom_ceo_skipped = 1;
-      if (t[0] === GM) r.custom_ceo_skipped = 0;
-      r.workflow_state = t[0];
+      r.state = t[0];
+      r.waiting_on = t[0] === S.ceo ? CEO_P.name : '';
       r.modified = now();
-      return delay(r);
+      return delay(r.state);
     },
     async comment(name, text) { find(name).history.push({ type: 'Comment', content: text, by: viewer.employee_name, at: now() }); return delay(true); },
     async upload(name, file) { find(name).service_attachement = '/private/files/' + file.name; return delay({ file_url: '/private/files/' + file.name }); },

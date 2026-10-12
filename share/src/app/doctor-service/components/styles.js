@@ -156,6 +156,7 @@ const CSS = `
 .dsv-step .sb{font-size:10px;color:var(--faint);margin-top:-4px;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
 .dsv-banner{margin:16px 20px 0;background:#FDF2F2;border:1px solid #F5C2C2;border-radius:12px;padding:12px 14px;font-size:13px;color:#7F1D1D;display:flex;flex-direction:column;gap:2px}
 .dsv-banner b{font-weight:600}
+.dsv-banner--back{background:#FFF8EB;border-color:#F8D9A0;color:#78350F}
 .dsv-sec{padding:12px 20px 14px;border-bottom:1px solid var(--line2);display:flex;flex-direction:column;gap:8px}
 .dsv-sec .cap{font-size:12px;color:var(--mute)}
 .dsv-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 16px}

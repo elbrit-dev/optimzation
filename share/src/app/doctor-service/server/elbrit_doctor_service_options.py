@@ -9,10 +9,11 @@
 #   GET /api/method/elbrit_doctor_service_options             who is asking
 #   GET /api/method/elbrit_doctor_service_options?doctor=DR-1 + the form's lists
 #
-# viewer      { user, employee, employee_name, can_enter, can_view, approver }
+# viewer      { user, employee, employee_name, can_enter, can_view, approver, verifier }
 #             can_enter  MIS / User MIS / MIS Admin / Manager MIS / CRM Manager / IT
 #             can_view   those, plus IT (role, or an "IT" role profile), GM, CEO
 #             approver   "GM" / "CEO" by role, else null
+#             verifier   the MIS role: verifies after the final approval
 #             The doctor page calls this once to know whether to show the
 #             Add service button and the Services card.
 #
@@ -25,7 +26,8 @@
 #               through them (the seat itself counts when it is an RBM / SM
 #               seat). A vacant seat with no holder climbs the Role Profile
 #               tree to the first held seat and walks from there. "Vacant_"
-#               placeholders are never offered.
+#               placeholders are never offered, and neither are ZSMs (they
+#               hold "SM-" seats too; designation "Zonal Sales Manager").
 #               Each comes with `pairs`: the doctor's (department, HQ) rows
 #               that reach them — the form sets department and HQ from the
 #               chosen pair, and the Before Save guard
@@ -50,6 +52,12 @@ def is_vacant_name(n):
     return (n or "").strip()[:6].lower() == "vacant"
 
 
+# A ZSM holds an "SM-" seat too (designation "Zonal Sales Manager"), so the
+# seat alone cannot tell them apart -- the designation does. ZSMs are left out.
+def is_zonal(designation):
+    return "zonal" in (designation or "").lower()
+
+
 def grade_of(seat):
     head = (seat or "").split("-")[0]
     out = ""
@@ -66,7 +74,7 @@ def emp(eid):
     if eid not in EMP_CACHE:
         EMP_CACHE[eid] = frappe.db.get_value("Employee", eid,
                                              ["name", "employee_name", "status", "reports_to",
-                                              "custom_role_profile", "role_id"], as_dict=True)
+                                              "custom_role_profile", "role_id", "designation"], as_dict=True)
     return EMP_CACHE[eid]
 
 
@@ -105,7 +113,7 @@ def linked_managers(doctor):
                     break
                 own = e.get("custom_role_profile") or e.get("role_id") or ""
                 g = grade_of(own)
-                if g in ON_BEHALF_GRADES and e.get("status") == "Active" and not is_vacant_name(e.get("employee_name")):
+                if g in ON_BEHALF_GRADES and not is_zonal(e.get("designation")) and e.get("status") == "Active" and not is_vacant_name(e.get("employee_name")):
                     if eid not in found:
                         found[eid] = {"employee": eid, "employee_name": e.get("employee_name"),
                                       "seat": own, "grade": g, "pairs": []}
@@ -143,6 +151,7 @@ def viewer_of(user):
     for r in VIEW_ROLES:
         if r in roles:
             can_view = True
+    verifier = admin or "MIS" in roles
     approver = None
     if "GM" in roles:
         approver = "GM"
@@ -153,7 +162,7 @@ def viewer_of(user):
     me = me[0] if me else {}
     return {"user": user, "employee": me.get("name"),
             "employee_name": me.get("employee_name") or frappe.db.get_value("User", user, "full_name") or user,
-            "can_enter": can_enter, "can_view": can_view, "approver": approver}
+            "can_enter": can_enter, "can_view": can_view, "approver": approver, "verifier": verifier}
 
 
 viewer = viewer_of(frappe.session.user)

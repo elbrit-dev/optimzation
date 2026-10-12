@@ -2,12 +2,12 @@
 
 /**
  * Doctor Service on the doctor page — the approved design's "Add service"
- * button (between Add POB and Notes) and its "Services" card.
+ * button (between Add POB and Notes) and its "Services" card (parked: the
+ * page does not show it until that is decided).
  *
  * WHO, from ERP and nothing else: the Doctor Service options script answers
- * for the signed-in token. The MIS team (MIS, MIS Admin, CRM Manager) gets
- * the button; IT, MIS, GM and CEO get the card. Anyone else sees neither —
- * the read is made, refused, and nothing is drawn.
+ * for the signed-in token. The MIS team and IT get the button; anyone else
+ * sees nothing — the read is made, refused, and nothing is drawn.
  *
  * The form and the reads live with the two Doctor Service pages in
  * share/src/app/doctor-service, so the doctor page and those pages write
@@ -22,17 +22,20 @@ import { Toast, useToast } from "@/app/doctor-service/components/parts";
 import { ensureStyles } from "@/app/doctor-service/components/styles";
 import { fDY, money } from "@/app/doctor-service/data/workflow";
 
+/* The insight script's statuses (an app row's tracker, mapped). */
 const STATUS = {
-  Draft: ["#F1F3F6", "#4B5563"],
-  "GM Approval": ["#EAF1FF", "#1D4ED8"],
-  "CEO Approval": ["#EAF1FF", "#1D4ED8"],
+  "Not submitted": ["#F1F3F6", "#4B5563"],
+  "In approval": ["#EAF1FF", "#1D4ED8"],
+  "Sent back": ["#FEF3E2", "#B45309"],
   Approved: ["#E5F6EC", "#15803D"],
   Rejected: ["#FDECEC", "#B91C1C"],
   Paid: ["#E5F6EC", "#15803D"],
 };
 
-/** → { client, viewer, insight, reload } for one doctor. */
-export function useDoctorServices({ url, token, erpUrl, authToken, sampleData, doctorId }) {
+/** → { client, viewer, insight, reload } for one doctor. `insight` is read
+ *  only with withInsight — it feeds ServicesCard, which the page does not
+ *  show for now. */
+export function useDoctorServices({ url, token, erpUrl, authToken, sampleData, doctorId, withInsight = false }) {
   const { client } = useServiceClient({ url: url || erpUrl, token: token || authToken, sampleData, sampleRole: "MIS" });
   const [viewer, setViewer] = useState(null);
   const [insight, setInsight] = useState(null);
@@ -47,11 +50,11 @@ export function useDoctorServices({ url, token, erpUrl, authToken, sampleData, d
   }, [client, doctorId]);
 
   useEffect(() => {
-    if (!client || !doctorId || !viewer?.can_view) return undefined;
+    if (!withInsight || !client || !doctorId || !viewer?.can_view) return undefined;
     let live = true;
     client.insight(doctorId).then((x) => { if (live) setInsight(x); }).catch(() => { if (live) setInsight(null); });
     return () => { live = false; };
-  }, [client, doctorId, viewer?.can_view, attempt]);
+  }, [withInsight, client, doctorId, viewer?.can_view, attempt]);
 
   return { client, viewer, insight, reload };
 }
@@ -70,7 +73,7 @@ export function ServicesCard({ insight, limit = 6 }) {
           <span>{rows.length ? `${rows.length} total` : ""}</span>
         </div>
         {shown.map((r) => {
-          const c = STATUS[r.status] || STATUS.Draft;
+          const c = STATUS[r.status] || STATUS["Not submitted"];
           return (
             <div key={r.name} className="dsv-svrow">
               <span className="d">{fDY(r.date)}</span>

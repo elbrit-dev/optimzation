@@ -18,8 +18,9 @@
 #             custom_total_amount (what the doctor gave back)
 #   services  every Doctor Service for the doctor, newest first:
 #             { name, date, service, amount, department, by_name, status,
-#               via_app } — status is the workflow state for an app row,
-#             "Paid" for an imported one
+#               via_app } — status for an app row: "Approved" once finally
+#             approved (verified or not), "Rejected", else the tracker's
+#             state; "Paid" for an imported one
 #   visits    BE / ABM / RBM / SM: the last 3 visits MADE (Event Completed,
 #             or an employee participant attending / time-stamped — the
 #             doctor page's rule), in the window: { role, name, dates }
@@ -63,6 +64,21 @@ def grade_of(seat):
         if not ch.isdigit():
             out = out + ch
     return out.strip().upper()
+
+
+# An app row's state is its tracker's ("Approval flow"). Once the final
+# approval is given the service counts as given ("Approved"), verified or not.
+def app_status(state):
+    st = str(state or "")
+    if st == "Approved and Verified" or st.endswith("Approved and Waiting for Verification"):
+        return "Approved"
+    if st.endswith("Rejected"):
+        return "Rejected"
+    if st == "Rework":
+        return "Sent back"
+    if st.endswith(" Approval Waiting"):
+        return "In approval"
+    return st or "Not submitted"
 
 
 def ym(y, m):
@@ -113,10 +129,22 @@ for k in keys:
 # ---- services
 meta = frappe.get_meta("Doctor Service")
 fields = ["name", "service_name", "service_amount", "service_date", "date", "department", "by", "workflow_state"]
-if meta.has_field("custom_via_app"):
-    fields.append("custom_via_app")
+for extra in ["custom_via_app", "custom_tracker"]:
+    if meta.has_field(extra):
+        fields.append(extra)
 rows = frappe.get_all("Doctor Service", filters={"doctor": doctor}, fields=fields,
                       order_by="service_date desc", limit_page_length=0)
+# An app row's state is its tracker's: read it there (the service's own
+# workflow_state only follows once the tracker takes its first step).
+tracker_ids = []
+for r in rows:
+    if r.get("custom_via_app") and r.get("custom_tracker"):
+        tracker_ids.append(r.get("custom_tracker"))
+tracker_state = {}
+if tracker_ids:
+    for t in frappe.get_all("Operational Tracker", filters=[["name", "in", tracker_ids]],
+                            fields=["name", "workflow_state"], limit_page_length=0):
+        tracker_state[t.get("name")] = t.get("workflow_state")
 by_ids = []
 for r in rows:
     if r.get("by") and r.get("by") not in by_ids:
@@ -134,7 +162,8 @@ for r in rows:
     services.append({"name": r.get("name"), "date": str(r.get("service_date") or r.get("date") or ""),
                      "service": r.get("service_name"), "amount": float(r.get("service_amount") or 0),
                      "department": r.get("department"), "by_name": names.get(r.get("by")) or r.get("by"),
-                     "status": r.get("workflow_state") if via else "Paid", "via_app": via})
+                     "status": app_status(tracker_state.get(r.get("custom_tracker")) or r.get("workflow_state")) if via else "Paid",
+                     "via_app": via})
 
 # ---- visits made, by role
 events = frappe.get_all("Event", filters=[["custom_doctor", "=", doctor], ["starts_on", ">=", start]],
