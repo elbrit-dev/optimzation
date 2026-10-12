@@ -2,15 +2,15 @@
 
 /* The two Doctor Service pages from the approved prototype, one component:
  *
- *   mode "entry"     SERVICES — the MIS team's services: Sent back / To
- *                    verify / In approval / Approved / Rejected / All; edit
- *                    and resubmit what was sent back; verify (or reject)
- *                    what GM / CEO approved — one or many at once.
+ *   mode "entry"     SERVICES — the MIS team's services: Sent back / In
+ *                    approval / Approved / Rejected / All; edit and resubmit
+ *                    what was sent back — one or many at once. Status only
+ *                    otherwise: no approving here.
  *   mode "approval"  SERVICE APPROVAL — GM and CEO: Awaiting you / In
  *                    approval / Approved / Rejected / All, a team strip,
  *                    group by team / on behalf of / entered by, bulk approve,
  *                    send back or reject; GM can send on to CEO or approve as
- *                    final.
+ *                    final. Every approval asks for a confirmation first.
  *
  * Both: search, Filter & sort, a list beside the detail on a wide screen
  * (detail as a bottom sheet on a narrow one), "Is this doctor worth it?" on
@@ -27,8 +27,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { each } from '../data/api';
 import { useServiceClient } from '../data/useClient';
 import {
-  APPROVED, CEO, GM, NOT_SUBMITTED, QUICK_REJECT, QUICK_REVISIT, REJECTED, REWORK, VERIFY,
-  approverRoles, bars, canDecide, canEdit, canVerify, fDY, money, normalize, short, stageText, statusOf, tierOf, wait,
+  APPROVED, CEO, GM, NOT_SUBMITTED, QUICK_REJECT, QUICK_REVISIT, REJECTED, REWORK,
+  approverRoles, bars, canDecide, canEdit, fDY, money, normalize, short, stageText, statusOf, tierOf, wait,
 } from '../data/workflow';
 import { Detail } from './Detail';
 import { FilterPanel } from './FilterPanel';
@@ -111,22 +111,20 @@ export function ServiceWorkspace({
     ? [
       ...(roles.length ? [['pending', 'Awaiting you', (e) => canDecide(e, viewer)]] : []),
       ['flow', 'In approval', inFlow],
-      ['approved', 'Approved', (e) => e.state === APPROVED || e.state === VERIFY],
+      ['approved', 'Approved', (e) => e.state === APPROVED],
       ['rejected', 'Rejected', (e) => e.state === REJECTED],
       ['all', 'All', (e) => e.state !== NOT_SUBMITTED],
     ]
     : [
       ['back', 'Sent back', (e) => e.state === REWORK || e.state === NOT_SUBMITTED],
-      ...(viewer?.verifier ? [['verify', 'To verify', (e) => e.state === VERIFY]] : []),
       ['flow', 'In approval', inFlow],
-      ['approved', 'Approved', (e) => e.state === APPROVED || (!viewer?.verifier && e.state === VERIFY)],
+      ['approved', 'Approved', (e) => e.state === APPROVED],
       ['rejected', 'Rejected', (e) => e.state === REJECTED],
       ['all', 'All', () => true],
     ];
   const defaultTab = approval
     ? (roles.length ? 'pending' : 'flow')
-    : viewer?.verifier && E.some((e) => e.state === VERIFY) ? 'verify'
-      : E.some((e) => e.state === REWORK || e.state === NOT_SUBMITTED) ? 'back' : 'all';
+    : E.some((e) => e.state === REWORK || e.state === NOT_SUBMITTED) ? 'back' : 'all';
   const tabKey = tabs.some((t) => t[0] === tab) ? tab : defaultTab;
   const tabFn = (k) => (tabs.find((t) => t[0] === k) || tabs[0])[2];
 
@@ -169,7 +167,7 @@ export function ServiceWorkspace({
   const items = groupKey === 'none' ? flat : groups.flatMap((g) => g.items);
 
   const selectable = (e) => (approval ? tabKey === 'pending' && canDecide(e, viewer)
-    : tabKey === 'verify' ? canVerify(e, viewer) : canEdit(e, viewer));
+    : canEdit(e, viewer));
   const selIds = items.filter(selectable).map((e) => e.id);
   const chosen = items.filter((e) => sel[e.id] && selIds.includes(e.id));
   const allSel = selIds.length > 0 && selIds.every((id) => sel[id]);
@@ -220,11 +218,11 @@ export function ServiceWorkspace({
     after(res, ids.length === 1 ? `${E.find((e) => e.id === ids[0])?.doctorName} resubmitted · now with GM` : `${ids.length} resubmitted · now with GM`, 'not resubmitted');
   }
   /* kind: approve (GM, on to CEO) | final (GM as final; CEO approves) |
-     reject | revisit (send back) | verify | verifyReject. The note is the
+     reject | revisit (send back). The note is the
      reason for reject / send back, else a comment on the service. */
-  const NEEDS_REASON = ['reject', 'revisit', 'verifyReject'];
+  const NEEDS_REASON = ['reject', 'revisit'];
   async function decide(ids, kind, note) {
-    setBusy(kind === 'verifyReject' ? 'reject' : kind);
+    setBusy(kind);
     const rowOf = (id) => E.find((e) => e.id === id);
     const reasoned = NEEDS_REASON.includes(kind);
     // "approve" is the step's own approval: on to CEO at the GM step, the
@@ -244,16 +242,17 @@ export function ServiceWorkspace({
     const label = one ? one.doctorName : `${ids.length} services`;
     const msg = {
       reject: `Rejected ${label}`,
-      verifyReject: `Rejected ${label} at verification`,
       revisit: `Sent ${label} back to the MIS team`,
-      verify: `Verified ${label}`,
       approve: allGm ? `Sent ${label} to CEO` : `Approved ${label}`,
-      final: allGm ? `Approved ${label} as final · CEO not needed` : `Approved ${label} · MIS to verify`,
+      final: allGm ? `Approved ${label} as final · CEO not needed` : `Approved ${label}`,
     }[kind];
-    const fail = { reject: 'not rejected', verifyReject: 'not rejected', revisit: 'not sent back', verify: 'not verified' }[kind] || 'not approved';
+    const fail = { reject: 'not rejected', revisit: 'not sent back' }[kind] || 'not approved';
     after(res, msg, fail);
   }
   const approveKind = () => 'approve';
+  /* Every approval asks first: approve (GM: send to CEO; CEO: approve) and
+     approve as final. */
+  const confirmApprove = (ids, kind, note) => setModal({ kind: 'confirm', action: kind, ids, note: note || '' });
 
   /* ---- keyboard (wide only) */
   const keys = useRef({});
@@ -271,7 +270,7 @@ export function ServiceWorkspace({
       if (key === 'j' || ev.key === 'ArrowDown') { ev.preventDefault(); setFocusId(ids[Math.min(ids.length - 1, i + 1)]); setComment(''); }
       else if (key === 'k' || ev.key === 'ArrowUp') { ev.preventDefault(); setFocusId(ids[Math.max(0, i - 1)]); setComment(''); }
       else if (key === 'x' && s.focus && s.selectable(s.focus)) setSel((p) => { const n = { ...p }; if (n[s.focus.id]) delete n[s.focus.id]; else n[s.focus.id] = true; return n; });
-      else if (key === 'a' && s.decideable) decide([s.focus.id], approveKind(), s.comment.trim());
+      else if (key === 'a' && s.decideable) confirmApprove([s.focus.id], approveKind(), s.comment.trim());
       else if (key === 'r' && s.decideable) setModal({ kind: 'reject', ids: [s.focus.id], note: s.comment });
     };
     window.addEventListener('keydown', k);
@@ -343,7 +342,6 @@ export function ServiceWorkspace({
     }
     return ({
       back: ['Nothing sent back', 'Services GM or CEO send back for a fix show here.', true],
-      verify: ['Nothing to verify', 'Services show here once GM or CEO gives the final approval.', false],
       flow: ['Nothing in approval', 'Add a service from a doctor page — it goes straight to GM.', true],
       approved: ['No approvals yet', 'Services appear here once they are approved.', false],
       rejected: ['Nothing rejected', 'Rejected services and the reason show here.', false],
@@ -432,12 +430,10 @@ export function ServiceWorkspace({
       mayEnter={!approval}
       onEdit={() => setForm({ entry: shown })}
       onResubmit={() => submit([shown.id])}
-      onApprove={() => decide([shown.id], 'approve', comment.trim())}
-      onFinal={() => decide([shown.id], 'final', comment.trim())}
+      onApprove={() => confirmApprove([shown.id], 'approve', comment.trim())}
+      onFinal={() => confirmApprove([shown.id], 'final', comment.trim())}
       onReject={() => setModal({ kind: 'reject', ids: [shown.id], note: comment })}
       onRevisit={() => setModal({ kind: 'revisit', ids: [shown.id], note: comment })}
-      onVerify={() => decide([shown.id], 'verify', '')}
-      onVerifyReject={() => setModal({ kind: 'verifyReject', ids: [shown.id], note: '' })}
     />
   ) : null;
 
@@ -536,14 +532,14 @@ export function ServiceWorkspace({
             <div className="dsv-bulk" style={{ bottom: bottomGap }}>
               <span className="lab">{bulkLabel}</span>
               <button type="button" className="ghost" onClick={() => setSel({})}>Clear</button>
-              {approval || tabKey === 'verify' ? (
-                <button type="button" className="rej" disabled={!!busy} onClick={() => setModal({ kind: approval ? 'reject' : 'verifyReject', ids: chosen.map((e) => e.id), note: '' })}>Reject</button>
+              {approval ? (
+                <button type="button" className="rej" disabled={!!busy} onClick={() => setModal({ kind: 'reject', ids: chosen.map((e) => e.id), note: '' })}>Reject</button>
               ) : null}
               {approval ? <button type="button" className="ghost" disabled={!!busy} onClick={() => setModal({ kind: 'revisit', ids: chosen.map((e) => e.id), note: '' })}>Send back</button> : null}
-              {approval && chosen.every((e) => e.state === GM) ? <button type="button" className="fin" disabled={!!busy} onClick={() => decide(chosen.map((e) => e.id), 'final', '')}>Approve as final</button> : null}
+              {approval && chosen.every((e) => e.state === GM) ? <button type="button" className="fin" disabled={!!busy} onClick={() => confirmApprove(chosen.map((e) => e.id), 'final', '')}>Approve as final</button> : null}
               <button type="button" className="pri" disabled={!!busy}
-                onClick={() => (approval ? decide(chosen.map((e) => e.id), approveKind(), '') : tabKey === 'verify' ? decide(chosen.map((e) => e.id), 'verify', '') : submit(chosen.map((e) => e.id)))}>
-                {busy ? 'Working…' : approval ? (chosen.every((e) => e.state === GM) ? `Send ${chosen.length} to CEO` : `Approve ${chosen.length}`) : tabKey === 'verify' ? `Verify ${chosen.length}` : `Resubmit ${chosen.length}`}
+                onClick={() => (approval ? confirmApprove(chosen.map((e) => e.id), approveKind(), '') : submit(chosen.map((e) => e.id)))}>
+                {busy ? 'Working…' : approval ? (chosen.every((e) => e.state === GM) ? `Send ${chosen.length} to CEO` : `Approve ${chosen.length}`) : `Resubmit ${chosen.length}`}
               </button>
             </div>
           ) : null}
@@ -597,6 +593,27 @@ export function ServiceWorkspace({
         );
       })() : null}
 
+      {modal?.kind === 'confirm' ? (() => {
+        const rows = modal.ids.map((id) => E.find((e) => e.id === id)).filter(Boolean);
+        const one = rows.length === 1 ? rows[0] : null;
+        const atGm = rows.every((e) => e.state === GM);
+        const final = modal.action === 'final';
+        const title = final && atGm ? 'Approve as final?' : atGm ? 'Send to CEO?' : 'Approve?';
+        const what = one ? `${one.doctorName} · ${one.service} · ${money(one.amount)}` : `${rows.length} services · ${money(sum(rows))}`;
+        const desc = final && atGm ? `${what}. This approves it — CEO approval is not needed.`
+          : atGm ? `${what}. It goes on to the CEO for the final approval.`
+            : `${what}. This is the final approval.`;
+        return (
+          <Modal
+            title={title}
+            desc={desc}
+            confirm={final && atGm ? 'Approve as final' : atGm ? 'Send to CEO' : 'Approve'}
+            busy={busy === 'approve' || busy === 'final'}
+            onClose={() => setModal(null)}
+            onConfirm={() => decide(modal.ids, modal.action, modal.note)}
+          />
+        );
+      })() : null}
       {form ? (
         <ServiceForm
           client={client}
@@ -621,10 +638,6 @@ const REASON_MODAL = {
   revisit: {
     title: 'Send back to MIS', confirm: 'Send back', danger: false, quick: QUICK_REVISIT, placeholder: 'What needs fixing',
     desc: 'The MIS team fixes it and resubmits; it comes back to GM.',
-  },
-  verifyReject: {
-    title: 'Reject at verification', confirm: 'Reject', danger: true, quick: QUICK_REJECT, placeholder: 'Reason for rejection',
-    desc: 'It was approved, but fails verification — it moves to Rejected, final.',
   },
 };
 

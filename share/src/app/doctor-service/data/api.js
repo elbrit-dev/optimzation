@@ -33,8 +33,6 @@ export const ACTIONS = {
   final: 'Approve to Verification', // GM: approve as final; CEO: approve
   reject: 'Reject',
   revisit: 'Revisit', // send back to MIS (Rework)
-  verify: 'Approve', // MIS, after the final approval
-  verifyReject: 'Reject',
 };
 export const revisitNote = (fromState, reason) => `Revisit (from ${fromState}): ${String(reason ?? '').trim()}`;
 
@@ -79,7 +77,7 @@ export function makeClient({ endpointUrl, token, fetchImpl = (...a) => fetch(...
     update: (name, fields) => call(resource(name), { method: 'PUT', body: fields }).then((j) => j.data),
     /* A sent-back service: saving it again resubmits it (the guard). */
     resubmit: (name) => call(resource(name), { method: 'PUT', body: {} }).then((j) => j.data),
-    /* kind: approve | final | reject | revisit | verify | verifyReject.
+    /* kind: approve | final | reject | revisit.
        → the tracker's new workflow_state. */
     async decide(tracker, kind, reason) {
       const action = ACTIONS[kind];

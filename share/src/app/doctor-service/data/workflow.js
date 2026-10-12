@@ -5,10 +5,11 @@
  * Approval Settings "Doctor Service"); the Doctor Service Guard makes it when
  * MIS saves — SAVING SUBMITS — and starts it at GM:
  *
- *   MIS saves -> GM -> CEO -> MIS verifies -> Approved
+ *   MIS saves -> GM -> CEO -> Approved
  *   GM may approve as final (CEO not needed); GM / CEO may send it back
- *   (Rework: MIS edits, and that save resubmits) or reject it (final);
- *   MIS may reject at verification (final).
+ *   (Rework: MIS edits, and that save resubmits) or reject it (final).
+ *   There is no verification step: the final approval ends it. (A tracker
+ *   left in "... Approved and Waiting for Verification" counts as approved.)
  *
  * The tracker's own states are mapped to the few the screens draw (appState).
  * A row's story is the tracker's Workflow comments — ERP adds one per step —
@@ -18,7 +19,6 @@
 export const NOT_SUBMITTED = 'Not submitted';
 export const GM = 'GM Approval';
 export const CEO = 'CEO Approval';
-export const VERIFY = 'Verification';
 export const APPROVED = 'Approved';
 export const REJECTED = 'Rejected';
 export const REWORK = 'Rework';
@@ -30,8 +30,7 @@ export function appState(s) {
   if (!st || st === NOT_SUBMITTED || st === 'Draft') return NOT_SUBMITTED;
   if (st === 'GM Approval Waiting') return GM;
   if (st === 'CEO Approval Waiting') return CEO;
-  if (/ Approved and Waiting for Verification$/.test(st)) return VERIFY;
-  if (st === 'Approved and Verified') return APPROVED;
+  if (/ Approved and Waiting for Verification$/.test(st) || st === 'Approved and Verified') return APPROVED;
   if (/Rejected$/.test(st)) return REJECTED;
   if (st === 'Rework') return REWORK;
   return st;
@@ -86,7 +85,7 @@ export const first = (n) => String(n || '').trim().split(/\s+/)[0] || '';
 export const gradeOf = (seat) => String(seat || '').split('-')[0].replace(/[0-9]/g, '').toUpperCase();
 
 /* Who acted at a step, by the step it left. */
-const ROLE_AT = { [GM]: 'GM', [CEO]: 'CEO', [VERIFY]: 'MIS' };
+const ROLE_AT = { [GM]: 'GM', [CEO]: 'CEO' };
 
 /* The tracker's Workflow comments, replayed: [{ from, to, by, at }]. */
 function transitions(row) {
@@ -110,7 +109,6 @@ export function normalize(row) {
   const round = lastSubmit >= 0 ? steps.slice(lastSubmit + 1) : [];
   const gmStep = round.find((t) => t.from === GM);
   const ceoStep = round.find((t) => t.from === CEO);
-  const verifyStep = round.find((t) => t.from === VERIFY);
   const state = appState(row.state);
   return {
     id: row.name,
@@ -140,8 +138,7 @@ export function normalize(row) {
     resubmitted: steps.filter((t) => t.to === GM).length > 1,
     gm: gmStep ? { name: gmStep.by, at: gmStep.at, to: gmStep.to } : null,
     ceo: ceoStep ? { name: ceoStep.by, at: ceoStep.at, to: ceoStep.to } : null,
-    verify: verifyStep ? { name: verifyStep.by, at: verifyStep.at, to: verifyStep.to } : null,
-    skipped: !!gmStep && gmStep.to === VERIFY,
+    skipped: !!gmStep && gmStep.to === APPROVED,
     history: row.history || [],
     steps,
     doctorAvg: Number(row.doctor_avg) || 0,
@@ -158,19 +155,18 @@ export function stoppedBy(e) {
 export function statusOf(e) {
   if (e.state === NOT_SUBMITTED) return { label: 'Not submitted', bg: '#F1F3F6', fg: '#4B5563' };
   if (e.state === GM || e.state === CEO) return { label: e.state, bg: '#EAF1FF', fg: '#1D4ED8' };
-  if (e.state === VERIFY) return { label: 'To verify', bg: '#E6F6F4', fg: '#0F766E' };
   if (e.state === APPROVED) return { label: 'Approved', bg: '#E5F6EC', fg: '#15803D' };
   if (e.state === REJECTED) return { label: 'Rejected', bg: '#FDECEC', fg: '#B91C1C' };
   if (e.state === REWORK) return { label: 'Sent back', bg: '#FEF3E2', fg: '#B45309' };
   return { label: e.state, bg: '#F1F3F6', fg: '#4B5563' };
 }
 
-/* The little bars on a card: one per step after MIS (GM, CEO, verify). */
+/* The little bars on a card: one per approver step (GM, CEO). */
 export function bars(e) {
-  const order = e.skipped ? [GM, VERIFY] : [GM, CEO, VERIFY];
+  const order = e.skipped ? [GM] : [GM, CEO];
   const level = e.state === APPROVED ? order.length : order.indexOf(e.state);
   const stop = e.state === REJECTED || e.state === REWORK ? stoppedBy(e) : null;
-  const stopAt = stop ? Math.max(0, order.indexOf(stop.role === 'GM' ? GM : stop.role === 'CEO' ? CEO : VERIFY)) : -1;
+  const stopAt = stop ? Math.max(0, order.indexOf(stop.role === 'CEO' ? CEO : GM)) : -1;
   return order.map((_, i) => {
     if (e.state === NOT_SUBMITTED) return '#DDE2E8';
     if (stop) return i < stopAt ? '#22A06B' : i === stopAt ? (e.state === REJECTED ? '#DC2626' : '#F59E0B') : '#DDE2E8';
@@ -179,14 +175,12 @@ export function bars(e) {
 }
 
 export function stageText(e) {
-  const gmTick = e.skipped ? 'GM ✓ (final)' : 'GM ✓ · CEO ✓';
   if (e.state === NOT_SUBMITTED) return 'Not in approval yet';
   if (e.state === GM) return `with GM · ${wait(e.submittedAt || e.lastAt)}`;
   if (e.state === CEO) return `GM ✓ · with CEO · ${wait(e.gm?.at || e.lastAt)}`;
-  if (e.state === VERIFY) return `${gmTick} · MIS to verify`;
-  if (e.state === APPROVED) return `${gmTick} · verified ${fD(e.verify?.at || e.lastAt)}`;
+  if (e.state === APPROVED) return e.skipped ? `GM ✓ · final at GM · ${fD(e.gm?.at || e.lastAt)}` : `GM ✓ · CEO ✓ · ${fD(e.ceo?.at || e.lastAt)}`;
   const who = stoppedBy(e);
-  const by = who ? `${first(who.name)}${who.role ? ' (' + (who.role === 'MIS' ? 'verification' : who.role) + ')' : ''} · ${fD(who.at)}` : '';
+  const by = who ? `${first(who.name)}${who.role ? ' (' + who.role + ')' : ''} · ${fD(who.at)}` : '';
   if (e.state === REJECTED) return `Rejected${by ? ' by ' + by : ''}`;
   if (e.state === REWORK) return `Sent back${by ? ' by ' + by : ''} · fix and resubmit`;
   return e.state;
@@ -201,7 +195,7 @@ const KIND = {
   skip: ['#F4F6F9', '#D5DAE1', '#9CA3AF'],
 };
 
-/* MIS -> GM -> CEO -> Verify, for the detail's stepper. */
+/* MIS -> GM -> CEO, for the detail's stepper. */
 export function stepper(e) {
   const nodes = [{
     label: 'MIS',
@@ -216,7 +210,6 @@ export function stepper(e) {
   nodes.push(node('GM', e.gm, e.state === GM));
   if (e.skipped) nodes.push({ label: 'CEO', sub: 'Not needed', kind: 'skip' });
   else nodes.push(node('CEO', e.ceo, e.state === CEO));
-  nodes.push(node('Verify', e.verify, e.state === VERIFY));
   return nodes.map((n, i) => ({
     ...n,
     bg: KIND[n.kind][0], border: KIND[n.kind][1], fg: KIND[n.kind][2],
@@ -234,12 +227,11 @@ export function activity(e) {
     let dot = '#22A06B';
     let note = '';
     if (t.to === GM) { title = `${i ? 'Resubmitted' : 'Submitted'} · to GM · ${t.by}`; dot = '#2563EB'; }
-    else if (t.to === REJECTED) { title = `Rejected · ${t.by} (${role === 'MIS' ? 'verification' : role})`; dot = '#DC2626'; }
+    else if (t.to === REJECTED) { title = `Rejected · ${t.by}${role ? ' (' + role + ')' : ''}`; dot = '#DC2626'; }
     else if (t.to === REWORK) { title = `Sent back · ${t.by} (${role})`; dot = '#F59E0B'; }
-    else if (t.from === GM && t.to === VERIFY) { title = `Approved as final · ${t.by} (GM)`; note = 'CEO approval not needed'; }
+    else if (t.from === GM && t.to === APPROVED) { title = `Approved as final · ${t.by} (GM)`; note = 'CEO approval not needed'; }
     else if (t.from === GM) title = `Approved · ${t.by} (GM) · sent to CEO`;
     else if (t.from === CEO) title = `Approved · ${t.by} (CEO)`;
-    else if (t.from === VERIFY && t.to === APPROVED) title = `Verified · ${t.by} (MIS)`;
     else title = `${t.to} · ${t.by}`;
     out.push({ title, when: t.at, dot, note });
   });
@@ -265,7 +257,6 @@ export function canDecide(e, viewer) {
   const role = stepRole(e);
   return !!e.tracker && !!role && approverRoles(viewer).includes(role);
 }
-export const canVerify = (e, viewer) => !!e.tracker && !!viewer?.verifier && e.state === VERIFY;
 export const canEdit = (e, viewer) => !!viewer?.can_enter && EDITABLE.includes(e.state);
 
 export const QUICK_REJECT = ['Amount above monthly limit', 'Duplicate request', 'Not as per service policy', 'Doctor not eligible'];

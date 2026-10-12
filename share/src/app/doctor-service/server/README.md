@@ -9,7 +9,6 @@ header gives its name, type and method.
 | Who | ERP roles | Can do |
 |---|---|---|
 | MIS team (e.g. vishnu.mis) and IT | `MIS`, `User MIS`, `MIS Admin`, `Manager MIS`, `CRM Manager`, `IT` | Add a service (that submits it), edit and resubmit one that was sent back |
-| MIS (verifier) | `MIS` | Verify, or reject, after the final approval |
 | GM | `GM` | Send on to CEO, Approve as final, Send back, Reject |
 | CEO | `CEO` | Approve, Send back, Reject |
 | IT (view only) | an `IT…` role profile without the `IT` role | See everything, change nothing |
@@ -21,7 +20,7 @@ taken from them.
 ## Approval: the Operational Tracker, started at GM
 
 Approval runs on the service's **Operational Tracker** ("Approval flow" workflow, Approval
-Settings "Doctor Service": final approver CEO, verifier MIS), the same way it does for
+Settings "Doctor Service": final approver CEO, no verifier), the same way it does for
 Secondary and Doctor Support. **Saving submits.** There is no draft: the guard makes the
 tracker on the first save and starts it at **GM**, whatever the on-behalf person's grade.
 
@@ -29,10 +28,8 @@ tracker on the first save and starts it at **GM**, whatever the on-behalf person
 |---|---|---|---|
 | MIS saves | GM Approval Waiting | MIS | (the guard sets it) |
 | GM sends on | CEO Approval Waiting | GM | Send to CEO → `Approve` |
-| GM approves as final | GM Approved and Waiting for Verification | GM | Approve as final → `Approve to Verification` |
-| CEO approves | CEO Approved and Waiting for Verification | CEO | Approve → `Approve to Verification` |
-| MIS verifies | Approved and Verified | MIS | Verify → `Approve` |
-| MIS rejects at verification | X Approved and Verification Rejected | MIS | Reject → `Reject` |
+| GM approves as final (ends it) | GM Approved and Waiting for Verification | GM | Approve as final → `Approve to Verification` |
+| CEO approves (ends it) | CEO Approved and Waiting for Verification | CEO | Approve → `Approve to Verification` |
 | GM / CEO send back | Rework | GM / CEO | Send back → `Revisit` (+ reason) |
 | MIS edits and saves | GM Approval Waiting | MIS | (the guard resets it) |
 | GM / CEO reject | GM / CEO Rejected (final) | GM / CEO | Reject → `Reject` (+ reason) |
@@ -59,14 +56,23 @@ Do the same on production when it goes live:
    with "Rework is not a valid Workflow State". That also blocked the desk's own entries.
 3. **"operational tracker" script (section 2):** a step that lands in
    "… Approved and Waiting for Verification" now counts as final, as when the GM approves
-   as final. So the next approver is cleared, the verifier is set and the MIS ToDo is made.
+   as final. So the next approver is cleared, and (for a setting with a verifier) the MIS
+   ToDo is made.
    Before, it moved the next approver up to the CEO and made no ToDo.
 4. **Role Profile "IT":** given the **MIS** role, so IT testers (vishnuk.mis) can verify.
-   This is for UAT testing only; decide whether to keep it.
+   This is for UAT testing only, and is no longer needed now that Doctor Service has no
+   verification step.
+5. **No verification for Doctor Service:** the GM's or CEO's final approval ends it.
+   - **Approval Settings "Doctor Service":** `verifier` is cleared, so no MIS verify ToDo is
+     made.
+   - **The tracker still stops at "<Role> Approved and Waiting for Verification".** ERP's own
+     workflow check rejects a direct jump to "Approved and Verified".
+   - **The app reads that state as final: Approved.**
+   - **Secondary and Doctor Support are unchanged.**
 
 Tested on UAT through ERP saves, not by clicking in the app:
 - save → GM;
-- GM as final → MIS ToDo → verified;
+- GM as final → ends (no ToDo once the verifier was cleared);
 - GM → CEO → CEO approves → MIS ToDo;
 - sent back → MIS edits → back to GM, with the reason kept as a comment.
 

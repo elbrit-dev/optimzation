@@ -284,7 +284,7 @@ export function ServiceForm({ client, doctor, entry, viewer, onClose, onSaved })
             <div><span>Designation</span><b>{chosen ? (chosen.grade === 'SM' ? 'Sales Manager' : 'Regional Business Manager') : '—'}</b></div>
             <div><span>Department</span><b>{pair ? pair.department : '—'}</b></div>
             <div><span>HQ</span><b>{pair ? pair.hq : '—'}</b></div>
-            <div><span>Approval route</span><b>GM → CEO → MIS verifies</b></div>
+            <div><span>Approval route</span><b>GM → CEO (GM may approve as final)</b></div>
           </div>
           {failed ? <div className="dsv-err" role="alert">{failed}</div> : null}
         </div>
