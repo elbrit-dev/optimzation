@@ -332,6 +332,10 @@ def guard(doc):
             frappe.db.set_value(OT, tracker, vals)
             frappe.get_doc(OT, tracker).add_comment("Workflow", START)
             doc.custom_tracker = tracker
+            # The service mirrors its tracker (the team's "operational tracker"
+            # script keeps it in step from the next step on). Safe now that the
+            # doctype's own "Doctor Service" workflow is inactive.
+            doc.workflow_state = START
 
 
 guard(doc)

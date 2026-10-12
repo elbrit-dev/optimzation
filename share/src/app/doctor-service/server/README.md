@@ -45,22 +45,30 @@ tracker on the first save and starts it at **GM**, whatever the on-behalf person
 - The team's "operational tracker" script copies each tracker step into the service's
   `workflow_state`, as it does for every other tracker.
 
-## Still needed on UAT (ERP team)
+## UAT changes made outside these scripts (2026-10-12)
 
-1. **The CEO can't act at "CEO Approval Waiting".** Add two transitions to "Approval flow":
-   - `CEO Approval Waiting` → **Approve to Verification** → `CEO Approved and Waiting for Verification`, role **CEO**
-   - `CEO Approval Waiting` → **Reject** → `CEO Rejected`, role **CEO**
+Do the same on production when it goes live:
 
-   Today the only CEO action there is Revisit. Approval Settings makes CEO the final approver
-   for every amount above 0, so every service the GM sends on gets stuck.
-2. **The Doctor Service doctype's own workflow blocks every save once a service is in
-   approval.** The "Doctor Service" workflow (Draft → ABM → RBM → SM → GM → CEO) is still
-   active. The tracker copies its states (`Rework`, `GM Approval Waiting`, `SM Approved and
-   Waiting for Verification`…) into the service. Saving then fails with
-   "**Rework** is not a valid Workflow State". Seen on UAT, 2026-10-12. This hits the
-   desk's own services as well, and it is what stops MIS resubmitting a sent-back one.
-   **Fix:** set that workflow inactive, since approval lives on the tracker, or add every
-   tracker state to it.
+1. **"Approval flow" workflow:** added the CEO's steps at `CEO Approval Waiting`:
+   - **Approve to Verification** → `CEO Approved and Waiting for Verification` (role CEO)
+   - **Reject** → `CEO Rejected` (role CEO)
+
+   Before this, the only CEO action there was Revisit, so anything the GM sent on got stuck.
+2. **"Doctor Service" workflow (the doctype's own):** set **inactive**. Approval lives on
+   the tracker. While this workflow was active, any save of a service in approval failed
+   with "Rework is not a valid Workflow State". That also blocked the desk's own entries.
+3. **"operational tracker" script (section 2):** a step that lands in
+   "… Approved and Waiting for Verification" now counts as final, as when the GM approves
+   as final. So the next approver is cleared, the verifier is set and the MIS ToDo is made.
+   Before, it moved the next approver up to the CEO and made no ToDo.
+4. **Role Profile "IT":** given the **MIS** role, so IT testers (vishnuk.mis) can verify.
+   This is for UAT testing only; decide whether to keep it.
+
+Tested on UAT through ERP saves, not by clicking in the app:
+- save → GM;
+- GM as final → MIS ToDo → verified;
+- GM → CEO → CEO approves → MIS ToDo;
+- sent back → MIS edits → back to GM, with the reason kept as a comment.
 
 ## Custom fields on Doctor Service
 
