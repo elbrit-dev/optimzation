@@ -475,11 +475,15 @@ async function resolveViewerEmail(conn) {
   }
 }
 
+/* `employee__name`, not `employee { name }`: the nested form loads the Employee
+   record under the viewer's Employee permissions, and a BE can read leave for
+   someone outside their chain. That Employee came back null in a non-null
+   field and failed the whole query (Sentry ERPNEXT-J). The id is all we use. */
 const LEAVE_QUERY = `
   query ApprovedLeaveIn($f: [DBFilterInput], $first: Int) {
     LeaveApplications(filter: $f, first: $first) {
       totalCount
-      edges { node { employee { name } from_date to_date leave_type__name } }
+      edges { node { employee__name from_date to_date leave_type__name } }
     }
   }
 `;
@@ -510,7 +514,7 @@ async function fetchLeave({ from, to }, conn) {
      because that is how every consumer reads it. */
   const byEmployee = new Map();
   for (const { node } of data.LeaveApplications.edges) {
-    const id = node.employee?.name;
+    const id = node.employee__name;
     if (!id) continue;
     const list = byEmployee.get(id) ?? [];
     list.push({
