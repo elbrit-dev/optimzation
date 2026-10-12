@@ -15,11 +15,14 @@ import { Icon, extOf } from './parts';
 export function Detail({
   e, viewer, sheet, pos, insight, insightLoading, comment, setComment, busy, fileUrl,
   onClose, onOpenDoctor, onEdit, onResubmit, onApprove, onFinal, onReject, onRevisit, onVerify, onVerifyReject,
+  // What this PAGE offers: approving belongs to Service approval only;
+  // editing, resubmitting and verifying to the MIS team's Services page.
+  mayDecide = true, mayEnter = true,
 }) {
   const st = statusOf(e);
-  const decide = canDecide(e, viewer);
-  const edit = canEdit(e, viewer);
-  const verify = canVerify(e, viewer);
+  const decide = mayDecide && canDecide(e, viewer);
+  const edit = mayEnter && canEdit(e, viewer);
+  const verify = mayEnter && canVerify(e, viewer);
   const gmCanClose = decide && e.state === GM;
   const stop = e.state === REJECTED || e.state === REWORK ? stoppedBy(e) : null;
   const stopRole = stop?.role === 'MIS' ? 'verification' : stop?.role;

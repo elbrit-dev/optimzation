@@ -257,7 +257,7 @@ export function ServiceWorkspace({
 
   /* ---- keyboard (wide only) */
   const keys = useRef({});
-  keys.current = { items, focus, selectable, decideable: focus && canDecide(focus, viewer), comment, busy, open: !!(modal || form || fpOpen) };
+  keys.current = { items, focus, selectable, decideable: approval && focus && canDecide(focus, viewer), comment, busy, open: !!(modal || form || fpOpen) };
   useEffect(() => {
     if (!wide) return undefined;
     const k = (ev) => {
@@ -428,6 +428,8 @@ export function ServiceWorkspace({
       fileUrl={client?.fileUrl}
       onClose={() => setSheetId(null)}
       onOpenDoctor={onOpenDoctor}
+      mayDecide={approval}
+      mayEnter={!approval}
       onEdit={() => setForm({ entry: shown })}
       onResubmit={() => submit([shown.id])}
       onApprove={() => decide([shown.id], 'approve', comment.trim())}
@@ -549,7 +551,7 @@ export function ServiceWorkspace({
             <div className="dsv-kbd">
               <span><i>J</i><i>K</i>move</span>
               {selIds.length ? <span><i>X</i>select</span> : null}
-              {focus && canDecide(focus, viewer) ? <><span><i>A</i>approve</span><span><i>R</i>reject</span></> : null}
+              {approval && focus && canDecide(focus, viewer) ? <><span><i>A</i>approve</span><span><i>R</i>reject</span></> : null}
             </div>
           ) : null}
         </div>
