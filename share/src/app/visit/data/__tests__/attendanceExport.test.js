@@ -36,6 +36,18 @@ describe('attendanceExportRows', () => {
     });
   });
 
+  it('adds contact details, falling back from the company email', () => {
+    const contacts = new Map([['E2', { department: 'Sales - EL', employeeCode: 'EMP-7', phone: '98400', personalEmail: 'r@x.in' }]]);
+    const [row] = attendanceExportRows([ravi], [{ ...team[0] }, { ...team[1], userId: 'ravi@elbrit.org' }], 'notReporting', false, [], contacts);
+    expect(row).toMatchObject({
+      'Employee code': 'EMP-7',
+      Department: 'Sales - EL',
+      'User ID': 'ravi@elbrit.org',
+      Phone: '98400',
+      Email: 'r@x.in',
+    });
+  });
+
   it('drops the day columns for a single day', () => {
     const [row] = attendanceExportRows([ravi], team, 'notReporting', false, ['2026-10-01']);
     expect(row).not.toHaveProperty('Days not reported');

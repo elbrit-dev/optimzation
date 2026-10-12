@@ -11,18 +11,26 @@ import { shortDesignation } from './shape';
  * so the file and the screen cannot classify anyone differently. Pure, so the
  * columns are testable without a browser download.
  */
-export function attendanceExportRows(people, team, state, overRange = false, calendar = []) {
+export function attendanceExportRows(people, team, state, overRange = false, calendar = [], contacts = new Map()) {
   const byId = new Map(team.map((m) => [m.id, m]));
 
   return people.map((p) => {
     const member = byId.get(p.id);
     const manager = member?.reportsTo ? byId.get(member.reportsTo) : null;
+    const c = contacts.get(p.id) ?? {};
     const row = {
       'Employee ID': p.id,
+      'Employee code': c.employeeCode ?? '',
       Name: p.name,
       Designation: shortDesignation(member?.designation),
+      Department: c.department ?? '',
       HQ: p.hq ?? '',
       'Reports to': manager?.name ?? '',
+      'User ID': member?.userId ?? '',
+      Phone: c.phone ?? '',
+      /* Company email first; many BE records leave it empty, so fall back to
+         the preferred and then the personal one rather than print a blank. */
+      Email: c.companyEmail || c.preferredEmail || c.personalEmail || '',
     };
     /* An empty seat has no calls and no days — the columns would be a row of
        zeros about a person who does not exist. */

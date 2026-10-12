@@ -565,6 +565,64 @@ async function postMethod(method, body, { endpointUrl, gqlToken }) {
   return json.message;
 }
 
+/* CONTACT DETAILS for the attendance export, fetched on the click rather than
+   with the roster.
+ *
+ * ONE QUERY PER FIELD, on purpose. frappe_graphql fails the whole request over
+ * a single field it cannot resolve, and these were never read by this screen
+ * — a wrong guess in the roster query would have blanked the entire report.
+ * Here a field that does not resolve costs only its own column. Each field
+ * lists the forms to try, first that answers wins (`department__name` is the
+ * flat form the leave query had to move to; the nested one loads the linked
+ * record under the viewer's permissions).
+ *
+ * -> Map(employeeId -> { department, employeeCode, phone, companyEmail,
+ *                        preferredEmail, personalEmail }) */
+const CONTACT_FIELDS = {
+  department: ['department__name', 'department { name }'],
+  employeeCode: ['employee_number'],
+  phone: ['cell_number'],
+  companyEmail: ['company_email'],
+  preferredEmail: ['prefered_email'],
+  personalEmail: ['personal_email'],
+};
+
+async function fetchEmployeeField(selection, conn) {
+  const data = await graphqlRequest(
+    `query EmployeeField($f: [DBFilterInput], $first: Int) {
+      Employees(filter: $f, first: $first) { edges { node { name ${selection} } } }
+    }`,
+    { first: MAX_ROWS, f: [{ fieldname: 'status', operator: 'EQ', value: 'Active' }] },
+    conn,
+  );
+  return data.Employees.edges.map(({ node }) => {
+    const value = Object.entries(node).find(([k]) => k !== 'name')?.[1];
+    return [node.name, (value && typeof value === 'object' ? value.name : value) ?? ''];
+  });
+}
+
+export function loadEmployeeContacts(conn) {
+  return cached(`contacts|${conn.endpointUrl}|${conn.gqlToken}`, async () => {
+    const out = new Map();
+    await Promise.all(
+      Object.entries(CONTACT_FIELDS).map(async ([key, selections]) => {
+        for (const selection of selections) {
+          try {
+            for (const [id, value] of await fetchEmployeeField(selection, conn)) {
+              if (!out.has(id)) out.set(id, {});
+              out.get(id)[key] = String(value).trim();
+            }
+            return;
+          } catch (err) {
+            console.warn(`[visit] export: Employee.${selection} unreadable`, err);
+          }
+        }
+      }),
+    );
+    return out;
+  });
+}
+
 /* THE ITEMS OF A VISIT'S POB, fetched when its card is opened — the month
    list only carries each quotation's total. As the signed-in user, so the
    ERP's permissions decide; one call for all the card's quotations.
@@ -777,6 +835,8 @@ export async function fetchVisitDataset({
   const loadRows = (request) => loadVisitRows(request, sales, conn, nameByEmployeeId, employeeIdByEmail);
   /* The items behind a card's POB, fetched when it is opened. */
   const loadPob = (quotations) => loadPobItems(quotations, conn);
+  /* Department, phone and emails, for the attendance list's Excel export. */
+  const loadContacts = () => loadEmployeeContacts(conn);
 
   /* The dataset as it stands after each wave. `ready` is the load-bearing
      part: a consumer must not render a month total off a dataset whose month
@@ -806,6 +866,7 @@ export async function fetchVisitDataset({
     countsOnly: true,
     loadRows,
     loadPob,
+    loadContacts,
     /* WHICH dataset hit the cap, not just THAT one did. These are three
        different doctypes with three different volumes: a single month of
        visits is a few thousand rows, while the POB quotations behind the

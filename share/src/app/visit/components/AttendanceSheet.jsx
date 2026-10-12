@@ -27,7 +27,7 @@ import { useIncrementalList } from './useIncrementalList';
  * question neither the chip nor the card can answer. See canOpen.
  */
 
-export function AttendanceSheet({ state, team, rows, overRange = false, calendar = [], onClose }) {
+export function AttendanceSheet({ state, team, rows, overRange = false, calendar = [], loadContacts = null, onClose }) {
   /* One open row at a time, owned here rather than by the card: two open
      day-tables push the third off the screen, and the reader is comparing
      people, not reading two at once. Same move VisitsByHourSheet makes. */
@@ -81,8 +81,15 @@ export function AttendanceSheet({ state, team, rows, overRange = false, calendar
   const exportList = async () => {
     setExporting(true);
     try {
-      const XLSX = await import('xlsx');
-      const sheet = XLSX.utils.json_to_sheet(attendanceExportRows(people, team, state, overRange, calendar));
+      /* Contacts are a nicety, not the list: if ERP will not give them, the
+         file still goes out with the names and the days. */
+      const [XLSX, contacts] = await Promise.all([
+        import('xlsx'),
+        loadContacts ? loadContacts().catch(() => null) : null,
+      ]);
+      const sheet = XLSX.utils.json_to_sheet(
+        attendanceExportRows(people, team, state, overRange, calendar, contacts ?? undefined),
+      );
       const book = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(book, sheet, 'People');
       XLSX.writeFile(book, attendanceExportFilename(state, calendar));

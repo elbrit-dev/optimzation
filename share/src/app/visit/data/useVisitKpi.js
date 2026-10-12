@@ -206,6 +206,8 @@ export function useVisitKpi({
       loadRows: dataset?.loadRows ?? null,
       /* The items behind a card's POB, on demand (null for the mock). */
       loadPob: dataset?.loadPob ?? null,
+      /* Contact details for the attendance export (null for the mock). */
+      loadContacts: dataset?.loadContacts ?? null,
     };
   }, [state, scopeId, period, month, monthTo]);
 }
