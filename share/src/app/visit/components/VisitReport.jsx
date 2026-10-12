@@ -160,6 +160,7 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
     countsOnly,
     loadRows,
     loadPob,
+    loadContacts,
   } = useVisitKpi({
     /* No scopeId: the hook resolves the viewer for `root`, which is only
        used here as the DEFAULT pick. Everything else reads the unscoped
@@ -627,6 +628,7 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
               /* The same calendar the card counted with, so the list a chip
                  opens is measured over the same days. */
               calendar={calendar}
+              loadContacts={loadContacts}
               onClose={() => setSheet(null)}
             />
             <DoctorPlanSheet
