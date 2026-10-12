@@ -1,7 +1,8 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { DisclosureRow, Sheet } from '@/design-system';
+import { Button, DisclosureRow, Sheet } from '@/design-system';
+import { attendanceExportFilename, attendanceExportRows } from '../data/attendanceExport';
 import { repsInAttendanceState } from '../data/selectors';
 import { attendanceSheetTitle } from '../data/shape';
 import { PersonCard, PersonDays, PersonLeave } from './PersonCard';
@@ -74,6 +75,22 @@ export function AttendanceSheet({ state, team, rows, overRange = false, calendar
   const noun = state === 'vacant' ? 'seat' : 'person';
   const plural = state === 'vacant' ? 'seats' : 'people';
 
+  /* xlsx is loaded on the click, not with the screen: it is a large library
+     that only the reader who asks for a file should pay for. */
+  const [exporting, setExporting] = useState(false);
+  const exportList = async () => {
+    setExporting(true);
+    try {
+      const XLSX = await import('xlsx');
+      const sheet = XLSX.utils.json_to_sheet(attendanceExportRows(people, team, state, overRange, calendar));
+      const book = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(book, sheet, 'People');
+      XLSX.writeFile(book, attendanceExportFilename(state, calendar));
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <Sheet
       open={state != null}
@@ -88,6 +105,17 @@ export function AttendanceSheet({ state, team, rows, overRange = false, calendar
       ]
         .filter(Boolean)
         .join(' · ')}
+      /* Pinned, so it is still there after scrolling two hundred names.
+         Exports the whole list, not the page on screen. */
+      toolbar={
+        people.length > 0 ? (
+          <div className="flex justify-end">
+            <Button type="default" size="sm" loading={exporting} onClick={exportList}>
+              Export
+            </Button>
+          </div>
+        ) : null
+      }
     >
       {people.length === 0 ? (
         <p className="py-4 text-12 text-ds-secondary">No one in this scope.</p>
