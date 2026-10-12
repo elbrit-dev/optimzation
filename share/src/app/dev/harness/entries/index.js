@@ -7,8 +7,9 @@ import { secondaryApprovalHarness } from './secondaryApproval';
 import { ringNavHarness } from './ringNav';
 import { reviewReportHarness } from './reviewReport';
 import { doctorSupportApprovalHarness, doctorSupportEntryHarness } from './doctorSupport';
+import { doctorServiceApprovalHarness, doctorServiceEntryHarness } from './doctorService';
 
-export const HARNESS_ENTRIES = [visitHarness, secondaryEntryHarness, secondaryApprovalHarness, doctorSupportEntryHarness, doctorSupportApprovalHarness, ringNavHarness, reviewReportHarness];
+export const HARNESS_ENTRIES = [visitHarness, secondaryEntryHarness, secondaryApprovalHarness, doctorSupportEntryHarness, doctorSupportApprovalHarness, doctorServiceEntryHarness, doctorServiceApprovalHarness, ringNavHarness, reviewReportHarness];
 
 export function harnessEntry(id) {
   return HARNESS_ENTRIES.find((e) => e.id === id) ?? null;

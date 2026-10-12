@@ -232,6 +232,7 @@ const styles = String.raw`
 .dx-btn--primary { border-color: var(--dx-red); background: var(--dx-red); color: #fff; }
 .dx-btn--ghost { border-color: var(--dx-blue); color: var(--dx-blue); }
 .dx-btn--blue { border-color: var(--dx-blue); background: var(--dx-blue); color: #fff; font-weight: 700; }
+.dx-btn--icon { display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; }
 .dx-root--compact .dx-acts { gap: 6px; padding: 9px 12px 10px; }
 .dx-root--compact .dx-acts .dx-btn { flex: 1; min-height: 34px; padding: 0 8px; font-size: 11.5px; }
 

@@ -36,6 +36,7 @@ import DoctorInsightsCard from "./sections/Insights";
 import useDoctorDetail from "./lib/useDoctorDetail";
 import { ConsoleStyles } from "./sections/shell";
 import useContainerMode from "./lib/useContainerMode";
+import { AddServiceDrawer, ServicesCard, useDoctorServices } from "./sections/Services";
 
 /**
  * One section's crash stays in that section. Keyed by the reading, so a fresh
@@ -73,6 +74,10 @@ function DoctorDetailPage(props) {
   // The ONE reading of this doctor. Every section renders from it.
   const c = useDoctorDetail(props);
   const [wrapRef, compact] = useContainerMode(720);
+  // Doctor Service: who may add (MIS team) and who may see (IT, MIS, GM,
+  // CEO) is the ERP's answer for this token — see sections/Services.jsx.
+  const svc = useDoctorServices({ ...props, doctorId: c?.doctorId });
+  const [svcOpen, setSvcOpen] = React.useState(false);
 
   if (!c) {
     return (
@@ -119,8 +124,23 @@ function DoctorDetailPage(props) {
       </div>
 
       <Section name="doctor summary" resetKey={resetKey} onRetry={retry}>
-        <DoctorHeroCard {...props} c={c} className="" />
+        <DoctorHeroCard
+          {...props}
+          c={c}
+          className=""
+          onAddService={svc.viewer?.can_enter ? () => setSvcOpen(true) : undefined}
+        />
       </Section>
+      {svc.viewer?.can_view ? (
+        <Section name="services" resetKey={resetKey} onRetry={svc.reload}>
+          <ServicesCard insight={svc.insight} />
+        </Section>
+      ) : null}
+      <AddServiceDrawer
+        svc={svc}
+        doctor={svcOpen ? { id: c.doctorId, name: c.doctor?.name ?? c.doctorId } : null}
+        onClose={() => setSvcOpen(false)}
+      />
       <Section name="totals" resetKey={resetKey} onRetry={retry}>
         <DoctorTotalsCard {...props} c={c} className="" />
       </Section>

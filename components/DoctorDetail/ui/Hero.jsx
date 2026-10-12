@@ -17,7 +17,7 @@ export default function Hero({
   roiTill, canSeeService, stats,
   clinics, clinicIndex, onPickClinic, onAddClinic, onOpenMap,
   pharmacyCount, onOpenRx, showClinics = true, showPharmacies = true,
-  onAddPob, onAddNote, onRequestService,
+  onAddPob, onAddNote, onRequestService, onAddService,
 }) {
   const clinic = clinics[clinicIndex] ?? null;
   const hue = clinic?.hue ?? "#1e3a8a";
@@ -183,8 +183,19 @@ export default function Hero({
 
       <div className="dx-acts">
         <button type="button" className="dx-btn dx-btn--primary" onClick={onAddPob}>Add POB</button>
+        {/* Doctor Service: only for the MIS team (the ERP says who), between
+            Add POB and Notes as in the approved design. */}
+        {onAddService ? (
+          <button type="button" className="dx-btn dx-btn--blue dx-btn--icon" onClick={onAddService}>
+            <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"
+              style={{ flex: "none", fill: "none", stroke: "#fff", strokeWidth: 2.6, strokeLinecap: "round" }}>
+              <path d="M5 12h14M12 5v14" />
+            </svg>
+            Add service
+          </button>
+        ) : null}
         <button type="button" className="dx-btn" onClick={onAddNote}>Notes</button>
-        {onRequestService ? (
+        {onRequestService && !onAddService ? (
           <button type="button" className="dx-btn dx-btn--ghost" onClick={onRequestService}>
             {compact ? "Service" : "Request service"}
           </button>
