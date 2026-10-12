@@ -105,8 +105,8 @@ function seed() {
 
 const VIEWERS = {
   MIS: { user: MIS.user, employee: 'E01400', employee_name: MIS.name, can_enter: true, can_view: true, approver: null, verifier: true },
-  GM: { user: GM_P.user, employee: 'E00003', employee_name: GM_P.name, can_enter: false, can_view: true, approver: 'GM', verifier: false },
-  CEO: { user: CEO_P.user, employee: 'E00015', employee_name: CEO_P.name, can_enter: false, can_view: true, approver: 'CEO', verifier: false },
+  GM: { user: GM_P.user, employee: 'E00003', employee_name: GM_P.name, can_enter: false, can_view: true, approver: 'GM', approvers: ['GM'], verifier: false },
+  CEO: { user: CEO_P.user, employee: 'E00015', employee_name: CEO_P.name, can_enter: false, can_view: true, approver: 'CEO', approvers: ['CEO'], verifier: false },
   IT: { user: 'it@elbrit.org', employee: 'E00900', employee_name: 'IT Team', can_enter: false, can_view: true, approver: null, verifier: false },
 };
 
@@ -210,7 +210,7 @@ export function makeSampleClient(role = 'MIS') {
       const r = rows.find((x) => x.custom_tracker === tracker);
       if (!r) throw new Error('Not found: ' + tracker);
       const t = TRANS[r.state + '|' + ACTIONS[kind]];
-      const may = t && ((t[1] === 'MIS' && viewer.verifier) || t[1] === viewer.approver);
+      const may = t && ((t[1] === 'MIS' && viewer.verifier) || (viewer.approvers || []).includes(t[1]));
       if (!may) throw new Error('You cannot do that on a service in ' + r.state + '.');
       const note = String(reason || '').trim();
       if (note) r.reason = kind === 'revisit' ? revisitNote(r.state, note) : note;

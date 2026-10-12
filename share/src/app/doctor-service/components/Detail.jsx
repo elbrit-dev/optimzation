@@ -20,7 +20,7 @@ export function Detail({
   const decide = canDecide(e, viewer);
   const edit = canEdit(e, viewer);
   const verify = canVerify(e, viewer);
-  const gmCanClose = decide && viewer.approver === 'GM';
+  const gmCanClose = decide && e.state === GM;
   const stop = e.state === REJECTED || e.state === REWORK ? stoppedBy(e) : null;
   const stopRole = stop?.role === 'MIS' ? 'verification' : stop?.role;
   const ax = e.att ? extOf(e.att) : null;
@@ -59,9 +59,9 @@ export function Detail({
               <Icon name="check" size={15} color="#15803D" width={3} />{busy === 'final' ? 'Approving…' : 'Approve as final'}
             </button>
           ) : null}
-          <button type="button" className="dsv-btn pri" onClick={viewer.approver === 'GM' ? onApprove : onFinal} disabled={!!busy}>
+          <button type="button" className="dsv-btn pri" onClick={e.state === GM ? onApprove : onFinal} disabled={!!busy}>
             <Icon name="check" size={16} color="#fff" width={3} />
-            {busy === 'approve' || (busy === 'final' && !gmCanClose) ? 'Working…' : viewer.approver === 'GM' ? 'Send to CEO' : 'Approve'}
+            {busy === 'approve' || (busy === 'final' && !gmCanClose) ? 'Working…' : e.state === GM ? 'Send to CEO' : 'Approve'}
             {!sheet ? <span className="k">A</span> : null}
           </button>
         </div>

@@ -254,9 +254,16 @@ export function activity(e) {
   return out.reverse().map((o, i, a) => ({ ...o, when: fDT(o.when), hasLine: i < a.length - 1 }));
 }
 
+/* The approver roles a viewer holds. A tester (or an admin) may hold both
+   GM and CEO: they act at whichever step a service is on. */
+export const approverRoles = (viewer) => viewer?.approvers || (viewer?.approver ? [viewer.approver] : []);
+/* The role a waiting service needs: GM at the GM step, CEO at the CEO step. */
+export const stepRole = (e) => (e.state === GM ? 'GM' : e.state === CEO ? 'CEO' : null);
+
 /* Who may do what — the screen's offer; the ERP's workflow is the judge. */
 export function canDecide(e, viewer) {
-  return !!e.tracker && !!viewer?.approver && ((viewer.approver === 'GM' && e.state === GM) || (viewer.approver === 'CEO' && e.state === CEO));
+  const role = stepRole(e);
+  return !!e.tracker && !!role && approverRoles(viewer).includes(role);
 }
 export const canVerify = (e, viewer) => !!e.tracker && !!viewer?.verifier && e.state === VERIFY;
 export const canEdit = (e, viewer) => !!viewer?.can_enter && EDITABLE.includes(e.state);

@@ -28,7 +28,7 @@ import { each } from '../data/api';
 import { useServiceClient } from '../data/useClient';
 import {
   APPROVED, CEO, GM, NOT_SUBMITTED, QUICK_REJECT, QUICK_REVISIT, REJECTED, REWORK, VERIFY,
-  bars, canDecide, canEdit, canVerify, fDY, money, normalize, short, stageText, statusOf, tierOf, wait,
+  approverRoles, bars, canDecide, canEdit, canVerify, fDY, money, normalize, short, stageText, statusOf, tierOf, wait,
 } from '../data/workflow';
 import { Detail } from './Detail';
 import { FilterPanel } from './FilterPanel';
@@ -104,11 +104,12 @@ export function ServiceWorkspace({
   const [busy, setBusy] = useState(null);
 
   const scope = E;
-  const queue = approval && viewer?.approver ? E.filter((e) => canDecide(e, viewer)) : [];
+  const roles = approverRoles(viewer);
+  const queue = approval && roles.length ? E.filter((e) => canDecide(e, viewer)) : [];
 
   const tabs = approval
     ? [
-      ...(viewer?.approver ? [['pending', 'Awaiting you', (e) => canDecide(e, viewer)]] : []),
+      ...(roles.length ? [['pending', 'Awaiting you', (e) => canDecide(e, viewer)]] : []),
       ['flow', 'In approval', inFlow],
       ['approved', 'Approved', (e) => e.state === APPROVED || e.state === VERIFY],
       ['rejected', 'Rejected', (e) => e.state === REJECTED],
@@ -123,7 +124,7 @@ export function ServiceWorkspace({
       ['all', 'All', () => true],
     ];
   const defaultTab = approval
-    ? (viewer?.approver ? 'pending' : 'flow')
+    ? (roles.length ? 'pending' : 'flow')
     : viewer?.verifier && E.some((e) => e.state === VERIFY) ? 'verify'
       : E.some((e) => e.state === REWORK || e.state === NOT_SUBMITTED) ? 'back' : 'all';
   const tabKey = tabs.some((t) => t[0] === tab) ? tab : defaultTab;
@@ -224,10 +225,14 @@ export function ServiceWorkspace({
   const NEEDS_REASON = ['reject', 'revisit', 'verifyReject'];
   async function decide(ids, kind, note) {
     setBusy(kind === 'verifyReject' ? 'reject' : kind);
-    const trackerOf = (id) => E.find((e) => e.id === id)?.tracker;
+    const rowOf = (id) => E.find((e) => e.id === id);
     const reasoned = NEEDS_REASON.includes(kind);
+    // "approve" is the step's own approval: on to CEO at the GM step, the
+    // final approval at the CEO step.
+    const kindFor = (row) => (kind === 'approve' && row?.state === CEO ? 'final' : kind);
+    const allGm = ids.every((id) => rowOf(id)?.state === GM);
     const res = await each(ids, async (n) => {
-      await client.decide(trackerOf(n), kind, reasoned ? note : '');
+      await client.decide(rowOf(n)?.tracker, kindFor(rowOf(n)), reasoned ? note : '');
       if (note && !reasoned) await client.comment(n, note).catch(() => {});
     });
     setBusy(null);
@@ -242,13 +247,13 @@ export function ServiceWorkspace({
       verifyReject: `Rejected ${label} at verification`,
       revisit: `Sent ${label} back to the MIS team`,
       verify: `Verified ${label}`,
-      approve: `Sent ${label} to CEO`,
-      final: viewer?.approver === 'GM' ? `Approved ${label} as final · CEO not needed` : `Approved ${label} · MIS to verify`,
+      approve: allGm ? `Sent ${label} to CEO` : `Approved ${label}`,
+      final: allGm ? `Approved ${label} as final · CEO not needed` : `Approved ${label} · MIS to verify`,
     }[kind];
     const fail = { reject: 'not rejected', verifyReject: 'not rejected', revisit: 'not sent back', verify: 'not verified' }[kind] || 'not approved';
     after(res, msg, fail);
   }
-  const approveKind = () => (viewer?.approver === 'GM' ? 'approve' : 'final');
+  const approveKind = () => 'approve';
 
   /* ---- keyboard (wide only) */
   const keys = useRef({});
@@ -289,10 +294,10 @@ export function ServiceWorkspace({
   const heading = title || (approval ? 'Service approval' : 'Services');
   const eyebrow = viewer
     ? approval
-      ? viewer.approver ? `${viewer.approver} Approval · ${viewer.employee_name}` : `Doctor Service · ${viewer.employee_name}`
+      ? roles.length ? `${roles.join(' & ')} Approval · ${viewer.employee_name}` : `Doctor Service · ${viewer.employee_name}`
       : `${viewer.employee_name} · MIS`
     : 'Doctor Service';
-  const headStats = approval && wide && viewer?.approver
+  const headStats = approval && wide && roles.length
     ? [[String(queue.length), 'awaiting', queue.length ? '#DC2626' : '#111827'], [money(sum(queue)), 'value', '#111827'], [queue.length ? wait([...queue].sort(sorters.wait)[0].lastAt) : '—', 'oldest', '#111827']]
     : [];
 
@@ -333,7 +338,7 @@ export function ServiceWorkspace({
   const empty = (() => {
     if (filtersOn) return ['No services match', 'Remove a filter or change the search.', false];
     if (approval) {
-      if (tabKey === 'pending') return ['You’re all caught up', viewer?.approver === 'GM' ? 'Services reach you when the MIS team submits them.' : 'Services reach you once GM sends them on.', false];
+      if (tabKey === 'pending') return ['You’re all caught up', roles.includes('GM') ? 'Services reach you when the MIS team submits them.' : 'Services reach you once GM sends them on.', false];
       return ['No services in this tab', 'Services from every team show here by stage.', false];
     }
     return ({
@@ -533,10 +538,10 @@ export function ServiceWorkspace({
                 <button type="button" className="rej" disabled={!!busy} onClick={() => setModal({ kind: approval ? 'reject' : 'verifyReject', ids: chosen.map((e) => e.id), note: '' })}>Reject</button>
               ) : null}
               {approval ? <button type="button" className="ghost" disabled={!!busy} onClick={() => setModal({ kind: 'revisit', ids: chosen.map((e) => e.id), note: '' })}>Send back</button> : null}
-              {approval && viewer?.approver === 'GM' ? <button type="button" className="fin" disabled={!!busy} onClick={() => decide(chosen.map((e) => e.id), 'final', '')}>Approve as final</button> : null}
+              {approval && chosen.every((e) => e.state === GM) ? <button type="button" className="fin" disabled={!!busy} onClick={() => decide(chosen.map((e) => e.id), 'final', '')}>Approve as final</button> : null}
               <button type="button" className="pri" disabled={!!busy}
                 onClick={() => (approval ? decide(chosen.map((e) => e.id), approveKind(), '') : tabKey === 'verify' ? decide(chosen.map((e) => e.id), 'verify', '') : submit(chosen.map((e) => e.id)))}>
-                {busy ? 'Working…' : approval ? (viewer?.approver === 'GM' ? `Send ${chosen.length} to CEO` : `Approve ${chosen.length}`) : tabKey === 'verify' ? `Verify ${chosen.length}` : `Resubmit ${chosen.length}`}
+                {busy ? 'Working…' : approval ? (chosen.every((e) => e.state === GM) ? `Send ${chosen.length} to CEO` : `Approve ${chosen.length}`) : tabKey === 'verify' ? `Verify ${chosen.length}` : `Resubmit ${chosen.length}`}
               </button>
             </div>
           ) : null}

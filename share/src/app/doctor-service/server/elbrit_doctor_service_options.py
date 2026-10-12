@@ -12,7 +12,9 @@
 # viewer      { user, employee, employee_name, can_enter, can_view, approver, verifier }
 #             can_enter  MIS / User MIS / MIS Admin / Manager MIS / CRM Manager / IT
 #             can_view   those, plus IT (role, or an "IT" role profile), GM, CEO
-#             approver   "GM" / "CEO" by role, else null
+#             approver   "GM" / "CEO" by role (CEO when both), else null
+#             approvers  every one of GM / CEO the user holds — a tester or
+#                        admin with both acts at whichever step it is on
 #             verifier   the MIS role: verifies after the final approval
 #             The doctor page calls this once to know whether to show the
 #             Add service button and the Services card.
@@ -151,18 +153,20 @@ def viewer_of(user):
     for r in VIEW_ROLES:
         if r in roles:
             can_view = True
-    verifier = admin or "MIS" in roles
-    approver = None
-    if "GM" in roles:
-        approver = "GM"
-    if "CEO" in roles:
-        approver = "CEO"
+    # Verify is the workflow's MIS step: the MIS role itself, not System Manager.
+    verifier = user == "Administrator" or "MIS" in roles
+    approvers = []
+    for r in ["GM", "CEO"]:
+        if r in roles:
+            approvers.append(r)
+    approver = approvers[-1] if approvers else None
     me = frappe.get_all("Employee", filters={"user_id": user, "status": "Active"},
                         fields=["name", "employee_name"], limit=1)
     me = me[0] if me else {}
     return {"user": user, "employee": me.get("name"),
             "employee_name": me.get("employee_name") or frappe.db.get_value("User", user, "full_name") or user,
-            "can_enter": can_enter, "can_view": can_view, "approver": approver, "verifier": verifier}
+            "can_enter": can_enter, "can_view": can_view, "approver": approver, "approvers": approvers,
+            "verifier": verifier}
 
 
 viewer = viewer_of(frappe.session.user)
