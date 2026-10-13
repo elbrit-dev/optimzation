@@ -173,11 +173,22 @@ describe('writes', () => {
     ]);
   });
 
-  it('does not send an APPROVED item back for rework, though the workflow would', async () => {
+  it('sends an APPROVED, unverified item back the same way — whether this user may is the ERP\'s', async () => {
     const { w, calls } = fakeErp({ T1: 'ABM Approved and Waiting for Verification' });
     const [res] = await w.decide([{ name: 'T1', action: 'revisit', reason: 'Second look' }]);
+    expect(res).toEqual({ name: 'T1', ok: true, state: 'Rework', error: null });
+    expect(calls).toEqual([
+      ['get', 'T1'],
+      ['workflow', 'T1', 'Revisit'],
+      ['note', 'T1', 'Revisit (from ABM Approved and Waiting for Verification): Second look'],
+    ]);
+  });
+
+  it('never sends a VERIFIED item back', async () => {
+    const { w, calls } = fakeErp({ T1: 'Approved and Verified' });
+    const [res] = await w.decide([{ name: 'T1', action: 'revisit', reason: 'Too late' }]);
     expect(res.ok).toBe(false);
-    expect(res.error).toMatch(/Already approved/);
+    expect(res.error).toMatch(/Already verified/);
     expect(calls).toEqual([['get', 'T1']]);
   });
 
@@ -213,7 +224,7 @@ describe('writes', () => {
     ]);
     expect(res.map((x) => [x.name, x.ok])).toEqual([['A', false], ['V', false], ['R', false]]);
     expect(res[0].error).toMatch(/did not approve/);
-    expect(res[1].error).toMatch(/Already approved/);
+    expect(res[1].error).toMatch(/Already verified/);
     expect(res[2].error).toMatch(/reason is required/);
     expect(calls.filter((c) => c[0] === 'note')).toEqual([]);
   });
@@ -234,9 +245,11 @@ describe('writes', () => {
     ]);
   });
 
-  it('asks the ERP what may be done: Approve = "Approve to Verification", Rework = "Revisit" while waiting', async () => {
-    const offered = { W: ['Approve', 'Approve to Verification', 'Reject', 'Revisit'], U: ['Revisit'], R: ['Approve', 'Reject'] };
-    const states = { W: 'ABM Approval Waiting', U: 'ABM Approved and Waiting for Verification', R: 'ABM Approval Waiting' };
+  /* A fake ERP for `actions`: the workflow's offer per tracker, and the
+     rework-after-approval switch script's answer (`switchSays`: the trackers
+     it names, or null when the script is not there). */
+  function actionsErp({ offered, states, switchSays }) {
+    const asked = [];
     const fetchImpl = vi.fn(async (url, init) => {
       const u = new URL(url);
       if (u.pathname.endsWith('frappe.client.get')) {
@@ -247,16 +260,58 @@ describe('writes', () => {
         const { doc } = JSON.parse(init.body);
         return { ok: true, json: async () => ({ message: offered[doc.name].map((action) => ({ action })) }) };
       }
+      if (u.pathname.endsWith('elbrit_rework_approved')) {
+        asked.push(JSON.parse(u.searchParams.get('trackers')));
+        if (switchSays === null) return { ok: false, status: 404, json: async () => ({ exc_type: 'DoesNotExistError' }) };
+        return { ok: true, json: async () => ({ message: { enabled: true, trackers: switchSays } }) };
+      }
       throw new Error(url);
     });
     const w = createDecisionWriter({ endpointUrl: 'https://erp.example.com/api/method/graphql', gqlToken: 'k:s', fetchImpl });
+    return { w, asked };
+  }
+
+  it('asks the ERP what may be done: Approve = "Approve to Verification", Rework = "Revisit" while waiting', async () => {
+    const offered = { W: ['Approve', 'Approve to Verification', 'Reject', 'Revisit'], U: ['Revisit'], R: ['Approve', 'Reject'] };
+    const states = { W: 'ABM Approval Waiting', U: 'ABM Approved and Waiting for Verification', R: 'ABM Approval Waiting' };
+    const { w } = actionsErp({ offered, states, switchSays: [] });
     const got = await w.actions(['W', 'U', 'R']);
     expect(got.get('W')).toEqual({ approve: true, revisit: true });
-    /* Approved: the workflow still offers "Revisit"; the app does not. */
+    /* Approved: the workflow offers "Revisit", but the switch script does
+       not name it for this user — no Rework. */
     expect(got.get('U')).toEqual({ approve: false, revisit: false });
     /* An RBM on a tracker waiting on his ABM is offered only the step that
        changes nothing: no buttons. */
     expect(got.get('R')).toEqual({ approve: false, revisit: false });
+  });
+
+  it('offers Rework after approval only where the switch script names it AND the workflow offers it', async () => {
+    const offered = { A: ['Revisit'], B: ['Revisit'], C: [], V: ['Revisit'] };
+    const states = {
+      A: 'ABM Approved and Waiting for Verification',
+      B: 'RBM Approved and Waiting for Verification',
+      C: 'ABM Approved and Waiting for Verification',
+      V: 'Approved and Verified',
+    };
+    const { w, asked } = actionsErp({ offered, states, switchSays: ['A', 'C'] });
+    const got = await w.actions(['A', 'B', 'C', 'V']);
+    expect(got.get('A')).toEqual({ approve: false, revisit: true });
+    expect(got.get('B')).toEqual({ approve: false, revisit: false }); // switch does not name it
+    expect(got.get('C')).toEqual({ approve: false, revisit: false }); // workflow does not offer it
+    expect(got.get('V')).toEqual({ approve: false, revisit: false }); // verified: never
+    /* One question, for the approved ones the workflow offers "Revisit" on. */
+    expect(asked).toEqual([['A', 'B']]);
+  });
+
+  it('offers no Rework after approval when the switch script is missing or off', async () => {
+    const offered = { A: ['Revisit'], W: ['Approve to Verification', 'Revisit'] };
+    const states = { A: 'ABM Approved and Waiting for Verification', W: 'ABM Approval Waiting' };
+    const missing = await actionsErp({ offered, states, switchSays: null }).w.actions(['A', 'W']);
+    expect(missing.get('A')).toEqual({ approve: false, revisit: false });
+    /* A waiting one is unaffected. */
+    expect(missing.get('W')).toEqual({ approve: true, revisit: true });
+    const off = await actionsErp({ offered, states, switchSays: [] }).w.actions(['A']);
+    expect(off.get('A')).toEqual({ approve: false, revisit: false });
   });
 
   it('writes the note the screens read back', () => {
