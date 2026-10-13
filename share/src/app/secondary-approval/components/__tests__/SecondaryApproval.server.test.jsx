@@ -48,7 +48,8 @@ describe('SecondaryApproval from the server script', () => {
     render(<SecondaryApproval gqlToken="k:s" />);
     expect(await screen.findByRole('tab', { name: /Vignesh/ })).toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: /Aug/ })).toBeNull();
-    expect(calls.filter((c) => c.startsWith('elbrit'))).toEqual(['elbrit_secondary_approval', 'elbrit_entry_team?task=secondary&month=2026-09']);
+    /* (elbrit_approval_actions, the buttons' one call, carries no month.) */
+    expect(calls.filter((c) => c.startsWith('elbrit') && !c.startsWith('elbrit_approval_actions'))).toEqual(['elbrit_secondary_approval', 'elbrit_entry_team?task=secondary&month=2026-09']);
   });
 
   it('knows who is looking from the token (the script user), with no viewer prop', async () => {
@@ -88,6 +89,69 @@ describe('SecondaryApproval from the server script', () => {
     expect(within(sheet).getByLabelText('Reason for rework')).toBeInTheDocument();
     await userEvent.click(within(sheet).getByRole('button', { name: 'Done' }));
     expect(await screen.findByText('Rework — add a reason')).toBeInTheDocument();
+  });
+
+  /* Two of one BE's stockists, approved and waiting for verification, that
+     the viewer (an RBM) may send back: the approval-actions script says so. */
+  function approvedErp() {
+    const approved = (name) => ({ ...tracker(name, 'v@x.org', 'Vignesh K', '2026-09-01'), workflow_state__name: 'ABM Approved and Waiting for Verification' });
+    const trackers = [approved('Emc Pharmacy'), approved('Sri Medicals')];
+    const writes = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url, init) => {
+        const u = new URL(String(url));
+        const body = init?.body ? JSON.parse(init.body) : null;
+        const ok = (message) => ({ ok: true, json: async () => ({ message }) });
+        if (u.pathname.endsWith('elbrit_secondary_approval')) return ok({ month: '2026-09', months: [], trackers, user: 'rbm@x.org' });
+        if (u.pathname.endsWith('elbrit_approval_actions')) {
+          return ok({ actions: Object.fromEntries(body.trackers.map((n) => [n, { approve: false, revisit: true, understood: true }])) });
+        }
+        if (u.pathname.endsWith('frappe.client.get')) return ok({ name: u.searchParams.get('name'), workflow_state: 'ABM Approved and Waiting for Verification' });
+        if (u.pathname.endsWith('apply_workflow')) {
+          writes.push(['workflow', body.doc.name, body.action]);
+          return ok({ name: body.doc.name, workflow_state: 'Rework' });
+        }
+        if (u.pathname.endsWith('set_value')) {
+          writes.push(['note', body.name, body.value]);
+          return ok({ name: body.name });
+        }
+        return ok({ name: 'x' });
+      }),
+    );
+    return { trackers, writes };
+  }
+
+  it('ticks approved stockists and sends them back together, with one reason', async () => {
+    const { trackers, writes } = approvedErp();
+    render(<SecondaryApproval gqlToken="k:s" />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Select all' }));
+    expect(await screen.findByText('selected')).toBeInTheDocument();
+    /* Already approved: they can be sent back, not approved. */
+    expect(screen.getByRole('button', { name: 'Approve 0' })).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: 'Rework 2' }));
+    const sheet = await screen.findByRole('dialog', { name: /Send 2 stockists back for rework/ });
+    await userEvent.type(within(sheet).getByLabelText('Reason for rework'), 'Closing qty off');
+    await userEvent.click(within(sheet).getByRole('button', { name: 'Send back' }));
+    expect(await screen.findByText(/2 sent back for rework/)).toBeInTheDocument();
+    for (const t of trackers) {
+      expect(writes).toContainEqual(['workflow', t.name, 'Revisit']);
+      expect(writes).toContainEqual(['note', t.name, 'Revisit (from ABM Approved and Waiting for Verification): Closing qty off']);
+    }
+  });
+
+  it('moves the pinned bar out of the way while a stockist sheet is open', async () => {
+    approvedErp();
+    render(<SecondaryApproval gqlToken="k:s" />);
+    await userEvent.click(await screen.findByRole('checkbox', { name: /Select Emc Pharmacy/ }));
+    expect(await screen.findByRole('region', { name: 'Decide this submission' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /Sri Medicals/ }));
+    const sheet = await screen.findByRole('dialog', { name: 'Sri Medicals' });
+    expect(screen.queryByRole('region', { name: 'Decide this submission' })).toBeNull();
+    await userEvent.click(within(sheet).getByRole('button', { name: 'Rework' }));
+    expect(within(sheet).getByLabelText('Reason for rework')).toBeVisible();
+    await userEvent.click(within(sheet).getByRole('button', { name: 'Done' }));
+    expect(await screen.findByRole('region', { name: 'Decide this submission' })).toBeInTheDocument();
   });
 
   it('says what went wrong when the script fails', async () => {

@@ -13,20 +13,29 @@
  *   revisit (Rework), waiting  apply_workflow "Revisit" (to the flat "Rework"
  *                              state, back with the BE), then the note
  *
- * NO REWORK AFTER APPROVAL: once approved, a tracker is not sent back, though
- * the workflow still lists "Revisit" from "Approved and Waiting for
- * Verification" — the app neither offers nor applies it there.
+ * REWORK AFTER APPROVAL, only where the ERP's switch says so: an approved
+ * tracker still waiting for verification is offered Rework to an RBM / SM
+ * over its seat while the "Elbrit Rework Approved" script's REWORK_APPROVED
+ * switch is on — the workflow step that switch guards. It is sent back the
+ * same way, "Revisit" then the note. The workflow's other "Revisit" from
+ * those states (any holder of that level's role) is not offered. Once
+ * verified, never.
  *
  * The note is written in the ERP's own format, "Revisit (from <state>):
  * <reason>"; the "Rework" state is what says a stockist was sent back.
  *
- * WHO MAY DO WHAT IS THE ERP'S: `actions(names)` asks it (frappe's
- * get_transitions — the workflow's own rules for this user on this
- * tracker), and the screen offers Approve where it lists "Approve to
- * Verification" and Revisit where it lists "Revisit". Nothing here decides
- * who approves whom. (Ramu, RBM, on a tracker waiting on his ABM is offered
- * only "Approve" and "Reject" — the RBM step that changes nothing — so he
- * gets no buttons there.) Revisit is offered only while it waits.
+ * WHO MAY DO WHAT IS THE ERP'S: `actions(names)` asks it, and the screen
+ * offers Approve where the workflow has "Approve to Verification" for the
+ * user and Revisit where it has "Revisit". Nothing here decides who approves
+ * whom. (Ramu, RBM, on a tracker waiting on his ABM is offered only
+ * "Approve" and "Reject" — the RBM step that changes nothing — so he gets
+ * no buttons there.) ONE CALL for all the trackers on screen: the
+ * "elbrit_approval_actions" server script works the workflow's answer out
+ * for each (src/app/tracker/server/elbrit_approval_actions.py). Only a
+ * tracker it does not answer — the script missing or failing, or a step
+ * condition it does not know — is asked the slow way, two calls each:
+ * frappe.client.get, then the workflow's get_transitions (and, for an
+ * approved one, the "elbrit_rework_approved" switch script).
  *
  * What IS checked is the ERP's own answer after a write: an approval that
  * did not reach "Approved and Waiting for Verification" is reported as a
@@ -35,9 +44,14 @@
  * KNOWN GAP (ERP): an RBM covering a vacant ABM is refused until the workflow
  * allows RBM those steps.
  *
- * One call (or two) per stockist; the screen gets one result per stockist,
- * `{ name, ok, state, error }`, so a partial failure is named. As the
- * signed-in user (`gqlToken`), no shared credential. */
+ * Every list of trackers goes in a POST body, never the URL: the ERP's load
+ * balancer refuses URLs past ~4,000 characters (about 60 names) with a 400
+ * that has no CORS headers — an RBM with 70 approved doctors got no answer
+ * and so no Rework button (found 13 Oct).
+ *
+ * One call (or two) per stockist decided; the screen gets one result per
+ * stockist, `{ name, ok, state, error }`, so a partial failure is named. As
+ * the signed-in user (`gqlToken`), no shared credential. */
 
 function authHeader(token) {
   const t = String(token ?? '').trim();
@@ -70,6 +84,7 @@ export const WAITING = / Approval Waiting$/;
 export const UNVERIFIED = / Approved and Waiting for Verification$/;
 export const REWORK = /^Rework$/;
 const ALREADY_APPROVED = 'Already approved — it can no longer be sent back for rework.';
+const ALREADY_VERIFIED = 'Already verified — it can no longer be sent back for rework.';
 
 /* The note both screens read as "sent back": the ERP's own format. */
 export function revisitNote(fromState, reason) {
@@ -79,6 +94,10 @@ export function revisitNote(fromState, reason) {
 /* How many stockists are decided at once — enough to be quick on a card of
    ten, few enough not to hammer the ERP. */
 const PARALLEL = 3;
+/* Trackers per call to elbrit_approval_actions. */
+const ACTIONS_BATCH = 200;
+/* Trackers per call to elbrit_rework_approved (the slow way only). */
+const REWORK_BATCH = 50;
 
 export function createDecisionWriter({ endpointUrl, gqlToken, fetchImpl = fetch }) {
   const auth = authHeader(gqlToken);
@@ -112,8 +131,10 @@ export function createDecisionWriter({ endpointUrl, gqlToken, fetchImpl = fetch 
     }
     if (action === 'revisit') {
       if (!String(reason ?? '').trim()) return { name, ok: false, state, error: 'A reason is required to send it back.' };
-      if (!WAITING.test(state)) {
-        const error = /approved|verified/i.test(state) ? ALREADY_APPROVED : `Cannot send back for rework from state: ${state}`;
+      /* Waiting, or approved and not yet verified (whether this user may is
+         the ERP's to say — the workflow's switch-guarded step). */
+      if (!WAITING.test(state) && !UNVERIFIED.test(state)) {
+        const error = /verified/i.test(state) ? ALREADY_VERIFIED : `Cannot send back for rework from state: ${state}`;
         return { name, ok: false, state, error };
       }
       const after = await applyWorkflow(doc, 'Revisit');
@@ -145,6 +166,56 @@ export function createDecisionWriter({ endpointUrl, gqlToken, fetchImpl = fetch 
     return results;
   }
 
+  /* The fast way: one call per ACTIONS_BATCH trackers. → Map of the
+     trackers the script answered (understood); the rest are left out. */
+  async function askScript(names) {
+    const out = new Map();
+    for (let i = 0; i < names.length; i += ACTIONS_BATCH) {
+      const part = names.slice(i, i + ACTIONS_BATCH);
+      try {
+        const res = await call('/api/method/elbrit_approval_actions', { trackers: part });
+        const got = res?.actions ?? {};
+        for (const n of part) {
+          const a = got[n];
+          if (a?.understood) out.set(n, { approve: Boolean(a.approve), revisit: Boolean(a.revisit) });
+        }
+      } catch {
+        /* No answer: these are asked the slow way. */
+      }
+    }
+    return out;
+  }
+
+  /* The slow way, per tracker: frappe.client.get, then the workflow's
+     get_transitions. An approved, unverified one is revisitable only when
+     the rework-after-approval switch script also names it. */
+  async function askWorkflow(names) {
+    const answers = await pool(names, async (name) => {
+      try {
+        const doc = await getTracker(name);
+        const list = await call('/api/method/frappe.model.workflow.get_transitions', { doc });
+        const acts = new Set((Array.isArray(list) ? list : []).map((t) => t?.action));
+        const state = doc?.workflow_state ?? '';
+        return { name, approve: acts.has('Approve to Verification'), revisit: acts.has('Revisit'), waiting: WAITING.test(state), unverified: UNVERIFIED.test(state) };
+      } catch {
+        return { name, approve: false, revisit: false, waiting: false, unverified: false };
+      }
+    });
+    const approved = answers.filter((a) => a.unverified && a.revisit).map((a) => a.name);
+    const reworkable = new Set();
+    for (let i = 0; i < approved.length; i += REWORK_BATCH) {
+      try {
+        const res = await call('/api/method/elbrit_rework_approved', { trackers: approved.slice(i, i + REWORK_BATCH) });
+        for (const n of Array.isArray(res?.trackers) ? res.trackers : []) reworkable.add(n);
+      } catch {
+        /* No answer for this batch: no rework after approval on it. */
+      }
+    }
+    return new Map(
+      answers.map((a) => [a.name, { approve: a.approve, revisit: a.revisit && (a.waiting || (a.unverified && reworkable.has(a.name))) }]),
+    );
+  }
+
   return {
     live: true,
     /* Who the token is — the ERP's answer, for labelling their own
@@ -156,22 +227,15 @@ export function createDecisionWriter({ endpointUrl, gqlToken, fetchImpl = fetch 
       return typeof user === 'string' && user ? user : null;
     },
     /* names → Map(name → { approve, revisit }): what the ERP's workflow lets
-       this user do on each tracker now. A tracker the ERP will not answer
-       for gets neither. */
+       this user do on each tracker now — the script's answer, the slow way
+       for any it does not give. A tracker the ERP will not answer for gets
+       neither. */
     async actions(names) {
       if (!auth) return new Map();
-      const answers = await pool(names, async (name) => {
-        try {
-          const doc = await getTracker(name);
-          const list = await call('/api/method/frappe.model.workflow.get_transitions', { doc });
-          const acts = new Set((Array.isArray(list) ? list : []).map((t) => t?.action));
-          const waiting = WAITING.test(doc?.workflow_state ?? '');
-          return [name, { approve: acts.has('Approve to Verification'), revisit: waiting && acts.has('Revisit') }];
-        } catch {
-          return [name, { approve: false, revisit: false }];
-        }
-      });
-      return new Map(answers);
+      const out = await askScript(names);
+      const rest = names.filter((n) => !out.has(n));
+      if (rest.length) for (const [n, a] of await askWorkflow(rest)) out.set(n, a);
+      return out;
     },
     async decide(decisions) {
       if (!auth) throw new Error("Not signed in to ERP — bind gqlToken (the user's own token) to decide.");
@@ -190,8 +254,9 @@ export function createDecisionWriter({ endpointUrl, gqlToken, fetchImpl = fetch 
    rows — the same outcomes and refusals as createDecisionWriter, and, for
    `actions`, the routing the ERP's workflow applies: a waiting tracker is
    the viewer's to approve or send back for rework when it is routed to them
-   (next or fallback approver); an approved one is no one's to send back.
-   Here, and only here, because here the mock IS the ERP. */
+   (next or fallback approver); an approved one is no one's to send back
+   (the mock does not play rework after approval: that is the ERP's
+   switch). Here, and only here, because here the mock IS the ERP. */
 export function createMockWriter({ getRows, setRows, viewer }) {
   const v = String(viewer ?? '').toLowerCase();
   const lower = (x) => String(x ?? '').toLowerCase();
