@@ -248,10 +248,21 @@ describe('writes', () => {
   /* A fake ERP for `actions`: the workflow's offer per tracker, and the
      rework-after-approval switch script's answer (`switchSays`: the trackers
      it names, or null when the script is not there). */
-  function actionsErp({ offered, states, switchSays }) {
+  function actionsErp({ offered, states, switchSays, scriptSays }) {
     const asked = [];
+    const scriptAsked = [];
+    const slow = [];
     const fetchImpl = vi.fn(async (url, init) => {
       const u = new URL(url);
+      if (u.pathname.endsWith('elbrit_approval_actions')) {
+        expect(init.method).toBe('POST');
+        const { trackers } = JSON.parse(init.body);
+        scriptAsked.push(trackers);
+        /* No script given: as on an ERP without it. */
+        if (!scriptSays) return { ok: false, status: 404, json: async () => ({ exc_type: 'DoesNotExistError' }) };
+        return { ok: true, json: async () => ({ message: { actions: scriptSays(trackers) } }) };
+      }
+      if (u.pathname.endsWith('get_transitions')) slow.push(JSON.parse(init.body).doc.name);
       if (u.pathname.endsWith('frappe.client.get')) {
         const name = u.searchParams.get('name');
         return { ok: true, json: async () => ({ message: { name, workflow_state: states[name] } }) };
@@ -271,8 +282,51 @@ describe('writes', () => {
       throw new Error(url);
     });
     const w = createDecisionWriter({ endpointUrl: 'https://erp.example.com/api/method/graphql', gqlToken: 'k:s', fetchImpl });
-    return { w, asked };
+    return { w, asked, scriptAsked, slow };
   }
+
+  it('asks the approval-actions script once for all the trackers, nothing per tracker', async () => {
+    const answers = {
+      W: { approve: true, revisit: true, understood: true },
+      A: { approve: false, revisit: true, understood: true },
+      V: { approve: false, revisit: false, understood: true },
+    };
+    const { w, scriptAsked, slow } = actionsErp({ offered: {}, states: {}, scriptSays: (names) => Object.fromEntries(names.map((n) => [n, answers[n]])) });
+    const got = await w.actions(['W', 'A', 'V']);
+    expect(got.get('W')).toEqual({ approve: true, revisit: true });
+    expect(got.get('A')).toEqual({ approve: false, revisit: true });
+    expect(got.get('V')).toEqual({ approve: false, revisit: false });
+    expect(scriptAsked).toEqual([['W', 'A', 'V']]);
+    expect(slow).toEqual([]);
+  });
+
+  it('asks the slow way only for trackers the script did not understand or answer', async () => {
+    const offered = { X: ['Approve to Verification', 'Revisit'], Y: ['Revisit'] };
+    const states = { X: 'ABM Approval Waiting', Y: 'ABM Approval Waiting' };
+    const { w, slow } = actionsErp({
+      offered,
+      states,
+      switchSays: [],
+      scriptSays: () => ({ W: { approve: true, revisit: true, understood: true }, X: { approve: false, revisit: false, understood: false } }),
+    });
+    const got = await w.actions(['W', 'X', 'Y']);
+    expect(got.get('W')).toEqual({ approve: true, revisit: true });
+    expect(got.get('X')).toEqual({ approve: true, revisit: true });
+    expect(got.get('Y')).toEqual({ approve: false, revisit: true });
+    expect(slow.sort()).toEqual(['X', 'Y']);
+  });
+
+  it('asks the script 200 trackers at a time', async () => {
+    const names = Array.from({ length: 450 }, (_, i) => `T${i}`);
+    const { w, scriptAsked, slow } = actionsErp({
+      offered: {},
+      states: {},
+      scriptSays: (part) => Object.fromEntries(part.map((n) => [n, { approve: false, revisit: false, understood: true }])),
+    });
+    await w.actions(names);
+    expect(scriptAsked.map((b) => b.length)).toEqual([200, 200, 50]);
+    expect(slow).toEqual([]);
+  });
 
   it('asks the ERP what may be done: Approve = "Approve to Verification", Rework = "Revisit" while waiting', async () => {
     const offered = { W: ['Approve', 'Approve to Verification', 'Reject', 'Revisit'], U: ['Revisit'], R: ['Approve', 'Reject'] };
