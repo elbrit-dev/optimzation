@@ -13,9 +13,14 @@
  *   revisit (Rework), waiting  apply_workflow "Revisit" (to the flat "Rework"
  *                              state, back with the BE), then the note
  *
- * NO REWORK AFTER APPROVAL: once approved, a tracker is not sent back, though
- * the workflow still lists "Revisit" from "Approved and Waiting for
- * Verification" — the app neither offers nor applies it there.
+ * REWORK AFTER APPROVAL, only where the ERP's switch says so: an approved
+ * tracker still waiting for verification is offered Rework when the
+ * "elbrit_rework_approved" server script names it for this user (an RBM /
+ * SM over its seat, while its REWORK_APPROVED switch is on) AND the
+ * workflow lists "Revisit" for them — the step that switch also guards.
+ * It is sent back the same way, "Revisit" then the note. The workflow's
+ * other "Revisit" from those states (any holder of that level's role) is
+ * not offered. Once verified, never.
  *
  * The note is written in the ERP's own format, "Revisit (from <state>):
  * <reason>"; the "Rework" state is what says a stockist was sent back.
@@ -26,7 +31,8 @@
  * Verification" and Revisit where it lists "Revisit". Nothing here decides
  * who approves whom. (Ramu, RBM, on a tracker waiting on his ABM is offered
  * only "Approve" and "Reject" — the RBM step that changes nothing — so he
- * gets no buttons there.) Revisit is offered only while it waits.
+ * gets no buttons there.) Revisit is offered while it waits, and after
+ * approval only as above.
  *
  * What IS checked is the ERP's own answer after a write: an approval that
  * did not reach "Approved and Waiting for Verification" is reported as a
@@ -70,6 +76,7 @@ export const WAITING = / Approval Waiting$/;
 export const UNVERIFIED = / Approved and Waiting for Verification$/;
 export const REWORK = /^Rework$/;
 const ALREADY_APPROVED = 'Already approved — it can no longer be sent back for rework.';
+const ALREADY_VERIFIED = 'Already verified — it can no longer be sent back for rework.';
 
 /* The note both screens read as "sent back": the ERP's own format. */
 export function revisitNote(fromState, reason) {
@@ -112,8 +119,10 @@ export function createDecisionWriter({ endpointUrl, gqlToken, fetchImpl = fetch 
     }
     if (action === 'revisit') {
       if (!String(reason ?? '').trim()) return { name, ok: false, state, error: 'A reason is required to send it back.' };
-      if (!WAITING.test(state)) {
-        const error = /approved|verified/i.test(state) ? ALREADY_APPROVED : `Cannot send back for rework from state: ${state}`;
+      /* Waiting, or approved and not yet verified (whether this user may is
+         the ERP's to say — the workflow's switch-guarded step). */
+      if (!WAITING.test(state) && !UNVERIFIED.test(state)) {
+        const error = /verified/i.test(state) ? ALREADY_VERIFIED : `Cannot send back for rework from state: ${state}`;
         return { name, ok: false, state, error };
       }
       const after = await applyWorkflow(doc, 'Revisit');
@@ -157,7 +166,9 @@ export function createDecisionWriter({ endpointUrl, gqlToken, fetchImpl = fetch 
     },
     /* names → Map(name → { approve, revisit }): what the ERP's workflow lets
        this user do on each tracker now. A tracker the ERP will not answer
-       for gets neither. */
+       for gets neither. An approved, unverified one is revisitable only when
+       the rework-after-approval switch script also names it (one call for
+       all of them; none when the script is missing or off). */
     async actions(names) {
       if (!auth) return new Map();
       const answers = await pool(names, async (name) => {
@@ -165,13 +176,25 @@ export function createDecisionWriter({ endpointUrl, gqlToken, fetchImpl = fetch 
           const doc = await getTracker(name);
           const list = await call('/api/method/frappe.model.workflow.get_transitions', { doc });
           const acts = new Set((Array.isArray(list) ? list : []).map((t) => t?.action));
-          const waiting = WAITING.test(doc?.workflow_state ?? '');
-          return [name, { approve: acts.has('Approve to Verification'), revisit: waiting && acts.has('Revisit') }];
+          const state = doc?.workflow_state ?? '';
+          return { name, approve: acts.has('Approve to Verification'), revisit: acts.has('Revisit'), waiting: WAITING.test(state), unverified: UNVERIFIED.test(state) };
         } catch {
-          return [name, { approve: false, revisit: false }];
+          return { name, approve: false, revisit: false, waiting: false, unverified: false };
         }
       });
-      return new Map(answers);
+      const approved = answers.filter((a) => a.unverified && a.revisit).map((a) => a.name);
+      let reworkable = new Set();
+      if (approved.length) {
+        try {
+          const res = await call(`/api/method/elbrit_rework_approved?${new URLSearchParams({ trackers: JSON.stringify(approved) })}`);
+          reworkable = new Set(Array.isArray(res?.trackers) ? res.trackers : []);
+        } catch {
+          /* No answer: no rework after approval. */
+        }
+      }
+      return new Map(
+        answers.map((a) => [a.name, { approve: a.approve, revisit: a.revisit && (a.waiting || (a.unverified && reworkable.has(a.name))) }]),
+      );
     },
     async decide(decisions) {
       if (!auth) throw new Error("Not signed in to ERP — bind gqlToken (the user's own token) to decide.");
@@ -190,8 +213,9 @@ export function createDecisionWriter({ endpointUrl, gqlToken, fetchImpl = fetch 
    rows — the same outcomes and refusals as createDecisionWriter, and, for
    `actions`, the routing the ERP's workflow applies: a waiting tracker is
    the viewer's to approve or send back for rework when it is routed to them
-   (next or fallback approver); an approved one is no one's to send back.
-   Here, and only here, because here the mock IS the ERP. */
+   (next or fallback approver); an approved one is no one's to send back
+   (the mock does not play rework after approval: that is the ERP's
+   switch). Here, and only here, because here the mock IS the ERP. */
 export function createMockWriter({ getRows, setRows, viewer }) {
   const v = String(viewer ?? '').toLowerCase();
   const lower = (x) => String(x ?? '').toLowerCase();
