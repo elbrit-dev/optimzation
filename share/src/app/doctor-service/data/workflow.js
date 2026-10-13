@@ -110,9 +110,32 @@ export function normalize(row) {
   let lastSubmit = -1;
   steps.forEach((t, i) => { if (t.to === GM) lastSubmit = i; });
   const round = lastSubmit >= 0 ? steps.slice(lastSubmit + 1) : [];
-  const gmStep = round.find((t) => t.from === GM);
-  const ceoStep = round.find((t) => t.from === CEO);
   const state = appState(row.state);
+  const raw = String(row.state || '');
+  // Who decided is in the tracker's state itself ("GM Approved and Verified",
+  // "CEO Rejected" ...): THAT decides the stepper. The history comments only
+  // add the names and times (a tracker moved outside the app has none).
+  const histGm = round.find((t) => t.from === GM);
+  const histCeo = round.find((t) => t.from === CEO);
+  const at = row.modified || row.creation;
+  const pick = (h, to) => (h && h.to === to ? { name: h.by, at: h.at, to } : { name: h ? h.by : '', at: h ? h.at : at, to });
+  let gm = histGm ? { name: histGm.by, at: histGm.at, to: histGm.to } : null;
+  let ceo = histCeo ? { name: histCeo.by, at: histCeo.at, to: histCeo.to } : null;
+  let skipped = !!histGm && histGm.to === APPROVED;
+  let stopRole = '';
+  if (/^GM Approved/.test(raw)) { gm = pick(histGm, APPROVED); ceo = null; skipped = true; }
+  else if (/^CEO Approved/.test(raw)) { gm = pick(histGm, CEO); ceo = pick(histCeo, APPROVED); skipped = false; }
+  else if (raw === 'GM Rejected') { gm = pick(histGm, REJECTED); ceo = null; skipped = false; stopRole = 'GM'; }
+  else if (raw === 'CEO Rejected') { gm = pick(histGm, CEO); ceo = pick(histCeo, REJECTED); skipped = false; stopRole = 'CEO'; }
+  else if (raw === 'CEO Approval Waiting') { gm = pick(histGm, CEO); ceo = null; skipped = false; }
+  else if (raw === 'GM Approval Waiting') { gm = null; ceo = null; skipped = false; }
+  else if (raw === 'Rework') {
+    // Sent back from the step named in the note: "Revisit (from CEO Approval Waiting): ..."
+    stopRole = (/^Revisit \(from (GM|CEO) /.exec(String(row.reason || '')) || [])[1] || '';
+    if (stopRole === 'CEO') { gm = pick(histGm, CEO); ceo = pick(histCeo, REWORK); }
+    else if (stopRole === 'GM') { gm = pick(histGm, REWORK); ceo = null; }
+    skipped = false;
+  }
   return {
     id: row.name,
     tracker: row.custom_tracker || null,
@@ -139,9 +162,10 @@ export function normalize(row) {
     submittedAt: lastSubmit >= 0 ? steps[lastSubmit].at : null,
     submittedBy: lastSubmit >= 0 ? steps[lastSubmit].by : null,
     resubmitted: steps.filter((t) => t.to === GM).length > 1,
-    gm: gmStep ? { name: gmStep.by, at: gmStep.at, to: gmStep.to } : null,
-    ceo: ceoStep ? { name: ceoStep.by, at: ceoStep.at, to: ceoStep.to } : null,
-    skipped: !!gmStep && gmStep.to === APPROVED,
+    gm,
+    ceo,
+    skipped,
+    stopRole,
     history: row.history || [],
     steps,
     doctorAvg: Number(row.doctor_avg) || 0,
@@ -152,7 +176,13 @@ export function normalize(row) {
 /* Who stopped it, for a Rejected / sent-back row: { name, at, role } or null. */
 export function stoppedBy(e) {
   const last = [...e.steps].reverse().find((t) => t.to === e.state);
-  return last ? { name: last.by, at: last.at, role: ROLE_AT[last.from] || '' } : null;
+  if (last) return { name: last.by, at: last.at, role: e.stopRole || ROLE_AT[last.from] || '' };
+  // No history (moved outside the app): the state still names who.
+  if (e.stopRole) {
+    const step = e.stopRole === 'CEO' ? e.ceo : e.gm;
+    return { name: step?.name || '', at: step?.at || e.lastAt, role: e.stopRole };
+  }
+  return null;
 }
 
 export function statusOf(e) {
@@ -161,7 +191,9 @@ export function statusOf(e) {
   // Who decided, as the final status says: "GM Approved", "CEO Rejected".
   if (e.state === APPROVED) return { label: `${e.skipped ? 'GM' : 'CEO'} Approved`, bg: '#E5F6EC', fg: '#15803D' };
   if (e.state === REJECTED) {
-    const role = (/^(GM|CEO) /.exec(e.rawState) || [])[1] || stoppedBy(e)?.role || '';
+    // "GM / CEO Rejected"; an old "... Approved and Verification Rejected"
+    // was rejected at verification, not by GM / CEO.
+    const role = /Verification Rejected$/.test(e.rawState) ? '' : e.stopRole || stoppedBy(e)?.role || '';
     return { label: `${role ? role + ' ' : ''}Rejected`, bg: '#FDECEC', fg: '#B91C1C' };
   }
   if (e.state === REWORK) return { label: 'Sent back', bg: '#FEF3E2', fg: '#B45309' };
@@ -187,7 +219,9 @@ export function stageText(e) {
   if (e.state === CEO) return `GM ✓ · with CEO · ${wait(e.gm?.at || e.lastAt)}`;
   if (e.state === APPROVED) return e.skipped ? `GM ✓ · final at GM · ${fD(e.gm?.at || e.lastAt)}` : `GM ✓ · CEO ✓ · ${fD(e.ceo?.at || e.lastAt)}`;
   const who = stoppedBy(e);
-  const by = who ? `${first(who.name)}${who.role ? ' (' + who.role + ')' : ''} · ${fD(who.at)}` : '';
+  // "Rajkumar (GM) · 13 Oct", or "GM · 13 Oct" when the name is not known.
+  const who2 = who ? (who.name ? first(who.name) + (who.role ? ` (${who.role})` : '') : who.role) : '';
+  const by = who2 ? `${who2} · ${fD(who.at)}` : '';
   if (e.state === REJECTED) return `Rejected${by ? ' by ' + by : ''}`;
   if (e.state === REWORK) return `Sent back${by ? ' by ' + by : ''} · fix and resubmit`;
   return e.state;
@@ -210,7 +244,7 @@ export function stepper(e) {
     kind: e.submittedAt ? 'done' : 'current',
   }];
   const node = (label, step, isNow) => {
-    if (step) return { label, sub: first(step.name) + ' · ' + fD(step.at), kind: step.to === REJECTED ? 'x' : step.to === REWORK ? 'back' : 'done' };
+    if (step) return { label, sub: (step.name ? first(step.name) + ' · ' : '') + fD(step.at), kind: step.to === REJECTED ? 'x' : step.to === REWORK ? 'back' : 'done' };
     if (isNow) return { label, sub: 'now', kind: 'current' };
     return { label, sub: '', kind: 'todo' };
   };
