@@ -261,7 +261,10 @@ describe('writes', () => {
         return { ok: true, json: async () => ({ message: offered[doc.name].map((action) => ({ action })) }) };
       }
       if (u.pathname.endsWith('elbrit_rework_approved')) {
-        asked.push(JSON.parse(u.searchParams.get('trackers')));
+        /* In the body, never the URL (the ERP's load balancer limits URLs). */
+        expect(init.method).toBe('POST');
+        expect(u.search).toBe('');
+        asked.push(JSON.parse(init.body).trackers);
         if (switchSays === null) return { ok: false, status: 404, json: async () => ({ exc_type: 'DoesNotExistError' }) };
         return { ok: true, json: async () => ({ message: { enabled: true, trackers: switchSays } }) };
       }
@@ -301,6 +304,16 @@ describe('writes', () => {
     expect(got.get('V')).toEqual({ approve: false, revisit: false }); // verified: never
     /* One question, for the approved ones the workflow offers "Revisit" on. */
     expect(asked).toEqual([['A', 'B']]);
+  });
+
+  it('asks about a big team in batches of 50, in the request body', async () => {
+    const names = Array.from({ length: 120 }, (_, i) => `Doctor Support-DR-${i}-2026-September-ABM1-VASC-CO-COI`);
+    const offered = Object.fromEntries(names.map((n) => [n, ['Revisit']]));
+    const states = Object.fromEntries(names.map((n) => [n, 'RBM Approved and Waiting for Verification']));
+    const { w, asked } = actionsErp({ offered, states, switchSays: names });
+    const got = await w.actions(names);
+    expect(asked.map((b) => b.length)).toEqual([50, 50, 20]);
+    expect(names.every((n) => got.get(n).revisit)).toBe(true);
   });
 
   it('offers no Rework after approval when the switch script is missing or off', async () => {

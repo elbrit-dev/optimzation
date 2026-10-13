@@ -86,6 +86,8 @@ export function revisitNote(fromState, reason) {
 /* How many stockists are decided at once — enough to be quick on a card of
    ten, few enough not to hammer the ERP. */
 const PARALLEL = 3;
+/* Trackers per question to elbrit_rework_approved. */
+const REWORK_BATCH = 50;
 
 export function createDecisionWriter({ endpointUrl, gqlToken, fetchImpl = fetch }) {
   const auth = authHeader(gqlToken);
@@ -182,14 +184,18 @@ export function createDecisionWriter({ endpointUrl, gqlToken, fetchImpl = fetch 
           return { name, approve: false, revisit: false, waiting: false, unverified: false };
         }
       });
+      /* POSTed, in batches: a GET carries the names in the URL, and the ERP's
+         load balancer refuses URLs past ~4,000 characters (about 60 names)
+         with a 400 that has no CORS headers — an RBM with 70 approved
+         doctors got no answer and so no Rework button (found 13 Oct). */
       const approved = answers.filter((a) => a.unverified && a.revisit).map((a) => a.name);
-      let reworkable = new Set();
-      if (approved.length) {
+      const reworkable = new Set();
+      for (let i = 0; i < approved.length; i += REWORK_BATCH) {
         try {
-          const res = await call(`/api/method/elbrit_rework_approved?${new URLSearchParams({ trackers: JSON.stringify(approved) })}`);
-          reworkable = new Set(Array.isArray(res?.trackers) ? res.trackers : []);
+          const res = await call('/api/method/elbrit_rework_approved', { trackers: approved.slice(i, i + REWORK_BATCH) });
+          for (const n of Array.isArray(res?.trackers) ? res.trackers : []) reworkable.add(n);
         } catch {
-          /* No answer: no rework after approval. */
+          /* No answer for this batch: no rework after approval on it. */
         }
       }
       return new Map(
