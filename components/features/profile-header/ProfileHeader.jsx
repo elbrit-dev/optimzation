@@ -11,9 +11,8 @@ import React from "react";
  * centred on the HEADER - not on whatever space the logo and bell leave over.
  * With a flex row it would drift left or right as either side changed width.
  *
- * The bell is deliberately a slot rather than a built-in icon - the real one is
- * NovuInbox, which carries its own state and popover, so it gets dropped in
- * from Plasmic instead of being reimplemented here.
+ * The right zone is a slot rather than built-in icons, so whatever belongs
+ * there is dropped in from Plasmic.
  */
 
 function cx(...classes) {
