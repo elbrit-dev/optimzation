@@ -48,7 +48,8 @@ describe('SecondaryApproval from the server script', () => {
     render(<SecondaryApproval gqlToken="k:s" />);
     expect(await screen.findByRole('tab', { name: /Vignesh/ })).toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: /Aug/ })).toBeNull();
-    expect(calls.filter((c) => c.startsWith('elbrit'))).toEqual(['elbrit_secondary_approval', 'elbrit_entry_team?task=secondary&month=2026-09']);
+    /* (elbrit_approval_actions, the buttons' one call, carries no month.) */
+    expect(calls.filter((c) => c.startsWith('elbrit') && !c.startsWith('elbrit_approval_actions'))).toEqual(['elbrit_secondary_approval', 'elbrit_entry_team?task=secondary&month=2026-09']);
   });
 
   it('knows who is looking from the token (the script user), with no viewer prop', async () => {
