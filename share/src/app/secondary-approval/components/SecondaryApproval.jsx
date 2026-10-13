@@ -300,6 +300,30 @@ export function SecondaryApproval({
   const onReason = (name, reason) => setChoices((prev) => new Map(prev).set(name, { ...prev.get(name), reason }));
   const dropChoices = (names) => setChoices((prev) => new Map([...prev].filter(([n]) => !names.includes(n))));
 
+  /* ---- TICKED for a bulk decision: the cards' corner boxes ----
+     Only ever trackers the viewer may act on (any that stop being so drop
+     out); the person on screen's alone (moving to another clears them). */
+  const [selected, setSelected] = useState(() => new Set());
+  const decidableNow = useMemo(() => new Set([...allowed].filter(([, a]) => a.approve || a.revisit).map(([n]) => n)), [allowed]);
+  useEffect(() => {
+    if ([...selected].some((n) => !decidableNow.has(n))) setSelected((prev) => new Set([...prev].filter((n) => decidableNow.has(n))));
+  }, [decidableNow, selected]);
+  useEffect(() => setSelected(new Set()), [current?.key]);
+  const toggleSelected = useCallback(
+    (name) =>
+      setSelected((prev) => {
+        const next = new Set(prev);
+        if (next.has(name)) next.delete(name);
+        else next.add(name);
+        return next;
+      }),
+    [],
+  );
+  const selectedHere = current ? current.slices.map((s) => s.name).filter((n) => selected.has(n)) : [];
+  /* A card's sheet is open: the pinned bar steps aside — fixed over
+     everything, it covered the sheet's foot, where the rework reason is. */
+  const [lineSheetOpen, setLineSheetOpen] = useState(false);
+
   /* The writer answers per tracker, so a partial failure keeps the
      failures waiting (and named) while the rest turn. */
   const decide = useCallback(
@@ -358,11 +382,27 @@ export function SecondaryApproval({
   );
 
   const [revisitOpen, setRevisitOpen] = useState(false);
+  /* What the one-reason rework sheet sends back: every stockist waiting on
+     the viewer ("Rework all"), or the ticked ones it applies to. */
+  const [revisitScope, setRevisitScope] = useState('all');
+  const selectedRework = current ? selectedHere.filter((n) => current.revisitable.includes(n)) : [];
+  const selectedApprove = current ? selectedHere.filter((n) => current.mine.includes(n)) : [];
   const approveCard = () => current && decide(current.mine.map((name) => ({ name, action: 'approve' })), 'approve');
   const revisitCard = async (reason) => {
     if (!current) return;
-    const done = await decide(current.mine.map((name) => ({ name, action: 'revisit', reason })), 'revisit');
-    if (done) setRevisitOpen(false);
+    const names = revisitScope === 'selected' ? selectedRework : current.mine;
+    const done = await decide(names.map((name) => ({ name, action: 'revisit', reason })), 'revisit');
+    if (done) {
+      setRevisitOpen(false);
+      if (revisitScope === 'selected') setSelected(new Set());
+    }
+  };
+  const approveSelected = async () => {
+    if (!current || !selectedApprove.length) return;
+    const names = selectedApprove;
+    if (await decide(names.map((name) => ({ name, action: 'approve' })), 'approve')) {
+      setSelected((prev) => new Set([...prev].filter((n) => !names.includes(n))));
+    }
   };
   const sendChoices = async () => {
     if (!current) return;
@@ -385,7 +425,13 @@ export function SecondaryApproval({
   const barGap = bottomGap ?? 'var(--space-12)';
   /* Something waiting on the viewer, or a revisit picked on one they
      already approved — otherwise the bar would be two disabled buttons. */
-  const showBar = Boolean(current && canDecide && !loading && (current.mine.length || current.revisitable.some((n) => choices.has(n))));
+  const showBar = Boolean(
+    current &&
+      canDecide &&
+      !loading &&
+      !lineSheetOpen &&
+      (current.mine.length || selectedHere.length || current.revisitable.some((n) => choices.has(n))),
+  );
   const pillTone = !progress.total ? null : progress.done === progress.total ? 'success' : progress.done ? 'warning' : 'danger';
 
   const readOnlyNote = !canDecide ? "Read-only: bind gqlToken (the signed-in user's ERP token) to decide." : null;
@@ -460,6 +506,10 @@ export function SecondaryApproval({
             choices={choices}
             onChoose={onChoose}
             onReason={onReason}
+            selected={selected}
+            onToggleSelect={toggleSelected}
+            onSelectAll={(names) => setSelected(new Set(names))}
+            onSheetChange={setLineSheetOpen}
           />
           {readOnlyNote && submissions.some((g) => !g.isSelf) ? <p className="px-1 text-11 text-ds-muted">{readOnlyNote}</p> : null}
         </>
@@ -479,8 +529,17 @@ export function SecondaryApproval({
             onApprove={approveCard}
             onRevisit={() => {
               setError(null);
+              setRevisitScope('all');
               setRevisitOpen(true);
             }}
+            selected={selectedHere}
+            onReworkSelected={() => {
+              setError(null);
+              setRevisitScope('selected');
+              setRevisitOpen(true);
+            }}
+            onApproveSelected={approveSelected}
+            onClearSelected={() => setSelected(new Set())}
             onApproveRest={() =>
               setChoices((prev) => {
                 const next = new Map(prev);
@@ -498,7 +557,7 @@ export function SecondaryApproval({
         open={revisitOpen}
         onClose={() => setRevisitOpen(false)}
         onConfirm={revisitCard}
-        count={current?.mine.length ?? 0}
+        count={revisitScope === 'selected' ? selectedRework.length : (current?.mine.length ?? 0)}
         raiserName={current?.raiserName}
         busy={busy === 'revisit'}
         error={revisitOpen ? error : null}

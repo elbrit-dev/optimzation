@@ -7,9 +7,11 @@ import { PinnedBar } from '@/app/secondary-entry/components/PinnedBar';
  * Secondary Entry's PinnedBar (fixed and portalled — see there for why not
  * sticky), so it stays in reach however long the stockist list runs.
  *
- * TWO STATES. Nothing picked on the stockist cards: decide the whole
- * submission in one go. Anything picked: say what will go, offer the rest as
- * approvals, and send exactly those choices. */
+ * THREE STATES. Stockists TICKED on their cards (`selected`): decide those
+ * together — Rework (one reason, asked next) or Approve, each counting the
+ * ticked ones it applies to. Else anything PICKED in a card's sheet: say
+ * what will go, offer the rest as approvals, and send exactly those
+ * choices. Else: decide the whole submission in one go. */
 export function DecisionBar({
   submission: g,
   choices,
@@ -23,7 +25,15 @@ export function DecisionBar({
   onApproveRest,
   onClearChoices,
   onSendChoices,
+  selected = [],
+  onReworkSelected,
+  onApproveSelected,
+  onClearSelected,
 }) {
+  /* Of the ticked ones, those each action applies to: a rework on any the
+     viewer may send back, an approval only on those waiting on them. */
+  const selRework = selected.filter((n) => g.revisitable.includes(n)).length;
+  const selApprove = selected.filter((n) => g.mine.includes(n)).length;
   const partlyMine = g.mine.length < g.counts.pending;
   /* Picks on this person's stockists — approvals are only ever on waiting
      ones, revisits also on ones already approved. */
@@ -42,7 +52,29 @@ export function DecisionBar({
             <span>{error}</span>
           </p>
         ) : null}
-        {picked.length ? (
+        {selected.length ? (
+          <>
+            <div className="flex items-baseline justify-between gap-3 text-12">
+              <span className="text-heading">
+                <span className="font-semibold">{selected.length}</span> selected
+              </span>
+              <Button type="link" size="sm" onClick={onClearSelected} disabled={Boolean(busy)}>
+                Clear
+              </Button>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Button type="default" size="lg" danger block loading={busy === 'revisit'} disabled={Boolean(busy) || !selRework} onClick={onReworkSelected}>
+                Rework {selRework}
+              </Button>
+              <Button type="primary" size="lg" block loading={busy === 'approve'} disabled={Boolean(busy) || !selApprove} onClick={onApproveSelected}>
+                Approve {selApprove}
+              </Button>
+            </div>
+            {selApprove < selected.length && selApprove ? (
+              <p className="text-10 text-ds-muted">{selected.length - selApprove} already approved — they can only be sent back for rework.</p>
+            ) : null}
+          </>
+        ) : picked.length ? (
           <>
             <div className="flex items-baseline justify-between gap-3 text-12">
               <span className="text-heading">
