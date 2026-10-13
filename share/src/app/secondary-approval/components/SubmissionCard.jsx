@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Avatar, Button, Card, Field, Icon, Sheet, StatusPill, cx, toneFill } from '@/design-system';
 import { StockistCard } from '@/app/secondary-entry/components/StockistCard';
 import { ProductCard } from '@/app/secondary-entry/components/ProductCard';
@@ -144,9 +144,28 @@ function Choice({ pressed, tone, onClick, children, disabled }) {
  * "Rework" is the ERP workflow's Revisit: the approval stays open and the BE
  * corrects and resubmits. One sent back and still waiting on the BE shows the
  * reason, and "Rework" in its pill. */
-export function StockistLine({ slice, mine = false, revisitable = false, choice, onChoose, onReason, busy = false }) {
+export function StockistLine({
+  slice,
+  mine = false,
+  revisitable = false,
+  choice,
+  onChoose,
+  onReason,
+  busy = false,
+  showCheckbox = false,
+  selected = false,
+  onToggle,
+  onSheetChange,
+}) {
   const task = useTask();
   const [open, setOpen] = useState(false);
+  /* The screen's pinned decision bar steps aside while this sheet is open:
+     fixed over everything, it covered the sheet's foot — the rework reason. */
+  useEffect(() => {
+    if (!open) return undefined;
+    onSheetChange?.(true);
+    return () => onSheetChange?.(false);
+  }, [open, onSheetChange]);
   const rejectedNote = slice.status === 'rejected' && slice.reason;
   const revisitNote = slice.revisitNote;
   const decides = mine || revisitable;
@@ -183,6 +202,12 @@ export function StockistLine({ slice, mine = false, revisitable = false, choice,
           lines: slice.lines,
         }}
         onOpen={() => setOpen(true)}
+        /* Picking for a bulk decision: the corner box, on any card the
+           viewer may approve or send back. */
+        showCheckbox={showCheckbox}
+        selectable={decides && !busy}
+        selected={selected}
+        onToggle={onToggle}
       >
         {rejectedNote || revisitNote || choice?.action ? (
           <>
@@ -317,9 +342,19 @@ export function SubmissionCard({
   choices,
   onChoose,
   onReason,
+  selected,
+  onToggleSelect,
+  onSelectAll,
+  onSheetChange,
 }) {
   const task = useTask();
   const actionable = canDecide && g.mine.length > 0;
+  /* BULK PICKING: every stockist the viewer may approve or send back gets
+     the card's corner box; the pinned bar then decides the ticked ones
+     together (one reason for a rework). */
+  const decidable = canDecide ? g.slices.filter((s) => g.mine.includes(s.name) || g.revisitable.includes(s.name)).map((s) => s.name) : [];
+  const picking = decidable.length > 0 && typeof onToggleSelect === 'function';
+  const ticked = picking ? decidable.filter((n) => selected?.has(n)).length : 0;
   const reasons = [...new Set(g.slices.filter((s) => s.status === 'rejected' && s.reason).map((s) => s.reason))];
 
   return (
@@ -348,6 +383,16 @@ export function SubmissionCard({
       ) : null}
 
       <div className="flex flex-col gap-2">
+        {picking ? (
+          <div className="flex items-center justify-between gap-3 px-1">
+            <span className="text-11 text-ds-muted">
+              {ticked ? `${ticked} of ${decidable.length} selected` : `Tick ${task.parties} to decide them together`}
+            </span>
+            <Button type="link" size="sm" disabled={Boolean(busy)} onClick={() => onSelectAll(ticked === decidable.length ? [] : decidable)}>
+              {ticked === decidable.length ? 'Clear' : 'Select all'}
+            </Button>
+          </div>
+        ) : null}
         {g.slices.map((s) => (
           <StockistLine
             key={s.name}
@@ -358,6 +403,10 @@ export function SubmissionCard({
             onChoose={(action) => onChoose(s.name, action)}
             onReason={(reason) => onReason(s.name, reason)}
             busy={Boolean(busy)}
+            showCheckbox={picking}
+            selected={Boolean(selected?.has(s.name))}
+            onToggle={onToggleSelect}
+            onSheetChange={onSheetChange}
           />
         ))}
         <div className="flex items-baseline justify-between gap-3 px-1 pt-0.5">
