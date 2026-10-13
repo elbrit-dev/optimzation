@@ -239,7 +239,9 @@ def guard(doc):
             if f not in LATE_OK:
                 late.append(f)
         if old and changed and not editable and (late or ot_state != START):
-            frappe.throw("This service is in approval (" + str(ot_state) + ") and can no longer be edited.")
+            done = str(ot_state or "").endswith("Rejected") or str(ot_state or "").endswith("Verified")
+            frappe.throw("This service is " + (str(ot_state) if done else "in approval (" + str(ot_state) + ")")
+                         + " and can no longer be edited.")
         if (not old or changed) and not can_enter:
             frappe.throw("Only the MIS team can add or edit a doctor service.")
 

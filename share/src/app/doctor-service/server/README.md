@@ -28,8 +28,8 @@ tracker on the first save and starts it at **GM**, whatever the on-behalf person
 |---|---|---|---|
 | MIS saves | GM Approval Waiting | MIS | (the guard sets it) |
 | GM sends on | CEO Approval Waiting | GM | Send to CEO → `Approve` |
-| GM approves as final (ends it) | GM Approved and Waiting for Verification | GM | Approve as final → `Approve to Verification` |
-| CEO approves (ends it) | CEO Approved and Waiting for Verification | CEO | Approve → `Approve to Verification` |
+| GM approves as final (ends it) | GM Approved and Verified | GM | Approve as final → `Final Approve` |
+| CEO approves (ends it) | CEO Approved and Verified | CEO | Approve → `Final Approve` |
 | GM / CEO send back | Rework | GM / CEO | Send back → `Revisit` (+ reason) |
 | MIS edits and saves | GM Approval Waiting | MIS | (the guard resets it) |
 | GM / CEO reject | GM / CEO Rejected (final) | GM / CEO | Reject → `Reject` (+ reason) |
@@ -62,13 +62,22 @@ Do the same on production when it goes live:
 4. **Role Profile "IT":** given the **MIS** role, so IT testers (vishnuk.mis) can verify.
    This is for UAT testing only, and is no longer needed now that Doctor Service has no
    verification step.
-5. **No verification for Doctor Service:** the GM's or CEO's final approval ends it.
-   - **Approval Settings "Doctor Service":** `verifier` is cleared, so no MIS verify ToDo is
-     made.
-   - **The tracker still stops at "<Role> Approved and Waiting for Verification".** ERP's own
-     workflow check rejects a direct jump to "Approved and Verified".
-   - **The app reads that state as final: Approved.**
-   - **Secondary and Doctor Support are unchanged.**
+5. **Doctor Service ends at a named final status (2026-10-13).** Verification stays in the
+   workflow for Secondary and Doctor Support. For Doctor Service, the final decision is the
+   end:
+   - **New Workflow States:** `GM Approved and Verified` and `CEO Approved and Verified`.
+   - **New Workflow Action:** `Final Approve`.
+   - **3 new "Approval flow" transitions,** each with the condition
+     `doc.setting == "Doctor Service"`:
+     - GM Approval Waiting → Final Approve → GM Approved and Verified (GM; CEO as fallback)
+     - CEO Approval Waiting → Final Approve → CEO Approved and Verified (CEO)
+   - **The "operational tracker" script** keeps a "<Role> Approved and Verified" state as
+     final: no next approver, no verify ToDo.
+   - **Approval Settings "Doctor Service":** `verifier` is cleared.
+   - **Rejections** end in `GM Rejected` and `CEO Rejected`, which already existed.
+   - **The app** uses Final Approve for "Approve as final" (GM) and for the CEO's approve.
+   - **GOTCHA:** the script can't simply rewrite the state to a different final one. Frappe
+     checks the workflow transition after server scripts run.
 
 Tested on UAT through ERP saves, not by clicking in the app:
 - save → GM;

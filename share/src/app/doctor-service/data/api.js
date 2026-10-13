@@ -30,7 +30,7 @@ export const TRACKER = 'Operational Tracker';
 /* The app's decision -> the "Approval flow" workflow's action. */
 export const ACTIONS = {
   approve: 'Approve', // GM: on to CEO
-  final: 'Approve to Verification', // GM: approve as final; CEO: approve
+  final: 'Final Approve', // GM: approve as final; CEO: approve -> "<Role> Approved and Verified"
   reject: 'Reject',
   revisit: 'Revisit', // send back to MIS (Rework)
 };

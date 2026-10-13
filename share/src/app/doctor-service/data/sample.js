@@ -60,8 +60,8 @@ const at = (daysAgo) => new Date(Date.now() - daysAgo * DAY).toISOString().slice
 
 /* The tracker states ("Approval flow"), as the list script returns them. */
 const S = {
-  gm: 'GM Approval Waiting', ceo: 'CEO Approval Waiting', gmFinal: 'GM Approved and Waiting for Verification',
-  ceoDone: 'CEO Approved and Waiting for Verification', verified: 'Approved and Verified',
+  gm: 'GM Approval Waiting', ceo: 'CEO Approval Waiting', gmFinal: 'GM Approved and Verified',
+  ceoDone: 'CEO Approved and Verified', verified: 'CEO Approved and Verified',
   gmRej: 'GM Rejected', rework: 'Rework',
 };
 
@@ -132,9 +132,9 @@ function visitsFor(id) {
 
 /* The "Approval flow" steps the app uses: state|action -> [next, who]. */
 const TRANS = {
-  [S.gm + '|Approve']: [S.ceo, 'GM'], [S.gm + '|Approve to Verification']: [S.gmFinal, 'GM'],
+  [S.gm + '|Approve']: [S.ceo, 'GM'], [S.gm + '|Final Approve']: [S.gmFinal, 'GM'],
   [S.gm + '|Reject']: [S.gmRej, 'GM'], [S.gm + '|Revisit']: [S.rework, 'GM'],
-  [S.ceo + '|Approve to Verification']: [S.ceoDone, 'CEO'], [S.ceo + '|Reject']: ['CEO Rejected', 'CEO'], [S.ceo + '|Revisit']: [S.rework, 'CEO'],
+  [S.ceo + '|Final Approve']: [S.ceoDone, 'CEO'], [S.ceo + '|Reject']: ['CEO Rejected', 'CEO'], [S.ceo + '|Revisit']: [S.rework, 'CEO'],
   [S.gmFinal + '|Approve']: [S.verified, 'MIS'], [S.ceoDone + '|Approve']: [S.verified, 'MIS'],
   [S.gmFinal + '|Reject']: ['GM Approved and Verification Rejected', 'MIS'], [S.ceoDone + '|Reject']: ['CEO Approved and Verification Rejected', 'MIS'],
 };

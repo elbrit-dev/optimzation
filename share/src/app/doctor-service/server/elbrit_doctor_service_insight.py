@@ -70,7 +70,7 @@ def grade_of(seat):
 # approval is given the service counts as given ("Approved"), verified or not.
 def app_status(state):
     st = str(state or "")
-    if st == "Approved and Verified" or st.endswith("Approved and Waiting for Verification"):
+    if st.endswith("Approved and Verified") or st.endswith("Approved and Waiting for Verification"):
         return "Approved"
     if st.endswith("Rejected"):
         return "Rejected"

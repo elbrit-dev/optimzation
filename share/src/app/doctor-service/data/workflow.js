@@ -8,8 +8,11 @@
  *   MIS saves -> GM -> CEO -> Approved
  *   GM may approve as final (CEO not needed); GM / CEO may send it back
  *   (Rework: MIS edits, and that save resubmits) or reject it (final).
- *   There is no verification step: the final approval ends it. (A tracker
- *   left in "... Approved and Waiting for Verification" counts as approved.)
+ *   The final approval ends it, in "GM Approved and Verified" (GM approved
+ *   as final) or "CEO Approved and Verified" (the workflow's "Final
+ *   Approve", Doctor Service only); rejections end in "GM / CEO Rejected".
+ *   (An older tracker left in "... Approved and Waiting for Verification"
+ *   counts as approved too.)
  *
  * The tracker's own states are mapped to the few the screens draw (appState).
  * A row's story is the tracker's Workflow comments — ERP adds one per step —
@@ -30,7 +33,7 @@ export function appState(s) {
   if (!st || st === NOT_SUBMITTED || st === 'Draft') return NOT_SUBMITTED;
   if (st === 'GM Approval Waiting') return GM;
   if (st === 'CEO Approval Waiting') return CEO;
-  if (/ Approved and Waiting for Verification$/.test(st) || st === 'Approved and Verified') return APPROVED;
+  if (/Approved and (Waiting for Verification|Verified)$/.test(st)) return APPROVED;
   if (/Rejected$/.test(st)) return REJECTED;
   if (st === 'Rework') return REWORK;
   return st;
@@ -155,8 +158,12 @@ export function stoppedBy(e) {
 export function statusOf(e) {
   if (e.state === NOT_SUBMITTED) return { label: 'Not submitted', bg: '#F1F3F6', fg: '#4B5563' };
   if (e.state === GM || e.state === CEO) return { label: e.state, bg: '#EAF1FF', fg: '#1D4ED8' };
-  if (e.state === APPROVED) return { label: 'Approved', bg: '#E5F6EC', fg: '#15803D' };
-  if (e.state === REJECTED) return { label: 'Rejected', bg: '#FDECEC', fg: '#B91C1C' };
+  // Who decided, as the final status says: "GM Approved", "CEO Rejected".
+  if (e.state === APPROVED) return { label: `${e.skipped ? 'GM' : 'CEO'} Approved`, bg: '#E5F6EC', fg: '#15803D' };
+  if (e.state === REJECTED) {
+    const role = (/^(GM|CEO) /.exec(e.rawState) || [])[1] || stoppedBy(e)?.role || '';
+    return { label: `${role ? role + ' ' : ''}Rejected`, bg: '#FDECEC', fg: '#B91C1C' };
+  }
   if (e.state === REWORK) return { label: 'Sent back', bg: '#FEF3E2', fg: '#B45309' };
   return { label: e.state, bg: '#F1F3F6', fg: '#4B5563' };
 }
