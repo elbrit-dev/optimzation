@@ -597,17 +597,21 @@ export function ServiceWorkspace({
         const rows = modal.ids.map((id) => E.find((e) => e.id === id)).filter(Boolean);
         const one = rows.length === 1 ? rows[0] : null;
         const atGm = rows.every((e) => e.state === GM);
-        const final = modal.action === 'final';
-        const title = final && atGm ? 'Approve as final?' : atGm ? 'Send to CEO?' : 'Approve?';
+        // The final approval — GM "Approve as final", or the CEO's approve —
+        // ends it and hands it to MIS to carry out: "Ready to execute?".
+        // Send to CEO is only a step on.
+        const isFinal = !(atGm && modal.action === 'approve');
         const what = one ? `${one.doctorName} · ${one.service} · ${money(one.amount)}` : `${rows.length} services · ${money(sum(rows))}`;
-        const desc = final && atGm ? `${what}. This approves it — CEO approval is not needed.`
-          : atGm ? `${what}. It goes on to the CEO for the final approval.`
-            : `${what}. This is the final approval.`;
+        const by = atGm ? 'GM' : 'CEO';
+        const title = isFinal ? 'Ready to execute?' : 'Send to CEO?';
+        const desc = isFinal
+          ? `${what}. This is the final approval (${by} Approved and Verified)${atGm ? ' — CEO approval is not needed' : ''}. The MIS team then carries it out.`
+          : `${what}. It goes on to the CEO for the final approval.`;
         return (
           <Modal
             title={title}
             desc={desc}
-            confirm={final && atGm ? 'Approve as final' : atGm ? 'Send to CEO' : 'Approve'}
+            confirm={isFinal ? 'Execute' : 'Send to CEO'}
             busy={busy === 'approve' || busy === 'final'}
             onClose={() => setModal(null)}
             onConfirm={() => decide(modal.ids, modal.action, modal.note)}

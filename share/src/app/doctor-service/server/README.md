@@ -72,8 +72,11 @@ Do the same on production when it goes live:
      - GM Approval Waiting → Final Approve → GM Approved and Verified (GM; CEO as fallback)
      - CEO Approval Waiting → Final Approve → CEO Approved and Verified (CEO)
    - **The "operational tracker" script** keeps a "<Role> Approved and Verified" state as
-     final: no next approver, no verify ToDo.
-   - **Approval Settings "Doctor Service":** `verifier` is cleared.
+     final, with no next approver.
+   - **Approval Settings "Doctor Service":** the `verifier` is **MIS**. After the GM's or
+     CEO's final approval, the script makes a ToDo for that department's MIS assignees:
+     "Approved (<state>) - carry out Doctor Service <name>". It is the hand-over to carry the
+     service out. They take no step in the approval itself.
    - **Rejections** end in `GM Rejected` and `CEO Rejected`, which already existed.
    - **The app** uses Final Approve for "Approve as final" (GM) and for the CEO's approve.
    - **GOTCHA:** the script can't simply rewrite the state to a different final one. Frappe
