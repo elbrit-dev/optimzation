@@ -286,6 +286,20 @@ export function attendanceSheetTitle(state, overRange = false) {
   return state === 'vacant' ? ATTENDANCE_SHEET_TITLE.vacant : ATTENDANCE_LABEL[state];
 }
 
+/* One Other Work entry as words: "Conference · CME Chennai", "Admin Day".
+   The type is what the reader asked for — a Meeting and an Admin Day are not
+   the same day out of the field. */
+export function otherWorkText(entry) {
+  if (!entry) return '';
+  const type = entry.type || ATTENDANCE_LABEL.otherWork;
+  return entry.title ? `${type} · ${entry.title}` : type;
+}
+
+/* Every distinct kind in a list of entries: "Meeting, Conference". */
+export function otherWorkKinds(entries = []) {
+  return [...new Set(entries.map((e) => e.type).filter(Boolean))].join(', ');
+}
+
 /* Tone per state. `notReporting` is danger and `onLeave` is warning, not the
    other way round: leave is planned and expected, a silent rep is not. */
 export const ATTENDANCE_TONE = {

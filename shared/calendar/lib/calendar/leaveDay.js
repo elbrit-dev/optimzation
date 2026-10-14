@@ -30,9 +30,10 @@ export function isEmployeeOnApprovedLeave(events, employeeId, date) {
 
 /**
  * Why `employeeId` cannot plan a DR Tour Plan on `date`, or null when they can.
- * Blocked by their own leave (pending as well as approved — approved already
- * blocks Add Event altogether) or their own Other Work that day: a visit plan
- * on such a day could not happen. Shared by the event form, which greys the
+ * Blocked by their own leave only (pending as well as approved — approved
+ * already blocks Add Event altogether): a visit plan on such a day could not
+ * happen. Other Work (Admin Day, Conference…) does NOT block it — a rep can
+ * still fit a visit in when needed. Shared by the event form, which greys the
  * chip and refuses the save, and the mobile "+" bar, which leaves it out.
  */
 export function doctorVisitBlockReason(events, employeeId, date) {
@@ -60,18 +61,6 @@ export function doctorVisitBlockReason(events, employeeId, date) {
   );
   if (leave) {
     return `DR Tour Plan isn't available on ${dayLabel} — you have ${leave.leaveType || "leave"} that day.`;
-  }
-
-  const otherWork = (events ?? []).find(
-    (ev) =>
-      ev?.tags === TAG_IDS.OTHER &&
-      (String(ev.ownerEmployeeId ?? "") === me ||
-        ev.participants?.some((p) => String(p.id) === me)) &&
-      isLive(ev) &&
-      covers(ev)
-  );
-  if (otherWork) {
-    return `DR Tour Plan isn't available on ${dayLabel} — you have Other Work that day.`;
   }
   return null;
 }

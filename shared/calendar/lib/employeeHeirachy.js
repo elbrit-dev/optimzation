@@ -262,3 +262,24 @@ export function resolveVisibleEmployeeIds(elbritEdges, users) {
 }
 
 
+
+// The HQs a user books DR Tour Plans against: their own and those of everyone
+// under them in the role tree (each employee's custom_hq). A BE has one, an ABM
+// their BEs', an RBM / SM their team's, an admin every one. `fallbackHq` is the
+// user's own HQ when the team list has none.
+// -> [{ doctype: "Territory", value, label }], sorted
+export function resolveOwnHqOptions(employees = [], elbritEdges = [], roleId, fallbackHq = null) {
+  const roles = new Set(resolveVisibleRoleIds(elbritEdges, roleId));
+  const hqs = new Set();
+  for (const employee of employees) {
+    if (!employee?.hqTerritory) continue;
+    const isMe = String(employee.value ?? employee.id) === String(LOGGED_IN_USER.id);
+    if (isMe || (employee.roleId && roles.has(employee.roleId))) {
+      hqs.add(employee.hqTerritory);
+    }
+  }
+  if (!hqs.size && fallbackHq) hqs.add(fallbackHq);
+  return [...hqs]
+    .sort((a, b) => a.localeCompare(b))
+    .map((hq) => ({ doctype: "Territory", value: hq, label: hq }));
+}

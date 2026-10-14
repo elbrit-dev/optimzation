@@ -198,8 +198,8 @@ export function ServiceForm({ client, doctor, entry, viewer, onClose, onSaved })
               <div className="dsv-mini">
                 <div className="h"><b>{judgeDept ? short(judgeDept) : 'This doctor'}</b><span>{biz.window}</span></div>
                 <div className="g">
-                  <div><span>Total service</span><b className="num">{money(Math.round(cells.service))}</b></div>
-                  <div><span>Total support</span><b className="num" style={{ color: '#1E3A8A' }}>{money(Math.round(cells.support))}</b></div>
+                  <div><span>Total service</span><b className="num">{money(cells.service)}</b></div>
+                  <div><span>Total support</span><b className="num" style={{ color: '#1E3A8A' }}>{money(cells.support)}</b></div>
                   <div><span>ROI</span><b className="num" style={{ color: '#B91C1C' }}>{roiTxt(cells.roi)}</b></div>
                 </div>
                 <div className="f">All departments · support {cmp(cells.allSupport)} · service {cmp(cells.all)} · ROI {roiTxt(cells.allRoi)}</div>

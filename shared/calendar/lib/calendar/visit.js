@@ -28,3 +28,19 @@ export function isParticipantVisitRecorded(participant) {
     )
   );
 }
+
+/**
+ * A planned visit can be marked only ON its day: not ahead of time (a plan for
+ * the 16th marked on the 14th) and not after it (a missed plan stays missed).
+ * Planning ahead is still allowed; only the visit itself waits for the day.
+ */
+export function isVisitDay(plannedDate, now = new Date()) {
+  if (!plannedDate) return false;
+  const day = new Date(plannedDate);
+  if (Number.isNaN(day.getTime())) return false;
+  return (
+    day.getFullYear() === now.getFullYear() &&
+    day.getMonth() === now.getMonth() &&
+    day.getDate() === now.getDate()
+  );
+}

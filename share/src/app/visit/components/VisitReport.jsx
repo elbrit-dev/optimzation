@@ -225,6 +225,7 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
             ...m,
             onLeave: (m.leave ?? []).some((l) => l.from <= dayKey && dayKey <= l.to),
             onOtherWork: (m.otherWork ?? []).some((o) => o.date === dayKey),
+            otherWorkToday: (m.otherWork ?? []).find((o) => o.date === dayKey) ?? null,
           }
         : m;
     return {

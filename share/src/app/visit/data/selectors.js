@@ -1343,6 +1343,8 @@ export function repsInAttendanceState(team, rows, state, overRange = false, cale
       leaveDays: leaveDaysOf(m, calendar),
       /* The days they were on Other Work, with its type. */
       otherWorkDays: otherWorkDaysOf(m, calendar),
+      /* The one for the day being shown, when it is a single day. */
+      otherWorkToday: overRange ? null : m.otherWorkToday ?? null,
       /* Days with nothing logged and nothing excusing them — the Not
          reported list's own figure. */
       silentDays: days.filter((d) => d.happened === 0 && !d.excused).length,

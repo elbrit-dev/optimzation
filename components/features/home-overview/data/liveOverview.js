@@ -451,7 +451,7 @@ const OTHER_WORK_QUERY = `
   query HomeOverviewOtherWork($f: [DBFilterInput], $first: Int) {
     Events(filter: $f, first: $first) {
       edges { node {
-        starts_on status custom_other_type custom_employee_id__name
+        subject starts_on status custom_other_type custom_employee_id__name
         event_participants { reference_doctype__name reference_docname__name }
       } }
     }
@@ -493,7 +493,10 @@ async function fetchAway(conn, from, to) {
         if (!date) continue;
         const ids = (node.event_participants ?? []).filter((p) => p.reference_doctype__name === "Employee" && p.reference_docname__name).map((p) => p.reference_docname__name);
         if (!ids.length && node.custom_employee_id__name) ids.push(node.custom_employee_id__name);
-        for (const id of new Set(ids)) push(otherWork, id, { date, type: otherWorkLabel(node.custom_other_type) });
+        /* WHICH Other Work: "Conference · CME Chennai", "Admin Day". */
+        const type = otherWorkLabel(node.custom_other_type), subject = String(node.subject || "").trim();
+        const text = subject && subject !== type ? type + " · " + subject : type;
+        for (const id of new Set(ids)) push(otherWork, id, { date, type: text });
       }
     }).catch((e) => console.warn("[home-overview] Other Work unreadable; nobody is shown on other work", e)),
   ]);

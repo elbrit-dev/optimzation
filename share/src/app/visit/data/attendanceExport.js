@@ -1,4 +1,4 @@
-import { shortDesignation } from './shape';
+import { otherWorkKinds, otherWorkText, shortDesignation } from './shape';
 
 /* The rows behind an attendance sheet, flattened for a spreadsheet.
  *
@@ -54,8 +54,11 @@ export function attendanceExportRows(people, team, state, overRange = false, cal
     if (overRange && state === 'onLeave') {
       row['Leave days'] = (p.leaveDays ?? []).map((d) => `${d.date} (${d.type})`).join(', ');
     }
+    if (state === 'otherWork') {
+      row['Other work'] = p.otherWorkToday ? otherWorkText(p.otherWorkToday) : otherWorkKinds(p.otherWorkDays);
+    }
     if (overRange && state === 'otherWork') {
-      row['Other work days'] = (p.otherWorkDays ?? []).map((d) => `${d.date} (${d.type})`).join(', ');
+      row['Other work days'] = (p.otherWorkDays ?? []).map((d) => `${d.date} (${otherWorkText(d)})`).join(', ');
     }
     return row;
   });

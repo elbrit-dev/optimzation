@@ -95,7 +95,7 @@ function rowFlags(member, roll) {
   };
 }
 
-function RoleLine({ member, roll }) {
+function RoleLine({ member, roll, overRange = false }) {
   /* The pill is STILL LEAVES ONLY, even though the attendance card now counts
      managers too. A manager who made no call of their own is the ordinary
      case, not an exception — most of them manage on any given day — so
@@ -121,7 +121,12 @@ function RoleLine({ member, roll }) {
       </span>
 
       {showPill ? (
-        <StatusPill status={ATTENDANCE_TONE[state]}>{ATTENDANCE_LABEL[state]}</StatusPill>
+        <StatusPill status={ATTENDANCE_TONE[state]}>
+          {/* Which Other Work, when the day is known: "Meeting", not "Other work". */}
+          {state === 'otherWork' && member.otherWorkToday && !overRange
+            ? member.otherWorkToday.type || ATTENDANCE_LABEL[state]
+            : ATTENDANCE_LABEL[state]}
+        </StatusPill>
       ) : null}
 
       {/* A manager's own headcount. The bar below counts VISITS; this counts
@@ -190,7 +195,7 @@ function TreeNode({ member, team, rows, pob, depth, open, toggle, onDoctorPlan, 
 
         <span className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="block truncate text-13 font-semibold text-heading">{member.name}</span>
-          <RoleLine member={member} roll={roll} />
+          <RoleLine member={member} roll={roll} overRange={overRange} />
         </span>
 
         <span className="flex shrink-0 flex-col items-end gap-1">

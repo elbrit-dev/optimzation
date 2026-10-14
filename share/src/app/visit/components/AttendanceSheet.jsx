@@ -142,6 +142,7 @@ export function AttendanceSheet({ state, team, rows, overRange = false, calendar
             header={
               <PersonCard
                 person={p}
+                state={state}
                 /* THE FIGURE ANSWERS THE LIST IT IS ON, and says so: the
                    card prints the state's own label beside it. Same
                    denominator throughout — the window's working days — so a

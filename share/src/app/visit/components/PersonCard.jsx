@@ -2,7 +2,7 @@
 
 import { Avatar, cx } from '@/design-system';
 import { formatDayHeading, formatDecimal, hqLabel } from '../data/format';
-import { ATTENDANCE_LABEL } from '../data/shape';
+import { ATTENDANCE_LABEL, otherWorkKinds, otherWorkText } from '../data/shape';
 import { GeoBar } from './GeoBar';
 import { Chevron, PinIcon } from './icons';
 
@@ -89,7 +89,7 @@ export function PersonLeave({ days, fallback = 'Leave' }) {
                 leave type is mandatory in ERPNext, so a blank one means the
                 link is broken, and a row that says nothing at all reads as a
                 rendering fault rather than as missing data. */}
-            <td className="py-0.5 text-right text-ds-muted">{d.type || fallback}</td>
+            <td className="py-0.5 text-right text-ds-muted">{d.title ? otherWorkText(d) : d.type || fallback}</td>
           </tr>
         ))}
       </tbody>
@@ -110,7 +110,15 @@ const DAY_COUNT = {
   otherWork: (p) => p.otherWorkDays?.length ?? 0,
 };
 
-export function PersonCard({ person, dayState = null, expandable = false, expanded = false }) {
+export function PersonCard({ person, dayState = null, expandable = false, expanded = false, state = null }) {
+  /* WHICH Other Work, on the Other work list: the day's own ("Conference ·
+     CME Chennai") on a single day, every kind over a range ("Meeting, Admin
+     Day"). The chip alone said only "Other work". */
+  const otherWorkNote = state === 'otherWork'
+    ? person.otherWorkToday
+      ? otherWorkText(person.otherWorkToday)
+      : otherWorkKinds(person.otherWorkDays)
+    : '';
   /* The window's working days, Monday to Saturday — `days` is seeded from
      the calendar now, so it holds every one of them whether or not the rep
      was given a plan that day. */
@@ -220,6 +228,12 @@ export function PersonCard({ person, dayState = null, expandable = false, expand
               rate OF — a vacant seat, where there is no rep to have an
               average, and a single day, where "calls per day" is the visit
               count the bar underneath already draws. */}
+          {otherWorkNote ? (
+            <span className="min-w-0 truncate rounded-chip bg-sunken px-2 py-0.5 text-10 font-semibold text-status-info-text">
+              {otherWorkNote}
+            </span>
+          ) : null}
+
           {dayState && callAverage != null ? (
             <span className="shrink-0 whitespace-nowrap text-10 text-ds-secondary">
               {formatDecimal(callAverage)} calls/day

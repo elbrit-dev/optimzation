@@ -34,7 +34,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@calendar/components/ui/tooltip";
-import { isParticipantVisitRecorded } from "@calendar/lib/calendar/visit";
+import { isParticipantVisitRecorded, isVisitDay } from "@calendar/lib/calendar/visit";
 import { cn } from "@calendar/lib/utils";
 /* =====================================================
    PURE HELPERS (NO LOGIC CHANGE)
@@ -336,6 +336,10 @@ export function EventDoctorVisitDialog({
 
   // Who created the plan. Matched on employee id first, falling back to email,
   // because older events carry only one of the two.
+  // A visit is marked only on the plan's own day. Past days already lose the
+  // whole action row (allowEdit); a future plan keeps it, with Visit disabled.
+  const canMarkVisitToday = isVisitDay(event.startDate);
+  const visitOpensOn = event.startDate ? format(new Date(event.startDate), "d MMM") : "";
   const isEventOwner = useMemo(() => {
     const ownerEmployeeId = event?.ownerEmployeeId ?? event?.owner?.id;
     if (
@@ -743,18 +747,28 @@ export function EventDoctorVisitDialog({
                       Remove
                     </Button>
                   )}
-                  <AddEditEventDialog
-                    event={event}
-                    forceValues={
-                      tagConfig.ui?.primaryEditAction
-                        ?.setOnEdit
-                    }
-                  >
-                    <Button className="w-full sm:w-auto">
-                      {tagConfig.ui?.primaryEditAction
-                        ?.label ?? "Visit"}
+                  {canMarkVisitToday ? (
+                    <AddEditEventDialog
+                      event={event}
+                      forceValues={
+                        tagConfig.ui?.primaryEditAction
+                          ?.setOnEdit
+                      }
+                    >
+                      <Button className="w-full sm:w-auto">
+                        {tagConfig.ui?.primaryEditAction
+                          ?.label ?? "Visit"}
+                      </Button>
+                    </AddEditEventDialog>
+                  ) : (
+                    <Button
+                      className="w-full sm:w-auto"
+                      disabled
+                      title={`You can mark this visit on ${visitOpensOn}`}
+                    >
+                      {`Visit on ${visitOpensOn}`}
                     </Button>
-                  </AddEditEventDialog>
+                  )}
                 </div>
               )}
             </>

@@ -14,7 +14,7 @@
  * doctor's other departments. Rows on different seats are separate
  * services even on the same day for the same amount. */
 
-import { MON, cmp, fDY, money, roiTxt } from './workflow';
+import { MON, fDY, money, roiTxt } from './workflow';
 
 const GIVEN = ['Paid', 'Approved'];
 const label = (k) => MON[Number(k.slice(5, 7)) - 1];
@@ -56,7 +56,7 @@ export function bizView(ins, request, sel = null, department = null) {
     const since = sup.slice(mi, end + 1).reduce((a, v) => a + v, 0);
     const n = end - mi + 1;
     return {
-      svc: h.service, date: fDY(h.date), amt: money(h.amount), since: money(Math.round(since)),
+      svc: h.service, date: fDY(h.date), amt: money(h.amount), since: money(since),
       span: `${monthName(keys[mi])} – ${monthName(keys[end])} · ${n} month${n === 1 ? '' : 's'}`,
       roi: roiTxt(since / h.amount),
     };
@@ -81,7 +81,7 @@ export function bizView(ins, request, sel = null, department = null) {
       selView = { head: a.span, supL: 'Support after service', sup: a.since, svcL: 'Service', svc: a.amt, roi: a.roi, lastLbl: 'Last service up to ' + mo, lastTxt: `${a.svc} · ${a.date}` };
     } else {
       const sp = sup.slice(0, sel + 1).reduce((a, v) => a + v, 0);
-      selView = { head: `${monthName(from)} – ${mo} · no service yet`, supL: 'Support', sup: cmp(sp), svcL: 'Service', svc: '₹0', roi: '—', lastLbl: 'Last service', lastTxt: 'No service up to ' + mo };
+      selView = { head: `${monthName(from)} – ${mo} · no service yet`, supL: 'Support', sup: money(sp), svcL: 'Service', svc: '₹0', roi: '—', lastLbl: 'Last service', lastTxt: 'No service up to ' + mo };
     }
   }
 
@@ -92,8 +92,8 @@ export function bizView(ins, request, sel = null, department = null) {
     scope: dep || (department ? 'All departments (no department split from ERP)' : 'All departments'),
     from: monthName(from),
     totals: [
-      { l: 'Total support', v: cmp(bTot), full: money(Math.round(bTot)), s: `about ${cmp(avgM)} / month`, c: '#1E3A8A' },
-      { l: 'Total service', v: cmp(sTot), full: money(Math.round(sTot)), s: `${hist.length} service${hist.length === 1 ? '' : 's'}`, c: '#111827' },
+      { l: 'Total support', v: money(bTot), full: money(bTot), s: `${money(avgM)} a month on average`, c: '#1E3A8A' },
+      { l: 'Total service', v: money(sTot), full: money(sTot), s: `${hist.length} service${hist.length === 1 ? '' : 's'}`, c: '#111827' },
       { l: 'ROI', v: sTot ? roiTxt(bTot / sTot) : '—', full: 'Total support ÷ total service', s: 'support ÷ service', c: '#B91C1C' },
     ],
     top3,

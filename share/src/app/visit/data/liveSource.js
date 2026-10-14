@@ -547,7 +547,7 @@ const OTHER_WORK_QUERY = `
   query OtherWorkIn($f: [DBFilterInput], $first: Int) {
     Events(filter: $f, first: $first) {
       edges { node {
-        starts_on status custom_other_type custom_employee_id__name
+        subject starts_on status custom_other_type custom_employee_id__name
         event_participants { reference_doctype__name reference_docname__name }
       } }
     }
@@ -582,9 +582,13 @@ async function fetchOtherWork({ from, to }, conn) {
         .map((p) => p.reference_docname__name);
       if (!people.length && node.custom_employee_id__name) people.push(node.custom_employee_id__name);
       const type = otherWorkLabel(node.custom_other_type);
+      /* Conference / Meeting carry their own title; Admin / Chemist Day's
+         subject is just the type again. */
+      const subject = String(node.subject ?? '').trim();
+      const title = subject && subject !== type ? subject : '';
       for (const id of new Set(people)) {
         const list = byEmployee.get(id) ?? [];
-        if (!list.some((o) => o.date === date)) list.push({ date, type });
+        if (!list.some((o) => o.date === date)) list.push({ date, type, title });
         byEmployee.set(id, list);
       }
     }
@@ -927,6 +931,8 @@ export async function fetchVisitDataset({
       /* Other Work (Admin Day, Conference…): today, anywhere in the window,
          and the days themselves — the same three the leave carries. */
       onOtherWork: otherWorkToday.has(m.id),
+      /* WHICH Other Work today -- "Conference · CME Chennai", not just "Other work". */
+      otherWorkToday: otherWorkToday.get(m.id)?.[0] ?? null,
       onOtherWorkInWindow: otherWorkInWindow.has(m.id),
       otherWork: otherWorkInWindow.get(m.id) ?? [],
     })),
