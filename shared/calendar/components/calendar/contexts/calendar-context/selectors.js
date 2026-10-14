@@ -218,8 +218,16 @@ export function filterCalendarEvents({
         return true;
       }
 
-      // Admin / IT / GM / CEO see everyone's Other Work without a share.
-      if (canSeeAllOtherWork && event.tags === TAG_IDS.OTHER) {
+      // Admin / IT / GM / CEO see anyone's Other Work without a share — but
+      // only for the people they have picked in the employee filter.
+      if (
+        canSeeAllOtherWork &&
+        event.tags === TAG_IDS.OTHER &&
+        selectedUserId.length &&
+        getEventEmployeeIds(event, employeeEmailToId).some((id) =>
+          selectedUserId.includes(id)
+        )
+      ) {
         return true;
       }
 
