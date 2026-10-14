@@ -3,6 +3,7 @@ import { COLOR_HEX_MAP, DEFAULT_COLORS } from "@calendar/components/calendar/con
 import { TAG_FORM_CONFIG } from "@calendar/lib/calendar/form-config";
 import { OTHER_WORK_TYPES, TAG_IDS } from "@calendar/components/calendar/constants";
 import { normalizeStatus } from "@calendar/components/calendar/helpers";
+import { otherWorkStatus } from "@calendar/lib/calendar/otherWork";
 
 // GraphQL returns a Select as its enum name ("ADMIN_DAY"); map it back to the
 // option label ("Admin Day") the form and ERP writes use.
@@ -197,7 +198,11 @@ export function mapErpGraphqlEventToCalendar(node) {
         ? buildDoctorVisitTitle(node)
         : (node.subject || ""),
     description: node.description ?? "",
-    status: normalizeStatus(node.status),
+    // ERP still says Open for an Other Work saved before its day ended.
+    status:
+      tag === TAG_IDS.OTHER
+        ? otherWorkStatus(startDate)
+        : normalizeStatus(node.status),
     // ERP event visibility ("Public" | "Private"). Used by the client visibility
     // filter to keep Public events from leaking to leaf users (e.g. BEs).
     eventType: node.event_type ?? null,

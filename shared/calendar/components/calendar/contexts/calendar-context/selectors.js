@@ -117,6 +117,7 @@ export function filterCalendarEvents({
   visibleRoleIds,
   allowedEmployeeIds,
   isCurrentUserLeaf = false,
+  canSeeAllOtherWork = false,
   usersLoading,
   elbritRoleLoading,
   employeeRoleMap,
@@ -214,6 +215,11 @@ export function filterCalendarEvents({
       // visible — the recipient is typically outside the owner's hierarchy (e.g.
       // an ABM's HQ Tour Plan shared down to a BE).
       if (event.isSharedWithCurrentUser) {
+        return true;
+      }
+
+      // Admin / IT / GM / CEO see everyone's Other Work without a share.
+      if (canSeeAllOtherWork && event.tags === TAG_IDS.OTHER) {
         return true;
       }
 

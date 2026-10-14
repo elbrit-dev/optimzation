@@ -6,7 +6,7 @@ import { fetchEventsByRange } from "@calendar/components/calendar/module/event/s
 import { invalidateCalendarData } from "@calendar/lib/calendar/invalidate";
 import { useCalendarLiveSync } from "@calendar/lib/calendar/useCalendarLiveSync";
 import { resolveCalendarRange } from "@calendar/lib/calendar/range";
-import { isLeafRole, resolveLoggedInRoleId, resolveVisibleEmployeeIds, resolveVisibleRoleIds } from "@calendar/lib/employeeHeirachy";
+import { isLeafRole, resolveLoggedInRoleId, resolveVisibleEmployeeIds, resolveVisibleRoleIds, seesAllOtherWork } from "@calendar/lib/employeeHeirachy";
 import { useEmployeeResolvers } from "@calendar/lib/employeeResolver";
 import { fetchCalendarBootstrapData } from "@calendar/components/calendar/contexts/calendar-context/bootstrapping";
 import { fetchHQTerritories } from "@calendar/components/calendar/module/event/services/master-data.service";
@@ -573,6 +573,10 @@ export function CalendarProvider({
 		if (usersLoading || elbritRoleLoading) return false;
 		return isLeafRole(elbritRoleEdges, resolveLoggedInRoleId(users));
 	}, [elbritRoleEdges, elbritRoleLoading, users, usersLoading]);
+	const canSeeAllOtherWork = useMemo(() => {
+		if (usersLoading) return false;
+		return seesAllOtherWork(users);
+	}, [users, usersLoading]);
 	const visibleEmployeeOptions = useMemo(() => {
 		if (!employeeOptions.length) return [];
 		if (!allowedEmployeeIds.length && !visibleRoleIds.length) return employeeOptions;
@@ -594,6 +598,7 @@ export function CalendarProvider({
 			visibleRoleIds,
 			allowedEmployeeIds,
 			isCurrentUserLeaf,
+			canSeeAllOtherWork,
 			usersLoading,
 			elbritRoleLoading,
 			employeeRoleMap,
@@ -605,6 +610,7 @@ export function CalendarProvider({
 		visibleRoleIds,
 		allowedEmployeeIds,
 		isCurrentUserLeaf,
+		canSeeAllOtherWork,
 		selectedUserId,
 		selectedColors,
 		selectedStatuses,

@@ -18,7 +18,7 @@ import {
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 import { Plus, Trash2 } from "lucide-react";
 import { useEffect, useState, useMemo } from "react";
-import {resolveVisibleEmployeeIds} from "@calendar/lib/employeeHeirachy";
+import {resolveVisibleEmployeeIds, seesAllOtherWork} from "@calendar/lib/employeeHeirachy";
 import { getAvatarColorBySeed, getFirstLetters } from "@calendar/components/calendar/helpers";
 import { cn } from "@calendar/lib/utils";
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
@@ -156,7 +156,10 @@ export function UserSelect({ mode = "popover", onAddCalendar }) {
   const visibleUsers = useMemo(() => {
   
     if (usersLoading || elbritRoleLoading) return [];
-  
+
+    // Admin / IT / GM / CEO see everyone's Other Work, so they can pick anyone.
+    if (seesAllOtherWork(users)) return users;
+
     const allowedEmployeeIds =
       resolveVisibleEmployeeIds(elbritRoleEdges, users);
   

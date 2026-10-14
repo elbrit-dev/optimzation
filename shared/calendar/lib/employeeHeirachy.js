@@ -1,4 +1,5 @@
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
+import { roleCodeFromProfile } from "@calendar/lib/meetingRoles";
 
 // The host passes LOGGED_IN_USER.roleId from the Employee `role_id` field, which
 // can be stale and differs from `custom_role_profile` — the field the role
@@ -20,6 +21,21 @@ export function resolveLoggedInRoleId(users = []) {
   if (matchByEmail?.roleId) return matchByEmail.roleId;
 
   return LOGGED_IN_USER.roleId ?? null;
+}
+
+// Admin, IT, GM and CEO sit outside every reporting chain (root role profiles
+// with no children), so no upward share reaches them and the hierarchy treats
+// them like a BE. They still see everyone's Other Work, and can pick anyone in
+// the calendar's employee filter to do it. "Deputy GM" is not GM.
+const ALL_OTHER_WORK_ROLE_CODES = ["ADMIN", "IT", "GM", "CEO"];
+
+export function seesAllOtherWork(users = []) {
+  if (LOGGED_IN_USER?.role === "Admin" || LOGGED_IN_USER?.roleId === "Admin") {
+    return true;
+  }
+  return [resolveLoggedInRoleId(users), LOGGED_IN_USER?.roleId].some((roleId) =>
+    ALL_OTHER_WORK_ROLE_CODES.includes(roleCodeFromProfile(roleId))
+  );
 }
 
 export function resolveVisibleRoleIds(
