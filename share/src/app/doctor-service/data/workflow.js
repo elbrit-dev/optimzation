@@ -153,6 +153,9 @@ export function normalize(row) {
     byName: row.by_name || row.by || '',
     byRole: gradeOf(row.role_profile) || '',
     dept: row.department || '',
+    // The department the service is judged on: its seat's (the list script's
+    // dept_key), which the support and visits are split by.
+    deptKey: row.dept_key || row.department || '',
     hq: row.hq || '',
     enteredBy: row.entered_by_name || row.owner || '',
     created: row.creation,

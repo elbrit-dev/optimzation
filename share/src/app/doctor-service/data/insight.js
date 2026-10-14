@@ -114,7 +114,9 @@ export function bizView(ins, request, sel = null, department = null) {
       };
     }),
     sel: selView,
-    visits: (ins.visits || []).map((v) => ({ role: v.role, name: v.name, dates: (v.dates || []).map(fDY), none: !(v.dates || []).length })),
+    // The department's own visitors when judged on one; every role still listed.
+    visits: ((dep && ins.visits_by_dept ? ins.visits_by_dept[dep] || (ins.visits || []).map((v) => ({ role: v.role, name: '', dates: [] })) : ins.visits) || [])
+      .map((v) => ({ role: v.role, name: v.name, dates: (v.dates || []).map(fDY), none: !(v.dates || []).length })),
     /* The form's three cells: the department's figures (this view's), and the whole doctor's. */
     cells: { service: sTot, support: bTot, roi: sTot ? bTot / sTot : null, all: allSvc, allSupport: allSup, allRoi: allSvc ? allSup / allSvc : null },
   };

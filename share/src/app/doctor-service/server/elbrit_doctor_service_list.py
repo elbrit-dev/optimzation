@@ -28,13 +28,15 @@
 #            plus:
 #              by_name, entered_by_name   employee names
 #              category                   the service's master category
+#              dept_key                   the service's department as it is
+#                                         judged: its seat's (Role Profile.
+#                                         custom_department), else its own
 #              doctor_avg                 the doctor's average monthly
 #                                         support over the last 12 months IN
-#                                         THE SERVICE'S DEPARTMENT (its Support
-#                                         Items lines' department), so an
+#                                         dept_key (Support Items lines, each
+#                                         by its seat's department), so an
 #                                         Elbrit service is sized on Elbrit's
-#                                         support; the whole doctor's when the
-#                                         lines carry no department
+#                                         support
 #              doctor_avg_all             the same, every department
 #              state                      the tracker's workflow_state, or
 #                                         "Not submitted" (no tracker yet)
@@ -223,7 +225,29 @@ if frappe.get_meta("Doctor Service Master").has_field("custom_category"):
 # ---- each doctor's average monthly support, last 12 months: the whole
 # doctor's, and per department from the Support Items lines
 since = month_back(frappe.utils.nowdate(), 12)
+# A department is the SEAT's: Role Profile.custom_department (the rows' own
+# department fields are wrong in places -- Elbrit seats filed as CND, the
+# Karnataka seats as "Elbrit Karnataka"); a seat with none (SM) keeps the
+# row's own.
+RP_DEPT = {}
+
+
+def load_seat_depts(ids):
+    todo = []
+    for s in ids:
+        if s and s not in RP_DEPT and s not in todo:
+            todo.append(s)
+    for part in chunks(todo):
+        for p in frappe.get_all("Role Profile", filters=[["name", "in", part]], fields=["name", "custom_department"],
+                                limit_page_length=0):
+            RP_DEPT[p.get("name")] = p.get("custom_department") or ""
+    for s in todo:
+        if s not in RP_DEPT:
+            RP_DEPT[s] = ""
+
+
 avg = {}
+header = {}
 months_of = {}
 doctor_of = {}
 for part in chunks(doctors):
@@ -233,24 +257,53 @@ for part in chunks(doctors):
         d = s.get("doctor")
         doctor_of[s.get("name")] = d
         months_of[d] = (months_of.get(d) or 0) + 1
-        avg[d] = (avg.get(d) or 0) + float(s.get("custom_total_amount") or 0)
-for d in avg:
-    avg[d] = round(avg[d] / months_of[d], 2) if months_of.get(d) else 0
+        header[s.get("name")] = float(s.get("custom_total_amount") or 0)
 si_meta = frappe.get_meta("Support Items")
 si_dept = "custom_department" if si_meta.has_field("custom_department") else ("department" if si_meta.has_field("department") else "")
+si_seat = "custom_role_profile" if si_meta.has_field("custom_role_profile") else ("role_profile" if si_meta.has_field("role_profile") else "")
 avg_dept = {}
-if si_dept and doctor_of:
+has_lines = {}
+lines = []
+if doctor_of:
+    lf = ["parent", "amount"]
+    if si_dept:
+        lf.append(si_dept + " as dept")
+    if si_seat:
+        lf.append(si_seat + " as seat")
     for part in chunks(list(doctor_of.keys())):
         for it in frappe.get_all("Support Items", filters=[["parenttype", "=", "Doctor Support"], ["parent", "in", part]],
-                                 fields=["parent", si_dept + " as dept", "amount"], limit_page_length=0):
-            d = doctor_of.get(it.get("parent"))
-            if not d or not it.get("dept"):
-                continue
-            k = d + "|" + it.get("dept")
-            avg_dept[k] = (avg_dept.get(k) or 0) + float(it.get("amount") or 0)
-    for k in avg_dept:
-        n = months_of.get(k.split("|")[0]) or 0
-        avg_dept[k] = round(avg_dept[k] / n, 2) if n else 0
+                                 fields=lf, limit_page_length=0):
+            lines.append(it)
+    seat_ids = []
+    for it in lines:
+        seat_ids.append(it.get("seat"))
+    load_seat_depts(seat_ids)
+    # A month's support is its lines (some records awaiting verification carry
+    # 0 as their own total); the record's total only when it has no lines.
+    for it in lines:
+        d = doctor_of.get(it.get("parent"))
+        if not d:
+            continue
+        has_lines[it.get("parent")] = 1
+        amt = float(it.get("amount") or 0)
+        avg[d] = (avg.get(d) or 0) + amt
+        dept = RP_DEPT.get(it.get("seat")) or it.get("dept") or ""
+        if dept:
+            k = d + "|" + dept
+            avg_dept[k] = (avg_dept.get(k) or 0) + amt
+for name in header:
+    if not has_lines.get(name):
+        d = doctor_of.get(name)
+        avg[d] = (avg.get(d) or 0) + header[name]
+for d in avg:
+    avg[d] = round(avg[d] / months_of[d], 2) if months_of.get(d) else 0
+for k in avg_dept:
+    n = months_of.get(k.split("|")[0]) or 0
+    avg_dept[k] = round(avg_dept[k] / n, 2) if n else 0
+row_seats = []
+for r in rows:
+    row_seats.append(r.get("role_profile"))
+load_seat_depts(row_seats)
 
 out = []
 for r in rows:
@@ -264,8 +317,10 @@ for r in rows:
         r["modified"] = t.get("modified")
     r["category"] = category.get(r.get("service_name")) or ""
     r["doctor_avg_all"] = avg.get(r.get("doctor")) or 0
-    if si_dept:
-        r["doctor_avg"] = avg_dept.get(str(r.get("doctor")) + "|" + str(r.get("department") or "")) or 0
+    # The service's department, as its support is counted: its seat's.
+    r["dept_key"] = RP_DEPT.get(r.get("role_profile")) or r.get("department") or ""
+    if si_dept or si_seat:
+        r["doctor_avg"] = avg_dept.get(str(r.get("doctor")) + "|" + r["dept_key"]) or 0
     else:
         r["doctor_avg"] = r["doctor_avg_all"]
     h = history.get(r.get("name")) or []

@@ -77,7 +77,10 @@ export function ServiceForm({ client, doctor, entry, viewer, onClose, onSaved })
   const services = useMemo(() => (opts?.services || []).map((s) => ({ ...s, cat: s.category || CAT_OF[s.name] || 'Cash' })), [opts]);
   const set = (patch, key) => { setF((s) => ({ ...s, ...patch })); if (key) setErr((e) => ({ ...e, [key]: undefined })); };
 
-  const biz = useMemo(() => bizView(ins, Number(f.amount) || 0, null, pair?.department || null), [ins, f.amount, pair?.department]);
+  // Judged on the chosen person's seat department (as the approval is); an SM
+  // seat has none, so the chosen pair's department.
+  const judgeDept = chosen?.seat_department || pair?.department || null;
+  const biz = useMemo(() => bizView(ins, Number(f.amount) || 0, null, judgeDept), [ins, f.amount, judgeDept]);
   const cells = biz ? biz.cells : null;
 
   const amtOk = Number(f.amount) > 0;
@@ -161,7 +164,7 @@ export function ServiceForm({ client, doctor, entry, viewer, onClose, onSaved })
             </div>
             {cells ? (
               <div className="dsv-mini">
-                <div className="h"><b>{pair ? short(pair.department) : 'This doctor'}</b><span>{biz.window}</span></div>
+                <div className="h"><b>{judgeDept ? short(judgeDept) : 'This doctor'}</b><span>{biz.window}</span></div>
                 <div className="g">
                   <div><span>Total service</span><b className="num">{money(Math.round(cells.service))}</b></div>
                   <div><span>Total support</span><b className="num" style={{ color: '#1E3A8A' }}>{money(Math.round(cells.support))}</b></div>

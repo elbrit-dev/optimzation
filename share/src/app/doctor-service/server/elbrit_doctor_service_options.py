@@ -180,7 +180,22 @@ if doctor:
         services = []
         for s in frappe.get_all("Doctor Service Master", fields=svc_fields, order_by="name asc", limit_page_length=0):
             services.append({"name": s.get("name"), "category": s.get("custom_category") or ""})
-        answer["employees"] = linked_managers(doctor)
+        employees = linked_managers(doctor)
+        # Each person's seat department (Role Profile.custom_department): the
+        # key the form's "worth it" figures are split by, as the approval's.
+        # An SM seat has none -- the chosen pair's department stands.
+        seats = []
+        for e in employees:
+            if e.get("seat") and e.get("seat") not in seats:
+                seats.append(e.get("seat"))
+        seat_dept = {}
+        if seats:
+            for p in frappe.get_all("Role Profile", filters=[["name", "in", seats]], fields=["name", "custom_department"],
+                                    limit_page_length=0):
+                seat_dept[p.get("name")] = p.get("custom_department") or ""
+        for e in employees:
+            e["seat_department"] = seat_dept.get(e.get("seat")) or ""
+        answer["employees"] = employees
         answer["services"] = services
 
 frappe.response["message"] = answer

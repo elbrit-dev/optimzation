@@ -128,7 +128,7 @@ export function Detail({
           </div>
         ) : null}
 
-        <Biz key={e.id} insight={insight} request={e.amount} department={e.dept} loading={insightLoading} />
+        <Biz key={e.id} insight={insight} request={e.amount} department={e.deptKey || e.dept} loading={insightLoading} />
 
         <div className="dsv-sec">
           <div className="dsv-fields">

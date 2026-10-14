@@ -15,9 +15,14 @@
 #
 #   months    the last MONTHS months up to last month, oldest first:
 #             { month: "YYYY-MM", support, by_dept: { department: amount } }
-#             — support = Doctor Support's monthly custom_total_amount (what
-#             the doctor gave back, every department); by_dept = the same
-#             month split by its Support Items lines' department
+#             — support = the month's Support Items lines summed (what the
+#             doctor gave back, every department; the record's own
+#             custom_total_amount only when it has no lines -- some records
+#             awaiting verification carry 0 there); by_dept = the same lines
+#             split by department, each line's department taken from its
+#             SEAT's role profile (lines filed as "Elbrit Karnataka" belong
+#             to Elbrit Bangalore / Mysore / Vasco Karnataka seats), the
+#             line's own department only for a seat without one
 #   services  every Doctor Service for the doctor, newest first:
 #             { name, date, service, amount, department, role_profile,
 #               by_name, status, via_app } — department is the ROLE
@@ -31,7 +36,11 @@
 #             state; "Paid" for an imported one
 #   visits    BE / ABM / RBM / SM: the last 3 visits MADE (Event Completed,
 #             or an employee participant attending / time-stamped — the
-#             doctor page's rule), in the window: { role, name, dates }
+#             doctor page's rule), in the window: { role, name, dates } --
+#             `name` lists everyone whose visit is among those dates
+#   visits_by_dept  the same per department (the visitor's seat's role
+#             profile department at the visit): { department: [ { role,
+#             name, dates } ] }
 #
 # The client works out totals and ROI = support / service from these, for
 # ONE department (the service's) -- by_dept and the services' department --
@@ -90,6 +99,28 @@ def app_status(state):
     return st or "Not submitted"
 
 
+RP_DEPT = {}
+
+
+def load_seat_depts(ids):
+    # Role Profile.custom_department for each seat not looked up yet. A seat
+    # covering several departments (SM) has none: "".
+    todo = []
+    for s in ids:
+        if s and s not in RP_DEPT and s not in todo:
+            todo.append(s)
+    i = 0
+    while i < len(todo):
+        part = todo[i:i + 500]
+        i = i + 500
+        for p in frappe.get_all("Role Profile", filters=[["name", "in", part]], fields=["name", "custom_department"],
+                                limit_page_length=0):
+            RP_DEPT[p.get("name")] = p.get("custom_department") or ""
+    for s in todo:
+        if s not in RP_DEPT:
+            RP_DEPT[s] = ""
+
+
 def ym(y, m):
     return str(y) + "-" + ("0" if m < 10 else "") + str(m)
 
@@ -124,36 +155,55 @@ while i < MONTHS:
 start = keys[0] + "-01"
 end = str(frappe.utils.get_last_day(keys[-1] + "-01"))
 
-# ---- support: the month's total, and the same split by department from its
-# Support Items lines (custom_department on production, department on UAT)
+# ---- support: the month's lines (Support Items), summed and by department.
+# Field names differ: custom_department / custom_role_profile on production,
+# department / role_profile on UAT.
 SI = "Support Items"
 si_meta = frappe.get_meta(SI)
 si_dept = "custom_department" if si_meta.has_field("custom_department") else ("department" if si_meta.has_field("department") else "")
-support = {}
+si_seat = "custom_role_profile" if si_meta.has_field("custom_role_profile") else ("role_profile" if si_meta.has_field("role_profile") else "")
+header = {}
+line_total = {}
 by_dept = {}
 month_of = {}
 for s in frappe.get_all("Doctor Support",
                         filters=[["doctor", "=", doctor], ["date", ">=", start], ["date", "<=", end]],
                         fields=["name", "date", "custom_total_amount"], limit_page_length=0):
     k = str(s.get("date"))[:7]
-    support[k] = (support.get(k) or 0) + float(s.get("custom_total_amount") or 0)
+    header[k] = (header.get(k) or 0) + float(s.get("custom_total_amount") or 0)
     month_of[s.get("name")] = k
-if si_dept and month_of:
-    for it in frappe.get_all(SI, filters=[["parenttype", "=", "Doctor Support"], ["parent", "in", list(month_of.keys())]],
-                             fields=["parent", si_dept + " as dept", "amount"], limit_page_length=0):
+if month_of:
+    lf = ["parent", "amount"]
+    if si_dept:
+        lf.append(si_dept + " as dept")
+    if si_seat:
+        lf.append(si_seat + " as seat")
+    lines = frappe.get_all(SI, filters=[["parenttype", "=", "Doctor Support"], ["parent", "in", list(month_of.keys())]],
+                           fields=lf, limit_page_length=0)
+    seat_ids = []
+    for it in lines:
+        seat_ids.append(it.get("seat"))
+    load_seat_depts(seat_ids)
+    for it in lines:
         k = month_of.get(it.get("parent"))
         if not k:
             continue
+        amt = float(it.get("amount") or 0)
+        line_total[k] = (line_total.get(k) or 0) + amt
         if k not in by_dept:
             by_dept[k] = {}
-        d = it.get("dept") or ""
-        by_dept[k][d] = (by_dept[k].get(d) or 0) + float(it.get("amount") or 0)
+        # The SEAT's department; the line's own only for a seat without one.
+        d = RP_DEPT.get(it.get("seat")) or it.get("dept") or ""
+        by_dept[k][d] = (by_dept[k].get(d) or 0) + amt
 months = []
 for k in keys:
     split = {}
     for d in (by_dept.get(k) or {}):
         split[d] = round(by_dept[k][d], 2)
-    months.append({"month": k, "support": round(support.get(k) or 0, 2), "by_dept": split})
+    # The lines, which is what the record is made of; its own total only when
+    # it has none (some awaiting verification carry 0 there).
+    total = line_total.get(k) if k in line_total else header.get(k)
+    months.append({"month": k, "support": round(total or 0, 2), "by_dept": split})
 
 # ---- services
 meta = frappe.get_meta("Doctor Service")
@@ -178,13 +228,8 @@ if tracker_ids:
 # A service's department is its role profile's (see the header).
 rp_ids = []
 for r in rows:
-    if r.get("role_profile") and r.get("role_profile") not in rp_ids:
-        rp_ids.append(r.get("role_profile"))
-rp_dept = {}
-if rp_ids:
-    for p in frappe.get_all("Role Profile", filters=[["name", "in", rp_ids]], fields=["name", "custom_department"],
-                            limit_page_length=0):
-        rp_dept[p.get("name")] = p.get("custom_department") or ""
+    rp_ids.append(r.get("role_profile"))
+load_seat_depts(rp_ids)
 by_ids = []
 for r in rows:
     if r.get("by") and r.get("by") not in by_ids:
@@ -201,7 +246,7 @@ for r in rows:
     via = bool(r.get("custom_via_app"))
     services.append({"name": r.get("name"), "date": str(r.get("service_date") or r.get("date") or ""),
                      "service": r.get("service_name"), "amount": float(r.get("service_amount") or 0),
-                     "department": rp_dept.get(r.get("role_profile")) or r.get("department") or "",
+                     "department": RP_DEPT.get(r.get("role_profile")) or r.get("department") or "",
                      "role_profile": r.get("role_profile") or "", "by_name": names.get(r.get("by")) or r.get("by"),
                      "status": app_status(tracker_state.get(r.get("custom_tracker")) or r.get("workflow_state")) if via else "Paid",
                      "via_app": via})
@@ -243,6 +288,7 @@ for e in events:
         if g not in made:
             made[g] = []
         made[g].append({"emp": p.get("reference_docname"),
+                        "seat": p.get("custom_role_profile") or e.get("custom_role_profile"),
                         "date": str(p.get("custom_visit_time") or e.get("starts_on"))[:10]})
         if p.get("reference_docname") not in emp_ids:
             emp_ids.append(p.get("reference_docname"))
@@ -251,7 +297,8 @@ for e in events:
         if g in ROLES:
             if g not in made:
                 made[g] = []
-            made[g].append({"emp": e.get("custom_employee_id"), "date": str(e.get("starts_on"))[:10]})
+            made[g].append({"emp": e.get("custom_employee_id"), "seat": e.get("custom_role_profile"),
+                            "date": str(e.get("starts_on"))[:10]})
             if e.get("custom_employee_id") not in emp_ids:
                 emp_ids.append(e.get("custom_employee_id"))
 who = {}
@@ -260,15 +307,49 @@ if emp_ids:
                             limit_page_length=0):
         who[e.get("name")] = e.get("employee_name")
 # `made` is newest first already: the events were read starts_on desc.
-visits = []
-for g in ROLES:
-    lst = made.get(g) or []
+def last3(lst):
+    # The last 3 visit dates, and EVERYONE whose visit is among them -- never
+    # one person's name over another's dates.
     dates = []
+    people = []
     for v in lst:
-        if v["date"] not in dates and len(dates) < 3:
+        if len(dates) >= 3 and v["date"] not in dates:
+            break
+        if v["date"] not in dates:
             dates.append(v["date"])
-    visits.append({"role": g, "name": (who.get(lst[0]["emp"]) or lst[0]["emp"]) if lst else "",
-                   "dates": dates})
+        nm = who.get(v["emp"]) or v["emp"]
+        if nm and nm not in people:
+            people.append(nm)
+    return {"name": ", ".join(people), "dates": dates}
+
+
+# Each visit belongs to the department of the visitor's seat at the time.
+seat_ids = []
+for g in made:
+    for v in made[g]:
+        seat_ids.append(v.get("seat"))
+load_seat_depts(seat_ids)
+visits = []
+dept_list = []
+for g in ROLES:
+    one = last3(made.get(g) or [])
+    visits.append({"role": g, "name": one["name"], "dates": one["dates"]})
+    for v in made.get(g) or []:
+        d = RP_DEPT.get(v.get("seat")) or ""
+        if d and d not in dept_list:
+            dept_list.append(d)
+visits_by_dept = {}
+for d in dept_list:
+    rows_d = []
+    for g in ROLES:
+        mine = []
+        for v in made.get(g) or []:
+            if (RP_DEPT.get(v.get("seat")) or "") == d:
+                mine.append(v)
+        one = last3(mine)
+        rows_d.append({"role": g, "name": one["name"], "dates": one["dates"]})
+    visits_by_dept[d] = rows_d
 
 frappe.response["message"] = {"doctor": {"id": lead.get("name"), "name": lead.get("lead_name") or lead.get("name")},
-                              "months": months, "services": services, "visits": visits}
+                              "months": months, "services": services, "visits": visits,
+                              "visits_by_dept": visits_by_dept}
