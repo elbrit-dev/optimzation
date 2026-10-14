@@ -530,6 +530,70 @@ async function fetchLeave({ from, to }, conn) {
   return byEmployee;
 }
 
+/* OTHER WORK from the calendar: Admin Day / Chemist Day / Conference /
+ * Meeting, saved as an Event with event_category "Other" on one day. A rep on
+ * one has no visit to log that day, so the report lists them under "Other
+ * work" instead of "Not reported".
+ *
+ * WHOSE: the Employee participant (the calendar adds its creator), else the
+ * event's own employee. `__name` scalars only, for the same reason the leave
+ * query uses them.
+ *
+ * NON-FATAL. The report stood without this for months; a field this ERP will
+ * not resolve must cost only the Other work list, never the whole screen.
+ *
+ * -> Map(employeeId -> [{ date: 'YYYY-MM-DD', type }]) */
+const OTHER_WORK_QUERY = `
+  query OtherWorkIn($f: [DBFilterInput], $first: Int) {
+    Events(filter: $f, first: $first) {
+      edges { node {
+        starts_on status custom_other_type custom_employee_id__name
+        event_participants { reference_doctype__name reference_docname__name }
+      } }
+    }
+  }
+`;
+
+const OTHER_WORK_TYPES = ['Admin Day', 'Chemist Day', 'Conference', 'Meeting'];
+
+/* GraphQL hands the Select back as its enum ("ADMIN_DAY"). */
+function otherWorkLabel(value) {
+  const key = String(value ?? '').toUpperCase().replace(/[^A-Z0-9]+/g, '');
+  return OTHER_WORK_TYPES.find((t) => t.toUpperCase().replace(/[^A-Z0-9]+/g, '') === key) ?? 'Other work';
+}
+
+async function fetchOtherWork({ from, to }, conn) {
+  const byEmployee = new Map();
+  try {
+    const data = await graphqlRequest(OTHER_WORK_QUERY, {
+      first: MAX_ROWS,
+      f: [
+        { fieldname: 'event_category', operator: 'EQ', value: 'Other' },
+        { fieldname: 'starts_on', operator: 'GTE', value: `${from} 00:00:00` },
+        { fieldname: 'starts_on', operator: 'LTE', value: `${to} 23:59:59` },
+      ],
+    }, conn);
+    for (const { node } of data?.Events?.edges ?? []) {
+      if (String(node.status ?? '').toLowerCase() === 'cancelled') continue;
+      const date = String(node.starts_on ?? '').slice(0, 10);
+      if (!date) continue;
+      const people = (node.event_participants ?? [])
+        .filter((p) => p.reference_doctype__name === 'Employee' && p.reference_docname__name)
+        .map((p) => p.reference_docname__name);
+      if (!people.length && node.custom_employee_id__name) people.push(node.custom_employee_id__name);
+      const type = otherWorkLabel(node.custom_other_type);
+      for (const id of new Set(people)) {
+        const list = byEmployee.get(id) ?? [];
+        if (!list.some((o) => o.date === date)) list.push({ date, type });
+        byEmployee.set(id, list);
+      }
+    }
+  } catch (err) {
+    console.warn('[visit] Other Work unreadable; nobody is listed under Other work', err);
+  }
+  return byEmployee;
+}
+
 /* ---- Visits COUNTED on the server --------------------------------------
  *
  * A month is ~55,000 visits on production — about 38 MB as the rows the
@@ -761,6 +825,7 @@ export async function fetchVisitDataset({
     cached(`roles:${scope}`, () => fetchSalesRoleProfiles(conn)),
     cached(`leave:${scope}:${today}`, () => fetchLeave({ from: today, to: today }, conn)),
     cached(`viewer:${scope}`, () => resolveViewerEmail(conn)),
+    cached(`otherwork:${scope}:${today}`, () => fetchOtherWork({ from: today, to: today }, conn)),
   ]);
 
   /* WAVES 2 AND 3 START HERE -- after today's query has come back, before
@@ -787,8 +852,12 @@ export async function fetchVisitDataset({
   const leaveWindowPromise = parked(cached(`leave:${scope}:${windowFrom}:${windowTo}`, () =>
     fetchLeave({ from: windowFrom, to: windowTo }, conn)));
   const pobPromise = parked(fetchPobQuotations({ from: windowFrom, to: windowTo }, conn));
+  /* Other Work over the window, alongside the leave: it is part of the same
+     attendance (see fetchOtherWork). Never rejects. */
+  const otherWorkWindowPromise = cached(`otherwork:${scope}:${windowFrom}:${windowTo}`, () =>
+    fetchOtherWork({ from: windowFrom, to: windowTo }, conn));
 
-  const [allTeam, roles, leaveToday, viewerEmail] = await rosterPromise;
+  const [allTeam, roles, leaveToday, viewerEmail, otherWorkToday] = await rosterPromise;
   const salesProfiles = roles.under;
 
   /* SALES ONLY. The roster query asks for every active employee because the
@@ -843,7 +912,7 @@ export async function fetchVisitDataset({
      has not arrived, and a flag it can read beats a row count it would have
      to guess from. See useVisitKpi, which holds the screen for the period the
      reader is actually looking at and lets the rest land quietly. */
-  const build = ({ rows, leaveInWindow, pob, truncated, ready }) => ({
+  const build = ({ rows, leaveInWindow, otherWorkInWindow, pob, truncated, ready }) => ({
     /* BOTH leave flags, because the two periods ask different questions of
        the same roster: `onLeave` is "out today", `onLeaveInWindow` is "took
        leave at some point in the selected range". attendanceOf picks. */
@@ -855,6 +924,11 @@ export async function fetchVisitDataset({
          say what kind of leave each was. A boolean could say somebody was
          away; only this can say when, and for how long, and why. */
       leave: leaveInWindow.get(m.id) ?? [],
+      /* Other Work (Admin Day, Conference…): today, anywhere in the window,
+         and the days themselves — the same three the leave carries. */
+      onOtherWork: otherWorkToday.has(m.id),
+      onOtherWorkInWindow: otherWorkInWindow.has(m.id),
+      otherWork: otherWorkInWindow.get(m.id) ?? [],
     })),
     rows,
     pob,
@@ -882,6 +956,7 @@ export async function fetchVisitDataset({
   if (!todayInWindow) onWave?.(build({
     rows: todayRows,
     leaveInWindow: NO_LEAVE,
+    otherWorkInWindow: NO_LEAVE,
     pob: [],
     truncated: { visits: false, pob: false },
     /* Says what is KNOWN, not what is on screen: the money cards read an
@@ -897,7 +972,9 @@ export async function fetchVisitDataset({
      along rather than following: the Absent bucket is part of the month's
      attendance, not a detail of it, and a month view without them would show
      people as not-reported who were on approved leave. */
-  const [windowRows, leaveInWindow] = await Promise.all([windowCountsPromise, leaveWindowPromise]);
+  const [windowRows, leaveInWindow, otherWorkInWindow] = await Promise.all([
+    windowCountsPromise, leaveWindowPromise, otherWorkWindowPromise,
+  ]);
 
   /* REPLACED, not merged, when today falls inside the window: the window
      query already returned today's events, and concatenating would count
@@ -910,6 +987,7 @@ export async function fetchVisitDataset({
   onWave?.(build({
     rows,
     leaveInWindow,
+    otherWorkInWindow,
     pob: [],
     truncated: { visits: visitsTruncated, pob: false },
     ready: { today: true, window: true, pob: false },
@@ -941,6 +1019,7 @@ export async function fetchVisitDataset({
   const final = build({
     rows,
     leaveInWindow,
+    otherWorkInWindow,
     pob,
     truncated: { visits: visitsTruncated, pob: pobQuotations.truncated },
     ready: { today: true, window: true, pob: true },

@@ -221,7 +221,11 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
        covers that day (the spells are the loaded month's). */
     const onDay = (m) =>
       period !== 'month' && dayKey && dayKey !== today
-        ? { ...m, onLeave: (m.leave ?? []).some((l) => l.from <= dayKey && dayKey <= l.to) }
+        ? {
+            ...m,
+            onLeave: (m.leave ?? []).some((l) => l.from <= dayKey && dayKey <= l.to),
+            onOtherWork: (m.otherWork ?? []).some((o) => o.date === dayKey),
+          }
         : m;
     return {
       team: team.filter((m) => ids.has(m.id)).map(onDay),

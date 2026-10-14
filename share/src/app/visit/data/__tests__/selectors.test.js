@@ -1209,6 +1209,13 @@ describe('attendance over a range', () => {
     expect(attendanceOf(at({ onLeave: true }), none, true)).toBe('onLeave');
   });
 
+  it('reads Other Work after leave and reporting', () => {
+    expect(attendanceOf(at({ onOtherWork: true }), none, false)).toBe('otherWork');
+    expect(attendanceOf(at({ onOtherWork: true }), worked, false)).toBe('working');
+    expect(attendanceOf(at({ onOtherWorkInWindow: true }), none, true)).toBe('otherWork');
+    expect(attendanceOf(at({ onOtherWorkInWindow: true, onLeaveInWindow: true }), none, true)).toBe('onLeave');
+  });
+
   it('keeps a vacant seat vacant in both', () => {
     // A seat is empty or it is not; there is no having been vacant last week.
     expect(attendanceOf(at({ vacant: true, onLeaveInWindow: true }), worked, true)).toBe('vacant');
@@ -1230,7 +1237,7 @@ describe('attendance over a range', () => {
        leave in the window, so both are Absent; C reported. The buckets
        overlap by design — C is Reported AND Absent — so these no longer sum
        to the headcount. */
-    expect(counts).toEqual({ working: 1, notReporting: 2, onLeave: 2, vacant: 1 });
+    expect(counts).toEqual({ working: 1, notReporting: 2, onLeave: 2, otherWork: 0, vacant: 1 });
     for (const state of Object.keys(counts)) {
       expect(repsInAttendanceState(team, rows, state, true)).toHaveLength(counts[state]);
     }
@@ -1311,6 +1318,33 @@ describe('attendanceStatesOf', () => {
 
   it('gives a vacant seat one state and no other', () => {
     expect(attendanceStatesOf(who({ vacant: true }), [d('2026-09-04', 1, 0)], true)).toEqual(['vacant']);
+  });
+
+  it('does not count an Other Work day as a silent day', () => {
+    /* An Admin Day has no visit to log: the rep is under Other work, not Not
+       reported. */
+    const rep = who({ onOtherWorkInWindow: true, otherWork: [{ date: '2026-09-11', type: 'Admin Day' }] });
+    const states = attendanceStatesOf(rep, [d('2026-09-04', 4, 4), d('2026-09-11', 0, 0)], true);
+    expect(states).toEqual(['working', 'otherWork']);
+  });
+
+  it('does not count a leave day as a silent day either', () => {
+    const rep = who({ onLeaveInWindow: true, leave: [{ from: '2026-09-11', to: '2026-09-12', type: 'Casual Leave' }] });
+    const states = attendanceStatesOf(rep, [d('2026-09-04', 4, 4), d('2026-09-11', 2, 0), d('2026-09-12', 0, 0)], true);
+    expect(states).toEqual(['working', 'onLeave']);
+  });
+
+  it('still counts the other silent days around an Other Work day', () => {
+    const rep = who({ onOtherWorkInWindow: true, otherWork: [{ date: '2026-09-11', type: 'Conference' }] });
+    const states = attendanceStatesOf(rep, [d('2026-09-11', 0, 0), d('2026-09-12', 3, 0)], true);
+    expect(states).toEqual(['notReporting', 'otherWork']);
+  });
+
+  it('puts a silent rep on Other Work today under Other work, but a rep who reported under Reported', () => {
+    expect(attendanceStatesOf(who({ onOtherWork: true }), [d('2026-09-11', 0, 0)], false)).toEqual(['otherWork']);
+    expect(attendanceStatesOf(who({ onOtherWork: true }), [d('2026-09-11', 2, 1)], false)).toEqual(['working']);
+    // Leave still wins on a single day.
+    expect(attendanceStatesOf(who({ onOtherWork: true, onLeave: true }), [], false)).toEqual(['onLeave']);
   });
 
   it('still returns exactly one state on a single day', () => {

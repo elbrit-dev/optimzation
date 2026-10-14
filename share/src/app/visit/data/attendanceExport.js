@@ -39,7 +39,7 @@ export function attendanceExportRows(people, team, state, overRange = false, cal
     if (overRange) {
       row['Working days'] = calendar.length;
       row['Days reported'] = p.reportedDays ?? 0;
-      row['Days not reported'] = (p.days?.length ?? 0) - (p.reportedDays ?? 0);
+      row['Days not reported'] = p.silentDays ?? (p.days?.length ?? 0) - (p.reportedDays ?? 0);
     }
     row['Calls planned'] = p.planned;
     row['Calls done'] = p.happened;
@@ -47,12 +47,15 @@ export function attendanceExportRows(people, team, state, overRange = false, cal
     /* The "when" the sheet's expanded rows answer, so the file answers it too. */
     if (overRange && state === 'notReporting') {
       row['Not reported on'] = (p.days ?? [])
-        .filter((d) => d.happened === 0)
+        .filter((d) => d.happened === 0 && !d.excused)
         .map((d) => d.date)
         .join(', ');
     }
     if (overRange && state === 'onLeave') {
       row['Leave days'] = (p.leaveDays ?? []).map((d) => `${d.date} (${d.type})`).join(', ');
+    }
+    if (overRange && state === 'otherWork') {
+      row['Other work days'] = (p.otherWorkDays ?? []).map((d) => `${d.date} (${d.type})`).join(', ');
     }
     return row;
   });
@@ -61,7 +64,7 @@ export function attendanceExportRows(people, team, state, overRange = false, cal
 /* `not-reported_2026-10-01_to_2026-10-12.xlsx` — the state and the window, so
    two exports downloaded a minute apart do not land as export (1).xlsx. */
 export function attendanceExportFilename(state, calendar = []) {
-  const slug = { working: 'reported', notReporting: 'not-reported', onLeave: 'absent', vacant: 'vacant' }[state] ?? state;
+  const slug = { working: 'reported', notReporting: 'not-reported', onLeave: 'absent', otherWork: 'other-work', vacant: 'vacant' }[state] ?? state;
   const from = calendar[0];
   const to = calendar[calendar.length - 1];
   const span = !from ? '' : from === to ? `_${from}` : `_${from}_to_${to}`;

@@ -24,6 +24,10 @@ const CANONICAL = {
   warning: 'warning',
   danger: 'danger',
   neutral: 'neutral',
+  /* Planned work somewhere other than the thing being measured — the visit
+     report's "Other work" (Admin Day, Conference…). Expected, so not a
+     warning, and not brand: the brand red cannot also mean a state. */
+  planned: 'planned',
   /* StatusPill's vocabulary, aliased. Without these a caller passing
      `tone="approved"` fell through to neutral in silence — a grey bar where a
      green one was asked for, with nothing to debug. */
@@ -40,6 +44,7 @@ const FILL = {
   warning: 'var(--status-pending)',
   danger: 'var(--status-rejected)',
   neutral: 'var(--status-draft)',
+  planned: 'var(--status-info)',
 };
 
 const TEXT = {
@@ -48,6 +53,7 @@ const TEXT = {
   warning: 'var(--status-pending-text)',
   danger: 'var(--status-rejected-text)',
   neutral: 'var(--status-draft-text)',
+  planned: 'var(--status-info-text)',
 };
 
 /* The outcome names only — the aliases are accepted, not advertised. */

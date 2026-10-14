@@ -41,7 +41,7 @@ export function PersonDays({ days }) {
      Reported too — and listing the days they DID work under a "Not reported"
      heading answers a question nobody asked. The card's own bar already says
      how much of the plan they did. */
-  const silent = days.filter((d) => d.happened === 0);
+  const silent = days.filter((d) => d.happened === 0 && !d.excused);
   if (silent.length === 0) return null;
 
   return (
@@ -76,7 +76,7 @@ export function PersonDays({ days }) {
  *
  * Same compact table PersonDays uses, so the two drill-downs read as one
  * thing seen from two lists. */
-export function PersonLeave({ days }) {
+export function PersonLeave({ days, fallback = 'Leave' }) {
   if (!days?.length) return null;
 
   return (
@@ -89,7 +89,7 @@ export function PersonLeave({ days }) {
                 leave type is mandatory in ERPNext, so a blank one means the
                 link is broken, and a row that says nothing at all reads as a
                 rendering fault rather than as missing data. */}
-            <td className="py-0.5 text-right text-ds-muted">{d.type || 'Leave'}</td>
+            <td className="py-0.5 text-right text-ds-muted">{d.type || fallback}</td>
           </tr>
         ))}
       </tbody>
@@ -104,8 +104,10 @@ export function PersonLeave({ days }) {
    disagreeing with all three. */
 const DAY_COUNT = {
   working: (p) => p.reportedDays ?? 0,
-  notReporting: (p) => (p.days?.length ?? 0) - (p.reportedDays ?? 0),
+  /* Leave and Other Work days are not silent days — see excusedOn. */
+  notReporting: (p) => p.silentDays ?? (p.days?.length ?? 0) - (p.reportedDays ?? 0),
   onLeave: (p) => p.leaveDays?.length ?? 0,
+  otherWork: (p) => p.otherWorkDays?.length ?? 0,
 };
 
 export function PersonCard({ person, dayState = null, expandable = false, expanded = false }) {

@@ -433,6 +433,94 @@ async function visitTeam(conn) {
 
 const addDays = (iso, n) => { const [y, m, d] = iso.split("-").map(Number); return isoDay(new Date(y, m - 1, d + n)); };
 
+/* WHO WAS AWAY, so they are not counted as "not reported": approved leave,
+   and Other Work from the calendar (Admin Day, Chemist Day, Conference,
+   Meeting -- an Event of category "Other" on one day). Neither is a rep who
+   failed to report; there was no visit to log. The Visit Report reads the
+   same two (share/src/app/visit/data/liveSource.js), kept in step by hand for
+   the reason inSales is. Each read is non-fatal: without it the overview
+   counts as it did before. */
+const LEAVE_QUERY = `
+  query HomeOverviewLeave($f: [DBFilterInput], $first: Int) {
+    LeaveApplications(filter: $f, first: $first) {
+      edges { node { employee__name from_date to_date leave_type__name } }
+    }
+  }
+`;
+const OTHER_WORK_QUERY = `
+  query HomeOverviewOtherWork($f: [DBFilterInput], $first: Int) {
+    Events(filter: $f, first: $first) {
+      edges { node {
+        starts_on status custom_other_type custom_employee_id__name
+        event_participants { reference_doctype__name reference_docname__name }
+      } }
+    }
+  }
+`;
+const OTHER_WORK_TYPES = ["Admin Day", "Chemist Day", "Conference", "Meeting"];
+const otherWorkLabel = (v) => {
+  const key = String(v ?? "").toUpperCase().replace(/[^A-Z0-9]+/g, "");
+  return OTHER_WORK_TYPES.find((t) => t.toUpperCase().replace(/[^A-Z0-9]+/g, "") === key) ?? "Other work";
+};
+
+async function fetchAway(conn, from, to) {
+  const leave = new Map(), otherWork = new Map();
+  const push = (map, id, entry) => { if (!id) return; if (!map.has(id)) map.set(id, []); map.get(id).push(entry); };
+  await Promise.all([
+    gql(conn, LEAVE_QUERY, {
+      first: VISIT_PAGE,
+      f: [
+        { fieldname: "status", operator: "EQ", value: "Approved" },
+        { fieldname: "from_date", operator: "LTE", value: to },
+        { fieldname: "to_date", operator: "GTE", value: from },
+      ],
+    }).then((d) => {
+      for (const { node } of d?.LeaveApplications?.edges ?? []) {
+        push(leave, node.employee__name, { from: String(node.from_date || "").slice(0, 10), to: String(node.to_date || "").slice(0, 10), type: node.leave_type__name || "Leave" });
+      }
+    }).catch((e) => console.warn("[home-overview] leave unreadable; nobody is shown on leave", e)),
+    gql(conn, OTHER_WORK_QUERY, {
+      first: VISIT_PAGE,
+      f: [
+        { fieldname: "event_category", operator: "EQ", value: "Other" },
+        { fieldname: "starts_on", operator: "GTE", value: `${from} 00:00:00` },
+        { fieldname: "starts_on", operator: "LTE", value: `${to} 23:59:59` },
+      ],
+    }).then((d) => {
+      for (const { node } of d?.Events?.edges ?? []) {
+        if (String(node.status || "").toLowerCase() === "cancelled") continue;
+        const date = String(node.starts_on || "").slice(0, 10);
+        if (!date) continue;
+        const ids = (node.event_participants ?? []).filter((p) => p.reference_doctype__name === "Employee" && p.reference_docname__name).map((p) => p.reference_docname__name);
+        if (!ids.length && node.custom_employee_id__name) ids.push(node.custom_employee_id__name);
+        for (const id of new Set(ids)) push(otherWork, id, { date, type: otherWorkLabel(node.custom_other_type) });
+      }
+    }).catch((e) => console.warn("[home-overview] Other Work unreadable; nobody is shown on other work", e)),
+  ]);
+  return { leave, otherWork };
+}
+
+/* Why someone who logged no visit in [from, to] was not silent, or null.
+   Every working day (Monday to Saturday) in the window must be covered by
+   leave or Other Work: one Admin Day does not excuse a silent month. Named
+   by what covered them -- leave when any of it was leave. */
+function excuseOf(away, id, from, to) {
+  const leave = away.leave.get(id) ?? [], other = away.otherWork.get(id) ?? [];
+  if (!leave.length && !other.length) return null;
+  let anyLeave = false, firstType = "";
+  for (let d = from; d <= to; d = addDays(d, 1)) {
+    const [y, m, dd] = d.split("-").map(Number);
+    if (new Date(y, m - 1, dd).getDay() === 0) continue;
+    const l = leave.find((s) => s.from <= d && d <= s.to);
+    const o = l ? null : other.find((s) => s.date === d);
+    if (!l && !o) return null;
+    if (l) anyLeave = true;
+    if (!firstType) firstType = (l || o).type;
+  }
+  if (!firstType) return null;
+  return { kind: anyLeave ? "leave" : "otherWork", type: anyLeave ? (leave[0].type || "Leave") : firstType };
+}
+
 /* One window, checked the way the Support Report checks a month: this ERP
    can hand one request another request's answer when several are in flight,
    so every event must fall inside the window it was asked for. A week still
@@ -537,6 +625,7 @@ function ownTeam(roster, org) {
    nothing yet. */
 export async function fetchVisit(conn, today) {
   const t = isoDay(today);
+  const awayToday = fetchAway(conn, t, t);
   const [{ team: roster }, todays, org] = await Promise.all([visitTeam(conn), visitsIn(conn, t, t), fetchOrg(conn)]);
   const { team, ids } = ownTeam(roster, org);
   const mine = (rs) => (ids ? rs.filter((r) => ids.has(r.employeeId)) : rs);
@@ -561,8 +650,11 @@ export async function fetchVisit(conn, today) {
   }
   if (!all.length) return null;
   const rows = mine(all);
+  /* Leave and Other Work over the same window the visits were read for. */
+  const from = mode === "today" ? t : P.fromDate, to = mode === "today" ? t : P.toDate < t ? P.toDate : t;
+  const away = mode === "today" ? await awayToday : await fetchAway(conn, from, to);
   console.info(`[home-overview] visit: ${read} Doctor Visit plan events read for ${mode === "today" ? t : P.fromDate + ".." + P.toDate}, ${rows.length} participant rows, team ${team.length} of ${roster.length}`);
-  return shapeVisit(rows, team, P, mode, Boolean(ids));
+  return shapeVisit(rows, team, P, mode, Boolean(ids), (id) => excuseOf(away, id, from, to));
 }
 
 const hhmm = (ts) => { const h = Number(String(ts).slice(11, 13)), m = String(ts).slice(14, 16); return Number.isFinite(h) ? `${h % 12 || 12}:${m} ${h < 12 ? "AM" : "PM"}` : ""; };
@@ -574,7 +666,7 @@ const hhmm = (ts) => { const h = Number(String(ts).slice(11, 13)), m = String(ts
    drop. The group also puts the missing field in front of whoever can fix it. */
 export const NO_DEPT = "No department", NO_HQ = "No HQ";
 
-function shapeVisit(rows, team, P, mode, scoped) {
+function shapeVisit(rows, team, P, mode, scoped, excuseFor = () => null) {
   // A narrowed viewer with nothing in the window still gets their section, at zero.
   if (!rows.length && !(scoped && team.length)) return null;
 
@@ -611,6 +703,8 @@ function shapeVisit(rows, team, P, mode, scoped) {
   const firstOf = new Map();
   for (const r of rows) if (r.visitTime && (!firstOf.has(r.employeeId) || r.visitTime < firstOf.get(r.employeeId))) firstOf.set(r.employeeId, r.visitTime);
   const didReport = (id) => firstOf.has(id);
+  /* Logged nothing, but was on leave or on Other Work: not "not reported". */
+  const excused = (m) => (!m.vacant && !didReport(m.id) ? excuseFor(m.id) : null);
 
   /* A unit's people: its own members and everyone who logged a call in it,
      with the managers above them up to the top of the ladder so the tree
@@ -649,17 +743,20 @@ function shapeVisit(rows, team, P, mode, scoped) {
      the headline. */
   const listed = new Set();
   function repsOf(people) {
-    const reported = [], notYet = [], vacant = [];
+    const reported = [], notYet = [], vacant = [], leave = [], other = [];
     for (const m of people) {
       if (!m || listed.has(m.id)) continue;
       listed.add(m.id);
       const who = { name: m.name, role: m.short || "—", hq: String(m.hq || "").replace(/^HQ-\s*/, "") };
+      const why = excused(m);
       if (m.vacant) vacant.push(who);
       else if (didReport(m.id)) reported.push({ ...who, time: hhmm(firstOf.get(m.id)) });
+      else if (why?.kind === "leave") leave.push({ ...who, time: why.type });
+      else if (why) other.push({ ...who, time: why.type });
       else notYet.push(who);
     }
     reported.sort((a, b) => a.time.localeCompare(b.time));
-    return { reported, notYet, vacant };
+    return { reported, notYet, vacant, leave, other };
   }
 
   /* Both groupings -- departments and HQs -- are built; the view picks one
@@ -683,7 +780,10 @@ function shapeVisit(rows, team, P, mode, scoped) {
     const own = units.map((u) => repsOf(u.members));
     units.forEach((u, i) => {
       const x = repsOf(u.extra);
-      u.reps = { reported: own[i].reported.concat(x.reported), notYet: own[i].notYet.concat(x.notYet), vacant: own[i].vacant.concat(x.vacant) };
+      u.reps = {
+        reported: own[i].reported.concat(x.reported), notYet: own[i].notYet.concat(x.notYet), vacant: own[i].vacant.concat(x.vacant),
+        leave: own[i].leave.concat(x.leave), other: own[i].other.concat(x.other),
+      };
       delete u.members; delete u.extra;
     });
     return units;
@@ -702,7 +802,12 @@ function shapeVisit(rows, team, P, mode, scoped) {
     hqs: byHq, byDept, byHq,
     /* As the report's attendance card counts it: filled seats are the
        denominator, vacant seats are listed beside it, never inside it. */
-    reps: { reported: att.working, total: att.inScope, vacant },
+    reps: {
+      reported: att.working, total: att.inScope, vacant,
+      /* Filled seats that logged nothing but were away -- out of "not reported". */
+      leave: team.filter((m) => excused(m)?.kind === "leave").length,
+      other: team.filter((m) => excused(m)?.kind === "otherWork").length,
+    },
   };
 }
 

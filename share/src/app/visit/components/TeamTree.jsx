@@ -77,7 +77,9 @@ function rowFlags(member, roll) {
      empty row means something different when nobody sits in the seat, or
      when the person is on approved leave, and a reader who cannot tell those
      from "did nothing today" is being told the wrong thing. */
-  const showPill = member.vacant || (roll.isLeaf && state === 'onLeave');
+  /* Other work keeps one too, for the same reason: an empty bar on an Admin
+     Day is not a rep who did nothing. */
+  const showPill = member.vacant || (roll.isLeaf && (state === 'onLeave' || state === 'otherWork'));
   return {
     state,
     showPill,

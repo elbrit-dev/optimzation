@@ -982,13 +982,34 @@ export function byHq(rows, team) {
 export function attendanceOf(member, repsWithVisits, overRange = false) {
   if (member.vacant) return 'vacant';
   const reported = repsWithVisits.has(member.id);
-  if (!overRange) return member.onLeave ? 'onLeave' : reported ? 'working' : 'notReporting';
+  if (!overRange) {
+    if (member.onLeave) return 'onLeave';
+    if (reported) return 'working';
+    return member.onOtherWork ? 'otherWork' : 'notReporting';
+  }
 
   /* Falls back to today's flag when the source has no windowed one -- the
      mock, and any caller still on the old shape -- so a missing field
      degrades to the old behaviour rather than to "nobody was ever away". */
   const away = member.onLeaveInWindow ?? member.onLeave;
-  return reported ? 'working' : away ? 'onLeave' : 'notReporting';
+  const elsewhere = member.onOtherWorkInWindow ?? member.onOtherWork;
+  return reported ? 'working' : away ? 'onLeave' : elsewhere ? 'otherWork' : 'notReporting';
+}
+
+/* Why a day with no visits was not a silent day, or null when it was one:
+ * approved leave covered it, or the person had Other Work in the calendar
+ * that day (Admin Day, Chemist Day, Conference, Meeting). Neither is a rep
+ * who failed to report — there was no visit to log. */
+export function excusedOn(member, date) {
+  if ((member.leave ?? []).some((s) => s.from <= date && date <= s.to)) return 'leave';
+  if ((member.otherWork ?? []).some((o) => o.date === date)) return 'otherWork';
+  return null;
+}
+
+/* A day that counts against the person: nothing logged, and nothing to
+   excuse it. */
+function isSilentDay(member, day) {
+  return day.happened === 0 && !excusedOn(member, day.date);
 }
 
 /* EVERY state a person is in, which over a range can be more than one.
@@ -1027,7 +1048,8 @@ export function attendanceStatesOf(member, days, overRange = false) {
   /* One day, one state — leave first, exactly as attendanceOf has it. */
   if (!overRange) {
     if (member.onLeave) return ['onLeave'];
-    return [reportedAnyDay ? 'working' : 'notReporting'];
+    if (reportedAnyDay) return ['working'];
+    return [member.onOtherWork ? 'otherWork' : 'notReporting'];
   }
 
   const out = [];
@@ -1036,8 +1058,11 @@ export function attendanceStatesOf(member, days, overRange = false) {
      days with a plan, so this cannot fire on a Sunday. The `length === 0`
      arm is the person with no plan at all in the range — no day can speak
      for them, so the range does, rather than losing them from all four. */
-  if (days.some((d) => d.happened === 0) || days.length === 0) out.push('notReporting');
+  /* Leave and Other Work days are not silent days: there was no visit to
+     log. They have their own lists. */
+  if (days.some((d) => isSilentDay(member, d)) || days.length === 0) out.push('notReporting');
   if (member.onLeaveInWindow ?? member.onLeave) out.push('onLeave');
+  if (member.onOtherWorkInWindow ?? member.onOtherWork) out.push('otherWork');
   return out;
 }
 
@@ -1248,6 +1273,18 @@ export function leaveDaysOf(member, calendar = []) {
   return out;
 }
 
+/* The days in this window a person had Other Work, each with its type
+ * ("Admin Day", "Conference"…) — the Other work list's figure and rows. Cut
+ * against the calendar for the same reason leaveDaysOf is. */
+export function otherWorkDaysOf(member, calendar = []) {
+  const entries = member.otherWork ?? [];
+  if (entries.length === 0) return [];
+  const inWindow = new Set(calendar);
+  return entries
+    .filter((o) => inWindow.has(o.date))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
 /* The people behind one attendance chip.
  *
  * Classified by `attendanceOf`, the SAME function attendance() counts with,
@@ -1276,7 +1313,10 @@ export function repsInAttendanceState(team, rows, state, overRange = false, cale
      * `includes`, not `===`: over a range a person is in every bucket their
      * days put them in, so the same name legitimately appears on both the
      * Reported and the Not reported list. */
-    const days = daysOf(mine, calendar);
+    /* Each day says whether it was excused (leave / Other Work), so the Not
+       reported figure and its day list skip the same days the bucket does. */
+    const days = daysOf(mine, calendar).map((d) =>
+      d.happened === 0 ? { ...d, excused: excusedOn(m, d.date) } : d);
     if (!attendanceStatesOf(m, days, overRange).includes(state)) continue;
     /* The same split the tree rows and the HQ cards draw — one function, so
        a rep's bar says the same thing wherever the reader met them. */
@@ -1301,6 +1341,11 @@ export function repsInAttendanceState(team, rows, state, overRange = false, cale
       /* The days they were away, with the kind of leave each was — the
          Absent list's own figure and the rows behind it. */
       leaveDays: leaveDaysOf(m, calendar),
+      /* The days they were on Other Work, with its type. */
+      otherWorkDays: otherWorkDaysOf(m, calendar),
+      /* Days with nothing logged and nothing excusing them — the Not
+         reported list's own figure. */
+      silentDays: days.filter((d) => d.happened === 0 && !d.excused).length,
       /* WHEN, not just how much. "Not reported" over a month is a rep who
          logged nothing across four weeks, and the next question is always
          which days were lost — a fact the aggregates above cannot answer and

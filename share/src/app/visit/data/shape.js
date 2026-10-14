@@ -127,6 +127,12 @@
  *                                          reads whichever the period asks
  *                                          for; only `vacant` is as-of-now in
  *                                          both.
+ * @property {boolean}     onOtherWork     has Other Work in the calendar
+ *                                          TODAY (Admin Day, Conference…)
+ * @property {boolean}     onOtherWorkInWindow  has Other Work on some day in
+ *                                          the SELECTED window
+ * @property {{date: string, type: string}[]} otherWork  those days, in the
+ *                                          window, with the Other Work type
  * @property {string|null} roleProfile  Employee.custom_role_profile. The node
  *                                  in the Role Profile TREE this person sits
  *                                  at; the roster is narrowed to the subtree
@@ -228,7 +234,10 @@ export const MANAGER_LEVELS = new Set(['ABM', 'RBM', 'SM', 'ZSM', 'GM']);
 
 /* The four attendance states, in the order they are stacked and legended.
    `working` first because it is the one you want to read at a glance. */
-export const ATTENDANCE = ['working', 'notReporting', 'onLeave', 'vacant'];
+/* `otherWork` sits after Absent: like leave it accounts for a rep who logged
+   no visits — they were on Other Work in the calendar (Admin Day, Chemist
+   Day, Conference, Meeting), so the day had no visit to log. */
+export const ATTENDANCE = ['working', 'notReporting', 'onLeave', 'otherWork', 'vacant'];
 
 /* REPORTED, not "working". A rep who logged a visit has REPORTED it; whether
    they were working is a thing this screen cannot know — it sees the log, not
@@ -249,6 +258,7 @@ export const ATTENDANCE_LABEL = {
   working: 'Reported',
   notReporting: 'Not reported',
   onLeave: 'Absent',
+  otherWork: 'Other work',
   vacant: 'Vacant',
 };
 
@@ -260,6 +270,7 @@ export const ATTENDANCE_SHEET_TITLE = {
   working: 'Reported today',
   notReporting: 'Not reported today',
   onLeave: 'Absent today',
+  otherWork: 'On other work today',
   vacant: 'Vacant seats',
 };
 
@@ -281,6 +292,7 @@ export const ATTENDANCE_TONE = {
   working: 'success',
   notReporting: 'danger',
   onLeave: 'warning',
+  otherWork: 'planned',
   vacant: 'neutral',
 };
 

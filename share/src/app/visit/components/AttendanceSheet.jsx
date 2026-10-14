@@ -66,6 +66,8 @@ export function AttendanceSheet({ state, team, rows, overRange = false, calendar
   const canOpen = (person) => {
     if (!overRange) return false;
     if (state === 'onLeave') return (person.leaveDays?.length ?? 0) > 0;
+    /* Other work → which days, and what kind (Admin Day, Conference…). */
+    if (state === 'otherWork') return (person.otherWorkDays?.length ?? 0) > 0;
     if (state === 'working' || state === 'notReporting') return person.days.length > 0;
     return false;
   };
@@ -159,6 +161,7 @@ export function AttendanceSheet({ state, team, rows, overRange = false, calendar
               {state === 'working' ? <PersonTrend days={p.days} /> : null}
               {state === 'notReporting' ? <PersonDays days={p.days} /> : null}
               {state === 'onLeave' ? <PersonLeave days={p.leaveDays} /> : null}
+              {state === 'otherWork' ? <PersonLeave days={p.otherWorkDays} fallback="Other work" /> : null}
             </div>
           </DisclosureRow>
         ))

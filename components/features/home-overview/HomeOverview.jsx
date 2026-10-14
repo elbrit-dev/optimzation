@@ -394,9 +394,9 @@ function VisitRow({ L, view, open, pop }) {
             <span style={{ fontSize: 13, color: "#8a93a3" }}>of {V.reps.total}</span>
           </span>
           <span style={{ display: "flex", height: 6, borderRadius: 99, overflow: "hidden", gap: 2, background: "#eef1f5" }}>
-            <span style={{ width: V.repsW.rep, background: "#16a34a" }} /><span style={{ width: V.repsW.not, background: "#dc2626" }} />
+            <span style={{ width: V.repsW.rep, background: "#16a34a" }} /><span style={{ width: V.repsW.not, background: "#dc2626" }} /><span style={{ width: V.repsW.away, background: "#1d4ed8" }} />
           </span>
-          <span style={{ fontSize: 12, color: "#5b6576" }}>{V.repsW.notN} not yet · {V.reps.vacant} vacant</span>
+          <span style={{ fontSize: 12, color: "#5b6576" }}>{V.repsW.notN} not yet{V.repsW.awayN ? ` · ${V.repsW.awayN} on leave / other work` : ""} · {V.reps.vacant} vacant</span>
         </Tile>
       )}
       {V.units.map((h) => (
@@ -795,7 +795,7 @@ function RepsBody({ spec, setPan, pan }) {
         <Kpis kpis={spec.kpis} />
         <div style={boxed}>
           <span style={{ fontSize: 13, fontWeight: 600 }}>Territories</span>
-          <div style={{ display: "flex", height: 10, borderRadius: 99, overflow: "hidden", gap: 2, background: "#eef1f5" }}><span style={{ width: spec.repW, background: "#16a34a" }} /><span style={{ width: spec.notW, background: "#dc2626" }} /><span style={{ width: spec.vacW, background: "#98a2b3" }} /></div>
+          <div style={{ display: "flex", height: 10, borderRadius: 99, overflow: "hidden", gap: 2, background: "#eef1f5" }}><span style={{ width: spec.repW, background: "#16a34a" }} /><span style={{ width: spec.notW, background: "#dc2626" }} /><span style={{ width: spec.awayW, background: "#1d4ed8" }} /><span style={{ width: spec.vacW, background: "#98a2b3" }} /></div>
           <span style={{ fontSize: 12, color: "#5b6576", textWrap: "pretty" }}>{spec.note}</span>
         </div>
       </div>
@@ -808,8 +808,8 @@ function RepsBody({ spec, setPan, pan }) {
             <button type="button" className="ho-row" aria-expanded={u.open} onClick={() => setPan({ ...pan, ex: u.open ? null : u.key })} style={{ width: "100%", display: "grid", gridTemplateColumns: "minmax(0,1fr) auto 20px", gap: 12, alignItems: "center", padding: "12px 14px", border: 0, background: "#fff", textAlign: "left", cursor: "pointer" }}>
               <span style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
                 <span style={{ fontSize: 14, fontWeight: 600, ...ell }}>{u.name}</span>
-                <span style={{ display: "flex", height: 5, borderRadius: 99, overflow: "hidden", gap: 1, background: "#eef1f5" }}><span style={{ width: u.repW, background: "#16a34a" }} /><span style={{ width: u.notW, background: "#dc2626" }} /><span style={{ width: u.vacW, background: "#98a2b3" }} /></span>
-                <span style={{ fontSize: 12, color: "#5b6576" }}>{u.rep} of {u.tot} reported · {u.vac} vacant</span>
+                <span style={{ display: "flex", height: 5, borderRadius: 99, overflow: "hidden", gap: 1, background: "#eef1f5" }}><span style={{ width: u.repW, background: "#16a34a" }} /><span style={{ width: u.notW, background: "#dc2626" }} /><span style={{ width: u.awayW, background: "#1d4ed8" }} /><span style={{ width: u.vacW, background: "#98a2b3" }} /></span>
+                <span style={{ fontSize: 12, color: "#5b6576" }}>{u.rep} of {u.tot} reported{u.away ? ` · ${u.away} away` : ""} · {u.vac} vacant</span>
               </span>
               <span style={{ fontSize: 18, fontWeight: 700, color: u.fc, ...tabNum }}>{u.n}</span>
               <span style={{ color: "#8a93a3", display: "grid", placeItems: "center", transform: `rotate(${u.open ? 180 : 0}deg)`, transition: "transform .2s" }}><Chevron d="M6 9l6 6 6-6" /></span>
