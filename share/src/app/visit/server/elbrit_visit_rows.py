@@ -37,6 +37,14 @@
 
 PARTS = "`tabEvent Participants`"
 CHUNK = 500
+# Role profiles that see EVERY visit, whatever the ERP's Event sharing says:
+# HR (2026-10). A visit Event is private and shared only up the reporting
+# chain, so HR, outside it, read none of them. The CEO and the GM are
+# management and see every department (2026-10-14): the share chain never
+# reaches the CEO at all, and neither should depend on reports_to being
+# clean -- a plan owned by a record cut off from the chain is still theirs
+# to see. Keep in step with the other Visit script.
+ALL_VISITS_PROFILES = ["HR", "HR Manager", "HR & Procurement", "CEO", "GM"]
 
 
 def valid_date(d):
@@ -101,6 +109,8 @@ def downline_of(user):
 
 def visit_events(filters, fields):
     # As in elbrit_visit_summary — keep the two in step.
+    if frappe.db.get_value("User", frappe.session.user, "role_profile_name") in ALL_VISITS_PROFILES:
+        return frappe.get_all("Event", filters=filters, fields=fields, limit_page_length=0)
     team = downline_of(frappe.session.user)
     out = []
     for part in chunks(team):
