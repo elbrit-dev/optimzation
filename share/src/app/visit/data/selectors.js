@@ -1504,6 +1504,7 @@ export function asOfFrom(rows) {
  *    most-visited first; each doctor's people likewise; dates newest first. */
 export function doctorsVisited(rows = [], team = []) {
   const shortOf = new Map(team.map((m) => [m.id, m.short]));
+  const deptOf = new Map(team.map((m) => [m.id, m.department || '']));
   const byDoctor = new Map();
   for (const r of rows) {
     if (!r?.visitTime || !r.doctorId) continue;
@@ -1528,7 +1529,7 @@ export function doctorsVisited(rows = [], team = []) {
     const id = r.employeeId || r.participantId || '';
     let p = d.byPerson.get(id);
     if (!p) {
-      p = { employeeId: id, name: r.employeeName || r.participantName || id, short: shortOf.get(id) || '', visits: 0, dates: [] };
+      p = { employeeId: id, name: r.employeeName || r.participantName || id, short: shortOf.get(id) || '', department: deptOf.get(id) || '', visits: 0, dates: [] };
       d.byPerson.set(id, p);
     }
     p.visits += 1;
@@ -1542,4 +1543,72 @@ export function doctorsVisited(rows = [], team = []) {
         .sort((a, b) => b.visits - a.visits || a.name.localeCompare(b.name)),
     }))
     .sort((a, b) => b.visits - a.visits || a.doctorName.localeCompare(b.doctorName));
+}
+
+/* The Doctor-wise list WITH the doctors nobody visited: `doctorsVisited` plus
+ * every doctor mapped to the scope's seats (`mapped`, from loadMappedDoctors),
+ * the unvisited ones at 0. Each mapped doctor also lists the people in scope
+ * who hold a seat it is mapped to and have not visited it, at 0 visits — so
+ * a doctor's card says whose doctor it is even before anyone has gone.
+ *
+ * `scope` is the team members in scope (seat = their roleProfile).
+ * -> doctorsVisited's shape, plus `mapped` (true when on someone's list);
+ *    visited first, most-visited first, then the unvisited by name. */
+export function doctorCoverage(rows = [], mapped = [], scope = [], team = scope, support = []) {
+  const visited = doctorsVisited(rows, team);
+  const byId = new Map(visited.map((d) => [d.doctorId, { ...d, people: [...d.people], mapped: false }]));
+  const holders = new Map();
+  for (const m of scope) {
+    if (!m?.roleProfile) continue;
+    if (!holders.has(m.roleProfile)) holders.set(m.roleProfile, []);
+    holders.get(m.roleProfile).push(m);
+  }
+  for (const r of mapped) {
+    if (!r?.doctorId) continue;
+    let d = byId.get(r.doctorId);
+    if (!d) {
+      d = {
+        doctorId: r.doctorId, doctorName: r.doctorName || r.doctorId, city: r.city || '',
+        specialty: r.specialty || '', categories: [], hq: r.hq || '', visits: 0, lastDate: '', people: [], mapped: true,
+      };
+      byId.set(r.doctorId, d);
+    }
+    d.mapped = true;
+    if (!d.hq && r.hq) d.hq = r.hq;
+    for (const m of holders.get(r.seat) ?? []) {
+      if (d.people.some((p) => p.employeeId === m.id)) continue;
+      d.people.push({ employeeId: m.id, name: m.name, short: m.short || '', department: m.department || '', visits: 0, dates: [] });
+    }
+  }
+  /* DOCTOR SUPPORT for the period (loadSupportLines): each line is booked on
+     a seat, and goes to whoever in scope holds it. A person gets a `support`
+     figure only when their seat carries a line for this doctor — an ABM or
+     RBM with none shows no support at all, never a ₹0. The doctor's own
+     `support` is the scope's lines, each counted once. */
+  for (const line of support) {
+    const holdersOfSeat = holders.get(line.seat);
+    if (!line?.doctorId || !holdersOfSeat?.length) continue;
+    let d = byId.get(line.doctorId);
+    if (!d) {
+      d = {
+        doctorId: line.doctorId, doctorName: line.doctorId, city: '', specialty: '', categories: [], hq: '',
+        visits: 0, lastDate: '', people: [], mapped: false,
+      };
+      byId.set(line.doctorId, d);
+    }
+    d.support = (d.support ?? 0) + line.amount;
+    for (const m of holdersOfSeat) {
+      let p = d.people.find((x) => x.employeeId === m.id);
+      if (!p) {
+        p = { employeeId: m.id, name: m.name, short: m.short || '', department: m.department || '', visits: 0, dates: [] };
+        d.people.push(p);
+      }
+      p.support = (p.support ?? 0) + line.amount;
+    }
+  }
+  for (const d of byId.values()) {
+    d.people.sort((a, b) => b.visits - a.visits || (b.support ?? 0) - (a.support ?? 0) || a.name.localeCompare(b.name));
+  }
+  return [...byId.values()].sort((a, b) =>
+    b.visits - a.visits || (b.support ?? 0) - (a.support ?? 0) || a.doctorName.localeCompare(b.doctorName));
 }

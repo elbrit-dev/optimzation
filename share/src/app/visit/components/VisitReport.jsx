@@ -9,6 +9,7 @@ import {
   callAverage,
   geoSplit,
   happened,
+  monthEnd,
   planned,
   pobTotal,
   resolveSelection,
@@ -170,6 +171,8 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
     loadRows,
     loadPob,
     loadContacts,
+    loadMapped,
+    loadSupport,
   } = useVisitKpi({
     /* No scopeId: the hook resolves the viewer for `root`, which is only
        used here as the DEFAULT pick. Everything else reads the unscoped
@@ -390,6 +393,32 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
   const planList = useListRows(loadRows, planRequest);
   const hourList = useListRows(loadRows, hourRequest);
   const doctorList = useListRows(loadRows, doctorRequest);
+  /* THE DOCTORS MAPPED TO THE SCOPE'S SEATS, so the card can show the ones
+     nobody visited. Skipped for a very wide scope (the whole company is tens
+     of thousands of doctors): the card then lists the visited ones only and
+     says so. */
+  const scopeSeats = useMemo(
+    () => [...new Set(scoped.team.map((m) => m.roleProfile).filter(Boolean))].sort(),
+    [scoped.team],
+  );
+  const MAX_MAPPED_SEATS = 400;
+  const mappedRequest = loadMapped && !nothingSelected && scopeSeats.length && scopeSeats.length <= MAX_MAPPED_SEATS
+    ? { seats: scopeSeats, hq: view.activeHq === ALL_HQS ? null : view.activeHq }
+    : null;
+  const mappedList = useListRows(loadMapped, mappedRequest);
+  /* THE MONTH'S DOCTOR SUPPORT, for each person on a doctor's card. Support
+     is monthly (the record is dated the month's end), so the request spans
+     the WHOLE months the window touches: a Date view reads its day's month,
+     a Month view its month(s). */
+  const supportRequest = loadSupport && !nothingSelected && win
+    ? { from: `${win.from.slice(0, 7)}-01`, to: monthEnd(win.to.slice(0, 7)) }
+    : null;
+  const supportList = useListRows(loadSupport, supportRequest);
+  const mappedNote = scopeSeats.length > MAX_MAPPED_SEATS
+    ? 'This team is too large to list every mapped doctor; pick a smaller team to see the ones not visited.'
+    : mappedList.error
+      ? 'Could not load the mapped doctors, so only the visited ones are listed.'
+      : null;
 
   /* The two ways the page has to name its period in words. Derived HERE, not
      in the components that print them: telling "MTD" from "Aug" needs both
@@ -646,6 +675,11 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
                     rows={countsOnly ? doctorList.rows : view.chartRows}
                     loading={countsOnly && doctorList.loading}
                     error={countsOnly ? doctorList.error : null}
+                    mapped={mappedList.rows}
+                    support={supportList.rows}
+                    mappedLoading={mappedList.loading}
+                    mappedNote={mappedNote}
+                    scope={scoped.team}
                     /* Only to name each person's rung (BE / ABM). */
                     team={team}
                     isMine={isMine}

@@ -208,6 +208,10 @@ export function useVisitKpi({
       loadPob: dataset?.loadPob ?? null,
       /* Contact details for the attendance export (null for the mock). */
       loadContacts: dataset?.loadContacts ?? null,
+      /* Every doctor mapped to a scope (the Doctor-wise card's not-visited). */
+      loadMapped: dataset?.loadMapped ?? null,
+      /* Doctor Support lines (the Doctor-wise card's monthly support). */
+      loadSupport: dataset?.loadSupport ?? null,
     };
   }, [state, scopeId, period, month, monthTo]);
 }

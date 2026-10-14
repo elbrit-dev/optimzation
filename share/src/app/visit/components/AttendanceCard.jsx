@@ -76,18 +76,22 @@ export function AttendanceCard({ counts, working, inScope, overlapping = false, 
         />
       </div>
 
-      <div className="ds-legend-row">
-        <div className="ds-legend-row__inner">
-          {ATTENDANCE.map((k) => (
-            <LegendChip
-              key={k}
-              label={ATTENDANCE_LABEL[k]}
-              value={counts[k]}
-              tone={ATTENDANCE_TONE[k]}
-              onClick={onDrill ? () => onDrill(k) : undefined}
-            />
-          ))}
-        </div>
+      {/* FIVE STATES DO NOT FIT ON ONE LINE. The shared one-line legend row
+          shrinks its type to fit, which held four chips and ran five into
+          each other (each count sat on the next chip's dot). Here they sit
+          in three columns and wrap: Reported, Not reported, Absent above;
+          Other work and Vacant below — full-size and tappable. */}
+      <div className="grid grid-cols-3 gap-x-3">
+        {ATTENDANCE.map((k) => (
+          <LegendChip
+            key={k}
+            className="min-w-0 whitespace-nowrap"
+            label={ATTENDANCE_LABEL[k]}
+            value={counts[k]}
+            tone={ATTENDANCE_TONE[k]}
+            onClick={onDrill ? () => onDrill(k) : undefined}
+          />
+        ))}
       </div>
     </Card>
   );

@@ -9,6 +9,7 @@ import {
   byHq,
   callAverage,
   CHART_HOURS,
+  doctorCoverage,
   doctorPlan,
   doctorsVisited,
   forEmployees,
@@ -1464,12 +1465,57 @@ describe('doctorsVisited', () => {
     expect(out.map((d) => [d.doctorId, d.visits])).toEqual([['D1', 3], ['D2', 1]]);
     expect(out[0].lastDate).toBe('2026-10-09');
     expect(out[0].people).toEqual([
-      { employeeId: 'BE1', name: 'BE1', short: 'BE', visits: 2, dates: ['2026-10-09', '2026-10-02'] },
-      { employeeId: 'ABM', name: 'ABM', short: 'ABM', visits: 1, dates: ['2026-10-09'] },
+      { employeeId: 'BE1', name: 'BE1', short: 'BE', department: '', visits: 2, dates: ['2026-10-09', '2026-10-02'] },
+      { employeeId: 'ABM', name: 'ABM', short: 'ABM', department: '', visits: 1, dates: ['2026-10-09'] },
     ]);
   });
 
   it('is empty when nothing was visited', () => {
     expect(doctorsVisited([v('D1', 'BE1', '2026-10-02', { visitTime: null })])).toEqual([]);
+  });
+});
+
+describe('doctorCoverage', () => {
+  const scope = [
+    { id: 'BE1', name: 'Ravi', short: 'BE', roleProfile: 'BE1-X' },
+    { id: 'BE2', name: 'Anu', short: 'BE', roleProfile: 'BE2-X' },
+  ];
+  const visit = { doctorId: 'D1', doctorName: 'Dr One', employeeId: 'BE1', employeeName: 'Ravi', visitTime: '2026-10-02 10:00:00' };
+
+  it('adds the mapped doctors nobody visited, at 0, with whose they are', () => {
+    const out = doctorCoverage([visit], [
+      { doctorId: 'D1', doctorName: 'Dr One', seat: 'BE1-X', hq: 'HQ-A' },
+      { doctorId: 'D1', doctorName: 'Dr One', seat: 'BE2-X', hq: 'HQ-A' },
+      { doctorId: 'D2', doctorName: 'Dr Two', seat: 'BE2-X', hq: 'HQ-A' },
+    ], scope);
+    expect(out.map((d) => [d.doctorId, d.visits, d.mapped])).toEqual([['D1', 1, true], ['D2', 0, true]]);
+    // D1: Ravi went once; Anu holds a seat it is mapped to and has not.
+    expect(out[0].people.map((p) => [p.name, p.visits])).toEqual([['Ravi', 1], ['Anu', 0]]);
+    expect(out[1].people.map((p) => [p.name, p.visits])).toEqual([['Anu', 0]]);
+  });
+
+  it('keeps a doctor visited outside the mapping', () => {
+    expect(doctorCoverage([visit], [], scope).map((d) => [d.doctorId, d.mapped])).toEqual([['D1', false]]);
+  });
+});
+
+describe('doctorCoverage with support', () => {
+  const scope = [
+    { id: 'BE1', name: 'Ravi', short: 'BE', roleProfile: 'BE1-X' },
+    { id: 'ABM1', name: 'Kumar', short: 'ABM', roleProfile: 'ABM1-X' },
+  ];
+  const visit = (employeeId) => ({ doctorId: 'D1', doctorName: 'Dr One', employeeId, employeeName: employeeId, visitTime: '2026-10-02 10:00:00' });
+
+  it('gives support only to the person whose seat carries the line', () => {
+    const out = doctorCoverage([visit('BE1'), visit('ABM1')], [], scope, scope, [
+      { doctorId: 'D1', seat: 'BE1-X', amount: 5000, month: '2026-10' },
+      { doctorId: 'D1', seat: 'BE1-X', amount: 1000, month: '2026-10' },
+      { doctorId: 'D1', seat: 'OTHER', amount: 9999, month: '2026-10' }, // not in scope
+    ]);
+    expect(out[0].support).toBe(6000);
+    const be = out[0].people.find((p) => p.employeeId === 'BE1');
+    const abm = out[0].people.find((p) => p.employeeId === 'ABM1');
+    expect(be.support).toBe(6000);
+    expect(abm.support).toBeUndefined(); // no line, so no figure — not 0
   });
 });
