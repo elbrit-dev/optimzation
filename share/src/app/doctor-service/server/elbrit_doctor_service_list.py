@@ -29,8 +29,13 @@
 #              by_name, entered_by_name   employee names
 #              category                   the service's master category
 #              doctor_avg                 the doctor's average monthly
-#                                         support over the last 12 months
-#                                         (sizes the doctor on approval)
+#                                         support over the last 12 months IN
+#                                         THE SERVICE'S DEPARTMENT (its Support
+#                                         Items lines' department), so an
+#                                         Elbrit service is sized on Elbrit's
+#                                         support; the whole doctor's when the
+#                                         lines carry no department
+#              doctor_avg_all             the same, every department
 #              state                      the tracker's workflow_state, or
 #                                         "Not submitted" (no tracker yet)
 #              reason                     the tracker's reason_for_rejection
@@ -215,16 +220,37 @@ if frappe.get_meta("Doctor Service Master").has_field("custom_category"):
                                 fields=["name", "custom_category"], limit_page_length=0):
             category[s.get("name")] = s.get("custom_category") or ""
 
-# ---- each doctor's average monthly support, last 12 months
+# ---- each doctor's average monthly support, last 12 months: the whole
+# doctor's, and per department from the Support Items lines
 since = month_back(frappe.utils.nowdate(), 12)
 avg = {}
+months_of = {}
+doctor_of = {}
 for part in chunks(doctors):
     for s in frappe.get_all("Doctor Support",
                             filters=[["doctor", "in", part], ["date", ">=", since]],
-                            fields=["doctor", "sum(custom_total_amount) as total", "count(name) as months"],
-                            group_by="doctor", limit_page_length=0):
-        n = int(s.get("months") or 0)
-        avg[s.get("doctor")] = round(float(s.get("total") or 0) / n, 2) if n else 0
+                            fields=["name", "doctor", "custom_total_amount"], limit_page_length=0):
+        d = s.get("doctor")
+        doctor_of[s.get("name")] = d
+        months_of[d] = (months_of.get(d) or 0) + 1
+        avg[d] = (avg.get(d) or 0) + float(s.get("custom_total_amount") or 0)
+for d in avg:
+    avg[d] = round(avg[d] / months_of[d], 2) if months_of.get(d) else 0
+si_meta = frappe.get_meta("Support Items")
+si_dept = "custom_department" if si_meta.has_field("custom_department") else ("department" if si_meta.has_field("department") else "")
+avg_dept = {}
+if si_dept and doctor_of:
+    for part in chunks(list(doctor_of.keys())):
+        for it in frappe.get_all("Support Items", filters=[["parenttype", "=", "Doctor Support"], ["parent", "in", part]],
+                                 fields=["parent", si_dept + " as dept", "amount"], limit_page_length=0):
+            d = doctor_of.get(it.get("parent"))
+            if not d or not it.get("dept"):
+                continue
+            k = d + "|" + it.get("dept")
+            avg_dept[k] = (avg_dept.get(k) or 0) + float(it.get("amount") or 0)
+    for k in avg_dept:
+        n = months_of.get(k.split("|")[0]) or 0
+        avg_dept[k] = round(avg_dept[k] / n, 2) if n else 0
 
 out = []
 for r in rows:
@@ -237,7 +263,11 @@ for r in rows:
     if t.get("modified") and str(t.get("modified")) > str(r.get("modified")):
         r["modified"] = t.get("modified")
     r["category"] = category.get(r.get("service_name")) or ""
-    r["doctor_avg"] = avg.get(r.get("doctor")) or 0
+    r["doctor_avg_all"] = avg.get(r.get("doctor")) or 0
+    if si_dept:
+        r["doctor_avg"] = avg_dept.get(str(r.get("doctor")) + "|" + str(r.get("department") or "")) or 0
+    else:
+        r["doctor_avg"] = r["doctor_avg_all"]
     h = history.get(r.get("name")) or []
     for e in h:
         e["by"] = user_name.get(e.get("user")) or e.get("user")

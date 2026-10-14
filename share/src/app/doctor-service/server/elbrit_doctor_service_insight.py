@@ -14,19 +14,28 @@
 # detail, the Add service form and the doctor page's Services card:
 #
 #   months    the last MONTHS months up to last month, oldest first:
-#             { month: "YYYY-MM", support } — Doctor Support's monthly
-#             custom_total_amount (what the doctor gave back)
+#             { month: "YYYY-MM", support, by_dept: { department: amount } }
+#             — support = Doctor Support's monthly custom_total_amount (what
+#             the doctor gave back, every department); by_dept = the same
+#             month split by its Support Items lines' department
 #   services  every Doctor Service for the doctor, newest first:
-#             { name, date, service, amount, department, by_name, status,
-#               via_app } — status for an app row: "Approved" once finally
+#             { name, date, service, amount, department, role_profile,
+#               by_name, status, via_app } — department is the ROLE
+#             PROFILE's (Role Profile.custom_department): the imported rows'
+#             own department field is wrong (Elbrit seats filed as CND). An
+#             SM seat covers several departments and has none of its own,
+#             so it keeps the row's (the app's guard sets it from the
+#             doctor's pair). Rows on different seats are SEPARATE services,
+#             even on the same date for the same amount. Status for an app row: "Approved" once finally
 #             approved (verified or not), "Rejected", else the tracker's
 #             state; "Paid" for an imported one
 #   visits    BE / ABM / RBM / SM: the last 3 visits MADE (Event Completed,
 #             or an employee participant attending / time-stamped — the
 #             doctor page's rule), in the window: { role, name, dates }
 #
-# The client works out totals and ROI = support / service from these, so
-# the figures are the doctor page's own.
+# The client works out totals and ROI = support / service from these, for
+# ONE department (the service's) -- by_dept and the services' department --
+# or for the whole doctor.
 #
 # WHO: the viewing roles (VIEW_ROLES); read past permissions — visits are
 # Private events, readable by their participants only.
@@ -115,20 +124,41 @@ while i < MONTHS:
 start = keys[0] + "-01"
 end = str(frappe.utils.get_last_day(keys[-1] + "-01"))
 
-# ---- support
+# ---- support: the month's total, and the same split by department from its
+# Support Items lines (custom_department on production, department on UAT)
+SI = "Support Items"
+si_meta = frappe.get_meta(SI)
+si_dept = "custom_department" if si_meta.has_field("custom_department") else ("department" if si_meta.has_field("department") else "")
 support = {}
+by_dept = {}
+month_of = {}
 for s in frappe.get_all("Doctor Support",
                         filters=[["doctor", "=", doctor], ["date", ">=", start], ["date", "<=", end]],
-                        fields=["date", "custom_total_amount"], limit_page_length=0):
+                        fields=["name", "date", "custom_total_amount"], limit_page_length=0):
     k = str(s.get("date"))[:7]
     support[k] = (support.get(k) or 0) + float(s.get("custom_total_amount") or 0)
+    month_of[s.get("name")] = k
+if si_dept and month_of:
+    for it in frappe.get_all(SI, filters=[["parenttype", "=", "Doctor Support"], ["parent", "in", list(month_of.keys())]],
+                             fields=["parent", si_dept + " as dept", "amount"], limit_page_length=0):
+        k = month_of.get(it.get("parent"))
+        if not k:
+            continue
+        if k not in by_dept:
+            by_dept[k] = {}
+        d = it.get("dept") or ""
+        by_dept[k][d] = (by_dept[k].get(d) or 0) + float(it.get("amount") or 0)
 months = []
 for k in keys:
-    months.append({"month": k, "support": round(support.get(k) or 0, 2)})
+    split = {}
+    for d in (by_dept.get(k) or {}):
+        split[d] = round(by_dept[k][d], 2)
+    months.append({"month": k, "support": round(support.get(k) or 0, 2), "by_dept": split})
 
 # ---- services
 meta = frappe.get_meta("Doctor Service")
-fields = ["name", "service_name", "service_amount", "service_date", "date", "department", "by", "workflow_state"]
+fields = ["name", "service_name", "service_amount", "service_date", "date", "department", "role_profile", "by",
+          "workflow_state"]
 for extra in ["custom_via_app", "custom_tracker"]:
     if meta.has_field(extra):
         fields.append(extra)
@@ -145,6 +175,16 @@ if tracker_ids:
     for t in frappe.get_all("Operational Tracker", filters=[["name", "in", tracker_ids]],
                             fields=["name", "workflow_state"], limit_page_length=0):
         tracker_state[t.get("name")] = t.get("workflow_state")
+# A service's department is its role profile's (see the header).
+rp_ids = []
+for r in rows:
+    if r.get("role_profile") and r.get("role_profile") not in rp_ids:
+        rp_ids.append(r.get("role_profile"))
+rp_dept = {}
+if rp_ids:
+    for p in frappe.get_all("Role Profile", filters=[["name", "in", rp_ids]], fields=["name", "custom_department"],
+                            limit_page_length=0):
+        rp_dept[p.get("name")] = p.get("custom_department") or ""
 by_ids = []
 for r in rows:
     if r.get("by") and r.get("by") not in by_ids:
@@ -161,7 +201,8 @@ for r in rows:
     via = bool(r.get("custom_via_app"))
     services.append({"name": r.get("name"), "date": str(r.get("service_date") or r.get("date") or ""),
                      "service": r.get("service_name"), "amount": float(r.get("service_amount") or 0),
-                     "department": r.get("department"), "by_name": names.get(r.get("by")) or r.get("by"),
+                     "department": rp_dept.get(r.get("role_profile")) or r.get("department") or "",
+                     "role_profile": r.get("role_profile") or "", "by_name": names.get(r.get("by")) or r.get("by"),
                      "status": app_status(tracker_state.get(r.get("custom_tracker")) or r.get("workflow_state")) if via else "Paid",
                      "via_app": via})
 

@@ -5,7 +5,14 @@
  *             (a Draft or one still in approval was not given yet)
  *   ROI       support / service — over the window, and per service: the
  *             support from that service's month to the end of the window,
- *             against that one service (the doctor page's model). */
+ *             against that one service (the doctor page's model).
+ *
+ * DEPARTMENT: pass one and both sides are that department's only — support
+ * from the month's by_dept split (the Support Items lines), services by
+ * their department (the server reads it off the role profile). An Elbrit
+ * service is judged on Elbrit's support and Elbrit's services, not the
+ * doctor's other departments. Rows on different seats are separate
+ * services even on the same day for the same amount. */
 
 import { MON, cmp, fDY, money, roiTxt } from './workflow';
 
@@ -21,14 +28,21 @@ function dur(share) {
   return `about ${Math.round(share)} months of sales`;
 }
 
-/* → the model the detail and the form render; `sel` is a month index or null. */
-export function bizView(ins, request, sel = null) {
+/* → the model the detail and the form render; `sel` is a month index or null,
+   `department` the one to judge on (null: the whole doctor). */
+export function bizView(ins, request, sel = null, department = null) {
   if (!ins?.months?.length) return null;
   const keys = ins.months.map((m) => m.month);
-  const sup = ins.months.map((m) => Number(m.support) || 0);
+  // A server without the split (by_dept) cannot answer for one department:
+  // fall back to the whole doctor and say so, never pass it off as the department's.
+  const split = !!department && ins.months.some((m) => m.by_dept && typeof m.by_dept === 'object');
+  const dep = split ? department : null;
+  const supAll = ins.months.map((m) => Number(m.support) || 0);
+  const sup = dep ? ins.months.map((m) => Number((m.by_dept || {})[dep]) || 0) : supAll;
   const from = keys[0];
   const to = keys[keys.length - 1];
-  const hist = (ins.services || []).filter((s) => GIVEN.includes(s.status) && s.date && s.date.slice(0, 7) >= from && s.date.slice(0, 7) <= to);
+  const inWindow = (ins.services || []).filter((s) => GIVEN.includes(s.status) && s.date && s.date.slice(0, 7) >= from && s.date.slice(0, 7) <= to);
+  const hist = dep ? inWindow.filter((s) => s.department === dep) : inWindow;
   const svcBy = keys.map((k) => hist.filter((h) => h.date.slice(0, 7) === k).reduce((a, h) => a + h.amount, 0));
   const booked = sup.filter((v) => v > 0).length;
   const bTot = sup.reduce((a, v) => a + v, 0);
@@ -71,8 +85,11 @@ export function bizView(ins, request, sel = null) {
     }
   }
 
+  const allSup = supAll.reduce((a, v) => a + v, 0);
+  const allSvc = inWindow.reduce((a, h) => a + h.amount, 0);
   return {
     window: `${monthName(from)} – ${monthName(to)}`,
+    scope: dep || (department ? 'All departments (no department split from ERP)' : 'All departments'),
     from: monthName(from),
     totals: [
       { l: 'Total support', v: cmp(bTot), full: money(Math.round(bTot)), s: `about ${cmp(avgM)} / month`, c: '#1E3A8A' },
@@ -98,11 +115,8 @@ export function bizView(ins, request, sel = null) {
     }),
     sel: selView,
     visits: (ins.visits || []).map((v) => ({ role: v.role, name: v.name, dates: (v.dates || []).map(fDY), none: !(v.dates || []).length })),
-    /* The form's three cells: this doctor's figures in the chosen department, and all of them. */
-    dept(department) {
-      const d = hist.filter((h) => !department || h.department === department).reduce((a, h) => a + h.amount, 0);
-      return { service: d, support: bTot, roi: d ? bTot / d : null, all: sTot, allRoi: sTot ? bTot / sTot : null };
-    },
+    /* The form's three cells: the department's figures (this view's), and the whole doctor's. */
+    cells: { service: sTot, support: bTot, roi: sTot ? bTot / sTot : null, all: allSvc, allSupport: allSup, allRoi: allSvc ? allSup / allSvc : null },
   };
 }
 

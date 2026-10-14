@@ -14,7 +14,7 @@ header gives its name, type and method.
 | IT (view only) | an `IT…` role profile without the `IT` role | See everything, change nothing |
 
 RBM / SM do not enter services. MIS enters each one **on behalf of** an RBM or SM linked to
-the doctor (ZSMs are not offered). That person goes in `by`, and the department and HQ are
+the doctor (a ZSM counts as an SM). That person goes in `by`, and the department and HQ are
 taken from them.
 
 ## Approval: the Operational Tracker, started at GM

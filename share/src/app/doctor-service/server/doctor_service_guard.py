@@ -76,13 +76,6 @@ def guard(doc):
     def is_vacant_name(n):
         return (n or "").strip()[:6].lower() == "vacant"
 
-
-    # A ZSM holds an "SM-" seat too (designation "Zonal Sales Manager"), so the
-    # seat alone cannot tell them apart -- the designation does. ZSMs are left out.
-    def is_zonal(designation):
-        return "zonal" in (designation or "").lower()
-
-
     def grade_of(seat):
         head = (seat or "").split("-")[0]
         out = ""
@@ -138,7 +131,7 @@ def guard(doc):
                         break
                     own = e.get("custom_role_profile") or e.get("role_id") or ""
                     g = grade_of(own)
-                    if g in ON_BEHALF_GRADES and not is_zonal(e.get("designation")) and e.get("status") == "Active" and not is_vacant_name(e.get("employee_name")):
+                    if g in ON_BEHALF_GRADES and e.get("status") == "Active" and not is_vacant_name(e.get("employee_name")):
                         if eid not in found:
                             found[eid] = {"employee": eid, "employee_name": e.get("employee_name"),
                                           "seat": own, "grade": g, "pairs": []}

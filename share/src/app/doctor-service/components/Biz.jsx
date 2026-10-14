@@ -8,10 +8,11 @@
 import { useMemo, useState } from 'react';
 import { bizView, ROLE_C } from '../data/insight';
 
-export function Biz({ insight, request, loading }) {
+export function Biz({ insight, request, department, loading }) {
   const [open, setOpen] = useState(false);
   const [sel, setSel] = useState(null);
-  const b = useMemo(() => bizView(insight, request, sel), [insight, request, sel]);
+  // Judged on the service's own department: its support and its services only.
+  const b = useMemo(() => bizView(insight, request, sel, department || null), [insight, request, sel, department]);
 
   if (loading && !b) {
     return (
@@ -26,7 +27,7 @@ export function Biz({ insight, request, loading }) {
 
   return (
     <div className="dsv-biz">
-      <div className="hd"><b>Is this doctor worth it?</b><span>{b.window}</span></div>
+      <div className="hd"><b>Is this doctor worth it?</b><span>{b.scope} · {b.window}</span></div>
 
       <div className="dsv-tot" role="button" tabIndex={0} title="Tap to see the last 3 services"
         onClick={() => setOpen((o) => !o)} onKeyDown={(e) => { if (e.key === 'Enter') setOpen((o) => !o); }}>

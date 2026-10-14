@@ -77,8 +77,8 @@ export function ServiceForm({ client, doctor, entry, viewer, onClose, onSaved })
   const services = useMemo(() => (opts?.services || []).map((s) => ({ ...s, cat: s.category || CAT_OF[s.name] || 'Cash' })), [opts]);
   const set = (patch, key) => { setF((s) => ({ ...s, ...patch })); if (key) setErr((e) => ({ ...e, [key]: undefined })); };
 
-  const biz = useMemo(() => bizView(ins, Number(f.amount) || 0), [ins, f.amount]);
-  const cells = biz ? biz.dept(pair?.department) : null;
+  const biz = useMemo(() => bizView(ins, Number(f.amount) || 0, null, pair?.department || null), [ins, f.amount, pair?.department]);
+  const cells = biz ? biz.cells : null;
 
   const amtOk = Number(f.amount) > 0;
   const done = [!!chosen && !!pair, !!f.service, !!f.date, amtOk].filter(Boolean).length;
@@ -167,7 +167,7 @@ export function ServiceForm({ client, doctor, entry, viewer, onClose, onSaved })
                   <div><span>Total support</span><b className="num" style={{ color: '#1E3A8A' }}>{money(Math.round(cells.support))}</b></div>
                   <div><span>ROI</span><b className="num" style={{ color: '#B91C1C' }}>{roiTxt(cells.roi)}</b></div>
                 </div>
-                <div className="f">All departments · service {cmp(cells.all)} · ROI {roiTxt(cells.allRoi)}</div>
+                <div className="f">All departments · support {cmp(cells.allSupport)} · service {cmp(cells.all)} · ROI {roiTxt(cells.allRoi)}</div>
               </div>
             ) : null}
           </div>

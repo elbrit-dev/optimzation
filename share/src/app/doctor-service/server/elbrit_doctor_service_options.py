@@ -28,8 +28,8 @@
 #               through them (the seat itself counts when it is an RBM / SM
 #               seat). A vacant seat with no holder climbs the Role Profile
 #               tree to the first held seat and walks from there. "Vacant_"
-#               placeholders are never offered, and neither are ZSMs (they
-#               hold "SM-" seats too; designation "Zonal Sales Manager").
+#               placeholders are never offered. A ZSM ("SM-" seat,
+#               designation "Zonal Sales Manager") counts as an SM.
 #               Each comes with `pairs`: the doctor's (department, HQ) rows
 #               that reach them — the form sets department and HQ from the
 #               chosen pair, and the Before Save guard
@@ -52,12 +52,6 @@ MAX_HOPS = 15
 
 def is_vacant_name(n):
     return (n or "").strip()[:6].lower() == "vacant"
-
-
-# A ZSM holds an "SM-" seat too (designation "Zonal Sales Manager"), so the
-# seat alone cannot tell them apart -- the designation does. ZSMs are left out.
-def is_zonal(designation):
-    return "zonal" in (designation or "").lower()
 
 
 def grade_of(seat):
@@ -115,7 +109,7 @@ def linked_managers(doctor):
                     break
                 own = e.get("custom_role_profile") or e.get("role_id") or ""
                 g = grade_of(own)
-                if g in ON_BEHALF_GRADES and not is_zonal(e.get("designation")) and e.get("status") == "Active" and not is_vacant_name(e.get("employee_name")):
+                if g in ON_BEHALF_GRADES and e.get("status") == "Active" and not is_vacant_name(e.get("employee_name")):
                     if eid not in found:
                         found[eid] = {"employee": eid, "employee_name": e.get("employee_name"),
                                       "seat": own, "grade": g, "pairs": []}
