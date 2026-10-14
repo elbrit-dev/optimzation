@@ -279,7 +279,11 @@ export function resolveOwnHqOptions(employees = [], elbritEdges = [], roleId, fa
     }
   }
   if (!hqs.size && fallbackHq) hqs.add(fallbackHq);
-  return [...hqs]
+  // Real HQs only ("HQ-Erode"): a manager's own territory can be a region
+  // ("Tn-Coimbatore"), which no doctor is mapped to. Kept as-is when there is
+  // no HQ- name at all, rather than offering nothing.
+  const real = [...hqs].filter((hq) => /^HQ-/i.test(hq));
+  return (real.length ? real : [...hqs])
     .sort((a, b) => a.localeCompare(b))
     .map((hq) => ({ doctype: "Territory", value: hq, label: hq }));
 }

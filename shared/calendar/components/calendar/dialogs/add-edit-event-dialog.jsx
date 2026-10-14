@@ -1584,7 +1584,9 @@ export function AddEditEventDialog({
 	// user picks it on the form.
 	const doctorVisitHqTerritory =
 		matchedHqEvent?.hqTerritory ??
-		loggedInEmployeeHqTerritory ??
+		(ownHqOptions.some((option) => option.value === loggedInEmployeeHqTerritory)
+			? loggedInEmployeeHqTerritory
+			: null) ??
 		(ownHqOptions.length === 1 ? ownHqOptions[0].value : null);
 	// EVERY ROLE books DR Tour Plans and Other Work directly now, the way a BE
 	// always did: no HQ Tour Plan first. The HQ is chosen on the DR form from

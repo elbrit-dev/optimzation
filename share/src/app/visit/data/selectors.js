@@ -1486,3 +1486,60 @@ export function asOfFrom(rows) {
   }
   return latest;
 }
+
+/* ---- Doctor-wise ------------------------------------------------------ */
+
+/* The DONE visits of a scope, turned round to read by DOCTOR: which doctors
+ * were seen, how often, and by whom on which days — the Visit report's answer
+ * to the Support report's doctor-wise view.
+ *
+ * One row is one person's visit (a joint call is a row per attendee), so a
+ * doctor's count is visits, not calls, the same unit as every other count on
+ * this screen. Rows with no visit time are plans, not visits, and are left
+ * out. A row's person is its attributed `employeeId`; `team` only names
+ * their rung (BE / ABM…).
+ *
+ * -> [{ doctorId, doctorName, city, specialty, categories, hq, visits,
+ *       lastDate, people: [{ employeeId, name, short, visits, dates }] }]
+ *    most-visited first; each doctor's people likewise; dates newest first. */
+export function doctorsVisited(rows = [], team = []) {
+  const shortOf = new Map(team.map((m) => [m.id, m.short]));
+  const byDoctor = new Map();
+  for (const r of rows) {
+    if (!r?.visitTime || !r.doctorId) continue;
+    let d = byDoctor.get(r.doctorId);
+    if (!d) {
+      d = {
+        doctorId: r.doctorId,
+        doctorName: r.doctorName || r.doctorId,
+        city: r.doctorCity || '',
+        specialty: r.doctorSpecialty || '',
+        categories: r.doctorCategories || [],
+        hq: r.hq || '',
+        visits: 0,
+        lastDate: '',
+        byPerson: new Map(),
+      };
+      byDoctor.set(r.doctorId, d);
+    }
+    const date = String(r.visitTime).slice(0, 10) || r.plannedDate;
+    d.visits += 1;
+    if (date > d.lastDate) d.lastDate = date;
+    const id = r.employeeId || r.participantId || '';
+    let p = d.byPerson.get(id);
+    if (!p) {
+      p = { employeeId: id, name: r.employeeName || r.participantName || id, short: shortOf.get(id) || '', visits: 0, dates: [] };
+      d.byPerson.set(id, p);
+    }
+    p.visits += 1;
+    p.dates.push(date);
+  }
+  return [...byDoctor.values()]
+    .map(({ byPerson, ...d }) => ({
+      ...d,
+      people: [...byPerson.values()]
+        .map((p) => ({ ...p, dates: [...p.dates].sort((a, b) => b.localeCompare(a)) }))
+        .sort((a, b) => b.visits - a.visits || a.name.localeCompare(b.name)),
+    }))
+    .sort((a, b) => b.visits - a.visits || a.doctorName.localeCompare(b.doctorName));
+}

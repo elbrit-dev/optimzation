@@ -10,6 +10,7 @@ import {
   callAverage,
   CHART_HOURS,
   doctorPlan,
+  doctorsVisited,
   forEmployees,
   geoSplit,
   happened,
@@ -1442,5 +1443,33 @@ describe('everyonePicks', () => {
     ]);
     const covered = new Set(picks.flatMap((p) => subtreeOf(team, p.id).map((m) => m.id)));
     expect(covered.size).toBe(team.length);
+  });
+});
+
+describe('doctorsVisited', () => {
+  const v = (doctorId, employeeId, day, over = {}) => ({
+    doctorId, doctorName: `Dr ${doctorId}`, employeeId, employeeName: employeeId,
+    visitTime: `${day} 10:00:00`, plannedDate: day, ...over,
+  });
+
+  it('groups done visits by doctor, then by person, with the days', () => {
+    const team = [{ id: 'BE1', short: 'BE' }, { id: 'ABM', short: 'ABM' }];
+    const out = doctorsVisited([
+      v('D1', 'BE1', '2026-10-02'),
+      v('D1', 'BE1', '2026-10-09'),
+      v('D1', 'ABM', '2026-10-09'),
+      v('D2', 'BE1', '2026-10-03'),
+      v('D2', 'BE1', '2026-10-05', { visitTime: null }), // a plan, not a visit
+    ], team);
+    expect(out.map((d) => [d.doctorId, d.visits])).toEqual([['D1', 3], ['D2', 1]]);
+    expect(out[0].lastDate).toBe('2026-10-09');
+    expect(out[0].people).toEqual([
+      { employeeId: 'BE1', name: 'BE1', short: 'BE', visits: 2, dates: ['2026-10-09', '2026-10-02'] },
+      { employeeId: 'ABM', name: 'ABM', short: 'ABM', visits: 1, dates: ['2026-10-09'] },
+    ]);
+  });
+
+  it('is empty when nothing was visited', () => {
+    expect(doctorsVisited([v('D1', 'BE1', '2026-10-02', { visitTime: null })])).toEqual([]);
   });
 });

@@ -190,6 +190,14 @@ query GetEmployees($first: Int!, $filters: [DBFilterInput!]) {
         name
         }
         role_id:${ERP_EMPLOYEE_FIELDS.roleId}
+        # The employee's HQ ("HQ-Erode"): fsl_hq, else custom_territory -- the
+        # same rule the doctor popup uses (doctor-peek/lib/scope.js). Flat
+        # __name, not the nested link, so a Territory the viewer cannot read
+        # never fails the whole roster. Without these every employee's HQ was
+        # empty: a BE got theirs only when their login saw exactly one
+        # Territory, and a manager's team HQs never resolved at all.
+        fsl_hq__name
+        custom_territory__name
       }
     }
   }

@@ -48,7 +48,7 @@ export async function fetchEmployees() {
       email: node.user_id || node.company_email, // the ERP User first: DocShare targets a User
       role: node.designation?.name ?? null,
       roleId: node.role_id,
-      hqTerritory: node.custom_hq__name ?? null,
+      hqTerritory: node.fsl_hq__name || node.custom_territory__name || null,
       leave_approver: node.leave_approver?.name ?? null,
     })) || []
   );
@@ -83,7 +83,7 @@ export async function searchEmployees(search) {
       email: node.user_id || node.company_email, // the ERP User first: DocShare targets a User
       role: node.designation?.name ?? null,
       roleId: node.role_id,
-      hqTerritory: node.custom_hq__name ?? null,
+      hqTerritory: node.fsl_hq__name || node.custom_territory__name || null,
       leave_approver: node.leave_approver?.name ?? null,
     })) || []
   );

@@ -20,7 +20,7 @@ function mapEmployeesToOptions(employees = []) {
     email: employee.user_id || employee.company_email,
     role: employee.designation?.name ?? null,
     roleId: employee.role_id,
-    hqTerritory: employee.custom_hq__name ?? null,
+    hqTerritory: employee.fsl_hq__name || employee.custom_territory__name || null,
     leave_approver: employee.leave_approver?.name ?? null,
   }));
 }
