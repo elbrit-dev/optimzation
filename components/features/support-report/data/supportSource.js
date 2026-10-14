@@ -245,3 +245,107 @@ export function fetchOrg(conn) {
     return { employees, roleParents, email };
   });
 }
+
+/* MANAGEMENT -- the CEO and the GM -- see every department, and only they
+   read a month through fetchMonthLines below; everyone else keeps fetchMonth
+   (asked 2026-10-14). Told apart by the signed-in person's own Employee
+   record, an Active one first. */
+const MANAGEMENT = ["Chief Executive Officer", "General Manager"];
+export function isManagement(org) {
+  const email = String(org?.email || "").toLowerCase();
+  if (!email) return false;
+  const me = (org.employees || [])
+    .filter((e) => (e.userId || "").toLowerCase() === email)
+    .sort((a, b) => (b.active !== false) - (a.active !== false))[0];
+  return MANAGEMENT.includes(String(me?.designation || "").trim());
+}
+
+/* A month for MANAGEMENT, in fetchMonth's shape: only the item lines that
+   carry a quantity or a value, over REST, and the doctors of those lines.
+   "Add doctor" fills every department item in at 0, so the month fetchMonth
+   downloads is mostly zeros -- September 2026 was 292,855 item rows for
+   17,254 lines, 40 MB in 29 s, which an All-India phone dropped as "Load
+   failed". This is ~5 MB in ~2 s with the same lines and totals (checked
+   against fetchMonth for Aug and Sep 2026). GraphQL cannot filter a child
+   table's rows; REST can. The doctors map holds the lines' doctors only, all
+   the report looks up. Nothing is short here (no page limit), so `fetched`
+   is `docs`: the documents that have a line. */
+async function restList(conn, body) {
+  const res = await fetch(`${conn.origin}/api/method/frappe.client.get_list`, {
+    method: "POST",
+    headers: { Authorization: conn.authToken, "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ limit_page_length: 0, ...body }),
+  });
+  let json = null;
+  try {
+    json = await res.json();
+  } catch {
+    /* reported below */
+  }
+  if (!res.ok || !json || json.exc_type || !Array.isArray(json.message)) {
+    throw new Error(`Could not read Doctor Support (${json?.exc_type || "HTTP " + res.status}). Try again in a moment.`);
+  }
+  return json.message;
+}
+
+const SI = "`tabSupport Items`";
+
+export function fetchMonthLines(conn, ym) {
+  return cached(conn, `lines:${ym}`, async () => {
+    const { from, to } = monthRange(ym);
+    const rows = await restList(conn, {
+      doctype: "Doctor Support",
+      fields: ["name", "date", "modified", "doctor", `${SI}.item as item`, `${SI}.brand as brand`, `${SI}.qty as qty`, `${SI}.rate as rate`,
+        `${SI}.amount as amount`, `${SI}.custom_role_profile as rp`, `${SI}.custom_department as dept`, `${SI}.custom_hq as hq`],
+      filters: [["date", "between", [from, to]]],
+      or_filters: [["Support Items", "qty", "!=", 0], ["Support Items", "amount", "!=", 0]],
+    });
+    if (rows.some((r) => { const d = String(r.date || "").slice(0, 10); return d && (d < from || d > to); })) {
+      throw new Error(`The ERP returned another month's records for ${ym}. Try again in a moment.`);
+    }
+    const ids = [...new Set(rows.map((r) => clean(r.doctor)).filter(Boolean))];
+    const leads = ids.length
+      ? await restList(conn, {
+          doctype: "Lead",
+          fields: ["name", "lead_name", "city", "custom_specialty", "custom_category", "territory", "custom_qualification"],
+          filters: [["name", "in", ids]],
+        })
+      : [];
+    const leadOf = new Map(leads.map((l) => [l.name, l]));
+    const doctors = {};
+    for (const id of ids) {
+      const l = leadOf.get(id) || {};
+      doctors[id] = {
+        id,
+        name: clean(l.lead_name) || id,
+        city: clean(l.city),
+        spec: clean(l.custom_specialty) || "—",
+        cat: clean(l.custom_category) || "—",
+        qual: clean(l.custom_qualification) || "—",
+        hq: clean(l.territory),
+      };
+    }
+    let lastModified = "";
+    const lines = [];
+    const docs = new Set();
+    for (const r of rows) {
+      const id = clean(r.doctor);
+      if (!id) continue;
+      if (r.modified && r.modified > lastModified) lastModified = r.modified;
+      docs.add(r.name);
+      lines.push({
+        d: id,
+        doc: r.name,
+        item: clean(r.item) || "—",
+        brand: clean(r.brand) || clean(r.item) || "—",
+        q: Number(r.qty) || 0,
+        a: Number(r.amount) || 0,
+        rate: Number(r.rate) || 0,
+        rp: clean(r.rp) || null,
+        dept: clean(r.dept),
+        hq: clean(r.hq),
+      });
+    }
+    return { ym, docs: docs.size, fetched: docs.size, truncated: false, lines, doctors, lastModified };
+  });
+}

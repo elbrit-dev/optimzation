@@ -23,7 +23,7 @@
 import { gql, makeConn } from "../../support-report/data/erpClient";
 import { isHqTerritory, shortDesignation } from "@/app/visit/data/shape";
 import { attendance, visitsByHour } from "@/app/visit/data/selectors";
-import { fetchMonth, fetchMonthCount, fetchOrg } from "../../support-report/data/supportSource";
+import { fetchMonth, fetchMonthCount, fetchMonthLines, fetchOrg, isManagement } from "../../support-report/data/supportSource";
 import { NO_RP, buildTree, divOf, subtreeIds } from "../../support-report/data/model";
 import { FY_MON, MON, describePeriod, fyOfIdx, fyStart, idxOf, monOf, ymOfIdx } from "../period";
 
@@ -197,6 +197,11 @@ export async function fetchSecondary(conn, today) {
 }
 
 const MONTH_CONCURRENCY = 3;
+
+/* MANAGEMENT -- the CEO and the GM -- see every department, and only they
+   take the reads isManagement gates here (Support months through
+   fetchMonthLines, visits through visitCounts); everyone else keeps the
+   reads they had (asked 2026-10-14). */
 async function inPool(items, limit, run) {
   const out = new Array(items.length);
   let next = 0;
@@ -239,7 +244,8 @@ export async function fetchSupport(conn, today) {
   const [org, counts] = await Promise.all([fetchOrg(conn), inPool(idxs, 6, (i) => fetchMonthCount(conn, ymOfIdx(i)))]);
   const onFile = idxs.filter((_, k) => counts[k] > 0);
   if (!onFile.length) return null;
-  const fetched = await inPool(onFile, MONTH_CONCURRENCY, (i) => fetchMonth(conn, ymOfIdx(i)));
+  const read = isManagement(org) ? fetchMonthLines : fetchMonth;
+  const fetched = await inPool(onFile, MONTH_CONCURRENCY, (i) => read(conn, ymOfIdx(i)));
 
   // A Set, as the Support Report passes it: buildTree calls lineRps.has().
   const rpOf = (l) => l.rp || NO_RP;
@@ -594,6 +600,40 @@ function visitRows(events, team) {
   return rows;
 }
 
+/* MANAGEMENT'S visits, counted by the ERP's "Elbrit Visit Summary" script:
+   one row per line, `n` the visits it stands for. A visit Event is private
+   and shared up the role-profile chain, which never reaches the CEO (0
+   shares on 14 Oct 2026) -- read as the signed-in user, as fetchVisit does,
+   the CEO saw no visits at all. The script counts the caller's whole
+   reports_to downline past the ERP's Event permissions. `roster` is the
+   Sales roster: the server attributes a visit to its participant when they
+   are in it. */
+async function visitCounts(conn, from, to, roster) {
+  const res = await fetch(`${conn.origin}/api/method/elbrit_visit_summary`, {
+    method: "POST",
+    headers: { Authorization: conn.authToken, "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ from, to, sales: roster.map((m) => [m.id, m.userId || ""]) }),
+  });
+  let json = null;
+  try { json = await res.json(); } catch { /* reported below */ }
+  if (!res.ok || !json?.message || json.exc_type) throw new Error(`Could not count the visits (${json?.exc_type || "HTTP " + res.status}). Try again in a moment.`);
+  const m = json.message;
+  const depts = m.depts || [];
+  return m.rows.map(([e, d, h, st, j, hr, n, dp, ft]) => {
+    const day = m.days[d];
+    return {
+      plannedDate: day,
+      hq: m.hqs[h] || "",
+      dept: (dp != null && depts[dp]) || "",
+      visitTime: st === 0 ? null : ft || (hr >= 0 ? `${day} ${String(hr).padStart(2, "0")}:00:00` : `${day} NA:00:00`),
+      forceVisit: st === 2,
+      employeeId: m.employees[e] || "",
+      participantCount: j ? 2 : 1,
+      n,
+    };
+  });
+}
+
 /* THE VIEWER'S OWN TEAM. The token decides what the ERP hands over -- for
    a BE or an ABM that is the whole HQ, their GM's calls included -- so the
    overview narrows it to the person signed in and everyone under them: a BE
@@ -629,9 +669,13 @@ function ownTeam(roster, org) {
 export async function fetchVisit(conn, today) {
   const t = isoDay(today);
   const awayToday = fetchAway(conn, t, t);
-  const [{ team: roster }, todays, org] = await Promise.all([visitTeam(conn), visitsIn(conn, t, t), fetchOrg(conn)]);
+  const todaysRead = visitsIn(conn, t, t);
+  todaysRead.catch(() => {}); // management never awaits it
+  const [{ team: roster }, org] = await Promise.all([visitTeam(conn), fetchOrg(conn)]);
   const { team, ids } = ownTeam(roster, org);
   const mine = (rs) => (ids ? rs.filter((r) => ids.has(r.employeeId)) : rs);
+  if (isManagement(org)) return managementVisit(conn, today, roster, team, ids, mine, awayToday);
+  const todays = await todaysRead;
   /* Attribution runs over the whole roster (a call owned by someone outside
      the team still resolves to the right participant), then keeps the
      viewer's team only. The reps denominator is that team's filled seats.
@@ -657,6 +701,27 @@ export async function fetchVisit(conn, today) {
   const from = mode === "today" ? t : P.fromDate, to = mode === "today" ? t : P.toDate < t ? P.toDate : t;
   const away = mode === "today" ? await awayToday : await fetchAway(conn, from, to);
   console.info(`[home-overview] visit: ${read} Doctor Visit plan events read for ${mode === "today" ? t : P.fromDate + ".." + P.toDate}, ${rows.length} participant rows, team ${team.length} of ${roster.length}`);
+  return shapeVisit(rows, team, P, mode, Boolean(ids), (id) => excuseOf(away, id, from, to));
+}
+
+/* fetchVisit for MANAGEMENT: the same window rule, the visits counted by the
+   server (visitCounts) instead of read as the signed-in user. */
+async function managementVisit(conn, today, roster, team, ids, mine, awayToday) {
+  const t = isoDay(today);
+  let all = await visitCounts(conn, t, t, roster), mode = "today", P = monthsToTry(today)[0];
+  if (!all.length) {
+    mode = "window";
+    for (const Q of monthsToTry(today)) {
+      all = await visitCounts(conn, Q.fromDate, Q.toDate, roster);
+      P = Q;
+      if (all.length) break;
+    }
+  }
+  if (!all.length) return null;
+  const rows = mine(all);
+  const from = mode === "today" ? t : P.fromDate, to = mode === "today" ? t : P.toDate < t ? P.toDate : t;
+  const away = mode === "today" ? await awayToday : await fetchAway(conn, from, to);
+  console.info(`[home-overview] visit (management): ${all.reduce((n, r) => n + r.n, 0)} Doctor Visit plan visits counted for ${mode === "today" ? t : P.fromDate + ".." + P.toDate}, team ${team.length} of ${roster.length}`);
   return shapeVisit(rows, team, P, mode, Boolean(ids), (id) => excuseOf(away, id, from, to));
 }
 
@@ -689,10 +754,11 @@ function shapeVisit(rows, team, P, mode, scoped, excuseFor = () => null) {
     const stat = new Map();
     for (const r of rs) {
       const s = stat.get(r.employeeId) || { plan: 0, geo: 0, force: 0, joint: 0, first: null };
-      s.plan += 1;
+      const w = r.n ?? 1; // a server-counted line stands for n visits; a row for 1
+      s.plan += w;
       if (r.visitTime) {
-        if (r.forceVisit) s.force += 1; else s.geo += 1;
-        if ((r.participantCount ?? 1) > 1) s.joint += 1;
+        if (r.forceVisit) s.force += w; else s.geo += w;
+        if ((r.participantCount ?? 1) > 1) s.joint += w;
         if (!s.first || r.visitTime < s.first) s.first = r.visitTime;
       }
       stat.set(r.employeeId, s);
@@ -777,7 +843,7 @@ function shapeVisit(rows, team, P, mode, scoped, excuseFor = () => null) {
       const rs = rows.filter((r) => unitOfRow(r) === name);
       const stat = statsOf(rs);
       const members = team.filter((m) => unitOfMember(m) === name);
-      return { name, plan: rs.length, ...hourly(rs), people: peopleOf(members, stat), members, extra: [...stat.keys()].map((id) => byId.get(id)).filter(Boolean) };
+      return { name, plan: rs.reduce((sum, r) => sum + (r.n ?? 1), 0), ...hourly(rs), people: peopleOf(members, stat), members, extra: [...stat.keys()].map((id) => byId.get(id)).filter(Boolean) };
     }).sort((a, b) => (a.name === NO_DEPT || a.name === NO_HQ) - (b.name === NO_DEPT || b.name === NO_HQ) || b.plan - a.plan);
     // Members first, everywhere; then the people seen only through their calls.
     const own = units.map((u) => repsOf(u.members));

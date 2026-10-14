@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clearSupportCache, makeConn } from "./erpClient";
-import { fetchMonth, fetchMonthCount, fetchOrg, ymOf } from "./supportSource";
+import { fetchMonth, fetchMonthCount, fetchMonthLines, fetchOrg, isManagement, ymOf } from "./supportSource";
 import { fyOfYm, makeTimeline } from "./model";
 
 const MONTH_CONCURRENCY = 3;
@@ -75,6 +75,8 @@ export function useSupportData({ url, token }) {
   const active = useRef(0);
   const retries = useRef(new Map());
   const pumpRef = useRef(null);
+  /* The CEO and the GM read each month's lines only (see fetchMonthLines). */
+  const management = useRef(false);
 
   useEffect(() => {
     const g = ++gen.current;
@@ -92,6 +94,7 @@ export function useSupportData({ url, token }) {
     Promise.all([fetchOrg(conn), findMonthsOnFile(conn)])
       .then(([org, onFile]) => {
         if (g !== gen.current) return;
+        management.current = isManagement(org);
         const yms = Object.keys(onFile).filter((ym) => onFile[ym] > 0).sort();
         if (!yms.length) {
           setBase({ status: "empty", org });
@@ -110,7 +113,7 @@ export function useSupportData({ url, token }) {
     while (active.current < MONTH_CONCURRENCY && queue.current.length) {
       const ym = queue.current.shift();
       active.current++;
-      fetchMonth(conn, ym)
+      (management.current ? fetchMonthLines : fetchMonth)(conn, ym)
         .then((data) => {
           if (g !== gen.current) return;
           setMonths((m) => ({ ...m, [ym]: data }));
