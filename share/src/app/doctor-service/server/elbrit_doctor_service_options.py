@@ -35,7 +35,15 @@
 #               chosen pair, and the Before Save guard
 #               (doctor_service_guard.py) re-checks it.
 #   services    Doctor Service Master, with its category when the master has
-#               the custom_category field (Cash / EMI / Bookings / Gift).
+#               the custom_category field (Cash / EMI / Bookings / Gift /
+#               Utilities), and `capture`: the details it asks for, from
+#               custom_capture_fields [{key, label, multi, required}] --
+#               EB Bill: the EB service number, Recharge: the mobile...
+#   last        { service: { key: [values] } } -- what this doctor's LATEST
+#               such service captured: the form fills these in (MIS may
+#               change, remove or add -- a replaced number does not come back)
+#   known       { service: { key: [values, newest first] } } -- every value
+#               this doctor's earlier services captured: "used before" chips
 #   doctor      { id, name }
 #
 # linked_managers() is COPIED into doctor_service_guard.py — change both.
@@ -130,6 +138,45 @@ def linked_managers(doctor):
 
 
 
+# ---- SERVICE DETAILS: what a service asks for (Doctor Service Master
+# .custom_capture_fields: [{key, label, multi, required}]) and what a service
+# captured (Doctor Service.custom_service_details: [{key, label, values}]).
+def as_list(raw):
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        return raw
+    try:
+        v = json.loads(raw)
+    except Exception:
+        return []
+    return v if isinstance(v, list) else []
+
+
+def capture_of(raw):
+    out = []
+    for f in as_list(raw):
+        if not isinstance(f, dict) or not str(f.get("key") or "").strip():
+            continue
+        out.append({"key": str(f.get("key")).strip(), "label": str(f.get("label") or f.get("key")).strip(),
+                    "multi": 1 if f.get("multi") else 0, "required": 0 if f.get("required") == 0 else 1})
+    return out
+
+
+def details_of(raw):
+    out = []
+    for d in as_list(raw):
+        if not isinstance(d, dict) or not d.get("key"):
+            continue
+        vals = []
+        for v in (d.get("values") or []):
+            v = str(v or "").strip()
+            if v and v not in vals:
+                vals.append(v)
+        out.append({"key": str(d.get("key")), "label": str(d.get("label") or d.get("key")), "values": vals})
+    return out
+
+
 # ---- WHO IS ASKING — copied into elbrit_doctor_service_list and
 # elbrit_doctor_service_insight; change all three together.
 VIEW_ROLES = ["IT", "MIS", "User MIS", "MIS Admin", "Manager MIS", "CRM Manager", "GM", "CEO"]
@@ -177,9 +224,39 @@ if doctor:
         svc_fields = ["name"]
         if master_meta.has_field("custom_category"):
             svc_fields.append("custom_category")
+        if master_meta.has_field("custom_capture_fields"):
+            svc_fields.append("custom_capture_fields")
         services = []
         for s in frappe.get_all("Doctor Service Master", fields=svc_fields, order_by="name asc", limit_page_length=0):
-            services.append({"name": s.get("name"), "category": s.get("custom_category") or ""})
+            services.append({"name": s.get("name"), "category": s.get("custom_category") or "",
+                             "capture": capture_of(s.get("custom_capture_fields"))})
+        # What this doctor's earlier services captured, per service and key,
+        # newest first: the form fills them in (MIS may change or add).
+        # `last` = the latest such service's values: what the form fills in, so
+        # a number the doctor has since replaced does not come back. `known` =
+        # every value used before, offered as one-tap "used before" chips.
+        known = {}
+        last = {}
+        if frappe.get_meta("Doctor Service").has_field("custom_service_details"):
+            for r in frappe.get_all("Doctor Service",
+                                    filters=[["doctor", "=", doctor], ["custom_service_details", "is", "set"]],
+                                    fields=["service_name", "custom_service_details"],
+                                    order_by="creation desc", limit_page_length=0):
+                svc = r.get("service_name") or ""
+                first_seen = svc not in known
+                if first_seen:
+                    known[svc] = {}
+                    last[svc] = {}
+                for d in details_of(r.get("custom_service_details")):
+                    if first_seen:
+                        last[svc][d["key"]] = d["values"]
+                    if d["key"] not in known[svc]:
+                        known[svc][d["key"]] = []
+                    for v in d["values"]:
+                        if v not in known[svc][d["key"]]:
+                            known[svc][d["key"]].append(v)
+        answer["known"] = known
+        answer["last"] = last
         employees = linked_managers(doctor)
         # Each person's seat department (Role Profile.custom_department): the
         # key the form's "worth it" figures are split by, as the approval's.

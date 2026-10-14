@@ -297,7 +297,15 @@ const CSS = `
 .dsv-mini .g span{font-size:11px;color:var(--mute)}
 .dsv-mini .g b{font-size:16px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dsv-mini .f{padding:7px 12px;font-size:12px;color:var(--ink3);border-top:1px solid var(--line2)}
-.dsv-cats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.dsv-cats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px}
+@media (max-width:520px){.dsv-cats{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.dsv-eb{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+.dsv-eb-row{display:flex;gap:6px;align-items:center}
+.dsv-eb-row .dsv-amt{flex:1}
+.dsv-eb-prev{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12px;color:var(--mute)}
+.dsv-eb-chip{height:28px;padding:0 10px;border-radius:14px;border:1px solid #D7DCE3;background:#fff;color:var(--ink2);font-size:12px;font-weight:600;cursor:pointer;font-variant-numeric:tabular-nums}
+.dsv-eb-chip:hover{border-color:#9DB6F2;background:#F5F8FF}
+.dsv-eb-add{align-self:flex-start;height:34px;padding:0 12px;border-radius:9px;border:1px dashed #9DB6F2;background:#F5F8FF;color:var(--blue2);font-size:13px;font-weight:600;cursor:pointer}
 .dsv-cat{height:46px;border-radius:11px;border:1.5px solid #D7DCE3;background:#fff;color:var(--ink2);font-size:14px;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:background-color .15s ease,border-color .15s ease}
 .dsv-cat span{font-size:10px;font-weight:500;color:var(--faint)}
 .dsv-cat.on{background:#EAF1FF;color:var(--blue2);border-color:var(--blue)}

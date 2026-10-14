@@ -36,6 +36,8 @@ export function Detail({
     ['Entered by', `${e.enteredBy} · MIS`],
     ['Created on', fDY(e.created)],
     ['Employee ID', e.by || '—'],
+    // What the service type captured (EB number, mobile number, loan number...).
+    ...(e.details || []).map((d) => [d.label, d.values.join(', ')]),
   ];
 
   let footer = null;

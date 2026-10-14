@@ -53,7 +53,19 @@ const SVC_RAW = {
   'DR-43': '2026-07-24|EB Bill|15215;2026-05-16|EB Bill|16221;2026-03-24|EB Bill|10882;2026-01-13|Cash|10000',
   'DR-1975': '2026-05-26|Cash|50000;2026-04-16|RD 3|20000;2026-03-13|EMI TAKEOVER|18000;2026-02-12|Cash|10000',
 };
-const SERVICES = ['EMI TAKEOVER', 'Cash', 'cab', 'CAR', 'RD 3', 'Travel', 'Fund Transfer', 'cheque', 'Check', 'RD 2', 'RD 4', 'Academic', 'Dinner', 'GIFT CARD', '10K Voucher', '50K Vocuher', 'gold', 'Jewel Chit', 'I PHONE', 'GADGETS', 'APPLIANCE', 'EB Bill', 'Activity Deck', 'cash back activity', 'GC - Britrova CV, Nero PG, Chlorvix'];
+const SERVICES = ['EMI TAKEOVER', 'Cash', 'cab', 'CAR', 'RD 3', 'Travel', 'Fund Transfer', 'cheque', 'Check', 'RD 2', 'RD 4', 'Academic', 'Dinner', 'GIFT CARD', '10K Voucher', '50K Vocuher', 'gold', 'Jewel Chit', 'I PHONE', 'GADGETS', 'APPLIANCE', 'EB Bill', 'Activity Deck', 'cash back activity', 'GC - Britrova CV, Nero PG, Chlorvix', 'Recharge'];
+/* What each service asks for -- UAT's Doctor Service Master.custom_capture_fields. */
+const CAPTURE = {
+  'EB Bill': [{ key: 'eb_number', label: 'EB service number', multi: 1, required: 1 }],
+  Recharge: [{ key: 'mobile', label: 'Mobile number', multi: 1, required: 1 }],
+  'EMI TAKEOVER': [{ key: 'loan_number', label: 'Loan / EMI account number', multi: 1, required: 1 }, { key: 'lender', label: 'Bank / lender', multi: 0, required: 0 }],
+  CAR: [{ key: 'loan_number', label: 'Car loan account number', multi: 0, required: 1 }, { key: 'lender', label: 'Bank / lender', multi: 0, required: 0 }],
+  'RD 2': [{ key: 'rd_number', label: 'RD account number', multi: 0, required: 1 }],
+  'RD 3': [{ key: 'rd_number', label: 'RD account number', multi: 0, required: 1 }],
+  'RD 4': [{ key: 'rd_number', label: 'RD account number', multi: 0, required: 1 }],
+  'Jewel Chit': [{ key: 'chit_number', label: 'Chit number', multi: 0, required: 1 }],
+};
+const ebDetails = (n) => JSON.stringify([{ key: 'eb_number', label: 'EB service number', values: [n] }]);
 
 const DAY = 864e5;
 const at = (daysAgo) => new Date(Date.now() - daysAgo * DAY).toISOString().slice(0, 19).replace('T', ' ');
@@ -92,11 +104,13 @@ function seed() {
   mk('E01053', 'DR-1992', 'Cash', '2026-06-17', 100000, 'CASH', [], 2);
   mk('E01053', 'DR-51', 'CAR', '2026-07-05', 35883, 'CAR EMI', [], 1);
   mk('E01053', 'DR-10649', 'EB Bill', '2026-06-02', 920, 'EB - 031280011630 (A. V. THIRUNAVUKKARASU AND A. V. MARUTHAGIRI)', [], 3);
+  rows[rows.length - 1].custom_service_details = ebDetails('031280011630');
   mk('E01053', 'DR-52225', 'EMI TAKEOVER', '2026-07-15', 35000, '1 MONTH EMI', [], 1);
   mk('E01053', 'DR-308', 'Cash', '2026-07-11', 100000, 'CASH', [S.ceo], 3);
   mk('E01053', 'DR-30', 'CAR', '2026-07-08', 35492, 'CAR EMI', [S.ceo], 4);
   mk('E01053', 'DR-3757', 'Fund Transfer', '2026-02-21', 8800, 'HBA1C', [S.ceo, S.ceoDone], 6);
   mk('E01053', 'DR-46036', 'EB Bill', '2026-06-20', 3394, 'EB - 030100062678 (K.RAMAKRISHNAN R.SENBAGAVALLI)', [S.gmFinal], 10);
+  rows[rows.length - 1].custom_service_details = ebDetails('030100062678');
   mk('E01053', 'DR-1975', 'Cash', '2026-05-26', 50000, 'CASH', [S.ceo, S.ceoDone, S.verified], 12);
   mk('E01053', 'DR-1', 'Cash', '2026-06-30', 2220, 'Mango Purchase (RE - IMBURSEMENT)', [S.ceo, S.ceoDone, S.verified], 9);
   mk('E01053', 'DR-43', 'Cash', '2026-05-26', 10000, 'CASH - GPAY', [S.gmRej], 8, 'Duplicate request');
@@ -162,7 +176,25 @@ export function makeSampleClient(role = 'MIS') {
             { employee: 'E01053', employee_name: PEOPLE.E01053.name, seat: PEOPLE.E01053.seat, grade: 'RBM', pairs: [{ department: CND, hq: HQ[doctor] || 'HQ-Coimbatore' }] },
             { employee: 'E00006', employee_name: PEOPLE.E00006.name, seat: PEOPLE.E00006.seat, grade: 'SM', pairs: [{ department: CND, hq: HQ[doctor] || 'HQ-Coimbatore' }, { department: 'Elbrit Coimbatore - ELPL', hq: 'HQ-Coimbatore' }] },
           ],
-          services: SERVICES.map((name) => ({ name, category: '' })),
+          services: SERVICES.map((name) => ({ name, category: '', capture: CAPTURE[name] || [] })),
+          // As the options script answers: this doctor's latest such service's
+          // values (`last`, filled in) and every earlier one (`known`, chips).
+          ...(() => {
+            const known = {};
+            const last = {};
+            rows.filter((r) => r.doctor === doctor && r.custom_service_details)
+              .sort((a, b) => String(b.creation).localeCompare(String(a.creation)))
+              .forEach((r) => {
+                const svc = r.service_name;
+                const first = !known[svc];
+                if (first) { known[svc] = {}; last[svc] = {}; }
+                JSON.parse(r.custom_service_details).forEach((d) => {
+                  if (first) last[svc][d.key] = d.values;
+                  known[svc][d.key] = [...new Set([...(known[svc][d.key] || []), ...d.values])];
+                });
+              });
+            return { known, last };
+          })(),
         } : {}),
       } : {}),
     }),

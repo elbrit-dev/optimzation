@@ -135,3 +135,31 @@ way.
 - A new tracker is inserted and then moved to its starting step with `db.set_value`. This
   matches what the team's own script does: the workflow starts every new tracker at ABM and
   has no step out of Rework.
+
+## Service details (per service type, 2026-10-14 — on UAT)
+
+What a service type asks for (EB Bill → EB service number, Recharge → mobile number,
+EMI → loan number…) is configured, not coded:
+
+| Where | Field | Type | Purpose |
+|---|---|---|---|
+| Doctor Service Master | `custom_capture_fields` | JSON | `[{"key","label","multi","required"}]` — the inputs the app's form shows for this service |
+| Doctor Service | `custom_service_details` | JSON, hidden, read-only | What was captured: `[{"key","label","values":[...]}]` |
+| Doctor Service | `custom_service_details_html` | HTML, label "Service details" | Shown on the desk form by the client script |
+
+- **Client Script** "Doctor Service Details View" (Form) renders the JSON into the HTML field —
+  source: `doctor_service_details_view.js`.
+- **Options** returns each service's `capture`, and `known`: this doctor's earlier values per
+  service and key (filtered by `doctor`, so one doctor's numbers never show for another). The
+  form fills them in; MIS may change or add.
+- **Guard** keeps only the service's own keys, trims / de-duplicates, keeps one value where
+  `multi` is 0, refuses a missing `required` one ("Add the EB service number for EB Bill."), and
+  locks the details with the rest of the content once in approval.
+- **List** returns `custom_service_details`; the app shows each as a row on the service detail.
+- UAT masters set: EB Bill, Recharge (new, Utilities), EMI TAKEOVER, CAR, RD 2/3/4, Jewel Chit.
+- **Correcting after approval:** the "Correct details" button on the desk form (System Manager /
+  MIS Admin — `FIX_ROLES` in both the client script and `elbrit_doctor_service_fix_details.py`)
+  opens a dialog with the service's own fields. The API script re-checks the role and the same
+  rules, writes ONLY `custom_service_details` (the guard's lock is not loosened), and adds a
+  comment "Service details corrected by X: EB service number 04-123 -> 05-777". The doctor's
+  next service fills in the corrected value.

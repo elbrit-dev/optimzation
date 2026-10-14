@@ -18,7 +18,7 @@
  * drawer on wide screens, a bottom sheet on narrow ones. */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CATS, CAT_OF, EDITABLE, REWORK, cmp, localToday, money, roiTxt, short } from '../data/workflow';
+import { CATS, CAT_OF, EDITABLE, REWORK, cleanVals, cmp, localToday, money, roiTxt, short } from '../data/workflow';
 import { bizView } from '../data/insight';
 import { Combo, DatePicker, Icon, initials } from './parts';
 import { ensureStyles } from './styles';
@@ -39,6 +39,10 @@ export function ServiceForm({ client, doctor, entry, viewer, onClose, onSaved })
     date: entry?.date || localToday(),
     amount: entry ? String(entry.amount) : '',
     remarks: entry?.remarks || '',
+    // Service details, by key: what the chosen service asks for (EB number,
+    // mobile number...). Filled from the record being edited, or this
+    // doctor's earlier values for the service once the options arrive.
+    det: Object.fromEntries((entry?.details || []).map((d) => [d.key, d.values])),
     file: null,
   }));
   const [err, setErr] = useState({});
@@ -84,7 +88,30 @@ export function ServiceForm({ client, doctor, entry, viewer, onClose, onSaved })
   const cells = biz ? biz.cells : null;
 
   const amtOk = Number(f.amount) > 0;
-  const done = [!!chosen && !!pair, !!f.service, !!f.date, amtOk].filter(Boolean).length;
+  // The details the chosen service asks for, and what this doctor gave before.
+  const capture = services.find((s) => s.name === f.service)?.capture || [];
+  const known = opts?.known?.[f.service] || {};
+  // The latest such service's values: what is filled in (a replaced number
+  // stays out); older ones are only offered as "used before" chips.
+  const last = opts?.last?.[f.service] || known;
+  const valsOf = (c) => {
+    const v = cleanVals(f.det[c.key]);
+    return c.multi ? v : v.slice(0, 1);
+  };
+  const missing = capture.filter((c) => c.required && !valsOf(c).length);
+  // A field with nothing typed yet starts from this doctor's earlier values.
+  useEffect(() => {
+    if (!capture.length) return;
+    const fill = {};
+    for (const c of capture) {
+      if (cleanVals(f.det[c.key]).length) continue;
+      const prev = last[c.key] || [];
+      fill[c.key] = prev.length ? (c.multi ? prev.slice() : prev.slice(0, 1)) : [''];
+    }
+    if (Object.keys(fill).length) setF((s) => ({ ...s, det: { ...s.det, ...fill } }));
+  }, [f.service, opts]); // eslint-disable-line react-hooks/exhaustive-deps
+  const setDet = (key, list) => set({ det: { ...f.det, [key]: list } }, 'det');
+  const done = [!!chosen && !!pair, !!f.service && !missing.length, !!f.date, amtOk].filter(Boolean).length;
   const canEnter = viewer?.can_enter ?? opts?.viewer?.can_enter;
 
   async function save() {
@@ -93,6 +120,7 @@ export function ServiceForm({ client, doctor, entry, viewer, onClose, onSaved })
     else if (!pair) e.pair = 'Choose the department.';
     if (!f.cat) e.service = 'Choose a service type.';
     else if (!f.service) e.service = 'Choose the sub-service.';
+    if (f.service && missing.length) e.det = `Add the ${missing.map((c) => c.label).join(', ')}.`;
     if (!f.date) e.date = 'Pick the service date.';
     else if (f.date > localToday()) e.date = 'The service date cannot be in the future.';
     if (!amtOk) e.amount = 'Enter an amount above ₹0.';
@@ -110,6 +138,10 @@ export function ServiceForm({ client, doctor, entry, viewer, onClose, onSaved })
       hq: pair.hq,
       remarks: f.remarks.trim(),
     };
+    // What the service asked for, as JSON on the record (the guard keeps only
+    // the service's own fields and checks the required ones).
+    fields.custom_service_details = JSON.stringify(
+      capture.map((c) => ({ key: c.key, label: c.label, values: valsOf(c) })).filter((d) => d.values.length));
     let name = entry?.id;
     try {
       if (editing) await client.update(name, fields);
@@ -242,6 +274,45 @@ export function ServiceForm({ client, doctor, entry, viewer, onClose, onSaved })
               </>
             ) : null}
             {err.service ? <span className="er">{err.service}</span> : null}
+            {capture.map((c) => {
+              const list = (f.det[c.key] && f.det[c.key].length ? f.det[c.key] : ['']);
+              const shown = c.multi ? list : list.slice(0, 1);
+              // This doctor's earlier values not in the list now: one tap adds one.
+              const prev = (known[c.key] || []).filter((v) => !cleanVals(list).includes(v));
+              return (
+                <div key={c.key} className="dsv-eb">
+                  <span className="lab">{c.label} {c.required ? <i>*</i> : null}</span>
+                  {shown.map((n, i) => (
+                    <div key={i} className="dsv-eb-row">
+                      <span className={'dsv-amt' + (err.det && c.required && !String(n).trim() ? ' bad' : '')}>
+                        <input type="text" value={n} placeholder={c.label}
+                          aria-label={`${c.label}${shown.length > 1 ? ' ' + (i + 1) : ''}`}
+                          onChange={(ev) => setDet(c.key, shown.map((x, j) => (j === i ? ev.target.value : x)))} />
+                      </span>
+                      {shown.length > 1 ? (
+                        <button type="button" className="dsv-x" aria-label={`Remove ${c.label} ${i + 1}`}
+                          onClick={() => setDet(c.key, shown.filter((_, j) => j !== i))}>
+                          <Icon name="x" size={12} color="#4B5563" width={3} />
+                        </button>
+                      ) : null}
+                    </div>
+                  ))}
+                  {prev.length ? (
+                    <div className="dsv-eb-prev">
+                      <span>Used before:</span>
+                      {prev.map((v) => (
+                        <button key={v} type="button" className="dsv-eb-chip"
+                          onClick={() => setDet(c.key, c.multi ? [...cleanVals(list), v] : [v])}>{v}</button>
+                      ))}
+                    </div>
+                  ) : null}
+                  {c.multi ? (
+                    <button type="button" className="dsv-eb-add" onClick={() => setDet(c.key, [...shown, ''])}>+ Add another</button>
+                  ) : null}
+                </div>
+              );
+            })}
+            {err.det ? <span className="er">{err.det}</span> : null}
           </div>
 
           <div className="dsv-row2">

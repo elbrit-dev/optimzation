@@ -69,7 +69,7 @@ def guard(doc):
     START = "GM Approval Waiting"
     REWORK = "Rework"
     CONTENT = ["doctor", "service_name", "service_date", "service_amount", "by",
-               "department", "hq", "remarks", "service_attachement"]
+               "department", "hq", "remarks", "service_attachement", "custom_service_details"]
     LATE_OK = ["service_attachement"]
 
 
@@ -196,9 +196,24 @@ def guard(doc):
             doc.set(field, value)
 
 
+    def as_list(raw):
+        # A JSON field's value: a list already, or its text.
+        if not raw:
+            return []
+        if isinstance(raw, list):
+            return raw
+        try:
+            v = json.loads(raw)
+        except Exception:
+            return []
+        return v if isinstance(v, list) else []
+
+
     def same(a, b, field):
         if field == "service_amount":
             return round(float(a or 0), 2) == round(float(b or 0), 2)
+        if field == "custom_service_details":
+            return json.dumps(as_list(a), sort_keys=True) == json.dumps(as_list(b), sort_keys=True)
         return str(a or "").strip() == str(b or "").strip()
 
 
@@ -250,6 +265,38 @@ def guard(doc):
                 frappe.throw("Choose the service.")
             if not frappe.db.exists("Doctor Service Master", doc.get("service_name")):
                 frappe.throw("Unknown service: " + str(doc.get("service_name")))
+            # Service details: what the service asks for (its master's
+            # custom_capture_fields -- EB Bill the EB number, Recharge the
+            # mobile...). Only those keys are kept, values trimmed and
+            # de-duplicated, one value where the field takes one, and a
+            # required one must be there.
+            if has("custom_service_details"):
+                capture = []
+                if frappe.get_meta("Doctor Service Master").has_field("custom_capture_fields"):
+                    capture = as_list(frappe.db.get_value("Doctor Service Master", doc.get("service_name"),
+                                                          "custom_capture_fields"))
+                given = {}
+                for d in as_list(doc.get("custom_service_details")):
+                    if isinstance(d, dict) and d.get("key"):
+                        given[str(d.get("key"))] = d.get("values") or []
+                kept = []
+                for f in capture:
+                    if not isinstance(f, dict) or not str(f.get("key") or "").strip():
+                        continue
+                    key = str(f.get("key")).strip()
+                    label = str(f.get("label") or key).strip()
+                    vals = []
+                    for v in (given.get(key) or []):
+                        v = str(v or "").strip()
+                        if v and v not in vals:
+                            vals.append(v)
+                    if not f.get("multi"):
+                        vals = vals[:1]
+                    if not vals and f.get("required") != 0:
+                        frappe.throw("Add the " + label + " for " + str(doc.get("service_name")) + ".")
+                    if vals:
+                        kept.append({"key": key, "label": label, "values": vals})
+                doc.custom_service_details = json.dumps(kept) if kept else None
 
             amount = round(float(doc.get("service_amount") or 0), 2)
             if amount <= 0:

@@ -125,6 +125,9 @@ if meta.has_field("custom_via_app"):
     for f in WANTED:
         if meta.has_field(f):
             fields.append(f)
+    # What the service type captured (EB number, mobile...), when ERP has it.
+    if meta.has_field("custom_service_details"):
+        fields.append("custom_service_details")
     keep = []
     for f in fields:
         if f in ["name", "owner", "creation", "modified"] or meta.has_field(f):

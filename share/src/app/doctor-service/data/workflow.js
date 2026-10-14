@@ -39,16 +39,33 @@ export function appState(s) {
   return st;
 }
 
-export const CATS = ['Cash', 'EMI', 'Bookings', 'Gift'];
+export const CATS = ['Cash', 'EMI', 'Bookings', 'Gift', 'Utilities'];
 /* Used until Doctor Service Master carries custom_category. */
 export const CAT_OF = {
   Cash: 'Cash', cheque: 'Cash', Check: 'Cash', 'Fund Transfer': 'Cash', 'cash back activity': 'Cash',
-  'EMI TAKEOVER': 'EMI', CAR: 'EMI', 'RD 2': 'EMI', 'RD 3': 'EMI', 'RD 4': 'EMI', 'Jewel Chit': 'EMI', 'EB Bill': 'EMI',
+  'EMI TAKEOVER': 'EMI', CAR: 'EMI', 'RD 2': 'EMI', 'RD 3': 'EMI', 'RD 4': 'EMI', 'Jewel Chit': 'EMI',
+  'EB Bill': 'Utilities', Recharge: 'Utilities',
   cab: 'Bookings', Travel: 'Bookings', Academic: 'Bookings', Dinner: 'Bookings', 'Activity Deck': 'Bookings',
   'GIFT CARD': 'Gift', '10K Voucher': 'Gift', '50K Vocuher': 'Gift', gold: 'Gift', 'I PHONE': 'Gift',
   GADGETS: 'Gift', APPLIANCE: 'Gift', 'GC - Britrova CV, Nero PG, Chlorvix': 'Gift',
 };
 export const catOf = (service, category) => category || CAT_OF[service] || '';
+
+/* SERVICE DETAILS: what a service type asks for is set on its Doctor Service
+   Master (custom_capture_fields: [{key, label, multi, required}] -- EB Bill
+   the EB service number, Recharge the mobile number, EMI the loan number...);
+   what a service captured is stored as JSON on it (custom_service_details:
+   [{key, label, values}]). The form is built from the first and fills in
+   this doctor's earlier values (the options answer's `known`). */
+export const cleanVals = (list) => [...new Set((list || []).map((s) => String(s ?? '').trim()).filter(Boolean))];
+const asList = (raw) => {
+  if (Array.isArray(raw)) return raw;
+  try { const v = JSON.parse(raw || '[]'); return Array.isArray(v) ? v : []; } catch { return []; }
+};
+export const detailsOf = (raw) => asList(raw)
+  .filter((d) => d && d.key)
+  .map((d) => ({ key: String(d.key), label: String(d.label || d.key), values: cleanVals(d.values) }))
+  .filter((d) => d.values.length);
 
 export const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 export const MONF = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -147,6 +164,7 @@ export function normalize(row) {
     date: row.service_date || row.date,
     amount: Number(row.service_amount) || 0,
     remarks: row.remarks || '',
+    details: detailsOf(row.custom_service_details),
     att: row.service_attachement || null,
     state,
     by: row.by,
