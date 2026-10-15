@@ -55,7 +55,10 @@ export default function ClaimsStrip({ url, token, employee, today = new Date(), 
     return out;
   }, [sample, data.status, data.claims, key, mon]);
 
-  if (!sample && (!url || !token || data.status === "error")) return null;
+  /* Nothing until the claims are in: claims are open to IT and MIS only
+     (canUseClaims), and a loading strip that then vanishes would flash on
+     everyone else's home page. */
+  if (!sample && (!url || !token || data.status !== "ready")) return null;
   const loop = items.length > 1 ? [...items, ...items] : items;
 
   return (

@@ -27,6 +27,7 @@ import { ProfileAvatar, ProfilePictureEditor, useProfilePicture } from "./profil
 // document records - none of which the ERP has a print format for.
 import { usePayslipPrint } from "./erp-print";
 import ClaimHistory from "../expense-claims/ClaimHistory";
+import { useClaimsAccess } from "../expense-claims/data/useClaims";
 
 const TABS = [
   { id: "personal", label: "Personal info" },
@@ -360,14 +361,14 @@ function HeaderCard({ data, helpDeskLink, picture, payslipPrint }) {
   );
 }
 
-function Tabs({ activeTab, onChange, syncText }) {
+function Tabs({ tabs = TABS, activeTab, onChange, syncText }) {
   return (
     <div className="border-b border-[#d5d5d5]">
       <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
         {/* Scrollable on narrow screens, but without the scrollbar chrome -
             Chromium paints a track here even when nothing overflows. */}
         <div className="flex overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {TABS.map((tab) => {
+          {tabs.map((tab) => {
             const active = tab.id === activeTab;
             return (
               <button
@@ -901,10 +902,10 @@ const MOBILE_VIEWS = [
   { id: "claims", label: "Claims" },
 ];
 
-function MobileSegmentedTabs({ active, onChange }) {
+function MobileSegmentedTabs({ views = MOBILE_VIEWS, active, onChange }) {
   return (
     <div className="flex gap-1 rounded-[10px] bg-[#e7e8ed] p-1">
-      {MOBILE_VIEWS.map((view) => {
+      {views.map((view) => {
         const isActive = view.id === active;
         return (
           <button
@@ -1107,13 +1108,15 @@ function MobileEarlierMonths({ data, payslipPrint }) {
   );
 }
 
-function MobileProfileExperience({ data, helpDeskLink, picture, payslipPrint, claims, initialView = "profile" }) {
-  const [view, setView] = useState(initialView);
+function MobileProfileExperience({ data, helpDeskLink, picture, payslipPrint, claims, claimsOpen = false, initialView = "profile" }) {
+  const [picked, setView] = useState(initialView);
+  const view = picked === "claims" && !claimsOpen ? "profile" : picked;
+  const views = claimsOpen ? MOBILE_VIEWS : MOBILE_VIEWS.filter((v) => v.id !== "claims");
 
   return (
     <div className="flex w-full flex-col gap-3">
       <MobileProfileCard data={data} picture={picture} />
-      <MobileSegmentedTabs active={view} onChange={setView} />
+      <MobileSegmentedTabs views={views} active={view} onChange={setView} />
       {view === "profile" ? <MobileAccordionList data={data} /> : null}
       {view === "payslips" ? (
         <div className="flex flex-col gap-2.5">
@@ -1227,6 +1230,12 @@ export default function MyProfileExperience({
     onOpenClaims,
   };
 
+  // Claims are open to IT and MIS only (canUseClaims). Everyone else never
+  // sees the tab, and a `?tab=claims` link lands them on Personal info.
+  const claimsOpen = useClaimsAccess(claims);
+  const tabs = claimsOpen ? TABS : TABS.filter((tab) => tab.id !== "claims");
+  const shownTab = activeTab === "claims" && !claimsOpen ? "personal" : activeTab;
+
   // The picture is the one thing on this screen that writes back to the ERP, so
   // its state sits here: both layouts are mounted at once and share it.
   const picture = useProfilePicture({
@@ -1253,13 +1262,13 @@ export default function MyProfileExperience({
           cards now sit straight on the background. */}
       <main className="hidden w-full flex-col gap-3 bg-[#f2f2f2] px-3 py-4 sm:flex sm:px-4 lg:px-6">
         <HeaderCard data={data} helpDeskLink={helpDeskLink} picture={picture} payslipPrint={payslipPrint} />
-        <Tabs activeTab={activeTab} onChange={setActiveTab} syncText={data.syncText} />
-        {activeTab === "personal" ? <PersonalTab data={data} /> : null}
-        {activeTab === "role" ? <RoleTab data={data} /> : null}
-        {activeTab === "account" ? <AccountTab data={data} /> : null}
-        {activeTab === "documents" ? <DocumentsTab data={data} /> : null}
-        {activeTab === "payslips" ? <PayslipsTab data={data} helpDeskLink={helpDeskLink} payslipPrint={payslipPrint} /> : null}
-        {activeTab === "claims" ? <ClaimHistory embedded {...claims} /> : null}
+        <Tabs tabs={tabs} activeTab={shownTab} onChange={setActiveTab} syncText={data.syncText} />
+        {shownTab === "personal" ? <PersonalTab data={data} /> : null}
+        {shownTab === "role" ? <RoleTab data={data} /> : null}
+        {shownTab === "account" ? <AccountTab data={data} /> : null}
+        {shownTab === "documents" ? <DocumentsTab data={data} /> : null}
+        {shownTab === "payslips" ? <PayslipsTab data={data} helpDeskLink={helpDeskLink} payslipPrint={payslipPrint} /> : null}
+        {shownTab === "claims" ? <ClaimHistory embedded {...claims} /> : null}
       </main>
 
       <main className="flex w-full flex-col gap-3 bg-[#f5f6f8] p-3 sm:hidden">
@@ -1270,6 +1279,7 @@ export default function MyProfileExperience({
           picture={picture}
           payslipPrint={payslipPrint}
           claims={claims}
+          claimsOpen={claimsOpen}
           initialView={activeTab === "claims" ? "claims" : activeTab === "payslips" ? "payslips" : "profile"}
         />
       </main>

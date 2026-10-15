@@ -142,6 +142,7 @@ export default function ClaimHistory({ url, token, employee, asOf, claimsPath, o
 
       {data.status === "idle" && <Note tone="info">Pass the ERP GraphQL URL and the signed-in user's token to load claims.</Note>}
       {data.status === "error" && <Note>{data.error}</Note>}
+      {data.status === "hidden" && <Note tone="info">Expense claims are not open for your role yet.</Note>}
       {data.status === "loading" && <div aria-busy="true" style={{ ...card, height: 200, display: "grid", placeItems: "center" }}><Spinner size={24} /></div>}
 
       {data.status === "ready" && <>
