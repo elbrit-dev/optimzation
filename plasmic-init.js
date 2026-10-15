@@ -12,6 +12,7 @@ import MyProfile from "./components/features/my-profile";
 import ProfileHeader from "./components/features/profile-header";
 import SummaryCard from "./components/features/summary-card";
 import HomeOverview from "./components/features/home-overview";
+import ClaimReport from "./components/features/expense-claims";
 import SectionPage from "./components/features/section-page";
 import FirebaseUIComponent from "./components/FirebaseUIComponent";
 import LoginHelpForm from "./components/LoginHelpForm";
@@ -2687,8 +2688,31 @@ PLASMIC.registerComponent(MyProfile, {
     defaultTab: {
       type: "choice",
       displayName: "Default tab",
-      options: ["personal", "role", "account", "documents", "payslips"],
+      options: ["personal", "role", "account", "documents", "payslips", "claims"],
       defaultValue: "personal",
+      description: "A ?tab=<id> in the page URL overrides this - the Claims page's \"Past claims\" opens ?tab=claims.",
+    },
+    url: {
+      type: "string",
+      displayName: "GraphQL URL",
+      description: "Expense & claims tab: the ERP GraphQL URL, e.g. https://erp.elbrit.org/api/method/graphql. The tab reads the person's Expense Claims and their attached bills from here.",
+    },
+    token: {
+      type: "string",
+      displayName: "Auth token",
+      description: "Expense & claims tab: the signed-in user's ERP token (key:secret). Claims are read and edited as this user, so the ERP's own permissions apply. Without URL and token the tab says so.",
+    },
+    claimsPath: {
+      type: "string",
+      displayName: "Claims page",
+      defaultValue: "/claims",
+      description: "The page holding the Claim Report component, linked from the Expense & claims tab as \"This month's claims\".",
+    },
+    onOpenClaims: {
+      type: "eventHandler",
+      displayName: "On open Claims",
+      description: "Fires from \"This month's claims\". Once wired, the built-in redirect is off.",
+      argTypes: [],
     },
     helpDeskLink: {
       type: "string",
@@ -2716,6 +2740,27 @@ PLASMIC.registerComponent(MyProfile, {
   },
   styleSections: true,
   importPath: "./components/features/my-profile",
+});
+
+PLASMIC.registerComponent(ClaimReport, {
+  name: "ClaimReport",
+  displayName: "Claim Report",
+  description:
+    "Expense claims page: the month's ERP Expense Claims day by day, totals by status (With HR, Approved, Paid - set by HR in the ERP; there is no approval here), and the New / Edit claim form with bill attachments and preview. Reads and writes as the token's own Employee. Opens on this month; arrows step back through months with claims. ?new=1 in the URL opens the form.",
+  props: {
+    url: { type: "string", displayName: "GraphQL URL", description: "ERP GraphQL URL, e.g. https://erp.elbrit.org/api/method/graphql." },
+    token: { type: "string", displayName: "Auth token", description: "The signed-in user's ERP token (key:secret). Claims are filed as this user." },
+    employee: { type: "string", displayName: "Employee (override)", advanced: true, description: "Optional Employee docname (E00684). Empty works it out from the token's login (Employee.user_id)." },
+    asOf: { type: "string", displayName: "As of date", advanced: true, description: "Optional ISO date to treat as today. Empty means now." },
+    newClaim: { type: "boolean", displayName: "Open new claim", advanced: true, defaultValue: false, description: "Opens the form on load, like ?new=1." },
+    homePath: { type: "string", displayName: "Back to", defaultValue: "/", description: "Where the back arrow goes. Empty leaves it to On back." },
+    historyPath: { type: "string", displayName: "Past claims page", defaultValue: "/my-profile?tab=claims", description: "Where \"Past claims\" goes - the profile page, opened on its Expense & claims tab." },
+    viewport: { type: "choice", displayName: "Layout", options: ["auto", "desktop", "mobile"], defaultValue: "auto" },
+    onBack: { type: "eventHandler", displayName: "On back", description: "Once wired, replaces the built-in redirect to Back to.", argTypes: [] },
+    onOpenHistory: { type: "eventHandler", displayName: "On open past claims", description: "Once wired, replaces the built-in redirect to Past claims page.", argTypes: [] },
+  },
+  styleSections: true,
+  importPath: "./components/features/expense-claims",
 });
 
 PLASMIC.registerComponent(SummaryCard, {
@@ -3062,6 +3107,25 @@ PLASMIC.registerComponent(HomeOverview, {
       type: "eventHandler",
       displayName: "On open Review",
       description: "Fires from the Review Report card. Give it a Go to page action; once wired, the built-in redirect for this card is off.",
+      argTypes: [],
+    },
+    showClaims: {
+      type: "boolean",
+      displayName: "Claims strip",
+      defaultValue: true,
+      description: "Shows the Expense claims strip at the top: this month's claims (ERP Expense Claim, as the token's own Employee) as a ticker that opens the Claims page, and a + that opens it straight on a new claim. Needs the URL and token.",
+    },
+    claimsPath: { type: "string", displayName: "Claims page", defaultValue: "/claims", description: "The page holding the Claim Report component. The + goes there with ?new=1, which opens the form." },
+    onOpenClaims: {
+      type: "eventHandler",
+      displayName: "On open Claims",
+      description: "Fires when the claims ticker is clicked. In Interactions, add a Go to page action pointing at the page that holds Claim Report. Once wired, the built-in redirect to Claims page is off.",
+      argTypes: [],
+    },
+    onNewClaim: {
+      type: "eventHandler",
+      displayName: "On new claim",
+      description: "Fires when the claims strip's + is clicked. In Interactions, add a Go to page action pointing at the Claims page - the form opens there by itself (no ?new=1 needed). Once wired, the built-in redirect is off.",
       argTypes: [],
     },
     onOpen: {

@@ -26,6 +26,8 @@ import { ProfileAvatar, ProfilePictureEditor, useProfilePicture } from "./profil
 // renderer still produces the profile sheet, the multi-month register and the
 // document records - none of which the ERP has a print format for.
 import { usePayslipPrint } from "./erp-print";
+import ClaimHistory from "../expense-claims/ClaimHistory";
+import { useClaimsAccess } from "../expense-claims/data/useClaims";
 
 const TABS = [
   { id: "personal", label: "Personal info" },
@@ -33,6 +35,7 @@ const TABS = [
   { id: "account", label: "Account details" },
   { id: "documents", label: "Documents" },
   { id: "payslips", label: "Payslips" },
+  { id: "claims", label: "Expense & claims", isNew: true },
 ];
 
 // One responsive type scale for the whole screen. Every size steps up at `sm`
@@ -358,14 +361,14 @@ function HeaderCard({ data, helpDeskLink, picture, payslipPrint }) {
   );
 }
 
-function Tabs({ activeTab, onChange, syncText }) {
+function Tabs({ tabs = TABS, activeTab, onChange, syncText }) {
   return (
     <div className="border-b border-[#d5d5d5]">
       <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
         {/* Scrollable on narrow screens, but without the scrollbar chrome -
             Chromium paints a track here even when nothing overflows. */}
         <div className="flex overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {TABS.map((tab) => {
+          {tabs.map((tab) => {
             const active = tab.id === activeTab;
             return (
               <button
@@ -379,6 +382,11 @@ function Tabs({ activeTab, onChange, syncText }) {
                 )}
               >
                 {tab.label}
+                {tab.isNew ? (
+                  <span className="ml-1.5 rounded-full bg-[#eef3fe] px-1.5 py-0.5 align-middle text-[10px] font-bold tracking-[0.04em] text-[#1d4ed8]">
+                    NEW
+                  </span>
+                ) : null}
                 {active ? (
                   <span className="absolute bottom-[-1px] left-2 right-2 h-[2px] bg-[#eb2027] sm:left-3 sm:right-3" />
                 ) : null}
@@ -891,12 +899,13 @@ function MobileProfileCard({ data, picture }) {
 const MOBILE_VIEWS = [
   { id: "profile", label: "Profile" },
   { id: "payslips", label: "Payslips" },
+  { id: "claims", label: "Claims" },
 ];
 
-function MobileSegmentedTabs({ active, onChange }) {
+function MobileSegmentedTabs({ views = MOBILE_VIEWS, active, onChange }) {
   return (
     <div className="flex gap-1 rounded-[10px] bg-[#e7e8ed] p-1">
-      {MOBILE_VIEWS.map((view) => {
+      {views.map((view) => {
         const isActive = view.id === active;
         return (
           <button
@@ -1099,13 +1108,15 @@ function MobileEarlierMonths({ data, payslipPrint }) {
   );
 }
 
-function MobileProfileExperience({ data, helpDeskLink, picture, payslipPrint }) {
-  const [view, setView] = useState("profile");
+function MobileProfileExperience({ data, helpDeskLink, picture, payslipPrint, claims, claimsOpen = false, initialView = "profile" }) {
+  const [picked, setView] = useState(initialView);
+  const view = picked === "claims" && !claimsOpen ? "profile" : picked;
+  const views = claimsOpen ? MOBILE_VIEWS : MOBILE_VIEWS.filter((v) => v.id !== "claims");
 
   return (
     <div className="flex w-full flex-col gap-3">
       <MobileProfileCard data={data} picture={picture} />
-      <MobileSegmentedTabs active={view} onChange={setView} />
+      <MobileSegmentedTabs views={views} active={view} onChange={setView} />
       {view === "profile" ? <MobileAccordionList data={data} /> : null}
       {view === "payslips" ? (
         <div className="flex flex-col gap-2.5">
@@ -1114,6 +1125,7 @@ function MobileProfileExperience({ data, helpDeskLink, picture, payslipPrint }) 
           <MobileEarlierMonths data={data} payslipPrint={payslipPrint} />
         </div>
       ) : null}
+      {view === "claims" ? <ClaimHistory embedded {...claims} /> : null}
     </div>
   );
 }
@@ -1182,6 +1194,11 @@ export default function MyProfileExperience({
   erpEndpointKey = "",
   onPictureChange,
   defaultTab = "personal",
+  // Expense & claims tab: read and filed as the signed-in user's own token.
+  url = "",
+  token = "",
+  claimsPath = "/claims",
+  onOpenClaims,
   className = "",
 }) {
   const data = useMemo(
@@ -1189,9 +1206,35 @@ export default function MyProfileExperience({
     [profile, leaveBalance, payslips, documents]
   );
 
+  // `?tab=claims` (the Claims page's "Past claims") wins over defaultTab.
+  // Read after mount, so the server render and the first client render agree.
   const [activeTab, setActiveTab] = useState(
     TABS.some((tab) => tab.id === defaultTab) ? defaultTab : "personal"
   );
+  const [askedTab, setAskedTab] = useState(null);
+  useEffect(() => {
+    const asked = new URLSearchParams(window.location.search).get("tab");
+    if (TABS.some((tab) => tab.id === asked)) {
+      setActiveTab(asked);
+      setAskedTab(asked);
+    }
+  }, []);
+
+  const claims = {
+    url,
+    token,
+    // The profile's own Employee docname, when bound; otherwise the claims
+    // read works out who the token belongs to.
+    employee: data.employee.id || undefined,
+    claimsPath,
+    onOpenClaims,
+  };
+
+  // Claims are open to IT and MIS only (canUseClaims). Everyone else never
+  // sees the tab, and a `?tab=claims` link lands them on Personal info.
+  const claimsOpen = useClaimsAccess(claims);
+  const tabs = claimsOpen ? TABS : TABS.filter((tab) => tab.id !== "claims");
+  const shownTab = activeTab === "claims" && !claimsOpen ? "personal" : activeTab;
 
   // The picture is the one thing on this screen that writes back to the ERP, so
   // its state sits here: both layouts are mounted at once and share it.
@@ -1219,16 +1262,26 @@ export default function MyProfileExperience({
           cards now sit straight on the background. */}
       <main className="hidden w-full flex-col gap-3 bg-[#f2f2f2] px-3 py-4 sm:flex sm:px-4 lg:px-6">
         <HeaderCard data={data} helpDeskLink={helpDeskLink} picture={picture} payslipPrint={payslipPrint} />
-        <Tabs activeTab={activeTab} onChange={setActiveTab} syncText={data.syncText} />
-        {activeTab === "personal" ? <PersonalTab data={data} /> : null}
-        {activeTab === "role" ? <RoleTab data={data} /> : null}
-        {activeTab === "account" ? <AccountTab data={data} /> : null}
-        {activeTab === "documents" ? <DocumentsTab data={data} /> : null}
-        {activeTab === "payslips" ? <PayslipsTab data={data} helpDeskLink={helpDeskLink} payslipPrint={payslipPrint} /> : null}
+        <Tabs tabs={tabs} activeTab={shownTab} onChange={setActiveTab} syncText={data.syncText} />
+        {shownTab === "personal" ? <PersonalTab data={data} /> : null}
+        {shownTab === "role" ? <RoleTab data={data} /> : null}
+        {shownTab === "account" ? <AccountTab data={data} /> : null}
+        {shownTab === "documents" ? <DocumentsTab data={data} /> : null}
+        {shownTab === "payslips" ? <PayslipsTab data={data} helpDeskLink={helpDeskLink} payslipPrint={payslipPrint} /> : null}
+        {shownTab === "claims" ? <ClaimHistory embedded {...claims} /> : null}
       </main>
 
       <main className="flex w-full flex-col gap-3 bg-[#f5f6f8] p-3 sm:hidden">
-        <MobileProfileExperience data={data} helpDeskLink={helpDeskLink} picture={picture} payslipPrint={payslipPrint} />
+        <MobileProfileExperience
+          key={askedTab || "default"}
+          data={data}
+          helpDeskLink={helpDeskLink}
+          picture={picture}
+          payslipPrint={payslipPrint}
+          claims={claims}
+          claimsOpen={claimsOpen}
+          initialView={activeTab === "claims" ? "claims" : activeTab === "payslips" ? "payslips" : "profile"}
+        />
       </main>
 
       <ProfilePictureEditor
