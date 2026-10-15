@@ -44,6 +44,16 @@ export function attendanceExportRows(people, team, state, overRange = false, cal
     row['Calls planned'] = p.planned;
     row['Calls done'] = p.happened;
 
+    /* Their calls against the month — the line under their card. */
+    if (p.calls) {
+      const round1 = (n) => (n == null ? '' : Math.round(n * 10) / 10);
+      row['Calls/day'] = round1(p.calls.average);
+      row['Days off (leave + other work)'] = p.calls.daysOff;
+      row['Month target'] = p.calls.target;
+      row['Calls left'] = p.calls.left;
+      row['Calls/day needed'] = round1(p.calls.perDayNeeded);
+    }
+
     /* The "when" the sheet's expanded rows answer, so the file answers it too. */
     if (overRange && state === 'notReporting') {
       row['Not reported on'] = (p.days ?? [])

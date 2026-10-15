@@ -13,6 +13,7 @@ import { childrenOf, kidsOf, rollupFor } from '../data/selectors';
 import { GeoBar } from './GeoBar';
 import { ATTENDANCE_LABEL, ATTENDANCE_TONE } from '../data/shape';
 import { formatCurrency } from '../data/format';
+import { CallTarget } from './CallTarget';
 
 /* RBM → ABM → BE, expanded on tap.
  *
@@ -149,8 +150,8 @@ function RoleLine({ member, roll, overRange = false }) {
   );
 }
 
-function TreeNode({ member, team, rows, pob, depth, open, toggle, onDoctorPlan, overRange }) {
-  const roll = rollupFor(member, team, rows, pob, overRange);
+function TreeNode({ member, team, rows, pob, depth, open, toggle, onDoctorPlan, overRange, monthDays, today }) {
+  const roll = rollupFor(member, team, rows, pob, overRange, monthDays, today);
   const kids = childrenOf(team, member.id);
   const isOpen = open.has(member.id);
   const { showNoPlan } = rowFlags(member, roll);
@@ -240,6 +241,9 @@ function TreeNode({ member, team, rows, pob, depth, open, toggle, onDoctorPlan, 
         jointForce={roll.jointForce}
         jointPending={roll.jointPending}
       />
+
+      {/* Their calls against the month (month view only). */}
+      <CallTarget calls={roll.calls} />
     </div>
   );
 
@@ -265,13 +269,15 @@ function TreeNode({ member, team, rows, pob, depth, open, toggle, onDoctorPlan, 
           toggle={toggle}
           onDoctorPlan={onDoctorPlan}
           overRange={overRange}
+          monthDays={monthDays}
+          today={today}
         />
       ))}
     </DisclosureRow>
   );
 }
 
-export function TeamTree({ team, rows, pob, rootIds = [], onDoctorPlan, overRange = false }) {
+export function TeamTree({ team, rows, pob, rootIds = [], onDoctorPlan, overRange = false, monthDays = [], today = null }) {
   /* Open on each selected node, so the card arrives showing the level
      below every pick rather than as a row of closed names. Remounted by
      the caller when the picks change, which is what resets this. */
@@ -342,6 +348,8 @@ export function TeamTree({ team, rows, pob, rootIds = [], onDoctorPlan, overRang
               toggle={toggle}
               onDoctorPlan={onDoctorPlan}
               overRange={overRange}
+              monthDays={monthDays}
+              today={today}
             />
           ))
         )}

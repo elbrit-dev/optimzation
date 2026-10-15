@@ -202,6 +202,57 @@ export function callAverage(rows, workingCount, workingDays = 1) {
   return happened(rows) / workingCount / workingDays;
 }
 
+/* The company's per-day call standard — the Call average card's target, and
+   what each person's monthly target is built from. */
+export const CALL_STANDARD = 12;
+
+/* ONE PERSON'S CALLS AGAINST THE MONTH: what the reporting officer checks
+ * before asking a rep why the calls are not done.
+ *
+ *   target  standard × the working days they were AVAILABLE — leave and
+ *           Other Work days come off, so four days of approved leave does
+ *           not read as 48 calls missed.
+ *   average calls ÷ COMPLETED available days, i.e. before today. Today is
+ *           still being worked; counting it made every rep's average drop
+ *           each morning and recover by evening.
+ *   left    target − done, and how many a day that needs over the available
+ *           days still to come, today included.
+ *
+ * `monthDays` is every working day from the window's start to the END of its
+ * last month (not just to today), so the days still ahead are in it. Leave
+ * and Other Work are only known up to today (the window's fetch), so a future
+ * leave day counts as available until it is taken.
+ *
+ * Null for a vacant seat or with no days to measure (the single-day view). */
+export function callTarget(member, ownRows, monthDays = [], today, standard = CALL_STANDARD) {
+  if (member.vacant || monthDays.length === 0) return null;
+  let past = 0;
+  let ahead = 0;
+  let off = 0;
+  for (const date of monthDays) {
+    if (excusedOn(member, date)) {
+      off += 1;
+      continue;
+    }
+    if (today && date < today) past += 1;
+    else ahead += 1;
+  }
+  const done = happened(ownRows);
+  const donePast = today ? happened(ownRows.filter((r) => r.plannedDate < today)) : done;
+  const target = standard * (past + ahead);
+  const left = Math.max(0, target - done);
+  return {
+    standard,
+    done,
+    target,
+    left,
+    daysOff: off,
+    daysAhead: ahead,
+    average: past > 0 ? donePast / past : null,
+    perDayNeeded: ahead > 0 ? left / ahead : null,
+  };
+}
+
 /* How many distinct BEs logged at least one visit in this row set. The
    denominator for callAverage, and NOT the same as attendance().working once
    the period is wider than a day — over a month it counts anyone who worked at
@@ -1108,7 +1159,7 @@ export function attendance(rows, team, overRange = false, calendar = []) {
 /* Everything one tree row needs, for one manager or one rep. Computed per node
    on expand rather than for the whole tree up front: the live hierarchy is
    five levels deep and most of it is never opened. */
-export function rollupFor(member, team, rows, pobRows = [], overRange = false) {
+export function rollupFor(member, team, rows, pobRows = [], overRange = false, monthDays = [], today = null) {
   const members = subtreeOf(team, member.id);
   const ids = new Set(members.map((m) => m.id));
 
@@ -1185,6 +1236,8 @@ export function rollupFor(member, team, rows, pobRows = [], overRange = false) {
        its "Not reported" list with no mark in the tree is the two views
        disagreeing about the same person. */
     attendance: attendanceOf(member, repsWithVisits, overRange),
+    /* Their own calls against the month — see callTarget. Month view only. */
+    calls: overRange ? callTarget(member, own, monthDays, today) : null,
   };
 }
 
@@ -1300,7 +1353,7 @@ export function otherWorkDaysOf(member, calendar = []) {
  * Sorted by calls done, descending. The chip is tapped to find out WHO, and
  * on a list of forty the thing worth reading first is the spread.
  */
-export function repsInAttendanceState(team, rows, state, overRange = false, calendar = []) {
+export function repsInAttendanceState(team, rows, state, overRange = false, calendar = [], monthDays = [], today = null) {
   const rowsByEmployee = groupRowsByEmployee(rows);
 
   const out = [];
@@ -1348,6 +1401,8 @@ export function repsInAttendanceState(team, rows, state, overRange = false, cale
       /* Days with nothing logged and nothing excusing them — the Not
          reported list's own figure. */
       silentDays: days.filter((d) => d.happened === 0 && !d.excused).length,
+      /* Their calls against the month — the same figure as their tree row. */
+      calls: overRange ? callTarget(m, mine, monthDays, today) : null,
       /* WHEN, not just how much. "Not reported" over a month is a rep who
          logged nothing across four weeks, and the next question is always
          which days were lost — a fact the aggregates above cannot answer and

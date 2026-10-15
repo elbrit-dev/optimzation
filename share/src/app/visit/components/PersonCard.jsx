@@ -1,8 +1,9 @@
 'use client';
 
 import { Avatar, cx } from '@/design-system';
-import { formatDayHeading, formatDecimal, hqLabel } from '../data/format';
+import { formatDayHeading, hqLabel } from '../data/format';
 import { ATTENDANCE_LABEL, otherWorkKinds, otherWorkText } from '../data/shape';
+import { CallTarget } from './CallTarget';
 import { GeoBar } from './GeoBar';
 import { Chevron, PinIcon } from './icons';
 
@@ -130,10 +131,6 @@ export function PersonCard({ person, dayState = null, expandable = false, expand
      reading one calendar — and a rep on both lists has two figures that add
      up to it. */
   const dayValue = dayState ? DAY_COUNT[dayState]?.(person) ?? 0 : 0;
-  /* Null rather than 0 when there are no days to divide by — an em dash is
-     honest about a figure that does not exist, and "0.0 calls/day" is a
-     claim about a rep nobody gave a window to. */
-  const callAverage = dayCount > 0 ? (person.happened ?? 0) / dayCount : null;
   return (
     <span className={cx('flex w-full flex-col gap-2')}>
       <span className="flex w-full items-start gap-2.5">
@@ -207,38 +204,12 @@ export function PersonCard({ person, dayState = null, expandable = false, expand
             </span>
           ) : null}
 
-          {/* CALL AVERAGE, beside the role because it is the other thing that
-              describes the rep rather than the period — "a BE doing 5.8 a
-              day" is one phrase.
-           *
-              DIVIDED BY THE WINDOW'S WORKING DAYS, not by the days they
-              turned up. That is what the Call average KPI above the sheet
-              divides by, and two figures on one screen called the same thing
-              have to be the same thing: on the other denominator a rep who
-              worked twice and did twelve calls each time would read "12 a
-              day" beside a team figure of four, and be the best rep on the
-              screen for having worked twice.
-
-              No tone. The company standard is a per-day target for the TEAM
-              figure; applying it to one rep here would colour a judgement
-              this card has no business making.
-
-              GATED ON `dayState`, which is not a coincidence: it is null in
-              exactly the two cases where a rate has nobody or nothing to be a
-              rate OF — a vacant seat, where there is no rep to have an
-              average, and a single day, where "calls per day" is the visit
-              count the bar underneath already draws. */}
           {otherWorkNote ? (
             <span className="min-w-0 truncate rounded-chip bg-sunken px-2 py-0.5 text-10 font-semibold text-status-info-text">
               {otherWorkNote}
             </span>
           ) : null}
 
-          {dayState && callAverage != null ? (
-            <span className="shrink-0 whitespace-nowrap text-10 text-ds-secondary">
-              {formatDecimal(callAverage)} calls/day
-            </span>
-          ) : null}
         </span>
 
         {/* The pin is what says "this is a place" without spending a word on
@@ -270,6 +241,10 @@ export function PersonCard({ person, dayState = null, expandable = false, expand
         jointForce={person.jointForce}
         jointPending={person.jointPending}
       />
+
+      {/* Their calls against the month — the same line as their tree row.
+          Not on a vacant seat or a single day (callTarget is null there). */}
+      {dayState ? <CallTarget calls={person.calls} /> : null}
     </span>
   );
 }

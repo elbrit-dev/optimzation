@@ -202,6 +202,11 @@ Every new primitive is registered in `design-system/plasmic.js` and rendered on
 - `asOf` is the latest `visitTime` in the data, never `Date.now()`.
 - Attendance is always computed from **today's** rows even in the MTD view;
   call average divides by working reps **and** working days.
+- Each person's call line (tree row, attendance card, export) is
+  `callTarget`: target = 12 × the month's working days minus their leave and
+  Other Work days; average over days already finished (not today); "needed"
+  spreads what is left over the available days ahead, today included. Leave
+  is only fetched up to today, so future leave still counts as available.
 - Dates are parsed by string slicing, not `new Date(iso)` — a bare
   `'YYYY-MM-DD'` parses as UTC and lands a day early east of Greenwich.
 - The mock is seeded. Two builds with the same anchor produce identical rows,

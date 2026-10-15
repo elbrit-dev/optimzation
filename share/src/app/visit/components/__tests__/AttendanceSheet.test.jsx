@@ -244,34 +244,42 @@ describe('AttendanceSheet: what each list opens onto', () => {
   });
 });
 
-/* The call average sits beside the role because it is the other thing that
-   describes the REP rather than the period. */
-describe('AttendanceSheet call average', () => {
+/* Each person's calls against the month, under their bar: the reporting
+   officer's line for "why are the calls not done". */
+describe('AttendanceSheet call target', () => {
   const day = (id, date, done) => ({ ...v(id, date, done), plannedDate: `2026-09-${date}` });
   const week = ['2026-09-04', '2026-09-05', '2026-09-07', '2026-09-08'];
+  const render4 = (state, rows, calendar, today) =>
+    render(
+      <AttendanceSheet
+        state={state}
+        team={team}
+        rows={rows}
+        overRange
+        calendar={calendar}
+        monthDays={week}
+        today={today}
+        onClose={vi.fn()}
+      />,
+    );
 
-  it('divides by the window, not by the days they turned up', () => {
-    /* Two visits in a four-day window is 0.5 a day. On the other denominator
-       it would be 2.0 — a rep who worked once and did two calls would read as
-       the best on the screen for having worked once, and would not match the
-       Call average KPI above the sheet, which divides by working days. */
-    sheet('working', [day('A', '04', true), day('A', '04', true)], true, week);
-    expect(screen.getByText('0.5 calls/day')).toBeInTheDocument();
+  it('averages the finished days and says what is left', () => {
+    /* Two calls on the 4th; today is the 7th, so the 4th and 5th are done:
+       1.0 a day. Target 12 × 4 = 48, 46 left over the two days ahead. */
+    render4('working', [day('A', '04', true), day('A', '04', true)], week.slice(0, 3), '2026-09-07');
+    expect(screen.getByText('1.0/day')).toBeInTheDocument();
+    expect(screen.getByText('46 left')).toBeInTheDocument();
+    expect(screen.getByText('23.0/day needed')).toBeInTheDocument();
   });
 
-  it('says nothing when there is no window to divide by', () => {
-    /* "0.0 calls/day" is a claim about a rep nobody gave a window to. Rows
-       still make days of their own even outside the calendar — that fallback
-       is deliberate, so a visit is never dropped — which is why this needs a
-       person with no rows AND no calendar to have no days at all. */
-    sheet('notReporting', [], true, []);
-    expect(screen.getAllByText('Idle Rep').length).toBeGreaterThan(0);
-    expect(screen.queryByText(/calls\/day/)).not.toBeInTheDocument();
+  it('shows nothing on a single day', () => {
+    sheet('working', [v('A', 0, true)]);
+    expect(screen.queryByText(/\/day/)).not.toBeInTheDocument();
   });
 
-  it('shows no average on a vacant seat', () => {
+  it('shows nothing on a vacant seat', () => {
     // There is no rep there to have one.
     sheet('vacant', [], true, ['2026-09-04', '2026-09-05']);
-    expect(screen.queryByText(/calls\/day/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\/day/)).not.toBeInTheDocument();
   });
 });

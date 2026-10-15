@@ -8,6 +8,7 @@ import {
   attendanceStatesOf,
   byHq,
   callAverage,
+  callTarget,
   CHART_HOURS,
   doctorCoverage,
   doctorPlan,
@@ -113,6 +114,49 @@ describe('callAverage', () => {
 
   it('is null with no working reps rather than dividing by zero', () => {
     expect(callAverage([row()], 0, 1)).toBeNull();
+  });
+});
+
+describe('callTarget', () => {
+  /* Mon 5 Oct to Sat 10 Oct: six working days; today is Thursday the 8th. */
+  const week = ['2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08', '2026-10-09', '2026-10-10'];
+  const done = (date, n) => row({ plannedDate: date, visitTime: `${date} 10:00:00`, n });
+
+  it('targets the standard over the available days and averages the completed ones', () => {
+    const rows = [done('2026-10-05', 10), done('2026-10-06', 12), done('2026-10-07', 8), done('2026-10-08', 3)];
+    const t = callTarget({ id: 'E1' }, rows, week, '2026-10-08');
+    expect(t.target).toBe(72);
+    expect(t.done).toBe(33);
+    /* Today's 3 are not in the average: 30 over three finished days. */
+    expect(t.average).toBe(10);
+    expect(t.left).toBe(39);
+    /* Today, Fri and Sat are still ahead. */
+    expect(t.daysAhead).toBe(3);
+    expect(t.perDayNeeded).toBe(13);
+  });
+
+  it('takes leave and Other Work days off the target', () => {
+    const member = {
+      id: 'E1',
+      leave: [{ from: '2026-10-05', to: '2026-10-06', type: 'Casual Leave' }],
+      otherWork: [{ date: '2026-10-09', type: 'Meeting' }],
+    };
+    const t = callTarget(member, [done('2026-10-07', 12)], week, '2026-10-08');
+    expect(t.daysOff).toBe(3);
+    expect(t.target).toBe(36);
+    expect(t.average).toBe(12);
+  });
+
+  it('reads a finished month as short, with no days ahead', () => {
+    const t = callTarget({ id: 'E1' }, [done('2026-10-05', 50)], week, '2026-10-20');
+    expect(t.daysAhead).toBe(0);
+    expect(t.perDayNeeded).toBeNull();
+    expect(t.left).toBe(22);
+  });
+
+  it('is null for a vacant seat or with no days', () => {
+    expect(callTarget({ id: 'E1', vacant: true }, [], week, '2026-10-08')).toBeNull();
+    expect(callTarget({ id: 'E1' }, [], [], '2026-10-08')).toBeNull();
   });
 });
 

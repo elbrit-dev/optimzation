@@ -273,6 +273,12 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
     () => (overRange ? workingDaysBetween(win.from, win.to) : [dayKey]),
     [overRange, win.from, win.to, dayKey],
   );
+  /* THE WHOLE OF THE WINDOW'S LAST MONTH, not just to today: each person's
+     monthly call target (see callTarget) needs the days still ahead too. */
+  const monthDays = useMemo(
+    () => (overRange ? workingDaysBetween(win.from, monthEnd(win.to.slice(0, 7))) : []),
+    [overRange, win.from, win.to],
+  );
 
   const view = useMemo(() => {
     const att = attendance(attendanceRows, scoped.team, overRange, calendar);
@@ -704,6 +710,8 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
                 /* The tree classifies attendance the same way the card above
                    it does, or the two disagree about the same person. */
                 overRange={overRange}
+                monthDays={monthDays}
+                today={today}
               />
               </div>
             </div>
@@ -724,6 +732,8 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
               /* The same calendar the card counted with, so the list a chip
                  opens is measured over the same days. */
               calendar={calendar}
+              monthDays={monthDays}
+              today={today}
               loadContacts={loadContacts}
               onClose={() => setSheet(null)}
             />

@@ -27,14 +27,14 @@ import { useIncrementalList } from './useIncrementalList';
  * question neither the chip nor the card can answer. See canOpen.
  */
 
-export function AttendanceSheet({ state, team, rows, overRange = false, calendar = [], loadContacts = null, onClose }) {
+export function AttendanceSheet({ state, team, rows, overRange = false, calendar = [], monthDays = [], today = null, loadContacts = null, onClose }) {
   /* One open row at a time, owned here rather than by the card: two open
      day-tables push the third off the screen, and the reader is comparing
      people, not reading two at once. Same move VisitsByHourSheet makes. */
   const [openId, setOpenId] = useState(null);
   const people = useMemo(
-    () => (state ? repsInAttendanceState(team, rows, state, overRange, calendar) : []),
-    [state, team, rows, overRange, calendar],
+    () => (state ? repsInAttendanceState(team, rows, state, overRange, calendar, monthDays, today) : []),
+    [state, team, rows, overRange, calendar, monthDays, today],
   );
 
   /* "Not reported" is two hundred-odd people on a live morning, so the list
