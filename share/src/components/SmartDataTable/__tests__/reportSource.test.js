@@ -113,9 +113,20 @@ describe('buildCustomReportV2Input', () => {
   });
 
   describe('sort translation', () => {
-    it('maps "label" to the outermost group_by dimension', () => {
+    it('maps flat "label" to every group_by level, outermost first', () => {
       const input = buildCustomReportV2Input({
         filters: { group_by: ['HQ', 'Customer'] },
+        sort_by: 'label:desc',
+      });
+      expect(input.sort).toEqual([
+        { dimension: 'HQ', direction: 'DESC' },
+        { dimension: 'CUSTOMER', direction: 'DESC' },
+      ]);
+    });
+
+    it('maps pivot "label" to the outermost group_by dimension only', () => {
+      const input = buildCustomReportV2Input({
+        filters: { group_by: ['HQ', 'Customer'], pivot_by_month: 1 },
         sort_by: 'label:desc',
       });
       expect(input.sort).toEqual([{ dimension: 'HQ', direction: 'DESC' }]);
