@@ -8,6 +8,7 @@ import { SAMPLE } from "./sampleData";
 import { useOverviewData } from "./data/useOverviewData";
 import { useReviewSection } from "./data/useReviewSection";
 import { ReviewRow } from "./ReviewRow";
+import ClaimsStrip from "../expense-claims/ClaimsStrip";
 
 /* Home overview -- the "Elbrit Home" design below the entry rings.
  *
@@ -920,6 +921,7 @@ export default function HomeOverview({
   primaryPath = "/home/primary", secondaryPath = "/home/secondary", visitPath = "/home/visit", supportPath = "/home/support",
   onOpenPrimary, onOpenSecondary, onOpenVisit, onOpenSupport,
   reviewPath = "/review-report", onOpenReview, showReview = true,
+  showClaims = true, claimsPath = "/claims", onOpenClaims, onNewClaim,
 }) {
   const rootRef = useRef(null);
   const topRef = useRef(null);
@@ -965,6 +967,11 @@ export default function HomeOverview({
      there is not, such as the Studio canvas. */
   const paths = { primary: primaryPath, secondary: secondaryPath, visit: visitPath, support: supportPath, review: reviewPath };
   const handlers = { primary: onOpenPrimary, secondary: onOpenSecondary, visit: onOpenVisit, support: onOpenSupport, review: onOpenReview };
+  const nav = (to) => {
+    if (!to) return;
+    const hard = () => { if (typeof window !== "undefined") window.location.assign(to); };
+    try { Router.push(to)?.catch?.(hard); } catch { hard(); }
+  };
   const open = (section, hq = null) => {
     onOpen?.(section, hq);
     // A wired per-section event is the navigation: the built-in redirect stands down.
@@ -1011,6 +1018,14 @@ export default function HomeOverview({
     <div ref={rootRef} className={"ho-root" + (className ? " " + className : "")} style={{ background: "#f4f5f7", width: "100%" }}>
       <link rel="stylesheet" href={FONT_HREF} />
       <style>{CSS}</style>
+
+      {/* Expense claims: this month's as a ticker, "+" files a new one. The
+          Claims page opens its form by itself when it sees ?new=1. */}
+      {showClaims && (live || useSample) && (
+        <ClaimsStrip url={url} token={token} today={today} pad={L.pad} sample={useSample}
+          onOpen={() => (onOpenClaims ? onOpenClaims() : nav(claimsPath))}
+          onNew={() => (onNewClaim ? onNewClaim() : nav(claimsPath + (claimsPath.includes("?") ? "&" : "?") + "new=1"))} />
+      )}
 
       {isDesk ? (
         <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, padding: `14px ${L.pad} 0`, flexWrap: "wrap" }}>
