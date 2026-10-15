@@ -307,7 +307,7 @@ const ROLE_PROFILES_QUERY = `
   query RoleProfileTree($first: Int) {
     RoleProfiles(first: $first) {
       totalCount
-      edges { node { name parent_role_profile { name } } }
+      edges { node { name parent_role_profile { name } custom_department { department_name } } }
     }
   }
 `;
@@ -323,7 +323,13 @@ async function fetchSalesRoleProfiles(conn) {
 
   const childrenOf = new Map();
   const parentOf = new Map();
+  /* Each seat's department ("Elbrit Erode"): Role Profile.custom_department,
+     the same field the calendar reads. A person's department is their
+     SEAT's — the rows' own department fields are wrong in places. */
+  const deptOf = new Map();
   for (const { node } of edges) {
+    const dept = node.custom_department?.department_name;
+    if (dept) deptOf.set(node.name, dept);
     const parent = node.parent_role_profile?.name;
     if (!parent) continue;
     parentOf.set(node.name, parent);
@@ -342,7 +348,7 @@ async function fetchSalesRoleProfiles(conn) {
     under.add(current);
     for (const child of childrenOf.get(current) ?? []) stack.push(child);
   }
-  return { under, parentOf };
+  return { under, parentOf, deptOf };
 }
 
 /* Who belongs on a SALES team report.
@@ -530,6 +536,74 @@ async function fetchLeave({ from, to }, conn) {
   return byEmployee;
 }
 
+/* OTHER WORK from the calendar: Admin Day / Chemist Day / Conference /
+ * Meeting, saved as an Event with event_category "Other" on one day. A rep on
+ * one has no visit to log that day, so the report lists them under "Other
+ * work" instead of "Not reported".
+ *
+ * WHOSE: the Employee participant (the calendar adds its creator), else the
+ * event's own employee. `__name` scalars only, for the same reason the leave
+ * query uses them.
+ *
+ * NON-FATAL. The report stood without this for months; a field this ERP will
+ * not resolve must cost only the Other work list, never the whole screen.
+ *
+ * -> Map(employeeId -> [{ date: 'YYYY-MM-DD', type }]) */
+const OTHER_WORK_QUERY = `
+  query OtherWorkIn($f: [DBFilterInput], $first: Int) {
+    Events(filter: $f, first: $first) {
+      edges { node {
+        subject starts_on status custom_other_type custom_employee_id__name
+        event_participants { reference_doctype__name reference_docname__name }
+      } }
+    }
+  }
+`;
+
+const OTHER_WORK_TYPES = ['Admin Day', 'Chemist Day', 'Conference', 'Meeting'];
+
+/* GraphQL hands the Select back as its enum ("ADMIN_DAY"). */
+function otherWorkLabel(value) {
+  const key = String(value ?? '').toUpperCase().replace(/[^A-Z0-9]+/g, '');
+  return OTHER_WORK_TYPES.find((t) => t.toUpperCase().replace(/[^A-Z0-9]+/g, '') === key) ?? 'Other work';
+}
+
+async function fetchOtherWork({ from, to }, conn) {
+  const byEmployee = new Map();
+  try {
+    const data = await graphqlRequest(OTHER_WORK_QUERY, {
+      first: MAX_ROWS,
+      f: [
+        { fieldname: 'event_category', operator: 'EQ', value: 'Other' },
+        { fieldname: 'starts_on', operator: 'GTE', value: `${from} 00:00:00` },
+        { fieldname: 'starts_on', operator: 'LTE', value: `${to} 23:59:59` },
+      ],
+    }, conn);
+    for (const { node } of data?.Events?.edges ?? []) {
+      if (String(node.status ?? '').toLowerCase() === 'cancelled') continue;
+      const date = String(node.starts_on ?? '').slice(0, 10);
+      if (!date) continue;
+      const people = (node.event_participants ?? [])
+        .filter((p) => p.reference_doctype__name === 'Employee' && p.reference_docname__name)
+        .map((p) => p.reference_docname__name);
+      if (!people.length && node.custom_employee_id__name) people.push(node.custom_employee_id__name);
+      const type = otherWorkLabel(node.custom_other_type);
+      /* Conference / Meeting carry their own title; Admin / Chemist Day's
+         subject is just the type again. */
+      const subject = String(node.subject ?? '').trim();
+      const title = subject && subject !== type ? subject : '';
+      for (const id of new Set(people)) {
+        const list = byEmployee.get(id) ?? [];
+        if (!list.some((o) => o.date === date)) list.push({ date, type, title });
+        byEmployee.set(id, list);
+      }
+    }
+  } catch (err) {
+    console.warn('[visit] Other Work unreadable; nobody is listed under Other work', err);
+  }
+  return byEmployee;
+}
+
 /* ---- Visits COUNTED on the server --------------------------------------
  *
  * A month is ~55,000 visits on production — about 38 MB as the rows the
@@ -686,6 +760,119 @@ export async function loadVisitRows(request, sales, conn, nameByEmployeeId, empl
   return attributeRows(m.rows, nameByEmployeeId, employeeIdByEmail);
 }
 
+/* THE DOCTORS MAPPED TO A SCOPE: every doctor whose mapping table
+ * (Lead.custom_role_profile -> Role Profile Multiselect) names one of
+ * `seats`, at `hq` when one is picked. The Doctor-wise card lists them all,
+ * so a doctor nobody visited shows at 0 rather than being invisible.
+ *
+ * REST, for the reason the calendar's fetchDoctorsByRoles gives: GraphQL
+ * ignores a filter on the child table. One row per matching mapping row (the
+ * child join), carrying the seat and the mapping's HQ, so the card can say
+ * whose doctor it is. As the signed-in user: the ERP's Lead permissions
+ * decide. Seats go in chunks to keep each URL short.
+ *
+ * -> [{ doctorId, doctorName, city, specialty, seat, hq }] */
+const SEAT_CHUNK = 80;
+const MAPPED_PAGE = 5000;
+const RPM = '`tabRole Profile Multiselect`';
+
+export async function loadMappedDoctors({ seats = [], hq = null }, conn) {
+  const unique = [...new Set(seats.filter(Boolean))];
+  if (!unique.length) return [];
+  const origin = new URL(conn.endpointUrl).origin;
+  const fields = JSON.stringify([
+    'name', 'lead_name', 'city', 'custom_specialty', 'custom_speciality',
+    `${RPM}.role_profile_list as seat`, `${RPM}.hq as map_hq`,
+  ]);
+  const out = [];
+  for (let i = 0; i < unique.length; i += SEAT_CHUNK) {
+    const filters = [['Role Profile Multiselect', 'role_profile_list', 'in', unique.slice(i, i + SEAT_CHUNK)]];
+    if (hq) filters.push(['Role Profile Multiselect', 'hq', '=', hq]);
+    for (let start = 0; ; start += MAPPED_PAGE) {
+      const params = new URLSearchParams({
+        fields,
+        filters: JSON.stringify(filters),
+        limit_start: String(start),
+        limit_page_length: String(MAPPED_PAGE),
+      });
+      const res = await fetch(`${origin}/api/resource/Lead?${params}`, {
+        headers: { Accept: 'application/json', Authorization: conn.gqlToken ?? '' },
+      });
+      if (!res.ok) throw new Error(`[visit] mapped doctors: HTTP ${res.status}`);
+      const page = (await res.json())?.data ?? [];
+      for (const r of page) {
+        out.push({
+          doctorId: r.name,
+          doctorName: r.lead_name || r.name,
+          city: r.city || '',
+          specialty: r.custom_specialty || r.custom_speciality || '',
+          seat: r.seat || '',
+          hq: r.map_hq || '',
+        });
+      }
+      if (page.length < MAPPED_PAGE) break;
+    }
+  }
+  return out;
+}
+
+/* DOCTOR SUPPORT over whole months, as LINES: one Doctor Support record per
+ * doctor per month, dated the month's last day, its item lines each booked on
+ * a seat (custom_role_profile). The seat is what ties a line to a person —
+ * the Support Report's rule, and its field names (checked live there). The
+ * Doctor-wise card shows a person's support for a doctor only when their
+ * seat carries a line for it.
+ *
+ * `from`/`to` must span whole months (the record's date is the month's END).
+ * This ERP can hand one request another's answer when several are in flight,
+ * so a reply holding records from outside the window is asked again.
+ *
+ * -> [{ doctorId, seat, amount, month: 'YYYY-MM' }] */
+const SUPPORT_LINES_QUERY = `
+  query VisitSupportLines($f: [DBFilterInput], $first: Int) {
+    DoctorSupports(filter: $f, first: $first) {
+      edges { node {
+        d: doctor__name
+        dt: date
+        t: item_table { a: amount p: custom_role_profile__name }
+      } }
+    }
+  }
+`;
+
+export async function loadSupportLines({ from, to }, conn) {
+  for (let attempt = 1; ; attempt++) {
+    const data = await graphqlRequest(SUPPORT_LINES_QUERY, {
+      first: MAX_ROWS,
+      f: [
+        { fieldname: 'date', operator: 'GTE', value: from },
+        { fieldname: 'date', operator: 'LTE', value: to },
+      ],
+    }, conn);
+    const edges = data?.DoctorSupports?.edges ?? [];
+    const foreign = edges.some(({ node }) => {
+      const d = String(node.dt ?? '').slice(0, 10);
+      return d && (d < from || d > to);
+    });
+    if (!foreign) {
+      const out = [];
+      for (const { node } of edges) {
+        const doctorId = String(node.d ?? '').trim();
+        if (!doctorId) continue;
+        const month = String(node.dt ?? '').slice(0, 7);
+        for (const line of node.t ?? []) {
+          const seat = String(line.p ?? '').trim();
+          const amount = Number(line.a) || 0;
+          if (seat && amount) out.push({ doctorId, seat, amount, month });
+        }
+      }
+      return out;
+    }
+    if (attempt >= 4) throw new Error('[visit] support: the ERP kept returning another window');
+    await new Promise((r) => setTimeout(r, 400 * attempt));
+  }
+}
+
 /* Returns the same shape buildMockDataset does: { team, rows, today }.
    Fetches ONE calendar month in one go -- whichever `month` is asked for,
    clamped to today -- so the 'today' and 'month' periods both slice that
@@ -761,6 +948,7 @@ export async function fetchVisitDataset({
     cached(`roles:${scope}`, () => fetchSalesRoleProfiles(conn)),
     cached(`leave:${scope}:${today}`, () => fetchLeave({ from: today, to: today }, conn)),
     cached(`viewer:${scope}`, () => resolveViewerEmail(conn)),
+    cached(`otherwork:${scope}:${today}`, () => fetchOtherWork({ from: today, to: today }, conn)),
   ]);
 
   /* WAVES 2 AND 3 START HERE -- after today's query has come back, before
@@ -787,8 +975,12 @@ export async function fetchVisitDataset({
   const leaveWindowPromise = parked(cached(`leave:${scope}:${windowFrom}:${windowTo}`, () =>
     fetchLeave({ from: windowFrom, to: windowTo }, conn)));
   const pobPromise = parked(fetchPobQuotations({ from: windowFrom, to: windowTo }, conn));
+  /* Other Work over the window, alongside the leave: it is part of the same
+     attendance (see fetchOtherWork). Never rejects. */
+  const otherWorkWindowPromise = cached(`otherwork:${scope}:${windowFrom}:${windowTo}`, () =>
+    fetchOtherWork({ from: windowFrom, to: windowTo }, conn));
 
-  const [allTeam, roles, leaveToday, viewerEmail] = await rosterPromise;
+  const [allTeam, roles, leaveToday, viewerEmail, otherWorkToday] = await rosterPromise;
   const salesProfiles = roles.under;
 
   /* SALES ONLY. The roster query asks for every active employee because the
@@ -837,24 +1029,37 @@ export async function fetchVisitDataset({
   const loadPob = (quotations) => loadPobItems(quotations, conn);
   /* Department, phone and emails, for the attendance list's Excel export. */
   const loadContacts = () => loadEmployeeContacts(conn);
+  /* Every doctor mapped to a scope's seats, for the Doctor-wise card. */
+  const loadMapped = (request) => loadMappedDoctors(request, conn);
+  /* Doctor Support lines over whole months, for the Doctor-wise card. */
+  const loadSupport = (request) => loadSupportLines(request, conn);
 
   /* The dataset as it stands after each wave. `ready` is the load-bearing
      part: a consumer must not render a month total off a dataset whose month
      has not arrived, and a flag it can read beats a row count it would have
      to guess from. See useVisitKpi, which holds the screen for the period the
      reader is actually looking at and lets the rest land quietly. */
-  const build = ({ rows, leaveInWindow, pob, truncated, ready }) => ({
+  const build = ({ rows, leaveInWindow, otherWorkInWindow, pob, truncated, ready }) => ({
     /* BOTH leave flags, because the two periods ask different questions of
        the same roster: `onLeave` is "out today", `onLeaveInWindow` is "took
        leave at some point in the selected range". attendanceOf picks. */
     team: treeBySeat(team, roles).map((m) => ({
       ...m,
+      /* Their seat's department, shown beside the role ("ABM · Elbrit Erode"). */
+      department: (m.roleProfile && roles.deptOf?.get(m.roleProfile)) || '',
       onLeave: leaveToday.has(m.id),
       onLeaveInWindow: leaveInWindow.has(m.id),
       /* THE SPELLS THEMSELVES, so the Absent drill-down can name the days and
          say what kind of leave each was. A boolean could say somebody was
          away; only this can say when, and for how long, and why. */
       leave: leaveInWindow.get(m.id) ?? [],
+      /* Other Work (Admin Day, Conference…): today, anywhere in the window,
+         and the days themselves — the same three the leave carries. */
+      onOtherWork: otherWorkToday.has(m.id),
+      /* WHICH Other Work today -- "Conference · CME Chennai", not just "Other work". */
+      otherWorkToday: otherWorkToday.get(m.id)?.[0] ?? null,
+      onOtherWorkInWindow: otherWorkInWindow.has(m.id),
+      otherWork: otherWorkInWindow.get(m.id) ?? [],
     })),
     rows,
     pob,
@@ -867,6 +1072,8 @@ export async function fetchVisitDataset({
     loadRows,
     loadPob,
     loadContacts,
+    loadMapped,
+    loadSupport,
     /* WHICH dataset hit the cap, not just THAT one did. These are three
        different doctypes with three different volumes: a single month of
        visits is a few thousand rows, while the POB quotations behind the
@@ -882,6 +1089,7 @@ export async function fetchVisitDataset({
   if (!todayInWindow) onWave?.(build({
     rows: todayRows,
     leaveInWindow: NO_LEAVE,
+    otherWorkInWindow: NO_LEAVE,
     pob: [],
     truncated: { visits: false, pob: false },
     /* Says what is KNOWN, not what is on screen: the money cards read an
@@ -897,7 +1105,9 @@ export async function fetchVisitDataset({
      along rather than following: the Absent bucket is part of the month's
      attendance, not a detail of it, and a month view without them would show
      people as not-reported who were on approved leave. */
-  const [windowRows, leaveInWindow] = await Promise.all([windowCountsPromise, leaveWindowPromise]);
+  const [windowRows, leaveInWindow, otherWorkInWindow] = await Promise.all([
+    windowCountsPromise, leaveWindowPromise, otherWorkWindowPromise,
+  ]);
 
   /* REPLACED, not merged, when today falls inside the window: the window
      query already returned today's events, and concatenating would count
@@ -910,6 +1120,7 @@ export async function fetchVisitDataset({
   onWave?.(build({
     rows,
     leaveInWindow,
+    otherWorkInWindow,
     pob: [],
     truncated: { visits: visitsTruncated, pob: false },
     ready: { today: true, window: true, pob: false },
@@ -941,6 +1152,7 @@ export async function fetchVisitDataset({
   const final = build({
     rows,
     leaveInWindow,
+    otherWorkInWindow,
     pob,
     truncated: { visits: visitsTruncated, pob: pobQuotations.truncated },
     ready: { today: true, window: true, pob: true },

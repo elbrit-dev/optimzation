@@ -550,11 +550,11 @@ const STOCK_METRICS = {
 // config naming it only runs on UAT/DEV until the app ships to prod.
 // Item is item_name here, as in SALES -- rows come back as "BRITORVA 10".
 const SECONDARY_DIMENSIONS = {
-  Department: 'DEPARTMENT', HQ: 'HQ', Customer: 'CUSTOMER', Item: 'ITEM',
+  Department: 'DEPARTMENT', HQ: 'HQ', Customer: 'CUSTOMER', Item: 'ITEM', Brand: 'BRAND',
 };
 
 const SECONDARY_FILTER_KEYS = {
-  department: 'DEPARTMENT', hq: 'HQ', customer: 'CUSTOMER', item: 'ITEM',
+  department: 'DEPARTMENT', hq: 'HQ', customer: 'CUSTOMER', item: 'ITEM', brand: 'BRAND',
 };
 
 // Keys are the row fieldnames the server returns, not the enum names:
@@ -686,18 +686,47 @@ function _toList(value) {
   return String(value).split(',').map(v => v.trim()).filter(Boolean);
 }
 
-/** Build the `sort` array for customReportV2 from V1's `sort_by` "field:dir,..." string. */
-function _buildSortInput(sortBy, groupByEnums, report) {
+// Pivot column fieldnames, as _parseFrappeResponse builds them.
+const LABEL_N_RE      = /^label(\d+)$/;           // label2 -> group_by[1]
+const PERIOD_FIELD_RE = /^(.+)_(\d{4})_(\d{2})$/; // net_primary_2026_08
+
+/**
+ * Build the `sort` array for customReportV2 from V1's `sort_by` "field:dir,..." string.
+ *
+ * `sortOrder` is the direction for entries that carry none inline -- configs that
+ * map `sort.field` and `sort.order` to separate variables send `sort_by: "qty"`
+ * and `sort_order: "desc"`. Ignoring it sent every such sort as ASC.
+ *
+ * Column -> entry, per the backend's contract:
+ *   metric                → { metric }
+ *   label (pivot)         → { dimension: group_by[0] }
+ *   label (flat)          → one dimension entry per level, since the tree's single
+ *                           label column holds every level's name
+ *   labelN (pivot)        → { dimension: group_by[N-1] }
+ *   total_<metric>        → { metric, scope: TOTAL }
+ *   <metric>_YYYY_MM      → { metric, scope: PERIOD, period: "YYYY-MM" }
+ */
+function _buildSortInput(sortBy, sortOrder, groupByEnums, report, isPivot) {
   const { filterKeys, metrics } = report;
+  const defaultDir = String(sortOrder || 'asc').trim().toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
   const pairs = _toList(sortBy).map(entry => {
     const [field, dir] = entry.split(':');
-    return { field: field?.trim(), direction: (dir || 'asc').trim().toUpperCase() };
+    const direction = dir ? (dir.trim().toUpperCase() === 'DESC' ? 'DESC' : 'ASC') : defaultDir;
+    return { field: field?.trim(), direction };
   }).filter(p => p.field);
 
   const out = [];
   for (const { field, direction } of pairs) {
     if (field === 'label') {
-      if (groupByEnums[0]) out.push({ dimension: groupByEnums[0], direction });
+      const levels = isPivot ? groupByEnums.slice(0, 1) : groupByEnums;
+      levels.forEach(dimension => out.push({ dimension, direction }));
+      continue;
+    }
+    const labelN = field.match(LABEL_N_RE);
+    if (labelN) {
+      const dimEnum = groupByEnums[Number(labelN[1]) - 1];
+      if (dimEnum) out.push({ dimension: dimEnum, direction });
+      else console.warn(`[customReportV2] sort field "${field}" has no group_by level — dropping`);
       continue;
     }
     const dimEnum = filterKeys[field];
@@ -708,6 +737,16 @@ function _buildSortInput(sortBy, groupByEnums, report) {
     }
     const metricEnum = metrics[field];
     if (metricEnum) { out.push({ metric: metricEnum, direction }); continue; }
+
+    const totalMetric = field.startsWith('total_') && metrics[field.slice('total_'.length)];
+    if (totalMetric) { out.push({ metric: totalMetric, scope: 'TOTAL', direction }); continue; }
+
+    const period = field.match(PERIOD_FIELD_RE);
+    const periodMetric = period && metrics[period[1]];
+    if (periodMetric) {
+      out.push({ metric: periodMetric, scope: 'PERIOD', period: `${period[2]}-${period[3]}`, direction });
+      continue;
+    }
     console.warn(`[customReportV2] unrecognized sort field "${field}" — dropping`);
   }
   return out;
@@ -766,7 +805,7 @@ export function buildCustomReportV2Input(gqlVars, drillDown = null) {
       values: _toList(filters[key]),
     }));
 
-  const sort = _buildSortInput(gqlVars.sort_by, groupByEnums, report);
+  const sort = _buildSortInput(gqlVars.sort_by, gqlVars.sort_order, groupByEnums, report, !!filters.pivot_by_month);
 
   const periodDataBy = _resolvePeriodDataBy(filters.period_data_by, report, reportKey);
 
@@ -889,7 +928,7 @@ const _DEFAULT_VARIABLES_MAP = {
  *   { path, transform } → apply transform(value) before writing
  *   { path, merge:true} → shallow-merge object value into existing path
  */
-export function resolveVariablesMap(baseVars, variablesMap, { controls, sortBy, pagination, viewParams = {} }) {
+export function resolveVariablesMap(baseVars, variablesMap, { controls, sortBy, pagination, viewParams = {}, apiVersion = 'v1' }) {
   const page  = Math.floor(pagination.first / pagination.rows) + 1;
   const limit = pagination.rows;
 
@@ -910,8 +949,10 @@ export function resolveVariablesMap(baseVars, variablesMap, { controls, sortBy, 
 
   // When no explicit variablesMap, use defaults but skip sort/pagination entries
   // unless their target key already exists in baseVars (avoids polluting the query).
+  // v1 only: customReportV2 takes a single `input`, built from sort_by/page/limit
+  // by buildCustomReportV2Input, so skipping them there silently drops the sort.
   const effectiveMap = variablesMap ?? _DEFAULT_VARIABLES_MAP;
-  const isDefault    = !variablesMap;
+  const isDefault    = !variablesMap && apiVersion !== 'v2';
 
   for (const [sourceKey, mapping] of Object.entries(effectiveMap)) {
     let value;
@@ -957,6 +998,7 @@ export async function resolveReportGqlVars(rawApiConfig, { viewParams, sortBy, p
     sortBy,
     pagination,
     viewParams: viewParams ?? {},
+    apiVersion: resolveReportApiVersion(rawApiConfig),
   });
 }
 
@@ -1005,6 +1047,7 @@ export function graphqlQueryReportDataSource(rawApiConfig) {
       sortBy: params.sortBy,
       pagination,
       viewParams: params.viewParams ?? {},
+      apiVersion: version,
     });
 
     const isV2 = version === 'v2';

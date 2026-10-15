@@ -93,9 +93,8 @@ export default function PwaBackGuard() {
   }, []);
 
   /* The login page is off limits while someone is signed in: landing there
-     re-runs the sign-in flow and, through NovuInbox's `pathname === "/login"`
-     branch, tears down the push subscription — the "it logged me out on its
-     own" report.
+     re-runs the sign-in flow — the "it logged me out on its own" report
+     (the old notification bell also tore down push there).
 
      Swallowing the event means Next never routes and the page the user was
      looking at stays mounted; all that is left is to put its URL back onto the

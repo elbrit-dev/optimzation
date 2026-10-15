@@ -13,6 +13,7 @@ import { childrenOf, kidsOf, rollupFor } from '../data/selectors';
 import { GeoBar } from './GeoBar';
 import { ATTENDANCE_LABEL, ATTENDANCE_TONE } from '../data/shape';
 import { formatCurrency } from '../data/format';
+import { CallTarget } from './CallTarget';
 
 /* RBM → ABM → BE, expanded on tap.
  *
@@ -77,7 +78,9 @@ function rowFlags(member, roll) {
      empty row means something different when nobody sits in the seat, or
      when the person is on approved leave, and a reader who cannot tell those
      from "did nothing today" is being told the wrong thing. */
-  const showPill = member.vacant || (roll.isLeaf && state === 'onLeave');
+  /* Other work keeps one too, for the same reason: an empty bar on an Admin
+     Day is not a rep who did nothing. */
+  const showPill = member.vacant || (roll.isLeaf && (state === 'onLeave' || state === 'otherWork'));
   return {
     state,
     showPill,
@@ -93,7 +96,7 @@ function rowFlags(member, roll) {
   };
 }
 
-function RoleLine({ member, roll }) {
+function RoleLine({ member, roll, overRange = false }) {
   /* The pill is STILL LEAVES ONLY, even though the attendance card now counts
      managers too. A manager who made no call of their own is the ordinary
      case, not an exception — most of them manage on any given day — so
@@ -119,7 +122,12 @@ function RoleLine({ member, roll }) {
       </span>
 
       {showPill ? (
-        <StatusPill status={ATTENDANCE_TONE[state]}>{ATTENDANCE_LABEL[state]}</StatusPill>
+        <StatusPill status={ATTENDANCE_TONE[state]}>
+          {/* Which Other Work, when the day is known: "Meeting", not "Other work". */}
+          {state === 'otherWork' && member.otherWorkToday && !overRange
+            ? member.otherWorkToday.type || ATTENDANCE_LABEL[state]
+            : ATTENDANCE_LABEL[state]}
+        </StatusPill>
       ) : null}
 
       {/* A manager's own headcount. The bar below counts VISITS; this counts
@@ -142,8 +150,8 @@ function RoleLine({ member, roll }) {
   );
 }
 
-function TreeNode({ member, team, rows, pob, depth, open, toggle, onDoctorPlan, overRange }) {
-  const roll = rollupFor(member, team, rows, pob, overRange);
+function TreeNode({ member, team, rows, pob, depth, open, toggle, onDoctorPlan, overRange, monthDays, today }) {
+  const roll = rollupFor(member, team, rows, pob, overRange, monthDays, today);
   const kids = childrenOf(team, member.id);
   const isOpen = open.has(member.id);
   const { showNoPlan } = rowFlags(member, roll);
@@ -188,7 +196,7 @@ function TreeNode({ member, team, rows, pob, depth, open, toggle, onDoctorPlan, 
 
         <span className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="block truncate text-13 font-semibold text-heading">{member.name}</span>
-          <RoleLine member={member} roll={roll} />
+          <RoleLine member={member} roll={roll} overRange={overRange} />
         </span>
 
         <span className="flex shrink-0 flex-col items-end gap-1">
@@ -233,6 +241,9 @@ function TreeNode({ member, team, rows, pob, depth, open, toggle, onDoctorPlan, 
         jointForce={roll.jointForce}
         jointPending={roll.jointPending}
       />
+
+      {/* Their calls against the month (month view only). */}
+      <CallTarget calls={roll.calls} />
     </div>
   );
 
@@ -258,13 +269,15 @@ function TreeNode({ member, team, rows, pob, depth, open, toggle, onDoctorPlan, 
           toggle={toggle}
           onDoctorPlan={onDoctorPlan}
           overRange={overRange}
+          monthDays={monthDays}
+          today={today}
         />
       ))}
     </DisclosureRow>
   );
 }
 
-export function TeamTree({ team, rows, pob, rootIds = [], onDoctorPlan, overRange = false }) {
+export function TeamTree({ team, rows, pob, rootIds = [], onDoctorPlan, overRange = false, monthDays = [], today = null }) {
   /* Open on each selected node, so the card arrives showing the level
      below every pick rather than as a row of closed names. Remounted by
      the caller when the picks change, which is what resets this. */
@@ -335,6 +348,8 @@ export function TeamTree({ team, rows, pob, rootIds = [], onDoctorPlan, overRang
               toggle={toggle}
               onDoctorPlan={onDoctorPlan}
               overRange={overRange}
+              monthDays={monthDays}
+              today={today}
             />
           ))
         )}

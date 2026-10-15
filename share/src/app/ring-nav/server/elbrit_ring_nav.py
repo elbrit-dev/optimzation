@@ -36,7 +36,8 @@
 # A tile is Ring Nav's item: { id, label, href, icon, statusIcon,
 #   statusTone, count, caption, captionTone, segments: [{ key, value,
 #   tone, label }] }. Entry tiles first, then approval tiles. More tasks
-#   (support, service...) are more tiles.
+#   are more tiles. SERVICE (Doctor Service) is apart: two tiles by role,
+#   every day -- see "SERVICE" near the end.
 #
 # TWO TASKS, the same rules (TASKS below): SECONDARY (Secondary Data Entry,
 # per stockist) and DOCTOR SUPPORT (Doctor Support, per doctor). Each gets an
@@ -813,6 +814,161 @@ def approval_tile(task):
     })
 
 
+# ---------------------------------------------------------------- SERVICE
+# Doctor Service (the app's /service pages) is not a monthly task: no entry
+# month, no window, no seat. Its two tiles go by ROLE alone, every day:
+#   Service entry     (/service/entry)    the MIS team -- MIS, User MIS,
+#                     MIS Admin, Manager MIS, CRM Manager -- and IT (the IT
+#                     role or the IT role profile). Not GM / CEO role
+#                     holders, unless on the IT role profile
+#   Service approval  (/service/approval) GM, CEO and IT
+# Nobody else gets either tile. The same roles as the Doctor Service API
+# scripts' viewer_of (elbrit_doctor_service_options.py) -- change both.
+# Only app-raised services (custom_via_app) count, by their tracker's state:
+#   entry     badge = sent back (Rework: MIS has to edit and resubmit);
+#             ring  = approved this month / in approval / sent back
+#   approval  badge = waiting at the caller's step (GM: "GM Approval
+#             Waiting", CEO: "CEO Approval Waiting"; IT: both, as an
+#             overview); ring = approved this month / waiting
+# "This month" is the tracker's last change, so the ring is not swamped by
+# every service ever approved.
+HREFS["service-entry"] = "/service/entry"
+HREFS["service-approval"] = "/service/approval"
+SERVICE_ENTRY_ROLES = ["MIS", "User MIS", "MIS Admin", "Manager MIS", "CRM Manager", "IT"]
+SERVICE_STEP_OF = {"GM": "GM Approval Waiting", "CEO": "CEO Approval Waiting"}
+
+service_roles = []
+for r in frappe.get_all("Has Role", filters={"parenttype": "User", "parent": me},
+                        fields=["role"], limit_page_length=0):
+    service_roles.append(r.get("role"))
+service_it = me == "Administrator" or always or "IT" in service_roles
+# An APPROVER (GM / CEO role) gets the entry tile only through the IT role
+# profile (testers): the GM / CEO profiles carry the MIS and IT roles too
+# (full access), and the approvers' tile is the approval one.
+service_approver = "GM" in service_roles or "CEO" in service_roles
+service_enter = me == "Administrator" or always
+if not service_approver:
+    for r in SERVICE_ENTRY_ROLES:
+        if r in service_roles:
+            service_enter = True
+# The approval tile's badge is what waits at the caller's OWN step: the CEO
+# (who holds GM too) the CEO's, a GM the GM's. IT -- the IT role
+# profile, or the IT role without GM / CEO -- sees both, as an overview.
+if me == "Administrator" or always or (service_it and not service_approver):
+    service_steps = [SERVICE_STEP_OF["GM"], SERVICE_STEP_OF["CEO"]]
+elif "CEO" in service_roles:
+    service_steps = [SERVICE_STEP_OF["CEO"]]
+elif "GM" in service_roles:
+    service_steps = [SERVICE_STEP_OF["GM"]]
+else:
+    service_steps = []
+
+
+def service_rows():
+    # [{ state, at }] for every app-raised service: its tracker's state and
+    # when that last changed. Read past permissions: the role decides above.
+    recs = frappe.get_all("Doctor Service", filters={"custom_via_app": 1},
+                          fields=["name", "custom_tracker", "modified"], limit_page_length=0)
+    names = []
+    for r in recs:
+        if r.get("custom_tracker"):
+            names.append(r.get("custom_tracker"))
+    of = {}
+    i = 0
+    while i < len(names):
+        part = names[i:i + 500]
+        i = i + 500
+        for t in frappe.get_all("Operational Tracker", filters=[["name", "in", part]],
+                                fields=["name", "workflow_state", "modified"], limit_page_length=0):
+            of[t.get("name")] = t
+    out = []
+    for r in recs:
+        t = of.get(r.get("custom_tracker")) or {}
+        out.append({"state": t.get("workflow_state") or "", "at": str(t.get("modified") or r.get("modified") or "")})
+    return out
+
+
+def service_bucket(ws):
+    if ws == "Rework":
+        return "sentback"
+    if ws.endswith("Rejected"):
+        return "rejected"
+    if ws.endswith(" Approved and Verified") or ws.endswith(" Approved and Waiting for Verification"):
+        return "approved"
+    return "waiting"     # "... Approval Waiting", or no tracker yet
+
+
+def service_ring(segments):
+    # Nothing at all to count (no services yet, or none this month and none
+    # open): a whole green ring, as "Clear" says -- not an empty circle.
+    total = 0
+    for s in segments:
+        total = total + (s.get("value") or 0)
+    if total:
+        return segments
+    return [{"key": "clear", "value": 1, "tone": "success", "label": "Nothing pending"}]
+
+
+def service_tiles(entry):
+    rows = service_rows()
+    month_start = today[:8] + "01"
+    approved = 0
+    waiting = 0
+    sentback = 0
+    mine = 0
+    for r in rows:
+        b = service_bucket(r["state"])
+        if b == "approved" and r["at"][:10] >= month_start:
+            approved = approved + 1
+        elif b == "waiting":
+            waiting = waiting + 1
+            if r["state"] in service_steps:
+                mine = mine + 1
+        elif b == "sentback":
+            sentback = sentback + 1
+    if entry:
+        caption = "Clear"
+        tone = "success"
+        if sentback:
+            caption = str(sentback) + " sent back"
+            tone = "danger"
+        elif waiting:
+            caption = str(waiting) + " in approval"
+            tone = "warning"
+        items.append({
+            "id": "service-entry",
+            "label": "Service",
+            "href": HREFS["service-entry"],
+            "icon": "cog",
+            "statusIcon": "pencil",
+            "count": sentback,
+            "countTone": "danger",
+            "caption": caption,
+            "captionTone": tone,
+            "segments": service_ring([
+                {"key": "approved", "value": approved, "tone": "success", "label": "Approved this month"},
+                {"key": "waiting", "value": waiting, "tone": "warning", "label": "In approval"},
+                {"key": "sentback", "value": sentback, "tone": "danger", "label": "Sent back"},
+            ]),
+        })
+    else:
+        items.append({
+            "id": "service-approval",
+            "label": "Service",
+            "href": HREFS["service-approval"],
+            "icon": "cog",
+            "statusIcon": "check-square",
+            "statusTone": "neutral",
+            "count": mine,
+            "caption": (str(mine) + " waiting") if mine else "Clear",
+            "captionTone": "danger" if mine else "success",
+            "segments": service_ring([
+                {"key": "approved", "value": approved, "tone": "success", "label": "Approved this month"},
+                {"key": "waiting", "value": mine, "tone": "danger", "label": "Waiting for you"},
+            ]),
+        })
+
+
 # Entry tiles first, then approval tiles. A task that cannot be counted
 # (its doctype not set up on this ERP yet, say) is left off and logged —
 # it never takes the other tasks' tiles down with it.
@@ -822,11 +978,21 @@ for task in TASKS:
         entry_tile(task)
     except Exception as err:
         frappe.log_error(title="Elbrit Ring Nav: " + task["id"] + " entry tile", message=str(err))
+if service_enter:
+    try:
+        service_tiles(True)
+    except Exception as err:
+        frappe.log_error(title="Elbrit Ring Nav: service entry tile", message=str(err))
 for task in TASKS:
     try:
         approval_tile(task)
     except Exception as err:
         frappe.log_error(title="Elbrit Ring Nav: " + task["id"] + " approval tile", message=str(err))
+if service_steps:
+    try:
+        service_tiles(False)
+    except Exception as err:
+        frappe.log_error(title="Elbrit Ring Nav: service approval tile", message=str(err))
 
 frappe.response["message"] = {
     "user": me,

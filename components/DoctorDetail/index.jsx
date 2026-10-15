@@ -36,6 +36,7 @@ import DoctorInsightsCard from "./sections/Insights";
 import useDoctorDetail from "./lib/useDoctorDetail";
 import { ConsoleStyles } from "./sections/shell";
 import useContainerMode from "./lib/useContainerMode";
+import { AddServiceDrawer, useDoctorServices } from "./sections/Services";
 
 /**
  * One section's crash stays in that section. Keyed by the reading, so a fresh
@@ -73,6 +74,11 @@ function DoctorDetailPage(props) {
   // The ONE reading of this doctor. Every section renders from it.
   const c = useDoctorDetail(props);
   const [wrapRef, compact] = useContainerMode(720);
+  // Doctor Service: who may add (MIS team) is the ERP's answer for this
+  // token — see sections/Services.jsx. The Services card (ServicesCard) is
+  // parked off this page until it is decided whether the page needs it.
+  const svc = useDoctorServices({ ...props, doctorId: c?.doctorId });
+  const [svcOpen, setSvcOpen] = React.useState(false);
 
   if (!c) {
     return (
@@ -119,8 +125,18 @@ function DoctorDetailPage(props) {
       </div>
 
       <Section name="doctor summary" resetKey={resetKey} onRetry={retry}>
-        <DoctorHeroCard {...props} c={c} className="" />
+        <DoctorHeroCard
+          {...props}
+          c={c}
+          className=""
+          onAddService={svc.viewer?.can_enter ? () => setSvcOpen(true) : undefined}
+        />
       </Section>
+      <AddServiceDrawer
+        svc={svc}
+        doctor={svcOpen ? { id: c.doctorId, name: c.doctor?.name ?? c.doctorId } : null}
+        onClose={() => setSvcOpen(false)}
+      />
       <Section name="totals" resetKey={resetKey} onRetry={retry}>
         <DoctorTotalsCard {...props} c={c} className="" />
       </Section>

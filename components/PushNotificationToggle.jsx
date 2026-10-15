@@ -7,7 +7,6 @@ import {
   unsubscribeFromPush,
   onPushSubscriptionChange,
   getOneSignalDeviceId,
-  getOneSignalExternalId,
 } from "@/lib/onesignal";
 
 // The OneSignal subscription id can take a moment to exist after opt-in
@@ -53,7 +52,6 @@ const PushNotificationToggle = ({
   const [showDeniedHelp, setShowDeniedHelp] = useState(false);
   const [sdkFailed, setSdkFailed] = useState(false);
   const stateArrivedRef = useRef(false);
-  const cleanEmail = (email || "").trim().toLowerCase();
 
   const enabled = !!subState && subState.permission === "granted" && subState.optedIn;
 
@@ -85,28 +83,11 @@ const PushNotificationToggle = ({
     };
   }, []);
 
+  // The device's OneSignal subscription id, once it has one. (It used to be
+  // attached to the user's Novu subscriber here; Novu is gone from the app.)
   const registerDevice = async () => {
-    // Same identity as the NovuInbox bell: the email prop bound in Plasmic.
-    // Fall back to the external id NovuInbox already set via OneSignal.login()
-    // so the toggle still registers correctly if the binding is missing.
-    const subscriberId = cleanEmail || (await getOneSignalExternalId());
     const deviceId = await waitForDeviceId();
-    if (!deviceId) return null;
-    if (!subscriberId) {
-      console.warn("PushNotificationToggle: No email bound and no OneSignal identity yet — skipping device registration.");
-      return deviceId;
-    }
-    try {
-      await fetch("/api/onesignal/register-device", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subscriberId, deviceId }),
-      });
-      console.log(`PushNotificationToggle: Device registered for ${subscriberId}.`);
-    } catch (e) {
-      console.error("PushNotificationToggle: Device registration failed:", e);
-    }
-    return deviceId;
+    return deviceId || null;
   };
 
   const handleToggle = async () => {

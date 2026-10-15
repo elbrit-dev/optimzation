@@ -1,0 +1,165 @@
+# Doctor Service — ERP setup
+
+This is what the app's "Add service", "Services" and "Service approval" screens need in ERP.
+The four scripts in this folder go into **Server Script** exactly as written. Each file's
+header gives its name, type and method.
+
+## Who does what
+
+| Who | ERP roles | Can do |
+|---|---|---|
+| MIS team (e.g. vishnu.mis) and IT | `MIS`, `User MIS`, `MIS Admin`, `Manager MIS`, `CRM Manager`, `IT` | Add a service (that submits it), edit and resubmit one that was sent back |
+| GM | `GM` | Send on to CEO, Approve as final, Send back, Reject |
+| CEO | `CEO` | Approve, Send back, Reject |
+| IT (view only) | an `IT…` role profile without the `IT` role | See everything, change nothing |
+
+RBM / SM do not enter services. MIS enters each one **on behalf of** an RBM or SM linked to
+the doctor (a ZSM counts as an SM). That person goes in `by`, and the department and HQ are
+taken from them.
+
+## Approval: the Operational Tracker, started at GM
+
+Approval runs on the service's **Operational Tracker** ("Approval flow" workflow, Approval
+Settings "Doctor Service": final approver CEO, no verifier), the same way it does for
+Secondary and Doctor Support. **Saving submits.** There is no draft: the guard makes the
+tracker on the first save and starts it at **GM**, whatever the on-behalf person's grade.
+
+| Step | Tracker state | Who | App action → workflow action |
+|---|---|---|---|
+| MIS saves | GM Approval Waiting | MIS | (the guard sets it) |
+| GM sends on | CEO Approval Waiting | GM | Send to CEO → `Approve` |
+| GM approves as final (ends it) | GM Approved and Verified | GM | Approve as final → `Final Approve` |
+| CEO approves (ends it) | CEO Approved and Verified | CEO | Approve → `Final Approve` |
+| GM / CEO send back | Rework | GM / CEO | Send back → `Revisit` (+ reason) |
+| MIS edits and saves | GM Approval Waiting | MIS | (the guard resets it) |
+| GM / CEO reject | GM / CEO Rejected (final) | GM / CEO | Reject → `Reject` (+ reason) |
+
+- The next approver is the first active user with the `GM` role above the on-behalf
+  employee (`reports_to`). The fallback approver is that GM's manager (the CEO).
+- The reason for a rejection or send-back goes in the tracker's `reason_for_rejection`.
+- The team's "Doctor service tracker" script (desk entries, `date` next month or later) never
+  fires for app rows, because they carry today's date.
+- The team's "operational tracker" script copies each tracker step into the service's
+  `workflow_state`, as it does for every other tracker.
+
+## UAT changes made outside these scripts (2026-10-12)
+
+Do the same on production when it goes live:
+
+1. **"Approval flow" workflow:** added the CEO's steps at `CEO Approval Waiting`:
+   - **Approve to Verification** → `CEO Approved and Waiting for Verification` (role CEO)
+   - **Reject** → `CEO Rejected` (role CEO)
+
+   Before this, the only CEO action there was Revisit, so anything the GM sent on got stuck.
+2. **"Doctor Service" workflow (the doctype's own):** set **inactive**. Approval lives on
+   the tracker. While this workflow was active, any save of a service in approval failed
+   with "Rework is not a valid Workflow State". That also blocked the desk's own entries.
+3. **"operational tracker" script (section 2):** a step that lands in
+   "… Approved and Waiting for Verification" now counts as final, as when the GM approves
+   as final. So the next approver is cleared, and (for a setting with a verifier) the MIS
+   ToDo is made.
+   Before, it moved the next approver up to the CEO and made no ToDo.
+4. **Role Profile "IT":** given the **MIS** role, so IT testers (vishnuk.mis) can verify.
+   This is for UAT testing only, and is no longer needed now that Doctor Service has no
+   verification step.
+5. **Doctor Service ends at a named final status (2026-10-13).** Verification stays in the
+   workflow for Secondary and Doctor Support. For Doctor Service, the final decision is the
+   end:
+   - **New Workflow States:** `GM Approved and Verified` and `CEO Approved and Verified`.
+   - **New Workflow Action:** `Final Approve`.
+   - **3 new "Approval flow" transitions,** each with the condition
+     `doc.setting == "Doctor Service"`:
+     - GM Approval Waiting → Final Approve → GM Approved and Verified (GM; CEO as fallback)
+     - CEO Approval Waiting → Final Approve → CEO Approved and Verified (CEO)
+   - **The "operational tracker" script** keeps a "<Role> Approved and Verified" state as
+     final, with no next approver.
+   - **Approval Settings "Doctor Service":** the `verifier` is **MIS**. After the GM's or
+     CEO's final approval, the script makes a ToDo for that department's MIS assignees:
+     "Approved (<state>) - carry out Doctor Service <name>". It is the hand-over to carry the
+     service out. They take no step in the approval itself.
+   - **Rejections** end in `GM Rejected` and `CEO Rejected`, which already existed.
+   - **The app** uses Final Approve for "Approve as final" (GM) and for the CEO's approve.
+   - **GOTCHA:** the script can't simply rewrite the state to a different final one. Frappe
+     checks the workflow transition after server scripts run.
+
+Tested on UAT through ERP saves, not by clicking in the app:
+- save → GM;
+- GM as final → ends (no ToDo once the verifier was cleared);
+- GM → CEO → CEO approves → MIS ToDo;
+- sent back → MIS edits → back to GM, with the reason kept as a comment.
+
+## Custom fields on Doctor Service
+
+| Field | Type | Needed | Purpose |
+|---|---|---|---|
+| `custom_via_app` | Check | **Yes** | Set by the app. Only these rows are guarded and listed |
+| `custom_tracker` | Link → Operational Tracker | **Yes** (exists) | The service's tracker |
+| `custom_entered_by` | Link → Employee | Recommended | The MIS person who entered it (`by` is the RBM/SM) |
+
+`custom_rejection_reason` (made on 2026-10-12) is no longer used, because the reason lives on
+the tracker. It can be deleted. `service_attachement` stays **optional**.
+
+## Custom field on Doctor Service Master
+
+| Field | Type | Values |
+|---|---|---|
+| `custom_category` | Select | Cash, EMI, Bookings, Gift |
+
+The form groups sub-services by this field. Until it exists, the form uses the app's
+built-in list.
+
+## Scripts
+
+| File | Type | What it does |
+|---|---|---|
+| `elbrit_doctor_service_options.py` | API `elbrit_doctor_service_options` | Who is asking (can add / can see / approver / verifier). With `doctor=`: the RBMs / SMs linked to that doctor (with department + HQ pairs) and the service list |
+| `elbrit_doctor_service_list.py` | API `elbrit_doctor_service_list` | Every app-raised service, with its tracker's state, reason, the person it waits on, the history (tracker steps and comments) and each doctor's average monthly support |
+| `elbrit_doctor_service_insight.py` | API `elbrit_doctor_service_insight` | One doctor: support by month (18 months), every service, last 3 visits by role (the "Is this doctor worth it?" block) |
+| `doctor_service_guard.py` | DocType Event, Before Save | On app rows: MIS-only edits, edit lock once in approval (Rework re-opens it), on-behalf employee must be linked to the doctor, sets department / HQ, amount > 0, date not in future. Makes or resets the tracker at GM |
+
+The app writes as the signed-in user. Each step is a plain Frappe call:
+- **Save:** `POST` / `PUT /api/resource/Doctor Service`. The guard does the submit.
+- **Decide:** `frappe.model.workflow.apply_workflow` on the tracker, then
+  `frappe.client.set_value` for the reason. This is the same path Secondary Approval uses.
+- **Attach:** `/api/method/upload_file`. The guard allows the attachment to be added while the
+  service waits on GM.
+
+The three API scripts each carry a copy of `viewer_of()` (who may see / add / approve), so
+change all three together. `linked_managers()` is shared by options and the guard the same
+way.
+
+## Gotchas
+
+- A DocType Event script can't use top-level helper functions, because they can't see `doc`
+  or each other. That is why the guard is one `guard(doc)` function.
+- A new tracker is inserted and then moved to its starting step with `db.set_value`. This
+  matches what the team's own script does: the workflow starts every new tracker at ABM and
+  has no step out of Rework.
+
+## Service details (per service type, 2026-10-14 — on UAT)
+
+What a service type asks for (EB Bill → EB service number, Recharge → mobile number,
+EMI → loan number…) is configured, not coded:
+
+| Where | Field | Type | Purpose |
+|---|---|---|---|
+| Doctor Service Master | `custom_capture_fields` | JSON | `[{"key","label","multi","required"}]` — the inputs the app's form shows for this service |
+| Doctor Service | `custom_service_details` | JSON, hidden, read-only | What was captured: `[{"key","label","values":[...]}]` |
+| Doctor Service | `custom_service_details_html` | HTML, label "Service details" | Shown on the desk form by the client script |
+
+- **Client Script** "Doctor Service Details View" (Form) renders the JSON into the HTML field —
+  source: `doctor_service_details_view.js`.
+- **Options** returns each service's `capture`, and `known`: this doctor's earlier values per
+  service and key (filtered by `doctor`, so one doctor's numbers never show for another). The
+  form fills them in; MIS may change or add.
+- **Guard** keeps only the service's own keys, trims / de-duplicates, keeps one value where
+  `multi` is 0, refuses a missing `required` one ("Add the EB service number for EB Bill."), and
+  locks the details with the rest of the content once in approval.
+- **List** returns `custom_service_details`; the app shows each as a row on the service detail.
+- UAT masters set: EB Bill, Recharge (new, Utilities), EMI TAKEOVER, CAR, RD 2/3/4, Jewel Chit.
+- **Correcting after approval:** the "Correct details" button on the desk form (System Manager /
+  MIS Admin — `FIX_ROLES` in both the client script and `elbrit_doctor_service_fix_details.py`)
+  opens a dialog with the service's own fields. The API script re-checks the role and the same
+  rules, writes ONLY `custom_service_details` (the guard's lock is not loosened), and adds a
+  comment "Service details corrected by X: EB service number 04-123 -> 05-777". The doctor's
+  next service fills in the corrected value.

@@ -202,6 +202,57 @@ export function callAverage(rows, workingCount, workingDays = 1) {
   return happened(rows) / workingCount / workingDays;
 }
 
+/* The company's per-day call standard — the Call average card's target, and
+   what each person's monthly target is built from. */
+export const CALL_STANDARD = 12;
+
+/* ONE PERSON'S CALLS AGAINST THE MONTH: what the reporting officer checks
+ * before asking a rep why the calls are not done.
+ *
+ *   target  standard × the working days they were AVAILABLE — leave and
+ *           Other Work days come off, so four days of approved leave does
+ *           not read as 48 calls missed.
+ *   average calls ÷ COMPLETED available days, i.e. before today. Today is
+ *           still being worked; counting it made every rep's average drop
+ *           each morning and recover by evening.
+ *   left    target − done, and how many a day that needs over the available
+ *           days still to come, today included.
+ *
+ * `monthDays` is every working day from the window's start to the END of its
+ * last month (not just to today), so the days still ahead are in it. Leave
+ * and Other Work are only known up to today (the window's fetch), so a future
+ * leave day counts as available until it is taken.
+ *
+ * Null for a vacant seat or with no days to measure (the single-day view). */
+export function callTarget(member, ownRows, monthDays = [], today, standard = CALL_STANDARD) {
+  if (member.vacant || monthDays.length === 0) return null;
+  let past = 0;
+  let ahead = 0;
+  let off = 0;
+  for (const date of monthDays) {
+    if (excusedOn(member, date)) {
+      off += 1;
+      continue;
+    }
+    if (today && date < today) past += 1;
+    else ahead += 1;
+  }
+  const done = happened(ownRows);
+  const donePast = today ? happened(ownRows.filter((r) => r.plannedDate < today)) : done;
+  const target = standard * (past + ahead);
+  const left = Math.max(0, target - done);
+  return {
+    standard,
+    done,
+    target,
+    left,
+    daysOff: off,
+    daysAhead: ahead,
+    average: past > 0 ? donePast / past : null,
+    perDayNeeded: ahead > 0 ? left / ahead : null,
+  };
+}
+
 /* How many distinct BEs logged at least one visit in this row set. The
    denominator for callAverage, and NOT the same as attendance().working once
    the period is wider than a day — over a month it counts anyone who worked at
@@ -982,13 +1033,34 @@ export function byHq(rows, team) {
 export function attendanceOf(member, repsWithVisits, overRange = false) {
   if (member.vacant) return 'vacant';
   const reported = repsWithVisits.has(member.id);
-  if (!overRange) return member.onLeave ? 'onLeave' : reported ? 'working' : 'notReporting';
+  if (!overRange) {
+    if (member.onLeave) return 'onLeave';
+    if (reported) return 'working';
+    return member.onOtherWork ? 'otherWork' : 'notReporting';
+  }
 
   /* Falls back to today's flag when the source has no windowed one -- the
      mock, and any caller still on the old shape -- so a missing field
      degrades to the old behaviour rather than to "nobody was ever away". */
   const away = member.onLeaveInWindow ?? member.onLeave;
-  return reported ? 'working' : away ? 'onLeave' : 'notReporting';
+  const elsewhere = member.onOtherWorkInWindow ?? member.onOtherWork;
+  return reported ? 'working' : away ? 'onLeave' : elsewhere ? 'otherWork' : 'notReporting';
+}
+
+/* Why a day with no visits was not a silent day, or null when it was one:
+ * approved leave covered it, or the person had Other Work in the calendar
+ * that day (Admin Day, Chemist Day, Conference, Meeting). Neither is a rep
+ * who failed to report — there was no visit to log. */
+export function excusedOn(member, date) {
+  if ((member.leave ?? []).some((s) => s.from <= date && date <= s.to)) return 'leave';
+  if ((member.otherWork ?? []).some((o) => o.date === date)) return 'otherWork';
+  return null;
+}
+
+/* A day that counts against the person: nothing logged, and nothing to
+   excuse it. */
+function isSilentDay(member, day) {
+  return day.happened === 0 && !excusedOn(member, day.date);
 }
 
 /* EVERY state a person is in, which over a range can be more than one.
@@ -1027,7 +1099,8 @@ export function attendanceStatesOf(member, days, overRange = false) {
   /* One day, one state — leave first, exactly as attendanceOf has it. */
   if (!overRange) {
     if (member.onLeave) return ['onLeave'];
-    return [reportedAnyDay ? 'working' : 'notReporting'];
+    if (reportedAnyDay) return ['working'];
+    return [member.onOtherWork ? 'otherWork' : 'notReporting'];
   }
 
   const out = [];
@@ -1036,8 +1109,11 @@ export function attendanceStatesOf(member, days, overRange = false) {
      days with a plan, so this cannot fire on a Sunday. The `length === 0`
      arm is the person with no plan at all in the range — no day can speak
      for them, so the range does, rather than losing them from all four. */
-  if (days.some((d) => d.happened === 0) || days.length === 0) out.push('notReporting');
+  /* Leave and Other Work days are not silent days: there was no visit to
+     log. They have their own lists. */
+  if (days.some((d) => isSilentDay(member, d)) || days.length === 0) out.push('notReporting');
   if (member.onLeaveInWindow ?? member.onLeave) out.push('onLeave');
+  if (member.onOtherWorkInWindow ?? member.onOtherWork) out.push('otherWork');
   return out;
 }
 
@@ -1083,7 +1159,7 @@ export function attendance(rows, team, overRange = false, calendar = []) {
 /* Everything one tree row needs, for one manager or one rep. Computed per node
    on expand rather than for the whole tree up front: the live hierarchy is
    five levels deep and most of it is never opened. */
-export function rollupFor(member, team, rows, pobRows = [], overRange = false) {
+export function rollupFor(member, team, rows, pobRows = [], overRange = false, monthDays = [], today = null) {
   const members = subtreeOf(team, member.id);
   const ids = new Set(members.map((m) => m.id));
 
@@ -1160,6 +1236,8 @@ export function rollupFor(member, team, rows, pobRows = [], overRange = false) {
        its "Not reported" list with no mark in the tree is the two views
        disagreeing about the same person. */
     attendance: attendanceOf(member, repsWithVisits, overRange),
+    /* Their own calls against the month — see callTarget. Month view only. */
+    calls: overRange ? callTarget(member, own, monthDays, today) : null,
   };
 }
 
@@ -1248,6 +1326,18 @@ export function leaveDaysOf(member, calendar = []) {
   return out;
 }
 
+/* The days in this window a person had Other Work, each with its type
+ * ("Admin Day", "Conference"…) — the Other work list's figure and rows. Cut
+ * against the calendar for the same reason leaveDaysOf is. */
+export function otherWorkDaysOf(member, calendar = []) {
+  const entries = member.otherWork ?? [];
+  if (entries.length === 0) return [];
+  const inWindow = new Set(calendar);
+  return entries
+    .filter((o) => inWindow.has(o.date))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
 /* The people behind one attendance chip.
  *
  * Classified by `attendanceOf`, the SAME function attendance() counts with,
@@ -1263,7 +1353,7 @@ export function leaveDaysOf(member, calendar = []) {
  * Sorted by calls done, descending. The chip is tapped to find out WHO, and
  * on a list of forty the thing worth reading first is the spread.
  */
-export function repsInAttendanceState(team, rows, state, overRange = false, calendar = []) {
+export function repsInAttendanceState(team, rows, state, overRange = false, calendar = [], monthDays = [], today = null) {
   const rowsByEmployee = groupRowsByEmployee(rows);
 
   const out = [];
@@ -1276,7 +1366,10 @@ export function repsInAttendanceState(team, rows, state, overRange = false, cale
      * `includes`, not `===`: over a range a person is in every bucket their
      * days put them in, so the same name legitimately appears on both the
      * Reported and the Not reported list. */
-    const days = daysOf(mine, calendar);
+    /* Each day says whether it was excused (leave / Other Work), so the Not
+       reported figure and its day list skip the same days the bucket does. */
+    const days = daysOf(mine, calendar).map((d) =>
+      d.happened === 0 ? { ...d, excused: excusedOn(m, d.date) } : d);
     if (!attendanceStatesOf(m, days, overRange).includes(state)) continue;
     /* The same split the tree rows and the HQ cards draw — one function, so
        a rep's bar says the same thing wherever the reader met them. */
@@ -1301,6 +1394,15 @@ export function repsInAttendanceState(team, rows, state, overRange = false, cale
       /* The days they were away, with the kind of leave each was — the
          Absent list's own figure and the rows behind it. */
       leaveDays: leaveDaysOf(m, calendar),
+      /* The days they were on Other Work, with its type. */
+      otherWorkDays: otherWorkDaysOf(m, calendar),
+      /* The one for the day being shown, when it is a single day. */
+      otherWorkToday: overRange ? null : m.otherWorkToday ?? null,
+      /* Days with nothing logged and nothing excusing them — the Not
+         reported list's own figure. */
+      silentDays: days.filter((d) => d.happened === 0 && !d.excused).length,
+      /* Their calls against the month — the same figure as their tree row. */
+      calls: overRange ? callTarget(m, mine, monthDays, today) : null,
       /* WHEN, not just how much. "Not reported" over a month is a rep who
          logged nothing across four weeks, and the next question is always
          which days were lost — a fact the aggregates above cannot answer and
@@ -1438,4 +1540,130 @@ export function asOfFrom(rows) {
     if (r.visitTime && (latest === null || r.visitTime > latest)) latest = r.visitTime;
   }
   return latest;
+}
+
+/* ---- Doctor-wise ------------------------------------------------------ */
+
+/* The DONE visits of a scope, turned round to read by DOCTOR: which doctors
+ * were seen, how often, and by whom on which days — the Visit report's answer
+ * to the Support report's doctor-wise view.
+ *
+ * One row is one person's visit (a joint call is a row per attendee), so a
+ * doctor's count is visits, not calls, the same unit as every other count on
+ * this screen. Rows with no visit time are plans, not visits, and are left
+ * out. A row's person is its attributed `employeeId`; `team` only names
+ * their rung (BE / ABM…).
+ *
+ * -> [{ doctorId, doctorName, city, specialty, categories, hq, visits,
+ *       lastDate, people: [{ employeeId, name, short, visits, dates }] }]
+ *    most-visited first; each doctor's people likewise; dates newest first. */
+export function doctorsVisited(rows = [], team = []) {
+  const shortOf = new Map(team.map((m) => [m.id, m.short]));
+  const deptOf = new Map(team.map((m) => [m.id, m.department || '']));
+  const byDoctor = new Map();
+  for (const r of rows) {
+    if (!r?.visitTime || !r.doctorId) continue;
+    let d = byDoctor.get(r.doctorId);
+    if (!d) {
+      d = {
+        doctorId: r.doctorId,
+        doctorName: r.doctorName || r.doctorId,
+        city: r.doctorCity || '',
+        specialty: r.doctorSpecialty || '',
+        categories: r.doctorCategories || [],
+        hq: r.hq || '',
+        visits: 0,
+        lastDate: '',
+        byPerson: new Map(),
+      };
+      byDoctor.set(r.doctorId, d);
+    }
+    const date = String(r.visitTime).slice(0, 10) || r.plannedDate;
+    d.visits += 1;
+    if (date > d.lastDate) d.lastDate = date;
+    const id = r.employeeId || r.participantId || '';
+    let p = d.byPerson.get(id);
+    if (!p) {
+      p = { employeeId: id, name: r.employeeName || r.participantName || id, short: shortOf.get(id) || '', department: deptOf.get(id) || '', visits: 0, dates: [] };
+      d.byPerson.set(id, p);
+    }
+    p.visits += 1;
+    p.dates.push(date);
+  }
+  return [...byDoctor.values()]
+    .map(({ byPerson, ...d }) => ({
+      ...d,
+      people: [...byPerson.values()]
+        .map((p) => ({ ...p, dates: [...p.dates].sort((a, b) => b.localeCompare(a)) }))
+        .sort((a, b) => b.visits - a.visits || a.name.localeCompare(b.name)),
+    }))
+    .sort((a, b) => b.visits - a.visits || a.doctorName.localeCompare(b.doctorName));
+}
+
+/* The Doctor-wise list WITH the doctors nobody visited: `doctorsVisited` plus
+ * every doctor mapped to the scope's seats (`mapped`, from loadMappedDoctors),
+ * the unvisited ones at 0. Each mapped doctor also lists the people in scope
+ * who hold a seat it is mapped to and have not visited it, at 0 visits — so
+ * a doctor's card says whose doctor it is even before anyone has gone.
+ *
+ * `scope` is the team members in scope (seat = their roleProfile).
+ * -> doctorsVisited's shape, plus `mapped` (true when on someone's list);
+ *    visited first, most-visited first, then the unvisited by name. */
+export function doctorCoverage(rows = [], mapped = [], scope = [], team = scope, support = []) {
+  const visited = doctorsVisited(rows, team);
+  const byId = new Map(visited.map((d) => [d.doctorId, { ...d, people: [...d.people], mapped: false }]));
+  const holders = new Map();
+  for (const m of scope) {
+    if (!m?.roleProfile) continue;
+    if (!holders.has(m.roleProfile)) holders.set(m.roleProfile, []);
+    holders.get(m.roleProfile).push(m);
+  }
+  for (const r of mapped) {
+    if (!r?.doctorId) continue;
+    let d = byId.get(r.doctorId);
+    if (!d) {
+      d = {
+        doctorId: r.doctorId, doctorName: r.doctorName || r.doctorId, city: r.city || '',
+        specialty: r.specialty || '', categories: [], hq: r.hq || '', visits: 0, lastDate: '', people: [], mapped: true,
+      };
+      byId.set(r.doctorId, d);
+    }
+    d.mapped = true;
+    if (!d.hq && r.hq) d.hq = r.hq;
+    for (const m of holders.get(r.seat) ?? []) {
+      if (d.people.some((p) => p.employeeId === m.id)) continue;
+      d.people.push({ employeeId: m.id, name: m.name, short: m.short || '', department: m.department || '', visits: 0, dates: [] });
+    }
+  }
+  /* DOCTOR SUPPORT for the period (loadSupportLines): each line is booked on
+     a seat, and goes to whoever in scope holds it. A person gets a `support`
+     figure only when their seat carries a line for this doctor — an ABM or
+     RBM with none shows no support at all, never a ₹0. The doctor's own
+     `support` is the scope's lines, each counted once. */
+  for (const line of support) {
+    const holdersOfSeat = holders.get(line.seat);
+    if (!line?.doctorId || !holdersOfSeat?.length) continue;
+    let d = byId.get(line.doctorId);
+    if (!d) {
+      d = {
+        doctorId: line.doctorId, doctorName: line.doctorId, city: '', specialty: '', categories: [], hq: '',
+        visits: 0, lastDate: '', people: [], mapped: false,
+      };
+      byId.set(line.doctorId, d);
+    }
+    d.support = (d.support ?? 0) + line.amount;
+    for (const m of holdersOfSeat) {
+      let p = d.people.find((x) => x.employeeId === m.id);
+      if (!p) {
+        p = { employeeId: m.id, name: m.name, short: m.short || '', department: m.department || '', visits: 0, dates: [] };
+        d.people.push(p);
+      }
+      p.support = (p.support ?? 0) + line.amount;
+    }
+  }
+  for (const d of byId.values()) {
+    d.people.sort((a, b) => b.visits - a.visits || (b.support ?? 0) - (a.support ?? 0) || a.name.localeCompare(b.name));
+  }
+  return [...byId.values()].sort((a, b) =>
+    b.visits - a.visits || (b.support ?? 0) - (a.support ?? 0) || a.doctorName.localeCompare(b.doctorName));
 }

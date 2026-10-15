@@ -20,7 +20,6 @@ import HelpSupport from "./components/features/help-support";
 import SupportReport from "./components/features/support-report";
 import CalendarPage from "@calendar/components/CalendarPage";
 import { TAGS, TAG_IDS, EVENT_TYPE_MODES } from "@calendar/components/calendar/constants";
-import NovuInbox from "./components/NovuInbox";
 import PushNotificationToggle from "./components/PushNotificationToggle";
 import NetworkBanner from "./components/NetworkBanner";
 /* Loaded client-side only. `device-uuid` reads `navigator` at module scope, so
@@ -677,114 +676,16 @@ PLASMIC.registerComponent(CalendarPage, {
    It used to be imported from ./components/Visit and registered here, which
    meant a second copy of both the code and this metadata to keep in step. */
 
-PLASMIC.registerComponent(NovuInbox, {
-  name: "NovuInbox",
-  props: {
-    email: {
-      type: "string",
-      description: "User email (used as Novu subscriberId)",
-    },
-    firstName: {
-      type: "string",
-      description: "User first name (optional).",
-    },
-    lastName: {
-      type: "string",
-      description: "User last name (optional).",
-    },
-    phone: {
-      type: "string",
-      description: "User phone number in E.164 format.",
-    },
-    tags: {
-      type: "object",
-      description: "User tags (Flat object).",
-    },
-    meta: {
-      type: "object",
-      description: "Additional metadata (Flat object).",
-    },
-    applicationIdentifier: {
-      type: "string",
-      description: "Novu application identifier.",
-      // Reads NEXT_PUBLIC_NOVU_APPLICATION_IDENTIFIER (set per Netlify deploy context);
-      // falls back to the self-hosted (notify.elbrit.org) Production env identifier.
-      defaultValue: process.env.NEXT_PUBLIC_NOVU_APPLICATION_IDENTIFIER || "K3rsfIP_eYvg",
-    },
-    subscriberHash: {
-      type: "string",
-      description: "Optional subscriber hash for HMAC.",
-    },
-    apiUrl: {
-      type: "string",
-      description: "Novu API base URL. Self-hosted; without it the widget hits Novu Cloud.",
-      defaultValue: process.env.NEXT_PUBLIC_NOVU_BACKEND_URL || "https://api.notify.elbrit.org",
-    },
-    socketUrl: {
-      type: "string",
-      description: "Novu WebSocket URL for live inbox updates (self-hosted).",
-      defaultValue: process.env.NEXT_PUBLIC_NOVU_SOCKET_URL || "https://ws.notify.elbrit.org",
-    },
-    className: {
-      type: "string",
-      description: "CSS class name for the container",
-    },
-    fallbackRedirectPath: {
-      type: "string",
-      description: "Page to open when a clicked notification has no redirect URL of its own.",
-      defaultValue: "/chat",
-    },
-    bellSize: {
-      type: "number",
-      description: "Size (px) of the notification bell icon.",
-      defaultValue: 28,
-    },
-    bellPadding: {
-      type: "string",
-      description: "Padding around the bell trigger button (any CSS length, e.g. '0', '2px'). Smaller = less background space around the bell.",
-      defaultValue: "2px",
-    },
-    promptGateKey: {
-      type: "string",
-      defaultValue: "token",
-      description:
-        "The automatic notification-permission popup at page open only appears when this localStorage key holds a non-empty value (i.e. the user is logged in). Leave empty to always prompt. The Push Notification Toggle is never gated by this.",
-    },
-    onNotificationClick: {
-      type: "eventHandler",
-      argTypes: [
-        { name: "notification", type: "object" }
-      ],
-      description: "Called when a notification (body) is clicked. The notification's own redirect URL still navigates automatically.",
-    },
-    onPrimaryActionClick: {
-      type: "eventHandler",
-      argTypes: [
-        { name: "notification", type: "object" }
-      ],
-      description: "Callback function called when primary action button is clicked",
-    },
-    onSecondaryActionClick: {
-      type: "eventHandler",
-      argTypes: [
-        { name: "notification", type: "object" }
-      ],
-      description: "Callback function called when secondary action button is clicked",
-    },
-  },
-  importPath: "./components/NovuInbox",
-});
-
 PLASMIC.registerComponent(PushNotificationToggle, {
   name: "PushNotificationToggle",
   displayName: "Push Notification Toggle",
   description:
-    "A 'Show notifications' label with a toggle switch that reflects the live push subscription status. Toggling ON re-opens the native browser permission popup for users who skipped it at login, then registers the device for push (Novu/OneSignal). Toggling OFF opts the device out of push. If the user previously clicked Block, it shows instructions to enable notifications in browser settings (browsers never allow re-opening the popup after Block).",
+    "A 'Show notifications' label with a toggle switch that reflects the live push subscription status. Toggling ON re-opens the native browser permission popup for users who skipped it at login, then subscribes this device in OneSignal. Toggling OFF opts the device out of push. If the user previously clicked Block, it shows instructions to enable notifications in browser settings (browsers never allow re-opening the popup after Block).",
   props: {
     email: {
       type: "string",
       description:
-        "Bind the SAME email value you bind to NovuInbox (the Novu bell) — the logged-in user's email, used as the Novu subscriberId when registering this device for push. If left unbound, it falls back to the identity NovuInbox already set in OneSignal.",
+        "The logged-in user's email. Optional: kept for existing bindings.",
     },
     label: {
       type: "string",
@@ -3003,8 +2904,7 @@ PLASMIC.registerComponent(ProfileHeader, {
       type: "slot",
       displayName: "Bell / actions",
       description:
-        "The right zone - drop NovuInbox here for the notification bell. Any number of icons can go in; they lay out in a row and each gets the same 36px hit target.",
-      defaultValue: [{ type: "component", name: "NovuInbox" }],
+        "The right zone - drop icons or buttons here. Any number can go in; they lay out in a row and each gets the same 36px hit target.",
     },
     logoUrl: {
       type: "imageUrl",

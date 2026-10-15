@@ -9,6 +9,7 @@ import {
   callAverage,
   geoSplit,
   happened,
+  monthEnd,
   planned,
   pobTotal,
   resolveSelection,
@@ -35,6 +36,8 @@ import { AttendanceSheet } from './AttendanceSheet';
 import { DoctorPlanSheet } from './DoctorPlanSheet';
 import { useListRows } from '../data/useListRows';
 import { VisitsByHourSheet } from './VisitsByHourSheet';
+import { DoctorVisitsCard } from './DoctorVisitsCard';
+import { SegmentedControl } from '@/design-system';
 import { KpiGrid } from './KpiGrid';
 import { ALL_HQS, HqSection } from './HqSection';
 import { TeamTree } from './TeamTree';
@@ -136,6 +139,13 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
      inside the tree closes an attendance sheet rather than stacking a
      second scrim on the first. */
   const [sheet, setSheet] = useState(null);
+  /* ON A PHONE the two long lists under the HQ chart — the team tree and the
+     doctor-wise list — share one place behind a Team | Doctors switch, so
+     the page is not one long scroll. Everything above stays as it is. From
+     @2xl both show and the switch is not drawn; `mobileOnly` hides a section
+     only below @2xl. */
+  const [mobileTab, setMobileTab] = useState('team');
+  const mobileOnly = (tab) => (mobileTab === tab ? '' : 'hidden @2xl/report:block');
 
   /* undefined, not null, for both: `useVisitKpi` and `periodWindow` read
      absence as "the month today falls in", and a null would have to be
@@ -161,6 +171,8 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
     loadRows,
     loadPob,
     loadContacts,
+    loadMapped,
+    loadSupport,
   } = useVisitKpi({
     /* No scopeId: the hook resolves the viewer for `root`, which is only
        used here as the DEFAULT pick. Everything else reads the unscoped
@@ -221,7 +233,12 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
        covers that day (the spells are the loaded month's). */
     const onDay = (m) =>
       period !== 'month' && dayKey && dayKey !== today
-        ? { ...m, onLeave: (m.leave ?? []).some((l) => l.from <= dayKey && dayKey <= l.to) }
+        ? {
+            ...m,
+            onLeave: (m.leave ?? []).some((l) => l.from <= dayKey && dayKey <= l.to),
+            onOtherWork: (m.otherWork ?? []).some((o) => o.date === dayKey),
+            otherWorkToday: (m.otherWork ?? []).find((o) => o.date === dayKey) ?? null,
+          }
         : m;
     return {
       team: team.filter((m) => ids.has(m.id)).map(onDay),
@@ -255,6 +272,12 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
   const calendar = useMemo(
     () => (overRange ? workingDaysBetween(win.from, win.to) : [dayKey]),
     [overRange, win.from, win.to, dayKey],
+  );
+  /* THE WHOLE OF THE WINDOW'S LAST MONTH, not just to today: each person's
+     monthly call target (see callTarget) needs the days still ahead too. */
+  const monthDays = useMemo(
+    () => (overRange ? workingDaysBetween(win.from, monthEnd(win.to.slice(0, 7))) : []),
+    [overRange, win.from, win.to],
   );
 
   const view = useMemo(() => {
@@ -358,8 +381,50 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
         to: win.to,
       }
     : null;
+  /* DOCTOR-WISE: every done visit of the scope in the selected HQ over the
+     window, regrouped by doctor in the card under the HQ chart. Same request
+     as an hourly bar with no hour or tone; asked again only when the scope,
+     window or HQ changes (useListRows keys on the request). */
+  const doctorRequest = countsOnly && win && !nothingSelected
+    ? {
+        mode: 'visits',
+        employees: scoped.team.map((m) => m.id),
+        hq: view.activeHq === ALL_HQS ? '*' : view.activeHq,
+        hour: null,
+        tone: null,
+        from: win.from,
+        to: win.to,
+      }
+    : null;
   const planList = useListRows(loadRows, planRequest);
   const hourList = useListRows(loadRows, hourRequest);
+  const doctorList = useListRows(loadRows, doctorRequest);
+  /* THE DOCTORS MAPPED TO THE SCOPE'S SEATS, so the card can show the ones
+     nobody visited. Skipped for a very wide scope (the whole company is tens
+     of thousands of doctors): the card then lists the visited ones only and
+     says so. */
+  const scopeSeats = useMemo(
+    () => [...new Set(scoped.team.map((m) => m.roleProfile).filter(Boolean))].sort(),
+    [scoped.team],
+  );
+  const MAX_MAPPED_SEATS = 400;
+  const mappedRequest = loadMapped && !nothingSelected && scopeSeats.length && scopeSeats.length <= MAX_MAPPED_SEATS
+    ? { seats: scopeSeats, hq: view.activeHq === ALL_HQS ? null : view.activeHq }
+    : null;
+  const mappedList = useListRows(loadMapped, mappedRequest);
+  /* THE MONTH'S DOCTOR SUPPORT, for each person on a doctor's card. Support
+     is monthly (the record is dated the month's end), so the request spans
+     the WHOLE months the window touches: a Date view reads its day's month,
+     a Month view its month(s). */
+  const supportRequest = loadSupport && !nothingSelected && win
+    ? { from: `${win.from.slice(0, 7)}-01`, to: monthEnd(win.to.slice(0, 7)) }
+    : null;
+  const supportList = useListRows(loadSupport, supportRequest);
+  const mappedNote = scopeSeats.length > MAX_MAPPED_SEATS
+    ? 'This team is too large to list every mapped doctor; pick a smaller team to see the ones not visited.'
+    : mappedList.error
+      ? 'Could not load the mapped doctors, so only the visited ones are listed.'
+      : null;
 
   /* The two ways the page has to name its period in words. Derived HERE, not
      in the components that print them: telling "MTD" from "Aug" needs both
@@ -593,12 +658,48 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
                   totals={view.totals}
                   onDrillVisits={(selection) => setSheet({ kind: 'hour', selection })}
                 />
+                {/* Phone only: Team | Doctors, for the two lists below. */}
+                <SegmentedControl
+                  className="mt-4 @2xl/report:hidden"
+                  block
+                  shape="pill"
+                  ariaLabel="Show team or doctors"
+                  items={[
+                    { id: 'team', label: 'Team' },
+                    { id: 'doctors', label: 'Doctors' },
+                  ]}
+                  value={mobileTab}
+                  onChange={setMobileTab}
+                />
+                {/* Doctor-wise: which doctors were visited, by whom, on which
+                    days. In the column's free space under the HQ chart.
+                    Keyed on its request so search and the open doctor reset
+                    when the scope, period or HQ changes. */}
+                <div className={`mt-4 @5xl/report:mt-6 ${mobileOnly('doctors')}`}>
+                  <DoctorVisitsCard
+                    key={JSON.stringify(doctorRequest ?? view.activeHq)}
+                    rows={countsOnly ? doctorList.rows : view.chartRows}
+                    loading={countsOnly && doctorList.loading}
+                    error={countsOnly ? doctorList.error : null}
+                    mapped={mappedList.rows}
+                    support={supportList.rows}
+                    mappedLoading={mappedList.loading}
+                    mappedNote={mappedNote}
+                    scope={scoped.team}
+                    /* Only to name each person's rung (BE / ABM). */
+                    team={team}
+                    isMine={isMine}
+                    periodLabel={planLabel}
+                    scopeLabel={view.activeHq === ALL_HQS ? 'All HQs' : hqLabel(view.activeHq)}
+                  />
+                </div>
               </div>
 
               {/* The scoped branch in full, even when the cards are reporting
                   on one person -- it is the breakdown of what the picker
                   could widen to, and hiding it would leave no way to see
                   what "own" is being measured against. */}
+              <div className={`min-w-0 ${mobileOnly('team')}`}>
               <TeamTree
                 key={selection.map((pick) => pick.id).join(',')}
                 team={team}
@@ -609,7 +710,10 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
                 /* The tree classifies attendance the same way the card above
                    it does, or the two disagree about the same person. */
                 overRange={overRange}
+                monthDays={monthDays}
+                today={today}
               />
+              </div>
             </div>
 
             {/* All three sheets are always mounted and closed by their own open
@@ -628,6 +732,8 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
               /* The same calendar the card counted with, so the list a chip
                  opens is measured over the same days. */
               calendar={calendar}
+              monthDays={monthDays}
+              today={today}
               loadContacts={loadContacts}
               onClose={() => setSheet(null)}
             />

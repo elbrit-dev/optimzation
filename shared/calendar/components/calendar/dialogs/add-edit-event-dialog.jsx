@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { addMinutes, differenceInCalendarDays, startOfDay, endOfDay, parseISO } from "date-fns";
+import { addMinutes, differenceInCalendarDays, endOfDay, format, parseISO, startOfDay } from "date-fns";
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -40,6 +40,7 @@ import {
 } from "@calendar/components/calendar/module/event/services/master-data.service";
 import { buildParticipantsWithDetails, getAvailableItems, normalizeMeetingTimes, normalizeNonMeetingDates, resolveLatLong, showFirstFormErrorAsToast, syncPobItemRates, updatePobRow } from "@calendar/lib/helper";
 import { Button } from "@calendar/components/ui/button";
+import { isVisitDay } from "@calendar/lib/calendar/visit";
 import { CircleAlert, ClipboardList, MapPin, Mic, Pill, Users, Video } from "lucide-react";
 
 const OTHER_WORK_TYPE_ICONS = {
@@ -64,7 +65,7 @@ import {
 	saveLeaveApplication,
 	updateLeaveAttachment,
 } from "@calendar/components/calendar/module/leave/services/leave.service";
-import { isLeafRole, resolveLoggedInRoleId, resolveSuperiorShareUserIds, resolveSuperiorShareUserIdsUpTo, resolveVisibleRoleIds } from "@calendar/lib/employeeHeirachy";
+import { resolveLoggedInRoleId, resolveOwnHqOptions, resolveSuperiorShareUserIds, resolveSuperiorShareUserIdsUpTo, resolveVisibleRoleIds } from "@calendar/lib/employeeHeirachy";
 import { resolvePobDepartments } from "@calendar/lib/calendar/pobDepartments";
 import { saveDocToErp } from "@calendar/components/calendar/module/todo/services/todo.service";
 import { uploadFileToDoc, uploadLeaveMedicalCertificate } from "@calendar/lib/file.service";
@@ -554,10 +555,6 @@ export function AddEditEventDialog({
 		() => resolveLoggedInRoleId(users) ?? currentUserRoleId,
 		[currentUserRoleId, users]
 	);
-	const isLeafHierarchyUser = useMemo(
-		() => isLeafRole(elbritRoleEdges, resolvedLoggedInRoleId),
-		[elbritRoleEdges, resolvedLoggedInRoleId]
-	);
 	const loggedInEmployeeHqTerritory = useMemo(() => {
 		const matchById = allEmployeeOptions.find(
 			(employee) => String(employee.value) === String(LOGGED_IN_USER.id)
@@ -944,10 +941,13 @@ export function AddEditEventDialog({
 		// device again on a later POB edit would overwrite them with wherever
 		// the user happens to be.
 		if (isVisitAlreadyRecorded) return;
+		// Capturing the location is what marks the visit (attending = Yes), so
+		// it only happens on the plan's own day — never ahead of it or after.
+		if (!isVisitDay(event?.startDate)) return;
 		if (selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN) {
 			resolveLatLong(form, isEditing, toast);
 		}
-	}, [isEditing, isOpen, selectedTag, isVisitAlreadyRecorded]);
+	}, [isEditing, isOpen, selectedTag, isVisitAlreadyRecorded, event?.startDate]);
 	/* ---------------------------------------------
 	  Load Calendar Google Calendar 
 	--------------------------------------------- */
@@ -1571,19 +1571,29 @@ export function AddEditEventDialog({
 		});
 	}, [allEvents, startDate]);
 
+	// THE USER'S OWN HQs: their own and those of everyone under them in the
+	// role tree (each employee's custom_hq). A BE has one; an ABM their BEs';
+	// an RBM / SM their whole team's; an admin every one. Picked on the DR Tour
+	// Plan form itself — there is no separate HQ Tour Plan step any more.
+	const ownHqOptions = useMemo(
+		() => resolveOwnHqOptions(allEmployeeOptions, elbritRoleEdges, resolvedLoggedInRoleId, loggedInEmployeeHqTerritory),
+		[allEmployeeOptions, elbritRoleEdges, resolvedLoggedInRoleId, loggedInEmployeeHqTerritory]
+	);
+	// The HQ a new DR Tour Plan starts on: the day's HQ Tour Plan where an old
+	// one exists, else the user's own HQ, else their only one. With several the
+	// user picks it on the form.
 	const doctorVisitHqTerritory =
 		matchedHqEvent?.hqTerritory ??
-		(isLeafHierarchyUser ? loggedInEmployeeHqTerritory : null);
-	// BE is a leaf role in the Elbrit hierarchy with one fixed HQ, so there is
-	// nothing for them to plan: the HQ tag is hidden and they book DR Tour Plans
-	// directly. Every other role plans HQ first and can only book a DR Tour Plan
-	// on a day one of their own HQ Tour Plans covers.
-	//
-	// The territory check is deliberate: a BE with no HQ territory on their
-	// employee record has no HQ to book against, so they fall through to the
-	// normal path and plan HQ first like everyone else.
+		(ownHqOptions.some((option) => option.value === loggedInEmployeeHqTerritory)
+			? loggedInEmployeeHqTerritory
+			: null) ??
+		(ownHqOptions.length === 1 ? ownHqOptions[0].value : null);
+	// EVERY ROLE books DR Tour Plans and Other Work directly now, the way a BE
+	// always did: no HQ Tour Plan first. The HQ is chosen on the DR form from
+	// ownHqOptions and saved on the visit exactly as the HQ plan's used to be.
+	// Someone with no HQ anywhere in their team still has the old path.
 	const hasValidHqTourPlan = !!matchedHqEvent;
-	// No DR Tour Plan on a day with the user's own leave or Other Work (see
+	// No DR Tour Plan on a day with the user's own leave (see
 	// lib/calendar/leaveDay). The chip is greyed and says why when pressed, and
 	// the save is refused too, since the DR form's own date can be moved onto
 	// such a day. An existing visit can still be edited.
@@ -1594,8 +1604,7 @@ export function AddEditEventDialog({
 				: doctorVisitBlockReason(allEvents, LOGGED_IN_USER.id, startDate),
 		[allEvents, isEditing, startDate]
 	);
-	const canCreateDoctorVisitDirectly =
-		isLeafHierarchyUser && Boolean(loggedInEmployeeHqTerritory);
+	const canCreateDoctorVisitDirectly = ownHqOptions.length > 0;
 	const canUseDoctorVisitTag =
 		hasValidHqTourPlan || canCreateDoctorVisitDirectly;
 	// Only one HQ Tour Plan per person per day is allowed (enforced on save
@@ -1654,16 +1663,34 @@ export function AddEditEventDialog({
 	]);
 	useEffect(() => {
 		if (selectedTag !== TAG_IDS.DOCTOR_VISIT_PLAN) return;
-		if (!doctorVisitHqTerritory) return;
-
+		// A saved visit keeps the HQ it was planned on.
+		if (isEditing) return;
+		// The user's own pick stands, as long as it is one of their HQs.
 		const currentHq = form.getValues("hqTerritory");
+		if (currentHq && ownHqOptions.some((option) => option.value === currentHq)) return;
+		if (!doctorVisitHqTerritory) return;
 		if (currentHq === doctorVisitHqTerritory) return;
 
 		form.setValue("hqTerritory", doctorVisitHqTerritory, {
 			shouldDirty: true,
 			shouldValidate: true,
 		});
-	}, [doctorVisitHqTerritory, form, selectedTag]);
+	}, [doctorVisitHqTerritory, form, isEditing, ownHqOptions, selectedTag]);
+	// Doctors belong to the HQ they were picked under: switching HQ on a new DR
+	// Tour Plan drops the earlier picks rather than save them against the new
+	// HQ. The first HQ the form is given is not a switch.
+	const lastDoctorVisitHqRef = useRef(null);
+	useEffect(() => {
+		if (selectedTag !== TAG_IDS.DOCTOR_VISIT_PLAN || isEditing) {
+			lastDoctorVisitHqRef.current = null;
+			return;
+		}
+		const previous = lastDoctorVisitHqRef.current;
+		lastDoctorVisitHqRef.current = hqTerritory || null;
+		if (previous && hqTerritory && previous !== hqTerritory) {
+			form.setValue("doctor", isDoctorMulti ? [] : undefined, { shouldDirty: true, shouldValidate: false });
+		}
+	}, [form, hqTerritory, isDoctorMulti, isEditing, selectedTag]);
 	// ----------------------------------------------------
 	// DR Tour Plan doctors come from the EMPLOYEE MAPPING only (the doctor's
 	// custom_role_profile rows), never from the doctor's own territory field:
@@ -2405,6 +2432,22 @@ export function AddEditEventDialog({
 			toast.error(doctorVisitBlockReasonText);
 			return;
 		}
+		// A visit is marked only on the plan's own day: not ahead of it, and a
+		// missed plan stays missed. (POB on a recorded visit is edited from the
+		// visit details, not here.)
+		if (
+			isEditing &&
+			values.tags === TAG_IDS.DOCTOR_VISIT_PLAN &&
+			!isVisitAlreadyRecorded &&
+			!isVisitDay(event?.startDate)
+		) {
+			toast.error(
+				startOfDay(new Date(event?.startDate)) > startOfDay(new Date())
+					? `This visit is planned for ${format(new Date(event.startDate), "d MMM")}. You can mark it on that day.`
+					: "This visit's day has passed, so it can no longer be marked."
+			);
+			return;
+		}
 		// NO SAVE WITH INCOMPLETE TEAM DATA. An event is shared with the owner's
 		// managers from the employee list and role hierarchy; if either failed to
 		// load, saving now would reach no manager and say nothing (Dharun Raj R,
@@ -2539,7 +2582,7 @@ export function AddEditEventDialog({
 		Array.isArray(value) ? value.some(Boolean) : Boolean(value);
 	const isMissingRequiredPick =
 		!isEditing &&
-		((selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN && !hasPick(doctor)) ||
+		((selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN && (!hasPick(doctor) || !hasPick(hqTerritory))) ||
 			(selectedTag === TAG_IDS.HQ_TOUR_PLAN && !hasPick(hqTerritory)) ||
 			(selectedTag === TAG_IDS.OTHER &&
 				(!otherType || (otherWorkNeedsDetails && !title?.trim()))));
@@ -2548,6 +2591,8 @@ export function AddEditEventDialog({
 	// rep guessing which field is missing.
 	const submitBlockedHint = isMutationPending
 		? null
+		: !isEditing && selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN && !hasPick(hqTerritory)
+		? "Pick the HQ to submit."
 		: !isEditing && selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN && !hasPick(doctor)
 		? "Select at least one doctor to submit."
 		: !isEditing && selectedTag === TAG_IDS.HQ_TOUR_PLAN && !hasPick(hqTerritory)
@@ -2603,8 +2648,8 @@ export function AddEditEventDialog({
 											if (tag.id === TAG_IDS.HQ_TOUR_PLAN) {
 												return !shouldHideHqTourPlanTag;
 											}
-											// Other Work follows the DR Tour Plan rule: BE any day,
-											// everyone else only on a day their HQ Tour Plan covers.
+											// Other Work follows the DR Tour Plan rule: any day for
+											// anyone with an HQ in their team, no HQ Tour Plan needed.
 											if (
 												tag.id === TAG_IDS.DOCTOR_VISIT_PLAN ||
 												tag.id === TAG_IDS.OTHER
@@ -3130,6 +3175,28 @@ export function AddEditEventDialog({
 												name="hqTerritory"
 												options={hqTerritoryOptions}
 											// label="HQ"
+											/>
+										</RHFFieldWrapper>
+									)}
+								/>
+							)}
+
+						{/* ================= HQ FOR A DR TOUR PLAN =================
+						    Picked here now, in place of a separate HQ Tour Plan. Only
+						    shown when there is a choice — a BE's one HQ is set for them.
+						    It narrows the doctor list and is saved on the visit. */}
+						{selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN &&
+							!isEditing &&
+							ownHqOptions.length > 1 && (
+								<FormField
+									control={form.control}
+									name="hqTerritory"
+									render={() => (
+										<RHFFieldWrapper label="HQ">
+											<RHFHQCardSelector
+												control={form.control}
+												name="hqTerritory"
+												options={ownHqOptions}
 											/>
 										</RHFFieldWrapper>
 									)}

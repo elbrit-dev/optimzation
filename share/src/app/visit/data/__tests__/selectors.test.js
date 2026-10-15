@@ -8,8 +8,11 @@ import {
   attendanceStatesOf,
   byHq,
   callAverage,
+  callTarget,
   CHART_HOURS,
+  doctorCoverage,
   doctorPlan,
+  doctorsVisited,
   forEmployees,
   geoSplit,
   happened,
@@ -111,6 +114,49 @@ describe('callAverage', () => {
 
   it('is null with no working reps rather than dividing by zero', () => {
     expect(callAverage([row()], 0, 1)).toBeNull();
+  });
+});
+
+describe('callTarget', () => {
+  /* Mon 5 Oct to Sat 10 Oct: six working days; today is Thursday the 8th. */
+  const week = ['2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08', '2026-10-09', '2026-10-10'];
+  const done = (date, n) => row({ plannedDate: date, visitTime: `${date} 10:00:00`, n });
+
+  it('targets the standard over the available days and averages the completed ones', () => {
+    const rows = [done('2026-10-05', 10), done('2026-10-06', 12), done('2026-10-07', 8), done('2026-10-08', 3)];
+    const t = callTarget({ id: 'E1' }, rows, week, '2026-10-08');
+    expect(t.target).toBe(72);
+    expect(t.done).toBe(33);
+    /* Today's 3 are not in the average: 30 over three finished days. */
+    expect(t.average).toBe(10);
+    expect(t.left).toBe(39);
+    /* Today, Fri and Sat are still ahead. */
+    expect(t.daysAhead).toBe(3);
+    expect(t.perDayNeeded).toBe(13);
+  });
+
+  it('takes leave and Other Work days off the target', () => {
+    const member = {
+      id: 'E1',
+      leave: [{ from: '2026-10-05', to: '2026-10-06', type: 'Casual Leave' }],
+      otherWork: [{ date: '2026-10-09', type: 'Meeting' }],
+    };
+    const t = callTarget(member, [done('2026-10-07', 12)], week, '2026-10-08');
+    expect(t.daysOff).toBe(3);
+    expect(t.target).toBe(36);
+    expect(t.average).toBe(12);
+  });
+
+  it('reads a finished month as short, with no days ahead', () => {
+    const t = callTarget({ id: 'E1' }, [done('2026-10-05', 50)], week, '2026-10-20');
+    expect(t.daysAhead).toBe(0);
+    expect(t.perDayNeeded).toBeNull();
+    expect(t.left).toBe(22);
+  });
+
+  it('is null for a vacant seat or with no days', () => {
+    expect(callTarget({ id: 'E1', vacant: true }, [], week, '2026-10-08')).toBeNull();
+    expect(callTarget({ id: 'E1' }, [], [], '2026-10-08')).toBeNull();
   });
 });
 
@@ -1209,6 +1255,13 @@ describe('attendance over a range', () => {
     expect(attendanceOf(at({ onLeave: true }), none, true)).toBe('onLeave');
   });
 
+  it('reads Other Work after leave and reporting', () => {
+    expect(attendanceOf(at({ onOtherWork: true }), none, false)).toBe('otherWork');
+    expect(attendanceOf(at({ onOtherWork: true }), worked, false)).toBe('working');
+    expect(attendanceOf(at({ onOtherWorkInWindow: true }), none, true)).toBe('otherWork');
+    expect(attendanceOf(at({ onOtherWorkInWindow: true, onLeaveInWindow: true }), none, true)).toBe('onLeave');
+  });
+
   it('keeps a vacant seat vacant in both', () => {
     // A seat is empty or it is not; there is no having been vacant last week.
     expect(attendanceOf(at({ vacant: true, onLeaveInWindow: true }), worked, true)).toBe('vacant');
@@ -1230,7 +1283,7 @@ describe('attendance over a range', () => {
        leave in the window, so both are Absent; C reported. The buckets
        overlap by design — C is Reported AND Absent — so these no longer sum
        to the headcount. */
-    expect(counts).toEqual({ working: 1, notReporting: 2, onLeave: 2, vacant: 1 });
+    expect(counts).toEqual({ working: 1, notReporting: 2, onLeave: 2, otherWork: 0, vacant: 1 });
     for (const state of Object.keys(counts)) {
       expect(repsInAttendanceState(team, rows, state, true)).toHaveLength(counts[state]);
     }
@@ -1311,6 +1364,33 @@ describe('attendanceStatesOf', () => {
 
   it('gives a vacant seat one state and no other', () => {
     expect(attendanceStatesOf(who({ vacant: true }), [d('2026-09-04', 1, 0)], true)).toEqual(['vacant']);
+  });
+
+  it('does not count an Other Work day as a silent day', () => {
+    /* An Admin Day has no visit to log: the rep is under Other work, not Not
+       reported. */
+    const rep = who({ onOtherWorkInWindow: true, otherWork: [{ date: '2026-09-11', type: 'Admin Day' }] });
+    const states = attendanceStatesOf(rep, [d('2026-09-04', 4, 4), d('2026-09-11', 0, 0)], true);
+    expect(states).toEqual(['working', 'otherWork']);
+  });
+
+  it('does not count a leave day as a silent day either', () => {
+    const rep = who({ onLeaveInWindow: true, leave: [{ from: '2026-09-11', to: '2026-09-12', type: 'Casual Leave' }] });
+    const states = attendanceStatesOf(rep, [d('2026-09-04', 4, 4), d('2026-09-11', 2, 0), d('2026-09-12', 0, 0)], true);
+    expect(states).toEqual(['working', 'onLeave']);
+  });
+
+  it('still counts the other silent days around an Other Work day', () => {
+    const rep = who({ onOtherWorkInWindow: true, otherWork: [{ date: '2026-09-11', type: 'Conference' }] });
+    const states = attendanceStatesOf(rep, [d('2026-09-11', 0, 0), d('2026-09-12', 3, 0)], true);
+    expect(states).toEqual(['notReporting', 'otherWork']);
+  });
+
+  it('puts a silent rep on Other Work today under Other work, but a rep who reported under Reported', () => {
+    expect(attendanceStatesOf(who({ onOtherWork: true }), [d('2026-09-11', 0, 0)], false)).toEqual(['otherWork']);
+    expect(attendanceStatesOf(who({ onOtherWork: true }), [d('2026-09-11', 2, 1)], false)).toEqual(['working']);
+    // Leave still wins on a single day.
+    expect(attendanceStatesOf(who({ onOtherWork: true, onLeave: true }), [], false)).toEqual(['onLeave']);
   });
 
   it('still returns exactly one state on a single day', () => {
@@ -1408,5 +1488,78 @@ describe('everyonePicks', () => {
     ]);
     const covered = new Set(picks.flatMap((p) => subtreeOf(team, p.id).map((m) => m.id)));
     expect(covered.size).toBe(team.length);
+  });
+});
+
+describe('doctorsVisited', () => {
+  const v = (doctorId, employeeId, day, over = {}) => ({
+    doctorId, doctorName: `Dr ${doctorId}`, employeeId, employeeName: employeeId,
+    visitTime: `${day} 10:00:00`, plannedDate: day, ...over,
+  });
+
+  it('groups done visits by doctor, then by person, with the days', () => {
+    const team = [{ id: 'BE1', short: 'BE' }, { id: 'ABM', short: 'ABM' }];
+    const out = doctorsVisited([
+      v('D1', 'BE1', '2026-10-02'),
+      v('D1', 'BE1', '2026-10-09'),
+      v('D1', 'ABM', '2026-10-09'),
+      v('D2', 'BE1', '2026-10-03'),
+      v('D2', 'BE1', '2026-10-05', { visitTime: null }), // a plan, not a visit
+    ], team);
+    expect(out.map((d) => [d.doctorId, d.visits])).toEqual([['D1', 3], ['D2', 1]]);
+    expect(out[0].lastDate).toBe('2026-10-09');
+    expect(out[0].people).toEqual([
+      { employeeId: 'BE1', name: 'BE1', short: 'BE', department: '', visits: 2, dates: ['2026-10-09', '2026-10-02'] },
+      { employeeId: 'ABM', name: 'ABM', short: 'ABM', department: '', visits: 1, dates: ['2026-10-09'] },
+    ]);
+  });
+
+  it('is empty when nothing was visited', () => {
+    expect(doctorsVisited([v('D1', 'BE1', '2026-10-02', { visitTime: null })])).toEqual([]);
+  });
+});
+
+describe('doctorCoverage', () => {
+  const scope = [
+    { id: 'BE1', name: 'Ravi', short: 'BE', roleProfile: 'BE1-X' },
+    { id: 'BE2', name: 'Anu', short: 'BE', roleProfile: 'BE2-X' },
+  ];
+  const visit = { doctorId: 'D1', doctorName: 'Dr One', employeeId: 'BE1', employeeName: 'Ravi', visitTime: '2026-10-02 10:00:00' };
+
+  it('adds the mapped doctors nobody visited, at 0, with whose they are', () => {
+    const out = doctorCoverage([visit], [
+      { doctorId: 'D1', doctorName: 'Dr One', seat: 'BE1-X', hq: 'HQ-A' },
+      { doctorId: 'D1', doctorName: 'Dr One', seat: 'BE2-X', hq: 'HQ-A' },
+      { doctorId: 'D2', doctorName: 'Dr Two', seat: 'BE2-X', hq: 'HQ-A' },
+    ], scope);
+    expect(out.map((d) => [d.doctorId, d.visits, d.mapped])).toEqual([['D1', 1, true], ['D2', 0, true]]);
+    // D1: Ravi went once; Anu holds a seat it is mapped to and has not.
+    expect(out[0].people.map((p) => [p.name, p.visits])).toEqual([['Ravi', 1], ['Anu', 0]]);
+    expect(out[1].people.map((p) => [p.name, p.visits])).toEqual([['Anu', 0]]);
+  });
+
+  it('keeps a doctor visited outside the mapping', () => {
+    expect(doctorCoverage([visit], [], scope).map((d) => [d.doctorId, d.mapped])).toEqual([['D1', false]]);
+  });
+});
+
+describe('doctorCoverage with support', () => {
+  const scope = [
+    { id: 'BE1', name: 'Ravi', short: 'BE', roleProfile: 'BE1-X' },
+    { id: 'ABM1', name: 'Kumar', short: 'ABM', roleProfile: 'ABM1-X' },
+  ];
+  const visit = (employeeId) => ({ doctorId: 'D1', doctorName: 'Dr One', employeeId, employeeName: employeeId, visitTime: '2026-10-02 10:00:00' });
+
+  it('gives support only to the person whose seat carries the line', () => {
+    const out = doctorCoverage([visit('BE1'), visit('ABM1')], [], scope, scope, [
+      { doctorId: 'D1', seat: 'BE1-X', amount: 5000, month: '2026-10' },
+      { doctorId: 'D1', seat: 'BE1-X', amount: 1000, month: '2026-10' },
+      { doctorId: 'D1', seat: 'OTHER', amount: 9999, month: '2026-10' }, // not in scope
+    ]);
+    expect(out[0].support).toBe(6000);
+    const be = out[0].people.find((p) => p.employeeId === 'BE1');
+    const abm = out[0].people.find((p) => p.employeeId === 'ABM1');
+    expect(be.support).toBe(6000);
+    expect(abm.support).toBeUndefined(); // no line, so no figure — not 0
   });
 });

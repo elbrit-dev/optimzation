@@ -122,21 +122,6 @@ env:
   - variable: NEXT_PUBLIC_RECAPTCHA_SITE_KEY
     value: 6LcmaJwrAAAAAEGFqE-gNB5KucWfnQejPc_UnLBT
 
-  # ── Novu ──────────────────────────────────────────────────────────────────
-  - variable: NEXT_PUBLIC_NOVU_APPLICATION_IDENTIFIER
-    value: K3rsfIP_eYvg
-  - variable: NEXT_PUBLIC_NOVU_BACKEND_URL
-    value: https://api.notify.elbrit.org
-  - variable: NEXT_PUBLIC_NOVU_SOCKET_URL
-    value: https://ws.notify.elbrit.org
-  - variable: NOVU_API_KEY
-    secret: NOVU_API_KEY
-  - variable: NOVU_BACKEND_URL
-    value: https://api.notify.elbrit.org
-    availability: [RUNTIME]
-  # NOVU_TRIGGER_SECRET (ERP → /api/novu/trigger webhook auth) is not on
-  # Netlify either, so it is left out; that route answers 401 without it.
-
   # ── Plasmic + release guard (see plasmic-init.js, scripts/release-guard.js)
   # "dev" loads the LATEST publish of any tag, so a dev publish in Studio shows
   # here (after the page's 10-min ISR window) while live stays on "prod".

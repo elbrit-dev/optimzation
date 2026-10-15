@@ -27,14 +27,14 @@ import { useIncrementalList } from './useIncrementalList';
  * question neither the chip nor the card can answer. See canOpen.
  */
 
-export function AttendanceSheet({ state, team, rows, overRange = false, calendar = [], loadContacts = null, onClose }) {
+export function AttendanceSheet({ state, team, rows, overRange = false, calendar = [], monthDays = [], today = null, loadContacts = null, onClose }) {
   /* One open row at a time, owned here rather than by the card: two open
      day-tables push the third off the screen, and the reader is comparing
      people, not reading two at once. Same move VisitsByHourSheet makes. */
   const [openId, setOpenId] = useState(null);
   const people = useMemo(
-    () => (state ? repsInAttendanceState(team, rows, state, overRange, calendar) : []),
-    [state, team, rows, overRange, calendar],
+    () => (state ? repsInAttendanceState(team, rows, state, overRange, calendar, monthDays, today) : []),
+    [state, team, rows, overRange, calendar, monthDays, today],
   );
 
   /* "Not reported" is two hundred-odd people on a live morning, so the list
@@ -66,6 +66,8 @@ export function AttendanceSheet({ state, team, rows, overRange = false, calendar
   const canOpen = (person) => {
     if (!overRange) return false;
     if (state === 'onLeave') return (person.leaveDays?.length ?? 0) > 0;
+    /* Other work → which days, and what kind (Admin Day, Conference…). */
+    if (state === 'otherWork') return (person.otherWorkDays?.length ?? 0) > 0;
     if (state === 'working' || state === 'notReporting') return person.days.length > 0;
     return false;
   };
@@ -140,6 +142,7 @@ export function AttendanceSheet({ state, team, rows, overRange = false, calendar
             header={
               <PersonCard
                 person={p}
+                state={state}
                 /* THE FIGURE ANSWERS THE LIST IT IS ON, and says so: the
                    card prints the state's own label beside it. Same
                    denominator throughout — the window's working days — so a
@@ -159,6 +162,7 @@ export function AttendanceSheet({ state, team, rows, overRange = false, calendar
               {state === 'working' ? <PersonTrend days={p.days} /> : null}
               {state === 'notReporting' ? <PersonDays days={p.days} /> : null}
               {state === 'onLeave' ? <PersonLeave days={p.leaveDays} /> : null}
+              {state === 'otherWork' ? <PersonLeave days={p.otherWorkDays} fallback="Other work" /> : null}
             </div>
           </DisclosureRow>
         ))

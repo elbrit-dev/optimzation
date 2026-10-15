@@ -207,7 +207,10 @@ function buildVisit(v, level) {
   const geo = hours.map((_, i) => sum(units.map((u) => num(u.geo?.[i])))), force = hours.map((_, i) => sum(units.map((u) => num(u.force?.[i]))));
   const tots = hours.map((_, i) => geo[i] + force[i]), max = Math.max(1, ...tots);
   const plan = sum(units.map((u) => num(u.plan))), done = sum(tots), forceT = sum(force);
-  const reps = v.reps && num(v.reps.total) ? { reported: num(v.reps.reported), total: num(v.reps.total), vacant: num(v.reps.vacant) } : null;
+  /* `leave` / `other`: filled seats that logged nothing but were on approved
+     leave or on Other Work (Admin Day, Conference…) -- not "not reported". */
+  const reps = v.reps && num(v.reps.total) ? { reported: num(v.reps.reported), total: num(v.reps.total), vacant: num(v.reps.vacant), leave: num(v.reps.leave), other: num(v.reps.other) } : null;
+  const notN = reps ? Math.max(reps.total - reps.reported - reps.leave - reps.other, 0) : 0;
   const vR = ratio(done, plan);
   const vd = !plan ? ["No plan", ...WN] : vR >= 0.7 ? ["On track", ...OK] : vR >= 0.4 ? ["Behind", ...WN] : ["At risk", ...BD];
   const period = live ? "live today" : v.period || "";
@@ -217,7 +220,7 @@ function buildVisit(v, level) {
     live, period, units, allUnits, hours, geo, force, plan, done, forceT, geoT: sum(geo), reps,
     range: hourLabel(hours[0]) + " – " + hourLabel(hours[hours.length - 1]),
     allHours: hours.map((l, i) => ({ label: l, gH: (geo[i] / max) * 100 + "%", fH: (force[i] / max) * 100 + "%", gR: force[i] ? "0" : "4px 4px 0 0" })),
-    repsW: reps && { rep: pct(ratio(reps.reported, reps.total)), not: pct(ratio(reps.total - reps.reported, reps.total)), notN: reps.total - reps.reported },
+    repsW: reps && { rep: pct(ratio(reps.reported, reps.total)), not: pct(ratio(notN, reps.total)), notN, away: pct(ratio(reps.leave + reps.other, reps.total)), awayN: reps.leave + reps.other },
     kicker: live ? "Visit · live today" : "Visit · " + period,
     card: {
       kicker: live ? "Visits · live today" : "Visits · " + period, verdict: vd[0], vFg: vd[1], vBg: vd[2], big: done + "/" + plan, sub: "visits done",
@@ -309,7 +312,7 @@ export function buildView({ primary, invoiced, secondary, visit, support, asOf }
      where the force visits are, and the stock that is not moving. */
   const HA = [
     P?.worst && { c: P.worst.dot, t: P.worst.short + " at " + P.worst.pctTxt, s: "of target · " + cr(Math.max(0, P.worst.t - P.worst.a)) + " to go", act: { mode: "pri", k: P.worst.key } },
-    V?.reps && V.reps.total - V.reps.reported > 0 && { c: A, t: nos(V.reps.total - V.reps.reported) + " reps not reported", s: "Only " + pc(ratio(V.reps.reported, V.reps.total)) + " reported " + (V.live ? "so far today" : V.period), act: { mode: "reps", f: "not" } },
+    V?.repsW?.notN > 0 && { c: A, t: nos(V.repsW.notN) + " reps not reported", s: "Only " + pc(ratio(V.reps.reported, V.reps.total)) + " reported " + (V.live ? "so far today" : V.period), act: { mode: "reps", f: "not" } },
     V?.fU && { c: R, t: V.forceT + " force visits " + (V.live ? "today" : V.period), s: "Most in " + V.fU.short, act: { mode: "visit", u: V.fU.key, f: "force" } },
     S?.stock && { c: "#2563eb", t: S.stock.short + " stock unsold", s: pc(ratio(S.stock.c, S.stock.o)) + " of opening still with distributors", act: { mode: "sec", k: S.stock.key } },
   ].filter(Boolean);
@@ -502,31 +505,38 @@ export function visitPanel(view, unitKey, filter = "all", open = {}) {
   };
 }
 
-/* Reps reporting panel: reported / not reported / vacant, by unit. */
+/* Reps reporting panel: reported / not reported / on leave / other work /
+   vacant, by unit. On leave and Other work are filled seats that logged
+   nothing for a reason -- never counted as not reported. */
+const LEAVE_C = "#b54708", OTHER_C = "#1d4ed8";
 export function repsPanel(view, filter = "not", openUnit) {
   const { V, kinds } = view;
   if (!V?.reps) return null;
   const { reported, total, vacant } = V.reps;
+  const leaveN = num(V.reps.leave), otherN = num(V.reps.other);
+  const LIST = { rep: "reported", vac: "vacant", lv: "leave", ow: "other" };
+  const COLOR = { rep: "#067647", vac: "#5b6576", lv: LEAVE_C, ow: OTHER_C };
   const groups = (V.allUnits || V.units).map((u) => {
-    const r = u.reps || { reported: [], notYet: [], vacant: [] };
-    const list = filter === "rep" ? r.reported : filter === "vac" ? r.vacant : r.notYet;
-    const all = r.reported.length + r.notYet.length + r.vacant.length || 1;
+    const r = { reported: [], notYet: [], vacant: [], leave: [], other: [], ...u.reps };
+    const list = r[LIST[filter]] || r.notYet;
+    const away = r.leave.length + r.other.length;
+    const all = r.reported.length + r.notYet.length + r.vacant.length + away || 1;
     return {
-      key: u.key, name: u.short, n: list.length, tot: r.reported.length + r.notYet.length, rep: r.reported.length, vac: r.vacant.length,
-      repW: pct(r.reported.length / all), notW: pct(r.notYet.length / all), vacW: pct(r.vacant.length / all),
-      fc: filter === "rep" ? "#067647" : filter === "vac" ? "#5b6576" : "#b42318",
-      people: list.slice(0, 8).map((p) => ({ name: p.name, ini: filter === "vac" ? "—" : initials(p.name), av: filter === "vac" ? "#98a2b3" : avatar(p.name), meta: p.role + (p.hq ? " · HQ-" + p.hq : ""), st: filter === "rep" ? p.time : filter === "vac" ? "Unfilled" : "Not reported", sc: filter === "rep" ? "#067647" : filter === "vac" ? "#5b6576" : "#b42318" })),
+      key: u.key, name: u.short, n: list.length, tot: r.reported.length + r.notYet.length + away, rep: r.reported.length, vac: r.vacant.length, away,
+      repW: pct(r.reported.length / all), notW: pct(r.notYet.length / all), vacW: pct(r.vacant.length / all), awayW: pct(away / all),
+      fc: COLOR[filter] || "#b42318",
+      people: list.slice(0, 8).map((p) => ({ name: p.name, ini: filter === "vac" ? "—" : initials(p.name), av: filter === "vac" ? "#98a2b3" : avatar(p.name), meta: p.role + (p.hq ? " · HQ-" + p.hq : ""), st: filter === "rep" || filter === "lv" || filter === "ow" ? p.time : filter === "vac" ? "Unfilled" : "Not reported", sc: COLOR[filter] || "#b42318" })),
       more: Math.max(0, list.length - 8),
     };
   }).sort((a, b) => b.n - a.n);
   const openKey = openUnit === undefined ? groups[0]?.key : openUnit;
-  const not = total - reported, seats = total + vacant || 1;
+  const not = Math.max(total - reported - leaveN - otherN, 0), seats = total + vacant || 1;
   return {
     kicker: V.kicker, dot: G, title: "Reps reporting · " + (V.live ? "today" : V.period), sub: V.units.length + " " + kinds,
-    kpis: [{ l: "Reported", v: reported, dot: G }, { l: "Not reported", v: not, dot: R }, { l: "Vacant", v: vacant, dot: "#98a2b3" }, { l: "Filled seats", v: total, dot: "#d0d5dd" }],
-    repW: pct(reported / seats), notW: pct(not / seats), vacW: pct(vacant / seats),
+    kpis: [{ l: "Reported", v: reported, dot: G }, { l: "Not reported", v: not, dot: R }, { l: "On leave", v: leaveN, dot: LEAVE_C }, { l: "Other work", v: otherN, dot: OTHER_C }, { l: "Vacant", v: vacant, dot: "#98a2b3" }, { l: "Filled seats", v: total, dot: "#d0d5dd" }],
+    repW: pct(reported / seats), notW: pct(not / seats), vacW: pct(vacant / seats), awayW: pct((leaveN + otherN) / seats),
     note: pc(ratio(reported, total)) + " of filled seats have reported." + (groups[0] && filter === "not" && groups[0].n ? " " + groups[0].name + " has the most pending." : ""),
-    filters: [["not", "Not reported", not], ["rep", "Reported", reported], ["vac", "Vacant", vacant]].map(([k, label, n]) => ({ k, label, n, on: filter === k })),
+    filters: [["not", "Not reported", not], ["rep", "Reported", reported], ["lv", "On leave", leaveN], ["ow", "Other work", otherN], ["vac", "Vacant", vacant]].map(([k, label, n]) => ({ k, label, n, on: filter === k })),
     groups: groups.map((g) => ({ ...g, open: g.key === openKey })),
   };
 }

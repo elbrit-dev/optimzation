@@ -121,23 +121,87 @@ describe('customReportV2 — split sort.field / sort.order mapping', () => {
   it('carries the descending order through to input.sort', () => {
     const vars = resolve({ label: 'desc' });
     const input = buildCustomReportV2Input(vars, null);
-    // The label column sorts by the first group_by dimension.
-    expect(input.sort).toEqual([{ dimension: 'DEPARTMENT', direction: 'DESC' }]);
+    // The flat label column holds every level, so it sorts each one.
+    expect(input.sort).toEqual([
+      { dimension: 'DEPARTMENT', direction: 'DESC' },
+      { dimension: 'HQ', direction: 'DESC' },
+    ]);
   });
 
   it('carries the ascending order through too', () => {
     const input = buildCustomReportV2Input(resolve({ label: 'asc' }), null);
-    expect(input.sort).toEqual([{ dimension: 'DEPARTMENT', direction: 'ASC' }]);
+    expect(input.sort).toEqual([
+      { dimension: 'DEPARTMENT', direction: 'ASC' },
+      { dimension: 'HQ', direction: 'ASC' },
+    ]);
   });
 
   it('an inline direction still wins over sort_order', () => {
     const vars = { ...resolve({ label: 'asc' }), sort_by: 'label:desc' };
     const input = buildCustomReportV2Input(vars, null);
-    expect(input.sort).toEqual([{ dimension: 'DEPARTMENT', direction: 'DESC' }]);
+    expect(input.sort).toEqual([
+      { dimension: 'DEPARTMENT', direction: 'DESC' },
+      { dimension: 'HQ', direction: 'DESC' },
+    ]);
   });
 
   it('no sort selected produces no input.sort', () => {
     const input = buildCustomReportV2Input(resolve({}), null);
     expect(input.sort).toBeUndefined();
+  });
+});
+
+/* Column -> sort entry, per the backend's customReportV2 contract. */
+describe('customReportV2 — sort column mapping', () => {
+  const vars = (sortBy, filters = {}) => ({
+    report: 'SALES',
+    filters: { group_by: ['Department', 'HQ', 'Customer'], ...filters },
+    sort_by: sortBy,
+  });
+  const sortOf = (sortBy, filters) => buildCustomReportV2Input(vars(sortBy, filters), null).sort;
+
+  it('metric column -> metric entry', () => {
+    expect(sortOf('net_primary:desc')).toEqual([{ metric: 'NET_PRIMARY', direction: 'DESC' }]);
+  });
+
+  it('flat label -> one dimension entry per level', () => {
+    expect(sortOf('label:asc')).toEqual([
+      { dimension: 'DEPARTMENT', direction: 'ASC' },
+      { dimension: 'HQ', direction: 'ASC' },
+      { dimension: 'CUSTOMER', direction: 'ASC' },
+    ]);
+  });
+
+  it('flat label under drill-down sorts only the levels this call groups by', () => {
+    const input = buildCustomReportV2Input(vars('label:desc'), { initialDepth: 2 });
+    expect(input.sort).toEqual([
+      { dimension: 'DEPARTMENT', direction: 'DESC' },
+      { dimension: 'HQ', direction: 'DESC' },
+    ]);
+  });
+
+  it('pivot label / labelN -> that level only', () => {
+    const pivot = { pivot_by_month: 1 };
+    expect(sortOf('label:asc', pivot)).toEqual([{ dimension: 'DEPARTMENT', direction: 'ASC' }]);
+    expect(sortOf('label2:desc', pivot)).toEqual([{ dimension: 'HQ', direction: 'DESC' }]);
+    expect(sortOf('label3:asc', pivot)).toEqual([{ dimension: 'CUSTOMER', direction: 'ASC' }]);
+  });
+
+  it('pivot total column -> TOTAL scope', () => {
+    expect(sortOf('total_net_primary:desc', { pivot_by_month: 1 }))
+      .toEqual([{ metric: 'NET_PRIMARY', scope: 'TOTAL', direction: 'DESC' }]);
+  });
+
+  it('pivot period column -> PERIOD scope with YYYY-MM', () => {
+    expect(sortOf('net_primary_2026_08:asc', { pivot_by_month: 1 }))
+      .toEqual([{ metric: 'NET_PRIMARY', scope: 'PERIOD', period: '2026-08', direction: 'ASC' }]);
+  });
+
+  it('drawer filters become dimension_filters', () => {
+    const input = buildCustomReportV2Input(vars(undefined, { department: 'CARDIAC', hq: 'CHENNAI' }), null);
+    expect(input.dimension_filters).toEqual([
+      { dimension: 'DEPARTMENT', operator: 'IN', values: ['CARDIAC'] },
+      { dimension: 'HQ', operator: 'IN', values: ['CHENNAI'] },
+    ]);
   });
 });

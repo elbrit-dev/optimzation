@@ -32,7 +32,7 @@ const DoctorPobDialog = dynamic(() => import("../../DoctorPobDialog"), { ssr: fa
 export default function DoctorHeroCard(props) {
   const {
     showRoi = true, showActions = true, layout = "auto",
-    onAddClinic, onAddPharmacy, onRequestService, onPobSaved,
+    onAddClinic, onAddPharmacy, onRequestService, onPobSaved, onAddService,
     className, style,
   } = props;
 
@@ -80,6 +80,7 @@ export default function DoctorHeroCard(props) {
         onAddPob={showActions ? on.openPob : undefined}
         onAddNote={showActions ? on.noteOpen : undefined}
         onRequestService={showActions && onRequestService ? () => onRequestService(ident) : undefined}
+        onAddService={showActions ? onAddService : undefined}
       />
 
       {showClinics && ui.modal === "map" ? (

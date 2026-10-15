@@ -8,7 +8,7 @@ import { isBefore, startOfDay, endOfDay } from "date-fns";
 import { TAG_IDS, getAvailableTags } from "@calendar/components/calendar/constants";
 import { motion, AnimatePresence } from "framer-motion";
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
-import { isLeafRole, resolveLoggedInRoleId } from "@calendar/lib/employeeHeirachy";
+import { resolveLoggedInRoleId, resolveOwnHqOptions } from "@calendar/lib/employeeHeirachy";
 import { doctorVisitBlockReason, isEmployeeOnApprovedLeave } from "@calendar/lib/calendar/leaveDay";
 import { TRAVEL_MODES, canUseTravelRequest, normalizeTravelMode, resolveTravelRequester } from "@calendar/components/calendar/module/travel-request/helpers/travel-request.helper";
 import {
@@ -86,10 +86,6 @@ export default function MobileAddEventBar({ date: propDate }) {
     () => resolveLoggedInRoleId(users),
     [users]
   );
-  const isLeafHierarchyUser = useMemo(
-    () => isLeafRole(elbritRoleEdges, resolvedLoggedInRoleId),
-    [elbritRoleEdges, resolvedLoggedInRoleId]
-  );
   const loggedInEmployeeHqTerritory = useMemo(() => {
     const matchById = allEmployeeOptions.find(
       (employee) => String(employee.value) === String(LOGGED_IN_USER.id)
@@ -111,17 +107,13 @@ export default function MobileAddEventBar({ date: propDate }) {
     return null;
   }, [allEmployeeOptions, hqTerritoryOptions]);
 
-  // BE is a leaf role in the Elbrit hierarchy with one fixed HQ, so there is
-  // nothing for them to plan: the HQ tag is hidden and they book DR Tour Plans
-  // directly. Every other role plans HQ first and can only book a DR Tour Plan
-  // on a day one of their own HQ Tour Plans covers.
-  //
-  // The territory check is deliberate: a BE with no HQ territory on their
-  // employee record has no HQ to book against, so they fall through to the
-  // normal path and plan HQ first like everyone else.
+  // EVERY ROLE books DR Tour Plans and Other Work directly, the way a BE
+  // always did: the HQ is picked on the DR form from the user's own team HQs
+  // (see resolveOwnHqOptions), so there is no HQ Tour Plan step. Someone with
+  // no HQ anywhere in their team still plans HQ first.
   const hasValidHqTourPlan = !!matchedHqEvent;
   const canCreateDoctorVisitDirectly =
-    isLeafHierarchyUser && Boolean(loggedInEmployeeHqTerritory);
+    resolveOwnHqOptions(allEmployeeOptions, elbritRoleEdges, resolvedLoggedInRoleId, loggedInEmployeeHqTerritory).length > 0;
   // Only one HQ Tour Plan per person per day is allowed, and the form rejects a
   // second one on save. Once the day already has one, stop offering the tag
   // rather than offering it and then refusing it.
@@ -145,14 +137,13 @@ export default function MobileAddEventBar({ date: propDate }) {
         return false;
       }
       if (tag.id === TAG_IDS.HQ_TOUR_PLAN) return !shouldHideHqTourPlanTag;
-      // Other Work follows the DR Tour Plan rule the form already enforces: it
-      // needs the day's HQ Tour Plan first (a BE needs none). Offering it earlier
-      // only opened the form for it to fall back to Leave.
+      // Other Work follows the DR Tour Plan rule the form enforces: offered to
+      // anyone with an HQ in their team, no HQ Tour Plan needed.
       if (tag.id === TAG_IDS.OTHER) {
         return hasValidHqTourPlan || canCreateDoctorVisitDirectly;
       }
       if (tag.id === TAG_IDS.DOCTOR_VISIT_PLAN) {
-        // Not offered on a day with the user's own leave or Other Work.
+        // Not offered on a day with the user's own leave.
         if (doctorVisitBlockReason(allEvents, LOGGED_IN_USER.id, date)) return false;
         return hasValidHqTourPlan || canCreateDoctorVisitDirectly;
       }

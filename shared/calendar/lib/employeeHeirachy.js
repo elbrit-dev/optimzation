@@ -1,4 +1,5 @@
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
+import { roleCodeFromProfile } from "@calendar/lib/meetingRoles";
 
 // The host passes LOGGED_IN_USER.roleId from the Employee `role_id` field, which
 // can be stale and differs from `custom_role_profile` — the field the role
@@ -20,6 +21,21 @@ export function resolveLoggedInRoleId(users = []) {
   if (matchByEmail?.roleId) return matchByEmail.roleId;
 
   return LOGGED_IN_USER.roleId ?? null;
+}
+
+// Admin, IT, GM and CEO sit outside every reporting chain (root role profiles
+// with no children), so no upward share reaches them and the hierarchy treats
+// them like a BE. They still see everyone's Other Work, and can pick anyone in
+// the calendar's employee filter to do it. "Deputy GM" is not GM.
+const ALL_OTHER_WORK_ROLE_CODES = ["ADMIN", "IT", "GM", "CEO"];
+
+export function seesAllOtherWork(users = []) {
+  if (LOGGED_IN_USER?.role === "Admin" || LOGGED_IN_USER?.roleId === "Admin") {
+    return true;
+  }
+  return [resolveLoggedInRoleId(users), LOGGED_IN_USER?.roleId].some((roleId) =>
+    ALL_OTHER_WORK_ROLE_CODES.includes(roleCodeFromProfile(roleId))
+  );
 }
 
 export function resolveVisibleRoleIds(
@@ -246,3 +262,28 @@ export function resolveVisibleEmployeeIds(elbritEdges, users) {
 }
 
 
+
+// The HQs a user books DR Tour Plans against: their own and those of everyone
+// under them in the role tree (each employee's custom_hq). A BE has one, an ABM
+// their BEs', an RBM / SM their team's, an admin every one. `fallbackHq` is the
+// user's own HQ when the team list has none.
+// -> [{ doctype: "Territory", value, label }], sorted
+export function resolveOwnHqOptions(employees = [], elbritEdges = [], roleId, fallbackHq = null) {
+  const roles = new Set(resolveVisibleRoleIds(elbritEdges, roleId));
+  const hqs = new Set();
+  for (const employee of employees) {
+    if (!employee?.hqTerritory) continue;
+    const isMe = String(employee.value ?? employee.id) === String(LOGGED_IN_USER.id);
+    if (isMe || (employee.roleId && roles.has(employee.roleId))) {
+      hqs.add(employee.hqTerritory);
+    }
+  }
+  if (!hqs.size && fallbackHq) hqs.add(fallbackHq);
+  // Real HQs only ("HQ-Erode"): a manager's own territory can be a region
+  // ("Tn-Coimbatore"), which no doctor is mapped to. Kept as-is when there is
+  // no HQ- name at all, rather than offering nothing.
+  const real = [...hqs].filter((hq) => /^HQ-/i.test(hq));
+  return (real.length ? real : [...hqs])
+    .sort((a, b) => a.localeCompare(b))
+    .map((hq) => ({ doctype: "Territory", value: hq, label: hq }));
+}

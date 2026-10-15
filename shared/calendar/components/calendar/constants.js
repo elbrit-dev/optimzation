@@ -40,6 +40,8 @@ export const STATUS = {
   REJECTED: "Rejected",
   CLOSED: "Closed",
   CANCELLED: "Cancelled",
+  // ERP Event status for a visit done / an Other Work whose day has ended.
+  COMPLETED: "Completed",
 };
 export const TAG_IDS = {
   LEAVE: "Leave",
@@ -57,6 +59,7 @@ export const STATUS_MAP = {
   cancelled: STATUS.CANCELLED,
   approved: STATUS.APPROVED,
   rejected: STATUS.REJECTED,
+  completed: STATUS.COMPLETED,
 };
 
 export const STATUS_BY_TAG = {
