@@ -44,6 +44,20 @@ const dialogOpen = () =>
 
 const isQuiet = () => window.location.pathname === '/' && !dialogOpen();
 
+/* RELOAD PAST THE CDN. The design check reads the page data the server renders
+   now; a plain reload fetches the page's HTML, which the CDN can hold for 10
+   more minutes — seen on a handset: reloaded quietly onto the OLD design, then
+   offered again. A one-off `_v` parameter is a separate CDN entry, so the
+   reload gets what the server renders. It replaces the history entry (no extra
+   back press) and is taken off the URL again once the page is up. */
+const VERSION_PARAM = '_v';
+
+function reloadFresh(version) {
+  const url = new URL(window.location.href);
+  url.searchParams.set(VERSION_PARAM, String(version || Date.now()));
+  window.location.replace(url.toString());
+}
+
 /** The Plasmic version the server would render home with right now, or null. */
 async function servedPlasmicVersion() {
   const buildId = window.__NEXT_DATA__?.buildId;
@@ -61,6 +75,7 @@ export default function UpdateCheck({ plasmicVersion }) {
   const lastProbe = useRef({ version: null, at: 0, served: null });
   const pagePlasmic = useRef(plasmicVersion);
   if (plasmicVersion) pagePlasmic.current = plasmicVersion;
+  const target = useRef(null);
 
   const newDesignServed = useCallback(async (published) => {
     const probe = lastProbe.current;
@@ -92,8 +107,9 @@ export default function UpdateCheck({ plasmicVersion }) {
           setAvailable(false);
           return;
         }
+        target.current = server.plasmic || server.commit;
         if (cameBack && isQuiet()) {
-          window.location.reload();
+          reloadFresh(target.current);
           return;
         }
         setAvailable(true);
@@ -109,6 +125,17 @@ export default function UpdateCheck({ plasmicVersion }) {
   useEffect(() => {
     // Plasmic Studio loads the app in an iframe through /plasmic-host.
     if (window.location.pathname.startsWith('/plasmic-host')) return undefined;
+
+    /* Arrived through reloadFresh: take the parameter off the URL again,
+       without a reload or a new history entry. */
+    const here = new URL(window.location.href);
+    if (here.searchParams.has(VERSION_PARAM)) {
+      here.searchParams.delete(VERSION_PARAM);
+      const clean = `${here.pathname}${here.search}${here.hash}`;
+      Router.ready(() => {
+        Promise.resolve(Router.replace(clean, undefined, { shallow: true, scroll: false })).catch(() => {});
+      });
+    }
 
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') {
@@ -163,7 +190,7 @@ export default function UpdateCheck({ plasmicVersion }) {
       <span style={{ whiteSpace: 'nowrap' }}>New version available</span>
       <button
         type="button"
-        onClick={() => window.location.reload()}
+        onClick={() => reloadFresh(target.current)}
         style={{
           background: '#2563eb',
           color: '#ffffff',
