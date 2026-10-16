@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { collapseHistory, pushBase, rearmTop } from './backStack';
+import { collapseHistory, olderDocumentBehind, pushBase, rearmTop } from './backStack';
 
 /* useExitGuard — the bottom of the back stack: the app's root.
 
@@ -20,6 +20,13 @@ import { collapseHistory, pushBase, rearmTop } from './backStack';
    (collapseHistory): the second press only closes the app on the first
    entry, and by now there is usually /login or a page or two behind home.
 
+   AN OLDER PAGE LOAD BEHIND HOME cannot be folded: a sign-in that ended in a
+   full page load leaves the pre-sign-in document at the first entry, and the
+   second press LOADS it instead of leaving. So the hint leaves a short-lived
+   note in sessionStorage; the root of the document that press loads finds it
+   and comes up already showing the hint, disarmed — the press after it
+   leaves. One extra press, but never a silent one.
+
    This is why there is no "Quit" button. A button cannot do what the second
    press does: `window.close()` is refused by Chromium unless the window has
    an opener, and at history entry 0 there is nothing for `go(-1)` to reach.
@@ -29,6 +36,27 @@ import { collapseHistory, pushBase, rearmTop } from './backStack';
 
    `onPrompt` fires when the hint goes up — the one moment a host (Plasmic, a
    native shell that CAN close itself) gets a say. */
+
+const EXIT_PENDING_KEY = 'elbrit-back-exit-pending';
+
+function markExitPending() {
+  try {
+    window.sessionStorage.setItem(EXIT_PENDING_KEY, String(Date.now()));
+  } catch {
+    /* storage refused: the older document just asks once more */
+  }
+}
+
+/** True once, within `withinMs` of the note being left. */
+function takeExitPending(withinMs) {
+  try {
+    const at = Number(window.sessionStorage.getItem(EXIT_PENDING_KEY));
+    window.sessionStorage.removeItem(EXIT_PENDING_KEY);
+    return Number.isFinite(at) && at > 0 && Date.now() - at <= withinMs;
+  } catch {
+    return false;
+  }
+}
 
 export function useExitGuard({ enabled = true, isRoot, graceMs = 3000, onPrompt } = {}) {
   const [hintOpen, setHintOpen] = useState(false);
@@ -47,26 +75,43 @@ export function useExitGuard({ enabled = true, isRoot, graceMs = 3000, onPrompt 
   useEffect(() => {
     if (!enabled || !isRoot) return undefined;
 
+    /* Disarmed on purpose. The next press is the one that leaves. */
+    const showHint = () => {
+      layer.disarm();
+      setHintOpen(true);
+      onPromptRef.current?.();
+
+      clearTimer();
+      timerRef.current = setTimeout(() => {
+        timerRef.current = null;
+        setHintOpen(false);
+        layer.rearm();
+      }, graceMs);
+    };
+
     const layer = pushBase({
       name: 'app-root',
       onBack: () => {
-        /* Disarmed on purpose. The next press is the one that leaves. */
-        layer.disarm();
-        setHintOpen(true);
+        if (olderDocumentBehind()) markExitPending();
         collapseHistory();
-        onPromptRef.current?.();
-
-        clearTimer();
-        timerRef.current = setTimeout(() => {
-          timerRef.current = null;
-          setHintOpen(false);
-          layer.rearm();
-        }, graceMs);
+        showHint();
       },
     });
     layerRef.current = layer;
 
+    /* Loaded (or restored from the back/forward cache) by the press after a
+       hint in a newer document: carry on where that one left off. */
+    const carryOver = () => {
+      if (takeExitPending(graceMs + 2000)) showHint();
+    };
+    carryOver();
+    const onPageShow = (event) => {
+      if (event.persisted) carryOver();
+    };
+    window.addEventListener('pageshow', onPageShow);
+
     return () => {
+      window.removeEventListener('pageshow', onPageShow);
       clearTimer();
       setHintOpen(false);
       layerRef.current = null;

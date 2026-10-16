@@ -74,6 +74,8 @@ let collapsing = null;
 /* Sentinels on their way out (releaseLayer's own back()): dead, but not
    adoptable — the pop already in flight would take the adopter's entry. */
 const leaving = new Set();
+/* Pops we started ourselves (releaseLayer) and still expect to hear. */
+let ownPops = [];
 let listening = false;
 let nextId = 1;
 
@@ -129,9 +131,19 @@ function syncBase() {
       owner.onBack({ rearm: () => owner.handle.rearm(), release: () => owner.handle.release() });
     };
     owner.watcher = watcher;
+    rememberEntry(owner);
   } else if (!wanted && base.watcher) {
     dropWatcher(base);
   }
+}
+
+/* The page the base guards, for when a press slips past its watcher into
+   history and the entry it lands on has to be made this page again. */
+function rememberEntry(owner) {
+  if (!isBrowser()) return;
+  const state = { ...(window.history.state ?? {}) };
+  delete state[LAYER_FLAG];
+  owner.entry = { state, url: window.location.href };
 }
 
 function dropWatcher(owner) {
@@ -146,14 +158,24 @@ function dropWatcher(owner) {
   }
 }
 
-function onPopState(event) {
+/* Decides one popstate. `consume()` is how a branch says the router must not
+   act on it. Returns nothing; the caller reads what `consume` was told. */
+function runPop(consume) {
+  /* Our own pop (releaseLayer taking a dialog's sentinel off): already
+     accounted for, so nobody may act on it. */
+  if (ownPops.length) {
+    ownPops.shift();
+    consume();
+    return;
+  }
+
   /* Our own fold back to the first entry (collapseHistory): the page on screen
      is already the right one, so the router must not hear it, and the entry we
      landed on is rewritten to be the one we left. */
   if (collapsing) {
     const fold = collapsing;
     collapsing = null;
-    event.stopImmediatePropagation();
+    consume();
     window.history.replaceState(fold.state, '', fold.url);
     return;
   }
@@ -173,15 +195,73 @@ function onPopState(event) {
      through — the root's grace window. Nothing is consumed, so the browser
      performs the real back and an installed app closes. */
   if (top && top.armed) {
-    event.stopImmediatePropagation();
+    consume();
     top.armed = false;
     top.onBack({ rearm: armTop, release: () => releaseLayer(top.id) });
     return;
   }
 
+  /* The base's close watcher was armed and the press went to history anyway.
+     Chrome does this — seen on a handset (16 Oct 2026) for the first press
+     after the app came back from Google's sign-in tab: the watcher sat there,
+     the press walked back onto the login entry. Do what the watcher would
+     have: keep the router off it, put the page we were on back onto the entry
+     the press landed on, and hand the press to the base. */
+  if (base?.kind === 'watcher' && base.watcher && layers.length === 0 && holds === 0) {
+    const owner = base;
+    consume();
+    if (owner.entry) window.history.replaceState(owner.entry.state, '', owner.entry.url);
+    dropWatcher(owner);
+    owner.wantsArm = false;
+    owner.onBack({ rearm: () => owner.handle.rearm(), release: () => owner.handle.release() });
+    return;
+  }
+
   /* Nobody is holding a layer: the app-level rules get a look (the other app
      uses this to refuse a back press INTO the login page while signed in). */
-  fallback?.(event);
+  fallback?.({ stopImmediatePropagation: consume });
+}
+
+/* The decision for the popstate being dispatched right now, keyed by the event
+   itself, so the stack's listener and a router's hook (claimPop) — whichever
+   hears it first — decide it once and both apply the same answer. */
+let decided = null;
+
+/** The popstate being dispatched, where the browser still exposes it. */
+const currentEvent = () => (isBrowser() ? window.event ?? null : null);
+
+function decide(event) {
+  if (event && decided?.event === event) return decided.consumed;
+  let consumed = false;
+  runPop(() => {
+    consumed = true;
+  });
+  decided = { event, consumed };
+  return consumed;
+}
+
+function onPopState(event) {
+  if (decide(event)) event.stopImmediatePropagation();
+}
+
+/**
+ * For a router that handles popstate BEFORE this stack's own listener: Next's
+ * pages router does (its listener is registered first, and on Chrome it runs
+ * first), so stopping the event in ours came too late — Next had already
+ * routed to the entry the press landed on (the login page, mid-fold). Call it
+ * from the router's pre-pop hook and skip the route when it returns true:
+ *
+ *   router.beforePopState(() => !claimPop())
+ *
+ * Decides the pop once; the window listener then only applies the answer.
+ */
+export function claimPop() {
+  if (!isBrowser()) return false;
+  const event = currentEvent();
+  /* Without the event to key on, this cannot tell a second hearing of the
+     same press from a new one; the stack's own listener then decides alone. */
+  if (!event || event.type !== 'popstate') return false;
+  return decide(event);
 }
 
 /* Every gesture is a chance to clear Chromium's skip flag off an already
@@ -210,7 +290,9 @@ function stopListening() {
 }
 
 function maybeStopListening() {
-  if (layers.length === 0 && !fallback && !base) stopListening();
+  /* Not while one of our own pops or a fold is still on its way: nobody else
+     would keep the router off it. */
+  if (layers.length === 0 && !fallback && !base && !ownPops.length && !collapsing) stopListening();
 }
 
 /**
@@ -327,22 +409,21 @@ export function releaseLayer(id) {
   layers.splice(index, 1);
 
   if (isBrowser() && window.history.state?.[LAYER_FLAG] === id) {
-    /* Our own pop, so it must not reach the stack or the router. It swallows
-       exactly ONE event and unsubscribes there: a listener that stays up for
-       a fixed window also eats whatever back press happens to land inside it,
-       which is a real press by a real person. The timeout is only the escape
-       hatch for when `back()` has nothing to pop and no event ever arrives. */
+    /* Our own pop, so it must not reach the stack or the router (runPop
+       consumes it, through claimPop too). It accounts for exactly ONE event: a
+       swallow that stays up for a fixed window also eats whatever back press
+       happens to land inside it, which is a real press by a real person. The
+       timeout is only the escape hatch for when `back()` has nothing to pop
+       and no event ever arrives. */
     leaving.add(id);
-    const swallow = (event) => {
-      event.stopImmediatePropagation();
-      window.removeEventListener('popstate', swallow, true);
-      leaving.delete(id);
-    };
-    window.addEventListener('popstate', swallow, true);
+    const token = { id };
+    ownPops.push(token);
+    startListening();
     window.history.back();
     window.setTimeout(() => {
-      window.removeEventListener('popstate', swallow, true);
       leaving.delete(id);
+      const at = ownPops.indexOf(token);
+      if (at !== -1) ownPops.splice(at, 1);
     }, 500);
   }
 
@@ -414,11 +495,38 @@ export function backLeavesApp(blockedPaths = []) {
   if (!before?.url) return false;
   let path;
   try {
-    path = normalisePath(new URL(before.url).pathname);
+    path = new URL(before.url).pathname;
   } catch {
     return false;
   }
-  return blockedPaths.some((blocked) => normalisePath(blocked) === path);
+  return blockedPaths.some((blocked) => isUnderPath(path, blocked));
+}
+
+/** `path` is `base` or a page below it: the login page is "/login" and every
+    "/login/<id>/<name>/<reason>" variant of it. */
+export function isUnderPath(path, base) {
+  const p = normalisePath(path);
+  const b = normalisePath(base);
+  if (b === '/') return p === '/';
+  return p === b || p.startsWith(`${b}/`);
+}
+
+/**
+ * Whether entries of an OLDER document sit behind this one's — a full page
+ * load happened earlier in this session (a sign-in redirect, a reload). Those
+ * cannot be folded away: a back press into one loads it, so the app's first
+ * entry is out of reach and "press back again" lands there instead of leaving.
+ * False where the Navigation API cannot say.
+ */
+export function olderDocumentBehind() {
+  if (!isBrowser()) return false;
+  const nav = window.navigation;
+  const current = nav?.currentEntry;
+  if (!current || typeof current.index !== 'number' || current.index <= 0) return false;
+  const entries = typeof nav.entries === 'function' ? nav.entries() : [];
+  let start = current.index;
+  while (start > 0 && entries[start - 1]?.sameDocument) start -= 1;
+  return start > 0;
 }
 
 /** Trailing slash, query and hash are not part of "which route is this". */
@@ -434,6 +542,7 @@ export function normalisePath(pathname) {
 export function rearmTop() {
   armTop();
   syncBase();
+  if (base?.kind === 'watcher' && base.watcher) rememberEntry(base);
 }
 
 /** Test seam. Nothing in the app calls this. */
@@ -445,6 +554,8 @@ export function __resetBackStack() {
   fallback = null;
   collapsing = null;
   leaving.clear();
+  ownPops = [];
+  decided = null;
   nextId = 1;
   stopListening();
 }
