@@ -3,10 +3,14 @@ import { act, render, renderHook, screen } from '@testing-library/react';
 import {
   BACK_LAYER_FLAG,
   backLeavesApp,
+  claimPop,
   collapseHistory,
   holdBase,
+  olderDocumentBehind,
   pushBase,
   pushLayer,
+  releaseLayer,
+  setFallback,
   __resetBackStack,
 } from '../backStack';
 import { useExitGuard } from '../useExitGuard';
@@ -258,6 +262,160 @@ describe('backLeavesApp', () => {
   it('is false with a real page behind', () => {
     fakeNavigation(['https://app.test/', 'https://app.test/visit'], 1);
     expect(backLeavesApp(['/login'])).toBe(false);
+  });
+
+  it('counts every page under a blocked path, not just the path itself', () => {
+    // The app's login page is /login/[id]/[name]/[reason], not /login.
+    fakeNavigation(['https://app.test/login/%5Bid%5D/%5Bname%5D/%5Breason%5D', 'https://app.test/'], 1);
+    expect(backLeavesApp(['/login'])).toBe(true);
+
+    fakeNavigation(['https://app.test/loginhelp', 'https://app.test/'], 1);
+    expect(backLeavesApp(['/login'])).toBe(false);
+  });
+});
+
+describe('olderDocumentBehind', () => {
+  afterEach(() => {
+    delete window.navigation;
+  });
+
+  it('is true when a full page load sits behind this document', () => {
+    // Seen on a handset: [/ (older load), /login/…, /] after signing in.
+    fakeNavigation(['https://app.test/', 'https://app.test/login/x', 'https://app.test/'], 2, (i) => i >= 1);
+    expect(olderDocumentBehind()).toBe(true);
+  });
+
+  it('is false when everything behind is this document', () => {
+    fakeNavigation(['https://app.test/', 'https://app.test/visit', 'https://app.test/'], 2);
+    expect(olderDocumentBehind()).toBe(false);
+  });
+});
+
+describe('claimPop: a router that hears popstate before the stack does', () => {
+  /* Next's pages router: its popstate listener is registered first and, on
+     Chrome, runs first — stopping the event in ours is too late. It asks
+     claimPop from beforePopState instead and skips the route on true. */
+  let routed;
+  const router = () => {
+    if (claimPop()) return;
+    routed += 1;
+  };
+
+  beforeEach(() => {
+    __resetBackStack();
+    routed = 0;
+    window.history.replaceState({ page: 'home' }, '');
+    window.addEventListener('popstate', router); // before the stack listens
+  });
+
+  afterEach(() => {
+    window.removeEventListener('popstate', router);
+    __resetBackStack();
+    delete window.navigation;
+    vi.restoreAllMocks();
+  });
+
+  const pop = (state = { page: 'home' }) => {
+    window.history.replaceState(state, '');
+    window.dispatchEvent(new PopStateEvent('popstate', { state }));
+  };
+
+  it('keeps the router off a press a layer takes, and runs the layer once', () => {
+    const onBack = vi.fn();
+    pushLayer({ onBack, name: 'dialog' });
+
+    pop();
+
+    expect(onBack).toHaveBeenCalledTimes(1);
+    expect(routed).toBe(0);
+  });
+
+  it('keeps the router off our own fold, so it cannot route to the page folded over', () => {
+    fakeNavigation(['https://app.test/', 'https://app.test/login/x', 'https://app.test/'], 2);
+    vi.spyOn(window.history, 'go').mockImplementation(() => {});
+    collapseHistory();
+
+    pop({ page: 'login' });
+
+    expect(routed).toBe(0);
+    expect(window.history.state?.page).toBe('home');
+  });
+
+  it('keeps the router off a dialog taking its own entry back', () => {
+    vi.spyOn(window.history, 'back').mockImplementation(() => {});
+    const dialog = pushLayer({ onBack: vi.fn(), name: 'dialog' });
+    releaseLayer(dialog.id);
+
+    pop();
+
+    expect(routed).toBe(0);
+  });
+
+  it('keeps the router off a press the fallback refuses', () => {
+    setFallback((event) => {
+      event.stopImmediatePropagation();
+      return true;
+    });
+
+    pop({ page: 'login' });
+
+    expect(routed).toBe(0);
+  });
+
+  it('lets an ordinary press through to the router exactly once', () => {
+    setFallback(() => false);
+
+    pop();
+
+    expect(routed).toBe(1);
+  });
+});
+
+describe('the press after a hint that loaded an older document', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    __resetBackStack();
+    FakeCloseWatcher.all = [];
+    window.CloseWatcher = FakeCloseWatcher;
+    window.sessionStorage.clear();
+  });
+
+  afterEach(() => {
+    __resetBackStack();
+    delete window.CloseWatcher;
+    delete window.navigation;
+    window.sessionStorage.clear();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('leaves a note when an older load sits behind home', () => {
+    fakeNavigation(['https://app.test/', 'https://app.test/login/x', 'https://app.test/'], 2, (i) => i >= 1);
+    vi.spyOn(window.history, 'go').mockImplementation(() => {});
+    renderHook(() => useExitGuard({ isRoot: true }));
+
+    act(() => {
+      pressBack();
+    });
+
+    expect(window.sessionStorage.getItem('elbrit-back-exit-pending')).not.toBeNull();
+  });
+
+  it('comes up showing the hint, disarmed, in the document that press loaded', () => {
+    window.sessionStorage.setItem('elbrit-back-exit-pending', String(Date.now()));
+    const { result } = renderHook(() => useExitGuard({ isRoot: true }));
+
+    expect(result.current.hintOpen).toBe(true);
+    expect(liveWatchers()).toHaveLength(0); // the next press leaves
+    expect(window.sessionStorage.getItem('elbrit-back-exit-pending')).toBeNull();
+  });
+
+  it('ignores a stale note', () => {
+    window.sessionStorage.setItem('elbrit-back-exit-pending', String(Date.now() - 60000));
+    const { result } = renderHook(() => useExitGuard({ isRoot: true }));
+
+    expect(result.current.hintOpen).toBe(false);
+    expect(liveWatchers()).toHaveLength(1);
   });
 });
 

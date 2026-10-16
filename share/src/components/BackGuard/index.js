@@ -8,7 +8,9 @@
      useExitGuard({ isRoot })     the app root: back again to leave
      ExitHint                     what the first press at the root answers with
      setFallback(fn)              app-level rules for unclaimed presses
-     holdBase()                   an overlay with its own history entry is up */
+     holdBase()                   an overlay with its own history entry is up
+     claimPop()                   from a router's pre-pop hook (Next pages:
+                                  router.beforePopState(() => !claimPop())) */
 
 export { useBackLayer } from './useBackLayer';
 export { useExitGuard } from './useExitGuard';
@@ -22,6 +24,9 @@ export {
   rearmTop,
   collapseHistory,
   backLeavesApp,
+  claimPop,
+  isUnderPath,
+  olderDocumentBehind,
   BACK_LAYER_FLAG,
 } from './backStack';
 export { AppExitGuard } from './AppExitGuard';

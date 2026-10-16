@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/router";
-import { AppExitGuard, setFallback } from "@/components/BackGuard";
+import { AppExitGuard, claimPop, isUnderPath, setFallback } from "@/components/BackGuard";
 
 /**
  * Makes the back gesture behave like a native app's: home is the root, and
@@ -35,7 +35,8 @@ import { AppExitGuard, setFallback } from "@/components/BackGuard";
 /** Routes the back gesture treats as the app's root. */
 const HOME_ROUTES = ["/"];
 
-/** Routes a signed-in person must never be able to reach by going back. */
+/** Routes a signed-in person must never be able to reach by going back —
+    and every page under them: the login page is /login/[id]/[name]/[reason]. */
 const LOGIN_ROUTES = ["/login"];
 
 const normalise = (pathname) => {
@@ -46,7 +47,7 @@ const normalise = (pathname) => {
 };
 
 const isHomeRoute = (pathname) => HOME_ROUTES.includes(normalise(pathname));
-const isLoginRoute = (pathname) => LOGIN_ROUTES.includes(normalise(pathname));
+const isLoginRoute = (pathname) => LOGIN_ROUTES.some((route) => isUnderPath(pathname, route));
 
 /**
  * Reported by the diagnostics below, and nothing else depends on it any more.
@@ -106,6 +107,20 @@ export default function PwaBackGuard() {
      the net for the rest (no Navigation API to look behind the page): the
      event is swallowed so Next never routes to /login, and the entry the
      browser moved us to becomes home — the one place back leaves from. */
+  /* NEXT HEARS A BACK PRESS BEFORE THE BACK STACK DOES. Its popstate listener
+     is registered first and, on Chrome, runs first, so the stack stopping the
+     event came too late: Next had already routed to the entry the press landed
+     on. Seen on a handset (16 Oct 2026): the root's fold back over the login
+     entry, and Next rendered /login/[id]/[name]/[reason] under a "/" URL.
+     beforePopState runs inside Next's handler, ahead of the route; the stack
+     decides the press there and Next skips the ones it took. */
+  useEffect(() => {
+    const current = routerRef.current;
+    if (!current?.beforePopState) return undefined;
+    current.beforePopState(() => !claimPop());
+    return () => current.beforePopState(() => true);
+  }, []);
+
   useEffect(() => {
     return setFallback((event) => {
       if (!isLoginRoute(window.location.pathname) || !isAuthed()) return false;
