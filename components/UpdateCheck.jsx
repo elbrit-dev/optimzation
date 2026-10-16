@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Router from 'next/router';
-import { db } from '../firebase';
-import { CORE_COMMIT, RELEASE_ENV, isOtherCore, plasmicVersionOf } from '../lib/coreVersion';
+import { isOtherCore, plasmicVersionOf } from '../lib/coreVersion';
 
 /**
  * Notices a new release while the app is open, and gets it onto the screen.
@@ -11,16 +10,8 @@ import { CORE_COMMIT, RELEASE_ENV, isOtherCore, plasmicVersionOf } from '../lib/
  * Plasmic version (the published design). An installed app can sit in memory
  * for days without loading a page, so the service worker's fresh-page fetch
  * (public/sw.js) never gets a chance to help. This asks /api/version what the
- * server has now:
- *   - THE MOMENT A RELEASE HAPPENS: it listens to the release record in
- *     Firestore (appRelease/<env>, lib/release.js), which the server updates
- *     once a release is servable — a Plasmic publish after its pages are
- *     regenerated, a build on its first request;
- *   - and as a backstop for a missed event: when the app comes back to the
- *     foreground or online, after each navigation, and every 30 minutes on
- *     screen.
- * The record is only a nudge: what decides is /api/version plus the check
- * below, so a wrong record costs a check, never a bad reload.
+ * server has now whenever the app comes back to the foreground or online,
+ * after each navigation, and every 5 minutes while it is on screen.
  *
  * A NEW DESIGN IS CONFIRMED BEFORE IT IS OFFERED. Pages are ISR: for up to
  * ~15 minutes after a Plasmic publish the server (and CDN) still render the
@@ -36,7 +27,7 @@ import { CORE_COMMIT, RELEASE_ENV, isOtherCore, plasmicVersionOf } from '../lib/
  *     "Later": it stays until they reload.
  */
 
-const POLL_MS = 30 * 60_000;
+const POLL_MS = 5 * 60_000;
 const AWAY_MS = 60_000;
 const PROBE_GAP_MS = 2 * 60_000;
 
@@ -166,44 +157,6 @@ export default function UpdateCheck({ plasmicVersion }) {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('online', onOnline);
       Router.events.off('routeChangeComplete', onOnline);
-    };
-  }, [check]);
-
-  /* The release record: a change to it is a release that is ready to serve.
-     Re-subscribed when the Firebase sign-in changes — reading it needs a
-     signed-in user unless the read rule for appRelease is in place, and a
-     listener refused once stays refused. A refusal is silent: the backstop
-     checks above still run. */
-  useEffect(() => {
-    if (window.location.pathname.startsWith('/plasmic-host')) return undefined;
-    let stop = null;
-    const subscribe = () => {
-      stop?.();
-      stop = null;
-      try {
-        stop = db
-          .collection('appRelease')
-          .doc(RELEASE_ENV)
-          .onSnapshot(
-            (snap) => {
-              const record = snap.data();
-              if (!record) return;
-              const page = pagePlasmic.current;
-              const newCode = record.commit && record.commit !== CORE_COMMIT;
-              const newDesign = record.plasmic && page && record.plasmic !== page;
-              if (newCode || newDesign) check();
-            },
-            () => {},
-          );
-      } catch {
-        stop = null;
-      }
-    };
-    subscribe();
-    const stopAuth = window.firebaseAuth?.onAuthStateChanged?.(() => subscribe());
-    return () => {
-      stop?.();
-      if (typeof stopAuth === 'function') stopAuth();
     };
   }, [check]);
 
