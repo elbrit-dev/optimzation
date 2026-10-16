@@ -72,13 +72,8 @@ export const MONF = ['January', 'February', 'March', 'April', 'May', 'June', 'Ju
 export const WDS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export const money = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-export const cmp = (n) => {
-  n = Number(n) || 0;
-  if (n >= 1e7) return '₹' + (n / 1e7).toFixed(2) + ' Cr';
-  if (n >= 1e5) return '₹' + (n / 1e5).toFixed(1) + ' L';
-  if (n >= 1e3) return '₹' + (n / 1e3).toFixed(1) + ' K';
-  return '₹' + Math.round(n);
-};
+/* Always the full rupee value -- no lakh / K shorthand. */
+export const cmp = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
 export const roiTxt = (x) => (x == null || !isFinite(x) ? '—' : x.toFixed(2) + 'x');
 
 const toD = (s) => new Date(String(s).length === 10 ? s + 'T00:00:00' : String(s).replace(' ', 'T'));

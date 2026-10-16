@@ -36,18 +36,11 @@ export function inrFull(n) {
   return "₹" + Math.round(toNumber(n)).toLocaleString("en-IN");
 }
 
-export function inrShort(n) {
-  const v = toNumber(n);
-  const a = Math.abs(v);
-  if (a >= 1e7) return "₹" + (v / 1e7).toFixed(2) + "Cr";
-  if (a >= 1e5) return "₹" + (v / 1e5).toFixed(2) + "L";
-  if (a >= 1e3) return "₹" + Math.round(v / 1e3) + "k";
-  return "₹" + Math.round(v);
-}
+/* Amounts are always shown in full -- "₹2.40L" made users do the maths. */
+export const inrShort = inrFull;
 
-/** The design's "Actual / Lacks" switch picks between the two. */
-export function makeMoney(short) {
-  return (n) => (short ? inrShort(n) : inrFull(n));
+export function makeMoney() {
+  return inrFull;
 }
 
 export function fdate(value) {

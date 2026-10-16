@@ -17,10 +17,7 @@ const monthLabel = (m) => (m ? `${MON[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4
 const cr = (v) => {
   if (v == null || Number.isNaN(v)) return "—";
   const s = v < 0 ? "−" : "";
-  const a = Math.abs(v);
-  if (a >= 1e7) return `${s}₹${(a / 1e7).toFixed(2)} Cr`;
-  if (a >= 1e5) return `${s}₹${(a / 1e5).toFixed(1)} L`;
-  return `${s}₹${Math.round(a).toLocaleString("en-IN")}`;
+  return `${s}₹${Math.round(Math.abs(v)).toLocaleString("en-IN")}`;
 };
 const pc = (v, sign) => (v == null || !Number.isFinite(v) ? "—" : `${sign && v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v * 100).toFixed(1)}%`);
 const x = (v) => (v == null || !Number.isFinite(v) ? "—" : `${v >= 10 ? Math.round(v) : v.toFixed(1)}×`);

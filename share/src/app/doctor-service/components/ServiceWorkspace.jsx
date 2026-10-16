@@ -28,7 +28,7 @@ import { each } from '../data/api';
 import { useServiceClient } from '../data/useClient';
 import {
   APPROVED, CEO, GM, NOT_SUBMITTED, QUICK_REJECT, QUICK_REVISIT, REJECTED, REWORK,
-  approverRoles, bars, canDecide, canEdit, fDY, money, normalize, short, stageText, statusOf, tierOf, wait,
+  approverRoles, bars, canDecide, canEdit, cmp, fDY, money, normalize, short, stageText, statusOf, tierOf, wait,
 } from '../data/workflow';
 import { Detail } from './Detail';
 import { FilterPanel } from './FilterPanel';
@@ -377,7 +377,7 @@ export function ServiceWorkspace({
           </div>
           <div className="r3">
             <span className="dsv-pill" style={{ background: st.bg, color: st.fg }}>{st.label}</span>
-            {tier ? <span className="dsv-pill dsv-tier" style={{ background: tier[1], color: tier[2] }}>{e.doctorAvg ? `Sales ${cmpShort(e.doctorAvg)}/mo` : tier[0]}</span> : null}
+            {tier ? <span className="dsv-pill dsv-tier" style={{ background: tier[1], color: tier[2] }}>{e.doctorAvg ? `Sales ${cmp(e.doctorAvg)}/mo` : tier[0]}</span> : null}
             <span className="dsv-bars" aria-hidden="true">{bars(e).map((b, i) => <span key={i} style={{ background: b }} />)}</span>
             <span className="dsv-stage">{stageText(e)}</span>
           </div>
@@ -644,12 +644,6 @@ const REASON_MODAL = {
     desc: 'The MIS team fixes it and resubmits; it comes back to GM.',
   },
 };
-
-function cmpShort(n) {
-  if (n >= 1e5) return '₹' + (n / 1e5).toFixed(1) + ' L';
-  if (n >= 1e3) return '₹' + (n / 1e3).toFixed(1) + ' K';
-  return '₹' + Math.round(n);
-}
 
 export function DoctorServiceEntry(props) {
   return <ServiceWorkspace {...props} mode="entry" />;

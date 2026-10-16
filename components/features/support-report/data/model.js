@@ -332,25 +332,14 @@ export const ini = (s) =>
     .toUpperCase();
 export const dIni = (s) => (String(s).replace(/^Dr\.?\s*/i, "").trim()[0] || "?").toUpperCase();
 
-export const inr = (v) => {
-  v = Math.round(v || 0);
-  if (v >= 1e7) return "₹" + (v / 1e7).toFixed(2) + " Cr";
-  if (v >= 1e5) return "₹" + (v / 1e5).toFixed(2).replace(/\.?0+$/, "") + "L";
-  if (v >= 1e3) return "₹" + (v / 1e3).toFixed(1).replace(/\.0$/, "") + "K";
-  return "₹" + v;
-};
-/* Compact rupees for tight spots -- bar labels, picker cells, scope list. */
-export const inrS = (v) => {
-  v = Math.round(v || 0);
-  if (v >= 1e7) return "₹" + (v / 1e7).toFixed(1).replace(/\.0$/, "") + "Cr";
-  if (v >= 1e5) return "₹" + (v / 1e5).toFixed(1).replace(/\.0$/, "") + "L";
-  if (v >= 1e3) return "₹" + Math.round(v / 1e3) + "K";
-  return "₹" + v;
-};
-export const inrF =(v) => "₹" + Math.round(v || 0).toLocaleString("en-IN");
+/* Rupees are always shown in full (₹2,40,000), never as 2.4L / 240K --
+   users found the short forms hard to read. inr / inrS stay as names so
+   callers don't change. */
+export const inrF = (v) => "₹" + Math.round(v || 0).toLocaleString("en-IN");
+export const inr = inrF;
+export const inrS = inrF;
 export const num = (v) => Math.round(v || 0).toLocaleString("en-IN");
-export const cq = (v) =>
-  v >= 1e5 ? (v / 1e5).toFixed(1) + "L" : v >= 1e3 ? (v / 1e3).toFixed(1).replace(/\.0$/, "") + "K" : String(Math.round(v || 0));
+export const cq = num;
 
 export const dlt = (c, p) => {
   if (!p) return { t: "—", fg: "#667085", bg: "#F2F4F7", x: 0 };

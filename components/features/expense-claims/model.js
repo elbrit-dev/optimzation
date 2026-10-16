@@ -13,7 +13,8 @@ export const dateOf = (iso) => new Date(+iso.slice(0, 4), +iso.slice(5, 7) - 1, 
 export const shortDate = (iso) => (iso ? `${+iso.slice(8, 10)} ${MON[+iso.slice(5, 7) - 1]}` : "");
 export const monthLabel = (key) => `${MONTH[+key.slice(5, 7) - 1]} ${key.slice(0, 4)}`;
 export const inr = (n) => "₹" + Math.round(Number(n) || 0).toLocaleString("en-IN");
-export const kInr = (n) => (n >= 1e5 ? (n / 1e5).toFixed(1) + "L" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(Math.round(n)));
+/* Full amount, never "1.2L" / "4.5k". */
+export const kInr = (n) => Math.round(n).toLocaleString("en-IN");
 
 /* Indian financial year of a yyyy-mm key: Apr-Mar. */
 export const fyOf = (key) => (+key.slice(5, 7) >= 4 ? +key.slice(0, 4) : +key.slice(0, 4) - 1);

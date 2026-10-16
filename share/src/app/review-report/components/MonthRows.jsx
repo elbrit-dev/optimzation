@@ -1,13 +1,13 @@
 'use client';
 
 import { cx } from '@/design-system';
-import { lakh, monthShort, pct } from '../data/format';
+import { amount, monthShort, pct } from '../data/format';
 
 /* Target vs primary vs secondary — one ROW per month, read like a list.
  *
  * A horizontal bullet per month: the blue bar is primary, the dark tick is
  * the target, the magenta dot is secondary, all on one ₹ scale shared by
- * every row. The numbers sit on the row itself (₹ lakh), so nothing has to
+ * every row. The numbers sit on the row itself (full ₹), so nothing has to
  * be read off an axis; the achievement % leads each row in words and colour
  * (colour is never the only cue). Rows stack, so a phone scrolls down
  * through the year instead of squeezing twelve columns sideways — newest
@@ -51,7 +51,7 @@ export function MonthRows({ data, selected, onSelect, open }) {
           <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: 'var(--elbrit-magenta)' }} aria-hidden="true" />
           Secondary
         </span>
-        <span className="ml-auto text-ds-muted">₹ lakh</span>
+        <span className="ml-auto text-ds-muted">₹</span>
       </div>
 
       {/* Column heads, on the same grid as the rows. */}
@@ -75,7 +75,7 @@ export function MonthRows({ data, selected, onSelect, open }) {
                 type="button"
                 aria-pressed={on}
                 onClick={() => onSelect?.(d.i)}
-                aria-label={`${monthShort(d.month)}: primary ${lakh(d.primary)} lakh of ${lakh(d.target)} target, secondary ${d.secondary == null ? 'not entered' : lakh(d.secondary)}`}
+                aria-label={`${monthShort(d.month)}: primary ₹${amount(d.primary)} of ₹${amount(d.target)} target, secondary ${d.secondary == null ? 'not entered' : '₹' + amount(d.secondary)}`}
                 className={cx(ROW, 'w-full rounded-lg py-2 text-left', on ? 'bg-brand-tint-weak' : '[@media(hover:hover)]:hover:bg-sunken')}
               >
                 <span className={cx('text-12', on ? 'font-semibold text-heading' : 'text-ds-secondary')}>
@@ -86,9 +86,9 @@ export function MonthRows({ data, selected, onSelect, open }) {
 
                 {/* the numbers, one column each: beside the bar when wide, on the first line when narrow */}
                 <span className={cx(NUMS, 'text-12')}>
-                  <span className="font-semibold text-heading">{lakh(d.primary)}</span>
-                  <span className="text-ds-secondary">{lakh(d.target)}</span>
-                  <span className="text-heading">{d.secondary == null ? '—' : lakh(d.secondary)}</span>
+                  <span className="font-semibold text-heading">{amount(d.primary)}</span>
+                  <span className="text-ds-secondary">{amount(d.target)}</span>
+                  <span className="text-heading">{d.secondary == null ? '—' : amount(d.secondary)}</span>
                 </span>
 
                 {/* the bullet */}
@@ -114,7 +114,7 @@ export function MonthRows({ data, selected, onSelect, open }) {
         })}
       </ul>
       <p className="mt-1 text-10 text-ds-muted">
-        ₹ lakh{open ? ' · * still being entered' : ''}
+        ₹{open ? ' · * still being entered' : ''}
       </p>
     </div>
   );
