@@ -11,7 +11,7 @@ import { isOtherCore, plasmicVersionOf } from '../lib/coreVersion';
  * for days without loading a page, so the service worker's fresh-page fetch
  * (public/sw.js) never gets a chance to help. This asks /api/version what the
  * server has now whenever the app comes back to the foreground or online,
- * after each navigation, and every 30 minutes while it is open.
+ * after each navigation, and every 5 minutes while it is on screen.
  *
  * A NEW DESIGN IS CONFIRMED BEFORE IT IS OFFERED. Pages are ISR: for up to
  * ~15 minutes after a Plasmic publish the server (and CDN) still render the
@@ -27,7 +27,7 @@ import { isOtherCore, plasmicVersionOf } from '../lib/coreVersion';
  *     "Later": it stays until they reload.
  */
 
-const POLL_MS = 30 * 60_000;
+const POLL_MS = 5 * 60_000;
 const AWAY_MS = 60_000;
 const PROBE_GAP_MS = 2 * 60_000;
 
