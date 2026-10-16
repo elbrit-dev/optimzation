@@ -23,8 +23,8 @@ import { isOtherCore, plasmicVersionOf } from '../lib/coreVersion';
  * Then, without costing anyone their work:
  *   - back from the background after a minute or more, on home, with nothing
  *     open: reload straight away;
- *   - anywhere else: a "New version available" bar with Reload (Later hides it
- *     until the next check).
+ *   - anywhere else: a "New version available" bar with Reload. There is no
+ *     "Later": it stays until they reload.
  */
 
 const POLL_MS = 30 * 60_000;
@@ -161,13 +161,6 @@ export default function UpdateCheck({ plasmicVersion }) {
       }}
     >
       <span style={{ whiteSpace: 'nowrap' }}>New version available</span>
-      <button
-        type="button"
-        onClick={() => setAvailable(false)}
-        style={{ background: 'none', border: 0, color: '#6b7280', fontSize: 14, padding: '6px 4px', cursor: 'pointer' }}
-      >
-        Later
-      </button>
       <button
         type="button"
         onClick={() => window.location.reload()}
