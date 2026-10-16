@@ -12,7 +12,9 @@
 #         the GM / CEO / IT: one amount per SM / ZSM for the month
 #     { "month": "2026-10", "kind": "split",
 #       "rows": [ { "department": "Elbrit Bangalore - ELPL", "amount": 200000 }, ... ] }
-#         an SM / ZSM: their OWN allocation, across their own departments
+#         an SM / ZSM: their OWN allocation, across their own departments;
+#         IT (role or IT role profile) may pass "employee" to split an SM's
+#         allocation on their behalf (the comment says it was IT)
 #
 # Both only until the month's CUTOFF_DAY (the 20th); later the month is
 # locked. A split may be up to the allocation -- over is allowed (the app shows
@@ -150,11 +152,26 @@ if kind == "allocate":
         done = done + 1
     frappe.response["message"] = {"ok": True, "saved": done}
 else:
-    if not is_sm:
-        frappe.throw("Only a Sales Manager / ZSM splits their own allocation.")
+    is_it = me == "Administrator" or "IT" in roles or it_profile
+    target = str(body.get("employee") or "").strip()
+    if target and target != emp.get("name"):
+        # IT splitting on an SM's behalf (the IT switch to the SM view).
+        if not is_it:
+            frappe.throw("Only IT can split an allocation on someone else's behalf.")
+        t = frappe.db.get_value("Employee", target, ["name", "employee_name", "custom_role_profile", "status"],
+                                as_dict=True)
+        if not t or t.get("status") != "Active" or (t.get("custom_role_profile") or "")[:3].upper() != "SM-":
+            frappe.throw(target + " is not an active Sales Manager / ZSM.")
+        emp = t
+        on_behalf = True
+    else:
+        if not is_sm:
+            frappe.throw("Only a Sales Manager / ZSM splits their own allocation.")
+        on_behalf = False
     name = "SA-" + month + "-" + emp.get("name")
     if not frappe.db.exists(PARENT, name):
-        frappe.throw("Nothing has been allocated to you for " + month + " yet.")
+        frappe.throw(("Nothing has been allocated to " + (emp.get("employee_name") or emp.get("name")) if on_behalf
+                      else "Nothing has been allocated to you") + " for " + month + " yet.")
     # the departments under this SM, as the read script lists them
     staff = frappe.get_all("Employee", filters={"status": "Active"},
                            fields=["name", "reports_to", "custom_role_profile"], limit_page_length=0)
@@ -210,7 +227,7 @@ else:
     doc.status = status_of(float(doc.amount or 0), total)
     doc.save(ignore_permissions=True)
     doc.add_comment("Comment", "Split " + money(total) + " of " + money(doc.amount) + " across " +
-                    str(len(doc.splits)) + " department(s)")
+                    str(len(doc.splits)) + " department(s)" + (" -- by IT on their behalf" if on_behalf else ""))
     for d in touched:
         sync_budget(d)
     frappe.response["message"] = {"ok": True, "split_total": total, "status": doc.status}

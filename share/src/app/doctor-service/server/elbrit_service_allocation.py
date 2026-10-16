@@ -16,6 +16,9 @@
 #             can_allocate  GM / CEO / IT (role or IT role profile), or
 #                           Administrator: sees everyone and allocates
 #             is_sm         holds an SM- seat (ZSMs too): sees their own
+#             is_it         IT (role or IT role profile): the app lets them
+#                           switch to any SM's split view (built from
+#                           `people`) and split on that SM's behalf
 #   month     "YYYY-MM" (default: this month)
 #   cutoff_day, editable   both GM and SM may change a month until its
 #             cutoff_day (the 20th); later it is locked. A past month is
@@ -201,7 +204,8 @@ if is_sm:
 
 frappe.response["message"] = {
     "viewer": {"user": me, "employee": emp.get("name"), "employee_name": emp.get("employee_name") or me,
-               "seat": seat, "can_allocate": can_allocate, "is_sm": is_sm},
+               "seat": seat, "can_allocate": can_allocate, "is_sm": is_sm,
+               "is_it": me == "Administrator" or "IT" in roles or it_profile},
     "month": month, "cutoff_day": CUTOFF_DAY, "editable": editable, "months": months,
     "people": people, "mine": mine,
 }

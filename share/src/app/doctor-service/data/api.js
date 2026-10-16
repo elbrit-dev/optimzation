@@ -76,9 +76,10 @@ export function makeClient({ endpointUrl, token, fetchImpl = (...a) => fetch(...
     /* Service allocation: the GM's monthly amount per SM / ZSM and each SM's
        split of it across their departments (server/elbrit_service_allocation*). */
     allocation: (month) => method('elbrit_service_allocation', month ? { month } : undefined),
-    saveAllocation: (month, kind, rows) => call('/api/method/elbrit_service_allocation_save', {
+    /* `employee`: IT splitting an SM's allocation on their behalf. */
+    saveAllocation: (month, kind, rows, employee) => call('/api/method/elbrit_service_allocation_save', {
       method: 'POST',
-      body: { month, kind, rows },
+      body: employee ? { month, kind, rows, employee } : { month, kind, rows },
     }).then((j) => j.message),
     create: (fields) => call(resource(), { method: 'POST', body: { ...fields, custom_via_app: 1 } }).then((j) => j.data),
     update: (name, fields) => call(resource(name), { method: 'PUT', body: fields }).then((j) => j.data),

@@ -1,6 +1,7 @@
 /* An in-memory Service Allocation client for Studio and the dev harness —
  * the same answers the elbrit_service_allocation scripts give, no ERP.
- * `role`: 'GM' (allocates to everyone) or 'SM' (splits their own). */
+ * `role`: 'GM' (allocates to everyone), 'SM' (splits their own) or 'IT'
+ * (both: allocates, and switches to any SM's split view). */
 
 const DEPTS = {
   E00010: ['Aura & Proxima Karnataka - ELPL', 'Elbrit Bangalore - ELPL', 'Elbrit Mysore - ELPL', 'Vasco Karnataka - ELPL'],
@@ -28,6 +29,7 @@ export function makeAllocationSample(role = 'GM') {
     E00006: { amount: 300000, splits: {} },
   };
   const me = role === 'SM' ? 'E00010' : null;
+  const isIt = role === 'IT';
   const delay = (v) => new Promise((r) => setTimeout(() => r(JSON.parse(JSON.stringify(v))), 160));
   const statusOf = (a, t) => (t <= 0 ? 'Not split' : a > 0 && t >= a ? 'Split' : 'Partly split');
   const fy = today.getMonth() >= 3 ? today.getFullYear() : today.getFullYear() - 1;
@@ -56,19 +58,20 @@ export function makeAllocationSample(role = 'GM') {
       const todayIso = today.toISOString().slice(0, 10);
       return delay({
         viewer: { user: role === 'SM' ? 'vinoth@elbrit.org' : 'rajkumar@elbrit.org', employee: me, employee_name: role === 'SM' ? 'Vinoth Kumar R' : 'Rajkumar N',
-          seat: role === 'SM' ? 'SM-ELB_AURA_KA' : 'GM', can_allocate: role !== 'SM', is_sm: role === 'SM' },
+          seat: role === 'SM' ? 'SM-ELB_AURA_KA' : role === 'IT' ? 'IT' : 'GM', can_allocate: role !== 'SM', is_sm: role === 'SM', is_it: isIt },
         month, cutoff_day: 20, editable: todayIso <= cutoff, months,
         people: role !== 'SM' ? PEOPLE.map((p) => person(p, month)) : [],
         mine: role === 'SM' ? person(PEOPLE.find((p) => p.employee === me), month) : null,
       });
     },
-    saveAllocation: (month, kind, rows) => {
+    saveAllocation: (month, kind, rows, employee) => {
+      const who = employee || me;
       store[month] = store[month] || {};
       if (kind === 'allocate') {
         rows.forEach((r) => { store[month][r.employee] = { amount: Number(r.amount) || 0, splits: store[month][r.employee]?.splits || {} }; });
       } else {
-        if (!store[month][me]) return Promise.reject(new Error('Nothing has been allocated to you for this month yet.'));
-        store[month][me].splits = Object.fromEntries(rows.filter((r) => Number(r.amount)).map((r) => [r.department, Number(r.amount)]));
+        if (!store[month][who]) return Promise.reject(new Error('Nothing has been allocated for this month yet.'));
+        store[month][who].splits = Object.fromEntries(rows.filter((r) => Number(r.amount)).map((r) => [r.department, Number(r.amount)]));
       }
       return delay({ ok: true });
     },

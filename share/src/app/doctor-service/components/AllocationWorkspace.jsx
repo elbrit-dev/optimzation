@@ -191,8 +191,9 @@ function GmView({ data, editable, months, month, onSave, saving }) {
   );
 }
 
-/* ---- SM / ZSM: split their own allocation across their departments */
-function SmView({ mine, editable, months, month, onSave, saving }) {
+/* ---- SM / ZSM: split their own allocation across their departments.
+   `asName`: IT looking at (and saving for) someone else's split. */
+function SmView({ mine, editable, months, month, onSave, saving, asName }) {
   const [draft, setDraft] = useState({});
   useEffect(() => { setDraft({}); }, [month, mine]);
   if (!mine) return null;
@@ -206,7 +207,7 @@ function SmView({ mine, editable, months, month, onSave, saving }) {
   return (
     <div className="dsa-card">
       <div className="dsa-row" style={{ justifyContent: 'space-between' }}>
-        <span className="dsv-eyebrow">Your split · {monthLabel(months, month)}</span>
+        <span className="dsv-eyebrow">{asName ? `${asName}'s split` : 'Your split'} · {monthLabel(months, month)}</span>
         {a ? (
           <button className="dsa-btn" type="button" disabled={!editable || !dirty || saving}
             onClick={() => onSave('split', mine.departments.map((d) => ({ department: d.department, amount: num(valueOf(d)) })))}>
@@ -215,7 +216,7 @@ function SmView({ mine, editable, months, month, onSave, saving }) {
         ) : null}
       </div>
       {!a ? (
-        <p className="dsa-note">The GM has not allocated an amount to you for {monthLabel(months, month)} yet.</p>
+        <p className="dsa-note">The GM has not allocated an amount to {asName || 'you'} for {monthLabel(months, month)} yet.</p>
       ) : (
         <>
           <div className="dsa-row">
@@ -266,6 +267,9 @@ export function AllocationWorkspace({
   const [saving, setSaving] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [toast, show] = useToast();
+  /* IT only: which view, and whose split in the SM view. */
+  const [itView, setItView] = useState('gm');
+  const [asSm, setAsSm] = useState('');
 
   useEffect(() => {
     if (!client) return undefined;
@@ -277,10 +281,10 @@ export function AllocationWorkspace({
     return () => { alive = false; };
   }, [client, month, attempt]);
 
-  const save = useCallback(async (kind, rows) => {
+  const save = useCallback(async (kind, rows, employee) => {
     setSaving(true);
     try {
-      await client.saveAllocation(month, kind, rows);
+      await client.saveAllocation(month, kind, rows, employee);
       show(kind === 'allocate' ? 'Allocation saved' : 'Split saved — department budgets updated');
       setAttempt((a) => a + 1);
     } catch (err) {
@@ -292,6 +296,10 @@ export function AllocationWorkspace({
 
   const data = state.data;
   const months = data?.months || [];
+  const isIt = !!data?.viewer?.is_it;
+  const people = data?.people || [];
+  // IT's SM view: the picked SM (default the first), from the list IT already has.
+  const picked = isIt ? people.find((p) => p.employee === asSm) || people[0] || null : null;
   const editable = !!data?.editable;
   const cutoff = data ? `${data.cutoff_day} ${monthLabel(months, month).split(' ')[0]}` : '';
 
@@ -329,10 +337,29 @@ export function AllocationWorkspace({
         </p>
       ) : null}
 
-      {data?.viewer?.can_allocate ? (
+      {isIt ? (
+        /* IT only: switch between the GM's view and any SM's view. */
+        <div className="dsa-row" role="group" aria-label="View as">
+          <div className="dsa-tabs">
+            <button type="button" className={`dsa-tab${itView === 'gm' ? ' on' : ''}`} onClick={() => setItView('gm')}>Allocate (GM view)</button>
+            <button type="button" className={`dsa-tab${itView === 'sm' ? ' on' : ''}`} onClick={() => setItView('sm')}>Split (SM view)</button>
+          </div>
+          {itView === 'sm' && people.length ? (
+            <select className="dsa-sel" aria-label="Sales Manager" value={picked?.employee || ''} onChange={(e) => setAsSm(e.target.value)}>
+              {people.map((p) => <option key={p.employee} value={p.employee}>{p.name} · {p.designation || 'Sales Manager'}</option>)}
+            </select>
+          ) : null}
+        </div>
+      ) : null}
+
+      {data?.viewer?.can_allocate && (!isIt || itView === 'gm') ? (
         <GmView data={data} editable={editable} months={months} month={month} onSave={save} saving={saving} />
       ) : null}
-      {data?.viewer?.is_sm ? (
+      {isIt && itView === 'sm' ? (
+        <SmView key={picked?.employee || 'none'} mine={picked} editable={editable} months={months} month={month} saving={saving}
+          asName={picked?.name} onSave={(kind, rows) => save(kind, rows, picked?.employee)} />
+      ) : null}
+      {data?.viewer?.is_sm && !isIt ? (
         <SmView mine={data.mine} editable={editable} months={months} month={month} onSave={save} saving={saving} />
       ) : null}
 

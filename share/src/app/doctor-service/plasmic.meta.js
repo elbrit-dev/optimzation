@@ -103,9 +103,9 @@ export const doctorServiceAllocationMeta = {
     sampleData: shared.sampleData,
     sampleRole: {
       type: 'choice',
-      options: ['GM', 'SM'],
+      options: ['GM', 'SM', 'IT'],
       advanced: true,
-      helpText: 'With sample data: who is looking (GM allocates, SM splits). Live, the ERP says who the token is.',
+      helpText: 'With sample data: who is looking (GM allocates, SM splits, IT can switch between both). Live, the ERP says who the token is.',
     },
     onBack: shared.onBack,
     className: shared.className,
