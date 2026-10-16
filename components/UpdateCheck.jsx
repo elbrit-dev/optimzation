@@ -31,8 +31,18 @@ const POLL_MS = 30 * 60_000;
 const AWAY_MS = 60_000;
 const PROBE_GAP_MS = 2 * 60_000;
 
-const isQuiet = () =>
-  window.location.pathname === '/' && !document.querySelector('[role="dialog"], [aria-modal="true"]');
+/* A dialog on screen, not one merely in the page: a closed Ant Design drawer
+   (the profile drawer) stays mounted at 0×0 with role="dialog", and counting
+   it kept home from ever being quiet (seen on a handset). */
+const dialogOpen = () =>
+  [...document.querySelectorAll('[role="dialog"], [aria-modal="true"]')].some((el) => {
+    const box = el.getBoundingClientRect();
+    if (box.width < 1 || box.height < 1) return false;
+    const style = window.getComputedStyle(el);
+    return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+  });
+
+const isQuiet = () => window.location.pathname === '/' && !dialogOpen();
 
 /** The Plasmic version the server would render home with right now, or null. */
 async function servedPlasmicVersion() {
