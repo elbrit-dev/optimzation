@@ -17,13 +17,8 @@ const OK = ["#067647", "#ecfdf3"], WN = ["#b54708", "#fffaeb"], BD = ["#b42318",
 const num = (v) => Number(v) || 0;
 const sum = (a) => a.reduce((x, y) => x + y, 0);
 const ratio = (a, b) => (b ? a / b : 0);
-const crShort = (n) => {
-  const s = n < 0 ? "−" : "", a = Math.abs(n);
-  return s + (a >= 1e7 ? "₹" + (a / 1e7).toFixed(2) + " Cr" : a >= 1e5 ? "₹" + (a / 1e5).toFixed(1) + " L" : "₹" + Math.round(a).toLocaleString("en-IN"));
-};
-/* Every amount on the page goes through here: always the full rupee value.
-   Only the labels on top of chart bars use crShort -- a full amount does not
-   fit a bar. */
+/* Every amount on the page goes through here, chart bar labels included:
+   always the full rupee value, never lakh / crore. */
 export const cr = (n) => (n < 0 ? "−" : "") + "₹" + Math.round(Math.abs(n)).toLocaleString("en-IN");
 const nos = (n) => Math.round(n).toLocaleString("en-IN");
 /* Percentages are cut, never rounded up: 99.99% reads 99.9%, and only a
@@ -428,7 +423,7 @@ function doctorPanel(U, i) {
       { l: "Products", v: nos(items.length), s: "given" },
       { l: "Per unit", v: cr(ratio(v, Math.max(1, num(d.qty)))), s: "average" },
     ],
-    chart: series.length ? { t: "Value by month", bars: series.map((x) => ({ l: x.l, v: x.value ? crShort(x.value).replace("₹", "") : "", h: (x.value / sMax) * 85 + "%", c: x.on ? "#2563eb" : "#c7d7fa" })) } : null,
+    chart: series.length ? { t: "Value by month", bars: series.map((x) => ({ l: x.l, v: x.value ? cr(x.value).replace("₹", "") : "", h: (x.value / sMax) * 85 + "%", c: x.on ? "#2563eb" : "#c7d7fa" })) } : null,
     tables: [{ t: "Products given", s: U.sel.label, gtc: gtc(2), head: [H("Product", "left"), H("Value"), H("Units")],
       rows: items.map((x) => ({ name: x.name, sub: x.brand && x.brand !== x.name ? x.brand : "", cells: [cell(cr(x.value), null, 600), cell(nos(x.qty))], w: pct(x.value / iMax), wc: "#93b4f5" })) }],
   };
@@ -458,7 +453,7 @@ export function supportPanel(view, key) {
       { l: "Support value", v: cr(tv), s: all ? (U.dd ? U.dd.t + " vs " + U.prevName : U.sel.label) : pc(ratio(tv, U.sel.value)) + " of total" },
       { l: "Doctors", v: nos(doctors), s: "supported" }, { l: "Units", v: nos(units), s: "supplied" }, { l: "Per doctor", v: cr(ratio(tv, Math.max(1, doctors))), s: "average" },
     ],
-    chart: { t: "Value by month", bars: series.map((x) => ({ l: x.l, v: crShort(x.value).replace("₹", ""), h: (x.value / sMax) * 85 + "%", c: x.on ? "#2563eb" : "#c7d7fa" })) },
+    chart: { t: "Value by month", bars: series.map((x) => ({ l: x.l, v: cr(x.value).replace("₹", ""), h: (x.value / sMax) * 85 + "%", c: x.on ? "#2563eb" : "#c7d7fa" })) },
     tables,
   };
 }

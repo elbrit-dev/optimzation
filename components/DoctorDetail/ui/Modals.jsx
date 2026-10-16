@@ -124,14 +124,6 @@ export function FilterModal({
         </div>
 
         <div>
-          <div className="dx-eyebrow">Value format</div>
-          <div className="dx-seg" style={{ marginTop: 7 }}>
-            <button type="button" className={numShort ? undefined : "dx-on"} onClick={() => onNum(false)}>Actual</button>
-            <button type="button" className={numShort ? "dx-on" : undefined} onClick={() => onNum(true)}>Lacks</button>
-          </div>
-        </div>
-
-        <div>
           <div className="dx-eyebrow">Period</div>
           <div className="dx-opts">
             {range.opts.map((o) => (

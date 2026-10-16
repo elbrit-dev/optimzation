@@ -1,22 +1,19 @@
-/* Words and numbers as the review sheet says them: rupees in lakh / crore,
-   months as "Aug 26", percentages to one place. Pure. */
+/* Words and numbers as the review sheet says them: rupees in full
+   (never lakh / crore shorthand), months as "Aug 26", percentages to one place. Pure. */
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-/* ₹ 1.62 Cr · ₹ 36.8 L · ₹ 4,250. A missing value is a dash, never 0. */
+/* ₹1,62,40,000 · ₹4,250 — always the full amount. A missing value is a dash, never 0. */
 export function rupees(v, { sign = false } = {}) {
   if (v == null || Number.isNaN(v)) return '—';
   const s = sign && v > 0 ? '+' : v < 0 ? '−' : '';
-  const a = Math.abs(v);
-  if (a >= 1e7) return `${s}₹${(a / 1e7).toFixed(2)} Cr`;
-  if (a >= 1e5) return `${s}₹${(a / 1e5).toFixed(1)} L`;
-  return `${s}₹${Math.round(a).toLocaleString('en-IN')}`;
+  return `${s}₹${Math.round(Math.abs(v)).toLocaleString('en-IN')}`;
 }
 
-/* Lakh only, no symbol — for chart axes and dense tables. */
-export function lakh(v) {
+/* Full rupee amount, no symbol — for dense rows that carry a "₹" key. */
+export function amount(v) {
   if (v == null || Number.isNaN(v)) return '—';
-  return (v / 1e5).toFixed(v >= 1e7 ? 0 : 1);
+  return Math.round(v).toLocaleString('en-IN');
 }
 
 export function pct(v, { sign = false } = {}) {

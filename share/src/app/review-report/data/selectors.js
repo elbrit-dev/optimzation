@@ -610,11 +610,11 @@ export function attention(ix, scope, mi, T = THRESHOLDS) {
     const sc = c.scorecard;
     if (c.gap) {
       out.push({ kind: 'gap', tone: 'warning', sel: c.sel, value: c.gap.current - c.gap.usual,
-        text: `${name}: secondary ${fmtL(c.gap.current)} against a usual ${fmtL(c.gap.usual)} — entry missing?` });
+        text: `${name}: secondary ${fmtRs(c.gap.current)} against a usual ${fmtRs(c.gap.usual)} — entry missing?` });
     }
     if (sc.hasSales && sc.ach != null && sc.ach < T.lowAch) {
       out.push({ kind: 'ach', tone: 'danger', sel: c.sel, value: sc.ach,
-        text: `${name}: ${(sc.ach * 100).toFixed(1)}% of target (${fmtL(sc.primary)} of ${fmtL(sc.target)})` });
+        text: `${name}: ${(sc.ach * 100).toFixed(1)}% of target (${fmtRs(sc.primary)} of ${fmtRs(sc.target)})` });
     }
     if (c.stock?.chronic) {
       out.push({ kind: 'stock', tone: 'warning', sel: c.sel, value: -c.stock.excess,
@@ -622,15 +622,15 @@ export function attention(ix, scope, mi, T = THRESHOLDS) {
     }
     if (c.doctors && c.doctors.down.delta + c.doctors.dropped.delta < -1e5) {
       out.push({ kind: 'doctors', tone: 'warning', sel: c.sel, value: c.doctors.down.delta + c.doctors.dropped.delta,
-        text: `${name}: doctor support down ${fmtL(-(c.doctors.down.delta + c.doctors.dropped.delta))} (${c.doctors.down.count + c.doctors.dropped.count} doctors)` });
+        text: `${name}: doctor support down ${fmtRs(-(c.doctors.down.delta + c.doctors.dropped.delta))} (${c.doctors.down.count + c.doctors.dropped.count} doctors)` });
     }
   }
   const order = { missing: 0, gap: 1, ach: 2, stock: 3, doctors: 4 };
   return out.sort((a, b) => order[a.kind] - order[b.kind] || (a.value ?? 0) - (b.value ?? 0));
 }
 
-function fmtL(v) {
-  return `₹${(v / 1e5).toFixed(1)} L`;
+function fmtRs(v) {
+  return `₹${Math.round(v).toLocaleString('en-IN')}`;
 }
 
 /* ---- effort (the EFFORT ANALYSIS sheets) -------------------------------- */

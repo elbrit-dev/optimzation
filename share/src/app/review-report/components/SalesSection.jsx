@@ -1,7 +1,7 @@
 'use client';
 
 import { Card, SectionLabel, cx } from '@/design-system';
-import { count, lakh, monthShort, pct, ratio, rupees } from '../data/format';
+import { count, monthShort, pct, ratio, rupees } from '../data/format';
 import { Notice } from './bits';
 
 /* The paper review's SALES sheet as COMPARISON CARDS for the selected month.
@@ -180,7 +180,7 @@ export function SalesSection({ grid, mi, open, shared, hqs }) {
                   <div className="text-right tabular-nums">
                     <div className={cx('font-semibold', achTone(h.scorecard.ach))}>{pct(h.scorecard.ach)}</div>
                     <div className="text-11 text-ds-muted">
-                      {lakh(h.scorecard.primary)} / {lakh(h.scorecard.target)} L
+                      {rupees(h.scorecard.primary)} / {rupees(h.scorecard.target)}
                     </div>
                   </div>
                 </li>
