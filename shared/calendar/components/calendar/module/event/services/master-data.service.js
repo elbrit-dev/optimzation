@@ -284,18 +284,15 @@ const ROLE_DOCTOR_FIELDS = JSON.stringify([
   "territory", "modified",
 ]);
 
-// Doctors mapped (Lead.custom_role_profile) to one of `roleIds` AT `territory`:
-// the mapping row itself must carry that HQ, since one doctor is often mapped to
-// several roles in different HQs (DR-4672: Chennai for Vasco, Kanchipuram for
-// CND and Elbrit). The doctor's own `territory` field plays no part — the
-// mapping says who works a doctor and where. `allRoles` (admins) drops the role
-// condition and keeps only the HQ.
+// Doctors mapped (Lead.custom_role_profile) to one of `roleIds`. The caller
+// picks the roles by the SEAT's HQ (Role Profile custom_territory, see
+// resolveSeatHqs), so the HQ written on the mapping row plays no part, nor does
+// the doctor's own `territory`. `territory` is only the HQ shown on each card.
 //
 // REST, not GraphQL: GraphQL silently ignores a `role_profile_list` filter (it
 // is a child-table field) and returns unrelated Leads, and it can't list Leads
-// by name either. REST joins the Role Profile Multiselect child table once, so
-// the role and HQ conditions both apply to the same mapping row. Notes are not
-// read here — the visit dialog loads them per doctor via fetchDoctorById.
+// by name either. Notes are not read here — the visit dialog loads them per
+// doctor via fetchDoctorById.
 const ROLE_CHUNK = 80; // an SM's team runs to hundreds of roles; keeps each URL short
 
 // Paged: the join returns one row per mapping, so an RBM's HQ runs past a
@@ -329,16 +326,12 @@ async function fetchMappedLeads(filters) {
   }
 }
 
-export async function fetchDoctorsByRoles(roleIds, territory, { allRoles = false } = {}) {
-  if (!territory || (!allRoles && !roleIds?.length)) return [];
-  const hqFilter = ["Role Profile Multiselect", "hq", "=", territory];
+export async function fetchDoctorsByRoles(roleIds, territory) {
+  if (!territory || !roleIds?.length) return [];
 
-  const batches = allRoles
-    ? [[hqFilter]]
-    : Array.from({ length: Math.ceil(roleIds.length / ROLE_CHUNK) }, (_, i) => [
-        ["Role Profile Multiselect", "role_profile_list", "in", roleIds.slice(i * ROLE_CHUNK, (i + 1) * ROLE_CHUNK)],
-        hqFilter,
-      ]);
+  const batches = Array.from({ length: Math.ceil(roleIds.length / ROLE_CHUNK) }, (_, i) => [
+    ["Role Profile Multiselect", "role_profile_list", "in", roleIds.slice(i * ROLE_CHUNK, (i + 1) * ROLE_CHUNK)],
+  ]);
   const results = await Promise.all(batches.map(fetchMappedLeads));
 
   // The child-table join returns a doctor once per matching mapping row, and
@@ -349,7 +342,7 @@ export async function fetchDoctorsByRoles(roleIds, territory, { allRoles = false
   });
 
   // Reshape REST rows into the GraphQL node shape mapDoctors reads. The HQ shown
-  // is the mapping's — the one being planned — not the doctor's territory field.
+  // is the one being planned, not the doctor's territory field.
   const edges = [...byName.values()].map((row) => ({
     node: {
       ...row,

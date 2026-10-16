@@ -1,3 +1,25 @@
+# Firebase App Hosting (primary since 2026-10-12)
+
+**Live:** https://account-audit--elbrit-sso-d01d9.asia-southeast1.hosted.app
+**Backend:** `account-audit` · project `elbrit-sso-d01d9` · asia-southeast1 · deployed from local source (no GitHub link)
+
+```bash
+cd tools/auth-audit-dashboard
+firebase deploy --only apphosting      # .firebaserc + firebase.json pick the project/backend
+```
+
+- `serve.mjs` is the production server. It runs `netlify/edge-functions/gate.mjs` in front of every
+  request and dispatches `/api/*` to the `netlify/functions/*.mjs` handlers, so the auth layer is the
+  same code on both hosts. `server.mjs` is still the 127.0.0.1-only dev server.
+- Secrets live in Secret Manager (`audit-*`, listed in `apphosting.yaml`). `firebase.json` keeps
+  `lib/auth-secrets.mjs` and `lib/credentials.mjs` OUT of the upload; the build copies the env-only
+  `.example.mjs` templates in their place. After `set-password.mjs` / `set-credentials.mjs`, update the
+  matching secret with `firebase apphosting:secrets:set <name> --data-file <file>` and redeploy.
+- `maxInstances: 1` keeps the login rate limit and 60 s report cache meaningful. No 10 s function ceiling.
+- The live checks in "Verify after every deploy" below apply unchanged with `S` set to the URL above.
+
+---
+
 # Deploying to Netlify as a standalone site
 
 **Live:** https://elbrit-account-audit.netlify.app

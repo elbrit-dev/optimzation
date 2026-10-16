@@ -263,21 +263,31 @@ export function resolveVisibleEmployeeIds(elbritEdges, users) {
 
 
 
-// The HQs a user books DR Tour Plans against: their own and those of everyone
-// under them in the role tree (each employee's custom_hq). A BE has one, an ABM
-// their BEs', an RBM / SM their team's, an admin every one. `fallbackHq` is the
-// user's own HQ when the team list has none.
+// The DR Tour Plan HQ of each seat the user plans for -- their own and every
+// seat under them (an admin: every seat) -- read from the seat's Role Profile
+// (custom_territory), never the Employee record: HR's Employee HQ can disagree
+// (E00985's says Kumbakonam, his seat and all its doctor mappings say Tanjore),
+// and a vacant seat has no employee at all but still has an HQ and doctors.
+// -> Map(roleId -> hq), seats without an HQ left out
+export function resolveSeatHqs(elbritEdges = [], roleId) {
+  const isAdmin = LOGGED_IN_USER?.role === "Admin" || LOGGED_IN_USER?.roleId === "Admin";
+  const roles = new Set(resolveVisibleRoleIds(elbritEdges, roleId));
+  const seats = new Map();
+  elbritEdges.forEach(({ node }) => {
+    if (node?.role_id && node.hq && (isAdmin || roles.has(node.role_id))) {
+      seats.set(node.role_id, node.hq);
+    }
+  });
+  return seats;
+}
+
+// The HQs a user books DR Tour Plans against: their own seat's and those of
+// every seat under them (resolveSeatHqs). A BE has one, an ABM their BEs', an
+// RBM / SM their team's, an admin every one. `fallbackHq` is the user's own HQ
+// when no seat carries one.
 // -> [{ doctype: "Territory", value, label }], sorted
 export function resolveOwnHqOptions(employees = [], elbritEdges = [], roleId, fallbackHq = null) {
-  const roles = new Set(resolveVisibleRoleIds(elbritEdges, roleId));
-  const hqs = new Set();
-  for (const employee of employees) {
-    if (!employee?.hqTerritory) continue;
-    const isMe = String(employee.value ?? employee.id) === String(LOGGED_IN_USER.id);
-    if (isMe || (employee.roleId && roles.has(employee.roleId))) {
-      hqs.add(employee.hqTerritory);
-    }
-  }
+  const hqs = new Set(resolveSeatHqs(elbritEdges, roleId).values());
   if (!hqs.size && fallbackHq) hqs.add(fallbackHq);
   // Real HQs only ("HQ-Erode"): a manager's own territory can be a region
   // ("Tn-Coimbatore"), which no doctor is mapped to. Kept as-is when there is

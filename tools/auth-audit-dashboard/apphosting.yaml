@@ -1,0 +1,35 @@
+# Account Audit Dashboard on Firebase App Hosting. See DEPLOY.md.
+#
+# The backend's root directory must be tools/auth-audit-dashboard.
+
+scripts:
+  # lib/auth-secrets.mjs and lib/credentials.mjs are gitignored. When they are
+  # absent, use the templates, which read everything from the env below. With no
+  # secrets set the gate fails closed and serves the "locked" page.
+  buildCommand: >-
+    node -e "const f=require('fs');for(const n of ['auth-secrets','credentials']){const t='lib/'+n+'.mjs';if(!f.existsSync(t))f.copyFileSync('lib/'+n+'.example.mjs',t)}"
+  runCommand: node serve.mjs
+
+runConfig:
+  # One instance: the login rate limit and the 60 s report cache are per instance.
+  minInstances: 0
+  maxInstances: 1
+  concurrency: 40
+  cpu: 1
+  memoryMiB: 512
+
+env:
+  - variable: AUTH_PASSWORD_HASH
+    secret: audit-auth-password-hash
+  - variable: AUTH_PASSWORD_SALT
+    secret: audit-auth-password-salt
+  - variable: AUTH_SESSION_SECRET
+    secret: audit-auth-session-secret
+  - variable: REPORT_PASSWORD_HASH
+    secret: audit-report-password-hash
+  - variable: REPORT_PASSWORD_SALT
+    secret: audit-report-password-salt
+  - variable: ERP_API_TOKEN
+    secret: audit-erp-api-token
+  - variable: FIREBASE_SERVICE_ACCOUNT
+    secret: audit-firebase-service-account

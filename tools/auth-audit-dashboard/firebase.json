@@ -1,0 +1,20 @@
+{
+  "apphosting": [
+    {
+      "backendId": "account-audit",
+      "rootDir": "/",
+      "ignore": [
+        "node_modules",
+        ".git",
+        ".netlify",
+        ".next",
+        "firebase-debug.log",
+        "firebase-debug.*.log",
+        "erp-token.txt",
+        "netlify-env.local.txt",
+        "lib/auth-secrets.mjs",
+        "lib/credentials.mjs"
+      ]
+    }
+  ]
+}

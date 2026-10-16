@@ -65,7 +65,7 @@ import {
 	saveLeaveApplication,
 	updateLeaveAttachment,
 } from "@calendar/components/calendar/module/leave/services/leave.service";
-import { resolveLoggedInRoleId, resolveOwnHqOptions, resolveSuperiorShareUserIds, resolveSuperiorShareUserIdsUpTo, resolveVisibleRoleIds } from "@calendar/lib/employeeHeirachy";
+import { resolveLoggedInRoleId, resolveOwnHqOptions, resolveSeatHqs, resolveSuperiorShareUserIds, resolveSuperiorShareUserIdsUpTo } from "@calendar/lib/employeeHeirachy";
 import { resolvePobDepartments } from "@calendar/lib/calendar/pobDepartments";
 import { saveDocToErp } from "@calendar/components/calendar/module/todo/services/todo.service";
 import { uploadFileToDoc, uploadLeaveMedicalCertificate } from "@calendar/lib/file.service";
@@ -1571,21 +1571,26 @@ export function AddEditEventDialog({
 		});
 	}, [allEvents, startDate]);
 
-	// THE USER'S OWN HQs: their own and those of everyone under them in the
-	// role tree (each employee's custom_hq). A BE has one; an ABM their BEs';
-	// an RBM / SM their whole team's; an admin every one. Picked on the DR Tour
-	// Plan form itself — there is no separate HQ Tour Plan step any more.
+	// THE USER'S OWN HQs: their own seat's and those of every seat under them
+	// in the role tree (each Role Profile's custom_territory). A BE has one; an
+	// ABM their BEs'; an RBM / SM their whole team's; an admin every one. Picked
+	// on the DR Tour Plan form itself — there is no separate HQ Tour Plan step.
 	const ownHqOptions = useMemo(
 		() => resolveOwnHqOptions(allEmployeeOptions, elbritRoleEdges, resolvedLoggedInRoleId, loggedInEmployeeHqTerritory),
 		[allEmployeeOptions, elbritRoleEdges, resolvedLoggedInRoleId, loggedInEmployeeHqTerritory]
 	);
+	// The user's own seat's HQ (Role Profile), else their Employee HQ.
+	const ownSeatHq = useMemo(
+		() => resolveSeatHqs(elbritRoleEdges, resolvedLoggedInRoleId).get(resolvedLoggedInRoleId) ?? loggedInEmployeeHqTerritory,
+		[elbritRoleEdges, resolvedLoggedInRoleId, loggedInEmployeeHqTerritory]
+	);
 	// The HQ a new DR Tour Plan starts on: the day's HQ Tour Plan where an old
-	// one exists, else the user's own HQ, else their only one. With several the
-	// user picks it on the form.
+	// one exists, else the user's own seat's HQ, else their only one. With
+	// several the user picks it on the form.
 	const doctorVisitHqTerritory =
 		matchedHqEvent?.hqTerritory ??
-		(ownHqOptions.some((option) => option.value === loggedInEmployeeHqTerritory)
-			? loggedInEmployeeHqTerritory
+		(ownHqOptions.some((option) => option.value === ownSeatHq)
+			? ownSeatHq
 			: null) ??
 		(ownHqOptions.length === 1 ? ownHqOptions[0].value : null);
 	// EVERY ROLE books DR Tour Plans and Other Work directly now, the way a BE
@@ -1693,20 +1698,22 @@ export function AddEditEventDialog({
 	}, [form, hqTerritory, isDoctorMulti, isEditing, selectedTag]);
 	// ----------------------------------------------------
 	// DR Tour Plan doctors come from the EMPLOYEE MAPPING only (the doctor's
-	// custom_role_profile rows), never from the doctor's own territory field:
-	// a doctor shows when one of its mapping rows is at the planned HQ and names
-	// the user's own role or one under them. So a BE gets the doctors mapped to
-	// their seat, an ABM theirs and their BEs', an RBM down through ABM and BE,
-	// an SM their whole team -- vacant seats included, as they sit in that tree.
-	// DR-4672 is mapped to Kanchipuram for CND and Elbrit but its territory says
-	// Chennai, so the territory rule hid it from the Kanchipuram BEs it belongs to.
+	// custom_role_profile rows), and the HQ is the SEAT's (Role Profile
+	// custom_territory, see resolveSeatHqs): the planned HQ picks the seats at
+	// that HQ, among the user's own and those under them, and every doctor mapped
+	// to those seats shows. Neither the Employee's HQ, the HQ on the mapping row
+	// nor the doctor's territory counts. A BE gets their own seat's doctors, an
+	// ABM theirs and their BEs' at that HQ, and so on up -- vacant seats
+	// included; an admin every seat at that HQ.
 	// ----------------------------------------------------
 	const mappedRoleKey = useMemo(() => {
-		if (LOGGED_IN_USER.role === "Admin" || LOGGED_IN_USER.roleId === "Admin") return "*";
-		return resolveVisibleRoleIds(elbritRoleEdges, resolvedLoggedInRoleId)
-			.sort()
-			.join("|");
-	}, [elbritRoleEdges, resolvedLoggedInRoleId]);
+		if (!hqTerritory) return "";
+		const roles = [];
+		resolveSeatHqs(elbritRoleEdges, resolvedLoggedInRoleId).forEach((hq, roleId) => {
+			if (hq === hqTerritory) roles.push(roleId);
+		});
+		return roles.sort().join("|");
+	}, [elbritRoleEdges, hqTerritory, resolvedLoggedInRoleId]);
 	const [mappedDoctorsLoading, setMappedDoctorsLoading] = useState(false);
 	useEffect(() => {
 		if (
@@ -1720,8 +1727,7 @@ export function AddEditEventDialog({
 		}
 		let alive = true;
 		setMappedDoctorsLoading(true);
-		const allRoles = mappedRoleKey === "*";
-		fetchDoctorsByRoles(allRoles ? [] : mappedRoleKey.split("|"), hqTerritory, { allRoles })
+		fetchDoctorsByRoles(mappedRoleKey.split("|"), hqTerritory)
 			.catch((error) => {
 				console.error("Failed to load mapped doctors", error);
 				return [];

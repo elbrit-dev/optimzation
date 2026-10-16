@@ -46,6 +46,17 @@
 #              history                    Workflow and Comment entries of the
 #                                         tracker and the service, oldest
 #                                         first: { type, content, by, at }
+#              execution                  after the final GM / CEO approval the
+#                                         tracker hands the service to MIS as a
+#                                         ToDo ("Approved (...) - carry out");
+#                                         this is that ToDo's outcome, or null
+#                                         when there is none yet:
+#                                         { state: "Done" | "Pending" |
+#                                           "Cancelled", by, at, with: [names] }
+#                                         Done = a ToDo on the tracker is
+#                                         Closed (by = who closed it, at = when);
+#                                         Pending = still Open (with = its
+#                                         assignees); Cancelled = every one was
 #
 # safe_exec: no import, no .format(), no set literals, no tuple
 # unpacking, no underscore-prefixed names.
@@ -169,6 +180,39 @@ service_of = {}
 for r in rows:
     if r.get("custom_tracker"):
         service_of[r.get("custom_tracker")] = r.get("name")
+
+# ---- execution: the hand-over ToDo(s) the final approval makes on the tracker
+todos_of = {}
+for part in chunks(trackers):
+    for t in frappe.get_all("ToDo", filters=[["reference_type", "=", OT], ["reference_name", "in", part]],
+                            fields=["name", "reference_name", "status", "allocated_to", "modified", "modified_by"],
+                            order_by="creation asc", limit_page_length=0):
+        k = t.get("reference_name")
+        if k not in todos_of:
+            todos_of[k] = []
+        todos_of[k].append(t)
+        for u in [t.get("allocated_to"), t.get("modified_by")]:
+            if u and u not in users:
+                users.append(u)
+
+
+def execution_of(tracker):
+    todos = todos_of.get(tracker) or []
+    if not todos:
+        return None
+    closed = None
+    open_to = []
+    for t in todos:
+        st = t.get("status") or ""
+        if st == "Closed" and (closed is None or str(t.get("modified")) > str(closed.get("modified"))):
+            closed = t
+        elif st == "Open" and t.get("allocated_to"):
+            open_to.append(t.get("allocated_to"))
+    if closed:
+        return {"state": "Done", "by": closed.get("modified_by"), "at": str(closed.get("modified")), "with": []}
+    if open_to:
+        return {"state": "Pending", "by": None, "at": None, "with": open_to}
+    return {"state": "Cancelled", "by": None, "at": None, "with": []}
 
 # ---- history: the tracker's workflow steps, and notes on either record
 history = {}
@@ -326,6 +370,14 @@ for r in rows:
         r["doctor_avg"] = avg_dept.get(str(r.get("doctor")) + "|" + r["dept_key"]) or 0
     else:
         r["doctor_avg"] = r["doctor_avg_all"]
+    ex = execution_of(r.get("custom_tracker")) if r.get("custom_tracker") else None
+    if ex:
+        names_with = []
+        for u in ex["with"]:
+            names_with.append(user_name.get(u) or u)
+        ex = {"state": ex["state"], "by": (user_name.get(ex["by"]) or ex["by"]) if ex["by"] else None,
+              "at": ex["at"], "with": names_with}
+    r["execution"] = ex
     h = history.get(r.get("name")) or []
     for e in h:
         e["by"] = user_name.get(e.get("user")) or e.get("user")

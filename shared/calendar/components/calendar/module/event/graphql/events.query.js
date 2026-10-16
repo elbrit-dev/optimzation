@@ -142,6 +142,10 @@ query RoleProfiles($first: Int) {
         name
         is_group
       }
+      # The seat's HQ -- the DR Tour Plan HQ, vacant seats included.
+      custom_territory {
+        name
+      }
     }
     }
   }
@@ -165,6 +169,7 @@ export function normalizeRoleProfiles(data) {
 						parent_elbrit_role_id__name:
 							node?.parent_role_id?.name?.trim() || null,
 						is_group: node?.is_group ?? false,
+						hq: node?.custom_territory?.name?.trim() || null,
 					},
 				})) ?? [],
 		},

@@ -186,8 +186,14 @@ export function normalize(row) {
     steps,
     doctorAvg: Number(row.doctor_avg) || 0,
     lastAt: row.modified || row.creation,
+    // After the final approval MIS gets a ToDo to carry the service out; its
+    // outcome: { state: 'Done' | 'Pending' | 'Cancelled', by, at, with }.
+    execution: row.execution && row.execution.state ? row.execution : null,
   };
 }
+
+/* Carried out? Only an approved service can be. */
+export const executed = (e) => e.state === APPROVED && e.execution?.state === 'Done';
 
 /* Who stopped it, for a Rejected / sent-back row: { name, at, role } or null. */
 export function stoppedBy(e) {
@@ -205,7 +211,11 @@ export function statusOf(e) {
   if (e.state === NOT_SUBMITTED) return { label: 'Not submitted', bg: '#F1F3F6', fg: '#4B5563' };
   if (e.state === GM || e.state === CEO) return { label: e.state, bg: '#EAF1FF', fg: '#1D4ED8' };
   // Who decided, as the final status says: "GM Approved", "CEO Rejected".
-  if (e.state === APPROVED) return { label: `${e.skipped ? 'GM' : 'CEO'} Approved`, bg: '#E5F6EC', fg: '#15803D' };
+  if (e.state === APPROVED) {
+    // Approved is not the end: MIS still has to carry it out (the ToDo).
+    if (executed(e)) return { label: 'Executed', bg: '#E5F6EC', fg: '#15803D' };
+    return { label: `${e.skipped ? 'GM' : 'CEO'} Approved`, bg: '#E5F6EC', fg: '#15803D' };
+  }
   if (e.state === REJECTED) {
     // "GM / CEO Rejected"; an old "... Approved and Verification Rejected"
     // was rejected at verification, not by GM / CEO.
@@ -233,7 +243,14 @@ export function stageText(e) {
   if (e.state === NOT_SUBMITTED) return 'Not in approval yet';
   if (e.state === GM) return `with GM · ${wait(e.submittedAt || e.lastAt)}`;
   if (e.state === CEO) return `GM ✓ · with CEO · ${wait(e.gm?.at || e.lastAt)}`;
-  if (e.state === APPROVED) return e.skipped ? `GM ✓ · final at GM · ${fD(e.gm?.at || e.lastAt)}` : `GM ✓ · CEO ✓ · ${fD(e.ceo?.at || e.lastAt)}`;
+  if (e.state === APPROVED) {
+    const approved = e.skipped ? `GM ✓ · final at GM · ${fD(e.gm?.at || e.lastAt)}` : `GM ✓ · CEO ✓ · ${fD(e.ceo?.at || e.lastAt)}`;
+    const ex = e.execution;
+    if (ex?.state === 'Done') return `${approved} · executed ${fD(ex.at)}`;
+    if (ex?.state === 'Cancelled') return `${approved} · execution ToDo cancelled`;
+    if (!ex) return `${approved} · no execution ToDo`;
+    return `${approved} · awaiting execution`;
+  }
   const who = stoppedBy(e);
   // "Rajkumar (GM) · 13 Oct", or "GM · 13 Oct" when the name is not known.
   const who2 = who ? (who.name ? first(who.name) + (who.role ? ` (${who.role})` : '') : who.role) : '';
@@ -267,6 +284,17 @@ export function stepper(e) {
   nodes.push(node('GM', e.gm, e.state === GM));
   if (e.skipped) nodes.push({ label: 'CEO', sub: 'Not needed', kind: 'skip' });
   else nodes.push(node('CEO', e.ceo, e.state === CEO));
+  // EXECUTED: after the final approval MIS carries the service out (the
+  // tracker's ToDo). Done when that ToDo is closed.
+  const ex = e.execution;
+  if (e.state !== APPROVED) nodes.push({ label: 'Executed', sub: '', kind: e.state === REJECTED ? 'skip' : 'todo' });
+  else if (ex?.state === 'Done') nodes.push({ label: 'Executed', sub: (ex.by ? first(ex.by) + ' · ' : '') + fD(ex.at), kind: 'done' });
+  else if (ex?.state === 'Cancelled') nodes.push({ label: 'Executed', sub: 'ToDo cancelled', kind: 'x' });
+  else if (ex?.state === 'Pending') nodes.push({ label: 'Executed', sub: ex.with?.length ? 'with ' + first(ex.with[0]) : 'pending', kind: 'current' });
+  // The final approval always makes the carry-out ToDo, so none at all means
+  // it was not made (approved before the hand-over existed, or the tracker
+  // script could not find an MIS assignee) — said, not passed off as pending.
+  else nodes.push({ label: 'Executed', sub: 'no ToDo found', kind: 'back' });
   return nodes.map((n, i) => ({
     ...n,
     bg: KIND[n.kind][0], border: KIND[n.kind][1], fg: KIND[n.kind][2],
@@ -294,6 +322,9 @@ export function activity(e) {
   });
   for (const h of e.history) {
     if (h.type === 'Comment' && h.content) out.push({ title: `Comment · ${h.by}`, when: h.at, dot: '#9CA3AF', note: h.content });
+  }
+  if (e.state === APPROVED && e.execution?.state === 'Done') {
+    out.push({ title: `Executed · ${e.execution.by || 'MIS'} (ToDo closed)`, when: e.execution.at, dot: '#22A06B', note: '' });
   }
   if ((e.state === REJECTED || e.state === REWORK) && e.reason) {
     const last = [...out].reverse().find((o) => o.title.startsWith('Rejected') || o.title.startsWith('Sent back'));
