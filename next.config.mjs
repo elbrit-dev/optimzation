@@ -1,12 +1,42 @@
 import path from 'path';
+import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+/* CORE VERSION — which commit of this code a build is, and when it was built,
+   stamped into the bundle (lib/coreVersion.js). "App Version" is the Plasmic
+   design's own number; this is the engine underneath it. The commit comes from
+   whichever variable the build platform sets, else from git, else "unknown". */
+function coreCommit() {
+  const fromEnv = ['COMMIT_SHA', 'SHORT_SHA', 'GIT_COMMIT_SHA', 'SOURCE_VERSION', 'GITHUB_SHA', 'COMMIT_REF']
+    .map((name) => process.env[name])
+    .find(Boolean);
+  if (fromEnv) return fromEnv.slice(0, 7);
+  try {
+    return execSync('git rev-parse --short=7 HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+  } catch {
+    return '';
+  }
+}
+const CORE_COMMIT = process.env.NEXT_PUBLIC_CORE_COMMIT || coreCommit() || 'unknown';
+const CORE_BUILT_AT = process.env.NEXT_PUBLIC_CORE_BUILT_AT || new Date().toISOString();
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  env: {
+    NEXT_PUBLIC_CORE_COMMIT: CORE_COMMIT,
+    NEXT_PUBLIC_CORE_BUILT_AT: CORE_BUILT_AT,
+  },
+  /* Every page is ISR (revalidate: 600), so Next sends
+     `s-maxage=600, stale-while-revalidate=<expireTime - 600>`. With the default
+     (a year) a browser cache — which has no max-age to go on, so holds every
+     page as stale — kept showing the page it had and fetching the new one
+     behind it: a phone ran the previous build until its second launch after a
+     release. 900 leaves the CDN its 10 minutes and caps that at 5 more. */
+  expireTime: 900,
   // transpilePackages: [
   //   'antd',
   //   '@ant-design/icons',

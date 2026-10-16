@@ -17,7 +17,7 @@
  * Bump CACHE_NAME whenever this file changes. Without it every browser that
  * already has the old cache keeps serving out of it.
  */
-const CACHE_NAME = 'app-cache-v8';
+const CACHE_NAME = 'app-cache-v9';
 
 const PRE_CACHE_URLS = [
   '/',
@@ -37,6 +37,10 @@ function isBypassed(url) {
   return (
     url.pathname.startsWith('/plasmic-host') ||
     url.pathname.startsWith('/api/') ||
+    // A page's data (its Plasmic design) for an in-app navigation. Cache-first
+    // here meant moving between pages showed the design as it was when the
+    // file was first cached, long after a Plasmic publish.
+    url.pathname.startsWith('/_next/data/') ||
     url.pathname.startsWith('/google-callback') ||
     url.pathname.startsWith('/onesignal') ||
     url.pathname.endsWith('/sw.js') ||
@@ -106,9 +110,17 @@ self.addEventListener('fetch', (event) => {
   if (isBypassed(url)) return;
 
   // Network-first for pages, so a deploy is picked up on the next navigation.
+  // `no-cache` makes that true: a plain fetch goes through the HTTP cache, and
+  // pages carry `stale-while-revalidate` (ISR), so the browser handed back the
+  // page it already had and fetched the new one behind it — a phone ran the
+  // previous build until its second launch after a release. `no-cache` asks the
+  // server every time; an unchanged page is a 304 with no body. A browser that
+  // refuses options on a navigation request (old Chrome did) gets the plain
+  // fetch rather than the offline page.
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request)
+      fetch(request, { cache: 'no-cache' })
+        .catch(() => fetch(request))
         .then((response) => {
           if (isCacheable(request, response)) {
             const copy = response.clone();
