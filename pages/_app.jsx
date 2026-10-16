@@ -4,6 +4,8 @@ import '../firebase'; // Initialize Firebase
 import { DataProvider } from '@plasmicapp/host';
 import { startConsoleCapture } from '../lib/consoleCapture';
 import PwaBackGuard from '../components/PwaBackGuard';
+import UpdateCheck from '../components/UpdateCheck';
+import { CORE_VERSION, plasmicVersionOf } from '../lib/coreVersion';
 import MaintenanceGate from '../components/MaintenanceGate';
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import Head from 'next/head';
@@ -381,7 +383,9 @@ function MyApp({ Component, pageProps }) {
   // `setState` is a useCallback([]), so there is nothing here that can go stale.
   const fnWithState = useMemo(() => ({
     ...a,
-    setState
+    setState,
+    // "Core Version: {$ctx.fn.coreVersion}" next to Plasmic's App Version.
+    coreVersion: CORE_VERSION
   }), [setState]);
 
   useEffect(() => {
@@ -489,6 +493,10 @@ function MyApp({ Component, pageProps }) {
             someone is signed in. Mounted here so it survives every route
             change — the history sentinel it keeps has to outlive the page. */}
         <PwaBackGuard />
+
+        {/* A new release (code or Plasmic design) while the app is open:
+            reload quietly or offer it. */}
+        <UpdateCheck plasmicVersion={plasmicVersionOf(pageProps)} />
 
         <MaintenanceGate>
           <Component {...pageProps} />
