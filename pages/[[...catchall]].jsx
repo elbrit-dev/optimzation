@@ -123,8 +123,28 @@ export const getStaticProps = async (context) => {
   return { props: { plasmicData, queryCache }, revalidate: 600 };
 }
 
+/* A Plasmic hiccup must not fail the whole build. Three builds in a row (16 Oct
+   2026) died here on "Upstream responded with 412" — Plasmic still preparing
+   a version published minutes earlier. Retry briefly; failing that, build with
+   no pre-listed pages: `fallback: "blocking"` renders each on its first visit,
+   exactly as a page published after the build already is. */
+async function fetchPagesForBuild() {
+  const waits = [5000, 15000, 30000];
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await PLASMIC.fetchPages();
+    } catch (err) {
+      if (attempt >= waits.length) {
+        console.warn("Plasmic page list unavailable; building without pre-listed pages:", err?.message || err);
+        return [];
+      }
+      await new Promise((resolve) => setTimeout(resolve, waits[attempt]));
+    }
+  }
+}
+
 export const getStaticPaths = async () => {
-  const pageModules = await PLASMIC.fetchPages();
+  const pageModules = await fetchPagesForBuild();
   return {
     paths: pageModules.map((mod) => ({
       params: {
