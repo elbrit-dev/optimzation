@@ -174,6 +174,31 @@ describe('the base on a browser with CloseWatcher', () => {
     expect(second).toHaveBeenCalledTimes(1);
   });
 
+  it('acts as its watcher when Chrome sends the press to history instead', () => {
+    /* Seen after returning from Google's sign-in tab: the watcher was armed,
+       the press walked back onto the login entry. */
+    window.history.replaceState({ page: 'home', __N: true }, '', '/');
+    const { result } = renderHook(() => useExitGuard({ isRoot: true }));
+    expect(liveWatchers()).toHaveLength(1);
+
+    window.history.replaceState({ page: 'login' }, '', '/login/x');
+    let reachedRouter = false;
+    const router = () => {
+      reachedRouter = true;
+    };
+    window.addEventListener('popstate', router);
+    act(() => {
+      window.dispatchEvent(new PopStateEvent('popstate', { state: { page: 'login' } }));
+    });
+    window.removeEventListener('popstate', router);
+
+    expect(reachedRouter).toBe(false);
+    expect(result.current.hintOpen).toBe(true);
+    expect(window.history.state).toEqual({ page: 'home', __N: true });
+    expect(window.location.pathname).toBe('/');
+    expect(liveWatchers()).toHaveLength(0); // disarmed: the next press leaves
+  });
+
   it('folds the history behind the root when the hint goes up', () => {
     fakeNavigation(['https://app.test/', 'https://app.test/login', 'https://app.test/visit', 'https://app.test/'], 3);
     const go = vi.spyOn(window.history, 'go').mockImplementation(() => {});

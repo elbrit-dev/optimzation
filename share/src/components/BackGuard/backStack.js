@@ -131,9 +131,19 @@ function syncBase() {
       owner.onBack({ rearm: () => owner.handle.rearm(), release: () => owner.handle.release() });
     };
     owner.watcher = watcher;
+    rememberEntry(owner);
   } else if (!wanted && base.watcher) {
     dropWatcher(base);
   }
+}
+
+/* The page the base guards, for when a press slips past its watcher into
+   history and the entry it lands on has to be made this page again. */
+function rememberEntry(owner) {
+  if (!isBrowser()) return;
+  const state = { ...(window.history.state ?? {}) };
+  delete state[LAYER_FLAG];
+  owner.entry = { state, url: window.location.href };
 }
 
 function dropWatcher(owner) {
@@ -188,6 +198,22 @@ function runPop(consume) {
     consume();
     top.armed = false;
     top.onBack({ rearm: armTop, release: () => releaseLayer(top.id) });
+    return;
+  }
+
+  /* The base's close watcher was armed and the press went to history anyway.
+     Chrome does this — seen on a handset (16 Oct 2026) for the first press
+     after the app came back from Google's sign-in tab: the watcher sat there,
+     the press walked back onto the login entry. Do what the watcher would
+     have: keep the router off it, put the page we were on back onto the entry
+     the press landed on, and hand the press to the base. */
+  if (base?.kind === 'watcher' && base.watcher && layers.length === 0 && holds === 0) {
+    const owner = base;
+    consume();
+    if (owner.entry) window.history.replaceState(owner.entry.state, '', owner.entry.url);
+    dropWatcher(owner);
+    owner.wantsArm = false;
+    owner.onBack({ rearm: () => owner.handle.rearm(), release: () => owner.handle.release() });
     return;
   }
 
@@ -516,6 +542,7 @@ export function normalisePath(pathname) {
 export function rearmTop() {
   armTop();
   syncBase();
+  if (base?.kind === 'watcher' && base.watcher) rememberEntry(base);
 }
 
 /** Test seam. Nothing in the app calls this. */
