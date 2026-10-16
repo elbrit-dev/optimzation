@@ -203,8 +203,8 @@ Every new primitive is registered in `design-system/plasmic.js` and rendered on
 - Attendance is always computed from **today's** rows even in the MTD view;
   call average divides by working reps **and** working days.
 - Each person's call line (tree row, attendance card, export) is
-  `callTarget`: target = 12 × the month's working days minus their leave and
-  Other Work days; average over days already finished (not today); "needed"
+  `callTarget`: target = 12 × the month's working days minus their approved
+  leave days (Other Work days stay in the target and are only shown); average over days already finished (not today); "needed"
   spreads what is left over the available days ahead, today included. Leave
   is only fetched up to today, so future leave still counts as available.
 - Dates are parsed by string slicing, not `new Date(iso)` — a bare

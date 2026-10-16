@@ -73,6 +73,13 @@ export function makeClient({ endpointUrl, token, fetchImpl = (...a) => fetch(...
     options: (doctor) => method('elbrit_doctor_service_options', doctor ? { doctor } : undefined),
     list: () => method('elbrit_doctor_service_list'),
     insight: (doctor, exclude) => method('elbrit_doctor_service_insight', exclude ? { doctor, exclude } : { doctor }),
+    /* Service allocation: the GM's monthly amount per SM / ZSM and each SM's
+       split of it across their departments (server/elbrit_service_allocation*). */
+    allocation: (month) => method('elbrit_service_allocation', month ? { month } : undefined),
+    saveAllocation: (month, kind, rows) => call('/api/method/elbrit_service_allocation_save', {
+      method: 'POST',
+      body: { month, kind, rows },
+    }).then((j) => j.message),
     create: (fields) => call(resource(), { method: 'POST', body: { ...fields, custom_via_app: 1 } }).then((j) => j.data),
     update: (name, fields) => call(resource(name), { method: 'PUT', body: fields }).then((j) => j.data),
     /* A sent-back service: saving it again resubmits it (the guard). */

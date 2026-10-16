@@ -87,3 +87,28 @@ export const doctorServiceApprovalMeta = {
     className: shared.className,
   },
 };
+
+export const doctorServiceAllocationMeta = {
+  name: 'DoctorServiceAllocation',
+  displayName: 'Doctor Service Allocation',
+  section: 'ElbritCoreLib',
+  importPath: './src/app/doctor-service/components/AllocationWorkspace',
+  importName: 'DoctorServiceAllocation',
+  description:
+    "SERVICE ALLOCATION — one page for two people. The GM / CEO enters one monthly service amount per SM and ZSM and tracks who has split it (Not allocated / Not split / Partly split / Split). An SM / ZSM sees their allocation and splits it, any way they need, across their own departments; the split becomes each department's Service Budget for the month. Both can change a month until its 20th. Bind gqlToken and gqlEnvironment: it reads elbrit_service_allocation and saves through elbrit_service_allocation_save as that user.",
+  props: {
+    gqlToken: shared.gqlToken,
+    gqlEnvironment: shared.gqlEnvironment,
+    title: { type: 'string', defaultValue: 'Service allocation' },
+    sampleData: shared.sampleData,
+    sampleRole: {
+      type: 'choice',
+      options: ['GM', 'SM'],
+      advanced: true,
+      helpText: 'With sample data: who is looking (GM allocates, SM splits). Live, the ERP says who the token is.',
+    },
+    onBack: shared.onBack,
+    className: shared.className,
+  },
+};
+

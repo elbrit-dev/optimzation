@@ -969,6 +969,98 @@ def service_tiles(entry):
         })
 
 
+# ---------------------------------------------------------------- SERVICE ALLOCATION
+# The GM's monthly service amount per SM / ZSM and the SM's split of it across
+# their departments (the app's /service/allocation page, one page for both;
+# the API scripts elbrit_service_allocation / _save -- change together).
+#   GM / CEO / IT   "Allocation" (IT: the IT role or role profile, full
+#                   access): badge = SMs not fully split this month
+#                   (no allocation yet, or Not split / Partly split)
+#   SM- seat holder (ZSMs too) "Budget split": badge = 1 while their month's
+#                   allocation is not fully split
+# Both say "locked" once the month's cutoff (the 20th) has passed.
+HREFS["service-allocation"] = "/service/allocation"
+ALLOC_CUTOFF_DAY = 20
+alloc_month = today[:7]
+alloc_locked = today > alloc_month + "-" + str(ALLOC_CUTOFF_DAY)
+
+
+def alloc_rows():
+    of = {}
+    for a in frappe.get_all("Service Allocation", filters={"month_key": alloc_month},
+                            fields=["employee", "amount", "status"], limit_page_length=0):
+        of[a.get("employee")] = a
+    return of
+
+
+def allocation_tiles():
+    of = alloc_rows()
+    if service_approver or service_it:
+        sms = 0
+        done = 0
+        partly = 0
+        for e in frappe.get_all("Employee", filters=[["status", "=", "Active"], ["custom_role_profile", "like", "SM-%"]],
+                                fields=["name", "employee_name"], limit_page_length=0):
+            if (e.get("employee_name") or "").strip().lower()[:6] == "vacant":
+                continue
+            sms = sms + 1
+            a = of.get(e.get("name"))
+            if a and a.get("status") == "Split":
+                done = done + 1
+            elif a and a.get("status") == "Partly split":
+                partly = partly + 1
+        pending = sms - done
+        items.append({
+            "id": "service-allocation",
+            "label": "Allocation",
+            "href": HREFS["service-allocation"],
+            "icon": "wallet",
+            "statusIcon": "users",
+            "count": pending,
+            "countTone": "danger",
+            "caption": ("locked" if alloc_locked else (str(pending) + " not split")) if pending else "All split",
+            "captionTone": "neutral" if alloc_locked else ("danger" if pending else "success"),
+            "segments": service_ring([
+                {"key": "split", "value": done, "tone": "success", "label": "Split"},
+                {"key": "partly", "value": partly, "tone": "warning", "label": "Partly split"},
+                {"key": "not", "value": pending - partly, "tone": "danger", "label": "Not split / not allocated"},
+            ]),
+        })
+    if (seat or "")[:3].upper() == "SM-":
+        my = None
+        emp_id = frappe.db.get_value("Employee", {"user_id": me, "status": "Active"}, "name")
+        if emp_id:
+            my = of.get(emp_id)
+        if not my:
+            caption = "Not allocated yet"
+            tone = "neutral"
+            n = 0
+            segs = [{"key": "none", "value": 1, "tone": "neutral", "label": "Nothing allocated yet"}]
+        elif my.get("status") == "Split":
+            caption = "Split"
+            tone = "success"
+            n = 0
+            segs = [{"key": "split", "value": 1, "tone": "success", "label": "Split"}]
+        else:
+            caption = "locked" if alloc_locked else "Split pending"
+            tone = "neutral" if alloc_locked else "danger"
+            n = 0 if alloc_locked else 1
+            segs = [{"key": "pending", "value": 1, "tone": "danger" if my.get("status") == "Not split" else "warning",
+                     "label": my.get("status")}]
+        items.append({
+            "id": "service-split",
+            "label": "Budget split",
+            "href": HREFS["service-allocation"],
+            "icon": "wallet",
+            "statusIcon": "pencil",
+            "count": n,
+            "countTone": "danger",
+            "caption": caption,
+            "captionTone": tone,
+            "segments": segs,
+        })
+
+
 # Entry tiles first, then approval tiles. A task that cannot be counted
 # (its doctype not set up on this ERP yet, say) is left off and logged —
 # it never takes the other tasks' tiles down with it.
@@ -993,6 +1085,12 @@ if service_steps:
         service_tiles(False)
     except Exception as err:
         frappe.log_error(title="Elbrit Ring Nav: service approval tile", message=str(err))
+
+if frappe.db.exists("DocType", "Service Allocation"):
+    try:
+        allocation_tiles()
+    except Exception as err:
+        frappe.log_error(title="Elbrit Ring Nav: service allocation tiles", message=str(err))
 
 frappe.response["message"] = {
     "user": me,

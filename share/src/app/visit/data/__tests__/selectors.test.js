@@ -135,16 +135,18 @@ describe('callTarget', () => {
     expect(t.perDayNeeded).toBe(13);
   });
 
-  it('takes leave and Other Work days off the target', () => {
+  it('takes leave off the target but keeps Other Work days in it', () => {
     const member = {
       id: 'E1',
       leave: [{ from: '2026-10-05', to: '2026-10-06', type: 'Casual Leave' }],
-      otherWork: [{ date: '2026-10-09', type: 'Meeting' }],
+      otherWork: [{ date: '2026-10-07', type: 'Meeting' }],
     };
-    const t = callTarget(member, [done('2026-10-07', 12)], week, '2026-10-08');
-    expect(t.daysOff).toBe(3);
-    expect(t.target).toBe(36);
-    expect(t.average).toBe(12);
+    const t = callTarget(member, [done('2026-10-07', 6)], week, '2026-10-08');
+    expect(t.daysLeave).toBe(2);
+    expect(t.daysOtherWork).toBe(1);
+    /* Four working days left after the leave; the meeting day still owes 12. */
+    expect(t.target).toBe(48);
+    expect(t.average).toBe(6);
   });
 
   it('reads a finished month as short, with no days ahead', () => {

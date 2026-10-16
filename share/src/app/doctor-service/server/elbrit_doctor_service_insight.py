@@ -253,7 +253,8 @@ for r in rows:
 
 # ---- visits made, by role
 events = frappe.get_all("Event", filters=[["custom_doctor", "=", doctor], ["starts_on", ">=", start]],
-                        fields=["name", "starts_on", "status", "custom_role_profile", "custom_employee_id"],
+                        fields=["name", "starts_on", "status", "custom_role_profile", "custom_employee_id",
+                                "custom_department"],
                         order_by="starts_on desc", limit_page_length=0)
 ev_names = []
 for e in events:
@@ -289,6 +290,7 @@ for e in events:
             made[g] = []
         made[g].append({"emp": p.get("reference_docname"),
                         "seat": p.get("custom_role_profile") or e.get("custom_role_profile"),
+                        "ev_seat": e.get("custom_role_profile"), "ev_dept": e.get("custom_department"),
                         "date": str(p.get("custom_visit_time") or e.get("starts_on"))[:10]})
         if p.get("reference_docname") not in emp_ids:
             emp_ids.append(p.get("reference_docname"))
@@ -298,6 +300,7 @@ for e in events:
             if g not in made:
                 made[g] = []
             made[g].append({"emp": e.get("custom_employee_id"), "seat": e.get("custom_role_profile"),
+                            "ev_seat": e.get("custom_role_profile"), "ev_dept": e.get("custom_department"),
                             "date": str(e.get("starts_on"))[:10]})
             if e.get("custom_employee_id") not in emp_ids:
                 emp_ids.append(e.get("custom_employee_id"))
@@ -324,18 +327,27 @@ def last3(lst):
 
 
 # Each visit belongs to the department of the visitor's seat at the time.
+# An SM / ZSM seat has NO department of its own (it spans several), so their
+# visits used to land in no department and the SM row stayed empty on the
+# service's department view. For such a seat the visit's own department
+# counts: the plan owner's seat's (the BE who planned it), else the Event's.
 seat_ids = []
 for g in made:
     for v in made[g]:
         seat_ids.append(v.get("seat"))
+        seat_ids.append(v.get("ev_seat"))
 load_seat_depts(seat_ids)
+
+
+def dept_of_visit(v):
+    return RP_DEPT.get(v.get("seat")) or RP_DEPT.get(v.get("ev_seat")) or v.get("ev_dept") or ""
 visits = []
 dept_list = []
 for g in ROLES:
     one = last3(made.get(g) or [])
     visits.append({"role": g, "name": one["name"], "dates": one["dates"]})
     for v in made.get(g) or []:
-        d = RP_DEPT.get(v.get("seat")) or ""
+        d = dept_of_visit(v)
         if d and d not in dept_list:
             dept_list.append(d)
 visits_by_dept = {}
@@ -344,7 +356,7 @@ for d in dept_list:
     for g in ROLES:
         mine = []
         for v in made.get(g) or []:
-            if (RP_DEPT.get(v.get("seat")) or "") == d:
+            if dept_of_visit(v) == d:
                 mine.append(v)
         one = last3(mine)
         rows_d.append({"role": g, "name": one["name"], "dates": one["dates"]})

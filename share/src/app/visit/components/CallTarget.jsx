@@ -5,7 +5,7 @@ import { formatDecimal } from '../data/format';
 
 /* One person's calls against the month, as one line under their bar:
  *
- *   8.4/day · 120/288 calls · 168 left · 12.9/day needed · 4 days off
+ *   8.4/day · 120/288 calls · 168 left · 12.9/day needed · 2 days leave · 1 other work
  *
  * What a reporting officer reads down the tree to find who to call: the
  * average is red below the standard, and "needed" goes red once it is more
@@ -16,7 +16,7 @@ import { formatDecimal } from '../data/format';
  * vacant seat). */
 export function CallTarget({ calls, className }) {
   if (!calls) return null;
-  const { standard, done, target, left, daysOff, daysAhead, average, perDayNeeded } = calls;
+  const { standard, done, target, left, daysLeave, daysOtherWork, daysAhead, average, perDayNeeded } = calls;
   const below = average != null && average < standard;
   const needsMore = perDayNeeded != null && perDayNeeded > standard;
 
@@ -46,11 +46,19 @@ export function CallTarget({ calls, className }) {
           </span>
         </>
       )}
-      {daysOff > 0 ? (
+      {daysLeave > 0 ? (
         <>
           <span aria-hidden="true">·</span>
-          <span className="text-ds-muted" title="Leave and Other Work days, taken off the target">
-            {daysOff} {daysOff === 1 ? 'day' : 'days'} off
+          <span className="text-ds-muted" title="Approved leave, taken off the target">
+            {daysLeave} {daysLeave === 1 ? 'day' : 'days'} leave
+          </span>
+        </>
+      ) : null}
+      {daysOtherWork > 0 ? (
+        <>
+          <span aria-hidden="true">·</span>
+          <span className="text-status-info-text" title="Other Work days (meeting, admin day…); still counted in the target">
+            {daysOtherWork} other work
           </span>
         </>
       ) : null}

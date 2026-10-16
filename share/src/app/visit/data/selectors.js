@@ -209,9 +209,10 @@ export const CALL_STANDARD = 12;
 /* ONE PERSON'S CALLS AGAINST THE MONTH: what the reporting officer checks
  * before asking a rep why the calls are not done.
  *
- *   target  standard × the working days they were AVAILABLE — leave and
- *           Other Work days come off, so four days of approved leave does
- *           not read as 48 calls missed.
+ *   target  standard × the working days they were AVAILABLE — approved
+ *           leave comes off, so four days of leave does not read as 48 calls
+ *           missed. Other Work days do NOT come off: they are working days,
+ *           counted and shown as Other Work, not as days off.
  *   average calls ÷ COMPLETED available days, i.e. before today. Today is
  *           still being worked; counting it made every rep's average drop
  *           each morning and recover by evening.
@@ -228,12 +229,18 @@ export function callTarget(member, ownRows, monthDays = [], today, standard = CA
   if (member.vacant || monthDays.length === 0) return null;
   let past = 0;
   let ahead = 0;
-  let off = 0;
+  let leave = 0;
+  let otherWork = 0;
   for (const date of monthDays) {
-    if (excusedOn(member, date)) {
-      off += 1;
+    const why = excusedOn(member, date);
+    /* Only approved LEAVE comes off the target. An Other Work day (meeting,
+       admin day…) is still a working day that owes calls; it is counted so
+       the line can say so, never subtracted. */
+    if (why === 'leave') {
+      leave += 1;
       continue;
     }
+    if (why === 'otherWork' && (!today || date <= today)) otherWork += 1;
     if (today && date < today) past += 1;
     else ahead += 1;
   }
@@ -246,7 +253,8 @@ export function callTarget(member, ownRows, monthDays = [], today, standard = CA
     done,
     target,
     left,
-    daysOff: off,
+    daysLeave: leave,
+    daysOtherWork: otherWork,
     daysAhead: ahead,
     average: past > 0 ? donePast / past : null,
     perDayNeeded: ahead > 0 ? left / ahead : null,

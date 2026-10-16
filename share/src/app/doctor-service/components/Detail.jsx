@@ -7,7 +7,7 @@
  * activity; the footer carries what THIS viewer may do with it. */
 
 import {
-  CEO, GM, NOT_SUBMITTED, REJECTED, REWORK, activity, canDecide, canEdit, fDY, money, short, statusOf, stepper, stoppedBy,
+  CEO, GM, NOT_SUBMITTED, REJECTED, REWORK, activity, budgetView, canDecide, canEdit, fDY, money, short, statusOf, stepper, stoppedBy,
 } from '../data/workflow';
 import { Biz } from './Biz';
 import { Icon, extOf } from './parts';
@@ -27,6 +27,7 @@ export function Detail({
   const stopRole = stop?.role === 'MIS' ? 'verification' : stop?.role;
   const ax = e.att ? extOf(e.att) : null;
   const steps = stepper(e);
+  const bv = budgetView(e);
   const trail = activity(e);
 
   const fields = [
@@ -127,6 +128,31 @@ export function Detail({
             <b>{e.state === REWORK ? 'Sent back' : 'Rejected'}{stop ? ` by ${stop.name}${stopRole ? ` (${stopRole})` : ''} · ${fDY(stop.at)}` : ''}</b>
             {e.reason ? <span>“{e.reason}”</span> : null}
             {e.state === REWORK && viewer?.can_enter ? <span>Edit it and resubmit — it goes back to GM.</span> : null}
+          </div>
+        ) : null}
+
+        {bv ? (
+          <div className="dsv-sec" aria-label="Department budget">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+              <span className="cap">Service budget · {short(bv.department)} · {bv.month}</span>
+              {bv.over ? <span style={{ fontSize: 12, fontWeight: 700, color: '#B91C1C' }}>Over budget by {money(bv.after - bv.allocated)}</span> : null}
+            </div>
+            {bv.noBudget ? (
+              <span style={{ fontSize: 12.5, color: '#6B7280' }}>No budget split to this department for {bv.month} yet. Used so far: <b>{money(bv.used)}</b>.</span>
+            ) : (
+              <>
+                <div style={{ height: 6, borderRadius: 99, background: '#EEF1F5', overflow: 'hidden' }}>
+                  <div style={{ width: bv.pct + '%', height: '100%', background: bv.over ? '#DC2626' : bv.pct >= 85 ? '#F59E0B' : '#22A06B' }} />
+                </div>
+                <div className="dsv-fields">
+                  <div><span>Budget</span><b>{money(bv.allocated)}</b></div>
+                  <div><span>{bv.counted ? 'Used (incl. this)' : 'Used so far'}</span><b>{money(bv.used)}</b></div>
+                  {bv.counted ? null : <div><span>This request</span><b>{money(bv.request)}</b></div>}
+                  <div><span>{bv.counted ? 'Left' : 'After approval'}</span>
+                    <b style={{ color: bv.over ? '#B91C1C' : undefined }}>{bv.counted ? money(bv.left) : money(bv.after)}</b></div>
+                </div>
+              </>
+            )}
           </div>
         ) : null}
 

@@ -48,7 +48,8 @@ export function attendanceExportRows(people, team, state, overRange = false, cal
     if (p.calls) {
       const round1 = (n) => (n == null ? '' : Math.round(n * 10) / 10);
       row['Calls/day'] = round1(p.calls.average);
-      row['Days off (leave + other work)'] = p.calls.daysOff;
+      row['Leave days'] = p.calls.daysLeave;
+      row['Other work days'] = p.calls.daysOtherWork;
       row['Month target'] = p.calls.target;
       row['Calls left'] = p.calls.left;
       row['Calls/day needed'] = round1(p.calls.perDayNeeded);

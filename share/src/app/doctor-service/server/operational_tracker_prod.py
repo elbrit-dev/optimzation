@@ -2,6 +2,9 @@ old = doc.get_doc_before_save()
 
 WAITING_SUFFIX = " Approval Waiting"
 REWORK_STATE = "Rework"
+# Owner of a Doctor Service's single "carry out" ToDo (the head of MIS); the
+# rest of the MIS team get it shared. See section 2.
+DS_TODO_OWNER = "vishnuk.mis@elbrit.org"
 
 # ---- 0. mirror dynamic reference into per-type Link fields (clean GraphQL) ----
 # Clear every mirror field first, then set only the one matching the current
@@ -232,6 +235,71 @@ if old and old.workflow_state != doc.workflow_state \
                 if final_verified:
                     todo_text = "Approved (" + ws + ") - carry out " + str(doc.reference_doctype) + " " + str(doc.reference)
                 first_todo_name = None
+                # DOCTOR SERVICE hand-over: ONE ToDo, not one per MIS user.
+                # It is assigned to the head of MIS and SHARED (read + write)
+                # with the rest of the MIS team, so it shows in every one of
+                # their ToDo lists and any of them can close it -- and closing
+                # it once closes it for all. (Was: 13 identical ToDos, 12 of
+                # which stayed open after the work was done.) Other flows keep
+                # one ToDo per assignee.
+                ds_handover = final_verified and (doc.setting == "Doctor Service" or doc.reference_doctype == "Doctor Service")
+                if ds_handover:
+                    # Shared with THAT department's MIS team only: the users
+                    # on the team profile(s) (MIS-subtree leaves) whose
+                    # custom_departments list the service's department -- not
+                    # the whole group above them. A team with no active member
+                    # falls back to the group found above.
+                    team = []
+                    for rp_name in subtree:
+                        tdoc = frappe.get_doc("Role Profile", rp_name)
+                        if tdoc.is_group:
+                            continue
+                        handles = False
+                        for d in (tdoc.custom_departments or []):
+                            if d.department == doc.department:
+                                handles = True
+                        if not handles:
+                            continue
+                        for u in frappe.get_all("User", filters={"role_profile_name": rp_name, "enabled": 1},
+                                                fields=["name"]):
+                            if u.name not in team:
+                                team.append(u.name)
+                    if team:
+                        assignees = team
+                if ds_handover and assignees:
+                    owner = DS_TODO_OWNER if frappe.db.get_value("User", DS_TODO_OWNER, "enabled") else assignees[0]
+                    try:
+                        todo = frappe.get_doc({
+                            "doctype": "ToDo",
+                            "allocated_to": owner,
+                            "description": todo_text,
+                            "reference_type": "Operational Tracker",
+                            "reference_name": doc.name,
+                            "priority": "Medium",
+                            "status": "Open",
+                        })
+                        todo.flags.ignore_permissions = True
+                        todo.insert()
+                        first_todo_name = todo.name
+                        for au in assignees:
+                            if au == owner:
+                                continue
+                            try:
+                                frappe.get_doc({
+                                    "doctype": "DocShare",
+                                    "share_doctype": "ToDo",
+                                    "share_name": todo.name,
+                                    "user": au,
+                                    "read": 1,
+                                    "write": 1,
+                                    "share": 0,
+                                    "notify_by_email": 0,
+                                }).insert(ignore_permissions=True)
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+                    assignees = []
                 for au in assignees:
                     try:
                         todo = frappe.get_doc({

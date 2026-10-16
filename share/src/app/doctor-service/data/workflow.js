@@ -189,6 +189,9 @@ export function normalize(row) {
     // After the final approval MIS gets a ToDo to carry the service out; its
     // outcome: { state: 'Done' | 'Pending' | 'Cancelled', by, at, with }.
     execution: row.execution && row.execution.state ? row.execution : null,
+    // The department's month budget (the SM's split of the GM's allocation)
+    // and what is already given in it: { department, month, allocated, used }.
+    budget: row.budget || null,
   };
 }
 
@@ -355,3 +358,28 @@ export const tierOf = (avg, high = 100000, mid = 25000) => (!avg
   : avg >= high ? ['Big doctor', '#E5F6EC', '#15803D']
     : avg >= mid ? ['Medium doctor', '#EAF1FF', '#1D4ED8']
       : ['Small doctor', '#FEF3E2', '#B45309']);
+
+/* The budget box on a service: the department's month budget against what
+   is used. An approved service is already inside `used`; one still being
+   decided is added on top ("after"). Never blocks — over is just red. */
+export function budgetView(e) {
+  const b = e.budget;
+  if (!b || !b.department) return null;
+  const allocated = Number(b.allocated) || 0;
+  const used = Number(b.used) || 0;
+  const counted = e.state === APPROVED;
+  const after = counted ? used : used + e.amount;
+  const [y, m] = String(b.month || '').split('-').map(Number);
+  return {
+    department: b.department,
+    month: y && m ? `${MON[m - 1]} ${y}` : '',
+    allocated, used, counted,
+    request: e.amount,
+    after,
+    left: allocated - after,
+    over: allocated > 0 && after > allocated,
+    noBudget: allocated <= 0,
+    pct: allocated > 0 ? Math.min(100, (after / allocated) * 100) : 0,
+  };
+}
+

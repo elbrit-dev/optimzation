@@ -57,6 +57,17 @@
 #                                         Closed (by = who closed it, at = when);
 #                                         Pending = still Open (with = its
 #                                         assignees); Cancelled = every one was
+#              budget                     the service's department + month
+#                                         budget: { department, month,
+#                                         allocated, used } -- allocated = the
+#                                         Department Service Budget row (the
+#                                         SM's split of the GM's allocation),
+#                                         used = every service GIVEN in that
+#                                         department that month (imported
+#                                         rows, and app rows finally approved;
+#                                         this one too once approved), each by
+#                                         its seat's department. null when the
+#                                         budget table is not set up
 #
 # safe_exec: no import, no .format(), no set literals, no tuple
 # unpacking, no underscore-prefixed names.
@@ -352,6 +363,50 @@ for r in rows:
     row_seats.append(r.get("role_profile"))
 load_seat_depts(row_seats)
 
+# ---- department budgets: allocated (Department Service Budget) and used
+BUDGET_DT = "Department Service Budget"
+has_budget = frappe.db.exists("DocType", BUDGET_DT)
+budget_of = {}
+if has_budget:
+    months_needed = []
+    for r in rows:
+        d = str(r.get("service_date") or r.get("date") or "")[:7]
+        if d and d not in months_needed:
+            months_needed.append(d)
+    for mk in months_needed:
+        first = mk + "-01"
+        last = str(frappe.utils.get_last_day(first))
+        alloc = {}
+        for b in frappe.get_all(BUDGET_DT, filters={"parenttype": "Department", "month": first},
+                                fields=["parent", "amount"], limit_page_length=0):
+            alloc[b.get("parent")] = float(b.get("amount") or 0)
+        given = frappe.get_all(DOCTYPE, filters=[["service_date", "between", [first, last]]],
+                               fields=["name", "service_amount", "role_profile", "department", "custom_via_app",
+                                       "custom_tracker"], limit_page_length=0)
+        gseats = []
+        gtrackers = []
+        for g in given:
+            gseats.append(g.get("role_profile"))
+            if g.get("custom_via_app") and g.get("custom_tracker") and g.get("custom_tracker") not in track:
+                gtrackers.append(g.get("custom_tracker"))
+        load_seat_depts(gseats)
+        gstate = {}
+        for part in chunks(gtrackers):
+            for t in frappe.get_all(OT, filters=[["name", "in", part]], fields=["name", "workflow_state"],
+                                    limit_page_length=0):
+                gstate[t.get("name")] = t.get("workflow_state")
+        used = {}
+        for g in given:
+            if g.get("custom_via_app"):
+                st = str((track.get(g.get("custom_tracker")) or {}).get("workflow_state") or
+                         gstate.get(g.get("custom_tracker")) or "")
+                if not (st.endswith(" Approved and Verified") or st.endswith(" Approved and Waiting for Verification")):
+                    continue
+            dk = RP_DEPT.get(g.get("role_profile")) or g.get("department") or ""
+            if dk:
+                used[dk] = (used.get(dk) or 0) + float(g.get("service_amount") or 0)
+        budget_of[mk] = {"alloc": alloc, "used": used}
+
 out = []
 for r in rows:
     r["by_name"] = emp_name.get(r.get("by")) or r.get("by")
@@ -378,6 +433,11 @@ for r in rows:
         ex = {"state": ex["state"], "by": (user_name.get(ex["by"]) or ex["by"]) if ex["by"] else None,
               "at": ex["at"], "with": names_with}
     r["execution"] = ex
+    mk = str(r.get("service_date") or r.get("date") or "")[:7]
+    bm = budget_of.get(mk)
+    r["budget"] = {"department": r["dept_key"], "month": mk,
+                   "allocated": (bm["alloc"].get(r["dept_key"]) or 0),
+                   "used": (bm["used"].get(r["dept_key"]) or 0)} if bm and r["dept_key"] else None
     h = history.get(r.get("name")) or []
     for e in h:
         e["by"] = user_name.get(e.get("user")) or e.get("user")
