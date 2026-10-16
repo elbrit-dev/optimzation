@@ -825,7 +825,8 @@ def approval_tile(task):
 # Nobody else gets either tile. The same roles as the Doctor Service API
 # scripts' viewer_of (elbrit_doctor_service_options.py) -- change both.
 # Only app-raised services (custom_via_app) count, by their tracker's state:
-#   entry     badge = sent back (Rework: MIS has to edit and resubmit);
+#   entry     badge = sent back (Rework: MIS has to edit and resubmit),
+#             red; when none, the count in approval, amber;
 #             ring  = approved this month / in approval / sent back
 #   approval  badge = waiting at the caller's step (GM: "GM Approval
 #             Waiting", CEO: "CEO Approval Waiting"; IT: both, as an
@@ -834,6 +835,12 @@ def approval_tile(task):
 # every service ever approved.
 HREFS["service-entry"] = "/service/entry"
 HREFS["service-approval"] = "/service/approval"
+# The Service and Allocation tiles show the due date as their caption -- as
+# Secondary and Support do -- and the count in the badge. Due the 20th for
+# now (the allocation's edit cutoff too); capped at the month's last day.
+SERVICE_DUE_DAY = 20
+service_due = SERVICE_DUE_DAY if SERVICE_DUE_DAY < last_day else last_day
+SERVICE_DUE_LABEL = str(service_due) + " " + MONTHS[int(today[5:7]) - 1]
 SERVICE_ENTRY_ROLES = ["MIS", "User MIS", "MIS Admin", "Manager MIS", "CRM Manager", "IT"]
 SERVICE_STEP_OF = {"GM": "GM Approval Waiting", "CEO": "CEO Approval Waiting"}
 
@@ -927,13 +934,14 @@ def service_tiles(entry):
         elif b == "sentback":
             sentback = sentback + 1
     if entry:
+        # The due date while anything is open; the badge is what is sent back.
         caption = "Clear"
         tone = "success"
         if sentback:
-            caption = str(sentback) + " sent back"
+            caption = SERVICE_DUE_LABEL
             tone = "danger"
         elif waiting:
-            caption = str(waiting) + " in approval"
+            caption = SERVICE_DUE_LABEL
             tone = "warning"
         items.append({
             "id": "service-entry",
@@ -941,8 +949,10 @@ def service_tiles(entry):
             "href": HREFS["service-entry"],
             "icon": "cog",
             "statusIcon": "pencil",
-            "count": sentback,
-            "countTone": "danger",
+            # The badge: what is sent back (red, MIS has to act), else what is
+            # in approval (amber) -- so the number is always there.
+            "count": sentback or waiting,
+            "countTone": "danger" if sentback else "warning",
             "caption": caption,
             "captionTone": tone,
             "segments": service_ring([
@@ -960,7 +970,7 @@ def service_tiles(entry):
             "statusIcon": "check-square",
             "statusTone": "neutral",
             "count": mine,
-            "caption": (str(mine) + " waiting") if mine else "Clear",
+            "caption": SERVICE_DUE_LABEL if mine else "Clear",
             "captionTone": "danger" if mine else "success",
             "segments": service_ring([
                 {"key": "approved", "value": approved, "tone": "success", "label": "Approved this month"},
@@ -980,7 +990,7 @@ def service_tiles(entry):
 #                   allocation is not fully split
 # Both say "locked" once the month's cutoff (the 20th) has passed.
 HREFS["service-allocation"] = "/service/allocation"
-ALLOC_CUTOFF_DAY = 20
+ALLOC_CUTOFF_DAY = SERVICE_DUE_DAY
 alloc_month = today[:7]
 alloc_locked = today > alloc_month + "-" + str(ALLOC_CUTOFF_DAY)
 
@@ -1018,7 +1028,7 @@ def allocation_tiles():
             "statusIcon": "users",
             "count": pending,
             "countTone": "danger",
-            "caption": ("locked" if alloc_locked else (str(pending) + " not split")) if pending else "All split",
+            "caption": ("locked" if alloc_locked else SERVICE_DUE_LABEL) if pending else "All split",
             "captionTone": "neutral" if alloc_locked else ("danger" if pending else "success"),
             "segments": service_ring([
                 {"key": "split", "value": done, "tone": "success", "label": "Split"},
@@ -1042,7 +1052,7 @@ def allocation_tiles():
             n = 0
             segs = [{"key": "split", "value": 1, "tone": "success", "label": "Split"}]
         else:
-            caption = "locked" if alloc_locked else "Split pending"
+            caption = "locked" if alloc_locked else SERVICE_DUE_LABEL
             tone = "neutral" if alloc_locked else "danger"
             n = 0 if alloc_locked else 1
             segs = [{"key": "pending", "value": 1, "tone": "danger" if my.get("status") == "Not split" else "warning",

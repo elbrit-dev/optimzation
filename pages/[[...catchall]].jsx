@@ -99,8 +99,11 @@ export const getStaticProps = async (context) => {
   const plasmicPath = typeof catchall === 'string' ? catchall : Array.isArray(catchall) ? `/${catchall.join('/')}` : '/';
   const plasmicData = await PLASMIC.maybeFetchComponentData(plasmicPath);
   if (!plasmicData) {
-    // non-Plasmic catch-all
-    return { props: {} };
+    // non-Plasmic catch-all. Re-checked every minute: without a revalidate
+    // this "not found" was cached FOREVER, so a page opened before it was
+    // published in Studio stayed a 404 until the next deploy
+    // (/service/allocation, 16 Oct 2026).
+    return { props: {}, revalidate: 60 };
   }
   const pageMeta = plasmicData.entryCompMetas[0];
   // Cache the necessary data fetched for the page
